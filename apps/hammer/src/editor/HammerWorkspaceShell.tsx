@@ -97,7 +97,6 @@ import {
 } from "./hammerSilenceCutSuggestions";
 import {
   deriveAudioCutsForDeadAirClosure,
-  deriveAudioCutsForRemovedSegments,
   type HammerAudioCutSelection,
   deriveAudioCutsForSubtractiveTextEdits,
   deriveAudioCutsForTimelineCompression,
@@ -6510,7 +6509,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   function handleCandidateDecision(
     kind: HammerCandidateReviewKind,
     approve: boolean,
-    options?: { useEditedProposal?: boolean; editedProposalText?: string | null },
   ): void {
     setActiveReviewKind(kind);
     const card = kind === "retakes" ? activeRetakeCandidateCard : activeFillerCandidateCard;
@@ -6529,96 +6527,50 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       let nextSegments = beforeState.transcriptSegments;
 
       if (approve) {
-        const useEdited = options?.useEditedProposal === true;
-        const editedTextRaw = options?.editedProposalText ?? null;
-        const editedText = editedTextRaw != null ? String(editedTextRaw) : null;
-        const editedTrimmed = editedText != null ? editedText.trim() : null;
-        const keepSegmentId = card.segmentIds[card.segmentIds.length - 1] ?? null;
-
-        const approvePlan = (() => {
-          if (!useEdited || editedTrimmed == null) {
-            return {
-              removeSegmentIds: card.apply.removeSegmentIds,
-              updateSegments: card.apply.updateSegments,
-            };
-          }
-
-          if (kind === "retakes") {
-            if (!keepSegmentId) return null;
-            if (!editedTrimmed) {
-              setTranscriptTimingHint("Edited proposal cannot be empty for a retake approval.");
-              return null;
-            }
-            return {
-              removeSegmentIds: card.apply.removeSegmentIds,
-              updateSegments: [{ segmentId: keepSegmentId, text: editedTrimmed }],
-            };
-          }
-
-          if (!editedTrimmed) {
-            return {
-              removeSegmentIds: [card.primarySegmentId],
-              updateSegments: [],
-            };
-          }
-
-          return {
-            removeSegmentIds: [],
-            updateSegments: [{ segmentId: card.primarySegmentId, text: editedTrimmed }],
-          };
-        })();
-
-        if (!approvePlan) {
+        const removalDraft = resolveCandidateRemovalDraft(card);
+        if (!removalDraft || removalDraft.segments.length === 0) {
+          setTranscriptTimingHint("No proposed removal is available for this candidate.");
           lastHandledCandidateIdRef.current[card.kind] = null;
           return;
         }
 
-        for (const update of approvePlan.updateSegments) {
-          const baseline = beforeState.transcriptSegments.find((segment) => segment.segment_id === update.segmentId)?.text ?? null;
-          if (baseline == null || update.text == null) continue;
-          if (!isSubtractiveTranscriptEdit(baseline, update.text)) {
-            setTranscriptTimingHint("Subtractive-only editing: delete words/phrases, but you cannot add new words.");
-            lastHandledCandidateIdRef.current[card.kind] = null;
-            return;
-          }
+        const uniqueRemovalSlices = removalDraft.segments.filter((slice, index, allSlices) => (
+          allSlices.findIndex((candidate) => candidate.segmentId === slice.segmentId) === index
+        ));
+        const removalEdits = uniqueRemovalSlices.flatMap((slice) => {
+          const segment = beforeState.transcriptSegments.find((item) => item.segment_id === slice.segmentId) ?? null;
+          if (!segment) return [];
+          const deletion = resolveDeleteOnlyTranscriptDeletion({
+            text: String(segment.text ?? ""),
+            selectionStart: slice.selectionStart,
+            selectionEnd: slice.selectionEnd,
+            direction: "selection",
+          });
+          if (!deletion) return [];
+          const cutSelection = deriveDeleteOnlyTranscriptCutSelection({
+            segment,
+            deletion,
+          });
+          if (!cutSelection) return [];
+          return [{
+            segmentId: slice.segmentId,
+            nextText: deletion.nextText,
+            deletion,
+            cutSelection,
+          }];
+        });
+
+        if (removalEdits.length === 0) {
+          setTranscriptTimingHint("Proposed removal did not resolve to a valid transcript deletion.");
+          lastHandledCandidateIdRef.current[card.kind] = null;
+          return;
         }
 
-        const baselineTextById = new Map(beforeState.transcriptSegments.map((segment) => [segment.segment_id, segment.text] as const));
-        const transcriptWouldChange = approvePlan.removeSegmentIds.length > 0
-          || approvePlan.updateSegments.some((update) => {
-            const baseline = baselineTextById.get(update.segmentId);
-            return baseline != null && update.text != null && update.text !== baseline;
-          });
-
-        const computeTranscriptAfter = (before: HammerEditorStateSerializable): HammerEditorStateSerializable => {
-          let updatedSegments = before.transcriptSegments.filter((segment) => (
-            !approvePlan.removeSegmentIds.includes(segment.segment_id)
-          ));
-          for (const update of approvePlan.updateSegments) {
-            updatedSegments = updateSegmentInTimeline(updatedSegments, update.segmentId, (segment) => ({
-              ...segment,
-              text: update.text ?? segment.text,
-            }));
-          }
-          const synced = syncEditableTranscriptSegments(updatedSegments, before.selectedSegmentId);
-          return {
-            ...before,
-            transcriptSegments: synced.segments,
-            selectedSegmentId: synced.selectedSegmentId,
-          };
-        };
-
-        const cutSelections = deriveAudioCutsForRemovedSegments({
-          segments: beforeState.transcriptSegments,
-          removeSegmentIds: approvePlan.removeSegmentIds,
-          durationSec: playbackTransportDurationSec,
-          ...(kind === "fillers"
-            ? {
-              padBeforeSec: HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
-              padAfterSec: HAMMER_FILLER_CUT_PAD_AFTER_SEC,
-            }
-            : {}),
+        const transcriptWouldChange = removalEdits.some((edit) => {
+          const baseline = beforeState.transcriptSegments.find((segment) => segment.segment_id === edit.segmentId)?.text ?? null;
+          return baseline != null && baseline !== edit.nextText;
         });
+        const cutSelections = removalEdits.map((edit) => edit.cutSelection);
 
         if (!transcriptWouldChange && cutSelections.length === 0) {
           setCandidateReceiptByKind((current) => ({
@@ -6638,21 +6590,27 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           affectedSegments: card.segmentIds,
           immediatePersist: true,
           computeAfter: (before) => {
-            const transcriptAfter = computeTranscriptAfter(before);
-            const textCutSelections = deriveAudioCutsForSubtractiveTextEdits({
-              beforeSegments: before.transcriptSegments,
-              afterSegments: transcriptAfter.transcriptSegments,
-              durationSec: playbackTransportDurationSec,
+            const remainingSegments = before.transcriptSegments.flatMap((segment) => {
+              const edit = removalEdits.find((candidate) => candidate.segmentId === segment.segment_id) ?? null;
+              if (!edit) return [segment];
+              if (!edit.nextText.trim()) return [];
+              return [{
+                ...segment,
+                text: edit.nextText,
+              }];
             });
+            const synced = syncEditableTranscriptSegments(remainingSegments, before.selectedSegmentId);
             const nextAudioEdit = applyCutSelectionsToAudioEdit({
               audioEdit: before.audioEdit,
-              cutSelections: [...cutSelections, ...textCutSelections],
+              cutSelections,
               operationIdPrefix: `cleanup:${card.kind}:${card.id}`,
             });
             const afterAudioOpCount = nextAudioEdit?.operations?.length ?? 0;
             const changesCommitted = transcriptWouldChange || afterAudioOpCount !== (before.audioEdit?.operations?.length ?? 0);
             return {
-              ...transcriptAfter,
+              ...before,
+              transcriptSegments: synced.segments,
+              selectedSegmentId: synced.selectedSegmentId,
               audioEdit: nextAudioEdit,
               transcriptTimingHint: changesCommitted ? null : before.transcriptTimingHint,
             };
@@ -6692,8 +6650,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               cardId: card.id,
               primarySegmentId: card.primarySegmentId,
               transcriptWouldChange,
-              removeSegmentIds: approvePlan.removeSegmentIds,
-              updateSegments: approvePlan.updateSegments,
+              removalEdits: removalEdits.map((edit) => ({
+                segmentId: edit.segmentId,
+                deletedText: edit.deletion.deletedText,
+                nextText: edit.nextText,
+              })),
               plannedCutCount: cutSelections.length,
               beforeAudioOpCount,
               afterAudioOpCount,
@@ -7016,13 +6977,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           const inFlight = kind === "retakes" ? retakeDecisionInFlight : fillerDecisionInFlight;
           if (!activeCard) return;
           if (inFlight) return;
-          const useEditedProposal = lower === "a" && Boolean(candidateEditModeById[activeCard.id]);
-          handleCandidateDecision(kind, lower === "a", useEditedProposal
-            ? {
-              useEditedProposal: true,
-              editedProposalText: candidateProposedTextById[activeCard.id] ?? (activeCard.afterText ?? ""),
-            }
-            : undefined);
+          handleCandidateDecision(kind, lower === "a");
           return;
         }
       }
@@ -7060,8 +7015,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     activeFillerCandidateCard,
     activeReviewKind,
     activeRetakeCandidateCard,
-    candidateEditModeById,
-    candidateProposedTextById,
     deadAirAnalysis,
     deadAirApplyInFlight,
     fillerCandidateCards.length,
@@ -9845,6 +9798,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       candidateSegmentIdSet,
       activeCandidateSegmentIdSet,
       transcriptLineRefs,
+      selectedTranscriptRange,
+      onTranscriptSelection: setSelectedTranscriptRangeDetail,
       isSubtractiveTranscriptEdit,
       commitTranscriptTextEdits,
       commitDeleteOnlyTranscriptEdits,
@@ -10900,9 +10855,9 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     backgroundBlurProviderDescriptor,
     boundAttentionQueue,
     boundAttentionSummary,
-    candidateEditModeById,
-    candidateProposedTextById,
+    candidateProposedRemovalById,
     candidateReceiptByKind,
+    selectedTranscriptRange,
     captionActiveModeLabel,
     captionActiveModeSourceLabel,
     captionArtifactStatusLabel,
@@ -11045,8 +11000,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setAudioFinalizationCompare,
     setAudioLevelingEnabled,
     setAudioNoiseReductionEnabled,
-    setCandidateEditModeById,
-    setCandidateProposedTextById,
+    updateCandidateProposedRemoval,
     setCaptionFormatting,
     setCleanupPreview,
     setDeadAirThresholdSec,
@@ -11189,9 +11143,9 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     backgroundBlurProviderDescriptor,
     boundAttentionQueue,
     boundAttentionSummary,
-    candidateEditModeById,
-    candidateProposedTextById,
+    candidateProposedRemovalById,
     candidateReceiptByKind,
+    selectedTranscriptRange,
     captionActiveModeLabel,
     captionActiveModeSourceLabel,
     captionArtifactStatusLabel,
@@ -11334,8 +11288,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setAudioFinalizationCompare,
     setAudioLevelingEnabled,
     setAudioNoiseReductionEnabled,
-    setCandidateEditModeById,
-    setCandidateProposedTextById,
+    updateCandidateProposedRemoval,
     setCaptionFormatting,
     setCleanupPreview,
     setDeadAirThresholdSec,

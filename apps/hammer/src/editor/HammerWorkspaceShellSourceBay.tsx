@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useMemo,
   useRef,
@@ -125,6 +126,17 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const candidateSegmentIdSet = ctx.candidateSegmentIdSet as Set<string>;
   const activeCandidateSegmentIdSet = ctx.activeCandidateSegmentIdSet as Set<string>;
   const transcriptLineRefs = ctx.transcriptLineRefs as { current: Map<string, HTMLElement> };
+  const onTranscriptSelection = ctx.onTranscriptSelection as ((next: {
+    start: number;
+    end: number;
+    text: string;
+    segments: Array<{
+      segmentId: string;
+      selectionStart: number;
+      selectionEnd: number;
+      text: string;
+    }>;
+  } | null) => void) | undefined;
   const setTranscriptTimingHint = ctx.setTranscriptTimingHint as (message: string | null) => void;
 
   const [inlineEditHint, setInlineEditHint] = useState<string | null>(null);
@@ -199,6 +211,116 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
       window.clearTimeout(hintTimerRef.current);
     }
   }, []);
+
+  function setSelectedTranscriptTextRange(nextRange: {
+    start: number;
+    end: number;
+    text: string;
+    segments: Array<{
+      segmentId: string;
+      selectionStart: number;
+      selectionEnd: number;
+      text: string;
+    }>;
+  } | null): void {
+    onTranscriptSelection?.(nextRange);
+  }
+
+  function reportSingleSegmentSelection(segment: any, selectionStart: number, selectionEnd: number): void {
+    const segmentText = String(segment.text ?? "");
+    const start = Math.max(0, Math.min(segmentText.length, selectionStart));
+    const end = Math.max(start, Math.min(segmentText.length, selectionEnd));
+    if (end <= start) {
+      setSelectedTranscriptTextRange(null);
+      return;
+    }
+    const text = segmentText.slice(start, end);
+    if (!text.trim()) {
+      setSelectedTranscriptTextRange(null);
+      return;
+    }
+    setSelectedTranscriptTextRange({
+      start,
+      end,
+      text,
+      segments: [{
+        segmentId: segment.segment_id,
+        selectionStart: start,
+        selectionEnd: end,
+        text,
+      }],
+    });
+  }
+
+  function reportTranscriptDocumentSelection(root: HTMLElement): void {
+    if (!onTranscriptSelection || typeof window === "undefined") return;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      setSelectedTranscriptTextRange(null);
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) {
+      setSelectedTranscriptTextRange(null);
+      return;
+    }
+
+    const resolveSegmentElement = (node: Node | null): HTMLElement | null => {
+      if (!node) return null;
+      if (node instanceof HTMLElement) {
+        return node.closest("[data-transcript-segment-id]");
+      }
+      return node.parentElement?.closest("[data-transcript-segment-id]") ?? null;
+    };
+
+    const startElement = resolveSegmentElement(range.startContainer);
+    const endElement = resolveSegmentElement(range.endContainer);
+    if (!startElement || !endElement) {
+      setSelectedTranscriptTextRange(null);
+      return;
+    }
+
+    const segmentElements = Array.from(root.querySelectorAll<HTMLElement>("[data-transcript-segment-id]"));
+    const startIndex = segmentElements.findIndex((element) => element === startElement);
+    const endIndex = segmentElements.findIndex((element) => element === endElement);
+    if (startIndex < 0 || endIndex < 0 || endIndex < startIndex) {
+      setSelectedTranscriptTextRange(null);
+      return;
+    }
+
+    const segments = segmentElements.slice(startIndex, endIndex + 1).flatMap((element, index, list) => {
+      const segmentId = element.dataset.transcriptSegmentId ?? "";
+      const segment = editableTranscriptSegments.find((item) => item.segment_id === segmentId) ?? null;
+      if (!segment) return [];
+      const segmentText = String(segment.text ?? "");
+      const selectionStart = index === 0
+        ? Math.max(0, Math.min(segmentText.length, range.startOffset))
+        : 0;
+      const selectionEnd = index === list.length - 1
+        ? Math.max(selectionStart, Math.min(segmentText.length, range.endOffset))
+        : segmentText.length;
+      if (selectionEnd <= selectionStart) return [];
+      return [{
+        segmentId,
+        selectionStart,
+        selectionEnd,
+        text: segmentText.slice(selectionStart, selectionEnd),
+      }];
+    });
+
+    const text = selection.toString();
+    if (segments.length === 0 || !text.trim()) {
+      setSelectedTranscriptTextRange(null);
+      return;
+    }
+
+    setSelectedTranscriptTextRange({
+      start: segments[0]?.selectionStart ?? 0,
+      end: segments[segments.length - 1]?.selectionEnd ?? 0,
+      text,
+      segments,
+    });
+  }
 
   function commitDeleteOnlySegmentEdit(
     segment: any,
@@ -742,40 +864,50 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                           <header className="hammer-transcript-doc-turn__head">
                             <span className="hammer-transcript-doc-turn__label">{turn.speaker || "Speaker"}</span>
                           </header>
-                          <p className="hammer-transcript-doc-turn__para">
+                          <p
+                            className="hammer-transcript-doc-turn__para"
+                            onMouseUp={(event) => {
+                              reportTranscriptDocumentSelection(event.currentTarget);
+                            }}
+                            onKeyUp={(event) => {
+                              reportTranscriptDocumentSelection(event.currentTarget);
+                            }}
+                          >
                             {turn.segments.map((segment, segmentIndex) => {
                               const value = segment.text;
                               const prevText = segmentIndex > 0 ? String(turn.segments[segmentIndex - 1]?.text ?? "") : "";
                               const joiner = segmentIndex > 0 ? getSegmentJoiner(prevText, String(value ?? "")) : "";
                               return (
-                                <span
-                                  key={segment.segment_id}
-                                  className={[
-                                    "hammer-transcript-doc-seg",
-                                    segment.segment_id === selectedSegmentId ? "is-active" : "",
-                                    transcriptSelectionSegmentIdSet.has(segment.segment_id) ? "is-range" : "",
-                                    modifiedTranscriptSegmentIds.has(segment.segment_id) ? "is-modified" : "",
-                                    candidateSegmentIdSet.has(segment.segment_id) ? "is-candidate" : "",
-                                    activeCandidateSegmentIdSet.has(segment.segment_id) ? "is-candidate-active" : "",
-                                    segment.is_disabled ? "is-disabled" : "",
-                                  ].filter(Boolean).join(" ")}
-                                  title={`${segment.start_sec.toFixed(1)}s - ${segment.end_sec.toFixed(1)}s`}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    setFocusOverride("source-focus");
-                                    applyTranscriptSelection(segment.segment_id, event.shiftKey);
-                                  }}
-                                  ref={(element) => {
-                                    if (element) {
-                                      transcriptLineRefs.current.set(segment.segment_id, element);
-                                    } else {
-                                      transcriptLineRefs.current.delete(segment.segment_id);
-                                    }
-                                  }}
-                                >
+                                <Fragment key={segment.segment_id}>
                                   {joiner}
-                                  {value}
-                                </span>
+                                  <span
+                                    data-transcript-segment-id={segment.segment_id}
+                                    className={[
+                                      "hammer-transcript-doc-seg",
+                                      segment.segment_id === selectedSegmentId ? "is-active" : "",
+                                      transcriptSelectionSegmentIdSet.has(segment.segment_id) ? "is-range" : "",
+                                      modifiedTranscriptSegmentIds.has(segment.segment_id) ? "is-modified" : "",
+                                      candidateSegmentIdSet.has(segment.segment_id) ? "is-candidate" : "",
+                                      activeCandidateSegmentIdSet.has(segment.segment_id) ? "is-candidate-active" : "",
+                                      segment.is_disabled ? "is-disabled" : "",
+                                    ].filter(Boolean).join(" ")}
+                                    title={`${segment.start_sec.toFixed(1)}s - ${segment.end_sec.toFixed(1)}s`}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setFocusOverride("source-focus");
+                                      applyTranscriptSelection(segment.segment_id, event.shiftKey);
+                                    }}
+                                    ref={(element) => {
+                                      if (element) {
+                                        transcriptLineRefs.current.set(segment.segment_id, element);
+                                      } else {
+                                        transcriptLineRefs.current.delete(segment.segment_id);
+                                      }
+                                    }}
+                                  >
+                                    {value}
+                                  </span>
+                                </Fragment>
                               );
                             })}
                           </p>
@@ -844,6 +976,13 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                       onFocus={() => {
                                         setFocusOverride("source-focus");
                                         applyTranscriptSelection(segment.segment_id, false);
+                                      }}
+                                      onSelect={(event) => {
+                                        reportSingleSegmentSelection(
+                                          segment,
+                                          event.currentTarget.selectionStart ?? 0,
+                                          event.currentTarget.selectionEnd ?? 0,
+                                        );
                                       }}
                                       onKeyDown={(event) => {
                                         setFocusOverride("source-focus");

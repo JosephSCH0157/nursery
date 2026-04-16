@@ -252,11 +252,10 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const fillerActiveCandidateIndex = ctx.fillerActiveCandidateIndex as number;
   const fillerCandidateCards = ctx.fillerCandidateCards as any[];
   const activeFillerCandidateDiffOps = ctx.activeFillerCandidateDiffOps as any;
-  const candidateEditModeById = ctx.candidateEditModeById as Record<string, any>;
-  const candidateProposedTextById = ctx.candidateProposedTextById as Record<string, any>;
-  const setCandidateProposedTextById = ctx.setCandidateProposedTextById as (next: any | ((current: any) => any)) => void;
+  const candidateProposedRemovalById = ctx.candidateProposedRemovalById as Record<string, { text: string } | undefined>;
   const candidateReceiptByKind = ctx.candidateReceiptByKind as any;
-  const setCandidateEditModeById = ctx.setCandidateEditModeById as (next: any | ((current: any) => any)) => void;
+  const selectedTranscriptRange = ctx.selectedTranscriptRange as { start: number; end: number; text: string } | null;
+  const updateCandidateProposedRemoval = ctx.updateCandidateProposedRemoval as (kind: "fillers" | "retakes") => void;
   const fillerDecisionInFlight = ctx.fillerDecisionInFlight as boolean;
   const handleCandidateDecision = ctx.handleCandidateDecision as (...args: any[]) => void;
 
@@ -333,6 +332,11 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
 
   const podcastMasterLayer = ctx.podcastMasterLayer as any;
   const podcastMasterUiStatus = ctx.podcastMasterUiStatus as any;
+
+  function getProposedRemovalText(card: any): string {
+    if (!card) return "";
+    return candidateProposedRemovalById[card.id]?.text ?? card.suggestedRemovalText ?? "";
+  }
 
   return (
     <>
@@ -426,46 +430,10 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                             </p>
                           </div>
                           <div className="hammer-candidate-card__context">
-                            <header>Proposed</header>
-                            {candidateEditModeById[activeFillerCandidateCard.id] ? (
-                              <textarea
-                                className="hammer-candidate-edit"
-                                aria-label="Edit filler candidate proposed text"
-                                title="Edit filler candidate proposed text"
-                                value={candidateProposedTextById[activeFillerCandidateCard.id] ?? (activeFillerCandidateCard.afterText ?? "")}
-                                placeholder={activeFillerCandidateCard.afterText == null ? "" : undefined}
-                                onChange={(event) => {
-                                  const value = event.target.value;
-                                  setCandidateProposedTextById((current: any) => ({
-                                    ...current,
-                                    [activeFillerCandidateCard.id]: value,
-                                  }));
-                                }}
-                              />
-                            ) : (
-                              <p className="hammer-candidate-diff">
-                                {activeFillerCandidateCard.afterText == null
-                                  ? "[segment removed]"
-                                  : activeFillerCandidateDiffOps ? (() => {
-                                    const parts: JSX.Element[] = [];
-                                    let first = true;
-                                    for (let idx = 0; idx < activeFillerCandidateDiffOps.length; idx += 1) {
-                                      const op = activeFillerCandidateDiffOps[idx];
-                                      if (op.type === "delete") continue;
-                                      const text = op.words.join(" ");
-                                      const prefix = first ? "" : " ";
-                                      first = false;
-                                      const className = op.type === "insert" ? "hammer-candidate-diff__ins" : undefined;
-                                      parts.push(
-                                        <span key={`prop-${idx}`} className={className}>
-                                          {prefix}{text}
-                                        </span>,
-                                      );
-                                    }
-                                    return parts;
-                                  })() : activeFillerCandidateCard.afterText}
-                              </p>
-                            )}
+                            <header>Proposed Removal</header>
+                            <p className="hammer-candidate-diff">
+                              {getProposedRemovalText(activeFillerCandidateCard) || "[no removal selected]"}
+                            </p>
                           </div>
                           <div className="hammer-candidate-card__meta">
                             <span>Confidence {Math.round(activeFillerCandidateCard.confidence * 100)}%</span>
@@ -477,48 +445,24 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           <div className="hammer-candidate-review__actions">
                             <button
                               type="button"
-                              disabled={fillerDecisionInFlight}
+                              disabled={fillerDecisionInFlight || !selectedTranscriptRange}
                               onClick={() => {
-                                setCandidateEditModeById((current: any) => ({
-                                  ...current,
-                                  [activeFillerCandidateCard.id]: !current[activeFillerCandidateCard.id],
-                                }));
+                                setFocusOverride("tool-focus");
+                                updateCandidateProposedRemoval("fillers");
                               }}
                             >
-                              {candidateEditModeById[activeFillerCandidateCard.id] ? "Cancel Edit" : "Edit Proposed"}
+                              Update Proposed Removal
                             </button>
                             <button
                               type="button"
-                              disabled={fillerDecisionInFlight}
+                              disabled={fillerDecisionInFlight || !getProposedRemovalText(activeFillerCandidateCard).trim()}
                               onClick={() => {
                                 setFocusOverride("tool-focus");
-                                if (candidateEditModeById[activeFillerCandidateCard.id]) {
-                                  handleCandidateDecision("fillers", true, {
-                                    useEditedProposal: true,
-                                    editedProposalText: candidateProposedTextById[activeFillerCandidateCard.id]
-                                      ?? (activeFillerCandidateCard.afterText ?? ""),
-                                  });
-                                } else {
-                                  handleCandidateDecision("fillers", true);
-                                }
+                                handleCandidateDecision("fillers", true);
                               }}
                             >
-                              {candidateEditModeById[activeFillerCandidateCard.id] ? "Approve Edited" : "Approve"}
+                              Approve Removal
                             </button>
-                            {candidateEditModeById[activeFillerCandidateCard.id] ? (
-                              <button
-                                type="button"
-                                disabled={fillerDecisionInFlight}
-                                onClick={() => {
-                                  setFocusOverride("tool-focus");
-                                  handleCandidateDecision("fillers", true, {
-                                    useEditedProposal: false,
-                                  });
-                                }}
-                              >
-                                Approve As-Is
-                              </button>
-                            ) : null}
                             <button
                               type="button"
                               disabled={fillerDecisionInFlight}
@@ -595,24 +539,10 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                             ))}
                           </div>
                           <div className="hammer-candidate-card__context">
-                            <header>Proposed</header>
-                            {candidateEditModeById[activeRetakeCandidateCard.id] ? (
-                              <textarea
-                                className="hammer-candidate-edit"
-                                aria-label="Edit retake candidate proposed text"
-                                title="Edit retake candidate proposed text"
-                                value={candidateProposedTextById[activeRetakeCandidateCard.id] ?? (activeRetakeCandidateCard.afterText ?? "")}
-                                onChange={(event) => {
-                                  const value = event.target.value;
-                                  setCandidateProposedTextById((current: any) => ({
-                                    ...current,
-                                    [activeRetakeCandidateCard.id]: value,
-                                  }));
-                                }}
-                              />
-                            ) : (
-                              <p className="hammer-candidate-diff">{activeRetakeCandidateCard.afterText ?? "[segment removed]"}</p>
-                            )}
+                            <header>Proposed Removal</header>
+                            <p className="hammer-candidate-diff">
+                              {getProposedRemovalText(activeRetakeCandidateCard) || "[no removal selected]"}
+                            </p>
                           </div>
                           <div className="hammer-candidate-card__meta">
                             <span>Confidence {Math.round(activeRetakeCandidateCard.confidence * 100)}%</span>
@@ -624,48 +554,24 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           <div className="hammer-candidate-review__actions">
                             <button
                               type="button"
-                              disabled={retakeDecisionInFlight}
+                              disabled={retakeDecisionInFlight || !selectedTranscriptRange}
                               onClick={() => {
-                                setCandidateEditModeById((current: any) => ({
-                                  ...current,
-                                  [activeRetakeCandidateCard.id]: !current[activeRetakeCandidateCard.id],
-                                }));
+                                setFocusOverride("tool-focus");
+                                updateCandidateProposedRemoval("retakes");
                               }}
                             >
-                              {candidateEditModeById[activeRetakeCandidateCard.id] ? "Cancel Edit" : "Edit Proposed"}
+                              Update Proposed Removal
                             </button>
                             <button
                               type="button"
-                              disabled={retakeDecisionInFlight}
+                              disabled={retakeDecisionInFlight || !getProposedRemovalText(activeRetakeCandidateCard).trim()}
                               onClick={() => {
                                 setFocusOverride("tool-focus");
-                                if (candidateEditModeById[activeRetakeCandidateCard.id]) {
-                                  handleCandidateDecision("retakes", true, {
-                                    useEditedProposal: true,
-                                    editedProposalText: candidateProposedTextById[activeRetakeCandidateCard.id]
-                                      ?? (activeRetakeCandidateCard.afterText ?? ""),
-                                  });
-                                } else {
-                                  handleCandidateDecision("retakes", true);
-                                }
+                                handleCandidateDecision("retakes", true);
                               }}
                             >
-                              {candidateEditModeById[activeRetakeCandidateCard.id] ? "Approve Edited" : "Approve"}
+                              Approve Removal
                             </button>
-                            {candidateEditModeById[activeRetakeCandidateCard.id] ? (
-                              <button
-                                type="button"
-                                disabled={retakeDecisionInFlight}
-                                onClick={() => {
-                                  setFocusOverride("tool-focus");
-                                  handleCandidateDecision("retakes", true, {
-                                    useEditedProposal: false,
-                                  });
-                                }}
-                              >
-                                Approve As-Is
-                              </button>
-                            ) : null}
                             <button
                               type="button"
                               disabled={retakeDecisionInFlight}
