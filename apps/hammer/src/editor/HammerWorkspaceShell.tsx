@@ -453,7 +453,10 @@ type HammerWorkspaceShellProps = {
   onRequestRegenerateAiTranscript?: () => void;
   regenerateAiTranscriptDisabled?: boolean;
   onHistoryRecoveryStatusChange?: (status: string | null) => void;
-  onWorkspaceSnapshotChange?: (snapshot: HammerWorkspaceSnapshot) => void;
+  onWorkspaceSnapshotChange?: (
+    snapshot: HammerWorkspaceSnapshot,
+    options?: { persistNow?: boolean },
+  ) => void;
 };
 
 const SOURCE_TABS: Array<{ id: HammerSourceTabId; label: string }> = [
@@ -1944,6 +1947,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [timelineImageDragState, setTimelineImageDragState] = useState<HammerTimelineImageDragState | null>(null);
   const [imagePlacementTransforms, setImagePlacementTransforms] = useState<Record<string, HammerImagePlacementTransform>>({});
   const [previewCanvasDragState, setPreviewCanvasDragState] = useState<HammerPreviewCanvasDragState | null>(null);
+  const [persistNowRequestNonce, setPersistNowRequestNonce] = useState(0);
   const [imageAnimationContextMenu, setImageAnimationContextMenu] = useState<HammerImageAnimationContextMenuState | null>(null);
   const [captionFormatting, setCaptionFormatting] = useState<HammerCaptionFormattingState>({
     style: "sentence",
@@ -2075,6 +2079,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     retakes: null,
   });
   const imagePlacementDraftWindowsRef = useRef<Record<string, HammerImagePlacementDraftWindow>>({});
+  const imagePlacementTransformsRef = useRef<Record<string, HammerImagePlacementTransform>>({});
   const audioPolishHasLocalEditsRef = useRef(false);
   const editableAudioPolishRef = useRef<HammerPersistedAudioPolish | null>(
     cloneHammerAudioPolish(props.audioPolish),
@@ -2529,6 +2534,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   useEffect(() => {
     imagePlacementDraftWindowsRef.current = imagePlacementDraftWindows;
   }, [imagePlacementDraftWindows]);
+  useEffect(() => {
+    imagePlacementTransformsRef.current = imagePlacementTransforms;
+  }, [imagePlacementTransforms]);
   const playheadSegment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
   const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments);
   const playbackTransportDurationSec = transcriptDurationSec;
@@ -3971,6 +3979,42 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
   }
 
+  function requestDurablePersistBoundary(): void {
+    setPersistNowRequestNonce((current) => current + 1);
+  }
+
+  function flushPendingPlacementDrafts(): void {
+    const timelineDrafts = imagePlacementDraftWindowsRef.current;
+    const transformDrafts = imagePlacementTransformsRef.current;
+
+    for (const [placementId, draft] of Object.entries(timelineDrafts)) {
+      commitVisualPlacementWindow(placementId, {
+        startSec: draft.startSec,
+        endSec: draft.endSec,
+        label: "Commit visual placement timing",
+      });
+    }
+
+    for (const [placementId, draft] of Object.entries(transformDrafts)) {
+      commitImagePlacementTransform(placementId, draft, "Commit visual overlay geometry");
+    }
+
+    if (Object.keys(timelineDrafts).length > 0) {
+      imagePlacementDraftWindowsRef.current = {};
+      setImagePlacementDraftWindows({});
+    }
+    if (Object.keys(transformDrafts).length > 0) {
+      imagePlacementTransformsRef.current = {};
+      setImagePlacementTransforms({});
+    }
+    if (timelineImageDragState) {
+      setTimelineImageDragState(null);
+    }
+    if (previewCanvasDragState) {
+      setPreviewCanvasDragState(null);
+    }
+  }
+
   function appendAuthorityInstructionForState(
     state: HammerEditorStateSerializable,
     instruction: HammerEditInstruction,
@@ -4824,6 +4868,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
     const handleMouseMove = (event: globalThis.MouseEvent): void => {
       if (event.buttons === 0) {
+        const draft = imagePlacementDraftWindowsRef.current[timelineImageDragState.placementId] ?? null;
+        if (draft) {
+          commitVisualPlacementWindow(timelineImageDragState.placementId, {
+            startSec: draft.startSec,
+            endSec: draft.endSec,
+            label: timelineImageDragState.mode === "move" ? "Move image clip" : "Resize image clip",
+          });
+          setImagePlacementDraftWindows((current) => {
+            if (!current[timelineImageDragState.placementId]) return current;
+            const next = { ...current };
+            delete next[timelineImageDragState.placementId];
+            return next;
+          });
+        }
         setTimelineImageDragState(null);
         return;
       }
@@ -4909,6 +4967,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
     const handleMouseMove = (event: globalThis.MouseEvent): void => {
       if (event.buttons === 0) {
+        const draft = imagePlacementTransformsRef.current[previewCanvasDragState.placementId] ?? null;
+        if (draft) {
+          commitImagePlacementTransform(previewCanvasDragState.placementId, draft, "Adjust visual overlay geometry");
+          setImagePlacementTransforms((current) => {
+            if (!current[previewCanvasDragState.placementId]) return current;
+            const next = { ...current };
+            delete next[previewCanvasDragState.placementId];
+            return next;
+          });
+        }
         setPreviewCanvasDragState(null);
         return;
       }
@@ -4968,6 +5036,40 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [commitImagePlacementTransform, imagePlacementTransforms, previewCanvasDragState]);
+
+  const previousPlacementBoundaryRef = useRef<{
+    selectedClipId: string | null;
+    selectedSourceTab: HammerSourceTabId;
+    activeTool: HammerToolId;
+    currentPass: HammerPassId;
+    initialized: boolean;
+  }>({
+    selectedClipId: null,
+    selectedSourceTab,
+    activeTool,
+    currentPass,
+    initialized: false,
+  });
+
+  useEffect(() => {
+    const previous = previousPlacementBoundaryRef.current;
+    const placementBoundaryChanged = previous.initialized && (
+      previous.selectedClipId !== selectedClipId
+      || previous.selectedSourceTab !== selectedSourceTab
+      || previous.activeTool !== activeTool
+      || previous.currentPass !== currentPass
+    );
+    if (placementBoundaryChanged) {
+      flushPendingPlacementDrafts();
+    }
+    previousPlacementBoundaryRef.current = {
+      selectedClipId,
+      selectedSourceTab,
+      activeTool,
+      currentPass,
+      initialized: true,
+    };
+  }, [activeTool, currentPass, selectedClipId, selectedSourceTab]);
 
   function buildWorkspaceDefaultIntroOutroDestPath(kind: "intro" | "outro", sourcePath: string): string {
     const normalized = normalizeWorkpieceRelativePath(launchContext.workpiece_id, sourcePath);
@@ -5430,6 +5532,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return { applied: false, playbackChanged: false };
     }
 
+    requestDurablePersistBoundary();
+
     const afterState = historyControllerRef.current?.getState() ?? null;
     const afterAudioOpCount = afterState?.audioEdit?.operations?.length ?? beforeAudioOpCount;
     return {
@@ -5499,6 +5603,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (!applied) {
       return { applied: false, playbackChanged: false, deletedTokenCount: 0 };
     }
+
+    requestDurablePersistBoundary();
 
     const afterState = historyControllerRef.current?.getState() ?? null;
     const afterAudioOpCount = afterState?.audioEdit?.operations?.length ?? beforeAudioOpCount;
@@ -7112,13 +7218,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   function commitVisualPlacementWindow(
     placementId: string,
     args: { startSec: number; endSec: number; label: string },
-  ): void {
+  ): boolean {
     const clampedStart = Math.max(0, Math.min(timelineDurationSec, roundImagePlacementTime(args.startSec)));
     const clampedEnd = Math.max(
       roundImagePlacementTime(clampedStart + MIN_IMAGE_PLACEMENT_DURATION_SEC),
       Math.min(timelineDurationSec, roundImagePlacementTime(args.endSec)),
     );
-    applyHistoryMutation({
+    const currentClip = editableVisualTimeline ? selectClipById(editableVisualTimeline, placementId) : null;
+    const currentStart = currentClip?.start_sec ?? null;
+    const currentEnd = currentClip?.end_sec ?? null;
+    if (currentStart === clampedStart && currentEnd === clampedEnd) {
+      return false;
+    }
+
+    const applied = applyHistoryMutation({
       label: args.label,
       kind: "visual_adjustment",
       toolId: "video",
@@ -7132,6 +7245,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         updated_at: new Date().toISOString(),
       }),
     });
+    if (applied) {
+      requestDurablePersistBoundary();
+      return true;
+    }
+    return false;
   }
 
   function updateVisualPlacementTiming(placementId: string, deltaSec: number): void {
@@ -7207,9 +7325,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     placementId: string,
     transform: HammerImagePlacementTransform,
     label: string,
-  ): void {
+  ): boolean {
     const nextGeometry = transformToGeometry(transform);
-    applyHistoryMutation({
+    const currentClip = editableVisualTimeline ? selectClipById(editableVisualTimeline, placementId) : null;
+    const currentGeometry = currentClip?.geometry ?? resolvePlacementGeometry(visualPlacementsById.get(placementId));
+    if (
+      currentGeometry.x === nextGeometry.x
+      && currentGeometry.y === nextGeometry.y
+      && currentGeometry.width === nextGeometry.width
+      && currentGeometry.height === nextGeometry.height
+      && currentGeometry.anchor === nextGeometry.anchor
+    ) {
+      return false;
+    }
+
+    const applied = applyHistoryMutation({
       label,
       kind: "visual_adjustment",
       toolId: "video",
@@ -7222,6 +7352,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         updated_at: new Date().toISOString(),
       }),
     });
+    if (applied) {
+      requestDurablePersistBoundary();
+      return true;
+    }
+    return false;
   }
 
   function beginTimelineImagePlacementDrag(
@@ -10609,6 +10744,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
 
   useHammerWorkspaceShellSnapshotEmitter({
     onWorkspaceSnapshotChange: props.onWorkspaceSnapshotChange,
+    persistNowRequestNonce,
     launchContext,
     transcriptSourceId,
     previewMode,

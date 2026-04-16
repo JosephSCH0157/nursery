@@ -2456,7 +2456,7 @@ export default function HammerWorkspaceEditor(
     targetKey,
   ]);
 
-  const queueRevisionAutosave = useCallback((snapshot: HammerWorkspaceSnapshot): void => {
+  const queueRevisionAutosave = useCallback((snapshot: HammerWorkspaceSnapshot, persistNow = false): void => {
     if (!canPersistCanonicalState || !persistenceTarget || !activeRevision) {
       return;
     }
@@ -2502,6 +2502,42 @@ export default function HammerWorkspaceEditor(
     }
 
     const scheduledPayloadKey = payloadKey;
+    if (persistNow) {
+      setSaveInFlight(true);
+      void saveHammerRecordingRevision(persistenceTarget, activeRevision.id, request as any)
+        .then((result) => {
+          if (!result.ok) {
+            applyHostLoopState(resolveHammerSaveFailure({
+              hasPendingSaveChanges: true,
+              saveFailureMessage,
+              historyRecoveryStatus,
+              presenceConflictDetail,
+            }, result.error));
+            return;
+          }
+
+          if (pendingSaveRef.current?.payloadKey !== scheduledPayloadKey) {
+            return;
+          }
+
+          lastSavedPayloadRef.current = scheduledPayloadKey;
+          pendingSaveRef.current = null;
+          setHasPendingSaveChanges(false);
+          setLastSavedAt(new Date().toISOString());
+          setActiveRevision(result.data.revision);
+          applyHostLoopState(resolveHammerSaveSuccess({
+            hasPendingSaveChanges: false,
+            saveFailureMessage,
+            historyRecoveryStatus,
+            presenceConflictDetail,
+          }));
+        })
+        .finally(() => {
+          setSaveInFlight(false);
+        });
+      return;
+    }
+
     saveTimerRef.current = window.setTimeout(() => {
       const pending = pendingSaveRef.current;
       if (!pending || pending.payloadKey !== scheduledPayloadKey) {
@@ -2555,12 +2591,15 @@ export default function HammerWorkspaceEditor(
     saveFailureMessage,
   ]);
 
-  const handleWorkspaceSnapshotChange = useCallback((snapshot: HammerWorkspaceSnapshot): void => {
+  const handleWorkspaceSnapshotChange = useCallback((
+    snapshot: HammerWorkspaceSnapshot,
+    options?: { persistNow?: boolean },
+  ): void => {
     // Canonical working edits must queue the revision autosave immediately when they are
     // user-visible as "committed" in Hammer. We keep the raw baseline immutable by only
     // saving revision artifacts, never mutating ingest/baseline pointers.
     setWorkspaceSnapshot(snapshot);
-    queueRevisionAutosave(snapshot);
+    queueRevisionAutosave(snapshot, options?.persistNow === true);
   }, [queueRevisionAutosave]);
 
   useEffect(() => {

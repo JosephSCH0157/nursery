@@ -19,7 +19,11 @@ import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
 import { projectEditPlanFromEditorialAuthorityGraph } from "./hammerRenderAssembly";
 
 export type UseHammerWorkspaceShellSnapshotEmitterArgs = {
-  onWorkspaceSnapshotChange?: (snapshot: HammerWorkspaceSnapshot) => void;
+  onWorkspaceSnapshotChange?: (
+    snapshot: HammerWorkspaceSnapshot,
+    options?: { persistNow?: boolean },
+  ) => void;
+  persistNowRequestNonce: number;
   launchContext: HammerLaunchContext;
   transcriptSourceId: string;
   previewMode: HammerPreviewMode;
@@ -58,6 +62,7 @@ export type UseHammerWorkspaceShellSnapshotEmitterArgs = {
 
 export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceShellSnapshotEmitterArgs): void {
   const lastEmittedKeyRef = useRef<string | null>(null);
+  const lastPersistNowRequestNonceRef = useRef<number>(args.persistNowRequestNonce);
 
   const objectIdsRef = useRef<{ map: WeakMap<object, number>; nextId: number } | null>(null);
   if (!objectIdsRef.current) {
@@ -140,10 +145,12 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
       String(refId(args.visualTimelineProp)),
     ].join("|");
 
-    if (emissionKey === lastEmittedKeyRef.current) {
+    const persistNowRequested = args.persistNowRequestNonce !== lastPersistNowRequestNonceRef.current;
+    if (emissionKey === lastEmittedKeyRef.current && !persistNowRequested) {
       return;
     }
     lastEmittedKeyRef.current = emissionKey;
+    lastPersistNowRequestNonceRef.current = args.persistNowRequestNonce;
 
     const snapshot: HammerWorkspaceSnapshot = {
       workspaceId: args.launchContext.workspace_id,
@@ -184,7 +191,7 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
       audioPolish: args.editableAudioPolish,
     };
 
-    args.onWorkspaceSnapshotChange(snapshot);
+    args.onWorkspaceSnapshotChange(snapshot, persistNowRequested ? { persistNow: true } : undefined);
   }, [
     args.launchContext,
     args.mediaRef,
@@ -211,5 +218,6 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
     args.transcriptSourceId,
     args.workspaceMapping,
     args.visualTimelineProp,
+    args.persistNowRequestNonce,
   ]);
 }
