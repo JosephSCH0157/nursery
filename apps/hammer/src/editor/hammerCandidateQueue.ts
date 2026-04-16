@@ -1,5 +1,6 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type { HammerCleanupPreview } from "./hammerCleanupTools";
+import { resolveDeleteOnlyTranscriptSelectionFromTexts } from "./hammerDeleteOnlyTranscriptEditing";
 import {
   previewRemoveFillers,
   previewRemoveRetakes,
@@ -19,11 +20,65 @@ export type HammerCandidateCard = {
   afterText: string | null;
   confidence: number;
   timeSavedSec: number;
+  suggestedRemoval: Array<{
+    segmentId: string;
+    selectionStart: number;
+    selectionEnd: number;
+    text: string;
+  }>;
+  suggestedRemovalText: string;
   apply: {
     removeSegmentIds: string[];
     updateSegments: Array<{ segmentId: string; text: string }>;
   };
 };
+
+function buildSuggestedRemoval(args: {
+  beforeById: ReadonlyMap<string, HammerTranscriptSegment>;
+  removeSegmentIds: string[];
+  updateSegments: Array<{ segmentId: string; text: string }>;
+}): Array<{
+  segmentId: string;
+  selectionStart: number;
+  selectionEnd: number;
+  text: string;
+}> {
+  const selections: Array<{
+    segmentId: string;
+    selectionStart: number;
+    selectionEnd: number;
+    text: string;
+  }> = [];
+
+  for (const segmentId of args.removeSegmentIds) {
+    const before = args.beforeById.get(segmentId);
+    if (!before || !before.text) continue;
+    selections.push({
+      segmentId,
+      selectionStart: 0,
+      selectionEnd: before.text.length,
+      text: before.text,
+    });
+  }
+
+  for (const update of args.updateSegments) {
+    const before = args.beforeById.get(update.segmentId);
+    if (!before) continue;
+    const deletion = resolveDeleteOnlyTranscriptSelectionFromTexts({
+      beforeText: before.text,
+      afterText: update.text,
+    });
+    if (!deletion || !deletion.selectedText) continue;
+    selections.push({
+      segmentId: update.segmentId,
+      selectionStart: deletion.selectionStart,
+      selectionEnd: deletion.selectionEnd,
+      text: deletion.selectedText,
+    });
+  }
+
+  return selections;
+}
 
 function parseRetakeSuggestionId(id: string): { removeIds: string[]; keepId: string | null } {
   const parts = String(id).split(":");
@@ -90,6 +145,16 @@ export function buildCandidateQueue(args: {
           afterText,
           confidence: suggestion.confidence,
           timeSavedSec: suggestion.timeSavedSec,
+          suggestedRemoval: buildSuggestedRemoval({
+            beforeById,
+            removeSegmentIds: apply.removeSegmentIds,
+            updateSegments: apply.updateSegments,
+          }),
+          suggestedRemovalText: buildSuggestedRemoval({
+            beforeById,
+            removeSegmentIds: apply.removeSegmentIds,
+            updateSegments: apply.updateSegments,
+          }).map((item) => item.text).join("\n"),
           apply,
         });
         continue;
@@ -113,6 +178,11 @@ export function buildCandidateQueue(args: {
       if (keptAfter && keptBefore && keptAfter.text !== keptBefore.text) {
         updateSegments.push({ segmentId: keptBefore.segment_id, text: keptAfter.text });
       }
+      const suggestedRemoval = buildSuggestedRemoval({
+        beforeById,
+        removeSegmentIds: removeSegments.map((seg) => seg.segment_id),
+        updateSegments,
+      });
       cards.push({
         id: suggestion.id,
         kind: args.kind,
@@ -123,6 +193,8 @@ export function buildCandidateQueue(args: {
         afterText: keptFinal.text,
         confidence: suggestion.confidence,
         timeSavedSec: suggestion.timeSavedSec,
+        suggestedRemoval,
+        suggestedRemovalText: suggestedRemoval.map((item) => item.text).join("\n"),
         apply: {
           removeSegmentIds: removeSegments.map((seg) => seg.segment_id),
           updateSegments,
@@ -142,6 +214,12 @@ export function buildCandidateQueue(args: {
         updateSegments: [{ segmentId: before.segment_id, text: afterText }],
       };
 
+    const suggestedRemoval = buildSuggestedRemoval({
+      beforeById,
+      removeSegmentIds: apply.removeSegmentIds,
+      updateSegments: apply.updateSegments,
+    });
+
     cards.push({
       id: suggestion.id,
       kind: args.kind,
@@ -152,6 +230,8 @@ export function buildCandidateQueue(args: {
       afterText,
       confidence: suggestion.confidence,
       timeSavedSec: suggestion.timeSavedSec,
+      suggestedRemoval,
+      suggestedRemovalText: suggestedRemoval.map((item) => item.text).join("\n"),
       apply,
     });
   }

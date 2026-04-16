@@ -3,6 +3,7 @@ import type { HammerTranscriptSegment } from "../../../packages/contracts/hammer
 import {
   deriveDeleteOnlyTranscriptCutSelection,
   resolveDeleteOnlyTranscriptDeletion,
+  resolveDeleteOnlyTranscriptSelectionFromTexts,
   tokenizeDeleteOnlyTranscriptText,
 } from "../src/editor/hammerDeleteOnlyTranscriptEditing";
 
@@ -80,12 +81,36 @@ async function testCutSelectionFollowsTokenSpan() {
   assert.equal(cut?.endSec, 13);
 }
 
+async function testSelectionFromBeforeAndAfterTexts() {
+  const selection = resolveDeleteOnlyTranscriptSelectionFromTexts({
+    beforeText: "um we should start now",
+    afterText: "we should start now",
+  });
+  assert.ok(selection);
+  assert.equal(selection?.selectionStart, 0);
+  assert.equal(selection?.selectionEnd, 2);
+  assert.equal(selection?.selectedText, "um");
+}
+
+async function testSelectionFromBeforeAndNullAfterDeletesWholeRange() {
+  const selection = resolveDeleteOnlyTranscriptSelectionFromTexts({
+    beforeText: "let me start that again",
+    afterText: null,
+  });
+  assert.ok(selection);
+  assert.equal(selection?.selectionStart, 0);
+  assert.equal(selection?.selectionEnd, "let me start that again".length);
+  assert.equal(selection?.selectedText, "let me start that again");
+}
+
 async function run() {
   await testTokenization();
   await testSelectionDeletionRemovesOverlappingTokens();
   await testBackwardDeletionRemovesPreviousToken();
   await testForwardDeletionRemovesNextToken();
   await testCutSelectionFollowsTokenSpan();
+  await testSelectionFromBeforeAndAfterTexts();
+  await testSelectionFromBeforeAndNullAfterDeletesWholeRange();
   // eslint-disable-next-line no-console
   console.log("Hammer delete-only transcript editing tests passed.");
 }

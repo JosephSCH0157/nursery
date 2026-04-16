@@ -88,6 +88,9 @@ async function testFillerCardCanRemoveSegmentWhenFillerOnly() {
   assert.equal(card.afterText, null);
   assert.deepEqual(card.apply.removeSegmentIds, ["seg_1"]);
   assert.deepEqual(card.apply.updateSegments, []);
+  assert.equal(card.suggestedRemoval.length, 1);
+  assert.equal(card.suggestedRemoval[0]?.segmentId, "seg_1");
+  assert.equal(card.suggestedRemovalText, "um.");
 }
 
 async function testRetakePairCardBuildsFromSuggestionId() {
@@ -124,6 +127,9 @@ async function testRetakePairCardBuildsFromSuggestionId() {
   assert.equal(card.segmentIds[1], "seg_b");
   assert.equal(card.apply.removeSegmentIds.includes("seg_a"), true);
   assert.equal(card.afterText, "Florida's citrus didn't start small.");
+  assert.equal(card.suggestedRemoval.length, 1);
+  assert.equal(card.suggestedRemoval[0]?.segmentId, "seg_a");
+  assert.equal(card.suggestedRemovalText, "Florida's citrus really sta—");
 }
 
 async function testRetakeChainCardRemovesMarkerAndAbort() {
@@ -168,6 +174,8 @@ async function testRetakeChainCardRemovesMarkerAndAbort() {
   assert.equal(card.apply.removeSegmentIds.includes("seg_a"), true);
   assert.equal(card.apply.removeSegmentIds.includes("seg_b"), true);
   assert.equal(card.afterText, "Florida oranges didn't start small.");
+  assert.equal(card.suggestedRemoval.length, 2);
+  assert.equal(card.suggestedRemovalText, "Florida oranges really sta—\nlet me start that again");
 }
 
 async function testClampIndex() {

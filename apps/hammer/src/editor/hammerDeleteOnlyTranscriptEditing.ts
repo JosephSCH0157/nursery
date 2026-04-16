@@ -23,6 +23,12 @@ export type HammerDeleteOnlyTranscriptCutSelection = {
   endSec: number;
 };
 
+export type HammerDeleteOnlyTranscriptSelectionRange = {
+  selectionStart: number;
+  selectionEnd: number;
+  selectedText: string;
+};
+
 const MIN_DURATION_SEC = 0.0001;
 
 export function tokenizeDeleteOnlyTranscriptText(text: string): HammerDeleteOnlyTranscriptToken[] {
@@ -151,5 +157,87 @@ export function deriveDeleteOnlyTranscriptCutSelection(args: {
   return {
     startSec: Math.max(Number(args.segment.start_sec), startSec),
     endSec: Math.min(Number(args.segment.end_sec), endSec),
+  };
+}
+
+export function resolveDeleteOnlyTranscriptSelectionFromTexts(args: {
+  beforeText: string;
+  afterText: string | null;
+}): HammerDeleteOnlyTranscriptSelectionRange | null {
+  const beforeText = String(args.beforeText ?? "");
+  const afterText = args.afterText == null ? null : String(args.afterText);
+  if (!beforeText.trim()) {
+    return null;
+  }
+  if (afterText == null || !afterText.trim()) {
+    return {
+      selectionStart: 0,
+      selectionEnd: beforeText.length,
+      selectedText: beforeText,
+    };
+  }
+  if (beforeText === afterText) {
+    return null;
+  }
+
+  const beforeTokens = tokenizeDeleteOnlyTranscriptText(beforeText);
+  const afterTokens = tokenizeDeleteOnlyTranscriptText(afterText);
+  if (beforeTokens.length === 0) {
+    return null;
+  }
+  if (afterTokens.length === 0) {
+    return {
+      selectionStart: 0,
+      selectionEnd: beforeText.length,
+      selectedText: beforeText,
+    };
+  }
+
+  let prefixCount = 0;
+  while (
+    prefixCount < beforeTokens.length
+    && prefixCount < afterTokens.length
+    && beforeTokens[prefixCount]?.text === afterTokens[prefixCount]?.text
+  ) {
+    prefixCount += 1;
+  }
+
+  let suffixCount = 0;
+  while (
+    suffixCount < (beforeTokens.length - prefixCount)
+    && suffixCount < (afterTokens.length - prefixCount)
+    && beforeTokens[beforeTokens.length - 1 - suffixCount]?.text === afterTokens[afterTokens.length - 1 - suffixCount]?.text
+  ) {
+    suffixCount += 1;
+  }
+
+  const deleteStartIndex = prefixCount;
+  const deleteEndIndexExclusive = beforeTokens.length - suffixCount;
+  if (deleteStartIndex >= deleteEndIndexExclusive) {
+    return null;
+  }
+
+  const deletedTokens = beforeTokens.slice(deleteStartIndex, deleteEndIndexExclusive);
+  const expectedAfterTokens = [
+    ...beforeTokens.slice(0, deleteStartIndex),
+    ...beforeTokens.slice(deleteEndIndexExclusive),
+  ].map((token) => token.text);
+  if (
+    expectedAfterTokens.length !== afterTokens.length
+    || expectedAfterTokens.some((token, index) => token !== afterTokens[index]?.text)
+  ) {
+    return null;
+  }
+
+  const selectionStart = deletedTokens[0]?.start ?? 0;
+  const selectionEnd = deletedTokens[deletedTokens.length - 1]?.end ?? selectionStart;
+  if (selectionEnd <= selectionStart) {
+    return null;
+  }
+
+  return {
+    selectionStart,
+    selectionEnd,
+    selectedText: beforeText.slice(selectionStart, selectionEnd),
   };
 }

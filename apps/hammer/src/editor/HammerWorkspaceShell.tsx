@@ -105,7 +105,11 @@ import {
   HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
   HAMMER_FILLER_CUT_SEAM_FADE_SEC,
 } from "./hammerCleanupExecution";
-import type { HammerDeleteOnlyTranscriptDeletion } from "./hammerDeleteOnlyTranscriptEditing";
+import {
+  deriveDeleteOnlyTranscriptCutSelection,
+  resolveDeleteOnlyTranscriptDeletion,
+  type HammerDeleteOnlyTranscriptDeletion,
+} from "./hammerDeleteOnlyTranscriptEditing";
 import {
   resolveSelectedSegmentId,
   resolveTranscriptDurationSec,
@@ -1372,6 +1376,23 @@ function clampNumber(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+type HammerTranscriptRemovalSlice = {
+  segmentId: string;
+  selectionStart: number;
+  selectionEnd: number;
+  text: string;
+};
+
+type HammerSelectedTranscriptRange = {
+  start: number;
+  end: number;
+  text: string;
+};
+
+type HammerSelectedTranscriptRangeDetail = HammerSelectedTranscriptRange & {
+  segments: HammerTranscriptRemovalSlice[];
+};
+
 const IMAGE_ANIMATION_PRESET_OPTIONS: Array<{ id: HammerImageAnimationPreset; label: string }> = [
   { id: "none", label: "None" },
   { id: "fade_in", label: "Fade In" },
@@ -1856,12 +1877,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [retakeDecisionInFlight, setRetakeDecisionInFlight] = useState(false);
   const [activeReviewKind, setActiveReviewKind] = useState<HammerCandidateReviewKind>("fillers");
   const [activeTranscriptToolSection, setActiveTranscriptToolSection] = useState<"fillers" | "retakes" | "silence_gaps">("fillers");
-  const [candidateEditModeById, setCandidateEditModeById] = useState<Record<string, boolean>>({});
-  const [candidateProposedTextById, setCandidateProposedTextById] = useState<Record<string, string>>({});
+  const [candidateProposedRemovalById, setCandidateProposedRemovalById] = useState<Record<string, HammerSelectedTranscriptRangeDetail>>({});
   const [candidateReceiptByKind, setCandidateReceiptByKind] = useState<Record<HammerCandidateReviewKind, string | null>>({
     fillers: null,
     retakes: null,
   });
+  const [selectedTranscriptRange, setSelectedTranscriptRange] = useState<HammerSelectedTranscriptRange | null>(null);
+  const selectedTranscriptRangeDetailRef = useRef<HammerSelectedTranscriptRangeDetail | null>(null);
   const [cleanupPreview, setCleanupPreview] = useState<HammerCleanupPreview | null>(null);
   const [cleanupReceipt, setCleanupReceipt] = useState<HammerPolishResultSummary | null>(null);
   const [editableAudioPolish, setEditableAudioPolish] = useState<HammerPersistedAudioPolish | null>(
@@ -2416,16 +2438,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const activeFillerCandidateCard = fillerCandidateCards[fillerActiveCandidateIndex] ?? null;
   const activeRetakeCandidateCard = retakeCandidateCards[retakeActiveCandidateIndex] ?? null;
   const activeCandidateCard = activeReviewKind === "retakes" ? activeRetakeCandidateCard : activeFillerCandidateCard;
-  useEffect(() => {
-    if (!activeCandidateCard) return;
-    setCandidateProposedTextById((current) => {
-      if (Object.prototype.hasOwnProperty.call(current, activeCandidateCard.id)) return current;
-      return {
-        ...current,
-        [activeCandidateCard.id]: activeCandidateCard.afterText ?? "",
-      };
-    });
-  }, [activeCandidateCard]);
   const activeFillerCandidateDiffOps = useMemo(() => {
     if (!activeFillerCandidateCard) return null;
     if (activeFillerCandidateCard.afterText == null) return null;
@@ -2443,6 +2455,59 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => new Set(activeCandidateCard ? activeCandidateCard.segmentIds : []),
     [activeCandidateCard],
   );
+
+  function setSelectedTranscriptRangeDetail(nextRange: HammerSelectedTranscriptRangeDetail | null): void {
+    selectedTranscriptRangeDetailRef.current = nextRange;
+    setSelectedTranscriptRange(nextRange ? {
+      start: nextRange.start,
+      end: nextRange.end,
+      text: nextRange.text,
+    } : null);
+  }
+
+  function createCandidateRemovalDraft(card: HammerCandidateCard | null): HammerSelectedTranscriptRangeDetail | null {
+    if (!card || card.suggestedRemoval.length === 0) return null;
+    const text = card.suggestedRemovalText.trim()
+      ? card.suggestedRemovalText
+      : card.suggestedRemoval.map((item) => item.text).join("\n");
+    return {
+      start: 0,
+      end: text.length,
+      text,
+      segments: card.suggestedRemoval.map((item) => ({
+        segmentId: item.segmentId,
+        selectionStart: item.selectionStart,
+        selectionEnd: item.selectionEnd,
+        text: item.text,
+      })),
+    };
+  }
+
+  function resolveCandidateRemovalDraft(card: HammerCandidateCard | null): HammerSelectedTranscriptRangeDetail | null {
+    if (!card) return null;
+    return candidateProposedRemovalById[card.id] ?? createCandidateRemovalDraft(card);
+  }
+
+  function updateCandidateProposedRemoval(kind: HammerCandidateReviewKind): void {
+    setActiveReviewKind(kind);
+    const card = kind === "retakes" ? activeRetakeCandidateCard : activeFillerCandidateCard;
+    const selectedRangeDetail = selectedTranscriptRangeDetailRef.current;
+    if (!card) return;
+    if (!selectedRangeDetail || selectedRangeDetail.segments.length === 0 || !selectedRangeDetail.text.trim()) {
+      setTranscriptTimingHint("Select transcript text, then choose Update Proposed Removal.");
+      return;
+    }
+    setCandidateProposedRemovalById((current) => ({
+      ...current,
+      [card.id]: {
+        start: selectedRangeDetail.start,
+        end: selectedRangeDetail.end,
+        text: selectedRangeDetail.text,
+        segments: selectedRangeDetail.segments.map((segment) => ({ ...segment })),
+      },
+    }));
+    setTranscriptTimingHint(null);
+  }
   const isTranscriptCandidateReviewPass = activeTool === "polish"
     && (currentPass === "transcript_cleanup" || currentPass === "retakes");
   const isTranscriptToolSurface = activeTool === "polish"
@@ -6205,6 +6270,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   function clearTranscriptSelection(): void {
     setTranscriptSelectionAnchorSegmentId(null);
     setTranscriptSelectionFocusSegmentId(null);
+    setSelectedTranscriptRangeDetail(null);
     setTranscriptTimingHint(null);
   }
 
@@ -6431,8 +6497,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   function refreshCandidateQueue(kind: HammerCandidateReviewKind): void {
     setActiveReviewKind(kind);
-    setCandidateEditModeById({});
-    setCandidateProposedTextById({});
+    setCandidateProposedRemovalById({});
     setCandidateReceiptByKind((current) => ({ ...current, [kind]: null }));
     rebuildCandidateQueue({
       kind,
