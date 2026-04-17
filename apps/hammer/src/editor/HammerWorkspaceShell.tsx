@@ -310,7 +310,7 @@ import {
   buildHammerCaptionPreviewModel,
   type HammerCaptionPreviewChunk,
 } from "../lib/hammerCaptionPreview";
-import HammerWorkspaceShellToolbar from "./HammerWorkspaceShellToolbar";
+import HammerWorkspaceShellToolbar, { type HammerWorkspaceShellToolbarPassVM } from "./HammerWorkspaceShellToolbar";
 import HammerWorkspaceShellPreviewBay from "./HammerWorkspaceShellPreviewBay";
 import HammerWorkspaceShellTimelineDock from "./HammerWorkspaceShellTimelineDock";
 import HammerWorkspaceShellSourceBay from "./HammerWorkspaceShellSourceBay";
@@ -10077,19 +10077,70 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         })(),
       },
     ],
-    passes: PASS_ORDER.map((pass) => {
-      const passResult = passSelectorResults.get(pass.id) ?? getPassStatus(pass.id, passSelectorContext);
-      return {
-        id: pass.id,
-        shortLabel: pass.shortLabel,
-        label: pass.label,
-        toolId: pass.toolId,
-        statusLabel: passResult.humanLabel,
-        isActive: currentPass === pass.id,
-      };
-    }),
+    passes: (() => {
+      const summarize = (passIds: HammerPassId[]): HammerPassDerivedStatus => summarizePassStatuses(
+        passIds.map((passId) => passSelectorResults.get(passId)?.status ?? getPassStatus(passId, passSelectorContext).status),
+      );
+      const transcriptPassIds: HammerPassId[] = ["transcript_cleanup", "retakes", "gap_pacing"];
+      const visualPassIds: HammerPassId[] = ["visual_finishing", "image_placement", "image_animation"];
+      const transcriptRepresentativePass: HammerPassId = activeTool === "polish" && transcriptPassIds.includes(currentPass)
+        ? currentPass
+        : "transcript_cleanup";
+      const visualRepresentativePass: HammerPassId = activeVisualTool === "images"
+        ? "image_placement"
+        : activeVisualTool === "broll"
+        ? "image_animation"
+        : "visual_finishing";
+      const visiblePasses: HammerWorkspaceShellToolbarPassVM[] = [
+        {
+          id: transcriptRepresentativePass,
+          shortLabel: "T",
+          label: "Transcript",
+          toolId: "polish",
+          statusLabel: summarize(transcriptPassIds),
+          isActive: activeTool === "polish",
+        },
+        {
+          id: visualRepresentativePass,
+          shortLabel: "V",
+          label: "Visuals",
+          toolId: "video",
+          statusLabel: summarize(visualPassIds),
+          isActive: activeTool === "video",
+        },
+        {
+          id: "audio_finalization",
+          shortLabel: "A",
+          label: "Audio",
+          toolId: "audio",
+          statusLabel: passSelectorResults.get("audio_finalization")?.humanLabel
+            ?? getPassStatus("audio_finalization", passSelectorContext).humanLabel,
+          isActive: activeTool === "audio",
+        },
+        {
+          id: "packaging",
+          shortLabel: "P",
+          label: "Packaging",
+          toolId: "finishing",
+          statusLabel: passSelectorResults.get("packaging")?.humanLabel
+            ?? getPassStatus("packaging", passSelectorContext).humanLabel,
+          isActive: currentPass === "packaging",
+        },
+      ];
+      return visiblePasses;
+    })(),
     onSelectPass: selectPass,
-  }), [currentPass, editableTranscriptSegments.length, editableVisualPlacements?.placements, editableVisualTimeline?.clips.length, passSelectorContext, passSelectorResults, selectPass]);
+  }), [
+    activeTool,
+    activeVisualTool,
+    currentPass,
+    editableTranscriptSegments.length,
+    editableVisualPlacements?.placements,
+    editableVisualTimeline?.clips.length,
+    passSelectorContext,
+    passSelectorResults,
+    selectPass,
+  ]);
   const currentPassSelectorResult = passSelectorResults.get(currentPass) ?? getPassStatus(currentPass, passSelectorContext);
 const readinessStatusLabel = readinessVerdict.status === "ready"
     ? "Ready for export"
