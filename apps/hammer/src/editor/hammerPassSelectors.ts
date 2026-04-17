@@ -42,7 +42,6 @@ export interface HammerPassReloadExpectation {
     | "restore_candidate_review"
     | "restore_timing_basis"
     | "restore_visual_basis"
-    | "restore_image_animation"
     | "restore_audio_basis"
     | "restore_packaging_basis"
     | "recompute_readiness";
@@ -284,7 +283,7 @@ export function getPassReloadExpectation(
     case "image_placement":
       return { code: "restore_visual_basis", label: "Restore canonical visual placement state and unresolved-media posture." };
     case "image_animation":
-      return { code: "restore_image_animation", label: "Restore persisted image animation state and animatable target posture." };
+      return { code: "restore_visual_basis", label: "Restore canonical B-roll routing state and unresolved-media posture." };
     case "audio_finalization":
       return { code: "restore_audio_basis", label: "Restore canonical audio polish and audio edit state." };
     case "packaging":
@@ -335,12 +334,8 @@ export function getPassStatus(
       break;
     case "visual_finishing":
     case "image_placement":
-      reasonCodes = imagePlacementReasonCodes(context);
-      break;
     case "image_animation":
-      reasonCodes = !hasImagePlacementTargets(context)
-        ? ["image_animation_target_missing"]
-        : imagePlacementReasonCodes(context);
+      reasonCodes = imagePlacementReasonCodes(context);
       break;
     case "audio_finalization":
       reasonCodes = audioReasonCodes(context);

@@ -171,10 +171,10 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
           <span>{vm.previewVideoSrc ? "Base video ready" : "Base video unavailable"}</span>
           <span>{vm.playbackMediaSrc ? "Playback media ready" : "Playback media unavailable"}</span>
           {vm.currentPassId === "visual_finishing" ? (
-            <span>Visual finishing preview mode active</span>
+            <span>Visual polish preview mode active</span>
           ) : null}
           {vm.currentPassId === "image_animation" ? (
-            <span>Image animation preset: {vm.selectedImageAnimationLabel}</span>
+            <span>B-roll inspection mode active</span>
           ) : null}
           {vm.currentPassId === "audio_finalization" ? (
             <span>Audio compare: {vm.audioFinalizationCompareModeLabel}</span>

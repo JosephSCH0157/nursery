@@ -234,6 +234,13 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
 
   const activeTool = ctx.activeTool as string;
   const currentPass = ctx.currentPass as string;
+  const videoPanelMode = currentPass === "visual_finishing"
+    ? "visual_polish"
+    : currentPass === "image_placement"
+    ? "image_placement"
+    : currentPass === "image_animation"
+    ? "broll"
+    : "unsupported";
   const setFocusOverride = ctx.setFocusOverride as (mode: "auto" | "source-focus" | "tool-focus" | "time-focus") => void;
 
   const activeReviewKind = ctx.activeReviewKind as string;
@@ -1936,9 +1943,9 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
               ) : null}
 
               {activeTool === "video" ? (
-                currentPass === "visual_finishing" ? (
+                videoPanelMode === "visual_polish" ? (
                   <section className="hammer-tool-card">
-                    <header className="hammer-tool-card__head">Visual Finishing</header>
+                    <header className="hammer-tool-card__head">Visual Polish</header>
                     <div className="hammer-tool-hint">
                       Look Preset and Exposure affect preview and export. White balance, color, and blur stay preview-only in this phase.
                     </div>
@@ -2501,7 +2508,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                       White balance, color, background blur, and background replacement remain preview-only in Phase 1. Look Preset and Exposure carry into the export packet.
                     </div>
                   </section>
-                ) : currentPass === "image_placement" ? (
+                ) : videoPanelMode === "image_placement" ? (
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Image Placement</header>
                     <div className="hammer-tool-hint">
@@ -2697,26 +2704,9 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                       </div>
                     )}
                   </section>
-                ) : currentPass === "image_animation" ? (
+                ) : videoPanelMode === "broll" ? (
                   <section className="hammer-tool-card">
-                    <header className="hammer-tool-card__head">Image Animation</header>
-                    <div className="hammer-tool-hint">
-                      Right-click an image clip in the timeline to assign an animation preset.
-                    </div>
-                    <div className="hammer-tool-hint">
-                      One preset per clip. Current selection: {selectedImageAnimationLabel}
-                    </div>
-                    {selectedImagePlacement ? (
-                      <div className="hammer-tool-hint">
-                        Selected clip: {selectedImagePlacement.label}
-                      </div>
-                    ) : (
-                      <div className="hammer-tool-hint">Select an image clip to preview its animation preset.</div>
-                    )}
-                  </section>
-                ) : (
-                <section className="hammer-tool-card">
-                  <header className="hammer-tool-card__head">Visual Placement</header>
+                    <header className="hammer-tool-card__head">B-roll</header>
                   <label className="hammer-tool-field">
                     <span>Snap Mode</span>
                     <select
@@ -3247,6 +3237,14 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                     )}
                   </div>
                 </section>
+                ) : (
+                  <section className="hammer-tool-card">
+                    <header className="hammer-tool-card__head">Unsupported Video Mode</header>
+                    <div className="hammer-tool-hint">
+                      Current video mode does not have a panel route. Pass: {currentPass}
+                    </div>
+                  </section>
+                )
               ) : null}
 
               {activeTool === "details" ? (

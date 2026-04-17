@@ -559,7 +559,7 @@ export default function HammerWorkspaceShellTimelineDock(props: { vm: HammerWork
                           && (lane.id === "stills" || lane.id === "broll")
                           && (block.tone === "image" || block.tone === "broll")
                           && Boolean(block.placementId);
-                        const imageAnimationMenuEnabled = currentPass === "image_animation"
+                        const imageAnimationMenuEnabled = currentPass === "image_placement"
                           && lane.id === "stills"
                           && block.tone === "image"
                           && Boolean(block.placementId);

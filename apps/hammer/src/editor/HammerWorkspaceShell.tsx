@@ -474,9 +474,9 @@ const PASS_ORDER: Array<{
   { id: "transcript_cleanup", shortLabel: "T1", label: "Transcript Cleanup", toolId: "polish", sourceTab: "transcript" },
   { id: "retakes", shortLabel: "T2", label: "Retakes", toolId: "polish", sourceTab: "transcript" },
   { id: "gap_pacing", shortLabel: "T3", label: "Silence Gaps", toolId: "polish", sourceTab: "transcript" },
-  { id: "visual_finishing", shortLabel: "V1", label: "Visual Finishing", toolId: "video", sourceTab: "images" },
+  { id: "visual_finishing", shortLabel: "V1", label: "Visual Polish", toolId: "video", sourceTab: "images" },
   { id: "image_placement", shortLabel: "V2", label: "Image Placement", toolId: "video", sourceTab: "images" },
-  { id: "image_animation", shortLabel: "V3", label: "Image Animation", toolId: "video", sourceTab: "images" },
+  { id: "image_animation", shortLabel: "V3", label: "B-roll", toolId: "video", sourceTab: "broll" },
   { id: "audio_finalization", shortLabel: "A", label: "Audio Finalization", toolId: "audio", sourceTab: "assets" },
   { id: "packaging", shortLabel: "P", label: "Packaging", toolId: "finishing", sourceTab: "introoutro" },
   { id: "ready", shortLabel: "R", label: "Ready", toolId: "export", sourceTab: "transcript" },
@@ -2244,6 +2244,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return;
     }
     const nextMeta = resolvePassMeta(passId);
+    if (import.meta.env.DEV) {
+      console.debug("[HammerModeRouting] selectPass", {
+        passId,
+        label: nextMeta.label,
+        sourceTab: nextMeta.sourceTab,
+        toolId: nextMeta.toolId,
+      });
+    }
     setCurrentPass(passId);
     if (activeTool !== nextMeta.toolId) {
       setActiveTool(nextMeta.toolId);
@@ -2260,6 +2268,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
     setFocusOverride("tool-focus");
   }
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const videoPanelRoute = currentPass === "visual_finishing"
+      ? "visual_polish"
+      : currentPass === "image_placement"
+      ? "image_placement"
+      : currentPass === "image_animation"
+      ? "broll"
+      : "non_video";
+    console.debug("[HammerModeRouting] state", {
+      currentPass,
+      activeTool,
+      selectedSourceTab,
+      videoPanelRoute,
+    });
+  }, [activeTool, currentPass, selectedSourceTab]);
 
   function isTextEditingTarget(target: EventTarget | null): boolean {
     if (!target) return false;
@@ -2896,7 +2921,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   // Visual placements should be editable whenever the operator is explicitly in the Images posture,
   // even if the current "pass" is something else (reduces mode confusion and matches editor intent).
   const visualPlacementEditingEnabled = currentPass === "image_placement"
-    || currentPass === "image_animation"
     || selectedSourceTab === "images";
   const selectedImagePlacement = useMemo(
     () => sourceVisualPlacementItems.find((item) => item.id === effectiveSelectedClipId) ?? null,
@@ -3032,7 +3056,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const focusSelectedClipWhenPaused = (
       currentPass === "visual_finishing"
       || currentPass === "image_placement"
-      || currentPass === "image_animation"
     );
     const clipCandidates = selectPreviewClips({
       state: editableVisualTimeline,
@@ -3120,7 +3143,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
   }, [activePreviewOverlays, editableVisualTimeline, effectiveSelectedClipId, isPlaybackActive, isScrubbing, selectedClipId]);
   useEffect(() => {
-    if (currentPass !== "image_placement" && currentPass !== "image_animation") return;
+    if (currentPass !== "image_placement") return;
     if (selectedClipId) return;
     const firstItem = sourceImageItems[0] ?? null;
     if (!firstItem) return;
@@ -6813,8 +6836,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     };
   }, [imageAnimationContextMenu]);
   useEffect(() => {
-    if (currentPass === "image_animation") return;
+    if (currentPass === "image_placement") return;
     setImageAnimationContextMenu(null);
+  }, [currentPass]);
+  useEffect(() => {
+    if (currentPass !== "image_animation") return;
+    setSelectedVisualFlowStep("broll");
   }, [currentPass]);
   useEffect(() => {
   }, [sourceImageItems]);
@@ -7389,7 +7416,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }
 
   function openImageAnimationContextMenu(event: MouseEvent<SVGGElement>, placementId: string): void {
-    if (currentPass !== "image_animation") return;
+    if (currentPass !== "image_placement") return;
     event.preventDefault();
     event.stopPropagation();
     setFocusOverride("time-focus");
@@ -9855,13 +9882,18 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
       },
       {
         id: "visual_finishing",
-        label: "Visual Finishing",
+        label: "Visual Polish",
         status: summarize(["visual_finishing"]),
       },
       {
-        id: "image",
-        label: "Image Placement + Animation",
-        status: summarize(["image_placement", "image_animation"]),
+        id: "image_placement",
+        label: "Image Placement",
+        status: summarize(["image_placement"]),
+      },
+      {
+        id: "broll",
+        label: "B-roll",
+        status: summarize(["image_animation"]),
       },
       {
         id: "audio",
