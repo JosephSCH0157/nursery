@@ -66,24 +66,33 @@ function readNullableNumber(value: unknown): number | null {
 
 function inferStoredMediaKind(path: string): HammerStoredMediaKind {
   const normalized = path.toLowerCase();
-  if (normalized.includes("reference_clip") || normalized.includes("reference-clips") || normalized.includes("reference_clips")) {
-    return "reference_clip";
-  }
-  if (
+  const isBrollPlanUpload = normalized.includes("assets/broll-plan/uploads/");
+  const isImage = (
     normalized.endsWith(".jpg")
     || normalized.endsWith(".jpeg")
     || normalized.endsWith(".png")
     || normalized.endsWith(".gif")
     || normalized.endsWith(".webp")
-  ) {
-    return "image";
-  }
-  if (
+  );
+  const isVideo = (
     normalized.endsWith(".mp4")
     || normalized.endsWith(".mov")
     || normalized.endsWith(".m4v")
     || normalized.endsWith(".webm")
-  ) {
+  );
+  if (normalized.includes("reference_clip") || normalized.includes("reference-clips") || normalized.includes("reference_clips")) {
+    return "reference_clip";
+  }
+  if (normalized.includes("contextual_data_composite") || normalized.includes("/cdc") || normalized.includes("cdc-")) {
+    return "reference_clip";
+  }
+  if (isBrollPlanUpload && isImage) {
+    return "reference_clip";
+  }
+  if (isImage) {
+    return "image";
+  }
+  if (isVideo) {
     return "broll";
   }
   if (

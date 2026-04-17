@@ -130,7 +130,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const selectedBoundBrollInspectorState = ctx.selectedBoundBrollInspectorState as any;
   const selectedBoundBrollOperationId = ctx.selectedBoundBrollOperationId as any;
   const selectedCaptionArtifactFormat = ctx.selectedCaptionArtifactFormat as any;
-  const selectedImageAnimationLabel = ctx.selectedImageAnimationLabel as any;
   const selectedImagePlacement = ctx.selectedImagePlacement as any;
   const selectedImagePlacementTransform = ctx.selectedImagePlacementTransform as any;
   const selectedTransitionBoundObject = ctx.selectedTransitionBoundObject as any;
@@ -2920,8 +2919,15 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                     </div>
                   )}
                 </section>
-                )
-              ) : null}
+              ) : (
+                <section className="hammer-tool-card">
+                  <header className="hammer-tool-card__head">Unsupported Video Mode</header>
+                  <div className="hammer-tool-hint">
+                    Current video mode does not have a panel route. Pass: {currentPass}
+                  </div>
+                </section>
+              )
+            ) : null}
 
               {activeTool === "captions" ? (
                 <section className="hammer-tool-card">
@@ -3237,14 +3243,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                     )}
                   </div>
                 </section>
-                ) : (
-                  <section className="hammer-tool-card">
-                    <header className="hammer-tool-card__head">Unsupported Video Mode</header>
-                    <div className="hammer-tool-hint">
-                      Current video mode does not have a panel route. Pass: {currentPass}
-                    </div>
-                  </section>
-                )
               ) : null}
 
               {activeTool === "details" ? (

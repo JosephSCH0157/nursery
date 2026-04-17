@@ -100,8 +100,6 @@ import {
   type HammerAudioCutSelection,
   deriveAudioCutsForSubtractiveTextEdits,
   deriveAudioCutsForTimelineCompression,
-  HAMMER_FILLER_CUT_PAD_AFTER_SEC,
-  HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
   HAMMER_FILLER_CUT_SEAM_FADE_SEC,
 } from "./hammerCleanupExecution";
 import {
@@ -7532,6 +7530,86 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
   }
 
+  function addVisualAssetPlacementFromLibrary(args: {
+    assetPath: string;
+    label: string;
+    kind: "broll" | "reference_clip";
+  }): void {
+    if (!args.assetPath.trim()) {
+      setTranscriptTimingHint("Stored asset path is unavailable. Reload workspace media state before placing it.");
+      return;
+    }
+    const placementId = createVisualPlacementId();
+    applyHistoryMutation({
+      label: args.kind === "reference_clip" ? "Add reference clip placement" : "Add b-roll placement",
+      kind: "visual_adjustment",
+      toolId: "video",
+      affectedPlacementIds: [placementId],
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const anchorSegment = before.selectedSegmentId
+          ? before.transcriptSegments.find((segment) => segment.segment_id === before.selectedSegmentId) ?? null
+          : before.transcriptSegments[0] ?? null;
+        if (!anchorSegment) return before;
+
+        const nextStart = Math.max(0, roundToTenth(before.playheadSec));
+        const nextEnd = Math.max(nextStart + 0.5, Math.min(transcriptDurationSec, roundToTenth(nextStart + 3)));
+        const visualTimeline = resolveCanonicalVisualTimeline(before);
+        const updatedAt = new Date().toISOString();
+        const nextPlacement: HammerVisualPlacementRecord = {
+          placement_id: placementId,
+          entry_id: `manual:${placementId}`,
+          anchor_segment_id: anchorSegment.segment_id,
+          matched_segment_ids: [anchorSegment.segment_id],
+          anchor_text: anchorSegment.text,
+          asset_ref: args.assetPath,
+          asset_id: null,
+          asset_path: args.assetPath,
+          storage_key: args.assetPath,
+          label: args.label,
+          visual_mode: args.kind,
+          start_sec: nextStart,
+          end_sec: nextEnd,
+          confidence: null,
+          timing_source: "ordered_fallback",
+          status: "placed",
+          ingest_state: "approved",
+          uncertainty_flags: [],
+          overlay_geometry: {
+            ...DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
+            x: 0.08,
+            y: 0.08,
+            width: 0.84,
+            height: 0.84,
+          },
+          animation_preset: "none",
+          overlay_opacity: 1,
+          overlay_z_index: visualTimeline.clips.length + 1,
+        };
+        const assetId = deriveStableHammerVisualAssetId(nextPlacement);
+        return applyVisualTimelineActions({
+          ...before,
+          selectedSegmentId: anchorSegment.segment_id,
+        }, [
+          {
+            type: "UPSERT_ASSETS",
+            assets: [migrateLegacyPlacementRecordToAsset({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt })],
+            updated_at: updatedAt,
+          },
+          {
+            type: "CREATE_CLIP",
+            clip: migrateLegacyPlacementRecordToClip({
+              record: nextPlacement,
+              asset_id: assetId,
+              updated_at: updatedAt,
+            }),
+            updated_at: updatedAt,
+          },
+        ]);
+      },
+    });
+  }
+
   function upsertPackagingPlacement(args: {
     entryId: string;
     assetPath: string;
@@ -9595,6 +9673,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       handleSourceDeskUpload,
       persistIntroOutroSelection,
       addImagePlacementFromLibrary,
+      addVisualAssetPlacementFromLibrary,
       updatePlacementKindFromMediaMap,
       redoMediaMapFromScript,
       sourceReferenceClipItems,
@@ -9703,6 +9782,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     editableOutputSelection.layerId,
     activeCandidateSegmentIdSet,
     addImagePlacementFromLibrary,
+    addVisualAssetPlacementFromLibrary,
     applyHistoryMutation,
     applyTranscriptSelection,
     activeTool,
@@ -9720,6 +9800,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     updatePlacementKindFromMediaMap,
     persistIntroOutroSelection,
     addImagePlacementFromLibrary,
+    addVisualAssetPlacementFromLibrary,
     referenceClipPlannedBeats,
     seekPlayheadToTime,
     introOutroSelection,

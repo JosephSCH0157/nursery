@@ -470,14 +470,13 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const reportVisibleSourceDeskPreviewPaths = ctx.reportVisibleSourceDeskPreviewPaths as ((paths: string[]) => void) | undefined;
   const imageUsageByPath = ctx.imageUsageByPath as Map<string, any>;
   const addImagePlacementFromLibrary = ctx.addImagePlacementFromLibrary as (...args: any[]) => void;
+  const addVisualAssetPlacementFromLibrary = ctx.addVisualAssetPlacementFromLibrary as (...args: any[]) => void;
   const formatBytes = ctx.formatBytes as (bytes: number) => string;
   const redoMediaMapFromScript = ctx.redoMediaMapFromScript as (...args: any[]) => void;
   const updatePlacementKindFromMediaMap = ctx.updatePlacementKindFromMediaMap as (...args: any[]) => void;
   const sourceReferenceClipItems = ctx.sourceReferenceClipItems as any[];
   const sourceBrollOnlyItems = ctx.sourceBrollOnlyItems as any[];
-  const referenceClipPlannedBeats = ctx.referenceClipPlannedBeats as any[];
   const seekPlayheadToTime = ctx.seekPlayheadToTime as (...args: any[]) => void;
-  const transcriptSegmentsById = ctx.transcriptSegmentsById as Map<string, any>;
   const visualPlacementCardRefs = ctx.visualPlacementCardRefs as { current: Map<string, HTMLElement> };
   const effectiveSelectedClipId = ctx.effectiveSelectedClipId as string | null;
   const selectVisualClip = ctx.selectVisualClip as (...args: any[]) => void;
@@ -589,7 +588,6 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
       </div>
     );
   }
-  const brollUploadInputRef = ctx.brollUploadInputRef as { current: HTMLInputElement | null };
   const introOutroUploadInputRef = ctx.introOutroUploadInputRef as { current: HTMLInputElement | null };
   const introOutroSelection = ctx.introOutroSelection as any;
   const introOutroSelectedIntroPath = ctx.introOutroSelectedIntroPath as string | null;
@@ -1347,40 +1345,42 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                   {selectedVisualFlowStep === "broll" ? (
                     <>
                       <div className="hammer-source-summary">
-                        <span>{sourceBrollOnlyItems.length} B-roll assets</span>
+                        <span>{sourceBrollOnlyItems.length} B-roll assets available</span>
                         <span>{unresolvedBrollSuggestionItems.length} unresolved suggestions</span>
-                        <button
-                          type="button"
-                          className="hammer-source-upload-button is-secondary"
-                          onClick={() => brollUploadInputRef.current?.click()}
-                          disabled={uploadingCategory != null}
-                        >
-                          {uploadingCategory === "broll" ? "Uploading..." : "Upload B-roll"}
-                        </button>
                       </div>
-                      <input
-                        ref={brollUploadInputRef}
-                        type="file"
-                        aria-label="Upload source desk b-roll file"
-                        accept="video/*"
-                        className="hammer-source-upload-input"
-                        onChange={(event) => {
-                          void handleSourceDeskUpload("broll", event.currentTarget.files);
-                          event.currentTarget.value = "";
-                        }}
-                      />
+                      <div className="hammer-tool-hint">
+                        Hammer only places existing B-roll assets. Create or upload new B-roll in Hearth.
+                      </div>
+                      {sourceBrollOnlyItems.length === 0 ? (
+                        <div className="hammer-empty-state">No existing B-roll assets are available in workspace state.</div>
+                      ) : null}
                       {sourceBrollOnlyItems.map((item) => (
                         <article key={`broll-step-${item.id}`} className="hammer-source-card">
                           <header className="hammer-source-card__head">
                             <strong>{item.label}</strong>
                             <span>B-roll</span>
                           </header>
+                          {renderSourceDeskPreviewThumb({ assetPath: item.assetPath ?? null, label: item.label })}
                           <div className="hammer-source-card__meta">
                             <span>{item.firstStartSec.toFixed(1)}s - {item.lastEndSec.toFixed(1)}s</span>
                             <span>Uses: {item.usageCount}</span>
                           </div>
+                          <div className="hammer-source-card__path">{item.assetPath ?? "asset path unavailable"}</div>
                           <div className="hammer-source-card__actions">
-                            <button type="button" onClick={() => seekPlayheadToTime(item.firstStartSec, "playhead")}>Cue</button>
+                            <button
+                              type="button"
+                              onClick={() => addVisualAssetPlacementFromLibrary({
+                                assetPath: item.assetPath,
+                                label: item.label,
+                                kind: "broll",
+                              })}
+                              disabled={!item.assetPath}
+                            >
+                              Place in timeline
+                            </button>
+                            {item.usageCount > 0 ? (
+                              <button type="button" onClick={() => seekPlayheadToTime(item.firstStartSec, "playhead")}>Cue</button>
+                            ) : null}
                           </div>
                         </article>
                       ))}
@@ -1390,18 +1390,21 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                   {selectedVisualFlowStep === "reference_clips" ? (
                     <>
                       <div className="hammer-source-summary">
-                        <span>{referenceClipPlannedBeats.length} planned reference beats</span>
-                        <span>{sourceReferenceClipItems.length} stored assets</span>
+                        <span>{sourceReferenceClipItems.length} reference clip assets available</span>
                       </div>
                       <div className="hammer-tool-hint">
                         Reference clips are created in Hearth. Hammer only places existing reference clip assets.
                       </div>
+                      {sourceReferenceClipItems.length === 0 ? (
+                        <div className="hammer-empty-state">No existing reference clip assets are available in workspace state.</div>
+                      ) : null}
                       {sourceReferenceClipItems.map((item) => (
                         <article key={`ref-step-${item.id}`} className="hammer-source-card">
                           <header className="hammer-source-card__head">
                             <strong>{item.label}</strong>
                             <span>Reference Clip</span>
                           </header>
+                          {renderSourceDeskPreviewThumb({ assetPath: item.assetPath ?? null, label: item.label })}
                           <div className="hammer-source-card__meta">
                             <span>{item.firstStartSec.toFixed(1)}s - {item.lastEndSec.toFixed(1)}s</span>
                             <span>Uses: {item.usageCount}</span>
@@ -1410,10 +1413,23 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                           <div className="hammer-source-card__actions">
                             <button
                               type="button"
-                              onClick={() => seekPlayheadToTime(item.firstStartSec, "playhead")}
+                              onClick={() => addVisualAssetPlacementFromLibrary({
+                                assetPath: item.assetPath,
+                                label: item.label,
+                                kind: "reference_clip",
+                              })}
+                              disabled={!item.assetPath}
                             >
-                              Cue
+                              Place in timeline
                             </button>
+                            {item.usageCount > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => seekPlayheadToTime(item.firstStartSec, "playhead")}
+                              >
+                                Cue
+                              </button>
+                            ) : null}
                           </div>
                         </article>
                       ))}

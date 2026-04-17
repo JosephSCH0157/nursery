@@ -137,15 +137,6 @@ function imagePlacementReasonCodes(
   return [...new Set(reasons)];
 }
 
-function hasImagePlacementTargets(
-  context: HammerPassSelectorContext,
-): boolean {
-  return (context.visualPlacements?.placements ?? []).some((placement) => (
-    placement.visual_mode !== "packaging_intro"
-    && placement.visual_mode !== "packaging_outro"
-  ));
-}
-
 function audioReasonCodes(
   context: HammerPassSelectorContext,
 ): HammerPassReasonCode[] {
