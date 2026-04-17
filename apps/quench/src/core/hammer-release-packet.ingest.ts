@@ -9,6 +9,7 @@ import {
   type QuenchPacketIngestResult,
   type QuenchPacketIssue,
 } from "./hammer-release-packet.types";
+import { HAMMER_QUENCH_CANONICAL_READINESS_STATUSES } from "../../../../packages/contracts/hammer/quench-readiness-taxonomy.contract";
 
 interface HammerPacketReader {
   readJson(path: string): Promise<unknown | null>;
@@ -44,7 +45,7 @@ function validateManifestShape(value: unknown): HammerQuenchReleasePacketManifes
   const readiness = asObject(row.readiness);
   if (!transcript || !audio || !captions || !visuals || !readiness) return null;
   if (transcript.source_kind !== "raw" && transcript.source_kind !== "derived") return null;
-  if (readiness.status !== "ready" && readiness.status !== "needs_review" && readiness.status !== "blocked") return null;
+  if (!HAMMER_QUENCH_CANONICAL_READINESS_STATUSES.includes(readiness.status as HammerQuenchCanonicalReadinessStatus)) return null;
   return row as unknown as HammerQuenchReleasePacketManifest;
 }
 

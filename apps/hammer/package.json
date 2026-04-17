@@ -47,6 +47,9 @@
     "test:studio-rack-ffmpeg-plan": "tsx tests/hammerStudioRackFfmpegPlan.test.ts",
     "test:audio-timeline-render-plan": "tsx tests/hammerAudioTimelineRenderPlan.test.ts",
     "test:quench-release-packet": "tsx tests/hammerQuenchReleasePacket.test.ts",
+    "test:quench-parity": "tsx tests/hammerQuenchParity.test.ts",
+    "test:open-hydration": "tsx tests/hammerOpenHydration.test.ts",
+    "test:legacy-retirement-gate": "tsx tests/hammerLegacyRetirementGate.test.ts",
     "test:cleanup-execution": "tsx tests/hammerCleanupExecution.test.ts"
   },
   "dependencies": {

@@ -5,9 +5,10 @@ import {
   createHammerReadinessReason,
   type HammerReadinessReason,
   type HammerReadinessReasonCode,
+  type HammerReadinessVerdictStatus,
 } from "../editor/hammerReadinessTypes";
 
-export type HammerReleaseHandoffStatus = "ready" | "needs_review" | "blocked";
+export type HammerReleaseHandoffStatus = HammerReadinessVerdictStatus;
 
 export interface HammerReleaseHandoffPosture {
   artifact_status: HammerReleasePrepStatus;

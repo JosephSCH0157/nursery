@@ -1,45 +1,25 @@
+import type {
+  HammerQuenchCanonicalReadinessReasonCode as HammerQuenchCanonicalReadinessReasonCodeBase,
+  HammerQuenchCanonicalReadinessReasonSeverity as HammerQuenchCanonicalReadinessReasonSeverityBase,
+  HammerQuenchCanonicalReadinessReasonSource as HammerQuenchCanonicalReadinessReasonSourceBase,
+  HammerQuenchCanonicalReadinessStatus as HammerQuenchCanonicalReadinessStatusBase,
+} from "../../../../packages/contracts/hammer/quench-readiness-taxonomy.contract";
+
 export const HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH = "hammer/release-packet/manifest.v1.json";
 
 export type HammerQuenchPacketReadinessStatus = "ready" | "missing" | "stale" | "failed" | "unsupported" | "requires_future_ffmpeg";
-export type HammerQuenchCanonicalReadinessStatus = "ready" | "needs_review" | "blocked";
-export type HammerQuenchCanonicalReadinessReasonSeverity = "blocking" | "review";
-export type HammerQuenchCanonicalReadinessReasonSource = "gate" | "artifact" | "packet" | "handoff" | "quench";
-export type HammerQuenchCanonicalReadinessReasonCode =
-  | "export_posture_unavailable"
-  | "export_posture_degraded"
-  | "operation_unavailable"
-  | "operation_degraded"
-  | "unresolved_broll_intent"
-  | "bound_attention_video"
-  | "bound_attention_audio"
-  | "podcast_master_unavailable"
-  | "podcast_master_degraded"
-  | "podcast_master_export_only"
-  | "artifact_transcript_missing"
-  | "artifact_transcript_stale"
-  | "artifact_transcript_failed"
-  | "artifact_subtitles_srt_missing"
-  | "artifact_subtitles_srt_stale"
-  | "artifact_subtitles_vtt_missing"
-  | "artifact_subtitles_vtt_stale"
-  | "artifact_visuals_missing"
-  | "artifact_visuals_stale"
-  | "artifact_audio_missing"
-  | "artifact_audio_stale"
-  | "artifact_audio_failed"
-  | "artifact_audio_unsupported"
-  | "artifact_audio_requires_future_ffmpeg"
-  | "packet_workpiece_id_missing"
-  | "packet_kind_invalid"
-  | "packet_editorial_truth_missing"
-  | "packet_timeline_snapshot_missing"
-  | "handoff_blocked"
-  | "handoff_needs_review"
+export type HammerQuenchCanonicalReadinessStatus = HammerQuenchCanonicalReadinessStatusBase;
+export type HammerQuenchCanonicalReadinessReasonSeverity = HammerQuenchCanonicalReadinessReasonSeverityBase;
+export type HammerQuenchCanonicalReadinessReasonSource = HammerQuenchCanonicalReadinessReasonSourceBase | "quench";
+export type QuenchSupplementalReadinessReasonCode =
   | "quench_audio_reference_unresolved"
   | "quench_transcript_missing"
   | "quench_captions_missing"
   | "quench_visuals_missing"
   | "quench_visuals_invalid";
+export type HammerQuenchCanonicalReadinessReasonCode =
+  | HammerQuenchCanonicalReadinessReasonCodeBase
+  | QuenchSupplementalReadinessReasonCode;
 
 export interface HammerQuenchCanonicalReadinessReason {
   code: HammerQuenchCanonicalReadinessReasonCode;
@@ -173,11 +153,7 @@ export type QuenchPacketIssueSeverity = "error" | "warning";
 export type QuenchPacketIssueCode =
   | "MANIFEST_NOT_FOUND"
   | "MANIFEST_INVALID"
-  | "quench_transcript_missing"
-  | "quench_audio_reference_unresolved"
-  | "quench_captions_missing"
-  | "quench_visuals_missing"
-  | "quench_visuals_invalid";
+  | QuenchSupplementalReadinessReasonCode;
 
 export interface QuenchPacketIssue {
   code: QuenchPacketIssueCode;

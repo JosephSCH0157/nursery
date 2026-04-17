@@ -331,6 +331,104 @@ async function testManifestBlockedTruthOutranksLocalReviewOnlyIssue() {
   assert.equal(result.issues.some((issue) => issue.code === "quench_visuals_missing"), true);
 }
 
+async function testManifestReadyForQuenchFlagIsNotRecomputed() {
+  const manifest = buildManifest({
+    readiness: {
+      status: "ready",
+      ready_for_quench: false,
+      overall_status: "ready",
+      reason_codes: [],
+      reasons_detail: [],
+      blocking_reason_codes: [],
+      blocking_reasons_detail: [],
+      review_reason_codes: [],
+      review_reasons_detail: [],
+      reasons: [],
+    },
+  });
+  const store: MemoryStore = {
+    [HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH]: manifest,
+    [manifest.transcript.text_path]: "Resolved transcript text.",
+    [manifest.captions.srt_path]: "1\n00:00:00,000 --> 00:00:01,000\nhello\n",
+    [manifest.visuals.placements_path]: [],
+  };
+  const result = await ingestHammerReleasePacket({
+    reader: createReader(store),
+  });
+  assert.equal(result.state, "ready");
+  assert.equal(result.status_label, "Ready for publish");
+  assert.equal(result.verdict?.status, "ready");
+  assert.equal(result.verdict?.ready_for_quench, false);
+}
+
+async function testManifestReasonDetailsArePreservedWithoutQuenchBackfill() {
+  const manifest = buildManifest({
+    readiness: {
+      status: "blocked",
+      ready_for_quench: false,
+      overall_status: "failed",
+      reason_codes: ["handoff_blocked", "artifact_visuals_stale"],
+      reasons_detail: [
+        {
+          code: "handoff_blocked",
+          label: "Handoff is blocked.",
+          severity: "blocking",
+          source: "handoff",
+          operation_id: "op_blocked_01",
+        },
+        {
+          code: "artifact_visuals_stale",
+          label: "Visual placements are stale.",
+          severity: "review",
+          source: "artifact",
+          operationId: "op_review_01",
+        },
+      ],
+      blocking_reason_codes: ["handoff_blocked"],
+      blocking_reasons_detail: [
+        {
+          code: "handoff_blocked",
+          label: "Handoff is blocked.",
+          severity: "blocking",
+          source: "handoff",
+          operation_id: "op_blocked_01",
+        },
+      ],
+      review_reason_codes: ["artifact_visuals_stale"],
+      review_reasons_detail: [
+        {
+          code: "artifact_visuals_stale",
+          label: "Visual placements are stale.",
+          severity: "review",
+          source: "artifact",
+          operationId: "op_review_01",
+        },
+      ],
+      reasons: ["Handoff is blocked.", "Visual placements are stale."],
+    },
+  });
+  const store: MemoryStore = {
+    [HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH]: manifest,
+    [manifest.captions.srt_path]: "1\n00:00:00,000 --> 00:00:01,000\nhello\n",
+  };
+  const result = await ingestHammerReleasePacket({
+    reader: createReader(store),
+  });
+  assert.equal(result.state, "blocked");
+  assert.equal(result.verdict?.status, "blocked");
+  assert.deepEqual(result.verdict?.reason_codes, ["handoff_blocked", "artifact_visuals_stale"]);
+  assert.deepEqual(result.verdict?.blocking_reason_codes, ["handoff_blocked"]);
+  assert.deepEqual(result.verdict?.review_reason_codes, ["artifact_visuals_stale"]);
+  assert.equal(result.verdict?.reasons_detail[0]?.operationId, "op_blocked_01");
+  assert.equal(result.verdict?.reasons_detail[0]?.operation_id, "op_blocked_01");
+  assert.equal(result.verdict?.reasons_detail[1]?.operationId, "op_review_01");
+  assert.equal(result.verdict?.reasons_detail[1]?.operation_id, "op_review_01");
+  assert.equal(result.verdict?.reason_codes.includes("quench_transcript_missing"), false);
+  assert.equal(result.verdict?.reason_codes.includes("quench_visuals_missing"), false);
+  assert.equal(result.issues.some((issue) => issue.code === "quench_transcript_missing"), true);
+  assert.equal(result.issues.some((issue) => issue.code === "quench_visuals_missing"), true);
+}
+
 async function run() {
   await testReadyPacket();
   await testAttentionWhenAudioUnresolved();
@@ -342,6 +440,8 @@ async function run() {
   await testManifestAcceptsEditorialTruthExtension();
   await testManifestNeedsReviewSurvivesIngestWithoutReinterpretation();
   await testManifestBlockedTruthOutranksLocalReviewOnlyIssue();
+  await testManifestReadyForQuenchFlagIsNotRecomputed();
+  await testManifestReasonDetailsArePreservedWithoutQuenchBackfill();
   // eslint-disable-next-line no-console
   console.log("Quench hammer release packet ingest tests passed.");
 }

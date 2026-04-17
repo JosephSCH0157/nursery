@@ -78,7 +78,7 @@ export interface HammerQuenchReleasePacketManifest {
     status: HammerReadinessVerdictStatus;
     ready_for_quench: boolean;
     overall_status: HammerReleasePrepPackage["readiness"]["blocking_statuses"][number] | "ready";
-    handoff_status: "ready" | "needs_review" | "blocked";
+    handoff_status: HammerReadinessVerdictStatus;
     reason_codes: HammerReadinessReasonCode[];
     reasons_detail: HammerReadinessReason[];
     blocking_reason_codes: HammerReadinessReasonCode[];
