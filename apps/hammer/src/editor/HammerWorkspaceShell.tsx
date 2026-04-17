@@ -482,6 +482,8 @@ const PASS_ORDER: Array<{
   { id: "ready", shortLabel: "R", label: "Ready", toolId: "export", sourceTab: "transcript" },
 ];
 
+const PASS_BY_ID = new Map(PASS_ORDER.map((pass) => [pass.id, pass] as const));
+
 function resolveActiveLookPreset(
   graph: HammerEditorialAuthorityGraph | null | undefined,
 ): HammerVisualLutPreset | null {
@@ -501,7 +503,7 @@ function resolveActiveExposureAdjustment(
 }
 
 function resolvePassMeta(passId: HammerPassId): (typeof PASS_ORDER)[number] {
-  return PASS_ORDER.find((pass) => pass.id === passId) ?? PASS_ORDER[0];
+  return PASS_BY_ID.get(passId) ?? PASS_ORDER[0];
 }
 
 function normalizePassStatus(
@@ -509,10 +511,6 @@ function normalizePassStatus(
   currentPass: HammerPassId,
 ): HammerPassStatusMap {
   return normalizeCanonicalPassStatusMap(value, currentPass);
-}
-
-function resolveDefaultPassForTool(toolId: HammerToolId): HammerPassId {
-  return PASS_ORDER.find((pass) => pass.toolId === toolId)?.id ?? PASS_ORDER[0].id;
 }
 
 function resolveInitialPassId(value: HammerPassId | undefined): HammerPassId {
@@ -1735,7 +1733,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [passStatus, setPassStatus] = useState<HammerPassStatusMap>(() => deriveHydratedPassStatus(initialCurrentPass));
   const [selectedSourceTab, setSelectedSourceTab] = useState<HammerSourceTabId>(initialPassMeta.sourceTab);
   const [selectedVisualFlowStep, setSelectedVisualFlowStep] = useState<HammerVisualFlowStepId>("media_map");
-  const [activeTool, setActiveTool] = useState<HammerToolId>(initialPassMeta.toolId);
   const [selectedBoundBrollOperationId, setSelectedBoundBrollOperationId] = useState<string | null>(null);
   const [editableDerivedTextLayers, setEditableDerivedTextLayers] = useState<
     HammerPersistedStructuredTranscript["derived_text_layers"]
@@ -1996,6 +1993,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [previewVideoSrc, setPreviewVideoSrc] = useState<string | null>(null);
   const [canonicalWorkpieceLabel, setCanonicalWorkpieceLabel] = useState<string | null>(null);
   const [visualTimelineFocusNonce, setVisualTimelineFocusNonce] = useState(0);
+  const currentPassMeta = useMemo(() => resolvePassMeta(currentPass), [currentPass]);
+  const activeTool = currentPassMeta.toolId;
   const editableVisualPlacements = useMemo(
     () => deriveLegacyVisualPlacementsFromTimeline(editableVisualTimeline),
     [editableVisualTimeline],
@@ -2069,8 +2068,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     cloneHammerAudioPolish(props.audioPolish),
   );
   const onHistoryRecoveryStatusChangeRef = useRef(props.onHistoryRecoveryStatusChange);
-  const currentPassMeta = useMemo(() => resolvePassMeta(currentPass), [currentPass]);
-
   useEffect(() => {
     onHistoryRecoveryStatusChangeRef.current = props.onHistoryRecoveryStatusChange;
   }, [props.onHistoryRecoveryStatusChange]);
@@ -2167,7 +2164,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setCurrentPass(nextInitialPass);
     setPassStatus(deriveHydratedPassStatus(nextInitialPass));
     const nextMeta = resolvePassMeta(nextInitialPass);
-    setActiveTool(nextMeta.toolId);
     setSelectedSourceTab(nextMeta.sourceTab);
     setSelectedSegmentId(nextSelectedSegmentId);
     setTranscriptSelectionAnchorSegmentId(nextSelectedSegmentId);
@@ -2221,12 +2217,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [currentPass]);
 
   useEffect(() => {
-    if (resolvePassMeta(currentPass).toolId !== activeTool) {
-      setCurrentPass(resolveDefaultPassForTool(activeTool));
-    }
-  }, [activeTool, currentPass]);
-
-  useEffect(() => {
     if (!imageAnimationContextMenuRef.current || !imageAnimationContextMenu) return;
     const viewportPaddingPx = 12;
     const menuNode = imageAnimationContextMenuRef.current;
@@ -2265,9 +2255,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       });
     }
     setCurrentPass(passId);
-    if (activeTool !== nextMeta.toolId) {
-      setActiveTool(nextMeta.toolId);
-    }
     if (selectedSourceTab !== nextMeta.sourceTab) {
       setSelectedSourceTab(nextMeta.sourceTab);
     }
@@ -2879,9 +2866,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     [sourceVisualPlacementItems],
   );
   const isVisualPreviewAuthority = (
-    selectedSourceTab === "images"
-    || selectedSourceTab === "broll"
-    || currentPass === "visual_finishing"
+    currentPass === "visual_finishing"
     || currentPass === "image_placement"
     || currentPass === "image_animation"
   );
@@ -5206,13 +5191,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const previousPlacementBoundaryRef = useRef<{
     selectedClipId: string | null;
     selectedSourceTab: HammerSourceTabId;
-    activeTool: HammerToolId;
     currentPass: HammerPassId;
     initialized: boolean;
   }>({
     selectedClipId: null,
     selectedSourceTab,
-    activeTool,
     currentPass,
     initialized: false,
   });
@@ -5222,7 +5205,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const placementBoundaryChanged = previous.initialized && (
       previous.selectedClipId !== selectedClipId
       || previous.selectedSourceTab !== selectedSourceTab
-      || previous.activeTool !== activeTool
       || previous.currentPass !== currentPass
     );
     if (placementBoundaryChanged) {
@@ -5231,11 +5213,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     previousPlacementBoundaryRef.current = {
       selectedClipId,
       selectedSourceTab,
-      activeTool,
       currentPass,
       initialized: true,
     };
-  }, [activeTool, currentPass, selectedClipId, selectedSourceTab]);
+  }, [currentPass, selectedClipId, selectedSourceTab]);
 
   function buildWorkspaceDefaultIntroOutroDestPath(kind: "intro" | "outro", sourcePath: string): string {
     const normalized = normalizeWorkpieceRelativePath(launchContext.workpiece_id, sourcePath);
@@ -6536,7 +6517,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
 
     setFocusOverride("tool-focus");
-    setActiveTool("polish");
+  selectPass("transcript_cleanup");
     setCleanupReceipt(null);
     void (async () => {
       try {
@@ -8507,8 +8488,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }
 
   function focusBoundAttentionOperation(operationId: string): void {
-    setSelectedSourceTab("broll");
-    setActiveTool("video");
+    selectPass("image_animation");
     setFocusOverride("tool-focus");
     setSelectedBoundBrollOperationId(operationId);
     const object = boundObjectById.get(operationId) ?? null;
@@ -10730,20 +10710,19 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     switch (props.prepHandoffAction.id) {
       case "review_transcript":
       case "begin_manual_editing":
-        setSelectedSourceTab("transcript");
+        selectPass("transcript_cleanup");
         setFocusOverride("source-focus");
         break;
       case "review_visuals":
-        setSelectedSourceTab("images");
-        setActiveTool("video");
+        selectPass("image_placement");
         setFocusOverride("tool-focus");
         break;
       case "review_audio":
-        setActiveTool("audio");
+        selectPass("audio_finalization");
         setFocusOverride("tool-focus");
         break;
       case "review_macros":
-        setActiveTool("finishing");
+        selectPass("packaging");
         setFocusOverride("tool-focus");
         break;
       default:

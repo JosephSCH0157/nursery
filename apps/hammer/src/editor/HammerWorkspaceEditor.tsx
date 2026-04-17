@@ -2956,17 +2956,18 @@ export default function HammerWorkspaceEditor(
     [diagnosticsIssues],
   );
   const [dismissedDiagnosticsIssueSetHash, setDismissedDiagnosticsIssueSetHash] = useState<string | null>(null);
-  const [diagnosticsBannerExpanded, setDiagnosticsBannerExpanded] = useState(false);
+  const [diagnosticsBannerVisibleIssueSetHash, setDiagnosticsBannerVisibleIssueSetHash] = useState<string | null>(null);
   useEffect(() => {
     if (diagnosticsIssues.length === 0) {
       setDismissedDiagnosticsIssueSetHash(null);
-      setDiagnosticsBannerExpanded(false);
+      setDiagnosticsBannerVisibleIssueSetHash(null);
       return;
     }
     if (diagnosticsIssueSetHash !== dismissedDiagnosticsIssueSetHash) {
-      setDiagnosticsBannerExpanded(true);
+      setDiagnosticsBannerVisibleIssueSetHash(diagnosticsIssueSetHash);
     }
   }, [diagnosticsIssueSetHash, diagnosticsIssues.length, dismissedDiagnosticsIssueSetHash]);
+  const diagnosticsBannerExpanded = diagnosticsBannerVisibleIssueSetHash === diagnosticsIssueSetHash;
   const rawSaveIndicatorStatus = useMemo<HammerSaveIndicatorStatus>(() => {
     if (saveFailureMessage) return "failed";
     if (saveInFlight) return "saving";
@@ -3589,7 +3590,7 @@ export default function HammerWorkspaceEditor(
                 onRunFixAll={runDiagnosticsFixAll}
                 onDismiss={() => {
                   setDismissedDiagnosticsIssueSetHash(diagnosticsIssueSetHash);
-                  setDiagnosticsBannerExpanded(false);
+                  setDiagnosticsBannerVisibleIssueSetHash(null);
                 }}
               />
             ) : null}
@@ -3597,7 +3598,7 @@ export default function HammerWorkspaceEditor(
                 <button
                   type="button"
                   className="hammer-prep-shell__session-action hammer-prep-shell__session-action--issues"
-                  onClick={() => setDiagnosticsBannerExpanded(true)}
+                  onClick={() => setDiagnosticsBannerVisibleIssueSetHash(diagnosticsIssueSetHash)}
                   title="Show issues"
                 >
                   Issues ({diagnosticsIssues.length})

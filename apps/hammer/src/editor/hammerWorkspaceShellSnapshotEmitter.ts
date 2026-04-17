@@ -18,6 +18,15 @@ import { deriveLegacyVisualPlacementsFromTimeline } from "../visuals/persistence
 import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
 import { projectEditPlanFromEditorialAuthorityGraph } from "./hammerRenderAssembly";
 
+function stableHashToken(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash >>> 0).toString(36);
+}
+
 export type UseHammerWorkspaceShellSnapshotEmitterArgs = {
   onWorkspaceSnapshotChange?: (
     snapshot: HammerWorkspaceSnapshot,
@@ -64,25 +73,6 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
   const lastEmittedKeyRef = useRef<string | null>(null);
   const lastPersistNowRequestNonceRef = useRef<number>(args.persistNowRequestNonce);
 
-  const objectIdsRef = useRef<{ map: WeakMap<object, number>; nextId: number } | null>(null);
-  if (!objectIdsRef.current) {
-    objectIdsRef.current = { map: new WeakMap(), nextId: 1 };
-  }
-
-  const refId = (value: unknown): number => {
-    if (!value) return 0;
-    const t = typeof value;
-    if (t !== "object" && t !== "function") return 0;
-    const state = objectIdsRef.current;
-    if (!state) return 0;
-    const obj = value as object;
-    const existing = state.map.get(obj);
-    if (existing) return existing;
-    const next = state.nextId++;
-    state.map.set(obj, next);
-    return next;
-  };
-
   // NOTE: We intentionally use a layout effect here so that committed canonical workspace
   // mutations (history/apply actions) produce a parent-visible snapshot as soon as possible.
   // This reduces the "commit gap" where a user can close the page before autosave has a
@@ -112,6 +102,69 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
     );
 
     const sessionId = args.launchContext.session_id ?? editPlan.session_id ?? `${args.launchContext.workpiece_id}:session`;
+    const contentSignature = stableHashToken(JSON.stringify({
+      currentPass: args.currentPass,
+      passStatus: args.passStatus,
+      selectedSegmentId: args.selectedSegmentId,
+      selectedOverlayRowId: args.selectedOverlayRowId,
+      transcriptSegments: args.editableTranscriptSegments.map((segment) => ({
+        id: segment.segment_id,
+        text: segment.text,
+        speaker: segment.speaker,
+        start: segment.start_sec,
+        end: segment.end_sec,
+        disabled: segment.is_disabled === true,
+      })),
+      visualTimeline: args.editableVisualTimeline
+        ? {
+          revision: args.editableVisualTimeline.revision,
+          updatedAt: args.editableVisualTimeline.updated_at,
+          selectedClipId: args.editableVisualTimeline.selected_clip_id,
+          assets: args.editableVisualTimeline.assets.map((asset) => ({
+            id: asset.asset_id,
+            ref: asset.asset_ref,
+            path: asset.path,
+            updatedAt: asset.updated_at,
+          })),
+          clips: args.editableVisualTimeline.clips.map((clip) => ({
+            id: clip.clip_id,
+            laneId: clip.lane_id,
+            assetId: clip.asset_id,
+            start: clip.start_sec,
+            end: clip.end_sec,
+            opacity: clip.opacity,
+            zIndex: clip.z_index,
+            enabled: clip.enabled,
+            updatedAt: clip.updated_at,
+          })),
+        }
+        : null,
+      visualPlacements: args.editableVisualPlacements?.placements.map((placement) => ({
+        id: placement.placement_id,
+        assetId: placement.asset_id,
+        start: placement.start_sec,
+        end: placement.end_sec,
+        status: placement.status,
+      })) ?? null,
+      audioPolish: args.editableAudioPolish
+        ? {
+          status: args.editableAudioPolish.status,
+          preparedAt: args.editableAudioPolish.prepared_at,
+          preparedPasses: args.editableAudioPolish.prepared_passes,
+          sourceMediaSignature: args.editableAudioPolish.source_media_signature,
+          outputLocalRelpath: args.editableAudioPolish.output_local_relpath,
+          analysisAnalyzedAt: args.editableAudioPolish.analysis?.analyzed_at ?? null,
+        }
+        : null,
+      visualPreviewSettings: args.visualPreviewSettings,
+      backgroundReplaceImageUrl: normalizedBackgroundReplaceUrl,
+      mediaSourceLabel: args.mediaSourceLabel,
+      canonicalWorkpieceLabel: args.canonicalWorkpieceLabel,
+      legacyCaptureLabel: args.legacyCaptureLabel,
+      mediaLabelMismatchWarning: args.mediaLabelMismatchWarning,
+      selectedMacroRecipeRef: args.selectedMacroRecipeRef,
+      lastMacroRunRef: args.lastMacroRunRef,
+    }));
 
     // Snapshot emission must be idempotent to avoid referential churn loops where parents store
     // snapshots in state and immediately re-render, causing the emitter to run again.
@@ -132,17 +185,7 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
       args.selectedMacroRecipeRef ?? "",
       args.lastMacroRunRef ?? "",
       normalizedBackgroundReplaceUrl ?? "",
-      // Stable-by-identity payloads
-      String(refId(args.passStatus)),
-      String(refId(args.editableTranscriptSegments)),
-      String(refId(args.canonicalStructuredTranscript)),
-      String(refId(args.exportCanonicalGraph)),
-      String(refId(args.editableVisualTimeline)),
-      String(refId(args.editableVisualPlacements)),
-      String(refId(args.editableAudioPolish)),
-      String(refId(args.mediaRef)),
-      String(refId(args.workspaceMapping)),
-      String(refId(args.visualTimelineProp)),
+      contentSignature,
     ].join("|");
 
     const persistNowRequested = args.persistNowRequestNonce !== lastPersistNowRequestNonceRef.current;
