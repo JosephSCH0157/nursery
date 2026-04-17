@@ -206,6 +206,8 @@ type HammerPreparedActionIntent = {
   token: number;
 };
 
+type HammerSaveIndicatorStatus = "editing" | "saving" | "saved" | "failed";
+
 function buildTargetKey(workspaceId: string, workpieceId: string): string {
   return `${workspaceId}:${workpieceId}`;
 }
@@ -2922,6 +2924,8 @@ export default function HammerWorkspaceEditor(
   const [diagnosticsFixInFlight, setDiagnosticsFixInFlight] = useState<HammerIssueFixActionId | null>(null);
   const [diagnosticsFixErrorMessage, setDiagnosticsFixErrorMessage] = useState<string | null>(null);
   const [jobsStatusUnavailable, setJobsStatusUnavailable] = useState<{ status: number; message: string } | null>(null);
+  const currentPass = workspaceSnapshot?.currentPass ?? loadedPersistenceSnapshot?.state?.current_pass ?? null;
+  const isPreviewFirstMode = currentPass === "image_placement";
   const diagnosticsIssues = useMemo(() => deriveHammerIssueDiagnostics({
     sessionState,
     mediaPrepOutputs: handoffMediaPrepOutputs,
@@ -2933,29 +2937,75 @@ export default function HammerWorkspaceEditor(
     sessionState,
     workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning,
   ]);
-  const [diagnosticsBannerCollapsed, setDiagnosticsBannerCollapsed] = useState(false);
-  const diagnosticsIssuesFingerprint = useMemo(
-    () => diagnosticsIssues
-      .map((issue) => `${issue.id}:${issue.severity}`)
-      .sort()
-      .join("|"),
+  const diagnosticsIssueSetHash = useMemo(
+    () => JSON.stringify(
+      [...diagnosticsIssues]
+        .map((issue) => ({
+          id: issue.id,
+          severity: issue.severity,
+          title: issue.title,
+          summary: issue.summary,
+          affectedAreas: [...issue.affectedAreas],
+          safeActions: [...issue.safeActions],
+          recommendedAction: issue.recommendedAction ?? null,
+          canAutoFix: issue.canAutoFix,
+          fixActionId: issue.fixActionId ?? null,
+        }))
+        .sort((left, right) => left.id.localeCompare(right.id)),
+    ),
     [diagnosticsIssues],
   );
-  const lastDiagnosticsIssuesFingerprintRef = useRef<string>("");
+  const [dismissedDiagnosticsIssueSetHash, setDismissedDiagnosticsIssueSetHash] = useState<string | null>(null);
+  const [diagnosticsBannerExpanded, setDiagnosticsBannerExpanded] = useState(false);
   useEffect(() => {
     if (diagnosticsIssues.length === 0) {
-      lastDiagnosticsIssuesFingerprintRef.current = "";
-      setDiagnosticsBannerCollapsed(false);
+      setDismissedDiagnosticsIssueSetHash(null);
+      setDiagnosticsBannerExpanded(false);
       return;
     }
-    if (
-      diagnosticsIssuesFingerprint
-      && diagnosticsIssuesFingerprint !== lastDiagnosticsIssuesFingerprintRef.current
-    ) {
-      lastDiagnosticsIssuesFingerprintRef.current = diagnosticsIssuesFingerprint;
-      setDiagnosticsBannerCollapsed(false);
+    if (diagnosticsIssueSetHash !== dismissedDiagnosticsIssueSetHash) {
+      setDiagnosticsBannerExpanded(true);
     }
-  }, [diagnosticsIssues.length, diagnosticsIssuesFingerprint]);
+  }, [diagnosticsIssueSetHash, diagnosticsIssues.length, dismissedDiagnosticsIssueSetHash]);
+  const rawSaveIndicatorStatus = useMemo<HammerSaveIndicatorStatus>(() => {
+    if (saveFailureMessage) return "failed";
+    if (saveInFlight) return "saving";
+    if (hasPendingSaveChanges) return "editing";
+    if (lastSavedAt) return "saved";
+    return "editing";
+  }, [hasPendingSaveChanges, lastSavedAt, saveFailureMessage, saveInFlight]);
+  const [displaySaveIndicatorStatus, setDisplaySaveIndicatorStatus] = useState<HammerSaveIndicatorStatus>(rawSaveIndicatorStatus);
+  const saveIndicatorStatusSinceRef = useRef<number>(Date.now());
+  useEffect(() => {
+    if (displaySaveIndicatorStatus === rawSaveIndicatorStatus) return;
+
+    if (rawSaveIndicatorStatus === "saved" && displaySaveIndicatorStatus === "saving") {
+      const elapsedMs = Date.now() - saveIndicatorStatusSinceRef.current;
+      const remainingMs = Math.max(0, 500 - elapsedMs);
+      const timer = window.setTimeout(() => {
+        saveIndicatorStatusSinceRef.current = Date.now();
+        setDisplaySaveIndicatorStatus("saved");
+      }, remainingMs);
+      return () => window.clearTimeout(timer);
+    }
+
+    saveIndicatorStatusSinceRef.current = Date.now();
+    setDisplaySaveIndicatorStatus(rawSaveIndicatorStatus);
+    return undefined;
+  }, [displaySaveIndicatorStatus, rawSaveIndicatorStatus]);
+  const saveIndicatorLabel = displaySaveIndicatorStatus === "saving"
+    ? "Saving"
+    : displaySaveIndicatorStatus === "saved"
+    ? "Saved"
+    : displaySaveIndicatorStatus === "failed"
+    ? "Failed"
+    : "Editing";
+  const saveIndicatorDetail = displaySaveIndicatorStatus === "saved" && lastSavedAt
+    ? new Date(lastSavedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : displaySaveIndicatorStatus === "failed"
+    ? (saveFailureMessage ?? null)
+    : null;
+  const shouldShowCompactIssuesPill = diagnosticsIssues.length > 0 && (isPreviewFirstMode || !diagnosticsBannerExpanded);
   const progressFillClassName = useMemo(
     () => `${dynamicStyleScopeIdRef.current}__progress-fill`,
     [],
@@ -3515,15 +3565,20 @@ export default function HammerWorkspaceEditor(
   return (
     <div className="hammer-prep-shell hammer-workspace-editor-host">
       {shouldRenderEditor ? (
-        <div className="hammer-prep-shell__editor">
+        <div className={[
+          "hammer-prep-shell__editor",
+          isPreviewFirstMode ? "is-preview-first" : "",
+        ].filter(Boolean).join(" ")}>
           <div
             className={[
               "hammer-prep-shell__session-state",
               sessionState.isBlocking ? "is-blocking" : "",
               sessionState.isDegraded ? "is-degraded" : "",
+              isPreviewFirstMode ? "is-compact" : "",
             ].filter(Boolean).join(" ")}
           >
-            {!diagnosticsBannerCollapsed ? (
+            <div className="hammer-prep-shell__session-primary">
+              {!isPreviewFirstMode && diagnosticsIssues.length > 0 && diagnosticsBannerExpanded ? (
               <HammerWorkspaceDiagnosticsBanner
                 issues={diagnosticsIssues}
                 fallbackTitle={sessionState.humanLabel}
@@ -3532,32 +3587,38 @@ export default function HammerWorkspaceEditor(
                 fixErrorMessage={diagnosticsFixErrorMessage}
                 onRunFixAction={runDiagnosticsFixAction}
                 onRunFixAll={runDiagnosticsFixAll}
-                onDismiss={diagnosticsIssues.length > 0 ? () => setDiagnosticsBannerCollapsed(true) : undefined}
+                onDismiss={() => {
+                  setDismissedDiagnosticsIssueSetHash(diagnosticsIssueSetHash);
+                  setDiagnosticsBannerExpanded(false);
+                }}
               />
             ) : null}
-          </div>
-          <div className="hammer-prep-shell__session-actions">
-            <div className="hammer-prep-shell__session-actions-summary">
-              <span>
-                Transcript: {transcriptSegmentCount} segments
-              </span>
-              <span>
-                Visual placements: {visualPlacementCounts.total ?? "—"}
-                {typeof visualPlacementCounts.uncertain === "number"
-                  ? ` (${visualPlacementCounts.uncertain} uncertain)`
-                  : ""}
+              {shouldShowCompactIssuesPill ? (
+                <button
+                  type="button"
+                  className="hammer-prep-shell__session-action hammer-prep-shell__session-action--issues"
+                  onClick={() => setDiagnosticsBannerExpanded(true)}
+                  title="Show issues"
+                >
+                  Issues ({diagnosticsIssues.length})
+                </button>
+              ) : null}
+            </div>
+            <div className="hammer-prep-shell__session-status">
+              <span
+                className={[
+                  "hammer-prep-shell__save-indicator",
+                  `is-${displaySaveIndicatorStatus}`,
+                ].join(" ")}
+                title={saveIndicatorDetail ?? saveIndicatorLabel}
+              >
+                <span className="hammer-prep-shell__save-indicator-dot" aria-hidden="true" />
+                <span className="hammer-prep-shell__save-indicator-label">{saveIndicatorLabel}</span>
+                {saveIndicatorDetail ? (
+                  <span className="hammer-prep-shell__save-indicator-detail">{saveIndicatorDetail}</span>
+                ) : null}
               </span>
             </div>
-            {diagnosticsBannerCollapsed && diagnosticsIssues.length > 0 ? (
-              <button
-                type="button"
-                className="hammer-prep-shell__session-action hammer-prep-shell__session-action--issues"
-                onClick={() => setDiagnosticsBannerCollapsed(false)}
-                title="Show issues"
-              >
-                Issues ({diagnosticsIssues.length})
-              </button>
-            ) : null}
           </div>
 
           {regenAiTranscriptOpen ? (

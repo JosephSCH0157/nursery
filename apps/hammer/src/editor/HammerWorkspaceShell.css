@@ -120,6 +120,35 @@ Guardrails:
   text-align: center;
 }
 
+.hammer-toolbar__stats {
+  display: grid;
+  gap: 6px;
+}
+
+.hammer-toolbar__stat {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  padding: 6px 4px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.56);
+  color: #bfdbfe;
+}
+
+.hammer-toolbar__stat span {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #93c5fd;
+}
+
+.hammer-toolbar__stat strong {
+  font-size: 10px;
+  line-height: 1.2;
+  color: #f8fafc;
+}
+
 .hammer-toolbar__tool {
   border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: 10px;
@@ -2538,10 +2567,10 @@ Guardrails:
 }
 
 .hammer-workspace-shell.is-visual-placement {
-  --hammer-shell-timeline-height: clamp(170px, 22vh, 228px);
+  --hammer-shell-timeline-height: clamp(136px, 17vh, 180px);
   --hammer-shell-placement-source-width: clamp(280px, 24vw, 400px);
-  --hammer-shell-placement-preview-min-width: 620px;
-  --hammer-shell-placement-preview-max-width: min(66vw, 1120px);
+  --hammer-shell-placement-preview-min-width: 700px;
+  --hammer-shell-placement-preview-max-width: min(72vw, 1240px);
 }
 
 .hammer-workspace-shell.is-visual-placement .hammer-workspace-shell__top {
@@ -2573,7 +2602,7 @@ Guardrails:
 }
 
 .hammer-workspace-shell.is-visual-placement .hammer-preview-surface {
-  min-height: clamp(420px, 64vh, 820px);
+  min-height: clamp(500px, 72vh, 920px);
 }
 
 .hammer-workspace-shell.is-visual-placement .hammer-tool-bay {
@@ -2678,7 +2707,7 @@ Guardrails:
   .hammer-workspace-shell.is-visual-placement .hammer-workspace-shell__top {
     grid-template-columns:
       minmax(0, clamp(260px, 24vw, 380px))
-      minmax(560px, min(67vw, 1020px))
+      minmax(620px, min(71vw, 1100px))
       0;
   }
 }
@@ -2720,7 +2749,7 @@ Guardrails:
   .hammer-workspace-shell.is-visual-placement .hammer-workspace-shell__top {
     grid-template-columns:
       minmax(0, clamp(240px, 25vw, 340px))
-      minmax(500px, min(68vw, 920px))
+      minmax(560px, min(71vw, 980px))
       0;
   }
 }
@@ -2753,10 +2782,10 @@ Guardrails:
   }
 
   .hammer-workspace-shell.is-visual-placement {
-    --hammer-shell-timeline-height: clamp(160px, 20vh, 210px);
+    --hammer-shell-timeline-height: clamp(132px, 16vh, 170px);
     --hammer-shell-placement-source-width: clamp(220px, 25vw, 300px);
-    --hammer-shell-placement-preview-min-width: 420px;
-    --hammer-shell-placement-preview-max-width: min(69vw, 820px);
+    --hammer-shell-placement-preview-min-width: 500px;
+    --hammer-shell-placement-preview-max-width: min(72vw, 900px);
   }
 
   .hammer-workspace-shell.is-visual-placement .hammer-workspace-shell__top {
@@ -2771,7 +2800,7 @@ Guardrails:
   }
 
   .hammer-workspace-shell.is-visual-placement .hammer-preview-surface {
-    min-height: clamp(360px, 56vh, 680px);
+    min-height: clamp(420px, 66vh, 760px);
   }
 }
 

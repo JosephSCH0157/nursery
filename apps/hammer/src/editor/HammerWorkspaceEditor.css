@@ -39,6 +39,7 @@
   display: flex;
   gap: 10px;
   align-items: center;
+  justify-content: space-between;
   padding: 10px 14px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.18);
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(15, 23, 42, 0.82));
@@ -57,6 +58,26 @@
 
 .hammer-prep-shell__session-state span {
   color: rgba(219, 228, 238, 0.86);
+}
+
+.hammer-prep-shell__session-state.is-compact {
+  min-height: 48px;
+  padding: 6px 12px;
+}
+
+.hammer-prep-shell__session-primary {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hammer-prep-shell__session-status {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .hammer-prep-shell__session-actions {
@@ -86,6 +107,58 @@
 
 .hammer-prep-shell__session-action--issues:hover {
   background: rgba(69, 39, 12, 0.78);
+}
+
+.hammer-prep-shell__save-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.38);
+  color: #e2e8f0;
+  white-space: nowrap;
+}
+
+.hammer-prep-shell__save-indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #94a3b8;
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.16);
+}
+
+.hammer-prep-shell__save-indicator-label {
+  color: #f8fafc;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hammer-prep-shell__save-indicator-detail {
+  color: rgba(219, 228, 238, 0.74);
+  font-size: 11px;
+}
+
+.hammer-prep-shell__save-indicator.is-editing .hammer-prep-shell__save-indicator-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18);
+}
+
+.hammer-prep-shell__save-indicator.is-saving .hammer-prep-shell__save-indicator-dot {
+  background: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+}
+
+.hammer-prep-shell__save-indicator.is-saved .hammer-prep-shell__save-indicator-dot {
+  background: #34d399;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18);
+}
+
+.hammer-prep-shell__save-indicator.is-failed .hammer-prep-shell__save-indicator-dot {
+  background: #f87171;
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.18);
 }
 
 .hammer-prep-shell__session-state.is-degraded {
@@ -267,6 +340,14 @@
   font-size: 12px;
   max-width: 520px;
   text-align: right;
+}
+
+.hammer-prep-shell__editor.is-preview-first .hammer-prep-shell__session-primary {
+  flex: 0 1 auto;
+}
+
+.hammer-prep-shell__editor.is-preview-first .hammer-diagnostics-banner {
+  display: none;
 }
 
 .hammer-diagnostics-banner__error {

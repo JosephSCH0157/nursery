@@ -10044,6 +10044,36 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     visualPlacementEditingEnabled,
   ]);
   const toolbarVM = useMemo(() => ({
+    stats: [
+      {
+        id: "transcript",
+        label: "Tx",
+        value: String(editableTranscriptSegments.length),
+        title: `Transcript: ${editableTranscriptSegments.length} segments`,
+      },
+      {
+        id: "visuals",
+        label: "Vis",
+        value: (() => {
+          const total = editableVisualPlacements?.placements.length ?? editableVisualTimeline?.clips.length ?? 0;
+          const uncertain = (editableVisualPlacements?.placements ?? []).reduce(
+            (count, placement) => count + (placement.status === "uncertain" ? 1 : 0),
+            0,
+          );
+          return uncertain > 0 ? `${total}/${uncertain}?` : String(total);
+        })(),
+        title: (() => {
+          const total = editableVisualPlacements?.placements.length ?? editableVisualTimeline?.clips.length ?? 0;
+          const uncertain = (editableVisualPlacements?.placements ?? []).reduce(
+            (count, placement) => count + (placement.status === "uncertain" ? 1 : 0),
+            0,
+          );
+          return uncertain > 0
+            ? `Visual placements: ${total} (${uncertain} uncertain)`
+            : `Visual placements: ${total}`;
+        })(),
+      },
+    ],
     passes: PASS_ORDER.map((pass) => {
       const passResult = passSelectorResults.get(pass.id) ?? getPassStatus(pass.id, passSelectorContext);
       return {
@@ -10056,7 +10086,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       };
     }),
     onSelectPass: selectPass,
-  }), [currentPass, passSelectorContext, passSelectorResults, selectPass]);
+  }), [currentPass, editableTranscriptSegments.length, editableVisualPlacements?.placements, editableVisualTimeline?.clips.length, passSelectorContext, passSelectorResults, selectPass]);
   const currentPassSelectorResult = passSelectorResults.get(currentPass) ?? getPassStatus(currentPass, passSelectorContext);
 const readinessStatusLabel = readinessVerdict.status === "ready"
     ? "Ready for export"
