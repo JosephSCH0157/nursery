@@ -5,6 +5,8 @@ export type HammerWorkspaceShellToolBayVM = {
   passLabel: string;
   passStatus: string;
   onMarkComplete: () => void;
+  activeVisualTool?: "polish" | "images" | "broll";
+  onSelectVisualTool?: (nextTool: "polish" | "images" | "broll") => void;
 };
 
 type FillerCleanupOptions = any;
@@ -233,13 +235,8 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
 
   const activeTool = ctx.activeTool as string;
   const currentPass = ctx.currentPass as string;
-  const videoPanelMode = currentPass === "visual_finishing"
-    ? "visual_polish"
-    : currentPass === "image_placement"
-    ? "image_placement"
-    : currentPass === "image_animation"
-    ? "broll"
-    : "unsupported";
+  const activeVisualTool = (ctx.activeVisualTool ?? vm.activeVisualTool ?? "polish") as "polish" | "images" | "broll";
+  const onSelectVisualTool = (ctx.onSelectVisualTool ?? vm.onSelectVisualTool ?? null) as ((nextTool: "polish" | "images" | "broll") => void) | null;
   const setFocusOverride = ctx.setFocusOverride as (mode: "auto" | "source-focus" | "tool-focus" | "time-focus") => void;
 
   const activeReviewKind = ctx.activeReviewKind as string;
@@ -355,6 +352,34 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
         </div>
       </header>
       <div className="hammer-bay-body">
+        {activeTool === "video" ? (
+          <section className="hammer-tool-card hammer-visual-tool-selector" aria-label="Visual tool selector">
+            <header className="hammer-tool-card__head">Visual Tools</header>
+            <div className="hammer-source-card__actions" aria-label="Visual tools">
+              <button
+                type="button"
+                className={activeVisualTool === "polish" ? "is-selected" : ""}
+                onClick={() => onSelectVisualTool?.("polish")}
+              >
+                Polish
+              </button>
+              <button
+                type="button"
+                className={activeVisualTool === "images" ? "is-selected" : ""}
+                onClick={() => onSelectVisualTool?.("images")}
+              >
+                Images
+              </button>
+              <button
+                type="button"
+                className={activeVisualTool === "broll" ? "is-selected" : ""}
+                onClick={() => onSelectVisualTool?.("broll")}
+              >
+                B-roll
+              </button>
+            </div>
+          </section>
+        ) : null}
                   {activeTool === "polish" ? (
                     currentPass === "transcript_cleanup" || currentPass === "retakes" || currentPass === "gap_pacing" ? (
                       <section className="hammer-tool-card">
@@ -1948,7 +1973,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
               ) : null}
 
               {activeTool === "video" ? (
-                videoPanelMode === "visual_polish" ? (
+                activeVisualTool === "polish" ? (
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Visual Polish</header>
                     <div className="hammer-tool-hint">
@@ -2513,7 +2538,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                       White balance, color, background blur, and background replacement remain preview-only in Phase 1. Look Preset and Exposure carry into the export packet.
                     </div>
                   </section>
-                ) : videoPanelMode === "image_placement" ? (
+                ) : activeVisualTool === "images" ? (
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Image Placement</header>
                     <div className="hammer-tool-hint">
@@ -2709,7 +2734,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                       </div>
                     )}
                   </section>
-                ) : videoPanelMode === "broll" ? (
+                ) : activeVisualTool === "broll" ? (
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">B-roll</header>
                   <label className="hammer-tool-field">
@@ -2929,7 +2954,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                 <section className="hammer-tool-card">
                   <header className="hammer-tool-card__head">Unsupported Video Mode</header>
                   <div className="hammer-tool-hint">
-                    Current video mode does not have a panel route. Pass: {currentPass}
+                    Current visual tool does not have a panel route. Pass: {currentPass}
                   </div>
                 </section>
               )

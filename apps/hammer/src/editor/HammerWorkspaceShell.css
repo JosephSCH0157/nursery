@@ -1260,6 +1260,10 @@ Guardrails:
   gap: 8px;
 }
 
+.hammer-visual-tool-selector {
+  align-content: start;
+}
+
 .hammer-tool-state-grid {
   border-top: 1px solid rgba(148, 163, 184, 0.14);
   margin-top: 2px;
