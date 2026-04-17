@@ -124,7 +124,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
           />
           <div className="hammer-preview-surface__label">{vm.previewSurfaceLabel}</div>
           <VisualPreviewComposer
-            overlays={vm.visualPreview.isAuthority ? vm.visualPreview.overlays : []}
+            overlays={vm.visualPreview.overlays}
             editable={vm.visualPreview.isAuthority && vm.visualPreview.editable}
             onSelectClip={(clipId) => {
               if (!vm.visualPreview.isAuthority) return;

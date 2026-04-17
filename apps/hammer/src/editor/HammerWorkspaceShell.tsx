@@ -3063,7 +3063,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [visualEyeContactAssistDebugOverlay, visualEyeContactAssistRuntimeStatus]);
 
   const activePreviewOverlays = useMemo<VisualPreviewOverlayModel[]>(() => {
-    if (!isVisualPreviewAuthority) return [];
     if (!editableVisualTimeline) return [];
     const focusSelectedClipWhenPaused = (
       currentPass === "visual_finishing"
@@ -3111,7 +3110,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     imagePlacementTransforms,
     isPlaybackActive,
     isScrubbing,
-    isVisualPreviewAuthority,
     playheadSec,
     effectiveSelectedClipId,
     selectedClipId,
@@ -3183,6 +3181,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       }
     }
   }, [activePreviewOverlays, editableVisualTimeline, isPlaybackActive, isScrubbing, playheadSec, scrubRate]);
+  const activePreviewOverlayAssetPaths = useMemo(() => {
+    if (!editableVisualTimeline) return [] as string[];
+    const paths: string[] = [];
+    for (const overlay of activePreviewOverlays) {
+      const clip = selectClipById(editableVisualTimeline, overlay.clip_id);
+      const assetPath = clip?.asset_id
+        ? (visualAssetsById.get(clip.asset_id)?.path ?? null)
+        : null;
+      if (assetPath) {
+        appendUniquePaths(paths, [assetPath]);
+      }
+    }
+    return paths;
+  }, [activePreviewOverlays, editableVisualTimeline, visualAssetsById]);
   const sourceAssetItems = useMemo<HammerSourceAssetItem[]>(() => {
     const byId = new Map<string, HammerSourceAssetItem>();
     for (const placement of editableVisualPlacements?.placements ?? []) {
@@ -3560,6 +3572,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     : null;
   const prioritizedSourceDeskPreviewPaths = useMemo(() => {
     const ordered: string[] = [];
+    appendUniquePaths(ordered, activePreviewOverlayAssetPaths);
     appendUniquePaths(ordered, [selectedSourceDeskPreviewAssetPath]);
     appendUniquePaths(ordered, sourceImageItems.map((item) => item.assetPath));
     appendUniquePaths(ordered, sourceDeskVisiblePreviewPaths);
@@ -3567,7 +3580,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     appendUniquePaths(ordered, sourceBrollItems.map((item) => item.assetPath));
     appendUniquePaths(ordered, sourceDeskPreviewPaths);
     return ordered;
-  }, [selectedSourceDeskPreviewAssetPath, sourceBrollItems, sourceDeskPreviewPaths, sourceDeskVisiblePreviewPaths, sourceImageItems, sourceImageLibraryItems]);
+  }, [activePreviewOverlayAssetPaths, selectedSourceDeskPreviewAssetPath, sourceBrollItems, sourceDeskPreviewPaths, sourceDeskVisiblePreviewPaths, sourceImageItems, sourceImageLibraryItems]);
   const sourceDeskPreviewFetchPaths = useMemo(
     () => prioritizedSourceDeskPreviewPaths.slice(0, SOURCE_DESK_PREVIEW_MAX_ITEMS),
     [prioritizedSourceDeskPreviewPaths],
