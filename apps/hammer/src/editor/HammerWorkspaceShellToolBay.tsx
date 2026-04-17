@@ -330,6 +330,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const studioRackRenderAppliedModules = ctx.studioRackRenderAppliedModules as any[];
   const studioRackRenderDeferredModules = ctx.studioRackRenderDeferredModules as any[];
   const studioRackEnabledModuleCount = ctx.studioRackEnabledModuleCount as number;
+  const studioRackComparePreviewStatusLabel = ctx.studioRackComparePreviewStatusLabel as string | null;
 
   const podcastMasterLayer = ctx.podcastMasterLayer as any;
   const podcastMasterUiStatus = ctx.podcastMasterUiStatus as any;
@@ -1610,6 +1611,11 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                   <div className="hammer-tool-hint">
                     Render lane: {studioRackRenderConfig.backend} ({studioRackRenderBackendResolution.status})
                   </div>
+                  {studioRackComparePreviewStatusLabel ? (
+                    <div className="hammer-tool-hint">
+                      {studioRackComparePreviewStatusLabel}
+                    </div>
+                  ) : null}
                   {studioRackRenderStatus ? (
                     <div className="hammer-tool-hint">
                       Last render lane result: {studioRackRenderStatus.message}

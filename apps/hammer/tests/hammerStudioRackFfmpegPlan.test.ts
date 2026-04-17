@@ -58,11 +58,36 @@ function testBypassedAndDisabledModulesAreNotRequested() {
   assert.equal(compressorDecision?.reason, "module_bypassed");
 }
 
+function testVoicePolishAdvancedSettingsChangeRenderedFilters() {
+  const rack = createDefaultHammerStudioRackState();
+  rack.is_enabled = true;
+  rack.voice_polish = {
+    ...rack.voice_polish!,
+    fixes: {
+      ...rack.voice_polish!.fixes,
+      remove_harsh_sibilance: true,
+      enhance_voice_clarity: true,
+    },
+    advanced: {
+      de_esser_strength: "high",
+      eq_profile: "bright",
+    },
+  };
+
+  const plan = buildHammerStudioRackFfmpegPlan(rack);
+  assert.equal(plan.appliedModules.includes("voice_polish_tier2"), true);
+  assert.equal(plan.filterChain.includes("deesser=i=0.55:m=0.65:f=0.58:s=o"), true);
+  assert.equal(plan.filterChain.includes("treble=f=8000:t=o:w=0.45:g=1.2"), true);
+  assert.equal(plan.summary.voice_polish_de_esser_strength, "high");
+  assert.equal(plan.summary.voice_polish_eq_profile, "bright");
+}
+
 function run() {
   testConservativeGateCompressorDefaults();
   testGateAndCompressorAreApplied();
   testEqReverbTubeAreReservedForLater();
   testBypassedAndDisabledModulesAreNotRequested();
+  testVoicePolishAdvancedSettingsChangeRenderedFilters();
   // eslint-disable-next-line no-console
   console.log("Hammer Studio Rack FFmpeg plan tests passed.");
 }

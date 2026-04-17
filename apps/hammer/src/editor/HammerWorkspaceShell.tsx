@@ -208,6 +208,7 @@ import { deriveStableHammerAssetIdFromPath } from "../lib/hammerAssetIdentity";
 import {
   cloneHammerStudioRackState,
   createDefaultHammerStudioRackState,
+  isHammerStudioRackIdentity,
   normalizeHammerStudioRackState,
   type HammerStudioRackState,
 } from "./hammerStudioRack";
@@ -3713,14 +3714,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => Object.values(voicePolish.fixes).some(Boolean),
     [voicePolish.fixes],
   );
+  const studioRackHasAudibleProcessing = useMemo(
+    () => (
+      editableStudioRack.is_enabled
+      && !editableStudioRack.is_bypassed
+      && !isHammerStudioRackIdentity(editableStudioRack)
+    ),
+    [editableStudioRack],
+  );
 
   const shouldUseStudioRackPreviewForCompare = Boolean(
     activeTool === "audio"
     && currentPass === "audio_finalization"
     && audioFinalizationCompareMode === "after"
-    && editableStudioRack.is_enabled
-    && !editableStudioRack.is_bypassed
-    && voicePolishHasAnyFixEnabled,
+    && studioRackHasAudibleProcessing,
   );
 
   useEffect(() => {
@@ -3742,10 +3749,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   useEffect(() => {
     if (!shouldUseStudioRackPreviewForCompare) {
+      if (import.meta.env.DEV && currentPass === "audio_finalization" && activeTool === "audio") {
+        console.info("[Hammer][AudioComparePreview] inactive", {
+          compareMode: audioFinalizationCompareMode,
+          studioRackHasAudibleProcessing,
+          playbackBackendPreference: editableStudioRack.backend_preference,
+        });
+      }
       studioRackPreviewKeyRef.current = null;
       setStudioRackPreviewSrc(null);
       return;
     }
+
+    const renderRackState: HammerStudioRackState = {
+      ...editableStudioRack,
+      // Compare preview must request the render-backed lane. Native playback DSP is not implemented.
+      backend_preference: "ffmpeg",
+    };
 
     const renderLocalRelpath = preferredPlayback.kind === "polished"
       ? (preferredPlayback.local_relpath ?? mediaRef?.local_relpath ?? null)
@@ -3757,12 +3777,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const key = JSON.stringify({
       head: historyHeadEntryId ?? "head:unknown",
       basis: renderCanonicalWorkpiecePath ?? renderLocalRelpath ?? "basis:unknown",
-      rack: editableStudioRack,
+      rack: renderRackState,
     });
 
     if (studioRackPreviewInFlightRef.current) return;
     if (studioRackPreviewKeyRef.current === key && studioRackPreviewSrc) return;
-    if (!studioRackRenderBackendResolution.ffmpegAvailable) return;
+    if (!studioRackRenderBackendResolution.ffmpegAvailable) {
+      if (import.meta.env.DEV) {
+        console.info("[Hammer][AudioComparePreview] ffmpeg unavailable", {
+          compareMode: audioFinalizationCompareMode,
+          playbackBackendPreference: editableStudioRack.backend_preference,
+        });
+      }
+      return;
+    }
     if (!mediaRef) return;
 
     studioRackPreviewInFlightRef.current = true;
@@ -3781,7 +3809,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             is_disabled: segment.is_disabled,
             gain_db: segment.gain_db,
           })),
-          rackState: editableStudioRack,
+          rackState: renderRackState,
           localRootAbs: playbackLocalRootAbs,
           localRelpath: renderLocalRelpath,
           canonicalWorkpiecePath: renderCanonicalWorkpiecePath,
@@ -3789,6 +3817,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           runtimeSummary: mediaBackboneRuntime,
         });
         setStudioRackRenderStatus(renderExecution);
+        if (import.meta.env.DEV) {
+          console.info("[Hammer][AudioComparePreview] render", {
+            compareMode: audioFinalizationCompareMode,
+            requestedBackend: renderExecution.requestedBackend,
+            resolvedBackend: renderExecution.resolvedBackend,
+            status: renderExecution.status,
+            outputLocalRelpath: renderExecution.outputLocalRelpath,
+            outputWorkpiecePath: renderExecution.outputWorkpiecePath,
+          });
+        }
 
         if (renderExecution.status !== "processed") {
           setStudioRackPreviewSrc(null);
@@ -3834,9 +3872,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     preferredPlayback.mime_type,
     preferredPlayback.workpiece_path,
     shouldUseStudioRackPreviewForCompare,
+    studioRackHasAudibleProcessing,
     studioRackPreviewSrc,
     studioRackRenderBackendResolution.ffmpegAvailable,
-    voicePolishHasAnyFixEnabled,
   ]);
   const mediaLabelMismatchWarning = useMemo(() => {
     const canonical = normalizeLabelForComparison(canonicalWorkpieceLabel);
@@ -3914,6 +3952,35 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     return deferred;
   }, [studioRackRenderStatus]);
+  const studioRackComparePreviewStatusLabel = useMemo(() => {
+    if (currentPass !== "audio_finalization" || activeTool !== "audio") {
+      return null;
+    }
+    if (audioFinalizationCompareMode === "before") {
+      return "Compare source: source audio (Before selected).";
+    }
+    if (!studioRackHasAudibleProcessing) {
+      return "Compare source: source audio (rack disabled, bypassed, or identity).";
+    }
+    if (!studioRackRenderBackendResolution.ffmpegAvailable) {
+      return "Compare source: source audio. Processed compare preview requires FFmpeg because native playback DSP is not implemented.";
+    }
+    if (studioRackPreviewSrc && playbackMediaSrc === studioRackPreviewSrc) {
+      return "Compare source: processed Studio Rack preview artifact.";
+    }
+    if (studioRackPreviewSrc) {
+      return "Compare source: processed Studio Rack preview ready; transport swap pending.";
+    }
+    return "Compare source: preparing processed Studio Rack preview artifact.";
+  }, [
+    activeTool,
+    audioFinalizationCompareMode,
+    currentPass,
+    playbackMediaSrc,
+    studioRackHasAudibleProcessing,
+    studioRackPreviewSrc,
+    studioRackRenderBackendResolution.ffmpegAvailable,
+  ]);
 
   function captureWorkspaceState(): HammerEditorStateSerializable {
     return toEditorState({
@@ -4562,12 +4629,26 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       if (!active) return;
 
       if (shouldUseStudioRackPreviewForCompare && studioRackPreviewSrc) {
+        if (import.meta.env.DEV) {
+          console.info("[Hammer][AudioComparePreview] source", {
+            source: "studio-rack-preview",
+            compareMode: audioFinalizationCompareMode,
+            playbackBackendPreference: editableStudioRack.backend_preference,
+          });
+        }
         setPlaybackMediaSrc(studioRackPreviewSrc);
         return;
       }
 
       if (preferredPlayback.kind === "polished") {
         if (preferredPlayback.local_relpath && playbackLocalRootAbs) {
+          if (import.meta.env.DEV && currentPass === "audio_finalization" && activeTool === "audio") {
+            console.info("[Hammer][AudioComparePreview] source", {
+              source: "prepared-audio-polish",
+              compareMode: audioFinalizationCompareMode,
+              playbackBackendPreference: editableStudioRack.backend_preference,
+            });
+          }
           setPlaybackMediaSrc(
             buildHammerDevMediaUrl(playbackLocalRootAbs, preferredPlayback.local_relpath),
           );
@@ -4594,6 +4675,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         }
       }
 
+      if (import.meta.env.DEV && currentPass === "audio_finalization" && activeTool === "audio") {
+        console.info("[Hammer][AudioComparePreview] source", {
+          source: rawVideoSrc ? "raw-source" : "none",
+          compareMode: audioFinalizationCompareMode,
+          playbackBackendPreference: editableStudioRack.backend_preference,
+        });
+      }
       setPlaybackMediaSrc(rawVideoSrc);
     })();
 
@@ -4615,6 +4703,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     preferredPlayback.local_relpath,
     preferredPlayback.mime_type,
     preferredPlayback.workpiece_path,
+    activeTool,
+    audioFinalizationCompareMode,
+    currentPass,
+    editableStudioRack.backend_preference,
     shouldUseStudioRackPreviewForCompare,
     studioRackPreviewSrc,
   ]);
@@ -6213,24 +6305,28 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     applyStudioRackMutation("Update de-esser strength", (current) => ({
       ...current,
       is_enabled: true,
+      is_bypassed: false,
       voice_polish: setHammerVoicePolishDeEsserStrength(
         current.voice_polish ?? createDefaultHammerVoicePolishState(),
         nextStrength,
       ),
     }));
     applyPodcastMasterPass();
+    setAudioFinalizationCompareMode("after");
   }
 
   function setVoicePolishEqProfile(nextProfile: HammerVoicePolishEqProfile): void {
     applyStudioRackMutation("Update EQ profile", (current) => ({
       ...current,
       is_enabled: true,
+      is_bypassed: false,
       voice_polish: setHammerVoicePolishEqProfile(
         current.voice_polish ?? createDefaultHammerVoicePolishState(),
         nextProfile,
       ),
     }));
     applyPodcastMasterPass();
+    setAudioFinalizationCompareMode("after");
   }
 
   function applyTranscriptSelection(segmentId: string, extendRange: boolean): void {
@@ -9830,6 +9926,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     currentPassId: currentPass,
     selectedImageAnimationLabel,
     audioFinalizationCompareModeLabel: audioFinalizationCompareMode === "before" ? "Before" : "After",
+    audioComparePreviewStatusLabel: studioRackComparePreviewStatusLabel,
     packagingSummaryLabel: currentPass === "packaging"
       ? `Packaging: intro ${packagingIntroPlacement ? "on" : "off"} · outro ${packagingOutroPlacement ? "on" : "off"} · logo ${packagingLogoPlacement ? "on" : "off"}`
       : null,
@@ -9906,6 +10003,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setVisualBackgroundBlurRuntimeStatus,
     setVisualEyeContactAssistRuntimeStatus,
     studioRackPlaybackConfig.backend,
+    studioRackComparePreviewStatusLabel,
     togglePlayback,
     visualBackgroundBlur,
     visualBackgroundBlurDebugMask,
@@ -10897,6 +10995,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     studioRackRenderConfig,
     studioRackRenderDeferredModules,
     studioRackRenderStatus,
+    studioRackComparePreviewStatusLabel,
     toggleLogoOverlay,
     transcriptSegmentsById,
     transcriptSelectionRange,
@@ -11181,6 +11280,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     studioRackRenderConfig,
     studioRackRenderDeferredModules,
     studioRackRenderStatus,
+    studioRackComparePreviewStatusLabel,
     toggleLogoOverlay,
     transcriptSegmentsById,
     transcriptSelectionRange,

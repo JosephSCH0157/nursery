@@ -29,6 +29,7 @@ export type HammerWorkspaceShellPreviewBayVM = {
   currentPassId: string;
   selectedImageAnimationLabel: string;
   audioFinalizationCompareModeLabel: string;
+  audioComparePreviewStatusLabel: string | null;
   packagingSummaryLabel: string | null;
 
   previewSurfaceLabel: string;
@@ -178,6 +179,9 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
           ) : null}
           {vm.currentPassId === "audio_finalization" ? (
             <span>Audio compare: {vm.audioFinalizationCompareModeLabel}</span>
+          ) : null}
+          {vm.currentPassId === "audio_finalization" && vm.audioComparePreviewStatusLabel ? (
+            <span>{vm.audioComparePreviewStatusLabel}</span>
           ) : null}
           {vm.currentPassId === "packaging" && vm.packagingSummaryLabel ? (
             <span>{vm.packagingSummaryLabel}</span>
