@@ -1,6 +1,10 @@
 import { useEffect } from "react";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
+import {
+  cloneHammerEditorialAuthorityGraph,
+  type HammerEditorialAuthorityGraph,
+} from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type {
   HammerPersistedAudioEdit,
@@ -38,6 +42,7 @@ type DerivedLayersState = HammerPersistedStructuredTranscript["derived_text_laye
 export type UseHammerWorkspaceShellHistoryControllerArgs = {
   launchContext: HammerLaunchContext;
   recordingRevisionId: string | null;
+  editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
   structuredTranscriptResetKey: string;
   visualTimelineResetKey: string;
   transcriptSourceId: string;
@@ -102,6 +107,16 @@ export type UseHammerWorkspaceShellHistoryControllerArgs = {
   cloneHammerDerivedTextLayers: (value: any) => DerivedLayersState;
 };
 
+export function resolveBaselineAuthorityGraph(args: {
+  persistedEditorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
+  projectedAuthorityGraph: HammerEditorialAuthorityGraph;
+}): HammerEditorialAuthorityGraph {
+  if (args.persistedEditorialAuthorityGraph) {
+    return cloneHammerEditorialAuthorityGraph(args.persistedEditorialAuthorityGraph);
+  }
+  return args.projectedAuthorityGraph;
+}
+
 export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspaceShellHistoryControllerArgs): void {
   useEffect(() => {
     let active = true;
@@ -117,11 +132,15 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
         instructions: args.launchContext.edit_plan.instructions.map((instruction) => ({ ...instruction })),
       }
       : args.createFallbackEditPlan(args.launchContext, args.transcriptSourceId, args.previewMode);
-    const baselineAuthorityGraph = projectEditorialAuthorityGraphFromEditPlan({
+    const projectedBaselineAuthorityGraph = projectEditorialAuthorityGraphFromEditPlan({
       editPlan: baselineEditPlan,
       workspaceId: args.launchContext.workspace_id,
       workpieceId: args.launchContext.workpiece_id,
       sessionId: args.launchContext.session_id ?? baselineEditPlan.session_id ?? `${args.launchContext.workpiece_id}:session`,
+    });
+    const baselineAuthorityGraph = resolveBaselineAuthorityGraph({
+      persistedEditorialAuthorityGraph: args.editorialAuthorityGraph,
+      projectedAuthorityGraph: projectedBaselineAuthorityGraph,
     });
     const baselineState = args.toEditorState({
       segments: synced.segments,
@@ -221,6 +240,11 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
 
       let replayBaselineState = baselineState;
       if (loaded.baseRevisionId !== baseRevisionId) {
+        if (args.editorialAuthorityGraph) {
+          args.setHistoryStatus("History base revision mismatch detected. Opened baseline without replay.");
+          return;
+        }
+
         const legacyNowIso = loaded.createdAt || loaded.updatedAt;
         const legacyAuthorityGraph = legacyNowIso
           ? projectEditorialAuthorityGraphFromEditPlan({

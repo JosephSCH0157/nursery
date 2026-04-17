@@ -9,7 +9,10 @@ import type {
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { MediaRef, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
-import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
+import {
+  cloneHammerEditorialAuthorityGraph,
+  type HammerEditorialAuthorityGraph,
+} from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import {
   normalizeHammerPassId as normalizeCanonicalPassId,
   normalizeHammerPassStatusMap as normalizeCanonicalPassStatusMap,
@@ -429,6 +432,7 @@ type HammerWorkspaceShellProps = {
   launchContext?: HammerLaunchContext;
   recordingRevisionId?: string | null;
   structuredTranscript?: HammerPersistedStructuredTranscript | null;
+  editorialAuthorityGraph?: HammerEditorialAuthorityGraph | null;
   visualPlacements?: HammerPersistedVisualPlacements | null;
   visualTimeline?: HammerVisualTimelineState | null;
   audioPolish?: HammerPersistedAudioPolish | null;
@@ -1748,6 +1752,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   );
   const [editableEditorialAuthorityGraph, setEditableEditorialAuthorityGraph] = useState<HammerEditorialAuthorityGraph | null>(
     () => {
+      if (props.editorialAuthorityGraph) {
+        return cloneHammerEditorialAuthorityGraph(props.editorialAuthorityGraph);
+      }
       const initialPreviewMode: HammerPreviewMode = launchContext.preview_mode ?? launchContext.edit_plan?.preview_mode ?? "edit-aware";
       const editPlan = launchContext.edit_plan
         ? {
@@ -4479,6 +4486,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   useHammerWorkspaceShellHistoryController({
     launchContext,
     recordingRevisionId: props.recordingRevisionId ?? null,
+    editorialAuthorityGraph: props.editorialAuthorityGraph ?? null,
     structuredTranscriptResetKey,
     visualTimelineResetKey,
     transcriptSourceId,

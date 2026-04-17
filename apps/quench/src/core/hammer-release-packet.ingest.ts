@@ -138,27 +138,34 @@ function chooseStatusLabel(status: HammerQuenchCanonicalReadinessStatus): Quench
   }
 }
 
-function buildVerdict(args: {
-  manifest: HammerQuenchReleasePacketManifest;
-  appendedReasons: HammerQuenchCanonicalReadinessReason[];
-}): NonNullable<QuenchPacketIngestResult["verdict"]> {
-  const manifestReasons = (args.manifest.readiness.reasons_detail ?? []).map(normalizeReason);
-  const allReasons = [...manifestReasons, ...args.appendedReasons];
-  const blockingReasons = allReasons.filter((reason) => reason.severity === "blocking");
-  const reviewReasons = allReasons.filter((reason) => reason.severity === "review");
-  const status: HammerQuenchCanonicalReadinessStatus = blockingReasons.length > 0
-    ? "blocked"
-    : reviewReasons.length > 0
-      ? "needs_review"
-      : "ready";
+function buildVerdictFromManifest(manifest: HammerQuenchReleasePacketManifest): NonNullable<QuenchPacketIngestResult["verdict"]> {
+  const reasons = (manifest.readiness.reasons_detail ?? []).map(normalizeReason);
+  const blockingReasonsFromManifest = (manifest.readiness.blocking_reasons_detail ?? [])
+    .map(normalizeReason)
+    .filter((reason) => reason.severity === "blocking");
+  const reviewReasonsFromManifest = (manifest.readiness.review_reasons_detail ?? [])
+    .map(normalizeReason)
+    .filter((reason) => reason.severity === "review");
+  const blockingReasons = blockingReasonsFromManifest.length > 0
+    ? blockingReasonsFromManifest
+    : reasons.filter((reason) => reason.severity === "blocking");
+  const reviewReasons = reviewReasonsFromManifest.length > 0
+    ? reviewReasonsFromManifest
+    : reasons.filter((reason) => reason.severity === "review");
   return {
-    status,
-    ready_for_quench: status === "ready",
-    reason_codes: allReasons.map((reason) => reason.code),
-    reasons_detail: allReasons,
-    blocking_reason_codes: blockingReasons.map((reason) => reason.code),
+    status: manifest.readiness.status,
+    ready_for_quench: manifest.readiness.ready_for_quench,
+    reason_codes: manifest.readiness.reason_codes && manifest.readiness.reason_codes.length > 0
+      ? [...manifest.readiness.reason_codes]
+      : reasons.map((reason) => reason.code),
+    reasons_detail: reasons,
+    blocking_reason_codes: manifest.readiness.blocking_reason_codes && manifest.readiness.blocking_reason_codes.length > 0
+      ? [...manifest.readiness.blocking_reason_codes]
+      : blockingReasons.map((reason) => reason.code),
     blocking_reasons_detail: blockingReasons,
-    review_reason_codes: reviewReasons.map((reason) => reason.code),
+    review_reason_codes: manifest.readiness.review_reason_codes && manifest.readiness.review_reason_codes.length > 0
+      ? [...manifest.readiness.review_reason_codes]
+      : reviewReasons.map((reason) => reason.code),
     review_reasons_detail: reviewReasons,
   };
 }
@@ -273,10 +280,7 @@ export async function ingestHammerReleasePacket(args: {
     }
   }
 
-  const verdict = buildVerdict({
-    manifest,
-    appendedReasons,
-  });
+  const verdict = buildVerdictFromManifest(manifest);
   issues.push(...buildIssuesFromReasons(appendedReasons));
 
   return {

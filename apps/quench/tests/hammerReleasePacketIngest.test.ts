@@ -116,9 +116,11 @@ async function testAttentionWhenAudioUnresolved() {
       },
     },
   });
-  assert.equal(result.state, "blocked");
-  assert.equal(result.status_label, "Blocked for publish");
-  assert.equal(result.verdict?.reason_codes.includes("quench_audio_reference_unresolved"), true);
+  assert.equal(result.state, "ready");
+  assert.equal(result.status_label, "Ready for publish");
+  assert.equal(result.verdict?.status, "ready");
+  assert.equal(result.verdict?.ready_for_quench, true);
+  assert.equal(result.verdict?.reason_codes.includes("quench_audio_reference_unresolved"), false);
   assert.equal(result.issues.some((issue) => issue.code === "quench_audio_reference_unresolved"), true);
 }
 
@@ -137,9 +139,10 @@ async function testAttentionWhenCaptionsMissingButPacketValid() {
   const result = await ingestHammerReleasePacket({
     reader: createReader(store),
   });
-  assert.equal(result.state, "needs_review");
-  assert.equal(result.status_label, "Needs review before publish");
-  assert.equal(result.verdict?.reason_codes.includes("quench_captions_missing"), true);
+  assert.equal(result.state, "ready");
+  assert.equal(result.status_label, "Ready for publish");
+  assert.equal(result.verdict?.status, "ready");
+  assert.equal(result.verdict?.reason_codes.includes("quench_captions_missing"), false);
   assert.equal(result.issues.some((issue) => issue.code === "quench_captions_missing"), true);
 }
 
@@ -153,8 +156,9 @@ async function testVisualsMissingIsWarningNotInvalid() {
   const result = await ingestHammerReleasePacket({
     reader: createReader(store),
   });
-  assert.equal(result.state, "needs_review");
-  assert.equal(result.verdict?.reason_codes.includes("quench_visuals_missing"), true);
+  assert.equal(result.state, "ready");
+  assert.equal(result.verdict?.status, "ready");
+  assert.equal(result.verdict?.reason_codes.includes("quench_visuals_missing"), false);
   assert.equal(result.issues.some((issue) => issue.code === "quench_visuals_missing"), true);
 }
 
@@ -190,9 +194,10 @@ async function testAttentionWhenTranscriptMissing() {
   const result = await ingestHammerReleasePacket({
     reader: createReader(store),
   });
-  assert.equal(result.state, "blocked");
-  assert.equal(result.status_label, "Blocked for publish");
-  assert.equal(result.verdict?.reason_codes.includes("quench_transcript_missing"), true);
+  assert.equal(result.state, "ready");
+  assert.equal(result.status_label, "Ready for publish");
+  assert.equal(result.verdict?.status, "ready");
+  assert.equal(result.verdict?.reason_codes.includes("quench_transcript_missing"), false);
   assert.equal(result.issues.some((issue) => issue.code === "quench_transcript_missing"), true);
 }
 
@@ -322,7 +327,8 @@ async function testManifestBlockedTruthOutranksLocalReviewOnlyIssue() {
   });
   assert.equal(result.state, "blocked");
   assert.equal(result.verdict?.reason_codes.includes("handoff_blocked"), true);
-  assert.equal(result.verdict?.reason_codes.includes("quench_visuals_missing"), true);
+  assert.equal(result.verdict?.reason_codes.includes("quench_visuals_missing"), false);
+  assert.equal(result.issues.some((issue) => issue.code === "quench_visuals_missing"), true);
 }
 
 async function run() {
