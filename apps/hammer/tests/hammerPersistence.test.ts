@@ -505,7 +505,45 @@ const canonicalOnlySnapshot: HammerPersistenceSnapshot = {
   },
 };
 const hydratedCanonicalOnly = buildHammerLaunchContextFromPersistence(target, canonicalOnlySnapshot);
-assert.equal(hydratedCanonicalOnly?.launchContext.edit_plan?.source_transcript_id, "transcript_01");
+assert.equal(hydratedCanonicalOnly?.launchContext.edit_plan, undefined);
+
+const fallbackLaunchContextForProjection = {
+  workspace_id: target.workspaceId,
+  workpiece_id: target.workpieceId,
+  session_id: "session_fallback_projection",
+  source_mode: "tongs" as const,
+  transcript: {
+    kind: "tongs-stub" as const,
+    transcript_id: "transcript_fallback",
+    segments: [],
+    label: "transcript_fallback",
+  },
+  media: {
+    kind: "tongs-stub" as const,
+    ref: {
+      media_id: "media_fallback",
+      kind: "recording_video" as const,
+      source_hint: "local",
+    },
+    label: "tongs:media_fallback",
+  },
+  edit_plan: snapshot.editPlan,
+  preview_mode: "edit-aware" as const,
+};
+const hydratedCanonicalOnlyWithFallback = buildHammerLaunchContextFromPersistence(
+  target,
+  canonicalOnlySnapshot,
+  fallbackLaunchContextForProjection,
+);
+assert.equal(hydratedCanonicalOnlyWithFallback?.launchContext.edit_plan, undefined);
+
+const hydratedCanonicalOnlyWithGate = buildHammerLaunchContextFromPersistence(
+  target,
+  canonicalOnlySnapshot,
+  fallbackLaunchContextForProjection,
+  { allowLegacyEditPlanProjection: true },
+);
+assert.equal(hydratedCanonicalOnlyWithGate?.launchContext.edit_plan?.source_transcript_id, "transcript_01");
 
 assert.deepEqual(
   readHammerPersistenceTarget("?workspace_id=aaa&workpiece_id=bbb"),

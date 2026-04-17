@@ -392,28 +392,24 @@ export function buildHammerLaunchContextFromPersistence(
   target: HammerPersistenceTarget,
   snapshot: HammerPersistenceSnapshot,
   fallbackLaunchContext?: HammerLaunchContext,
+  options?: {
+    allowLegacyEditPlanProjection?: boolean;
+  },
 ): HammerHydratedLaunchContext | null {
   const editorSession = snapshot.editor_session.data;
   const transcript = snapshot.structured_transcript.data;
   const canonicalGraph = snapshot.editorial_authority.data;
-  const projectedEditPlan = canonicalGraph
-    ? projectEditPlanFromEditorialAuthorityGraph({
-      graph: canonicalGraph,
-      fallback: snapshot.edit_plan.data ?? fallbackLaunchContext?.edit_plan ?? {
-        edit_plan_id: `${target.workpieceId}:legacy-fallback-plan`,
-        version: "1",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        source_transcript_id: transcript?.transcript_id ?? "unknown-transcript",
-        instructions: [],
-        preview_mode: editorSession?.preview_mode ?? "edit-aware",
-        workspace_id: target.workspaceId,
-        workpiece_id: target.workpieceId,
-        session_id: editorSession?.session_id ?? undefined,
-      },
-    })
-    : snapshot.edit_plan.data;
-  const editPlan = projectedEditPlan;
+  const allowLegacyEditPlanProjection = options?.allowLegacyEditPlanProjection === true;
+  let editPlan = snapshot.edit_plan.data ?? null;
+  if (!editPlan && allowLegacyEditPlanProjection && canonicalGraph) {
+    const projectionFallback = fallbackLaunchContext?.edit_plan ?? null;
+    if (projectionFallback) {
+      editPlan = projectEditPlanFromEditorialAuthorityGraph({
+        graph: canonicalGraph,
+        fallback: projectionFallback,
+      });
+    }
+  }
   const hasPersistedState = Boolean(snapshot.state || editorSession || transcript || editPlan);
 
   let launchContext = fallbackLaunchContext ? cloneLaunchContext(fallbackLaunchContext) : null;
@@ -487,6 +483,8 @@ export function buildHammerLaunchContextFromPersistence(
   }
   if (editPlan) {
     launchContext.edit_plan = cloneEditPlan(editPlan);
+  } else if (!allowLegacyEditPlanProjection && "edit_plan" in launchContext) {
+    delete launchContext.edit_plan;
   }
   launchContext.preview_mode = editPlan?.preview_mode
     ?? editorSession?.preview_mode
