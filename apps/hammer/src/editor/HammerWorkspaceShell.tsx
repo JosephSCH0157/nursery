@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { JSX, MouseEvent, WheelEvent as ReactWheelEvent } from "react";
+import { createPortal } from "react-dom";
 import type { HammerEditPlan, HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type {
   HammerEditInstruction,
@@ -2227,8 +2228,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   useEffect(() => {
     if (!imageAnimationContextMenuRef.current || !imageAnimationContextMenu) return;
-    imageAnimationContextMenuRef.current.style.left = `${imageAnimationContextMenu.x}px`;
-    imageAnimationContextMenuRef.current.style.top = `${imageAnimationContextMenu.y}px`;
+    const viewportPaddingPx = 12;
+    const menuNode = imageAnimationContextMenuRef.current;
+    const menuWidth = menuNode.offsetWidth;
+    const menuHeight = menuNode.offsetHeight;
+    const clampedLeft = Math.min(
+      Math.max(viewportPaddingPx, imageAnimationContextMenu.x),
+      Math.max(viewportPaddingPx, window.innerWidth - menuWidth - viewportPaddingPx),
+    );
+    const clampedTop = Math.min(
+      Math.max(viewportPaddingPx, imageAnimationContextMenu.y),
+      Math.max(viewportPaddingPx, window.innerHeight - menuHeight - viewportPaddingPx),
+    );
+    menuNode.style.left = `${clampedLeft}px`;
+    menuNode.style.top = `${clampedTop}px`;
   }, [imageAnimationContextMenu]);
 
   function selectPass(passId: HammerPassId): void {
@@ -11352,33 +11365,36 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
           <HammerWorkspaceShellTimelineDock vm={timelineDockVM} />
         </section>
       </div>
-      {imageAnimationContextMenu ? (
-        <div
-          ref={imageAnimationContextMenuRef}
-          className="hammer-context-menu"
-          role="menu"
-          aria-label="Image animation preset menu"
-          onMouseDown={(event) => {
-            event.stopPropagation();
-          }}
-        >
-          {IMAGE_ANIMATION_PRESET_OPTIONS.map((option) => (
-            <button
-              key={`anim:${option.id}`}
-              type="button"
-              role="menuitem"
-              className={(
-                resolvePlacementAnimationPreset(visualPlacementsById.get(imageAnimationContextMenu.placementId))
-              ) === option.id
-                ? "hammer-context-menu__item is-active"
-                : "hammer-context-menu__item"}
-              onClick={() => applyImageAnimationPreset(imageAnimationContextMenu.placementId, option.id)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      {imageAnimationContextMenu && typeof document !== "undefined"
+        ? createPortal(
+          <div
+            ref={imageAnimationContextMenuRef}
+            className="hammer-context-menu"
+            role="menu"
+            aria-label="Image animation preset menu"
+            onMouseDown={(event) => {
+              event.stopPropagation();
+            }}
+          >
+            {IMAGE_ANIMATION_PRESET_OPTIONS.map((option) => (
+              <button
+                key={`anim:${option.id}`}
+                type="button"
+                role="menuitem"
+                className={(
+                  resolvePlacementAnimationPreset(visualPlacementsById.get(imageAnimationContextMenu.placementId))
+                ) === option.id
+                  ? "hammer-context-menu__item is-active"
+                  : "hammer-context-menu__item"}
+                onClick={() => applyImageAnimationPreset(imageAnimationContextMenu.placementId, option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )
+        : null}
 
       <nav className="hammer-toolbar" aria-label="Hammer pass toolbar">
         <HammerWorkspaceShellToolbar vm={toolbarVM} />

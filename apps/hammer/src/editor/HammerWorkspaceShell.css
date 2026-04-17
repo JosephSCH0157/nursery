@@ -2371,14 +2371,19 @@ Guardrails:
 
 .hammer-context-menu {
   position: fixed;
-  z-index: 50;
+  z-index: 200;
   min-width: 176px;
+  max-width: min(280px, calc(100vw - 24px));
+  max-height: min(70vh, calc(100vh - 24px));
   border: 1px solid rgba(148, 163, 184, 0.35);
   border-radius: 10px;
   background: rgba(2, 6, 23, 0.96);
   padding: 6px;
   display: grid;
   gap: 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   box-shadow: 0 12px 30px rgba(2, 6, 23, 0.62);
 }
 
