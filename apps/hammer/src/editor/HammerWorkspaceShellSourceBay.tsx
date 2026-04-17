@@ -470,12 +470,9 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const reportVisibleSourceDeskPreviewPaths = ctx.reportVisibleSourceDeskPreviewPaths as ((paths: string[]) => void) | undefined;
   const imageUsageByPath = ctx.imageUsageByPath as Map<string, any>;
   const addImagePlacementFromLibrary = ctx.addImagePlacementFromLibrary as (...args: any[]) => void;
-  const buildTimelineImagePrompt = ctx.buildTimelineImagePrompt as (prompt: any) => string;
   const formatBytes = ctx.formatBytes as (bytes: number) => string;
-  const queueMediaMapBeatSuggestion = ctx.queueMediaMapBeatSuggestion as (...args: any[]) => void;
   const redoMediaMapFromScript = ctx.redoMediaMapFromScript as (...args: any[]) => void;
   const updatePlacementKindFromMediaMap = ctx.updatePlacementKindFromMediaMap as (...args: any[]) => void;
-  const generateReferenceClipFromBeat = ctx.generateReferenceClipFromBeat as (...args: any[]) => void;
   const sourceReferenceClipItems = ctx.sourceReferenceClipItems as any[];
   const sourceBrollOnlyItems = ctx.sourceBrollOnlyItems as any[];
   const referenceClipPlannedBeats = ctx.referenceClipPlannedBeats as any[];
@@ -484,9 +481,6 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const visualPlacementCardRefs = ctx.visualPlacementCardRefs as { current: Map<string, HTMLElement> };
   const effectiveSelectedClipId = ctx.effectiveSelectedClipId as string | null;
   const selectVisualClip = ctx.selectVisualClip as (...args: any[]) => void;
-  const copyPromptToClipboard = ctx.copyPromptToClipboard as (...args: any[]) => void;
-  const copiedPromptKey = ctx.copiedPromptKey as string | null;
-  const sendPromptToProvider = ctx.sendPromptToProvider as (...args: any[]) => void;
   const selectionOriginRef = ctx.selectionOriginRef as { current: any };
   const setSelectedClipId = ctx.setSelectedClipId as (next: string | null) => void;
   const setSelectedSegmentId = ctx.setSelectedSegmentId as (next: string | null) => void;
@@ -500,12 +494,9 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const mediaMapBeats = ctx.mediaMapBeats as any[];
   const selectedVisualFlowStep = ctx.selectedVisualFlowStep as string;
   const setSelectedVisualFlowStep = ctx.setSelectedVisualFlowStep as (next: string) => void;
-  const buildMediaMapPrompt = ctx.buildMediaMapPrompt as (...args: any[]) => any;
   const setMediaMapBeats = ctx.setMediaMapBeats as (next: any[] | ((current: any[]) => any[])) => void;
   const setRemovedMediaMapSegmentIds = ctx.setRemovedMediaMapSegmentIds as (next: string[] | ((current: string[]) => string[])) => void;
   const unresolvedBrollSuggestionItems = ctx.unresolvedBrollSuggestionItems as any[];
-  const analyzeReferenceClipInput = ctx.analyzeReferenceClipInput as (...args: any[]) => any;
-  const visualPlacementsById = ctx.visualPlacementsById as Map<string, any>;
   const sourceDeskImagesViewportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -598,8 +589,6 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
       </div>
     );
   }
-  const generatingReferenceBeatId = ctx.generatingReferenceBeatId as string | null;
-
   const brollUploadInputRef = ctx.brollUploadInputRef as { current: HTMLInputElement | null };
   const introOutroUploadInputRef = ctx.introOutroUploadInputRef as { current: HTMLInputElement | null };
   const introOutroSelection = ctx.introOutroSelection as any;
@@ -1055,12 +1044,6 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                     />
                     {sourceImageItems.map((item) => (
                       (() => {
-                        const anchorSegment = transcriptSegmentsById.get(item.anchorSegmentId) ?? null;
-                        const timelinePrompt = buildTimelineImagePrompt({
-                          text: item.anchorText ?? anchorSegment?.text ?? item.label,
-                          tweak: "",
-                        });
-                        const imageCopyKey = `timeline-image:${item.id}`;
                         return (
                           <article
                             key={item.id}
@@ -1087,7 +1070,6 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                               <span>{item.visualMode ?? "visual"}</span>
                               <span>{item.confidence != null ? `${Math.round(item.confidence * 100)}% match` : "match n/a"}</span>
                             </div>
-                            <div className="hammer-source-card__path">Prompt: {timelinePrompt}</div>
                             <div className="hammer-source-card__actions">
                               <button
                                 type="button"
@@ -1099,29 +1081,6 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                 }}
                               >
                                 Select
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void copyPromptToClipboard({
-                                    key: imageCopyKey,
-                                    prompt: timelinePrompt,
-                                  });
-                                }}
-                              >
-                                {copiedPromptKey === imageCopyKey ? "Copied" : "Copy Prompt"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void sendPromptToProvider({
-                                    key: imageCopyKey,
-                                    prompt: timelinePrompt,
-                                    label: "timeline image",
-                                  });
-                                }}
-                              >
-                                Send to Provider
                               </button>
                               <button
                                 type="button"
@@ -1298,10 +1257,6 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                         </button>
                       </div>
                       {mediaMapBeats.map((beat) => {
-                        const brollPrompt = buildMediaMapPrompt({ type: "broll", text: beat.sourceText, tweak: beat.tweak });
-                        const referencePrompt = buildMediaMapPrompt({ type: "reference_clip", text: beat.sourceText, tweak: beat.tweak });
-                        const timelineImagePrompt = buildTimelineImagePrompt({ text: beat.sourceText, tweak: beat.tweak });
-                        const timelineCopyKey = `timeline:${beat.id}`;
                         return (
                           <article key={beat.id} className="hammer-source-card">
                             <header className="hammer-source-card__head">
@@ -1331,23 +1286,6 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                 <option value="reference_clip">Reference Clip</option>
                               </select>
                             </label>
-                            <label className="hammer-tool-field">
-                              <span>Tweak</span>
-                              <input
-                                type="text"
-                                value={beat.tweak}
-                                onChange={(event) => {
-                                  const next = event.target.value;
-                                  setMediaMapBeats((current) => current.map((item) => (
-                                    item.id === beat.id ? { ...item, tweak: next } : item
-                                  )));
-                                }}
-                                placeholder="Add a light prompt tweak"
-                              />
-                            </label>
-                            <div className="hammer-source-card__path">B-roll prompt: {brollPrompt}</div>
-                            <div className="hammer-source-card__path">Reference prompt: {referencePrompt}</div>
-                            <div className="hammer-source-card__path">Timeline image prompt: {timelineImagePrompt}</div>
                             <div className="hammer-source-card__actions">
                               <button
                                 type="button"
@@ -1362,32 +1300,6 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                 }}
                               >
                                 Remove visual
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void copyPromptToClipboard({
-                                    key: timelineCopyKey,
-                                    prompt: timelineImagePrompt,
-                                  });
-                                }}
-                              >
-                                {copiedPromptKey === timelineCopyKey ? "Copied" : "Copy Prompt"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void sendPromptToProvider({
-                                    key: timelineCopyKey,
-                                    prompt: timelineImagePrompt,
-                                    label: "timeline image beat",
-                                  });
-                                }}
-                              >
-                                Send to Provider
-                              </button>
-                              <button type="button" onClick={() => queueMediaMapBeatSuggestion(beat)}>
-                                Queue Suggestion
                               </button>
                             </div>
                           </article>
@@ -1468,29 +1380,6 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                             <span>Uses: {item.usageCount}</span>
                           </div>
                           <div className="hammer-source-card__actions">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void copyPromptToClipboard({
-                                  key: `broll:${item.id}`,
-                                  prompt: `B-roll: ${item.label}.`,
-                                });
-                              }}
-                            >
-                              {copiedPromptKey === `broll:${item.id}` ? "Copied" : "Copy Prompt"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void sendPromptToProvider({
-                                  key: `broll:${item.id}`,
-                                  prompt: `B-roll: ${item.label}.`,
-                                  label: "B-roll",
-                                });
-                              }}
-                            >
-                              Send to Provider
-                            </button>
                             <button type="button" onClick={() => seekPlayheadToTime(item.firstStartSec, "playhead")}>Cue</button>
                           </div>
                         </article>
@@ -1502,106 +1391,11 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                     <>
                       <div className="hammer-source-summary">
                         <span>{referenceClipPlannedBeats.length} planned reference beats</span>
-                        <span>{sourceReferenceClipItems.length} generated assets</span>
+                        <span>{sourceReferenceClipItems.length} stored assets</span>
                       </div>
-                      {referenceClipPlannedBeats.length === 0 ? (
-                        <div className="hammer-empty-state">No reference clip beats selected in Media Map yet.</div>
-                      ) : null}
-                      {referenceClipPlannedBeats.map((beat) => {
-                        const referenceInput = {
-                          beatId: beat.id,
-                          anchorText: beat.sourceText,
-                          promptBasis: buildMediaMapPrompt({
-                            type: "reference_clip",
-                            text: beat.sourceText,
-                            tweak: beat.tweak,
-                          }),
-                          chartType: "auto",
-                        };
-                        const analysis = analyzeReferenceClipInput(referenceInput);
-                        const linkedPlacement = beat.linkedPlacementId
-                          ? (visualPlacementsById.get(beat.linkedPlacementId) ?? null)
-                          : null;
-                        const previewPath = linkedPlacement?.asset_path ?? null;
-                        const previewUrl = previewPath ? (sourceDeskPreviewUrls[previewPath] ?? null) : null;
-                        const referencePrompt = buildMediaMapPrompt({
-                          type: "reference_clip",
-                          text: beat.sourceText,
-                          tweak: beat.tweak,
-                        });
-                        return (
-                          <article key={`ref-plan-${beat.id}`} className="hammer-source-card">
-                            <header className="hammer-source-card__head">
-                              <strong>{beat.sourceText.slice(0, 92)}</strong>
-                              <span>{beat.reason}</span>
-                            </header>
-                            {previewUrl ? (
-                              <img
-                                className="hammer-source-card__thumb"
-                                src={previewUrl}
-                                alt={analysis.title}
-                              />
-                            ) : null}
-                            <div className="hammer-source-card__meta">
-                              <span>Type: {analysis.outputType}</span>
-                              <span>Selected: {beat.selectedType === "reference_clip" ? "Reference Clip" : "B-roll"}</span>
-                              <span>{beat.linkedPlacementId ? "generated" : "not generated"}</span>
-                            </div>
-                            <div className="hammer-source-card__path">Title: {analysis.title}</div>
-                            <div className="hammer-source-card__path">Summary: {analysis.summary}</div>
-                            <div className="hammer-source-card__path">Prompt: {referencePrompt}</div>
-                            <div className="hammer-source-card__actions">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void generateReferenceClipFromBeat(beat);
-                                }}
-                                disabled={generatingReferenceBeatId != null}
-                              >
-                                {generatingReferenceBeatId === beat.id
-                                  ? "Generating..."
-                                  : beat.linkedPlacementId
-                                  ? "Regenerate"
-                                  : "Generate"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void copyPromptToClipboard({
-                                    key: `ref-clip:${beat.id}`,
-                                    prompt: referencePrompt,
-                                  });
-                                }}
-                              >
-                                {copiedPromptKey === `ref-clip:${beat.id}` ? "Copied" : "Copy Prompt"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (!beat.linkedPlacementId) return;
-                                  setTranscriptTimingHint("Reference clip already saved to Source Desk.");
-                                }}
-                                disabled={!beat.linkedPlacementId}
-                              >
-                                Save Reference Clip
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (!beat.linkedPlacementId) return;
-                                  removeVisualPlacement(beat.linkedPlacementId);
-                                  setMediaMapBeats((current) => current.map((item) => (
-                                    item.id === beat.id ? { ...item, linkedPlacementId: null } : item
-                                  )));
-                                }}
-                                disabled={!beat.linkedPlacementId}
-                              >
-                                Delete Reference Clip
-                              </button>
-                            </div>
-                          </article>
-                        );
-                      })}
+                      <div className="hammer-tool-hint">
+                        Reference clips are created in Hearth. Hammer only places existing reference clip assets.
+                      </div>
                       {sourceReferenceClipItems.map((item) => (
                         <article key={`ref-step-${item.id}`} className="hammer-source-card">
                           <header className="hammer-source-card__head">
@@ -1618,9 +1412,8 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                               type="button"
                               onClick={() => seekPlayheadToTime(item.firstStartSec, "playhead")}
                             >
-                              {item.assetPath ? "Regenerate" : "Generate"}
+                              Cue
                             </button>
-                            <button type="button" onClick={() => seekPlayheadToTime(item.firstStartSec, "playhead")}>Cue</button>
                           </div>
                         </article>
                       ))}

@@ -70,8 +70,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const commitImagePlacementTransform = ctx.commitImagePlacementTransform as any;
   const commitVisualAnchorRefinement = ctx.commitVisualAnchorRefinement as any;
   const commitVisualPlacementWindow = ctx.commitVisualPlacementWindow as any;
-  const copiedPromptKey = ctx.copiedPromptKey as any;
-  const copyPromptToClipboard = ctx.copyPromptToClipboard as any;
   const DEFAULT_IMAGE_PLACEMENT_TRANSFORM = ctx.DEFAULT_IMAGE_PLACEMENT_TRANSFORM as any;
   const detailTag = ctx.detailTag as any;
   const discardHearthBrollSuggestion = ctx.discardHearthBrollSuggestion as any;
@@ -139,7 +137,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const selectedVisualAnchorSegment = ctx.selectedVisualAnchorSegment as any;
   const selectedVisualAnchorSegmentId = ctx.selectedVisualAnchorSegmentId as any;
   const selectedVisualClip = ctx.selectedVisualClip as any;
-  const sendPromptToProvider = ctx.sendPromptToProvider as any;
   const sendToQuenchButtonLabel = ctx.sendToQuenchButtonLabel as any;
   const setActiveCaptionArtifactMode = ctx.setActiveCaptionArtifactMode as any;
   const setAnchorLabelDraft = ctx.setAnchorLabelDraft as any;
@@ -156,7 +153,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const setStudioRackModuleBypassed = ctx.setStudioRackModuleBypassed as any;
   const setStudioRackModuleEnabled = ctx.setStudioRackModuleEnabled as any;
   const setStudioRackOpen = ctx.setStudioRackOpen as any;
-  const setThumbnailPromptDraft = ctx.setThumbnailPromptDraft as any;
   const setTranscriptTimingHint = ctx.setTranscriptTimingHint as any;
   const hasSilenceSuggestionAnalysis = ctx.hasSilenceSuggestionAnalysis as boolean;
   const silenceSuggestionCountForGaps = ctx.silenceSuggestionCount as number;
@@ -200,7 +196,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const sourceBrollItems = ctx.sourceBrollItems as any;
   const sourceImageLibraryItems = ctx.sourceImageLibraryItems as any;
   const studioRackOpen = ctx.studioRackOpen as any;
-  const thumbnailPromptDraft = ctx.thumbnailPromptDraft as any;
   const toggleLogoOverlay = ctx.toggleLogoOverlay as any;
   const trimResolvedBrollBinding = ctx.trimResolvedBrollBinding as any;
   const unresolvedBrollSuggestionItems = ctx.unresolvedBrollSuggestionItems as any;
@@ -3400,42 +3395,8 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                     <div className="hammer-tool-hint">
                       Logo overlay: {packagingLogoPlacement ? "enabled (episode-wide)" : "disabled"}
                     </div>
-                    <label className="hammer-tool-field">
-                      <span>Thumbnail Prompt</span>
-                      <textarea
-                        value={thumbnailPromptDraft}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setThumbnailPromptDraft(event.target.value);
-                        }}
-                        rows={3}
-                        placeholder="Describe a strong thumbnail concept."
-                      />
-                    </label>
-                    <div className="hammer-source-card__actions">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void copyPromptToClipboard({
-                            key: "thumbnail:packaging",
-                            prompt: thumbnailPromptDraft,
-                          });
-                        }}
-                      >
-                        {copiedPromptKey === "thumbnail:packaging" ? "Copied" : "Copy Prompt"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void sendPromptToProvider({
-                            key: "thumbnail:packaging",
-                            prompt: thumbnailPromptDraft,
-                            label: "thumbnail",
-                          });
-                        }}
-                      >
-                        Send to Provider
-                      </button>
+                    <div className="hammer-tool-hint">
+                      Thumbnails and visual prompts are generated in Hearth. Hammer only consumes existing assets from Tongs / workspace.
                     </div>
                   </section>
                 ) : (

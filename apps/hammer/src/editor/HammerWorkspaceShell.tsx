@@ -289,7 +289,6 @@ import {
 import {
   appendAuthorityInstructionToGraph,
   createApplyExposureInstruction,
-  createHearthBrollSuggestionInstruction,
   createAudioDuckInstruction,
   createApplyLookInstruction,
   createCrossfadeInstruction,
@@ -308,11 +307,6 @@ import {
   buildHammerCaptionPreviewModel,
   type HammerCaptionPreviewChunk,
 } from "../lib/hammerCaptionPreview";
-import {
-  analyzeReferenceClipInput,
-  generateReferenceClipPng,
-  type ReferenceClipInput,
-} from "./hammerReferenceClipGeneratorV1";
 import HammerWorkspaceShellToolbar from "./HammerWorkspaceShellToolbar";
 import HammerWorkspaceShellPreviewBay from "./HammerWorkspaceShellPreviewBay";
 import HammerWorkspaceShellTimelineDock from "./HammerWorkspaceShellTimelineDock";
@@ -913,8 +907,6 @@ function inferPlaybackMimeTypeFromPath(args: {
 
 const NUMERIC_SIGNAL_RE = /\b(\d+([.,]\d+)?%?|\d{4}|increase|decrease|up|down|trend|timeline|year|month|week|compared|versus|vs\.?)\b/i;
 const MOTION_SIGNAL_RE = /\b(move|moving|walk|walking|run|running|drive|driving|enter|entering|exit|transition|story|journey|reveal|show|follow)\b/i;
-const PACING_TOKEN_RE = /\[(pause|beat|reflective pause)\]/gi;
-const EXTERNAL_PROVIDER_LAUNCH_URL = "https://chat.openai.com/";
 
 function resolveMediaMapSuggestionType(text: string): {
   type: HammerMediaMapSuggestionType;
@@ -927,31 +919,6 @@ function resolveMediaMapSuggestionType(text: string): {
     return { type: "broll", reason: "motion detected" };
   }
   return { type: "broll", reason: "story context detected" };
-}
-
-function buildMediaMapPrompt(args: {
-  type: HammerMediaMapSuggestionType;
-  text: string;
-  tweak: string;
-}): string {
-  const base = args.type === "reference_clip"
-    ? `Reference clip: visualize factual context for "${args.text}".`
-    : `B-roll: support story motion for "${args.text}".`;
-  const tweak = args.tweak.trim();
-  return tweak ? `${base} Tweak: ${tweak}` : base;
-}
-
-function buildTimelineImagePrompt(args: { text: string; tweak: string }): string {
-  const tweak = args.tweak.trim();
-  const base = `Timeline image: still frame that supports "${args.text}".`;
-  return tweak ? `${base} Tweak: ${tweak}` : base;
-}
-
-function sanitizePromptForCopy(prompt: string): string {
-  return prompt
-    .replace(PACING_TOKEN_RE, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
 }
 
 function formatBytes(bytes: number | null): string {
@@ -1992,8 +1959,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [storedMediaFiles, setStoredMediaFiles] = useState<HammerStoredMediaFile[]>([]);
   const [mediaMapBeats, setMediaMapBeats] = useState<HammerMediaMapBeat[]>([]);
   const [removedMediaMapSegmentIds, setRemovedMediaMapSegmentIds] = useState<string[]>([]);
-  const [copiedPromptKey, setCopiedPromptKey] = useState<string | null>(null);
-  const [generatingReferenceBeatId, setGeneratingReferenceBeatId] = useState<string | null>(null);
   const [sourceDeskLoading, setSourceDeskLoading] = useState(false);
   const [sourceDeskError, setSourceDeskError] = useState<string | null>(null);
   const [uploadingCategory, setUploadingCategory] = useState<"images" | "broll" | "introoutro" | null>(null);
@@ -2026,7 +1991,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [loadedPreparedPackage, setLoadedPreparedPackage] = useState<HammerPreparedReleasePackage | null>(null);
   const [studioRackRenderStatus, setStudioRackRenderStatus] = useState<HammerDialogueRenderExecutionResult | null>(null);
   const [transcriptTimingHint, setTranscriptTimingHint] = useState<string | null>(null);
-  const [thumbnailPromptDraft, setThumbnailPromptDraft] = useState("");
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
   const [playbackMediaSrc, setPlaybackMediaSrc] = useState<string | null>(null);
   const [previewVideoSrc, setPreviewVideoSrc] = useState<string | null>(null);
@@ -2085,7 +2049,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const scrubRectRef = useRef<{ left: number; width: number } | null>(null);
   const scrubAutoPlayRef = useRef(false);
   const scrubReturnToPausedRef = useRef(false);
-  const copiedPromptTimerRef = useRef<number | null>(null);
   const playbackOwnerIdRef = useRef(`hammer-preview-${Math.random().toString(36).slice(2, 10)}`);
   const handledCandidateIdsRef = useRef<{ fillers: Set<string>; retakes: Set<string> }>({
     fillers: new Set(),
@@ -6808,12 +6771,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   useEffect(() => {
     setAudioFinalizationCompareMode(editableStudioRack.is_bypassed ? "before" : "after");
   }, [editableStudioRack.is_bypassed]);
-  useEffect(() => () => {
-    if (copiedPromptTimerRef.current != null) {
-      window.clearTimeout(copiedPromptTimerRef.current);
-      copiedPromptTimerRef.current = null;
-    }
-  }, []);
   useEffect(() => {
     if (packagingLogoAssetPath) return;
     const preferred = packagingLogoPlacement?.asset_path
@@ -6838,13 +6795,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       setPackagingLogoAssetPath(packagingLogoPlacement.asset_path);
     }
   }, [packagingLogoPlacement]);
-  useEffect(() => {
-    if (thumbnailPromptDraft.trim().length > 0) return;
-    const sourceText = selectedSegment?.text
-      ?? editableTranscriptSegments[0]?.text
-      ?? "podcast episode cover concept";
-    setThumbnailPromptDraft(`Thumbnail: bold podcast cover frame for "${sourceText}".`);
-  }, [editableTranscriptSegments, selectedSegment?.text, thumbnailPromptDraft]);
   useEffect(() => {
     if (!imageAnimationContextMenu) return;
     const closeMenu = (): void => setImageAnimationContextMenu(null);
@@ -7926,220 +7876,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         )),
       })),
     });
-  }
-
-  function markPromptCopied(key: string): void {
-    setCopiedPromptKey(key);
-    if (copiedPromptTimerRef.current != null) {
-      window.clearTimeout(copiedPromptTimerRef.current);
-    }
-    copiedPromptTimerRef.current = window.setTimeout(() => {
-      setCopiedPromptKey((current) => (current === key ? null : current));
-      copiedPromptTimerRef.current = null;
-    }, 1400);
-  }
-
-  async function copyPromptToClipboard(args: { key: string; prompt: string }): Promise<boolean> {
-    const cleanedPrompt = sanitizePromptForCopy(args.prompt);
-    if (!cleanedPrompt) {
-      setTranscriptTimingHint("Prompt is empty. Add text before copying.");
-      return false;
-    }
-    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
-      setTranscriptTimingHint("Clipboard is unavailable in this browser context.");
-      return false;
-    }
-    try {
-      await navigator.clipboard.writeText(cleanedPrompt);
-      markPromptCopied(args.key);
-      setTranscriptTimingHint("Prompt copied.");
-      return true;
-    } catch {
-      setTranscriptTimingHint("Prompt copy failed. Check clipboard permissions.");
-      return false;
-    }
-  }
-
-  async function sendPromptToProvider(args: {
-    key: string;
-    prompt: string;
-    label: string;
-  }): Promise<void> {
-    const copied = await copyPromptToClipboard({ key: args.key, prompt: args.prompt });
-    if (!copied) return;
-    window.open(EXTERNAL_PROVIDER_LAUNCH_URL, "_blank", "noopener,noreferrer");
-    setTranscriptTimingHint(`Opened provider bridge for ${args.label}. Prompt copied for paste.`);
-  }
-
-  async function generateReferenceClipFromBeat(beat: HammerMediaMapBeat): Promise<void> {
-    if (generatingReferenceBeatId) return;
-    const referencePlacementId = beat.linkedPlacementId ?? createVisualPlacementId();
-    const input: ReferenceClipInput = {
-      beatId: beat.id,
-      anchorText: beat.sourceText,
-      promptBasis: buildMediaMapPrompt({
-        type: "reference_clip",
-        text: beat.sourceText,
-        tweak: beat.tweak,
-      }),
-      chartType: "auto",
-    };
-    const analysis = analyzeReferenceClipInput(input);
-    setGeneratingReferenceBeatId(beat.id);
-    setSourceDeskError(null);
-    try {
-      const generated = await generateReferenceClipPng(input);
-      const file = new File(
-        [generated.blob],
-        `reference_clip-${beat.segmentId}-${generated.outputType}-${Date.now()}.png`,
-        { type: generated.mimeType },
-      );
-      const uploaded = await uploadWorkpieceMediaFile({
-        workpieceId: launchContext.workpiece_id,
-        file,
-        category: "images",
-      });
-      await refreshSourceDeskMedia();
-
-      applyHistoryMutation({
-        label: beat.linkedPlacementId ? "Regenerate reference clip" : "Generate reference clip",
-        kind: "visual_adjustment",
-        toolId: "video",
-        affectedSegments: [beat.segmentId],
-        affectedPlacementIds: [referencePlacementId],
-        immediatePersist: true,
-        computeAfter: (before) => {
-          const segment = before.transcriptSegments.find((item) => item.segment_id === beat.segmentId) ?? null;
-          if (!segment) return before;
-          const startSec = Math.max(0, roundToTenth(segment.start_sec));
-          const endSec = Math.max(startSec + 0.5, roundToTenth(Math.min(transcriptDurationSec, segment.end_sec + 1.2)));
-          const visualTimeline = resolveCanonicalVisualTimeline(before);
-          const updatedAt = new Date().toISOString();
-          const nextRecord: HammerVisualPlacementRecord = {
-            placement_id: referencePlacementId,
-            entry_id: `reference:${referencePlacementId}`,
-            anchor_segment_id: segment.segment_id,
-            matched_segment_ids: [segment.segment_id],
-            anchor_text: segment.text,
-            asset_ref: uploaded.path,
-            asset_id: null,
-            asset_path: uploaded.path,
-            storage_key: uploaded.path,
-            label: analysis.title,
-            visual_mode: "reference_clip",
-            start_sec: startSec,
-            end_sec: endSec,
-            confidence: null,
-            timing_source: "ordered_fallback",
-            status: "placed",
-            ingest_state: "approved",
-            uncertainty_flags: [
-              "reference_clip_generated_in_house",
-              `cdc_v1_type:${generated.outputType}`,
-              `cdc_v1_summary:${analysis.summary.slice(0, 120)}`,
-            ],
-            overlay_geometry: DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
-            animation_preset: "none",
-            overlay_opacity: 1,
-            overlay_z_index: visualTimeline.clips.find((clip) => clip.clip_id === referencePlacementId)?.z_index ?? (visualTimeline.clips.length + 1),
-          };
-          const assetId = deriveStableHammerVisualAssetId(nextRecord);
-          const nextClip = migrateLegacyPlacementRecordToClip({
-            record: nextRecord,
-            asset_id: assetId,
-            updated_at: updatedAt,
-          });
-          const asset = migrateLegacyPlacementRecordToAsset({
-            record: nextRecord,
-            asset_id: assetId,
-            updated_at: updatedAt,
-          });
-          const nextState = {
-            ...before,
-            selectedSegmentId: segment.segment_id,
-          };
-          const existingClip = visualTimeline.clips.find((clip) => clip.clip_id === referencePlacementId) ?? null;
-          if (existingClip) {
-            return replaceVisualTimelineState(nextState, (timeline) => ({
-              ...timeline,
-              assets: timeline.assets.some((item) => item.asset_id === assetId)
-                ? timeline.assets.map((item) => (item.asset_id === assetId ? asset : item))
-                : [...timeline.assets, asset],
-              clips: timeline.clips.map((clip) => (
-                clip.clip_id === referencePlacementId
-                  ? {
-                    ...clip,
-                    ...nextClip,
-                    uncertainty_flags: [...nextClip.uncertainty_flags],
-                    geometry: { ...nextClip.geometry },
-                    animation: { ...nextClip.animation },
-                    anchor_hint: {
-                      ...nextClip.anchor_hint,
-                      matched_segment_ids: [...nextClip.anchor_hint.matched_segment_ids],
-                    },
-                  }
-                  : clip
-              )),
-            }));
-          }
-          return applyVisualTimelineActions(nextState, [
-            {
-              type: "UPSERT_ASSETS",
-              assets: [asset],
-              updated_at: updatedAt,
-            },
-            {
-              type: "CREATE_CLIP",
-              clip: nextClip,
-              updated_at: updatedAt,
-            },
-          ]);
-        },
-      });
-      setMediaMapBeats((current) => current.map((item) => (
-        item.id === beat.id ? { ...item, linkedPlacementId: referencePlacementId, selectedType: "reference_clip" } : item
-      )));
-      setTranscriptTimingHint(`Reference clip generated (${generated.outputType}).`);
-    } catch (error) {
-      setSourceDeskError(error instanceof Error ? error.message : "Reference clip generation failed.");
-    } finally {
-      setGeneratingReferenceBeatId(null);
-    }
-  }
-
-  function queueMediaMapBeatSuggestion(beat: HammerMediaMapBeat): void {
-    applyHistoryMutation({
-      label: "Queue Media Map suggestion",
-      kind: "visual_adjustment",
-      toolId: "video",
-      affectedSegments: [beat.segmentId],
-      immediatePersist: true,
-      computeAfter: (before) => {
-        const segment = before.transcriptSegments.find((item) => item.segment_id === beat.segmentId) ?? null;
-        if (!segment) return before;
-        const startSec = Math.max(0, roundToTenth(segment.start_sec));
-        const endSec = Math.max(startSec + 0.5, roundToTenth(Math.min(transcriptDurationSec, segment.end_sec + 0.8)));
-        const prompt = buildMediaMapPrompt({
-          type: beat.selectedType,
-          text: beat.sourceText,
-          tweak: beat.tweak,
-        });
-        const suggestion = createHearthBrollSuggestionInstruction({
-          segmentId: beat.segmentId,
-          intentRef: `media-map:${beat.id}:${Date.now().toString(36)}`,
-          intentDescription: prompt,
-          startSec,
-          endSec,
-          duckPreference: "auto",
-        });
-        return {
-          ...before,
-          selectedSegmentId: beat.segmentId,
-          editorialAuthorityGraph: appendAuthorityInstructionForState(before, suggestion),
-        };
-      },
-    });
-    setSelectedVisualFlowStep(beat.selectedType === "reference_clip" ? "reference_clips" : "broll");
   }
 
   function redoMediaMapFromScript(): void {
@@ -9806,7 +9542,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       commitDeleteOnlyTranscriptEdits,
       setTranscriptTimingHint,
 
-      buildTimelineImagePrompt,
       formatBytes,
       selectedVisualFlowStep,
       uploadingCategory,
@@ -9834,8 +9569,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       persistIntroOutroSelection,
       addImagePlacementFromLibrary,
       updatePlacementKindFromMediaMap,
-      generateReferenceClipFromBeat,
-      queueMediaMapBeatSuggestion,
       redoMediaMapFromScript,
       sourceReferenceClipItems,
       sourceBrollOnlyItems,
@@ -9850,9 +9583,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       visualPlacementCardRefs,
       effectiveSelectedClipId,
       selectVisualClip,
-      copyPromptToClipboard,
-      copiedPromptKey,
-      sendPromptToProvider,
       selectionOriginRef,
       setSelectedClipId,
       setSelectedSegmentId,
@@ -9865,13 +9595,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       workspaceMapping,
       mediaMapBeats,
       setSelectedVisualFlowStep,
-      buildMediaMapPrompt,
       setMediaMapBeats,
       setRemovedMediaMapSegmentIds,
       unresolvedBrollSuggestionItems,
-      analyzeReferenceClipInput,
-      visualPlacementsById,
-      generatingReferenceBeatId,
     };
   }, [
     activeOutputLayerId,
@@ -9896,7 +9622,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     introOutroUploadInputRef,
     isSubtractiveTranscriptEdit,
     jumpToHistoryEntry,
-    buildTimelineImagePrompt,
     modifiedSegmentCount,
     modifiedTranscriptSegmentIds,
     outputLayerCandidates,
@@ -9956,9 +9681,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     activeTool,
     transcriptLineRefs,
     brollUploadInputRef,
-    generateReferenceClipFromBeat,
     persistIntroOutroSelection,
-    queueMediaMapBeatSuggestion,
     referenceClipPlannedBeats,
     seekPlayheadToTime,
     sourceDeskPreviewUrls,
@@ -9966,10 +9689,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     sourceDeskPreviewFailures,
     brollUploadInputRef,
     imageUploadInputRef,
-    queueMediaMapBeatSuggestion,
     redoMediaMapFromScript,
     updatePlacementKindFromMediaMap,
-    generateReferenceClipFromBeat,
     persistIntroOutroSelection,
     addImagePlacementFromLibrary,
     referenceClipPlannedBeats,
@@ -10889,8 +10610,6 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     commitImagePlacementTransform,
     commitVisualAnchorRefinement,
     commitVisualPlacementWindow,
-    copiedPromptKey,
-    copyPromptToClipboard,
     currentPass,
     deadAirAnalysis,
     deadAirApplyInFlight,
@@ -10991,7 +10710,6 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     selectedVisualAnchorSegment,
     selectedVisualAnchorSegmentId,
     selectedVisualClip,
-    sendPromptToProvider,
     sendToQuenchButtonLabel,
     setActiveCaptionArtifactMode,
     setActiveReviewKind,
@@ -11023,7 +10741,6 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setStudioRackModuleBypassed,
     setStudioRackModuleEnabled,
     setStudioRackOpen,
-    setThumbnailPromptDraft,
     setTranscriptTimingHint,
     setVideoSnapMode,
     setVisualBackgroundBlur,
@@ -11067,7 +10784,6 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     studioRackRenderConfig,
     studioRackRenderDeferredModules,
     studioRackRenderStatus,
-    thumbnailPromptDraft,
     toggleLogoOverlay,
     transcriptSegmentsById,
     transcriptSelectionRange,
@@ -11177,8 +10893,6 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     commitImagePlacementTransform,
     commitVisualAnchorRefinement,
     commitVisualPlacementWindow,
-    copiedPromptKey,
-    copyPromptToClipboard,
     currentPass,
     deadAirAnalysis,
     deadAirApplyInFlight,
@@ -11279,7 +10993,6 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     selectedVisualAnchorSegment,
     selectedVisualAnchorSegmentId,
     selectedVisualClip,
-    sendPromptToProvider,
     sendToQuenchButtonLabel,
     setActiveCaptionArtifactMode,
     setActiveReviewKind,
@@ -11311,7 +11024,6 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setStudioRackModuleBypassed,
     setStudioRackModuleEnabled,
     setStudioRackOpen,
-    setThumbnailPromptDraft,
     setTranscriptTimingHint,
     setVideoSnapMode,
     setVisualBackgroundBlur,
@@ -11356,7 +11068,6 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     studioRackRenderConfig,
     studioRackRenderDeferredModules,
     studioRackRenderStatus,
-    thumbnailPromptDraft,
     toggleLogoOverlay,
     transcriptSegmentsById,
     transcriptSelectionRange,
