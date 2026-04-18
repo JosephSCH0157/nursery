@@ -2063,6 +2063,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const scrubRectRef = useRef<{ left: number; width: number } | null>(null);
   const scrubAutoPlayRef = useRef(false);
   const scrubReturnToPausedRef = useRef(false);
+  const hydratedVisualPreviewSettingsRef = useRef<string | null>(null);
   const playbackOwnerIdRef = useRef(`hammer-preview-${Math.random().toString(36).slice(2, 10)}`);
   const handledCandidateIdsRef = useRef<{ fillers: Set<string>; retakes: Set<string> }>({
     fillers: new Set(),
@@ -2193,6 +2194,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   ]);
 
   useEffect(() => {
+    hydratedVisualPreviewSettingsRef.current = null;
+  }, [launchContext.workpiece_id]);
+
+  useEffect(() => {
+    if (props.initialVisualPreviewSettings == null) return;
+    if (hydratedVisualPreviewSettingsRef.current === launchContext.workpiece_id) return;
+    hydratedVisualPreviewSettingsRef.current = launchContext.workpiece_id;
+
     const nextVisualPreviewSettings = normalizeVisualPreviewSettings(props.initialVisualPreviewSettings);
     setVisualWhiteBalance(nextVisualPreviewSettings.white_balance);
     setVisualColorAmount(nextVisualPreviewSettings.color_amount);
@@ -2223,7 +2232,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setVisualBackgroundWashEnabled(Boolean(nextVisualPreviewSettings.background_wash_enabled ?? false));
     setVisualBackgroundWashDimAmount(Number(nextVisualPreviewSettings.background_wash_dim_amount ?? 0.35));
     setVisualBackgroundWashDesaturateAmount(Number(nextVisualPreviewSettings.background_wash_desaturate_amount ?? 0.25));
-  }, [props.initialVisualPreviewSettings]);
+  }, [launchContext.workpiece_id, props.initialVisualPreviewSettings]);
 
   useEffect(() => {
     setPassStatus((previous) => {

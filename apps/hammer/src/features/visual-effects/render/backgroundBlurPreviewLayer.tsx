@@ -1114,9 +1114,7 @@ export default function BackgroundBlurPreviewLayer(props: {
           reusedMaskFrames: reusedMaskFramesRef.current,
           effectiveSegmentationFps: cadence.effectiveSegmentationFps,
           effectiveCompositeFps: cadence.effectiveCompositeFps,
-          degradedReason: canReuseMask
-            ? "reusing_recent_mask"
-            : composite.degradedReason,
+          degradedReason: composite.degradedReason,
           warnings: [...new Set([...(cachedMatte.warnings ?? []), ...composite.warnings])],
           mask: {
             status: "ok",
@@ -1204,11 +1202,7 @@ export default function BackgroundBlurPreviewLayer(props: {
 
   if (!props.enabled) return null;
 
-  const show = (props.settings.enabled || props.settings.replacementEnabled || props.settings.washEnabled) && (
-    props.settings.fallbackMode === "passthrough"
-      ? true
-      : runtimeStatus.degradedReason == null || runtimeStatus.mask.status !== "ok"
-  );
+  const show = props.settings.enabled || props.settings.replacementEnabled || props.settings.washEnabled || props.maskPreviewMode;
   const canvasClassName = show
     ? "hammer-preview-matte-canvas is-visible"
     : "hammer-preview-matte-canvas";
