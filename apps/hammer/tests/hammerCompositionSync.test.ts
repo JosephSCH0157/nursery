@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { projectEditorialAuthorityGraphFromEditPlan } from "../src/editor/hammerRenderAssembly";
 import {
   applyTranscriptDeleteRangeComposition,
+  applyTranscriptSplitComposition,
   applyTranscriptToggleMuteSegmentsComposition,
 } from "../src/editor/hammerCompositionMutations";
 import { appendAuthorityInstructionToGraph, createInsertBrollInstruction } from "../src/editor/hammerAuthorityOps";
@@ -460,6 +461,86 @@ async function testMuteActionStaysCompositionSynchronized() {
   assert.equal(reloadedLaunch?.launchContext.edit_plan?.instructions.filter((instruction) => instruction.type === "mute").length, 0);
 }
 
+async function testSplitActionStaysCompositionSynchronized() {
+  const before = buildBaseState();
+  const after = applyTranscriptSplitComposition({
+    before,
+    op: {
+      type: "TRANSCRIPT_SPLIT",
+      label: "Split segment at playhead",
+      segmentId: "seg_002",
+      splitTimeSec: 3,
+      kind: "segment_structure",
+      immediatePersist: true,
+    },
+    context: {
+      playbackDurationSec: 6,
+      authorityFallback: {
+        graphId: "plan_sync_01:authority",
+        workspaceId: target.workspaceId,
+        workpieceId: target.workpieceId,
+        sessionId: "session_sync_01",
+        sourceTranscriptId: "transcript_sync_01",
+      },
+      nowIso: "2026-04-18T12:05:00.000Z",
+    },
+  });
+
+  assert.equal(after.transcriptSegments.length, 4);
+  const left = after.transcriptSegments[1];
+  const right = after.transcriptSegments[2];
+  assert.equal(left.start_sec, 2);
+  assert.equal(left.end_sec, 3);
+  assert.equal(right.start_sec, 3);
+  assert.equal(right.end_sec, 4);
+  assert.ok(left.segment_id.includes("::split:"));
+  assert.ok(right.segment_id.includes("::split:"));
+  assert.notEqual(left.segment_id, right.segment_id);
+  assert.equal(after.editorialAuthorityGraph?.operations.length, 2);
+  const splitOperation = after.editorialAuthorityGraph?.operations.at(-1) ?? null;
+  assert.equal(splitOperation?.instruction.type, "split");
+  assert.equal(splitOperation?.instruction.segment_id, "seg_002");
+  assert.equal(splitOperation?.instruction.type === "split" ? splitOperation.instruction.split_at_sec : null, 3);
+  assert.equal(after.selectedSegmentId, right.segment_id);
+  assert.equal(after.playheadSec, 3);
+  assert.equal(after.visualTimeline?.clips[0]?.start_sec, 4);
+  assert.equal(after.visualTimeline?.clips[0]?.end_sec, 6);
+
+  const saveRequest = buildHammerPersistenceSaveRequest(buildWorkspaceSnapshot(after));
+  assert.equal(saveRequest.editorial_authority.data.operations.length, 2);
+  assert.equal(saveRequest.edit_plan?.data.instructions.at(-1)?.type, "split");
+  assert.deepEqual(
+    saveRequest.structured_transcript?.data.segments.map((segment) => ({ id: segment.segment_id, start: segment.start_sec, end: segment.end_sec })),
+    [
+      { id: "seg_001", start: 0, end: 2 },
+      { id: left.segment_id, start: 2, end: 3 },
+      { id: right.segment_id, start: 3, end: 4 },
+      { id: "seg_003", start: 4, end: 6 },
+    ],
+  );
+
+  const persistedSnapshot = buildPersistedSnapshotFromSaveRequest(saveRequest);
+  const reloadedLaunch = buildHammerLaunchContextFromPersistence(target, persistedSnapshot);
+  const reloadedTimeline = loadHammerVisualTimelineStateFromSnapshot(persistedSnapshot);
+
+  assert.ok(reloadedLaunch);
+  assert.deepEqual(
+    reloadedLaunch?.launchContext.transcript.kind === "tongs-stub"
+      ? reloadedLaunch.launchContext.transcript.segments.map((segment) => ({ id: segment.segment_id, start: segment.start_sec, end: segment.end_sec }))
+      : [],
+    [
+      { id: "seg_001", start: 0, end: 2 },
+      { id: left.segment_id, start: 2, end: 3 },
+      { id: right.segment_id, start: 3, end: 4 },
+      { id: "seg_003", start: 4, end: 6 },
+    ],
+  );
+  assert.equal(reloadedLaunch?.launchContext.edit_plan?.instructions.at(-1)?.type, "split");
+  assert.equal(reloadedTimeline.clips[0]?.start_sec, 4);
+  assert.equal(reloadedTimeline.clips[0]?.end_sec, 6);
+}
+
 await testDeleteActionStaysCompositionSynchronized();
 await testMuteActionStaysCompositionSynchronized();
+await testSplitActionStaysCompositionSynchronized();
 console.log("Hammer composition sync tests passed.");

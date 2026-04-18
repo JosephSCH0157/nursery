@@ -71,7 +71,6 @@ import {
   resolveWorkspaceFocusMode,
   roundToTenth,
   snapPlayheadToBoundary,
-  splitSegmentAtTime,
   trimSegmentEndTiming,
   trimSegmentStartTiming,
   updateSegmentGain,
@@ -101,6 +100,7 @@ import {
 import {
   applyTranscriptCleanupPreviewComposition,
   applyTranscriptDeleteRangeComposition,
+  applyTranscriptSplitComposition,
   applyTranscriptToggleMuteSegmentsComposition,
   type HammerAuthorityOp,
 } from "./hammerCompositionMutations";
@@ -4255,6 +4255,28 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             },
           }),
         });
+      case "TRANSCRIPT_SPLIT":
+        return applyHistoryMutation({
+          label: op.label,
+          kind: op.kind ?? "segment_structure",
+          toolId: op.toolId,
+          affectedSegments: [op.segmentId],
+          immediatePersist: op.immediatePersist === true,
+          computeAfter: (before) => applyTranscriptSplitComposition({
+            before,
+            op,
+            context: {
+              playbackDurationSec: playbackTransportDurationSec,
+              authorityFallback: {
+                graphId: `${launchContext.workpiece_id}:authority`,
+                workspaceId: launchContext.workspace_id,
+                workpieceId: launchContext.workpiece_id,
+                sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
+                sourceTranscriptId: transcriptSourceId,
+              },
+            },
+          }),
+        });
       default:
         return null;
     }
@@ -6143,28 +6165,25 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return;
     }
 
-    const applied = applyHistoryMutation({
+    const state = historyControllerRef.current?.getState() ?? null;
+    if (!state) {
+      setTranscriptTimingHint("Split could not resolve the current workspace state.");
+      return;
+    }
+    const boundaries = resolveTimelineBoundaryTimes(state.transcriptSegments);
+    const snappedPlayhead = snapPlayheadToBoundary({
+      nextPlayheadSec: state.playheadSec,
+      boundaryTimesSec: boundaries,
+      toleranceSec: PLAYHEAD_SNAP_TOLERANCE_SEC,
+    });
+
+    const applied = applyCompositionMutation({
+      type: "TRANSCRIPT_SPLIT",
       label: "Split segment at playhead",
       kind: "segment_structure",
-      affectedSegments: [selectedSegmentId],
+      segmentId: selectedSegmentId,
+      splitTimeSec: snappedPlayhead,
       immediatePersist: true,
-      computeAfter: (before) => {
-        const boundaries = resolveTimelineBoundaryTimes(before.transcriptSegments);
-        const snappedPlayhead = snapPlayheadToBoundary({
-          nextPlayheadSec: before.playheadSec,
-          boundaryTimesSec: boundaries,
-          toleranceSec: PLAYHEAD_SNAP_TOLERANCE_SEC,
-        });
-        const split = splitSegmentAtTime(before.transcriptSegments, selectedSegmentId, snappedPlayhead);
-        if (!split.changed || split.splitSec == null) return before;
-        return {
-          ...before,
-          transcriptSegments: split.segments,
-          selectedSegmentId: split.rightSegmentId ?? split.leftSegmentId ?? before.selectedSegmentId,
-          playheadSec: split.splitSec,
-          transcriptTimingHint: null,
-        };
-      },
     });
 
     if (!applied) {

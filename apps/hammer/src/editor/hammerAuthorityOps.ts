@@ -11,6 +11,7 @@ import type {
   HammerMuteInstruction,
   HammerPodcastMasterPassInstruction,
   HammerRippleDeleteInstruction,
+  HammerSplitInstruction,
   HammerCrossfadeInstruction,
 } from "../../../../packages/contracts/hammer/edit-instruction.contract";
 import type {
@@ -180,6 +181,28 @@ export function createMuteInstruction(args: {
     instruction_id: args.instructionId ?? createInstructionId("mute"),
     segment_id: args.segmentId,
     type: "mute",
+    created_at: nowIso,
+    execution: {
+      operation_family: "transcript_structural",
+      capability: "executable",
+      status: "declared",
+      target: "preview",
+    },
+  };
+}
+
+export function createSplitInstruction(args: {
+  segmentId: string;
+  splitAtSec: number;
+  nowIso?: string;
+  instructionId?: string;
+}): HammerSplitInstruction {
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  return {
+    instruction_id: args.instructionId ?? createInstructionId("split"),
+    segment_id: args.segmentId,
+    type: "split",
+    split_at_sec: args.splitAtSec,
     created_at: nowIso,
     execution: {
       operation_family: "transcript_structural",

@@ -2,6 +2,7 @@ import {
   appendAuthorityInstructionToGraph,
   createMuteInstruction,
   createRippleDeleteInstruction,
+  createSplitInstruction,
   remapResolvedBrollOperationsForRippleDelete,
   supersedeMuteInstructionsForSegments,
 } from "./hammerAuthorityOps";
@@ -25,6 +26,7 @@ import {
   resolvePlayheadAfterRangeCut,
   resolvePlayheadSegment,
   resolveSelectedSegmentAfterDelete,
+  splitSegmentAtTime,
 } from "./hammerWorkspaceTimeline";
 import { syncEditableTranscriptSegments } from "./hammerWorkspaceTranscript";
 
@@ -42,6 +44,15 @@ export type HammerAuthorityOp =
     label: string;
     segmentIds: string[];
     disabled: boolean;
+    kind?: HammerHistoryKind;
+    toolId?: string;
+    immediatePersist?: boolean;
+  }
+  | {
+    type: "TRANSCRIPT_SPLIT";
+    label: string;
+    segmentId: string;
+    splitTimeSec: number;
     kind?: HammerHistoryKind;
     toolId?: string;
     immediatePersist?: boolean;
@@ -457,6 +468,72 @@ export function applyTranscriptToggleMuteSegmentsComposition(args: {
     ...args.before,
     transcriptSegments,
     editorialAuthorityGraph: nextGraph,
+    transcriptTimingHint: null,
+  };
+}
+
+function buildDeterministicSplitSegmentId(segmentId: string, operationId: string, side: "L" | "R"): string {
+  return `${segmentId}::split:${operationId}:${side}`;
+}
+
+export function applyTranscriptSplitComposition(args: {
+  before: HammerEditorStateSerializable;
+  op: Extract<HammerAuthorityOp, { type: "TRANSCRIPT_SPLIT" }>;
+  context: HammerCompositionMutationContext;
+}): HammerEditorStateSerializable {
+  const segmentIndex = args.before.transcriptSegments.findIndex((segment) => segment.segment_id === args.op.segmentId);
+  if (segmentIndex < 0) {
+    return args.before;
+  }
+
+  const source = args.before.transcriptSegments[segmentIndex];
+  const split = splitSegmentAtTime(args.before.transcriptSegments, args.op.segmentId, args.op.splitTimeSec);
+  if (!split.changed || split.splitSec == null) {
+    return args.before;
+  }
+
+  const nowIso = args.context.nowIso ?? new Date().toISOString();
+  const nextGraph = appendAuthorityInstructionToGraph({
+    graph: args.before.editorialAuthorityGraph,
+    instruction: createSplitInstruction({
+      segmentId: args.op.segmentId,
+      splitAtSec: split.splitSec,
+      nowIso,
+    }),
+    nowIso,
+    fallback: args.context.authorityFallback,
+  });
+  const splitOperationId = nextGraph.operations.at(-1)?.operation_id;
+  if (!splitOperationId) {
+    return args.before;
+  }
+
+  const leftSegmentId = buildDeterministicSplitSegmentId(args.op.segmentId, splitOperationId, "L");
+  const rightSegmentId = buildDeterministicSplitSegmentId(args.op.segmentId, splitOperationId, "R");
+  const leftSegment = {
+    ...source,
+    segment_id: leftSegmentId,
+    start_sec: source.start_sec,
+    end_sec: split.splitSec,
+  };
+  const rightSegment = {
+    ...source,
+    segment_id: rightSegmentId,
+    start_sec: split.splitSec,
+    end_sec: source.end_sec,
+  };
+
+  return {
+    ...args.before,
+    transcriptSegments: [
+      ...args.before.transcriptSegments.slice(0, segmentIndex),
+      leftSegment,
+      rightSegment,
+      ...args.before.transcriptSegments.slice(segmentIndex + 1),
+    ],
+    editorialAuthorityGraph: nextGraph,
+    selectedSegmentId: rightSegmentId,
+    playheadSec: split.splitSec,
     transcriptTimingHint: null,
   };
 }
