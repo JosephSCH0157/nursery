@@ -141,6 +141,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
 
   const [inlineEditHint, setInlineEditHint] = useState<string | null>(null);
   const hintTimerRef = useRef<number | null>(null);
+  const transcriptDocumentRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setInlineEditHint(null);
@@ -321,6 +322,19 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
       segments,
     });
   }
+
+  useEffect(() => {
+    if (!onTranscriptSelection || typeof document === "undefined") return;
+
+    const handleSelectionChange = (): void => {
+      const root = transcriptDocumentRef.current;
+      if (!root) return;
+      reportTranscriptDocumentSelection(root);
+    };
+
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => document.removeEventListener("selectionchange", handleSelectionChange);
+  }, [onTranscriptSelection, editableTranscriptSegments]);
 
   function commitDeleteOnlySegmentEdit(
     segment: any,
@@ -841,7 +855,13 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                       <span>{modifiedSegmentCount} modified</span>
                       <span>{modifiedSegmentCount > 0 ? "recompute needed" : "in sync"}</span>
                     </div>
-                    <article className="hammer-transcript-doc" aria-label="Transcript document view">
+                    <article
+                      className="hammer-transcript-doc"
+                      aria-label="Transcript document view"
+                      ref={(element) => {
+                        transcriptDocumentRef.current = element;
+                      }}
+                    >
                       {transcriptTurns.map((turn, turnIndex) => (
                         <section
                           key={`doc-turn-${turnIndex}-${turn.speaker}`}
@@ -880,6 +900,16 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                     ].filter(Boolean).join(" ")}
                                     title={`${segment.start_sec.toFixed(1)}s - ${segment.end_sec.toFixed(1)}s`}
                                     onClick={(event) => {
+                                      if (typeof window !== "undefined") {
+                                        const selection = window.getSelection();
+                                        if (selection && !selection.isCollapsed && selection.toString().trim()) {
+                                          const root = transcriptDocumentRef.current;
+                                          if (root) {
+                                            reportTranscriptDocumentSelection(root);
+                                          }
+                                          return;
+                                        }
+                                      }
                                       event.stopPropagation();
                                       setFocusOverride("source-focus");
                                       applyTranscriptSelection(segment.segment_id, event.shiftKey);

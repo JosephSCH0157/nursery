@@ -332,9 +332,15 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const podcastMasterLayer = ctx.podcastMasterLayer as any;
   const podcastMasterUiStatus = ctx.podcastMasterUiStatus as any;
 
-  function getProposedRemovalText(card: any): string {
+  function getCommittedProposedRemovalText(card: any): string {
     if (!card) return "";
     return candidateProposedRemovalById[card.id]?.text ?? card.suggestedRemovalText ?? "";
+  }
+
+  function getDisplayedProposedRemovalText(card: any): string {
+    const committedText = getCommittedProposedRemovalText(card);
+    if (committedText.trim()) return committedText;
+    return selectedTranscriptRange?.text ?? "";
   }
 
   return (
@@ -459,7 +465,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           <div className="hammer-candidate-card__context">
                             <header>Proposed Removal</header>
                             <p className="hammer-candidate-diff">
-                              {getProposedRemovalText(activeFillerCandidateCard) || "[no removal selected]"}
+                              {getDisplayedProposedRemovalText(activeFillerCandidateCard) || "[no removal selected]"}
                             </p>
                           </div>
                           <div className="hammer-candidate-card__meta">
@@ -482,7 +488,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                             </button>
                             <button
                               type="button"
-                              disabled={fillerDecisionInFlight || !getProposedRemovalText(activeFillerCandidateCard).trim()}
+                              disabled={fillerDecisionInFlight || !getCommittedProposedRemovalText(activeFillerCandidateCard).trim()}
                               onClick={() => {
                                 setFocusOverride("tool-focus");
                                 handleCandidateDecision("fillers", true);
@@ -568,7 +574,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           <div className="hammer-candidate-card__context">
                             <header>Proposed Removal</header>
                             <p className="hammer-candidate-diff">
-                              {getProposedRemovalText(activeRetakeCandidateCard) || "[no removal selected]"}
+                              {getDisplayedProposedRemovalText(activeRetakeCandidateCard) || "[no removal selected]"}
                             </p>
                           </div>
                           <div className="hammer-candidate-card__meta">
@@ -591,7 +597,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                             </button>
                             <button
                               type="button"
-                              disabled={retakeDecisionInFlight || !getProposedRemovalText(activeRetakeCandidateCard).trim()}
+                              disabled={retakeDecisionInFlight || !getCommittedProposedRemovalText(activeRetakeCandidateCard).trim()}
                               onClick={() => {
                                 setFocusOverride("tool-focus");
                                 handleCandidateDecision("retakes", true);
