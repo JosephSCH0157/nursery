@@ -1,4 +1,10 @@
-import { appendAuthorityInstructionToGraph, createRippleDeleteInstruction, remapResolvedBrollOperationsForRippleDelete } from "./hammerAuthorityOps";
+import {
+  appendAuthorityInstructionToGraph,
+  createMuteInstruction,
+  createRippleDeleteInstruction,
+  remapResolvedBrollOperationsForRippleDelete,
+  supersedeMuteInstructionsForSegments,
+} from "./hammerAuthorityOps";
 import {
   deriveAudioCutsForRemovedSegments,
   deriveAudioCutsForSubtractiveTextEdits,
@@ -27,6 +33,15 @@ export type HammerAuthorityOp =
     type: "TRANSCRIPT_DELETE_RANGE";
     label: string;
     segmentIds: string[];
+    kind?: HammerHistoryKind;
+    toolId?: string;
+    immediatePersist?: boolean;
+  }
+  | {
+    type: "TRANSCRIPT_TOGGLE_MUTE_SEGMENTS";
+    label: string;
+    segmentIds: string[];
+    disabled: boolean;
     kind?: HammerHistoryKind;
     toolId?: string;
     immediatePersist?: boolean;
@@ -382,4 +397,66 @@ export function applyTranscriptCleanupPreviewComposition(args: {
     nowIso: args.context.nowIso ?? new Date().toISOString(),
   });
   return nextState;
+}
+
+export function applyTranscriptToggleMuteSegmentsComposition(args: {
+  before: HammerEditorStateSerializable;
+  op: Extract<HammerAuthorityOp, { type: "TRANSCRIPT_TOGGLE_MUTE_SEGMENTS" }>;
+  context: HammerCompositionMutationContext;
+}): HammerEditorStateSerializable {
+  const segmentIdSet = new Set(args.op.segmentIds);
+  if (segmentIdSet.size === 0) {
+    return args.before;
+  }
+
+  let changed = false;
+  const transcriptSegments = args.before.transcriptSegments.map((segment) => {
+    if (!segmentIdSet.has(segment.segment_id)) {
+      return segment;
+    }
+    const nextDisabled = args.op.disabled;
+    if (segment.is_disabled === nextDisabled) {
+      return segment;
+    }
+    changed = true;
+    return {
+      ...segment,
+      ...(nextDisabled ? { is_disabled: true } : { is_disabled: undefined }),
+    };
+  });
+  if (!changed) {
+    return args.before;
+  }
+
+  const nowIso = args.context.nowIso ?? new Date().toISOString();
+  let nextGraph = args.before.editorialAuthorityGraph;
+  if (nextGraph) {
+    const superseded = supersedeMuteInstructionsForSegments({
+      graph: nextGraph,
+      segmentIds: args.op.segmentIds,
+      nowIso,
+    });
+    nextGraph = superseded ?? nextGraph;
+  }
+
+  if (args.op.disabled) {
+    for (const segmentId of args.op.segmentIds) {
+      nextGraph = appendAuthorityInstructionToGraph({
+        graph: nextGraph,
+        instruction: createMuteInstruction({
+          segmentId,
+          nowIso,
+        }),
+        nowIso,
+        fallback: args.context.authorityFallback,
+      });
+    }
+  }
+
+  return {
+    ...args.before,
+    transcriptSegments,
+    editorialAuthorityGraph: nextGraph,
+    transcriptTimingHint: null,
+  };
 }

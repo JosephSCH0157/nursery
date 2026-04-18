@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { projectEditorialAuthorityGraphFromEditPlan } from "../src/editor/hammerRenderAssembly";
-import { applyTranscriptDeleteRangeComposition } from "../src/editor/hammerCompositionMutations";
+import {
+  applyTranscriptDeleteRangeComposition,
+  applyTranscriptToggleMuteSegmentsComposition,
+} from "../src/editor/hammerCompositionMutations";
 import { appendAuthorityInstructionToGraph, createInsertBrollInstruction } from "../src/editor/hammerAuthorityOps";
 import type { HammerEditorStateSerializable } from "../src/editor/hammerWorkspaceHistory";
 import type { HammerWorkspaceSnapshot } from "../src/editor/hammerWorkspaceSnapshot";
@@ -381,5 +384,82 @@ async function testDeleteActionStaysCompositionSynchronized() {
   assert.equal(reloadedTimeline.clips[0]?.end_sec, 4);
 }
 
+async function testMuteActionStaysCompositionSynchronized() {
+  const before = buildBaseState();
+  const muted = applyTranscriptToggleMuteSegmentsComposition({
+    before,
+    op: {
+      type: "TRANSCRIPT_TOGGLE_MUTE_SEGMENTS",
+      label: "Disable transcript selection",
+      segmentIds: ["seg_002"],
+      disabled: true,
+      kind: "segment_structure",
+      immediatePersist: true,
+    },
+    context: {
+      playbackDurationSec: 6,
+      authorityFallback: {
+        graphId: "plan_sync_01:authority",
+        workspaceId: target.workspaceId,
+        workpieceId: target.workpieceId,
+        sessionId: "session_sync_01",
+        sourceTranscriptId: "transcript_sync_01",
+      },
+      nowIso: "2026-04-18T12:03:00.000Z",
+    },
+  });
+
+  assert.equal(muted.transcriptSegments.find((segment) => segment.segment_id === "seg_002")?.is_disabled, true);
+  assert.equal(muted.editorialAuthorityGraph?.operations.length, 2);
+  assert.equal(muted.editorialAuthorityGraph?.operations.at(-1)?.instruction.type, "mute");
+  assert.equal(muted.editorialAuthorityGraph?.operations.at(-1)?.lifecycle, "active");
+
+  const reenabled = applyTranscriptToggleMuteSegmentsComposition({
+    before: muted,
+    op: {
+      type: "TRANSCRIPT_TOGGLE_MUTE_SEGMENTS",
+      label: "Enable transcript selection",
+      segmentIds: ["seg_002"],
+      disabled: false,
+      kind: "segment_structure",
+      immediatePersist: true,
+    },
+    context: {
+      playbackDurationSec: 6,
+      authorityFallback: {
+        graphId: "plan_sync_01:authority",
+        workspaceId: target.workspaceId,
+        workpieceId: target.workpieceId,
+        sessionId: "session_sync_01",
+        sourceTranscriptId: "transcript_sync_01",
+      },
+      nowIso: "2026-04-18T12:04:00.000Z",
+    },
+  });
+
+  assert.equal(reenabled.transcriptSegments.find((segment) => segment.segment_id === "seg_002")?.is_disabled, undefined);
+  assert.equal(reenabled.editorialAuthorityGraph?.operations.length, 2);
+  const muteOperation = reenabled.editorialAuthorityGraph?.operations.find((operation) => operation.instruction.type === "mute") ?? null;
+  assert.ok(muteOperation);
+  assert.equal(muteOperation?.lifecycle, "superseded");
+
+  const saveRequest = buildHammerPersistenceSaveRequest(buildWorkspaceSnapshot(reenabled));
+  assert.equal(saveRequest.editorial_authority.data.operations.length, 2);
+  assert.equal(saveRequest.edit_plan?.data.instructions.filter((instruction) => instruction.type === "mute").length, 0);
+  assert.equal(saveRequest.structured_transcript?.data.segments.find((segment) => segment.segment_id === "seg_002")?.is_disabled, undefined);
+
+  const persistedSnapshot = buildPersistedSnapshotFromSaveRequest(saveRequest);
+  const reloadedLaunch = buildHammerLaunchContextFromPersistence(target, persistedSnapshot);
+  assert.ok(reloadedLaunch);
+  assert.equal(
+    reloadedLaunch?.launchContext.transcript.kind === "tongs-stub"
+      ? reloadedLaunch.launchContext.transcript.segments.find((segment) => segment.segment_id === "seg_002")?.is_disabled
+      : null,
+    undefined,
+  );
+  assert.equal(reloadedLaunch?.launchContext.edit_plan?.instructions.filter((instruction) => instruction.type === "mute").length, 0);
+}
+
 await testDeleteActionStaysCompositionSynchronized();
+await testMuteActionStaysCompositionSynchronized();
 console.log("Hammer composition sync tests passed.");

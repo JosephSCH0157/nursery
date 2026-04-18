@@ -72,7 +72,6 @@ import {
   roundToTenth,
   snapPlayheadToBoundary,
   splitSegmentAtTime,
-  toggleSegmentDisabled,
   trimSegmentEndTiming,
   trimSegmentStartTiming,
   updateSegmentGain,
@@ -102,6 +101,7 @@ import {
 import {
   applyTranscriptCleanupPreviewComposition,
   applyTranscriptDeleteRangeComposition,
+  applyTranscriptToggleMuteSegmentsComposition,
   type HammerAuthorityOp,
 } from "./hammerCompositionMutations";
 import {
@@ -4233,6 +4233,28 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             },
           }),
         });
+      case "TRANSCRIPT_TOGGLE_MUTE_SEGMENTS":
+        return applyHistoryMutation({
+          label: op.label,
+          kind: op.kind ?? "segment_structure",
+          toolId: op.toolId,
+          affectedSegments: op.segmentIds,
+          immediatePersist: op.immediatePersist === true,
+          computeAfter: (before) => applyTranscriptToggleMuteSegmentsComposition({
+            before,
+            op,
+            context: {
+              playbackDurationSec: playbackTransportDurationSec,
+              authorityFallback: {
+                graphId: `${launchContext.workpiece_id}:authority`,
+                workspaceId: launchContext.workspace_id,
+                workpieceId: launchContext.workpiece_id,
+                sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
+                sourceTranscriptId: transcriptSourceId,
+              },
+            },
+          }),
+        });
       default:
         return null;
     }
@@ -6209,20 +6231,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return;
     }
 
-    applyHistoryMutation({
-      label: "Toggle segment disable",
+    const selected = editableTranscriptSegments.find((segment) => segment.segment_id === selectedSegmentId) ?? null;
+    applyCompositionMutation({
+      type: "TRANSCRIPT_TOGGLE_MUTE_SEGMENTS",
+      label: selected?.is_disabled ? "Enable segment" : "Disable segment",
       kind: "segment_structure",
-      affectedSegments: [selectedSegmentId],
+      segmentIds: [selectedSegmentId],
+      disabled: selected?.is_disabled !== true,
       immediatePersist: true,
-      computeAfter: (before) => ({
-        ...before,
-        transcriptSegments: updateSegmentInTimeline(
-          before.transcriptSegments,
-          selectedSegmentId,
-          (segment) => toggleSegmentDisabled(segment),
-        ),
-        transcriptTimingHint: null,
-      }),
     });
   }
 
@@ -6439,20 +6455,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const selectedSegments = editableTranscriptSegments.filter((segment) => selectedIdSet.has(segment.segment_id));
     const targetDisabled = !selectedSegments.every((segment) => segment.is_disabled === true);
 
-    applyHistoryMutation({
+    applyCompositionMutation({
+      type: "TRANSCRIPT_TOGGLE_MUTE_SEGMENTS",
       label: targetDisabled ? "Disable transcript selection" : "Enable transcript selection",
       kind: "segment_structure",
-      affectedSegments: transcriptSelectionRange.segmentIds,
+      segmentIds: transcriptSelectionRange.segmentIds,
+      disabled: targetDisabled,
       immediatePersist: true,
-      computeAfter: (before) => ({
-        ...before,
-        transcriptSegments: before.transcriptSegments.map((segment) => (
-          selectedIdSet.has(segment.segment_id)
-            ? { ...segment, is_disabled: targetDisabled }
-            : segment
-        )),
-        transcriptTimingHint: null,
-      }),
     });
   }
 
