@@ -104,6 +104,64 @@ function buildCanonicalOnlySnapshot(): HammerPersistenceSnapshot {
   };
 }
 
+function buildStructuredTranscriptArtifact(): NonNullable<HammerPersistenceSnapshot["structured_transcript"]["data"]> {
+  return {
+    schema_version: 1,
+    transcript_id: "transcript_reopen_01",
+    media_id: "media_launch_fallback",
+    media_signature: null,
+    prepared_at: "2026-04-17T12:00:00.000Z",
+    structure: "speaker_turns",
+    source_media_ref: {
+      media_id: "media_launch_fallback",
+      kind: "recording_video",
+      source_hint: "local",
+    },
+    diarization: {
+      label_scheme: "forge-neutral-speakers.v1",
+      labels: ["Speaker 1"],
+      raw_labels: ["speaker_0"],
+      version: null,
+      provider: "openai",
+      provider_request_id: null,
+      model: null,
+    },
+    confidence_flags: [],
+    segments: [{
+      id: "seg_reopen_01",
+      speaker: "Speaker 1",
+      start: 0,
+      end: 4,
+      text: "Persisted transcript fallback text.",
+    }],
+  };
+}
+
+function buildEditorSessionArtifact(): NonNullable<HammerPersistenceSnapshot["editor_session"]["data"]> {
+  return {
+    schema_version: 1,
+    session_id: "session_reopen_01",
+    source_mode: "tongs",
+    preview_mode: "edit-aware",
+    transcript_source_id: "transcript_reopen_01",
+    selected_segment_id: "seg_reopen_01",
+    selected_overlay_row_id: null,
+    media_ref: {
+      media_id: "media_launch_fallback",
+      kind: "recording_video",
+      source_hint: "local",
+    },
+    workspace_mapping: null,
+    media_source_label: "tongs:media_launch_fallback",
+    visual_preview: {
+      white_balance: 0,
+      color_amount: 0,
+      background_blur: false,
+    },
+    last_opened_at: "2026-04-17T12:00:00.000Z",
+  };
+}
+
 test("reopen hydration prefers persisted canonical basis and strips stale launch edit_plan", () => {
   const result = hydrateHammerOpenLaunchContext({
     target,
@@ -136,7 +194,7 @@ test("reopen hydration preserves persisted canonical edit_plan when present", ()
   assert.equal(result.launchContext?.edit_plan?.edit_plan_id, "plan_reopen_01");
 });
 
-test("reopen hydration marks persisted state non-canonical when editorial authority is missing", () => {
+test("reopen hydration marks persisted state non-canonical when editorial authority and transcript are both missing", () => {
   const result = hydrateHammerOpenLaunchContext({
     target,
     hydratedSnapshot: {
@@ -154,4 +212,44 @@ test("reopen hydration marks persisted state non-canonical when editorial author
   assert.equal(result.persistenceSource, "launch");
   assert.equal(result.hasCanonicalBasis, false);
   assert.equal(result.launchContext?.edit_plan?.edit_plan_id, "plan_launch_fallback");
+});
+
+test("reopen hydration uses structured transcript fallback when editorial authority is missing", () => {
+  const warnCalls: unknown[][] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnCalls.push(args);
+  };
+
+  try {
+    const result = hydrateHammerOpenLaunchContext({
+      target,
+      hydratedSnapshot: {
+        ...buildCanonicalOnlySnapshot(),
+        editorial_authority: { path: null, updated_at: null, data: null },
+        structured_transcript: {
+          path: "hammer/transcript/structured.v1.json",
+          updated_at: "2026-04-17T12:00:00.000Z",
+          data: buildStructuredTranscriptArtifact(),
+        },
+        editor_session: {
+          path: "hammer/session/editor-state.v1.json",
+          updated_at: "2026-04-17T12:00:00.000Z",
+          data: buildEditorSessionArtifact(),
+        },
+      },
+      initialLaunchContext: undefined,
+      bootstrapLaunchContext: fallbackLaunchContext as any,
+    });
+
+    assert.equal(result.persistenceSource, "transitional");
+    assert.equal(result.hasCanonicalBasis, false);
+    assert.equal(result.launchContext?.transcript.kind, "tongs-stub");
+    assert.equal(result.launchContext?.transcript.kind === "tongs-stub" ? result.launchContext.transcript.transcript_id : null, "transcript_reopen_01");
+    assert.equal(result.launchContext?.edit_plan, undefined);
+    assert.equal(warnCalls.length, 1);
+    assert.equal(warnCalls[0]?.[0], "[HammerReopen] reopening from structured transcript fallback; canonical authority missing");
+  } finally {
+    console.warn = originalWarn;
+  }
 });
