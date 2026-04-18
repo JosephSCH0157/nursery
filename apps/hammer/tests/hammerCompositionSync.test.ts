@@ -3,6 +3,7 @@ import { projectEditorialAuthorityGraphFromEditPlan } from "../src/editor/hammer
 import {
   applyTranscriptDeleteRangeComposition,
   applyTranscriptSplitComposition,
+  applyTranscriptTrimSegmentComposition,
   applyTranscriptToggleMuteSegmentsComposition,
 } from "../src/editor/hammerCompositionMutations";
 import { appendAuthorityInstructionToGraph, createInsertBrollInstruction } from "../src/editor/hammerAuthorityOps";
@@ -540,7 +541,85 @@ async function testSplitActionStaysCompositionSynchronized() {
   assert.equal(reloadedTimeline.clips[0]?.end_sec, 6);
 }
 
+async function testTrimActionStaysCompositionSynchronized() {
+  const before = buildBaseState();
+  const after = applyTranscriptTrimSegmentComposition({
+    before,
+    op: {
+      type: "TRANSCRIPT_TRIM_SEGMENT",
+      label: "Trim segment end",
+      segmentId: "seg_002",
+      trimStartSec: 2,
+      trimEndSec: 3.8,
+      kind: "timing_adjustment",
+      immediatePersist: true,
+    },
+    context: {
+      playbackDurationSec: 6,
+      authorityFallback: {
+        graphId: "plan_sync_01:authority",
+        workspaceId: target.workspaceId,
+        workpieceId: target.workpieceId,
+        sessionId: "session_sync_01",
+        sourceTranscriptId: "transcript_sync_01",
+      },
+      nowIso: "2026-04-18T12:06:00.000Z",
+    },
+  });
+
+  assert.deepEqual(
+    after.transcriptSegments.map((segment) => ({ id: segment.segment_id, start: segment.start_sec, end: segment.end_sec })),
+    [
+      { id: "seg_001", start: 0, end: 2 },
+      { id: "seg_002", start: 2, end: 3.8 },
+      { id: "seg_003", start: 4, end: 6 },
+    ],
+  );
+  assert.equal(after.editorialAuthorityGraph?.operations.length, 2);
+  const trimOperation = after.editorialAuthorityGraph?.operations.at(-1) ?? null;
+  assert.equal(trimOperation?.instruction.type, "trim");
+  assert.equal(trimOperation?.instruction.segment_id, "seg_002");
+  assert.equal(trimOperation?.instruction.type === "trim" ? trimOperation.instruction.trim_start_sec : null, 2);
+  assert.equal(trimOperation?.instruction.type === "trim" ? trimOperation.instruction.trim_end_sec : null, 3.8);
+  assert.equal(after.visualTimeline?.clips[0]?.start_sec, 4);
+  assert.equal(after.visualTimeline?.clips[0]?.end_sec, 6);
+  assert.equal(after.audioEdit, null);
+
+  const saveRequest = buildHammerPersistenceSaveRequest(buildWorkspaceSnapshot(after));
+  assert.equal(saveRequest.editorial_authority.data.operations.length, 2);
+  assert.equal(saveRequest.edit_plan?.data.instructions.at(-1)?.type, "trim");
+  assert.deepEqual(
+    saveRequest.structured_transcript?.data.segments.map((segment) => ({ id: segment.segment_id, start: segment.start_sec, end: segment.end_sec })),
+    [
+      { id: "seg_001", start: 0, end: 2 },
+      { id: "seg_002", start: 2, end: 3.8 },
+      { id: "seg_003", start: 4, end: 6 },
+    ],
+  );
+  assert.equal(saveRequest.audio_polish?.data.audio_edit, null);
+
+  const persistedSnapshot = buildPersistedSnapshotFromSaveRequest(saveRequest);
+  const reloadedLaunch = buildHammerLaunchContextFromPersistence(target, persistedSnapshot);
+  const reloadedTimeline = loadHammerVisualTimelineStateFromSnapshot(persistedSnapshot);
+
+  assert.ok(reloadedLaunch);
+  assert.deepEqual(
+    reloadedLaunch?.launchContext.transcript.kind === "tongs-stub"
+      ? reloadedLaunch.launchContext.transcript.segments.map((segment) => ({ id: segment.segment_id, start: segment.start_sec, end: segment.end_sec }))
+      : [],
+    [
+      { id: "seg_001", start: 0, end: 2 },
+      { id: "seg_002", start: 2, end: 3.8 },
+      { id: "seg_003", start: 4, end: 6 },
+    ],
+  );
+  assert.equal(reloadedLaunch?.launchContext.edit_plan?.instructions.at(-1)?.type, "trim");
+  assert.equal(reloadedTimeline.clips[0]?.start_sec, 4);
+  assert.equal(reloadedTimeline.clips[0]?.end_sec, 6);
+}
+
 await testDeleteActionStaysCompositionSynchronized();
 await testMuteActionStaysCompositionSynchronized();
 await testSplitActionStaysCompositionSynchronized();
+await testTrimActionStaysCompositionSynchronized();
 console.log("Hammer composition sync tests passed.");

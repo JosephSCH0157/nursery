@@ -3,8 +3,10 @@ import {
   createMuteInstruction,
   createRippleDeleteInstruction,
   createSplitInstruction,
+  createTrimInstruction,
   remapResolvedBrollOperationsForRippleDelete,
   supersedeMuteInstructionsForSegments,
+  supersedeTrimInstructionsForSegments,
 } from "./hammerAuthorityOps";
 import {
   deriveAudioCutsForRemovedSegments,
@@ -53,6 +55,16 @@ export type HammerAuthorityOp =
     label: string;
     segmentId: string;
     splitTimeSec: number;
+    kind?: HammerHistoryKind;
+    toolId?: string;
+    immediatePersist?: boolean;
+  }
+  | {
+    type: "TRANSCRIPT_TRIM_SEGMENT";
+    label: string;
+    segmentId: string;
+    trimStartSec?: number;
+    trimEndSec?: number;
     kind?: HammerHistoryKind;
     toolId?: string;
     immediatePersist?: boolean;
@@ -534,6 +546,72 @@ export function applyTranscriptSplitComposition(args: {
     editorialAuthorityGraph: nextGraph,
     selectedSegmentId: rightSegmentId,
     playheadSec: split.splitSec,
+    transcriptTimingHint: null,
+  };
+}
+
+export function applyTranscriptTrimSegmentComposition(args: {
+  before: HammerEditorStateSerializable;
+  op: Extract<HammerAuthorityOp, { type: "TRANSCRIPT_TRIM_SEGMENT" }>;
+  context: HammerCompositionMutationContext;
+}): HammerEditorStateSerializable {
+  const segmentIndex = args.before.transcriptSegments.findIndex((segment) => segment.segment_id === args.op.segmentId);
+  if (segmentIndex < 0) {
+    return args.before;
+  }
+
+  const source = args.before.transcriptSegments[segmentIndex];
+  const nextStartSec = typeof args.op.trimStartSec === "number" ? args.op.trimStartSec : source.start_sec;
+  const nextEndSec = typeof args.op.trimEndSec === "number" ? args.op.trimEndSec : source.end_sec;
+  if (nextStartSec === source.start_sec && nextEndSec === source.end_sec) {
+    return args.before;
+  }
+
+  const trimmedSegment = {
+    ...source,
+    start_sec: nextStartSec,
+    end_sec: nextEndSec,
+  };
+  if (trimmedSegment.end_sec <= trimmedSegment.start_sec) {
+    return args.before;
+  }
+
+  const nowIso = args.context.nowIso ?? new Date().toISOString();
+  let nextGraph = args.before.editorialAuthorityGraph;
+  if (nextGraph) {
+    const superseded = supersedeTrimInstructionsForSegments({
+      graph: nextGraph,
+      segmentIds: [args.op.segmentId],
+      nowIso,
+    });
+    nextGraph = superseded ?? nextGraph;
+  }
+  nextGraph = appendAuthorityInstructionToGraph({
+    graph: nextGraph,
+    instruction: createTrimInstruction({
+      segmentId: args.op.segmentId,
+      trimStartSec: args.op.trimStartSec,
+      trimEndSec: args.op.trimEndSec,
+      nowIso,
+    }),
+    nowIso,
+    fallback: args.context.authorityFallback,
+  });
+
+  const transcriptSegments = [
+    ...args.before.transcriptSegments.slice(0, segmentIndex),
+    trimmedSegment,
+    ...args.before.transcriptSegments.slice(segmentIndex + 1),
+  ];
+  const playheadSec = typeof args.op.trimStartSec === "number"
+    ? Math.max(0, args.before.playheadSec + (args.op.trimStartSec - source.start_sec))
+    : args.before.playheadSec;
+
+  return {
+    ...args.before,
+    transcriptSegments,
+    editorialAuthorityGraph: nextGraph,
+    playheadSec,
     transcriptTimingHint: null,
   };
 }

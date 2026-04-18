@@ -12,6 +12,7 @@ import type {
   HammerPodcastMasterPassInstruction,
   HammerRippleDeleteInstruction,
   HammerSplitInstruction,
+  HammerTrimInstruction,
   HammerCrossfadeInstruction,
 } from "../../../../packages/contracts/hammer/edit-instruction.contract";
 import type {
@@ -213,6 +214,30 @@ export function createSplitInstruction(args: {
   };
 }
 
+export function createTrimInstruction(args: {
+  segmentId: string;
+  trimStartSec?: number;
+  trimEndSec?: number;
+  nowIso?: string;
+  instructionId?: string;
+}): HammerTrimInstruction {
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  return {
+    instruction_id: args.instructionId ?? createInstructionId("trim"),
+    segment_id: args.segmentId,
+    type: "trim",
+    ...(typeof args.trimStartSec === "number" ? { trim_start_sec: args.trimStartSec } : {}),
+    ...(typeof args.trimEndSec === "number" ? { trim_end_sec: args.trimEndSec } : {}),
+    created_at: nowIso,
+    execution: {
+      operation_family: "transcript_structural",
+      capability: "executable",
+      status: "declared",
+      target: "preview",
+    },
+  };
+}
+
 export function supersedeMuteInstructionsForSegments(args: {
   graph: HammerEditorialAuthorityGraph;
   segmentIds: string[];
@@ -226,6 +251,37 @@ export function supersedeMuteInstructionsForSegments(args: {
   const operations = args.graph.operations.map((operation) => {
     if (operation.lifecycle !== "active") return operation;
     if (operation.instruction.type !== "mute") return operation;
+    if (!segmentIdSet.has(operation.instruction.segment_id)) return operation;
+    changed = true;
+    return {
+      ...operation,
+      lifecycle: "superseded" as const,
+      superseded_by_operation_id: args.supersededByOperationId ?? null,
+      updated_at: nowIso,
+    };
+  });
+  if (!changed) return null;
+  return {
+    ...args.graph,
+    operations,
+    graph_version: args.graph.graph_version + 1,
+    updated_at: nowIso,
+  };
+}
+
+export function supersedeTrimInstructionsForSegments(args: {
+  graph: HammerEditorialAuthorityGraph;
+  segmentIds: string[];
+  supersededByOperationId?: string | null;
+  nowIso?: string;
+}): HammerEditorialAuthorityGraph | null {
+  const segmentIdSet = new Set(args.segmentIds);
+  if (segmentIdSet.size === 0) return null;
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  let changed = false;
+  const operations = args.graph.operations.map((operation) => {
+    if (operation.lifecycle !== "active") return operation;
+    if (operation.instruction.type !== "trim") return operation;
     if (!segmentIdSet.has(operation.instruction.segment_id)) return operation;
     changed = true;
     return {

@@ -101,6 +101,7 @@ import {
   applyTranscriptCleanupPreviewComposition,
   applyTranscriptDeleteRangeComposition,
   applyTranscriptSplitComposition,
+  applyTranscriptTrimSegmentComposition,
   applyTranscriptToggleMuteSegmentsComposition,
   type HammerAuthorityOp,
 } from "./hammerCompositionMutations";
@@ -4277,6 +4278,28 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             },
           }),
         });
+      case "TRANSCRIPT_TRIM_SEGMENT":
+        return applyHistoryMutation({
+          label: op.label,
+          kind: op.kind ?? "timing_adjustment",
+          toolId: op.toolId,
+          affectedSegments: [op.segmentId],
+          immediatePersist: op.immediatePersist === true,
+          computeAfter: (before) => applyTranscriptTrimSegmentComposition({
+            before,
+            op,
+            context: {
+              playbackDurationSec: playbackTransportDurationSec,
+              authorityFallback: {
+                graphId: `${launchContext.workpiece_id}:authority`,
+                workspaceId: launchContext.workspace_id,
+                workpieceId: launchContext.workpiece_id,
+                sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
+                sourceTranscriptId: transcriptSourceId,
+              },
+            },
+          }),
+        });
       default:
         return null;
     }
@@ -5628,16 +5651,31 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }
 
   function trimSegmentStart(segmentId: string, deltaSec: number): void {
-    updateSegmentTiming(
+    const segment = editableTranscriptSegments.find((candidate) => candidate.segment_id === segmentId) ?? null;
+    if (!segment) return;
+    const trimmed = trimSegmentStartTiming(segment, deltaSec);
+    applyCompositionMutation({
+      type: "TRANSCRIPT_TRIM_SEGMENT",
+      label: "Trim segment start",
+      kind: "timing_adjustment",
       segmentId,
-      "Trim segment start",
-      (segment) => trimSegmentStartTiming(segment, deltaSec),
-      (current) => Math.max(0, roundToTenth(current + deltaSec)),
-    );
+      trimStartSec: trimmed.start_sec,
+      trimEndSec: trimmed.end_sec,
+    });
   }
 
   function trimSegmentEnd(segmentId: string, deltaSec: number): void {
-    updateSegmentTiming(segmentId, "Trim segment end", (segment) => trimSegmentEndTiming(segment, deltaSec));
+    const segment = editableTranscriptSegments.find((candidate) => candidate.segment_id === segmentId) ?? null;
+    if (!segment) return;
+    const trimmed = trimSegmentEndTiming(segment, deltaSec);
+    applyCompositionMutation({
+      type: "TRANSCRIPT_TRIM_SEGMENT",
+      label: "Trim segment end",
+      kind: "timing_adjustment",
+      segmentId,
+      trimStartSec: trimmed.start_sec,
+      trimEndSec: trimmed.end_sec,
+    });
   }
 
   function seekPlayheadToTime(
