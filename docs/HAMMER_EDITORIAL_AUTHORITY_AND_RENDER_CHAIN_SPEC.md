@@ -17,6 +17,7 @@ Define Hammer as the canonical editorial authority between Anvil capture and Que
 - Canonical source: the Hammer canonical composition, currently serialized through `HammerEditorialAuthorityGraph` and its compatibility projections during migration.
 - Composition truth includes operation identity, ordering, lifecycle, capability posture, provenance, timing, editorial structure, and declared intent.
 - No hidden truth rule: UI state, transcript views, timeline views, preview state, and export state are projections over canonical composition.
+- The currently frozen proven governed editing vocabulary is defined in `docs/HAMMER_AUTHORITY_OP_VOCABULARY_SPEC.md`.
 
 ## Intent vs Execution
 - Intent is represented inside canonical composition through operation identity and operation parameters.
