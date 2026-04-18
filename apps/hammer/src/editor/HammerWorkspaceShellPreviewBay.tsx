@@ -5,6 +5,8 @@ import VisualPreviewComposer, { type VisualPreviewOverlayModel } from "../visual
 
 export type HammerWorkspaceShellPreviewBayVM = {
   previewModeLabel: string;
+  activeVisualTool: "polish" | "images" | "broll" | null;
+  visualPolishPreviewActive: boolean;
 
   previewSurfaceRef: RefObject<HTMLDivElement | null>;
   previewVideoRef: RefObject<HTMLVideoElement | null>;
@@ -78,7 +80,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             ref={vm.previewVideoRef}
             src={vm.previewVideoSrc ?? undefined}
             muted
-            preload="metadata"
+            preload="auto"
             playsInline
             className="hammer-preview-media"
           />
@@ -171,8 +173,10 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
           <span>Playback lane: {vm.playbackBackendLabel}</span>
           <span>{vm.previewVideoSrc ? "Base video ready" : "Base video unavailable"}</span>
           <span>{vm.playbackMediaSrc ? "Playback media ready" : "Playback media unavailable"}</span>
-          {vm.currentPassId === "visual_finishing" ? (
+          {vm.visualPolishPreviewActive ? (
             <span>Visual polish preview mode active</span>
+          ) : vm.activeVisualTool !== null ? (
+            <span>Visual polish preview mode inactive. Select Polish in the Tool Rack to activate preview processing.</span>
           ) : null}
           {vm.currentPassId === "image_animation" ? (
             <span>B-roll inspection mode active</span>

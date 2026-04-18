@@ -2394,6 +2394,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   const previewMode: HammerPreviewMode = launchContext.preview_mode ?? launchContext.edit_plan?.preview_mode ?? "edit-aware";
   const workspaceFocusMode = focusOverride === "auto" ? resolveWorkspaceFocusMode(activeTool) : focusOverride;
+  const visualPolishPreviewActive = activeTool === "video" && activeVisualTool === "polish";
   const mediaRef = useMemo(
     () => resolveMediaRef(launchContext),
     [launchContext.media],
@@ -4767,6 +4768,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (previewVideoSrcChanged) {
       lastPreviewVideoSrcRef.current = previewVideoSrc;
       previewVideo?.pause();
+      if (previewVideo && previewVideoSrc) {
+        previewVideo.load();
+      }
     }
 
     if (!playbackMediaSrc) {
@@ -4858,6 +4862,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
     if (!isPlaybackActive) {
       previewAudio.pause();
+      if (visualPolishPreviewActive && previewVideo && previewVideoSrc && previewVideo.readyState < 2) {
+        previewVideo.load();
+      }
       previewVideo?.pause();
       return;
     }
@@ -4892,6 +4899,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     playbackTransportDurationSec,
     playheadSec,
     playbackWindow,
+    visualPolishPreviewActive,
     resolveAudibleSeekTarget,
     resolvePlaybackTransportProgress,
   ]);
@@ -9935,6 +9943,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   ]);
   const previewBayVM = useMemo(() => ({
     previewModeLabel: previewMode,
+    activeVisualTool: activeTool === "video" ? activeVisualTool : null,
+    visualPolishPreviewActive,
     previewSurfaceRef,
     previewVideoRef,
     previewAudioRef,
@@ -9961,7 +9971,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       : null,
     previewSurfaceLabel,
     backgroundEffect: {
-      enabled: visualBackgroundBlur || visualBackgroundReplaceEnabled || visualBackgroundWashEnabled,
+      enabled: visualPolishPreviewActive && (visualBackgroundBlur || visualBackgroundReplaceEnabled || visualBackgroundWashEnabled),
       settings: backgroundBlurSettings,
       providerId: visualBackgroundBlurProviderId,
       debugMasks: visualBackgroundBlurDebugMask,
@@ -9971,7 +9981,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       onCanvas: handleBackgroundEffectCanvas,
     },
     eyeContactAssist: {
-      enabled: visualEyeContactAssistEnabled,
+      enabled: visualPolishPreviewActive && visualEyeContactAssistEnabled,
       strength: Math.max(0, Math.min(1, Number(visualEyeContactAssistStrength) || 0)),
       backgroundCanvasRef: visualBackgroundEffectCanvasRef,
       useBackgroundCanvasAsSource: eyeContactUseBackgroundCanvasAsSource,
@@ -9999,6 +10009,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       },
     },
   }), [
+    activeTool,
+    activeVisualTool,
     activePreviewOverlays,
     audioFinalizationCompareMode,
     backgroundBlurSettings,
@@ -10034,6 +10046,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     studioRackPlaybackConfig.backend,
     studioRackComparePreviewStatusLabel,
     togglePlayback,
+    visualPolishPreviewActive,
     visualBackgroundBlur,
     visualBackgroundBlurDebugMask,
     visualBackgroundMaskPreviewMode,
