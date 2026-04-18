@@ -8,6 +8,7 @@ import { SimpleMatteRefiner } from "../matte/simpleMatteRefiner";
 import { BackgroundBlurRenderer } from "../effects/backgroundBlurRenderer";
 import { BackgroundReplacementRenderer } from "../effects/backgroundReplacementRenderer";
 import { BackgroundWashRenderer } from "../effects/backgroundWashRenderer";
+import { drawSourceContained } from "../effects/mediaFrameGeometry";
 import { resolveVisualPreviewQualityPolicy } from "./previewQualityPolicy";
 
 export type HammerBackgroundBlurRuntimeStatus = {
@@ -110,8 +111,12 @@ function resolveRuntimeStatusMessage(args: {
 function drawPassthroughFrame(args: { source: HTMLVideoElement; output: HTMLCanvasElement }): void {
   const ctx = args.output.getContext("2d");
   if (!ctx) return;
-  ctx.clearRect(0, 0, args.output.width, args.output.height);
-  ctx.drawImage(args.source, 0, 0, args.output.width, args.output.height);
+  drawSourceContained({
+    ctx,
+    source: args.source,
+    destWidth: args.output.width,
+    destHeight: args.output.height,
+  });
 }
 
 function isSegmentationMaskValid(mask: Uint8ClampedArray | null | undefined, width: number, height: number): boolean {
@@ -1083,8 +1088,12 @@ export default function BackgroundBlurPreviewLayer(props: {
             const tempCtx = temp.getContext("2d");
             if (tempCtx) {
               tempCtx.putImageData(maskImage, 0, 0);
-              maskCtx.clearRect(0, 0, canvas.width, canvas.height);
-              maskCtx.drawImage(temp, 0, 0, canvas.width, canvas.height);
+                drawSourceContained({
+                  ctx: maskCtx,
+                  source: temp,
+                  destWidth: canvas.width,
+                  destHeight: canvas.height,
+                });
             }
           }
         }

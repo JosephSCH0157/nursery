@@ -107,7 +107,7 @@ function applyHaloClamp(args: {
 }): { refinedAlpha: Uint8ClampedArray; edgeBandAlpha: Uint8ClampedArray } {
   const refined = new Uint8ClampedArray(args.featheredAlpha.length);
   const edgeBand = new Uint8ClampedArray(args.featheredAlpha.length);
-  const allowance = Math.round(10 + (Math.max(0, args.featherPx) * 2.4));
+  const allowance = Math.round(6 + (Math.max(0, args.featherPx) * 1.1));
 
   for (let i = 0; i < refined.length; i += 1) {
     const expanded = args.expandedAlpha[i] ?? 0;
@@ -117,7 +117,7 @@ function applyHaloClamp(args: {
       next = Math.min(next, expanded + allowance);
     }
     if (expanded < 120 && next > 0) {
-      next = Math.round(next * 0.96);
+      next = Math.round(next * 0.94);
     }
     if (next < 8) next = 0;
     refined[i] = clamp(next, 0, 255);
@@ -142,19 +142,19 @@ function applyFeather(args: {
     alpha: args.alpha,
     width: args.width,
     height: args.height,
-    radius: Math.max(1, Math.round(featherPx * 0.5)),
+    radius: Math.max(1, Math.round(featherPx * 0.35)),
   });
   const wide = blurAlphaSeparable({
     alpha: small,
     width: args.width,
     height: args.height,
-    radius: Math.max(1, Math.round(featherPx * 0.8)),
+    radius: Math.max(1, Math.round(featherPx * 0.55)),
   });
   const out = new Uint8ClampedArray(args.alpha.length);
   for (let i = 0; i < out.length; i += 1) {
     const source = args.alpha[i] ?? 0;
     const smooth = wide[i] ?? 0;
-    const mixed = Math.round((source * 0.3) + (smooth * 0.7));
+    const mixed = Math.round((source * 0.58) + (smooth * 0.42));
     out[i] = clamp(mixed, 0, 255);
   }
   return out;

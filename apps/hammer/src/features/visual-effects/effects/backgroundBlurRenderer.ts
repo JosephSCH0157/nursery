@@ -1,4 +1,5 @@
 import type { BackgroundEffectRenderer, BackgroundEffectFrameResult, BackgroundBlurSettings, ForegroundMatte } from "../types";
+import { drawSourceContained } from "./mediaFrameGeometry";
 
 function nowMs(): number {
   return (typeof performance !== "undefined" && typeof performance.now === "function") ? performance.now() : Date.now();
@@ -8,15 +9,32 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function buildMatteCanvas(matte: ForegroundMatte): HTMLCanvasElement {
+function buildMatteCanvas(args: { matte: ForegroundMatte; featherPx: number }): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
-  canvas.width = matte.width;
-  canvas.height = matte.height;
+  canvas.width = args.matte.width;
+  canvas.height = args.matte.height;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Canvas 2D not available for matte compositing.");
-  const image = ctx.createImageData(matte.width, matte.height);
+  const image = ctx.createImageData(args.matte.width, args.matte.height);
+  const threshold = Math.max(4, Math.min(16, Math.round(4 + (args.featherPx * 0.35))));
+  const gamma = 0.9;
+  const confidence = Math.max(0, Math.min(1, args.matte.metadata.confidenceScore || 0));
+  const edgeBoost = 0.03 + ((1 - confidence) * 0.04);
   for (let i = 0, px = 0; i < image.data.length; i += 4, px += 1) {
-    const a = matte.alphaMask[px] ?? 0;
+    const raw = args.matte.alphaMask[px] ?? 0;
+    let a = raw;
+    if (a < threshold) {
+      a = 0;
+    } else {
+      const normalized = a / 255;
+      a = Math.max(0, Math.min(255, Math.round((normalized ** gamma) * 255)));
+      if (a >= 16 && a <= 220) {
+        const centered = 1 - (Math.abs(a - 138) / 138);
+        const boost = Math.max(0, centered) * edgeBoost;
+        a = Math.round(a + ((255 - a) * boost));
+      }
+    }
+    if (a < 6) a = 0;
     image.data[i] = 255;
     image.data[i + 1] = 255;
     image.data[i + 2] = 255;
@@ -28,6 +46,7 @@ function buildMatteCanvas(matte: ForegroundMatte): HTMLCanvasElement {
 
 export class BackgroundBlurRenderer implements BackgroundEffectRenderer {
   private subjectCanvas: HTMLCanvasElement | null = null;
+  private backgroundCanvas: HTMLCanvasElement | null = null;
   private matteCanvas: HTMLCanvasElement | null = null;
 
   public render(args: {
@@ -48,8 +67,12 @@ export class BackgroundBlurRenderer implements BackgroundEffectRenderer {
       const degradedReason = "segmentation_low_confidence";
       const outputCtx = args.output.getContext("2d");
       if (outputCtx && args.settings.fallbackMode === "passthrough") {
-        outputCtx.clearRect(0, 0, args.output.width, args.output.height);
-        outputCtx.drawImage(args.source, 0, 0, args.output.width, args.output.height);
+        drawSourceContained({
+          ctx: outputCtx,
+          source: args.source,
+          destWidth: args.output.width,
+          destHeight: args.output.height,
+        });
       }
       return { compositingMs: 0, droppedFrame: false, degradedReason, warnings: [...args.matte.metadata.warnings] };
     }
@@ -70,37 +93,63 @@ export class BackgroundBlurRenderer implements BackgroundEffectRenderer {
       warnings.push("blur_px_zero");
     }
 
-    // Prepare scratch canvases sized to the matte dimensions (mask is produced at provider resolution).
-    if (!this.subjectCanvas || this.subjectCanvas.width !== args.matte.width || this.subjectCanvas.height !== args.matte.height) {
+    if (!this.subjectCanvas || this.subjectCanvas.width !== w || this.subjectCanvas.height !== h) {
       this.subjectCanvas = document.createElement("canvas");
-      this.subjectCanvas.width = args.matte.width;
-      this.subjectCanvas.height = args.matte.height;
+      this.subjectCanvas.width = w;
+      this.subjectCanvas.height = h;
+    }
+    if (!this.backgroundCanvas || this.backgroundCanvas.width !== w || this.backgroundCanvas.height !== h) {
+      this.backgroundCanvas = document.createElement("canvas");
+      this.backgroundCanvas.width = w;
+      this.backgroundCanvas.height = h;
     }
     if (!this.matteCanvas || this.matteCanvas.width !== args.matte.width || this.matteCanvas.height !== args.matte.height) {
-      this.matteCanvas = buildMatteCanvas(args.matte);
+      this.matteCanvas = buildMatteCanvas({ matte: args.matte, featherPx: args.settings.edgeFeatherPx });
     } else {
-      // Update matte pixels for the current frame.
-      this.matteCanvas = buildMatteCanvas(args.matte);
+      this.matteCanvas = buildMatteCanvas({ matte: args.matte, featherPx: args.settings.edgeFeatherPx });
     }
 
     const subjCtx = this.subjectCanvas.getContext("2d", { willReadFrequently: true });
-    if (!subjCtx) {
+    const bgCtx = this.backgroundCanvas.getContext("2d", { willReadFrequently: true });
+    if (!subjCtx || !bgCtx) {
       return { compositingMs: 0, droppedFrame: true, degradedReason: "canvas_2d_unavailable", warnings: [] };
     }
     subjCtx.clearRect(0, 0, this.subjectCanvas.width, this.subjectCanvas.height);
-    subjCtx.drawImage(args.source, 0, 0, this.subjectCanvas.width, this.subjectCanvas.height);
-    // Apply matte: keep only subject.
+    const subjectRect = drawSourceContained({
+      ctx: subjCtx,
+      source: args.source,
+      destWidth: this.subjectCanvas.width,
+      destHeight: this.subjectCanvas.height,
+      clear: false,
+    });
+    if (!subjectRect) {
+      return { compositingMs: 0, droppedFrame: true, degradedReason: "canvas_size_unavailable", warnings: [] };
+    }
     subjCtx.globalCompositeOperation = "destination-in";
-    subjCtx.drawImage(this.matteCanvas, 0, 0);
+    drawSourceContained({
+      ctx: subjCtx,
+      source: this.matteCanvas,
+      destWidth: this.subjectCanvas.width,
+      destHeight: this.subjectCanvas.height,
+      clear: false,
+    });
     subjCtx.globalCompositeOperation = "source-over";
 
-    // Draw background blurred (full frame).
-    outputCtx.clearRect(0, 0, w, h);
-    outputCtx.filter = blurPx > 0.1 ? `blur(${blurPx.toFixed(1)}px)` : "none";
-    outputCtx.drawImage(args.source, 0, 0, w, h);
-    outputCtx.filter = "none";
+    bgCtx.clearRect(0, 0, w, h);
+    bgCtx.save();
+    bgCtx.filter = blurPx > 0.1 ? `blur(${blurPx.toFixed(1)}px)` : "none";
+    drawSourceContained({
+      ctx: bgCtx,
+      source: args.source,
+      destWidth: w,
+      destHeight: h,
+      clear: false,
+      clipToContent: true,
+    });
+    bgCtx.restore();
 
-    // Composite the sharp subject on top.
+    outputCtx.clearRect(0, 0, w, h);
+    outputCtx.drawImage(this.backgroundCanvas, 0, 0, w, h);
     outputCtx.drawImage(this.subjectCanvas, 0, 0, w, h);
 
     const finished = nowMs();
