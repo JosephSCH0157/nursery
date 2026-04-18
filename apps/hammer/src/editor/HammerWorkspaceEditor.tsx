@@ -409,6 +409,9 @@ export default function HammerWorkspaceEditor(
   const [regenAiTranscriptError, setRegenAiTranscriptError] = useState<string | null>(null);
   const [regenAiTranscriptResult, setRegenAiTranscriptResult] = useState<HammerAiTranscriptRegenerationResult | null>(null);
   const [prepTranscriptJobId, setPrepTranscriptJobId] = useState<string | null>(null);
+  const [prepJobHydrationReady, setPrepJobHydrationReady] = useState(
+    persistenceMode !== "canonical" || !persistenceTarget,
+  );
   const [regenAiTranscriptCurrentIngest, setRegenAiTranscriptCurrentIngest] = useState<{
     final_status: string | null;
     selected_source: string | null;
@@ -1046,12 +1049,16 @@ export default function HammerWorkspaceEditor(
     setLoadedPersistenceSnapshot(null);
     setActiveCanonicalRecording(null);
     setActiveRevision(null);
+    setPrepTranscriptJobId(null);
+    setRegenAiTranscriptJobId(null);
+    setRegenAiTranscriptInFlight(false);
     setShowPreparedHandoff(false);
     setShowPrepAiNotice(false);
     setPrepAiNoticeDontShowAgain(false);
     setPreparedActionIntent(null);
     openedAtRef.current = new Date().toISOString();
     setEffectiveLaunchContext(withSessionId(props.launchContext));
+    setPrepJobHydrationReady(persistenceMode !== "canonical" || !persistenceTarget);
 
     clearReadyTransitionTimer();
     prepAiNoticeApprovedRunKeyRef.current = null;
@@ -1622,6 +1629,7 @@ export default function HammerWorkspaceEditor(
         return;
       }
 
+      setPrepJobHydrationReady(true);
       setJobsStatusUnavailable(null);
       const jobs = result.data.jobs;
       const activePrep = jobs.find((job) => (
@@ -1655,6 +1663,7 @@ export default function HammerWorkspaceEditor(
   }, [
     persistenceTarget?.workspaceId,
     persistenceTarget?.workpieceId,
+    prepJobHydrationReady,
     prepTranscriptJobId,
     prepState.status,
     prepState.step,
@@ -1714,6 +1723,12 @@ export default function HammerWorkspaceEditor(
 
   useEffect(() => {
     if (persistenceMode !== "canonical" || !persistenceTarget || !hydrationReady) {
+      return;
+    }
+    if (!prepJobHydrationReady) {
+      return;
+    }
+    if (prepTranscriptJobId) {
       return;
     }
     if (prepState.status === "preparing" && prepState.step !== "loading_context") {
@@ -2456,6 +2471,8 @@ export default function HammerWorkspaceEditor(
     loadedPersistenceSnapshot,
     persistenceMode,
     persistenceTarget,
+    prepJobHydrationReady,
+    prepTranscriptJobId,
     prepState.status,
     prepState.step,
     prepAttemptNonce,
