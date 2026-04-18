@@ -269,6 +269,25 @@ async function loadCanonicalBootstrapLaunchContext(
   });
 }
 
+function logHammerReopenDecision(details: {
+  hasEditorialAuthority: boolean;
+  hasStructuredTranscript: boolean;
+  hasRevisionTranscript: boolean;
+  reasonForReject: string;
+  selectedTranscriptSource?: string | null;
+  registeredTranscriptArtifactPath?: string | null;
+}): void {
+  // eslint-disable-next-line no-console
+  console.warn("REOPEN_DECISION:", {
+    has_editorial_authority: details.hasEditorialAuthority,
+    has_structured_transcript: details.hasStructuredTranscript,
+    has_revision_transcript: details.hasRevisionTranscript,
+    reason_for_reject: details.reasonForReject,
+    selected_transcript_source: details.selectedTranscriptSource ?? null,
+    registered_transcript_artifact_path: details.registeredTranscriptArtifactPath ?? null,
+  });
+}
+
 function useDynamicCssText(scopeId: string, cssText: string): void {
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
@@ -1369,6 +1388,18 @@ export default function HammerWorkspaceEditor(
         }
 
         if (!nextLaunchContext) {
+          logHammerReopenDecision({
+            hasEditorialAuthority: Boolean(hydratedSnapshot?.editorial_authority.data),
+            hasStructuredTranscript: Boolean(hydratedSnapshot?.structured_transcript.data?.segments.length),
+            hasRevisionTranscript: Boolean(revisionTranscriptLoadOk),
+            reasonForReject: !hydratedSnapshot?.editorial_authority.data
+              ? "missing_editorial_authority"
+              : !hydratedSnapshot?.structured_transcript.data?.segments.length
+              ? "missing_structured_transcript"
+              : "persistence_hydration_returned_no_launch_context",
+            selectedTranscriptSource: transcriptSource,
+            registeredTranscriptArtifactPath: registeredTranscriptPath,
+          });
           try {
             const bootstrapLaunchContext = withSessionId(
               (await loadCanonicalBootstrapLaunchContext(
