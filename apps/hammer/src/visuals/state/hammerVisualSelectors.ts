@@ -77,20 +77,9 @@ export function selectPrimaryActiveClipAtTime(
 export function selectPreviewClips(args: {
   state: HammerVisualTimelineState;
   playheadSec: number;
-  selectedClipId: string | null;
-  focusSelectedClipWhenPaused: boolean;
   isPlaybackActive: boolean;
   isScrubbing: boolean;
 }): HammerVisualClip[] {
-  if (args.isPlaybackActive || args.isScrubbing) {
-    return selectEnabledClipsAtTimeSorted(args.state, args.playheadSec);
-  }
-
-  if (args.focusSelectedClipWhenPaused && args.selectedClipId) {
-    const selected = selectClipById(args.state, args.selectedClipId);
-    if (selected) return [selected];
-  }
-
   return selectEnabledClipsAtTimeSorted(args.state, args.playheadSec);
 }
 

@@ -2988,13 +2988,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     selectedVisualClip?.anchor_hint.anchor_label,
   ]);
   const previewSurfaceLabel = useMemo(() => {
-    if (selectedVisualClip && isVisualPreviewAuthority) {
-      const visualLabel = selectedVisualClip.label?.trim() || selectedVisualClip.clip_id;
-      return `Selected visual: ${visualLabel} (${selectedVisualClip.start_sec.toFixed(1)}s-${selectedVisualClip.end_sec.toFixed(1)}s)`;
+    if (playheadPrimaryVisualClip && isVisualPreviewAuthority) {
+      const visualLabel = playheadPrimaryVisualClip.label?.trim() || playheadPrimaryVisualClip.clip_id;
+      return `Active visual: ${visualLabel} (${playheadPrimaryVisualClip.start_sec.toFixed(1)}s-${playheadPrimaryVisualClip.end_sec.toFixed(1)}s)`;
     }
     const fallback = resolvePreviewLabel(playheadSegment, playheadSec);
     return fallback.length > 120 ? `${fallback.slice(0, 117)}...` : fallback;
-  }, [isVisualPreviewAuthority, playheadSec, playheadSegment, selectedVisualClip]);
+  }, [isVisualPreviewAuthority, playheadPrimaryVisualClip, playheadSec, playheadSegment]);
 
   useEffect(() => {
     if (!previewSurfaceRef.current) return;
@@ -3070,15 +3070,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   const activePreviewOverlays = useMemo<VisualPreviewOverlayModel[]>(() => {
     if (!editableVisualTimeline) return [];
-    const focusSelectedClipWhenPaused = (
-      activeTool === "video"
-      && (activeVisualTool === "polish" || activeVisualTool === "images")
-    );
     const clipCandidates = selectPreviewClips({
       state: editableVisualTimeline,
       playheadSec,
-      selectedClipId,
-      focusSelectedClipWhenPaused,
       isPlaybackActive,
       isScrubbing,
     });
@@ -3111,9 +3105,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       .filter((item): item is VisualPreviewOverlayModel => item !== null);
     return overlays.sort((left, right) => left.z_index - right.z_index);
   }, [
-    activeTool,
-    activeVisualTool,
-    currentPass,
     editableVisualTimeline,
     imagePlacementTransforms,
     isPlaybackActive,
@@ -3141,25 +3132,35 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [selectedClipId, sourceVisualPlacementItems]);
   useEffect(() => {
     if (!import.meta.env.DEV) return;
-    const expectedClipId = (isPlaybackActive || isScrubbing) ? effectiveSelectedClipId : selectedClipId;
-    if (!expectedClipId) return;
-    const selectedTimelineClip = editableVisualTimeline
+    const expectedClipId = playheadPrimaryClipId;
+    const renderedClipId = activePreviewOverlays.at(-1)?.clip_id ?? null;
+    if (!expectedClipId) {
+      if (renderedClipId) {
+        console.warn("[HammerVisuals] preview rendered without an active timeline clip", {
+          rendered_clip_id: renderedClipId,
+          playhead_sec: playheadSec,
+        });
+      }
+      return;
+    }
+    const activeTimelineClip = editableVisualTimeline
       ? selectClipById(editableVisualTimeline, expectedClipId)
       : null;
-    const renderedClipId = activePreviewOverlays.find((overlay) => overlay.selected)?.clip_id ?? null;
-    if (!selectedTimelineClip) {
-      console.warn("[HammerVisuals] selected clip is missing from canonical timeline", {
-        selected_clip_id: expectedClipId,
+    if (!activeTimelineClip) {
+      console.warn("[HammerVisuals] active playhead clip is missing from canonical timeline", {
+        active_clip_id: expectedClipId,
+        playhead_sec: playheadSec,
       });
       return;
     }
-    if (renderedClipId && renderedClipId !== selectedTimelineClip.clip_id) {
+    if (renderedClipId !== activeTimelineClip.clip_id) {
       console.warn("[HammerVisuals] preview render mismatch", {
-        selected_clip_id: selectedTimelineClip.clip_id,
+        active_clip_id: activeTimelineClip.clip_id,
         rendered_clip_id: renderedClipId,
+        playhead_sec: playheadSec,
       });
     }
-  }, [activePreviewOverlays, editableVisualTimeline, effectiveSelectedClipId, isPlaybackActive, isScrubbing, selectedClipId]);
+  }, [activePreviewOverlays, editableVisualTimeline, playheadPrimaryClipId, playheadSec]);
   useEffect(() => {
     if (currentPass !== "image_placement") return;
     if (selectedClipId) return;
