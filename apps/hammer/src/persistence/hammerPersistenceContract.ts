@@ -418,7 +418,7 @@ export interface HammerPersistenceSaveRequest {
   visual_timeline?: HammerArtifactWriteRequest<HammerVisualTimelineState>;
   audio_polish?: HammerArtifactWriteRequest<HammerPersistedAudioPolish>;
   edit_plan?: HammerArtifactWriteRequest<HammerEditPlan>;
-  editorial_authority?: HammerArtifactWriteRequest<HammerEditorialAuthorityGraph>;
+  editorial_authority: HammerArtifactWriteRequest<HammerEditorialAuthorityGraph>;
 }
 
 export interface HammerPresenceRow {

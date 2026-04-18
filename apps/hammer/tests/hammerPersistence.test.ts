@@ -367,6 +367,8 @@ assert.deepEqual(saveRequest.editor_session?.data.visual_preview, {
   white_balance: 12,
   color_amount: 18,
   background_blur: true,
+  eye_contact_assist_enabled: false,
+  eye_contact_assist_strength: 0.25,
   background_blur_px: 14,
   background_blur_feather_px: 6,
   background_blur_temporal_smoothing: 0.25,
@@ -493,7 +495,7 @@ const legacyOnlySnapshot: HammerPersistenceSnapshot = {
   editorial_authority: { path: null, updated_at: null, data: null },
 };
 const hydratedLegacyOnly = buildHammerLaunchContextFromPersistence(target, legacyOnlySnapshot);
-assert.equal(hydratedLegacyOnly?.launchContext.edit_plan?.edit_plan_id, "plan_01");
+assert.equal(hydratedLegacyOnly, null);
 
 const canonicalOnlySnapshot: HammerPersistenceSnapshot = {
   ...persistedSnapshot,
@@ -505,7 +507,7 @@ const canonicalOnlySnapshot: HammerPersistenceSnapshot = {
   },
 };
 const hydratedCanonicalOnly = buildHammerLaunchContextFromPersistence(target, canonicalOnlySnapshot);
-assert.equal(hydratedCanonicalOnly?.launchContext.edit_plan, undefined);
+assert.equal(hydratedCanonicalOnly?.launchContext.edit_plan?.edit_plan_id, "plan_01");
 
 const fallbackLaunchContextForProjection = {
   workspace_id: target.workspaceId,
@@ -535,7 +537,7 @@ const hydratedCanonicalOnlyWithFallback = buildHammerLaunchContextFromPersistenc
   canonicalOnlySnapshot,
   fallbackLaunchContextForProjection,
 );
-assert.equal(hydratedCanonicalOnlyWithFallback?.launchContext.edit_plan, undefined);
+assert.equal(hydratedCanonicalOnlyWithFallback?.launchContext.edit_plan?.edit_plan_id, "plan_01");
 
 const hydratedCanonicalOnlyWithGate = buildHammerLaunchContextFromPersistence(
   target,
@@ -1060,6 +1062,8 @@ try {
       white_balance: 100,
       color_amount: -100,
       background_blur: false,
+      eye_contact_assist_enabled: false,
+      eye_contact_assist_strength: 0.25,
       background_blur_px: 14,
       background_blur_feather_px: 6,
       background_blur_temporal_smoothing: 0.25,
@@ -1084,6 +1088,8 @@ try {
       white_balance: 100,
       color_amount: -100,
       background_blur: false,
+      eye_contact_assist_enabled: false,
+      eye_contact_assist_strength: 0.25,
       background_blur_px: 14,
       background_blur_feather_px: 6,
       background_blur_temporal_smoothing: 0.25,
@@ -1149,6 +1155,8 @@ try {
       white_balance: 0,
       color_amount: 0,
       background_blur: false,
+      eye_contact_assist_enabled: false,
+      eye_contact_assist_strength: 0.25,
       background_blur_px: 14,
       background_blur_feather_px: 6,
       background_blur_temporal_smoothing: 0.25,
@@ -1173,6 +1181,8 @@ try {
       white_balance: 0,
       color_amount: 0,
       background_blur: false,
+      eye_contact_assist_enabled: false,
+      eye_contact_assist_strength: 0.25,
       background_blur_px: 14,
       background_blur_feather_px: 6,
       background_blur_temporal_smoothing: 0.25,

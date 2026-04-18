@@ -199,6 +199,52 @@ function cloneLaunchContext(context: HammerLaunchContext): HammerLaunchContext {
   };
 }
 
+function createFallbackEditPlanForPersistence(args: {
+  target: HammerPersistenceTarget;
+  graph: HammerEditorialAuthorityGraph;
+  editorSession?: HammerPersistedEditorSession | null;
+  transcript?: HammerPersistedStructuredTranscript | null;
+  fallbackLaunchContext?: HammerLaunchContext | null;
+  fallbackEditPlan?: HammerEditPlan | null;
+}): HammerEditPlan {
+  const inferredEditPlanId = args.graph.graph_id?.endsWith(":authority")
+    ? args.graph.graph_id.slice(0, -":authority".length)
+    : null;
+  const nowIso = args.editorSession?.last_opened_at
+    ?? args.fallbackEditPlan?.updated_at
+    ?? args.graph.updated_at
+    ?? args.graph.created_at
+    ?? new Date().toISOString();
+  const transcriptId = args.graph.source_transcript_id
+    ?? args.transcript?.transcript_id
+    ?? args.fallbackEditPlan?.source_transcript_id
+    ?? (args.fallbackLaunchContext?.transcript.kind === "tongs-stub"
+      ? args.fallbackLaunchContext.transcript.transcript_id
+      : null)
+    ?? `${args.target.workpieceId}:transcript`;
+  const previewMode = args.fallbackEditPlan?.preview_mode
+    ?? args.editorSession?.preview_mode
+    ?? args.fallbackLaunchContext?.preview_mode
+    ?? "edit-aware";
+  return {
+    edit_plan_id: args.fallbackEditPlan?.edit_plan_id
+      ?? inferredEditPlanId
+      ?? `${args.target.workpieceId}:plan`,
+    version: args.fallbackEditPlan?.version ?? "1",
+    created_at: args.fallbackEditPlan?.created_at ?? args.graph.created_at ?? nowIso,
+    updated_at: nowIso,
+    source_transcript_id: transcriptId,
+    instructions: [],
+    preview_mode: previewMode,
+    workspace_id: args.graph.workspace_id ?? args.editorSession?.workspace_mapping?.workspace_id ?? args.target.workspaceId,
+    workpiece_id: args.graph.workpiece_id ?? args.target.workpieceId,
+    session_id: args.graph.session_id
+      ?? args.editorSession?.session_id
+      ?? args.fallbackLaunchContext?.session_id
+      ?? `${args.target.workpieceId}:session`,
+  };
+}
+
 function uniqueSpeakerLabels(segments: HammerTranscriptSegment[]): string[] {
   const labels: string[] = [];
   const seen = new Set<string>();
@@ -322,14 +368,10 @@ export function buildHammerPersistenceSaveRequest(
   existingAudioPolish?: HammerPersistedAudioPolish | null,
   lastOpenedAt = new Date().toISOString(),
 ): HammerPersistenceSaveRequest {
-  const canonicalGraph = snapshot.editorialAuthorityGraph
-    ? cloneEditorialAuthorityGraph(snapshot.editorialAuthorityGraph)
-    : projectEditorialAuthorityGraphFromEditPlan({
-      editPlan: snapshot.editPlan,
-      workspaceId: snapshot.workspaceId,
-      workpieceId: snapshot.workpieceId,
-      sessionId: snapshot.sessionId,
-    });
+  if (!snapshot.editorialAuthorityGraph) {
+    throw new Error("Hammer persistence requires editorial authority before save.");
+  }
+  const canonicalGraph = cloneEditorialAuthorityGraph(snapshot.editorialAuthorityGraph);
   const compatibilityEditPlan = projectEditPlanFromEditorialAuthorityGraph({
     graph: canonicalGraph,
     fallback: cloneEditPlan(snapshot.editPlan),
@@ -399,20 +441,41 @@ export function buildHammerLaunchContextFromPersistence(
   const editorSession = snapshot.editor_session.data;
   const transcript = snapshot.structured_transcript.data;
   const canonicalGraph = snapshot.editorial_authority.data;
-  const allowLegacyEditPlanProjection = options?.allowLegacyEditPlanProjection === true;
-  let editPlan = snapshot.edit_plan.data ?? null;
-  if (!editPlan && allowLegacyEditPlanProjection && canonicalGraph) {
-    const projectionFallback = fallbackLaunchContext?.edit_plan ?? null;
-    if (projectionFallback) {
-      editPlan = projectEditPlanFromEditorialAuthorityGraph({
-        graph: canonicalGraph,
-        fallback: projectionFallback,
-      });
-    }
-  }
-  const hasPersistedState = Boolean(snapshot.state || editorSession || transcript || editPlan);
+  void options;
+  const hasPersistedState = Boolean(
+    snapshot.state
+    || editorSession
+    || transcript
+    || snapshot.edit_plan.data
+    || canonicalGraph,
+  );
 
   let launchContext = fallbackLaunchContext ? cloneLaunchContext(fallbackLaunchContext) : null;
+
+  if (!hasPersistedState) {
+    return launchContext
+      ? {
+        launchContext,
+        source: "launch",
+      }
+      : null;
+  }
+
+  if (!canonicalGraph) {
+    return null;
+  }
+
+  const editPlan = projectEditPlanFromEditorialAuthorityGraph({
+    graph: canonicalGraph,
+    fallback: createFallbackEditPlanForPersistence({
+      target,
+      graph: canonicalGraph,
+      editorSession,
+      transcript,
+      fallbackLaunchContext: launchContext,
+      fallbackEditPlan: snapshot.edit_plan.data ?? null,
+    }),
+  });
 
   if (!launchContext) {
     if (!editorSession || !transcript || !editorSession.media_ref) {
@@ -438,20 +501,13 @@ export function buildHammerLaunchContextFromPersistence(
           : undefined,
         label: editorSession.media_source_label ?? "tongs:persisted-media",
       },
-      ...(editPlan ? { edit_plan: cloneEditPlan(editPlan) } : {}),
+      edit_plan: cloneEditPlan(editPlan),
       preview_mode: editPlan?.preview_mode ?? editorSession.preview_mode,
     };
 
     return {
       launchContext,
       source: "persistence",
-    };
-  }
-
-  if (!hasPersistedState) {
-    return {
-      launchContext,
-      source: "launch",
     };
   }
 
@@ -481,11 +537,7 @@ export function buildHammerLaunchContextFromPersistence(
       label: editorSession.media_source_label ?? "tongs:persisted-media",
     };
   }
-  if (editPlan) {
-    launchContext.edit_plan = cloneEditPlan(editPlan);
-  } else if (!allowLegacyEditPlanProjection && "edit_plan" in launchContext) {
-    delete launchContext.edit_plan;
-  }
+  launchContext.edit_plan = cloneEditPlan(editPlan);
   launchContext.preview_mode = editPlan?.preview_mode
     ?? editorSession?.preview_mode
     ?? launchContext.preview_mode;

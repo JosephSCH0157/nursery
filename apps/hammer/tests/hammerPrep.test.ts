@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import type { HammerLaunchContext } from "../../../packages/contracts/hammer/launch-context.contract";
+import { projectEditorialAuthorityGraphFromEditPlan } from "../src/editor/hammerRenderAssembly";
 import { buildHammerPersistenceSaveRequest } from "../src/persistence/hammerPersistence";
 import type { HammerWorkspaceSnapshot } from "../src/editor/hammerWorkspaceSnapshot";
 import {
@@ -48,6 +49,15 @@ function buildLaunchContext(withWorkspaceMapping = true): HammerLaunchContext {
 }
 
 function buildWorkspaceSnapshot(): HammerWorkspaceSnapshot {
+  const editPlan = {
+    edit_plan_id: "plan_01",
+    version: "1",
+    created_at: "2026-03-14T09:00:00.000Z",
+    updated_at: "2026-03-14T09:05:00.000Z",
+    source_transcript_id: "hammer_transcript_prepared",
+    preview_mode: "edit-aware" as const,
+    instructions: [],
+  };
   return {
     workspaceId: "11111111-1111-4111-8111-111111111111",
     workpieceId: "22222222-2222-4222-8222-222222222222",
@@ -93,15 +103,13 @@ function buildWorkspaceSnapshot(): HammerWorkspaceSnapshot {
       local_root_abs: "D:\\ForgeMedia\\workspace",
     },
     mediaSourceLabel: "tongs:media_01",
-    editPlan: {
-      edit_plan_id: "plan_01",
-      version: "1",
-      created_at: "2026-03-14T09:00:00.000Z",
-      updated_at: "2026-03-14T09:05:00.000Z",
-      source_transcript_id: "hammer_transcript_prepared",
-      preview_mode: "edit-aware",
-      instructions: [],
-    },
+    editPlan,
+    editorialAuthorityGraph: projectEditorialAuthorityGraphFromEditPlan({
+      editPlan,
+      workspaceId: "11111111-1111-4111-8111-111111111111",
+      workpieceId: "22222222-2222-4222-8222-222222222222",
+      sessionId: "session_hammer_prep",
+    }),
     visualPlacements: null,
     audioPolish: null,
   };

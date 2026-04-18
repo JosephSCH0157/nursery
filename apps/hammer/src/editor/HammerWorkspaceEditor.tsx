@@ -2490,12 +2490,24 @@ export default function HammerWorkspaceEditor(
       return;
     }
 
-    const legacyRequest = buildHammerPersistenceSaveRequest(
-      snapshot,
-      loadedPersistenceSnapshot?.structured_transcript.data ?? null,
-      loadedPersistenceSnapshot?.audio_polish.data ?? null,
-      openedAtRef.current,
-    );
+    let legacyRequest: ReturnType<typeof buildHammerPersistenceSaveRequest>;
+    try {
+      legacyRequest = buildHammerPersistenceSaveRequest(
+        snapshot,
+        loadedPersistenceSnapshot?.structured_transcript.data ?? null,
+        loadedPersistenceSnapshot?.audio_polish.data ?? null,
+        openedAtRef.current,
+      );
+    } catch (error) {
+      pendingSaveRef.current = null;
+      applyHostLoopState(resolveHammerSaveFailure({
+        hasPendingSaveChanges: true,
+        saveFailureMessage,
+        historyRecoveryStatus,
+        presenceConflictDetail,
+      }, error instanceof Error ? error.message : "Hammer could not build a canonical save request."));
+      return;
+    }
     const request = {
       editor_session: legacyRequest.editor_session,
       revision_transcript: legacyRequest.structured_transcript,

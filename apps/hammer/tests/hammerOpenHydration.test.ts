@@ -113,7 +113,7 @@ test("reopen hydration prefers persisted canonical basis and strips stale launch
   });
   assert.equal(result.persistenceSource, "persistence");
   assert.equal(result.hasCanonicalBasis, true);
-  assert.equal(result.launchContext?.edit_plan, undefined);
+  assert.equal(result.launchContext?.edit_plan?.edit_plan_id, "plan_reopen_01");
 });
 
 test("reopen hydration preserves persisted canonical edit_plan when present", () => {
@@ -134,4 +134,24 @@ test("reopen hydration preserves persisted canonical edit_plan when present", ()
   assert.equal(result.persistenceSource, "persistence");
   assert.equal(result.hasCanonicalBasis, true);
   assert.equal(result.launchContext?.edit_plan?.edit_plan_id, "plan_reopen_01");
+});
+
+test("reopen hydration marks persisted state non-canonical when editorial authority is missing", () => {
+  const result = hydrateHammerOpenLaunchContext({
+    target,
+    hydratedSnapshot: {
+      ...buildCanonicalOnlySnapshot(),
+      editorial_authority: { path: null, updated_at: null, data: null },
+      edit_plan: {
+        path: "hammer/edit-plan/current.v1.json",
+        updated_at: "2026-04-17T12:00:00.000Z",
+        data: canonicalEditPlan,
+      },
+    },
+    initialLaunchContext: fallbackLaunchContext as any,
+    bootstrapLaunchContext: undefined,
+  });
+  assert.equal(result.persistenceSource, "launch");
+  assert.equal(result.hasCanonicalBasis, false);
+  assert.equal(result.launchContext?.edit_plan?.edit_plan_id, "plan_launch_fallback");
 });

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { HammerWorkspaceSnapshot } from "../src/editor/hammerWorkspaceSnapshot";
 import { buildHammerPersistenceSaveRequest } from "../src/persistence/hammerPersistence";
+import { projectEditorialAuthorityGraphFromEditPlan } from "../src/editor/hammerRenderAssembly";
 import { createDefaultVisualAnimation, createDefaultVisualGeometry, createDefaultVisualLane, createEmptyVisualTimelineState } from "../src/visuals/model/hammerVisualDefaults";
 
 function buildSnapshot(): HammerWorkspaceSnapshot {
@@ -105,7 +106,20 @@ function buildSnapshot(): HammerWorkspaceSnapshot {
       preview_mode: "edit-aware",
       instructions: [],
     },
-    editorialAuthorityGraph: null,
+    editorialAuthorityGraph: projectEditorialAuthorityGraphFromEditPlan({
+      editPlan: {
+        edit_plan_id: "plan_anchor_truth",
+        version: "1",
+        created_at: "2026-04-03T15:30:00.000Z",
+        updated_at: "2026-04-03T15:30:00.000Z",
+        source_transcript_id: "transcript_anchor_truth",
+        preview_mode: "edit-aware",
+        instructions: [],
+      },
+      workspaceId: "11111111-1111-4111-8111-111111111111",
+      workpieceId: "22222222-2222-4222-8222-222222222222",
+      sessionId: "session_hammer_anchor_truth",
+    }),
     visualPlacements: {
       schema_version: 1,
       status: "prepared",

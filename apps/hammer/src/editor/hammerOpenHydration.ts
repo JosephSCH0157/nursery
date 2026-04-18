@@ -19,6 +19,14 @@ export function hydrateHammerOpenLaunchContext(args: {
   bootstrapLaunchContext: HammerLaunchContext | undefined;
 }): HammerOpenHydrationResult {
   const { target, hydratedSnapshot, initialLaunchContext, bootstrapLaunchContext } = args;
+  const persistedCanonicalMissing = Boolean(
+    hydratedSnapshot
+    && (hydratedSnapshot.state
+      || hydratedSnapshot.editor_session.data
+      || hydratedSnapshot.structured_transcript.data
+      || hydratedSnapshot.edit_plan.data)
+    && !hydratedSnapshot.editorial_authority.data,
+  );
 
   let launchContext = initialLaunchContext;
   let persistenceSource: HammerOpenHydrationResult["persistenceSource"] = launchContext ? "launch" : "none";
@@ -60,7 +68,7 @@ export function hydrateHammerOpenLaunchContext(args: {
 
   return {
     launchContext,
-    hasCanonicalBasis: Boolean(launchContext),
+    hasCanonicalBasis: !persistedCanonicalMissing && Boolean(launchContext),
     persistenceSource,
   };
 }
