@@ -20,6 +20,9 @@ Anvil records.
 Hammer edits.
 Quench compiles and distributes.
 
+Hammer has one editorial source of truth: the canonical composition.
+Transcript, timeline, preview, tool state, export plans, and handoff packets are derived from that composition.
+
 ## 2. Forge Pipeline Position
 
 Bar Stock -> Hearth -> Tongs -> Anvil -> Hammer -> Quench -> Ledger
@@ -275,9 +278,12 @@ Studio analogy:
 
 Zooming equals leaning into a console channel to adjust parameters.
 
-## 11. Timeline Authority Over Preview
+## 11. Composition Authority Over Timeline and Preview
 
-The timeline is the source of truth.
+The canonical composition is the source of truth.
+
+The timeline is the temporal control surface projected from that composition.
+The preview is a verification surface projected from that composition.
 
 If timeline shows:
 
@@ -375,7 +381,7 @@ Clear system communication reduces cognitive load.
 
 ### 18.4 Single Source of Truth
 
-Timeline governs media state.
+Canonical composition governs media state.
 
 Avoid multiple conflicting representations.
 

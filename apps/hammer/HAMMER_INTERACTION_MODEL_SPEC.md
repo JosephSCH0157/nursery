@@ -38,7 +38,7 @@ Hammer must behave like equipment:
 - nothing important happens invisibly
 - the system assists but does not hijack
 - layout reflects work focus
-- authority flows from the timeline
+- authority flows from the canonical composition
 
 ## 2. Session Entry Flow
 
@@ -160,7 +160,7 @@ Focus does not:
 - hide panels
 - lock the user into a mode
 - change tool availability
-- alter timeline authority
+- alter canonical composition authority
 - move patch bay
 - create full-screen states
 
@@ -180,9 +180,11 @@ Selecting a tool:
 
 Patch bay interaction is routing, not navigation.
 
-## 6. Timeline Authority Model
+## 6. Composition and Timeline Authority Model
 
-The timeline is the authoritative representation of the edit.
+The canonical composition is the authoritative representation of the edit.
+
+The timeline is a temporal projection of that composition.
 
 Timeline controls:
 
@@ -199,7 +201,7 @@ Therefore:
 - moving the playhead must update preview immediately
 - if a gap exists in the timeline, preview must reflect blank output
 - dragging, trimming, or resizing timeline elements must update preview
-- preview cannot contradict the timeline
+- preview cannot contradict the composition as projected through the timeline
 
 ## 7. Preview Role
 
@@ -219,7 +221,7 @@ Preview does not:
 - own authoritative playback state
 - replace the timeline
 
-Controls on the preview are subordinate to the timeline.
+Controls on the preview are subordinate to the canonical composition and its timeline projection.
 
 ## 8. Direct Manipulation Rules
 
@@ -364,7 +366,7 @@ Hammer does not embed Quench workflows.
 
 ## 19. Persistence Expectations
 
-The project state should remain intact across sessions.
+The canonical composition state should remain intact across sessions.
 
 Users should not fear losing work due to normal navigation or closing the editor.
 
@@ -403,7 +405,8 @@ Hammer must avoid:
 
 When adding features:
 
-- Preserve timeline authority.
+- Preserve canonical composition authority.
+- Treat timeline, transcript, preview, and packets as derived surfaces.
 - Do not introduce hidden states.
 - Do not modalize core editing.
 - Keep patch bay as routing, not navigation.
@@ -417,6 +420,8 @@ When adding features:
 ## 24. Canonical Summary
 
 Hammer is the shaping stage.
+Hammer edits canonical composition.
+Timeline, transcript, preview, export plans, and handoff packets derive from that composition.
 
 It should feel like:
 

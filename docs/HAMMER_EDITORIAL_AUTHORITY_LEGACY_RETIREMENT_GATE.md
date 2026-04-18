@@ -3,21 +3,24 @@
 ## Goal
 Define objective criteria for retiring legacy edit-plan projection as authoritative fallback.
 
+Canonical composition remains the only editorial source of truth throughout retirement.
+Legacy edit-plan projection may exist for compatibility, but it must never re-emerge as a parallel authority.
+
 ## Retirement Preconditions
-- Canonical graph write coverage is 100% for all Hammer edit mutations in production paths.
-- Canonical graph read coverage is 100% for preview/export/handoff assembly inputs.
+- Canonical composition write coverage is 100% for all Hammer edit mutations in production paths.
+- Canonical composition read coverage is 100% for preview/export/handoff assembly inputs.
 - No UI surface reads legacy edit-plan as primary truth.
 - Quench ingest validates editorial truth extension in all required packet variants.
 
 ## Evidence Requirements
-- Contract tests prove canonical graph serialize/deserialize lossless for all active operation families.
+- Contract tests prove canonical composition serialize/deserialize lossless for all active operation families.
 - History tests prove undo/redo/replay preserve canonical operation identity.
 - Persistence tests prove canonical-only snapshots hydrate without requiring legacy edit-plan authority.
-- Assembly tests prove deterministic preview/export/handoff plan output from canonical graph.
+- Assembly tests prove deterministic preview/export/handoff plan output from canonical composition.
 - Packet tests prove operation + capability posture is declared without downstream inference.
 
 ## Operational Safeguards
-- Telemetry metric: percent of sessions hydrated from canonical graph without legacy fallback.
+- Telemetry metric: percent of sessions hydrated from canonical composition without legacy fallback.
 - Telemetry metric: count of degraded/unavailable operations by type and runtime capability.
 - Alarm threshold: any canonical read failure or projection mismatch blocks legacy retirement.
 

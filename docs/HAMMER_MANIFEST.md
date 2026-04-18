@@ -7,6 +7,18 @@ This document defines the canonical user interface layout and workflow for the H
 Hammer is a transcript-first editing tool with a real timeline.
 The interface must support spoken-content editing workflows without turning into a consumer creator app or a developer diagnostics panel.
 
+Canonical Composition Law:
+
+Hammer has one and only one editorial source of truth: the canonical composition.
+All editing actions mutate the composition.
+All views, plans, packets, previews, timelines, transcripts, and downstream artifacts are derived from the composition and must never become parallel authorities.
+
+Canonical authority hierarchy:
+
+- Canonical composition: the sole editable truth for editorial structure, timing, intent, ordering, operations, and state
+- Derived surfaces: transcript view, timeline view, preview view, staged edits UI, and tool UI
+- Compiled outputs: preview plan, export plan, handoff plan, and Quench packet
+
 These rules define the canonical Hammer interface.
 
 Companion interaction architecture:
@@ -16,6 +28,18 @@ Companion interaction architecture:
 ---
 
 # 0. Hammer Law
+
+No matter what part of Hammer is active, and no matter what tool surface the user is in, Hammer is always editing the canonical composition.
+
+Transcript is a projection of composition.
+Timeline is a projection of composition.
+Preview is a projection of composition.
+Export plan is a compilation of composition.
+Handoff packet is a declaration derived from composition.
+
+Undo/redo must preserve composition truth.
+Persistence must serialize composition truth.
+No tool may create or rely on a hidden authority path.
 
 Hammer opens an episode into a prepared editing workspace, not a blank editor.
 
