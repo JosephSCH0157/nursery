@@ -3,22 +3,32 @@
 import { getRecordingMode } from './recording-settings';
 import {
   appendRecordingDecisionToTongs,
+  beginRecordingCaptureSession,
+  commitRecordingJsonArtifactToTongs,
   commitRecordingBytesToTongs,
+  ensureRecordingCaptureTarget,
+  HAMMER_STRUCTURED_TRANSCRIPT_PATH,
+  promoteRecordingTranscriptForHammer,
   type RecordingCommitResult,
 } from '../forge/workpiece-commit';
+import { startSpeechBackendForSession, stopSpeechBackendForSession } from '../features/speech-loader';
 import {
   hideRecordingFinalizeIndicator,
   showRecordingDecisionDialog,
   showRecordingFinalizeIndicator,
 } from './recording-decision-dialog';
 import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name';
+import {
+  RecordingTranscriptController,
+  type RecordingTranscriptFinalizeResult,
+} from './recordingTranscriptController';
+import {
+  selectBestRecordingStrategy,
+  type RecordingCaptureStrategy,
+} from './selectBestRecordingStrategy';
 
 (() => {
   const RECORDING_STORAGE_LIMIT_HINT_KEY = 'forge_anvil_recording_storage_limit_hint_bytes_v1';
-  // Keep default AV output conservative so common multi-minute takes fit within
-  // Supabase projects that still use the default 50 MiB object limit.
-  const DEFAULT_VIDEO_BITS_PER_SECOND = 1_200_000;
-  const DEFAULT_AUDIO_BITS_PER_SECOND = 96_000;
   let mediaRecorder: MediaRecorder | null = null;
   let chunks: Blob[] = [];
   let active = false;
@@ -31,6 +41,14 @@ import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name
   let audioChunks: Float32Array[] = [];
   let audioSampleRate = 48000;
   let recordingStartedAtMs: number | null = null;
+  let activeStrategy: RecordingCaptureStrategy | null = null;
+  const transcriptController = new RecordingTranscriptController({
+    ensureCaptureTarget: ensureRecordingCaptureTarget,
+    commitJsonArtifact: commitRecordingJsonArtifactToTongs,
+    startSpeech: startSpeechBackendForSession,
+    stopSpeech: stopSpeechBackendForSession,
+    localStorage,
+  });
 
   const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -94,8 +112,35 @@ import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name
     contentType: string;
     bytes: number;
     durationMs: number | null;
+    transcriptFinalize: RecordingTranscriptFinalizeResult | null;
+    strategy: RecordingCaptureStrategy | null;
   }): Promise<void> {
     const persistDecision = async (eventName: 'take_kept' | 'take_discarded'): Promise<void> => {
+      let transcriptPath = args.transcriptFinalize?.finalPath ?? null;
+      let transcriptStatus = args.transcriptFinalize?.status ?? null;
+      let transcriptSourcePath = args.transcriptFinalize?.finalPath ?? null;
+
+      if (
+        eventName === 'take_kept'
+        && args.transcriptFinalize?.finalArtifact
+        && args.transcriptFinalize.workpieceId === args.commitResult.workpieceId
+      ) {
+        const promoteResult = await promoteRecordingTranscriptForHammer({
+          workpieceId: args.commitResult.workpieceId,
+          transcript: args.transcriptFinalize.finalArtifact,
+          captureSessionId: args.commitResult.captureSessionId,
+          plannerRecordingSessionId: args.commitResult.plannerRecordingSessionId,
+          sourceTranscriptPath: args.transcriptFinalize.finalPath,
+        });
+        if (promoteResult.ok) {
+          transcriptPath = HAMMER_STRUCTURED_TRANSCRIPT_PATH;
+          transcriptStatus = 'ready';
+        } else {
+          transcriptStatus = 'degraded';
+          showRecorderToast('Transcript could not be promoted into Hammer readiness path. Media was still kept.', 'warning');
+        }
+      }
+
       const result = await appendRecordingDecisionToTongs({
         workpieceId: args.commitResult.workpieceId,
         eventName,
@@ -107,6 +152,11 @@ import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name
         createdCradle: args.commitResult.createdCradle,
         plannerRecordingSessionId: args.commitResult.plannerRecordingSessionId,
         captureSessionId: args.commitResult.captureSessionId,
+        transcriptPath,
+        transcriptStatus,
+        transcriptSourcePath,
+        recordingMedium: args.strategy?.recordingMedium ?? null,
+        requiresPostNormalization: args.strategy?.requiresPostNormalization === true,
       });
       if (!result.ok) {
         const summary = eventName === 'take_kept'
@@ -147,7 +197,14 @@ import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name
     }
   }
 
-  const nowName = (mode: 'av' | 'audio'): string => {
+  const applyFileExtension = (name: string, extension: string | null | undefined): string => {
+    const cleanExtension = String(extension || '').trim().replace(/^\./, '');
+    if (!cleanExtension) return name;
+    const stem = name.replace(/\.[^.]+$/, '');
+    return `${stem}.${cleanExtension}`;
+  };
+
+  const nowName = (mode: 'av' | 'audio', extensionOverride?: string | null): string => {
     try {
       const titleInput = (() => {
         try {
@@ -164,14 +221,14 @@ import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name
         }
       })();
 
-      return buildRecordingFilename({
+      return applyFileExtension(buildRecordingFilename({
         mode,
         baseTitle: pickRecordingBaseTitle({
           inputTitle: titleInput,
           routeEpisodeTitle: getRouteEpisodeTitle(),
           storedTitle,
         }),
-      });
+      }), extensionOverride ?? (mode === 'audio' ? 'wav' : 'webm'));
     } catch {
       // Preserve existing fallback shape.
       const date = new Date();
@@ -182,18 +239,11 @@ import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name
       const minute = pad(date.getMinutes());
       const second = pad(date.getSeconds());
       const fallback = `${year}-${month}-${day}_${hour}-${minute}-${second}`;
-      return mode === 'audio' ? `Script_${fallback}_audio.wav` : `Script_${fallback}.webm`;
+      return applyFileExtension(
+        mode === 'audio' ? `Script_${fallback}_audio.wav` : `Script_${fallback}.webm`,
+        extensionOverride ?? (mode === 'audio' ? 'wav' : 'webm'),
+      );
     }
-  };
-
-  const pickMime = (): string => {
-    try {
-      const cand = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
-      for (const t of cand) {
-        if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) return t;
-      }
-    } catch {}
-    return 'video/webm';
   };
 
   const encodeWav = (buffers: Float32Array[], sampleRate: number): ArrayBuffer => {
@@ -340,7 +390,11 @@ import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name
     audioGain.connect((ctx as AudioContext).destination);
   };
 
-  const stopAudioOnly = async (durationMs: number | null): Promise<void> => {
+  const stopAudioOnly = async (
+    durationMs: number | null,
+    transcriptFinalize: RecordingTranscriptFinalizeResult | null,
+    strategy: RecordingCaptureStrategy | null,
+  ): Promise<void> => {
     try {
       if (audioProcessor) audioProcessor.disconnect();
     } catch {}
@@ -362,10 +416,48 @@ import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name
     audioChunks = [];
     const blob = new Blob([wavBuffer], { type: 'audio/wav' });
     try {
-      await saveBlob(blob, nowName('audio'), { durationMs });
+      await saveBlob(blob, nowName('audio', strategy?.fileExtension ?? 'wav'), {
+        durationMs,
+        transcriptFinalize,
+        strategy,
+      });
     } finally {
       recordingStartedAtMs = null;
     }
+  };
+
+  const startMediaRecorderWithStrategy = async (strategy: RecordingCaptureStrategy): Promise<void> => {
+    const mix = new MediaStream();
+    if (strategy.mode === 'audio') {
+      const audioStream = await getAudioStream();
+      try {
+        audioStream.getAudioTracks().forEach((track) => mix.addTrack(track));
+      } catch {}
+    } else {
+      const videoStream = await getVideoStream();
+      const audioStream = await getAudioStream();
+      try {
+        audioStream.getAudioTracks().forEach((track) => mix.addTrack(track));
+      } catch {}
+      try {
+        videoStream.getVideoTracks().forEach((track) => mix.addTrack(track));
+      } catch {}
+    }
+
+    currentStream = mix;
+    const recorderOptions: MediaRecorderOptions = {};
+    if (strategy.mimeType) recorderOptions.mimeType = strategy.mimeType;
+    if (strategy.videoBitsPerSecond != null) recorderOptions.videoBitsPerSecond = strategy.videoBitsPerSecond;
+    if (strategy.audioBitsPerSecond != null) recorderOptions.audioBitsPerSecond = strategy.audioBitsPerSecond;
+    mediaRecorder = new MediaRecorder(mix, recorderOptions);
+    chunks = [];
+    mediaRecorder.ondataavailable = (e: BlobEvent) => {
+      try {
+        if (e && e.data && e.data.size) chunks.push(e.data);
+        else console.log('[core-recorder] dataavailable empty chunk');
+      } catch {}
+    };
+    mediaRecorder.start();
   };
 
   async function start(): Promise<void> {
@@ -384,7 +476,11 @@ import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name
         });
       } catch {}
 
-      if (recordingMode === 'audio') {
+      const strategy = selectBestRecordingStrategy({ mode: recordingMode });
+      const captureSessionId = beginRecordingCaptureSession();
+      activeStrategy = strategy;
+
+      if (recordingMode === 'audio' && strategy.mechanism === 'pcm-wav-fallback') {
         await startAudioOnly();
         active = true;
         activeMode = 'audio';
@@ -392,66 +488,68 @@ import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name
         try {
           window.dispatchEvent(new CustomEvent('rec:state', { detail: { state: 'recording', adapter: 'local-auto' } }));
         } catch {}
+        void transcriptController.startSession({
+          captureSessionId,
+          recordingStartedAtMs: recordingStartedAtMs,
+          strategy,
+        }).catch((error) => {
+          try { console.warn('[auto-rec] transcript start failed', error); } catch {}
+        });
         return;
       }
 
-      const v = await getVideoStream();
-      const a = await getAudioStream();
-      const mix = new MediaStream();
-      try {
-        a.getAudioTracks().forEach((t) => mix.addTrack(t));
-      } catch {}
-      try {
-        v.getVideoTracks().forEach((t) => mix.addTrack(t));
-      } catch {}
-      currentStream = mix;
-      const mime = pickMime();
-      mediaRecorder = new MediaRecorder(mix, {
-        mimeType: mime,
-        videoBitsPerSecond: DEFAULT_VIDEO_BITS_PER_SECOND,
-        audioBitsPerSecond: DEFAULT_AUDIO_BITS_PER_SECOND,
-      });
-      chunks = [];
-      mediaRecorder.ondataavailable = (e: BlobEvent) => {
-        try {
-          if (e && e.data && e.data.size) chunks.push(e.data);
-          else console.log('[core-recorder] dataavailable empty chunk');
-        } catch {}
-      };
-      mediaRecorder.start();
+      await startMediaRecorderWithStrategy(strategy);
       active = true;
-      activeMode = 'av';
+      activeMode = strategy.mode;
       recordingStartedAtMs = Date.now();
       try {
         window.dispatchEvent(new CustomEvent('rec:state', { detail: { state: 'recording', adapter: 'local-auto' } }));
       } catch {}
+      void transcriptController.startSession({
+        captureSessionId,
+        recordingStartedAtMs: recordingStartedAtMs,
+        strategy,
+      }).catch((error) => {
+        try { console.warn('[auto-rec] transcript start failed', error); } catch {}
+      });
     } catch (e) {
       try {
         console.warn('[auto-rec] start failed', e);
       } catch {}
+      activeStrategy = null;
     }
   }
 
   async function stop(): Promise<void> {
     try { console.log('[core-recorder] stop called'); } catch {}
     if (!active) return;
+    const durationMs = recordingStartedAtMs != null ? Math.max(0, Date.now() - recordingStartedAtMs) : null;
+    const strategyAtStop = activeStrategy;
+    const transcriptFinalize = await transcriptController.stopSession({
+      mediaDurationMs: durationMs,
+    }).catch((error) => {
+      try { console.warn('[auto-rec] transcript finalize failed', error); } catch {}
+      return null;
+    });
     try {
-      if (activeMode === 'audio') {
-        const durationMs = recordingStartedAtMs != null ? Math.max(0, Date.now() - recordingStartedAtMs) : null;
-        await stopAudioOnly(durationMs);
+      if (activeMode === 'audio' && strategyAtStop?.mechanism === 'pcm-wav-fallback') {
+        await stopAudioOnly(durationMs, transcriptFinalize, strategyAtStop);
       } else if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        const durationMs = recordingStartedAtMs != null ? Math.max(0, Date.now() - recordingStartedAtMs) : null;
         const recorder = mediaRecorder;
         recorder.onstop = async () => {
           try {
             console.log('[core-recorder] mediaRecorder.onstop fired', { chunks: chunks.length });
             console.log('[core-recorder] mediaRecorder.onstop fired');
-            const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
+            const blob = new Blob(chunks, { type: recorder.mimeType || strategyAtStop?.mimeType || 'video/webm' });
             chunks = [];
             try {
               console.log('[core-recorder] about to save blob', { size: blob.size, type: blob.type });
             } catch {}
-            await saveBlob(blob, nowName('av'), { durationMs });
+            await saveBlob(blob, nowName(strategyAtStop?.mode ?? 'av', strategyAtStop?.fileExtension), {
+              durationMs,
+              transcriptFinalize,
+              strategy: strategyAtStop,
+            });
           } catch (e) {
             try {
               console.warn('[auto-rec] save failed', e);
@@ -476,6 +574,7 @@ import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name
     mediaRecorder = null;
     active = false;
     activeMode = null;
+    activeStrategy = null;
     try {
       window.dispatchEvent(new CustomEvent('rec:state', { detail: { state: 'idle', adapter: 'local-auto' } }));
     } catch {}
@@ -484,7 +583,11 @@ import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name
   async function saveBlob(
     blob: Blob,
     name: string,
-    opts: { durationMs?: number | null } = {},
+    opts: {
+      durationMs?: number | null;
+      transcriptFinalize?: RecordingTranscriptFinalizeResult | null;
+      strategy?: RecordingCaptureStrategy | null;
+    } = {},
   ): Promise<boolean> {
     const bytes = new Uint8Array(await blob.arrayBuffer());
     const contentType = blob.type || 'application/octet-stream';
@@ -514,11 +617,40 @@ import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name
             bytes,
             originalName: name,
             contentType,
+            transcriptPath: opts.transcriptFinalize?.finalPath ?? null,
+            transcriptStatus: opts.transcriptFinalize?.status ?? null,
+            recordingMedium: opts.strategy?.recordingMedium ?? null,
+            requiresPostNormalization: opts.strategy?.requiresPostNormalization === true,
           });
           const commitResultSuccess = readCommitResultSuccess(commitResult);
           if (commitResultSuccess) {
             committed = true;
             commitResultOk = commitResultSuccess;
+            if (opts.transcriptFinalize?.finalArtifact && opts.transcriptFinalize.finalPath) {
+              const artifact = {
+                ...opts.transcriptFinalize.finalArtifact,
+                source_media_ref: {
+                  kind: 'workpiece' as const,
+                  path: commitResultSuccess.path,
+                  content_type: contentType,
+                },
+              };
+              await commitRecordingJsonArtifactToTongs({
+                workpieceId: commitResultSuccess.workpieceId,
+                path: opts.transcriptFinalize.finalPath,
+                data: artifact,
+                eventName: 'take_transcript_linked_media',
+                eventPayload: {
+                  source: 'anvil.local-auto',
+                  transcript_path: opts.transcriptFinalize.finalPath,
+                  file_path: commitResultSuccess.path,
+                  transcript_status: opts.transcriptFinalize.status,
+                  anvil_capture_session_id: commitResultSuccess.captureSessionId,
+                  recording_session_id: commitResultSuccess.plannerRecordingSessionId,
+                },
+              }).catch(() => undefined);
+              opts.transcriptFinalize.finalArtifact = artifact;
+            }
             try {
               console.log('[core-recorder] canonical commit ok', {
                 workpieceId: commitResultSuccess.workpieceId,
@@ -587,6 +719,8 @@ import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name
                   durationMs: typeof opts.durationMs === 'number' && Number.isFinite(opts.durationMs)
                     ? opts.durationMs
                     : null,
+                  transcriptFinalize: opts.transcriptFinalize ?? null,
+                  strategy: opts.strategy ?? null,
                 });
               }
               return true;
@@ -618,6 +752,8 @@ import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name
               durationMs: typeof opts.durationMs === 'number' && Number.isFinite(opts.durationMs)
                 ? opts.durationMs
                 : null,
+              transcriptFinalize: opts.transcriptFinalize ?? null,
+              strategy: opts.strategy ?? null,
             });
           }
           return true;

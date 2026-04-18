@@ -10,6 +10,10 @@ type RecordingCommitInput = {
   bytes: Uint8Array;
   originalName: string;
   contentType?: string;
+  transcriptPath?: string | null;
+  transcriptStatus?: string | null;
+  recordingMedium?: string | null;
+  requiresPostNormalization?: boolean;
 };
 
 export type RecordingDecisionEventName = "take_kept" | "take_discarded";
@@ -46,7 +50,48 @@ export type AppendRecordingDecisionInput = {
   createdCradle?: boolean;
   plannerRecordingSessionId?: string | null;
   captureSessionId?: string | null;
+  transcriptPath?: string | null;
+  transcriptStatus?: string | null;
+  transcriptSourcePath?: string | null;
+  recordingMedium?: string | null;
+  requiresPostNormalization?: boolean;
 };
+
+export type RecordingCaptureTargetResult =
+  | {
+      ok: true;
+      workspaceId: string | null;
+      workpieceId: string;
+      createdCradle: boolean;
+      plannerRecordingSessionId: string | null;
+      captureSessionId: string;
+    }
+  | {
+      ok: false;
+      reason: string;
+      status?: number;
+      details?: unknown;
+      workspaceId?: string | null;
+      workpieceId?: string | null;
+    };
+
+export type CommitRecordingJsonArtifactResult =
+  | {
+      ok: true;
+      status: number;
+      workpieceId: string;
+      path: string;
+    }
+  | {
+      ok: false;
+      reason: string;
+      status?: number;
+      details?: unknown;
+      errorCode?: string;
+      errorMessage?: string;
+      workpieceId?: string | null;
+      path?: string | null;
+    };
 
 export type AppendRecordingDecisionResult =
   | {
@@ -80,6 +125,8 @@ const ACTIVE_WORKPIECE_KEY = "forge_active_workpiece_id_v1";
 const WORKSPACE_WORKPIECE_PREFIX = "forge_anvil_recording_workpiece_v1:";
 const CAPTURE_SESSION_KEY = "forge_anvil_capture_session_v1";
 const PLANNER_RECORDING_SESSION_KEY = "forge_anvil_recording_session_v1";
+
+export const HAMMER_STRUCTURED_TRANSCRIPT_PATH = "hammer/transcript/structured.v1.json";
 
 let correlationSeq = 0;
 
@@ -167,14 +214,6 @@ function getApiToken(): string | undefined {
   const fromWindow = readString((window as any).__forgeTongsApiToken ?? (window as any).__tpTongsApiToken);
   if (fromWindow) return fromWindow;
 
-  try {
-    const meta = import.meta as unknown as { env?: Record<string, string | undefined> };
-    const fromEnv = readString(meta.env?.VITE_TONGS_API_TOKEN);
-    if (fromEnv) return fromEnv;
-  } catch {
-    // ignore env access failures
-  }
-
   return readLocalStorage("forge_tongs_api_token_v1") ?? undefined;
 }
 
@@ -196,6 +235,24 @@ function getOrCreateCaptureSessionId(): string {
     next = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
+  writeSessionStorage(CAPTURE_SESSION_KEY, next);
+  return next;
+}
+
+export function beginRecordingCaptureSession(): string {
+  let next = "";
+  try {
+    const randomUuid =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : "";
+    next = readString(randomUuid) || "";
+  } catch {
+    // ignore
+  }
+  if (!next) {
+    next = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
   writeSessionStorage(CAPTURE_SESSION_KEY, next);
   return next;
 }
@@ -426,7 +483,7 @@ async function commitFileToWorkpiece(
   return { status: response.status, body, ok: response.ok && isCommitAck(body) };
 }
 
-export async function commitRecordingBytesToTongs(input: RecordingCommitInput): Promise<RecordingCommitResult> {
+async function resolveRecordingCaptureTarget(): Promise<RecordingCaptureTargetResult> {
   const writtenBy = getWrittenBy();
   const apiToken = getApiToken();
   const workspaceId = resolveWorkspaceId();
@@ -459,12 +516,110 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
   }
 
   persistWorkpiece(workspaceId, workpieceId);
+  return {
+    ok: true,
+    workspaceId,
+    workpieceId,
+    createdCradle,
+    plannerRecordingSessionId,
+    captureSessionId: getOrCreateCaptureSessionId(),
+  };
+}
+
+export async function ensureRecordingCaptureTarget(): Promise<RecordingCaptureTargetResult> {
+  return resolveRecordingCaptureTarget();
+}
+
+export async function commitRecordingJsonArtifactToTongs(input: {
+  workpieceId: string;
+  path: string;
+  data: unknown;
+  eventName: string;
+  eventPayload?: Record<string, unknown>;
+}): Promise<CommitRecordingJsonArtifactResult> {
+  const apiToken = getApiToken();
+  const writtenBy = getWrittenBy();
+  const commit = await commitFileToWorkpiece(
+    input.workpieceId,
+    {
+      path: input.path,
+      content_type: "application/json",
+      written_by: writtenBy,
+      bytes_base64: encodeBase64(new TextEncoder().encode(JSON.stringify(input.data))),
+      event_name: input.eventName,
+      event_payload: input.eventPayload ?? null,
+      correlation_id: nextCorrelationId(`anvil-${input.eventName}`),
+    },
+    apiToken,
+  );
+  if (!commit.ok) {
+    const apiError = extractApiError(commit.body);
+    return {
+      ok: false,
+      reason: "commit_json_artifact_failed",
+      status: commit.status,
+      details: commit.body,
+      ...(apiError.code ? { errorCode: apiError.code } : {}),
+      ...(apiError.message ? { errorMessage: apiError.message } : {}),
+      workpieceId: input.workpieceId,
+      path: input.path,
+    };
+  }
+  return {
+    ok: true,
+    status: commit.status,
+    workpieceId: input.workpieceId,
+    path: input.path,
+  };
+}
+
+export async function promoteRecordingTranscriptForHammer(input: {
+  workpieceId: string;
+  transcript: unknown;
+  captureSessionId?: string | null;
+  plannerRecordingSessionId?: string | null;
+  sourceTranscriptPath?: string | null;
+}): Promise<CommitRecordingJsonArtifactResult> {
+  return commitRecordingJsonArtifactToTongs({
+    workpieceId: input.workpieceId,
+    path: HAMMER_STRUCTURED_TRANSCRIPT_PATH,
+    data: input.transcript,
+    eventName: "take_transcript_promoted",
+    eventPayload: {
+      source: "anvil.local-auto",
+      transcript_path: HAMMER_STRUCTURED_TRANSCRIPT_PATH,
+      transcript_source_path: input.sourceTranscriptPath ?? null,
+      transcript_status: "ready",
+      anvil_capture_session_id: input.captureSessionId ?? getOrCreateCaptureSessionId(),
+      recording_session_id: input.plannerRecordingSessionId ?? resolvePlannerRecordingSessionId(),
+    },
+  });
+}
+
+export async function commitRecordingBytesToTongs(input: RecordingCommitInput): Promise<RecordingCommitResult> {
+  const apiToken = getApiToken();
+  const writtenBy = getWrittenBy();
+  const target = await resolveRecordingCaptureTarget();
+  if (!target.ok) {
+    return {
+      ok: false,
+      reason: target.reason,
+      status: target.status,
+      details: target.details,
+      workspaceId: target.workspaceId,
+      workpieceId: target.workpieceId,
+    };
+  }
+  const workspaceId = target.workspaceId;
+  let workpieceId = target.workpieceId;
+  let createdCradle = target.createdCradle;
+  const plannerRecordingSessionId = target.plannerRecordingSessionId;
 
   const name = sanitizeFilename(input.originalName);
   const path = `recordings/${name}`;
   const contentType = inferContentType(input.contentType, name);
   const bytesBase64 = encodeBase64(input.bytes);
-  const captureSessionId = getOrCreateCaptureSessionId();
+  const captureSessionId = target.captureSessionId;
 
   const commitPayload = {
     path,
@@ -481,6 +636,10 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
       created_cradle: createdCradle,
       recording_session_id: plannerRecordingSessionId,
       anvil_capture_session_id: captureSessionId,
+      transcript_path: input.transcriptPath ?? null,
+      transcript_status: input.transcriptStatus ?? null,
+      recording_medium: input.recordingMedium ?? null,
+      requires_post_normalization: input.requiresPostNormalization === true,
     },
     correlation_id: nextCorrelationId("anvil-recording"),
   };
@@ -496,6 +655,7 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
       workpieceId = replacement.workpieceId;
       createdCradle = true;
       persistWorkpiece(workspaceId, workpieceId);
+      (commitPayload.event_payload as Record<string, unknown>).created_cradle = true;
       commit = await commitFileToWorkpiece(workpieceId, commitPayload, apiToken);
     }
   }
@@ -549,6 +709,11 @@ export async function appendRecordingDecisionToTongs(
         created_cradle: input.createdCradle === true,
         recording_session_id: input.plannerRecordingSessionId ?? null,
         anvil_capture_session_id: captureSessionId,
+        transcript_path: input.transcriptPath ?? null,
+        transcript_status: input.transcriptStatus ?? null,
+        transcript_source_path: input.transcriptSourcePath ?? null,
+        recording_medium: input.recordingMedium ?? null,
+        requires_post_normalization: input.requiresPostNormalization === true,
       },
       correlation_id: nextCorrelationId(`anvil-${input.eventName}`),
     }),

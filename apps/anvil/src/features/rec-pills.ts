@@ -6,6 +6,8 @@ import { pushDisplayRecordState } from './display-sync';
 
 export type RecState = 'off' | 'armed' | 'recording';
 
+export type TranscriptRecState = 'idle' | 'starting' | 'live' | 'partial' | 'finalizing' | 'ready' | 'degraded';
+
 export function deriveRecState(opts: {
   recordingEnabled: boolean;
   isPrerollActive: boolean;
@@ -20,6 +22,8 @@ type Variant = 'main' | 'display';
 
 let mainState: RecState = 'off';
 let displayState: RecState = 'off';
+let mainTranscriptState: TranscriptRecState = 'idle';
+let displayTranscriptState: TranscriptRecState = 'idle';
 let mainWired = false;
 let displayWired = false;
 let bc: BroadcastChannel | null = null;
@@ -29,12 +33,18 @@ const REC_PILL_BASE_CSS = `
 .rec-pill.is-visible{opacity:1;transform:scale(1)}
 .rec-pill.rec-pill--armed{background:#ffd54f;color:#1a1f27}
 .rec-pill.rec-pill--recording{background:#ef5350;color:#fff;animation:recPulse 2.5s ease-in-out infinite}
+.rec-pill.rec-pill--transcript-starting{background:#7c8aa5;color:#fff}
+.rec-pill.rec-pill--transcript-live{background:#2e7d32;color:#fff}
+.rec-pill.rec-pill--transcript-partial{background:#00838f;color:#fff}
+.rec-pill.rec-pill--transcript-finalizing{background:#ef6c00;color:#fff}
+.rec-pill.rec-pill--transcript-ready{background:#5e35b1;color:#fff}
+.rec-pill.rec-pill--transcript-degraded{background:#546e7a;color:#fff}
 .rec-pill--main{height:calc(24px * var(--tp-ui-scale));padding:0 calc(12px * var(--tp-ui-scale));font-size:var(--tp-ui-font-sm)}
 .rec-pill--display{position:fixed;top:calc(10px * var(--tp-ui-scale));right:calc(14px * var(--tp-ui-scale));height:calc(18px * var(--tp-ui-scale));padding:0 calc(10px * var(--tp-ui-scale));font-size:var(--tp-ui-font-xs);z-index:1200;opacity:0.75}
 .rec-pill--display.is-visible{opacity:0.75}
 .rec-pill--display.rec-pill--recording.is-visible{opacity:0.85}
 .rec-pill--display.rec-pill--recording{opacity:0.85}
-.rec-pill-host{display:inline-flex;align-items:center;margin-left:calc(10px * var(--tp-ui-scale));margin-right:calc(8px * var(--tp-ui-scale))}
+.rec-pill-host{display:inline-flex;align-items:center;gap:calc(6px * var(--tp-ui-scale));margin-left:calc(10px * var(--tp-ui-scale));margin-right:calc(8px * var(--tp-ui-scale))}
 .rec-pill-live{min-width:1px;min-height:1px}
 @keyframes recPulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.03);opacity:.95}100%{transform:scale(1);opacity:1}}
 `;
@@ -86,7 +96,7 @@ function ensureLiveRegion(): HTMLElement | null {
   return live;
 }
 
-function ensureMainHost(): { pill: HTMLSpanElement; live: HTMLElement } | null {
+function ensureMainHost(): { pill: HTMLSpanElement; transcriptPill: HTMLSpanElement; live: HTMLElement } | null {
   if (typeof document === 'undefined') return null;
   const host =
     (document.getElementById('recPillHost') as HTMLElement | null) ||
@@ -108,10 +118,21 @@ function ensureMainHost(): { pill: HTMLSpanElement; live: HTMLElement } | null {
     pill.setAttribute('aria-hidden', 'true');
   }
 
+  let transcriptPill = document.getElementById('recTranscriptPill') as HTMLSpanElement | null;
+  if (!transcriptPill) {
+    transcriptPill = document.createElement('span');
+    transcriptPill.id = 'recTranscriptPill';
+    transcriptPill.className = 'rec-pill rec-pill--main';
+    transcriptPill.textContent = 'TX';
+    transcriptPill.setAttribute('aria-hidden', 'true');
+    transcriptPill.style.display = 'none';
+  }
+
   const live = ensureLiveRegion();
   if (!live) return null;
 
   if (!pill.parentElement) host.appendChild(pill);
+  if (!transcriptPill.parentElement) host.appendChild(transcriptPill);
   if (!live.parentElement) host.appendChild(live);
 
   if (!host.parentElement) {
@@ -124,7 +145,7 @@ function ensureMainHost(): { pill: HTMLSpanElement; live: HTMLElement } | null {
     }
   }
 
-  return { pill, live };
+  return { pill, transcriptPill, live };
 }
 
 function ensureDisplayPill(): HTMLSpanElement | null {
@@ -138,6 +159,29 @@ function ensureDisplayPill(): HTMLSpanElement | null {
   pill.textContent = 'REC';
   pill.setAttribute('aria-hidden', 'true');
   pill.style.display = 'none';
+
+  const inject = () => {
+    try {
+      document.body.appendChild(pill);
+    } catch {}
+  };
+
+  whenDomReady(inject);
+  return pill;
+}
+
+function ensureDisplayTranscriptPill(): HTMLSpanElement | null {
+  if (typeof document === 'undefined') return null;
+  const existing = document.getElementById('displayRecTranscriptPill') as HTMLSpanElement | null;
+  if (existing) return existing;
+
+  const pill = document.createElement('span');
+  pill.id = 'displayRecTranscriptPill';
+  pill.className = 'rec-pill rec-pill--display';
+  pill.textContent = 'TX';
+  pill.setAttribute('aria-hidden', 'true');
+  pill.style.display = 'none';
+  pill.style.right = 'calc(84px * var(--tp-ui-scale))';
 
   const inject = () => {
     try {
@@ -199,6 +243,56 @@ function announceState(live: HTMLElement | null, prev: RecState, next: RecState)
   if (msg) live.textContent = msg;
 }
 
+function transcriptLabel(state: TranscriptRecState): string {
+  switch (state) {
+    case 'starting':
+      return 'TX STARTING';
+    case 'live':
+      return 'TX LIVE';
+    case 'partial':
+      return 'TX PARTIAL';
+    case 'finalizing':
+      return 'TX FINALIZING';
+    case 'ready':
+      return 'TX READY';
+    case 'degraded':
+      return 'TX DEGRADED';
+    default:
+      return 'TX';
+  }
+}
+
+function renderTranscriptPill(pill: HTMLElement, next: TranscriptRecState, variant: Variant): void {
+  const showing = next !== 'idle';
+  pill.classList.remove(
+    'rec-pill--transcript-starting',
+    'rec-pill--transcript-live',
+    'rec-pill--transcript-partial',
+    'rec-pill--transcript-finalizing',
+    'rec-pill--transcript-ready',
+    'rec-pill--transcript-degraded',
+  );
+
+  if (variant === 'display') {
+    pill.classList.add('rec-pill--display');
+  } else {
+    pill.classList.add('rec-pill--main');
+  }
+
+  if (!showing) {
+    pill.classList.remove('is-visible');
+    pill.setAttribute('aria-hidden', 'true');
+    pill.style.display = 'none';
+    return;
+  }
+
+  pill.textContent = transcriptLabel(next);
+  pill.classList.add(`rec-pill--transcript-${next}`);
+  pill.style.display = 'inline-flex';
+  pill.setAttribute('aria-hidden', 'false');
+  pill.classList.add('is-visible');
+}
+
 function broadcastState(state: RecState): void {
   if (isDisplayContext()) return;
   try {
@@ -212,6 +306,18 @@ function broadcastState(state: RecState): void {
   try { pushDisplayRecordState(state === 'off' ? 'idle' : state === 'armed' ? 'armed' : 'recording'); } catch {}
 }
 
+function broadcastTranscriptState(state: TranscriptRecState): void {
+  if (isDisplayContext()) return;
+  try {
+    bc = bc || new BroadcastChannel('tp_rec_state');
+    bc.postMessage({ type: 'transcript-state', state });
+  } catch {}
+  try {
+    const send = (window as any).sendToDisplay;
+    if (typeof send === 'function') send({ type: 'transcript-state', state });
+  } catch {}
+}
+
 function setMainState(next: RecState): void {
   if (mainState === next) return;
   const ctx = ensureMainHost();
@@ -222,6 +328,15 @@ function setMainState(next: RecState): void {
   broadcastState(next);
 }
 
+function setMainTranscriptState(next: TranscriptRecState): void {
+  if (mainTranscriptState === next) return;
+  const ctx = ensureMainHost();
+  if (!ctx) return;
+  renderTranscriptPill(ctx.transcriptPill, next, 'main');
+  mainTranscriptState = next;
+  broadcastTranscriptState(next);
+}
+
 function setDisplayState(next: RecState): void {
   const pill = ensureDisplayPill();
   if (!pill || displayState === next) {
@@ -230,6 +345,16 @@ function setDisplayState(next: RecState): void {
   }
   renderPill(pill, next, displayState, 'display');
   displayState = next;
+}
+
+function setDisplayTranscriptState(next: TranscriptRecState): void {
+  const pill = ensureDisplayTranscriptPill();
+  if (!pill || displayTranscriptState === next) {
+    displayTranscriptState = next;
+    return;
+  }
+  renderTranscriptPill(pill, next, 'display');
+  displayTranscriptState = next;
 }
 
 export function initRecPillsDisplay(): void {
@@ -247,6 +372,9 @@ export function initRecPillsDisplay(): void {
         if (data && data.type === 'rec-state' && data.state) {
           setDisplayState(data.state as RecState);
         }
+        if (data && data.type === 'transcript-state' && data.state) {
+          setDisplayTranscriptState(data.state as TranscriptRecState);
+        }
       });
     } catch {}
 
@@ -255,6 +383,9 @@ export function initRecPillsDisplay(): void {
         const data = (ev && (ev as MessageEvent).data) || {};
         if (data && data.type === 'rec-state' && data.state) {
           setDisplayState(data.state as RecState);
+        }
+        if (data && data.type === 'transcript-state' && data.state) {
+          setDisplayTranscriptState(data.state as TranscriptRecState);
         }
       });
     } catch {}
@@ -334,7 +465,18 @@ export function initRecPillsMain(store?: AppStore | null): void {
   } catch {}
 
   try {
-    window.addEventListener('tp:display:opened', () => broadcastState(mainState));
+    window.addEventListener('tp:recording:transcript-state', (ev: Event) => {
+      const detail = (ev as CustomEvent)?.detail || {};
+      const status = String(detail.status || 'idle') as TranscriptRecState;
+      setMainTranscriptState(status);
+    });
+  } catch {}
+
+  try {
+    window.addEventListener('tp:display:opened', () => {
+      broadcastState(mainState);
+      broadcastTranscriptState(mainTranscriptState);
+    });
   } catch {}
 
   recompute();
