@@ -60,16 +60,12 @@ import {
   DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC,
   LARGE_PLAYHEAD_NUDGE_SEC,
   SMALL_PLAYHEAD_NUDGE_SEC,
-  cutSegmentRangeAndRipple,
   moveSegmentTiming,
   resolveAdjacentJumpPointTime,
   resolveAdjacentSegmentSelection,
   resolveFocusAfterPlayheadChange,
-  resolvePlayheadAfterRangeCut,
   resolvePreviewLabel,
   resolvePlayheadSegment,
-  remapPlacementForRippleDelete,
-  resolveSelectedSegmentAfterDelete,
   resolveTranscriptSegmentRange,
   resolveTimelineBoundaryTimes,
   resolveWorkspaceFocusMode,
@@ -98,13 +94,16 @@ import {
   filterDismissedSilenceCutSuggestions,
 } from "./hammerSilenceCutSuggestions";
 import {
-  deriveAudioCutsForRemovedSegments,
   deriveAudioCutsForDeadAirClosure,
   type HammerAudioCutSelection,
   deriveAudioCutsForSubtractiveTextEdits,
-  deriveAudioCutsForTimelineCompression,
   HAMMER_FILLER_CUT_SEAM_FADE_SEC,
 } from "./hammerCleanupExecution";
+import {
+  applyTranscriptCleanupPreviewComposition,
+  applyTranscriptDeleteRangeComposition,
+  type HammerAuthorityOp,
+} from "./hammerCompositionMutations";
 import {
   deriveDeleteOnlyTranscriptCutSelection,
   resolveDeleteOnlyTranscriptDeletion,
@@ -298,8 +297,6 @@ import {
   createFadeAudioInstruction,
   createHardCutInstruction,
   createPodcastMasterPassInstruction,
-  createRippleDeleteInstruction,
-  remapResolvedBrollOperationsForRippleDelete,
   resolveInsertBrollSuggestionInGraph,
   setAuthorityOperationLifecycle,
   synchronizeLinkedAudioDuckForBrollOperation,
@@ -4190,145 +4187,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
   }
 
-  type HammerAuthorityOp = {
-    type: "TRANSCRIPT_DELETE_RANGE";
-    label: string;
-    segmentIds: string[];
-    kind?: HammerHistoryKind;
-    toolId?: string;
-    immediatePersist?: boolean;
-  };
-
-  function createEmptyRippleDeleteRemapSummary(): {
-    adjustedOperationIds: string[];
-    removedOperationIds: string[];
-    attentionOperationIds: string[];
-    adjustedDuckOperationIds: string[];
-    removedDuckOperationIds: string[];
-    orphanedDuckOperationIds: string[];
-    adjustedTransitionOperationIds: string[];
-    removedTransitionOperationIds: string[];
-    degradedTransitionOperationIds: string[];
-  } {
-    return {
-      adjustedOperationIds: [],
-      removedOperationIds: [],
-      attentionOperationIds: [],
-      adjustedDuckOperationIds: [],
-      removedDuckOperationIds: [],
-      orphanedDuckOperationIds: [],
-      adjustedTransitionOperationIds: [],
-      removedTransitionOperationIds: [],
-      degradedTransitionOperationIds: [],
-    };
-  }
-
-  function deriveTranscriptDeleteRangeFromComposition(
-    before: HammerEditorStateSerializable,
-    op: Extract<HammerAuthorityOp, { type: "TRANSCRIPT_DELETE_RANGE" }>,
-  ): HammerEditorStateSerializable {
-    const cut = cutSegmentRangeAndRipple({
-      segments: before.transcriptSegments,
-      segmentIds: op.segmentIds,
-    });
-    if (!cut.changed || cut.removedStartSec == null || cut.removedEndSec == null) {
-      return before;
-    }
-
-    const authorityInstruction = createRippleDeleteInstruction({
-      segmentId: op.segmentIds[0] ?? before.selectedSegmentId ?? "segment:unknown",
-      startSec: cut.removedStartSec,
-      endSec: cut.removedEndSec,
-    });
-    const withRippleDelete = appendAuthorityInstructionForState(before, authorityInstruction);
-    const rippleDeleteOperationId = withRippleDelete.operations.at(-1)?.operation_id ?? null;
-    const remapped = rippleDeleteOperationId
-      ? remapResolvedBrollOperationsForRippleDelete({
-        graph: withRippleDelete,
-        rippleDeleteOperationId,
-        removedStartSec: cut.removedStartSec,
-        removedEndSec: cut.removedEndSec,
-      })
-      : {
-        graph: withRippleDelete,
-        summary: createEmptyRippleDeleteRemapSummary(),
-      };
-
-    const nextSelection = resolveSelectedSegmentAfterDelete({
-      segmentsAfterDelete: cut.segments,
-      removedIndex: cut.removedStartIndex,
-    });
-    const audioCutSelections = deriveAudioCutsForRemovedSegments({
-      segments: before.transcriptSegments,
-      removeSegmentIds: op.segmentIds,
-      durationSec: playbackTransportDurationSec,
-    });
-    const nextState = {
-      ...before,
-      transcriptSegments: cut.segments,
-      editorialAuthorityGraph: remapped.graph,
-      audioEdit: applyCutSelectionsToAudioEdit({
-        audioEdit: before.audioEdit,
-        cutSelections: audioCutSelections,
-        operationIdPrefix: "composition:transcript-delete-range",
-      }),
-      selectedSegmentId: nextSelection,
-      playheadSec: resolvePlayheadAfterRangeCut({
-        playheadSec: before.playheadSec,
-        removedStartSec: cut.removedStartSec,
-        removedEndSec: cut.removedEndSec,
-        shiftSec: cut.shiftSec,
-      }),
-      transcriptTimingHint: null,
-    };
-
-    return replaceVisualTimelineState(nextState, (timeline) => ({
-      ...timeline,
-      clips: timeline.clips.flatMap((clip) => {
-        const operationId = clip.authority_operation_id;
-        if (!operationId) return [clip];
-        if (remapped.summary.removedOperationIds.includes(operationId)) {
-          return [];
-        }
-        if (!remapped.summary.adjustedOperationIds.includes(operationId)) {
-          return [clip];
-        }
-        const placementRemap = remapPlacementForRippleDelete({
-          startSec: clip.start_sec,
-          endSec: clip.end_sec,
-          removedStartSec: cut.removedStartSec ?? 0,
-          removedEndSec: cut.removedEndSec ?? 0,
-        });
-        if (placementRemap.kind === "removed") {
-          return [];
-        }
-        return [{
-          ...clip,
-          start_sec: placementRemap.startSec,
-          end_sec: placementRemap.endSec,
-          placement_status: placementRemap.needsAttention ? "uncertain" : clip.placement_status,
-          uncertainty_flags: placementRemap.needsAttention
-            ? Array.from(new Set([...clip.uncertainty_flags, "timeline_remap_review"]))
-            : [...clip.uncertainty_flags],
-        }];
-      }),
-      lanes: timeline.lanes.map((lane) => ({
-        ...lane,
-        clip_ids: lane.clip_ids.filter((clipId) => (
-          !remapped.summary.removedOperationIds.includes(
-            timeline.clips.find((clip) => clip.clip_id === clipId)?.authority_operation_id ?? "",
-          )
-        )),
-      })),
-      selected_clip_id: timeline.selected_clip_id
-        && remapped.summary.removedOperationIds.includes(
-          timeline.clips.find((clip) => clip.clip_id === timeline.selected_clip_id)?.authority_operation_id ?? "",
-        )
-        ? null
-        : timeline.selected_clip_id,
-    }));
-  }
-
   function applyCompositionMutation(op: HammerAuthorityOp): HammerHistoryEntry | null {
     switch (op.type) {
       case "TRANSCRIPT_DELETE_RANGE":
@@ -4338,7 +4196,42 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           toolId: op.toolId,
           affectedSegments: op.segmentIds,
           immediatePersist: op.immediatePersist === true,
-          computeAfter: (before) => deriveTranscriptDeleteRangeFromComposition(before, op),
+          computeAfter: (before) => applyTranscriptDeleteRangeComposition({
+            before,
+            op,
+            context: {
+              playbackDurationSec: playbackTransportDurationSec,
+              authorityFallback: {
+                graphId: `${launchContext.workpiece_id}:authority`,
+                workspaceId: launchContext.workspace_id,
+                workpieceId: launchContext.workpiece_id,
+                sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
+                sourceTranscriptId: transcriptSourceId,
+              },
+            },
+          }),
+        });
+      case "TRANSCRIPT_APPLY_CLEANUP_PREVIEW":
+        return applyHistoryMutation({
+          label: op.label,
+          kind: op.kind ?? "cleanup_tool",
+          toolId: op.toolId,
+          affectedSegments: op.preview.suggestions.map((suggestion) => suggestion.segmentId),
+          immediatePersist: op.immediatePersist === true,
+          computeAfter: (before) => applyTranscriptCleanupPreviewComposition({
+            before,
+            op,
+            context: {
+              playbackDurationSec: playbackTransportDurationSec,
+              authorityFallback: {
+                graphId: `${launchContext.workpiece_id}:authority`,
+                workspaceId: launchContext.workspace_id,
+                workpieceId: launchContext.workpiece_id,
+                sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
+                sourceTranscriptId: transcriptSourceId,
+              },
+            },
+          }),
         });
       default:
         return null;
@@ -7345,41 +7238,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return;
     }
 
-    const applied = applyHistoryMutation({
+    const applied = applyCompositionMutation({
+      type: "TRANSCRIPT_APPLY_CLEANUP_PREVIEW",
       label: preview.label,
       kind: "cleanup_tool",
-      affectedSegments: preview.suggestions.map((suggestion) => suggestion.segmentId),
+      preview,
       toolId,
       immediatePersist: true,
-      computeAfter: (before) => {
-        const synced = syncEditableTranscriptSegments(preview.resultSegments, before.selectedSegmentId);
-        const nextCutSelections = deriveAudioCutsForTimelineCompression({
-          beforeSegments: before.transcriptSegments,
-          afterSegments: synced.segments,
-          durationSec: playbackTransportDurationSec,
-        });
-        const textCutSelections = deriveAudioCutsForSubtractiveTextEdits({
-          beforeSegments: before.transcriptSegments,
-          afterSegments: synced.segments,
-          durationSec: playbackTransportDurationSec,
-        });
-        const nextAudioEdit = applyCutSelectionsToAudioEdit({
-          audioEdit: before.audioEdit,
-          cutSelections: [...nextCutSelections, ...textCutSelections],
-          operationIdPrefix: `cleanup:${toolId}:${preview.label.toLowerCase().replace(/\s+/g, "-")}`,
-        });
-        const selected = synced.selectedSegmentId
-          ? synced.segments.find((segment) => segment.segment_id === synced.selectedSegmentId) ?? null
-          : null;
-        return {
-          ...before,
-          transcriptSegments: synced.segments,
-          audioEdit: nextAudioEdit,
-          selectedSegmentId: synced.selectedSegmentId,
-          playheadSec: selected ? selected.start_sec : before.playheadSec,
-          transcriptTimingHint: null,
-        };
-      },
     });
     if (applied) {
       setCleanupReceipt(summary);
