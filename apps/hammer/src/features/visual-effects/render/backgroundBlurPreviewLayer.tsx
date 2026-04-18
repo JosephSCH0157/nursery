@@ -82,6 +82,31 @@ function resolveProviderStatus(readiness: SegmentationProviderReadiness): "loade
   return "pending";
 }
 
+function resolveRuntimeStatusMessage(args: {
+  providerReadiness: SegmentationProviderReadiness;
+  degradedReason: string | null;
+}): string | null {
+  if (args.providerReadiness.status === "failed") {
+    return args.providerReadiness.error
+      ? `Segmentation provider failed to initialize: ${args.providerReadiness.error}`
+      : "Segmentation provider failed to initialize.";
+  }
+  switch (args.degradedReason) {
+    case "missing_video_or_canvas":
+      return "Segmentation unavailable: preview video surface is not mounted.";
+    case "video_not_ready":
+      return "Segmentation waiting for a decoded preview frame.";
+    case "invalid_frame_dimensions":
+      return "Segmentation unavailable: preview frame dimensions are not ready.";
+    case "provider_error":
+      return "Segmentation failed while processing the preview frame.";
+    case "segmentation_unavailable":
+      return "Segmentation unavailable for the current preview frame.";
+    default:
+      return null;
+  }
+}
+
 function drawPassthroughFrame(args: { source: HTMLVideoElement; output: HTMLCanvasElement }): void {
   const ctx = args.output.getContext("2d");
   if (!ctx) return;
@@ -644,7 +669,10 @@ export default function BackgroundBlurPreviewLayer(props: {
                 : "segmentation_unavailable",
               statusMessage: isMaskReusable({ cached: latestMatteFrameRef.current, sourceTimeSec: args.sourceTimeSec })
                 ? null
-                : "Segmentation unavailable – background treatment disabled",
+                : resolveRuntimeStatusMessage({
+                  providerReadiness: provider.getReadiness(),
+                  degradedReason: "segmentation_unavailable",
+                }),
               warnings: [...new Set([...(seg.warnings ?? []), missingReason === "low_confidence" ? "Mask rejected due to low confidence." : "Segmentation mask unavailable."])],
               mask: {
                 status: !maskValid ? "missing" : "rejected",
@@ -803,7 +831,10 @@ export default function BackgroundBlurPreviewLayer(props: {
               : "segmentation_unavailable",
             statusMessage: isMaskReusable({ cached: latestMatteFrameRef.current, sourceTimeSec: args.sourceTimeSec })
               ? null
-              : "Segmentation unavailable – background treatment disabled",
+              : resolveRuntimeStatusMessage({
+                providerReadiness: provider.getReadiness(),
+                degradedReason: providerStatus === "failed" ? "provider_error" : "segmentation_unavailable",
+              }),
             warnings: [error instanceof Error ? error.message : "Segmentation failed."],
             mask: {
               status: "missing",
@@ -830,20 +861,29 @@ export default function BackgroundBlurPreviewLayer(props: {
       const video = props.videoRef.current;
       const canvas = canvasRef.current;
       if (!video || !canvas) {
+        const readiness = provider.getReadiness();
         setRuntimeStatus((prev) => ({
           ...prev,
-          provider: { name: provider.name, readiness: provider.getReadiness() },
+          provider: { name: provider.name, readiness },
           degradedReason: "missing_video_or_canvas",
+          statusMessage: resolveRuntimeStatusMessage({
+            providerReadiness: readiness,
+            degradedReason: "missing_video_or_canvas",
+          }),
         }));
         return;
       }
 
       if (video.readyState < 2) {
+        const readiness = provider.getReadiness();
         setRuntimeStatus((prev) => ({
           ...prev,
-          provider: { name: provider.name, readiness: provider.getReadiness() },
+          provider: { name: provider.name, readiness },
           degradedReason: "video_not_ready",
-          statusMessage: "Segmentation unavailable – background treatment disabled",
+          statusMessage: resolveRuntimeStatusMessage({
+            providerReadiness: readiness,
+            degradedReason: "video_not_ready",
+          }),
         }));
         return;
       }
@@ -893,7 +933,10 @@ export default function BackgroundBlurPreviewLayer(props: {
             confidence: null,
             generationMs: null,
           },
-          statusMessage: "Segmentation unavailable – background treatment disabled",
+          statusMessage: resolveRuntimeStatusMessage({
+            providerReadiness: provider.getReadiness(),
+            degradedReason: "invalid_frame_dimensions",
+          }),
           warnings: ["Frame dimensions unavailable for segmentation input."],
         }));
         return;
@@ -959,7 +1002,10 @@ export default function BackgroundBlurPreviewLayer(props: {
             effectiveCompositeFps: cadence.effectiveCompositeFps,
             degradedReason: shouldShowDegradeMessage ? "segmentation_unavailable" : prev.degradedReason,
             statusMessage: shouldShowDegradeMessage
-              ? "Segmentation unavailable – background treatment disabled"
+              ? resolveRuntimeStatusMessage({
+                providerReadiness: provider.getReadiness(),
+                degradedReason: "segmentation_unavailable",
+              })
               : prev.statusMessage,
             mask: {
               ...prev.mask,
@@ -1100,9 +1146,10 @@ export default function BackgroundBlurPreviewLayer(props: {
     const video = props.videoRef.current;
     const requestVideoFrameCallback = video ? (video as any).requestVideoFrameCallback?.bind(video) as ((cb: (now: number, metadata: { mediaTime?: number }) => void) => number) | null : null;
     const cancelVideoFrameCallback = video ? (video as any).cancelVideoFrameCallback?.bind(video) as ((handle: number) => void) | null : null;
+
+    let rvfcHandle = 0;
     if (video && typeof requestVideoFrameCallback === "function") {
-      let handle = 0;
-      const loop = (_now: number, metadata: { mediaTime?: number }) => {
+      const onVideoFrame = (_now: number, metadata: { mediaTime?: number }) => {
         if (typeof metadata?.mediaTime === "number" && Number.isFinite(metadata.mediaTime)) {
           const lastSource = lastSegmentationSourceTimeSecRef.current;
           if (lastSource != null && Math.abs(metadata.mediaTime - lastSource) < 0.0005) {
@@ -1110,13 +1157,9 @@ export default function BackgroundBlurPreviewLayer(props: {
           }
         }
         void tick();
-        handle = requestVideoFrameCallback(loop);
+        rvfcHandle = requestVideoFrameCallback(onVideoFrame);
       };
-      handle = requestVideoFrameCallback(loop);
-      return () => {
-        cancelled = true;
-        if (typeof cancelVideoFrameCallback === "function") cancelVideoFrameCallback(handle);
-      };
+      rvfcHandle = requestVideoFrameCallback(onVideoFrame);
     }
 
     let raf = 0;
@@ -1125,9 +1168,25 @@ export default function BackgroundBlurPreviewLayer(props: {
       raf = window.requestAnimationFrame(loop);
     };
     raf = window.requestAnimationFrame(loop);
+
+    const handlePrime = () => {
+      void tick();
+    };
+    video?.addEventListener("loadeddata", handlePrime);
+    video?.addEventListener("canplay", handlePrime);
+    video?.addEventListener("seeked", handlePrime);
+    video?.addEventListener("play", handlePrime);
+    video?.addEventListener("pause", handlePrime);
+
     return () => {
       cancelled = true;
+      if (typeof cancelVideoFrameCallback === "function" && rvfcHandle) cancelVideoFrameCallback(rvfcHandle);
       window.cancelAnimationFrame(raf);
+      video?.removeEventListener("loadeddata", handlePrime);
+      video?.removeEventListener("canplay", handlePrime);
+      video?.removeEventListener("seeked", handlePrime);
+      video?.removeEventListener("play", handlePrime);
+      video?.removeEventListener("pause", handlePrime);
     };
   }, [
     blurRenderer,
