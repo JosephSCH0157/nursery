@@ -2,6 +2,7 @@ import type { HammerPreviewMode } from "../../../../packages/contracts/hammer/ed
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { MediaRef, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
+import { projectEditorialAuthorityGraphFromEditPlan } from "../editor/hammerRenderAssembly";
 import type {
   HammerPersistedAudioPolish,
   HammerPersistedEditorSession,
@@ -751,6 +752,37 @@ function buildPrepEditorSession(
   };
 }
 
+function buildPrepEditorialAuthorityGraph(
+  launchContext: HammerLaunchContext,
+  preparedTranscript?: HammerPreparedTranscript,
+) {
+  const sessionContext = ensureHammerLaunchSessionId(launchContext);
+  const nowIso = new Date().toISOString();
+  const transcriptId = preparedTranscript?.transcriptId
+    ?? (sessionContext.transcript.kind === "tongs-stub"
+      ? sessionContext.transcript.transcript_id
+      : `${sessionContext.workpiece_id}:transcript`);
+  return projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: sessionContext.edit_plan?.edit_plan_id ?? `${sessionContext.workpiece_id}:plan`,
+      version: sessionContext.edit_plan?.version ?? "1",
+      created_at: sessionContext.edit_plan?.created_at ?? nowIso,
+      updated_at: nowIso,
+      source_transcript_id: transcriptId,
+      instructions: sessionContext.edit_plan?.instructions.map((instruction) => ({ ...instruction })) ?? [],
+      preview_mode: resolveLaunchPreviewMode(sessionContext),
+      tool_version: sessionContext.edit_plan?.tool_version ?? HAMMER_RUNTIME_WRITTEN_BY.tool_version,
+      workspace_id: sessionContext.workspace_id,
+      workpiece_id: sessionContext.workpiece_id,
+      session_id: sessionContext.session_id ?? `${sessionContext.workpiece_id}:session`,
+    },
+    workspaceId: sessionContext.workspace_id,
+    workpieceId: sessionContext.workpiece_id,
+    sessionId: sessionContext.session_id ?? `${sessionContext.workpiece_id}:session`,
+    nowIso,
+  });
+}
+
 export function buildHammerPrepPersistenceSaveRequest(args: {
   launchContext: HammerLaunchContext;
   status: HammerPrepLifecycleState;
@@ -765,6 +797,9 @@ export function buildHammerPrepPersistenceSaveRequest(args: {
     prep_status: status,
     alignment_status: preparedTranscript ? "aligned" : "pending",
     last_opened_at: new Date().toISOString(),
+    editorial_authority: {
+      data: buildPrepEditorialAuthorityGraph(launchContext, preparedTranscript),
+    },
     editor_session: {
       data: buildPrepEditorSession(launchContext, preparedTranscript),
     },

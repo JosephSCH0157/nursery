@@ -61,12 +61,10 @@ import {
   LARGE_PLAYHEAD_NUDGE_SEC,
   SMALL_PLAYHEAD_NUDGE_SEC,
   cutSegmentRangeAndRipple,
-  deleteSegmentAndRipple,
   moveSegmentTiming,
   resolveAdjacentJumpPointTime,
   resolveAdjacentSegmentSelection,
   resolveFocusAfterPlayheadChange,
-  resolvePlayheadAfterDelete,
   resolvePlayheadAfterRangeCut,
   resolvePreviewLabel,
   resolvePlayheadSegment,
@@ -100,6 +98,7 @@ import {
   filterDismissedSilenceCutSuggestions,
 } from "./hammerSilenceCutSuggestions";
 import {
+  deriveAudioCutsForRemovedSegments,
   deriveAudioCutsForDeadAirClosure,
   type HammerAudioCutSelection,
   deriveAudioCutsForSubtractiveTextEdits,
@@ -4191,6 +4190,161 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
   }
 
+  type HammerAuthorityOp = {
+    type: "TRANSCRIPT_DELETE_RANGE";
+    label: string;
+    segmentIds: string[];
+    kind?: HammerHistoryKind;
+    toolId?: string;
+    immediatePersist?: boolean;
+  };
+
+  function createEmptyRippleDeleteRemapSummary(): {
+    adjustedOperationIds: string[];
+    removedOperationIds: string[];
+    attentionOperationIds: string[];
+    adjustedDuckOperationIds: string[];
+    removedDuckOperationIds: string[];
+    orphanedDuckOperationIds: string[];
+    adjustedTransitionOperationIds: string[];
+    removedTransitionOperationIds: string[];
+    degradedTransitionOperationIds: string[];
+  } {
+    return {
+      adjustedOperationIds: [],
+      removedOperationIds: [],
+      attentionOperationIds: [],
+      adjustedDuckOperationIds: [],
+      removedDuckOperationIds: [],
+      orphanedDuckOperationIds: [],
+      adjustedTransitionOperationIds: [],
+      removedTransitionOperationIds: [],
+      degradedTransitionOperationIds: [],
+    };
+  }
+
+  function deriveTranscriptDeleteRangeFromComposition(
+    before: HammerEditorStateSerializable,
+    op: Extract<HammerAuthorityOp, { type: "TRANSCRIPT_DELETE_RANGE" }>,
+  ): HammerEditorStateSerializable {
+    const cut = cutSegmentRangeAndRipple({
+      segments: before.transcriptSegments,
+      segmentIds: op.segmentIds,
+    });
+    if (!cut.changed || cut.removedStartSec == null || cut.removedEndSec == null) {
+      return before;
+    }
+
+    const authorityInstruction = createRippleDeleteInstruction({
+      segmentId: op.segmentIds[0] ?? before.selectedSegmentId ?? "segment:unknown",
+      startSec: cut.removedStartSec,
+      endSec: cut.removedEndSec,
+    });
+    const withRippleDelete = appendAuthorityInstructionForState(before, authorityInstruction);
+    const rippleDeleteOperationId = withRippleDelete.operations.at(-1)?.operation_id ?? null;
+    const remapped = rippleDeleteOperationId
+      ? remapResolvedBrollOperationsForRippleDelete({
+        graph: withRippleDelete,
+        rippleDeleteOperationId,
+        removedStartSec: cut.removedStartSec,
+        removedEndSec: cut.removedEndSec,
+      })
+      : {
+        graph: withRippleDelete,
+        summary: createEmptyRippleDeleteRemapSummary(),
+      };
+
+    const nextSelection = resolveSelectedSegmentAfterDelete({
+      segmentsAfterDelete: cut.segments,
+      removedIndex: cut.removedStartIndex,
+    });
+    const audioCutSelections = deriveAudioCutsForRemovedSegments({
+      segments: before.transcriptSegments,
+      removeSegmentIds: op.segmentIds,
+      durationSec: playbackTransportDurationSec,
+    });
+    const nextState = {
+      ...before,
+      transcriptSegments: cut.segments,
+      editorialAuthorityGraph: remapped.graph,
+      audioEdit: applyCutSelectionsToAudioEdit({
+        audioEdit: before.audioEdit,
+        cutSelections: audioCutSelections,
+        operationIdPrefix: "composition:transcript-delete-range",
+      }),
+      selectedSegmentId: nextSelection,
+      playheadSec: resolvePlayheadAfterRangeCut({
+        playheadSec: before.playheadSec,
+        removedStartSec: cut.removedStartSec,
+        removedEndSec: cut.removedEndSec,
+        shiftSec: cut.shiftSec,
+      }),
+      transcriptTimingHint: null,
+    };
+
+    return replaceVisualTimelineState(nextState, (timeline) => ({
+      ...timeline,
+      clips: timeline.clips.flatMap((clip) => {
+        const operationId = clip.authority_operation_id;
+        if (!operationId) return [clip];
+        if (remapped.summary.removedOperationIds.includes(operationId)) {
+          return [];
+        }
+        if (!remapped.summary.adjustedOperationIds.includes(operationId)) {
+          return [clip];
+        }
+        const placementRemap = remapPlacementForRippleDelete({
+          startSec: clip.start_sec,
+          endSec: clip.end_sec,
+          removedStartSec: cut.removedStartSec ?? 0,
+          removedEndSec: cut.removedEndSec ?? 0,
+        });
+        if (placementRemap.kind === "removed") {
+          return [];
+        }
+        return [{
+          ...clip,
+          start_sec: placementRemap.startSec,
+          end_sec: placementRemap.endSec,
+          placement_status: placementRemap.needsAttention ? "uncertain" : clip.placement_status,
+          uncertainty_flags: placementRemap.needsAttention
+            ? Array.from(new Set([...clip.uncertainty_flags, "timeline_remap_review"]))
+            : [...clip.uncertainty_flags],
+        }];
+      }),
+      lanes: timeline.lanes.map((lane) => ({
+        ...lane,
+        clip_ids: lane.clip_ids.filter((clipId) => (
+          !remapped.summary.removedOperationIds.includes(
+            timeline.clips.find((clip) => clip.clip_id === clipId)?.authority_operation_id ?? "",
+          )
+        )),
+      })),
+      selected_clip_id: timeline.selected_clip_id
+        && remapped.summary.removedOperationIds.includes(
+          timeline.clips.find((clip) => clip.clip_id === timeline.selected_clip_id)?.authority_operation_id ?? "",
+        )
+        ? null
+        : timeline.selected_clip_id,
+    }));
+  }
+
+  function applyCompositionMutation(op: HammerAuthorityOp): HammerHistoryEntry | null {
+    switch (op.type) {
+      case "TRANSCRIPT_DELETE_RANGE":
+        return applyHistoryMutation({
+          label: op.label,
+          kind: op.kind ?? "segment_structure",
+          toolId: op.toolId,
+          affectedSegments: op.segmentIds,
+          immediatePersist: op.immediatePersist === true,
+          computeAfter: (before) => deriveTranscriptDeleteRangeFromComposition(before, op),
+        });
+      default:
+        return null;
+    }
+  }
+
   function buildHistoryPathToEntry(entryId: string): string[] {
     const path: string[] = [];
     const visited = new Set<string>();
@@ -6115,31 +6269,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return;
     }
 
-    const applied = applyHistoryMutation({
+    const applied = applyCompositionMutation({
+      type: "TRANSCRIPT_DELETE_RANGE",
       label: "Delete segment and ripple",
       kind: "segment_structure",
-      affectedSegments: [selectedSegmentId],
+      segmentIds: [selectedSegmentId],
       immediatePersist: true,
-      computeAfter: (before) => {
-        const deleted = deleteSegmentAndRipple(before.transcriptSegments, selectedSegmentId);
-        if (!deleted.changed || !deleted.removedSegment) return before;
-
-        const fallbackSelection = resolveSelectedSegmentAfterDelete({
-          segmentsAfterDelete: deleted.segments,
-          removedIndex: deleted.removedIndex,
-        });
-        const nextSelection = before.selectedSegmentId === selectedSegmentId
-          ? fallbackSelection
-          : before.selectedSegmentId;
-
-        return {
-          ...before,
-          transcriptSegments: deleted.segments,
-          selectedSegmentId: nextSelection,
-          playheadSec: resolvePlayheadAfterDelete(before.playheadSec, deleted.removedSegment, deleted.shiftSec),
-          transcriptTimingHint: null,
-        };
-      },
     });
 
     if (!applied) {
@@ -6434,109 +6569,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return;
     }
 
-    const applied = applyHistoryMutation({
+    const applied = applyCompositionMutation({
+      type: "TRANSCRIPT_DELETE_RANGE",
       label: "Cut transcript selection",
       kind: "segment_structure",
-      affectedSegments: transcriptSelectionRange.segmentIds,
+      segmentIds: transcriptSelectionRange.segmentIds,
       immediatePersist: true,
-      computeAfter: (before) => {
-        const cut = cutSegmentRangeAndRipple({
-          segments: before.transcriptSegments,
-          segmentIds: transcriptSelectionRange.segmentIds,
-        });
-        if (!cut.changed || cut.removedStartSec == null || cut.removedEndSec == null) return before;
-        const authorityInstruction = createRippleDeleteInstruction({
-          segmentId: transcriptSelectionRange.segmentIds[0] ?? before.selectedSegmentId ?? "segment:unknown",
-          startSec: cut.removedStartSec,
-          endSec: cut.removedEndSec,
-        });
-        const withRippleDelete = appendAuthorityInstructionForState(before, authorityInstruction);
-        const rippleDeleteOperationId = withRippleDelete.operations.at(-1)?.operation_id ?? null;
-        const remapped = rippleDeleteOperationId
-          ? remapResolvedBrollOperationsForRippleDelete({
-            graph: withRippleDelete,
-            rippleDeleteOperationId,
-            removedStartSec: cut.removedStartSec,
-            removedEndSec: cut.removedEndSec,
-          })
-          : {
-            graph: withRippleDelete,
-            summary: {
-              adjustedOperationIds: [] as string[],
-              removedOperationIds: [] as string[],
-              attentionOperationIds: [] as string[],
-              adjustedDuckOperationIds: [] as string[],
-              removedDuckOperationIds: [] as string[],
-              orphanedDuckOperationIds: [] as string[],
-              adjustedTransitionOperationIds: [] as string[],
-              removedTransitionOperationIds: [] as string[],
-              degradedTransitionOperationIds: [] as string[],
-            },
-          };
-
-        const nextSelection = resolveSelectedSegmentAfterDelete({
-          segmentsAfterDelete: cut.segments,
-          removedIndex: cut.removedStartIndex,
-        });
-        const nextState = {
-          ...before,
-          transcriptSegments: cut.segments,
-          editorialAuthorityGraph: remapped.graph,
-          selectedSegmentId: nextSelection,
-          playheadSec: resolvePlayheadAfterRangeCut({
-            playheadSec: before.playheadSec,
-            removedStartSec: cut.removedStartSec,
-            removedEndSec: cut.removedEndSec,
-            shiftSec: cut.shiftSec,
-          }),
-          transcriptTimingHint: null,
-        };
-        return replaceVisualTimelineState(nextState, (timeline) => ({
-          ...timeline,
-          clips: timeline.clips.flatMap((clip) => {
-            const operationId = clip.authority_operation_id;
-            if (!operationId) return [clip];
-            if (remapped.summary.removedOperationIds.includes(operationId)) {
-              return [];
-            }
-            if (!remapped.summary.adjustedOperationIds.includes(operationId)) {
-              return [clip];
-            }
-            const placementRemap = remapPlacementForRippleDelete({
-              startSec: clip.start_sec,
-              endSec: clip.end_sec,
-              removedStartSec: cut.removedStartSec ?? 0,
-              removedEndSec: cut.removedEndSec ?? 0,
-            });
-            if (placementRemap.kind === "removed") {
-              return [];
-            }
-            return [{
-              ...clip,
-              start_sec: placementRemap.startSec,
-              end_sec: placementRemap.endSec,
-              placement_status: placementRemap.needsAttention ? "uncertain" : clip.placement_status,
-              uncertainty_flags: placementRemap.needsAttention
-                ? Array.from(new Set([...clip.uncertainty_flags, "timeline_remap_review"]))
-                : [...clip.uncertainty_flags],
-            }];
-          }),
-          lanes: timeline.lanes.map((lane) => ({
-            ...lane,
-            clip_ids: lane.clip_ids.filter((clipId) => (
-              !remapped.summary.removedOperationIds.includes(
-                timeline.clips.find((clip) => clip.clip_id === clipId)?.authority_operation_id ?? "",
-              )
-            )),
-          })),
-          selected_clip_id: timeline.selected_clip_id
-            && remapped.summary.removedOperationIds.includes(
-              timeline.clips.find((clip) => clip.clip_id === timeline.selected_clip_id)?.authority_operation_id ?? "",
-            )
-            ? null
-            : timeline.selected_clip_id,
-        }));
-      },
     });
 
     if (!applied) {

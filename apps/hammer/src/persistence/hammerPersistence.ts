@@ -18,7 +18,6 @@ import { deriveLegacyVisualPlacementsFromTimeline } from "../visuals/persistence
 import type { HammerWorkspaceSnapshot } from "../editor/hammerWorkspaceSnapshot";
 import {
   projectEditPlanFromEditorialAuthorityGraph,
-  projectEditorialAuthorityGraphFromEditPlan,
 } from "../editor/hammerRenderAssembly";
 import {
   DEFAULT_FORGE_NEUTRAL_SPEAKER_LABELS,

@@ -165,7 +165,7 @@ export function buildHammerVisualTimelineSaveRequest(args: {
   timeline: HammerVisualTimelineState;
   active_session_id?: string | null;
   last_opened_at?: string;
-}): HammerPersistenceSaveRequest {
+}): Pick<HammerPersistenceSaveRequest, "written_by" | "active_session_id" | "last_opened_at" | "visual_timeline"> {
   return {
     written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
     active_session_id: args.active_session_id ?? null,
