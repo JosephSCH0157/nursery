@@ -29,7 +29,7 @@ Hammer is responsible for:
 - Audio cleanup and polish.
 - Preparation of a distribution-ready project package.
 - Non-destructive editing workflows.
-- Maintaining a single authoritative timeline.
+- Maintaining one canonical composition and its truthful timeline projection.
 
 Hammer outputs an editable master project that Quench can compile into final deliverables.
 
@@ -51,9 +51,12 @@ These responsibilities belong to Quench and Ledger.
 
 Hammer uses a timeline-driven editing model.
 
-The timeline is the authoritative representation of the content.
+The canonical composition is the source of truth for the content.
 
-All playback, preview, and editing operations derive from the timeline state.
+The timeline is the canonical temporal projection of the edit derived from the canonical composition.
+It is the primary manipulation surface for editing that composition.
+
+All playback, preview, and editing operations derive from the canonical composition as expressed through the timeline.
 
 ## UI Conceptual Model
 
@@ -68,7 +71,7 @@ Located along the bottom of the workspace.
 - Directly controls playback position and preview output.
 - Gaps in the timeline produce gaps in playback.
 
-The timeline is the primary authority for what the content is.
+The timeline is the primary temporal control surface for shaping and inspecting the canonical composition.
 
 ### Preview (Monitors)
 

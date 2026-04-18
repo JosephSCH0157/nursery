@@ -121,7 +121,8 @@ Multi-monitor support may extend CDL later.
 
 Future extensions must preserve the same authority model:
 
-- Timeline remains structural authority.
+- Canonical composition remains the source of truth.
+- Timeline remains the primary temporal projection and manipulation surface.
 - Toolbar remains routing-only infrastructure.
 - Focus determines emphasis, not availability.
 

@@ -13,7 +13,7 @@ It ensures:
 - predictable panel behavior
 - correct hierarchy of information
 - absence of dashboard-style clutter
-- compatibility with timeline authority
+- compatibility with canonical composition authority and timeline control-surface behavior
 - resistance to UI drift during development
 
 Hammer must feel like operating a production console, not arranging floating windows.

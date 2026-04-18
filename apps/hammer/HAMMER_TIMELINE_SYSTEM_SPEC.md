@@ -5,7 +5,7 @@ Derived from Forge Design Session - March 21, 2026
 
 ## Purpose
 
-This document defines the timeline as Hammer's single source of truth for content structure, timing, and playback.
+This document defines the timeline as Hammer's canonical temporal projection and primary manipulation surface for content structure, timing, and playback.
 
 It prevents:
 
@@ -16,11 +16,14 @@ It prevents:
 - tool-driven structural mutations
 - non-deterministic playback
 
-Everything the viewer ultimately sees originates from the timeline.
+Everything the viewer ultimately sees originates from the canonical composition as expressed through the timeline.
 
-## 1. Timeline as Structural Authority
+## 1. Timeline as Temporal Projection and Control Surface
 
-The timeline is the canonical representation of the edit.
+The canonical composition is the source of truth for the edit.
+
+The timeline is the canonical temporal projection of the edit derived from the canonical composition.
+It is the primary manipulation surface for editing that composition.
 
 All other components derive from it:
 
@@ -32,8 +35,8 @@ All other components derive from it:
 - subtitle timing
 - audio alignment
 
-If the timeline says something exists at time T, it exists.  
-If it says nothing exists, nothing should play.
+If the canonical composition expresses something at time T, the timeline must represent it faithfully.  
+If the timeline shows no content at time T, nothing should play.
 
 ## 2. Temporal Coordinate System
 
@@ -151,6 +154,8 @@ Users may:
 
 These actions modify timeline state directly.
 
+Those timeline edits are mutations of the canonical composition expressed through the timeline control surface.
+
 Preview must update accordingly.
 
 ## 10. Resizing Behavior
@@ -243,7 +248,7 @@ Tools may propose or apply changes to timeline state.
 However:
 
 - tools do not become alternate structural models
-- timeline remains authoritative
+- timeline remains the primary temporal manipulation surface, not a second source of truth
 - changes must be reflected visibly
 
 No hidden structural edits.
@@ -273,7 +278,7 @@ Hammer does not encode final media, but it prepares the structural blueprint.
 
 Quench will compile outputs based on this blueprint.
 
-Therefore the timeline must contain sufficient information to reconstruct the edit.
+Therefore the canonical composition, as expressed through the timeline, must contain sufficient information to reconstruct the edit.
 
 ## 22. Timing Precision Expectations
 

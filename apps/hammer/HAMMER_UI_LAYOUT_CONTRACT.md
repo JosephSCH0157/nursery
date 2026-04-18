@@ -346,7 +346,7 @@ Behavioral rules:
 
 - user may expand or contract vertical track density
 - user may zoom horizontally
-- timeline remains authoritative over preview
+- timeline remains the primary temporal projection and manipulation surface for previewed composition truth
 - timeline is not replaced by a modal or separate route
 
 Forbidden:
@@ -376,7 +376,7 @@ Invalid behaviors:
 
 ## 14. Timeline-to-Preview Authority Contract
 
-Layout and interaction must reinforce that the timeline controls preview.
+Layout and interaction must reinforce that the canonical composition controls preview through the timeline.
 
 Therefore:
 
