@@ -6,9 +6,11 @@ import {
   isAcceptedSourceDeskMediaUpload,
   listWorkpieceStoredMedia,
   loadIntroOutroSelection,
+  loadWorkspaceIntroOutroDefaults,
   loadWorkpieceMediaPreviewUrl,
   readHammerMediaPreviewErrorDiagnostics,
   saveIntroOutroSelection,
+  saveWorkspaceIntroOutroDefaults,
   uploadWorkpieceMediaFile,
 } from "../src/lib/hammerSourceDeskMediaApi";
 import { deriveStableHammerAssetIdFromPath } from "../src/lib/hammerAssetIdentity";
@@ -197,6 +199,53 @@ async function testIntroOutroSelectionLegacyPathMigration() {
     intro_asset_id: deriveStableHammerAssetIdFromPath(legacyIntroPath),
     outro_asset_id: deriveStableHammerAssetIdFromPath(legacyOutroPath),
     updated_at: "2026-03-21T12:00:00.000Z",
+  });
+}
+
+async function testWorkspaceIntroOutroDefaultsSerializationRoundTrip() {
+  const saveCalls: FetchCall[] = [];
+  const saveFetch = async (url: string, options: Record<string, unknown>) => {
+    saveCalls.push({ url, options });
+    return createOkJsonResponse({ ok: true });
+  };
+
+  await saveWorkspaceIntroOutroDefaults({
+    workspaceId: "workspace-abc",
+    defaults: {
+      schema_version: 1,
+      intro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-intro.mp3" },
+      outro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-outro.mp3" },
+      updated_at: "2026-04-18T10:00:00.000Z",
+    },
+    fetcher: saveFetch as never,
+  });
+
+  const savePayload = saveCalls[0]?.options.json as Record<string, unknown>;
+  assert.equal(saveCalls[0]?.url, "/tongs/workspaces/workspace-abc/commit-file");
+  assert.equal(savePayload.path, "hammer/settings/intro-outro-defaults.v1.json");
+  assert.deepEqual(savePayload.json, {
+    schema_version: 1,
+    intro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-intro.mp3" },
+    outro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-outro.mp3" },
+    updated_at: "2026-04-18T10:00:00.000Z",
+  });
+
+  const readFetch = async () => createOkJsonResponse({
+    exists: true,
+    data: {
+      schema_version: 1,
+      intro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-intro.mp3" },
+      outro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-outro.mp3" },
+      updated_at: "2026-04-18T10:00:00.000Z",
+    },
+  });
+
+  const loaded = await loadWorkspaceIntroOutroDefaults("workspace-abc", readFetch as never);
+  assert.deepEqual(loaded, {
+    schema_version: 1,
+    intro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-intro.mp3" },
+    outro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-outro.mp3" },
+    updated_at: "2026-04-18T10:00:00.000Z",
   });
 }
 
@@ -470,6 +519,7 @@ async function run() {
   await testIntroOutroSelectionSerializationRoundTrip();
   await testIntroOutroSelectionParsesTongsEnvelope();
   await testIntroOutroSelectionLegacyPathMigration();
+  await testWorkspaceIntroOutroDefaultsSerializationRoundTrip();
   await testListWorkpieceStoredMediaParsesTongsEnvelopeAndNormalizesPaths();
   await testNormalizeWorkpieceRelativePath();
   await testPreviewRequestUsesNormalizedRelativePath();

@@ -209,6 +209,12 @@ import {
 } from "../lib/hammerSourceDeskMediaApi";
 import { deriveStableHammerAssetIdFromPath } from "../lib/hammerAssetIdentity";
 import {
+  buildIntroOutroCandidateItems,
+  buildIntroOutroCandidateItemsById,
+  buildIntroOutroPackagingSyncPlan,
+  buildWorkspaceIntroOutroDefaultsRepairPlan,
+} from "./hammerIntroOutroState";
+import {
   cloneHammerStudioRackState,
   createDefaultHammerStudioRackState,
   isHammerStudioRackIdentity,
@@ -3465,21 +3471,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => storedMediaFiles.filter((file) => file.kind === "image"),
     [storedMediaFiles],
   );
-  const introOutroCandidateItems = useMemo(() => (
-    storedMediaFiles
-      .filter((file) => file.kind === "broll" || file.kind === "reference_clip" || file.kind === "audio" || file.kind === "other")
-      .map((file) => ({
-        ...file,
-        assetId: deriveStableHammerAssetIdFromPath(file.path),
-      }))
-      .sort((left, right) => left.name.localeCompare(right.name))
-  ), [storedMediaFiles]);
+  const introOutroCandidateItems = useMemo(
+    () => buildIntroOutroCandidateItems(storedMediaFiles),
+    [storedMediaFiles],
+  );
   const introOutroCandidateItemsById = useMemo(() => {
-    const byId = new Map<string, (typeof introOutroCandidateItems)[number]>();
-    for (const item of introOutroCandidateItems) {
-      byId.set(item.assetId, item);
-    }
-    return byId;
+    return buildIntroOutroCandidateItemsById(introOutroCandidateItems);
   }, [introOutroCandidateItems]);
   const introOutroSelectedIntroItem = useMemo(() => {
     const assetId = introOutroSelection.intro_asset_id;
@@ -5486,17 +5483,34 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   async function applyWorkspaceIntroOutroDefaultsToWorkpiece(
     defaults: HammerWorkspaceIntroOutroDefaults,
-  ): Promise<HammerIntroOutroSelection | null> {
+    args?: {
+      existingSelection?: HammerIntroOutroSelection | null;
+      mediaFiles?: HammerStoredMediaFile[];
+    },
+  ): Promise<{
+    selection: HammerIntroOutroSelection;
+    appliedIntro: boolean;
+    appliedOutro: boolean;
+  } | null> {
+    const candidateItemsById = buildIntroOutroCandidateItemsById(buildIntroOutroCandidateItems(args?.mediaFiles ?? storedMediaFiles));
+    const repairPlan = buildWorkspaceIntroOutroDefaultsRepairPlan({
+      selection: args?.existingSelection ?? null,
+      candidateItemsById,
+      defaults,
+    });
+    if (!repairPlan.shouldApply) return null;
+
     const next: HammerIntroOutroSelection = {
       schema_version: 1,
-      intro_asset_id: null,
-      outro_asset_id: null,
+      intro_asset_id: args?.existingSelection?.intro_asset_id ?? null,
+      outro_asset_id: args?.existingSelection?.outro_asset_id ?? null,
       updated_at: new Date().toISOString(),
     };
 
-    let applied = false;
+    let appliedIntro = false;
+    let appliedOutro = false;
 
-    if (defaults.intro) {
+    if (repairPlan.copyIntro && defaults.intro) {
       try {
         const destPath = buildWorkspaceDefaultIntroOutroDestPath("intro", defaults.intro.path);
         await copyWorkpieceMediaFile({
@@ -5506,13 +5520,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           destPath,
         });
         next.intro_asset_id = deriveStableHammerAssetIdFromPath(destPath);
-        applied = true;
+        appliedIntro = true;
       } catch (error) {
         console.warn("[Hammer][IntroOutroDefaults] Failed to apply intro default:", error);
       }
     }
 
-    if (defaults.outro) {
+    if (repairPlan.copyOutro && defaults.outro) {
       try {
         const destPath = buildWorkspaceDefaultIntroOutroDestPath("outro", defaults.outro.path);
         await copyWorkpieceMediaFile({
@@ -5522,19 +5536,99 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           destPath,
         });
         next.outro_asset_id = deriveStableHammerAssetIdFromPath(destPath);
-        applied = true;
+        appliedOutro = true;
       } catch (error) {
         console.warn("[Hammer][IntroOutroDefaults] Failed to apply outro default:", error);
       }
     }
 
-    if (!applied) return null;
+    if (!appliedIntro && !appliedOutro) return null;
 
     await saveIntroOutroSelection({
       workpieceId: launchContext.workpiece_id,
       selection: next,
     });
-    return next;
+    return {
+      selection: next,
+      appliedIntro,
+      appliedOutro,
+    };
+  }
+
+  function upsertResolvedIntroPlacement(
+    assetId: string,
+    assetPath: string,
+    source: "profile" | "episode" | "manual",
+  ): void {
+    const introDurationSec = Math.min(6, Math.max(2, roundToTenth(Math.max(2, transcriptDurationSec * 0.1))));
+    upsertPackagingPlacement({
+      entryId: PACKAGING_INTRO_ENTRY_ID,
+      assetPath,
+      assetId,
+      label: "Packaging Intro",
+      startSec: 0,
+      endSec: introDurationSec,
+      visualMode: "packaging_intro",
+      uncertaintyFlags: ["packaging:intro"],
+      systemMeta: {
+        system_managed: true,
+        system_type: "intro",
+        system_source: source,
+        system_asset_id: assetId,
+      },
+    });
+  }
+
+  function upsertResolvedOutroPlacement(
+    assetId: string,
+    assetPath: string,
+    source: "profile" | "episode" | "manual",
+  ): void {
+    const outroDurationSec = Math.min(6, Math.max(2, roundToTenth(Math.max(2, transcriptDurationSec * 0.1))));
+    const startSec = Math.max(0, roundToTenth(transcriptDurationSec - outroDurationSec));
+    upsertPackagingPlacement({
+      entryId: PACKAGING_OUTRO_ENTRY_ID,
+      assetPath,
+      assetId,
+      label: "Packaging Outro",
+      startSec,
+      endSec: transcriptDurationSec,
+      visualMode: "packaging_outro",
+      uncertaintyFlags: ["packaging:outro"],
+      systemMeta: {
+        system_managed: true,
+        system_type: "outro",
+        system_source: source,
+        system_asset_id: assetId,
+      },
+    });
+  }
+
+  function reconcileIntroOutroSelectionWithPackaging(args: {
+    selection: HammerIntroOutroSelection | null | undefined;
+    mediaFiles: HammerStoredMediaFile[];
+    introSource: "profile" | "episode" | "manual";
+    outroSource: "profile" | "episode" | "manual";
+  }): void {
+    const candidateItemsById = buildIntroOutroCandidateItemsById(buildIntroOutroCandidateItems(args.mediaFiles));
+    const syncPlan = buildIntroOutroPackagingSyncPlan({
+      selection: args.selection,
+      candidateItemsById,
+      currentIntroPlacementPath: packagingIntroPlacement?.asset_path ?? null,
+      currentOutroPlacementPath: packagingOutroPlacement?.asset_path ?? null,
+    });
+
+    if (syncPlan.removeIntro) {
+      removePackagingPlacement(PACKAGING_INTRO_ENTRY_ID, "Remove packaging intro");
+    } else if (syncPlan.applyIntro) {
+      upsertResolvedIntroPlacement(syncPlan.applyIntro.assetId, syncPlan.applyIntro.path, args.introSource);
+    }
+
+    if (syncPlan.removeOutro) {
+      removePackagingPlacement(PACKAGING_OUTRO_ENTRY_ID, "Remove packaging outro");
+    } else if (syncPlan.applyOutro) {
+      upsertResolvedOutroPlacement(syncPlan.applyOutro.assetId, syncPlan.applyOutro.path, args.outroSource);
+    }
   }
 
   async function refreshSourceDeskMedia(): Promise<void> {
@@ -5550,13 +5644,28 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
       let nextMediaFiles = mediaFiles;
       let nextSelection = selection;
+      let introSelectionSource: "profile" | "episode" = "episode";
+      let outroSelectionSource: "profile" | "episode" = "episode";
 
-      if (!nextSelection && defaults && attemptedWorkspaceDefaultsApplyRef.current !== launchContext.workpiece_id) {
+      const repairPlan = buildWorkspaceIntroOutroDefaultsRepairPlan({
+        selection: nextSelection,
+        candidateItemsById: buildIntroOutroCandidateItemsById(buildIntroOutroCandidateItems(nextMediaFiles)),
+        defaults,
+      });
+
+      if (repairPlan.shouldApply && attemptedWorkspaceDefaultsApplyRef.current !== launchContext.workpiece_id) {
         attemptedWorkspaceDefaultsApplyRef.current = launchContext.workpiece_id;
         try {
-          const applied = await applyWorkspaceIntroOutroDefaultsToWorkpiece(defaults);
+          const applied = defaults
+            ? await applyWorkspaceIntroOutroDefaultsToWorkpiece(defaults, {
+              existingSelection: nextSelection,
+              mediaFiles: nextMediaFiles,
+            })
+            : null;
           if (applied) {
-            nextSelection = applied;
+            nextSelection = applied.selection;
+            if (applied.appliedIntro) introSelectionSource = "profile";
+            if (applied.appliedOutro) outroSelectionSource = "profile";
             nextMediaFiles = await listWorkpieceStoredMedia(launchContext.workpiece_id);
           }
         } catch (error) {
@@ -5565,11 +5674,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       }
 
       setStoredMediaFiles(nextMediaFiles);
-      setIntroOutroSelection(nextSelection ?? {
+      const resolvedSelection = nextSelection ?? {
         schema_version: 1,
         intro_asset_id: null,
         outro_asset_id: null,
         updated_at: new Date().toISOString(),
+      };
+      setIntroOutroSelection(resolvedSelection);
+      reconcileIntroOutroSelectionWithPackaging({
+        selection: resolvedSelection,
+        mediaFiles: nextMediaFiles,
+        introSource: introSelectionSource,
+        outroSource: outroSelectionSource,
       });
     } catch (error) {
       setSourceDeskError(error instanceof Error ? error.message : "Hammer could not load Source Desk media.");
@@ -5661,6 +5777,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         selection: next,
       });
       setIntroOutroSelection(next);
+      reconcileIntroOutroSelectionWithPackaging({
+        selection: next,
+        mediaFiles: storedMediaFiles,
+        introSource: "episode",
+        outroSource: "episode",
+      });
 
       if (applyIntroOutroSelectionToFutureEpisodes) {
         const introSourcePath = next.intro_asset_id
@@ -8057,23 +8179,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       setTranscriptTimingHint("Intro asset is unavailable. Re-upload or re-select it in Intro/Outro Source Desk.");
       return;
     }
-    const introDurationSec = Math.min(6, Math.max(2, roundToTenth(Math.max(2, transcriptDurationSec * 0.1))));
-    upsertPackagingPlacement({
-      entryId: PACKAGING_INTRO_ENTRY_ID,
-      assetPath: resolved.path,
-      assetId,
-      label: "Packaging Intro",
-      startSec: 0,
-      endSec: introDurationSec,
-      visualMode: "packaging_intro",
-      uncertaintyFlags: ["packaging:intro"],
-      systemMeta: {
-        system_managed: true,
-        system_type: "intro",
-        system_source: source,
-        system_asset_id: assetId,
-      },
-    });
+    upsertResolvedIntroPlacement(assetId, resolved.path, source);
   }
 
   function applyOutroToTimeline(
@@ -8085,24 +8191,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       setTranscriptTimingHint("Outro asset is unavailable. Re-upload or re-select it in Intro/Outro Source Desk.");
       return;
     }
-    const outroDurationSec = Math.min(6, Math.max(2, roundToTenth(Math.max(2, transcriptDurationSec * 0.1))));
-    const startSec = Math.max(0, roundToTenth(transcriptDurationSec - outroDurationSec));
-    upsertPackagingPlacement({
-      entryId: PACKAGING_OUTRO_ENTRY_ID,
-      assetPath: resolved.path,
-      assetId,
-      label: "Packaging Outro",
-      startSec,
-      endSec: transcriptDurationSec,
-      visualMode: "packaging_outro",
-      uncertaintyFlags: ["packaging:outro"],
-      systemMeta: {
-        system_managed: true,
-        system_type: "outro",
-        system_source: source,
-        system_asset_id: assetId,
-      },
-    });
+    upsertResolvedOutroPlacement(assetId, resolved.path, source);
   }
 
   function applyIntroPlacement(): void {
