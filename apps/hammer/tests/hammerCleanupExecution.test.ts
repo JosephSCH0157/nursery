@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {
   deriveAudioCutsForRemovedSegments,
+  deriveAudioCutsForSubtractiveTextEdits,
+  deriveAudioCutsForTimelineCompression,
   HAMMER_FILLER_CUT_PAD_AFTER_SEC,
   HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
 } from "../src/editor/hammerCleanupExecution";
@@ -63,9 +65,62 @@ async function testNoPaddingLeavesWindowUntouched() {
   assert.equal(cuts[0]?.endSec, 1.2);
 }
 
+async function testCleanupTimelineCompressionCanPadRetakeRemoval() {
+  const cuts = deriveAudioCutsForTimelineCompression({
+    beforeSegments: [
+      seg({ id: "a", start: 0.0, end: 1.0 }),
+      seg({ id: "retake", start: 1.0, end: 1.2 }),
+      seg({ id: "b", start: 1.2, end: 2.0 }),
+    ] as never,
+    afterSegments: [
+      seg({ id: "a", start: 0.0, end: 1.0 }),
+      seg({ id: "b", start: 1.0, end: 1.8 }),
+    ] as never,
+    durationSec: 10,
+    padBeforeSec: HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
+    padAfterSec: HAMMER_FILLER_CUT_PAD_AFTER_SEC,
+  });
+
+  assert.equal(cuts.length, 1);
+  assert.equal(cuts[0]?.startSec, 0.98);
+  assert.equal(cuts[0]?.endSec, 1.22);
+}
+
+async function testCleanupSubtractiveTextCutsCanPadSingleWordRemoval() {
+  const cuts = deriveAudioCutsForSubtractiveTextEdits({
+    beforeSegments: [
+      {
+        segment_id: "a",
+        start_sec: 1.0,
+        end_sec: 2.0,
+        speaker: "S1",
+        text: "um this is fine",
+      },
+    ] as never,
+    afterSegments: [
+      {
+        segment_id: "a",
+        start_sec: 1.0,
+        end_sec: 2.0,
+        speaker: "S1",
+        text: "this is fine",
+      },
+    ] as never,
+    durationSec: 10,
+    padBeforeSec: HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
+    padAfterSec: HAMMER_FILLER_CUT_PAD_AFTER_SEC,
+  });
+
+  assert.equal(cuts.length, 1);
+  assert.equal(cuts[0]?.startSec, 0.98);
+  assert.equal(cuts[0]?.endSec, 1.27);
+}
+
 await testFillerPaddingExpandsCut();
 await testPaddingClampedToDuration();
 await testNoPaddingLeavesWindowUntouched();
+await testCleanupTimelineCompressionCanPadRetakeRemoval();
+await testCleanupSubtractiveTextCutsCanPadSingleWordRemoval();
 
 console.log("Hammer cleanup execution tests passed.");
 

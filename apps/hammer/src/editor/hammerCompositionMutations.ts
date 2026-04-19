@@ -10,6 +10,8 @@ import {
 } from "./hammerAuthorityOps";
 import {
   deriveAudioCutsForRemovedSegments,
+  HAMMER_FILLER_CUT_PAD_AFTER_SEC,
+  HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
   deriveAudioCutsForSubtractiveTextEdits,
   deriveAudioCutsForTimelineCompression,
 } from "./hammerCleanupExecution";
@@ -383,11 +385,15 @@ export function applyTranscriptCleanupPreviewComposition(args: {
     beforeSegments: args.before.transcriptSegments,
     afterSegments: synced.segments,
     durationSec: args.context.playbackDurationSec,
+    padBeforeSec: HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
+    padAfterSec: HAMMER_FILLER_CUT_PAD_AFTER_SEC,
   });
   const textCuts = deriveAudioCutsForSubtractiveTextEdits({
     beforeSegments: args.before.transcriptSegments,
     afterSegments: synced.segments,
     durationSec: args.context.playbackDurationSec,
+    padBeforeSec: HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
+    padAfterSec: HAMMER_FILLER_CUT_PAD_AFTER_SEC,
   });
   const selected = synced.selectedSegmentId
     ? synced.segments.find((segment) => segment.segment_id === synced.selectedSegmentId) ?? null

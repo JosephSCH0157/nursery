@@ -52,6 +52,24 @@ function normalizeAndMerge(selections: HammerAudioCutSelection[]): HammerAudioCu
   return merged;
 }
 
+function applyPaddingToSelections(args: {
+  selections: HammerAudioCutSelection[];
+  durationSec: number;
+  padBeforeSec?: number;
+  padAfterSec?: number;
+}): HammerAudioCutSelection[] {
+  const padBeforeSec = clampNonNegative(Number(args.padBeforeSec ?? 0));
+  const padAfterSec = clampNonNegative(Number(args.padAfterSec ?? 0));
+  if (padBeforeSec <= 0 && padAfterSec <= 0) {
+    return normalizeAndMerge(args.selections);
+  }
+
+  return normalizeAndMerge(args.selections.map((selection) => ({
+    startSec: clampToDuration(selection.startSec - padBeforeSec, args.durationSec),
+    endSec: clampToDuration(selection.endSec + padAfterSec, args.durationSec),
+  })));
+}
+
 export function deriveAudioCutsForRemovedSegments(args: {
   segments: HammerTranscriptSegment[];
   removeSegmentIds: string[];
@@ -82,6 +100,8 @@ export function deriveAudioCutsForTimelineCompression(args: {
   beforeSegments: HammerTranscriptSegment[];
   afterSegments: HammerTranscriptSegment[];
   durationSec: number;
+  padBeforeSec?: number;
+  padAfterSec?: number;
 }): HammerAudioCutSelection[] {
   if (!Number.isFinite(args.durationSec) || args.durationSec <= 0) return [];
 
@@ -128,13 +148,20 @@ export function deriveAudioCutsForTimelineCompression(args: {
     }
   }
 
-  return normalizeAndMerge(selections);
+  return applyPaddingToSelections({
+    selections,
+    durationSec: args.durationSec,
+    padBeforeSec: args.padBeforeSec,
+    padAfterSec: args.padAfterSec,
+  });
 }
 
 export function deriveAudioCutsForSubtractiveTextEdits(args: {
   beforeSegments: HammerTranscriptSegment[];
   afterSegments: HammerTranscriptSegment[];
   durationSec: number;
+  padBeforeSec?: number;
+  padAfterSec?: number;
 }): HammerAudioCutSelection[] {
   if (!Number.isFinite(args.durationSec) || args.durationSec <= 0) return [];
 
@@ -184,7 +211,12 @@ export function deriveAudioCutsForSubtractiveTextEdits(args: {
     }
   }
 
-  return normalizeAndMerge(selections);
+  return applyPaddingToSelections({
+    selections,
+    durationSec: args.durationSec,
+    padBeforeSec: args.padBeforeSec,
+    padAfterSec: args.padAfterSec,
+  });
 }
 
 export function deriveAudioCutsForDeadAirClosure(args: {
