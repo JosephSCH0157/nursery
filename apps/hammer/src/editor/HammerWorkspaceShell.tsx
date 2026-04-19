@@ -351,6 +351,24 @@ const IMAGE_PLACEMENT_TIME_PRECISION = 100;
 const IMAGE_PLACEMENT_FINE_STEP_SEC = 0.01;
 const IMAGE_PLACEMENT_COARSE_STEP_SEC = 0.1;
 
+function readHammerDebugFlag(flagName: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const runtime = window as unknown as Record<string, unknown>;
+    return runtime[flagName] === true;
+  } catch {
+    return false;
+  }
+}
+
+function isHammerModeRoutingDebugEnabled(): boolean {
+  return import.meta.env.DEV && readHammerDebugFlag("__forgeHammerDebugModeRouting__");
+}
+
+function isHammerVisualSelectionDebugEnabled(): boolean {
+  return import.meta.env.DEV && readHammerDebugFlag("__forgeHammerDebugVisualSelection__");
+}
+
 function appendUniquePaths(target: string[], candidates: Array<string | null | undefined>): string[] {
   const seen = new Set(target);
   for (const candidate of candidates) {
@@ -1945,6 +1963,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   });
   const [selectedTranscriptRange, setSelectedTranscriptRange] = useState<HammerSelectedTranscriptRange | null>(null);
   const selectedTranscriptRangeDetailRef = useRef<HammerSelectedTranscriptRangeDetail | null>(null);
+  const lastVisualSelectionLogKeyRef = useRef<string | null>(null);
   const [linkedSelection, setLinkedSelection] = useState<HammerLinkedSelection | null>(null);
   const [cleanupPreview, setCleanupPreview] = useState<HammerCleanupPreview | null>(null);
   const [cleanupReceipt, setCleanupReceipt] = useState<HammerPolishResultSummary | null>(null);
@@ -2405,7 +2424,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return;
     }
     const nextMeta = resolvePassMeta(passId);
-    if (import.meta.env.DEV) {
+    if (isHammerModeRoutingDebugEnabled()) {
       console.debug("[HammerModeRouting] selectPass", {
         passId,
         label: nextMeta.label,
@@ -2438,7 +2457,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }
 
   useEffect(() => {
-    if (!import.meta.env.DEV) return;
+    if (!isHammerModeRoutingDebugEnabled()) return;
     console.debug("[HammerModeRouting] state", {
       editorMode,
       currentPass,
@@ -3617,7 +3636,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       setSelectedTranscriptRange(null);
     }
 
-    if (args.selection?.primaryVisualId) {
+    if (
+      args.selection?.primaryVisualId
+      && args.selection.primaryVisualId !== linkedSelection?.primaryVisualId
+    ) {
       setVisualTimelineFocusNonce((current) => current + 1);
     }
 
@@ -4411,16 +4433,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         updated_at: new Date().toISOString(),
         debug_origin: "empty_init",
       });
+      if (base.selected_clip_id === clipId) {
+        return current ?? base;
+      }
       const next = hammerVisualTimelineReducer(base, {
         type: "SELECT_CLIP",
         clip_id: clipId,
       });
-      if (import.meta.env.DEV && clipId) {
+      if (isHammerVisualSelectionDebugEnabled() && clipId) {
         const resolved = selectClipById(next, clipId);
-        console.debug("[HammerVisuals] clip selection", {
-          clicked_clip_id: clipId,
-          resolved_selected_clip_id: resolved?.clip_id ?? null,
-        });
+        const selectionLogKey = `${clipId}|${resolved?.clip_id ?? ""}`;
+        if (selectionLogKey !== lastVisualSelectionLogKeyRef.current) {
+          lastVisualSelectionLogKeyRef.current = selectionLogKey;
+          console.debug("[HammerVisuals] clip selection", {
+            clicked_clip_id: clipId,
+            resolved_selected_clip_id: resolved?.clip_id ?? null,
+          });
+        }
       }
       return next;
     });

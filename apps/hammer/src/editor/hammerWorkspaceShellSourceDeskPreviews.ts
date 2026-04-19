@@ -27,12 +27,6 @@ export type UseHammerWorkspaceShellSourceDeskPreviewsArgs = {
 function resolveSourceDeskPreviewDebugEnabled(): boolean {
   if (typeof window === "undefined") return false;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (Boolean((import.meta as any)?.env?.DEV)) return true;
-  } catch {
-    // ignore
-  }
-  try {
     const runtime = window as unknown as Record<string, unknown>;
     return runtime.__forgeHammerDebugImagePreviews__ === true;
   } catch {
@@ -61,21 +55,23 @@ export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspa
       };
     }
 
-    if (args.requestedPreviewPathCount > args.maxItems) {
+    if (debugEnabled && args.requestedPreviewPathCount > args.maxItems) {
       console.info("Hammer Source Desk preview load capped", {
         workpieceId: args.workpieceId,
         requested: args.requestedPreviewPathCount,
         loaded: previewPaths.length,
       });
     }
-    // eslint-disable-next-line no-console
-    console.info("[Hammer][SourceDeskPreview] start", {
-      workpieceId: args.workpieceId,
-      requested: args.requestedPreviewPathCount,
-      loaded: previewPaths.length,
-      concurrency: args.concurrency,
-      maxItems: args.maxItems,
-    });
+    if (debugEnabled) {
+      // eslint-disable-next-line no-console
+      console.info("[Hammer][SourceDeskPreview] start", {
+        workpieceId: args.workpieceId,
+        requested: args.requestedPreviewPathCount,
+        loaded: previewPaths.length,
+        concurrency: args.concurrency,
+        maxItems: args.maxItems,
+      });
+    }
 
     async function loadPreviewBatch(paths: string[]): Promise<void> {
       await Promise.all(paths.map(async (path) => {
@@ -131,13 +127,15 @@ export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspa
       }
       const finishedAt = typeof performance !== "undefined" ? performance.now() : null;
       const elapsedMs = (startedAt != null && finishedAt != null) ? Math.round(finishedAt - startedAt) : null;
-      // eslint-disable-next-line no-console
-      console.info("[Hammer][SourceDeskPreview] done", {
-        workpieceId: args.workpieceId,
-        ok: Object.keys(nextUrls).length,
-        failed: Object.keys(nextFailures).length,
-        elapsed_ms: elapsedMs,
-      });
+      if (debugEnabled) {
+        // eslint-disable-next-line no-console
+        console.info("[Hammer][SourceDeskPreview] done", {
+          workpieceId: args.workpieceId,
+          ok: Object.keys(nextUrls).length,
+          failed: Object.keys(nextFailures).length,
+          elapsed_ms: elapsedMs,
+        });
+      }
       args.setPreviewUrls((previous) => {
         const nextKeys = Object.keys(nextUrls);
         const unchanged = nextKeys.every((key) => previous[key] === nextUrls[key]);

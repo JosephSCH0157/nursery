@@ -162,6 +162,13 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
     }
     return turns;
   }, [editableTranscriptSegments]);
+  const transcriptSegmentById = useMemo(() => {
+    const byId = new Map<string, any>();
+    for (const segment of editableTranscriptSegments) {
+      byId.set(segment.segment_id, segment);
+    }
+    return byId;
+  }, [editableTranscriptSegments]);
 
   function getSegmentJoiner(prevText: string, nextText: string): string {
     const prevEndsWithSpace = /\s$/.test(prevText);
@@ -293,7 +300,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
 
     const segments = segmentElements.slice(startIndex, endIndex + 1).flatMap((element, index, list) => {
       const segmentId = element.dataset.transcriptSegmentId ?? "";
-      const segment = editableTranscriptSegments.find((item) => item.segment_id === segmentId) ?? null;
+      const segment = transcriptSegmentById.get(segmentId) ?? null;
       if (!segment) return [];
       const segmentText = String(segment.text ?? "");
       const selectionStart = index === 0
@@ -326,17 +333,28 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   }
 
   useEffect(() => {
-    if (!onTranscriptSelection || typeof document === "undefined") return;
+    if (!onTranscriptSelection || typeof document === "undefined" || selectedSourceTab !== "transcript") return;
 
-    const handleSelectionChange = (): void => {
+    let frameRequestId: number | null = null;
+    const runSelectionSync = (): void => {
+      frameRequestId = null;
       const root = transcriptDocumentRef.current;
       if (!root) return;
       reportTranscriptDocumentSelection(root);
     };
+    const handleSelectionChange = (): void => {
+      if (frameRequestId != null) return;
+      frameRequestId = window.requestAnimationFrame(runSelectionSync);
+    };
 
     document.addEventListener("selectionchange", handleSelectionChange);
-    return () => document.removeEventListener("selectionchange", handleSelectionChange);
-  }, [onTranscriptSelection, editableTranscriptSegments]);
+    return () => {
+      document.removeEventListener("selectionchange", handleSelectionChange);
+      if (frameRequestId != null) {
+        window.cancelAnimationFrame(frameRequestId);
+      }
+    };
+  }, [onTranscriptSelection, selectedSourceTab, transcriptSegmentById]);
 
   function commitDeleteOnlySegmentEdit(
     segment: any,
