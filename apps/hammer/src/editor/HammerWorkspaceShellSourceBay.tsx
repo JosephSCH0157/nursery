@@ -96,7 +96,8 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const ctx = vm as any;
   const selectedSourceTab = ctx.selectedSourceTab as string;
   const editableTranscriptSegments = ctx.editableTranscriptSegments as any[];
-  const selectedSegmentId = ctx.selectedSegmentId as string | null;
+  const linkedSelection = ctx.linkedSelection as { anchorId?: string | null; isLinked?: boolean } | null;
+  const selectedSegmentId = (linkedSelection?.anchorId ?? ctx.selectedSegmentId) as string | null;
   const setFocusOverride = ctx.setFocusOverride as (mode: "auto" | "source-focus" | "tool-focus" | "time-focus") => void;
   const transcriptTimingHint = ctx.transcriptTimingHint as string | null;
   const applyTranscriptSelection = ctx.applyTranscriptSelection as (segmentId: string, extend: boolean) => void;
@@ -120,12 +121,13 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const hasTranscriptSelection = ctx.hasTranscriptSelection as boolean;
   const transcriptSelectionAllDisabled = ctx.transcriptSelectionAllDisabled as boolean;
   const transcriptSelectionRange = ctx.transcriptSelectionRange as any;
-  const transcriptSelectionSegmentIdSet = ctx.transcriptSelectionSegmentIdSet as Set<string>;
+  const transcriptSelectionSegmentIdSet = (ctx.linkedTranscriptSegmentIdSet ?? ctx.transcriptSelectionSegmentIdSet) as Set<string>;
   const modifiedTranscriptSegmentIds = ctx.modifiedTranscriptSegmentIds as Set<string>;
   const modifiedSegmentCount = ctx.modifiedSegmentCount as number;
   const candidateSegmentIdSet = ctx.candidateSegmentIdSet as Set<string>;
   const activeCandidateSegmentIdSet = ctx.activeCandidateSegmentIdSet as Set<string>;
   const transcriptLineRefs = ctx.transcriptLineRefs as { current: Map<string, HTMLElement> };
+  const playbackTransportDurationSec = Number(ctx.playbackTransportDurationSec ?? 0);
   const onTranscriptSelection = ctx.onTranscriptSelection as ((next: {
     start: number;
     end: number;
@@ -355,6 +357,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
     const cutSelection = deriveDeleteOnlyTranscriptCutSelection({
       segment,
       deletion,
+      audioDurationSec: playbackTransportDurationSec,
     });
     if (!cutSelection) {
       showInlineEditHint("Hammer could not map that delete to a timed playback span.");
@@ -493,13 +496,9 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const seekPlayheadToTime = ctx.seekPlayheadToTime as (...args: any[]) => void;
   const visualPlacementCardRefs = ctx.visualPlacementCardRefs as { current: Map<string, HTMLElement> };
   const effectiveSelectedClipId = ctx.effectiveSelectedClipId as string | null;
+  const linkedPrimaryVisualId = (ctx.linkedPrimaryVisualId ?? effectiveSelectedClipId) as string | null;
+  const linkedVisualIdSet = (ctx.linkedVisualIdSet ?? new Set<string>()) as Set<string>;
   const selectVisualClip = ctx.selectVisualClip as (...args: any[]) => void;
-  const selectionOriginRef = ctx.selectionOriginRef as { current: any };
-  const setSelectedClipId = ctx.setSelectedClipId as (next: string | null) => void;
-  const setSelectedSegmentId = ctx.setSelectedSegmentId as (next: string | null) => void;
-  const setTranscriptSelectionAnchorSegmentId = ctx.setTranscriptSelectionAnchorSegmentId as (next: string | null) => void;
-  const setTranscriptSelectionFocusSegmentId = ctx.setTranscriptSelectionFocusSegmentId as (next: string | null) => void;
-  const setVisualTimelineFocusNonce = ctx.setVisualTimelineFocusNonce as (next: number | ((current: number) => number)) => void;
   const updateVisualPlacementTiming = ctx.updateVisualPlacementTiming as (...args: any[]) => void;
   const removeVisualPlacement = ctx.removeVisualPlacement as (...args: any[]) => void;
   const sourceAssetItems = ctx.sourceAssetItems as any[];
@@ -1083,7 +1082,12 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                 visualPlacementCardRefs.current.delete(item.id);
                               }
                             }}
-                            className={effectiveSelectedClipId === item.id ? "hammer-source-card is-selected" : "hammer-source-card"}
+                            className={[
+                              "hammer-source-card",
+                              linkedPrimaryVisualId === item.id ? "is-selected" : "",
+                              linkedVisualIdSet.has(item.id) ? "is-linked" : "",
+                              linkedSelection && !linkedSelection.isLinked && linkedPrimaryVisualId === item.id ? "is-unlinked" : "",
+                            ].filter(Boolean).join(" ")}
                           >
                             {renderSourceDeskPreviewThumb({ assetPath: item.assetPath ?? null, label: item.label })}
                             <header className="hammer-source-card__head">
@@ -1113,13 +1117,8 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                               <button
                                 type="button"
                                 onClick={() => {
-                                  selectionOriginRef.current = "timeline";
                                   setFocusOverride("time-focus");
-                                  setSelectedClipId(item.id);
-                                  setSelectedSegmentId(item.anchorSegmentId);
-                                  setTranscriptSelectionAnchorSegmentId(item.anchorSegmentId);
-                                  setTranscriptSelectionFocusSegmentId(item.anchorSegmentId);
-                                  setVisualTimelineFocusNonce((current) => current + 1);
+                                  selectVisualClip({ clipId: item.id, origin: "timeline", revealUI: true });
                                   seekPlayheadToTime(item.startSec, "playhead");
                                 }}
                               >

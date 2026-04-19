@@ -1,4 +1,5 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
+import { computeRemovalTrimRange } from "./hammerCleanupExecution";
 
 export type HammerDeleteOnlyTranscriptDirection = "backward" | "forward" | "selection";
 
@@ -135,6 +136,7 @@ export function resolveDeleteOnlyTranscriptDeletion(args: {
 export function deriveDeleteOnlyTranscriptCutSelection(args: {
   segment: HammerTranscriptSegment;
   deletion: HammerDeleteOnlyTranscriptDeletion;
+  audioDurationSec?: number;
 }): HammerDeleteOnlyTranscriptCutSelection | null {
   const durationSec = Number(args.segment.end_sec) - Number(args.segment.start_sec);
   if (!Number.isFinite(durationSec) || durationSec <= MIN_DURATION_SEC) {
@@ -154,9 +156,18 @@ export function deriveDeleteOnlyTranscriptCutSelection(args: {
     return null;
   }
 
+  const cut = computeRemovalTrimRange({
+    wordStartSec: startSec,
+    wordEndSec: endSec,
+    audioDurationSec: Number(args.audioDurationSec ?? args.segment.end_sec),
+  });
+  if (!cut) {
+    return null;
+  }
+
   return {
-    startSec: Math.max(Number(args.segment.start_sec), startSec),
-    endSec: Math.min(Number(args.segment.end_sec), endSec),
+    startSec: cut.startSec,
+    endSec: cut.endSec,
   };
 }
 

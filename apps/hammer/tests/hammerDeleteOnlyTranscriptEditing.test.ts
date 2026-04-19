@@ -18,6 +18,11 @@ function buildSegment(overrides?: Partial<HammerTranscriptSegment>): HammerTrans
   };
 }
 
+function assertClose(actual: number | undefined, expected: number): void {
+  assert.ok(typeof actual === "number");
+  assert.ok(Math.abs(actual - expected) < 0.000001, `Expected ${expected}, received ${actual}`);
+}
+
 async function testTokenization() {
   const tokens = tokenizeDeleteOnlyTranscriptText("alpha beta, gamma");
   assert.deepEqual(tokens.map((token) => token.text), ["alpha", "beta,", "gamma"]);
@@ -77,8 +82,8 @@ async function testCutSelectionFollowsTokenSpan() {
     deletion: deletion!,
   });
   assert.ok(cut);
-  assert.equal(cut?.startSec, 11);
-  assert.equal(cut?.endSec, 13);
+  assertClose(cut?.startSec, 10.985);
+  assertClose(cut?.endSec, 13.03);
 }
 
 async function testSelectionFromBeforeAndAfterTexts() {

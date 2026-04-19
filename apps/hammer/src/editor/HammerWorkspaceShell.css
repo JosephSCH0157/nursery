@@ -939,6 +939,22 @@ Guardrails:
   padding: 8px;
   display: grid;
   gap: 6px;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.hammer-source-card.is-linked {
+  border-color: rgba(56, 189, 248, 0.48);
+}
+
+.hammer-source-card.is-selected {
+  border-color: rgba(125, 211, 252, 0.92);
+  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.38), 0 10px 24px rgba(14, 165, 233, 0.14);
+  background: rgba(15, 23, 42, 0.8);
+}
+
+.hammer-source-card.is-unlinked {
+  border-color: rgba(251, 191, 36, 0.72);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.22);
 }
 
 .hammer-source-card__thumb {

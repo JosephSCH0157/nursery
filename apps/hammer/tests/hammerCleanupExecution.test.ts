@@ -17,6 +17,11 @@ function seg(args: { id: string; start: number; end: number }) {
   };
 }
 
+function assertClose(actual: number | undefined, expected: number): void {
+  assert.ok(typeof actual === "number");
+  assert.ok(Math.abs(actual - expected) < 0.000001, `Expected ${expected}, received ${actual}`);
+}
+
 async function testFillerPaddingExpandsCut() {
   const cuts = deriveAudioCutsForRemovedSegments({
     segments: [
@@ -31,8 +36,8 @@ async function testFillerPaddingExpandsCut() {
   });
 
   assert.equal(cuts.length, 1);
-  assert.equal(cuts[0]?.startSec, 0.98);
-  assert.equal(cuts[0]?.endSec, 1.22);
+  assertClose(cuts[0]?.startSec, 0.985);
+  assertClose(cuts[0]?.endSec, 1.23);
 }
 
 async function testPaddingClampedToDuration() {
@@ -47,8 +52,8 @@ async function testPaddingClampedToDuration() {
   });
 
   assert.equal(cuts.length, 1);
-  assert.equal(cuts[0]?.startSec, 0);
-  assert.equal(cuts[0]?.endSec, 0.06);
+  assertClose(cuts[0]?.startSec, 0);
+  assertClose(cuts[0]?.endSec, 0.06);
 }
 
 async function testNoPaddingLeavesWindowUntouched() {
@@ -61,8 +66,8 @@ async function testNoPaddingLeavesWindowUntouched() {
   });
 
   assert.equal(cuts.length, 1);
-  assert.equal(cuts[0]?.startSec, 1.0);
-  assert.equal(cuts[0]?.endSec, 1.2);
+  assertClose(cuts[0]?.startSec, 1.0);
+  assertClose(cuts[0]?.endSec, 1.2);
 }
 
 async function testCleanupTimelineCompressionCanPadRetakeRemoval() {
@@ -82,8 +87,8 @@ async function testCleanupTimelineCompressionCanPadRetakeRemoval() {
   });
 
   assert.equal(cuts.length, 1);
-  assert.equal(cuts[0]?.startSec, 0.98);
-  assert.equal(cuts[0]?.endSec, 1.22);
+  assertClose(cuts[0]?.startSec, 0.985);
+  assertClose(cuts[0]?.endSec, 1.23);
 }
 
 async function testCleanupSubtractiveTextCutsCanPadSingleWordRemoval() {
@@ -112,8 +117,60 @@ async function testCleanupSubtractiveTextCutsCanPadSingleWordRemoval() {
   });
 
   assert.equal(cuts.length, 1);
-  assert.equal(cuts[0]?.startSec, 0.98);
-  assert.equal(cuts[0]?.endSec, 1.27);
+  assertClose(cuts[0]?.startSec, 0.985);
+  assertClose(cuts[0]?.endSec, 1.28);
+}
+
+async function testCleanupSubtractiveTextCutsExpandBufferForShortRemoval() {
+  const cuts = deriveAudioCutsForSubtractiveTextEdits({
+    beforeSegments: [{
+      segment_id: "a",
+      start_sec: 2.0,
+      end_sec: 2.48,
+      speaker: "S1",
+      text: "um this is fine",
+    }] as never,
+    afterSegments: [{
+      segment_id: "a",
+      start_sec: 2.0,
+      end_sec: 2.48,
+      speaker: "S1",
+      text: "this is fine",
+    }] as never,
+    durationSec: 10,
+    padBeforeSec: HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
+    padAfterSec: HAMMER_FILLER_CUT_PAD_AFTER_SEC,
+  });
+
+  assert.equal(cuts.length, 1);
+  assertClose(cuts[0]?.startSec, 1.98);
+  assertClose(cuts[0]?.endSec, 2.16);
+}
+
+async function testCleanupSubtractiveTextCutsExpandBufferForVeryShortRemoval() {
+  const cuts = deriveAudioCutsForSubtractiveTextEdits({
+    beforeSegments: [{
+      segment_id: "a",
+      start_sec: 3.0,
+      end_sec: 3.32,
+      speaker: "S1",
+      text: "um this is fine",
+    }] as never,
+    afterSegments: [{
+      segment_id: "a",
+      start_sec: 3.0,
+      end_sec: 3.32,
+      speaker: "S1",
+      text: "this is fine",
+    }] as never,
+    durationSec: 10,
+    padBeforeSec: HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
+    padAfterSec: HAMMER_FILLER_CUT_PAD_AFTER_SEC,
+  });
+
+  assert.equal(cuts.length, 1);
+  assertClose(cuts[0]?.startSec, 2.975);
+  assertClose(cuts[0]?.endSec, 3.13);
 }
 
 await testFillerPaddingExpandsCut();
@@ -121,6 +178,8 @@ await testPaddingClampedToDuration();
 await testNoPaddingLeavesWindowUntouched();
 await testCleanupTimelineCompressionCanPadRetakeRemoval();
 await testCleanupSubtractiveTextCutsCanPadSingleWordRemoval();
+await testCleanupSubtractiveTextCutsExpandBufferForShortRemoval();
+await testCleanupSubtractiveTextCutsExpandBufferForVeryShortRemoval();
 
 console.log("Hammer cleanup execution tests passed.");
 

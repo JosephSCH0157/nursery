@@ -7,12 +7,65 @@ export type HammerAudioCutSelection = {
   endSec: number;
 };
 
-export const HAMMER_FILLER_CUT_PAD_BEFORE_SEC = 0.02;
-export const HAMMER_FILLER_CUT_PAD_AFTER_SEC = 0.02;
+export const HAMMER_FILLER_CUT_PAD_BEFORE_SEC = 0.015;
+export const HAMMER_FILLER_CUT_PAD_AFTER_SEC = 0.03;
 export const HAMMER_FILLER_CUT_SEAM_FADE_SEC = 0.01;
 
 const MIN_CUT_SEC = 0.0001;
 const MERGE_EPSILON_SEC = 0.001;
+
+export function computeRemovalTrimRange(args: {
+  wordStartSec: number;
+  wordEndSec: number;
+  audioDurationSec: number;
+  basePreBufferSec?: number;
+  basePostBufferSec?: number;
+}): HammerAudioCutSelection | null {
+  const wordStartSec = Number(args.wordStartSec);
+  const wordEndSec = Number(args.wordEndSec);
+  if (!Number.isFinite(wordStartSec) || !Number.isFinite(wordEndSec)) {
+    return null;
+  }
+
+  const removalStartSec = Math.min(wordStartSec, wordEndSec);
+  const removalEndSec = Math.max(wordStartSec, wordEndSec);
+  const removalDuration = removalEndSec - removalStartSec;
+  if (removalDuration <= MIN_CUT_SEC) {
+    return null;
+  }
+
+  const basePreBufferSec = clampNonNegative(Number(args.basePreBufferSec ?? HAMMER_FILLER_CUT_PAD_BEFORE_SEC));
+  const basePostBufferSec = clampNonNegative(Number(args.basePostBufferSec ?? HAMMER_FILLER_CUT_PAD_AFTER_SEC));
+  let preBufferSec = basePreBufferSec;
+  let postBufferSec = basePostBufferSec;
+
+  if (basePreBufferSec > 0 || basePostBufferSec > 0) {
+    if (removalDuration < 0.180) {
+      preBufferSec += 0.005;
+      postBufferSec += 0.010;
+    }
+
+    if (removalDuration < 0.100) {
+      preBufferSec += 0.005;
+      postBufferSec += 0.010;
+    }
+  }
+
+  const audioDurationSec = Number(args.audioDurationSec);
+  const clampDurationSec = Number.isFinite(audioDurationSec) && audioDurationSec > 0
+    ? audioDurationSec
+    : (removalEndSec + postBufferSec);
+  const trimStartSec = clampToDuration(removalStartSec - preBufferSec, clampDurationSec);
+  const trimEndSec = clampToDuration(removalEndSec + postBufferSec, clampDurationSec);
+  if ((trimEndSec - trimStartSec) <= MIN_CUT_SEC) {
+    return null;
+  }
+
+  return {
+    startSec: trimStartSec,
+    endSec: trimEndSec,
+  };
+}
 
 function clampToDuration(timeSec: number, durationSec: number): number {
   if (!Number.isFinite(durationSec) || durationSec <= 0) return 0;
@@ -196,27 +249,21 @@ export function deriveAudioCutsForSubtractiveTextEdits(args: {
 
       const startRatio = beforeWordCursor / beforeWordCount;
       const endRatio = (beforeWordCursor + op.words.length) / beforeWordCount;
-      const startSec = clampToDuration(
-        Number(before.start_sec) + (segmentDurationSec * startRatio),
-        args.durationSec,
-      );
-      const endSec = clampToDuration(
-        Number(before.start_sec) + (segmentDurationSec * endRatio),
-        args.durationSec,
-      );
-      if (endSec - startSec > MIN_CUT_SEC) {
-        selections.push({ startSec, endSec });
+      const cut = computeRemovalTrimRange({
+        wordStartSec: Number(before.start_sec) + (segmentDurationSec * startRatio),
+        wordEndSec: Number(before.start_sec) + (segmentDurationSec * endRatio),
+        audioDurationSec: args.durationSec,
+        basePreBufferSec: args.padBeforeSec,
+        basePostBufferSec: args.padAfterSec,
+      });
+      if (cut) {
+        selections.push(cut);
       }
       beforeWordCursor += op.words.length;
     }
   }
 
-  return applyPaddingToSelections({
-    selections,
-    durationSec: args.durationSec,
-    padBeforeSec: args.padBeforeSec,
-    padAfterSec: args.padAfterSec,
-  });
+  return normalizeAndMerge(selections);
 }
 
 export function deriveAudioCutsForDeadAirClosure(args: {
