@@ -413,6 +413,7 @@ type HammerToolId = HammerWorkspaceToolId;
 type HammerSourceTabId = "transcript" | "images" | "assets" | "broll" | "introoutro";
 type HammerVisualToolRackId = "polish" | "images" | "broll";
 type HammerEditorMode = "transcript" | "images" | "assets" | "broll" | "intro_outro";
+type HammerVideoPanelRoute = HammerVisualToolRackId | "non_video";
 type HammerPlaybackWindowMode = "loop" | "roll";
 type HammerPlaybackWindow = {
   mode: HammerPlaybackWindowMode;
@@ -515,10 +516,43 @@ function resolveVisualToolRackFromPass(passId: HammerPassId): HammerVisualToolRa
   return "polish";
 }
 
+function editorModeToToolSelection(mode: HammerEditorMode): {
+  activeTool: HammerToolId;
+  activeVisualTool: HammerVisualToolRackId | null;
+  videoPanelRoute: HammerVideoPanelRoute;
+} {
+  switch (mode) {
+    case "transcript":
+      return { activeTool: "polish", activeVisualTool: null, videoPanelRoute: "non_video" };
+    case "images":
+      return { activeTool: "video", activeVisualTool: "images", videoPanelRoute: "images" };
+    case "assets":
+      return { activeTool: "audio", activeVisualTool: null, videoPanelRoute: "non_video" };
+    case "broll":
+      return { activeTool: "video", activeVisualTool: "broll", videoPanelRoute: "broll" };
+    case "intro_outro":
+      return { activeTool: "finishing", activeVisualTool: null, videoPanelRoute: "non_video" };
+  }
+}
+
+function mapToolToEditorMode(args: {
+  tool: HammerToolId;
+  activeVisualTool?: HammerVisualToolRackId | null;
+}): HammerEditorMode {
+  if (args.tool === "video") {
+    return args.activeVisualTool === "broll" ? "broll" : "images";
+  }
+  if (args.tool === "audio") return "assets";
+  if (args.tool === "finishing") return "intro_outro";
+  return "transcript";
+}
+
 function resolveEditorModeFromPass(passId: HammerPassId): HammerEditorMode {
   const meta = resolvePassMeta(passId);
-  if (meta.sourceTab === "introoutro") return "intro_outro";
-  return meta.sourceTab;
+  return mapToolToEditorMode({
+    tool: meta.toolId,
+    activeVisualTool: meta.toolId === "video" ? resolveVisualToolRackFromPass(passId) : null,
+  });
 }
 
 function resolveEditorModeFromSourceTab(sourceTab: HammerSourceTabId): HammerEditorMode {
@@ -2044,12 +2078,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [canonicalWorkpieceLabel, setCanonicalWorkpieceLabel] = useState<string | null>(null);
   const [visualTimelineFocusNonce, setVisualTimelineFocusNonce] = useState(0);
   const currentPassMeta = useMemo(() => resolvePassMeta(currentPass), [currentPass]);
-  const activeTool = currentPassMeta.toolId;
+  const modeToolSelection = useMemo(() => editorModeToToolSelection(editorMode), [editorMode]);
+  // TODO: DEPRECATE - derived from editorMode
+  const activeTool = currentPassMeta.toolId === "export" ? currentPassMeta.toolId : modeToolSelection.activeTool;
+  // TODO: DEPRECATE - derived from editorMode
   const selectedSourceTab = useMemo(() => editorModeToSourceTab(editorMode), [editorMode]);
+  // TODO: DEPRECATE - derived from editorMode
   const activeVisualTool = useMemo(
-    () => editorModeToVisualTool(editorMode, currentPass),
-    [editorMode, currentPass],
+    () => modeToolSelection.activeVisualTool ?? editorModeToVisualTool(editorMode, currentPass),
+    [currentPass, editorMode, modeToolSelection.activeVisualTool],
   );
+  // TODO: DEPRECATE - derived from editorMode
+  const videoPanelRoute = useMemo<HammerVideoPanelRoute>(() => {
+    if (activeTool !== "video") return "non_video";
+    return modeToolSelection.videoPanelRoute === "non_video"
+      ? activeVisualTool
+      : modeToolSelection.videoPanelRoute;
+  }, [activeTool, activeVisualTool, modeToolSelection.videoPanelRoute]);
   const editableVisualPlacements = useMemo(
     () => deriveLegacyVisualPlacementsFromTimeline(editableVisualTimeline),
     [editableVisualTimeline],
@@ -2364,9 +2409,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
-    const videoPanelRoute = activeTool === "video"
-      ? activeVisualTool
-      : "non_video";
     console.debug("[HammerModeRouting] state", {
       editorMode,
       currentPass,
@@ -2375,7 +2417,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       selectedSourceTab,
       videoPanelRoute,
     });
-  }, [activeTool, activeVisualTool, currentPass, editorMode, selectedSourceTab]);
+  }, [activeTool, activeVisualTool, currentPass, editorMode, selectedSourceTab, videoPanelRoute]);
 
   function isTextEditingTarget(target: EventTarget | null): boolean {
     if (!target) return false;
@@ -3184,11 +3226,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   useEffect(() => {
     if (isPlaybackActive || isScrubbing) return;
     if (!effectiveSelectedClipId) return;
-    if (selectedSourceTab !== "images") return;
+    if (editorMode !== "images") return;
     const node = visualPlacementCardRefs.current.get(effectiveSelectedClipId) ?? null;
     if (!node) return;
     node.scrollIntoView({ block: "nearest" });
-  }, [effectiveSelectedClipId, isPlaybackActive, isScrubbing, selectedSourceTab]);
+  }, [editorMode, effectiveSelectedClipId, isPlaybackActive, isScrubbing]);
 
   useEffect(() => {
     if (!selectedClipId) return;
