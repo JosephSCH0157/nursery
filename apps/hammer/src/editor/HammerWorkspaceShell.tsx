@@ -217,7 +217,6 @@ import {
 import {
   buildLinkedSelectionTranscriptSegmentIdSet,
   buildLinkedSelectionVisualIdSet,
-  doesTimelineSpanMatchSelection,
   resolveSelectionFromTimeline,
   resolveSelectionFromTranscript,
   resolveSelectionFromVisual,
@@ -2284,11 +2283,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     applyLinkedSelectionState({
       selection: resolveSelectionFromTranscript({
         transcriptSegments,
-        visualItems: sourceVisualPlacementItems.map((item) => ({
-          id: item.id,
-          anchorSegmentId: item.anchorSegmentId,
-          startSec: item.startSec,
-          endSec: item.endSec,
+        visualItems: (editableVisualTimeline?.clips ?? []).map((clip) => ({
+          id: clip.clip_id,
+          anchorSegmentId: clip.anchor_hint.anchor_segment_id
+            ?? clip.anchor_hint.matched_segment_ids[0]
+            ?? nextSelectedSegmentId,
+          startSec: clip.start_sec,
+          endSec: clip.end_sec,
         })),
         anchorSegmentId: nextSelectedSegmentId,
         focusSegmentId: nextSelectedSegmentId,
@@ -2297,11 +2298,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       clearTranscriptTextRange: true,
     });
   }, [
+    editableVisualTimeline?.clips,
     launchContext.workspace_id,
     launchContext.workpiece_id,
     props.initialCurrentPass,
     props.initialSelectedSegmentId,
-    sourceVisualPlacementItems,
     transcriptSegments,
   ]);
 
@@ -3717,7 +3718,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const nextRevealTime = nextSelection?.timeRange?.startSec ?? placement?.startSec ?? null;
     applyLinkedSelectionState({
       selection: nextSelection,
-      origin: args.origin === "tool_window" ? "timeline" : args.origin,
+      origin: args.origin === "preview"
+        ? "playhead"
+        : "timeline",
       focusOverride: "time-focus",
       clearTranscriptTextRange: true,
       seekTimeSec: args.snapPlayhead === false ? null : nextRevealTime,
