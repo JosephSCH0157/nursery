@@ -412,6 +412,7 @@ const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
 type HammerToolId = HammerWorkspaceToolId;
 type HammerSourceTabId = "transcript" | "images" | "assets" | "broll" | "introoutro";
 type HammerVisualToolRackId = "polish" | "images" | "broll";
+type HammerEditorMode = "transcript" | "images" | "assets" | "broll" | "intro_outro";
 type HammerPlaybackWindowMode = "loop" | "roll";
 type HammerPlaybackWindow = {
   mode: HammerPlaybackWindowMode;
@@ -512,6 +513,45 @@ function resolveVisualToolRackFromPass(passId: HammerPassId): HammerVisualToolRa
   if (passId === "image_placement") return "images";
   if (passId === "image_animation") return "broll";
   return "polish";
+}
+
+function resolveEditorModeFromPass(passId: HammerPassId): HammerEditorMode {
+  const meta = resolvePassMeta(passId);
+  if (meta.sourceTab === "introoutro") return "intro_outro";
+  return meta.sourceTab;
+}
+
+function resolveEditorModeFromSourceTab(sourceTab: HammerSourceTabId): HammerEditorMode {
+  if (sourceTab === "introoutro") return "intro_outro";
+  return sourceTab;
+}
+
+function editorModeToSourceTab(mode: HammerEditorMode): HammerSourceTabId {
+  return mode === "intro_outro" ? "introoutro" : mode;
+}
+
+function editorModeToVisualTool(mode: HammerEditorMode, currentPass: HammerPassId): HammerVisualToolRackId {
+  if (mode === "broll") return "broll";
+  if (mode === "images") {
+    return currentPass === "visual_finishing" ? "polish" : "images";
+  }
+  return resolveVisualToolRackFromPass(currentPass);
+}
+
+function resolveRepresentativePassForEditorMode(mode: HammerEditorMode): HammerPassId {
+  if (mode === "transcript") {
+    return "transcript_cleanup";
+  }
+  if (mode === "images") {
+    return "image_placement";
+  }
+  if (mode === "assets") {
+    return "audio_finalization";
+  }
+  if (mode === "broll") {
+    return "image_animation";
+  }
+  return "packaging";
 }
 
 function normalizePassStatus(
@@ -1736,11 +1776,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     ?? (launchContext.transcript.kind === "tongs-stub" ? launchContext.transcript.transcript_id : "runtime-transcript");
 
   const initialCurrentPass = resolveInitialPassId(props.initialCurrentPass);
-  const initialPassMeta = resolvePassMeta(initialCurrentPass);
   const [currentPass, setCurrentPass] = useState<HammerPassId>(initialCurrentPass);
   const [passStatus, setPassStatus] = useState<HammerPassStatusMap>(() => deriveHydratedPassStatus(initialCurrentPass));
-  const [selectedSourceTab, setSelectedSourceTab] = useState<HammerSourceTabId>(initialPassMeta.sourceTab);
-  const [activeVisualTool, setActiveVisualTool] = useState<HammerVisualToolRackId>(() => resolveVisualToolRackFromPass(initialCurrentPass));
+  const [editorMode, setEditorMode] = useState<HammerEditorMode>(() => resolveEditorModeFromPass(initialCurrentPass));
   const [selectedVisualFlowStep, setSelectedVisualFlowStep] = useState<HammerVisualFlowStepId>("media_map");
   const [selectedBoundBrollOperationId, setSelectedBoundBrollOperationId] = useState<string | null>(null);
   const [editableDerivedTextLayers, setEditableDerivedTextLayers] = useState<
@@ -2007,6 +2045,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [visualTimelineFocusNonce, setVisualTimelineFocusNonce] = useState(0);
   const currentPassMeta = useMemo(() => resolvePassMeta(currentPass), [currentPass]);
   const activeTool = currentPassMeta.toolId;
+  const selectedSourceTab = useMemo(() => editorModeToSourceTab(editorMode), [editorMode]);
+  const activeVisualTool = useMemo(
+    () => editorModeToVisualTool(editorMode, currentPass),
+    [editorMode, currentPass],
+  );
   const editableVisualPlacements = useMemo(
     () => deriveLegacyVisualPlacementsFromTimeline(editableVisualTimeline),
     [editableVisualTimeline],
@@ -2176,9 +2219,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const nextSelectedSegmentId = resolveSelectedSegmentId(transcriptSegments, props.initialSelectedSegmentId ?? null);
     setCurrentPass(nextInitialPass);
     setPassStatus(deriveHydratedPassStatus(nextInitialPass));
-    const nextMeta = resolvePassMeta(nextInitialPass);
-    setActiveVisualTool(resolveVisualToolRackFromPass(nextInitialPass));
-    setSelectedSourceTab(nextMeta.sourceTab);
+    setEditorMode(resolveEditorModeFromPass(nextInitialPass));
     setSelectedSegmentId(nextSelectedSegmentId);
     setTranscriptSelectionAnchorSegmentId(nextSelectedSegmentId);
     setTranscriptSelectionFocusSegmentId(nextSelectedSegmentId);
@@ -2256,6 +2297,27 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     menuNode.style.top = `${clampedTop}px`;
   }, [imageAnimationContextMenu]);
 
+  const selectEditorMode = useCallback((nextMode: HammerEditorMode, options?: {
+    preferredPass?: HammerPassId;
+    focusOverride?: HammerWorkspaceFocusOverride;
+  }) => {
+    setEditorMode(nextMode);
+    const targetPass = options?.preferredPass ?? resolveRepresentativePassForEditorMode(nextMode);
+    if (targetPass !== currentPass) {
+      setCurrentPass(targetPass);
+      setPassStatus((previous) => {
+        const normalized = normalizePassStatus(previous, targetPass);
+        if (normalized[targetPass] === "not_started") {
+          normalized[targetPass] = "in_progress";
+        }
+        return normalized;
+      });
+    }
+    if (options?.focusOverride) {
+      setFocusOverride(options.focusOverride);
+    }
+  }, [currentPass]);
+
   function selectPass(passId: HammerPassId): void {
     const nextPassResult = getPassStatus(passId, passSelectorContext);
     if (!canEnterPass(passId, passSelectorContext)) {
@@ -2277,12 +2339,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       });
     }
     setCurrentPass(passId);
-    if (nextMeta.toolId === "video") {
-      setActiveVisualTool(resolveVisualToolRackFromPass(passId));
-    }
-    if (selectedSourceTab !== nextMeta.sourceTab) {
-      setSelectedSourceTab(nextMeta.sourceTab);
-    }
+    setEditorMode(resolveEditorModeFromPass(passId));
     setPassStatus((previous) => {
       const normalized = normalizePassStatus(previous, passId);
       if (normalized[passId] === "not_started") {
@@ -2294,14 +2351,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }
 
   function selectVisualTool(nextTool: HammerVisualToolRackId): void {
-    setActiveVisualTool(nextTool);
-    if (nextTool === "images" && selectedSourceTab !== "images") {
-      setSelectedSourceTab("images");
+    if (nextTool === "polish") {
+      selectEditorMode("images", { preferredPass: "visual_finishing", focusOverride: "tool-focus" });
+      return;
     }
-    if (nextTool === "broll" && selectedSourceTab !== "broll") {
-      setSelectedSourceTab("broll");
+    if (nextTool === "images") {
+      selectEditorMode("images", { preferredPass: "image_placement", focusOverride: "tool-focus" });
+      return;
     }
-    setFocusOverride("tool-focus");
+    selectEditorMode("broll", { preferredPass: "image_animation", focusOverride: "tool-focus" });
   }
 
   useEffect(() => {
@@ -2310,13 +2368,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       ? activeVisualTool
       : "non_video";
     console.debug("[HammerModeRouting] state", {
+      editorMode,
       currentPass,
       activeTool,
       activeVisualTool,
       selectedSourceTab,
       videoPanelRoute,
     });
-  }, [activeTool, activeVisualTool, currentPass, selectedSourceTab]);
+  }, [activeTool, activeVisualTool, currentPass, editorMode, selectedSourceTab]);
 
   function isTextEditingTarget(target: EventTarget | null): boolean {
     if (!target) return false;
@@ -3446,7 +3505,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const startSec = placement?.startSec ?? null;
 
     if (args.revealUI && placement) {
-      setSelectedSourceTab(placement.kind === "image" ? "images" : "broll");
+      selectEditorMode(placement.kind === "image" ? "images" : "broll", {
+        preferredPass: placement.kind === "image" ? "image_placement" : "image_animation",
+      });
     }
 
     selectionOriginRef.current = "timeline";
@@ -3470,9 +3531,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     seekPlayheadToTime,
     setSelectedClipId,
     setSelectedSegmentId,
-    setSelectedSourceTab,
     setTranscriptSelectionAnchorSegmentId,
     setTranscriptSelectionFocusSegmentId,
+    selectEditorMode,
   ]);
   const dialogueLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (
     editableTranscriptSegments.map((segment) => ({
@@ -9687,7 +9748,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         id: tab.id,
         label: tab.label,
         isActive: selectedSourceTab === tab.id,
-        onSelect: () => setSelectedSourceTab(tab.id),
+        onSelect: () => selectEditorMode(resolveEditorModeFromSourceTab(tab.id), { focusOverride: "source-focus" }),
       })),
       sourceDeskLoading,
       sourceDeskError: sourceDeskError
@@ -9864,6 +9925,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     selectedSegmentId,
     selectedSourceTab,
     selectedVisualFlowStep,
+    selectEditorMode,
     setFocusOverride,
     setTranscriptTimingHint,
     selectOutputLayerForExport,
