@@ -37,6 +37,16 @@ async function testFillerRemovalDeterministic() {
   assert.equal(preview.resultSegments[0]?.text.includes("um"), false);
 }
 
+async function testFillerRemovalCleansPunctuationRemnants() {
+  const segments = [
+    s("a", 0, 1.4, "Host", "It was, like, honestly surprising."),
+    s("b", 1.4, 2.8, "Host", "Well - you know - we should go."),
+  ];
+  const preview = previewRemoveFillers(segments, { aggressiveness: "strong", protectIntentionalPhrasing: false });
+  assert.equal(preview.resultSegments[0]?.text, "It was, honestly surprising.");
+  assert.equal(preview.resultSegments[1]?.text, "Well we should go.");
+}
+
 async function testFillerRemovalCanRemoveFillerOnlySegment() {
   const segments = [
     s("a", 0, 0.8, "Host", "Um."),
@@ -453,6 +463,7 @@ async function testCleanupExecutionDerivesAudioCutsForDeadAirClosure() {
 async function run() {
   await testShortenGapsDeterministic();
   await testFillerRemovalDeterministic();
+  await testFillerRemovalCleansPunctuationRemnants();
   await testFillerRemovalCanRemoveFillerOnlySegment();
   await testRetakeRemovalDeterministic();
   await testRetakeRemovalCatchesStartThatAgainMarkerOnly();

@@ -208,17 +208,53 @@ function buildFillerDictionary(level: FillerCleanupOptions["aggressiveness"]): s
   return FILLERS_LIGHT;
 }
 
+function escapeFillerPhraseForRegex(phrase: string): string {
+  return phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+}
+
+function buildFillerPatterns(phrase: string): RegExp[] {
+  const escaped = escapeFillerPhraseForRegex(phrase);
+  return [
+    new RegExp(`^\\s*${escaped}\\b[\\s,;:.-]*`, "i"),
+    new RegExp(`([,;:-]\\s*)${escaped}\\b(?=(\\s*[,;:-]|\\s|$))`, "i"),
+    new RegExp(`\\b${escaped}\\b(?=\\s*[,;:-])`, "i"),
+    new RegExp(`\\b${escaped}\\b`, "i"),
+  ];
+}
+
+function cleanFillerWhitespace(text: string): string {
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/(^|[\s([{])[,;:-]+(?=\s|$)/g, "$1")
+    .replace(/([,;:-])\s*([,;:-])+/g, "$1")
+    .replace(/\s+([,.;!?])/g, "$1")
+    .replace(/\(\s+/g, "(")
+    .replace(/\s+\)/g, ")")
+    .trim();
+}
+
 function cleanFillerText(text: string, dictionary: string[]): { text: string; removed: number } {
   let next = text;
   let removed = 0;
   for (const phrase of dictionary) {
-    const pattern = new RegExp(`\\b${phrase.replace(/\s+/g, "\\s+")}\\b`, "gi");
-    next = next.replace(pattern, () => {
-      removed += 1;
-      return "";
-    });
+    let mutated = true;
+    while (mutated) {
+      mutated = false;
+      for (const pattern of buildFillerPatterns(phrase)) {
+        const match = pattern.exec(next);
+        if (!match || match.index == null) continue;
+        const fullMatch = match[0];
+        const start = match.index;
+        const end = start + fullMatch.length;
+        const leadingPunctuation = typeof match[1] === "string" ? match[1] : null;
+        next = `${next.slice(0, start)}${leadingPunctuation ?? " "}${next.slice(end)}`;
+        removed += 1;
+        mutated = true;
+        break;
+      }
+    }
   }
-  next = next.replace(/\s{2,}/g, " ").replace(/\s+([,.;!?])/g, "$1").trim();
+  next = cleanFillerWhitespace(next);
   return { text: next, removed };
 }
 
