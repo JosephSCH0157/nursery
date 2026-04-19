@@ -214,6 +214,91 @@ function buildTargetKey(workspaceId: string, workpieceId: string): string {
   return `${workspaceId}:${workpieceId}`;
 }
 
+function buildAutosavePayloadKey(args: {
+  target: HammerPersistenceTarget;
+  revisionId: string;
+  request: {
+    editor_session?: { data: unknown };
+    revision_transcript?: { data: unknown };
+    audio_polish?: { data: unknown };
+    visual_timeline?: { data: unknown };
+    visual_placements?: { data: unknown };
+  };
+  persistenceRequest: Pick<HammerPersistenceSaveRequest, "editorial_authority" | "active_session_id" | "last_opened_at">;
+}): string {
+  return JSON.stringify({
+    target: args.target,
+    revisionId: args.revisionId,
+    request: args.request,
+    persistenceRequest: args.persistenceRequest,
+  });
+}
+
+function stripEditorSessionOpenMetadata(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const row = value as Record<string, unknown>;
+  return {
+    ...row,
+    last_opened_at: null,
+  };
+}
+
+function buildHydrationNoopFingerprint(args: {
+  target: HammerPersistenceTarget;
+  revisionId: string;
+  request: {
+    editor_session?: { data: unknown };
+    revision_transcript?: { data: unknown };
+    audio_polish?: { data: unknown };
+    visual_timeline?: { data: unknown };
+    visual_placements?: { data: unknown };
+  };
+  persistenceRequest: Pick<HammerPersistenceSaveRequest, "editorial_authority">;
+}): string {
+  return JSON.stringify({
+    target: args.target,
+    revisionId: args.revisionId,
+    editor_session: args.request.editor_session
+      ? { data: stripEditorSessionOpenMetadata(args.request.editor_session.data) }
+      : null,
+    revision_transcript: args.request.revision_transcript ?? null,
+    audio_polish: args.request.audio_polish ?? null,
+    visual_timeline: args.request.visual_timeline ?? null,
+    visual_placements: args.request.visual_placements ?? null,
+    editorial_authority: args.persistenceRequest.editorial_authority ?? null,
+  });
+}
+
+function buildPersistedHydrationNoopFingerprint(args: {
+  target: HammerPersistenceTarget;
+  revisionId: string;
+  snapshot: HammerPersistenceSnapshot | null;
+}): string | null {
+  if (!args.snapshot) return null;
+  return JSON.stringify({
+    target: args.target,
+    revisionId: args.revisionId,
+    editor_session: args.snapshot.editor_session.data
+      ? { data: stripEditorSessionOpenMetadata(args.snapshot.editor_session.data) }
+      : null,
+    revision_transcript: args.snapshot.structured_transcript.data
+      ? { data: args.snapshot.structured_transcript.data }
+      : null,
+    audio_polish: args.snapshot.audio_polish.data
+      ? { data: args.snapshot.audio_polish.data }
+      : null,
+    visual_timeline: args.snapshot.visual_timeline.data
+      ? { data: args.snapshot.visual_timeline.data }
+      : null,
+    visual_placements: args.snapshot.visual_placements.data
+      ? { data: args.snapshot.visual_placements.data }
+      : null,
+    editorial_authority: args.snapshot.editorial_authority.data
+      ? { data: args.snapshot.editorial_authority.data }
+      : null,
+  });
+}
+
 function toErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   if (typeof error === "string" && error.trim()) return error;
@@ -2564,12 +2649,33 @@ export default function HammerWorkspaceEditor(
       editorial_authority: legacyRequest.editorial_authority,
     };
 
-    const payloadKey = JSON.stringify({
+    const payloadKey = buildAutosavePayloadKey({
       target: persistenceTarget,
       revisionId: activeRevision.id,
       request,
       persistenceRequest,
     });
+
+    if (lastSavedPayloadRef.current == null) {
+      const hydratedNoopFingerprint = buildHydrationNoopFingerprint({
+        target: persistenceTarget,
+        revisionId: activeRevision.id,
+        request,
+        persistenceRequest,
+      });
+      const persistedNoopFingerprint = buildPersistedHydrationNoopFingerprint({
+        target: persistenceTarget,
+        revisionId: activeRevision.id,
+        snapshot: loadedPersistenceSnapshot,
+      });
+
+      if (persistedNoopFingerprint && hydratedNoopFingerprint === persistedNoopFingerprint) {
+        lastSavedPayloadRef.current = payloadKey;
+        setHasPendingSaveChanges(false);
+        pendingSaveRef.current = null;
+        return;
+      }
+    }
 
     if (payloadKey === lastSavedPayloadRef.current) {
       setHasPendingSaveChanges(false);
