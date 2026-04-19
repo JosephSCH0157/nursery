@@ -1782,12 +1782,25 @@ export default function HammerWorkspaceEditor(
         setShowPreparedHandoff(false);
         setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
       }
-      if (!effectiveLaunchContext || effectiveLaunchContext.transcript.kind !== "tongs-stub") {
+      const stubReuseLaunchContext = (
+        effectiveLaunchContext
+        && effectiveLaunchContext.transcript.kind === "tongs-stub"
+        && effectiveOpenDecision.reason === "reuse_stub_transcript"
+      )
+        ? effectiveLaunchContext
+        : null;
+
+      if (!stubReuseLaunchContext) {
         setPrepState(effectiveOpenDecision.state);
         setShowPreparedHandoff(true);
         return;
       }
-      const reusableTranscript = effectiveLaunchContext.transcript;
+      if (stubReuseLaunchContext.transcript.kind !== "tongs-stub") {
+        setPrepState(effectiveOpenDecision.state);
+        setShowPreparedHandoff(true);
+        return;
+      }
+      const reusableTranscript = stubReuseLaunchContext.transcript;
 
       const reuseRunKey = `${targetKey ?? "hammer"}:reuse:${reusableTranscript.transcript_id}:${prepAttemptNonce}`;
       if (prepRunKeyRef.current === reuseRunKey) {
@@ -1800,9 +1813,7 @@ export default function HammerWorkspaceEditor(
 
       if (ingestLog.enabled) {
         const launchHasStubTranscript = Boolean(
-          effectiveLaunchContext
-          && effectiveLaunchContext.transcript.kind === "tongs-stub"
-          && effectiveLaunchContext.transcript.segments.length > 0,
+          stubReuseLaunchContext.transcript.segments.length > 0,
         );
         const prepStatusWasOverridden = prepState.status === "prep_failed";
         const prepStatusForLog = prepStatusWasOverridden ? "preparing" : prepState.status;
@@ -1826,8 +1837,8 @@ export default function HammerWorkspaceEditor(
           prep_status_overridden: prepStatusWasOverridden,
           prep_attempt_nonce: prepAttemptNonce,
           ai_fallback_requested: prepAiFallbackRequested,
-          workspace_id: effectiveLaunchContext.workspace_id,
-          workpiece_id: effectiveLaunchContext.workpiece_id,
+          workspace_id: stubReuseLaunchContext.workspace_id,
+          workpiece_id: stubReuseLaunchContext.workpiece_id,
           target_key: targetKey,
           snapshot_has_transcript: Boolean(loadedPersistenceSnapshot?.structured_transcript.data?.segments.length) || launchHasStubTranscript,
           snapshot_audio_polish_status: loadedPersistenceSnapshot?.audio_polish.data?.status ?? null,
@@ -1851,8 +1862,8 @@ export default function HammerWorkspaceEditor(
       const run = ingestLog.run("reuse_stub_transcript", {
         run_key: reuseRunKey,
         execution_id: executionId,
-        workspace_id: effectiveLaunchContext.workspace_id,
-        workpiece_id: effectiveLaunchContext.workpiece_id,
+        workspace_id: stubReuseLaunchContext.workspace_id,
+        workpiece_id: stubReuseLaunchContext.workpiece_id,
         transcript_id: reusableTranscript.transcript_id,
       });
 
@@ -1868,7 +1879,7 @@ export default function HammerWorkspaceEditor(
         try {
           const visualsSpan = run.span("visual_placements:ensure");
           let nextSnapshot = await ensureVisualPlacements({
-            launchContext: effectiveLaunchContext,
+            launchContext: stubReuseLaunchContext,
             transcriptSourceId: reusableTranscript.transcript_id,
             transcriptSegments: loadedPersistenceSnapshot?.structured_transcript.data?.segments
               ?? reusableTranscript.segments,
@@ -1884,7 +1895,7 @@ export default function HammerWorkspaceEditor(
           try {
             const audioSpan = run.span("audio_polish:ensure");
             nextSnapshot = await ensureAudioPolish({
-              launchContext: effectiveLaunchContext,
+              launchContext: stubReuseLaunchContext,
               currentSnapshot: nextSnapshot,
               onPhaseChange: (phase) => {
                 if (!isPrepExecutionActive(executionId)) return;

@@ -3606,6 +3606,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     seekTimeSec?: number | null;
     revealTimeSec?: number | null;
     clearTranscriptTextRange?: boolean;
+    syncSelectedClip?: boolean;
   }): void {
     selectionOriginRef.current = args.origin;
     setLinkedSelection(args.selection);
@@ -3622,7 +3623,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setSelectedSegmentId(nextAnchorSegmentId);
     setTranscriptSelectionAnchorSegmentId(transcriptSegmentIds[0] ?? nextAnchorSegmentId);
     setTranscriptSelectionFocusSegmentId(nextFocusSegmentId);
-    setSelectedClipId(args.selection?.primaryVisualId ?? null);
+    const shouldSyncSelectedClip = args.syncSelectedClip
+      ?? (args.origin === "timeline" || args.origin === "playhead");
+    if (shouldSyncSelectedClip) {
+      setSelectedClipId(args.selection?.primaryVisualId ?? null);
+    }
 
     if (Object.prototype.hasOwnProperty.call(args, "transcriptTextRange")) {
       selectedTranscriptRangeDetailRef.current = args.transcriptTextRange ?? null;
@@ -3934,6 +3939,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       appendUniquePaths(next, paths);
       return areStringArraysEqual(current, next) ? current : next;
     });
+  }, []);
+  const reportSourceDeskPreviewLoadError = useCallback((rawPath: string): void => {
+    const path = rawPath.trim();
+    if (!path) return;
+    setSourceDeskPreviewUrls((current) => {
+      const existing = current[path];
+      if (!existing) return current;
+      const next = { ...current };
+      delete next[path];
+      URL.revokeObjectURL(existing);
+      return next;
+    });
+    setSourceDeskPreviewFailures((current) => (
+      current[path]
+        ? current
+        : { ...current, [path]: true }
+    ));
   }, []);
   const reportVisibleSourceDeskPreviewPaths = useCallback((paths: string[]): void => {
     setSourceDeskVisiblePreviewPaths((current) => (areStringArraysEqual(current, paths) ? current : paths));
@@ -10220,6 +10242,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       sourceDeskPreviewPendingPathSet,
       sourceDeskRemainingPreviewCount: sourceDeskRemainingPreviewPaths.length,
       requestSourceDeskPreviews,
+      reportSourceDeskPreviewLoadError,
       loadRemainingSourceDeskPreviews: () => requestSourceDeskPreviews(sourceDeskRemainingPreviewPaths),
       reportVisibleSourceDeskPreviewPaths,
       imageUploadInputRef,
@@ -10351,6 +10374,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     referenceClipPlannedBeats,
     seekPlayheadToTime,
     sourceDeskPreviewUrls,
+    reportSourceDeskPreviewLoadError,
     updateTranscriptSegmentSpeaker,
     sourceDeskPreviewFailures,
     brollUploadInputRef,

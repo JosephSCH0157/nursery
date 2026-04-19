@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
 
 export type UseHammerWorkspaceShellSourceDeskPreviewsArgs = {
@@ -35,6 +35,8 @@ function resolveSourceDeskPreviewDebugEnabled(): boolean {
 }
 
 export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspaceShellSourceDeskPreviewsArgs): void {
+  const previewUrlsRef = useRef<Record<string, string>>({});
+
   useEffect(() => {
     if (args.paused) {
       return () => {
@@ -161,7 +163,13 @@ export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspa
     };
   }, [args.workpieceId, args.fetchKey, args.paused, args.previewFailures, args.previewUrls]);
 
-  useEffect(() => () => {
-    for (const url of Object.values(args.previewUrls)) URL.revokeObjectURL(url);
+  useEffect(() => {
+    previewUrlsRef.current = args.previewUrls;
   }, [args.previewUrls]);
+
+  useEffect(() => () => {
+    for (const url of Object.values(previewUrlsRef.current)) {
+      URL.revokeObjectURL(url);
+    }
+  }, []);
 }

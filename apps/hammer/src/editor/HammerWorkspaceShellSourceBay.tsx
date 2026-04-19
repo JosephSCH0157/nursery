@@ -501,6 +501,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const sourceDeskPreviewPendingPathSet = ctx.sourceDeskPreviewPendingPathSet as Set<string>;
   const sourceDeskRemainingPreviewCount = ctx.sourceDeskRemainingPreviewCount as number;
   const requestSourceDeskPreviews = ctx.requestSourceDeskPreviews as (paths: Array<string | null | undefined>) => void;
+  const reportSourceDeskPreviewLoadError = ctx.reportSourceDeskPreviewLoadError as ((path: string) => void) | undefined;
   const loadRemainingSourceDeskPreviews = ctx.loadRemainingSourceDeskPreviews as () => void;
   const reportVisibleSourceDeskPreviewPaths = ctx.reportVisibleSourceDeskPreviewPaths as ((paths: string[]) => void) | undefined;
   const imageUsageByPath = ctx.imageUsageByPath as Map<string, any>;
@@ -587,6 +588,11 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
           className="hammer-source-card__thumb"
           src={sourceDeskPreviewUrls[assetPath]}
           alt={args.label}
+          onError={() => {
+            if (assetPath && reportSourceDeskPreviewLoadError) {
+              reportSourceDeskPreviewLoadError(assetPath);
+            }
+          }}
         />
       );
     }
