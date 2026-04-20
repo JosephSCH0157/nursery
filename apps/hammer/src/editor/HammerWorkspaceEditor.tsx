@@ -184,6 +184,56 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const READY_HANDOFF_DELAY_MS = 320;
 const SAVE_DEBOUNCE_MS = 400;
 const PREP_DUPLICATE_KICK_WINDOW_MS = 2_000;
+const CANONICAL_OPEN_DEDUPE_WINDOW_MS = 4_000;
+
+type HammerCanonicalOpenHydrationResult = {
+  reloadOutcome: "success" | "failure";
+  effectiveLaunchContext?: HammerLaunchContext;
+  hasCanonicalBasis: boolean;
+  loadedPersistenceSnapshot: HammerPersistenceSnapshot | null;
+  activeCanonicalRecording: HammerCanonicalRecordingRecord | null;
+  activeRevision: HammerRecordingRevisionRecord | null;
+  prepFailureMessage: string | null;
+  prepFailureKind: "ai_failed" | null;
+};
+
+function getSharedCanonicalOpenHydrationPromise(args: {
+  key: string;
+  factory: () => Promise<HammerCanonicalOpenHydrationResult>;
+}): Promise<HammerCanonicalOpenHydrationResult> {
+  if (typeof window === "undefined") {
+    return args.factory();
+  }
+
+  const runtime = window as unknown as Record<string, unknown>;
+  const raw = runtime.__forgeHammerCanonicalOpenLedger__;
+  const ledger = (raw && typeof raw === "object" && !Array.isArray(raw))
+    ? raw as Record<string, { startedAt: number; promise: Promise<HammerCanonicalOpenHydrationResult> }>
+    : {};
+  runtime.__forgeHammerCanonicalOpenLedger__ = ledger;
+
+  const now = Date.now();
+  const existing = ledger[args.key];
+  if (existing && Number.isFinite(existing.startedAt) && (now - existing.startedAt) < CANONICAL_OPEN_DEDUPE_WINDOW_MS) {
+    return existing.promise;
+  }
+
+  const promise = args.factory().finally(() => {
+    const current = ledger[args.key];
+    if (current?.promise === promise) {
+      window.setTimeout(() => {
+        if (ledger[args.key]?.promise === promise) {
+          delete ledger[args.key];
+        }
+      }, CANONICAL_OPEN_DEDUPE_WINDOW_MS);
+    }
+  });
+  ledger[args.key] = {
+    startedAt: now,
+    promise,
+  };
+  return promise;
+}
 
 function shouldSkipDuplicatePrepKick(runKey: string): boolean {
   if (typeof window === "undefined") return false;
@@ -1216,68 +1266,68 @@ export default function HammerWorkspaceEditor(
     }
 
     ingestPointerSelfHealAttemptedRef.current = false;
-    ingestCorrelationIdRef.current = typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `ingest_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    ingestDiagnosticRef.current = {
-      schema_version: 1,
-      timestamp: new Date().toISOString(),
-      workspace_id: persistenceTarget.workspaceId,
-      workpiece_id: persistenceTarget.workpieceId,
-      revision_id: null,
-      canonical_recording_id: null,
-      final_status: "blocked",
-      prep_source: null,
-      transcript_sources_evaluated: [],
-      pointers: {
-        transcript_artifact_path: null,
-        revision_transcript_path: null,
-        baseline_transcript_path: null,
-      },
-      pointer_self_heal: {
-        attempted: false,
-        definitive_failure: false,
-        action: "none",
-        reason: null,
-      },
-      seal: {
-        attempted: false,
-        outcome: "skipped",
-      },
-      request_ids: {},
-      extra: {
-        phase: "pipeline_start",
-        opened_at: openedAtRef.current,
-      },
-    };
-    void writeHammerIngestDiagnostics({
-      workpieceId: persistenceTarget.workpieceId,
-      diagnostic: ingestDiagnosticRef.current,
-      correlationId: ingestCorrelationIdRef.current,
-    });
 
     let active = true;
     setHydrationReady(false);
     setHasCanonicalBasis(Boolean(props.launchContext));
     setPrepState(createHammerPrepState("preparing", "loading_context"));
 
-    void openHammerRecordingSession(persistenceTarget)
-      .then(async (sessionResult) => {
-        if (!active) return;
+    const canonicalOpenKey = `${targetKey ?? "hammer"}:reload:${reloadRequestNonce}`;
+    const runCanonicalOpenHydration = async (): Promise<HammerCanonicalOpenHydrationResult> => {
+        ingestPointerSelfHealAttemptedRef.current = false;
+        ingestCorrelationIdRef.current = typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `ingest_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        ingestDiagnosticRef.current = {
+          schema_version: 1,
+          timestamp: new Date().toISOString(),
+          workspace_id: persistenceTarget.workspaceId,
+          workpiece_id: persistenceTarget.workpieceId,
+          revision_id: null,
+          canonical_recording_id: null,
+          final_status: "blocked",
+          prep_source: null,
+          transcript_sources_evaluated: [],
+          pointers: {
+            transcript_artifact_path: null,
+            revision_transcript_path: null,
+            baseline_transcript_path: null,
+          },
+          pointer_self_heal: {
+            attempted: false,
+            definitive_failure: false,
+            action: "none",
+            reason: null,
+          },
+          seal: {
+            attempted: false,
+            outcome: "skipped",
+          },
+          request_ids: {},
+          extra: {
+            phase: "pipeline_start",
+            opened_at: openedAtRef.current,
+          },
+        };
+        void writeHammerIngestDiagnostics({
+          workpieceId: persistenceTarget.workpieceId,
+          diagnostic: ingestDiagnosticRef.current,
+          correlationId: ingestCorrelationIdRef.current,
+        });
 
         let nextLaunchContext = withSessionId(props.launchContext);
         let nextHasCanonicalBasis = Boolean(nextLaunchContext);
 
         let hydratedSnapshot: HammerPersistenceSnapshot | null = null;
+        let nextActiveCanonicalRecording: HammerCanonicalRecordingRecord | null = null;
+        let nextActiveRevision: HammerRecordingRevisionRecord | null = null;
 
+        const sessionResult = await openHammerRecordingSession(persistenceTarget);
         if (!sessionResult.ok) {
           const message = mapSessionOpenErrorToUserMessage({
             code: sessionResult.error_code ?? null,
             message: sessionResult.error,
           });
-          setPrepState(createHammerPrepState("prep_failed", null, message));
-          setPrepFailureKind("ai_failed");
-          setHasCanonicalBasis(false);
           if (ingestDiagnosticRef.current) {
             ingestDiagnosticRef.current.final_status = "blocked";
             ingestDiagnosticRef.current.timestamp = new Date().toISOString();
@@ -1294,13 +1344,21 @@ export default function HammerWorkspaceEditor(
               correlationId: ingestCorrelationIdRef.current,
             });
           }
-          setHydrationReady(true);
-          return;
+          return {
+            reloadOutcome: "success",
+            effectiveLaunchContext: nextLaunchContext,
+            hasCanonicalBasis: false,
+            loadedPersistenceSnapshot: null,
+            activeCanonicalRecording: null,
+            activeRevision: null,
+            prepFailureMessage: message,
+            prepFailureKind: "ai_failed",
+          };
         }
 
         if (sessionResult.ok) {
-          setActiveCanonicalRecording(sessionResult.data.canonical_recording);
-          setActiveRevision(sessionResult.data.revision);
+          nextActiveCanonicalRecording = sessionResult.data.canonical_recording;
+          nextActiveRevision = sessionResult.data.revision;
           if (ingestDiagnosticRef.current) {
             ingestDiagnosticRef.current.canonical_recording_id = sessionResult.data.canonical_recording.id;
             ingestDiagnosticRef.current.revision_id = sessionResult.data.revision.id;
@@ -1494,7 +1552,6 @@ export default function HammerWorkspaceEditor(
             revisionVisualPlacements,
           });
           hydratedSnapshot = nextHydratedSnapshot;
-          setLoadedPersistenceSnapshot(nextHydratedSnapshot);
 
           const openHydration = hydrateHammerOpenLaunchContext({
             target: persistenceTarget,
@@ -1540,9 +1597,40 @@ export default function HammerWorkspaceEditor(
           }
         }
 
+        return {
+          reloadOutcome: "success",
+          effectiveLaunchContext: nextLaunchContext,
+          hasCanonicalBasis: nextHasCanonicalBasis,
+          loadedPersistenceSnapshot: hydratedSnapshot,
+          activeCanonicalRecording: nextActiveCanonicalRecording,
+          activeRevision: nextActiveRevision,
+          prepFailureMessage: null,
+          prepFailureKind: null,
+        };
+    };
+
+    void getSharedCanonicalOpenHydrationPromise({
+      key: canonicalOpenKey,
+      factory: runCanonicalOpenHydration,
+    })
+      .then((result) => {
         if (!active) return;
+
+        if (result.activeCanonicalRecording) {
+          setActiveCanonicalRecording(result.activeCanonicalRecording);
+        }
+        if (result.activeRevision) {
+          setActiveRevision(result.activeRevision);
+        }
+        if (result.loadedPersistenceSnapshot) {
+          setLoadedPersistenceSnapshot(result.loadedPersistenceSnapshot);
+        }
+        if (result.prepFailureMessage) {
+          setPrepState(createHammerPrepState("prep_failed", null, result.prepFailureMessage));
+        }
+        setPrepFailureKind(result.prepFailureKind);
         startTransition(() => {
-          setEffectiveLaunchContext(nextLaunchContext);
+          setEffectiveLaunchContext(result.effectiveLaunchContext);
         });
         applyHostLoopState(resolveHammerReloadSuccess({
           hasPendingSaveChanges,
@@ -1550,21 +1638,12 @@ export default function HammerWorkspaceEditor(
           historyRecoveryStatus,
           presenceConflictDetail,
         }));
-        setHasCanonicalBasis(nextHasCanonicalBasis);
+        setHasCanonicalBasis(result.hasCanonicalBasis);
         setHydrationReady(true);
       })
       .catch(async (error) => {
         if (!active) return;
 
-        let nextLaunchContext = withSessionId(props.launchContext);
-        let nextHasCanonicalBasis = Boolean(nextLaunchContext);
-
-        if (!nextLaunchContext) {
-          try {
-            nextLaunchContext = withSessionId(
-              (await loadCanonicalBootstrapLaunchContext(
-                persistenceTarget.workspaceId,
-                persistenceTarget.workpieceId,
               )) ?? undefined,
             );
             nextHasCanonicalBasis = Boolean(nextLaunchContext);
@@ -1605,7 +1684,19 @@ export default function HammerWorkspaceEditor(
     return () => {
       active = false;
     };
-  }, [persistenceMode, persistenceTarget, props.launchContext, reloadRequestNonce]);
+  }, [
+    beginPrepExecution,
+    clearReadyTransitionTimer,
+    hasPendingSaveChanges,
+    historyRecoveryStatus,
+    persistenceMode,
+    persistenceTarget,
+    presenceConflictDetail,
+    props.launchContext,
+    reloadRequestNonce,
+    saveFailureMessage,
+    targetKey,
+  ]);
 
   const canPersistCanonicalState = persistenceMode === "canonical"
     && hydrationReady
