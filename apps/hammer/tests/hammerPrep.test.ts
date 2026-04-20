@@ -255,6 +255,14 @@ const persistedPreparedSnapshot = {
   },
 };
 
+const persistedFailedSnapshotWithReusableTranscript = {
+  ...persistedPreparedSnapshot,
+  state: {
+    ...persistedPreparedSnapshot.state,
+    prep_status: "prep_failed" as const,
+  },
+};
+
 function testOpenDecisionPreparesWhenTranscriptMissing() {
   const decision = resolveHammerPrepOpenDecision(buildLaunchContext(), null);
 
@@ -278,6 +286,16 @@ function testOpenDecisionPreparesFromCanonicalWorkpieceMediaWithoutLocalMapping(
 
 function testOpenDecisionReusesPreparedTranscript() {
   const decision = resolveHammerPrepOpenDecision(buildLaunchContext(), persistedPreparedSnapshot);
+
+  assert.equal(decision.action, "reuse");
+  assert.equal(decision.state.status, "prepared");
+}
+
+function testOpenDecisionReusesPreparedTranscriptAfterPrepFailure() {
+  const decision = resolveHammerPrepOpenDecision(
+    buildLaunchContext(),
+    persistedFailedSnapshotWithReusableTranscript,
+  );
 
   assert.equal(decision.action, "reuse");
   assert.equal(decision.state.status, "prepared");
@@ -469,6 +487,7 @@ try {
   testOpenDecisionPreparesWhenTranscriptMissing();
   testOpenDecisionPreparesFromCanonicalWorkpieceMediaWithoutLocalMapping();
   testOpenDecisionReusesPreparedTranscript();
+  testOpenDecisionReusesPreparedTranscriptAfterPrepFailure();
   testPreparedTranscriptUsesNeutralForgeTagsAndSpeakerTurns();
   testPreparedTranscriptSplitsOversizedSpeakerTurnsDeterministically();
   testOverlayViewModelTracksPrepStages();

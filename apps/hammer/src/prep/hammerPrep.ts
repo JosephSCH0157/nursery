@@ -612,7 +612,11 @@ export function isReusablePreparedTranscript(
   launchContext: HammerLaunchContext,
   snapshot: HammerPersistenceSnapshot | null,
 ): boolean {
-  if (!snapshot?.state || snapshot.state.prep_status !== "prepared") {
+  if (!snapshot?.state) {
+    return false;
+  }
+
+  if (snapshot.state.prep_status !== "prepared" && snapshot.state.prep_status !== "prep_failed") {
     return false;
   }
 
