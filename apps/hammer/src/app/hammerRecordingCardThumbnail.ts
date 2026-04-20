@@ -4,6 +4,10 @@ import { HAMMER_RUNTIME_WRITTEN_BY } from "../prep/hammerPrep";
 
 const RECORDING_CARD_THUMBNAIL_STATE_PATH = "hammer/session/recording-card-thumbnail.v1.json";
 const MISSING_THUMBNAIL_STATE_WORKPIECE_IDS = new Set<string>();
+type RecordingCardThumbnailState = { thumbnailPath: string | null };
+const RECORDING_CARD_THUMBNAIL_STATE_NULL: RecordingCardThumbnailState = { thumbnailPath: null };
+const recordingCardThumbnailStateCache = new Map<string, RecordingCardThumbnailState>();
+const recordingCardThumbnailStateInflight = new Map<string, Promise<RecordingCardThumbnailState>>();
 
 function readObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -176,9 +180,10 @@ export async function ensureWorkpieceRecordingCardThumbnail(args: {
   if (!normalizedRecordingPath) return null;
 
   if (args.existingThumbnailPath) {
+    recordingCardThumbnailStateCache.set(args.workpieceId, { thumbnailPath: args.existingThumbnailPath });
     return args.existingThumbnailPath;
   }
-  const persistedState = await loadWorkpieceRecordingCardThumbnailState(args.workpieceId).catch(() => ({ thumbnailPath: null }));
+  const persistedState = await loadWorkpieceRecordingCardThumbnailState(args.workpieceId).catch(() => RECORDING_CARD_THUMBNAIL_STATE_NULL);
   if (persistedState.thumbnailPath) {
     return persistedState.thumbnailPath;
   }
@@ -214,6 +219,8 @@ export async function ensureWorkpieceRecordingCardThumbnail(args: {
         updated_at: new Date().toISOString(),
       },
     });
+    recordingCardThumbnailStateCache.set(args.workpieceId, { thumbnailPath });
+    recordingCardThumbnailStateInflight.delete(args.workpieceId);
     MISSING_THUMBNAIL_STATE_WORKPIECE_IDS.delete(args.workpieceId);
     return thumbnailPath;
   } finally {
@@ -221,32 +228,58 @@ export async function ensureWorkpieceRecordingCardThumbnail(args: {
   }
 }
 
-export async function loadWorkpieceRecordingCardThumbnailState(workpieceId: string): Promise<{ thumbnailPath: string | null }> {
+export async function loadWorkpieceRecordingCardThumbnailState(workpieceId: string): Promise<RecordingCardThumbnailState> {
+  const cached = recordingCardThumbnailStateCache.get(workpieceId);
+  if (cached) {
+    return cached;
+  }
   if (MISSING_THUMBNAIL_STATE_WORKPIECE_IDS.has(workpieceId)) {
-    return { thumbnailPath: null };
+    return RECORDING_CARD_THUMBNAIL_STATE_NULL;
   }
-  const response = await tongsFetch(
-    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(RECORDING_CARD_THUMBNAIL_STATE_PATH)}`,
-    {
-      method: "GET",
-      headers: {
-        accept: "application/json",
+  const inflight = recordingCardThumbnailStateInflight.get(workpieceId);
+  if (inflight) {
+    return inflight;
+  }
+
+  const request = (async (): Promise<RecordingCardThumbnailState> => {
+    const response = await tongsFetch(
+      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(RECORDING_CARD_THUMBNAIL_STATE_PATH)}`,
+      {
+        method: "GET",
+        headers: {
+          accept: "application/json",
+        },
+        timeoutMs: 30_000,
       },
-      timeoutMs: 30_000,
-    },
-  );
-  if (response.status === 404) {
-    MISSING_THUMBNAIL_STATE_WORKPIECE_IDS.add(workpieceId);
-    return { thumbnailPath: null };
+    );
+    if (response.status === 404) {
+      MISSING_THUMBNAIL_STATE_WORKPIECE_IDS.add(workpieceId);
+      recordingCardThumbnailStateCache.set(workpieceId, RECORDING_CARD_THUMBNAIL_STATE_NULL);
+      return RECORDING_CARD_THUMBNAIL_STATE_NULL;
+    }
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      return RECORDING_CARD_THUMBNAIL_STATE_NULL;
+    }
+    const root = readObject(payload);
+    if (root?.exists !== true) {
+      recordingCardThumbnailStateCache.set(workpieceId, RECORDING_CARD_THUMBNAIL_STATE_NULL);
+      return RECORDING_CARD_THUMBNAIL_STATE_NULL;
+    }
+    const data = readObject(root?.data);
+    const nextState = {
+      thumbnailPath: typeof data?.thumbnail_path === "string" ? data.thumbnail_path : null,
+    } satisfies RecordingCardThumbnailState;
+    recordingCardThumbnailStateCache.set(workpieceId, nextState);
+    return nextState;
+  })();
+
+  recordingCardThumbnailStateInflight.set(workpieceId, request);
+  try {
+    return await request;
+  } finally {
+    if (recordingCardThumbnailStateInflight.get(workpieceId) === request) {
+      recordingCardThumbnailStateInflight.delete(workpieceId);
+    }
   }
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    return { thumbnailPath: null };
-  }
-  const root = readObject(payload);
-  if (root?.exists !== true) return { thumbnailPath: null };
-  const data = readObject(root?.data);
-  return {
-    thumbnailPath: typeof data?.thumbnail_path === "string" ? data.thumbnail_path : null,
-  };
 }

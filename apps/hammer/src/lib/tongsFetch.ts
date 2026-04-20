@@ -23,6 +23,7 @@ function getRuntimeWindow(): ForgeWindow | null {
 const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
 const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
 const PLACEHOLDER_TONGS_TOKENS = new Set(["DEV_TOKEN"]);
+const TONGS_FETCH_DEBUG_STORAGE_KEY = "forge_debug_tongs_fetch_v1";
 
 export type TongsFetchOptions = RequestInit & { json?: unknown; timeoutMs?: number };
 
@@ -45,6 +46,30 @@ function readLocalStorage(key: string): string | null {
   } catch {
     return null;
   }
+}
+
+function isTruthyDebugFlag(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return /^(?:1|true|yes|on|debug)$/i.test(value.trim());
+}
+
+function shouldLogOutgoingTongsRequests(): boolean {
+  const runtimeWindow = getRuntimeWindow();
+  try {
+    const params = new URLSearchParams(runtimeWindow?.location?.search ?? "");
+    if (isTruthyDebugFlag(params.get("debug_tongs_fetch") ?? params.get("debugTongsFetch"))) {
+      return true;
+    }
+  } catch {
+    // ignore query parsing issues
+  }
+
+  if (isTruthyDebugFlag(readLocalStorage(TONGS_FETCH_DEBUG_STORAGE_KEY))) {
+    return true;
+  }
+
+  const metaEnv = import.meta as unknown as TongsEnv;
+  return isTruthyDebugFlag(metaEnv.env?.VITE_DEBUG_TONGS_FETCH);
 }
 
 function decodeBase64Url(input: string): string | null {
@@ -281,16 +306,17 @@ export async function tongsFetch(url: string, options: TongsFetchOptions = {}): 
     headers.set("x-forge-user-token", userAccessToken);
   }
 
-  // Log outgoing request (presence only)
-  // eslint-disable-next-line no-console
-  console.info("[tongsFetch] outgoing", {
-    method,
-    url,
-    hasAuthHeader: headers.has("authorization"),
-    hasUserAuthHeader: headers.has("x-forge-user-authorization"),
-    apiTokenPresent: Boolean(apiToken),
-    userAccessTokenPresent: Boolean(userAccessToken),
-  });
+  if (shouldLogOutgoingTongsRequests()) {
+    // eslint-disable-next-line no-console
+    console.info("[tongsFetch] outgoing", {
+      method,
+      url,
+      hasAuthHeader: headers.has("authorization"),
+      hasUserAuthHeader: headers.has("x-forge-user-authorization"),
+      apiTokenPresent: Boolean(apiToken),
+      userAccessTokenPresent: Boolean(userAccessToken),
+    });
+  }
 
   let body = initBody;
   if (json !== undefined) {
