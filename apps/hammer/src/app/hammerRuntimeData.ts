@@ -26,6 +26,8 @@ type HammerWorkspaceEpisodeRow = {
   created_at: string | null;
   updated_at: string | null;
   archived_at: string | null;
+  recorded: boolean;
+  latest_kept_take: unknown | null;
 };
 
 const workspaceProjectsInFlight = new Map<string, Promise<HammerRuntimeProjectCard[]>>();
@@ -267,9 +269,18 @@ async function listHammerWorkspaceEpisodes(workspaceId: string): Promise<HammerW
         created_at: readString(row?.created_at),
         updated_at: readString(row?.updated_at),
         archived_at: readString(row?.archived_at),
+        recorded: row?.recorded === true,
+        latest_kept_take: row?.latest_kept_take ?? null,
       };
     })
     .filter((row): row is HammerWorkspaceEpisodeRow => Boolean(row));
+}
+
+function recordingTruthFromEpisodeRow(episode: HammerWorkspaceEpisodeRow): HammerWorkpieceRecordingTruth {
+  return extractHammerWorkpieceRecordingTruth({
+    recorded: episode.recorded,
+    latest_kept_take: episode.latest_kept_take,
+  });
 }
 
 function buildRuntimeReadiness(args: {
@@ -518,10 +529,7 @@ export async function loadHammerWorkspaceProjects(
     const episodes = await listHammerWorkspaceEpisodes(workspaceId);
     const detailResults = await Promise.allSettled(
       episodes.map(async (episode) => {
-        const truthResult = await Promise.allSettled([loadHammerWorkpieceRecordingTruth(episode.id)]);
-        const recordingTruth = truthResult[0]?.status === "fulfilled"
-          ? truthResult[0].value
-          : { hasKeptTake: false, latestKeptTakePath: null, latestKeptTake: null };
+        const recordingTruth = recordingTruthFromEpisodeRow(episode);
 
         const persistenceResult = recordingTruth.hasKeptTake
           ? await Promise.allSettled([
@@ -535,7 +543,7 @@ export async function loadHammerWorkspaceProjects(
         return {
           persistenceResult: persistenceResult[0]?.status === "fulfilled" ? persistenceResult[0].value : null,
           recordingTruth,
-          recordingTruthUnavailable: truthResult[0]?.status === "rejected",
+          recordingTruthUnavailable: false,
         };
       }),
     );

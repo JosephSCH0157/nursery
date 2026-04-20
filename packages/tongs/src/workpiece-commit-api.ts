@@ -980,7 +980,10 @@ export type WorkspaceSparkSummary = {
 export type WorkspaceEpisodeSummary = Pick<
   EpisodeRow,
   "id" | "workspace_id" | "label" | "created_at" | "updated_at" | "archived_at" | "archived_by" | "archive_reason"
->;
+> & {
+  recorded: boolean;
+  latest_kept_take: WorkpieceTakeReceipt | null;
+};
 
 export type ListWorkspaceSparksOptions = {
   userAccessToken?: string | null;
@@ -4257,7 +4260,10 @@ function readyScriptPathPriority(path: string): number {
   return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
 }
 
-function toWorkspaceEpisodeSummary(row: EpisodeRow): WorkspaceEpisodeSummary {
+function toWorkspaceEpisodeSummary(
+  row: EpisodeRow,
+  recordingTruth?: { recorded: boolean; latest_kept_take: WorkpieceTakeReceipt | null },
+): WorkspaceEpisodeSummary {
   return {
     id: row.id,
     workspace_id: row.workspace_id,
@@ -4267,6 +4273,8 @@ function toWorkspaceEpisodeSummary(row: EpisodeRow): WorkspaceEpisodeSummary {
     archived_at: row.archived_at ?? null,
     archived_by: row.archived_by ?? null,
     archive_reason: row.archive_reason ?? null,
+    recorded: recordingTruth?.recorded ?? false,
+    latest_kept_take: recordingTruth?.latest_kept_take ?? null,
   };
 }
 
@@ -8719,7 +8727,13 @@ export class TongsCommitService {
       });
     }
 
-    return (data ?? []).map((row) => toWorkspaceEpisodeSummary(row));
+    const rows = data ?? [];
+    const keptTakeByWorkpiece = await this.listLatestKeptTakeByWorkpieceIds(rows.map((row) => row.id));
+
+    return rows.map((row) => toWorkspaceEpisodeSummary(row, {
+      recorded: keptTakeByWorkpiece.has(row.id),
+      latest_kept_take: keptTakeByWorkpiece.get(row.id) ?? null,
+    }));
   }
 
   async listWorkspaceSparks(
