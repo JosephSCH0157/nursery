@@ -655,6 +655,21 @@ export default function HammerWorkspaceEditor(
   const isMountedRef = useRef(true);
   const dynamicStyleScopeIdRef = useRef(`hammer-workspace-editor-${Math.random().toString(36).slice(2, 10)}`);
   const handoffPanelRef = useRef<HTMLElement | null>(null);
+  const hostLoopStateRef = useRef({
+    hasPendingSaveChanges,
+    saveFailureMessage,
+    historyRecoveryStatus,
+    presenceConflictDetail,
+  });
+
+  useEffect(() => {
+    hostLoopStateRef.current = {
+      hasPendingSaveChanges,
+      saveFailureMessage,
+      historyRecoveryStatus,
+      presenceConflictDetail,
+    };
+  }, [hasPendingSaveChanges, saveFailureMessage, historyRecoveryStatus, presenceConflictDetail]);
 
   function applyHostLoopState(next: {
     hasPendingSaveChanges: boolean;
@@ -1636,12 +1651,7 @@ export default function HammerWorkspaceEditor(
         }
         setPrepFailureKind(result.prepFailureKind);
         setEffectiveLaunchContext(result.effectiveLaunchContext);
-        applyHostLoopState(resolveHammerReloadSuccess({
-          hasPendingSaveChanges,
-          saveFailureMessage,
-          historyRecoveryStatus,
-          presenceConflictDetail,
-        }));
+        applyHostLoopState(resolveHammerReloadSuccess(hostLoopStateRef.current));
         setHasCanonicalBasis(result.hasCanonicalBasis);
         setHydrationReady(true);
       })
@@ -1670,12 +1680,7 @@ export default function HammerWorkspaceEditor(
         startTransition(() => {
           setEffectiveLaunchContext(nextLaunchContext);
         });
-        applyHostLoopState(resolveHammerReloadFailure({
-          hasPendingSaveChanges,
-          saveFailureMessage,
-          historyRecoveryStatus,
-          presenceConflictDetail,
-        }));
+        applyHostLoopState(resolveHammerReloadFailure(hostLoopStateRef.current));
         setHasCanonicalBasis(nextHasCanonicalBasis);
         if (ingestDiagnosticRef.current && persistenceTarget) {
           ingestDiagnosticRef.current.final_status = "blocked";
@@ -1700,14 +1705,10 @@ export default function HammerWorkspaceEditor(
   }, [
     beginPrepExecution,
     clearReadyTransitionTimer,
-    hasPendingSaveChanges,
-    historyRecoveryStatus,
     persistenceMode,
     persistenceTarget,
-    presenceConflictDetail,
     props.launchContext,
     reloadRequestNonce,
-    saveFailureMessage,
     targetKey,
   ]);
 
