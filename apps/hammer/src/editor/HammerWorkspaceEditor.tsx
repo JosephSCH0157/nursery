@@ -1440,6 +1440,9 @@ export default function HammerWorkspaceEditor(
         let hydratedSnapshot: HammerPersistenceSnapshot | null = null;
         let nextActiveCanonicalRecording: HammerCanonicalRecordingRecord | null = null;
         let nextActiveRevision: HammerRecordingRevisionRecord | null = null;
+        let revisionTranscriptLoadOk = false;
+        let transcriptSource = "none";
+        let registeredTranscriptPath: string | null = null;
 
         const sessionResult = await openHammerRecordingSession(persistenceTarget);
         if (!sessionResult.ok) {
@@ -1505,7 +1508,7 @@ export default function HammerWorkspaceEditor(
           // --- Registered transcript artifact ---
           const persistenceSnapshot = persistenceSnapshotResult.ok ? persistenceSnapshotResult.data : null;
           const registeredArtifact = persistenceSnapshot?.structured_transcript ?? null;
-          const registeredTranscriptPath = persistenceSnapshot?.state?.transcript_artifact_path ?? null;
+          registeredTranscriptPath = persistenceSnapshot?.state?.transcript_artifact_path ?? null;
           const registeredEval = evaluateRegisteredTranscriptPointer({
             pointerPath: registeredTranscriptPath,
             artifact: registeredArtifact,
@@ -1576,7 +1579,6 @@ export default function HammerWorkspaceEditor(
           }
 
           // --- Transcript selection logic ---
-          let transcriptSource = "none";
           const transcriptEvaluations: HammerIngestDiagnosticV1["transcript_sources_evaluated"] = [];
           let hydratedTranscript: HammerPersistenceSnapshot["structured_transcript"]["data"] = null;
           let rejectionReason = null;
@@ -2131,28 +2133,51 @@ export default function HammerWorkspaceEditor(
       return;
     }
     if (prepState.status === "preparing" && prepState.step !== "loading_context") {
+      return;
+    }
+
+    prepTriggerEffectTickRef.current += 1;
+    const triggerTick = prepTriggerEffectTickRef.current;
+    const currentLaunchContext = effectiveLaunchContextRef.current ?? effectiveLaunchContext;
+    const currentSnapshot = loadedPersistenceSnapshotRef.current ?? loadedPersistenceSnapshot;
+    const openDecision = resolveHammerPrepOpenDecision(
+      currentLaunchContext,
+      currentSnapshot,
+    );
+    const effectiveOpenDecision = openDecision;
+
     if (
       effectiveOpenDecision.action === "prepare"
       && prepState.status === "prep_failed"
-          console.log("[HammerPrep] skip_job_hydration_auto_attach_disabled", {
+      && (prepFailureKind !== null || prepSessionAttemptedRef.current)
     ) {
       logPrepDebug("[HammerPrep] skip_trigger_failed_state", {
         tick: triggerTick,
+        action: effectiveOpenDecision.action,
+        reason: effectiveOpenDecision.reason,
+        prep_failure_kind: prepFailureKind,
+        prep_status: prepState.status,
         prep_step: prepState.step,
         prep_session_attempted: prepSessionAttemptedRef.current,
-        return;
-      // This can happen when a previous attempt failed but a new hydration finds transcript truth.
+      });
+      return;
+    }
+
+    if (effectiveOpenDecision.action === "reuse") {
       if (prepState.status === "prep_failed") {
         setPrepFailureKind(null);
         setShowPreparedHandoff(false);
         setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
       }
       const stubReuseLaunchContext = (
-        effectiveLaunchContext
-        && currentLaunchContext?.transcript.kind === "tongs-stub"
+        currentLaunchContext
+        && currentLaunchContext.transcript.kind === "tongs-stub"
         && effectiveOpenDecision.reason === "reuse_stub_transcript"
       )
+        ? currentLaunchContext
+        : null;
 
+      if (!stubReuseLaunchContext) {
         setPrepState(effectiveOpenDecision.state);
         setShowPreparedHandoff(true);
         return;
@@ -2273,7 +2298,6 @@ export default function HammerWorkspaceEditor(
               : null;
             finalSnapshot = nextSnapshot;
           } catch (error) {
-            // Audio polish falls back to raw playback without blocking workspace open.
             run.warn("audio_polish:skipped_after_error", {
               message: toErrorMessage(error, "Hammer could not produce a baseline audio polish artifact."),
             });
@@ -2301,37 +2325,16 @@ export default function HammerWorkspaceEditor(
             const visualStatus = finalSnapshot?.visual_placements.data?.status ?? null;
             const audioStatus = finalSnapshot?.audio_polish.data?.status ?? null;
             const baseStatus: Exclude<HammerIngestDiagnosticV1["final_status"], "degraded"> = outcome !== "prepared"
-          return;
-        }
-
-        prepTriggerEffectTickRef.current += 1;
-        const triggerTick = prepTriggerEffectTickRef.current;
-        const currentLaunchContext = effectiveLaunchContextRef.current ?? effectiveLaunchContext;
-        const currentSnapshot = loadedPersistenceSnapshotRef.current ?? loadedPersistenceSnapshot;
-        const openDecision = resolveHammerPrepOpenDecision(
-          currentLaunchContext,
-          currentSnapshot,
-        );
-        const effectiveOpenDecision = openDecision;
-
               ? "blocked"
               : "reused_transcript";
             const finalStatus = computeIngestFinalStatus({ base: baseStatus, audioStatus, visualStatus });
-          && (prepFailureKind !== null || prepSessionAttemptedRef.current)
+            ingestDiagnosticRef.current.final_status = finalStatus;
             ingestDiagnosticRef.current.timestamp = new Date().toISOString();
             ingestDiagnosticRef.current.extra = {
               ...(ingestDiagnosticRef.current.extra ?? {}),
-            action: effectiveOpenDecision.action,
-            reason: effectiveOpenDecision.reason,
-            prep_failure_kind: prepFailureKind,
-            prep_status: prepState.status,
               phase: "pipeline_end",
               reuse_stub_transcript: true,
-          });
-          return;
-        }
-
-        if (effectiveOpenDecision.action === "reuse") {
+              audio_polish_status: audioStatus,
               visual_placements_status: visualStatus,
             };
             void writeHammerIngestDiagnostics({
@@ -2339,14 +2342,10 @@ export default function HammerWorkspaceEditor(
               diagnostic: ingestDiagnosticRef.current,
               correlationId: ingestCorrelationIdRef.current,
             });
-            currentLaunchContext
+          }
           run.end({
             outcome,
             audio_polish_status: audioPolishStatus,
-            ? currentLaunchContext
-            : null;
-
-          if (!stubReuseLaunchContext) {
             audio_polish_failure_code: audioPolishFailureCode,
           });
           if (isPrepExecutionActive(executionId) && prepInFlightRunKeyRef.current === reuseRunKey) {
@@ -2358,13 +2357,7 @@ export default function HammerWorkspaceEditor(
       void runReuse();
       return;
     }
-    if (effectiveOpenDecision.action === "blocked" || !effectiveLaunchContext) {
-      effectiveLaunchContextRef.current = currentLaunchContext;
-      setPrepState(effectiveOpenDecision.state);
-      return;
-    }
-
-    if (!currentLaunchContext) {
+    if (effectiveOpenDecision.action === "blocked" || !currentLaunchContext) {
       setPrepState(effectiveOpenDecision.state);
       return;
     }
@@ -2405,8 +2398,8 @@ export default function HammerWorkspaceEditor(
       console.info("[HammerTranscriptPrep] gate:policy_resolution_loading", {
         instance_id: hammerRuntimeInstanceIdRef.current,
         run_key: prepRunKey,
-        workspace_id: effectiveLaunchContext.workspace_id,
-        workpiece_id: effectiveLaunchContext.workpiece_id,
+        workspace_id: currentLaunchContext.workspace_id,
+        workpiece_id: currentLaunchContext.workpiece_id,
         effective_lane: prepAiNoticeModel.laneSignature,
       });
       return;
@@ -2417,8 +2410,8 @@ export default function HammerWorkspaceEditor(
       console.warn("[HammerTranscriptPrep] gate:policy_resolution_error", {
         instance_id: hammerRuntimeInstanceIdRef.current,
         run_key: prepRunKey,
-        workspace_id: effectiveLaunchContext.workspace_id,
-        workpiece_id: effectiveLaunchContext.workpiece_id,
+        workspace_id: currentLaunchContext.workspace_id,
+        workpiece_id: currentLaunchContext.workpiece_id,
         effective_lane: prepAiNoticeModel.laneSignature,
         message: props.prepAiNoticeResolutionError?.trim() || null,
       });
@@ -2438,8 +2431,8 @@ export default function HammerWorkspaceEditor(
       console.info("[HammerTranscriptPrep] gate:ai_notice_required", {
         instance_id: hammerRuntimeInstanceIdRef.current,
         run_key: prepRunKey,
-        workspace_id: effectiveLaunchContext.workspace_id,
-        workpiece_id: effectiveLaunchContext.workpiece_id,
+        workspace_id: currentLaunchContext.workspace_id,
+        workpiece_id: currentLaunchContext.workpiece_id,
         effective_lane: prepAiNoticeModel.laneSignature,
         acknowledged_lane: props.prepAiNoticeAcknowledgedLaneSignature ?? null,
       });
@@ -2591,7 +2584,7 @@ export default function HammerWorkspaceEditor(
             const sealSpan = run.span("legacy_transcript:seal");
             const sealResult = await sealHammerCanonicalBaseline(
               persistenceTarget,
-              activeCanonicalRecording.id,
+              currentCanonicalRecording.id,
               {
                 structured_transcript: legacyResult.data.structured_transcript,
                 speaker_map: legacyResult.data.speaker_map,
@@ -2694,7 +2687,7 @@ export default function HammerWorkspaceEditor(
               finalSnapshot = hydratedSnapshot;
               setHasCanonicalBasis(true);
               startTransition(() => {
-                setEffectiveLaunchContext((current) => current ?? effectiveLaunchContext);
+                setEffectiveLaunchContext((current) => current ?? currentLaunchContext);
               });
 
               // Continue the normal prep pipeline (visual placements + audio polish) without starting any AI STT.
@@ -2706,7 +2699,7 @@ export default function HammerWorkspaceEditor(
                 structuredTranscript: canonicalTranscript,
                 speakerMap: canonicalSpeakerMap,
               };
-              const nextLaunchContext = applyPreparedTranscriptToLaunchContext(effectiveLaunchContext, preparedTranscript);
+              const nextLaunchContext = applyPreparedTranscriptToLaunchContext(currentLaunchContext, preparedTranscript);
               setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
 
               const visualsSpan = run.span("visual_placements:ensure");
@@ -2868,7 +2861,7 @@ export default function HammerWorkspaceEditor(
 
         try {
           const failedRequest = buildHammerPrepPersistenceSaveRequest({
-            launchContext: effectiveLaunchContext,
+            launchContext: currentLaunchContext,
             status: "prep_failed",
           });
           if (currentRevision) {
