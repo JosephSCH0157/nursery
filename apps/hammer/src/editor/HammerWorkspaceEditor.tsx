@@ -1644,6 +1644,15 @@ export default function HammerWorkspaceEditor(
       .catch(async (error) => {
         if (!active) return;
 
+        let nextLaunchContext = withSessionId(props.launchContext);
+        let nextHasCanonicalBasis = Boolean(nextLaunchContext);
+
+        if (!nextLaunchContext) {
+          try {
+            nextLaunchContext = withSessionId(
+              (await loadCanonicalBootstrapLaunchContext(
+                persistenceTarget.workspaceId,
+                persistenceTarget.workpieceId,
               )) ?? undefined,
             );
             nextHasCanonicalBasis = Boolean(nextLaunchContext);
