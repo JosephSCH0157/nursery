@@ -2131,38 +2131,16 @@ export default function HammerWorkspaceEditor(
       return;
     }
     if (prepState.status === "preparing" && prepState.step !== "loading_context") {
-      return;
-    }
-
-    prepTriggerEffectTickRef.current += 1;
-    const triggerTick = prepTriggerEffectTickRef.current;
-    const currentLaunchContext = effectiveLaunchContextRef.current ?? effectiveLaunchContext;
-    const currentSnapshot = loadedPersistenceSnapshotRef.current ?? loadedPersistenceSnapshot;
-    const openDecision = resolveHammerPrepOpenDecision(
-      currentLaunchContext,
-      currentSnapshot,
-    );
-    const effectiveOpenDecision = openDecision;
-
     if (
       effectiveOpenDecision.action === "prepare"
       && prepState.status === "prep_failed"
-      && (prepFailureKind !== null || prepSessionAttemptedRef.current)
+          console.log("[HammerPrep] skip_job_hydration_auto_attach_disabled", {
     ) {
       logPrepDebug("[HammerPrep] skip_trigger_failed_state", {
         tick: triggerTick,
-        action: effectiveOpenDecision.action,
-        reason: effectiveOpenDecision.reason,
-        prep_failure_kind: prepFailureKind,
-        prep_status: prepState.status,
         prep_step: prepState.step,
         prep_session_attempted: prepSessionAttemptedRef.current,
-      });
-      return;
-    }
-
-    if (effectiveOpenDecision.action === "reuse") {
-      // Avoid keeping a stale "prep_failed" state when we have a reusable transcript.
+        return;
       // This can happen when a previous attempt failed but a new hydration finds transcript truth.
       if (prepState.status === "prep_failed") {
         setPrepFailureKind(null);
@@ -2174,10 +2152,7 @@ export default function HammerWorkspaceEditor(
         && currentLaunchContext?.transcript.kind === "tongs-stub"
         && effectiveOpenDecision.reason === "reuse_stub_transcript"
       )
-        ? currentLaunchContext
-        : null;
 
-      if (!stubReuseLaunchContext) {
         setPrepState(effectiveOpenDecision.state);
         setShowPreparedHandoff(true);
         return;
