@@ -194,7 +194,7 @@ type HammerCanonicalOpenHydrationResult = {
   activeCanonicalRecording: HammerCanonicalRecordingRecord | null;
   activeRevision: HammerRecordingRevisionRecord | null;
   prepFailureMessage: string | null;
-  prepFailureKind: "ai_failed" | null;
+  prepFailureKind: "ai_failed" | "auth_missing" | null;
 };
 
 function getSharedCanonicalOpenHydrationPromise(args: {
@@ -389,6 +389,12 @@ function toErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function isMissingTongsUserAccessTokenError(error: unknown): boolean {
+  const message = toErrorMessage(error, "");
+  return message.includes("[tongsFetch] BLOCKED")
+    && message.includes("unauthenticated Tongs request");
+}
+
 function withSessionId(launchContext?: HammerLaunchContext): HammerLaunchContext | undefined {
   return launchContext ? ensureHammerLaunchSessionId(launchContext) : undefined;
 }
@@ -554,7 +560,7 @@ export default function HammerWorkspaceEditor(
   const [showPreparedHandoff, setShowPreparedHandoff] = useState(false);
   const [preparedActionIntent, setPreparedActionIntent] = useState<HammerPreparedActionIntent | null>(null);
   const [prepAttemptNonce, setPrepAttemptNonce] = useState(0);
-  const [prepFailureKind, setPrepFailureKind] = useState<"non_ai_missing" | "ai_failed" | null>(null);
+  const [prepFailureKind, setPrepFailureKind] = useState<"non_ai_missing" | "ai_failed" | "auth_missing" | null>(null);
   const [prepAiFallbackRequested, setPrepAiFallbackRequested] = useState(false);
   const [prepFailureDontAskAgain, setPrepFailureDontAskAgain] = useState(false);
   const [transcriptPrepPreferenceNotice, setTranscriptPrepPreferenceNotice] = useState<{
@@ -1979,6 +1985,9 @@ export default function HammerWorkspaceEditor(
     if (prepTranscriptJobId) {
       return;
     }
+    if (prepState.status === "prep_failed" && prepFailureKind === "auth_missing") {
+      return;
+    }
     if (prepState.status === "preparing" && prepState.step !== "loading_context") {
       return;
     }
@@ -2375,6 +2384,19 @@ export default function HammerWorkspaceEditor(
       let audioPolishFailureCode: string | null = null;
       let finalSnapshot: HammerPersistenceSnapshot | null = loadedPersistenceSnapshot;
       let usedAiPrep = false;
+
+      const hasUserToken = await hasTongsUserAccessToken();
+      if (!hasUserToken) {
+        const message = "Hammer needs a signed-in Tongs session before it can load or prepare transcripts.";
+        setPrepState(createHammerPrepState("prep_failed", null, message));
+        setShowPreparedHandoff(false);
+        setPrepFailureKind("auth_missing");
+        outcome = "failed";
+        logTranscriptStage("auth:missing_user_access_token", { message }, "warn");
+        run.warn("prep:blocked_auth", { message });
+        return;
+      }
+
       try {
         // Non-AI attempt first: reuse any existing transcript artifacts before starting AI transcription.
         if (!prepAiFallbackRequested && persistenceTarget && activeCanonicalRecording && !activeCanonicalRecording.sealed_at) {
@@ -2662,10 +2684,13 @@ export default function HammerWorkspaceEditor(
         return;
       } catch (error) {
         if (!isPrepExecutionActive(executionId)) return;
-        const message = toErrorMessage(error, "Hammer could not prepare the transcript.");
+        const blockedByMissingAuth = isMissingTongsUserAccessTokenError(error);
+        const message = blockedByMissingAuth
+          ? "Hammer needs a signed-in Tongs session before it can load or prepare transcripts."
+          : toErrorMessage(error, "Hammer could not prepare the transcript.");
         setPrepState(createHammerPrepState("prep_failed", null, message));
         setShowPreparedHandoff(false);
-        setPrepFailureKind("ai_failed");
+        setPrepFailureKind(blockedByMissingAuth ? "auth_missing" : "ai_failed");
         outcome = "failed";
         logTranscriptStage("pipeline:done", { outcome, message }, "error");
         run.error("prep:failed", { message });
