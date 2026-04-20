@@ -19,6 +19,32 @@ const TONGS_GLOBAL_KEY = "__forge_supabase_tongs_client__";
 const TONGS_AUTH_SYNC_KEY = "__forge_supabase_tongs_auth_synced__";
 export type TongsSupabaseClient = SupabaseClient<Database, "tongs", "tongs">;
 
+const supabaseAuthLockQueues = new Map<string, Promise<void>>();
+
+async function runWithSupabaseAuthLock<Result>(
+  name: string,
+  _acquireTimeout: number,
+  fn: () => Promise<Result>,
+): Promise<Result> {
+  const previous = (supabaseAuthLockQueues.get(name) ?? Promise.resolve()).catch(() => undefined);
+  let releaseCurrent: (() => void) | null = null;
+  const current = new Promise<void>((resolve) => {
+    releaseCurrent = resolve;
+  });
+  const queued = previous.then(() => current);
+  supabaseAuthLockQueues.set(name, queued);
+
+  await previous;
+  try {
+    return await fn();
+  } finally {
+    releaseCurrent?.();
+    if (supabaseAuthLockQueues.get(name) === queued) {
+      supabaseAuthLockQueues.delete(name);
+    }
+  }
+}
+
 const globalStore = globalThis as typeof globalThis & {
   [GLOBAL_KEY]?: SupabaseClient<Database>;
   [TONGS_GLOBAL_KEY]?: TongsSupabaseClient;
@@ -34,6 +60,7 @@ const primaryAuthOptions = {
   autoRefreshToken: true,
   detectSessionInUrl: true, // important for password reset / invite / verify links
   storageKey: AUTH_STORAGE_KEY,
+  lock: runWithSupabaseAuthLock,
   ...(typeof window !== "undefined" ? { storage: window.localStorage } : {}),
 };
 
@@ -42,6 +69,7 @@ const tongsAuthOptions = {
   autoRefreshToken: false, // primary client owns refresh; tongs just follows
   detectSessionInUrl: false,
   storageKey: TONGS_AUTH_STORAGE_KEY,
+  lock: runWithSupabaseAuthLock,
   ...(typeof window !== "undefined" ? { storage: window.localStorage } : {}),
 };
 

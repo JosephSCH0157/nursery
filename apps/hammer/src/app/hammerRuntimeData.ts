@@ -28,6 +28,8 @@ type HammerWorkspaceEpisodeRow = {
   archived_at: string | null;
 };
 
+const workspaceProjectsInFlight = new Map<string, Promise<HammerRuntimeProjectCard[]>>();
+
 export type HammerRuntimeReadinessTone = "ready" | "active" | "blocked";
 
 export type HammerRuntimeReadiness = {
@@ -507,89 +509,105 @@ export async function loadHammerWorkpieceRecordingTruth(
 export async function loadHammerWorkspaceProjects(
   workspaceId: string,
 ): Promise<HammerRuntimeProjectCard[]> {
-  const episodes = await listHammerWorkspaceEpisodes(workspaceId);
-  const detailResults = await Promise.allSettled(
-    episodes.map(async (episode) => {
-      const truthResult = await Promise.allSettled([loadHammerWorkpieceRecordingTruth(episode.id)]);
-      const recordingTruth = truthResult[0]?.status === "fulfilled"
-        ? truthResult[0].value
-        : { hasKeptTake: false, latestKeptTakePath: null, latestKeptTake: null };
+  const existing = workspaceProjectsInFlight.get(workspaceId);
+  if (existing) {
+    return existing;
+  }
 
-      // Avoid POST /hammer/session when the workpiece has no kept take; session open would correctly 409 but it clutters the runtime library.
-      const sessionResult = recordingTruth.hasKeptTake
-        ? await Promise.allSettled([
-            openHammerRecordingSession({
-              workspaceId,
-              workpieceId: episode.id,
-            }),
-          ])
-        : [{ status: "fulfilled" as const, value: null }];
+  const loadPromise = (async (): Promise<HammerRuntimeProjectCard[]> => {
+    const episodes = await listHammerWorkspaceEpisodes(workspaceId);
+    const detailResults = await Promise.allSettled(
+      episodes.map(async (episode) => {
+        const truthResult = await Promise.allSettled([loadHammerWorkpieceRecordingTruth(episode.id)]);
+        const recordingTruth = truthResult[0]?.status === "fulfilled"
+          ? truthResult[0].value
+          : { hasKeptTake: false, latestKeptTakePath: null, latestKeptTake: null };
+
+        // Avoid POST /hammer/session when the workpiece has no kept take; session open would correctly 409 but it clutters the runtime library.
+        const sessionResult = recordingTruth.hasKeptTake
+          ? await Promise.allSettled([
+              openHammerRecordingSession({
+                workspaceId,
+                workpieceId: episode.id,
+              }),
+            ])
+          : [{ status: "fulfilled" as const, value: null }];
+
+        return {
+          sessionResult: sessionResult[0]?.status === "fulfilled" ? sessionResult[0].value : null,
+          recordingTruth,
+          recordingTruthUnavailable: truthResult[0]?.status === "rejected",
+        };
+      }),
+    );
+
+    return episodes.map((episode, index) => {
+      const detailResult = detailResults[index];
+      const sessionResult = detailResult?.status === "fulfilled"
+        ? detailResult.value.sessionResult
+        : null;
+      const recordingTruth = detailResult?.status === "fulfilled"
+        ? detailResult.value.recordingTruth
+        : { hasKeptTake: false, latestKeptTakePath: null, latestKeptTake: null };
+      const canonicalRecording = sessionResult?.ok ? sessionResult.data.canonical_recording : null;
+      const revision = sessionResult?.ok ? sessionResult.data.revision : null;
+      const prepStatus = canonicalRecording?.baseline_transcript_path
+        ? "prepared"
+        : revision?.revision_transcript_path
+        ? "prepared"
+        : null;
+      const hasEditorSession = Boolean(revision?.editor_session_path);
+      const hasStructuredTranscript = Boolean(
+        canonicalRecording?.baseline_transcript_path || revision?.revision_transcript_path,
+      );
+      const hasVisualPlacements = Boolean(revision?.visual_placements_path);
+      const hasAudioPolish = Boolean(revision?.audio_polish_path);
+      const hasEditPlan = false;
+      const editReadiness = classifyHammerRuntimeProject({
+        hasKeptTake: recordingTruth.hasKeptTake,
+        hasEditorSession,
+        hasStructuredTranscript,
+        hasVisualPlacements,
+        hasAudioPolish,
+        hasEditPlan,
+      });
+      const editInstructionCount = 0;
+      const stateUnavailable = detailResult?.status === "rejected"
+        || (detailResult?.status === "fulfilled" && (!sessionResult?.ok || detailResult.value.recordingTruthUnavailable));
 
       return {
-        sessionResult: sessionResult[0]?.status === "fulfilled" ? sessionResult[0].value : null,
-        recordingTruth,
-        recordingTruthUnavailable: truthResult[0]?.status === "rejected",
+        workpieceId: episode.id,
+        workspaceId: episode.workspace_id,
+        label: episode.label,
+        createdAt: episode.created_at,
+        updatedAt: episode.updated_at,
+        archivedAt: episode.archived_at,
+        isEditReady: editReadiness.isEditReady,
+        readiness: buildRuntimeReadiness({
+          editReadyReasons: editReadiness.editReadyReasons,
+          prepStatus,
+          editInstructionCount,
+          stateUnavailable,
+        }),
+        recording: {
+          hasKeptTake: recordingTruth.hasKeptTake,
+          keptTakePath: recordingTruth.latestKeptTakePath,
+          keptTakeKind: inferRecordingKindFromTruth(recordingTruth),
+          keptTakeDurationMs: recordingTruth.latestKeptTake?.durationMs ?? null,
+          thumbnailPath: null,
+        },
       };
-    }),
-  );
-
-  return episodes.map((episode, index) => {
-    const detailResult = detailResults[index];
-    const sessionResult = detailResult?.status === "fulfilled"
-      ? detailResult.value.sessionResult
-      : null;
-    const recordingTruth = detailResult?.status === "fulfilled"
-      ? detailResult.value.recordingTruth
-      : { hasKeptTake: false, latestKeptTakePath: null, latestKeptTake: null };
-    const canonicalRecording = sessionResult?.ok ? sessionResult.data.canonical_recording : null;
-    const revision = sessionResult?.ok ? sessionResult.data.revision : null;
-    const prepStatus = canonicalRecording?.baseline_transcript_path
-      ? "prepared"
-      : revision?.revision_transcript_path
-      ? "prepared"
-      : null;
-    const hasEditorSession = Boolean(revision?.editor_session_path);
-    const hasStructuredTranscript = Boolean(
-      canonicalRecording?.baseline_transcript_path || revision?.revision_transcript_path,
-    );
-    const hasVisualPlacements = Boolean(revision?.visual_placements_path);
-    const hasAudioPolish = Boolean(revision?.audio_polish_path);
-    const hasEditPlan = false;
-    const editReadiness = classifyHammerRuntimeProject({
-      hasKeptTake: recordingTruth.hasKeptTake,
-      hasEditorSession,
-      hasStructuredTranscript,
-      hasVisualPlacements,
-      hasAudioPolish,
-      hasEditPlan,
     });
-    const editInstructionCount = 0;
-    const stateUnavailable = detailResult?.status === "rejected"
-      || (detailResult?.status === "fulfilled" && (!sessionResult?.ok || detailResult.value.recordingTruthUnavailable));
+  })();
 
-    return {
-      workpieceId: episode.id,
-      workspaceId: episode.workspace_id,
-      label: episode.label,
-      createdAt: episode.created_at,
-      updatedAt: episode.updated_at,
-      archivedAt: episode.archived_at,
-      isEditReady: editReadiness.isEditReady,
-      readiness: buildRuntimeReadiness({
-        editReadyReasons: editReadiness.editReadyReasons,
-        prepStatus,
-        editInstructionCount,
-        stateUnavailable,
-      }),
-      recording: {
-        hasKeptTake: recordingTruth.hasKeptTake,
-        keptTakePath: recordingTruth.latestKeptTakePath,
-        keptTakeKind: inferRecordingKindFromTruth(recordingTruth),
-        keptTakeDurationMs: recordingTruth.latestKeptTake?.durationMs ?? null,
-        thumbnailPath: null,
-      },
-    };
-  });
+  workspaceProjectsInFlight.set(workspaceId, loadPromise);
+  try {
+    return await loadPromise;
+  } finally {
+    if (workspaceProjectsInFlight.get(workspaceId) === loadPromise) {
+      workspaceProjectsInFlight.delete(workspaceId);
+    }
+  }
 }
 
 export async function loadHammerWorkspaceWorkpieceLabel(
