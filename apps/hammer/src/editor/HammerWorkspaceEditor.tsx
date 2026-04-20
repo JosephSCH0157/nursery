@@ -2656,25 +2656,23 @@ export default function HammerWorkspaceEditor(
       persistenceRequest,
     });
 
-    if (lastSavedPayloadRef.current == null) {
-      const hydratedNoopFingerprint = buildHydrationNoopFingerprint({
-        target: persistenceTarget,
-        revisionId: activeRevision.id,
-        request,
-        persistenceRequest,
-      });
-      const persistedNoopFingerprint = buildPersistedHydrationNoopFingerprint({
-        target: persistenceTarget,
-        revisionId: activeRevision.id,
-        snapshot: loadedPersistenceSnapshot,
-      });
+    const hydratedNoopFingerprint = buildHydrationNoopFingerprint({
+      target: persistenceTarget,
+      revisionId: activeRevision.id,
+      request,
+      persistenceRequest,
+    });
+    const persistedNoopFingerprint = buildPersistedHydrationNoopFingerprint({
+      target: persistenceTarget,
+      revisionId: activeRevision.id,
+      snapshot: loadedPersistenceSnapshot,
+    });
 
-      if (persistedNoopFingerprint && hydratedNoopFingerprint === persistedNoopFingerprint) {
-        lastSavedPayloadRef.current = payloadKey;
-        setHasPendingSaveChanges(false);
-        pendingSaveRef.current = null;
-        return;
-      }
+    if (persistedNoopFingerprint && hydratedNoopFingerprint === persistedNoopFingerprint) {
+      lastSavedPayloadRef.current = payloadKey;
+      setHasPendingSaveChanges(false);
+      pendingSaveRef.current = null;
+      return;
     }
 
     if (payloadKey === lastSavedPayloadRef.current) {
