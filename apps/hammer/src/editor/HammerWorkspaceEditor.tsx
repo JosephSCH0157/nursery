@@ -243,6 +243,39 @@ function stripEditorSessionOpenMetadata(value: unknown): unknown {
   };
 }
 
+function normalizeVisualTimelineForFingerprint(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const row = value as Record<string, unknown>;
+  const assets = Array.isArray(row.assets)
+    ? row.assets.map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
+      const asset = entry as Record<string, unknown>;
+      return {
+        ...asset,
+        updated_at: null,
+      };
+    })
+    : row.assets;
+  const clips = Array.isArray(row.clips)
+    ? row.clips.map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
+      const clip = entry as Record<string, unknown>;
+      return {
+        ...clip,
+        updated_at: null,
+      };
+    })
+    : row.clips;
+  return {
+    ...row,
+    updated_at: null,
+    debug_origin: null,
+    debug_migration_hash: null,
+    assets,
+    clips,
+  };
+}
+
 function buildHydrationNoopFingerprint(args: {
   target: HammerPersistenceTarget;
   revisionId: string;
@@ -263,7 +296,9 @@ function buildHydrationNoopFingerprint(args: {
       : null,
     revision_transcript: args.request.revision_transcript ?? null,
     audio_polish: args.request.audio_polish ?? null,
-    visual_timeline: args.request.visual_timeline ?? null,
+    visual_timeline: args.request.visual_timeline
+      ? { data: normalizeVisualTimelineForFingerprint(args.request.visual_timeline.data) }
+      : null,
     visual_placements: args.request.visual_placements ?? null,
     editorial_authority: args.persistenceRequest.editorial_authority ?? null,
   });
@@ -275,6 +310,7 @@ function buildPersistedHydrationNoopFingerprint(args: {
   snapshot: HammerPersistenceSnapshot | null;
 }): string | null {
   if (!args.snapshot) return null;
+  const effectiveVisualTimeline = loadHammerVisualTimelineStateFromSnapshot(args.snapshot);
   return JSON.stringify({
     target: args.target,
     revisionId: args.revisionId,
@@ -287,9 +323,7 @@ function buildPersistedHydrationNoopFingerprint(args: {
     audio_polish: args.snapshot.audio_polish.data
       ? { data: args.snapshot.audio_polish.data }
       : null,
-    visual_timeline: args.snapshot.visual_timeline.data
-      ? { data: args.snapshot.visual_timeline.data }
-      : null,
+    visual_timeline: { data: normalizeVisualTimelineForFingerprint(effectiveVisualTimeline) },
     visual_placements: args.snapshot.visual_placements.data
       ? { data: args.snapshot.visual_placements.data }
       : null,
