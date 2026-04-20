@@ -757,6 +757,33 @@ export default function HammerWorkspaceEditor(
     }
   }, [prepFailureKind, prepState.status]);
 
+  useEffect(() => {
+    if (persistenceMode !== "canonical" || !hydrationReady) {
+      return;
+    }
+    const snapshotTranscript = loadedPersistenceSnapshot?.structured_transcript.data ?? null;
+    if (!snapshotTranscript || snapshotTranscript.segments.length === 0) {
+      return;
+    }
+    setEffectiveLaunchContext((current) => {
+      if (!current) {
+        return current;
+      }
+      if (current.transcript.kind === "tongs-stub") {
+        return current;
+      }
+      return {
+        ...current,
+        transcript: {
+          kind: "tongs-stub",
+          transcript_id: snapshotTranscript.transcript_id,
+          segments: snapshotTranscript.segments.map((segment) => ({ ...segment })),
+          label: snapshotTranscript.transcript_id,
+        },
+      };
+    });
+  }, [hydrationReady, loadedPersistenceSnapshot, persistenceMode]);
+
   const ensureVisualPlacements = async (args: {
     launchContext: HammerLaunchContext;
     transcriptSourceId: string;
