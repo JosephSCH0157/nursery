@@ -562,6 +562,7 @@ export default function HammerWorkspaceEditor(
   const prepVoiceLastLineRef = useRef<string | null>(null);
   const prepVoicePhaseRef = useRef<HammerVoicePhase | null>(null);
   const prepVoicePickerRef = useRef<ReturnType<typeof createHammerVoicePicker> | null>(null);
+  const prepSessionAttemptedRef = useRef(false);
   const [prepState, setPrepState] = useState<HammerPrepState>(() => (
     persistenceMode === "canonical" && persistenceTarget
       ? createHammerPrepState("preparing", "loading_context")
@@ -2043,7 +2044,11 @@ export default function HammerWorkspaceEditor(
     );
     const effectiveOpenDecision = openDecision;
 
-    if (effectiveOpenDecision.action === "prepare" && prepState.status === "prep_failed") {
+    if (
+      effectiveOpenDecision.action === "prepare"
+      && prepState.status === "prep_failed"
+      && (prepFailureKind !== null || prepSessionAttemptedRef.current)
+    ) {
       logPrepDebug("[HammerPrep] skip_trigger_failed_state", {
         tick: triggerTick,
         action: effectiveOpenDecision.action,
@@ -2051,6 +2056,7 @@ export default function HammerWorkspaceEditor(
         prep_failure_kind: prepFailureKind,
         prep_status: prepState.status,
         prep_step: prepState.step,
+        prep_session_attempted: prepSessionAttemptedRef.current,
       });
       return;
     }
@@ -2139,6 +2145,7 @@ export default function HammerWorkspaceEditor(
 
       prepRunKeyRef.current = reuseRunKey;
       prepInFlightRunKeyRef.current = reuseRunKey;
+      prepSessionAttemptedRef.current = true;
       const executionId = beginPrepExecution();
       const run = ingestLog.run("reuse_stub_transcript", {
         run_key: reuseRunKey,
@@ -2378,6 +2385,7 @@ export default function HammerWorkspaceEditor(
 
     prepRunKeyRef.current = prepRunKey;
     prepInFlightRunKeyRef.current = prepRunKey;
+    prepSessionAttemptedRef.current = true;
     const executionId = beginPrepExecution();
     const run = ingestLog.run("prep", {
       run_key: prepRunKey,
