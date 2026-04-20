@@ -1,7 +1,7 @@
 import { tongsFetch } from "../lib/tongsFetch";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { MediaKind, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
-import { openHammerRecordingSession } from "../persistence/hammerRecordingRevisionPersistence";
+import { loadHammerPersistenceSnapshot } from "../persistence/hammerPersistence";
 
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
 const HAMMER_ACTIVE_WORKSPACE_KEY = "hammer_workspace_id_v1";
@@ -523,10 +523,9 @@ export async function loadHammerWorkspaceProjects(
           ? truthResult[0].value
           : { hasKeptTake: false, latestKeptTakePath: null, latestKeptTake: null };
 
-        // Avoid POST /hammer/session when the workpiece has no kept take; session open would correctly 409 but it clutters the runtime library.
-        const sessionResult = recordingTruth.hasKeptTake
+        const persistenceResult = recordingTruth.hasKeptTake
           ? await Promise.allSettled([
-              openHammerRecordingSession({
+              loadHammerPersistenceSnapshot({
                 workspaceId,
                 workpieceId: episode.id,
               }),
@@ -534,7 +533,7 @@ export async function loadHammerWorkspaceProjects(
           : [{ status: "fulfilled" as const, value: null }];
 
         return {
-          sessionResult: sessionResult[0]?.status === "fulfilled" ? sessionResult[0].value : null,
+          persistenceResult: persistenceResult[0]?.status === "fulfilled" ? persistenceResult[0].value : null,
           recordingTruth,
           recordingTruthUnavailable: truthResult[0]?.status === "rejected",
         };
@@ -543,25 +542,18 @@ export async function loadHammerWorkspaceProjects(
 
     return episodes.map((episode, index) => {
       const detailResult = detailResults[index];
-      const sessionResult = detailResult?.status === "fulfilled"
-        ? detailResult.value.sessionResult
+      const persistenceResult = detailResult?.status === "fulfilled"
+        ? detailResult.value.persistenceResult
         : null;
       const recordingTruth = detailResult?.status === "fulfilled"
         ? detailResult.value.recordingTruth
         : { hasKeptTake: false, latestKeptTakePath: null, latestKeptTake: null };
-      const canonicalRecording = sessionResult?.ok ? sessionResult.data.canonical_recording : null;
-      const revision = sessionResult?.ok ? sessionResult.data.revision : null;
-      const prepStatus = canonicalRecording?.baseline_transcript_path
-        ? "prepared"
-        : revision?.revision_transcript_path
-        ? "prepared"
-        : null;
-      const hasEditorSession = Boolean(revision?.editor_session_path);
-      const hasStructuredTranscript = Boolean(
-        canonicalRecording?.baseline_transcript_path || revision?.revision_transcript_path,
-      );
-      const hasVisualPlacements = Boolean(revision?.visual_placements_path);
-      const hasAudioPolish = Boolean(revision?.audio_polish_path);
+      const snapshotState = persistenceResult?.ok ? persistenceResult.data.state : null;
+      const prepStatus = snapshotState?.prep_status ?? null;
+      const hasEditorSession = Boolean(snapshotState?.editor_session_path);
+      const hasStructuredTranscript = Boolean(snapshotState?.transcript_artifact_path);
+      const hasVisualPlacements = Boolean(snapshotState?.visual_placement_artifact_path);
+      const hasAudioPolish = Boolean(snapshotState?.audio_polish_artifact_path);
       const hasEditPlan = false;
       const editReadiness = classifyHammerRuntimeProject({
         hasKeptTake: recordingTruth.hasKeptTake,
@@ -573,7 +565,7 @@ export async function loadHammerWorkspaceProjects(
       });
       const editInstructionCount = 0;
       const stateUnavailable = detailResult?.status === "rejected"
-        || (detailResult?.status === "fulfilled" && (!sessionResult?.ok || detailResult.value.recordingTruthUnavailable));
+        || (detailResult?.status === "fulfilled" && (!persistenceResult?.ok || detailResult.value.recordingTruthUnavailable));
 
       return {
         workpieceId: episode.id,
