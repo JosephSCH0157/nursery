@@ -516,6 +516,14 @@ export default function HammerWorkspaceEditor(
     () => createHammerDevConsoleLogger({ scope: "HammerIngest", routeSearch: props.routeSearch }),
     [props.routeSearch],
   );
+  const incomingLaunchContextSignature = useMemo(
+    () => JSON.stringify(props.launchContext ?? null),
+    [props.launchContext],
+  );
+  const incomingLaunchContext = useMemo(
+    () => withSessionId(props.launchContext),
+    [incomingLaunchContextSignature],
+  );
   const hammerRuntimeInstanceIdRef = useRef(
     (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
       ? crypto.randomUUID()
@@ -525,9 +533,9 @@ export default function HammerWorkspaceEditor(
   const persistenceMode = props.persistenceMode ?? "disabled";
   const persistenceTarget = useMemo(
     () => (persistenceMode === "canonical"
-      ? readHammerPersistenceTarget(props.routeSearch ?? "", props.launchContext)
+      ? readHammerPersistenceTarget(props.routeSearch ?? "", incomingLaunchContext)
       : null),
-    [persistenceMode, props.launchContext, props.routeSearch],
+    [incomingLaunchContext, persistenceMode, props.routeSearch],
   );
   const showIngestDiagnosticsPanel = useMemo(
     () => shouldShowHammerIngestDiagnosticsPanel(props.routeSearch),
@@ -537,13 +545,13 @@ export default function HammerWorkspaceEditor(
     ? buildTargetKey(persistenceTarget.workspaceId, persistenceTarget.workpieceId)
     : null;
   const [effectiveLaunchContext, setEffectiveLaunchContext] = useState<HammerLaunchContext | undefined>(
-    () => withSessionId(props.launchContext),
+    () => incomingLaunchContext,
   );
   const [loadedPersistenceSnapshot, setLoadedPersistenceSnapshot] = useState<HammerPersistenceSnapshot | null>(null);
   const [activeCanonicalRecording, setActiveCanonicalRecording] = useState<HammerCanonicalRecordingRecord | null>(null);
   const [activeRevision, setActiveRevision] = useState<HammerRecordingRevisionRecord | null>(null);
   const [hydrationReady, setHydrationReady] = useState(persistenceMode !== "canonical");
-  const [hasCanonicalBasis, setHasCanonicalBasis] = useState(Boolean(props.launchContext));
+  const [hasCanonicalBasis, setHasCanonicalBasis] = useState(Boolean(incomingLaunchContext));
   const [workspaceSnapshot, setWorkspaceSnapshot] = useState<HammerWorkspaceSnapshot | null>(null);
   const [prepVoiceLine, setPrepVoiceLine] = useState<string | null>(null);
   const [prepVoiceOpacity, setPrepVoiceOpacity] = useState(1);
@@ -1266,7 +1274,7 @@ export default function HammerWorkspaceEditor(
     setPrepAiNoticeDontShowAgain(false);
     setPreparedActionIntent(null);
     openedAtRef.current = new Date().toISOString();
-    setEffectiveLaunchContext(withSessionId(props.launchContext));
+    setEffectiveLaunchContext(incomingLaunchContext);
     setPrepJobHydrationReady(persistenceMode !== "canonical" || !persistenceTarget);
 
     clearReadyTransitionTimer();
@@ -1282,7 +1290,7 @@ export default function HammerWorkspaceEditor(
       ingestPointerSelfHealAttemptedRef.current = false;
       setPrepState(createHammerPrepState("idle", null));
       setHydrationReady(true);
-      setHasCanonicalBasis(Boolean(props.launchContext));
+      setHasCanonicalBasis(Boolean(incomingLaunchContext));
       return;
     }
 
@@ -1290,7 +1298,7 @@ export default function HammerWorkspaceEditor(
 
     let active = true;
     setHydrationReady(false);
-    setHasCanonicalBasis(Boolean(props.launchContext));
+    setHasCanonicalBasis(Boolean(incomingLaunchContext));
     setPrepState(createHammerPrepState("preparing", "loading_context"));
 
     const canonicalOpenKey = `${targetKey ?? "hammer"}:reload:${reloadRequestNonce}`;
@@ -1336,7 +1344,7 @@ export default function HammerWorkspaceEditor(
           correlationId: ingestCorrelationIdRef.current,
         });
 
-        let nextLaunchContext = withSessionId(props.launchContext);
+        let nextLaunchContext = incomingLaunchContext;
         let nextHasCanonicalBasis = Boolean(nextLaunchContext);
 
         let hydratedSnapshot: HammerPersistenceSnapshot | null = null;
@@ -1658,7 +1666,7 @@ export default function HammerWorkspaceEditor(
       .catch(async (error) => {
         if (!active) return;
 
-        let nextLaunchContext = withSessionId(props.launchContext);
+        let nextLaunchContext = incomingLaunchContext;
         let nextHasCanonicalBasis = Boolean(nextLaunchContext);
 
         if (!nextLaunchContext) {
@@ -1705,9 +1713,9 @@ export default function HammerWorkspaceEditor(
   }, [
     beginPrepExecution,
     clearReadyTransitionTimer,
+    incomingLaunchContext,
     persistenceMode,
     persistenceTarget,
-    props.launchContext,
     reloadRequestNonce,
     targetKey,
   ]);
