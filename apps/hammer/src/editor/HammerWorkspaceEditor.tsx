@@ -1985,12 +1985,6 @@ export default function HammerWorkspaceEditor(
     if (prepTranscriptJobId) {
       return;
     }
-    if (prepState.status === "prep_failed" && prepFailureKind === "non_ai_missing") {
-      return;
-    }
-    if (prepState.status === "prep_failed" && prepFailureKind === "auth_missing") {
-      return;
-    }
     if (prepState.status === "preparing" && prepState.step !== "loading_context") {
       return;
     }
@@ -2002,6 +1996,18 @@ export default function HammerWorkspaceEditor(
       loadedPersistenceSnapshot,
     );
     const effectiveOpenDecision = openDecision;
+
+    if (effectiveOpenDecision.action === "prepare" && prepState.status === "prep_failed") {
+      logPrepDebug("[HammerPrep] skip_trigger_failed_state", {
+        tick: triggerTick,
+        action: effectiveOpenDecision.action,
+        reason: effectiveOpenDecision.reason,
+        prep_failure_kind: prepFailureKind,
+        prep_status: prepState.status,
+        prep_step: prepState.step,
+      });
+      return;
+    }
 
     if (effectiveOpenDecision.action === "reuse") {
       // Avoid keeping a stale "prep_failed" state when we have a reusable transcript.
