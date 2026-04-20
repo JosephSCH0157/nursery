@@ -1526,7 +1526,7 @@ export default function HammerWorkspaceEditor(
           // --- Transcript selection logic ---
           let transcriptSource = "none";
           const transcriptEvaluations: HammerIngestDiagnosticV1["transcript_sources_evaluated"] = [];
-          let hydratedTranscript = null;
+          let hydratedTranscript: HammerPersistenceSnapshot["structured_transcript"]["data"] = null;
           let rejectionReason = null;
 
           transcriptEvaluations.push({
@@ -1628,6 +1628,18 @@ export default function HammerWorkspaceEditor(
           });
           nextLaunchContext = withSessionId(openHydration.launchContext);
           nextHasCanonicalBasis = openHydration.hasCanonicalBasis;
+
+          if (nextLaunchContext && hydratedTranscript?.segments.length) {
+            nextLaunchContext = {
+              ...nextLaunchContext,
+              transcript: {
+                kind: "tongs-stub",
+                transcript_id: hydratedTranscript.transcript_id,
+                segments: hydratedTranscript.segments.map((segment) => ({ ...segment })),
+                label: hydratedTranscript.transcript_id,
+              },
+            };
+          }
         }
 
         if (!nextLaunchContext) {
