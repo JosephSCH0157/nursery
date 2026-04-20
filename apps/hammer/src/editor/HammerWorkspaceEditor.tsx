@@ -662,12 +662,12 @@ export default function HammerWorkspaceEditor(
     setPresenceConflictDetail(next.presenceConflictDetail);
   }
 
-  const clearReadyTransitionTimer = (): void => {
+  const clearReadyTransitionTimer = useCallback((): void => {
     if (readyTransitionTimerRef.current != null) {
       window.clearTimeout(readyTransitionTimerRef.current);
       readyTransitionTimerRef.current = null;
     }
-  };
+  }, []);
 
   const beginPrepExecution = useCallback((): number => {
     prepExecutionIdRef.current += 1;
