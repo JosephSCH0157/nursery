@@ -257,7 +257,7 @@ async function listHammerWorkspaceEpisodes(workspaceId: string): Promise<HammerW
     : [];
 
   return episodes
-    .map((entry) => {
+    .map((entry): HammerWorkspaceEpisodeRow | null => {
       const row = readJsonRecord(entry);
       const id = readString(row?.id);
       const workspaceIdValue = readString(row?.workspace_id);
@@ -270,7 +270,7 @@ async function listHammerWorkspaceEpisodes(workspaceId: string): Promise<HammerW
         updated_at: readString(row?.updated_at),
         archived_at: readString(row?.archived_at),
         recorded: row?.recorded === true,
-        latest_kept_take: row?.latest_kept_take ?? null,
+        latest_kept_take: (row?.latest_kept_take as unknown) ?? null,
       };
     })
     .filter((row): row is HammerWorkspaceEpisodeRow => Boolean(row));
