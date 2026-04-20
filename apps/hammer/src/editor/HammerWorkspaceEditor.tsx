@@ -2301,16 +2301,37 @@ export default function HammerWorkspaceEditor(
             const visualStatus = finalSnapshot?.visual_placements.data?.status ?? null;
             const audioStatus = finalSnapshot?.audio_polish.data?.status ?? null;
             const baseStatus: Exclude<HammerIngestDiagnosticV1["final_status"], "degraded"> = outcome !== "prepared"
+          return;
+        }
+
+        prepTriggerEffectTickRef.current += 1;
+        const triggerTick = prepTriggerEffectTickRef.current;
+        const currentLaunchContext = effectiveLaunchContextRef.current ?? effectiveLaunchContext;
+        const currentSnapshot = loadedPersistenceSnapshotRef.current ?? loadedPersistenceSnapshot;
+        const openDecision = resolveHammerPrepOpenDecision(
+          currentLaunchContext,
+          currentSnapshot,
+        );
+        const effectiveOpenDecision = openDecision;
+
               ? "blocked"
               : "reused_transcript";
             const finalStatus = computeIngestFinalStatus({ base: baseStatus, audioStatus, visualStatus });
-            ingestDiagnosticRef.current.final_status = finalStatus;
+          && (prepFailureKind !== null || prepSessionAttemptedRef.current)
             ingestDiagnosticRef.current.timestamp = new Date().toISOString();
             ingestDiagnosticRef.current.extra = {
               ...(ingestDiagnosticRef.current.extra ?? {}),
+            action: effectiveOpenDecision.action,
+            reason: effectiveOpenDecision.reason,
+            prep_failure_kind: prepFailureKind,
+            prep_status: prepState.status,
               phase: "pipeline_end",
               reuse_stub_transcript: true,
-              audio_polish_status: audioStatus,
+          });
+          return;
+        }
+
+        if (effectiveOpenDecision.action === "reuse") {
               visual_placements_status: visualStatus,
             };
             void writeHammerIngestDiagnostics({
@@ -2318,10 +2339,14 @@ export default function HammerWorkspaceEditor(
               diagnostic: ingestDiagnosticRef.current,
               correlationId: ingestCorrelationIdRef.current,
             });
-          }
+            currentLaunchContext
           run.end({
             outcome,
             audio_polish_status: audioPolishStatus,
+            ? currentLaunchContext
+            : null;
+
+          if (!stubReuseLaunchContext) {
             audio_polish_failure_code: audioPolishFailureCode,
           });
           if (isPrepExecutionActive(executionId) && prepInFlightRunKeyRef.current === reuseRunKey) {
