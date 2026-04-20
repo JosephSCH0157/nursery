@@ -7,7 +7,7 @@ import {
   resolveHammerRouteWorkpieceId,
   type HammerRuntimeProjectCard,
 } from "./hammerRuntimeData";
-import { ensureWorkpieceRecordingCardThumbnail } from "./hammerRecordingCardThumbnail";
+import { loadWorkpieceRecordingCardThumbnailState } from "./hammerRecordingCardThumbnail";
 import { loadWorkpieceMediaPreviewUrl } from "../lib/hammerSourceDeskMediaApi";
 import { intake, pickMediaFile } from "../lib/hammerIntakeRecordingApi";
 import HammerWorkspaceSelection from "./HammerWorkspaceSelection";
@@ -175,11 +175,12 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
         if (!project.recording.keptTakePath) continue;
 
         let previewUrl: string | null = null;
-        let thumbnailPath = await ensureWorkpieceRecordingCardThumbnail({
-          workpieceId: project.workpieceId,
-          recordingPath: project.recording.keptTakePath,
-          existingThumbnailPath: project.recording.thumbnailPath,
-        }).catch(() => null);
+        let thumbnailPath = project.recording.thumbnailPath;
+        if (!thumbnailPath) {
+          thumbnailPath = await loadWorkpieceRecordingCardThumbnailState(project.workpieceId)
+            .then((state) => state.thumbnailPath)
+            .catch(() => null);
+        }
         if (thumbnailPath) {
           previewUrl = await loadWorkpieceMediaPreviewUrl({
             workpieceId: project.workpieceId,
@@ -187,21 +188,6 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
             mimeType: "image/jpeg",
             surface: "project_library_preview",
           }).catch(() => null);
-        }
-        if (!previewUrl) {
-          thumbnailPath = await ensureWorkpieceRecordingCardThumbnail({
-            workpieceId: project.workpieceId,
-            recordingPath: project.recording.keptTakePath,
-            existingThumbnailPath: null,
-          }).catch(() => null);
-          if (thumbnailPath) {
-            previewUrl = await loadWorkpieceMediaPreviewUrl({
-              workpieceId: project.workpieceId,
-              path: thumbnailPath,
-              mimeType: "image/jpeg",
-              surface: "project_library_preview",
-            }).catch(() => null);
-          }
         }
         if (!previewUrl) {
           previewUrl = await loadWorkpieceMediaPreviewUrl({
