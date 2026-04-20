@@ -1796,6 +1796,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     );
   }
 
+  return <HammerWorkspaceShellWithContext {...props} launchContext={props.launchContext} />;
+}
+
+function HammerWorkspaceShellWithContext(
+  props: HammerWorkspaceShellProps & { launchContext: HammerLaunchContext },
+): JSX.Element {
   const launchContext = props.launchContext;
   const structuredTranscriptResetKey = useMemo(() => {
     const transcript = props.structuredTranscript;
