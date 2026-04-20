@@ -1985,6 +1985,9 @@ export default function HammerWorkspaceEditor(
     if (prepTranscriptJobId) {
       return;
     }
+    if (prepState.status === "prep_failed" && prepFailureKind === "non_ai_missing") {
+      return;
+    }
     if (prepState.status === "prep_failed" && prepFailureKind === "auth_missing") {
       return;
     }
