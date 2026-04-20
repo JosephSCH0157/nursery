@@ -1629,9 +1629,7 @@ export default function HammerWorkspaceEditor(
           setPrepState(createHammerPrepState("prep_failed", null, result.prepFailureMessage));
         }
         setPrepFailureKind(result.prepFailureKind);
-        startTransition(() => {
-          setEffectiveLaunchContext(result.effectiveLaunchContext);
-        });
+        setEffectiveLaunchContext(result.effectiveLaunchContext);
         applyHostLoopState(resolveHammerReloadSuccess({
           hasPendingSaveChanges,
           saveFailureMessage,
