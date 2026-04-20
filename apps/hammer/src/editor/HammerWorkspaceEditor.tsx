@@ -805,6 +805,44 @@ export default function HammerWorkspaceEditor(
     });
   }, [hydrationReady, loadedPersistenceSnapshot, persistenceMode]);
 
+  useEffect(() => {
+    if (persistenceMode !== "canonical" || !hydrationReady || !prepTranscriptJobId) {
+      return;
+    }
+    const launchHasTranscript = Boolean(
+      effectiveLaunchContext?.transcript.kind === "tongs-stub"
+      && effectiveLaunchContext.transcript.segments.length > 0,
+    );
+    const snapshotHasTranscript = Boolean(
+      loadedPersistenceSnapshot?.structured_transcript.data?.segments.length,
+    );
+    if (!launchHasTranscript && !snapshotHasTranscript) {
+      return;
+    }
+    if (ingestLog.enabled) {
+      // eslint-disable-next-line no-console
+      console.log("[HammerPrep] detach_job_hydration_transcript_ready", {
+        instance_id: hammerRuntimeInstanceIdRef.current,
+        job_id: prepTranscriptJobId,
+        launch_has_transcript: launchHasTranscript,
+        snapshot_has_transcript: snapshotHasTranscript,
+      });
+    }
+    setPrepTranscriptJobId(null);
+    if (prepState.status === "preparing" && prepState.step === "transcribing_audio") {
+      setPrepState(createHammerPrepState("preparing", "loading_context"));
+    }
+  }, [
+    effectiveLaunchContext,
+    hydrationReady,
+    ingestLog.enabled,
+    loadedPersistenceSnapshot,
+    persistenceMode,
+    prepState.status,
+    prepState.step,
+    prepTranscriptJobId,
+  ]);
+
   const ensureVisualPlacements = async (args: {
     launchContext: HammerLaunchContext;
     transcriptSourceId: string;
