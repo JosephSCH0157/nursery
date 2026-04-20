@@ -550,6 +550,8 @@ export default function HammerWorkspaceEditor(
   const [loadedPersistenceSnapshot, setLoadedPersistenceSnapshot] = useState<HammerPersistenceSnapshot | null>(null);
   const [activeCanonicalRecording, setActiveCanonicalRecording] = useState<HammerCanonicalRecordingRecord | null>(null);
   const [activeRevision, setActiveRevision] = useState<HammerRecordingRevisionRecord | null>(null);
+  const effectiveLaunchContextRef = useRef<HammerLaunchContext | undefined>(incomingLaunchContext);
+  const loadedPersistenceSnapshotRef = useRef<HammerPersistenceSnapshot | null>(null);
   const activeCanonicalRecordingRef = useRef<HammerCanonicalRecordingRecord | null>(null);
   const activeRevisionRef = useRef<HammerRecordingRevisionRecord | null>(null);
   const [hydrationReady, setHydrationReady] = useState(persistenceMode !== "canonical");
@@ -767,6 +769,14 @@ export default function HammerWorkspaceEditor(
   useEffect(() => {
     activeRevisionRef.current = activeRevision;
   }, [activeRevision]);
+
+  useEffect(() => {
+    effectiveLaunchContextRef.current = effectiveLaunchContext;
+  }, [effectiveLaunchContext]);
+
+  useEffect(() => {
+    loadedPersistenceSnapshotRef.current = loadedPersistenceSnapshot;
+  }, [loadedPersistenceSnapshot]);
 
   useEffect(() => {
     if (persistenceMode !== "canonical" || !hydrationReady) {
@@ -1313,6 +1323,10 @@ export default function HammerWorkspaceEditor(
     setPreparedActionIntent(null);
     openedAtRef.current = new Date().toISOString();
     setEffectiveLaunchContext(incomingLaunchContext);
+    effectiveLaunchContextRef.current = incomingLaunchContext;
+    loadedPersistenceSnapshotRef.current = null;
+    activeCanonicalRecordingRef.current = null;
+    activeRevisionRef.current = null;
     setPrepJobHydrationReady(persistenceMode !== "canonical" || !persistenceTarget);
 
     clearReadyTransitionTimer();
@@ -1696,18 +1710,22 @@ export default function HammerWorkspaceEditor(
         if (!active) return;
 
         if (result.activeCanonicalRecording) {
+          activeCanonicalRecordingRef.current = result.activeCanonicalRecording;
           setActiveCanonicalRecording(result.activeCanonicalRecording);
         }
         if (result.activeRevision) {
+          activeRevisionRef.current = result.activeRevision;
           setActiveRevision(result.activeRevision);
         }
         if (result.loadedPersistenceSnapshot) {
+          loadedPersistenceSnapshotRef.current = result.loadedPersistenceSnapshot;
           setLoadedPersistenceSnapshot(result.loadedPersistenceSnapshot);
         }
         if (result.prepFailureMessage) {
           setPrepState(createHammerPrepState("prep_failed", null, result.prepFailureMessage));
         }
         setPrepFailureKind(result.prepFailureKind);
+        effectiveLaunchContextRef.current = result.effectiveLaunchContext;
         setEffectiveLaunchContext(result.effectiveLaunchContext);
         applyHostLoopState(resolveHammerReloadSuccess(hostLoopStateRef.current));
         setHasCanonicalBasis(result.hasCanonicalBasis);
@@ -1736,6 +1754,7 @@ export default function HammerWorkspaceEditor(
 
         if (!active) return;
         startTransition(() => {
+          effectiveLaunchContextRef.current = nextLaunchContext;
           setEffectiveLaunchContext(nextLaunchContext);
         });
         applyHostLoopState(resolveHammerReloadFailure(hostLoopStateRef.current));
@@ -1949,7 +1968,26 @@ export default function HammerWorkspaceEditor(
         job.job_type === "hammer_transcript_prep"
         && (job.status === "queued" || job.status === "running")
       ));
+      const currentLaunchContext = effectiveLaunchContextRef.current ?? effectiveLaunchContext;
+      const currentSnapshot = loadedPersistenceSnapshotRef.current ?? loadedPersistenceSnapshot;
+      const openDecision = resolveHammerPrepOpenDecision(
+        currentLaunchContext,
+        currentSnapshot,
+      );
       if (activePrep && !prepTranscriptJobId) {
+        if (openDecision.action !== "prepare") {
+          if (ingestLog.enabled) {
+            // eslint-disable-next-line no-console
+            console.log("[HammerPrep] skip_job_hydration_reuse_ready", {
+              instance_id: hammerRuntimeInstanceIdRef.current,
+              job_id: activePrep.id,
+              job_status: activePrep.status,
+              open_action: openDecision.action,
+              open_reason: openDecision.reason,
+            });
+          }
+          return;
+        }
         setPrepTranscriptJobId(activePrep.id);
         if (prepState.status !== "preparing" || prepState.step === "loading_context") {
           setPrepState(createHammerPrepState("preparing", "transcribing_audio"));
@@ -1974,6 +2012,7 @@ export default function HammerWorkspaceEditor(
       if (timer != null) window.clearTimeout(timer);
     };
   }, [
+    ingestLog.enabled,
     persistenceTarget?.workspaceId,
     persistenceTarget?.workpieceId,
     prepJobHydrationReady,
@@ -2050,9 +2089,11 @@ export default function HammerWorkspaceEditor(
 
     prepTriggerEffectTickRef.current += 1;
     const triggerTick = prepTriggerEffectTickRef.current;
+    const currentLaunchContext = effectiveLaunchContextRef.current ?? effectiveLaunchContext;
+    const currentSnapshot = loadedPersistenceSnapshotRef.current ?? loadedPersistenceSnapshot;
     const openDecision = resolveHammerPrepOpenDecision(
-      effectiveLaunchContext,
-      loadedPersistenceSnapshot,
+      currentLaunchContext,
+      currentSnapshot,
     );
     const effectiveOpenDecision = openDecision;
 
@@ -2083,10 +2124,10 @@ export default function HammerWorkspaceEditor(
       }
       const stubReuseLaunchContext = (
         effectiveLaunchContext
-        && effectiveLaunchContext.transcript.kind === "tongs-stub"
+        && currentLaunchContext?.transcript.kind === "tongs-stub"
         && effectiveOpenDecision.reason === "reuse_stub_transcript"
       )
-        ? effectiveLaunchContext
+        ? currentLaunchContext
         : null;
 
       if (!stubReuseLaunchContext) {
@@ -2271,16 +2312,22 @@ export default function HammerWorkspaceEditor(
       return;
     }
     if (effectiveOpenDecision.action === "blocked" || !effectiveLaunchContext) {
+      effectiveLaunchContextRef.current = currentLaunchContext;
       setPrepState(effectiveOpenDecision.state);
       return;
     }
 
-    const prepSource = resolveHammerPrepSource(effectiveLaunchContext);
+    if (!currentLaunchContext) {
+      setPrepState(effectiveOpenDecision.state);
+      return;
+    }
+
+    const prepSource = resolveHammerPrepSource(currentLaunchContext);
     if (!prepSource) {
       setPrepState(createHammerPrepState("prep_failed", null, "Hammer could not resolve prep media."));
       ingestLog.error("prep_source_missing", {
-        workspace_id: effectiveLaunchContext.workspace_id,
-        workpiece_id: effectiveLaunchContext.workpiece_id,
+        workspace_id: currentLaunchContext.workspace_id,
+        workpiece_id: currentLaunchContext.workpiece_id,
       });
       return;
     }
@@ -2376,11 +2423,11 @@ export default function HammerWorkspaceEditor(
         media_kind: prepSource.mediaRef.kind,
         local_relpath: prepSource.local_relpath,
         canonical_workpiece_path: prepSource.canonical_workpiece_path,
-        workspace_id: effectiveLaunchContext.workspace_id,
-        workpiece_id: effectiveLaunchContext.workpiece_id,
+        workspace_id: currentLaunchContext.workspace_id,
+        workpiece_id: currentLaunchContext.workpiece_id,
         target_key: targetKey,
-        snapshot_has_transcript: Boolean(loadedPersistenceSnapshot?.structured_transcript.data?.segments.length),
-        snapshot_audio_polish_status: loadedPersistenceSnapshot?.audio_polish.data?.status ?? null,
+        snapshot_has_transcript: Boolean(currentSnapshot?.structured_transcript.data?.segments.length),
+        snapshot_audio_polish_status: currentSnapshot?.audio_polish.data?.status ?? null,
       });
     }
 
@@ -2402,8 +2449,8 @@ export default function HammerWorkspaceEditor(
     const run = ingestLog.run("prep", {
       run_key: prepRunKey,
       execution_id: executionId,
-      workspace_id: effectiveLaunchContext.workspace_id,
-      workpiece_id: effectiveLaunchContext.workpiece_id,
+      workspace_id: currentLaunchContext.workspace_id,
+      workpiece_id: currentLaunchContext.workpiece_id,
       persistence_mode: persistenceMode,
       ai_fallback_requested: prepAiFallbackRequested,
       media_kind: prepSource.mediaRef.kind,
@@ -2437,8 +2484,8 @@ export default function HammerWorkspaceEditor(
             elapsed_ms: transcriptElapsedMs(),
             run_key: prepRunKey,
             execution_id: executionId,
-            workspace_id: effectiveLaunchContext.workspace_id,
-            workpiece_id: effectiveLaunchContext.workpiece_id,
+            workspace_id: currentLaunchContext.workspace_id,
+            workpiece_id: currentLaunchContext.workpiece_id,
             stage,
             ...(detail ?? {}),
           },
@@ -2457,7 +2504,7 @@ export default function HammerWorkspaceEditor(
       let outcome: "prepared" | "failed" | "non_ai_missing" | "error" | "job_submitted" = "error";
       let audioPolishStatus: string | null = null;
       let audioPolishFailureCode: string | null = null;
-      let finalSnapshot: HammerPersistenceSnapshot | null = loadedPersistenceSnapshot;
+      let finalSnapshot: HammerPersistenceSnapshot | null = currentSnapshot;
       let usedAiPrep = false;
       const currentCanonicalRecording = activeCanonicalRecordingRef.current;
       const currentRevision = activeRevisionRef.current;
@@ -2677,7 +2724,7 @@ export default function HammerWorkspaceEditor(
         }
 
         const preparingRequest = buildHammerPrepPersistenceSaveRequest({
-          launchContext: effectiveLaunchContext,
+          launchContext: currentLaunchContext,
           status: "preparing",
         });
         if (currentRevision) {
