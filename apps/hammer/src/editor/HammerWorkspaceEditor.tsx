@@ -550,6 +550,8 @@ export default function HammerWorkspaceEditor(
   const [loadedPersistenceSnapshot, setLoadedPersistenceSnapshot] = useState<HammerPersistenceSnapshot | null>(null);
   const [activeCanonicalRecording, setActiveCanonicalRecording] = useState<HammerCanonicalRecordingRecord | null>(null);
   const [activeRevision, setActiveRevision] = useState<HammerRecordingRevisionRecord | null>(null);
+  const activeCanonicalRecordingRef = useRef<HammerCanonicalRecordingRecord | null>(null);
+  const activeRevisionRef = useRef<HammerRecordingRevisionRecord | null>(null);
   const [hydrationReady, setHydrationReady] = useState(persistenceMode !== "canonical");
   const [hasCanonicalBasis, setHasCanonicalBasis] = useState(Boolean(incomingLaunchContext));
   const [workspaceSnapshot, setWorkspaceSnapshot] = useState<HammerWorkspaceSnapshot | null>(null);
@@ -758,6 +760,14 @@ export default function HammerWorkspaceEditor(
   }, [prepFailureKind, prepState.status]);
 
   useEffect(() => {
+    activeCanonicalRecordingRef.current = activeCanonicalRecording;
+  }, [activeCanonicalRecording]);
+
+  useEffect(() => {
+    activeRevisionRef.current = activeRevision;
+  }, [activeRevision]);
+
+  useEffect(() => {
     if (persistenceMode !== "canonical" || !hydrationReady) {
       return;
     }
@@ -769,7 +779,7 @@ export default function HammerWorkspaceEditor(
       if (!current) {
         return current;
       }
-      if (current.transcript.kind === "tongs-stub") {
+      if (current.transcript.kind === "tongs-stub" && current.transcript.segments.length > 0) {
         return current;
       }
       return {
@@ -2429,6 +2439,8 @@ export default function HammerWorkspaceEditor(
       let audioPolishFailureCode: string | null = null;
       let finalSnapshot: HammerPersistenceSnapshot | null = loadedPersistenceSnapshot;
       let usedAiPrep = false;
+      const currentCanonicalRecording = activeCanonicalRecordingRef.current;
+      const currentRevision = activeRevisionRef.current;
 
       const hasUserToken = await hasTongsUserAccessToken();
       if (!hasUserToken) {
@@ -2444,13 +2456,13 @@ export default function HammerWorkspaceEditor(
 
       try {
         // Non-AI attempt first: reuse any existing transcript artifacts before starting AI transcription.
-        if (!prepAiFallbackRequested && persistenceTarget && activeCanonicalRecording && !activeCanonicalRecording.sealed_at) {
+        if (!prepAiFallbackRequested && persistenceTarget && currentCanonicalRecording && !currentCanonicalRecording.sealed_at) {
           logTranscriptStage("legacy:load:start", {
-            canonical_recording_id: activeCanonicalRecording.id,
-            sealed_at: activeCanonicalRecording.sealed_at ?? null,
+            canonical_recording_id: currentCanonicalRecording.id,
+            sealed_at: currentCanonicalRecording.sealed_at ?? null,
           });
           const legacySpan = run.span("legacy_transcript:load");
-          const legacyResult = await loadLegacyHammerTranscriptArtifacts(activeCanonicalRecording.workpiece_id);
+          const legacyResult = await loadLegacyHammerTranscriptArtifacts(currentCanonicalRecording.workpiece_id);
           legacySpan.end({
             ok: legacyResult.ok,
             status: legacyResult.status,
@@ -2471,7 +2483,7 @@ export default function HammerWorkspaceEditor(
                 speaker_map: legacyResult.data.speaker_map,
               },
             );
-            let canonicalAfterSeal = activeCanonicalRecording;
+            let canonicalAfterSeal = currentCanonicalRecording;
             if (!sealResult.ok) {
               const sealCode = sealResult.error_code ?? null;
               if (isSealRaceRecoverable(sealCode)) {
@@ -2524,7 +2536,7 @@ export default function HammerWorkspaceEditor(
             const hydrateSpan = run.span("legacy_transcript:hydrate");
             const [baselineResult, revisionArtifactsResult] = await Promise.all([
               loadHammerCanonicalBaselineArtifacts(canonicalAfterSeal),
-              activeRevision ? loadHammerRecordingRevisionArtifacts(activeRevision) : Promise.resolve({ ok: true as const, status: 200, data: null as any }),
+              currentRevision ? loadHammerRecordingRevisionArtifacts(currentRevision) : Promise.resolve({ ok: true as const, status: 200, data: null as any }),
             ]);
             hydrateSpan.end({
               baseline_ok: baselineResult.ok,
@@ -2539,7 +2551,7 @@ export default function HammerWorkspaceEditor(
               const hydratedSnapshot = buildHydratedSnapshot({
                 target: persistenceTarget,
                 canonicalRecording: canonicalAfterSeal,
-                revision: activeRevision ?? {
+                revision: currentRevision ?? {
                   id: "revision_missing",
                   workspace_id: persistenceTarget.workspaceId,
                   workpiece_id: persistenceTarget.workpieceId,
@@ -2629,8 +2641,8 @@ export default function HammerWorkspaceEditor(
           logTranscriptStage("legacy:missing", {}, "warn");
           run.log("legacy_transcript:missing", {
             ai_fallback_requested: prepAiFallbackRequested,
-            canonical_recording_id: activeCanonicalRecording?.id ?? null,
-            sealed_at: activeCanonicalRecording?.sealed_at ?? null,
+            canonical_recording_id: currentCanonicalRecording?.id ?? null,
+            sealed_at: currentCanonicalRecording?.sealed_at ?? null,
             note: "No legacy transcript artifacts were found to seal. Offer AI fallback.",
           });
           setPrepState(createHammerPrepState(
@@ -2648,10 +2660,10 @@ export default function HammerWorkspaceEditor(
           launchContext: effectiveLaunchContext,
           status: "preparing",
         });
-        if (activeRevision) {
+        if (currentRevision) {
           const preparingSave = await saveHammerRecordingRevision(
             persistenceTarget,
-            activeRevision.id,
+            currentRevision.id,
             {
               editor_session: preparingRequest.editor_session,
             },
@@ -2665,8 +2677,8 @@ export default function HammerWorkspaceEditor(
           logTranscriptStage("legacy:missing", {}, "warn");
           run.log("legacy_transcript:missing", {
             ai_fallback_requested: prepAiFallbackRequested,
-            canonical_recording_id: activeCanonicalRecording?.id ?? null,
-            sealed_at: activeCanonicalRecording?.sealed_at ?? null,
+            canonical_recording_id: currentCanonicalRecording?.id ?? null,
+            sealed_at: currentCanonicalRecording?.sealed_at ?? null,
             note: "No legacy transcript artifacts were found; AI fallback not requested.",
           });
           setPrepState(createHammerPrepState(
@@ -2682,7 +2694,7 @@ export default function HammerWorkspaceEditor(
 
         setPrepState(createHammerPrepState("preparing", "transcribing_audio"));
         logTranscriptStage("job:create:start");
-        if (!persistenceTarget || !activeRevision || !activeCanonicalRecording) {
+        if (!persistenceTarget || !currentRevision || !currentCanonicalRecording) {
           throw new Error("Hammer transcript jobs require a canonical persistence target.");
         }
         if (prepSource.local_root_abs) {
@@ -2701,8 +2713,8 @@ export default function HammerWorkspaceEditor(
           workpieceId: persistenceTarget.workpieceId,
           jobType: "hammer_transcript_prep",
           payloadJson: {
-            revision_id: activeRevision.id,
-            canonical_recording_id: activeCanonicalRecording.id,
+            revision_id: currentRevision.id,
+            canonical_recording_id: currentCanonicalRecording.id,
             canonical_workpiece_path: prepSource.canonical_workpiece_path,
             refresh_visual_placements: true,
             client_request_id: transcriptClientRequestId,
@@ -2745,10 +2757,10 @@ export default function HammerWorkspaceEditor(
             launchContext: effectiveLaunchContext,
             status: "prep_failed",
           });
-          if (activeRevision) {
+          if (currentRevision) {
             await saveHammerRecordingRevision(
               persistenceTarget,
-              activeRevision.id,
+              currentRevision.id,
               { editor_session: failedRequest.editor_session },
             );
           }
