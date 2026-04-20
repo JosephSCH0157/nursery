@@ -1970,18 +1970,27 @@ export default function HammerWorkspaceEditor(
       ));
       const currentLaunchContext = effectiveLaunchContextRef.current ?? effectiveLaunchContext;
       const currentSnapshot = loadedPersistenceSnapshotRef.current ?? loadedPersistenceSnapshot;
+      const launchHasTranscript = Boolean(
+        currentLaunchContext?.transcript.kind === "tongs-stub"
+        && currentLaunchContext.transcript.segments.length > 0,
+      );
+      const snapshotHasTranscript = Boolean(
+        currentSnapshot?.structured_transcript.data?.segments.length,
+      );
       const openDecision = resolveHammerPrepOpenDecision(
         currentLaunchContext,
         currentSnapshot,
       );
       if (activePrep && !prepTranscriptJobId) {
-        if (openDecision.action !== "prepare") {
+        if (launchHasTranscript || snapshotHasTranscript || openDecision.action !== "prepare") {
           if (ingestLog.enabled) {
             // eslint-disable-next-line no-console
             console.log("[HammerPrep] skip_job_hydration_reuse_ready", {
               instance_id: hammerRuntimeInstanceIdRef.current,
               job_id: activePrep.id,
               job_status: activePrep.status,
+              launch_has_transcript: launchHasTranscript,
+              snapshot_has_transcript: snapshotHasTranscript,
               open_action: openDecision.action,
               open_reason: openDecision.reason,
             });
