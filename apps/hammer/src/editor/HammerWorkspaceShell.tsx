@@ -2176,7 +2176,10 @@ function HammerWorkspaceShellWithContext(
   const visualPlacementCardRefs = useRef(new Map<string, HTMLElement>());
   const timelineTrackScrollRef = useRef<HTMLDivElement | null>(null);
   const selectionOriginRef = useRef<"system" | "transcript" | "timeline" | "playhead">("system");
+  const selectionRevealFrameRef = useRef<number | null>(null);
   const historyControllerRef = useRef<HammerHistoryController | null>(null);
+  const shellShortcutKeydownHandlerRef = useRef<((event: KeyboardEvent) => void) | null>(null);
+  const historyShortcutKeydownHandlerRef = useRef<((event: KeyboardEvent) => void) | null>(null);
   const historyPersistTimerRef = useRef<number | null>(null);
   const snapshotManifestRef = useRef<HammerSnapshotManifestV1 | null>(null);
   const lastSnapshottedHeadEntryIdRef = useRef<string | null>(null);
@@ -5486,42 +5489,57 @@ function HammerWorkspaceShellWithContext(
 
     const origin = selectionOriginRef.current;
     if (origin === "system") return;
-    const line = transcriptLineRefs.current.get(selectedSegmentId) ?? null;
-    if (line) {
-      const parentScroll = line.closest(".hammer-bay-body");
-      if (parentScroll instanceof HTMLElement) {
-        const lineTop = line.offsetTop;
-        const lineBottom = lineTop + line.offsetHeight;
-        const viewTop = parentScroll.scrollTop;
-        const viewBottom = viewTop + parentScroll.clientHeight;
-        const comfortPadding = Math.min(84, Math.floor(parentScroll.clientHeight * 0.2));
-        const inComfortBand = lineTop >= (viewTop + comfortPadding) && lineBottom <= (viewBottom - comfortPadding);
-        if (origin !== "playhead" || !inComfortBand) {
-          line.scrollIntoView({ block: "center", behavior: origin === "playhead" ? "auto" : "smooth" });
+    if (selectionRevealFrameRef.current != null) {
+      window.cancelAnimationFrame(selectionRevealFrameRef.current);
+      selectionRevealFrameRef.current = null;
+    }
+
+    selectionRevealFrameRef.current = window.requestAnimationFrame(() => {
+      const line = transcriptLineRefs.current.get(selectedSegmentId) ?? null;
+      if (line) {
+        const parentScroll = line.closest(".hammer-bay-body");
+        if (parentScroll instanceof HTMLElement) {
+          const lineTop = line.offsetTop;
+          const lineBottom = lineTop + line.offsetHeight;
+          const viewTop = parentScroll.scrollTop;
+          const viewBottom = viewTop + parentScroll.clientHeight;
+          const comfortPadding = Math.min(84, Math.floor(parentScroll.clientHeight * 0.2));
+          const inComfortBand = lineTop >= (viewTop + comfortPadding) && lineBottom <= (viewBottom - comfortPadding);
+          if (origin !== "playhead" || !inComfortBand) {
+            line.scrollIntoView({ block: "center", behavior: origin === "playhead" ? "auto" : "smooth" });
+          }
         }
       }
-    }
 
-    const trackScroll = timelineTrackScrollRef.current;
-    if (trackScroll && timelineDurationSec > 0) {
-      const midpoint = (selected.start_sec + selected.end_sec) / 2;
-      const ratio = Math.max(0, Math.min(1, midpoint / timelineDurationSec));
-      const targetPixel = ratio * trackScroll.scrollWidth;
-      const viewLeft = trackScroll.scrollLeft;
-      const viewRight = viewLeft + trackScroll.clientWidth;
-      const comfortLeft = viewLeft + (trackScroll.clientWidth * 0.2);
-      const comfortRight = viewRight - (trackScroll.clientWidth * 0.2);
-      const inComfortBand = targetPixel >= comfortLeft && targetPixel <= comfortRight;
-      if (origin !== "playhead" || !inComfortBand) {
-        const centeredLeft = Math.max(0, targetPixel - (trackScroll.clientWidth / 2));
-        trackScroll.scrollTo({
-          left: centeredLeft,
-          behavior: origin === "playhead" ? "auto" : "smooth",
-        });
+      const trackScroll = timelineTrackScrollRef.current;
+      if (trackScroll && timelineDurationSec > 0) {
+        const midpoint = (selected.start_sec + selected.end_sec) / 2;
+        const ratio = Math.max(0, Math.min(1, midpoint / timelineDurationSec));
+        const targetPixel = ratio * trackScroll.scrollWidth;
+        const viewLeft = trackScroll.scrollLeft;
+        const viewRight = viewLeft + trackScroll.clientWidth;
+        const comfortLeft = viewLeft + (trackScroll.clientWidth * 0.2);
+        const comfortRight = viewRight - (trackScroll.clientWidth * 0.2);
+        const inComfortBand = targetPixel >= comfortLeft && targetPixel <= comfortRight;
+        if (origin !== "playhead" || !inComfortBand) {
+          const centeredLeft = Math.max(0, targetPixel - (trackScroll.clientWidth / 2));
+          trackScroll.scrollTo({
+            left: centeredLeft,
+            behavior: origin === "playhead" ? "auto" : "smooth",
+          });
+        }
       }
-    }
 
-    selectionOriginRef.current = "system";
+      selectionOriginRef.current = "system";
+      selectionRevealFrameRef.current = null;
+    });
+
+    return () => {
+      if (selectionRevealFrameRef.current != null) {
+        window.cancelAnimationFrame(selectionRevealFrameRef.current);
+        selectionRevealFrameRef.current = null;
+      }
+    };
   }, [editableTranscriptSegments, selectedSegmentId, timelineDurationSec]);
 
   useEffect(() => {
@@ -7535,7 +7553,7 @@ function HammerWorkspaceShellWithContext(
   }, [zoomTimelineIn, zoomTimelineOut]);
 
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent): void {
+    shellShortcutKeydownHandlerRef.current = (event: KeyboardEvent): void => {
       if (event.defaultPrevented) return;
       if (isTextEditingTarget(event.target)) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -7627,10 +7645,7 @@ function HammerWorkspaceShellWithContext(
           applyDeadAirClosureBatch();
         }
       }
-    }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    };
   }, [
     activeFillerCandidateCard,
     activeReviewKind,
@@ -7647,6 +7662,13 @@ function HammerWorkspaceShellWithContext(
     zoomTimelineIn,
     zoomTimelineOut,
   ]);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      shellShortcutKeydownHandlerRef.current?.(event);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   useEffect(() => {
     if (fillerCandidateCards.length === 0 && fillerActiveCandidateIndex !== 0) {
       setFillerActiveCandidateIndex(0);
@@ -9307,7 +9329,7 @@ function HammerWorkspaceShellWithContext(
   }
 
   useEffect(() => {
-    function handleKeyboardHistory(event: KeyboardEvent): void {
+    historyShortcutKeydownHandlerRef.current = (event: KeyboardEvent): void => {
       if (isKeyboardEditingTarget(event.target)) return;
 
       if (!event.ctrlKey && !event.metaKey && !event.altKey) {
@@ -9460,11 +9482,6 @@ function HammerWorkspaceShellWithContext(
         return;
       }
       redoHistory();
-    }
-
-    window.addEventListener("keydown", handleKeyboardHistory);
-    return () => {
-      window.removeEventListener("keydown", handleKeyboardHistory);
     };
   }, [
     addMarkerAtPlayhead,
@@ -9484,6 +9501,15 @@ function HammerWorkspaceShellWithContext(
     toggleSelectedSegmentDisabled,
     undoHistory,
   ]);
+  useEffect(() => {
+    const handleKeyboardHistory = (event: KeyboardEvent): void => {
+      historyShortcutKeydownHandlerRef.current?.(event);
+    };
+    window.addEventListener("keydown", handleKeyboardHistory);
+    return () => {
+      window.removeEventListener("keydown", handleKeyboardHistory);
+    };
+  }, []);
 
   const exportBasis = useMemo(() => {
     const exportTranscriptSegments = editableTranscriptSegments.filter((segment) => !segment.is_disabled);
