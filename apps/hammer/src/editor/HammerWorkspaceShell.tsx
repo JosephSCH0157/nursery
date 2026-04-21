@@ -200,6 +200,7 @@ import { useHammerWorkspaceShellShortcuts } from "./useHammerWorkspaceShellShort
 import { useHammerWorkspaceShellSelection } from "./useHammerWorkspaceShellSelection";
 import { useHammerWorkspaceShellSourceDeskController } from "./useHammerWorkspaceShellSourceDeskController";
 import { useHammerWorkspaceShellPreviewRuntime } from "./useHammerWorkspaceShellPreviewRuntime";
+import { useHammerWorkspaceShellReleasePrep } from "./useHammerWorkspaceShellReleasePrep";
 import { useHammerWorkspaceShellVisualEditing } from "./useHammerWorkspaceShellVisualEditing";
 import {
   toHammerLinkedSelectionVisualItems,
@@ -225,7 +226,6 @@ import {
   type HammerVoicePolishPresetId,
 } from "./hammerVoicePolish";
 import {
-  executeDialogueAudioRenderWithBackend,
   processDialogueAudioWithBackend,
   resolveHammerAudioProcessingBackend,
   type HammerDialogueRenderExecutionResult,
@@ -258,22 +258,14 @@ import {
 import { buildHammerReleasePrepPackage } from "../lib/hammerReleasePrepPackage";
 import {
   HAMMER_PREPARED_RELEASE_PACKAGE_PATH,
-  buildHammerPreparedReleasePackage,
   compareHammerPreparedReleasePackageToCurrent,
   type HammerPreparedReleasePackage,
-  type HammerPreparedReleaseOverallStatus,
 } from "../lib/hammerPreparedReleasePackage";
-import {
-  loadHammerPreparedReleasePackage,
-  saveHammerPreparedReleasePackage,
-} from "../lib/hammerPreparedReleasePackageApi";
 import { loadHammerWorkspaceWorkpieceLabel } from "../app/hammerRuntimeData";
 import {
   HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH,
-  buildHammerQuenchReleasePacket,
 } from "../lib/hammerQuenchReleasePacket";
 import { deriveHammerReleaseHandoffPosture } from "../lib/hammerReleaseHandoffPosture";
-import { saveHammerQuenchReleasePacket } from "../lib/hammerQuenchReleasePacketApi";
 import {
   buildHammerRenderAssembly,
   projectEditPlanFromEditorialAuthorityGraph,
@@ -288,11 +280,6 @@ import {
 } from "./hammerBoundObjects";
 import { resolvePodcastMasterUiStatus } from "./hammerPodcastMasterStatus";
 import { evaluateHammerReadinessGate } from "./hammerReadinessGate";
-import {
-  decideHammerQuenchHandoff,
-  type HammerQuenchHandoffStatus,
-  validateHammerQuenchPacketForHandoff,
-} from "./hammerQuenchHandoff";
 import {
   canEnterPass,
   deriveHydratedPassStatus,
@@ -589,12 +576,6 @@ type HammerTimelineLaneView = {
   label: string;
   tone: "dialogue" | "music" | "broll" | "stills";
   blocks: HammerTimelineLaneBlock[];
-};
-
-type HammerReleasePrepSaveState = {
-  preparedAt: string;
-  overallStatus: HammerPreparedReleaseOverallStatus;
-  subtitleArtifactCount: number;
 };
 
 type HammerExportTruthState = "never_prepared" | "current" | "stale";
@@ -1189,15 +1170,6 @@ function HammerWorkspaceShellWithContext(
   const [sourceDeskPreviewFailures, setSourceDeskPreviewFailures] = useState<Record<string, true>>({});
   const [sourceDeskRequestedPreviewPaths, setSourceDeskRequestedPreviewPaths] = useState<string[]>([]);
   const [sourceDeskVisiblePreviewPaths, setSourceDeskVisiblePreviewPaths] = useState<string[]>([]);
-  const [releasePrepSaving, setReleasePrepSaving] = useState(false);
-  const [releasePrepLoading, setReleasePrepLoading] = useState(false);
-  const [releasePrepError, setReleasePrepError] = useState<string | null>(null);
-  const [releasePrepSaved, setReleasePrepSaved] = useState<HammerReleasePrepSaveState | null>(null);
-  const [quenchHandoffStatus, setQuenchHandoffStatus] = useState<{
-    status: HammerQuenchHandoffStatus;
-    message: string;
-  } | null>(null);
-  const [loadedPreparedPackage, setLoadedPreparedPackage] = useState<HammerPreparedReleasePackage | null>(null);
   const [studioRackRenderStatus, setStudioRackRenderStatus] = useState<HammerDialogueRenderExecutionResult | null>(null);
   const [transcriptTimingHint, setTranscriptTimingHint] = useState<string | null>(null);
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
@@ -1285,7 +1257,6 @@ function HammerWorkspaceShellWithContext(
   }, []);
   const workspaceShellRef = useRef<HTMLElement | null>(null);
   const captionEditorRefs = useRef(new Map<string, HTMLTextAreaElement>());
-  const lastHandledHandoffTokenRef = useRef<number | null>(null);
   const transcriptLineRefs = useRef(new Map<string, HTMLElement>());
   const visualPlacementCardRefs = useRef(new Map<string, HTMLElement>());
   const timelineTrackScrollRef = useRef<HTMLDivElement | null>(null);
@@ -3929,35 +3900,23 @@ function HammerWorkspaceShellWithContext(
     };
   }, [currentPass, selectedClipId, selectedSourceTab]);
 
-  useEffect(() => {
-    let active = true;
-    setReleasePrepLoading(true);
-    setReleasePrepError(null);
-    setLoadedPreparedPackage(null);
-    setReleasePrepSaved(null);
-    setStudioRackRenderStatus(null);
-
-    void loadHammerPreparedReleasePackage(launchContext.workpiece_id)
-      .then((result) => {
-        if (!active) return;
-        if (!result.ok) {
-          setReleasePrepError(result.error);
-          setReleasePrepLoading(false);
-          return;
-        }
-        setLoadedPreparedPackage(result.exists ? (result.data ?? null) : null);
-        setReleasePrepLoading(false);
-      })
-      .catch((error) => {
-        if (!active) return;
-        setReleasePrepError(toErrorMessage(error, "Hammer could not load prepared release package state."));
-        setReleasePrepLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [launchContext.workpiece_id]);
+  const {
+    releasePrepSaving,
+    releasePrepLoading,
+    releasePrepError,
+    releasePrepSaved,
+    quenchHandoffStatus,
+    loadedPreparedPackage,
+    sendToQuench,
+  } = useHammerWorkspaceShellReleasePrep({
+    workpieceId: launchContext.workpiece_id,
+    workspaceId: launchContext.workspace_id,
+    prepHandoffAction: props.prepHandoffAction,
+    setStudioRackRenderStatus,
+    selectPass,
+    setFocusOverride,
+    toErrorMessage,
+  });
 
 
   function updateSegmentTiming(
@@ -7664,188 +7623,44 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     : "No edited artifact";
   const captionReleasePrepSummaryLine = `Using ${captionReleaseSourceLabel} · Built ${captionBuiltSummary} · Edited ${captionEditedSummary}`;
 
-  async function handleSendToQuench(): Promise<void> {
-    if (releasePrepSaving) return;
-
-    setReleasePrepSaving(true);
-    setReleasePrepError(null);
-    setReleasePrepSaved(null);
-    setQuenchHandoffStatus(null);
-
-    try {
-      const releasePrepPackageSnapshot = exportBasis.currentReleasePackage;
-      const renderAssemblySnapshot = exportBasis.renderAssembly;
-      const canonicalGraphSnapshot = exportBasis.canonicalGraph;
-      const subtitlesSnapshot = exportBasis.subtitles;
-      const timelineRevisionSnapshot = exportBasis.timelineRevision;
-      const handoffDecision = decideHammerQuenchHandoff({
-        releasePrepPackage: releasePrepPackageSnapshot,
-        readinessGate,
-      });
-      if (handoffDecision.status === "blocked") {
-        setQuenchHandoffStatus({
-          status: "blocked",
-          message: handoffDecision.reasons.join(" "),
-        });
-        return;
-      }
-      if (handoffDecision.status === "requires_confirmation") {
-        const proceed = window.confirm(
-          `This episode still needs review (${readinessGate.review_count} item${readinessGate.review_count === 1 ? "" : "s"}). Send to Quench anyway?`,
-        );
-        if (!proceed) {
-          setQuenchHandoffStatus({
-            status: "blocked",
-            message: "Handoff cancelled. Resolve review items before sending.",
-          });
-          return;
-        }
-      }
-
-      let renderExecution: HammerDialogueRenderExecutionResult;
-      if (!mediaRef) {
-        renderExecution = {
-          status: "skipped",
-          requestedBackend: editableStudioRack.backend_preference,
-          resolvedBackend: "native",
-          mode: "render",
-          message: "No canonical source media is attached to this workpiece. Studio Rack render was skipped.",
-          outputLocalRelpath: null,
-          outputWorkpiecePath: null,
-          outputMimeType: null,
-          outputDurationMs: null,
-          rawResponse: null,
-        };
-      } else {
-        const renderLocalRelpath = preferredPlayback.kind === "polished"
-          ? (preferredPlayback.local_relpath ?? mediaRef.local_relpath ?? null)
-          : (mediaRef.local_relpath ?? null);
-        const renderCanonicalWorkpiecePath = preferredPlayback.kind === "polished"
-          ? (preferredPlayback.workpiece_path ?? null)
-          : (mediaRef.local_relpath ?? null);
-        const renderMimeType = preferredPlayback.kind === "polished"
-          ? (preferredPlayback.mime_type ?? null)
-          : null;
-        renderExecution = await executeDialogueAudioRenderWithBackend({
-          workspaceId: launchContext.workspace_id,
-          workpieceId: launchContext.workpiece_id,
-          mediaKind: mediaRef.kind,
-          timelineSegments: editableTranscriptSegments.map((segment) => ({
-            segment_id: segment.segment_id,
-            start_sec: segment.start_sec,
-            end_sec: segment.end_sec,
-            is_disabled: segment.is_disabled,
-            gain_db: segment.gain_db,
-          })),
-          rackState: editableStudioRack,
-          localRootAbs: playbackLocalRootAbs,
-          localRelpath: renderLocalRelpath,
-          canonicalWorkpiecePath: renderCanonicalWorkpiecePath,
-          mimeType: renderMimeType,
-          runtimeSummary: mediaBackboneRuntime,
-        });
-      }
-      setStudioRackRenderStatus(renderExecution);
-
-      const preparedPackage = buildHammerPreparedReleasePackage({
-        current: releasePrepPackageSnapshot,
-        timelineRevision: timelineRevisionSnapshot,
-      });
-
-      const result = await saveHammerPreparedReleasePackage({
-        workpieceId: launchContext.workpiece_id,
-        pkg: preparedPackage,
-        subtitles: subtitlesSnapshot,
-      });
-      if (!result.ok) {
-        throw new Error(result.error);
-      }
-
-      const quenchPacket = buildHammerQuenchReleasePacket({
-        releasePrepPackage: releasePrepPackageSnapshot,
-        readinessGate,
-        preparedAt: preparedPackage.preparedAt,
-        canonicalGraph: canonicalGraphSnapshot,
-        renderAssembly: renderAssemblySnapshot,
-      });
-      const packetValidation = validateHammerQuenchPacketForHandoff({
-        releasePrepPackage: releasePrepPackageSnapshot,
-        packet: quenchPacket,
-        renderAssembly: renderAssemblySnapshot,
-        readinessGate,
-      });
-      if (!packetValidation.ok) {
-        setQuenchHandoffStatus({
-          status: "failed_validation",
-          message: packetValidation.reasons.join(" "),
-        });
-        return;
-      }
-      const packetSave = await saveHammerQuenchReleasePacket({
-        workpieceId: launchContext.workpiece_id,
-        packet: quenchPacket,
-      });
-      if (!packetSave.ok) {
-        setQuenchHandoffStatus({
-          status: "failed_handoff",
-          message: packetSave.error,
-        });
-        return;
-      }
-
-      const subtitleArtifactCount = Number(Boolean(preparedPackage.subtitles.srt.artifactPath))
-        + Number(Boolean(preparedPackage.subtitles.vtt.artifactPath));
-
-      setReleasePrepSaved({
-        preparedAt: preparedPackage.preparedAt,
-        overallStatus: preparedPackage.overallStatus,
-        subtitleArtifactCount,
-      });
-      setLoadedPreparedPackage(result.data ?? preparedPackage);
-      setQuenchHandoffStatus({
-        status: "sent",
-        message: "Sent to Quench successfully.",
-      });
-    } catch (error) {
-      const message = toErrorMessage(error, "Hammer could not send the Quench release packet.");
-      setReleasePrepError(message);
-      setQuenchHandoffStatus({
-        status: "failed_persistence",
-        message,
-      });
-    } finally {
-      setReleasePrepSaving(false);
-    }
-  }
-
-  useEffect(() => {
-    if (!props.prepHandoffAction) return;
-    if (props.prepHandoffAction.token === lastHandledHandoffTokenRef.current) return;
-
-    lastHandledHandoffTokenRef.current = props.prepHandoffAction.token;
-
-    switch (props.prepHandoffAction.id) {
-      case "review_transcript":
-      case "begin_manual_editing":
-        selectPass("transcript_cleanup");
-        setFocusOverride("source-focus");
-        break;
-      case "review_visuals":
-        selectPass("image_placement");
-        setFocusOverride("tool-focus");
-        break;
-      case "review_audio":
-        selectPass("audio_finalization");
-        setFocusOverride("tool-focus");
-        break;
-      case "review_macros":
-        selectPass("packaging");
-        setFocusOverride("tool-focus");
-        break;
-      default:
-        break;
-    }
-  }, [props.prepHandoffAction]);
+  const handleSendToQuench = useCallback(async (): Promise<void> => {
+    await sendToQuench({
+      releasePrepPackage: exportBasis.currentReleasePackage,
+      renderAssembly: exportBasis.renderAssembly,
+      canonicalGraph: exportBasis.canonicalGraph,
+      subtitles: exportBasis.subtitles,
+      timelineRevision: exportBasis.timelineRevision,
+      readinessGate,
+      mediaRef,
+      editableStudioRack,
+      preferredPlayback: {
+        kind: preferredPlayback.kind,
+        local_relpath: preferredPlayback.local_relpath ?? null,
+        workpiece_path: preferredPlayback.workpiece_path ?? null,
+        mime_type: preferredPlayback.mime_type ?? null,
+      },
+      playbackLocalRootAbs,
+      editableTranscriptSegments,
+      mediaBackboneRuntime,
+    });
+  }, [
+    editableStudioRack,
+    editableTranscriptSegments,
+    exportBasis.canonicalGraph,
+    exportBasis.currentReleasePackage,
+    exportBasis.renderAssembly,
+    exportBasis.subtitles,
+    exportBasis.timelineRevision,
+    mediaBackboneRuntime,
+    mediaRef,
+    playbackLocalRootAbs,
+    preferredPlayback.kind,
+    preferredPlayback.local_relpath,
+    preferredPlayback.mime_type,
+    preferredPlayback.workpiece_path,
+    readinessGate,
+    sendToQuench,
+  ]);
 
   useHammerWorkspaceShellSnapshotEmitter({
     onWorkspaceSnapshotChange: props.onWorkspaceSnapshotChange,
