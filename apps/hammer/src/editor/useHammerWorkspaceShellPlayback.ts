@@ -39,6 +39,8 @@ export type UseHammerWorkspaceShellPlaybackArgs = {
   playbackTransportDurationSec: number;
   playheadBoundaryTimesSec: number[];
   activeTranscriptTargetRange: HammerPlaybackTargetRange | null;
+  resolveMediaTimeForTransportTime: (transportTimeSec: number) => number;
+  resolveTransportTimeForMediaTime: (mediaTimeSec: number) => number;
   playbackMediaSrc: string | null;
   previewVideoSrc: string | null;
   visualPolishPreviewActive: boolean;
@@ -75,6 +77,7 @@ export type UseHammerWorkspaceShellPlaybackResult = {
   markerTimesSec: number[];
   resolveAudibleSeekTarget: (requestedTimeSec: number) => number | null;
   handlePlaybackProgress: (nextTimeSec: number) => void;
+  handlePlaybackEnded: (endedMediaTimeSec: number) => void;
   togglePlayback: () => void;
   seekPlayheadToTime: (
     nextTimeSec: number,
@@ -291,9 +294,11 @@ export function useHammerWorkspaceShellPlayback(
       }
       if (
         args.previewAudioRef.current
-        && Math.abs(args.previewAudioRef.current.currentTime - args.playbackTransportDurationSec) > SCRUB_SEEK_THRESHOLD_SEC
+        && Math.abs(
+          args.previewAudioRef.current.currentTime - args.resolveMediaTimeForTransportTime(args.playbackTransportDurationSec),
+        ) > SCRUB_SEEK_THRESHOLD_SEC
       ) {
-        args.previewAudioRef.current.currentTime = args.playbackTransportDurationSec;
+        args.previewAudioRef.current.currentTime = args.resolveMediaTimeForTransportTime(args.playbackTransportDurationSec);
       }
       if (args.isPlaybackActive) {
         args.setIsPlaybackActive(false);
@@ -372,21 +377,22 @@ export function useHammerWorkspaceShellPlayback(
         shouldStop: false,
         shouldSyncMediaTime: false,
       };
-    const targetTime = Math.max(
+    const targetTransportTime = Math.max(
       0,
       Math.min(
         transportProgress.nextPlayheadSec,
         args.playbackTransportDurationSec > 0 ? args.playbackTransportDurationSec : transportProgress.nextPlayheadSec,
       ),
     );
-    if (Math.abs(args.playheadSec - targetTime) >= SCRUB_SEEK_THRESHOLD_SEC) {
-      args.setPlayheadSec(roundToTenth(targetTime));
+    const targetMediaTime = args.resolveMediaTimeForTransportTime(targetTransportTime);
+    if (Math.abs(args.playheadSec - targetTransportTime) >= SCRUB_SEEK_THRESHOLD_SEC) {
+      args.setPlayheadSec(roundToTenth(targetTransportTime));
     }
     const shouldSynchronizeCurrentTime = srcChanged || !args.isPlaybackActive || args.isScrubbing || transportProgress.shouldSyncMediaTime;
-    if (shouldSynchronizeCurrentTime && Math.abs(previewAudio.currentTime - targetTime) > SCRUB_SEEK_THRESHOLD_SEC) {
+    if (shouldSynchronizeCurrentTime && Math.abs(previewAudio.currentTime - targetMediaTime) > SCRUB_SEEK_THRESHOLD_SEC) {
       seekPreviewAudioWithOptionalSeamFade({
         audio: previewAudio,
-        targetTime,
+        targetTime: targetMediaTime,
         applySeamFade: transportProgress.shouldSyncMediaTime,
       });
     }
@@ -424,8 +430,8 @@ export function useHammerWorkspaceShellPlayback(
         }
       } else {
         previewVideo.playbackRate = previewAudio.playbackRate;
-        if (shouldSynchronizeCurrentTime && Math.abs(previewVideo.currentTime - targetTime) > SCRUB_SEEK_THRESHOLD_SEC) {
-          previewVideo.currentTime = targetTime;
+        if (shouldSynchronizeCurrentTime && Math.abs(previewVideo.currentTime - targetMediaTime) > SCRUB_SEEK_THRESHOLD_SEC) {
+          previewVideo.currentTime = targetMediaTime;
         }
       }
     }
@@ -475,6 +481,7 @@ export function useHammerWorkspaceShellPlayback(
     args.playbackWindow,
     args.playheadSec,
     args.previewAudioRef,
+    args.resolveMediaTimeForTransportTime,
     args.previewVideoHardSeekAtMsRef,
     args.previewVideoRef,
     args.previewVideoSrc,
@@ -566,7 +573,7 @@ export function useHammerWorkspaceShellPlayback(
   }, [args.isPlaybackActive]);
 
   const handlePlaybackProgress = useCallback((nextTimeSec: number): void => {
-    const transportProgress = resolvePlaybackTransportProgress(nextTimeSec);
+    const transportProgress = resolvePlaybackTransportProgress(args.resolveTransportTimeForMediaTime(nextTimeSec));
     const nextPlayhead = roundToTenth(transportProgress.nextPlayheadSec);
 
     args.setPlayheadSec((current) => (
@@ -576,9 +583,11 @@ export function useHammerWorkspaceShellPlayback(
     if (
       args.previewAudioRef.current
       && (transportProgress.shouldLoop || transportProgress.shouldSyncMediaTime)
-      && Math.abs(args.previewAudioRef.current.currentTime - transportProgress.nextPlayheadSec) > SCRUB_SEEK_THRESHOLD_SEC
+      && Math.abs(
+        args.previewAudioRef.current.currentTime - args.resolveMediaTimeForTransportTime(transportProgress.nextPlayheadSec),
+      ) > SCRUB_SEEK_THRESHOLD_SEC
     ) {
-      args.previewAudioRef.current.currentTime = transportProgress.nextPlayheadSec;
+      args.previewAudioRef.current.currentTime = args.resolveMediaTimeForTransportTime(transportProgress.nextPlayheadSec);
     }
 
     if (transportProgress.shouldLoop) {
@@ -591,7 +600,41 @@ export function useHammerWorkspaceShellPlayback(
         args.setPlaybackWindow(null);
       }
     }
-  }, [args.playbackWindow?.mode, args.previewAudioRef, args.setIsPlaybackActive, args.setPlaybackWindow, args.setPlayheadSec, resolvePlaybackTransportProgress]);
+  }, [
+    args.playbackWindow?.mode,
+    args.previewAudioRef,
+    args.resolveMediaTimeForTransportTime,
+    args.resolveTransportTimeForMediaTime,
+    args.setIsPlaybackActive,
+    args.setPlaybackWindow,
+    args.setPlayheadSec,
+    resolvePlaybackTransportProgress,
+  ]);
+
+  const handlePlaybackEnded = useCallback((endedMediaTimeSec: number): void => {
+    const requestedTransportTime = Math.min(
+      args.playbackTransportDurationSec,
+      args.resolveTransportTimeForMediaTime(endedMediaTimeSec) + 0.01,
+    );
+    const transportProgress = resolvePlaybackTransportProgress(requestedTransportTime);
+    if (transportProgress.shouldStop || transportProgress.nextPlayheadSec >= args.playbackTransportDurationSec) {
+      args.setIsPlaybackActive(false);
+      if (args.playbackWindow?.mode === "roll") {
+        args.setPlaybackWindow(null);
+      }
+      args.setPlayheadSec(roundToTenth(Math.min(transportProgress.nextPlayheadSec, args.playbackTransportDurationSec)));
+      return;
+    }
+    args.setPlayheadSec(roundToTenth(transportProgress.nextPlayheadSec));
+  }, [
+    args.playbackTransportDurationSec,
+    args.playbackWindow?.mode,
+    args.resolveTransportTimeForMediaTime,
+    args.setIsPlaybackActive,
+    args.setPlaybackWindow,
+    args.setPlayheadSec,
+    resolvePlaybackTransportProgress,
+  ]);
 
   const togglePlayback = useCallback((): void => {
     if (args.editableTranscriptSegments.length === 0) return;
@@ -882,6 +925,7 @@ export function useHammerWorkspaceShellPlayback(
     markerTimesSec,
     resolveAudibleSeekTarget,
     handlePlaybackProgress,
+    handlePlaybackEnded,
     togglePlayback,
     seekPlayheadToTime,
     jumpToSelectionBoundary,

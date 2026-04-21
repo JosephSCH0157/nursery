@@ -101,3 +101,38 @@ export function shiftCompositionWindowToTransport(args: {
     endSec: compositionTimeToTransportTime(args.endSec, args.compositionOffsetSec),
   };
 }
+
+export function transportTimeToActiveMediaTime(args: {
+  transport: HammerPackagingTransport;
+  timeSec: number;
+}): number {
+  const timeSec = clampTimeSec(args.timeSec);
+  if (args.transport.phase === "intro") {
+    return Math.max(0, Math.min(args.transport.introDurationSec, timeSec));
+  }
+  if (args.transport.phase === "outro") {
+    const outroStartSec = args.transport.compositionOffsetSec + args.transport.compositionDurationSec;
+    return Math.max(0, Math.min(args.transport.outroDurationSec, timeSec - outroStartSec));
+  }
+  return transportTimeToCompositionTime({
+    timeSec,
+    compositionOffsetSec: args.transport.compositionOffsetSec,
+    compositionDurationSec: args.transport.compositionDurationSec,
+  });
+}
+
+export function activeMediaTimeToTransportTime(args: {
+  transport: HammerPackagingTransport;
+  timeSec: number;
+}): number {
+  const timeSec = clampTimeSec(args.timeSec);
+  if (args.transport.phase === "intro") {
+    return Math.max(0, Math.min(args.transport.introDurationSec, timeSec));
+  }
+  if (args.transport.phase === "outro") {
+    return clampTimeSec(
+      args.transport.compositionOffsetSec + args.transport.compositionDurationSec + Math.max(0, Math.min(args.transport.outroDurationSec, timeSec)),
+    );
+  }
+  return compositionTimeToTransportTime(timeSec, args.transport.compositionOffsetSec);
+}

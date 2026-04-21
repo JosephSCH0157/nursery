@@ -18,6 +18,7 @@ export type HammerWorkspaceShellPreviewBayVM = {
   isPlaybackActive: boolean;
   playbackWindow: { mode: "loop" | "roll"; startSec: number; endSec: number; label: string } | null;
   handlePlaybackProgress: (currentTime: number) => void;
+  handlePlaybackEnded: (currentTime: number) => void;
   setIsPlaybackActive: (next: boolean) => void;
   clearPlaybackWindow: () => void;
   togglePlayback: () => void;
@@ -93,11 +94,8 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
               if (!vm.isPlaybackActive) return;
               vm.handlePlaybackProgress(event.currentTarget.currentTime);
             }}
-            onEnded={() => {
-              vm.setIsPlaybackActive(false);
-              if (vm.playbackWindow?.mode === "roll") {
-                vm.clearPlaybackWindow();
-              }
+            onEnded={(event) => {
+              vm.handlePlaybackEnded(event.currentTarget.currentTime);
             }}
             className="hammer-preview-media hammer-preview-media--audio"
           />

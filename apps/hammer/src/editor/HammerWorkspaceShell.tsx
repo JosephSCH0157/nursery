@@ -204,11 +204,13 @@ import {
   buildWorkspaceIntroOutroDefaultsRepairPlan,
 } from "./hammerIntroOutroState";
 import {
+  activeMediaTimeToTransportTime,
   compositionTimeToTransportTime,
   isIntroOutroPackagingClip,
   resolvePackagingClipDurationSec,
   resolvePackagingTransport,
   shiftCompositionWindowToTransport,
+  transportTimeToActiveMediaTime,
 } from "./hammerPackagingTransport";
 import {
   buildLinkedSelectionTranscriptSegmentIdSet,
@@ -2117,6 +2119,20 @@ function HammerWorkspaceShellWithContext(
     : null;
   const effectivePreviewVideoSrc = activePackagingMediaPath ? activePackagingMediaSrc : previewVideoSrc;
   const effectivePlaybackMediaSrc = activePackagingMediaPath ? activePackagingMediaSrc : playbackMediaSrc;
+  const resolveActiveMediaTimeForTransportTime = useCallback(
+    (transportTimeSec: number) => transportTimeToActiveMediaTime({
+      transport: packagingTransport,
+      timeSec: transportTimeSec,
+    }),
+    [packagingTransport],
+  );
+  const resolveTransportTimeForActiveMediaTime = useCallback(
+    (mediaTimeSec: number) => activeMediaTimeToTransportTime({
+      transport: packagingTransport,
+      timeSec: mediaTimeSec,
+    }),
+    [packagingTransport],
+  );
   const effectivePlaybackCutRegions = useMemo(
     () => getEffectiveCutRegions(editableAudioPolish?.audio_edit ?? null, transcriptDurationSec).map((region) => ({
       ...region,
@@ -2214,6 +2230,7 @@ function HammerWorkspaceShellWithContext(
     playbackModeLabel,
     sortedTimelineMarkers,
     handlePlaybackProgress,
+    handlePlaybackEnded,
     togglePlayback,
     seekPlayheadToTime: seekTransportPlayheadToTime,
     jumpToSelectionBoundary,
@@ -2233,6 +2250,8 @@ function HammerWorkspaceShellWithContext(
     playbackTransportDurationSec,
     playheadBoundaryTimesSec,
     activeTranscriptTargetRange: transportTranscriptTargetRange as HammerPlaybackTargetRange | null,
+    resolveMediaTimeForTransportTime: resolveActiveMediaTimeForTransportTime,
+    resolveTransportTimeForMediaTime: resolveTransportTimeForActiveMediaTime,
     playbackMediaSrc: effectivePlaybackMediaSrc,
     previewVideoSrc: effectivePreviewVideoSrc,
     visualPolishPreviewActive,
@@ -8795,6 +8814,7 @@ function HammerWorkspaceShellWithContext(
     isPlaybackActive,
     playbackWindow,
     handlePlaybackProgress,
+    handlePlaybackEnded,
     setIsPlaybackActive,
     clearPlaybackWindow: () => setPlaybackWindow(null),
     togglePlayback,
@@ -8859,6 +8879,7 @@ function HammerWorkspaceShellWithContext(
     currentPass,
     eyeContactUseBackgroundCanvasAsSource,
     handleBackgroundEffectCanvas,
+    handlePlaybackEnded,
     handlePlaybackProgress,
     isPlaybackActive,
     isVisualPreviewAuthority,
