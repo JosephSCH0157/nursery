@@ -157,6 +157,11 @@ import { hasTongsUserAccessToken } from "../lib/tongsFetch";
 import { loadWorkspaceMapping } from "../media/workspaceMapping";
 import { hydrateHammerOpenLaunchContext } from "./hammerOpenHydration";
 import {
+  resolveHammerAuthBootGateViewModel,
+  shouldRunHammerTongsBootEffects,
+  type HammerAuthBootGateState,
+} from "./hammerAuthBootGate";
+import {
   createHammerDevConsoleLogger,
   type HammerDevConsoleRun,
 } from "../lib/hammerDevConsole";
@@ -185,6 +190,7 @@ const READY_HANDOFF_DELAY_MS = 320;
 const SAVE_DEBOUNCE_MS = 400;
 const PREP_DUPLICATE_KICK_WINDOW_MS = 2_000;
 const CANONICAL_OPEN_DEDUPE_WINDOW_MS = 4_000;
+const AUTH_BOOT_POLL_INTERVAL_MS = 1_500;
 
 type HammerCanonicalOpenHydrationResult = {
   reloadOutcome: "success" | "failure";
@@ -556,6 +562,9 @@ export default function HammerWorkspaceEditor(
   const loadedPersistenceSnapshotRef = useRef<HammerPersistenceSnapshot | null>(null);
   const activeCanonicalRecordingRef = useRef<HammerCanonicalRecordingRecord | null>(null);
   const activeRevisionRef = useRef<HammerRecordingRevisionRecord | null>(null);
+  const [authBootGateState, setAuthBootGateState] = useState<HammerAuthBootGateState>(
+    persistenceMode === "canonical" && persistenceTarget ? "resolving" : "ready",
+  );
   const [hydrationReady, setHydrationReady] = useState(persistenceMode !== "canonical");
   const [hasCanonicalBasis, setHasCanonicalBasis] = useState(Boolean(incomingLaunchContext));
   const [workspaceSnapshot, setWorkspaceSnapshot] = useState<HammerWorkspaceSnapshot | null>(null);
@@ -687,6 +696,31 @@ export default function HammerWorkspaceEditor(
     };
   }, [hasPendingSaveChanges, saveFailureMessage, historyRecoveryStatus, presenceConflictDetail]);
 
+  useEffect(() => {
+    if (persistenceMode !== "canonical" || !persistenceTarget) {
+      setAuthBootGateState("ready");
+      return;
+    }
+
+    let active = true;
+    setAuthBootGateState("resolving");
+    const poll = async (): Promise<void> => {
+      const hasUserToken = await hasTongsUserAccessToken();
+      if (!active) return;
+      setAuthBootGateState(hasUserToken ? "ready" : "missing");
+    };
+    void poll();
+
+    const intervalId = window.setInterval(() => {
+      void poll();
+    }, AUTH_BOOT_POLL_INTERVAL_MS);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [persistenceMode, targetKey]);
+
   function applyHostLoopState(next: {
     hasPendingSaveChanges: boolean;
     saveFailureMessage: string | null;
@@ -744,6 +778,10 @@ export default function HammerWorkspaceEditor(
   const isPrepExecutionActive = (executionId: number): boolean => (
     isMountedRef.current && prepExecutionIdRef.current === executionId
   );
+  const canRunTongsBootEffects = shouldRunHammerTongsBootEffects({
+    persistenceMode,
+    authState: authBootGateState,
+  });
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -1388,6 +1426,16 @@ export default function HammerWorkspaceEditor(
       return;
     }
 
+    if (!canRunTongsBootEffects) {
+      ingestCorrelationIdRef.current = null;
+      ingestDiagnosticRef.current = null;
+      ingestPointerSelfHealAttemptedRef.current = false;
+      setPrepState(createHammerPrepState("preparing", "loading_context"));
+      setHydrationReady(false);
+      setHasCanonicalBasis(Boolean(incomingLaunchContext));
+      return;
+    }
+
     ingestPointerSelfHealAttemptedRef.current = false;
 
     let active = true;
@@ -1829,6 +1877,7 @@ export default function HammerWorkspaceEditor(
     };
   }, [
     beginPrepExecution,
+    canRunTongsBootEffects,
     clearReadyTransitionTimer,
     incomingLaunchContext,
     persistenceMode,
@@ -1838,11 +1887,13 @@ export default function HammerWorkspaceEditor(
   ]);
 
   const canPersistCanonicalState = persistenceMode === "canonical"
+    && canRunTongsBootEffects
     && hydrationReady
     && Boolean(persistenceTarget)
     && hasCanonicalBasis;
 
   useEffect(() => {
+    if (!canRunTongsBootEffects) return;
     if (!regenAiTranscriptOpen) return;
     if (!persistenceTarget?.workpieceId) return;
 
@@ -1910,9 +1961,16 @@ export default function HammerWorkspaceEditor(
     return () => {
       active = false;
     };
-  }, [persistenceTarget?.workpieceId, regenAiTranscriptOpen, regenAiTranscriptResult?.finished_at, regenAiTranscriptCurrentIngestNonce]);
+  }, [
+    canRunTongsBootEffects,
+    persistenceTarget?.workpieceId,
+    regenAiTranscriptOpen,
+    regenAiTranscriptResult?.finished_at,
+    regenAiTranscriptCurrentIngestNonce,
+  ]);
 
   useEffect(() => {
+    if (!canRunTongsBootEffects) return;
     if (!regenAiTranscriptJobId) return;
     if (!persistenceTarget) return;
 
@@ -1984,9 +2042,10 @@ export default function HammerWorkspaceEditor(
       active = false;
       if (timer != null) window.clearTimeout(timer);
     };
-  }, [regenAiTranscriptJobId, persistenceTarget, setReloadRequestNonce]);
+  }, [canRunTongsBootEffects, regenAiTranscriptJobId, persistenceTarget, setReloadRequestNonce]);
 
   useEffect(() => {
+    if (!canRunTongsBootEffects) return;
     if (!persistenceTarget) return;
     if (prepJobHydrationReady) return;
     if (prepJobHydrationProbeTargetRef.current === targetKey) return;
@@ -2076,6 +2135,7 @@ export default function HammerWorkspaceEditor(
       if (timer != null) window.clearTimeout(timer);
     };
   }, [
+    canRunTongsBootEffects,
     ingestLog.enabled,
     persistenceTarget?.workspaceId,
     persistenceTarget?.workpieceId,
@@ -2088,6 +2148,7 @@ export default function HammerWorkspaceEditor(
   ]);
 
   useEffect(() => {
+    if (!canRunTongsBootEffects) return;
     if (!prepTranscriptJobId) return;
     if (!persistenceTarget) return;
 
@@ -2135,10 +2196,10 @@ export default function HammerWorkspaceEditor(
       active = false;
       if (timer != null) window.clearTimeout(timer);
     };
-  }, [prepTranscriptJobId, persistenceTarget, setReloadRequestNonce, setPrepState, setShowPreparedHandoff]);
+  }, [canRunTongsBootEffects, prepTranscriptJobId, persistenceTarget, setReloadRequestNonce, setPrepState, setShowPreparedHandoff]);
 
   useEffect(() => {
-    if (persistenceMode !== "canonical" || !persistenceTarget || !hydrationReady) {
+    if (persistenceMode !== "canonical" || !persistenceTarget || !hydrationReady || !canRunTongsBootEffects) {
       return;
     }
     if (!prepJobHydrationReady) {
@@ -2929,6 +2990,7 @@ export default function HammerWorkspaceEditor(
     activeCanonicalRecording?.id,
     activeCanonicalRecording?.sealed_at,
     activeRevision?.id,
+    canRunTongsBootEffects,
     effectiveLaunchContext,
     hydrationReady,
     loadedPersistenceSnapshot,
@@ -3277,6 +3339,7 @@ export default function HammerWorkspaceEditor(
   }, [canPersistCanonicalState, historyRecoveryStatus, presenceConflictDetail, saveFailureMessage]);
 
   useEffect(() => {
+    if (!canRunTongsBootEffects) return;
     if (!canPersistCanonicalState || !persistenceTarget) return;
 
     const sessionId = workspaceSnapshot?.sessionId ?? effectiveLaunchContext?.session_id ?? null;
@@ -3322,6 +3385,7 @@ export default function HammerWorkspaceEditor(
       window.clearInterval(intervalId);
     };
   }, [
+    canRunTongsBootEffects,
     canPersistCanonicalState,
     effectiveLaunchContext?.session_id,
     persistenceTarget,
@@ -3436,6 +3500,10 @@ export default function HammerWorkspaceEditor(
     [props.prepAiNoticeEffectiveLane],
   );
   const canRenderPrepAiNoticeSettingsAction = Boolean(props.onRequestAiSettings);
+  const authBootGateViewModel = resolveHammerAuthBootGateViewModel({
+    persistenceMode,
+    authState: authBootGateState,
+  });
   const shouldRenderEditor = persistenceMode !== "canonical" || prepState.status === "prepared";
   const visualPlacementData = loadedPersistenceSnapshot?.visual_placements.data ?? null;
   const visualPlacementCounts = useMemo(() => {
@@ -4047,6 +4115,21 @@ export default function HammerWorkspaceEditor(
       </section>
     </div>
   ) : null;
+
+  if (authBootGateViewModel.kind !== "none") {
+    return (
+      <section className="hammer-prep-shell__failure">
+        <div className="hammer-prep-shell__failure-card">
+          <h2>{authBootGateViewModel.message}</h2>
+          <p>
+            {authBootGateViewModel.kind === "holding"
+              ? "Hammer will load workspace data as soon as authentication resolves."
+              : "Sign in required to load Hammer workspace data."}
+          </p>
+        </div>
+      </section>
+    );
+  }
 
   if (persistenceMode === "canonical" && prepState.status === "prep_failed") {
     const canOfferAiFallback = prepFailureKind === "non_ai_missing";

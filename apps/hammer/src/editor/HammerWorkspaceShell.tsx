@@ -1281,6 +1281,7 @@ function HammerWorkspaceShellWithContext(
   const scrubRectRef = useRef<{ left: number; width: number } | null>(null);
   const scrubAutoPlayRef = useRef(false);
   const scrubReturnToPausedRef = useRef(false);
+  const hydratedInitialEditorStateRef = useRef<string | null>(null);
   const hydratedVisualPreviewSettingsRef = useRef<string | null>(null);
   const playbackOwnerIdRef = useRef(`hammer-preview-${Math.random().toString(36).slice(2, 10)}`);
   const handledCandidateIdsRef = useRef<{ fillers: Set<string>; retakes: Set<string> }>({
@@ -1350,6 +1351,10 @@ function HammerWorkspaceShellWithContext(
   }, [editableAudioPolish]);
 
   useEffect(() => {
+    const hydrationKey = `${launchContext.workspace_id}:${launchContext.workpiece_id}`;
+    if (hydratedInitialEditorStateRef.current === hydrationKey) return;
+    hydratedInitialEditorStateRef.current = hydrationKey;
+
     const nextInitialPass = resolveInitialPassId(props.initialCurrentPass);
     const nextSelectedSegmentId = resolveSelectedSegmentId(transcriptSegments, props.initialSelectedSegmentId ?? null);
     setCurrentPass(nextInitialPass);
@@ -1373,7 +1378,6 @@ function HammerWorkspaceShellWithContext(
       clearTranscriptTextRange: true,
     });
   }, [
-    editableVisualTimeline?.clips,
     launchContext.workspace_id,
     launchContext.workpiece_id,
     props.initialCurrentPass,
