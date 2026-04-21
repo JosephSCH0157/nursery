@@ -247,8 +247,7 @@ test("reopen hydration uses structured transcript fallback when editorial author
     assert.equal(result.launchContext?.transcript.kind, "tongs-stub");
     assert.equal(result.launchContext?.transcript.kind === "tongs-stub" ? result.launchContext.transcript.transcript_id : null, "transcript_reopen_01");
     assert.equal(result.launchContext?.edit_plan, undefined);
-    assert.equal(warnCalls.length, 1);
-    assert.equal(warnCalls[0]?.[0], "[HammerReopen] reopening from structured transcript fallback; canonical authority missing");
+    assert.equal(warnCalls.length, 0);
   } finally {
     console.warn = originalWarn;
   }

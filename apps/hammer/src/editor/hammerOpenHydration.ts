@@ -7,6 +7,7 @@ import type {
   HammerPersistenceTarget,
 } from "../persistence/hammerPersistenceContract";
 import { buildHammerLaunchContextFromPersistence } from "../persistence/hammerPersistence";
+import { isHammerDevConsoleEnabled } from "../lib/hammerDevConsole";
 
 export type HammerOpenHydrationResult = {
   launchContext: HammerLaunchContext | undefined;
@@ -126,14 +127,16 @@ export function hydrateHammerOpenLaunchContext(args: {
       basisLaunchContext: launchContext ?? bootstrapLaunchContext,
     });
     if (transitionalLaunchContext) {
-      // eslint-disable-next-line no-console
-      console.warn("[HammerReopen] reopening from structured transcript fallback; canonical authority missing", {
-        workspace_id: target.workspaceId,
-        workpiece_id: target.workpieceId,
-        transcript_id: transitionalLaunchContext.transcript.kind === "tongs-stub"
-          ? transitionalLaunchContext.transcript.transcript_id
-          : null,
-      });
+      if (isHammerDevConsoleEnabled()) {
+        // eslint-disable-next-line no-console
+        console.warn("[HammerReopen] reopening from structured transcript fallback; canonical authority missing", {
+          workspace_id: target.workspaceId,
+          workpiece_id: target.workpieceId,
+          transcript_id: transitionalLaunchContext.transcript.kind === "tongs-stub"
+            ? transitionalLaunchContext.transcript.transcript_id
+            : null,
+        });
+      }
       return {
         launchContext: transitionalLaunchContext,
         hasCanonicalBasis: false,

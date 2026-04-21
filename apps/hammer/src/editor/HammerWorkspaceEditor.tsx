@@ -1009,7 +1009,7 @@ export default function HammerWorkspaceEditor(
     });
     const resolved_input_type = resolvedInput.supported ? resolvedInput.resolved_input_type : resolvedInput.resolved_input_type;
 
-    if (import.meta.env.DEV && typeof console !== "undefined") {
+    if (ingestLog.enabled && typeof console !== "undefined") {
       console.log("[AudioPolish:input]", {
         source_kind: prepSource.source_kind,
         canonical_workpiece_path: prepSource.canonical_workpiece_path,
