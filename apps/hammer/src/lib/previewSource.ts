@@ -1,4 +1,5 @@
 import type { MediaRef, ResolveMediaResult, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
+import { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
 import type { HammerPersistedAudioPolish } from "../persistence/hammerPersistenceContract";
 import { tongsFetch } from "./tongsFetch";
 
@@ -11,8 +12,9 @@ export function buildHammerDevMediaUrl(localRootAbs: string, localRelpath: strin
 }
 
 export function buildHammerCanonicalWorkpieceReadUrl(workpieceId: string, workpiecePath: string): string {
+  const normalizedPath = normalizeWorkpieceRelativePath(workpieceId, workpiecePath);
   const params = new URLSearchParams({
-    path: workpiecePath,
+    path: normalizedPath,
     encoding: "binary",
   });
   return `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?${params.toString()}`;
