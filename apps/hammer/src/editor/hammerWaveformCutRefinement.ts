@@ -69,11 +69,20 @@ type RefinementTuning = {
   minQuietThreshold: number;
   quietMultiplier: number;
   neighborSafetyMarginSec: number;
+  distanceWeight: number;
+  energyWeight: number;
+};
+
+type LocalThreshold = {
+  noiseFloor: number;
+  threshold: number;
 };
 
 const MIN_RANGE_SEC = 0.0001;
+const TOLERANCE_SEC = 0.000001;
 const DEFAULT_WINDOW_SAMPLES = 256;
 const DEFAULT_HOP_SAMPLES = 256;
+const LOCAL_ANALYSIS_RADIUS_SEC = 0.4;
 const ZERO_CROSSING_POLISH_WINDOW_SEC = 0.003;
 
 function clamp(value: number, min: number, max: number): number {
@@ -94,10 +103,26 @@ function percentile(values: number[], ratio: number): number {
   return sorted[index] ?? sorted[0] ?? 0;
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
 function isValidRange(range: HammerCutRange): boolean {
   return Number.isFinite(range.startSec)
     && Number.isFinite(range.endSec)
     && range.endSec - range.startSec > MIN_RANGE_SEC;
+}
+
+function normalizeRange(rawRange: HammerCutRange): HammerCutRange {
+  const startSec = Number(rawRange.startSec);
+  const endSec = Number(rawRange.endSec);
+  if (!Number.isFinite(startSec) || !Number.isFinite(endSec)) {
+    return { startSec: 0, endSec: 0 };
+  }
+  return {
+    startSec: Math.min(startSec, endSec),
+    endSec: Math.max(startSec, endSec),
+  };
 }
 
 function getTuningForEditKind(editKind: HammerSmartCutEditKind): RefinementTuning {
@@ -108,6 +133,8 @@ function getTuningForEditKind(editKind: HammerSmartCutEditKind): RefinementTunin
       minQuietThreshold: 0.012,
       quietMultiplier: 1.45,
       neighborSafetyMarginSec: 0.025,
+      distanceWeight: 1.15,
+      energyWeight: 0.55,
     };
   }
   if (editKind === "retake") {
@@ -117,6 +144,8 @@ function getTuningForEditKind(editKind: HammerSmartCutEditKind): RefinementTunin
       minQuietThreshold: 0.014,
       quietMultiplier: 1.4,
       neighborSafetyMarginSec: 0.02,
+      distanceWeight: 0.75,
+      energyWeight: 1.2,
     };
   }
   return {
@@ -125,7 +154,92 @@ function getTuningForEditKind(editKind: HammerSmartCutEditKind): RefinementTunin
     minQuietThreshold: 0.016,
     quietMultiplier: 1.35,
     neighborSafetyMarginSec: 0.018,
+    distanceWeight: 1,
+    energyWeight: 0.8,
   };
+}
+
+function hasValidMonoInput(ctx: HammerSmartCutContext): boolean {
+  return Boolean(
+    ctx.monoSamples
+    && ctx.monoSamples.length > 1
+    && Number.isFinite(ctx.sampleRate)
+    && Number(ctx.sampleRate) > 0,
+  );
+}
+
+function hasValidWaveformProxy(proxy: HammerAudioPolishAnalysisWaveformProxy | null | undefined): boolean {
+  return Boolean(
+    proxy
+    && Number.isFinite(proxy.bucket_duration_sec)
+    && proxy.bucket_duration_sec > 0
+    && Array.isArray(proxy.peaks)
+    && proxy.peaks.length > 0,
+  );
+}
+
+function createDebug(args: {
+  editKind: HammerSmartCutEditKind;
+  baseRange: HammerCutRange;
+  refinedRange?: HammerCutRange;
+  localNoiseFloor: number | null;
+  quietThreshold: number | null;
+  selectedStartReason: HammerSmartCutRefinementReason;
+  selectedEndReason: HammerSmartCutRefinementReason;
+  fallbackReason: HammerSmartCutRefinementReason | null;
+  tuning: RefinementTuning;
+}): HammerSmartCutDebugMetadata {
+  const refinedRange = args.refinedRange ?? args.baseRange;
+  return {
+    attempted: true,
+    editKind: args.editKind,
+    baseStartSec: args.baseRange.startSec,
+    baseEndSec: args.baseRange.endSec,
+    refinedStartSec: refinedRange.startSec,
+    refinedEndSec: refinedRange.endSec,
+    startDeltaSec: refinedRange.startSec - args.baseRange.startSec,
+    endDeltaSec: refinedRange.endSec - args.baseRange.endSec,
+    localNoiseFloor: args.localNoiseFloor,
+    quietThreshold: args.quietThreshold,
+    selectedStartReason: args.selectedStartReason,
+    selectedEndReason: args.selectedEndReason,
+    fallbackReason: args.fallbackReason,
+    maxStartAdjustmentSec: args.tuning.maxStartAdjustmentSec,
+    maxEndAdjustmentSec: args.tuning.maxEndAdjustmentSec,
+  };
+}
+
+function createFallbackResolution(args: {
+  editKind: HammerSmartCutEditKind;
+  baseRange: HammerCutRange;
+  fallbackReason: HammerSmartCutRefinementReason;
+  tuning: RefinementTuning;
+  localNoiseFloor?: number | null;
+  quietThreshold?: number | null;
+  selectedStartReason?: HammerSmartCutRefinementReason;
+  selectedEndReason?: HammerSmartCutRefinementReason;
+}): HammerSmartCutResolution {
+  return {
+    range: args.baseRange,
+    debug: createDebug({
+      editKind: args.editKind,
+      baseRange: args.baseRange,
+      localNoiseFloor: args.localNoiseFloor ?? null,
+      quietThreshold: args.quietThreshold ?? null,
+      selectedStartReason: args.selectedStartReason ?? "base_range",
+      selectedEndReason: args.selectedEndReason ?? "base_range",
+      fallbackReason: args.fallbackReason,
+      tuning: args.tuning,
+    }),
+  };
+}
+
+function bucketEnergy(bucket: HammerAmplitudeEnvelopeBucket): number {
+  return Math.max(clampNonNegative(bucket.peak), clampNonNegative(bucket.meanAbs));
+}
+
+function bucketMidSec(bucket: HammerAmplitudeEnvelopeBucket): number {
+  return (bucket.startSec + bucket.endSec) * 0.5;
 }
 
 export function buildAmplitudeEnvelope(args: {
@@ -151,13 +265,12 @@ export function buildAmplitudeEnvelope(args: {
 
     let peak = 0;
     let sumAbs = 0;
-    for (let i = startSample; i < endSample; i += 1) {
-      const value = Math.abs(samples[i] ?? 0);
-      if (value > peak) peak = value;
-      sumAbs += value;
+    for (let index = startSample; index < endSample; index += 1) {
+      const sample = Math.abs(samples[index] ?? 0);
+      if (sample > peak) peak = sample;
+      sumAbs += sample;
     }
 
-    const meanAbs = sumAbs / Math.max(1, endSample - startSample);
     buckets.push({
       index: buckets.length,
       startSample,
@@ -165,7 +278,7 @@ export function buildAmplitudeEnvelope(args: {
       startSec: startSample / sampleRate,
       endSec: endSample / sampleRate,
       peak,
-      meanAbs,
+      meanAbs: sumAbs / Math.max(1, endSample - startSample),
     });
   }
 
@@ -183,30 +296,33 @@ function buildEnvelopeFromWaveformProxy(
     return [];
   }
 
-  return waveformProxy.peaks.map((peakRaw, index) => {
-    const peak = clampNonNegative(Number(peakRaw));
+  const buckets: HammerAmplitudeEnvelopeBucket[] = [];
+  for (let index = 0; index < waveformProxy.peaks.length; index += 1) {
+    const peakRaw = waveformProxy.peaks[index];
+    if (!isFiniteNumber(peakRaw)) continue;
+    const peak = clampNonNegative(peakRaw);
     const startSec = index * bucketDurationSec;
-    const endSec = startSec + bucketDurationSec;
-    return {
+    buckets.push({
       index,
       startSample: index,
       endSample: index + 1,
       startSec,
-      endSec,
+      endSec: startSec + bucketDurationSec,
       peak,
       meanAbs: peak,
-    };
-  });
+    });
+  }
+  return buckets;
 }
 
 function resolveEnvelope(ctx: HammerSmartCutContext): HammerAmplitudeEnvelopeBucket[] {
-  if (ctx.monoSamples && Number.isFinite(ctx.sampleRate) && Number(ctx.sampleRate) > 0) {
+  if (hasValidMonoInput(ctx)) {
     return buildAmplitudeEnvelope({
-      monoSamples: ctx.monoSamples,
+      monoSamples: ctx.monoSamples!,
       sampleRate: Number(ctx.sampleRate),
     });
   }
-  if (ctx.waveformProxy) {
+  if (ctx.waveformProxy && hasValidWaveformProxy(ctx.waveformProxy)) {
     return buildEnvelopeFromWaveformProxy(ctx.waveformProxy);
   }
   return [];
@@ -217,23 +333,22 @@ function resolveLocalNoiseAndThreshold(args: {
   aroundStartSec: number;
   aroundEndSec: number;
   tuning: RefinementTuning;
-}): { noiseFloor: number; threshold: number } {
-  const localStartSec = Math.max(0, args.aroundStartSec - 0.4);
-  const localEndSec = args.aroundEndSec + 0.4;
-  const localPeaks = args.envelope
+}): LocalThreshold {
+  const localStartSec = Math.max(0, args.aroundStartSec - LOCAL_ANALYSIS_RADIUS_SEC);
+  const localEndSec = args.aroundEndSec + LOCAL_ANALYSIS_RADIUS_SEC;
+  const localEnergies = args.envelope
     .filter((bucket) => bucket.endSec >= localStartSec && bucket.startSec <= localEndSec)
-    .map((bucket) => bucket.peak);
-  const population = localPeaks.length > 0 ? localPeaks : args.envelope.map((bucket) => bucket.peak);
-  const noiseFloor = percentile(population, 0.2);
-  const threshold = Math.max(noiseFloor * args.tuning.quietMultiplier, args.tuning.minQuietThreshold);
-  return {
-    noiseFloor,
-    threshold,
-  };
-}
+    .map(bucketEnergy);
 
-function bucketMidSec(bucket: HammerAmplitudeEnvelopeBucket): number {
-  return (bucket.startSec + bucket.endSec) * 0.5;
+  const population = localEnergies.length > 0
+    ? localEnergies
+    : args.envelope.map(bucketEnergy);
+  const noiseFloor = percentile(population, 0.2);
+  const medianEnergy = percentile(population, 0.5);
+  const adaptiveThreshold = Math.max(args.tuning.minQuietThreshold, noiseFloor * args.tuning.quietMultiplier);
+  const ceilingThreshold = Math.max(args.tuning.minQuietThreshold, medianEnergy * 0.88);
+  const threshold = Math.min(adaptiveThreshold, ceilingThreshold);
+  return { noiseFloor, threshold };
 }
 
 function findQuietBucketNearBoundary(args: {
@@ -242,26 +357,53 @@ function findQuietBucketNearBoundary(args: {
   scanStartSec: number;
   scanEndSec: number;
   threshold: number;
-  noiseFloor: number;
+  tuning: RefinementTuning;
   direction: "backward" | "forward";
 }): HammerAmplitudeEnvelopeBucket | null {
   const candidates = args.envelope.filter((bucket) => {
     const mid = bucketMidSec(bucket);
-    return mid >= args.scanStartSec
-      && mid <= args.scanEndSec
-      && bucket.peak <= args.threshold
-      && bucket.peak <= (args.noiseFloor * 0.98);
+    const energy = bucketEnergy(bucket);
+    if (mid < args.scanStartSec || mid > args.scanEndSec) return false;
+    return energy <= args.threshold;
   });
   if (candidates.length === 0) return null;
 
-  if (args.direction === "backward") {
-    return candidates.reduce((best, bucket) => (
-      bucketMidSec(bucket) > bucketMidSec(best) ? bucket : best
-    ));
+  let bestCandidate = candidates[0] ?? null;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  for (const candidate of candidates) {
+    if (!bestCandidate) {
+      bestCandidate = candidate;
+      bestScore = Number.POSITIVE_INFINITY;
+    }
+    const candidateMidSec = bucketMidSec(candidate);
+    const distanceSec = args.direction === "backward"
+      ? Math.max(0, args.boundarySec - candidateMidSec)
+      : Math.max(0, candidateMidSec - args.boundarySec);
+    const normalizedEnergy = args.threshold > TOLERANCE_SEC
+      ? bucketEnergy(candidate) / args.threshold
+      : bucketEnergy(candidate);
+    const score = (distanceSec * args.tuning.distanceWeight) + (normalizedEnergy * args.tuning.energyWeight);
+    const bestMidSec = bucketMidSec(bestCandidate);
+    const bestDistanceSec = args.direction === "backward"
+      ? Math.max(0, args.boundarySec - bestMidSec)
+      : Math.max(0, bestMidSec - args.boundarySec);
+
+    if (
+      score < bestScore - TOLERANCE_SEC
+      || (Math.abs(score - bestScore) <= TOLERANCE_SEC && distanceSec < bestDistanceSec - TOLERANCE_SEC)
+      || (
+        Math.abs(score - bestScore) <= TOLERANCE_SEC
+        && Math.abs(distanceSec - bestDistanceSec) <= TOLERANCE_SEC
+        && candidate.index < bestCandidate.index
+      )
+    ) {
+      bestCandidate = candidate;
+      bestScore = score;
+    }
   }
-  return candidates.reduce((best, bucket) => (
-    bucketMidSec(bucket) < bucketMidSec(best) ? bucket : best
-  ));
+
+  return bestCandidate;
 }
 
 function findNearestZeroCrossingTime(args: {
@@ -270,24 +412,30 @@ function findNearestZeroCrossingTime(args: {
   targetSec: number;
 }): number {
   const sampleRate = Number(args.sampleRate);
-  if (!Number.isFinite(sampleRate) || sampleRate <= 0) return args.targetSec;
+  if (!Number.isFinite(sampleRate) || sampleRate <= 0) {
+    return args.targetSec;
+  }
+  if (!args.samples || args.samples.length === 0) {
+    return args.targetSec;
+  }
+
   const targetIndex = Math.round(args.targetSec * sampleRate);
   const radius = Math.max(1, Math.round(ZERO_CROSSING_POLISH_WINDOW_SEC * sampleRate));
-  const start = clamp(targetIndex - radius, 0, args.samples.length - 1);
-  const end = clamp(targetIndex + radius, 0, args.samples.length - 1);
+  const startIndex = Math.max(0, targetIndex - radius);
+  const endIndex = Math.min(args.samples.length - 1, targetIndex + radius);
 
-  let bestIndex = targetIndex;
+  let bestIndex = clamp(targetIndex, 0, args.samples.length - 1);
   let bestDistance = Number.POSITIVE_INFINITY;
 
-  for (let i = start + 1; i <= end; i += 1) {
-    const prev = args.samples[i - 1] ?? 0;
-    const current = args.samples[i] ?? 0;
-    const crosses = (prev <= 0 && current >= 0) || (prev >= 0 && current <= 0);
-    if (!crosses) continue;
-    const distance = Math.abs(i - targetIndex);
+  for (let index = startIndex + 1; index <= endIndex; index += 1) {
+    const previous = args.samples[index - 1] ?? 0;
+    const current = args.samples[index] ?? 0;
+    const crossesZero = (previous <= 0 && current >= 0) || (previous >= 0 && current <= 0);
+    if (!crossesZero) continue;
+    const distance = Math.abs(index - targetIndex);
     if (distance < bestDistance) {
       bestDistance = distance;
-      bestIndex = i;
+      bestIndex = index;
     }
   }
 
@@ -296,19 +444,27 @@ function findNearestZeroCrossingTime(args: {
 
 export function refineCutRangeWithWaveform(
   ctx: HammerSmartCutContext,
-): { range: HammerCutRange; debug: HammerSmartCutDebugMetadata } | null {
+): HammerSmartCutResolution {
+  const baseRange = normalizeRange(ctx.baseRange);
   const tuning = getTuningForEditKind(ctx.editKind);
-  const baseRange = {
-    startSec: Number(ctx.baseRange.startSec),
-    endSec: Number(ctx.baseRange.endSec),
-  };
+
   if (!isValidRange(baseRange)) {
-    return null;
+    return createFallbackResolution({
+      editKind: ctx.editKind,
+      baseRange,
+      fallbackReason: "invalid_refined_range",
+      tuning,
+    });
   }
 
   const envelope = resolveEnvelope(ctx);
   if (envelope.length === 0) {
-    return null;
+    return createFallbackResolution({
+      editKind: ctx.editKind,
+      baseRange,
+      fallbackReason: "envelope_unavailable",
+      tuning,
+    });
   }
 
   const local = resolveLocalNoiseAndThreshold({
@@ -324,7 +480,7 @@ export function refineCutRangeWithWaveform(
     scanStartSec: Math.max(0, baseRange.startSec - tuning.maxStartAdjustmentSec),
     scanEndSec: baseRange.startSec,
     threshold: local.threshold,
-    noiseFloor: local.noiseFloor,
+    tuning,
     direction: "backward",
   });
   const endQuietBucket = findQuietBucketNearBoundary({
@@ -333,139 +489,159 @@ export function refineCutRangeWithWaveform(
     scanStartSec: baseRange.endSec,
     scanEndSec: baseRange.endSec + tuning.maxEndAdjustmentSec,
     threshold: local.threshold,
-    noiseFloor: local.noiseFloor,
+    tuning,
     direction: "forward",
   });
 
   if (!startQuietBucket || !endQuietBucket) {
-    return null;
+    return createFallbackResolution({
+      editKind: ctx.editKind,
+      baseRange,
+      fallbackReason: "quiet_region_not_found",
+      tuning,
+      localNoiseFloor: local.noiseFloor,
+      quietThreshold: local.threshold,
+    });
   }
 
   let refinedStartSec = bucketMidSec(startQuietBucket);
   let refinedEndSec = bucketMidSec(endQuietBucket);
-  let startReason: HammerSmartCutRefinementReason = "quiet_bucket";
-  let endReason: HammerSmartCutRefinementReason = "quiet_bucket";
+  let selectedStartReason: HammerSmartCutRefinementReason = "quiet_bucket";
+  let selectedEndReason: HammerSmartCutRefinementReason = "quiet_bucket";
 
-  if (ctx.monoSamples && Number.isFinite(ctx.sampleRate) && Number(ctx.sampleRate) > 0) {
+  if (hasValidMonoInput(ctx)) {
     refinedStartSec = findNearestZeroCrossingTime({
-      samples: ctx.monoSamples,
+      samples: ctx.monoSamples!,
       sampleRate: Number(ctx.sampleRate),
       targetSec: refinedStartSec,
     });
     refinedEndSec = findNearestZeroCrossingTime({
-      samples: ctx.monoSamples,
+      samples: ctx.monoSamples!,
       sampleRate: Number(ctx.sampleRate),
       targetSec: refinedEndSec,
     });
-    startReason = "zero_crossing";
-    endReason = "zero_crossing";
+    selectedStartReason = "zero_crossing";
+    selectedEndReason = "zero_crossing";
   }
 
-  const startDeltaSec = refinedStartSec - baseRange.startSec;
-  const endDeltaSec = refinedEndSec - baseRange.endSec;
+  // Keep transcript timing as intent authority by only allowing outward expansion.
+  refinedStartSec = Math.min(refinedStartSec, baseRange.startSec);
+  refinedEndSec = Math.max(refinedEndSec, baseRange.endSec);
 
-  if (startDeltaSec < -tuning.maxStartAdjustmentSec) {
-    return null;
-  }
-  if (endDeltaSec > tuning.maxEndAdjustmentSec) {
-    return null;
-  }
-  if (refinedEndSec - refinedStartSec <= MIN_RANGE_SEC) {
-    return null;
-  }
-
-  if (
-    Number.isFinite(ctx.previousProtectedBoundarySec)
-    && refinedStartSec < Number(ctx.previousProtectedBoundarySec) - tuning.neighborSafetyMarginSec
-  ) {
-    return null;
-  }
-  if (
-    Number.isFinite(ctx.nextProtectedBoundarySec)
-    && refinedEndSec > Number(ctx.nextProtectedBoundarySec) + tuning.neighborSafetyMarginSec
-  ) {
-    return null;
-  }
-
-  const range = {
+  const refinedRange = {
     startSec: refinedStartSec,
     endSec: refinedEndSec,
   };
+  const startDeltaSec = refinedRange.startSec - baseRange.startSec;
+  const endDeltaSec = refinedRange.endSec - baseRange.endSec;
 
-  return {
-    range,
-    debug: {
-      attempted: true,
+  if (startDeltaSec < -(tuning.maxStartAdjustmentSec + TOLERANCE_SEC)) {
+    return createFallbackResolution({
       editKind: ctx.editKind,
-      baseStartSec: baseRange.startSec,
-      baseEndSec: baseRange.endSec,
-      refinedStartSec,
-      refinedEndSec,
-      startDeltaSec,
-      endDeltaSec,
+      baseRange,
+      fallbackReason: "start_adjustment_exceeded",
+      tuning,
       localNoiseFloor: local.noiseFloor,
       quietThreshold: local.threshold,
-      selectedStartReason: startReason,
-      selectedEndReason: endReason,
+      selectedStartReason,
+      selectedEndReason,
+    });
+  }
+  if (endDeltaSec > tuning.maxEndAdjustmentSec + TOLERANCE_SEC) {
+    return createFallbackResolution({
+      editKind: ctx.editKind,
+      baseRange,
+      fallbackReason: "end_adjustment_exceeded",
+      tuning,
+      localNoiseFloor: local.noiseFloor,
+      quietThreshold: local.threshold,
+      selectedStartReason,
+      selectedEndReason,
+    });
+  }
+  if (!isValidRange(refinedRange)) {
+    return createFallbackResolution({
+      editKind: ctx.editKind,
+      baseRange,
+      fallbackReason: "invalid_refined_range",
+      tuning,
+      localNoiseFloor: local.noiseFloor,
+      quietThreshold: local.threshold,
+      selectedStartReason,
+      selectedEndReason,
+    });
+  }
+  if (
+    isFiniteNumber(ctx.previousProtectedBoundarySec)
+    && refinedRange.startSec < (ctx.previousProtectedBoundarySec - tuning.neighborSafetyMarginSec)
+  ) {
+    return createFallbackResolution({
+      editKind: ctx.editKind,
+      baseRange,
+      fallbackReason: "previous_boundary_guard",
+      tuning,
+      localNoiseFloor: local.noiseFloor,
+      quietThreshold: local.threshold,
+      selectedStartReason,
+      selectedEndReason,
+    });
+  }
+  if (
+    isFiniteNumber(ctx.nextProtectedBoundarySec)
+    && refinedRange.endSec > (ctx.nextProtectedBoundarySec + tuning.neighborSafetyMarginSec)
+  ) {
+    return createFallbackResolution({
+      editKind: ctx.editKind,
+      baseRange,
+      fallbackReason: "next_boundary_guard",
+      tuning,
+      localNoiseFloor: local.noiseFloor,
+      quietThreshold: local.threshold,
+      selectedStartReason,
+      selectedEndReason,
+    });
+  }
+
+  return {
+    range: refinedRange,
+    debug: createDebug({
+      editKind: ctx.editKind,
+      baseRange,
+      refinedRange,
+      localNoiseFloor: local.noiseFloor,
+      quietThreshold: local.threshold,
+      selectedStartReason,
+      selectedEndReason,
       fallbackReason: null,
-      maxStartAdjustmentSec: tuning.maxStartAdjustmentSec,
-      maxEndAdjustmentSec: tuning.maxEndAdjustmentSec,
-    },
+      tuning,
+    }),
   };
 }
 
 export function resolveSmartCutRange(ctx: HammerSmartCutContext): HammerSmartCutResolution {
-  const baseRange = {
-    startSec: Number(ctx.baseRange.startSec),
-    endSec: Number(ctx.baseRange.endSec),
-  };
+  const baseRange = normalizeRange(ctx.baseRange);
   const tuning = getTuningForEditKind(ctx.editKind);
 
-  const fallbackDebug: HammerSmartCutDebugMetadata = {
-    attempted: true,
-    editKind: ctx.editKind,
-    baseStartSec: baseRange.startSec,
-    baseEndSec: baseRange.endSec,
-    refinedStartSec: baseRange.startSec,
-    refinedEndSec: baseRange.endSec,
-    startDeltaSec: 0,
-    endDeltaSec: 0,
-    localNoiseFloor: null,
-    quietThreshold: null,
-    selectedStartReason: "base_range",
-    selectedEndReason: "base_range",
-    fallbackReason: null,
-    maxStartAdjustmentSec: tuning.maxStartAdjustmentSec,
-    maxEndAdjustmentSec: tuning.maxEndAdjustmentSec,
-  };
-
-  const hasWaveform = Boolean(
-    (ctx.waveformProxy && Array.isArray(ctx.waveformProxy.peaks) && ctx.waveformProxy.peaks.length > 0)
-    || (ctx.monoSamples && ctx.monoSamples.length > 0 && Number.isFinite(ctx.sampleRate) && Number(ctx.sampleRate) > 0),
-  );
-  if (!hasWaveform) {
-    return {
-      range: baseRange,
-      debug: {
-        ...fallbackDebug,
-        fallbackReason: "waveform_unavailable",
-      },
-    };
+  if (!isValidRange(baseRange)) {
+    return createFallbackResolution({
+      editKind: ctx.editKind,
+      baseRange,
+      fallbackReason: "invalid_refined_range",
+      tuning,
+    });
   }
 
-  const refined = refineCutRangeWithWaveform(ctx);
-  if (!refined) {
-    return {
-      range: baseRange,
-      debug: {
-        ...fallbackDebug,
-        fallbackReason: "quiet_region_not_found",
-      },
-    };
+  if (!hasValidMonoInput(ctx) && !hasValidWaveformProxy(ctx.waveformProxy ?? null)) {
+    return createFallbackResolution({
+      editKind: ctx.editKind,
+      baseRange,
+      fallbackReason: "waveform_unavailable",
+      tuning,
+    });
   }
 
-  return {
-    range: refined.range,
-    debug: refined.debug,
-  };
+  return refineCutRangeWithWaveform({
+    ...ctx,
+    baseRange,
+  });
 }

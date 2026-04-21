@@ -37,6 +37,14 @@ export type HammerDeleteOnlyTranscriptSelectionRange = {
 
 const MIN_DURATION_SEC = 0.0001;
 
+function maybeLogSmartCutDebug(payload: Record<string, unknown>): void {
+  if (!(globalThis as { __forgeHammerDebugSmartCut__?: boolean }).__forgeHammerDebugSmartCut__) {
+    return;
+  }
+  // eslint-disable-next-line no-console
+  console.debug("[hammer-smart-cut]", payload);
+}
+
 export function tokenizeDeleteOnlyTranscriptText(text: string): HammerDeleteOnlyTranscriptToken[] {
   const normalized = String(text ?? "");
   const matches = normalized.matchAll(/\S+/g);
@@ -178,6 +186,12 @@ export function deriveDeleteOnlyTranscriptCutSelection(args: {
     waveformProxy: args.waveformProxy ?? null,
     previousProtectedBoundarySec: startSec,
     nextProtectedBoundarySec: endSec,
+  });
+  maybeLogSmartCutDebug({
+    source: "deriveDeleteOnlyTranscriptCutSelection",
+    segmentId: args.segment.segment_id,
+    deletedTokenCount: args.deletion.deletedTokenCount,
+    ...resolved.debug,
   });
 
   return {

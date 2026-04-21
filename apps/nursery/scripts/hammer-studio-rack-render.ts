@@ -55,6 +55,7 @@ const OUTPUT_MIME_TYPE = "audio/wav";
 const MAX_SOURCE_BYTES = 256 * 1024 * 1024;
 const CANONICAL_MEDIA_FETCH_TIMEOUT_MS = 60_000;
 const FFMPEG_PROCESS_TIMEOUT_MS = 2 * 60 * 1000;
+const CUT_SEAM_FADE_SEC = 0.006;
 
 function readTrimmed(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -603,7 +604,7 @@ export async function handleHammerStudioRackRenderRequest(
     const timelinePlan = buildHammerTimelineAudioRenderPlan({
       segments: request.timeline_segments,
       postFilterChain: shouldApplyRack ? chain.filterChain : null,
-      seamFadeSec: 0.01,
+      seamFadeSec: CUT_SEAM_FADE_SEC,
     });
     if (!timelinePlan) {
       return {

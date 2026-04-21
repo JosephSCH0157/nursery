@@ -18,7 +18,7 @@ test("capture_auth_state", async ({ page, baseURL }) => {
   test.setTimeout(10 * 60 * 1000);
 
   if (!baseURL) {
-    throw new Error("Missing Playwright baseURL. Set FORGE_TEST_BASE_URL if needed.");
+    throw new Error("Missing Playwright baseURL. Set FORGE_SMOKE_BASE_URL if needed.");
   }
 
   fs.mkdirSync(path.dirname(storageStatePath), { recursive: true });

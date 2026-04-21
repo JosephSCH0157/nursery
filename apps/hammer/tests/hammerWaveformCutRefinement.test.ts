@@ -33,16 +33,17 @@ async function testEnvelopeBuildIsDeterministic() {
     windowSize: 4,
     hopSize: 4,
   });
+
   assert.deepEqual(first, second);
   assert.equal(first.length, 2);
   assertClose(first[0]?.peak ?? 0, 0.4);
   assertClose(first[0]?.meanAbs ?? 0, 0.175);
 }
 
-async function testSmartCutSnapsOutwardToQuietBuckets() {
+async function testFillerSmartCutSnapsToQuietBoundaries() {
   const peaks = new Array(80).fill(0.45);
-  peaks[19] = 0.01; // 0.95s
-  peaks[25] = 0.01; // 1.25s
+  peaks[19] = 0.01; // ~0.975s
+  peaks[25] = 0.01; // ~1.275s
 
   const result = resolveSmartCutRange({
     baseRange: { startSec: 1.0, endSec: 1.2 },
@@ -52,6 +53,24 @@ async function testSmartCutSnapsOutwardToQuietBuckets() {
 
   assert.ok(result.range.startSec < 1.0);
   assert.ok(result.range.endSec > 1.2);
+  assert.equal(result.debug.fallbackReason, null);
+}
+
+async function testRetakeSmartCutPrefersLocalValley() {
+  const peaks = new Array(80).fill(0.4);
+  peaks[18] = 0.03; // nearer but louder
+  peaks[19] = 0.012; // slightly farther but quieter valley
+  peaks[24] = 0.03; // nearer but louder
+  peaks[25] = 0.012; // slightly farther but quieter valley
+
+  const result = resolveSmartCutRange({
+    baseRange: { startSec: 1.0, endSec: 1.2 },
+    waveformProxy: buildProxy(peaks),
+    editKind: "retake",
+  });
+
+  assert.ok(result.range.startSec <= 0.98);
+  assert.ok(result.range.endSec >= 1.24);
   assert.equal(result.debug.fallbackReason, null);
 }
 
@@ -68,10 +87,38 @@ async function testSmartCutFallsBackWhenQuietRegionMissing() {
   assert.equal(result.debug.fallbackReason, "quiet_region_not_found");
 }
 
-async function testSmartCutRespectsNeighborSafety() {
+async function testSmartCutRespectsAdjustmentCaps() {
+  const peaks = new Array(120).fill(0.5);
+  peaks[17] = 0.01; // outside filler start cap (mid ~0.875)
+  peaks[18] = 0.01; // inside filler start cap (mid ~0.925)
+  peaks[26] = 0.01; // inside filler end cap (mid ~1.325)
+  peaks[27] = 0.01; // outside filler end cap (mid ~1.375)
+
+  const result = resolveSmartCutRange({
+    baseRange: { startSec: 1.0, endSec: 1.2 },
+    waveformProxy: buildProxy(peaks),
+    editKind: "filler",
+  });
+
+  assert.ok(result.range.startSec >= 0.88);
+  assert.ok(result.range.endSec <= 1.34);
+  assert.equal(result.debug.fallbackReason, null);
+}
+
+async function testSmartCutNeverReturnsInvertedRange() {
+  const result = resolveSmartCutRange({
+    baseRange: { startSec: 2.0, endSec: 1.9 },
+    editKind: "delete_only",
+    waveformProxy: null,
+  });
+
+  assert.ok(result.range.endSec >= result.range.startSec);
+}
+
+async function testSmartCutProtectsNeighboringSpeech() {
   const peaks = new Array(80).fill(0.5);
-  peaks[18] = 0.01; // 0.90s
-  peaks[25] = 0.01; // 1.25s
+  peaks[18] = 0.01; // ~0.925s (too early with neighbor guard)
+  peaks[25] = 0.01; // ~1.275s (too late with neighbor guard)
 
   const result = resolveSmartCutRange({
     baseRange: { startSec: 1.01, endSec: 1.2 },
@@ -83,7 +130,7 @@ async function testSmartCutRespectsNeighborSafety() {
 
   assertClose(result.range.startSec, 1.01);
   assertClose(result.range.endSec, 1.2);
-  assert.equal(result.debug.fallbackReason, "quiet_region_not_found");
+  assert.equal(result.debug.fallbackReason, "previous_boundary_guard");
 }
 
 async function testSmartCutMissingWaveformFallsBackSafely() {
@@ -99,9 +146,13 @@ async function testSmartCutMissingWaveformFallsBackSafely() {
 }
 
 await testEnvelopeBuildIsDeterministic();
-await testSmartCutSnapsOutwardToQuietBuckets();
+await testFillerSmartCutSnapsToQuietBoundaries();
+await testRetakeSmartCutPrefersLocalValley();
 await testSmartCutFallsBackWhenQuietRegionMissing();
-await testSmartCutRespectsNeighborSafety();
+await testSmartCutRespectsAdjustmentCaps();
+await testSmartCutNeverReturnsInvertedRange();
+await testSmartCutProtectsNeighboringSpeech();
 await testSmartCutMissingWaveformFallsBackSafely();
 
 console.log("Hammer waveform cut refinement tests passed.");
+
