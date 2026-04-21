@@ -53,7 +53,6 @@ import {
 import type { HammerPreparedNextStepActionId } from "./hammerPreparedHandoff";
 import {
   DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC,
-  LARGE_PLAYHEAD_NUDGE_SEC,
   SMALL_PLAYHEAD_NUDGE_SEC,
   moveSegmentTiming,
   resolveAdjacentJumpPointTime,
@@ -63,7 +62,6 @@ import {
   resolvePlayheadSegment,
   resolveTranscriptSegmentRange,
   resolveTimelineBoundaryTimes,
-  resolveWorkspaceFocusMode,
   roundToTenth,
   snapPlayheadToBoundary,
   trimSegmentEndTiming,
@@ -215,6 +213,7 @@ import {
   resolveSelectionFromVisual,
   type HammerLinkedSelection,
 } from "./hammerLinkedSelection";
+import { useHammerWorkspaceShellShortcuts } from "./useHammerWorkspaceShellShortcuts";
 import { useHammerWorkspaceShellSelection } from "./useHammerWorkspaceShellSelection";
 import {
   toHammerLinkedSelectionVisualItems,
@@ -883,13 +882,6 @@ function resolveVisualPresetFilter(preset: HammerVisualLutPreset): string {
   }
 }
 
-function isKeyboardEditingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
-  const tagName = target.tagName.toUpperCase();
-  return tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
-}
-
 function formatOutputLayerLabelFromRecipeRef(recipeRef: string): string {
   const recipe = recipeRef.trim() || "derived";
   if (recipe.startsWith("speaker_solo:")) {
@@ -1537,8 +1529,6 @@ function HammerWorkspaceShellWithContext(
   const selectionOriginRef = useRef<"system" | "transcript" | "timeline" | "playhead">("system");
   const selectionRevealFrameRef = useRef<number | null>(null);
   const historyControllerRef = useRef<HammerHistoryController | null>(null);
-  const shellShortcutKeydownHandlerRef = useRef<((event: KeyboardEvent) => void) | null>(null);
-  const historyShortcutKeydownHandlerRef = useRef<((event: KeyboardEvent) => void) | null>(null);
   const historyPersistTimerRef = useRef<number | null>(null);
   const snapshotManifestRef = useRef<HammerSnapshotManifestV1 | null>(null);
   const lastSnapshottedHeadEntryIdRef = useRef<string | null>(null);
@@ -1917,7 +1907,6 @@ function HammerWorkspaceShellWithContext(
   }, []);
 
   const previewMode: HammerPreviewMode = launchContext.preview_mode ?? launchContext.edit_plan?.preview_mode ?? "edit-aware";
-  const workspaceFocusMode = focusOverride === "auto" ? resolveWorkspaceFocusMode(activeTool) : focusOverride;
   const visualPolishPreviewActive = activeTool === "video" && activeVisualTool === "polish";
   const mediaRef = useMemo(
     () => resolveMediaRef(launchContext),
@@ -6752,123 +6741,6 @@ function HammerWorkspaceShellWithContext(
   }, [zoomTimelineIn, zoomTimelineOut]);
 
   useEffect(() => {
-    shellShortcutKeydownHandlerRef.current = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented) return;
-      if (isTextEditingTarget(event.target)) return;
-      if (event.ctrlKey || event.metaKey || event.altKey) return;
-
-      const key = event.key;
-      const lower = key.toLowerCase();
-
-      const isTimelineZoomInKey = event.code === "NumpadAdd" || key === "+" || key === "=";
-      const isTimelineZoomOutKey = event.code === "NumpadSubtract" || key === "-" || key === "_";
-      if (isTimelineZoomInKey || isTimelineZoomOutKey) {
-        event.preventDefault();
-        if (isTimelineZoomInKey) {
-          zoomTimelineIn();
-        } else {
-          zoomTimelineOut();
-        }
-        return;
-      }
-
-      if (isTranscriptCandidateReviewPass) {
-        if (!event.shiftKey && (key === "1" || key === "2")) {
-          if (event.repeat) return;
-          event.preventDefault();
-          const nextKind = key === "1" ? "fillers" : "retakes";
-          setActiveReviewKind(nextKind);
-          setActiveTranscriptToolSection(nextKind);
-          setFocusOverride("tool-focus");
-          return;
-        }
-
-        if (!event.shiftKey && (lower === "j" || lower === "k")) {
-          event.preventDefault();
-          const kind = activeReviewKind;
-          if (kind === "fillers") {
-            const length = fillerCandidateCards.length;
-            if (length <= 1) return;
-            setFillerActiveCandidateIndex((previous) => clampActiveCandidateIndex(
-              previous + (lower === "j" ? 1 : -1),
-              length,
-            ));
-          } else {
-            const length = retakeCandidateCards.length;
-            if (length <= 1) return;
-            setRetakeActiveCandidateIndex((previous) => clampActiveCandidateIndex(
-              previous + (lower === "j" ? 1 : -1),
-              length,
-            ));
-          }
-          setFocusOverride("tool-focus");
-          return;
-        }
-
-        if (!event.shiftKey && (lower === "a" || lower === "r")) {
-          if (event.repeat) return;
-          event.preventDefault();
-          const kind = activeReviewKind;
-          setActiveTranscriptToolSection(kind);
-          const activeCard = kind === "retakes" ? activeRetakeCandidateCard : activeFillerCandidateCard;
-          const inFlight = kind === "retakes" ? retakeDecisionInFlight : fillerDecisionInFlight;
-          if (!activeCard) return;
-          if (inFlight) return;
-          handleCandidateDecision(kind, lower === "a");
-          return;
-        }
-      }
-
-      if (event.shiftKey && lower === "d") {
-        if (event.repeat) return;
-        event.preventDefault();
-        selectPass("gap_pacing");
-        setActiveTranscriptToolSection("silence_gaps");
-        return;
-      }
-
-      if (isTranscriptToolSurface && activeTranscriptToolSection === "silence_gaps") {
-        if (event.shiftKey && lower === "a") {
-          if (event.repeat) return;
-          event.preventDefault();
-          analyzeDeadAirClosure();
-          return;
-        }
-
-        if (!event.shiftKey && key === "Enter") {
-          if (event.repeat) return;
-          event.preventDefault();
-          if (!deadAirAnalysis) return;
-          if (deadAirApplyInFlight) return;
-          if (deadAirAnalysis.eligibleGapCount === 0) return;
-          applyDeadAirClosureBatch();
-        }
-      }
-    };
-  }, [
-    activeFillerCandidateCard,
-    activeReviewKind,
-    activeRetakeCandidateCard,
-    deadAirAnalysis,
-    deadAirApplyInFlight,
-    fillerCandidateCards.length,
-    fillerDecisionInFlight,
-    isTranscriptCandidateReviewPass,
-    isTranscriptToolSurface,
-    activeTranscriptToolSection,
-    retakeCandidateCards.length,
-    retakeDecisionInFlight,
-    zoomTimelineIn,
-    zoomTimelineOut,
-  ]);
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      shellShortcutKeydownHandlerRef.current?.(event);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-  useEffect(() => {
     if (fillerCandidateCards.length === 0 && fillerActiveCandidateIndex !== 0) {
       setFillerActiveCandidateIndex(0);
       return;
@@ -8527,188 +8399,49 @@ function HammerWorkspaceShellWithContext(
     scheduleHistoryPersist(true);
   }
 
-  useEffect(() => {
-    historyShortcutKeydownHandlerRef.current = (event: KeyboardEvent): void => {
-      if (isKeyboardEditingTarget(event.target)) return;
-
-      if (!event.ctrlKey && !event.metaKey && !event.altKey) {
-        if (event.key === "ArrowLeft") {
-          event.preventDefault();
-          event.stopPropagation();
-          nudgePlayhead(event.shiftKey ? -LARGE_PLAYHEAD_NUDGE_SEC : -SMALL_PLAYHEAD_NUDGE_SEC);
-          return;
-        }
-
-        if (event.key === "ArrowRight") {
-          event.preventDefault();
-          event.stopPropagation();
-          nudgePlayhead(event.shiftKey ? LARGE_PLAYHEAD_NUDGE_SEC : SMALL_PLAYHEAD_NUDGE_SEC);
-          return;
-        }
-
-        if (event.key === "ArrowUp") {
-          event.preventDefault();
-          event.stopPropagation();
-          selectAdjacentSegment("previous");
-          return;
-        }
-
-        if (event.key === "ArrowDown") {
-          event.preventDefault();
-          event.stopPropagation();
-          selectAdjacentSegment("next");
-          return;
-        }
-
-        if (event.key === "Home") {
-          event.preventDefault();
-          event.stopPropagation();
-          jumpToSelectionBoundary("start");
-          return;
-        }
-
-        if (event.key === "End") {
-          event.preventDefault();
-          event.stopPropagation();
-          jumpToSelectionBoundary("end");
-          return;
-        }
-
-        if (event.key === ",") {
-          event.preventDefault();
-          event.stopPropagation();
-          jumpToEditPoint("previous");
-          return;
-        }
-
-        if (event.key === ".") {
-          event.preventDefault();
-          event.stopPropagation();
-          jumpToEditPoint("next");
-          return;
-        }
-
-        if (event.key === "PageUp") {
-          event.preventDefault();
-          event.stopPropagation();
-          jumpToMarker("previous");
-          return;
-        }
-
-        if (event.key === "PageDown") {
-          event.preventDefault();
-          event.stopPropagation();
-          jumpToMarker("next");
-          return;
-        }
-
-        if (event.key === " " || event.code === "Space") {
-          event.preventDefault();
-          event.stopPropagation();
-          togglePlayback();
-          return;
-        }
-
-        if (event.key.toLowerCase() === "s") {
-          event.preventDefault();
-          event.stopPropagation();
-          splitSelectedSegmentAtPlayhead();
-          return;
-        }
-
-        if (event.key.toLowerCase() === "l") {
-          event.preventDefault();
-          event.stopPropagation();
-          toggleSelectionLoopPlayback();
-          return;
-        }
-
-        if (event.key.toLowerCase() === "p") {
-          event.preventDefault();
-          event.stopPropagation();
-          playSelectionWithRoll();
-          return;
-        }
-
-        if (event.key.toLowerCase() === "k") {
-          event.preventDefault();
-          event.stopPropagation();
-          addMarkerAtPlayhead();
-          return;
-        }
-
-        if (event.key === "Delete" || event.key === "Backspace") {
-          event.preventDefault();
-          event.stopPropagation();
-          deleteSelectedSegmentAndRipple();
-          return;
-        }
-
-        if (event.key === "Escape") {
-          event.preventDefault();
-          event.stopPropagation();
-          clearTranscriptSelection();
-          return;
-        }
-
-        if (event.key.toLowerCase() === "m") {
-          event.preventDefault();
-          event.stopPropagation();
-          toggleSelectedSegmentDisabled();
-          return;
-        }
-
-        if (event.key === "[" || event.key === "]") {
-          event.preventDefault();
-          event.stopPropagation();
-          adjustSelectedSegmentGain(event.key === "]" ? 1 : -1);
-          return;
-        }
-      }
-
-      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
-      const key = event.key.toLowerCase();
-
-      const wantsUndo = key === "z" && !event.shiftKey;
-      const wantsRedo = (key === "z" && event.shiftKey) || key === "y";
-      if (!wantsUndo && !wantsRedo) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-
-      if (wantsUndo) {
-        undoHistory();
-        return;
-      }
-      redoHistory();
-    };
-  }, [
-    addMarkerAtPlayhead,
-    adjustSelectedSegmentGain,
-    clearTranscriptSelection,
-    deleteSelectedSegmentAndRipple,
+  const { workspaceFocusMode } = useHammerWorkspaceShellShortcuts({
+    activeTool,
+    focusOverride,
+    isTranscriptCandidateReviewPass,
+    isTranscriptToolSurface,
+    activeTranscriptToolSection,
+    activeReviewKind,
+    activeFillerCandidateCard,
+    activeRetakeCandidateCard,
+    fillerCandidateCardsLength: fillerCandidateCards.length,
+    retakeCandidateCardsLength: retakeCandidateCards.length,
+    fillerDecisionInFlight,
+    retakeDecisionInFlight,
+    deadAirAnalysis,
+    deadAirApplyInFlight,
+    zoomTimelineIn,
+    zoomTimelineOut,
+    setActiveReviewKind,
+    setActiveTranscriptToolSection,
+    setFocusOverride,
+    setFillerActiveCandidateIndex,
+    setRetakeActiveCandidateIndex,
+    handleCandidateDecision,
+    selectPass,
+    analyzeDeadAirClosure,
+    applyDeadAirClosureBatch,
+    nudgePlayhead,
+    selectAdjacentSegment,
+    jumpToSelectionBoundary,
     jumpToEditPoint,
     jumpToMarker,
-    jumpToSelectionBoundary,
-    nudgePlayhead,
-    playSelectionWithRoll,
-    redoHistory,
-    selectAdjacentSegment,
-    splitSelectedSegmentAtPlayhead,
     togglePlayback,
+    splitSelectedSegmentAtPlayhead,
     toggleSelectionLoopPlayback,
+    playSelectionWithRoll,
+    addMarkerAtPlayhead,
+    deleteSelectedSegmentAndRipple,
+    clearTranscriptSelection,
     toggleSelectedSegmentDisabled,
+    adjustSelectedSegmentGain,
     undoHistory,
-  ]);
-  useEffect(() => {
-    const handleKeyboardHistory = (event: KeyboardEvent): void => {
-      historyShortcutKeydownHandlerRef.current?.(event);
-    };
-    window.addEventListener("keydown", handleKeyboardHistory);
-    return () => {
-      window.removeEventListener("keydown", handleKeyboardHistory);
-    };
-  }, []);
+    redoHistory,
+  });
 
   const exportBasis = useMemo(() => {
     const exportTranscriptSegments = editableTranscriptSegments.filter((segment) => !segment.is_disabled);
