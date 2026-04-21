@@ -21,6 +21,7 @@ import type {
   HammerVisualSourceMode,
   HammerVisualTimelineState,
 } from "../model/hammerVisualTypes";
+import { isHammerDevConsoleEnabled } from "../../lib/hammerDevConsole";
 
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -150,7 +151,7 @@ export function loadHammerVisualTimelineStateFromSnapshot(
     selected_overlay_row_id: snapshot?.editor_session.data?.selected_overlay_row_id ?? null,
     updated_at: updatedAt,
   });
-  if (typeof console !== "undefined" && typeof console.debug === "function") {
+  if (isHammerDevConsoleEnabled() && typeof console !== "undefined" && typeof console.debug === "function") {
     console.debug("[hammer:migration]", {
       debug_origin: timeline.debug_origin,
       assets: timeline.assets.length,

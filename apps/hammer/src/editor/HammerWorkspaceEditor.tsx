@@ -445,6 +445,7 @@ async function loadCanonicalBootstrapLaunchContext(
 }
 
 function logHammerReopenDecision(details: {
+  enabled: boolean;
   hasEditorialAuthority: boolean;
   hasStructuredTranscript: boolean;
   hasRevisionTranscript: boolean;
@@ -452,6 +453,7 @@ function logHammerReopenDecision(details: {
   selectedTranscriptSource?: string | null;
   registeredTranscriptArtifactPath?: string | null;
 }): void {
+  if (!details.enabled) return;
   // eslint-disable-next-line no-console
   console.warn("REOPEN_DECISION:", {
     has_editorial_authority: details.hasEditorialAuthority,
@@ -1647,19 +1649,22 @@ export default function HammerWorkspaceEditor(
 
           // --- Logging ---
           // eslint-disable-next-line no-console
-          console.info("[HammerTranscriptReuse]", {
-            registered_transcript_artifact_path: registeredTranscriptPath,
-            registered_transcript_definitively_bad: registeredTranscriptDefinitiveFailure,
-            registered_transcript_load_ok: registeredTranscriptLoadOk,
-            registered_segment_count: registeredTranscriptSegmentCount,
-            revision_transcript_load_ok: revisionTranscriptLoadOk,
-            revision_segment_count: revisionTranscriptSegmentCount,
-            baseline_transcript_load_ok: baselineTranscriptLoadOk,
-            baseline_segment_count: baselineTranscriptSegmentCount,
-            selected_transcript_source: transcriptSource,
-            reuse_decision: transcriptSource !== "none" ? "reused" : "rejected",
-            rejection_reason: rejectionReason,
-          });
+          if (ingestLog.enabled) {
+            // eslint-disable-next-line no-console
+            console.info("[HammerTranscriptReuse]", {
+              registered_transcript_artifact_path: registeredTranscriptPath,
+              registered_transcript_definitively_bad: registeredTranscriptDefinitiveFailure,
+              registered_transcript_load_ok: registeredTranscriptLoadOk,
+              registered_segment_count: registeredTranscriptSegmentCount,
+              revision_transcript_load_ok: revisionTranscriptLoadOk,
+              revision_segment_count: revisionTranscriptSegmentCount,
+              baseline_transcript_load_ok: baselineTranscriptLoadOk,
+              baseline_segment_count: baselineTranscriptSegmentCount,
+              selected_transcript_source: transcriptSource,
+              reuse_decision: transcriptSource !== "none" ? "reused" : "rejected",
+              rejection_reason: rejectionReason,
+            });
+          }
 
           const nextHydratedSnapshot = buildHydratedSnapshot({
             target: persistenceTarget,
@@ -1700,6 +1705,7 @@ export default function HammerWorkspaceEditor(
 
         if (!nextLaunchContext) {
           logHammerReopenDecision({
+            enabled: ingestLog.enabled,
             hasEditorialAuthority: Boolean(hydratedSnapshot?.editorial_authority.data),
             hasStructuredTranscript: Boolean(hydratedSnapshot?.structured_transcript.data?.segments.length),
             hasRevisionTranscript: Boolean(revisionTranscriptLoadOk),

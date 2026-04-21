@@ -42,12 +42,19 @@ export type HammerDevConsoleLogger = {
   error: (event: string, data?: Record<string, unknown>) => void;
 };
 
-function isHammerDevConsoleEnabled(routeSearch?: string | null): boolean {
-  if (!import.meta.env.DEV) return false;
-  const env = import.meta.env as unknown as Record<string, unknown>;
+export function isHammerDevConsoleEnabled(routeSearch?: string | null): boolean {
+  const env = (typeof import.meta !== "undefined"
+    && typeof import.meta.env === "object"
+    && import.meta.env)
+    ? import.meta.env as unknown as Record<string, unknown>
+    : null;
+  if (!env || env.DEV !== true) return false;
   const envToggle = normalizeLogToggle(typeof env.VITE_HAMMER_DEV_LOG === "string" ? env.VITE_HAMMER_DEV_LOG : null);
   if (envToggle === "off") return false;
-  const search = routeSearch ?? "";
+  const search = routeSearch
+    ?? ((typeof window !== "undefined" && typeof window.location?.search === "string")
+      ? window.location.search
+      : "");
   try {
     const params = new URLSearchParams(search);
     const queryToggle = normalizeLogToggle(
@@ -61,7 +68,7 @@ function isHammerDevConsoleEnabled(routeSearch?: string | null): boolean {
   } catch {
     // ignore query parsing errors
   }
-  return true;
+  return envToggle === "on";
 }
 
 function readPerfNow(): number {
