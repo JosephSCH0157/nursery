@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { JSX, MouseEvent, WheelEvent as ReactWheelEvent } from "react";
+import type { JSX, WheelEvent as ReactWheelEvent } from "react";
 import { createPortal } from "react-dom";
 import type { HammerEditPlan, HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type {
@@ -203,6 +203,13 @@ import { useHammerWorkspaceShellPreviewRuntime } from "./useHammerWorkspaceShell
 import { useHammerWorkspaceShellReleasePrep } from "./useHammerWorkspaceShellReleasePrep";
 import { useHammerWorkspaceShellVisualEditing } from "./useHammerWorkspaceShellVisualEditing";
 import {
+  buildPreviewBayVM,
+  buildSourceBayVM,
+  buildTimelineDockVM,
+  buildToolbarVM,
+  buildToolBayVM,
+} from "./hammerWorkspaceShellViewModels";
+import {
   toHammerLinkedSelectionVisualItems,
   type HammerSelectedTranscriptRange,
   type HammerSelectedTranscriptRangeDetail,
@@ -308,7 +315,7 @@ import {
 import {
   buildHammerCaptionPreviewModel,
 } from "../lib/hammerCaptionPreview";
-import HammerWorkspaceShellToolbar, { type HammerWorkspaceShellToolbarPassVM } from "./HammerWorkspaceShellToolbar";
+import HammerWorkspaceShellToolbar from "./HammerWorkspaceShellToolbar";
 import HammerWorkspaceShellPreviewBay from "./HammerWorkspaceShellPreviewBay";
 import HammerWorkspaceShellTimelineDock from "./HammerWorkspaceShellTimelineDock";
 import HammerWorkspaceShellSourceBay from "./HammerWorkspaceShellSourceBay";
@@ -6460,10 +6467,12 @@ function HammerWorkspaceShellWithContext(
     }
     return byPass;
   }, [passSelectorContext]);
-  const timelineDockVM = useMemo(() => ({
+  const timelineDockVM = useMemo(() => buildTimelineDockVM({
+    SCRUB_RATE_OPTIONS,
+    SMALL_PLAYHEAD_NUDGE_SEC,
+    editableAudioPolish,
     isScrubbing,
     setFocusOverride,
-    waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
     playbackTransportDurationSec,
     effectivePlaybackCutRegions,
     playheadSec,
@@ -6481,17 +6490,12 @@ function HammerWorkspaceShellWithContext(
     jumpToMarker,
     addMarkerAtPlayhead,
     scrubRate,
-    scrubRateOptions: SCRUB_RATE_OPTIONS,
-    setScrubRate: (rate: number) => {
-      if (!SCRUB_RATE_OPTIONS.includes(rate as HammerScrubRate)) return;
-      setScrubRate(rate as HammerScrubRate);
-    },
+    setScrubRate,
     zoomTimelineOut,
     zoomTimelineIn,
     resetTimelineZoom,
     timelineZoomPercent,
     nudgePlayhead,
-    smallPlayheadNudgeSec: SMALL_PLAYHEAD_NUDGE_SEC,
     splitSelectedSegmentAtPlayhead,
     deleteSelectedSegmentAndRipple,
     toggleSelectedSegmentDisabled,
@@ -6510,60 +6514,27 @@ function HammerWorkspaceShellWithContext(
     trimSegmentStart,
     trimSegmentEnd,
     adjustSelectedSegmentGain,
-    visualTimelineDock: {
-      clips: visualTimelineLaneClips,
-      playheadSec,
-      durationSec: timelineDurationSec,
-      selectedClipId: linkedPrimaryVisualId,
-      editable: visualPlacementEditingEnabled,
-      focusToken: visualTimelineFocusNonce,
-      onSelectClip: (clipId: string) => {
-        selectVisualClip({ clipId, origin: "timeline", revealUI: true });
-      },
-      onMoveClip: (event: MouseEvent, clip: { clipId: string; startSec: number; endSec: number }) => {
-        if (!visualPlacementEditingEnabled) return;
-        beginTimelineImagePlacementDrag(event as unknown as MouseEvent<HTMLElement | SVGElement>, {
-          placementId: clip.clipId,
-          mode: "move",
-          startSec: Math.max(0, clip.startSec - compositionOffsetSec),
-          endSec: Math.max(0, clip.endSec - compositionOffsetSec),
-        });
-      },
-      onTrimClipStart: (event: MouseEvent, clip: { clipId: string; startSec: number; endSec: number }) => {
-        if (!visualPlacementEditingEnabled) return;
-        beginTimelineImagePlacementDrag(event as unknown as MouseEvent<HTMLElement | SVGElement>, {
-          placementId: clip.clipId,
-          mode: "resize_start",
-          startSec: Math.max(0, clip.startSec - compositionOffsetSec),
-          endSec: Math.max(0, clip.endSec - compositionOffsetSec),
-        });
-      },
-      onTrimClipEnd: (event: MouseEvent, clip: { clipId: string; startSec: number; endSec: number }) => {
-        if (!visualPlacementEditingEnabled) return;
-        beginTimelineImagePlacementDrag(event as unknown as MouseEvent<HTMLElement | SVGElement>, {
-          placementId: clip.clipId,
-          mode: "resize_end",
-          startSec: Math.max(0, clip.startSec - compositionOffsetSec),
-          endSec: Math.max(0, clip.endSec - compositionOffsetSec),
-        });
-      },
-    },
+    visualTimelineLaneClips,
+    timelineDurationSec,
+    linkedPrimaryVisualId,
+    visualPlacementEditingEnabled,
+    visualTimelineFocusNonce,
+    selectVisualClip,
+    beginTimelineImagePlacementDrag,
+    compositionOffsetSec,
     timelineTrackScrollRef,
     handleTimelineTrackWheelZoom,
-    editableTranscriptSegmentsLength: editableTranscriptSegments.length,
+    editableTranscriptSegments,
     timelineBoardZoomClassName,
     beginTimelineScrub,
     timelineMinorTicks,
     timelineTicks,
-    timelineDurationSec,
     playheadRatioPercent,
     timelineLanes,
     laneGapsById,
-    visualPlacementEditingEnabled,
     currentPass,
     resolvePlacementAnimationPreset,
     visualPlacementsById,
-    beginTimelineImagePlacementDrag,
     openImageAnimationContextMenu,
   }), [
     acceptSilenceCutSuggestion,
@@ -6639,191 +6610,130 @@ function HammerWorkspaceShellWithContext(
     zoomTimelineIn,
     zoomTimelineOut,
   ]);
-  const sourceBayVM = useMemo(() => {
-    const layerOptions = outputLayerCandidates.map((layer) => ({
-      id: layer.layer_id,
-      label: formatOutputLayerLabel(layer),
-    }));
-    const historyEntries = recentHistoryEntries.map((entry) => {
-      const isCurrent = entry.id === historyHeadEntryId;
-      const derivedTransition = derivedLayerHistoryRef.current.get(entry.id) ?? null;
-      const derivedLayerCreated = Boolean(derivedTransition);
-      return {
-        id: entry.id,
-        label: entry.label,
-        timestampLabel: formatHistoryTimestamp(entry.timestamp),
-        scopeLabel: formatHistoryEntryScope(entry),
-        layerActionLabel: derivedLayerCreated ? "yes" : "no",
-        derivedLayerLabel: derivedLayerCreated ? "yes" : "no",
-        layerLabel: derivedTransition?.layerLabel ?? null,
-        isCurrent,
-        isLayerTransition: derivedLayerCreated,
-        isActiveLayerTransition: Boolean(isCurrent && derivedTransition),
-        onSelect: () => {
-          setFocusOverride("source-focus");
-          jumpToHistoryEntry(entry.id);
-        },
-      };
-    });
-
-    return {
-      aiInUse: Boolean(props.aiInUse),
-      onRequestRegenerateAiTranscript: props.onRequestRegenerateAiTranscript,
-      regenerateAiTranscriptDisabled: props.regenerateAiTranscriptDisabled ?? false,
-      undo: {
-        canUndo,
-        label: undoLabel,
-        compactLabel: undoLabelCompact,
-        depth: undoDepth,
-        onUndo: undoHistory,
-      },
-      redo: {
-        canRedo,
-        label: redoLabel,
-        compactLabel: redoLabelCompact,
-        depth: redoDepth,
-        onRedo: redoHistory,
-      },
-      tabs: SOURCE_TABS.map((tab) => ({
-        id: tab.id,
-        label: tab.label,
-        isActive: selectedSourceTab === tab.id,
-        onSelect: () => selectEditorMode(resolveEditorModeFromSourceTab(tab.id), { focusOverride: "source-focus" }),
-      })),
-      sourceDeskLoading,
-      sourceDeskError: sourceDeskError
-        ? {
-          message: sourceDeskError,
-          className: isSourceDeskAuthMessage(sourceDeskError)
-            ? "hammer-source-status hammer-source-status--info"
-            : "hammer-source-status hammer-source-status--error",
-        }
-        : null,
-      viewingLayer: {
-        value: activeOutputLayerId ?? "__raw__",
-        disabled: !workspaceStructuredTranscript,
-        options: layerOptions,
-        onChange: (nextLayerId: string | null) => {
-          setFocusOverride("source-focus");
-          selectViewingLayer(nextLayerId);
-        },
-      },
-      exportBasis: {
-        value: editableOutputSelection.layerId ?? "__raw__",
-        options: layerOptions,
-        onChange: (nextLayerId: string | null) => {
-          setFocusOverride("source-focus");
-          selectOutputLayerForExport(nextLayerId);
-        },
-      },
-      historyPanel: {
-        canRestoreState: canRedo,
-        onRestoreState: restoreCurrentHistoryState,
-        shownCountLabel: `${recentHistoryEntries.length} shown`,
-        resetToRaw: props.onRequestResetToRaw ? {
-          inFlight: Boolean(props.resetToRawInFlight),
-          error: props.resetToRawError ?? null,
-          onRequest: () => props.onRequestResetToRaw?.(),
-        } : null,
-        entries: historyEntries,
-      },
-
-      selectedSourceTab,
-      editableTranscriptSegments,
-      selectedSegment,
-      selectedSegmentId,
-      linkedSelection,
-      linkedTranscriptSegmentIdSet,
-      linkedVisualIdSet,
-      linkedPrimaryVisualId,
-      setFocusOverride,
-      roundToTenth,
-      applyHistoryMutation,
-      updateSegmentInTimeline,
-      transcriptTimingHint,
-      activeTool,
-      updateTranscriptSegmentSpeaker,
-      applyTranscriptSelection,
-      disableTranscriptSelection,
-      cutTranscriptSelection,
-      tightenTranscriptSelection,
-      clearTranscriptSelection,
-      hasTranscriptSelection,
-      transcriptSelectionAllDisabled,
-      transcriptSelectionRange,
-      transcriptSelectionSegmentIdSet,
-      modifiedTranscriptSegmentIds,
-      modifiedSegmentCount,
-      candidateSegmentIdSet,
-      activeCandidateSegmentIdSet,
-      transcriptLineRefs,
-      selectedTranscriptRange,
-      onTranscriptSelection: setSelectedTranscriptRangeDetail,
-      isSubtractiveTranscriptEdit,
-      commitTranscriptTextEdits,
-      commitDeleteOnlyTranscriptEdits,
-      setTranscriptTimingHint,
-
-      formatBytes,
-      selectedVisualFlowStep,
-      uploadingCategory,
-      savingIntroOutro,
-      workspaceIntroOutroDefaults,
-      savingWorkspaceIntroOutroDefaults,
-      applyIntroOutroSelectionToFutureEpisodes,
-      setApplyIntroOutroSelectionToFutureEpisodes,
-      persistWorkspaceIntroOutroDefaultsNow,
-      sourceDeskPreviewUrls,
-      sourceDeskPreviewFailures,
-      sourceDeskRequestedPreviewPathSet,
-      sourceDeskPreviewPendingPathSet,
-      sourceDeskRemainingPreviewCount: sourceDeskRemainingPreviewPaths.length,
-      requestSourceDeskPreviews,
-      reportSourceDeskPreviewLoadError,
-      loadRemainingSourceDeskPreviews: () => requestSourceDeskPreviews(sourceDeskRemainingPreviewPaths),
-      reportVisibleSourceDeskPreviewPaths,
-      imageUploadInputRef,
-      brollUploadInputRef,
-      introOutroUploadInputRef,
-      sourceImageItems,
-      sourceImageLibraryItems,
-      imageUsageByPath,
-      handleSourceDeskUpload,
-      persistIntroOutroSelection,
-      addImagePlacementFromLibrary,
-      addVisualAssetPlacementFromLibrary,
-      updatePlacementKindFromMediaMap,
-      redoMediaMapFromScript,
-      sourceReferenceClipItems,
-      sourceBrollOnlyItems,
-      referenceClipPlannedBeats,
-      seekPlayheadToTime,
-      introOutroSelection,
-      introOutroSelectedIntroPath,
-      introOutroSelectedOutroPath,
-      introOutroCandidateItems,
-
-      transcriptSegmentsById,
-      visualPlacementCardRefs,
-      effectiveSelectedClipId,
-      selectVisualClip,
-      selectionOriginRef,
-      setSelectedClipId,
-      setSelectedSegmentId,
-      setTranscriptSelectionAnchorSegmentId,
-      setTranscriptSelectionFocusSegmentId,
-      setVisualTimelineFocusNonce,
-      updateVisualPlacementTiming,
-      removeVisualPlacement,
-      sourceAssetItems,
-      workspaceMapping,
-      mediaMapBeats,
-      setSelectedVisualFlowStep,
-      setMediaMapBeats,
-      setRemovedMediaMapSegmentIds,
-      unresolvedBrollSuggestionItems,
-    };
-  }, [
+  const sourceBayVM = useMemo(() => buildSourceBayVM({
+    props,
+    canUndo,
+    undoLabel,
+    undoLabelCompact,
+    undoDepth,
+    undoHistory,
+    canRedo,
+    redoLabel,
+    redoLabelCompact,
+    redoDepth,
+    redoHistory,
+    SOURCE_TABS,
+    selectedSourceTab,
+    selectEditorMode,
+    resolveEditorModeFromSourceTab,
+    sourceDeskLoading,
+    sourceDeskError,
+    isSourceDeskAuthMessage,
+    activeOutputLayerId,
+    workspaceStructuredTranscript,
+    outputLayerCandidates,
+    formatOutputLayerLabel,
+    setFocusOverride,
+    selectViewingLayer,
+    editableOutputSelection,
+    selectOutputLayerForExport,
+    restoreCurrentHistoryState,
+    recentHistoryEntries,
+    historyHeadEntryId,
+    derivedLayerHistoryRef,
+    formatHistoryTimestamp,
+    formatHistoryEntryScope,
+    jumpToHistoryEntry,
+    editableTranscriptSegments,
+    selectedSegment,
+    selectedSegmentId,
+    linkedSelection,
+    linkedTranscriptSegmentIdSet,
+    linkedVisualIdSet,
+    linkedPrimaryVisualId,
+    roundToTenth,
+    applyHistoryMutation,
+    updateSegmentInTimeline,
+    transcriptTimingHint,
+    activeTool,
+    updateTranscriptSegmentSpeaker,
+    applyTranscriptSelection,
+    disableTranscriptSelection,
+    cutTranscriptSelection,
+    tightenTranscriptSelection,
+    clearTranscriptSelection,
+    hasTranscriptSelection,
+    transcriptSelectionAllDisabled,
+    transcriptSelectionRange,
+    transcriptSelectionSegmentIdSet,
+    modifiedTranscriptSegmentIds,
+    modifiedSegmentCount,
+    candidateSegmentIdSet,
+    activeCandidateSegmentIdSet,
+    transcriptLineRefs,
+    selectedTranscriptRange,
+    setSelectedTranscriptRangeDetail,
+    isSubtractiveTranscriptEdit,
+    commitTranscriptTextEdits,
+    commitDeleteOnlyTranscriptEdits,
+    setTranscriptTimingHint,
+    formatBytes,
+    selectedVisualFlowStep,
+    uploadingCategory,
+    savingIntroOutro,
+    workspaceIntroOutroDefaults,
+    savingWorkspaceIntroOutroDefaults,
+    applyIntroOutroSelectionToFutureEpisodes,
+    setApplyIntroOutroSelectionToFutureEpisodes,
+    persistWorkspaceIntroOutroDefaultsNow,
+    sourceDeskPreviewUrls,
+    sourceDeskPreviewFailures,
+    sourceDeskRequestedPreviewPathSet,
+    sourceDeskPreviewPendingPathSet,
+    sourceDeskRemainingPreviewPaths,
+    requestSourceDeskPreviews,
+    reportSourceDeskPreviewLoadError,
+    reportVisibleSourceDeskPreviewPaths,
+    imageUploadInputRef,
+    brollUploadInputRef,
+    introOutroUploadInputRef,
+    sourceImageItems,
+    sourceImageLibraryItems,
+    imageUsageByPath,
+    handleSourceDeskUpload,
+    persistIntroOutroSelection,
+    addImagePlacementFromLibrary,
+    addVisualAssetPlacementFromLibrary,
+    updatePlacementKindFromMediaMap,
+    redoMediaMapFromScript,
+    sourceReferenceClipItems,
+    sourceBrollOnlyItems,
+    referenceClipPlannedBeats,
+    seekPlayheadToTime,
+    introOutroSelection,
+    introOutroSelectedIntroPath,
+    introOutroSelectedOutroPath,
+    introOutroCandidateItems,
+    transcriptSegmentsById,
+    visualPlacementCardRefs,
+    effectiveSelectedClipId,
+    selectVisualClip,
+    selectionOriginRef,
+    setSelectedClipId,
+    setSelectedSegmentId,
+    setTranscriptSelectionAnchorSegmentId,
+    setTranscriptSelectionFocusSegmentId,
+    setVisualTimelineFocusNonce,
+    updateVisualPlacementTiming,
+    removeVisualPlacement,
+    sourceAssetItems,
+    workspaceMapping,
+    mediaMapBeats,
+    setSelectedVisualFlowStep,
+    setMediaMapBeats,
+    setRemovedMediaMapSegmentIds,
+    unresolvedBrollSuggestionItems,
+  }), [
     activeOutputLayerId,
     canRedo,
     canUndo,
@@ -6928,74 +6838,58 @@ function HammerWorkspaceShellWithContext(
     introOutroSelectedOutroPath,
     introOutroCandidateItems,
   ]);
-  const previewBayVM = useMemo(() => ({
-    previewModeLabel: previewMode,
-    activeVisualTool: activeTool === "video" ? activeVisualTool : null,
+  const previewBayVM = useMemo(() => buildPreviewBayVM({
+    previewMode,
+    activeTool,
+    activeVisualTool,
     visualPolishPreviewActive,
     previewSurfaceRef,
     previewVideoRef,
     previewAudioRef,
     previewBrollVideoRefs,
-    previewVideoSrc: effectivePreviewVideoSrc,
-    playbackMediaSrc: effectivePlaybackMediaSrc,
+    effectivePreviewVideoSrc,
+    effectivePlaybackMediaSrc,
     isPlaybackActive,
     playbackWindow,
-    handlePlaybackProgress: handlePlaybackProgressWithOrigin,
+    handlePlaybackProgressWithOrigin,
     handlePlaybackEnded,
     setIsPlaybackActive,
-    clearPlaybackWindow: () => setPlaybackWindow(null),
+    setPlaybackWindow,
     togglePlayback,
     playheadSec,
     playbackModeLabel,
     playbackSourceLabel,
     mediaLabelMismatchWarning,
-    playbackBackendLabel: studioRackPlaybackConfig.backend,
-    currentPassId: currentPass,
+    studioRackPlaybackConfig,
+    currentPass,
     selectedImageAnimationLabel,
-    audioFinalizationCompareModeLabel: audioFinalizationCompareMode === "before" ? "Before" : "After",
-    audioComparePreviewStatusLabel: studioRackComparePreviewStatusLabel,
-    packagingSummaryLabel: currentPass === "packaging"
-      ? `Packaging: intro ${packagingIntroPlacement ? "on" : "off"} · outro ${packagingOutroPlacement ? "on" : "off"} · logo ${packagingLogoPlacement ? "on" : "off"}`
-      : null,
+    audioFinalizationCompareMode,
+    studioRackComparePreviewStatusLabel,
+    packagingIntroPlacement,
+    packagingOutroPlacement,
+    packagingLogoPlacement,
     previewSurfaceLabel,
-    backgroundEffect: {
-      enabled: visualPolishPreviewActive && (visualBackgroundBlur || visualBackgroundReplaceEnabled || visualBackgroundWashEnabled),
-      settings: backgroundBlurSettings,
-      providerId: visualBackgroundBlurProviderId,
-      debugMasks: visualBackgroundBlurDebugMask,
-      maskPreviewMode: visualBackgroundMaskPreviewMode,
-      maskPreviewStage: visualBackgroundMaskPreviewStage,
-      onStatus: setVisualBackgroundBlurRuntimeStatus,
-      onCanvas: handleBackgroundEffectCanvas,
-    },
-    eyeContactAssist: {
-      enabled: visualPolishPreviewActive && visualEyeContactAssistEnabled,
-      strength: Math.max(0, Math.min(1, Number(visualEyeContactAssistStrength) || 0)),
-      backgroundCanvasRef: visualBackgroundEffectCanvasRef,
-      useBackgroundCanvasAsSource: eyeContactUseBackgroundCanvasAsSource,
-      debugOverlay: visualEyeContactAssistDebugOverlay,
-      onStatus: setVisualEyeContactAssistRuntimeStatus,
-    },
-    visualPreview: {
-      isAuthority: isVisualPreviewAuthority,
-      overlays: activePreviewOverlays,
-      editable: visualPlacementEditingEnabled,
-      onSelectClip: (clipId: string) => {
-        selectVisualClip({ clipId, origin: "preview", revealUI: true, snapPlayhead: false });
-      },
-      onBeginMove: (event: MouseEvent, clipId: string) => {
-        beginPreviewCanvasDrag(event as any, {
-          placementId: clipId,
-          mode: "move",
-        });
-      },
-      onBeginResize: (event: MouseEvent, clipId: string) => {
-        beginPreviewCanvasDrag(event as any, {
-          placementId: clipId,
-          mode: "resize",
-        });
-      },
-    },
+    visualBackgroundBlur,
+    visualBackgroundReplaceEnabled,
+    visualBackgroundWashEnabled,
+    backgroundBlurSettings,
+    visualBackgroundBlurProviderId,
+    visualBackgroundBlurDebugMask,
+    visualBackgroundMaskPreviewMode,
+    visualBackgroundMaskPreviewStage,
+    setVisualBackgroundBlurRuntimeStatus,
+    handleBackgroundEffectCanvas,
+    visualEyeContactAssistEnabled,
+    visualEyeContactAssistStrength,
+    visualBackgroundEffectCanvasRef,
+    eyeContactUseBackgroundCanvasAsSource,
+    visualEyeContactAssistDebugOverlay,
+    setVisualEyeContactAssistRuntimeStatus,
+    isVisualPreviewAuthority,
+    activePreviewOverlays,
+    visualPlacementEditingEnabled,
+    selectVisualClip,
+    beginPreviewCanvasDrag,
   }), [
     activeTool,
     activeVisualTool,
@@ -7048,90 +6942,18 @@ function HammerWorkspaceShellWithContext(
     visualBackgroundEffectCanvasRef,
     visualPlacementEditingEnabled,
   ]);
-  const toolbarVM = useMemo(() => ({
-    stats: [
-      {
-        id: "transcript",
-        label: "Tx",
-        value: String(editableTranscriptSegments.length),
-        title: `Transcript: ${editableTranscriptSegments.length} segments`,
-      },
-      {
-        id: "visuals",
-        label: "Vis",
-        value: (() => {
-          const total = editableVisualPlacements?.placements.length ?? editableVisualTimeline?.clips.length ?? 0;
-          const uncertain = (editableVisualPlacements?.placements ?? []).reduce(
-            (count, placement) => count + (placement.status === "uncertain" ? 1 : 0),
-            0,
-          );
-          return uncertain > 0 ? `${total}/${uncertain}?` : String(total);
-        })(),
-        title: (() => {
-          const total = editableVisualPlacements?.placements.length ?? editableVisualTimeline?.clips.length ?? 0;
-          const uncertain = (editableVisualPlacements?.placements ?? []).reduce(
-            (count, placement) => count + (placement.status === "uncertain" ? 1 : 0),
-            0,
-          );
-          return uncertain > 0
-            ? `Visual placements: ${total} (${uncertain} uncertain)`
-            : `Visual placements: ${total}`;
-        })(),
-      },
-    ],
-    passes: (() => {
-      const summarize = (passIds: HammerPassId[]): HammerPassDerivedStatus => summarizePassStatuses(
-        passIds.map((passId) => passSelectorResults.get(passId)?.status ?? getPassStatus(passId, passSelectorContext).status),
-      );
-      const transcriptPassIds: HammerPassId[] = ["transcript_cleanup", "retakes", "gap_pacing"];
-      const visualPassIds: HammerPassId[] = ["visual_finishing", "image_placement", "image_animation"];
-      const transcriptRepresentativePass: HammerPassId = activeTool === "polish" && transcriptPassIds.includes(currentPass)
-        ? currentPass
-        : "transcript_cleanup";
-      const visualRepresentativePass: HammerPassId = activeVisualTool === "images"
-        ? "image_placement"
-        : activeVisualTool === "broll"
-        ? "image_animation"
-        : "visual_finishing";
-      const visiblePasses: HammerWorkspaceShellToolbarPassVM[] = [
-        {
-          id: transcriptRepresentativePass,
-          shortLabel: "T",
-          label: "Transcript",
-          toolId: "polish",
-          statusLabel: summarize(transcriptPassIds),
-          isActive: activeTool === "polish",
-        },
-        {
-          id: visualRepresentativePass,
-          shortLabel: "V",
-          label: "Visuals",
-          toolId: "video",
-          statusLabel: summarize(visualPassIds),
-          isActive: activeTool === "video",
-        },
-        {
-          id: "audio_finalization",
-          shortLabel: "A",
-          label: "Audio",
-          toolId: "audio",
-          statusLabel: passSelectorResults.get("audio_finalization")?.humanLabel
-            ?? getPassStatus("audio_finalization", passSelectorContext).humanLabel,
-          isActive: activeTool === "audio",
-        },
-        {
-          id: "packaging",
-          shortLabel: "P",
-          label: "Packaging",
-          toolId: "finishing",
-          statusLabel: passSelectorResults.get("packaging")?.humanLabel
-            ?? getPassStatus("packaging", passSelectorContext).humanLabel,
-          isActive: currentPass === "packaging",
-        },
-      ];
-      return visiblePasses;
-    })(),
-    onSelectPass: selectPass,
+  const toolbarVM = useMemo(() => buildToolbarVM({
+    editableTranscriptSegments,
+    editableVisualPlacements,
+    editableVisualTimeline,
+    summarizePassStatuses,
+    passSelectorResults,
+    getPassStatus,
+    passSelectorContext,
+    activeTool,
+    currentPass,
+    activeVisualTool,
+    selectPass,
   }), [
     activeTool,
     activeVisualTool,
@@ -7708,7 +7530,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     createFallbackEditPlan,
   });
 
-  const toolBayVM = useMemo(() => ({
+  const toolBayVM = useMemo(() => buildToolBayVM({
     passLabel: currentPassMeta.label,
     passStatus: currentPassSelectorResult.status,
     onMarkComplete: markCurrentPassComplete,
