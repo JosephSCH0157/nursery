@@ -34,10 +34,6 @@ import {
 } from "../visuals/state/hammerVisualSelectors";
 import type { VisualClipBlockModel } from "../visuals/components/VisualClipBlock";
 import type { VisualPreviewOverlayModel } from "../visuals/components/VisualPreviewComposer";
-import type { HammerBackgroundBlurRuntimeStatus } from "../features/visual-effects/render/backgroundBlurPreviewLayer";
-import { summarizeBackgroundEffectRuntimeStatus } from "../features/visual-effects/render/backgroundEffectStatusSummary";
-import type { HammerEyeContactAssistRuntimeStatus } from "../features/eye-contact-assist/render/eyeContactAssistPreviewLayer";
-import { summarizeEyeContactAssistRuntimeStatus } from "../features/eye-contact-assist/render/eyeContactAssistStatusSummary";
 import type { BackgroundBlurSettings } from "../features/visual-effects/types";
 import {
   SEGMENTATION_PROVIDER_DESCRIPTORS,
@@ -150,10 +146,6 @@ import {
   type HammerCandidateCard,
   type HammerCandidateReviewKind,
 } from "./hammerCandidateQueue";
-import {
-  buildHammerDevMediaUrl,
-  loadCanonicalAudioPolishPreviewUrl,
-} from "../lib/previewSource";
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
 import { deriveLegacyVisualPlacementsFromTimeline } from "../visuals/persistence/hammerVisualTimelineLegacyAdapter";
 import {
@@ -174,10 +166,7 @@ import {
   shouldCreateHammerSnapshot,
   upsertHammerSnapshotManifest,
 } from "./hammerSnapshotProduction";
-import {
-  loadWorkpieceMediaPreviewUrl,
-  type HammerStoredMediaFile,
-} from "../lib/hammerSourceDeskMediaApi";
+import { type HammerStoredMediaFile } from "../lib/hammerSourceDeskMediaApi";
 import {
   buildIntroOutroCandidateItems,
   buildIntroOutroCandidateItemsById,
@@ -210,6 +199,7 @@ import { useHammerWorkspaceShellPlayback } from "./useHammerWorkspaceShellPlayba
 import { useHammerWorkspaceShellShortcuts } from "./useHammerWorkspaceShellShortcuts";
 import { useHammerWorkspaceShellSelection } from "./useHammerWorkspaceShellSelection";
 import { useHammerWorkspaceShellSourceDeskController } from "./useHammerWorkspaceShellSourceDeskController";
+import { useHammerWorkspaceShellPreviewRuntime } from "./useHammerWorkspaceShellPreviewRuntime";
 import { useHammerWorkspaceShellVisualEditing } from "./useHammerWorkspaceShellVisualEditing";
 import {
   toHammerLinkedSelectionVisualItems,
@@ -1105,10 +1095,6 @@ function HammerWorkspaceShellWithContext(
   const [audioLevelingEnabled, setAudioLevelingEnabled] = useState(true);
   const [audioNoiseReductionEnabled, setAudioNoiseReductionEnabled] = useState(true);
   const [audioFinalizationCompareMode, setAudioFinalizationCompareMode] = useState<HammerAudioFinalizationCompareMode>("after");
-  const [studioRackPreviewSrc, setStudioRackPreviewSrc] = useState<string | null>(null);
-  const studioRackPreviewSrcToRevokeRef = useRef<string | null>(null);
-  const studioRackPreviewInFlightRef = useRef(false);
-  const studioRackPreviewKeyRef = useRef<string | null>(null);
   const [videoSnapMode, setVideoSnapMode] = useState<"timeline" | "segment">("timeline");
   const initialVisualPreviewSettings = normalizeVisualPreviewSettings(props.initialVisualPreviewSettings);
   const [visualWhiteBalance, setVisualWhiteBalance] = useState(initialVisualPreviewSettings.white_balance);
@@ -1171,9 +1157,7 @@ function HammerWorkspaceShellWithContext(
   const [visualBackgroundBlurDebugMask, setVisualBackgroundBlurDebugMask] = useState(false);
   const [visualBackgroundMaskPreviewMode, setVisualBackgroundMaskPreviewMode] = useState(false);
   const [visualBackgroundMaskPreviewStage, setVisualBackgroundMaskPreviewStage] = useState<"raw" | "expanded" | "feathered" | "refined" | "final_composite">("raw");
-  const [visualBackgroundBlurRuntimeStatus, setVisualBackgroundBlurRuntimeStatus] = useState<HammerBackgroundBlurRuntimeStatus | null>(null);
   const [visualEyeContactAssistDebugOverlay, setVisualEyeContactAssistDebugOverlay] = useState(false);
-  const [visualEyeContactAssistRuntimeStatus, setVisualEyeContactAssistRuntimeStatus] = useState<HammerEyeContactAssistRuntimeStatus | null>(null);
   const visualBackgroundEffectCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [persistNowRequestNonce, setPersistNowRequestNonce] = useState(0);
   const [captionFormatting, setCaptionFormatting] = useState<HammerCaptionFormattingState>({
@@ -1201,8 +1185,6 @@ function HammerWorkspaceShellWithContext(
   const [sourceDeskLoading, setSourceDeskLoading] = useState(false);
   const [sourceDeskError, setSourceDeskError] = useState<string | null>(null);
   const [uploadingCategory, setUploadingCategory] = useState<"images" | "broll" | "introoutro" | null>(null);
-  const playbackMediaSrcToRevokeRef = useRef<string | null>(null);
-  const previewVideoSrcToRevokeRef = useRef<string | null>(null);
   const [sourceDeskPreviewUrls, setSourceDeskPreviewUrls] = useState<Record<string, string>>({});
   const [sourceDeskPreviewFailures, setSourceDeskPreviewFailures] = useState<Record<string, true>>({});
   const [sourceDeskRequestedPreviewPaths, setSourceDeskRequestedPreviewPaths] = useState<string[]>([]);
@@ -2387,35 +2369,6 @@ function HammerWorkspaceShellWithContext(
     () => resolveSegmentationProviderDescriptor(visualBackgroundBlurProviderId) ?? resolveSegmentationProviderDescriptor("mediapipe_selfie_segmentation"),
     [visualBackgroundBlurProviderId],
   );
-  const visualBackgroundBlurStatusSummary = useMemo(() => {
-    if (!visualBackgroundBlurRuntimeStatus) return null;
-    return summarizeBackgroundEffectRuntimeStatus({
-      status: visualBackgroundBlurRuntimeStatus,
-      providerLabel: backgroundBlurProviderDescriptor?.displayName ?? null,
-      showDebugDetails: visualBackgroundBlurDebugMask,
-    });
-  }, [backgroundBlurProviderDescriptor, visualBackgroundBlurDebugMask, visualBackgroundBlurRuntimeStatus]);
-
-  const eyeContactUseBackgroundCanvasAsSource = useMemo(() => {
-    if (!(visualBackgroundBlur || visualBackgroundReplaceEnabled || visualBackgroundWashEnabled)) return false;
-    if (!visualBackgroundBlurRuntimeStatus) return false;
-    if (backgroundBlurSettings.fallbackMode === "passthrough") return true;
-    return visualBackgroundBlurRuntimeStatus.degradedReason == null;
-  }, [
-    backgroundBlurSettings.fallbackMode,
-    visualBackgroundBlur,
-    visualBackgroundBlurRuntimeStatus,
-    visualBackgroundReplaceEnabled,
-    visualBackgroundWashEnabled,
-  ]);
-
-  const visualEyeContactAssistStatusSummary = useMemo(() => {
-    if (!visualEyeContactAssistRuntimeStatus) return null;
-    return summarizeEyeContactAssistRuntimeStatus({
-      status: visualEyeContactAssistRuntimeStatus,
-      showDebugDetails: visualEyeContactAssistDebugOverlay,
-    });
-  }, [visualEyeContactAssistDebugOverlay, visualEyeContactAssistRuntimeStatus]);
 
   const activePreviewOverlays = useMemo<VisualPreviewOverlayModel[]>(() => {
     if (!compositionVisualTimeline) return [];
@@ -3043,198 +2996,43 @@ function HammerWorkspaceShellWithContext(
     ),
     [editableStudioRack],
   );
-
-  const shouldUseStudioRackPreviewForCompare = Boolean(
-    activeTool === "audio"
-    && currentPass === "audio_finalization"
-    && audioFinalizationCompareMode === "after"
-    && studioRackHasAudibleProcessing,
-  );
-
-  useEffect(() => {
-    const current = studioRackPreviewSrcToRevokeRef.current;
-    if (current && current.startsWith("blob:") && current !== studioRackPreviewSrc) {
-      URL.revokeObjectURL(current);
-    }
-    studioRackPreviewSrcToRevokeRef.current = studioRackPreviewSrc && studioRackPreviewSrc.startsWith("blob:")
-      ? studioRackPreviewSrc
-      : null;
-    return () => {
-      const next = studioRackPreviewSrcToRevokeRef.current;
-      if (next && next.startsWith("blob:")) {
-        URL.revokeObjectURL(next);
-      }
-      studioRackPreviewSrcToRevokeRef.current = null;
-    };
-  }, [studioRackPreviewSrc]);
-
-  useEffect(() => {
-    const current = playbackMediaSrcToRevokeRef.current;
-    if (current && current.startsWith("blob:") && current !== playbackMediaSrc) {
-      URL.revokeObjectURL(current);
-    }
-    playbackMediaSrcToRevokeRef.current = (
-      playbackMediaSrc
-      && playbackMediaSrc.startsWith("blob:")
-      && playbackMediaSrc !== studioRackPreviewSrc
-    )
-      ? playbackMediaSrc
-      : null;
-    return () => {
-      const next = playbackMediaSrcToRevokeRef.current;
-      if (next && next.startsWith("blob:")) {
-        URL.revokeObjectURL(next);
-      }
-      playbackMediaSrcToRevokeRef.current = null;
-    };
-  }, [playbackMediaSrc, studioRackPreviewSrc]);
-
-  useEffect(() => {
-    const current = previewVideoSrcToRevokeRef.current;
-    if (current && current.startsWith("blob:") && current !== previewVideoSrc) {
-      URL.revokeObjectURL(current);
-    }
-    previewVideoSrcToRevokeRef.current = previewVideoSrc && previewVideoSrc.startsWith("blob:")
-      ? previewVideoSrc
-      : null;
-    return () => {
-      const next = previewVideoSrcToRevokeRef.current;
-      if (next && next.startsWith("blob:")) {
-        URL.revokeObjectURL(next);
-      }
-      previewVideoSrcToRevokeRef.current = null;
-    };
-  }, [previewVideoSrc]);
-
-  useEffect(() => {
-    if (!shouldUseStudioRackPreviewForCompare) {
-      if (import.meta.env.DEV && currentPass === "audio_finalization" && activeTool === "audio") {
-        console.info("[Hammer][AudioComparePreview] inactive", {
-          compareMode: audioFinalizationCompareMode,
-          studioRackHasAudibleProcessing,
-          playbackBackendPreference: editableStudioRack.backend_preference,
-        });
-      }
-      studioRackPreviewKeyRef.current = null;
-      setStudioRackPreviewSrc(null);
-      return;
-    }
-
-    const renderRackState: HammerStudioRackState = {
-      ...editableStudioRack,
-      // Compare preview must request the render-backed lane. Native playback DSP is not implemented.
-      backend_preference: "ffmpeg",
-    };
-
-    const renderLocalRelpath = preferredPlayback.kind === "polished"
-      ? (preferredPlayback.local_relpath ?? mediaRef?.local_relpath ?? null)
-      : (mediaRef?.local_relpath ?? null);
-    const renderCanonicalWorkpiecePath = preferredPlayback.kind === "polished"
-      ? (preferredPlayback.workpiece_path ?? null)
-      : (mediaRef?.local_relpath ?? null);
-
-    const key = JSON.stringify({
-      head: historyHeadEntryId ?? "head:unknown",
-      basis: renderCanonicalWorkpiecePath ?? renderLocalRelpath ?? "basis:unknown",
-      rack: renderRackState,
-    });
-
-    if (studioRackPreviewInFlightRef.current) return;
-    if (studioRackPreviewKeyRef.current === key && studioRackPreviewSrc) return;
-    if (!studioRackRenderBackendResolution.ffmpegAvailable) {
-      if (import.meta.env.DEV) {
-        console.info("[Hammer][AudioComparePreview] ffmpeg unavailable", {
-          compareMode: audioFinalizationCompareMode,
-          playbackBackendPreference: editableStudioRack.backend_preference,
-        });
-      }
-      return;
-    }
-    if (!mediaRef) return;
-
-    studioRackPreviewInFlightRef.current = true;
-    studioRackPreviewKeyRef.current = key;
-
-    void (async () => {
-      try {
-        const renderExecution = await executeDialogueAudioRenderWithBackend({
-          workspaceId: launchContext.workspace_id,
-          workpieceId: launchContext.workpiece_id,
-          mediaKind: mediaRef.kind,
-          timelineSegments: editableTranscriptSegments.map((segment) => ({
-            segment_id: segment.segment_id,
-            start_sec: segment.start_sec,
-            end_sec: segment.end_sec,
-            is_disabled: segment.is_disabled,
-            gain_db: segment.gain_db,
-          })),
-          rackState: renderRackState,
-          localRootAbs: playbackLocalRootAbs,
-          localRelpath: renderLocalRelpath,
-          canonicalWorkpiecePath: renderCanonicalWorkpiecePath,
-          mimeType: preferredPlayback.kind === "polished" ? (preferredPlayback.mime_type ?? null) : null,
-          runtimeSummary: mediaBackboneRuntime,
-        });
-        setStudioRackRenderStatus(renderExecution);
-        if (import.meta.env.DEV) {
-          console.info("[Hammer][AudioComparePreview] render", {
-            compareMode: audioFinalizationCompareMode,
-            requestedBackend: renderExecution.requestedBackend,
-            resolvedBackend: renderExecution.resolvedBackend,
-            status: renderExecution.status,
-            outputLocalRelpath: renderExecution.outputLocalRelpath,
-            outputWorkpiecePath: renderExecution.outputWorkpiecePath,
-          });
-        }
-
-        if (renderExecution.status !== "processed") {
-          setStudioRackPreviewSrc(null);
-          return;
-        }
-
-        if (renderExecution.outputLocalRelpath && playbackLocalRootAbs) {
-          setStudioRackPreviewSrc(buildHammerDevMediaUrl(playbackLocalRootAbs, renderExecution.outputLocalRelpath));
-          return;
-        }
-
-        if (renderExecution.outputWorkpiecePath) {
-          const previewUrl = await loadCanonicalAudioPolishPreviewUrl({
-            workpieceId: launchContext.workpiece_id,
-            workpiecePath: renderExecution.outputWorkpiecePath,
-            mimeType: renderExecution.outputMimeType,
-          });
-          setStudioRackPreviewSrc(previewUrl);
-          return;
-        }
-
-        setStudioRackPreviewSrc(null);
-      } catch {
-        setStudioRackPreviewSrc(null);
-      } finally {
-        studioRackPreviewInFlightRef.current = false;
-      }
-    })();
-  }, [
+  const {
+    studioRackComparePreviewStatusLabel,
+    eyeContactUseBackgroundCanvasAsSource,
+    visualBackgroundBlurRuntimeStatus,
+    setVisualBackgroundBlurRuntimeStatus,
+    visualBackgroundBlurStatusSummary,
+    visualEyeContactAssistRuntimeStatus,
+    setVisualEyeContactAssistRuntimeStatus,
+    visualEyeContactAssistStatusSummary,
+  } = useHammerWorkspaceShellPreviewRuntime({
     activeTool,
-    audioFinalizationCompareMode,
     currentPass,
+    audioFinalizationCompareMode,
     editableStudioRack,
     editableTranscriptSegments,
+    launchContext,
     historyHeadEntryId,
-    launchContext.workpiece_id,
-    launchContext.workspace_id,
     mediaBackboneRuntime,
     mediaRef,
     playbackLocalRootAbs,
-    preferredPlayback.kind,
-    preferredPlayback.local_relpath,
-    preferredPlayback.mime_type,
-    preferredPlayback.workpiece_path,
-    shouldUseStudioRackPreviewForCompare,
+    preferredPlayback,
     studioRackHasAudibleProcessing,
-    studioRackPreviewSrc,
-    studioRackRenderBackendResolution.ffmpegAvailable,
-  ]);
+    studioRackRenderBackendFfmpegAvailable: studioRackRenderBackendResolution.ffmpegAvailable,
+    playbackMediaSrc,
+    previewVideoSrc,
+    visualBackgroundBlur,
+    visualBackgroundReplaceEnabled,
+    visualBackgroundWashEnabled,
+    visualBackgroundBlurProviderId,
+    visualBackgroundBlurDebugMask,
+    visualBackgroundBlurFallbackMode: backgroundBlurSettings.fallbackMode,
+    visualEyeContactAssistDebugOverlay,
+    setPlaybackMediaSrc,
+    setPreviewVideoSrc,
+    setStudioRackRenderStatus,
+    inferPlaybackMimeTypeFromPath,
+  });
   const mediaLabelMismatchWarning = useMemo(() => {
     const canonical = normalizeLabelForComparison(canonicalWorkpieceLabel);
     const legacy = normalizeLabelForComparison(legacyCaptureLabel);
@@ -3311,36 +3109,6 @@ function HammerWorkspaceShellWithContext(
     }
     return deferred;
   }, [studioRackRenderStatus]);
-  const studioRackComparePreviewStatusLabel = useMemo(() => {
-    if (currentPass !== "audio_finalization" || activeTool !== "audio") {
-      return null;
-    }
-    if (audioFinalizationCompareMode === "before") {
-      return "Compare source: source audio (Before selected).";
-    }
-    if (!studioRackHasAudibleProcessing) {
-      return "Compare source: source audio (rack disabled, bypassed, or identity).";
-    }
-    if (!studioRackRenderBackendResolution.ffmpegAvailable) {
-      return "Compare source: source audio. Processed compare preview requires FFmpeg because native playback DSP is not implemented.";
-    }
-    if (studioRackPreviewSrc && playbackMediaSrc === studioRackPreviewSrc) {
-      return "Compare source: processed Studio Rack preview artifact.";
-    }
-    if (studioRackPreviewSrc) {
-      return "Compare source: processed Studio Rack preview ready; transport swap pending.";
-    }
-    return "Compare source: preparing processed Studio Rack preview artifact.";
-  }, [
-    activeTool,
-    audioFinalizationCompareMode,
-    currentPass,
-    playbackMediaSrc,
-    studioRackHasAudibleProcessing,
-    studioRackPreviewSrc,
-    studioRackRenderBackendResolution.ffmpegAvailable,
-  ]);
-
   function captureWorkspaceState(): HammerEditorStateSerializable {
     return toEditorState({
       segments: editableTranscriptSegments,
@@ -4070,121 +3838,6 @@ function HammerWorkspaceShellWithContext(
       return changed ? next : current;
     });
   }, [timelineDurationSec]);
-
-  useEffect(() => {
-    let active = true;
-    const resolveRawPreviewVideoSrc = async (): Promise<string | null> => {
-      const localRelpath = mediaRef?.local_relpath ?? null;
-      if (!localRelpath) {
-        setPreviewVideoSrc(null);
-        return null;
-      }
-
-      if (playbackLocalRootAbs) {
-        const url = buildHammerDevMediaUrl(playbackLocalRootAbs, localRelpath);
-        setPreviewVideoSrc(url);
-        return url;
-      }
-
-      try {
-        const previewUrl = await loadWorkpieceMediaPreviewUrl({
-          workpieceId: launchContext.workpiece_id,
-          path: localRelpath,
-          mimeType: inferPlaybackMimeTypeFromPath({ path: localRelpath, kind: mediaRef?.kind ?? "other" }),
-          surface: "unknown",
-        });
-        if (!active) {
-          URL.revokeObjectURL(previewUrl);
-          return null;
-        }
-        setPreviewVideoSrc(previewUrl);
-        return previewUrl;
-      } catch {
-        if (!active) return null;
-        setPreviewVideoSrc(null);
-        return null;
-      }
-    };
-
-    (async () => {
-      const rawVideoSrc = await resolveRawPreviewVideoSrc();
-      if (!active) return;
-
-      if (shouldUseStudioRackPreviewForCompare && studioRackPreviewSrc) {
-        if (import.meta.env.DEV) {
-          console.info("[Hammer][AudioComparePreview] source", {
-            source: "studio-rack-preview",
-            compareMode: audioFinalizationCompareMode,
-            playbackBackendPreference: editableStudioRack.backend_preference,
-          });
-        }
-        setPlaybackMediaSrc(studioRackPreviewSrc);
-        return;
-      }
-
-      if (preferredPlayback.kind === "polished") {
-        if (preferredPlayback.local_relpath && playbackLocalRootAbs) {
-          if (import.meta.env.DEV && currentPass === "audio_finalization" && activeTool === "audio") {
-            console.info("[Hammer][AudioComparePreview] source", {
-              source: "prepared-audio-polish",
-              compareMode: audioFinalizationCompareMode,
-              playbackBackendPreference: editableStudioRack.backend_preference,
-            });
-          }
-          setPlaybackMediaSrc(
-            buildHammerDevMediaUrl(playbackLocalRootAbs, preferredPlayback.local_relpath),
-          );
-          return;
-        }
-
-        if (preferredPlayback.workpiece_path) {
-          try {
-            const previewUrl = await loadCanonicalAudioPolishPreviewUrl({
-              workpieceId: launchContext.workpiece_id,
-              workpiecePath: preferredPlayback.workpiece_path,
-              mimeType: preferredPlayback.mime_type,
-            });
-            if (!active) {
-              URL.revokeObjectURL(previewUrl);
-              return;
-            }
-            setPlaybackMediaSrc(previewUrl);
-            return;
-          } catch {
-            if (!active) return;
-          }
-        }
-      }
-
-      if (import.meta.env.DEV && currentPass === "audio_finalization" && activeTool === "audio") {
-        console.info("[Hammer][AudioComparePreview] source", {
-          source: rawVideoSrc ? "raw-source" : "none",
-          compareMode: audioFinalizationCompareMode,
-          playbackBackendPreference: editableStudioRack.backend_preference,
-        });
-      }
-      setPlaybackMediaSrc(rawVideoSrc);
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [
-    launchContext.workpiece_id,
-    mediaRef?.kind,
-    mediaRef?.local_relpath,
-    playbackLocalRootAbs,
-    preferredPlayback.kind,
-    preferredPlayback.local_relpath,
-    preferredPlayback.mime_type,
-    preferredPlayback.workpiece_path,
-    activeTool,
-    audioFinalizationCompareMode,
-    currentPass,
-    editableStudioRack.backend_preference,
-    shouldUseStudioRackPreviewForCompare,
-    studioRackPreviewSrc,
-  ]);
 
   useEffect(() => {
     if (!selectedSegmentId) return;
