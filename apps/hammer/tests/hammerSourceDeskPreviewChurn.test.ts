@@ -113,11 +113,11 @@ async function source_desk_effect_depends_on_stable_key() {
 }
 
 async function timeline_transforms_do_not_request_preview_media() {
-  const source = await readFile(
-    "d:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx",
+  const visualEditingSource = await readFile(
+    "d:/nursery/nursery/apps/hammer/src/editor/useHammerWorkspaceShellVisualEditing.ts",
     "utf-8",
   );
-  const dragEffectMatch = source.match(
+  const dragEffectMatch = visualEditingSource.match(
     /if \(!timelineImageDragState\) return;([\s\S]*?)useEffect\(\(\) => \{\s*if \(!previewCanvasDragState\) return;/,
   );
   const dragEffectSlice = dragEffectMatch?.[1] ?? "";
@@ -130,7 +130,7 @@ async function timeline_transforms_do_not_request_preview_media() {
       action: "Inspect timeline image drag effect implementation.",
       observed: "Timeline transform path contains media preview fetch calls.",
       expected: "No media fetch calls are allowed during timeline transform effects.",
-      likelyDriftPoint: "Timeline drag/resize useEffect in HammerWorkspaceShell.",
+      likelyDriftPoint: "Timeline drag/resize useEffect in useHammerWorkspaceShellVisualEditing.",
     },
   );
 }
