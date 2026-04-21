@@ -1980,6 +1980,7 @@ export default function HammerWorkspaceEditor(
 
   useEffect(() => {
     if (!persistenceTarget) return;
+    if (prepJobHydrationReady) return;
     let active = true;
     let timer: number | null = null;
 
