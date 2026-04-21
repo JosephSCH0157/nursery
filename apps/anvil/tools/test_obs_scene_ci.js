@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 const puppeteer = require('puppeteer');
 const fs = require('fs');
+
+const TEST_HOST = process.env.CI_HOST || '127.0.0.1';
+const TEST_PORT = Number(process.env.TP_SMOKE_PORT || process.env.PORT || process.env.CI_PORT || 5180);
+const TEST_URL = `http://${TEST_HOST}:${TEST_PORT}/teleprompter_pro.html`;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 (async function main(){
   const out = { ok: false, errors: [], cases: [] };
   try{
@@ -12,8 +18,8 @@ const fs = require('fs');
       try { out.console = out.console || []; out.console.push({ type: msg.type(), text: msg.text() }); } catch {}
     });
 
-    await page.goto('http://127.0.0.1:8080/teleprompter_pro.html', { waitUntil: 'networkidle2', timeout: 30000 });
-    await page.waitForTimeout(500);
+    await page.goto(TEST_URL, { waitUntil: 'networkidle2', timeout: 30000 });
+    await sleep(500);
 
     // helper to run the safe scene-check flow inside the page using the stubbed bridge
     async function runCase(name, opts) {

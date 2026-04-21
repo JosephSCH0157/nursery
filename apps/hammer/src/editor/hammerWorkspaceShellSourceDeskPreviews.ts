@@ -35,10 +35,17 @@ function resolveSourceDeskPreviewDebugEnabled(): boolean {
 }
 
 export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspaceShellSourceDeskPreviewsArgs): void {
+  const latestArgsRef = useRef(args);
   const previewUrlsRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
-    if (args.paused) {
+    latestArgsRef.current = args;
+  }, [args]);
+
+  useEffect(() => {
+    const currentArgs = latestArgsRef.current;
+
+    if (currentArgs.paused) {
       return () => {
         // keep existing previews mounted while paused; do not start new fetches.
       };
@@ -47,7 +54,9 @@ export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspa
     let active = true;
     const nextUrls: Record<string, string> = {};
     const nextFailures: Record<string, true> = {};
-    const previewPaths = args.previewPaths.filter((path) => !args.previewUrls[path] && !args.previewFailures[path]);
+    const previewPaths = currentArgs.previewPaths.filter((path) => (
+      !currentArgs.previewUrls[path] && !currentArgs.previewFailures[path]
+    ));
     const debugEnabled = resolveSourceDeskPreviewDebugEnabled();
     const startedAt = typeof performance !== "undefined" ? performance.now() : null;
 
@@ -57,21 +66,21 @@ export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspa
       };
     }
 
-    if (debugEnabled && args.requestedPreviewPathCount > args.maxItems) {
+    if (debugEnabled && currentArgs.requestedPreviewPathCount > currentArgs.maxItems) {
       console.info("Hammer Source Desk preview load capped", {
-        workpieceId: args.workpieceId,
-        requested: args.requestedPreviewPathCount,
+        workpieceId: currentArgs.workpieceId,
+        requested: currentArgs.requestedPreviewPathCount,
         loaded: previewPaths.length,
       });
     }
     if (debugEnabled) {
       // eslint-disable-next-line no-console
       console.info("[Hammer][SourceDeskPreview] start", {
-        workpieceId: args.workpieceId,
-        requested: args.requestedPreviewPathCount,
+        workpieceId: currentArgs.workpieceId,
+        requested: currentArgs.requestedPreviewPathCount,
         loaded: previewPaths.length,
-        concurrency: args.concurrency,
-        maxItems: args.maxItems,
+        concurrency: currentArgs.concurrency,
+        maxItems: currentArgs.maxItems,
       });
     }
 
@@ -80,26 +89,26 @@ export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspa
         try {
           if (debugEnabled) {
             // eslint-disable-next-line no-console
-            console.debug("[Hammer][SourceDeskPreview] fetching", { workpieceId: args.workpieceId, path });
+            console.debug("[Hammer][SourceDeskPreview] fetching", { workpieceId: currentArgs.workpieceId, path });
           }
-          const url = await args.loadWorkpieceMediaPreviewUrl({
-            workpieceId: args.workpieceId,
+          const url = await currentArgs.loadWorkpieceMediaPreviewUrl({
+            workpieceId: currentArgs.workpieceId,
             path,
             surface: "source_desk_preview",
           });
           nextUrls[path] = url;
           if (debugEnabled) {
             // eslint-disable-next-line no-console
-            console.debug("[Hammer][SourceDeskPreview] ok", { workpieceId: args.workpieceId, path });
+            console.debug("[Hammer][SourceDeskPreview] ok", { workpieceId: currentArgs.workpieceId, path });
           }
         } catch (error) {
           nextFailures[path] = true;
-          const diagnostics = args.readHammerMediaPreviewErrorDiagnostics(error);
+          const diagnostics = currentArgs.readHammerMediaPreviewErrorDiagnostics(error);
           console.warn("Hammer Source Desk preview unavailable", {
-            workpieceId: args.workpieceId,
+            workpieceId: currentArgs.workpieceId,
             originalPath: diagnostics?.originalPath ?? path,
             normalizedPath: diagnostics?.normalizedPath
-              ?? args.normalizeWorkpieceRelativePath(args.workpieceId, path),
+              ?? currentArgs.normalizeWorkpieceRelativePath(currentArgs.workpieceId, path),
             status: diagnostics?.status ?? null,
             error,
           });
@@ -108,15 +117,15 @@ export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspa
     }
 
     void (async () => {
-      for (let index = 0; index < previewPaths.length; index += args.concurrency) {
+      for (let index = 0; index < previewPaths.length; index += currentArgs.concurrency) {
         if (!active) break;
-        const batch = previewPaths.slice(index, index + args.concurrency);
+        const batch = previewPaths.slice(index, index + currentArgs.concurrency);
         if (debugEnabled) {
           // eslint-disable-next-line no-console
           console.info("[Hammer][SourceDeskPreview] batch", {
-            workpieceId: args.workpieceId,
+            workpieceId: currentArgs.workpieceId,
             from: index,
-            to: Math.min(previewPaths.length, index + args.concurrency),
+            to: Math.min(previewPaths.length, index + currentArgs.concurrency),
             total: previewPaths.length,
           });
         }
@@ -132,13 +141,13 @@ export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspa
       if (debugEnabled) {
         // eslint-disable-next-line no-console
         console.info("[Hammer][SourceDeskPreview] done", {
-          workpieceId: args.workpieceId,
+          workpieceId: currentArgs.workpieceId,
           ok: Object.keys(nextUrls).length,
           failed: Object.keys(nextFailures).length,
           elapsed_ms: elapsedMs,
         });
       }
-      args.setPreviewUrls((previous) => {
+      currentArgs.setPreviewUrls((previous) => {
         const nextKeys = Object.keys(nextUrls);
         const unchanged = nextKeys.every((key) => previous[key] === nextUrls[key]);
         if (unchanged) return previous;
@@ -151,7 +160,7 @@ export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspa
         }
         return merged;
       });
-      args.setPreviewFailures((previous) => {
+      currentArgs.setPreviewFailures((previous) => {
         const nextKeys = Object.keys(nextFailures);
         const unchanged = nextKeys.every((key) => previous[key] === nextFailures[key]);
         return unchanged ? previous : { ...previous, ...nextFailures };
@@ -161,7 +170,7 @@ export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspa
     return () => {
       active = false;
     };
-  }, [args.workpieceId, args.fetchKey, args.paused, args.previewFailures, args.previewUrls]);
+  }, [args.workpieceId, args.fetchKey]);
 
   useEffect(() => {
     previewUrlsRef.current = args.previewUrls;

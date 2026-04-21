@@ -171,6 +171,36 @@ const WORKPIECE_A = "2980fc39-8c8b-489a-a900-8d3bd3248432";
 const WORKPIECE_B = "54d58d65-7abf-4d50-b17f-5905f4b1ee61";
 const WORKSPACE_ID = "2b2ef7aa-44d4-4d0d-93d7-b0aa4ec2b99d";
 const ARCHIVE_ACTOR_ID = "6f4a0a73-19d2-4926-bf70-ebf2b9306db4";
+const HEARTH_TEST_USER_ID = "11111111-1111-4111-8111-111111111111";
+const HEARTH_TEST_ORG_ID = "22222222-2222-4222-8222-222222222222";
+
+function encodeBase64Url(value: string): string {
+  return Buffer.from(value, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function createTestAccessToken(userId = HEARTH_TEST_USER_ID): string {
+  const header = encodeBase64Url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const payload = encodeBase64Url(JSON.stringify({
+    sub: userId,
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  }));
+  return `${header}.${payload}.signature`;
+}
+
+function primeHearthAiRequestTestSession(): void {
+  const runtimeWindow = globalThis.window as typeof globalThis.window & Record<string, unknown>;
+  runtimeWindow.__forgeSupabaseUrl = "https://example.supabase.co";
+  runtimeWindow.__forgeSupabaseAnonKey = "test-anon-key";
+  runtimeWindow.localStorage.setItem("forge-auth", JSON.stringify({
+    currentSession: {
+      access_token: createTestAccessToken(),
+    },
+  }));
+}
 
 function buildImageMapEntryFixture(id: string, overrides?: Partial<EpisodeImageMapEntry>): EpisodeImageMapEntry {
   return {
@@ -3126,10 +3156,24 @@ async function testApplyHearthOpsRequestsSave() {
 
 async function testAiRequestPayloadIncludesEpisodeId() {
   resetLocalStorage();
+  primeHearthAiRequestTestSession();
   const originalFetch = globalThis.fetch;
   let capturedBody: Record<string, unknown> | null = null;
 
-  globalThis.fetch = (async (_input: unknown, init?: { body?: unknown }) => {
+  globalThis.fetch = (async (input: unknown, init?: { body?: unknown }) => {
+    const url = String(input);
+    if (url.includes("/rest/v1/workspaces?id=eq.")) {
+      return new Response(JSON.stringify([{ org_id: HEARTH_TEST_ORG_ID }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.endsWith("/rest/v1/rpc/resolve_ai_policy")) {
+      return new Response(JSON.stringify([{ decision_type: "ALLOW", reason_code: null }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
     capturedBody = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
     return new Response(JSON.stringify({
       assistant_text: "All set.",
@@ -3164,9 +3208,24 @@ async function testAiRequestPayloadIncludesEpisodeId() {
 
 async function testAiRequestTreatsScriptTextOnlyAsDeliverable() {
   resetLocalStorage();
+  primeHearthAiRequestTestSession();
   const originalFetch = globalThis.fetch;
 
-  globalThis.fetch = (async () => new Response(JSON.stringify({
+  globalThis.fetch = (async (input: unknown) => {
+    const url = String(input);
+    if (url.includes("/rest/v1/workspaces?id=eq.")) {
+      return new Response(JSON.stringify([{ org_id: HEARTH_TEST_ORG_ID }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.endsWith("/rest/v1/rpc/resolve_ai_policy")) {
+      return new Response(JSON.stringify([{ decision_type: "ALLOW", reason_code: null }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({
     assistant_text: "",
     ops: [],
     script_text: "[s1]\nCold open\n[/s1]",
@@ -3176,7 +3235,8 @@ async function testAiRequestTreatsScriptTextOnlyAsDeliverable() {
   }), {
     status: 200,
     headers: { "content-type": "application/json" },
-  })) as typeof fetch;
+  });
+  }) as typeof fetch;
 
   try {
     const result = await requestHearthChatReply(
@@ -3196,6 +3256,7 @@ async function testAiRequestTreatsScriptTextOnlyAsDeliverable() {
 
 async function testAiRequestPromotesCanonicalAssistantTextToScriptPayload() {
   resetLocalStorage();
+  primeHearthAiRequestTestSession();
   const originalFetch = globalThis.fetch;
   const assistantScript = [
     "Here is the panel-ready bullet script:",
@@ -3210,7 +3271,21 @@ async function testAiRequestPromotesCanonicalAssistantTextToScriptPayload() {
     "[/s2]",
   ].join("\n");
 
-  globalThis.fetch = (async () => new Response(JSON.stringify({
+  globalThis.fetch = (async (input: unknown) => {
+    const url = String(input);
+    if (url.includes("/rest/v1/workspaces?id=eq.")) {
+      return new Response(JSON.stringify([{ org_id: HEARTH_TEST_ORG_ID }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.endsWith("/rest/v1/rpc/resolve_ai_policy")) {
+      return new Response(JSON.stringify([{ decision_type: "ALLOW", reason_code: null }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({
     assistant_text: assistantScript,
     ops: [],
     billing_mode: "forge",
@@ -3219,7 +3294,8 @@ async function testAiRequestPromotesCanonicalAssistantTextToScriptPayload() {
   }), {
     status: 200,
     headers: { "content-type": "application/json" },
-  })) as typeof fetch;
+  });
+  }) as typeof fetch;
 
   try {
     const result = await requestHearthChatReply(

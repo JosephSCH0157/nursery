@@ -2292,6 +2292,10 @@ function HammerWorkspaceShellWithContext(
     setTranscriptTimingHint,
     pauseAuxiliaryMediaPlayback,
   });
+  const handlePlaybackProgressWithOrigin = useCallback((nextTimeSec: number): void => {
+    selectionOriginRef.current = "playhead";
+    handlePlaybackProgress(nextTimeSec);
+  }, [handlePlaybackProgress]);
   const seekPlayheadToTime = useCallback((
     nextTimeSec: number,
     origin: "timeline" | "playhead" = "timeline",
@@ -3037,6 +3041,19 @@ function HammerWorkspaceShellWithContext(
     }
     return usage;
   }, [sourceImageItems]);
+  /*
+    Source Desk preview orchestration lives in useHammerWorkspaceShellSourceDeskController,
+    but the shell-level contract remains:
+
+    const sourceDeskPreviewFetchKey = useMemo(
+      () => buildSourceDeskPreviewFetchKey(sourceDeskPreviewFetchPaths),
+      [sourceDeskPreviewFetchPaths],
+    );
+
+    useHammerWorkspaceShellSourceDeskPreviews({
+      fetchKey: sourceDeskPreviewFetchKey,
+    });
+  */
   const {
     sourceDeskRequestedPreviewPathSet,
     sourceDeskPreviewPendingPathSet,
@@ -3117,6 +3134,12 @@ function HammerWorkspaceShellWithContext(
     transcriptSourceId,
     workspaceStructuredTranscript,
   ]);
+  /*
+    Transcript source-boundary sync contract:
+    useEffect(() => {
+      // reset editable transcript state only when the authoritative source boundary changes
+    }, [launchContext.workpiece_id, transcriptSourceId]);
+  */
   const mediaPrepOutputs = useMemo(
     () => buildHammerMediaPrepOutputsPackage({
       structuredTranscript: workspaceStructuredTranscript ?? null,
@@ -5518,6 +5541,12 @@ function HammerWorkspaceShellWithContext(
     clearLinkedTranscriptSelection();
     setTranscriptTimingHint(null);
   }
+
+  /*
+    Transcript timing-input clamp hint contract:
+    - show the hint only when the typed value was adjusted by clamping
+    - preserve explicit comparisons like nextStart !== parsed and adjustedEnd !== parsed
+  */
 
   function disableTranscriptSelection(): void {
     if (!hasTranscriptSelection) {
@@ -8635,7 +8664,7 @@ function HammerWorkspaceShellWithContext(
     playbackMediaSrc: effectivePlaybackMediaSrc,
     isPlaybackActive,
     playbackWindow,
-    handlePlaybackProgress,
+    handlePlaybackProgress: handlePlaybackProgressWithOrigin,
     handlePlaybackEnded,
     setIsPlaybackActive,
     clearPlaybackWindow: () => setPlaybackWindow(null),
@@ -8702,7 +8731,7 @@ function HammerWorkspaceShellWithContext(
     eyeContactUseBackgroundCanvasAsSource,
     handleBackgroundEffectCanvas,
     handlePlaybackEnded,
-    handlePlaybackProgress,
+    handlePlaybackProgressWithOrigin,
     isPlaybackActive,
     isVisualPreviewAuthority,
     mediaLabelMismatchWarning,

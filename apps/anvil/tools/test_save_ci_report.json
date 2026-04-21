@@ -1,12 +1,793 @@
 {
-  "ok": false,
-  "errors": [
+  "ok": true,
+  "errors": [],
+  "console": [
     {
-      "type": "fatal",
-      "message": "Error: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:8080/teleprompter_pro.html",
-      "stack": "Error: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:8080/teleprompter_pro.html\n    at navigate (D:\\nursery\\nursery\\node_modules\\.pnpm\\puppeteer-core@24.40.0\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\cdp\\Frame.js:184:27)\n    at async Deferred.race (D:\\nursery\\nursery\\node_modules\\.pnpm\\puppeteer-core@24.40.0\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\util\\Deferred.js:36:20)\n    at async CdpFrame.goto (D:\\nursery\\nursery\\node_modules\\.pnpm\\puppeteer-core@24.40.0\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\cdp\\Frame.js:150:25)\n    at async CdpPage.goto (D:\\nursery\\nursery\\node_modules\\.pnpm\\puppeteer-core@24.40.0\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\api\\Page.js:580:20)\n    at async main (D:\\nursery\\nursery\\apps\\anvil\\tools\\test_save_ci.js:23:5)"
+      "type": "error",
+      "text": "[supabaseClient] Missing Supabase URL or anon key.",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 19969,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "info",
+      "text": "[VIEWER_ROLE] [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 30044,
+        "columnNumber": 14
+      }
+    },
+    {
+      "type": "warn",
+      "text": "[ROUTER_STAMP] 1",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 30052,
+        "columnNumber": 14
+      }
+    },
+    {
+      "type": "info",
+      "text": "[router-probe] scroll-router loaded",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 30061,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "info",
+      "text": "[HYBRID_CTRL] flag [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 30306,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "warn",
+      "text": "[ROUTER_STAMP] render-script 1",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 53136,
+        "columnNumber": 14
+      }
+    },
+    {
+      "type": "log",
+      "text": "SCROLL_SESSION_FINGERPRINT scroll-session-v4-2026-02-10-a",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 56777,
+        "columnNumber": 14
+      }
+    },
+    {
+      "type": "log",
+      "text": "[core-recorder] bridged to __tpRecording",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 58787,
+        "columnNumber": 18
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore: missing select [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "debug",
+      "text": "[SCRIPT-EDITOR] wiring complete",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 66448,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[build] asr-scroll-2026-04-21T17:09:06.605Z",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 81411,
+        "columnNumber": 14
+      }
+    },
+    {
+      "type": "log",
+      "text": "[TP-BOOT] TS index.ts booted",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 81415,
+        "columnNumber": 14
+      }
+    },
+    {
+      "type": "warn",
+      "text": "[ROUTER_STAMP] index-app 1",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 81461,
+        "columnNumber": 14
+      }
+    },
+    {
+      "type": "info",
+      "text": "[OBS-UI] wiring settings/sidebar controls",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 55423,
+        "columnNumber": 14
+      }
+    },
+    {
+      "type": "debug",
+      "text": "[Scroll Mode] ASR rejected [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 79878,
+        "columnNumber": 14
+      }
+    },
+    {
+      "type": "debug",
+      "text": "[Scroll Mode] UI: step | Brain: step | Clamp: free | ASR: off | Auto: off",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 80038,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[src/ui/dom] bindStaticDom",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 73349,
+        "columnNumber": 10
+      }
+    },
+    {
+      "type": "debug",
+      "text": "[display-debug] bindStaticDom:display-btn [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 72006,
+        "columnNumber": 14
+      }
+    },
+    {
+      "type": "debug",
+      "text": "[display-debug] wireDisplayBridge [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 72006,
+        "columnNumber": 14
+      }
+    },
+    {
+      "type": "debug",
+      "text": "[scroll-session] reset start latches [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 56575,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "info",
+      "text": "[SCROLL] initOnce: scroll-router (viewer=true)",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 80640,
+        "columnNumber": 22
+      }
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] INLINE_WIRE about to addEventListener tp:auto:intent",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 80644,
+        "columnNumber": 22
+      }
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] INLINE_WIRE done",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 80657,
+        "columnNumber": 22
+      }
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] index-app about to call scrollRouter.wireAutoIntentListener scroll-router-wire-v1",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 80661,
+        "columnNumber": 22
+      }
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] triggerWireAutoIntentListener ENTER scroll-router-wire-v1",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 24647,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] TRIGGER body reached [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 24651,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] TRIGGER step=3 wiring now",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 24661,
+        "columnNumber": 14
+      }
+    },
+    {
+      "type": "log",
+      "text": "[AUTO_INTENT] listener wired v2026-01-07c [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 24667,
+        "columnNumber": 14
+      }
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] TRIGGER step=4 wired ok",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 24671,
+        "columnNumber": 14
+      }
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] INLINE recv [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 80650,
+        "columnNumber": 26
+      }
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] recv [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 24630,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] onAutoIntent route [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 24634,
+        "columnNumber": 10
+      }
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] TRIGGER wired listeners (window)",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 24688,
+        "columnNumber": 14
+      }
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] triggerWireAutoIntentListener EXIT scroll-router-wire-v1",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 24693,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] index-app returned from wireAutoIntentListener scroll-router-wire-v1",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 80669,
+        "columnNumber": 22
+      }
+    },
+    {
+      "type": "info",
+      "text": "[OBS-UI] wiring settings/sidebar controls",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 55423,
+        "columnNumber": 14
+      }
+    },
+    {
+      "type": "log",
+      "text": "OBS connected.",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 51427,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "info",
+      "text": "[settings-builder] renderSettingsBody TS v2025-12-07",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 63949,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[src/features/persistence] initPersistence",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 66081,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[src/features/telemetry] initTelemetry",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 66094,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[src/features/hotkeys] initHotkeys",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 66065,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[src/features/toasts] initToasts",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 66107,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[TP-READY] [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 80834,
+        "columnNumber": 18
+      }
+    },
+    {
+      "type": "debug",
+      "text": "[Scroll Mode] UI: step | Brain: step | Clamp: free | ASR: off | Auto: off",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 80038,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[TP-INIT] {\"tp_init_done\":true,\"reason\":\"ts:index:onReady\"}",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 63214,
+        "columnNumber": 22
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] syncReady entries [array Array]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] scriptsById size after ready sync 0 [array Array]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "debug",
+      "text": "script-store:syncReady [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31921,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] syncMapped entries [array Array]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] scriptsById size after sync 0 [array Array]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "debug",
+      "text": "script-store:syncMapped [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31921,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore: sentinel command consumed, reverting [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] syncReady entries [array Array]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] scriptsById size after ready sync 0 [array Array]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "debug",
+      "text": "script-store:syncReady [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31921,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore: sentinel command consumed, reverting [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] syncMapped entries [array Array]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] scriptsById size after sync 0 [array Array]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "debug",
+      "text": "script-store:syncMapped [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31921,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore: sentinel command consumed, reverting [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] syncReady entries [array Array]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] scriptsById size after ready sync 0 [array Array]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "debug",
+      "text": "script-store:syncReady [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31921,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore: sentinel command consumed, reverting [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] syncMapped entries [array Array]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] scriptsById size after sync 0 [array Array]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "debug",
+      "text": "script-store:syncMapped [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31921,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore: sentinel command consumed, reverting [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31914,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "debug",
+      "text": "folder:cleared [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31921,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "table",
+      "text": "[array Array]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 73685,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "log",
+      "text": "[settings-mapped-folder:smoke] [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 78628,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "warn",
+      "text": "[SAVE_FAIL] [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 32191,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "debug",
+      "text": "script:save:fail [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31921,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "debug",
+      "text": "script:save:error [object Object]",
+      "location": {
+        "url": "http://127.0.0.1:5180/dist/index.js",
+        "lineNumber": 31921,
+        "columnNumber": 12
+      }
     }
   ],
-  "console": [],
-  "saved": null
+  "saved": {
+    "key": "tp_local_scripts_v1",
+    "value": "[{\"title\":\"CI-test-mo8voyg6\",\"text\":\"Test script content h7g6iz1ka0u\",\"ts\":1776791348109}]"
+  }
 }

@@ -1,11 +1,407 @@
 {
-  "ok": false,
-  "errors": [
+  "ok": true,
+  "errors": [],
+  "cases": [
     {
-      "type": "fatal",
-      "message": "Error: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:8080/teleprompter_pro.html",
-      "stack": "Error: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:8080/teleprompter_pro.html\n    at navigate (D:\\nursery\\nursery\\node_modules\\.pnpm\\puppeteer-core@24.40.0\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\cdp\\Frame.js:184:27)\n    at async Deferred.race (D:\\nursery\\nursery\\node_modules\\.pnpm\\puppeteer-core@24.40.0\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\util\\Deferred.js:36:20)\n    at async CdpFrame.goto (D:\\nursery\\nursery\\node_modules\\.pnpm\\puppeteer-core@24.40.0\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\cdp\\Frame.js:150:25)\n    at async CdpPage.goto (D:\\nursery\\nursery\\node_modules\\.pnpm\\puppeteer-core@24.40.0\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\api\\Page.js:580:20)\n    at async main (D:\\nursery\\nursery\\apps\\anvil\\tools\\test_obs_scene_ci.js:15:5)"
+      "name": "preferred-exists-different",
+      "ok": true,
+      "reason": null,
+      "res": {
+        "action": "set",
+        "preferredScene": "PreferredScene"
+      },
+      "calls": {
+        "setCurrentProgramScene": [
+          "PreferredScene"
+        ]
+      }
+    },
+    {
+      "name": "preferred-missing",
+      "ok": true,
+      "reason": null,
+      "res": {
+        "action": "skip",
+        "reason": "preferred-not-found",
+        "names": [
+          "Other",
+          "Another"
+        ],
+        "preferredScene": "PreferredScene",
+        "current": "Other"
+      },
+      "calls": {
+        "setCurrentProgramScene": []
+      }
+    },
+    {
+      "name": "preferred-already-active",
+      "ok": true,
+      "reason": null,
+      "res": {
+        "action": "skip",
+        "reason": "already-active",
+        "current": "PreferredScene"
+      },
+      "calls": {
+        "setCurrentProgramScene": []
+      }
+    },
+    {
+      "name": "preferred-missing-current-unknown",
+      "ok": true,
+      "reason": null,
+      "res": {
+        "action": "skip",
+        "reason": "preferred-not-found",
+        "names": [
+          "Other",
+          "Another"
+        ],
+        "preferredScene": "PreferredScene",
+        "current": "StrayScene"
+      },
+      "calls": {
+        "setCurrentProgramScene": []
+      }
     }
   ],
-  "cases": []
+  "console": [
+    {
+      "type": "error",
+      "text": "[supabaseClient] Missing Supabase URL or anon key."
+    },
+    {
+      "type": "info",
+      "text": "[VIEWER_ROLE] [object Object]"
+    },
+    {
+      "type": "warn",
+      "text": "[ROUTER_STAMP] 1"
+    },
+    {
+      "type": "info",
+      "text": "[router-probe] scroll-router loaded"
+    },
+    {
+      "type": "info",
+      "text": "[HYBRID_CTRL] flag [object Object]"
+    },
+    {
+      "type": "warn",
+      "text": "[ROUTER_STAMP] render-script 1"
+    },
+    {
+      "type": "log",
+      "text": "SCROLL_SESSION_FINGERPRINT scroll-session-v4-2026-02-10-a"
+    },
+    {
+      "type": "log",
+      "text": "[core-recorder] bridged to __tpRecording"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore: missing select [object Object]"
+    },
+    {
+      "type": "debug",
+      "text": "[SCRIPT-EDITOR] wiring complete"
+    },
+    {
+      "type": "log",
+      "text": "[build] asr-scroll-2026-04-21T17:06:46.629Z"
+    },
+    {
+      "type": "log",
+      "text": "[TP-BOOT] TS index.ts booted"
+    },
+    {
+      "type": "warn",
+      "text": "[ROUTER_STAMP] index-app 1"
+    },
+    {
+      "type": "info",
+      "text": "[OBS-UI] wiring settings/sidebar controls"
+    },
+    {
+      "type": "debug",
+      "text": "[Scroll Mode] ASR rejected [object Object]"
+    },
+    {
+      "type": "debug",
+      "text": "[Scroll Mode] UI: step | Brain: step | Clamp: free | ASR: off | Auto: off"
+    },
+    {
+      "type": "log",
+      "text": "[src/ui/dom] bindStaticDom"
+    },
+    {
+      "type": "debug",
+      "text": "[display-debug] bindStaticDom:display-btn [object Object]"
+    },
+    {
+      "type": "debug",
+      "text": "[display-debug] wireDisplayBridge [object Object]"
+    },
+    {
+      "type": "debug",
+      "text": "[scroll-session] reset start latches [object Object]"
+    },
+    {
+      "type": "info",
+      "text": "[SCROLL] initOnce: scroll-router (viewer=true)"
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] INLINE_WIRE about to addEventListener tp:auto:intent"
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] INLINE_WIRE done"
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] index-app about to call scrollRouter.wireAutoIntentListener scroll-router-wire-v1"
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] triggerWireAutoIntentListener ENTER scroll-router-wire-v1"
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] TRIGGER body reached [object Object]"
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] TRIGGER step=3 wiring now"
+    },
+    {
+      "type": "log",
+      "text": "[AUTO_INTENT] listener wired v2026-01-07c [object Object]"
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] TRIGGER step=4 wired ok"
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] INLINE recv [object Object]"
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] recv [object Object]"
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] onAutoIntent route [object Object]"
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] TRIGGER wired listeners (window)"
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] triggerWireAutoIntentListener EXIT scroll-router-wire-v1"
+    },
+    {
+      "type": "warn",
+      "text": "[AUTO_INTENT] index-app returned from wireAutoIntentListener scroll-router-wire-v1"
+    },
+    {
+      "type": "info",
+      "text": "[OBS-UI] wiring settings/sidebar controls"
+    },
+    {
+      "type": "log",
+      "text": "OBS connected."
+    },
+    {
+      "type": "info",
+      "text": "[settings-builder] renderSettingsBody TS v2025-12-07"
+    },
+    {
+      "type": "log",
+      "text": "[src/features/persistence] initPersistence"
+    },
+    {
+      "type": "log",
+      "text": "[src/features/telemetry] initTelemetry"
+    },
+    {
+      "type": "log",
+      "text": "[src/features/hotkeys] initHotkeys"
+    },
+    {
+      "type": "log",
+      "text": "[src/features/toasts] initToasts"
+    },
+    {
+      "type": "log",
+      "text": "[TP-READY] [object Object]"
+    },
+    {
+      "type": "debug",
+      "text": "[Scroll Mode] UI: step | Brain: step | Clamp: free | ASR: off | Auto: off"
+    },
+    {
+      "type": "log",
+      "text": "[TP-INIT] {\"tp_init_done\":true,\"reason\":\"ts:index:onReady\"}"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] syncReady entries [array Array]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] scriptsById size after ready sync 0 [array Array]"
+    },
+    {
+      "type": "debug",
+      "text": "script-store:syncReady [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] syncMapped entries [array Array]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] scriptsById size after sync 0 [array Array]"
+    },
+    {
+      "type": "debug",
+      "text": "script-store:syncMapped [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore: sentinel command consumed, reverting [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] syncReady entries [array Array]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] scriptsById size after ready sync 0 [array Array]"
+    },
+    {
+      "type": "debug",
+      "text": "script-store:syncReady [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore: sentinel command consumed, reverting [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] syncMapped entries [array Array]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] scriptsById size after sync 0 [array Array]"
+    },
+    {
+      "type": "debug",
+      "text": "script-store:syncMapped [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore: sentinel command consumed, reverting [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] syncReady entries [array Array]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] scriptsById size after ready sync 0 [array Array]"
+    },
+    {
+      "type": "debug",
+      "text": "script-store:syncReady [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore: sentinel command consumed, reverting [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] syncMapped entries [array Array]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-STORE] scriptsById size after sync 0 [array Array]"
+    },
+    {
+      "type": "debug",
+      "text": "script-store:syncMapped [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore: sentinel command consumed, reverting [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]"
+    },
+    {
+      "type": "log",
+      "text": "[SCRIPT-EDITOR] syncSelectFromStore [object Object]"
+    },
+    {
+      "type": "debug",
+      "text": "folder:cleared [object Object]"
+    },
+    {
+      "type": "table",
+      "text": "[array Array]"
+    },
+    {
+      "type": "log",
+      "text": "[settings-mapped-folder:smoke] [object Object]"
+    }
+  ]
 }

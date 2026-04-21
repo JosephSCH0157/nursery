@@ -258,7 +258,7 @@ function formatBytesAsMiB(bytes: number): string {
 }
 
 function buildSourceTooLargeMessage(byteCount: number): string {
-  return `Hammer transcript prep currently supports source media up to ${formatBytesAsMiB(MAX_TRANSCRIBE_SOURCE_BYTES)} in this runtime. Received ${formatBytesAsMiB(byteCount)}.`;
+  return `Hammer transcript prep currently supports source media up to ${formatBytesAsMiB(MAX_TRANSCRIBE_SOURCE_BYTES)} in this runtime. Received ${formatBytesAsMiB(byteCount)}, which exceeds that limit.`;
 }
 
 function readHeaderNumber(headers: Headers, name: string): number | null {
@@ -567,6 +567,9 @@ function toHammerPreflightErrorMessage(
   if (decisionType === "SOFT_DENY") {
     return `${base} Configure a personal AI connection and retry.`;
   }
+  if (reasonCode === "MEMBERSHIP_REQUIRED_STUDIO_OR_FOUNDER") {
+    return `${base} Studio or Founder entitlement is required for this Hammer AI action.`;
+  }
   return base;
 }
 
@@ -577,6 +580,9 @@ function toQuenchPreflightErrorMessage(
   const base = reasonCode ? getAiReasonMessage(reasonCode) : "AI action blocked by policy.";
   if (decisionType === "SOFT_DENY") {
     return `${base} Configure a personal AI connection and retry.`;
+  }
+  if (reasonCode === "MEMBERSHIP_REQUIRED_STUDIO_OR_FOUNDER") {
+    return `${base} Studio or Founder entitlement is required for this Quench AI action.`;
   }
   return base;
 }
@@ -1053,6 +1059,7 @@ async function runOpenAiQuenchMetadataAssist(args: {
 
 async function loadCanonicalWorkpieceMediaFile(
   req: IncomingMessage,
+  supabaseUrl: string,
   request: NormalizedCanonicalWorkpieceRequest,
 ): Promise<{
   ok: true;
@@ -1065,8 +1072,7 @@ async function loadCanonicalWorkpieceMediaFile(
   message: string;
   detail?: unknown;
 }> {
-  const origin = buildRequestOrigin(req);
-  const url = new URL(`/tongs/workpieces/${encodeURIComponent(request.workpiece_id)}/read-file`, origin);
+  const url = new URL(`/tongs/workpieces/${encodeURIComponent(request.workpiece_id)}/read-file`, supabaseUrl);
   url.searchParams.set("path", request.canonical_workpiece_path);
   url.searchParams.set("encoding", "binary");
 
@@ -1906,7 +1912,7 @@ export function createHammerPrepMiddleware() {
         contentType = inferContentType(absolutePath, request.mime_type);
       } else {
         stageTimer.mark("media:load:canonical:start", { canonical_workpiece_path: request.canonical_workpiece_path });
-        const canonicalMedia = await loadCanonicalWorkpieceMediaFile(req, request);
+        const canonicalMedia = await loadCanonicalWorkpieceMediaFile(req, runtimeConfig.supabaseUrl, request);
         if (!canonicalMedia.ok) {
           stageTimer.mark("media:load:canonical:failed", { status: canonicalMedia.status, message: canonicalMedia.message }, "warn");
           const errorCode: HammerTranscriptPrepErrorCode = canonicalMedia.status === 413
