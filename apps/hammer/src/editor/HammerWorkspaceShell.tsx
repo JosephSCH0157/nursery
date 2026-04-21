@@ -5523,6 +5523,20 @@ function HammerWorkspaceShellWithContext(
     const segment = editableTranscriptSegments.find((item) => item.segment_id === segmentId) ?? null;
     if (!segment) return;
 
+    const selectedRangeDetail = selectedTranscriptRangeDetailRef.current;
+    const isSameSingleSegmentSelection = !extendRange
+      && transcriptSelectionAnchorSegmentId === segmentId
+      && transcriptSelectionFocusSegmentId === segmentId
+      && transcriptSelectionRange.segmentIds.length === 1
+      && transcriptSelectionRange.segmentIds[0] === segmentId
+      && !selectedRangeDetail;
+    if (isSameSingleSegmentSelection) {
+      if (transcriptTimingHint) {
+        setTranscriptTimingHint(null);
+      }
+      return;
+    }
+
     const anchorSegmentId = extendRange && transcriptSelectionAnchorSegmentId
       ? transcriptSelectionAnchorSegmentId
       : segmentId;
