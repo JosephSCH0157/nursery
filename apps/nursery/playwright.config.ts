@@ -10,6 +10,11 @@ const baseURL = process.env.FORGE_SMOKE_BASE_URL
   ?? process.env.FORGE_TEST_BASE_URL
   ?? process.env.PLAYWRIGHT_BASE_URL
   ?? "http://127.0.0.1:5173";
+
+if (baseURL.includes(":4173")) {
+  throw new Error("Playwright baseURL port 4173 is deprecated. Use http://127.0.0.1:5173.");
+}
+
 const hasExternalBaseURL = Boolean(
   process.env.FORGE_SMOKE_BASE_URL
   ?? process.env.FORGE_TEST_BASE_URL

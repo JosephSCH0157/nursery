@@ -1136,7 +1136,12 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                   if (item.assetPath && !sourceDeskPreviewUrls[item.assetPath] && !sourceDeskPreviewFailures[item.assetPath]) {
                                     requestSourceDeskPreviews([item.assetPath]);
                                   }
-                                  selectVisualClip({ clipId: item.id, origin: "tool_window", revealUI: true });
+                                  selectVisualClip({
+                                    clipId: item.id,
+                                    origin: "tool_window",
+                                    revealUI: true,
+                                    allowSurfaceSwitch: true,
+                                  });
                                 }}
                               >
                                 Select
@@ -1145,7 +1150,12 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                 type="button"
                                 onClick={() => {
                                   setFocusOverride("time-focus");
-                                  selectVisualClip({ clipId: item.id, origin: "timeline", revealUI: true });
+                                  selectVisualClip({
+                                    clipId: item.id,
+                                    origin: "timeline",
+                                    revealUI: true,
+                                    allowSurfaceSwitch: true,
+                                  });
                                   seekPlayheadToTime(item.startSec, "playhead");
                                 }}
                               >

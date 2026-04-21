@@ -2741,7 +2741,12 @@ function HammerWorkspaceShellWithContext(
       inRange: linkedVisualIdSet.has(item.id),
       tone: "image",
       onSelect: () => {
-        selectVisualClip({ clipId: item.id, origin: "timeline", revealUI: true });
+        selectVisualClip({
+          clipId: item.id,
+          origin: "timeline",
+          revealUI: true,
+          allowSurfaceSwitch: true,
+        });
       },
     }))
   ), [compositionOffsetSec, linkedPrimaryVisualId, linkedVisualIdSet, selectVisualClip, sourceImageItems]);
@@ -2757,7 +2762,12 @@ function HammerWorkspaceShellWithContext(
         inRange: linkedVisualIdSet.has(item.id),
         tone: "broll",
         onSelect: () => {
-          selectVisualClip({ clipId: item.id, origin: "timeline", revealUI: true });
+          selectVisualClip({
+            clipId: item.id,
+            origin: "timeline",
+            revealUI: true,
+            allowSurfaceSwitch: true,
+          });
         },
       }))
   ), [compositionOffsetSec, linkedPrimaryVisualId, linkedVisualIdSet, selectVisualClip, sourceBrollPlacementItems]);

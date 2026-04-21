@@ -82,7 +82,8 @@ export function editorModeToToolSelection(mode: HammerEditorMode): {
     case "transcript":
       return { activeTool: "polish", activeVisualTool: null, videoPanelRoute: "non_video" };
     case "images":
-      return { activeTool: "video", activeVisualTool: "images", videoPanelRoute: "images" };
+      // Keep visual rack derived from pass (visual_finishing -> polish, image_placement -> images).
+      return { activeTool: "video", activeVisualTool: null, videoPanelRoute: "images" };
     case "assets":
       return { activeTool: "audio", activeVisualTool: null, videoPanelRoute: "non_video" };
     case "broll":

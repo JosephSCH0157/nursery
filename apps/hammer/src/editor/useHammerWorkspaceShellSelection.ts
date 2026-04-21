@@ -69,6 +69,7 @@ export type UseHammerWorkspaceShellSelectionResult = {
     clipId: string;
     origin: "tool_window" | "timeline" | "preview";
     revealUI?: boolean;
+    allowSurfaceSwitch?: boolean;
     snapPlayhead?: boolean;
   }) => void;
   selectVisualClip: (args: {
@@ -76,6 +77,7 @@ export type UseHammerWorkspaceShellSelectionResult = {
     origin: "tool_window" | "timeline" | "preview";
     snapPlayhead?: boolean;
     revealUI?: boolean;
+    allowSurfaceSwitch?: boolean;
   }) => void;
 };
 
@@ -199,10 +201,12 @@ export function useHammerWorkspaceShellSelection(
     clipId: string;
     origin: "tool_window" | "timeline" | "preview";
     revealUI?: boolean;
+    allowSurfaceSwitch?: boolean;
     snapPlayhead?: boolean;
   }): void => {
     const placement = args.visualPlacementItems.find((item) => item.id === nextArgs.clipId) ?? null;
-    if (nextArgs.revealUI && placement) {
+    // Surface/tool switches are opt-in only; passive selection sync must remain non-navigating.
+    if (nextArgs.revealUI && nextArgs.allowSurfaceSwitch && placement) {
       args.revealVisualSelectionUI(placement);
     }
 
@@ -241,6 +245,7 @@ export function useHammerWorkspaceShellSelection(
     origin: "tool_window" | "timeline" | "preview";
     snapPlayhead?: boolean;
     revealUI?: boolean;
+    allowSurfaceSwitch?: boolean;
   }) => {
     selectLinkedVisualTarget(nextArgs);
   }, [selectLinkedVisualTarget]);

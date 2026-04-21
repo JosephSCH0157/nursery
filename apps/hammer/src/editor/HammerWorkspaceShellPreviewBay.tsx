@@ -60,6 +60,7 @@ export type HammerWorkspaceShellPreviewBayVM = {
   visualPreview: {
     isAuthority: boolean;
     overlays: VisualPreviewOverlayModel[];
+    emptyStateMessage: string;
     editable: boolean;
     onSelectClip: (clipId: string) => void;
     onBeginMove: (event: MouseEvent, clipId: string) => void;
@@ -125,6 +126,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
           <div className="hammer-preview-surface__label">{vm.previewSurfaceLabel}</div>
           <VisualPreviewComposer
             overlays={vm.visualPreview.overlays}
+            emptyStateMessage={vm.visualPreview.emptyStateMessage}
             editable={vm.visualPreview.isAuthority && vm.visualPreview.editable}
             onSelectClip={(clipId) => {
               if (!vm.visualPreview.isAuthority) return;

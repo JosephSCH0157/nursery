@@ -1,4 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import {
+  resolveHammerPolishPreviewTarget,
+  resolveVisualPreviewEmptyStateMessage,
+} from "./hammerPolishPreviewTarget";
 
 export function buildTimelineDockVM(args: any) {
   return {
@@ -59,7 +63,12 @@ export function buildTimelineDockVM(args: any) {
       editable: args.visualPlacementEditingEnabled,
       focusToken: args.visualTimelineFocusNonce,
       onSelectClip: (clipId: string) => {
-        args.selectVisualClip({ clipId, origin: "timeline", revealUI: true });
+        args.selectVisualClip({
+          clipId,
+          origin: "timeline",
+          revealUI: true,
+          allowSurfaceSwitch: true,
+        });
       },
       onMoveClip: (event: any, clip: { clipId: string; startSec: number; endSec: number }) => {
         if (!args.visualPlacementEditingEnabled) return;
@@ -296,6 +305,15 @@ export function buildSourceBayVM(args: any) {
 }
 
 export function buildPreviewBayVM(args: any) {
+  const polishPreviewTarget = resolveHammerPolishPreviewTarget({
+    visualPolishPreviewActive: args.visualPolishPreviewActive,
+    previewVideoSrc: args.effectivePreviewVideoSrc,
+    activePreviewOverlays: args.activePreviewOverlays ?? [],
+  });
+  const hasBackgroundEffectRequest = Boolean(
+    args.visualBackgroundBlur || args.visualBackgroundReplaceEnabled || args.visualBackgroundWashEnabled,
+  );
+
   return {
     previewModeLabel: args.previewMode,
     activeVisualTool: args.activeTool === "video" ? args.activeVisualTool : null,
@@ -327,7 +345,7 @@ export function buildPreviewBayVM(args: any) {
       : null,
     previewSurfaceLabel: args.previewSurfaceLabel,
     backgroundEffect: {
-      enabled: args.visualPolishPreviewActive && (args.visualBackgroundBlur || args.visualBackgroundReplaceEnabled || args.visualBackgroundWashEnabled),
+      enabled: polishPreviewTarget.segmentationEligible && hasBackgroundEffectRequest,
       settings: args.backgroundBlurSettings,
       providerId: args.visualBackgroundBlurProviderId,
       debugMasks: args.visualBackgroundBlurDebugMask,
@@ -337,7 +355,7 @@ export function buildPreviewBayVM(args: any) {
       onCanvas: args.handleBackgroundEffectCanvas,
     },
     eyeContactAssist: {
-      enabled: args.visualPolishPreviewActive && args.visualEyeContactAssistEnabled,
+      enabled: polishPreviewTarget.segmentationEligible && args.visualEyeContactAssistEnabled,
       strength: Math.max(0, Math.min(1, Number(args.visualEyeContactAssistStrength) || 0)),
       backgroundCanvasRef: args.visualBackgroundEffectCanvasRef,
       useBackgroundCanvasAsSource: args.eyeContactUseBackgroundCanvasAsSource,
@@ -347,9 +365,16 @@ export function buildPreviewBayVM(args: any) {
     visualPreview: {
       isAuthority: args.isVisualPreviewAuthority,
       overlays: args.activePreviewOverlays,
+      emptyStateMessage: resolveVisualPreviewEmptyStateMessage({ target: polishPreviewTarget }),
       editable: args.visualPlacementEditingEnabled,
       onSelectClip: (clipId: string) => {
-        args.selectVisualClip({ clipId, origin: "preview", revealUI: true, snapPlayhead: false });
+        args.selectVisualClip({
+          clipId,
+          origin: "preview",
+          revealUI: true,
+          allowSurfaceSwitch: true,
+          snapPlayhead: false,
+        });
       },
       onBeginMove: (event: any, clipId: string) => {
         args.beginPreviewCanvasDrag(event as any, {
