@@ -211,11 +211,16 @@ import {
 import {
   buildLinkedSelectionTranscriptSegmentIdSet,
   buildLinkedSelectionVisualIdSet,
-  resolveSelectionFromTimeline,
   resolveSelectionFromTranscript,
   resolveSelectionFromVisual,
   type HammerLinkedSelection,
 } from "./hammerLinkedSelection";
+import { useHammerWorkspaceShellSelection } from "./useHammerWorkspaceShellSelection";
+import {
+  toHammerLinkedSelectionVisualItems,
+  type HammerSelectedTranscriptRange,
+  type HammerSelectedTranscriptRangeDetail,
+} from "./hammerWorkspaceShellSelectionUtils";
 import {
   cloneHammerStudioRackState,
   createDefaultHammerStudioRackState,
@@ -1031,23 +1036,6 @@ function clampNumber(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, value));
 }
-
-type HammerTranscriptRemovalSlice = {
-  segmentId: string;
-  selectionStart: number;
-  selectionEnd: number;
-  text: string;
-};
-
-type HammerSelectedTranscriptRange = {
-  start: number;
-  end: number;
-  text: string;
-};
-
-type HammerSelectedTranscriptRangeDetail = HammerSelectedTranscriptRange & {
-  segments: HammerTranscriptRemovalSlice[];
-};
 
 const IMAGE_ANIMATION_PRESET_OPTIONS: Array<{ id: HammerImageAnimationPreset; label: string }> = [
   { id: "none", label: "None" },
@@ -2431,6 +2419,10 @@ function HammerWorkspaceShellWithContext(
       })
       .filter((item): item is HammerSourceImageItem => Boolean(item))
   ), [editableTranscriptSegments, editableVisualTimeline?.clips, imagePlacementDraftWindows, selectedSegmentId, visualAssetsById]);
+  const linkedSelectionVisualItems = useMemo(
+    () => toHammerLinkedSelectionVisualItems(sourceVisualPlacementItems),
+    [sourceVisualPlacementItems],
+  );
   const linkedTranscriptSegmentIdSet = useMemo(
     () => buildLinkedSelectionTranscriptSegmentIdSet(linkedSelection),
     [linkedSelection],
@@ -2978,174 +2970,35 @@ function HammerWorkspaceShellWithContext(
     container.scrollTo({ left: target, behavior: "smooth" });
   }, [timelineDurationSec]);
 
-  function applyLinkedSelectionState(args: {
-    selection: HammerLinkedSelection | null;
-    origin: "system" | "transcript" | "timeline" | "playhead";
-    focusOverride?: HammerWorkspaceFocusOverride;
-    transcriptTextRange?: HammerSelectedTranscriptRangeDetail | null;
-    seekTimeSec?: number | null;
-    revealTimeSec?: number | null;
-    clearTranscriptTextRange?: boolean;
-    syncSelectedClip?: boolean;
-  }): void {
-    selectionOriginRef.current = args.origin;
-    setLinkedSelection(args.selection);
-    if (args.focusOverride) {
-      setFocusOverride(args.focusOverride);
-    }
-
-    const transcriptSegmentIds = args.selection?.transcriptRange?.segmentIds ?? [];
-    const nextAnchorSegmentId = args.selection?.anchorId ?? transcriptSegmentIds[0] ?? null;
-    const nextFocusSegmentId = transcriptSegmentIds.length > 0
-      ? transcriptSegmentIds[transcriptSegmentIds.length - 1] ?? nextAnchorSegmentId
-      : nextAnchorSegmentId;
-
-    setSelectedSegmentId(nextAnchorSegmentId);
-    setTranscriptSelectionAnchorSegmentId(transcriptSegmentIds[0] ?? nextAnchorSegmentId);
-    setTranscriptSelectionFocusSegmentId(nextFocusSegmentId);
-    const shouldSyncSelectedClip = args.syncSelectedClip
-      ?? (args.origin === "timeline" || args.origin === "playhead");
-    if (shouldSyncSelectedClip) {
-      setSelectedClipId(args.selection?.primaryVisualId ?? null);
-    }
-
-    if (Object.prototype.hasOwnProperty.call(args, "transcriptTextRange")) {
-      selectedTranscriptRangeDetailRef.current = args.transcriptTextRange ?? null;
-      setSelectedTranscriptRange(args.transcriptTextRange ? {
-        start: args.transcriptTextRange.start,
-        end: args.transcriptTextRange.end,
-        text: args.transcriptTextRange.text,
-      } : null);
-    } else if (args.clearTranscriptTextRange) {
-      selectedTranscriptRangeDetailRef.current = null;
-      setSelectedTranscriptRange(null);
-    }
-
-    if (
-      args.selection?.primaryVisualId
-      && args.selection.primaryVisualId !== linkedSelection?.primaryVisualId
-    ) {
-      setVisualTimelineFocusNonce((current) => current + 1);
-    }
-
-    if (typeof args.seekTimeSec === "number") {
-      seekPlayheadToTime(args.seekTimeSec, "playhead", { snapToBoundary: false });
-    }
-    if (typeof args.revealTimeSec === "number") {
-      revealBottomTimelineAtTime(args.revealTimeSec);
-    }
-  }
-
-  function selectLinkedTimelineRange(args: {
-    startSec: number;
-    endSec: number;
-    segmentIds?: string[];
-    anchorId?: string | null;
-    clipId?: string | null;
-  }): void {
-    const nextSelection = resolveSelectionFromTimeline({
-      transcriptSegments: editableTranscriptSegments,
-      visualItems: sourceVisualPlacementItems.map((item) => ({
-        id: item.id,
-        anchorSegmentId: item.anchorSegmentId,
-        startSec: item.startSec,
-        endSec: item.endSec,
-      })),
-      startSec: args.startSec,
-      endSec: args.endSec,
-      segmentIds: args.segmentIds,
-      anchorId: args.anchorId,
-      clipId: args.clipId,
-      currentPrimaryVisualId: linkedSelection?.primaryVisualId ?? null,
-    });
-    applyLinkedSelectionState({
-      selection: nextSelection,
-      origin: "timeline",
-      focusOverride: "time-focus",
-      clearTranscriptTextRange: true,
-      seekTimeSec: args.startSec,
-      revealTimeSec: args.startSec,
-    });
-  }
-
-  function selectLinkedTranscriptTarget(args: {
-    anchorSegmentId: string | null;
-    focusSegmentId?: string | null;
-    textRange?: HammerSelectedTranscriptRangeDetail | null;
-  }): void {
-    const nextSelection = resolveSelectionFromTranscript({
-      transcriptSegments: editableTranscriptSegments,
-      visualItems: sourceVisualPlacementItems.map((item) => ({
-        id: item.id,
-        anchorSegmentId: item.anchorSegmentId,
-        startSec: item.startSec,
-        endSec: item.endSec,
-      })),
-      anchorSegmentId: args.anchorSegmentId,
-      focusSegmentId: args.focusSegmentId,
-      textSelection: args.textRange ?? null,
-      currentPrimaryVisualId: linkedSelection?.primaryVisualId ?? null,
-    });
-    applyLinkedSelectionState({
-      selection: nextSelection,
-      origin: "transcript",
-      focusOverride: "source-focus",
-      transcriptTextRange: args.textRange,
-      seekTimeSec: nextSelection?.timeRange?.startSec ?? null,
-      revealTimeSec: nextSelection?.timeRange?.startSec ?? null,
-    });
-  }
-
-  function selectLinkedVisualTarget(args: {
-    clipId: string;
-    origin: "tool_window" | "timeline" | "preview";
-    revealUI?: boolean;
-    snapPlayhead?: boolean;
-  }): void {
-    const placement = sourceVisualPlacementItems.find((item) => item.id === args.clipId) ?? null;
-    if (args.revealUI && placement) {
+  const selection = useHammerWorkspaceShellSelection({
+    transcriptSegments: editableTranscriptSegments,
+    visualPlacementItems: sourceVisualPlacementItems,
+    linkedSelection,
+    selectionOriginRef,
+    selectedTranscriptRangeDetailRef,
+    setLinkedSelection,
+    setFocusOverride,
+    setSelectedSegmentId,
+    setTranscriptSelectionAnchorSegmentId,
+    setTranscriptSelectionFocusSegmentId,
+    setSelectedClipId,
+    setSelectedTranscriptRange,
+    setVisualTimelineFocusNonce,
+    seekPlayheadToTime,
+    revealBottomTimelineAtTime,
+    revealVisualSelectionUI: (placement) => {
       selectEditorMode(placement.kind === "image" ? "images" : "broll", {
         preferredPass: placement.kind === "image" ? "image_placement" : "image_animation",
       });
-    }
-
-    const nextSelection = resolveSelectionFromVisual({
-      transcriptSegments: editableTranscriptSegments,
-      visualItems: sourceVisualPlacementItems.map((item) => ({
-        id: item.id,
-        anchorSegmentId: item.anchorSegmentId,
-        startSec: item.startSec,
-        endSec: item.endSec,
-      })),
-      visualId: args.clipId,
-      currentPrimaryVisualId: args.clipId,
-      kind: "visual",
-    });
-
-    const nextRevealTime = nextSelection?.timeRange?.startSec ?? placement?.startSec ?? null;
-    applyLinkedSelectionState({
-      selection: nextSelection,
-      origin: args.origin === "preview"
-        ? "playhead"
-        : "timeline",
-      focusOverride: "time-focus",
-      clearTranscriptTextRange: true,
-      seekTimeSec: args.snapPlayhead === false ? null : nextRevealTime,
-      revealTimeSec: nextRevealTime,
-    });
-  }
-
-  const selectVisualClip = useCallback((args: {
-    clipId: string;
-    origin: "tool_window" | "timeline" | "preview";
-    snapPlayhead?: boolean;
-    revealUI?: boolean;
-  }) => {
-    selectLinkedVisualTarget(args);
-  }, [
-    selectLinkedVisualTarget,
-    selectEditorMode,
-  ]);
+    },
+  });
+  const {
+    applyLinkedSelectionState,
+    clearTranscriptSelection: clearLinkedTranscriptSelection,
+    selectLinkedTimelineRange,
+    selectLinkedTranscriptTarget,
+    selectVisualClip,
+  } = selection;
   const dialogueLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (
     editableTranscriptSegments.map((segment) => ({
       id: `dialogue:${segment.segment_id}`,
@@ -3797,22 +3650,12 @@ function HammerWorkspaceShellWithContext(
       normalized.visualTimeline?.selected_clip_id
         ? resolveSelectionFromVisual({
           transcriptSegments: normalized.segments,
-          visualItems: sourceVisualPlacementItems.map((item) => ({
-            id: item.id,
-            anchorSegmentId: item.anchorSegmentId,
-            startSec: item.startSec,
-            endSec: item.endSec,
-          })),
+          visualItems: linkedSelectionVisualItems,
           visualId: normalized.visualTimeline.selected_clip_id,
         })
         : resolveSelectionFromTranscript({
           transcriptSegments: normalized.segments,
-          visualItems: sourceVisualPlacementItems.map((item) => ({
-            id: item.id,
-            anchorSegmentId: item.anchorSegmentId,
-            startSec: item.startSec,
-            endSec: item.endSec,
-          })),
+          visualItems: linkedSelectionVisualItems,
           anchorSegmentId: normalized.selectedSegmentId,
           focusSegmentId: normalized.selectedSegmentId,
         }),
@@ -4408,12 +4251,7 @@ function HammerWorkspaceShellWithContext(
     applyLinkedSelectionState({
       selection: resolveSelectionFromTranscript({
         transcriptSegments: editableTranscriptSegments,
-        visualItems: sourceVisualPlacementItems.map((item) => ({
-          id: item.id,
-          anchorSegmentId: item.anchorSegmentId,
-          startSec: item.startSec,
-          endSec: item.endSec,
-        })),
+        visualItems: linkedSelectionVisualItems,
         anchorSegmentId: nextSegmentId,
         focusSegmentId: nextSegmentId,
         currentPrimaryVisualId: linkedSelection?.primaryVisualId ?? null,
@@ -4443,12 +4281,7 @@ function HammerWorkspaceShellWithContext(
     applyLinkedSelectionState({
       selection: resolveSelectionFromTranscript({
         transcriptSegments: editableTranscriptSegments,
-        visualItems: sourceVisualPlacementItems.map((item) => ({
-          id: item.id,
-          anchorSegmentId: item.anchorSegmentId,
-          startSec: item.startSec,
-          endSec: item.endSec,
-        })),
+        visualItems: linkedSelectionVisualItems,
         anchorSegmentId: fallbackSegmentId,
         focusSegmentId: fallbackSegmentId,
         currentPrimaryVisualId: linkedSelection?.primaryVisualId ?? null,
@@ -6384,12 +6217,7 @@ function HammerWorkspaceShellWithContext(
   }
 
   function clearTranscriptSelection(): void {
-    applyLinkedSelectionState({
-      selection: null,
-      origin: "transcript",
-      focusOverride: "source-focus",
-      transcriptTextRange: null,
-    });
+    clearLinkedTranscriptSelection();
     setTranscriptTimingHint(null);
   }
 
