@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { Dispatch, MouseEvent as ReactMouseEvent, MutableRefObject, SetStateAction } from "react";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
-import { resolveNextAudiblePlaybackTime, type HammerEffectiveCutRegion } from "./hammerAudioEditPlayback";
+import type { HammerEffectiveCutRegion } from "./hammerAudioEditPlayback";
 import {
   DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC,
   resolveAdjacentJumpPointTime,
@@ -39,6 +39,7 @@ export type UseHammerWorkspaceShellPlaybackArgs = {
   playbackTransportDurationSec: number;
   playheadBoundaryTimesSec: number[];
   activeTranscriptTargetRange: HammerPlaybackTargetRange | null;
+  resolveAudibleTransportTime: (requestedTimeSec: number) => number | null;
   resolveMediaTimeForTransportTime: (transportTimeSec: number) => number;
   resolveTransportTimeForMediaTime: (mediaTimeSec: number) => number;
   playbackMediaSrc: string | null;
@@ -102,14 +103,10 @@ export function useHammerWorkspaceShellPlayback(
 ): UseHammerWorkspaceShellPlaybackResult {
   const lastPlaybackMediaSrcRef = useRef<string | null>(null);
   const lastPreviewVideoSrcRef = useRef<string | null>(null);
-  const resolveAudibleSeekTarget = useCallback((requestedTimeSec: number): number | null => (
-    resolveNextAudiblePlaybackTime({
-      requestedTimeSec,
-      durationSec: args.playbackTransportDurationSec,
-      effectiveCutRegions: args.effectivePlaybackCutRegions,
-      transcriptSegments: args.editableTranscriptSegments,
-    })
-  ), [args.editableTranscriptSegments, args.effectivePlaybackCutRegions, args.playbackTransportDurationSec]);
+  const resolveAudibleSeekTarget = useCallback(
+    (requestedTimeSec: number): number | null => args.resolveAudibleTransportTime(requestedTimeSec),
+    [args.resolveAudibleTransportTime],
+  );
 
   const resolvePlaybackTransportProgress = useCallback((requestedTimeSec: number): {
     nextPlayheadSec: number;
@@ -132,12 +129,7 @@ export function useHammerWorkspaceShellPlayback(
     const maxIterations = Math.max(2, args.effectivePlaybackCutRegions.length + 4);
 
     for (let index = 0; index < maxIterations; index += 1) {
-      const audibleTarget = resolveNextAudiblePlaybackTime({
-        requestedTimeSec: candidate,
-        durationSec: args.playbackTransportDurationSec,
-        effectiveCutRegions: args.effectivePlaybackCutRegions,
-        transcriptSegments: args.editableTranscriptSegments,
-      });
+      const audibleTarget = args.resolveAudibleTransportTime(candidate);
 
       if (audibleTarget == null) {
         return {
@@ -192,10 +184,9 @@ export function useHammerWorkspaceShellPlayback(
       shouldSyncMediaTime,
     };
   }, [
-    args.editableTranscriptSegments,
-    args.effectivePlaybackCutRegions,
     args.playbackTransportDurationSec,
     args.playbackWindow,
+    args.resolveAudibleTransportTime,
     args.timelineDurationSec,
   ]);
 

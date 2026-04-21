@@ -2141,6 +2141,30 @@ function HammerWorkspaceShellWithContext(
     })),
     [compositionOffsetSec, editableAudioPolish?.audio_edit, transcriptDurationSec],
   );
+  const resolveAudibleTransportTime = useCallback((requestedTimeSec: number): number | null => {
+    if (playbackTransportDurationSec <= 0) return null;
+    const clamped = Math.max(0, Math.min(playbackTransportDurationSec, requestedTimeSec));
+    if (clamped >= playbackTransportDurationSec) {
+      return null;
+    }
+    const compositionStartSec = compositionOffsetSec;
+    const compositionEndSec = compositionOffsetSec + transcriptDurationSec;
+    if (clamped < compositionStartSec || clamped >= compositionEndSec) {
+      return clamped;
+    }
+    return resolveNextAudiblePlaybackTime({
+      requestedTimeSec: clamped,
+      durationSec: playbackTransportDurationSec,
+      effectiveCutRegions: effectivePlaybackCutRegions,
+      transcriptSegments: playbackTranscriptSegments,
+    });
+  }, [
+    compositionOffsetSec,
+    effectivePlaybackCutRegions,
+    playbackTranscriptSegments,
+    playbackTransportDurationSec,
+    transcriptDurationSec,
+  ]);
   const audioCutSelection = useMemo(() => normalizeAudioCutSelection({
     selection: {
       startSec: audioCutSelectionStartSec,
@@ -2250,6 +2274,7 @@ function HammerWorkspaceShellWithContext(
     playbackTransportDurationSec,
     playheadBoundaryTimesSec,
     activeTranscriptTargetRange: transportTranscriptTargetRange as HammerPlaybackTargetRange | null,
+    resolveAudibleTransportTime,
     resolveMediaTimeForTransportTime: resolveActiveMediaTimeForTransportTime,
     resolveTransportTimeForMediaTime: resolveTransportTimeForActiveMediaTime,
     playbackMediaSrc: effectivePlaybackMediaSrc,
