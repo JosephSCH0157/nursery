@@ -1,5 +1,10 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
-import { computeRemovalTrimRange } from "./hammerCleanupExecution";
+import type { HammerAudioPolishAnalysisWaveformProxy } from "../persistence/hammerPersistenceContract";
+import { computeTranscriptCutRange } from "./hammerCleanupExecution";
+import {
+  resolveSmartCutRange,
+  type HammerSmartCutEditKind,
+} from "./hammerWaveformCutRefinement";
 
 export type HammerDeleteOnlyTranscriptDirection = "backward" | "forward" | "selection";
 
@@ -137,6 +142,8 @@ export function deriveDeleteOnlyTranscriptCutSelection(args: {
   segment: HammerTranscriptSegment;
   deletion: HammerDeleteOnlyTranscriptDeletion;
   audioDurationSec?: number;
+  waveformProxy?: HammerAudioPolishAnalysisWaveformProxy | null;
+  editKind?: HammerSmartCutEditKind;
 }): HammerDeleteOnlyTranscriptCutSelection | null {
   const durationSec = Number(args.segment.end_sec) - Number(args.segment.start_sec);
   if (!Number.isFinite(durationSec) || durationSec <= MIN_DURATION_SEC) {
@@ -156,18 +163,26 @@ export function deriveDeleteOnlyTranscriptCutSelection(args: {
     return null;
   }
 
-  const cut = computeRemovalTrimRange({
+  const baseRange = computeTranscriptCutRange({
     wordStartSec: startSec,
     wordEndSec: endSec,
     audioDurationSec: Number(args.audioDurationSec ?? args.segment.end_sec),
   });
-  if (!cut) {
+  if (!baseRange) {
     return null;
   }
 
+  const resolved = resolveSmartCutRange({
+    baseRange,
+    editKind: args.editKind ?? "delete_only",
+    waveformProxy: args.waveformProxy ?? null,
+    previousProtectedBoundarySec: startSec,
+    nextProtectedBoundarySec: endSec,
+  });
+
   return {
-    startSec: cut.startSec,
-    endSec: cut.endSec,
+    startSec: resolved.range.startSec,
+    endSec: resolved.range.endSec,
   };
 }
 

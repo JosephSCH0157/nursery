@@ -24,6 +24,7 @@ import { migrateLegacyPlacementRecordsToTimelineState } from "../visuals/model/h
 import { hammerVisualTimelineReducer } from "../visuals/state/hammerVisualReducer";
 import type { HammerHistoryKind, HammerEditorStateSerializable } from "./hammerWorkspaceHistory";
 import type { HammerCleanupPreview } from "./hammerCleanupTools";
+import type { HammerAudioPolishAnalysisWaveformProxy } from "../persistence/hammerPersistenceContract";
 import {
   cutSegmentRangeAndRipple,
   remapPlacementForRippleDelete,
@@ -82,6 +83,7 @@ export type HammerAuthorityOp =
 
 export interface HammerCompositionMutationContext {
   playbackDurationSec: number;
+  waveformProxy?: HammerAudioPolishAnalysisWaveformProxy | null;
   authorityFallback: {
     graphId: string;
     workspaceId: string;
@@ -394,6 +396,7 @@ export function applyTranscriptCleanupPreviewComposition(args: {
     durationSec: args.context.playbackDurationSec,
     padBeforeSec: HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
     padAfterSec: HAMMER_FILLER_CUT_PAD_AFTER_SEC,
+    waveformProxy: args.context.waveformProxy ?? null,
   });
   const selected = synced.selectedSegmentId
     ? synced.segments.find((segment) => segment.segment_id === synced.selectedSegmentId) ?? null

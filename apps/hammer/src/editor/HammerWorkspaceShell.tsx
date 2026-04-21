@@ -3255,6 +3255,7 @@ function HammerWorkspaceShellWithContext(
             op,
             context: {
               playbackDurationSec: playbackTransportDurationSec,
+              waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
               authorityFallback: {
                 graphId: `${launchContext.workpiece_id}:authority`,
                 workspaceId: launchContext.workspace_id,
@@ -3277,6 +3278,7 @@ function HammerWorkspaceShellWithContext(
             op,
             context: {
               playbackDurationSec: playbackTransportDurationSec,
+              waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
               authorityFallback: {
                 graphId: `${launchContext.workpiece_id}:authority`,
                 workspaceId: launchContext.workspace_id,
@@ -3299,6 +3301,7 @@ function HammerWorkspaceShellWithContext(
             op,
             context: {
               playbackDurationSec: playbackTransportDurationSec,
+              waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
               authorityFallback: {
                 graphId: `${launchContext.workpiece_id}:authority`,
                 workspaceId: launchContext.workspace_id,
@@ -3321,6 +3324,7 @@ function HammerWorkspaceShellWithContext(
             op,
             context: {
               playbackDurationSec: playbackTransportDurationSec,
+              waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
               authorityFallback: {
                 graphId: `${launchContext.workpiece_id}:authority`,
                 workspaceId: launchContext.workspace_id,
@@ -3343,6 +3347,7 @@ function HammerWorkspaceShellWithContext(
             op,
             context: {
               playbackDurationSec: playbackTransportDurationSec,
+              waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
               authorityFallback: {
                 graphId: `${launchContext.workpiece_id}:authority`,
                 workspaceId: launchContext.workspace_id,
@@ -4103,6 +4108,7 @@ function HammerWorkspaceShellWithContext(
       beforeSegments: beforeState.transcriptSegments,
       afterSegments: updatedSegments,
       durationSec: playbackTransportDurationSec,
+      waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
     });
     const beforeAudioOpCount = beforeState.audioEdit?.operations?.length ?? 0;
 
@@ -4117,6 +4123,7 @@ function HammerWorkspaceShellWithContext(
           beforeSegments: before.transcriptSegments,
           afterSegments: nextSegments,
           durationSec: playbackTransportDurationSec,
+          waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
         });
         return {
           ...before,
@@ -4745,6 +4752,8 @@ function HammerWorkspaceShellWithContext(
             segment,
             deletion,
             audioDurationSec: playbackTransportDurationSec,
+            waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
+            editKind: card.kind === "fillers" ? "filler" : "retake",
           });
           if (!cutSelection) return [];
           return [{

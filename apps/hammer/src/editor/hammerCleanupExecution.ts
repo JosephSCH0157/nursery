@@ -1,6 +1,11 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import { diffTranscriptWords } from "../lib/hammerWordDiff";
 import type { HammerDeadAirAnalysis } from "./hammerDeadAirClosure";
+import type { HammerAudioPolishAnalysisWaveformProxy } from "../persistence/hammerPersistenceContract";
+import {
+  resolveSmartCutRange,
+  type HammerSmartCutEditKind,
+} from "./hammerWaveformCutRefinement";
 
 export type HammerAudioCutSelection = {
   startSec: number;
@@ -9,7 +14,7 @@ export type HammerAudioCutSelection = {
 
 export const HAMMER_FILLER_CUT_PAD_BEFORE_SEC = 0.015;
 export const HAMMER_FILLER_CUT_PAD_AFTER_SEC = 0.03;
-export const HAMMER_FILLER_CUT_SEAM_FADE_SEC = 0.01;
+export const HAMMER_FILLER_CUT_SEAM_FADE_SEC = 0.006;
 
 const MIN_CUT_SEC = 0.0001;
 const MERGE_EPSILON_SEC = 0.001;
@@ -65,6 +70,37 @@ export function computeRemovalTrimRange(args: {
     startSec: trimStartSec,
     endSec: trimEndSec,
   };
+}
+
+export function computeTranscriptCutRange(args: {
+  wordStartSec: number;
+  wordEndSec: number;
+  audioDurationSec: number;
+  basePreBufferSec?: number;
+  basePostBufferSec?: number;
+}): HammerAudioCutSelection | null {
+  return computeRemovalTrimRange(args);
+}
+
+function resolveCleanupEditKindFromDeletedWords(words: string[]): HammerSmartCutEditKind {
+  const deletedText = words.join(" ").toLowerCase();
+  if (!deletedText.trim()) return "delete_only";
+
+  if (/\b(?:um|uh|er|ah|you know|i mean|kind of|sort of|like)\b/i.test(deletedText)) {
+    return "filler";
+  }
+  if (/\b(?:redo|retake|start over|scratch that|take again|one more time|restart)\b/i.test(deletedText)) {
+    return "retake";
+  }
+  return "delete_only";
+}
+
+function maybeLogSmartCutDebug(payload: Record<string, unknown>): void {
+  if (!(globalThis as { __forgeHammerDebugSmartCut__?: boolean }).__forgeHammerDebugSmartCut__) {
+    return;
+  }
+  // eslint-disable-next-line no-console
+  console.debug("[hammer-smart-cut]", payload);
 }
 
 function clampToDuration(timeSec: number, durationSec: number): number {
@@ -215,6 +251,7 @@ export function deriveAudioCutsForSubtractiveTextEdits(args: {
   durationSec: number;
   padBeforeSec?: number;
   padAfterSec?: number;
+  waveformProxy?: HammerAudioPolishAnalysisWaveformProxy | null;
 }): HammerAudioCutSelection[] {
   if (!Number.isFinite(args.durationSec) || args.durationSec <= 0) return [];
 
@@ -249,15 +286,30 @@ export function deriveAudioCutsForSubtractiveTextEdits(args: {
 
       const startRatio = beforeWordCursor / beforeWordCount;
       const endRatio = (beforeWordCursor + op.words.length) / beforeWordCount;
-      const cut = computeRemovalTrimRange({
-        wordStartSec: Number(before.start_sec) + (segmentDurationSec * startRatio),
-        wordEndSec: Number(before.start_sec) + (segmentDurationSec * endRatio),
+      const wordStartSec = Number(before.start_sec) + (segmentDurationSec * startRatio);
+      const wordEndSec = Number(before.start_sec) + (segmentDurationSec * endRatio);
+      const baseRange = computeTranscriptCutRange({
+        wordStartSec,
+        wordEndSec,
         audioDurationSec: args.durationSec,
         basePreBufferSec: args.padBeforeSec,
         basePostBufferSec: args.padAfterSec,
       });
-      if (cut) {
-        selections.push(cut);
+      if (baseRange) {
+        const editKind = resolveCleanupEditKindFromDeletedWords(op.words);
+        const resolved = resolveSmartCutRange({
+          baseRange,
+          editKind,
+          waveformProxy: args.waveformProxy ?? null,
+          previousProtectedBoundarySec: wordStartSec,
+          nextProtectedBoundarySec: wordEndSec,
+        });
+        maybeLogSmartCutDebug({
+          source: "deriveAudioCutsForSubtractiveTextEdits",
+          segmentId: before.segment_id,
+          ...resolved.debug,
+        });
+        selections.push(resolved.range);
       }
       beforeWordCursor += op.words.length;
     }

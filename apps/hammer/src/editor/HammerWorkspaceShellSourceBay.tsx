@@ -140,6 +140,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
     }>;
   } | null) => void) | undefined;
   const setTranscriptTimingHint = ctx.setTranscriptTimingHint as (message: string | null) => void;
+  const waveformProxy = ctx.editableAudioPolish?.analysis?.waveform_proxy ?? null;
 
   const [inlineEditHint, setInlineEditHint] = useState<string | null>(null);
   const hintTimerRef = useRef<number | null>(null);
@@ -376,6 +377,8 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
       segment,
       deletion,
       audioDurationSec: playbackTransportDurationSec,
+      waveformProxy,
+      editKind: "delete_only",
     });
     if (!cutSelection) {
       showInlineEditHint("Hammer could not map that delete to a timed playback span.");
