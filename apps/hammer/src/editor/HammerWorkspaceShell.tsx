@@ -55,9 +55,7 @@ import {
   DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC,
   SMALL_PLAYHEAD_NUDGE_SEC,
   moveSegmentTiming,
-  resolveAdjacentJumpPointTime,
   resolveAdjacentSegmentSelection,
-  resolveFocusAfterPlayheadChange,
   resolvePreviewLabel,
   resolvePlayheadSegment,
   resolveTranscriptSegmentRange,
@@ -87,7 +85,6 @@ import {
   deriveAudioCutsForDeadAirClosure,
   type HammerAudioCutSelection,
   deriveAudioCutsForSubtractiveTextEdits,
-  HAMMER_FILLER_CUT_SEAM_FADE_SEC,
 } from "./hammerCleanupExecution";
 import {
   applyTranscriptCleanupPreviewComposition,
@@ -213,6 +210,15 @@ import {
   resolveSelectionFromVisual,
   type HammerLinkedSelection,
 } from "./hammerLinkedSelection";
+import {
+  SCRUB_RATE_OPTIONS,
+  SCRUB_SEEK_THRESHOLD_SEC,
+  type HammerPlaybackTargetRange,
+  type HammerPlaybackWindow,
+  type HammerScrubRate,
+  type HammerTimelineMarker,
+} from "./hammerWorkspaceShellPlaybackUtils";
+import { useHammerWorkspaceShellPlayback } from "./useHammerWorkspaceShellPlayback";
 import { useHammerWorkspaceShellShortcuts } from "./useHammerWorkspaceShellShortcuts";
 import { useHammerWorkspaceShellSelection } from "./useHammerWorkspaceShellSelection";
 import {
@@ -375,15 +381,6 @@ const HISTORY_MAX_SIZE = 100;
 const HISTORY_PERSIST_DEBOUNCE_MS = 900;
 const TEXT_EDIT_COALESCE_MS = 1500;
 const PLAYHEAD_SNAP_TOLERANCE_SEC = DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC;
-const PRE_ROLL_SEC = 2;
-const POST_ROLL_SEC = 1;
-const SCRUB_SEEK_THRESHOLD_SEC = 0.05;
-const VIDEO_HARD_SEEK_THRESHOLD_SEC = 0.35;
-const VIDEO_DRIFT_RATE_K = 0.15;
-const VIDEO_PLAYBACK_RATE_MIN = 0.97;
-const VIDEO_PLAYBACK_RATE_MAX = 1.03;
-const VIDEO_HARD_SEEK_COOLDOWN_MS = 2000;
-const PLAYHEAD_WINDOW_EPSILON_SEC = 0.001;
 const MIN_IMAGE_PLACEMENT_DURATION_SEC = 0.5;
 const IMAGE_PLACEMENT_TIME_PRECISION = 100;
 const IMAGE_PLACEMENT_FINE_STEP_SEC = 0.01;
@@ -412,14 +409,8 @@ function snapImagePlacementTime(value: number, stepSec: number): number {
   if (!Number.isFinite(stepSec) || stepSec <= 0) return roundImagePlacementTime(value);
   return roundImagePlacementTime(Math.round(value / stepSec) * stepSec);
 }
-const SCRUB_RATE_OPTIONS = [1, 0.75, 0.5] as const;
 const TIMELINE_ZOOM_LEVELS = [100, 125, 150, 200, 300] as const;
 const CAPTION_MIN_BLOCK_DURATION_SEC = 0.05;
-type HammerPlaybackAuthorityWindow = Window & typeof globalThis & {
-  __forgeHammerActivePreviewOwnerId__?: string;
-  __forgeHammerActivePreviewAudio__?: HTMLMediaElement;
-  __forgeHammerIsPlaybackActive__?: boolean;
-};
 const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
   preview_supported_operation_types: ["delete", "mute", "trim", "split", "merge", "hard_cut", "apply_look", "apply_exposure", "apply_background_effect"],
   export_supported_operation_types: [
@@ -460,20 +451,6 @@ const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
     "podcast_master_pass",
   ],
 };
-
-type HammerPlaybackWindowMode = "loop" | "roll";
-type HammerPlaybackWindow = {
-  mode: HammerPlaybackWindowMode;
-  startSec: number;
-  endSec: number;
-  label: string;
-};
-type HammerTimelineMarker = {
-  id: string;
-  label: string;
-  timeSec: number;
-};
-type HammerScrubRate = (typeof SCRUB_RATE_OPTIONS)[number];
 
 type HammerWorkspaceShellProps = {
   launchContext?: HammerLaunchContext;
@@ -957,13 +934,6 @@ function createVisualPlacementId(): string {
   return `placement:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function createTimelineMarkerId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return `marker:${crypto.randomUUID()}`;
-  }
-  return `marker:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
-}
-
 const DEFAULT_IMAGE_PLACEMENT_TRANSFORM: HammerImagePlacementTransform = {
   ...HAMMER_VISUAL_DEFAULT_PERCENT_BOX,
 };
@@ -972,17 +942,7 @@ const DEFAULT_VISUAL_PLACEMENT_GEOMETRY: HammerVisualGeometry = {
   ...HAMMER_VISUAL_DEFAULT_GEOMETRY,
 };
 
-function clampImagePlacementTransform(transform: HammerImagePlacementTransform): HammerImagePlacementTransform {
-  return geometryToPercentBox(percentBoxToGeometry(transform, "top_left"));
-}
-
-function resolvePlacementGeometry(
-  placement: HammerVisualPlacementRecord | null | undefined,
-): HammerVisualGeometry {
-  const candidate = placement?.overlay_geometry ?? null;
-  if (!candidate) {
-    return DEFAULT_VISUAL_PLACEMENT_GEOMETRY;
-  }
+function normalizePlacementGeometryCandidate(candidate: Partial<HammerVisualGeometry>): HammerVisualGeometry {
   const x = Number(candidate.x);
   const y = Number(candidate.y);
   const width = Number(candidate.width);
@@ -1005,6 +965,16 @@ function geometryToTransform(geometry: HammerVisualGeometry): HammerImagePlaceme
 
 function transformToGeometry(transform: HammerImagePlacementTransform): HammerVisualGeometry {
   return percentBoxToGeometry(transform, "top_left");
+}
+
+function resolvePlacementGeometry(
+  placement: Pick<HammerVisualPlacementRecord, "overlay_geometry"> | null | undefined,
+): HammerVisualGeometry {
+  return normalizePlacementGeometryCandidate(placement?.overlay_geometry ?? DEFAULT_VISUAL_PLACEMENT_GEOMETRY);
+}
+
+function clampImagePlacementTransform(transform: HammerImagePlacementTransform): HammerImagePlacementTransform {
+  return geometryToTransform(clampNormalizedGeometry(transformToGeometry(transform)));
 }
 
 function resolvePlacementAnimationPreset(
@@ -1519,8 +1489,6 @@ function HammerWorkspaceShellWithContext(
     visualBackgroundEffectCanvasRef.current = canvas;
   }, []);
   const workspaceShellRef = useRef<HTMLElement | null>(null);
-  const lastPlaybackMediaSrcRef = useRef<string | null>(null);
-  const lastPreviewVideoSrcRef = useRef<string | null>(null);
   const captionEditorRefs = useRef(new Map<string, HTMLTextAreaElement>());
   const lastHandledHandoffTokenRef = useRef<number | null>(null);
   const transcriptLineRefs = useRef(new Map<string, HTMLElement>());
@@ -1578,47 +1546,6 @@ function HammerWorkspaceShellWithContext(
     setAudioCutSelectionEndSec(null);
     setDismissedSilenceSuggestionIds(new Set());
   }, [launchContext.workpiece_id]);
-
-  const seekPreviewAudioWithOptionalSeamFade = useCallback((args: {
-    audio: HTMLVideoElement;
-    targetTime: number;
-    applySeamFade: boolean;
-  }): void => {
-    const targetTime = args.targetTime;
-    if (!Number.isFinite(targetTime) || targetTime < 0) {
-      args.audio.currentTime = 0;
-      return;
-    }
-
-    if (!args.applySeamFade || args.audio.muted || args.audio.volume <= 0) {
-      args.audio.currentTime = targetTime;
-      return;
-    }
-
-    const restoreVolume = args.audio.volume;
-    const ref = cutSeekFadeRef.current;
-    ref.token += 1;
-    const token = ref.token;
-    if (ref.timerId != null) {
-      window.clearTimeout(ref.timerId);
-      ref.timerId = null;
-    }
-
-    // Use a near-silent volume rather than exactly 0, so downstream "restore volume if 0" guards don't break the seam fade.
-    const nearSilent = 0.0001;
-    args.audio.volume = nearSilent;
-    args.audio.currentTime = targetTime;
-
-    ref.timerId = window.setTimeout(() => {
-      if (cutSeekFadeRef.current.token !== token) return;
-      const audio = args.audio;
-      if (!audio) return;
-      if (!audio.muted) {
-        audio.volume = restoreVolume;
-      }
-      cutSeekFadeRef.current.timerId = null;
-    }, Math.max(0, Math.round(HAMMER_FILLER_CUT_SEAM_FADE_SEC * 1000)));
-  }, [HAMMER_FILLER_CUT_SEAM_FADE_SEC]);
 
   useEffect(() => {
     setEditableAudioPolish((current) => {
@@ -1881,31 +1808,6 @@ function HammerWorkspaceShellWithContext(
     });
   }, []);
 
-  const claimGlobalPlaybackAuthority = useCallback((previewAudio: HTMLMediaElement): void => {
-    const runtimeWindow = window as HammerPlaybackAuthorityWindow;
-    const activePreviewAudio = runtimeWindow.__forgeHammerActivePreviewAudio__;
-    if (activePreviewAudio && activePreviewAudio !== previewAudio) {
-      activePreviewAudio.pause();
-      if (!activePreviewAudio.ended) {
-        activePreviewAudio.currentTime = 0;
-      }
-    }
-    runtimeWindow.__forgeHammerActivePreviewAudio__ = previewAudio;
-    runtimeWindow.__forgeHammerActivePreviewOwnerId__ = playbackOwnerIdRef.current;
-    pauseAuxiliaryMediaPlayback();
-  }, [pauseAuxiliaryMediaPlayback]);
-
-  const releaseGlobalPlaybackAuthority = useCallback((previewAudio: HTMLMediaElement | null): void => {
-    const runtimeWindow = window as HammerPlaybackAuthorityWindow;
-    if (
-      runtimeWindow.__forgeHammerActivePreviewOwnerId__ === playbackOwnerIdRef.current
-      && runtimeWindow.__forgeHammerActivePreviewAudio__ === previewAudio
-    ) {
-      runtimeWindow.__forgeHammerActivePreviewAudio__ = undefined;
-      runtimeWindow.__forgeHammerActivePreviewOwnerId__ = undefined;
-    }
-  }, []);
-
   const previewMode: HammerPreviewMode = launchContext.preview_mode ?? launchContext.edit_plan?.preview_mode ?? "edit-aware";
   const visualPolishPreviewActive = activeTool === "video" && activeVisualTool === "polish";
   const mediaRef = useMemo(
@@ -2082,16 +1984,6 @@ function HammerWorkspaceShellWithContext(
     }
     return null;
   }, [selectedSegment, transcriptSelectionRange]);
-  const isLoopPlaybackActive = playbackWindow?.mode === "loop";
-  const playbackModeLabel = isScrubbing
-    ? "Scrubbing"
-    : playbackWindow?.mode === "loop"
-    ? `Looping ${playbackWindow.label}`
-    : playbackWindow?.mode === "roll"
-    ? `Auditioning ${playbackWindow.label}`
-    : isPlaybackActive
-    ? "Playing"
-    : "Paused";
   const activeLookPreset = useMemo(
     () => resolveActiveLookPreset(editableEditorialAuthorityGraph),
     [editableEditorialAuthorityGraph],
@@ -2141,6 +2033,7 @@ function HammerWorkspaceShellWithContext(
   }, [imagePlacementTransforms]);
   const playheadSegment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
   const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments);
+  const timelineDurationSec = Math.max(transcriptDurationSec, 1);
   const playbackTransportDurationSec = transcriptDurationSec;
   const effectivePlaybackCutRegions = useMemo(
     () => getEffectiveCutRegions(editableAudioPolish?.audio_edit ?? null, playbackTransportDurationSec),
@@ -2228,148 +2121,58 @@ function HammerWorkspaceShellWithContext(
     () => resolveTimelineBoundaryTimes(editableTranscriptSegments),
     [editableTranscriptSegments],
   );
-  const resolveAudibleSeekTarget = useCallback((requestedTimeSec: number): number | null => (
-    resolveNextAudiblePlaybackTime({
-      requestedTimeSec,
-      durationSec: playbackTransportDurationSec,
-      effectiveCutRegions: effectivePlaybackCutRegions,
-      transcriptSegments: editableTranscriptSegments,
-    })
-  ), [editableTranscriptSegments, effectivePlaybackCutRegions, playbackTransportDurationSec]);
-  useEffect(() => {
-    if (playbackTransportDurationSec <= 0) return;
-
-    const audibleTarget = resolveAudibleSeekTarget(playheadSec);
-    if (audibleTarget == null) {
-      const terminalPlayheadSec = roundToTenth(playbackTransportDurationSec);
-      if (Math.abs(playheadSec - terminalPlayheadSec) >= SCRUB_SEEK_THRESHOLD_SEC) {
-        setPlayheadSec(terminalPlayheadSec);
-      }
-    if (
-      previewAudioRef.current
-      && Math.abs(previewAudioRef.current.currentTime - playbackTransportDurationSec) > SCRUB_SEEK_THRESHOLD_SEC
-    ) {
-      previewAudioRef.current.currentTime = playbackTransportDurationSec;
-    }
-      if (isPlaybackActive) {
-        setIsPlaybackActive(false);
-      }
-      if (playbackWindow?.mode === "roll") {
-        setPlaybackWindow(null);
-      }
-      return;
-    }
-
-    if (Math.abs(playheadSec - audibleTarget) < SCRUB_SEEK_THRESHOLD_SEC) {
-      return;
-    }
-
-    const nextPlayheadSec = roundToTenth(audibleTarget);
-    setPlayheadSec(nextPlayheadSec);
-    if (
-      previewAudioRef.current
-      && Math.abs(previewAudioRef.current.currentTime - audibleTarget) > SCRUB_SEEK_THRESHOLD_SEC
-    ) {
-      previewAudioRef.current.currentTime = audibleTarget;
-    }
-  }, [
-    effectivePlaybackCutRegions,
-    isPlaybackActive,
-    playbackTransportDurationSec,
-    playbackWindow?.mode,
-    playheadSec,
-    resolveAudibleSeekTarget,
-  ]);
-  const resolvePlaybackTransportProgress = useCallback((requestedTimeSec: number): {
-    nextPlayheadSec: number;
-    shouldLoop: boolean;
-    shouldStop: boolean;
-    shouldSyncMediaTime: boolean;
-  } => {
-    if (playbackTransportDurationSec <= 0) {
-      return {
-        nextPlayheadSec: 0,
-        shouldLoop: false,
-        shouldStop: true,
-        shouldSyncMediaTime: false,
-      };
-    }
-
-    let candidate = Math.max(0, Math.min(playbackTransportDurationSec, requestedTimeSec));
-    let shouldLoop = false;
-    let shouldSyncMediaTime = false;
-    const maxIterations = Math.max(2, effectivePlaybackCutRegions.length + 4);
-
-    for (let index = 0; index < maxIterations; index += 1) {
-      const audibleTarget = resolveNextAudiblePlaybackTime({
-        requestedTimeSec: candidate,
-        durationSec: playbackTransportDurationSec,
-        effectiveCutRegions: effectivePlaybackCutRegions,
-        transcriptSegments: editableTranscriptSegments,
-      });
-
-      if (audibleTarget == null) {
-        return {
-          nextPlayheadSec: playbackTransportDurationSec,
-          shouldLoop: false,
-          shouldStop: true,
-          shouldSyncMediaTime: true,
-        };
-      }
-
-      if (Math.abs(audibleTarget - candidate) > PLAYHEAD_WINDOW_EPSILON_SEC) {
-        shouldSyncMediaTime = true;
-      }
-
-      const windowProgress = resolvePlaybackWindowProgress(audibleTarget);
-      if (windowProgress.shouldStop) {
-        return {
-          nextPlayheadSec: windowProgress.nextPlayheadSec,
-          shouldLoop: false,
-          shouldStop: true,
-          shouldSyncMediaTime: shouldSyncMediaTime
-            || Math.abs(windowProgress.nextPlayheadSec - audibleTarget) > PLAYHEAD_WINDOW_EPSILON_SEC,
-        };
-      }
-
-      if (
-        windowProgress.shouldLoop
-        || Math.abs(windowProgress.nextPlayheadSec - audibleTarget) > PLAYHEAD_WINDOW_EPSILON_SEC
-      ) {
-        candidate = windowProgress.nextPlayheadSec;
-        shouldLoop = shouldLoop || windowProgress.shouldLoop;
-        shouldSyncMediaTime = true;
-        continue;
-      }
-
-      return {
-        nextPlayheadSec: audibleTarget,
-        shouldLoop,
-        shouldStop: false,
-        shouldSyncMediaTime,
-      };
-    }
-
-    return {
-      nextPlayheadSec: candidate,
-      shouldLoop,
-      shouldStop: false,
-      shouldSyncMediaTime,
-    };
-  }, [
+  const {
+    isLoopPlaybackActive,
+    playbackModeLabel,
+    sortedTimelineMarkers,
+    handlePlaybackProgress,
+    togglePlayback,
+    seekPlayheadToTime,
+    jumpToSelectionBoundary,
+    jumpToEditPoint,
+    addMarkerAtPlayhead,
+    removeMarker,
+    jumpToMarker,
+    jumpToMarkerById,
+    toggleSelectionLoopPlayback,
+    playSelectionWithRoll,
+    beginTimelineScrub,
+    nudgePlayhead,
+  } = useHammerWorkspaceShellPlayback({
     editableTranscriptSegments,
     effectivePlaybackCutRegions,
+    timelineDurationSec,
     playbackTransportDurationSec,
+    playheadBoundaryTimesSec,
+    activeTranscriptTargetRange: activeTranscriptTargetRange as HammerPlaybackTargetRange | null,
+    playbackMediaSrc,
+    previewVideoSrc,
+    visualPolishPreviewActive,
+    focusOverride,
+    playheadSec,
+    isPlaybackActive,
     playbackWindow,
-  ]);
-  const sortedTimelineMarkers = useMemo(
-    () => [...timelineMarkers].sort((left, right) => left.timeSec - right.timeSec),
-    [timelineMarkers],
-  );
-  const markerTimesSec = useMemo(
-    () => sortedTimelineMarkers.map((marker) => marker.timeSec),
-    [sortedTimelineMarkers],
-  );
+    isScrubbing,
+    timelineMarkers,
+    scrubRate,
+    selectionOriginRef,
+    previewAudioRef,
+    previewVideoRef,
+    previewVideoHardSeekAtMsRef,
+    cutSeekFadeRef,
+    scrubRectRef,
+    scrubAutoPlayRef,
+    scrubReturnToPausedRef,
+    playbackOwnerIdRef,
+    setPlayheadSec,
+    setIsPlaybackActive,
+    setPlaybackWindow,
+    setIsScrubbing,
+    setTimelineMarkers,
+    setFocusOverride,
+    setTranscriptTimingHint,
+    pauseAuxiliaryMediaPlayback,
+  });
   const visualAssetsById = useMemo(() => {
     const byId = new Map<string, NonNullable<HammerVisualTimelineState["assets"]>[number]>();
     for (const asset of editableVisualTimeline?.assets ?? []) {
@@ -2928,7 +2731,6 @@ function HammerWorkspaceShellWithContext(
     () => (editableVisualPlacements?.placements ?? []).find((item) => item.entry_id === PACKAGING_LOGO_ENTRY_ID) ?? null,
     [editableVisualPlacements?.placements],
   );
-  const timelineDurationSec = Math.max(transcriptDurationSec, 1);
   const timelineTicks = useMemo(() => {
     const tickCount = 10;
     return Array.from({ length: tickCount + 1 }).map((_, index) => {
@@ -4445,237 +4247,6 @@ function HammerWorkspaceShellWithContext(
   ]);
 
   useEffect(() => {
-    const previewAudio = previewAudioRef.current;
-    if (!previewAudio) return;
-    const previewVideo = previewVideoRef.current;
-    const runtimeWindow = window as HammerPlaybackAuthorityWindow;
-    const activeOwnerId = runtimeWindow.__forgeHammerActivePreviewOwnerId__;
-    if (isPlaybackActive && activeOwnerId && activeOwnerId !== playbackOwnerIdRef.current) {
-      previewAudio.pause();
-      setIsPlaybackActive(false);
-      return;
-    }
-
-    const srcChanged = lastPlaybackMediaSrcRef.current !== playbackMediaSrc;
-    if (srcChanged) {
-      lastPlaybackMediaSrcRef.current = playbackMediaSrc;
-      previewAudio.pause();
-    }
-
-    const previewVideoSrcChanged = lastPreviewVideoSrcRef.current !== previewVideoSrc;
-    if (previewVideoSrcChanged) {
-      lastPreviewVideoSrcRef.current = previewVideoSrc;
-      previewVideo?.pause();
-      if (previewVideo && previewVideoSrc) {
-        previewVideo.load();
-      }
-    }
-
-    if (!playbackMediaSrc) {
-      previewAudio.pause();
-      previewAudio.removeAttribute("src");
-      previewAudio.load();
-      if (isPlaybackActive) setIsPlaybackActive(false);
-      return;
-    }
-
-    if (previewVideo && !previewVideoSrc) {
-      previewVideo.pause();
-      previewVideo.removeAttribute("src");
-      previewVideo.load();
-    }
-
-    const transportProgress = isPlaybackActive
-      ? resolvePlaybackTransportProgress(playheadSec)
-      : {
-        nextPlayheadSec: resolveAudibleSeekTarget(playheadSec) ?? playbackTransportDurationSec,
-        shouldLoop: false,
-        shouldStop: false,
-        shouldSyncMediaTime: false,
-      };
-    const targetTime = Math.max(
-      0,
-      Math.min(
-        transportProgress.nextPlayheadSec,
-        playbackTransportDurationSec > 0 ? playbackTransportDurationSec : transportProgress.nextPlayheadSec,
-      ),
-    );
-    if (Math.abs(playheadSec - targetTime) >= SCRUB_SEEK_THRESHOLD_SEC) {
-      setPlayheadSec(roundToTenth(targetTime));
-    }
-    const shouldSynchronizeCurrentTime = srcChanged || !isPlaybackActive || isScrubbing || transportProgress.shouldSyncMediaTime;
-    if (shouldSynchronizeCurrentTime && Math.abs(previewAudio.currentTime - targetTime) > SCRUB_SEEK_THRESHOLD_SEC) {
-      seekPreviewAudioWithOptionalSeamFade({
-        audio: previewAudio,
-        targetTime,
-        applySeamFade: transportProgress.shouldSyncMediaTime,
-      });
-    }
-    if (previewVideoSrc && previewVideo) {
-      previewVideo.muted = true;
-      previewVideo.volume = 0;
-
-      const allowAdaptiveRateSync =
-        isPlaybackActive
-        && !isScrubbing
-        && !srcChanged
-        && !previewVideoSrcChanged
-        && !transportProgress.shouldSyncMediaTime;
-
-      if (allowAdaptiveRateSync) {
-        const driftSec = previewVideo.currentTime - previewAudio.currentTime;
-        if (Number.isFinite(driftSec)) {
-          if (Math.abs(driftSec) > VIDEO_HARD_SEEK_THRESHOLD_SEC) {
-            const nowMs = Date.now();
-            const elapsed = nowMs - previewVideoHardSeekAtMsRef.current;
-            if (elapsed >= VIDEO_HARD_SEEK_COOLDOWN_MS) {
-              previewVideoHardSeekAtMsRef.current = nowMs;
-              previewVideo.currentTime = previewAudio.currentTime;
-            }
-            previewVideo.playbackRate = previewAudio.playbackRate;
-          } else {
-            const correction = clampNumber(1 - (driftSec * VIDEO_DRIFT_RATE_K), VIDEO_PLAYBACK_RATE_MIN, VIDEO_PLAYBACK_RATE_MAX);
-            previewVideo.playbackRate = previewAudio.playbackRate * correction;
-          }
-        } else {
-          previewVideo.playbackRate = previewAudio.playbackRate;
-        }
-      } else {
-        previewVideo.playbackRate = previewAudio.playbackRate;
-        if (shouldSynchronizeCurrentTime && Math.abs(previewVideo.currentTime - targetTime) > SCRUB_SEEK_THRESHOLD_SEC) {
-          previewVideo.currentTime = targetTime;
-        }
-      }
-    }
-
-    if (transportProgress.shouldStop) {
-      previewAudio.pause();
-      previewVideo?.pause();
-      if (isPlaybackActive) setIsPlaybackActive(false);
-      if (playbackWindow?.mode === "roll") {
-        setPlaybackWindow(null);
-      }
-      return;
-    }
-
-    if (!isPlaybackActive) {
-      previewAudio.pause();
-      if (visualPolishPreviewActive && previewVideo && previewVideoSrc && previewVideo.readyState < 2) {
-        previewVideo.load();
-      }
-      previewVideo?.pause();
-      return;
-    }
-
-    // Guard against stale mute state from cross-media coordination.
-    previewAudio.muted = false;
-    if (previewAudio.volume <= 0) {
-      previewAudio.volume = 1;
-    }
-    claimGlobalPlaybackAuthority(previewAudio);
-    if (previewAudio.paused) {
-      void previewAudio.play().catch(() => {
-        setIsPlaybackActive(false);
-      });
-    }
-
-    if (previewVideoSrc && previewVideo) {
-      previewVideo.muted = true;
-      previewVideo.volume = 0;
-      if (previewVideo.paused) {
-        void previewVideo.play().catch(() => {
-          // keep base video best-effort; audio continues as authority
-        });
-      }
-    }
-  }, [
-    claimGlobalPlaybackAuthority,
-    isPlaybackActive,
-    isScrubbing,
-    playbackMediaSrc,
-    previewVideoSrc,
-    playbackTransportDurationSec,
-    playheadSec,
-    playbackWindow,
-    visualPolishPreviewActive,
-    resolveAudibleSeekTarget,
-    resolvePlaybackTransportProgress,
-  ]);
-
-  useEffect(() => () => {
-    const previewAudio = previewAudioRef.current;
-    previewAudio?.pause();
-    releaseGlobalPlaybackAuthority(previewAudio);
-    pauseAuxiliaryMediaPlayback();
-  }, [pauseAuxiliaryMediaPlayback, releaseGlobalPlaybackAuthority]);
-
-  useEffect(() => () => {
-    const timerId = cutSeekFadeRef.current.timerId;
-    if (timerId != null) {
-      window.clearTimeout(timerId);
-      cutSeekFadeRef.current.timerId = null;
-    }
-    cutSeekFadeRef.current.token += 1;
-  }, []);
-
-  useEffect(() => {
-    if (isPlaybackActive) return;
-    releaseGlobalPlaybackAuthority(previewAudioRef.current);
-  }, [isPlaybackActive, releaseGlobalPlaybackAuthority]);
-
-  useEffect(() => {
-    const previewAudio = previewAudioRef.current;
-    if (!previewAudio) return;
-    previewAudio.playbackRate = isScrubbing ? scrubRate : 1;
-  }, [isScrubbing, scrubRate]);
-
-  useEffect(() => {
-    if (!isPlaybackActive) return;
-    if (transcriptDurationSec <= 0) {
-      setIsPlaybackActive(false);
-      return;
-    }
-    if (playbackMediaSrc) return;
-
-    const intervalId = window.setInterval(() => {
-      setPlayheadSec((current) => {
-        const next = Math.min(roundToTenth(current + SMALL_PLAYHEAD_NUDGE_SEC), transcriptDurationSec);
-        const transportProgress = resolvePlaybackTransportProgress(next);
-        if (transportProgress.shouldStop) {
-          window.clearInterval(intervalId);
-          setIsPlaybackActive(false);
-          if (playbackWindow?.mode === "roll") {
-            setPlaybackWindow(null);
-          }
-        }
-        if (!playbackWindow && transportProgress.nextPlayheadSec >= transcriptDurationSec) {
-          window.clearInterval(intervalId);
-          setIsPlaybackActive(false);
-        }
-        return roundToTenth(transportProgress.nextPlayheadSec);
-      });
-    }, 100);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [
-    isPlaybackActive,
-    playbackMediaSrc,
-    playbackWindow,
-    resolvePlaybackTransportProgress,
-    transcriptDurationSec,
-  ]);
-
-  useEffect(() => {
-    const runtimeWindow = window as HammerPlaybackAuthorityWindow;
-    runtimeWindow.__forgeHammerIsPlaybackActive__ = Boolean(isPlaybackActive);
-    return () => {
-      runtimeWindow.__forgeHammerIsPlaybackActive__ = false;
-    };
-  }, [isPlaybackActive]);
-
-  useEffect(() => {
     if (!selectedSegmentId) return;
     const selected = editableTranscriptSegments.find((segment) => segment.segment_id === selectedSegmentId);
     if (!selected) return;
@@ -4735,29 +4306,6 @@ function HammerWorkspaceShellWithContext(
     };
   }, [editableTranscriptSegments, selectedSegmentId, timelineDurationSec]);
 
-  useEffect(() => {
-    if (!isScrubbing) return;
-
-    const handleMouseMove = (event: globalThis.MouseEvent): void => {
-      if (event.buttons === 0) {
-        endTimelineScrub();
-        return;
-      }
-      seekPlayheadFromScrubClientX(event.clientX);
-    };
-
-    const handleMouseUp = (): void => {
-      endTimelineScrub();
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [isScrubbing]);
   useEffect(() => {
     if (!timelineImageDragState) return;
 
@@ -5392,25 +4940,6 @@ function HammerWorkspaceShellWithContext(
     });
   }
 
-  function seekPlayheadToTime(
-    nextTimeSec: number,
-    origin: "timeline" | "playhead" = "timeline",
-    options?: { snapToBoundary?: boolean },
-  ): void {
-    const clamped = Math.max(0, Math.min(timelineDurationSec, roundToTenth(nextTimeSec)));
-    const snapped = options?.snapToBoundary === false
-      ? clamped
-      : snapPlayheadToBoundary({
-        nextPlayheadSec: clamped,
-        boundaryTimesSec: playheadBoundaryTimesSec,
-        toleranceSec: PLAYHEAD_SNAP_TOLERANCE_SEC,
-      });
-    const audibleTarget = resolveAudibleSeekTarget(snapped);
-    selectionOriginRef.current = origin;
-    setPlayheadSec(roundToTenth(audibleTarget ?? playbackTransportDurationSec));
-    setFocusOverride(resolveFocusAfterPlayheadChange(focusOverride));
-  }
-
   function markAudioCutBoundary(boundary: "start" | "end"): void {
     if (playbackTransportDurationSec <= 0) return;
     const markerTimeSec = Math.max(0, Math.min(playbackTransportDurationSec, roundToTenth(playheadSec)));
@@ -5685,232 +5214,6 @@ function HammerWorkspaceShellWithContext(
     });
   }
 
-  function resolvePlaybackWindowProgress(nextTimeSec: number): {
-    nextPlayheadSec: number;
-    shouldLoop: boolean;
-    shouldStop: boolean;
-  } {
-    const clamped = Math.max(0, Math.min(timelineDurationSec, roundToTenth(nextTimeSec)));
-    if (!playbackWindow) {
-      return {
-        nextPlayheadSec: clamped,
-        shouldLoop: false,
-        shouldStop: false,
-      };
-    }
-
-    const windowStart = Math.max(0, Math.min(timelineDurationSec, roundToTenth(playbackWindow.startSec)));
-    const windowEnd = Math.max(windowStart, Math.min(timelineDurationSec, roundToTenth(playbackWindow.endSec)));
-    if (clamped < windowStart) {
-      return {
-        nextPlayheadSec: windowStart,
-        shouldLoop: false,
-        shouldStop: false,
-      };
-    }
-    if (clamped >= windowEnd) {
-      if (playbackWindow.mode === "loop") {
-        return {
-          nextPlayheadSec: windowStart,
-          shouldLoop: true,
-          shouldStop: false,
-        };
-      }
-      return {
-        nextPlayheadSec: windowEnd,
-        shouldLoop: false,
-        shouldStop: true,
-      };
-    }
-
-    return {
-      nextPlayheadSec: clamped,
-      shouldLoop: false,
-      shouldStop: false,
-    };
-  }
-
-  function resolveSelectionPlaybackRange(args: { preRollSec: number; postRollSec: number; labelPrefix: string }): HammerPlaybackWindow | null {
-    if (!activeTranscriptTargetRange) return null;
-    const startSec = Math.max(0, roundToTenth(activeTranscriptTargetRange.startSec - args.preRollSec));
-    const endSec = Math.min(timelineDurationSec, roundToTenth(activeTranscriptTargetRange.endSec + args.postRollSec));
-    if (endSec <= startSec) return null;
-    return {
-      mode: "roll",
-      startSec,
-      endSec,
-      label: `${args.labelPrefix} ${activeTranscriptTargetRange.label}`,
-    };
-  }
-
-  function jumpToSelectionBoundary(boundary: "start" | "end"): void {
-    if (!activeTranscriptTargetRange) {
-      setTranscriptTimingHint("Select one or more segments to jump to selection boundaries.");
-      return;
-    }
-    setTranscriptTimingHint(null);
-    seekPlayheadToTime(boundary === "start" ? activeTranscriptTargetRange.startSec : activeTranscriptTargetRange.endSec, "playhead");
-  }
-
-  function jumpToEditPoint(direction: "previous" | "next"): void {
-    if (playheadBoundaryTimesSec.length === 0) return;
-    const target = resolveAdjacentJumpPointTime({
-      jumpPointsSec: playheadBoundaryTimesSec,
-      playheadSec,
-      direction,
-    });
-    seekPlayheadToTime(target, "playhead");
-  }
-
-  function addMarkerAtPlayhead(): void {
-    const markerTimeSec = roundToTenth(playheadSec);
-    const markerAtTime = timelineMarkers.find((marker) => marker.timeSec === markerTimeSec) ?? null;
-    if (markerAtTime) {
-      setTranscriptTimingHint(`Marker already exists at ${markerTimeSec.toFixed(1)}s.`);
-      return;
-    }
-
-    setTimelineMarkers((current) => {
-      const nextIndex = current.length + 1;
-      return [
-        ...current,
-        {
-          id: createTimelineMarkerId(),
-          label: `M${nextIndex}`,
-          timeSec: markerTimeSec,
-        },
-      ];
-    });
-    setTranscriptTimingHint(`Added marker at ${markerTimeSec.toFixed(1)}s.`);
-  }
-
-  function removeMarker(markerId: string): void {
-    setTimelineMarkers((current) => current.filter((marker) => marker.id !== markerId));
-  }
-
-  function jumpToMarker(direction: "previous" | "next"): void {
-    if (markerTimesSec.length === 0) {
-      setTranscriptTimingHint("No timeline markers are set.");
-      return;
-    }
-    const target = resolveAdjacentJumpPointTime({
-      jumpPointsSec: markerTimesSec,
-      playheadSec,
-      direction,
-    });
-    seekPlayheadToTime(target, "playhead");
-    setTranscriptTimingHint(null);
-  }
-
-  function jumpToMarkerById(markerId: string): void {
-    const marker = sortedTimelineMarkers.find((item) => item.id === markerId) ?? null;
-    if (!marker) return;
-    seekPlayheadToTime(marker.timeSec, "playhead");
-    setTranscriptTimingHint(null);
-  }
-
-  function toggleSelectionLoopPlayback(): void {
-    if (isLoopPlaybackActive) {
-      setPlaybackWindow(null);
-      setTranscriptTimingHint("Loop playback disabled.");
-      return;
-    }
-    if (!playbackMediaSrc) {
-      setTranscriptTimingHint("Mapped media unavailable. Check workspace media mapping or source media link.");
-      return;
-    }
-    if (!activeTranscriptTargetRange) {
-      setTranscriptTimingHint("Select one or more segments to loop playback.");
-      return;
-    }
-
-    const nextWindow: HammerPlaybackWindow = {
-      mode: "loop",
-      startSec: activeTranscriptTargetRange.startSec,
-      endSec: activeTranscriptTargetRange.endSec,
-      label: activeTranscriptTargetRange.label,
-    };
-
-    setPlaybackWindow(nextWindow);
-    seekPlayheadToTime(nextWindow.startSec, "playhead");
-    setIsPlaybackActive(true);
-    setFocusOverride("time-focus");
-    setTranscriptTimingHint(null);
-  }
-
-  function playSelectionWithRoll(): void {
-    if (!playbackMediaSrc) {
-      setTranscriptTimingHint("Mapped media unavailable. Check workspace media mapping or source media link.");
-      return;
-    }
-    const nextWindow = resolveSelectionPlaybackRange({
-      preRollSec: PRE_ROLL_SEC,
-      postRollSec: POST_ROLL_SEC,
-      labelPrefix: "Pre/Post Roll",
-    });
-    if (!nextWindow) {
-      setTranscriptTimingHint("Select one or more segments to audition with pre/post roll.");
-      return;
-    }
-
-    setPlaybackWindow(nextWindow);
-    seekPlayheadToTime(nextWindow.startSec, "playhead", { snapToBoundary: false });
-    setIsPlaybackActive(true);
-    setFocusOverride("time-focus");
-    setTranscriptTimingHint(null);
-  }
-
-  function seekPlayheadFromScrubClientX(clientX: number): void {
-    const rect = scrubRectRef.current;
-    if (!rect || rect.width <= 0) return;
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    seekPlayheadToTime(ratio * timelineDurationSec, "playhead", { snapToBoundary: false });
-  }
-
-  function beginTimelineScrub(event: MouseEvent<HTMLElement>): void {
-    const target = event.target;
-    if (target instanceof HTMLElement && target.closest(".hammer-timeline-block")) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (rect.width <= 0) return;
-
-    event.preventDefault();
-    scrubRectRef.current = { left: rect.left, width: rect.width };
-    scrubAutoPlayRef.current = false;
-    scrubReturnToPausedRef.current = !isPlaybackActive;
-    setFocusOverride("time-focus");
-    setIsScrubbing(true);
-    seekPlayheadFromScrubClientX(event.clientX);
-
-    if (!isPlaybackActive && playbackMediaSrc && previewAudioRef.current) {
-      const previewAudio = previewAudioRef.current;
-      claimGlobalPlaybackAuthority(previewAudio);
-      previewAudio.playbackRate = scrubRate;
-      void previewAudio.play()
-        .then(() => {
-          scrubAutoPlayRef.current = true;
-        })
-        .catch(() => {
-          scrubAutoPlayRef.current = false;
-          releaseGlobalPlaybackAuthority(previewAudio);
-        });
-    }
-  }
-
-  function endTimelineScrub(): void {
-    setIsScrubbing(false);
-    scrubRectRef.current = null;
-    if (previewAudioRef.current) {
-      previewAudioRef.current.playbackRate = 1;
-    }
-    if (scrubAutoPlayRef.current && scrubReturnToPausedRef.current) {
-      previewAudioRef.current?.pause();
-      releaseGlobalPlaybackAuthority(previewAudioRef.current);
-      setIsPlaybackActive(false);
-    }
-    scrubAutoPlayRef.current = false;
-    scrubReturnToPausedRef.current = false;
-  }
-
   function splitSelectedSegmentAtPlayhead(): void {
     if (!selectedSegmentId) {
       setTranscriptTimingHint("Select a segment to split.");
@@ -5989,10 +5292,6 @@ function HammerWorkspaceShellWithContext(
       segmentIds: [nextSegmentId],
       anchorId: nextSegmentId,
     });
-  }
-
-  function nudgePlayhead(deltaSec: number): void {
-    seekPlayheadToTime(playheadSec + deltaSec, "playhead");
   }
 
   function toggleSelectedSegmentDisabled(): void {
@@ -6758,48 +6057,6 @@ function HammerWorkspaceShellWithContext(
       setRetakeActiveCandidateIndex(retakeCandidateCards.length - 1);
     }
   }, [retakeActiveCandidateIndex, retakeCandidateCards.length]);
-
-  function handlePlaybackProgress(nextTimeSec: number): void {
-    const transportProgress = resolvePlaybackTransportProgress(nextTimeSec);
-    const nextPlayhead = roundToTenth(transportProgress.nextPlayheadSec);
-
-    setPlayheadSec((current) => (
-      Math.abs(current - nextPlayhead) >= SCRUB_SEEK_THRESHOLD_SEC ? nextPlayhead : current
-    ));
-
-    if (
-      previewAudioRef.current
-      && (transportProgress.shouldLoop || transportProgress.shouldSyncMediaTime)
-      && Math.abs(previewAudioRef.current.currentTime - transportProgress.nextPlayheadSec) > SCRUB_SEEK_THRESHOLD_SEC
-    ) {
-      previewAudioRef.current.currentTime = transportProgress.nextPlayheadSec;
-    }
-
-    if (transportProgress.shouldLoop) {
-      return;
-    }
-
-    if (transportProgress.shouldStop) {
-      setIsPlaybackActive(false);
-      if (playbackWindow?.mode === "roll") {
-        setPlaybackWindow(null);
-      }
-    }
-  }
-
-  function togglePlayback(): void {
-    if (editableTranscriptSegments.length === 0) return;
-    if (!playbackMediaSrc) {
-      setTranscriptTimingHint("Mapped media unavailable. Check workspace media mapping or source media link.");
-      return;
-    }
-    setIsPlaybackActive((current) => {
-      if (current && playbackWindow?.mode === "roll") {
-        setPlaybackWindow(null);
-      }
-      return !current;
-    });
-  }
 
   function applyCleanup(preview: HammerCleanupPreview): void {
     const toolId = preview.label.toLowerCase().replace(/\s+/g, "-");
