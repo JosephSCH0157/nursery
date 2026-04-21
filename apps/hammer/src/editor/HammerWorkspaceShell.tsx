@@ -1418,6 +1418,8 @@ function HammerWorkspaceShellWithContext(
   const [savingWorkspaceIntroOutroDefaults, setSavingWorkspaceIntroOutroDefaults] = useState(false);
   const [applyIntroOutroSelectionToFutureEpisodes, setApplyIntroOutroSelectionToFutureEpisodes] = useState(false);
   const attemptedWorkspaceDefaultsApplyRef = useRef<string | null>(null);
+  const playbackMediaSrcToRevokeRef = useRef<string | null>(null);
+  const previewVideoSrcToRevokeRef = useRef<string | null>(null);
   const [sourceDeskPreviewUrls, setSourceDeskPreviewUrls] = useState<Record<string, string>>({});
   const [sourceDeskPreviewFailures, setSourceDeskPreviewFailures] = useState<Record<string, true>>({});
   const [sourceDeskRequestedPreviewPaths, setSourceDeskRequestedPreviewPaths] = useState<string[]>([]);
@@ -3124,6 +3126,44 @@ function HammerWorkspaceShellWithContext(
   }, [studioRackPreviewSrc]);
 
   useEffect(() => {
+    const current = playbackMediaSrcToRevokeRef.current;
+    if (current && current.startsWith("blob:") && current !== playbackMediaSrc) {
+      URL.revokeObjectURL(current);
+    }
+    playbackMediaSrcToRevokeRef.current = (
+      playbackMediaSrc
+      && playbackMediaSrc.startsWith("blob:")
+      && playbackMediaSrc !== studioRackPreviewSrc
+    )
+      ? playbackMediaSrc
+      : null;
+    return () => {
+      const next = playbackMediaSrcToRevokeRef.current;
+      if (next && next.startsWith("blob:")) {
+        URL.revokeObjectURL(next);
+      }
+      playbackMediaSrcToRevokeRef.current = null;
+    };
+  }, [playbackMediaSrc, studioRackPreviewSrc]);
+
+  useEffect(() => {
+    const current = previewVideoSrcToRevokeRef.current;
+    if (current && current.startsWith("blob:") && current !== previewVideoSrc) {
+      URL.revokeObjectURL(current);
+    }
+    previewVideoSrcToRevokeRef.current = previewVideoSrc && previewVideoSrc.startsWith("blob:")
+      ? previewVideoSrc
+      : null;
+    return () => {
+      const next = previewVideoSrcToRevokeRef.current;
+      if (next && next.startsWith("blob:")) {
+        URL.revokeObjectURL(next);
+      }
+      previewVideoSrcToRevokeRef.current = null;
+    };
+  }, [previewVideoSrc]);
+
+  useEffect(() => {
     if (!shouldUseStudioRackPreviewForCompare) {
       if (import.meta.env.DEV && currentPass === "audio_finalization" && activeTool === "audio") {
         console.info("[Hammer][AudioComparePreview] inactive", {
@@ -4122,9 +4162,6 @@ function HammerWorkspaceShellWithContext(
 
   useEffect(() => {
     let active = true;
-    let playbackObjectUrlToRevoke: string | null = null;
-    let previewVideoObjectUrlToRevoke: string | null = null;
-
     const resolveRawPreviewVideoSrc = async (): Promise<string | null> => {
       const localRelpath = mediaRef?.local_relpath ?? null;
       if (!localRelpath) {
@@ -4149,7 +4186,6 @@ function HammerWorkspaceShellWithContext(
           URL.revokeObjectURL(previewUrl);
           return null;
         }
-        previewVideoObjectUrlToRevoke = previewUrl;
         setPreviewVideoSrc(previewUrl);
         return previewUrl;
       } catch {
@@ -4201,7 +4237,6 @@ function HammerWorkspaceShellWithContext(
               URL.revokeObjectURL(previewUrl);
               return;
             }
-            playbackObjectUrlToRevoke = previewUrl;
             setPlaybackMediaSrc(previewUrl);
             return;
           } catch {
@@ -4222,12 +4257,6 @@ function HammerWorkspaceShellWithContext(
 
     return () => {
       active = false;
-      if (playbackObjectUrlToRevoke) {
-        URL.revokeObjectURL(playbackObjectUrlToRevoke);
-      }
-      if (previewVideoObjectUrlToRevoke && previewVideoObjectUrlToRevoke !== playbackObjectUrlToRevoke) {
-        URL.revokeObjectURL(previewVideoObjectUrlToRevoke);
-      }
     };
   }, [
     launchContext.workpiece_id,

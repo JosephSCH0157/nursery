@@ -351,24 +351,17 @@ export function useHammerWorkspaceShellPlayback(
     if (previewVideo && lastPreviewVideoSrcRef.current !== args.previewVideoSrc) {
       lastPreviewVideoSrcRef.current = args.previewVideoSrc;
       previewVideo.pause();
-      if (args.previewVideoSrc) {
-        previewVideo.load();
-      }
       previewVideoSrcChanged = true;
     }
 
     if (!args.playbackMediaSrc) {
       previewAudio.pause();
-      previewAudio.removeAttribute("src");
-      previewAudio.load();
       if (args.isPlaybackActive) args.setIsPlaybackActive(false);
       return;
     }
 
     if (previewVideo && !args.previewVideoSrc) {
       previewVideo.pause();
-      previewVideo.removeAttribute("src");
-      previewVideo.load();
     }
 
     const transportProgress = args.isPlaybackActive
@@ -449,9 +442,6 @@ export function useHammerWorkspaceShellPlayback(
 
     if (!args.isPlaybackActive) {
       previewAudio.pause();
-      if (args.visualPolishPreviewActive && previewVideo && args.previewVideoSrc && previewVideo.readyState < 2) {
-        previewVideo.load();
-      }
       previewVideo?.pause();
       return;
     }
