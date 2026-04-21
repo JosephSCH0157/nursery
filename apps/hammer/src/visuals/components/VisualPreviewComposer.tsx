@@ -53,7 +53,14 @@ export default function VisualPreviewComposer(props: VisualPreviewComposerProps)
             applyOverlayLayout(node, overlay);
           }}
           onMouseDown={(event) => {
-            props.onSelectClip(overlay.clip_id);
+            if (!props.editable) {
+              props.onSelectClip(overlay.clip_id);
+              return;
+            }
+            if (!overlay.selected) {
+              props.onSelectClip(overlay.clip_id);
+              return;
+            }
             props.onBeginMove(event, overlay.clip_id);
           }}
         >
