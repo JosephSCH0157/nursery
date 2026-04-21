@@ -204,6 +204,13 @@ import {
   buildWorkspaceIntroOutroDefaultsRepairPlan,
 } from "./hammerIntroOutroState";
 import {
+  compositionTimeToTransportTime,
+  isIntroOutroPackagingClip,
+  resolvePackagingClipDurationSec,
+  resolvePackagingTransport,
+  shiftCompositionWindowToTransport,
+} from "./hammerPackagingTransport";
+import {
   buildLinkedSelectionTranscriptSegmentIdSet,
   buildLinkedSelectionVisualIdSet,
   resolveSelectionFromTranscript,
@@ -1462,15 +1469,43 @@ function HammerWorkspaceShellWithContext(
     () => deriveLegacyVisualPlacementsFromTimeline(editableVisualTimeline),
     [editableVisualTimeline],
   );
-  const selectedClipId = editableVisualTimeline?.selected_clip_id ?? null;
-  const playheadPrimaryVisualClip = useMemo(
-    () => (editableVisualTimeline ? selectPrimaryActiveClipAtTime(editableVisualTimeline, playheadSec) : null),
-    [editableVisualTimeline, playheadSec],
+  const compositionVisualTimeline = useMemo(() => {
+    if (!editableVisualTimeline) return null;
+    const clips = editableVisualTimeline.clips.filter((clip) => !isIntroOutroPackagingClip(clip));
+    const clipIds = new Set(clips.map((clip) => clip.clip_id));
+    return {
+      ...editableVisualTimeline,
+      selected_clip_id: editableVisualTimeline.selected_clip_id && clipIds.has(editableVisualTimeline.selected_clip_id)
+        ? editableVisualTimeline.selected_clip_id
+        : null,
+      lanes: editableVisualTimeline.lanes.map((lane) => ({
+        ...lane,
+        clip_ids: lane.clip_ids.filter((clipId) => clipIds.has(clipId)),
+      })),
+      clips,
+    };
+  }, [editableVisualTimeline]);
+  const introPackagingClip = useMemo(
+    () => editableVisualTimeline?.clips.find((clip) => clip.system_type === "intro") ?? null,
+    [editableVisualTimeline],
   );
-  const playheadPrimaryClipId = playheadPrimaryVisualClip?.clip_id ?? null;
-  const effectiveSelectedClipId = (isPlaybackActive || isScrubbing)
-    ? (playheadPrimaryClipId ?? selectedClipId)
-    : selectedClipId;
+  const outroPackagingClip = useMemo(
+    () => editableVisualTimeline?.clips.find((clip) => clip.system_type === "outro") ?? null,
+    [editableVisualTimeline],
+  );
+  const packagingIntroAssetPath = useMemo(
+    () => introPackagingClip?.asset_id
+      ? (editableVisualTimeline?.assets.find((asset) => asset.asset_id === introPackagingClip.asset_id)?.path ?? null)
+      : null,
+    [editableVisualTimeline?.assets, introPackagingClip?.asset_id],
+  );
+  const packagingOutroAssetPath = useMemo(
+    () => outroPackagingClip?.asset_id
+      ? (editableVisualTimeline?.assets.find((asset) => asset.asset_id === outroPackagingClip.asset_id)?.path ?? null)
+      : null,
+    [editableVisualTimeline?.assets, outroPackagingClip?.asset_id],
+  );
+  const selectedClipId = compositionVisualTimeline?.selected_clip_id ?? null;
   const imageUploadInputRef = useRef<HTMLInputElement | null>(null);
   const brollUploadInputRef = useRef<HTMLInputElement | null>(null);
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -2033,13 +2068,62 @@ function HammerWorkspaceShellWithContext(
   useEffect(() => {
     imagePlacementTransformsRef.current = imagePlacementTransforms;
   }, [imagePlacementTransforms]);
-  const playheadSegment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
   const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments);
-  const timelineDurationSec = Math.max(transcriptDurationSec, 1);
-  const playbackTransportDurationSec = transcriptDurationSec;
+  const packagingTransport = useMemo(() => resolvePackagingTransport({
+    introDurationSec: resolvePackagingClipDurationSec(introPackagingClip),
+    outroDurationSec: resolvePackagingClipDurationSec(outroPackagingClip),
+    compositionDurationSec: transcriptDurationSec,
+    playheadSec,
+  }), [introPackagingClip, outroPackagingClip, playheadSec, transcriptDurationSec]);
+  const compositionPlayheadSec = packagingTransport.compositionPlayheadSec;
+  const compositionOffsetSec = packagingTransport.compositionOffsetSec;
+  const transportTranscriptTargetRange = useMemo(() => {
+    if (!activeTranscriptTargetRange) return null;
+    return {
+      ...shiftCompositionWindowToTransport({
+        startSec: activeTranscriptTargetRange.startSec,
+        endSec: activeTranscriptTargetRange.endSec,
+        compositionOffsetSec,
+      }),
+      label: activeTranscriptTargetRange.label,
+    };
+  }, [activeTranscriptTargetRange, compositionOffsetSec]);
+  const playheadSegment = resolvePlayheadSegment(editableTranscriptSegments, compositionPlayheadSec);
+  const playheadPrimaryVisualClip = useMemo(
+    () => (compositionVisualTimeline ? selectPrimaryActiveClipAtTime(compositionVisualTimeline, compositionPlayheadSec) : null),
+    [compositionPlayheadSec, compositionVisualTimeline],
+  );
+  const playheadPrimaryClipId = playheadPrimaryVisualClip?.clip_id ?? null;
+  const effectiveSelectedClipId = (isPlaybackActive || isScrubbing)
+    ? (playheadPrimaryClipId ?? selectedClipId)
+    : selectedClipId;
+  const timelineDurationSec = Math.max(packagingTransport.totalDurationSec, 1);
+  const playbackTransportDurationSec = packagingTransport.totalDurationSec;
+  const playbackTranscriptSegments = useMemo(
+    () => editableTranscriptSegments.map((segment) => ({
+      ...segment,
+      start_sec: compositionTimeToTransportTime(segment.start_sec, compositionOffsetSec),
+      end_sec: compositionTimeToTransportTime(segment.end_sec, compositionOffsetSec),
+    })),
+    [compositionOffsetSec, editableTranscriptSegments],
+  );
+  const activePackagingMediaPath = packagingTransport.phase === "intro"
+    ? packagingIntroAssetPath
+    : packagingTransport.phase === "outro"
+    ? packagingOutroAssetPath
+    : null;
+  const activePackagingMediaSrc = activePackagingMediaPath
+    ? (sourceDeskPreviewUrls[activePackagingMediaPath] ?? null)
+    : null;
+  const effectivePreviewVideoSrc = activePackagingMediaPath ? activePackagingMediaSrc : previewVideoSrc;
+  const effectivePlaybackMediaSrc = activePackagingMediaPath ? activePackagingMediaSrc : playbackMediaSrc;
   const effectivePlaybackCutRegions = useMemo(
-    () => getEffectiveCutRegions(editableAudioPolish?.audio_edit ?? null, playbackTransportDurationSec),
-    [editableAudioPolish?.audio_edit, playbackTransportDurationSec],
+    () => getEffectiveCutRegions(editableAudioPolish?.audio_edit ?? null, transcriptDurationSec).map((region) => ({
+      ...region,
+      startSec: compositionTimeToTransportTime(region.startSec, compositionOffsetSec),
+      endSec: compositionTimeToTransportTime(region.endSec, compositionOffsetSec),
+    })),
+    [compositionOffsetSec, editableAudioPolish?.audio_edit, transcriptDurationSec],
   );
   const audioCutSelection = useMemo(() => normalizeAudioCutSelection({
     selection: {
@@ -2120,8 +2204,10 @@ function HammerWorkspaceShellWithContext(
     setDismissedSilenceSuggestionIds(nextDismissedIds);
   }, [dismissedSilenceSuggestionIds, silenceCutSuggestions]);
   const playheadBoundaryTimesSec = useMemo(
-    () => resolveTimelineBoundaryTimes(editableTranscriptSegments),
-    [editableTranscriptSegments],
+    () => resolveTimelineBoundaryTimes(editableTranscriptSegments).map((timeSec) => (
+      compositionTimeToTransportTime(timeSec, compositionOffsetSec)
+    )),
+    [compositionOffsetSec, editableTranscriptSegments],
   );
   const {
     isLoopPlaybackActive,
@@ -2129,7 +2215,7 @@ function HammerWorkspaceShellWithContext(
     sortedTimelineMarkers,
     handlePlaybackProgress,
     togglePlayback,
-    seekPlayheadToTime,
+    seekPlayheadToTime: seekTransportPlayheadToTime,
     jumpToSelectionBoundary,
     jumpToEditPoint,
     addMarkerAtPlayhead,
@@ -2141,14 +2227,14 @@ function HammerWorkspaceShellWithContext(
     beginTimelineScrub,
     nudgePlayhead,
   } = useHammerWorkspaceShellPlayback({
-    editableTranscriptSegments,
+    editableTranscriptSegments: playbackTranscriptSegments,
     effectivePlaybackCutRegions,
     timelineDurationSec,
     playbackTransportDurationSec,
     playheadBoundaryTimesSec,
-    activeTranscriptTargetRange: activeTranscriptTargetRange as HammerPlaybackTargetRange | null,
-    playbackMediaSrc,
-    previewVideoSrc,
+    activeTranscriptTargetRange: transportTranscriptTargetRange as HammerPlaybackTargetRange | null,
+    playbackMediaSrc: effectivePlaybackMediaSrc,
+    previewVideoSrc: effectivePreviewVideoSrc,
     visualPolishPreviewActive,
     focusOverride,
     playheadSec,
@@ -2175,6 +2261,17 @@ function HammerWorkspaceShellWithContext(
     setTranscriptTimingHint,
     pauseAuxiliaryMediaPlayback,
   });
+  const seekPlayheadToTime = useCallback((
+    nextTimeSec: number,
+    origin: "timeline" | "playhead" = "timeline",
+    options?: { snapToBoundary?: boolean },
+  ): void => {
+    seekTransportPlayheadToTime(
+      compositionTimeToTransportTime(nextTimeSec, compositionOffsetSec),
+      origin,
+      options,
+    );
+  }, [compositionOffsetSec, seekTransportPlayheadToTime]);
   const visualAssetsById = useMemo(() => {
     const byId = new Map<string, NonNullable<HammerVisualTimelineState["assets"]>[number]>();
     for (const asset of editableVisualTimeline?.assets ?? []) {
@@ -2183,7 +2280,7 @@ function HammerWorkspaceShellWithContext(
     return byId;
   }, [editableVisualTimeline?.assets]);
   const sourceVisualPlacementItems = useMemo<HammerSourceImageItem[]>(() => (
-    (editableVisualTimeline?.clips ?? [])
+    (compositionVisualTimeline?.clips ?? [])
       .map((clip) => {
         const asset = clip.asset_id ? (visualAssetsById.get(clip.asset_id) ?? null) : null;
         const kind = deriveAssetKind({
@@ -2212,7 +2309,7 @@ function HammerWorkspaceShellWithContext(
         };
       })
       .filter((item): item is HammerSourceImageItem => Boolean(item))
-  ), [editableTranscriptSegments, editableVisualTimeline?.clips, imagePlacementDraftWindows, selectedSegmentId, visualAssetsById]);
+  ), [compositionVisualTimeline?.clips, editableTranscriptSegments, imagePlacementDraftWindows, selectedSegmentId, visualAssetsById]);
   const linkedSelectionVisualItems = useMemo(
     () => toHammerLinkedSelectionVisualItems(sourceVisualPlacementItems),
     [sourceVisualPlacementItems],
@@ -2243,7 +2340,7 @@ function HammerWorkspaceShellWithContext(
     if (!isVisualPreviewAuthority) return;
 
     const candidateIds = sourceVisualPlacementItems.map((item) => item.id);
-    const preferredId = editableVisualTimeline?.selected_clip_id ?? props.initialSelectedOverlayRowId ?? null;
+    const preferredId = compositionVisualTimeline?.selected_clip_id ?? props.initialSelectedOverlayRowId ?? null;
     const nextClipId = candidateIds.length === 0
       ? null
       : preferredId && candidateIds.includes(preferredId)
@@ -2254,7 +2351,7 @@ function HammerWorkspaceShellWithContext(
     }
     setSelectedClipId(nextClipId);
   }, [
-    editableVisualTimeline?.selected_clip_id,
+    compositionVisualTimeline?.selected_clip_id,
     currentPass,
     isVisualPreviewAuthority,
     launchContext.workspace_id,
@@ -2281,8 +2378,8 @@ function HammerWorkspaceShellWithContext(
     return byId;
   }, [editableVisualPlacements?.placements]);
   const selectedVisualClip = useMemo(
-    () => (editableVisualTimeline ? selectClipById(editableVisualTimeline, linkedPrimaryVisualId ?? effectiveSelectedClipId) : null),
-    [editableVisualTimeline, effectiveSelectedClipId, linkedPrimaryVisualId],
+    () => (compositionVisualTimeline ? selectClipById(compositionVisualTimeline, linkedPrimaryVisualId ?? effectiveSelectedClipId) : null),
+    [compositionVisualTimeline, effectiveSelectedClipId, linkedPrimaryVisualId],
   );
   const visualPlacementEditingEnabled = activeTool === "video"
     && activeVisualTool === "images";
@@ -2330,13 +2427,19 @@ function HammerWorkspaceShellWithContext(
     selectedVisualClip?.anchor_hint.anchor_label,
   ]);
   const previewSurfaceLabel = useMemo(() => {
+    if (packagingTransport.phase === "intro") {
+      return `Packaging intro (${packagingTransport.introDurationSec.toFixed(1)}s)`;
+    }
+    if (packagingTransport.phase === "outro") {
+      return `Packaging outro (${packagingTransport.outroDurationSec.toFixed(1)}s)`;
+    }
     if (playheadPrimaryVisualClip && isVisualPreviewAuthority) {
       const visualLabel = playheadPrimaryVisualClip.label?.trim() || playheadPrimaryVisualClip.clip_id;
       return `Active visual: ${visualLabel} (${playheadPrimaryVisualClip.start_sec.toFixed(1)}s-${playheadPrimaryVisualClip.end_sec.toFixed(1)}s)`;
     }
-    const fallback = resolvePreviewLabel(playheadSegment, playheadSec);
+    const fallback = resolvePreviewLabel(playheadSegment, compositionPlayheadSec);
     return fallback.length > 120 ? `${fallback.slice(0, 117)}...` : fallback;
-  }, [isVisualPreviewAuthority, playheadPrimaryVisualClip, playheadSec, playheadSegment]);
+  }, [compositionPlayheadSec, isVisualPreviewAuthority, packagingTransport.introDurationSec, packagingTransport.outroDurationSec, packagingTransport.phase, playheadPrimaryVisualClip, playheadSegment]);
 
   useEffect(() => {
     if (!previewSurfaceRef.current) return;
@@ -2411,10 +2514,11 @@ function HammerWorkspaceShellWithContext(
   }, [visualEyeContactAssistDebugOverlay, visualEyeContactAssistRuntimeStatus]);
 
   const activePreviewOverlays = useMemo<VisualPreviewOverlayModel[]>(() => {
-    if (!editableVisualTimeline) return [];
+    if (!compositionVisualTimeline) return [];
+    if (packagingTransport.phase !== "composition") return [];
     const clipCandidates = selectPreviewClips({
-      state: editableVisualTimeline,
-      playheadSec,
+      state: compositionVisualTimeline,
+      playheadSec: compositionPlayheadSec,
       isPlaybackActive,
       isScrubbing,
     });
@@ -2447,11 +2551,12 @@ function HammerWorkspaceShellWithContext(
       .filter((item): item is VisualPreviewOverlayModel => item !== null);
     return overlays.sort((left, right) => left.z_index - right.z_index);
   }, [
-    editableVisualTimeline,
+    compositionPlayheadSec,
+    compositionVisualTimeline,
     imagePlacementTransforms,
     isPlaybackActive,
     isScrubbing,
-    playheadSec,
+    packagingTransport.phase,
     effectiveSelectedClipId,
     selectedClipId,
     linkedPrimaryVisualId,
@@ -2487,8 +2592,8 @@ function HammerWorkspaceShellWithContext(
       }
       return;
     }
-    const activeTimelineClip = editableVisualTimeline
-      ? selectClipById(editableVisualTimeline, expectedClipId)
+    const activeTimelineClip = compositionVisualTimeline
+      ? selectClipById(compositionVisualTimeline, expectedClipId)
       : null;
     if (!activeTimelineClip) {
       console.warn("[HammerVisuals] active playhead clip is missing from canonical timeline", {
@@ -2504,7 +2609,7 @@ function HammerWorkspaceShellWithContext(
         playhead_sec: playheadSec,
       });
     }
-  }, [activePreviewOverlays, editableVisualTimeline, playheadPrimaryClipId, playheadSec]);
+  }, [activePreviewOverlays, compositionPlayheadSec, compositionVisualTimeline, playheadPrimaryClipId]);
   useEffect(() => {
     if (currentPass !== "image_placement") return;
     if (selectedClipId) return;
@@ -2517,11 +2622,11 @@ function HammerWorkspaceShellWithContext(
       if (overlay.kind !== "broll") continue;
       const node = previewBrollVideoRefs.current.get(overlay.clip_id) ?? null;
       if (!node) continue;
-      const clip = editableVisualTimeline
-        ? selectClipById(editableVisualTimeline, overlay.clip_id)
+      const clip = compositionVisualTimeline
+        ? selectClipById(compositionVisualTimeline, overlay.clip_id)
         : null;
       if (!clip) continue;
-      const localTime = Math.max(0, playheadSec - clip.start_sec);
+      const localTime = Math.max(0, compositionPlayheadSec - clip.start_sec);
       const seekThresholdSec = isScrubbing ? 0.015 : SCRUB_SEEK_THRESHOLD_SEC;
       if (Math.abs(node.currentTime - localTime) > seekThresholdSec) {
         node.currentTime = localTime;
@@ -2533,12 +2638,12 @@ function HammerWorkspaceShellWithContext(
         node.pause();
       }
     }
-  }, [activePreviewOverlays, editableVisualTimeline, isPlaybackActive, isScrubbing, playheadSec, scrubRate]);
+  }, [activePreviewOverlays, compositionPlayheadSec, compositionVisualTimeline, isPlaybackActive, isScrubbing, scrubRate]);
   const activePreviewOverlayAssetPaths = useMemo(() => {
-    if (!editableVisualTimeline) return [] as string[];
+    if (!compositionVisualTimeline) return [] as string[];
     const paths: string[] = [];
     for (const overlay of activePreviewOverlays) {
-      const clip = selectClipById(editableVisualTimeline, overlay.clip_id);
+      const clip = selectClipById(compositionVisualTimeline, overlay.clip_id);
       const assetPath = clip?.asset_id
         ? (visualAssetsById.get(clip.asset_id)?.path ?? null)
         : null;
@@ -2547,7 +2652,7 @@ function HammerWorkspaceShellWithContext(
       }
     }
     return paths;
-  }, [activePreviewOverlays, editableVisualTimeline, visualAssetsById]);
+  }, [activePreviewOverlays, compositionVisualTimeline, visualAssetsById]);
   const sourceAssetItems = useMemo<HammerSourceAssetItem[]>(() => {
     const byId = new Map<string, HammerSourceAssetItem>();
     for (const placement of editableVisualPlacements?.placements ?? []) {
@@ -2756,12 +2861,13 @@ function HammerWorkspaceShellWithContext(
   const revealBottomTimelineAtTime = useCallback((timeSec: number) => {
     const container = timelineTrackScrollRef.current;
     if (!container) return;
-    const clamped = Math.max(0, Math.min(timelineDurationSec, timeSec));
+    const transportTimeSec = compositionTimeToTransportTime(timeSec, compositionOffsetSec);
+    const clamped = Math.max(0, Math.min(timelineDurationSec, transportTimeSec));
     const ratio = timelineDurationSec > 0 ? (clamped / timelineDurationSec) : 0;
     const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
     const target = Math.max(0, Math.min(maxScrollLeft, (container.scrollWidth * ratio) - (container.clientWidth / 2)));
     container.scrollTo({ left: target, behavior: "smooth" });
-  }, [timelineDurationSec]);
+  }, [compositionOffsetSec, timelineDurationSec]);
 
   const selection = useHammerWorkspaceShellSelection({
     transcriptSegments: editableTranscriptSegments,
@@ -2796,8 +2902,8 @@ function HammerWorkspaceShellWithContext(
     editableTranscriptSegments.map((segment) => ({
       id: `dialogue:${segment.segment_id}`,
       label: segment.is_disabled ? `${segment.speaker} (disabled)` : segment.speaker,
-      startSec: segment.start_sec,
-      endSec: segment.end_sec,
+      startSec: compositionTimeToTransportTime(segment.start_sec, compositionOffsetSec),
+      endSec: compositionTimeToTransportTime(segment.end_sec, compositionOffsetSec),
       selected: linkedSelection?.anchorId === segment.segment_id,
       inRange: linkedTranscriptSegmentIdSet.has(segment.segment_id),
       disabled: segment.is_disabled === true,
@@ -2811,14 +2917,14 @@ function HammerWorkspaceShellWithContext(
         });
       },
     }))
-  ), [editableTranscriptSegments, linkedSelection?.anchorId, linkedTranscriptSegmentIdSet, selectLinkedTimelineRange]);
+  ), [compositionOffsetSec, editableTranscriptSegments, linkedSelection?.anchorId, linkedTranscriptSegmentIdSet, selectLinkedTimelineRange]);
   const imageLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (
     sourceImageItems.map((item) => ({
       id: `image:${item.id}`,
       placementId: item.id,
       label: item.label,
-      startSec: item.startSec,
-      endSec: item.endSec,
+      startSec: compositionTimeToTransportTime(item.startSec, compositionOffsetSec),
+      endSec: compositionTimeToTransportTime(item.endSec, compositionOffsetSec),
       selected: item.id === linkedPrimaryVisualId,
       inRange: linkedVisualIdSet.has(item.id),
       tone: "image",
@@ -2826,15 +2932,15 @@ function HammerWorkspaceShellWithContext(
         selectVisualClip({ clipId: item.id, origin: "timeline", revealUI: true });
       },
     }))
-  ), [linkedPrimaryVisualId, linkedVisualIdSet, selectVisualClip, sourceImageItems]);
+  ), [compositionOffsetSec, linkedPrimaryVisualId, linkedVisualIdSet, selectVisualClip, sourceImageItems]);
   const brollLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (
     sourceBrollPlacementItems
       .map((item) => ({
         id: `broll-placement:${item.id}`,
         placementId: item.id,
         label: item.label,
-        startSec: item.startSec,
-        endSec: item.endSec,
+        startSec: compositionTimeToTransportTime(item.startSec, compositionOffsetSec),
+        endSec: compositionTimeToTransportTime(item.endSec, compositionOffsetSec),
         selected: item.id === linkedPrimaryVisualId,
         inRange: linkedVisualIdSet.has(item.id),
         tone: "broll",
@@ -2842,18 +2948,18 @@ function HammerWorkspaceShellWithContext(
           selectVisualClip({ clipId: item.id, origin: "timeline", revealUI: true });
         },
       }))
-  ), [linkedPrimaryVisualId, linkedVisualIdSet, selectVisualClip, sourceBrollPlacementItems]);
+  ), [compositionOffsetSec, linkedPrimaryVisualId, linkedVisualIdSet, selectVisualClip, sourceBrollPlacementItems]);
   const visualTimelineLaneClips = useMemo<VisualClipBlockModel[]>(() => (
     [...sourceImageItems, ...sourceBrollPlacementItems]
       .map((item) => ({
         clipId: item.id,
         label: item.label,
-        startSec: item.startSec,
-        endSec: item.endSec,
+        startSec: compositionTimeToTransportTime(item.startSec, compositionOffsetSec),
+        endSec: compositionTimeToTransportTime(item.endSec, compositionOffsetSec),
         selected: item.id === linkedPrimaryVisualId,
       }))
       .sort((left, right) => left.startSec - right.startSec)
-  ), [linkedPrimaryVisualId, sourceBrollPlacementItems, sourceImageItems]);
+  ), [compositionOffsetSec, linkedPrimaryVisualId, sourceBrollPlacementItems, sourceImageItems]);
   const timelineLanes = useMemo<HammerTimelineLaneView[]>(() => ([
     { id: "dialogue", label: "Dialogue", tone: "dialogue", blocks: dialogueLaneBlocks },
     { id: "music", label: "Music", tone: "music", blocks: [] },
@@ -2900,13 +3006,27 @@ function HammerWorkspaceShellWithContext(
     for (const item of sourceBrollItems) {
       if (item.assetPath) paths.add(item.assetPath);
     }
+    if (introOutroSelectedIntroPath) {
+      paths.add(introOutroSelectedIntroPath);
+    }
+    if (introOutroSelectedOutroPath) {
+      paths.add(introOutroSelectedOutroPath);
+    }
+    if (packagingIntroAssetPath) {
+      paths.add(packagingIntroAssetPath);
+    }
+    if (packagingOutroAssetPath) {
+      paths.add(packagingOutroAssetPath);
+    }
     return [...paths];
-  }, [sourceBrollItems, sourceImageItems, sourceImageLibraryItems]);
+  }, [introOutroSelectedIntroPath, introOutroSelectedOutroPath, packagingIntroAssetPath, packagingOutroAssetPath, sourceBrollItems, sourceImageItems, sourceImageLibraryItems]);
   const selectedSourceDeskPreviewAssetPath = selectedVisualClip?.asset_id
     ? (visualAssetsById.get(selectedVisualClip.asset_id)?.path ?? null)
     : null;
   const prioritizedSourceDeskPreviewPaths = useMemo(() => {
     const ordered: string[] = [];
+    appendUniquePaths(ordered, [packagingIntroAssetPath, packagingOutroAssetPath]);
+    appendUniquePaths(ordered, [introOutroSelectedIntroPath, introOutroSelectedOutroPath]);
     appendUniquePaths(ordered, activePreviewOverlayAssetPaths);
     appendUniquePaths(ordered, [selectedSourceDeskPreviewAssetPath]);
     appendUniquePaths(ordered, sourceImageItems.map((item) => item.assetPath));
@@ -2915,7 +3035,7 @@ function HammerWorkspaceShellWithContext(
     appendUniquePaths(ordered, sourceBrollItems.map((item) => item.assetPath));
     appendUniquePaths(ordered, sourceDeskPreviewPaths);
     return ordered;
-  }, [activePreviewOverlayAssetPaths, selectedSourceDeskPreviewAssetPath, sourceBrollItems, sourceDeskPreviewPaths, sourceDeskVisiblePreviewPaths, sourceImageItems, sourceImageLibraryItems]);
+  }, [activePreviewOverlayAssetPaths, introOutroSelectedIntroPath, introOutroSelectedOutroPath, packagingIntroAssetPath, packagingOutroAssetPath, selectedSourceDeskPreviewAssetPath, sourceBrollItems, sourceDeskPreviewPaths, sourceDeskVisiblePreviewPaths, sourceImageItems, sourceImageLibraryItems]);
   const sourceDeskPreviewFetchPaths = useMemo(
     () => prioritizedSourceDeskPreviewPaths.slice(0, SOURCE_DESK_PREVIEW_MAX_ITEMS),
     [prioritizedSourceDeskPreviewPaths],
@@ -3066,6 +3186,12 @@ function HammerWorkspaceShellWithContext(
   );
   const preferredPlayback = mediaPrepOutputs.audio.preferred_playback;
   const playbackSourceLabel = useMemo(() => {
+    if (packagingTransport.phase === "intro") {
+      return packagingIntroAssetPath ?? "Packaging intro";
+    }
+    if (packagingTransport.phase === "outro") {
+      return packagingOutroAssetPath ?? "Packaging outro";
+    }
     if (preferredPlayback.kind === "polished") {
       return preferredPlayback.workpiece_path
         ?? preferredPlayback.local_relpath
@@ -3079,7 +3205,7 @@ function HammerWorkspaceShellWithContext(
         ?? mediaSourceLabel;
     }
     return mediaSourceLabel;
-  }, [mediaSourceLabel, preferredPlayback.kind, preferredPlayback.local_relpath, preferredPlayback.source_label, preferredPlayback.workpiece_path]);
+  }, [mediaSourceLabel, packagingIntroAssetPath, packagingOutroAssetPath, packagingTransport.phase, preferredPlayback.kind, preferredPlayback.local_relpath, preferredPlayback.source_label, preferredPlayback.workpiece_path]);
 
   const historyController = historyControllerRef.current;
   const historyHeadEntryId = historyController?.document.headEntryId ?? null;
@@ -4306,7 +4432,7 @@ function HammerWorkspaceShellWithContext(
 
       const trackScroll = timelineTrackScrollRef.current;
       if (trackScroll && timelineDurationSec > 0) {
-        const midpoint = (selected.start_sec + selected.end_sec) / 2;
+        const midpoint = compositionTimeToTransportTime((selected.start_sec + selected.end_sec) / 2, compositionOffsetSec);
         const ratio = Math.max(0, Math.min(1, midpoint / timelineDurationSec));
         const targetPixel = ratio * trackScroll.scrollWidth;
         const viewLeft = trackScroll.scrollLeft;
@@ -4333,7 +4459,7 @@ function HammerWorkspaceShellWithContext(
         selectionRevealFrameRef.current = null;
       }
     };
-  }, [editableTranscriptSegments, selectedSegmentId, timelineDurationSec]);
+  }, [compositionOffsetSec, editableTranscriptSegments, selectedSegmentId, timelineDurationSec]);
 
   useEffect(() => {
     if (!timelineImageDragState) return;
@@ -4371,9 +4497,9 @@ function HammerWorkspaceShellWithContext(
       let endSec = timelineImageDragState.originEndSec;
       if (timelineImageDragState.mode === "move") {
         const tentativeStart = snapImagePlacementTime(timelineImageDragState.originStartSec + deltaSec, dragStepSec);
-        const maxStart = Math.max(0, snapImagePlacementTime(timelineDurationSec - originalDuration, dragStepSec));
+        const maxStart = Math.max(0, snapImagePlacementTime(transcriptDurationSec - originalDuration, dragStepSec));
         startSec = Math.max(0, Math.min(maxStart, tentativeStart));
-        endSec = Math.min(timelineDurationSec, snapImagePlacementTime(startSec + originalDuration, dragStepSec));
+        endSec = Math.min(transcriptDurationSec, snapImagePlacementTime(startSec + originalDuration, dragStepSec));
       } else if (timelineImageDragState.mode === "resize_start") {
         const maxStart = snapImagePlacementTime(
           timelineImageDragState.originEndSec - MIN_IMAGE_PLACEMENT_DURATION_SEC,
@@ -4433,7 +4559,7 @@ function HammerWorkspaceShellWithContext(
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [timelineDurationSec, timelineImageDragState]);
+  }, [timelineImageDragState, transcriptDurationSec]);
   useEffect(() => {
     if (!previewCanvasDragState) return;
 
@@ -6222,10 +6348,10 @@ function HammerWorkspaceShellWithContext(
     placementId: string,
     args: { startSec: number; endSec: number; label: string },
   ): boolean {
-    const clampedStart = Math.max(0, Math.min(timelineDurationSec, roundImagePlacementTime(args.startSec)));
+    const clampedStart = Math.max(0, Math.min(transcriptDurationSec, roundImagePlacementTime(args.startSec)));
     const clampedEnd = Math.max(
       roundImagePlacementTime(clampedStart + MIN_IMAGE_PLACEMENT_DURATION_SEC),
-      Math.min(timelineDurationSec, roundImagePlacementTime(args.endSec)),
+      Math.min(transcriptDurationSec, roundImagePlacementTime(args.endSec)),
     );
     const currentClip = editableVisualTimeline ? selectClipById(editableVisualTimeline, placementId) : null;
     const currentStart = currentClip?.start_sec ?? null;
@@ -6260,9 +6386,9 @@ function HammerWorkspaceShellWithContext(
     if (!placement) return;
     const duration = Math.max(MIN_IMAGE_PLACEMENT_DURATION_SEC, roundImagePlacementTime(placement.endSec - placement.startSec));
     const nextStart = Math.max(0, roundImagePlacementTime(placement.startSec + deltaSec));
-    const maxStart = Math.max(0, roundImagePlacementTime(timelineDurationSec - duration));
+    const maxStart = Math.max(0, roundImagePlacementTime(transcriptDurationSec - duration));
     const clampedStart = Math.min(nextStart, maxStart);
-    const nextEnd = Math.min(timelineDurationSec, roundImagePlacementTime(clampedStart + duration));
+    const nextEnd = Math.min(transcriptDurationSec, roundImagePlacementTime(clampedStart + duration));
     commitVisualPlacementWindow(placementId, {
       startSec: clampedStart,
       endSec: nextEnd,
@@ -8253,8 +8379,8 @@ function HammerWorkspaceShellWithContext(
         beginTimelineImagePlacementDrag(event as unknown as MouseEvent<HTMLElement | SVGElement>, {
           placementId: clip.clipId,
           mode: "move",
-          startSec: clip.startSec,
-          endSec: clip.endSec,
+          startSec: Math.max(0, clip.startSec - compositionOffsetSec),
+          endSec: Math.max(0, clip.endSec - compositionOffsetSec),
         });
       },
       onTrimClipStart: (event: MouseEvent, clip: { clipId: string; startSec: number; endSec: number }) => {
@@ -8262,8 +8388,8 @@ function HammerWorkspaceShellWithContext(
         beginTimelineImagePlacementDrag(event as unknown as MouseEvent<HTMLElement | SVGElement>, {
           placementId: clip.clipId,
           mode: "resize_start",
-          startSec: clip.startSec,
-          endSec: clip.endSec,
+          startSec: Math.max(0, clip.startSec - compositionOffsetSec),
+          endSec: Math.max(0, clip.endSec - compositionOffsetSec),
         });
       },
       onTrimClipEnd: (event: MouseEvent, clip: { clipId: string; startSec: number; endSec: number }) => {
@@ -8271,8 +8397,8 @@ function HammerWorkspaceShellWithContext(
         beginTimelineImagePlacementDrag(event as unknown as MouseEvent<HTMLElement | SVGElement>, {
           placementId: clip.clipId,
           mode: "resize_end",
-          startSec: clip.startSec,
-          endSec: clip.endSec,
+          startSec: Math.max(0, clip.startSec - compositionOffsetSec),
+          endSec: Math.max(0, clip.endSec - compositionOffsetSec),
         });
       },
     },
@@ -8304,6 +8430,7 @@ function HammerWorkspaceShellWithContext(
     canApplyAudioCutSelection,
     canMarkAudioCutSelection,
     clearAudioCutSelection,
+    compositionOffsetSec,
     currentPass,
     deleteSelectedSegmentAndRipple,
     dismissSilenceCutSuggestion,
@@ -8663,8 +8790,8 @@ function HammerWorkspaceShellWithContext(
     previewVideoRef,
     previewAudioRef,
     previewBrollVideoRefs,
-    previewVideoSrc,
-    playbackMediaSrc,
+    previewVideoSrc: effectivePreviewVideoSrc,
+    playbackMediaSrc: effectivePlaybackMediaSrc,
     isPlaybackActive,
     playbackWindow,
     handlePlaybackProgress,
