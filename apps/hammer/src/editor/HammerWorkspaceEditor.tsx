@@ -664,6 +664,7 @@ export default function HammerWorkspaceEditor(
   const prepAiNoticeShownRunKeyRef = useRef<string | null>(null);
   const lastPrepRunKeyRef = useRef<string | null>(null);
   const prepInFlightRunKeyRef = useRef<string | null>(null);
+  const prepJobHydrationProbeTargetRef = useRef<string | null>(null);
   const prepExecutionIdRef = useRef(0);
   const isMountedRef = useRef(true);
   const dynamicStyleScopeIdRef = useRef(`hammer-workspace-editor-${Math.random().toString(36).slice(2, 10)}`);
@@ -1365,6 +1366,7 @@ export default function HammerWorkspaceEditor(
     loadedPersistenceSnapshotRef.current = null;
     activeCanonicalRecordingRef.current = null;
     activeRevisionRef.current = null;
+    prepJobHydrationProbeTargetRef.current = null;
     setPrepJobHydrationReady(persistenceMode !== "canonical" || !persistenceTarget);
 
     clearReadyTransitionTimer();
@@ -1981,8 +1983,11 @@ export default function HammerWorkspaceEditor(
   useEffect(() => {
     if (!persistenceTarget) return;
     if (prepJobHydrationReady) return;
+    if (prepJobHydrationProbeTargetRef.current === targetKey) return;
     let active = true;
     let timer: number | null = null;
+
+    prepJobHydrationProbeTargetRef.current = targetKey;
 
     const poll = async (): Promise<void> => {
       const result = await listWorkpieceJobs({
