@@ -1,0 +1,395 @@
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import type { Dispatch, SetStateAction } from "react";
+import { buildSourceDeskPreviewFetchKey } from "./sourceDeskPreviewChurn";
+import { useHammerWorkspaceShellSourceDeskPreviews } from "./hammerWorkspaceShellSourceDeskPreviews";
+import {
+  listWorkpieceStoredMedia,
+  loadIntroOutroSelection,
+  loadWorkspaceIntroOutroDefaults,
+  readHammerMediaPreviewErrorDiagnostics,
+  loadWorkpieceMediaPreviewUrl,
+  normalizeWorkpieceRelativePath,
+  uploadWorkpieceMediaFile,
+  type HammerIntroOutroSelection,
+  type HammerStoredMediaFile,
+  type HammerWorkspaceIntroOutroDefaults,
+} from "../lib/hammerSourceDeskMediaApi";
+import {
+  buildIntroOutroCandidateItems,
+  buildIntroOutroCandidateItemsById,
+  buildWorkspaceIntroOutroDefaultsRepairPlan,
+} from "./hammerIntroOutroState";
+
+const SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY = 4;
+const SOURCE_DESK_PREVIEW_MAX_ITEMS = 48;
+
+function appendUniquePaths(target: string[], candidates: Array<string | null | undefined>): string[] {
+  const seen = new Set(target);
+  for (const candidate of candidates) {
+    const next = typeof candidate === "string" ? candidate.trim() : "";
+    if (!next || seen.has(next)) continue;
+    seen.add(next);
+    target.push(next);
+  }
+  return target;
+}
+
+function areStringArraysEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+type SourceDeskPreviewItem = {
+  assetPath?: string | null;
+};
+
+type SelectedSourceDeskPlacement = {
+  id: string;
+  assetPath?: string | null;
+};
+
+export type UseHammerWorkspaceShellSourceDeskControllerArgs = {
+  workspaceId: string;
+  workpieceId: string;
+  isPlaybackActive: boolean;
+  sourceImageLibraryItems: Array<{ path: string }>;
+  sourceImageItems: Array<SelectedSourceDeskPlacement>;
+  sourceBrollItems: SourceDeskPreviewItem[];
+  selectedImagePlacement: SelectedSourceDeskPlacement | null;
+  activePreviewOverlayAssetPaths: string[];
+  selectedSourceDeskPreviewAssetPath: string | null;
+  introOutroSelectedIntroPath: string | null;
+  introOutroSelectedOutroPath: string | null;
+  packagingIntroAssetPath: string | null;
+  packagingOutroAssetPath: string | null;
+  storedMediaFiles: HammerStoredMediaFile[];
+  setStoredMediaFiles: Dispatch<SetStateAction<HammerStoredMediaFile[]>>;
+  sourceDeskLoading: boolean;
+  setSourceDeskLoading: Dispatch<SetStateAction<boolean>>;
+  sourceDeskError: string | null;
+  setSourceDeskError: Dispatch<SetStateAction<string | null>>;
+  uploadingCategory: "images" | "broll" | "introoutro" | null;
+  setUploadingCategory: Dispatch<SetStateAction<"images" | "broll" | "introoutro" | null>>;
+  introOutroSelection: HammerIntroOutroSelection;
+  setIntroOutroSelection: Dispatch<SetStateAction<HammerIntroOutroSelection>>;
+  workspaceIntroOutroDefaults: HammerWorkspaceIntroOutroDefaults | null;
+  setWorkspaceIntroOutroDefaults: Dispatch<SetStateAction<HammerWorkspaceIntroOutroDefaults | null>>;
+  sourceDeskPreviewUrls: Record<string, string>;
+  setSourceDeskPreviewUrls: Dispatch<SetStateAction<Record<string, string>>>;
+  sourceDeskPreviewFailures: Record<string, true>;
+  setSourceDeskPreviewFailures: Dispatch<SetStateAction<Record<string, true>>>;
+  sourceDeskRequestedPreviewPaths: string[];
+  setSourceDeskRequestedPreviewPaths: Dispatch<SetStateAction<string[]>>;
+  sourceDeskVisiblePreviewPaths: string[];
+  setSourceDeskVisiblePreviewPaths: Dispatch<SetStateAction<string[]>>;
+  applyWorkspaceIntroOutroDefaultsToWorkpiece: (
+    defaults: HammerWorkspaceIntroOutroDefaults,
+    args?: { existingSelection?: HammerIntroOutroSelection | null; mediaFiles?: HammerStoredMediaFile[] },
+  ) => Promise<{
+    selection: HammerIntroOutroSelection;
+    appliedIntro: boolean;
+    appliedOutro: boolean;
+  } | null>;
+  reconcileIntroOutroSelectionWithPackaging: (args: {
+    selection: HammerIntroOutroSelection;
+    mediaFiles: HammerStoredMediaFile[];
+    introSource: "profile" | "episode";
+    outroSource: "profile" | "episode";
+  }) => void;
+};
+
+export type UseHammerWorkspaceShellSourceDeskControllerResult = {
+  sourceDeskPreviewPaths: string[];
+  sourceDeskRequestedPreviewPathSet: Set<string>;
+  sourceDeskPreviewPendingPathSet: Set<string>;
+  sourceDeskRemainingPreviewPaths: string[];
+  requestSourceDeskPreviews: (paths: Array<string | null | undefined>) => void;
+  reportSourceDeskPreviewLoadError: (rawPath: string) => void;
+  reportVisibleSourceDeskPreviewPaths: (paths: string[]) => void;
+  refreshSourceDeskMedia: () => Promise<void>;
+  handleSourceDeskUpload: (category: "images" | "broll" | "introoutro", fileList: FileList | null) => Promise<void>;
+};
+
+export function useHammerWorkspaceShellSourceDeskController(
+  args: UseHammerWorkspaceShellSourceDeskControllerArgs,
+): UseHammerWorkspaceShellSourceDeskControllerResult {
+  const attemptedWorkspaceDefaultsApplyRef = useRef<string | null>(null);
+
+  const sourceDeskPreviewPaths = useMemo(() => {
+    const paths = new Set<string>();
+    for (const item of args.sourceImageLibraryItems) {
+      paths.add(item.path);
+    }
+    for (const item of args.sourceImageItems) {
+      if (item.assetPath) paths.add(item.assetPath);
+    }
+    for (const item of args.sourceBrollItems) {
+      if (item.assetPath) paths.add(item.assetPath);
+    }
+    if (args.introOutroSelectedIntroPath) {
+      paths.add(args.introOutroSelectedIntroPath);
+    }
+    if (args.introOutroSelectedOutroPath) {
+      paths.add(args.introOutroSelectedOutroPath);
+    }
+    if (args.packagingIntroAssetPath) {
+      paths.add(args.packagingIntroAssetPath);
+    }
+    if (args.packagingOutroAssetPath) {
+      paths.add(args.packagingOutroAssetPath);
+    }
+    return [...paths];
+  }, [
+    args.introOutroSelectedIntroPath,
+    args.introOutroSelectedOutroPath,
+    args.packagingIntroAssetPath,
+    args.packagingOutroAssetPath,
+    args.sourceBrollItems,
+    args.sourceImageItems,
+    args.sourceImageLibraryItems,
+  ]);
+
+  const prioritizedSourceDeskPreviewPaths = useMemo(() => {
+    const ordered: string[] = [];
+    appendUniquePaths(ordered, [args.packagingIntroAssetPath, args.packagingOutroAssetPath]);
+    appendUniquePaths(ordered, [args.introOutroSelectedIntroPath, args.introOutroSelectedOutroPath]);
+    appendUniquePaths(ordered, args.activePreviewOverlayAssetPaths);
+    appendUniquePaths(ordered, [args.selectedSourceDeskPreviewAssetPath]);
+    appendUniquePaths(ordered, args.sourceImageItems.map((item) => item.assetPath));
+    appendUniquePaths(ordered, args.sourceDeskVisiblePreviewPaths);
+    appendUniquePaths(ordered, args.sourceImageLibraryItems.map((file) => file.path));
+    appendUniquePaths(ordered, args.sourceBrollItems.map((item) => item.assetPath));
+    appendUniquePaths(ordered, sourceDeskPreviewPaths);
+    return ordered;
+  }, [
+    args.activePreviewOverlayAssetPaths,
+    args.introOutroSelectedIntroPath,
+    args.introOutroSelectedOutroPath,
+    args.packagingIntroAssetPath,
+    args.packagingOutroAssetPath,
+    args.selectedSourceDeskPreviewAssetPath,
+    args.sourceBrollItems,
+    args.sourceDeskVisiblePreviewPaths,
+    args.sourceImageItems,
+    args.sourceImageLibraryItems,
+    sourceDeskPreviewPaths,
+  ]);
+
+  const sourceDeskPreviewFetchPaths = useMemo(
+    () => prioritizedSourceDeskPreviewPaths.slice(0, SOURCE_DESK_PREVIEW_MAX_ITEMS),
+    [prioritizedSourceDeskPreviewPaths],
+  );
+  const sourceDeskAutomaticPreviewPathSet = useMemo(
+    () => new Set(sourceDeskPreviewFetchPaths),
+    [sourceDeskPreviewFetchPaths],
+  );
+  const sourceDeskRemainingPreviewPaths = useMemo(() => (
+    sourceDeskPreviewPaths.filter((path) => (
+      !sourceDeskAutomaticPreviewPathSet.has(path)
+      && !args.sourceDeskRequestedPreviewPaths.includes(path)
+    ))
+  ), [args.sourceDeskRequestedPreviewPaths, sourceDeskAutomaticPreviewPathSet, sourceDeskPreviewPaths]);
+  const sourceDeskAllRequestedPreviewPaths = useMemo(() => {
+    const ordered = [...sourceDeskPreviewFetchPaths];
+    appendUniquePaths(ordered, args.sourceDeskRequestedPreviewPaths);
+    return ordered;
+  }, [args.sourceDeskRequestedPreviewPaths, sourceDeskPreviewFetchPaths]);
+  const sourceDeskRequestedPreviewPathSet = useMemo(
+    () => new Set(sourceDeskAllRequestedPreviewPaths),
+    [sourceDeskAllRequestedPreviewPaths],
+  );
+  const sourceDeskPreviewPendingPathSet = useMemo(() => {
+    const pending = new Set<string>();
+    for (const path of sourceDeskAllRequestedPreviewPaths) {
+      if (args.sourceDeskPreviewUrls[path] || args.sourceDeskPreviewFailures[path]) continue;
+      pending.add(path);
+    }
+    return pending;
+  }, [sourceDeskAllRequestedPreviewPaths, args.sourceDeskPreviewFailures, args.sourceDeskPreviewUrls]);
+  const sourceDeskPreviewFetchKey = useMemo(
+    () => buildSourceDeskPreviewFetchKey(sourceDeskAllRequestedPreviewPaths),
+    [sourceDeskAllRequestedPreviewPaths],
+  );
+
+  const requestSourceDeskPreviews = useCallback((paths: Array<string | null | undefined>): void => {
+    args.setSourceDeskRequestedPreviewPaths((current) => {
+      const next = [...current];
+      appendUniquePaths(next, paths);
+      return areStringArraysEqual(current, next) ? current : next;
+    });
+  }, [args]);
+
+  const reportSourceDeskPreviewLoadError = useCallback((rawPath: string): void => {
+    const path = rawPath.trim();
+    if (!path) return;
+    args.setSourceDeskPreviewUrls((current) => {
+      const existing = current[path];
+      if (!existing) return current;
+      const next = { ...current };
+      delete next[path];
+      URL.revokeObjectURL(existing);
+      return next;
+    });
+    args.setSourceDeskPreviewFailures((current) => (
+      current[path]
+        ? current
+        : { ...current, [path]: true }
+    ));
+  }, [args]);
+
+  const reportVisibleSourceDeskPreviewPaths = useCallback((paths: string[]): void => {
+    args.setSourceDeskVisiblePreviewPaths((current) => (areStringArraysEqual(current, paths) ? current : paths));
+  }, [args]);
+
+  useEffect(() => {
+    args.setSourceDeskRequestedPreviewPaths([]);
+    args.setSourceDeskVisiblePreviewPaths([]);
+    args.setSourceDeskPreviewFailures({});
+    args.setSourceDeskPreviewUrls((current) => {
+      for (const url of Object.values(current)) {
+        URL.revokeObjectURL(url);
+      }
+      return {};
+    });
+  }, [args.workpieceId]);
+
+  useEffect(() => {
+    const assetPath = args.selectedImagePlacement?.assetPath ?? null;
+    if (!assetPath || args.sourceDeskPreviewUrls[assetPath] || args.sourceDeskPreviewFailures[assetPath]) {
+      return;
+    }
+    const selectedIndex = args.sourceImageItems.findIndex((item) => item.id === args.selectedImagePlacement?.id);
+    const neighboringPaths = selectedIndex >= 0
+      ? [
+        args.sourceImageItems[selectedIndex - 1]?.assetPath,
+        assetPath,
+        args.sourceImageItems[selectedIndex + 1]?.assetPath,
+      ]
+      : [assetPath];
+    requestSourceDeskPreviews(neighboringPaths);
+  }, [
+    args.selectedImagePlacement?.assetPath,
+    args.selectedImagePlacement?.id,
+    args.sourceDeskPreviewFailures,
+    args.sourceDeskPreviewUrls,
+    args.sourceImageItems,
+    requestSourceDeskPreviews,
+  ]);
+
+  const refreshSourceDeskMedia = useCallback(async (): Promise<void> => {
+    args.setSourceDeskLoading(true);
+    args.setSourceDeskError(null);
+    try {
+      const [mediaFiles, selection, defaults] = await Promise.all([
+        listWorkpieceStoredMedia(args.workpieceId),
+        loadIntroOutroSelection(args.workpieceId),
+        loadWorkspaceIntroOutroDefaults(args.workspaceId),
+      ]);
+      args.setWorkspaceIntroOutroDefaults(defaults);
+
+      let nextMediaFiles = mediaFiles;
+      let nextSelection = selection;
+      let introSelectionSource: "profile" | "episode" = "episode";
+      let outroSelectionSource: "profile" | "episode" = "episode";
+
+      const repairPlan = buildWorkspaceIntroOutroDefaultsRepairPlan({
+        selection: nextSelection,
+        candidateItemsById: buildIntroOutroCandidateItemsById(buildIntroOutroCandidateItems(nextMediaFiles)),
+        defaults,
+      });
+
+      if (repairPlan.shouldApply && attemptedWorkspaceDefaultsApplyRef.current !== args.workpieceId) {
+        attemptedWorkspaceDefaultsApplyRef.current = args.workpieceId;
+        try {
+          const applied = defaults
+            ? await args.applyWorkspaceIntroOutroDefaultsToWorkpiece(defaults, {
+              existingSelection: nextSelection,
+              mediaFiles: nextMediaFiles,
+            })
+            : null;
+          if (applied) {
+            nextSelection = applied.selection;
+            if (applied.appliedIntro) introSelectionSource = "profile";
+            if (applied.appliedOutro) outroSelectionSource = "profile";
+            nextMediaFiles = await listWorkpieceStoredMedia(args.workpieceId);
+          }
+        } catch (error) {
+          console.warn("[Hammer][IntroOutroDefaults] Failed to auto-apply workspace defaults:", error);
+        }
+      }
+
+      args.setStoredMediaFiles(nextMediaFiles);
+      const resolvedSelection = nextSelection ?? {
+        schema_version: 1,
+        intro_asset_id: null,
+        outro_asset_id: null,
+        updated_at: new Date().toISOString(),
+      };
+      args.setIntroOutroSelection(resolvedSelection);
+      args.reconcileIntroOutroSelectionWithPackaging({
+        selection: resolvedSelection,
+        mediaFiles: nextMediaFiles,
+        introSource: introSelectionSource,
+        outroSource: outroSelectionSource,
+      });
+    } catch (error) {
+      args.setSourceDeskError(error instanceof Error ? error.message : "Hammer could not load Source Desk media.");
+    } finally {
+      args.setSourceDeskLoading(false);
+    }
+  }, [args]);
+
+  useEffect(() => {
+    void refreshSourceDeskMedia();
+  }, [refreshSourceDeskMedia]);
+
+  useHammerWorkspaceShellSourceDeskPreviews({
+    workpieceId: args.workpieceId,
+    previewPaths: sourceDeskAllRequestedPreviewPaths,
+    requestedPreviewPathCount: sourceDeskPreviewPaths.length,
+    fetchKey: sourceDeskPreviewFetchKey,
+    maxItems: SOURCE_DESK_PREVIEW_MAX_ITEMS,
+    concurrency: SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY,
+    paused: args.isPlaybackActive && args.sourceDeskRequestedPreviewPaths.length === 0,
+    loadWorkpieceMediaPreviewUrl,
+    readHammerMediaPreviewErrorDiagnostics,
+    normalizeWorkpieceRelativePath,
+    setPreviewUrls: args.setSourceDeskPreviewUrls,
+    setPreviewFailures: args.setSourceDeskPreviewFailures,
+    previewFailures: args.sourceDeskPreviewFailures,
+    previewUrls: args.sourceDeskPreviewUrls,
+  });
+
+  const handleSourceDeskUpload = useCallback(async (
+    category: "images" | "broll" | "introoutro",
+    fileList: FileList | null,
+  ): Promise<void> => {
+    const file = fileList?.[0] ?? null;
+    if (!file) return;
+    args.setUploadingCategory(category);
+    args.setSourceDeskError(null);
+    try {
+      await uploadWorkpieceMediaFile({
+        workpieceId: args.workpieceId,
+        file,
+        category,
+      });
+      await refreshSourceDeskMedia();
+    } catch (error) {
+      args.setSourceDeskError(error instanceof Error ? error.message : "Hammer could not upload the selected file.");
+    } finally {
+      args.setUploadingCategory(null);
+    }
+  }, [args, refreshSourceDeskMedia]);
+
+  return {
+    sourceDeskPreviewPaths,
+    sourceDeskRequestedPreviewPathSet,
+    sourceDeskPreviewPendingPathSet,
+    sourceDeskRemainingPreviewPaths,
+    requestSourceDeskPreviews,
+    reportSourceDeskPreviewLoadError,
+    reportVisibleSourceDeskPreviewPaths,
+    refreshSourceDeskMedia,
+    handleSourceDeskUpload,
+  };
+}

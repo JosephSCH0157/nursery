@@ -175,7 +175,6 @@ import {
   saveHammerSnapshotPayload,
   type HammerSnapshotManifestV1,
 } from "../lib/hammerSnapshotArtifactApi";
-import { buildSourceDeskPreviewFetchKey } from "./sourceDeskPreviewChurn";
 import {
   buildHammerHistorySnapshot,
   resolveActiveSnapshotHeadEntryId,
@@ -183,15 +182,10 @@ import {
   upsertHammerSnapshotManifest,
 } from "./hammerSnapshotProduction";
 import {
-  listWorkpieceStoredMedia,
-  loadIntroOutroSelection,
-  loadWorkspaceIntroOutroDefaults,
-  readHammerMediaPreviewErrorDiagnostics,
   loadWorkpieceMediaPreviewUrl,
   copyWorkpieceMediaFile,
   saveIntroOutroSelection,
   saveWorkspaceIntroOutroDefaults,
-  uploadWorkpieceMediaFile,
   type HammerIntroOutroSelection,
   type HammerWorkspaceIntroOutroDefaults,
   type HammerStoredMediaFile,
@@ -230,6 +224,7 @@ import {
 import { useHammerWorkspaceShellPlayback } from "./useHammerWorkspaceShellPlayback";
 import { useHammerWorkspaceShellShortcuts } from "./useHammerWorkspaceShellShortcuts";
 import { useHammerWorkspaceShellSelection } from "./useHammerWorkspaceShellSelection";
+import { useHammerWorkspaceShellSourceDeskController } from "./useHammerWorkspaceShellSourceDeskController";
 import {
   toHammerLinkedSelectionVisualItems,
   type HammerSelectedTranscriptRange,
@@ -339,7 +334,6 @@ import HammerWorkspaceShellTimelineDock from "./HammerWorkspaceShellTimelineDock
 import HammerWorkspaceShellSourceBay from "./HammerWorkspaceShellSourceBay";
 import HammerWorkspaceShellToolBay from "./HammerWorkspaceShellToolBay";
 import { useHammerWorkspaceShellHistoryController } from "./hammerWorkspaceShellHistoryController";
-import { useHammerWorkspaceShellSourceDeskPreviews } from "./hammerWorkspaceShellSourceDeskPreviews";
 import { useHammerWorkspaceShellSnapshotEmitter } from "./hammerWorkspaceShellSnapshotEmitter";
 import {
   buildCaptionBasisFingerprint,
@@ -384,8 +378,6 @@ import {
 } from "./hammerWorkspaceShellStateAdapters";
 import "./HammerWorkspaceShell.css";
 
-const SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY = 4;
-const SOURCE_DESK_PREVIEW_MAX_ITEMS = 48;
 const HISTORY_MAX_SIZE = 100;
 const HISTORY_PERSIST_DEBOUNCE_MS = 900;
 const TEXT_EDIT_COALESCE_MS = 1500;
@@ -404,10 +396,6 @@ function appendUniquePaths(target: string[], candidates: Array<string | null | u
     target.push(next);
   }
   return target;
-}
-
-function areStringArraysEqual(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function roundImagePlacementTime(value: number): number {
@@ -1426,7 +1414,6 @@ function HammerWorkspaceShellWithContext(
   const [workspaceIntroOutroDefaults, setWorkspaceIntroOutroDefaults] = useState<HammerWorkspaceIntroOutroDefaults | null>(null);
   const [savingWorkspaceIntroOutroDefaults, setSavingWorkspaceIntroOutroDefaults] = useState(false);
   const [applyIntroOutroSelectionToFutureEpisodes, setApplyIntroOutroSelectionToFutureEpisodes] = useState(false);
-  const attemptedWorkspaceDefaultsApplyRef = useRef<string | null>(null);
   const playbackMediaSrcToRevokeRef = useRef<string | null>(null);
   const previewVideoSrcToRevokeRef = useRef<string | null>(null);
   const [sourceDeskPreviewUrls, setSourceDeskPreviewUrls] = useState<Record<string, string>>({});
@@ -3039,82 +3026,9 @@ function HammerWorkspaceShellWithContext(
     return ids;
   }, [editableTranscriptSegments, sourceTranscriptById]);
   const modifiedSegmentCount = modifiedTranscriptSegmentIds.size;
-  const sourceDeskPreviewPaths = useMemo(() => {
-    const paths = new Set<string>();
-    for (const item of sourceImageLibraryItems) {
-      paths.add(item.path);
-    }
-    for (const item of sourceImageItems) {
-      if (item.assetPath) paths.add(item.assetPath);
-    }
-    for (const item of sourceBrollItems) {
-      if (item.assetPath) paths.add(item.assetPath);
-    }
-    if (introOutroSelectedIntroPath) {
-      paths.add(introOutroSelectedIntroPath);
-    }
-    if (introOutroSelectedOutroPath) {
-      paths.add(introOutroSelectedOutroPath);
-    }
-    if (packagingIntroAssetPath) {
-      paths.add(packagingIntroAssetPath);
-    }
-    if (packagingOutroAssetPath) {
-      paths.add(packagingOutroAssetPath);
-    }
-    return [...paths];
-  }, [introOutroSelectedIntroPath, introOutroSelectedOutroPath, packagingIntroAssetPath, packagingOutroAssetPath, sourceBrollItems, sourceImageItems, sourceImageLibraryItems]);
   const selectedSourceDeskPreviewAssetPath = selectedVisualClip?.asset_id
     ? (visualAssetsById.get(selectedVisualClip.asset_id)?.path ?? null)
     : null;
-  const prioritizedSourceDeskPreviewPaths = useMemo(() => {
-    const ordered: string[] = [];
-    appendUniquePaths(ordered, [packagingIntroAssetPath, packagingOutroAssetPath]);
-    appendUniquePaths(ordered, [introOutroSelectedIntroPath, introOutroSelectedOutroPath]);
-    appendUniquePaths(ordered, activePreviewOverlayAssetPaths);
-    appendUniquePaths(ordered, [selectedSourceDeskPreviewAssetPath]);
-    appendUniquePaths(ordered, sourceImageItems.map((item) => item.assetPath));
-    appendUniquePaths(ordered, sourceDeskVisiblePreviewPaths);
-    appendUniquePaths(ordered, sourceImageLibraryItems.map((file) => file.path));
-    appendUniquePaths(ordered, sourceBrollItems.map((item) => item.assetPath));
-    appendUniquePaths(ordered, sourceDeskPreviewPaths);
-    return ordered;
-  }, [activePreviewOverlayAssetPaths, introOutroSelectedIntroPath, introOutroSelectedOutroPath, packagingIntroAssetPath, packagingOutroAssetPath, selectedSourceDeskPreviewAssetPath, sourceBrollItems, sourceDeskPreviewPaths, sourceDeskVisiblePreviewPaths, sourceImageItems, sourceImageLibraryItems]);
-  const sourceDeskPreviewFetchPaths = useMemo(
-    () => prioritizedSourceDeskPreviewPaths.slice(0, SOURCE_DESK_PREVIEW_MAX_ITEMS),
-    [prioritizedSourceDeskPreviewPaths],
-  );
-  const sourceDeskAutomaticPreviewPathSet = useMemo(
-    () => new Set(sourceDeskPreviewFetchPaths),
-    [sourceDeskPreviewFetchPaths],
-  );
-  const sourceDeskRemainingPreviewPaths = useMemo(() => (
-    sourceDeskPreviewPaths.filter((path) => (
-      !sourceDeskAutomaticPreviewPathSet.has(path)
-      && !sourceDeskRequestedPreviewPaths.includes(path)
-    ))
-  ), [sourceDeskAutomaticPreviewPathSet, sourceDeskPreviewPaths, sourceDeskRequestedPreviewPaths]);
-  const sourceDeskAllRequestedPreviewPaths = useMemo(() => {
-    const ordered = [...sourceDeskPreviewFetchPaths];
-    appendUniquePaths(ordered, sourceDeskRequestedPreviewPaths);
-    return ordered;
-  }, [sourceDeskPreviewFetchPaths, sourceDeskRequestedPreviewPaths]);
-  const sourceDeskRequestedPreviewPathSet = useMemo(
-    () => new Set(sourceDeskAllRequestedPreviewPaths),
-    [sourceDeskAllRequestedPreviewPaths],
-  );
-  const sourceDeskPreviewPendingPathSet = useMemo(() => {
-    const pending = new Set<string>();
-    for (const path of sourceDeskAllRequestedPreviewPaths) {
-      if (sourceDeskPreviewUrls[path] || sourceDeskPreviewFailures[path]) continue;
-      pending.add(path);
-    }
-    return pending;
-  }, [sourceDeskAllRequestedPreviewPaths, sourceDeskPreviewFailures, sourceDeskPreviewUrls]);
-  const sourceDeskPreviewFetchKey = useMemo(
-    () => buildSourceDeskPreviewFetchKey(sourceDeskAllRequestedPreviewPaths),
-    [sourceDeskAllRequestedPreviewPaths],
-  );
   const imageUsageByPath = useMemo(() => {
     const usage = new Map<string, number>();
     for (const item of sourceImageItems) {
@@ -3123,61 +3037,51 @@ function HammerWorkspaceShellWithContext(
     }
     return usage;
   }, [sourceImageItems]);
-  const requestSourceDeskPreviews = useCallback((paths: Array<string | null | undefined>): void => {
-    setSourceDeskRequestedPreviewPaths((current) => {
-      const next = [...current];
-      appendUniquePaths(next, paths);
-      return areStringArraysEqual(current, next) ? current : next;
-    });
-  }, []);
-  const reportSourceDeskPreviewLoadError = useCallback((rawPath: string): void => {
-    const path = rawPath.trim();
-    if (!path) return;
-    setSourceDeskPreviewUrls((current) => {
-      const existing = current[path];
-      if (!existing) return current;
-      const next = { ...current };
-      delete next[path];
-      URL.revokeObjectURL(existing);
-      return next;
-    });
-    setSourceDeskPreviewFailures((current) => (
-      current[path]
-        ? current
-        : { ...current, [path]: true }
-    ));
-  }, []);
-  const reportVisibleSourceDeskPreviewPaths = useCallback((paths: string[]): void => {
-    setSourceDeskVisiblePreviewPaths((current) => (areStringArraysEqual(current, paths) ? current : paths));
-  }, []);
-
-  useEffect(() => {
-    setSourceDeskRequestedPreviewPaths([]);
-    setSourceDeskVisiblePreviewPaths([]);
-    setSourceDeskPreviewFailures({});
-    setSourceDeskPreviewUrls((current) => {
-      for (const url of Object.values(current)) {
-        URL.revokeObjectURL(url);
-      }
-      return {};
-    });
-  }, [launchContext.workpiece_id]);
-
-  useEffect(() => {
-    const assetPath = selectedImagePlacement?.assetPath ?? null;
-    if (!assetPath || sourceDeskPreviewUrls[assetPath] || sourceDeskPreviewFailures[assetPath]) {
-      return;
-    }
-    const selectedIndex = sourceImageItems.findIndex((item) => item.id === selectedImagePlacement?.id);
-    const neighboringPaths = selectedIndex >= 0
-      ? [
-        sourceImageItems[selectedIndex - 1]?.assetPath,
-        assetPath,
-        sourceImageItems[selectedIndex + 1]?.assetPath,
-      ]
-      : [assetPath];
-    requestSourceDeskPreviews(neighboringPaths);
-  }, [requestSourceDeskPreviews, selectedImagePlacement?.assetPath, selectedImagePlacement?.id, sourceDeskPreviewFailures, sourceDeskPreviewUrls, sourceImageItems]);
+  const {
+    sourceDeskRequestedPreviewPathSet,
+    sourceDeskPreviewPendingPathSet,
+    sourceDeskRemainingPreviewPaths,
+    requestSourceDeskPreviews,
+    reportSourceDeskPreviewLoadError,
+    reportVisibleSourceDeskPreviewPaths,
+    handleSourceDeskUpload,
+  } = useHammerWorkspaceShellSourceDeskController({
+    workspaceId: launchContext.workspace_id,
+    workpieceId: launchContext.workpiece_id,
+    isPlaybackActive,
+    sourceImageLibraryItems,
+    sourceImageItems,
+    sourceBrollItems,
+    selectedImagePlacement,
+    activePreviewOverlayAssetPaths,
+    selectedSourceDeskPreviewAssetPath,
+    introOutroSelectedIntroPath,
+    introOutroSelectedOutroPath,
+    packagingIntroAssetPath,
+    packagingOutroAssetPath,
+    storedMediaFiles,
+    setStoredMediaFiles,
+    sourceDeskLoading,
+    setSourceDeskLoading,
+    sourceDeskError,
+    setSourceDeskError,
+    uploadingCategory,
+    setUploadingCategory,
+    introOutroSelection,
+    setIntroOutroSelection,
+    workspaceIntroOutroDefaults,
+    setWorkspaceIntroOutroDefaults,
+    sourceDeskPreviewUrls,
+    setSourceDeskPreviewUrls,
+    sourceDeskPreviewFailures,
+    setSourceDeskPreviewFailures,
+    sourceDeskRequestedPreviewPaths,
+    setSourceDeskRequestedPreviewPaths,
+    sourceDeskVisiblePreviewPaths,
+    setSourceDeskVisiblePreviewPaths,
+    applyWorkspaceIntroOutroDefaultsToWorkpiece,
+    reconcileIntroOutroSelectionWithPackaging,
+  });
   const speakerOptions = useMemo(() => {
     const labels = new Set<string>();
     for (const segment of editableTranscriptSegments) {
@@ -4867,74 +4771,6 @@ function HammerWorkspaceShellWithContext(
     }
   }
 
-  async function refreshSourceDeskMedia(): Promise<void> {
-    setSourceDeskLoading(true);
-    setSourceDeskError(null);
-    try {
-      const [mediaFiles, selection, defaults] = await Promise.all([
-        listWorkpieceStoredMedia(launchContext.workpiece_id),
-        loadIntroOutroSelection(launchContext.workpiece_id),
-        loadWorkspaceIntroOutroDefaults(launchContext.workspace_id),
-      ]);
-      setWorkspaceIntroOutroDefaults(defaults);
-
-      let nextMediaFiles = mediaFiles;
-      let nextSelection = selection;
-      let introSelectionSource: "profile" | "episode" = "episode";
-      let outroSelectionSource: "profile" | "episode" = "episode";
-
-      const repairPlan = buildWorkspaceIntroOutroDefaultsRepairPlan({
-        selection: nextSelection,
-        candidateItemsById: buildIntroOutroCandidateItemsById(buildIntroOutroCandidateItems(nextMediaFiles)),
-        defaults,
-      });
-
-      if (repairPlan.shouldApply && attemptedWorkspaceDefaultsApplyRef.current !== launchContext.workpiece_id) {
-        attemptedWorkspaceDefaultsApplyRef.current = launchContext.workpiece_id;
-        try {
-          const applied = defaults
-            ? await applyWorkspaceIntroOutroDefaultsToWorkpiece(defaults, {
-              existingSelection: nextSelection,
-              mediaFiles: nextMediaFiles,
-            })
-            : null;
-          if (applied) {
-            nextSelection = applied.selection;
-            if (applied.appliedIntro) introSelectionSource = "profile";
-            if (applied.appliedOutro) outroSelectionSource = "profile";
-            nextMediaFiles = await listWorkpieceStoredMedia(launchContext.workpiece_id);
-          }
-        } catch (error) {
-          console.warn("[Hammer][IntroOutroDefaults] Failed to auto-apply workspace defaults:", error);
-        }
-      }
-
-      setStoredMediaFiles(nextMediaFiles);
-      const resolvedSelection = nextSelection ?? {
-        schema_version: 1,
-        intro_asset_id: null,
-        outro_asset_id: null,
-        updated_at: new Date().toISOString(),
-      };
-      setIntroOutroSelection(resolvedSelection);
-      reconcileIntroOutroSelectionWithPackaging({
-        selection: resolvedSelection,
-        mediaFiles: nextMediaFiles,
-        introSource: introSelectionSource,
-        outroSource: outroSelectionSource,
-      });
-    } catch (error) {
-      setSourceDeskError(error instanceof Error ? error.message : "Hammer could not load Source Desk media.");
-    } finally {
-      setSourceDeskLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void refreshSourceDeskMedia();
-    // launchContext workpiece is the canonical scope boundary for stored media.
-  }, [launchContext.workpiece_id]);
-
   useEffect(() => {
     let active = true;
     setReleasePrepLoading(true);
@@ -4964,45 +4800,6 @@ function HammerWorkspaceShellWithContext(
       active = false;
     };
   }, [launchContext.workpiece_id]);
-
-  useHammerWorkspaceShellSourceDeskPreviews({
-    workpieceId: launchContext.workpiece_id,
-    previewPaths: sourceDeskAllRequestedPreviewPaths,
-    requestedPreviewPathCount: sourceDeskPreviewPaths.length,
-    fetchKey: sourceDeskPreviewFetchKey,
-    maxItems: SOURCE_DESK_PREVIEW_MAX_ITEMS,
-    concurrency: SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY,
-    paused: isPlaybackActive && sourceDeskRequestedPreviewPaths.length === 0,
-    loadWorkpieceMediaPreviewUrl,
-    readHammerMediaPreviewErrorDiagnostics,
-    normalizeWorkpieceRelativePath,
-    setPreviewUrls: setSourceDeskPreviewUrls,
-    setPreviewFailures: setSourceDeskPreviewFailures,
-    previewFailures: sourceDeskPreviewFailures,
-    previewUrls: sourceDeskPreviewUrls,
-  });
-
-  async function handleSourceDeskUpload(
-    category: "images" | "broll" | "introoutro",
-    fileList: FileList | null,
-  ): Promise<void> {
-    const file = fileList?.[0] ?? null;
-    if (!file) return;
-    setUploadingCategory(category);
-    setSourceDeskError(null);
-    try {
-      await uploadWorkpieceMediaFile({
-        workpieceId: launchContext.workpiece_id,
-        file,
-        category,
-      });
-      await refreshSourceDeskMedia();
-    } catch (error) {
-      setSourceDeskError(error instanceof Error ? error.message : "Hammer could not upload the selected file.");
-    } finally {
-      setUploadingCategory(null);
-    }
-  }
 
   async function persistIntroOutroSelection(next: HammerIntroOutroSelection): Promise<void> {
     setSavingIntroOutro(true);
