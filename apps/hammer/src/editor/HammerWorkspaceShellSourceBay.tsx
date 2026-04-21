@@ -1141,6 +1141,12 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                     origin: "tool_window",
                                     revealUI: true,
                                     allowSurfaceSwitch: true,
+                                    snapTarget: {
+                                      editableStartSec: item.startSec,
+                                      editableEndSec: item.endSec,
+                                      firstVisibleEditableSec: item.firstVisibleEditableSec ?? null,
+                                      preservePlayheadIfWithinEditableWindow: true,
+                                    },
                                   });
                                 }}
                               >
@@ -1155,6 +1161,12 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                     origin: "timeline",
                                     revealUI: true,
                                     allowSurfaceSwitch: true,
+                                    snapTarget: {
+                                      editableStartSec: item.startSec,
+                                      editableEndSec: item.endSec,
+                                      firstVisibleEditableSec: item.firstVisibleEditableSec ?? null,
+                                      preservePlayheadIfWithinEditableWindow: true,
+                                    },
                                   });
                                   seekPlayheadToTime(item.startSec, "playhead");
                                 }}

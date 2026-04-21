@@ -209,3 +209,35 @@ export function resolveImageAnimationClass(preset: HammerImageAnimationPreset): 
   if (preset === "shutter_in_fade_out") return "is-anim-shutter-in-fade-out";
   return "";
 }
+
+const ENTRY_ANIMATION_DURATION_SEC_BY_PRESET: Partial<Record<HammerImageAnimationPreset, number>> = {
+  fade_in: 0.42,
+  fade_in_out: 0.72,
+  flip_in: 0.52,
+  shutter_in: 0.52,
+  shutter_in_fade_out: 0.9,
+};
+
+export function resolveImageFirstEditablePreviewMoment(args: {
+  startSec: number;
+  endSec: number;
+  animationPreset: HammerImageAnimationPreset | null | undefined;
+}): number | null {
+  const startSec = Number(args.startSec);
+  const endSec = Number(args.endSec);
+  if (!Number.isFinite(startSec) || !Number.isFinite(endSec) || endSec <= startSec) {
+    return null;
+  }
+  const durationSec = ENTRY_ANIMATION_DURATION_SEC_BY_PRESET[args.animationPreset ?? "none"] ?? null;
+  if (!durationSec || durationSec <= 0) {
+    return null;
+  }
+
+  const clipDurationSec = endSec - startSec;
+  const entryGuardSec = Math.max(0.01, Math.min(durationSec * 0.25, clipDurationSec * 0.5));
+  const candidate = roundImagePlacementTime(startSec + entryGuardSec);
+  if (candidate <= startSec || candidate >= endSec) {
+    return null;
+  }
+  return candidate;
+}

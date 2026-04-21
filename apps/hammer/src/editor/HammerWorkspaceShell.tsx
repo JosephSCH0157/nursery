@@ -253,6 +253,7 @@ import {
   PACKAGING_INTRO_ENTRY_ID,
   PACKAGING_LOGO_ENTRY_ID,
   PACKAGING_OUTRO_ENTRY_ID,
+  resolveImageFirstEditablePreviewMoment,
   resolveImageAnimationClass,
   resolvePlacementAnimationPreset,
   resolvePlacementGeometry,
@@ -486,6 +487,7 @@ type HammerSourceImageItem = {
   confidence: number | null;
   visualMode: string | null;
   assetPath: string | null;
+  firstVisibleEditableSec: number | null;
 };
 
 type HammerSourceAssetKind = "image" | "broll" | "reference_clip" | "audio" | "other";
@@ -2116,6 +2118,15 @@ function HammerWorkspaceShellWithContext(
           assetPath: asset?.path ?? null,
         });
         if (kind !== "image" && kind !== "broll" && kind !== "reference_clip") return null;
+        const startSec = imagePlacementDraftWindows[clip.clip_id]?.startSec ?? clip.start_sec;
+        const endSec = imagePlacementDraftWindows[clip.clip_id]?.endSec ?? clip.end_sec;
+        const firstVisibleEditableSec = kind === "image"
+          ? resolveImageFirstEditablePreviewMoment({
+            startSec,
+            endSec,
+            animationPreset: clip.animation?.preset ?? null,
+          })
+          : null;
         const fallbackAnchorSegmentId = clip.anchor_hint.anchor_segment_id
           ?? clip.anchor_hint.matched_segment_ids[0]
           ?? selectedSegmentId
@@ -2128,12 +2139,13 @@ function HammerWorkspaceShellWithContext(
           anchorSegmentId: fallbackAnchorSegmentId,
           anchorText: clip.anchor_hint.anchor_text ?? null,
           anchorLabel: clip.anchor_hint.anchor_label ?? null,
-          startSec: imagePlacementDraftWindows[clip.clip_id]?.startSec ?? clip.start_sec,
-          endSec: imagePlacementDraftWindows[clip.clip_id]?.endSec ?? clip.end_sec,
+          startSec,
+          endSec,
           status: clip.placement_status,
           confidence: clip.confidence,
           visualMode: clip.visual_mode,
           assetPath: asset?.path ?? null,
+          firstVisibleEditableSec,
         };
       })
       .filter((item): item is HammerSourceImageItem => Boolean(item))
@@ -2688,6 +2700,7 @@ function HammerWorkspaceShellWithContext(
   const selection = useHammerWorkspaceShellSelection({
     transcriptSegments: editableTranscriptSegments,
     visualPlacementItems: sourceVisualPlacementItems,
+    currentCompositionPlayheadSec: compositionPlayheadSec,
     linkedSelection,
     selectionOriginRef,
     selectedTranscriptRangeDetailRef,
@@ -2750,6 +2763,12 @@ function HammerWorkspaceShellWithContext(
           origin: "timeline",
           revealUI: true,
           allowSurfaceSwitch: true,
+          snapTarget: {
+            editableStartSec: item.startSec,
+            editableEndSec: item.endSec,
+            firstVisibleEditableSec: item.firstVisibleEditableSec,
+            preservePlayheadIfWithinEditableWindow: true,
+          },
         });
       },
     }))
