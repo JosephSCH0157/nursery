@@ -1994,10 +1994,13 @@ export default function HammerWorkspaceEditor(
 
       if (!result.ok) {
         setJobsStatusUnavailable({ status: result.status, message: result.error });
-        const delay = typeof result.retryAfterMs === "number" && Number.isFinite(result.retryAfterMs)
-          ? Math.max(500, Math.min(30_000, Math.trunc(result.retryAfterMs)))
-          : 5000;
-        timer = window.setTimeout(() => void poll(), delay);
+        if (typeof result.retryAfterMs === "number" && Number.isFinite(result.retryAfterMs)) {
+          const delay = Math.max(500, Math.min(30_000, Math.trunc(result.retryAfterMs)));
+          timer = window.setTimeout(() => void poll(), delay);
+          return;
+        }
+
+        setPrepJobHydrationReady(true);
         return;
       }
 
