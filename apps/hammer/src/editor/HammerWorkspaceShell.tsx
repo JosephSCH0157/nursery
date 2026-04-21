@@ -4,7 +4,6 @@ import { createPortal } from "react-dom";
 import type { HammerEditPlan, HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type {
   HammerEditInstruction,
-  HammerLookPreset,
 } from "../../../../packages/contracts/hammer/edit-instruction.contract";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { MediaRef, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
@@ -13,10 +12,6 @@ import {
   cloneHammerEditorialAuthorityGraph,
   type HammerEditorialAuthorityGraph,
 } from "../../../../packages/contracts/hammer/editorial-authority.contract";
-import {
-  normalizeHammerPassId as normalizeCanonicalPassId,
-  normalizeHammerPassStatusMap as normalizeCanonicalPassStatusMap,
-} from "../../../../packages/tongs/src/hammer-orchestration-contract";
 import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
 import type { HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
 import type {
@@ -76,7 +71,6 @@ import {
   updateSegmentGain,
   updateSegmentInTimeline,
   type HammerWorkspaceFocusOverride,
-  type HammerWorkspaceToolId,
 } from "./hammerWorkspaceTimeline";
 import {
   isTimeRangeFullyCoveredByCuts,
@@ -319,7 +313,6 @@ import {
 } from "./hammerAuthorityOps";
 import {
   buildHammerCaptionPreviewModel,
-  type HammerCaptionPreviewChunk,
 } from "../lib/hammerCaptionPreview";
 import HammerWorkspaceShellToolbar, { type HammerWorkspaceShellToolbarPassVM } from "./HammerWorkspaceShellToolbar";
 import HammerWorkspaceShellPreviewBay from "./HammerWorkspaceShellPreviewBay";
@@ -329,6 +322,47 @@ import HammerWorkspaceShellToolBay from "./HammerWorkspaceShellToolBay";
 import { useHammerWorkspaceShellHistoryController } from "./hammerWorkspaceShellHistoryController";
 import { useHammerWorkspaceShellSourceDeskPreviews } from "./hammerWorkspaceShellSourceDeskPreviews";
 import { useHammerWorkspaceShellSnapshotEmitter } from "./hammerWorkspaceShellSnapshotEmitter";
+import {
+  buildCaptionBasisFingerprint,
+  buildCaptionChunksFromPreview,
+  countChangedCaptionBlocks,
+  normalizeCaptionPunctuation,
+  rebuildCaptionArtifactsFromChunks,
+  renderBuiltSrt,
+  renderBuiltVtt,
+  type HammerCaptionArtifactMode,
+  type HammerCaptionBuildState,
+  type HammerCaptionBuiltChunk,
+  type HammerCaptionEditedState,
+  type HammerCaptionFormattingState,
+} from "./hammerWorkspaceShellCaptionUtils";
+import {
+  PASS_ORDER,
+  SOURCE_TABS,
+  editorModeToSourceTab,
+  editorModeToToolSelection,
+  editorModeToVisualTool,
+  isHammerModeRoutingDebugEnabled,
+  isHammerVisualSelectionDebugEnabled,
+  normalizePassStatus,
+  resolveEditorModeFromPass,
+  resolveEditorModeFromSourceTab,
+  resolveInitialPassId,
+  resolvePassMeta,
+  resolveRepresentativePassForEditorMode,
+  stableHashToken,
+  type HammerEditorMode,
+  type HammerSourceTabId,
+  type HammerVideoPanelRoute,
+  type HammerVisualLutPreset,
+  type HammerVisualToolRackId,
+} from "./hammerWorkspaceShellCore";
+import {
+  normalizeVisualPreviewSettings,
+  resolveOutputSelectionFromTranscript,
+  toEditorState,
+  toShellState,
+} from "./hammerWorkspaceShellStateAdapters";
 import "./HammerWorkspaceShell.css";
 
 const SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY = 4;
@@ -350,24 +384,6 @@ const MIN_IMAGE_PLACEMENT_DURATION_SEC = 0.5;
 const IMAGE_PLACEMENT_TIME_PRECISION = 100;
 const IMAGE_PLACEMENT_FINE_STEP_SEC = 0.01;
 const IMAGE_PLACEMENT_COARSE_STEP_SEC = 0.1;
-
-function readHammerDebugFlag(flagName: string): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const runtime = window as unknown as Record<string, unknown>;
-    return runtime[flagName] === true;
-  } catch {
-    return false;
-  }
-}
-
-function isHammerModeRoutingDebugEnabled(): boolean {
-  return import.meta.env.DEV && readHammerDebugFlag("__forgeHammerDebugModeRouting__");
-}
-
-function isHammerVisualSelectionDebugEnabled(): boolean {
-  return import.meta.env.DEV && readHammerDebugFlag("__forgeHammerDebugVisualSelection__");
-}
 
 function appendUniquePaths(target: string[], candidates: Array<string | null | undefined>): string[] {
   const seen = new Set(target);
@@ -441,11 +457,6 @@ const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
   ],
 };
 
-type HammerToolId = HammerWorkspaceToolId;
-type HammerSourceTabId = "transcript" | "images" | "assets" | "broll" | "introoutro";
-type HammerVisualToolRackId = "polish" | "images" | "broll";
-type HammerEditorMode = "transcript" | "images" | "assets" | "broll" | "intro_outro";
-type HammerVideoPanelRoute = HammerVisualToolRackId | "non_video";
 type HammerPlaybackWindowMode = "loop" | "roll";
 type HammerPlaybackWindow = {
   mode: HammerPlaybackWindowMode;
@@ -492,34 +503,6 @@ type HammerWorkspaceShellProps = {
   ) => void;
 };
 
-const SOURCE_TABS: Array<{ id: HammerSourceTabId; label: string }> = [
-  { id: "transcript", label: "Transcript" },
-  { id: "images", label: "Images" },
-  { id: "assets", label: "Assets" },
-  { id: "broll", label: "B-roll" },
-  { id: "introoutro", label: "Intro/Outro" },
-];
-
-const PASS_ORDER: Array<{
-  id: HammerPassId;
-  shortLabel: string;
-  label: string;
-  toolId: HammerToolId;
-  sourceTab: HammerSourceTabId;
-}> = [
-  { id: "transcript_cleanup", shortLabel: "T1", label: "Transcript Cleanup", toolId: "polish", sourceTab: "transcript" },
-  { id: "retakes", shortLabel: "T2", label: "Retakes", toolId: "polish", sourceTab: "transcript" },
-  { id: "gap_pacing", shortLabel: "T3", label: "Silence Gaps", toolId: "polish", sourceTab: "transcript" },
-  { id: "visual_finishing", shortLabel: "V1", label: "Visual Polish", toolId: "video", sourceTab: "images" },
-  { id: "image_placement", shortLabel: "V2", label: "Image Placement", toolId: "video", sourceTab: "images" },
-  { id: "image_animation", shortLabel: "V3", label: "B-roll", toolId: "video", sourceTab: "broll" },
-  { id: "audio_finalization", shortLabel: "A", label: "Audio Finalization", toolId: "audio", sourceTab: "assets" },
-  { id: "packaging", shortLabel: "P", label: "Packaging", toolId: "finishing", sourceTab: "introoutro" },
-  { id: "ready", shortLabel: "R", label: "Ready", toolId: "export", sourceTab: "transcript" },
-];
-
-const PASS_BY_ID = new Map(PASS_ORDER.map((pass) => [pass.id, pass] as const));
-
 function resolveActiveLookPreset(
   graph: HammerEditorialAuthorityGraph | null | undefined,
 ): HammerVisualLutPreset | null {
@@ -537,161 +520,6 @@ function resolveActiveExposureAdjustment(
   )) ?? null;
   return operation?.instruction.type === "apply_exposure" ? operation.instruction.exposure : null;
 }
-
-function resolvePassMeta(passId: HammerPassId): (typeof PASS_ORDER)[number] {
-  return PASS_BY_ID.get(passId) ?? PASS_ORDER[0];
-}
-
-function resolveVisualToolRackFromPass(passId: HammerPassId): HammerVisualToolRackId {
-  if (passId === "image_placement") return "images";
-  if (passId === "image_animation") return "broll";
-  return "polish";
-}
-
-function editorModeToToolSelection(mode: HammerEditorMode): {
-  activeTool: HammerToolId;
-  activeVisualTool: HammerVisualToolRackId | null;
-  videoPanelRoute: HammerVideoPanelRoute;
-} {
-  switch (mode) {
-    case "transcript":
-      return { activeTool: "polish", activeVisualTool: null, videoPanelRoute: "non_video" };
-    case "images":
-      return { activeTool: "video", activeVisualTool: "images", videoPanelRoute: "images" };
-    case "assets":
-      return { activeTool: "audio", activeVisualTool: null, videoPanelRoute: "non_video" };
-    case "broll":
-      return { activeTool: "video", activeVisualTool: "broll", videoPanelRoute: "broll" };
-    case "intro_outro":
-      return { activeTool: "finishing", activeVisualTool: null, videoPanelRoute: "non_video" };
-  }
-}
-
-function mapToolToEditorMode(args: {
-  tool: HammerToolId;
-  activeVisualTool?: HammerVisualToolRackId | null;
-}): HammerEditorMode {
-  if (args.tool === "video") {
-    return args.activeVisualTool === "broll" ? "broll" : "images";
-  }
-  if (args.tool === "audio") return "assets";
-  if (args.tool === "finishing") return "intro_outro";
-  return "transcript";
-}
-
-function resolveEditorModeFromPass(passId: HammerPassId): HammerEditorMode {
-  const meta = resolvePassMeta(passId);
-  return mapToolToEditorMode({
-    tool: meta.toolId,
-    activeVisualTool: meta.toolId === "video" ? resolveVisualToolRackFromPass(passId) : null,
-  });
-}
-
-function resolveEditorModeFromSourceTab(sourceTab: HammerSourceTabId): HammerEditorMode {
-  if (sourceTab === "introoutro") return "intro_outro";
-  return sourceTab;
-}
-
-function editorModeToSourceTab(mode: HammerEditorMode): HammerSourceTabId {
-  return mode === "intro_outro" ? "introoutro" : mode;
-}
-
-function editorModeToVisualTool(mode: HammerEditorMode, currentPass: HammerPassId): HammerVisualToolRackId {
-  if (mode === "broll") return "broll";
-  if (mode === "images") {
-    return currentPass === "visual_finishing" ? "polish" : "images";
-  }
-  return resolveVisualToolRackFromPass(currentPass);
-}
-
-function resolveRepresentativePassForEditorMode(mode: HammerEditorMode): HammerPassId {
-  if (mode === "transcript") {
-    return "transcript_cleanup";
-  }
-  if (mode === "images") {
-    return "image_placement";
-  }
-  if (mode === "assets") {
-    return "audio_finalization";
-  }
-  if (mode === "broll") {
-    return "image_animation";
-  }
-  return "packaging";
-}
-
-function normalizePassStatus(
-  value: HammerPassStatusMap | null | undefined,
-  currentPass: HammerPassId,
-): HammerPassStatusMap {
-  return normalizeCanonicalPassStatusMap(value, currentPass);
-}
-
-function resolveInitialPassId(value: HammerPassId | undefined): HammerPassId {
-  return normalizeCanonicalPassId(value);
-}
-
-function buildDefaultVisualPreviewSettings(): HammerPersistedVisualPreviewSettings {
-  return {
-    white_balance: 0,
-    color_amount: 0,
-    background_blur: false,
-    eye_contact_assist_enabled: false,
-    eye_contact_assist_strength: 0.25,
-    background_blur_px: 14,
-    background_blur_feather_px: 6,
-    background_blur_temporal_smoothing: 0.25,
-    background_blur_subject_expansion_px: 0,
-    background_blur_quality_mode: "medium",
-    background_blur_fallback_mode: "disable",
-    background_blur_provider: "mediapipe_selfie_segmentation",
-    background_replace_enabled: false,
-    background_replace_mode: "solid",
-    background_replace_color: "#2b2b2b",
-    background_replace_image_url: null,
-    background_wash_enabled: false,
-    background_wash_dim_amount: 0.35,
-    background_wash_desaturate_amount: 0.25,
-  };
-}
-
-function normalizeVisualPreviewSettings(
-  value: HammerPersistedVisualPreviewSettings | null | undefined,
-): HammerPersistedVisualPreviewSettings {
-  if (!value) {
-    return buildDefaultVisualPreviewSettings();
-  }
-  const defaults = buildDefaultVisualPreviewSettings();
-  return {
-    white_balance: Math.max(-100, Math.min(100, Math.round(value.white_balance))),
-    color_amount: Math.max(-100, Math.min(100, Math.round(value.color_amount))),
-    background_blur: Boolean(value.background_blur),
-    eye_contact_assist_enabled: Boolean(value.eye_contact_assist_enabled ?? defaults.eye_contact_assist_enabled),
-    eye_contact_assist_strength: Math.max(0, Math.min(1, Number(value.eye_contact_assist_strength ?? defaults.eye_contact_assist_strength))),
-    background_blur_px: Math.max(0, Math.min(64, Number(value.background_blur_px ?? defaults.background_blur_px))),
-    background_blur_feather_px: Math.max(0, Math.min(64, Number(value.background_blur_feather_px ?? defaults.background_blur_feather_px))),
-    background_blur_temporal_smoothing: Math.max(0, Math.min(1, Number(value.background_blur_temporal_smoothing ?? defaults.background_blur_temporal_smoothing))),
-    background_blur_subject_expansion_px: Math.max(-12, Math.min(12, Number(value.background_blur_subject_expansion_px ?? defaults.background_blur_subject_expansion_px))),
-    background_blur_quality_mode: value.background_blur_quality_mode === "low" || value.background_blur_quality_mode === "high"
-      ? value.background_blur_quality_mode
-      : "medium",
-    background_blur_fallback_mode: value.background_blur_fallback_mode === "passthrough" ? "passthrough" : "disable",
-    background_blur_provider: typeof value.background_blur_provider === "string" ? value.background_blur_provider : defaults.background_blur_provider,
-    background_replace_enabled: Boolean(value.background_replace_enabled ?? defaults.background_replace_enabled),
-    background_replace_mode: value.background_replace_mode === "image"
-      ? "image"
-      : value.background_replace_mode === "checkerboard"
-      ? "checkerboard"
-      : "solid",
-    background_replace_color: typeof value.background_replace_color === "string" ? value.background_replace_color : defaults.background_replace_color,
-    background_replace_image_url: typeof value.background_replace_image_url === "string" ? value.background_replace_image_url : null,
-    background_wash_enabled: Boolean(value.background_wash_enabled ?? defaults.background_wash_enabled),
-    background_wash_dim_amount: Math.max(0, Math.min(1, Number(value.background_wash_dim_amount ?? defaults.background_wash_dim_amount))),
-    background_wash_desaturate_amount: Math.max(0, Math.min(1, Number(value.background_wash_desaturate_amount ?? defaults.background_wash_desaturate_amount))),
-  };
-}
-
-type HammerVisualLutPreset = HammerLookPreset | "neutral";
 
 type HammerSourceImageItem = {
   id: string;
@@ -861,59 +689,6 @@ type HammerReleasePrepSaveState = {
   overallStatus: HammerPreparedReleaseOverallStatus;
   subtitleArtifactCount: number;
 };
-
-type HammerCaptionReadingSpeed = "slow" | "standard" | "fast";
-type HammerCaptionPunctuationMode = "preserve" | "normalize";
-
-type HammerCaptionFormattingState = {
-  style: "sentence" | "title" | "upper";
-  maxCharsPerLine: number;
-  maxLinesPerCaption: number;
-  includeSpeakerLabels: boolean;
-  punctuationMode: HammerCaptionPunctuationMode;
-  readingSpeed: HammerCaptionReadingSpeed;
-};
-
-type HammerCaptionBuiltChunk = {
-  id: string;
-  speaker: string;
-  startSec: number;
-  endSec: number;
-  text: string;
-  lineCount: number;
-  charCount: number;
-  sourceSegmentIds: string[];
-  approximateTiming: boolean;
-};
-
-type HammerCaptionBuildState = {
-  builtAt: string;
-  sourceLayerId: string | null;
-  sourceLabel: string;
-  fingerprint: string;
-  chunkCount: number;
-  segmentCount: number;
-  approximateTiming: boolean;
-  chunks: HammerCaptionBuiltChunk[];
-  srt: string;
-  vtt: string;
-};
-
-type HammerCaptionEditedState = {
-  createdAt: string;
-  updatedAt: string;
-  baseFingerprint: string;
-  sourceLayerId: string | null;
-  sourceLabel: string;
-  chunkCount: number;
-  segmentCount: number;
-  approximateTiming: boolean;
-  chunks: HammerCaptionBuiltChunk[];
-  srt: string;
-  vtt: string;
-};
-
-type HammerCaptionArtifactMode = "built" | "edited";
 
 type HammerExportTruthState = "never_prepared" | "current" | "stale";
 type DerivedLayerHistoryTransition = {
@@ -1108,203 +883,6 @@ function isKeyboardEditingTarget(target: EventTarget | null): boolean {
   if (target.isContentEditable) return true;
   const tagName = target.tagName.toUpperCase();
   return tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
-}
-
-function stableHashToken(value: string): string {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash.toString(16).padStart(8, "0");
-}
-
-function toEditorState(args: {
-  segments: HammerTranscriptSegment[];
-  visualPlacements: HammerPersistedVisualPlacements | null;
-  visualTimeline: HammerVisualTimelineState | null;
-  audioEdit: HammerPersistedAudioEdit | null;
-  studioRack: HammerStudioRackState;
-  editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
-  outputSelection: HammerOutputSelectionState;
-  selectedSegmentId: string | null;
-  playheadSec: number;
-  transcriptTimingHint: string | null;
-}): HammerEditorStateSerializable {
-  return {
-    transcriptSegments: args.segments.map((segment) => ({ ...segment })),
-    visualPlacements: args.visualPlacements
-      ? {
-        ...args.visualPlacements,
-        source_refs: [...args.visualPlacements.source_refs],
-        uncertainty_flags: [...args.visualPlacements.uncertainty_flags],
-        placements: args.visualPlacements.placements.map((placement) => ({
-          ...placement,
-          matched_segment_ids: [...placement.matched_segment_ids],
-          uncertainty_flags: [...placement.uncertainty_flags],
-        })),
-      }
-      : null,
-    visualTimeline: args.visualTimeline
-      ? {
-        ...args.visualTimeline,
-        assets: args.visualTimeline.assets.map((asset) => ({ ...asset })),
-        lanes: args.visualTimeline.lanes.map((lane) => ({
-          ...lane,
-          clip_ids: [...lane.clip_ids],
-        })),
-        clips: args.visualTimeline.clips.map((clip) => ({
-          ...clip,
-          uncertainty_flags: [...clip.uncertainty_flags],
-          geometry: { ...clip.geometry },
-          animation: { ...clip.animation },
-          anchor_hint: {
-            ...clip.anchor_hint,
-            matched_segment_ids: [...clip.anchor_hint.matched_segment_ids],
-          },
-        })),
-      }
-      : null,
-    audioEdit: cloneHammerAudioEdit(args.audioEdit),
-    studioRack: cloneHammerStudioRackState(args.studioRack),
-    editorialAuthorityGraph: args.editorialAuthorityGraph
-      ? {
-        ...args.editorialAuthorityGraph,
-        operation_order: [...args.editorialAuthorityGraph.operation_order],
-        operations: args.editorialAuthorityGraph.operations.map((operation) => ({
-          ...operation,
-          instruction: { ...operation.instruction },
-          capability_state: {
-            ...operation.capability_state,
-            reason_codes: [...operation.capability_state.reason_codes],
-          },
-          truth_posture: {
-            preview: {
-              ...operation.truth_posture.preview,
-              reason_codes: [...operation.truth_posture.preview.reason_codes],
-            },
-            export: {
-              ...operation.truth_posture.export,
-              reason_codes: [...operation.truth_posture.export.reason_codes],
-            },
-            handoff: {
-              ...operation.truth_posture.handoff,
-              reason_codes: [...operation.truth_posture.handoff.reason_codes],
-            },
-          },
-          provenance: { ...operation.provenance },
-        })),
-      }
-      : null,
-    outputSelection: {
-      layerId: args.outputSelection.layerId,
-      sourceRecipeRef: args.outputSelection.sourceRecipeRef,
-    },
-    selectedSegmentId: args.selectedSegmentId,
-    playheadSec: args.playheadSec,
-    transcriptTimingHint: args.transcriptTimingHint,
-  };
-}
-
-function toShellState(state: HammerEditorStateSerializable): {
-  segments: HammerTranscriptSegment[];
-  visualPlacements: HammerPersistedVisualPlacements | null;
-  visualTimeline: HammerVisualTimelineState | null;
-  audioEdit: HammerPersistedAudioEdit | null;
-  studioRack: HammerStudioRackState;
-  editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
-  outputSelection: HammerOutputSelectionState;
-  selectedSegmentId: string | null;
-  playheadSec: number;
-  transcriptTimingHint: string | null;
-} {
-  return {
-    segments: state.transcriptSegments.map((segment) => ({ ...segment })),
-    visualPlacements: state.visualTimeline
-      ? deriveLegacyVisualPlacementsFromTimeline(state.visualTimeline)
-      : state.visualPlacements
-        ? {
-          ...state.visualPlacements,
-          source_refs: [...state.visualPlacements.source_refs],
-          uncertainty_flags: [...state.visualPlacements.uncertainty_flags],
-          placements: state.visualPlacements.placements.map((placement) => ({
-            ...placement,
-            matched_segment_ids: [...placement.matched_segment_ids],
-            uncertainty_flags: [...placement.uncertainty_flags],
-          })),
-        }
-        : null,
-    visualTimeline: state.visualTimeline
-      ? {
-        ...state.visualTimeline,
-        assets: state.visualTimeline.assets.map((asset) => ({ ...asset })),
-        lanes: state.visualTimeline.lanes.map((lane) => ({
-          ...lane,
-          clip_ids: [...lane.clip_ids],
-        })),
-        clips: state.visualTimeline.clips.map((clip) => ({
-          ...clip,
-          uncertainty_flags: [...clip.uncertainty_flags],
-          geometry: { ...clip.geometry },
-          animation: { ...clip.animation },
-          anchor_hint: {
-            ...clip.anchor_hint,
-            matched_segment_ids: [...clip.anchor_hint.matched_segment_ids],
-          },
-        })),
-      }
-      : null,
-    audioEdit: cloneHammerAudioEdit(state.audioEdit),
-    studioRack: cloneHammerStudioRackState(state.studioRack),
-    editorialAuthorityGraph: state.editorialAuthorityGraph
-      ? {
-        ...state.editorialAuthorityGraph,
-        operation_order: [...state.editorialAuthorityGraph.operation_order],
-        operations: state.editorialAuthorityGraph.operations.map((operation) => ({
-          ...operation,
-          instruction: { ...operation.instruction },
-          capability_state: {
-            ...operation.capability_state,
-            reason_codes: [...operation.capability_state.reason_codes],
-          },
-          truth_posture: {
-            preview: {
-              ...operation.truth_posture.preview,
-              reason_codes: [...operation.truth_posture.preview.reason_codes],
-            },
-            export: {
-              ...operation.truth_posture.export,
-              reason_codes: [...operation.truth_posture.export.reason_codes],
-            },
-            handoff: {
-              ...operation.truth_posture.handoff,
-              reason_codes: [...operation.truth_posture.handoff.reason_codes],
-            },
-          },
-          provenance: { ...operation.provenance },
-        })),
-      }
-      : null,
-    outputSelection: {
-      layerId: state.outputSelection.layerId,
-      sourceRecipeRef: state.outputSelection.sourceRecipeRef,
-    },
-    selectedSegmentId: state.selectedSegmentId,
-    playheadSec: state.playheadSec,
-    transcriptTimingHint: state.transcriptTimingHint,
-  };
-}
-
-function resolveOutputSelectionFromTranscript(
-  transcript: HammerPersistedStructuredTranscript | null | undefined,
-): HammerOutputSelectionState {
-  return normalizeHammerOutputSelectionRef({
-    selection: {
-      layerId: transcript?.derived_text_layers?.output_layer_id ?? null,
-      sourceRecipeRef: null,
-    },
-    layers: listHammerDerivedTextLayers(transcript, { includeDiscarded: false }),
-  });
 }
 
 function formatOutputLayerLabelFromRecipeRef(recipeRef: string): string {
@@ -1530,213 +1108,6 @@ function resolveImageAnimationClass(preset: HammerImageAnimationPreset): string 
   if (preset === "shutter_out") return "is-anim-shutter-out";
   if (preset === "shutter_in_fade_out") return "is-anim-shutter-in-fade-out";
   return "";
-}
-
-function toTitleCaseText(value: string): string {
-  return value.replace(/\b([a-z])/g, (match) => match.toUpperCase());
-}
-
-function applyCaptionStyle(value: string, style: HammerCaptionFormattingState["style"]): string {
-  if (style === "upper") return value.toUpperCase();
-  if (style === "title") return toTitleCaseText(value.toLowerCase());
-  return value;
-}
-
-function normalizeCaptionPunctuation(value: string): string {
-  return value
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.!?;:])/g, "$1")
-    .replace(/([,.!?;:]){2,}/g, "$1")
-    .trim();
-}
-
-function splitCaptionWordsByLimit(text: string, maxChars: number): string[] {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (!normalized) return [];
-  const words = normalized.split(" ");
-  const chunks: string[] = [];
-  let current = "";
-  for (const word of words) {
-    const candidate = current ? `${current} ${word}` : word;
-    if (current && candidate.length > maxChars) {
-      chunks.push(current);
-      current = word;
-      continue;
-    }
-    current = candidate;
-  }
-  if (current) chunks.push(current);
-  return chunks;
-}
-
-function wrapCaptionLines(text: string, maxCharsPerLine: number, maxLines: number): string {
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let index = 0;
-  while (index < words.length && lines.length < maxLines) {
-    if (lines.length === maxLines - 1) {
-      lines.push(words.slice(index).join(" "));
-      break;
-    }
-    let line = words[index] ?? "";
-    index += 1;
-    while (index < words.length) {
-      const candidate = `${line} ${words[index]}`;
-      if (candidate.length > maxCharsPerLine) break;
-      line = candidate;
-      index += 1;
-    }
-    lines.push(line);
-  }
-  return lines.slice(0, maxLines).join("\n");
-}
-
-function resolveCaptionCharsPerSecond(speed: HammerCaptionReadingSpeed): number {
-  if (speed === "slow") return 12;
-  if (speed === "fast") return 20;
-  return 16;
-}
-
-function buildCaptionChunksFromPreview(args: {
-  chunks: HammerCaptionPreviewChunk[];
-  formatting: HammerCaptionFormattingState;
-}): HammerCaptionBuiltChunk[] {
-  const results: HammerCaptionBuiltChunk[] = [];
-  const cpsLimit = resolveCaptionCharsPerSecond(args.formatting.readingSpeed);
-  let cursor = 0;
-  for (const chunk of args.chunks) {
-    const duration = Math.max(0.1, chunk.end_sec - chunk.start_sec);
-    const layoutCap = Math.max(18, args.formatting.maxCharsPerLine * args.formatting.maxLinesPerCaption);
-    const speedCap = Math.max(18, Math.floor(duration * cpsLimit));
-    const maxChars = Math.max(18, Math.min(layoutCap, speedCap));
-    const baseText = args.formatting.includeSpeakerLabels
-      ? `${chunk.speaker}: ${chunk.text}`
-      : chunk.text;
-    const punctuated = args.formatting.punctuationMode === "normalize"
-      ? normalizeCaptionPunctuation(baseText)
-      : baseText.replace(/\s+/g, " ").trim();
-    const styled = applyCaptionStyle(punctuated, args.formatting.style);
-    const parts = splitCaptionWordsByLimit(styled, maxChars);
-    const totalWeight = Math.max(parts.reduce((sum, part) => sum + Math.max(part.length, 1), 0), 1);
-    let offset = chunk.start_sec;
-    let consumed = 0;
-    for (let index = 0; index < parts.length; index += 1) {
-      const part = parts[index];
-      consumed += Math.max(part.length, 1);
-      const nextEnd = index < parts.length - 1
-        ? chunk.start_sec + (duration * (consumed / totalWeight))
-        : chunk.end_sec;
-      const wrapped = wrapCaptionLines(part, args.formatting.maxCharsPerLine, args.formatting.maxLinesPerCaption);
-      const lines = wrapped.split("\n").filter(Boolean);
-      results.push({
-        id: `${chunk.chunk_id}:${index}:${cursor}`,
-        speaker: chunk.speaker,
-        startSec: offset,
-        endSec: Math.max(nextEnd, offset + 0.05),
-        text: wrapped,
-        lineCount: lines.length,
-        charCount: wrapped.replace(/\n/g, "").length,
-        sourceSegmentIds: [...chunk.segment_ids],
-        approximateTiming: chunk.approximate_timing || parts.length > 1,
-      });
-      offset = Math.max(nextEnd, offset + 0.05);
-      cursor += 1;
-    }
-  }
-  return results;
-}
-
-function formatCaptionTimestamp(totalSeconds: number, format: "srt" | "vtt"): string {
-  const clampedMs = Math.max(Math.round(totalSeconds * 1000), 0);
-  const hours = Math.floor(clampedMs / 3_600_000);
-  const minutes = Math.floor((clampedMs % 3_600_000) / 60_000);
-  const seconds = Math.floor((clampedMs % 60_000) / 1000);
-  const milliseconds = clampedMs % 1000;
-  const separator = format === "srt" ? "," : ".";
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}${separator}${String(milliseconds).padStart(3, "0")}`;
-}
-
-function renderBuiltSrt(chunks: HammerCaptionBuiltChunk[]): string {
-  return chunks.map((chunk, index) => [
-    String(index + 1),
-    `${formatCaptionTimestamp(chunk.startSec, "srt")} --> ${formatCaptionTimestamp(chunk.endSec, "srt")}`,
-    chunk.text,
-  ].join("\n")).join("\n\n");
-}
-
-function renderBuiltVtt(chunks: HammerCaptionBuiltChunk[]): string {
-  const body = chunks.map((chunk) => [
-    `${formatCaptionTimestamp(chunk.startSec, "vtt")} --> ${formatCaptionTimestamp(chunk.endSec, "vtt")}`,
-    chunk.text,
-  ].join("\n")).join("\n\n");
-  return body ? `WEBVTT\n\n${body}` : "WEBVTT\n";
-}
-
-function rebuildCaptionArtifactsFromChunks(chunks: HammerCaptionBuiltChunk[]): {
-  chunkCount: number;
-  approximateTiming: boolean;
-  srt: string;
-  vtt: string;
-} {
-  return {
-    chunkCount: chunks.length,
-    approximateTiming: chunks.some((chunk) => chunk.approximateTiming),
-    srt: renderBuiltSrt(chunks),
-    vtt: renderBuiltVtt(chunks),
-  };
-}
-
-function countChangedCaptionBlocks(
-  baseChunks: readonly HammerCaptionBuiltChunk[],
-  nextChunks: readonly HammerCaptionBuiltChunk[],
-): number {
-  const comparisonLength = Math.max(baseChunks.length, nextChunks.length);
-  let changedBlocks = 0;
-
-  for (let index = 0; index < comparisonLength; index += 1) {
-    const base = baseChunks[index] ?? null;
-    const next = nextChunks[index] ?? null;
-    if (!base || !next) {
-      changedBlocks += 1;
-      continue;
-    }
-
-    if (
-      base.id !== next.id
-      || base.speaker !== next.speaker
-      || base.startSec !== next.startSec
-      || base.endSec !== next.endSec
-      || base.text !== next.text
-      || base.lineCount !== next.lineCount
-      || base.charCount !== next.charCount
-    ) {
-      changedBlocks += 1;
-    }
-  }
-
-  return changedBlocks;
-}
-
-function buildCaptionBasisFingerprint(args: {
-  transcript: HammerPersistedStructuredTranscript;
-  outputLayerId: string | null;
-  outputRecipeRef: string | null;
-  formatting: HammerCaptionFormattingState;
-}): string {
-  return stableHashToken(JSON.stringify({
-    transcriptId: args.transcript.transcript_id,
-    outputLayerId: args.outputLayerId,
-    outputRecipeRef: args.outputRecipeRef,
-    formatting: args.formatting,
-    segments: args.transcript.segments.map((segment) => ({
-      id: segment.segment_id,
-      speaker: segment.speaker,
-      text: segment.text,
-      start: segment.start_sec,
-      end: segment.end_sec,
-      disabled: segment.is_disabled === true,
-    })),
-  }));
 }
 
 function buildPreparedPackageIdentityFingerprint(pkg: HammerPreparedReleasePackage): string {
