@@ -26,14 +26,7 @@ import type {
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
 import { createEmptyVisualTimelineState } from "../visuals/model/hammerVisualDefaults";
-import type { HammerVisualClip, HammerVisualGeometry, HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
-import {
-  HAMMER_VISUAL_DEFAULT_GEOMETRY,
-  HAMMER_VISUAL_DEFAULT_PERCENT_BOX,
-  clampNormalizedGeometry,
-  geometryToPercentBox,
-  percentBoxToGeometry,
-} from "../visuals/model/visualPlacementGeometry";
+import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 import {
   selectClipById,
   selectPrimaryActiveClipAtTime,
@@ -183,19 +176,11 @@ import {
 } from "./hammerSnapshotProduction";
 import {
   loadWorkpieceMediaPreviewUrl,
-  copyWorkpieceMediaFile,
-  saveIntroOutroSelection,
-  saveWorkspaceIntroOutroDefaults,
-  type HammerIntroOutroSelection,
-  type HammerWorkspaceIntroOutroDefaults,
   type HammerStoredMediaFile,
 } from "../lib/hammerSourceDeskMediaApi";
-import { deriveStableHammerAssetIdFromPath } from "../lib/hammerAssetIdentity";
 import {
   buildIntroOutroCandidateItems,
   buildIntroOutroCandidateItemsById,
-  buildIntroOutroPackagingSyncPlan,
-  buildWorkspaceIntroOutroDefaultsRepairPlan,
 } from "./hammerIntroOutroState";
 import {
   activeMediaTimeToTransportTime,
@@ -225,6 +210,7 @@ import { useHammerWorkspaceShellPlayback } from "./useHammerWorkspaceShellPlayba
 import { useHammerWorkspaceShellShortcuts } from "./useHammerWorkspaceShellShortcuts";
 import { useHammerWorkspaceShellSelection } from "./useHammerWorkspaceShellSelection";
 import { useHammerWorkspaceShellSourceDeskController } from "./useHammerWorkspaceShellSourceDeskController";
+import { useHammerWorkspaceShellVisualEditing } from "./useHammerWorkspaceShellVisualEditing";
 import {
   toHammerLinkedSelectionVisualItems,
   type HammerSelectedTranscriptRange,
@@ -255,8 +241,25 @@ import {
   type HammerDialogueRenderExecutionResult,
 } from "./hammerAudioProcessingBackend";
 import { buildHammerMediaBackboneRuntimeSummary } from "../media/hammerMediaBackbone";
-import { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
 import { preserveTranscriptMetadata } from "../prep/hammerPrep";
+import {
+  clampImagePlacementTransform,
+  clampNumber,
+  createVisualPlacementId,
+  DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
+  DEFAULT_IMAGE_PLACEMENT_TRANSFORM,
+  geometryToTransform,
+  IMAGE_ANIMATION_PRESET_OPTIONS,
+  LOGO_POSITION_OPTIONS,
+  LOGO_SIZE_OPTIONS,
+  MIN_IMAGE_PLACEMENT_DURATION_SEC,
+  PACKAGING_INTRO_ENTRY_ID,
+  PACKAGING_LOGO_ENTRY_ID,
+  PACKAGING_OUTRO_ENTRY_ID,
+  resolveImageAnimationClass,
+  resolvePlacementAnimationPreset,
+  resolvePlacementGeometry,
+} from "./hammerWorkspaceShellVisualUtils";
 import {
   buildNotStartedHammerAudioPolish,
   cloneHammerAudioEdit,
@@ -382,10 +385,6 @@ const HISTORY_MAX_SIZE = 100;
 const HISTORY_PERSIST_DEBOUNCE_MS = 900;
 const TEXT_EDIT_COALESCE_MS = 1500;
 const PLAYHEAD_SNAP_TOLERANCE_SEC = DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC;
-const MIN_IMAGE_PLACEMENT_DURATION_SEC = 0.5;
-const IMAGE_PLACEMENT_TIME_PRECISION = 100;
-const IMAGE_PLACEMENT_FINE_STEP_SEC = 0.01;
-const IMAGE_PLACEMENT_COARSE_STEP_SEC = 0.1;
 
 function appendUniquePaths(target: string[], candidates: Array<string | null | undefined>): string[] {
   const seen = new Set(target);
@@ -396,15 +395,6 @@ function appendUniquePaths(target: string[], candidates: Array<string | null | u
     target.push(next);
   }
   return target;
-}
-
-function roundImagePlacementTime(value: number): number {
-  return Math.round(value * IMAGE_PLACEMENT_TIME_PRECISION) / IMAGE_PLACEMENT_TIME_PRECISION;
-}
-
-function snapImagePlacementTime(value: number, stepSec: number): number {
-  if (!Number.isFinite(stepSec) || stepSec <= 0) return roundImagePlacementTime(value);
-  return roundImagePlacementTime(Math.round(value / stepSec) * stepSec);
 }
 const TIMELINE_ZOOM_LEVELS = [100, 125, 150, 200, 300] as const;
 const CAPTION_MIN_BLOCK_DURATION_SEC = 0.05;
@@ -527,8 +517,6 @@ type HammerSourceAssetItem = {
   lastEndSec: number;
 };
 
-type HammerVisualFlowStepId = "media_map" | "images" | "broll" | "reference_clips";
-
 type HammerMediaMapSuggestionType = "broll" | "reference_clip";
 
 type HammerMediaMapBeat = {
@@ -604,56 +592,7 @@ type HammerTimelineLaneBlock = {
   onSelect: () => void;
 };
 
-type HammerImagePlacementDraftWindow = {
-  startSec: number;
-  endSec: number;
-};
-
-type HammerImagePlacementTransform = {
-  leftPct: number;
-  topPct: number;
-  widthPct: number;
-  heightPct: number;
-};
-
-type HammerTimelineImageDragState = {
-  placementId: string;
-  mode: "move" | "resize_start" | "resize_end";
-  pointerStartX: number;
-  originStartSec: number;
-  originEndSec: number;
-  pxToSec: number;
-};
-
-type HammerPreviewCanvasDragState = {
-  placementId: string;
-  mode: "move" | "resize";
-  pointerStartX: number;
-  pointerStartY: number;
-  origin: HammerImagePlacementTransform;
-  originAspectRatio: number;
-};
-
-type HammerImageAnimationPreset =
-  | "none"
-  | "fade_in"
-  | "fade_out"
-  | "fade_in_out"
-  | "flip_in"
-  | "flip_out"
-  | "shutter_in"
-  | "shutter_out"
-  | "shutter_in_fade_out";
-
-type HammerImageAnimationContextMenuState = {
-  placementId: string;
-  x: number;
-  y: number;
-};
-
 type HammerAudioFinalizationCompareMode = "before" | "after";
-type HammerLogoOverlayPosition = "top_left" | "top_right" | "bottom_left" | "bottom_right";
-type HammerLogoOverlaySize = "small" | "medium" | "large";
 
 type HammerTimelineLaneView = {
   id: string;
@@ -924,139 +863,6 @@ function formatStudioRackModuleLabel(moduleId: string): string {
   return moduleId;
 }
 
-function createVisualPlacementId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return `placement:${crypto.randomUUID()}`;
-  }
-  return `placement:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
-}
-
-const DEFAULT_IMAGE_PLACEMENT_TRANSFORM: HammerImagePlacementTransform = {
-  ...HAMMER_VISUAL_DEFAULT_PERCENT_BOX,
-};
-
-const DEFAULT_VISUAL_PLACEMENT_GEOMETRY: HammerVisualGeometry = {
-  ...HAMMER_VISUAL_DEFAULT_GEOMETRY,
-};
-
-function normalizePlacementGeometryCandidate(candidate: Partial<HammerVisualGeometry>): HammerVisualGeometry {
-  const x = Number(candidate.x);
-  const y = Number(candidate.y);
-  const width = Number(candidate.width);
-  const height = Number(candidate.height);
-  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height)) {
-    return DEFAULT_VISUAL_PLACEMENT_GEOMETRY;
-  }
-  return clampNormalizedGeometry({
-    x,
-    y,
-    width,
-    height,
-    anchor: candidate.anchor === "center" ? "center" : "top_left",
-  });
-}
-
-function geometryToTransform(geometry: HammerVisualGeometry): HammerImagePlacementTransform {
-  return geometryToPercentBox(geometry);
-}
-
-function transformToGeometry(transform: HammerImagePlacementTransform): HammerVisualGeometry {
-  return percentBoxToGeometry(transform, "top_left");
-}
-
-function resolvePlacementGeometry(
-  placement: Pick<HammerVisualPlacementRecord, "overlay_geometry"> | null | undefined,
-): HammerVisualGeometry {
-  return normalizePlacementGeometryCandidate(placement?.overlay_geometry ?? DEFAULT_VISUAL_PLACEMENT_GEOMETRY);
-}
-
-function clampImagePlacementTransform(transform: HammerImagePlacementTransform): HammerImagePlacementTransform {
-  return geometryToTransform(clampNormalizedGeometry(transformToGeometry(transform)));
-}
-
-function resolvePlacementAnimationPreset(
-  placement: HammerVisualPlacementRecord | null | undefined,
-): HammerImageAnimationPreset {
-  const preset = placement?.animation_preset ?? null;
-  return (
-    preset === "fade_in"
-    || preset === "fade_out"
-    || preset === "fade_in_out"
-    || preset === "flip_in"
-    || preset === "flip_out"
-    || preset === "shutter_in"
-    || preset === "shutter_out"
-    || preset === "shutter_in_fade_out"
-    || preset === "none"
-  ) ? preset : "none";
-}
-
-function clampNumber(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.max(min, Math.min(max, value));
-}
-
-const IMAGE_ANIMATION_PRESET_OPTIONS: Array<{ id: HammerImageAnimationPreset; label: string }> = [
-  { id: "none", label: "None" },
-  { id: "fade_in", label: "Fade In" },
-  { id: "fade_out", label: "Fade Out" },
-  { id: "fade_in_out", label: "Fade In + Out" },
-  { id: "flip_in", label: "Flip In" },
-  { id: "flip_out", label: "Flip Out" },
-  { id: "shutter_in", label: "Shutter In" },
-  { id: "shutter_out", label: "Shutter Out" },
-  { id: "shutter_in_fade_out", label: "Shutter In + Fade Out" },
-];
-const PACKAGING_INTRO_ENTRY_ID = "packaging:intro";
-const PACKAGING_OUTRO_ENTRY_ID = "packaging:outro";
-const PACKAGING_LOGO_ENTRY_ID = "packaging:logo";
-const LOGO_POSITION_OPTIONS: Array<{ id: HammerLogoOverlayPosition; label: string }> = [
-  { id: "top_left", label: "Top Left" },
-  { id: "top_right", label: "Top Right" },
-  { id: "bottom_left", label: "Bottom Left" },
-  { id: "bottom_right", label: "Bottom Right" },
-];
-const LOGO_SIZE_OPTIONS: Array<{ id: HammerLogoOverlaySize; label: string }> = [
-  { id: "small", label: "Small" },
-  { id: "medium", label: "Medium" },
-  { id: "large", label: "Large" },
-];
-
-function positionFromLogoOption(
-  position: HammerLogoOverlayPosition,
-  size: HammerLogoOverlaySize,
-): HammerVisualGeometry {
-  const edgePadding = 0.04;
-  const sizeValue = size === "small" ? 0.12 : size === "large" ? 0.24 : 0.18;
-  const width = sizeValue;
-  const height = sizeValue;
-  const x = position === "top_right" || position === "bottom_right"
-    ? 1 - width - edgePadding
-    : edgePadding;
-  const y = position === "bottom_left" || position === "bottom_right"
-    ? 1 - height - edgePadding
-    : edgePadding;
-  return clampNormalizedGeometry({
-    x,
-    y,
-    width,
-    height,
-    anchor: "top_left",
-  });
-}
-
-function resolveImageAnimationClass(preset: HammerImageAnimationPreset): string {
-  if (preset === "fade_in") return "is-anim-fade-in";
-  if (preset === "fade_out") return "is-anim-fade-out";
-  if (preset === "fade_in_out") return "is-anim-fade-in-out";
-  if (preset === "flip_in") return "is-anim-flip-in";
-  if (preset === "flip_out") return "is-anim-flip-out";
-  if (preset === "shutter_in") return "is-anim-shutter-in";
-  if (preset === "shutter_out") return "is-anim-shutter-out";
-  if (preset === "shutter_in_fade_out") return "is-anim-shutter-in-fade-out";
-  return "";
-}
-
 function buildPreparedPackageIdentityFingerprint(pkg: HammerPreparedReleasePackage): string {
   const basis = [
     `v:${String(pkg.version)}`,
@@ -1169,7 +975,6 @@ function HammerWorkspaceShellWithContext(
   const [currentPass, setCurrentPass] = useState<HammerPassId>(initialCurrentPass);
   const [passStatus, setPassStatus] = useState<HammerPassStatusMap>(() => deriveHydratedPassStatus(initialCurrentPass));
   const [editorMode, setEditorMode] = useState<HammerEditorMode>(() => resolveEditorModeFromPass(initialCurrentPass));
-  const [selectedVisualFlowStep, setSelectedVisualFlowStep] = useState<HammerVisualFlowStepId>("media_map");
   const [selectedBoundBrollOperationId, setSelectedBoundBrollOperationId] = useState<string | null>(null);
   const [editableDerivedTextLayers, setEditableDerivedTextLayers] = useState<
     HammerPersistedStructuredTranscript["derived_text_layers"]
@@ -1370,12 +1175,7 @@ function HammerWorkspaceShellWithContext(
   const [visualEyeContactAssistDebugOverlay, setVisualEyeContactAssistDebugOverlay] = useState(false);
   const [visualEyeContactAssistRuntimeStatus, setVisualEyeContactAssistRuntimeStatus] = useState<HammerEyeContactAssistRuntimeStatus | null>(null);
   const visualBackgroundEffectCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [imagePlacementDraftWindows, setImagePlacementDraftWindows] = useState<Record<string, HammerImagePlacementDraftWindow>>({});
-  const [timelineImageDragState, setTimelineImageDragState] = useState<HammerTimelineImageDragState | null>(null);
-  const [imagePlacementTransforms, setImagePlacementTransforms] = useState<Record<string, HammerImagePlacementTransform>>({});
-  const [previewCanvasDragState, setPreviewCanvasDragState] = useState<HammerPreviewCanvasDragState | null>(null);
   const [persistNowRequestNonce, setPersistNowRequestNonce] = useState(0);
-  const [imageAnimationContextMenu, setImageAnimationContextMenu] = useState<HammerImageAnimationContextMenuState | null>(null);
   const [captionFormatting, setCaptionFormatting] = useState<HammerCaptionFormattingState>({
     style: "sentence",
     maxCharsPerLine: 42,
@@ -1401,19 +1201,6 @@ function HammerWorkspaceShellWithContext(
   const [sourceDeskLoading, setSourceDeskLoading] = useState(false);
   const [sourceDeskError, setSourceDeskError] = useState<string | null>(null);
   const [uploadingCategory, setUploadingCategory] = useState<"images" | "broll" | "introoutro" | null>(null);
-  const [introOutroSelection, setIntroOutroSelection] = useState<HammerIntroOutroSelection>({
-    schema_version: 1,
-    intro_asset_id: null,
-    outro_asset_id: null,
-    updated_at: new Date().toISOString(),
-  });
-  const [packagingLogoAssetPath, setPackagingLogoAssetPath] = useState<string | null>(null);
-  const [packagingLogoPosition, setPackagingLogoPosition] = useState<HammerLogoOverlayPosition>("top_right");
-  const [packagingLogoSize, setPackagingLogoSize] = useState<HammerLogoOverlaySize>("medium");
-  const [savingIntroOutro, setSavingIntroOutro] = useState(false);
-  const [workspaceIntroOutroDefaults, setWorkspaceIntroOutroDefaults] = useState<HammerWorkspaceIntroOutroDefaults | null>(null);
-  const [savingWorkspaceIntroOutroDefaults, setSavingWorkspaceIntroOutroDefaults] = useState(false);
-  const [applyIntroOutroSelectionToFutureEpisodes, setApplyIntroOutroSelectionToFutureEpisodes] = useState(false);
   const playbackMediaSrcToRevokeRef = useRef<string | null>(null);
   const previewVideoSrcToRevokeRef = useRef<string | null>(null);
   const [sourceDeskPreviewUrls, setSourceDeskPreviewUrls] = useState<Record<string, string>>({});
@@ -1548,8 +1335,6 @@ function HammerWorkspaceShellWithContext(
     fillers: null,
     retakes: null,
   });
-  const imagePlacementDraftWindowsRef = useRef<Record<string, HammerImagePlacementDraftWindow>>({});
-  const imagePlacementTransformsRef = useRef<Record<string, HammerImagePlacementTransform>>({});
   const audioPolishHasLocalEditsRef = useRef(false);
   const editableAudioPolishRef = useRef<HammerPersistedAudioPolish | null>(
     cloneHammerAudioPolish(props.audioPolish),
@@ -1683,24 +1468,6 @@ function HammerWorkspaceShellWithContext(
       return normalized;
     });
   }, [currentPass]);
-
-  useEffect(() => {
-    if (!imageAnimationContextMenuRef.current || !imageAnimationContextMenu) return;
-    const viewportPaddingPx = 12;
-    const menuNode = imageAnimationContextMenuRef.current;
-    const menuWidth = menuNode.offsetWidth;
-    const menuHeight = menuNode.offsetHeight;
-    const clampedLeft = Math.min(
-      Math.max(viewportPaddingPx, imageAnimationContextMenu.x),
-      Math.max(viewportPaddingPx, window.innerWidth - menuWidth - viewportPaddingPx),
-    );
-    const clampedTop = Math.min(
-      Math.max(viewportPaddingPx, imageAnimationContextMenu.y),
-      Math.max(viewportPaddingPx, window.innerHeight - menuHeight - viewportPaddingPx),
-    );
-    menuNode.style.left = `${clampedLeft}px`;
-    menuNode.style.top = `${clampedTop}px`;
-  }, [imageAnimationContextMenu]);
 
   const selectEditorMode = useCallback((nextMode: HammerEditorMode, options?: {
     preferredPass?: HammerPassId;
@@ -2051,12 +1818,6 @@ function HammerWorkspaceShellWithContext(
       focusSegmentId: activeCandidatePrimarySegmentId,
     });
   }, [activeCandidatePrimarySegmentId, editableTranscriptSegments]);
-  useEffect(() => {
-    imagePlacementDraftWindowsRef.current = imagePlacementDraftWindows;
-  }, [imagePlacementDraftWindows]);
-  useEffect(() => {
-    imagePlacementTransformsRef.current = imagePlacementTransforms;
-  }, [imagePlacementTransforms]);
   const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments);
   const packagingTransport = useMemo(() => resolvePackagingTransport({
     introDurationSec: resolvePackagingClipDurationSec(introPackagingClip),
@@ -2314,6 +2075,74 @@ function HammerWorkspaceShellWithContext(
     }
     return byId;
   }, [editableVisualTimeline?.assets]);
+  const {
+    selectedVisualFlowStep,
+    setSelectedVisualFlowStep,
+    imagePlacementDraftWindows,
+    setImagePlacementDraftWindows,
+    setTimelineImageDragState,
+    imagePlacementTransforms,
+    setImagePlacementTransforms,
+    setPreviewCanvasDragState,
+    imageAnimationContextMenu,
+    setImageAnimationContextMenu,
+    introOutroSelection,
+    setIntroOutroSelection,
+    packagingLogoAssetPath,
+    setPackagingLogoAssetPath,
+    packagingLogoPosition,
+    setPackagingLogoPosition,
+    packagingLogoSize,
+    setPackagingLogoSize,
+    savingIntroOutro,
+    workspaceIntroOutroDefaults,
+    setWorkspaceIntroOutroDefaults,
+    savingWorkspaceIntroOutroDefaults,
+    applyIntroOutroSelectionToFutureEpisodes,
+    setApplyIntroOutroSelectionToFutureEpisodes,
+    applyWorkspaceIntroOutroDefaultsToWorkpiece,
+    reconcileIntroOutroSelectionWithPackaging,
+    persistIntroOutroSelection,
+    persistWorkspaceIntroOutroDefaultsNow,
+    commitVisualPlacementWindow,
+    updateVisualPlacementTiming,
+    updateImagePlacementTransform,
+    commitImagePlacementTransform,
+    beginTimelineImagePlacementDrag,
+    beginPreviewCanvasDrag,
+    openImageAnimationContextMenu,
+    applyImageAnimationPreset,
+    removeVisualPlacement,
+    removePackagingPlacement,
+    addImagePlacementFromLibrary,
+    addVisualAssetPlacementFromLibrary,
+    applyIntroPlacement,
+    applyOutroPlacement,
+    toggleLogoOverlay,
+    applyLogoOverlayStyle,
+    flushPendingPlacementDrafts,
+  } = useHammerWorkspaceShellVisualEditing({
+    workpieceId: launchContext.workpiece_id,
+    workspaceId: launchContext.workspace_id,
+    currentPass,
+    transcriptDurationSec,
+    timelineDurationSec,
+    visualPlacementEditingEnabled: activeTool === "video" && activeVisualTool === "images",
+    storedMediaFiles,
+    editableVisualTimeline,
+    editableVisualPlacements,
+    previewSurfaceRef,
+    setFocusOverride,
+    setTranscriptTimingHint,
+    setSourceDeskError,
+    setSelectedClipId,
+    seekPlayheadToTime,
+    requestDurablePersistBoundary,
+    applyHistoryMutation,
+    applyVisualTimelineAction,
+    applyVisualTimelineActions,
+    resolveCanonicalVisualTimeline,
+  });
   const sourceVisualPlacementItems = useMemo<HammerSourceImageItem[]>(() => (
     (compositionVisualTimeline?.clips ?? [])
       .map((clip) => {
@@ -2358,6 +2187,8 @@ function HammerWorkspaceShellWithContext(
     [linkedSelection],
   );
   const linkedPrimaryVisualId = linkedSelection?.primaryVisualId ?? null;
+  const visualPlacementEditingEnabled = activeTool === "video"
+    && activeVisualTool === "images";
   const sourceImageItems = useMemo(
     () => sourceVisualPlacementItems.filter((item) => item.kind === "image"),
     [sourceVisualPlacementItems],
@@ -2416,8 +2247,6 @@ function HammerWorkspaceShellWithContext(
     () => (compositionVisualTimeline ? selectClipById(compositionVisualTimeline, linkedPrimaryVisualId ?? effectiveSelectedClipId) : null),
     [compositionVisualTimeline, effectiveSelectedClipId, linkedPrimaryVisualId],
   );
-  const visualPlacementEditingEnabled = activeTool === "video"
-    && activeVisualTool === "images";
   const selectedImagePlacement = useMemo(
     () => sourceVisualPlacementItems.find((item) => item.id === (linkedPrimaryVisualId ?? effectiveSelectedClipId)) ?? null,
     [effectiveSelectedClipId, linkedPrimaryVisualId, sourceVisualPlacementItems],
@@ -2426,6 +2255,46 @@ function HammerWorkspaceShellWithContext(
   const selectedPlacementRecord = (linkedPrimaryVisualId ?? effectiveSelectedClipId)
     ? (visualPlacementsById.get((linkedPrimaryVisualId ?? effectiveSelectedClipId) as string) ?? null)
     : null;
+  const sourceImageLibraryItems = useMemo(
+    () => storedMediaFiles.filter((file) => file.kind === "image"),
+    [storedMediaFiles],
+  );
+  const introOutroCandidateItems = useMemo(
+    () => buildIntroOutroCandidateItems(storedMediaFiles),
+    [storedMediaFiles],
+  );
+  const introOutroCandidateItemsById = useMemo(() => {
+    return buildIntroOutroCandidateItemsById(introOutroCandidateItems);
+  }, [introOutroCandidateItems]);
+  const packagingIntroPlacement = useMemo(
+    () => (editableVisualPlacements?.placements ?? []).find((item) => item.entry_id === PACKAGING_INTRO_ENTRY_ID) ?? null,
+    [editableVisualPlacements?.placements],
+  );
+  const packagingOutroPlacement = useMemo(
+    () => (editableVisualPlacements?.placements ?? []).find((item) => item.entry_id === PACKAGING_OUTRO_ENTRY_ID) ?? null,
+    [editableVisualPlacements?.placements],
+  );
+  const packagingLogoPlacement = useMemo(
+    () => (editableVisualPlacements?.placements ?? []).find((item) => item.entry_id === PACKAGING_LOGO_ENTRY_ID) ?? null,
+    [editableVisualPlacements?.placements],
+  );
+  useEffect(() => {
+    if (!imageAnimationContextMenuRef.current || !imageAnimationContextMenu) return;
+    const viewportPaddingPx = 12;
+    const menuNode = imageAnimationContextMenuRef.current;
+    const menuWidth = menuNode.offsetWidth;
+    const menuHeight = menuNode.offsetHeight;
+    const clampedLeft = Math.min(
+      Math.max(viewportPaddingPx, imageAnimationContextMenu.x),
+      Math.max(viewportPaddingPx, window.innerWidth - menuWidth - viewportPaddingPx),
+    );
+    const clampedTop = Math.min(
+      Math.max(viewportPaddingPx, imageAnimationContextMenu.y),
+      Math.max(viewportPaddingPx, window.innerHeight - menuHeight - viewportPaddingPx),
+    );
+    menuNode.style.left = `${clampedLeft}px`;
+    menuNode.style.top = `${clampedTop}px`;
+  }, [imageAnimationContextMenu]);
   const selectedImagePlacementTransform = useMemo(() => {
     if (!(linkedPrimaryVisualId ?? effectiveSelectedClipId)) return DEFAULT_IMAGE_PLACEMENT_TRANSFORM;
     const selectedPlacementId = (linkedPrimaryVisualId ?? effectiveSelectedClipId) as string;
@@ -2838,17 +2707,6 @@ function HammerWorkspaceShellWithContext(
       return changed ? nextBase : current;
     });
   }, [editableTranscriptSegments, removedMediaMapSegmentIds, sourceVisualPlacementBySegmentId]);
-  const sourceImageLibraryItems = useMemo(
-    () => storedMediaFiles.filter((file) => file.kind === "image"),
-    [storedMediaFiles],
-  );
-  const introOutroCandidateItems = useMemo(
-    () => buildIntroOutroCandidateItems(storedMediaFiles),
-    [storedMediaFiles],
-  );
-  const introOutroCandidateItemsById = useMemo(() => {
-    return buildIntroOutroCandidateItemsById(introOutroCandidateItems);
-  }, [introOutroCandidateItems]);
   const introOutroSelectedIntroItem = useMemo(() => {
     const assetId = introOutroSelection.intro_asset_id;
     if (!assetId) return null;
@@ -2861,18 +2719,6 @@ function HammerWorkspaceShellWithContext(
   }, [introOutroCandidateItemsById, introOutroSelection.outro_asset_id]);
   const introOutroSelectedIntroPath = introOutroSelectedIntroItem?.path ?? null;
   const introOutroSelectedOutroPath = introOutroSelectedOutroItem?.path ?? null;
-  const packagingIntroPlacement = useMemo(
-    () => (editableVisualPlacements?.placements ?? []).find((item) => item.entry_id === PACKAGING_INTRO_ENTRY_ID) ?? null,
-    [editableVisualPlacements?.placements],
-  );
-  const packagingOutroPlacement = useMemo(
-    () => (editableVisualPlacements?.placements ?? []).find((item) => item.entry_id === PACKAGING_OUTRO_ENTRY_ID) ?? null,
-    [editableVisualPlacements?.placements],
-  );
-  const packagingLogoPlacement = useMemo(
-    () => (editableVisualPlacements?.placements ?? []).find((item) => item.entry_id === PACKAGING_LOGO_ENTRY_ID) ?? null,
-    [editableVisualPlacements?.placements],
-  );
   const timelineTicks = useMemo(() => {
     const tickCount = 10;
     return Array.from({ length: tickCount + 1 }).map((_, index) => {
@@ -3630,38 +3476,6 @@ function HammerWorkspaceShellWithContext(
 
   function requestDurablePersistBoundary(): void {
     setPersistNowRequestNonce((current) => current + 1);
-  }
-
-  function flushPendingPlacementDrafts(): void {
-    const timelineDrafts = imagePlacementDraftWindowsRef.current;
-    const transformDrafts = imagePlacementTransformsRef.current;
-
-    for (const [placementId, draft] of Object.entries(timelineDrafts)) {
-      commitVisualPlacementWindow(placementId, {
-        startSec: draft.startSec,
-        endSec: draft.endSec,
-        label: "Commit visual placement timing",
-      });
-    }
-
-    for (const [placementId, draft] of Object.entries(transformDrafts)) {
-      commitImagePlacementTransform(placementId, draft, "Commit visual overlay geometry");
-    }
-
-    if (Object.keys(timelineDrafts).length > 0) {
-      imagePlacementDraftWindowsRef.current = {};
-      setImagePlacementDraftWindows({});
-    }
-    if (Object.keys(transformDrafts).length > 0) {
-      imagePlacementTransformsRef.current = {};
-      setImagePlacementTransforms({});
-    }
-    if (timelineImageDragState) {
-      setTimelineImageDragState(null);
-    }
-    if (previewCanvasDragState) {
-      setPreviewCanvasDragState(null);
-    }
   }
 
   function appendAuthorityInstructionForState(
@@ -4432,180 +4246,6 @@ function HammerWorkspaceShellWithContext(
     };
   }, [compositionOffsetSec, editableTranscriptSegments, selectedSegmentId, timelineDurationSec]);
 
-  useEffect(() => {
-    if (!timelineImageDragState) return;
-
-    const handleMouseMove = (event: globalThis.MouseEvent): void => {
-      if (event.buttons === 0) {
-        const draft = imagePlacementDraftWindowsRef.current[timelineImageDragState.placementId] ?? null;
-        if (draft) {
-          commitVisualPlacementWindow(timelineImageDragState.placementId, {
-            startSec: draft.startSec,
-            endSec: draft.endSec,
-            label: timelineImageDragState.mode === "move" ? "Move image clip" : "Resize image clip",
-          });
-          setImagePlacementDraftWindows((current) => {
-            if (!current[timelineImageDragState.placementId]) return current;
-            const next = { ...current };
-            delete next[timelineImageDragState.placementId];
-            return next;
-          });
-        }
-        setTimelineImageDragState(null);
-        return;
-      }
-      const dragStepSec = event.shiftKey ? IMAGE_PLACEMENT_COARSE_STEP_SEC : IMAGE_PLACEMENT_FINE_STEP_SEC;
-      const deltaSec = snapImagePlacementTime(
-        (event.clientX - timelineImageDragState.pointerStartX) * timelineImageDragState.pxToSec,
-        dragStepSec,
-      );
-      const originalDuration = Math.max(
-        MIN_IMAGE_PLACEMENT_DURATION_SEC,
-        roundImagePlacementTime(timelineImageDragState.originEndSec - timelineImageDragState.originStartSec),
-      );
-
-      let startSec = timelineImageDragState.originStartSec;
-      let endSec = timelineImageDragState.originEndSec;
-      if (timelineImageDragState.mode === "move") {
-        const tentativeStart = snapImagePlacementTime(timelineImageDragState.originStartSec + deltaSec, dragStepSec);
-        const maxStart = Math.max(0, snapImagePlacementTime(transcriptDurationSec - originalDuration, dragStepSec));
-        startSec = Math.max(0, Math.min(maxStart, tentativeStart));
-        endSec = Math.min(transcriptDurationSec, snapImagePlacementTime(startSec + originalDuration, dragStepSec));
-      } else if (timelineImageDragState.mode === "resize_start") {
-        const maxStart = snapImagePlacementTime(
-          timelineImageDragState.originEndSec - MIN_IMAGE_PLACEMENT_DURATION_SEC,
-          dragStepSec,
-        );
-        startSec = Math.max(
-          0,
-          Math.min(
-            maxStart,
-            snapImagePlacementTime(timelineImageDragState.originStartSec + deltaSec, dragStepSec),
-          ),
-        );
-        endSec = timelineImageDragState.originEndSec;
-      } else {
-        const minEnd = snapImagePlacementTime(
-          timelineImageDragState.originStartSec + MIN_IMAGE_PLACEMENT_DURATION_SEC,
-          dragStepSec,
-        );
-        endSec = Math.max(
-          minEnd,
-          Math.min(
-            timelineDurationSec,
-            snapImagePlacementTime(timelineImageDragState.originEndSec + deltaSec, dragStepSec),
-          ),
-        );
-        startSec = timelineImageDragState.originStartSec;
-      }
-
-      setImagePlacementDraftWindows((current) => ({
-        ...current,
-        [timelineImageDragState.placementId]: { startSec, endSec },
-      }));
-      seekPlayheadToTime(startSec, "playhead", { snapToBoundary: false });
-    };
-
-    const handleMouseUp = (): void => {
-      const draft = imagePlacementDraftWindowsRef.current[timelineImageDragState.placementId] ?? null;
-      if (draft) {
-        commitVisualPlacementWindow(timelineImageDragState.placementId, {
-          startSec: draft.startSec,
-          endSec: draft.endSec,
-          label: timelineImageDragState.mode === "move" ? "Move image clip" : "Resize image clip",
-        });
-      }
-      setImagePlacementDraftWindows((current) => {
-        if (!current[timelineImageDragState.placementId]) return current;
-        const next = { ...current };
-        delete next[timelineImageDragState.placementId];
-        return next;
-      });
-      setTimelineImageDragState(null);
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [timelineImageDragState, transcriptDurationSec]);
-  useEffect(() => {
-    if (!previewCanvasDragState) return;
-
-    const handleMouseMove = (event: globalThis.MouseEvent): void => {
-      if (event.buttons === 0) {
-        const draft = imagePlacementTransformsRef.current[previewCanvasDragState.placementId] ?? null;
-        if (draft) {
-          commitImagePlacementTransform(previewCanvasDragState.placementId, draft, "Adjust visual overlay geometry");
-          setImagePlacementTransforms((current) => {
-            if (!current[previewCanvasDragState.placementId]) return current;
-            const next = { ...current };
-            delete next[previewCanvasDragState.placementId];
-            return next;
-          });
-        }
-        setPreviewCanvasDragState(null);
-        return;
-      }
-      const canvasRect = previewSurfaceRef.current?.getBoundingClientRect() ?? null;
-      if (!canvasRect || canvasRect.width <= 0 || canvasRect.height <= 0) return;
-      const deltaXPct = ((event.clientX - previewCanvasDragState.pointerStartX) / canvasRect.width) * 100;
-      const deltaYPct = ((event.clientY - previewCanvasDragState.pointerStartY) / canvasRect.height) * 100;
-      if (previewCanvasDragState.mode === "move") {
-        updateImagePlacementTransform(previewCanvasDragState.placementId, (current) => ({
-          ...current,
-          leftPct: previewCanvasDragState.origin.leftPct + deltaXPct,
-          topPct: previewCanvasDragState.origin.topPct + deltaYPct,
-        }));
-        return;
-      }
-      const safeAspectRatio = Number.isFinite(previewCanvasDragState.originAspectRatio)
-        && previewCanvasDragState.originAspectRatio > 0
-        ? previewCanvasDragState.originAspectRatio
-        : previewCanvasDragState.origin.widthPct / Math.max(1, previewCanvasDragState.origin.heightPct);
-      const dominantDeltaPct = Math.abs(deltaXPct) >= Math.abs(deltaYPct * safeAspectRatio)
-        ? deltaXPct
-        : deltaYPct * safeAspectRatio;
-      const maxWidthPct = Math.min(92, 100 - previewCanvasDragState.origin.leftPct);
-      const maxHeightPct = Math.min(92, 100 - previewCanvasDragState.origin.topPct);
-      const maxWidthFromHeight = maxHeightPct * safeAspectRatio;
-      const nextWidthPct = clampNumber(
-        previewCanvasDragState.origin.widthPct + dominantDeltaPct,
-        8,
-        Math.min(maxWidthPct, maxWidthFromHeight),
-      );
-      const nextHeightPct = clampNumber(nextWidthPct / safeAspectRatio, 8, maxHeightPct);
-      updateImagePlacementTransform(previewCanvasDragState.placementId, (current) => ({
-        ...current,
-        widthPct: nextWidthPct,
-        heightPct: nextHeightPct,
-      }));
-    };
-
-    const handleMouseUp = (): void => {
-      const draft = imagePlacementTransforms[previewCanvasDragState.placementId] ?? null;
-      if (draft) {
-        commitImagePlacementTransform(previewCanvasDragState.placementId, draft, "Adjust visual overlay geometry");
-      }
-      setImagePlacementTransforms((current) => {
-        if (!current[previewCanvasDragState.placementId]) return current;
-        const next = { ...current };
-        delete next[previewCanvasDragState.placementId];
-        return next;
-      });
-      setPreviewCanvasDragState(null);
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [commitImagePlacementTransform, imagePlacementTransforms, previewCanvasDragState]);
-
   const previousPlacementBoundaryRef = useRef<{
     selectedClipId: string | null;
     selectedSourceTab: HammerSourceTabId;
@@ -4635,164 +4275,6 @@ function HammerWorkspaceShellWithContext(
       initialized: true,
     };
   }, [currentPass, selectedClipId, selectedSourceTab]);
-
-  function buildWorkspaceDefaultIntroOutroDestPath(kind: "intro" | "outro", sourcePath: string): string {
-    const normalized = normalizeWorkpieceRelativePath(launchContext.workpiece_id, sourcePath);
-    const extMatch = normalized.match(/(\.[a-z0-9]+)$/i);
-    const ext = extMatch?.[1]?.toLowerCase() ?? "";
-    const filename = kind === "intro" ? `workspace-default-intro${ext}` : `workspace-default-outro${ext}`;
-    return `assets/uploads/introoutro/${filename}`;
-  }
-
-  async function applyWorkspaceIntroOutroDefaultsToWorkpiece(
-    defaults: HammerWorkspaceIntroOutroDefaults,
-    args?: {
-      existingSelection?: HammerIntroOutroSelection | null;
-      mediaFiles?: HammerStoredMediaFile[];
-    },
-  ): Promise<{
-    selection: HammerIntroOutroSelection;
-    appliedIntro: boolean;
-    appliedOutro: boolean;
-  } | null> {
-    const candidateItemsById = buildIntroOutroCandidateItemsById(buildIntroOutroCandidateItems(args?.mediaFiles ?? storedMediaFiles));
-    const repairPlan = buildWorkspaceIntroOutroDefaultsRepairPlan({
-      selection: args?.existingSelection ?? null,
-      candidateItemsById,
-      defaults,
-    });
-    if (!repairPlan.shouldApply) return null;
-
-    const next: HammerIntroOutroSelection = {
-      schema_version: 1,
-      intro_asset_id: args?.existingSelection?.intro_asset_id ?? null,
-      outro_asset_id: args?.existingSelection?.outro_asset_id ?? null,
-      updated_at: new Date().toISOString(),
-    };
-
-    let appliedIntro = false;
-    let appliedOutro = false;
-
-    if (repairPlan.copyIntro && defaults.intro) {
-      try {
-        const destPath = buildWorkspaceDefaultIntroOutroDestPath("intro", defaults.intro.path);
-        await copyWorkpieceMediaFile({
-          sourceWorkpieceId: defaults.intro.workpiece_id,
-          sourcePath: defaults.intro.path,
-          destWorkpieceId: launchContext.workpiece_id,
-          destPath,
-        });
-        next.intro_asset_id = deriveStableHammerAssetIdFromPath(destPath);
-        appliedIntro = true;
-      } catch (error) {
-        console.warn("[Hammer][IntroOutroDefaults] Failed to apply intro default:", error);
-      }
-    }
-
-    if (repairPlan.copyOutro && defaults.outro) {
-      try {
-        const destPath = buildWorkspaceDefaultIntroOutroDestPath("outro", defaults.outro.path);
-        await copyWorkpieceMediaFile({
-          sourceWorkpieceId: defaults.outro.workpiece_id,
-          sourcePath: defaults.outro.path,
-          destWorkpieceId: launchContext.workpiece_id,
-          destPath,
-        });
-        next.outro_asset_id = deriveStableHammerAssetIdFromPath(destPath);
-        appliedOutro = true;
-      } catch (error) {
-        console.warn("[Hammer][IntroOutroDefaults] Failed to apply outro default:", error);
-      }
-    }
-
-    if (!appliedIntro && !appliedOutro) return null;
-
-    await saveIntroOutroSelection({
-      workpieceId: launchContext.workpiece_id,
-      selection: next,
-    });
-    return {
-      selection: next,
-      appliedIntro,
-      appliedOutro,
-    };
-  }
-
-  function upsertResolvedIntroPlacement(
-    assetId: string,
-    assetPath: string,
-    source: "profile" | "episode" | "manual",
-  ): void {
-    const introDurationSec = Math.min(6, Math.max(2, roundToTenth(Math.max(2, transcriptDurationSec * 0.1))));
-    upsertPackagingPlacement({
-      entryId: PACKAGING_INTRO_ENTRY_ID,
-      assetPath,
-      assetId,
-      label: "Packaging Intro",
-      startSec: 0,
-      endSec: introDurationSec,
-      visualMode: "packaging_intro",
-      uncertaintyFlags: ["packaging:intro"],
-      systemMeta: {
-        system_managed: true,
-        system_type: "intro",
-        system_source: source,
-        system_asset_id: assetId,
-      },
-    });
-  }
-
-  function upsertResolvedOutroPlacement(
-    assetId: string,
-    assetPath: string,
-    source: "profile" | "episode" | "manual",
-  ): void {
-    const outroDurationSec = Math.min(6, Math.max(2, roundToTenth(Math.max(2, transcriptDurationSec * 0.1))));
-    const startSec = Math.max(0, roundToTenth(transcriptDurationSec - outroDurationSec));
-    upsertPackagingPlacement({
-      entryId: PACKAGING_OUTRO_ENTRY_ID,
-      assetPath,
-      assetId,
-      label: "Packaging Outro",
-      startSec,
-      endSec: transcriptDurationSec,
-      visualMode: "packaging_outro",
-      uncertaintyFlags: ["packaging:outro"],
-      systemMeta: {
-        system_managed: true,
-        system_type: "outro",
-        system_source: source,
-        system_asset_id: assetId,
-      },
-    });
-  }
-
-  function reconcileIntroOutroSelectionWithPackaging(args: {
-    selection: HammerIntroOutroSelection | null | undefined;
-    mediaFiles: HammerStoredMediaFile[];
-    introSource: "profile" | "episode" | "manual";
-    outroSource: "profile" | "episode" | "manual";
-  }): void {
-    const candidateItemsById = buildIntroOutroCandidateItemsById(buildIntroOutroCandidateItems(args.mediaFiles));
-    const syncPlan = buildIntroOutroPackagingSyncPlan({
-      selection: args.selection,
-      candidateItemsById,
-      currentIntroPlacementPath: packagingIntroPlacement?.asset_path ?? null,
-      currentOutroPlacementPath: packagingOutroPlacement?.asset_path ?? null,
-    });
-
-    if (syncPlan.removeIntro) {
-      removePackagingPlacement(PACKAGING_INTRO_ENTRY_ID, "Remove packaging intro");
-    } else if (syncPlan.applyIntro) {
-      upsertResolvedIntroPlacement(syncPlan.applyIntro.assetId, syncPlan.applyIntro.path, args.introSource);
-    }
-
-    if (syncPlan.removeOutro) {
-      removePackagingPlacement(PACKAGING_OUTRO_ENTRY_ID, "Remove packaging outro");
-    } else if (syncPlan.applyOutro) {
-      upsertResolvedOutroPlacement(syncPlan.applyOutro.assetId, syncPlan.applyOutro.path, args.outroSource);
-    }
-  }
 
   useEffect(() => {
     let active = true;
@@ -4824,84 +4306,6 @@ function HammerWorkspaceShellWithContext(
     };
   }, [launchContext.workpiece_id]);
 
-  async function persistIntroOutroSelection(next: HammerIntroOutroSelection): Promise<void> {
-    setSavingIntroOutro(true);
-    setSourceDeskError(null);
-    try {
-      await saveIntroOutroSelection({
-        workpieceId: launchContext.workpiece_id,
-        selection: next,
-      });
-      setIntroOutroSelection(next);
-      reconcileIntroOutroSelectionWithPackaging({
-        selection: next,
-        mediaFiles: storedMediaFiles,
-        introSource: "episode",
-        outroSource: "episode",
-      });
-
-      if (applyIntroOutroSelectionToFutureEpisodes) {
-        const introSourcePath = next.intro_asset_id
-          ? introOutroCandidateItemsById.get(next.intro_asset_id)?.path ?? null
-          : null;
-        const outroSourcePath = next.outro_asset_id
-          ? introOutroCandidateItemsById.get(next.outro_asset_id)?.path ?? null
-          : null;
-
-        const workspaceDefaults: HammerWorkspaceIntroOutroDefaults = {
-          schema_version: 1,
-          intro: introSourcePath ? { workpiece_id: launchContext.workpiece_id, path: introSourcePath } : null,
-          outro: outroSourcePath ? { workpiece_id: launchContext.workpiece_id, path: outroSourcePath } : null,
-          updated_at: new Date().toISOString(),
-        };
-
-        setSavingWorkspaceIntroOutroDefaults(true);
-        try {
-          await saveWorkspaceIntroOutroDefaults({
-            workspaceId: launchContext.workspace_id,
-            defaults: workspaceDefaults,
-          });
-          setWorkspaceIntroOutroDefaults(workspaceDefaults);
-        } finally {
-          setSavingWorkspaceIntroOutroDefaults(false);
-        }
-      }
-    } catch (error) {
-      setSourceDeskError(error instanceof Error ? error.message : "Hammer could not save intro/outro selection.");
-    } finally {
-      setSavingIntroOutro(false);
-    }
-  }
-
-  async function persistWorkspaceIntroOutroDefaultsNow(): Promise<void> {
-    setSourceDeskError(null);
-    const introSourcePath = introOutroSelection.intro_asset_id
-      ? introOutroCandidateItemsById.get(introOutroSelection.intro_asset_id)?.path ?? null
-      : null;
-    const outroSourcePath = introOutroSelection.outro_asset_id
-      ? introOutroCandidateItemsById.get(introOutroSelection.outro_asset_id)?.path ?? null
-      : null;
-
-    const defaults: HammerWorkspaceIntroOutroDefaults = {
-      schema_version: 1,
-      intro: introSourcePath ? { workpiece_id: launchContext.workpiece_id, path: introSourcePath } : null,
-      outro: outroSourcePath ? { workpiece_id: launchContext.workpiece_id, path: outroSourcePath } : null,
-      updated_at: new Date().toISOString(),
-    };
-
-    setSavingWorkspaceIntroOutroDefaults(true);
-    try {
-      await saveWorkspaceIntroOutroDefaults({
-        workspaceId: launchContext.workspace_id,
-        defaults,
-      });
-      setWorkspaceIntroOutroDefaults(defaults);
-    } catch (error) {
-      setSourceDeskError(error instanceof Error ? error.message : "Hammer could not save workspace intro/outro defaults.");
-    } finally {
-      setSavingWorkspaceIntroOutroDefaults(false);
-    }
-  }
 
   function updateSegmentTiming(
     segmentId: string,
@@ -5972,63 +5376,8 @@ function HammerWorkspaceShellWithContext(
     setRetakeDecisionInFlight(false);
   }, [currentPass]);
   useEffect(() => {
-    if (visualPlacementEditingEnabled) return;
-    setTimelineImageDragState(null);
-    setPreviewCanvasDragState(null);
-    setImagePlacementDraftWindows({});
-  }, [visualPlacementEditingEnabled]);
-  useEffect(() => {
     setAudioFinalizationCompareMode(editableStudioRack.is_bypassed ? "before" : "after");
   }, [editableStudioRack.is_bypassed]);
-  useEffect(() => {
-    if (packagingLogoAssetPath) return;
-    const preferred = packagingLogoPlacement?.asset_path
-      ?? sourceImageLibraryItems[0]?.path
-      ?? null;
-    if (!preferred) return;
-    setPackagingLogoAssetPath(preferred);
-  }, [packagingLogoAssetPath, packagingLogoPlacement?.asset_path, sourceImageLibraryItems]);
-  useEffect(() => {
-    if (!packagingLogoPlacement) return;
-    const positionFlag = packagingLogoPlacement.uncertainty_flags.find((flag) => flag.startsWith("logo_position:")) ?? null;
-    const sizeFlag = packagingLogoPlacement.uncertainty_flags.find((flag) => flag.startsWith("logo_size:")) ?? null;
-    const nextPosition = positionFlag?.slice("logo_position:".length) as HammerLogoOverlayPosition | undefined;
-    const nextSize = sizeFlag?.slice("logo_size:".length) as HammerLogoOverlaySize | undefined;
-    if (nextPosition && LOGO_POSITION_OPTIONS.some((option) => option.id === nextPosition)) {
-      setPackagingLogoPosition(nextPosition);
-    }
-    if (nextSize && LOGO_SIZE_OPTIONS.some((option) => option.id === nextSize)) {
-      setPackagingLogoSize(nextSize);
-    }
-    if (packagingLogoPlacement.asset_path) {
-      setPackagingLogoAssetPath(packagingLogoPlacement.asset_path);
-    }
-  }, [packagingLogoPlacement]);
-  useEffect(() => {
-    if (!imageAnimationContextMenu) return;
-    const closeMenu = (): void => setImageAnimationContextMenu(null);
-    const closeOnEscape = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") setImageAnimationContextMenu(null);
-    };
-    window.addEventListener("mousedown", closeMenu);
-    window.addEventListener("resize", closeMenu);
-    window.addEventListener("scroll", closeMenu, true);
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      window.removeEventListener("mousedown", closeMenu);
-      window.removeEventListener("resize", closeMenu);
-      window.removeEventListener("scroll", closeMenu, true);
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [imageAnimationContextMenu]);
-  useEffect(() => {
-    if (visualPlacementEditingEnabled) return;
-    setImageAnimationContextMenu(null);
-  }, [visualPlacementEditingEnabled]);
-  useEffect(() => {
-    if (currentPass !== "image_animation") return;
-    setSelectedVisualFlowStep("broll");
-  }, [currentPass]);
   useEffect(() => {
   }, [sourceImageItems]);
   useEffect(() => {
@@ -6214,58 +5563,6 @@ function HammerWorkspaceShellWithContext(
     }
   }
 
-  function commitVisualPlacementWindow(
-    placementId: string,
-    args: { startSec: number; endSec: number; label: string },
-  ): boolean {
-    const clampedStart = Math.max(0, Math.min(transcriptDurationSec, roundImagePlacementTime(args.startSec)));
-    const clampedEnd = Math.max(
-      roundImagePlacementTime(clampedStart + MIN_IMAGE_PLACEMENT_DURATION_SEC),
-      Math.min(transcriptDurationSec, roundImagePlacementTime(args.endSec)),
-    );
-    const currentClip = editableVisualTimeline ? selectClipById(editableVisualTimeline, placementId) : null;
-    const currentStart = currentClip?.start_sec ?? null;
-    const currentEnd = currentClip?.end_sec ?? null;
-    if (currentStart === clampedStart && currentEnd === clampedEnd) {
-      return false;
-    }
-
-    const applied = applyHistoryMutation({
-      label: args.label,
-      kind: "visual_adjustment",
-      toolId: "video",
-      affectedPlacementIds: [placementId],
-      immediatePersist: true,
-      computeAfter: (before) => applyVisualTimelineAction(before, {
-        type: "UPDATE_CLIP_TIMING",
-        clip_id: placementId,
-        start_sec: clampedStart,
-        end_sec: clampedEnd,
-        updated_at: new Date().toISOString(),
-      }),
-    });
-    if (applied) {
-      requestDurablePersistBoundary();
-      return true;
-    }
-    return false;
-  }
-
-  function updateVisualPlacementTiming(placementId: string, deltaSec: number): void {
-    const placement = sourceVisualPlacementItems.find((item) => item.id === placementId) ?? null;
-    if (!placement) return;
-    const duration = Math.max(MIN_IMAGE_PLACEMENT_DURATION_SEC, roundImagePlacementTime(placement.endSec - placement.startSec));
-    const nextStart = Math.max(0, roundImagePlacementTime(placement.startSec + deltaSec));
-    const maxStart = Math.max(0, roundImagePlacementTime(transcriptDurationSec - duration));
-    const clampedStart = Math.min(nextStart, maxStart);
-    const nextEnd = Math.min(transcriptDurationSec, roundImagePlacementTime(clampedStart + duration));
-    commitVisualPlacementWindow(placementId, {
-      startSec: clampedStart,
-      endSec: nextEnd,
-      label: "Adjust visual placement timing",
-    });
-  }
-
   function commitVisualAnchorRefinement(args: {
     clipId: string;
     anchorText: string;
@@ -6297,639 +5594,6 @@ function HammerWorkspaceShellWithContext(
           updated_at: new Date().toISOString(),
         });
       },
-    });
-  }
-
-  function updateImagePlacementTransform(
-    placementId: string,
-    updater: (current: HammerImagePlacementTransform) => HammerImagePlacementTransform,
-  ): void {
-    setImagePlacementTransforms((current) => {
-      const clip = editableVisualTimeline
-        ? selectClipById(editableVisualTimeline, placementId)
-        : null;
-      const base = current[placementId]
-        ?? (clip
-          ? geometryToTransform(clip.geometry)
-          : geometryToTransform(resolvePlacementGeometry(visualPlacementsById.get(placementId))));
-      const next = clampImagePlacementTransform(updater(base));
-      return {
-        ...current,
-        [placementId]: next,
-      };
-    });
-  }
-
-  function commitImagePlacementTransform(
-    placementId: string,
-    transform: HammerImagePlacementTransform,
-    label: string,
-  ): boolean {
-    const nextGeometry = transformToGeometry(transform);
-    const currentClip = editableVisualTimeline ? selectClipById(editableVisualTimeline, placementId) : null;
-    const currentGeometry = currentClip?.geometry ?? resolvePlacementGeometry(visualPlacementsById.get(placementId));
-    if (
-      currentGeometry.x === nextGeometry.x
-      && currentGeometry.y === nextGeometry.y
-      && currentGeometry.width === nextGeometry.width
-      && currentGeometry.height === nextGeometry.height
-      && currentGeometry.anchor === nextGeometry.anchor
-    ) {
-      return false;
-    }
-
-    const applied = applyHistoryMutation({
-      label,
-      kind: "visual_adjustment",
-      toolId: "video",
-      affectedPlacementIds: [placementId],
-      immediatePersist: true,
-      computeAfter: (before) => applyVisualTimelineAction(before, {
-        type: "UPDATE_CLIP_GEOMETRY",
-        clip_id: placementId,
-        geometry: nextGeometry,
-        updated_at: new Date().toISOString(),
-      }),
-    });
-    if (applied) {
-      requestDurablePersistBoundary();
-      return true;
-    }
-    return false;
-  }
-
-  function beginTimelineImagePlacementDrag(
-    event: MouseEvent<HTMLElement | SVGElement>,
-    args: {
-      placementId: string;
-      mode: HammerTimelineImageDragState["mode"];
-      startSec: number;
-      endSec: number;
-    },
-  ): void {
-    if (!visualPlacementEditingEnabled) return;
-    const button = (event as unknown as { button?: number }).button;
-    if (button != null && button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const currentTarget = event.currentTarget as Element;
-    const laneTrack = currentTarget.closest(".hammer-visual-timeline-lane__track, .hammer-timeline-lane__track");
-    const ownerSvg = currentTarget instanceof SVGElement ? currentTarget.ownerSVGElement : null;
-    const trackRect = laneTrack instanceof HTMLElement
-      ? laneTrack.getBoundingClientRect()
-      : ownerSvg?.getBoundingClientRect() ?? currentTarget.getBoundingClientRect();
-    if (trackRect.width <= 0) return;
-    setFocusOverride("time-focus");
-    setSelectedClipId(args.placementId);
-    setTimelineImageDragState({
-      placementId: args.placementId,
-      mode: args.mode,
-      pointerStartX: event.clientX,
-      originStartSec: args.startSec,
-      originEndSec: args.endSec,
-      pxToSec: timelineDurationSec / trackRect.width,
-    });
-  }
-
-  function beginPreviewCanvasDrag(
-    event: MouseEvent<HTMLElement>,
-    args: { placementId: string; mode: HammerPreviewCanvasDragState["mode"] },
-  ): void {
-    if (!visualPlacementEditingEnabled) return;
-    if (event.button !== 0) return;
-    const clip = editableVisualTimeline
-      ? selectClipById(editableVisualTimeline, args.placementId)
-      : null;
-    const activeTransform = imagePlacementTransforms[args.placementId]
-      ?? (clip
-        ? geometryToTransform(clip.geometry)
-        : geometryToTransform(resolvePlacementGeometry(visualPlacementsById.get(args.placementId))));
-    event.preventDefault();
-    event.stopPropagation();
-    setFocusOverride("tool-focus");
-    setSelectedClipId(args.placementId);
-    setPreviewCanvasDragState({
-      placementId: args.placementId,
-      mode: args.mode,
-      pointerStartX: event.clientX,
-      pointerStartY: event.clientY,
-      origin: activeTransform,
-      originAspectRatio: activeTransform.widthPct / Math.max(1, activeTransform.heightPct),
-    });
-  }
-
-  function openImageAnimationContextMenu(event: MouseEvent<SVGGElement>, placementId: string): void {
-    if (currentPass !== "image_placement") return;
-    event.preventDefault();
-    event.stopPropagation();
-    setFocusOverride("time-focus");
-    setSelectedClipId(placementId);
-    setImageAnimationContextMenu({
-      placementId,
-      x: event.clientX,
-      y: event.clientY,
-    });
-  }
-
-  function applyImageAnimationPreset(placementId: string, preset: HammerImageAnimationPreset): void {
-    applyHistoryMutation({
-      label: "Set image animation preset",
-      kind: "visual_adjustment",
-      toolId: "video",
-      affectedPlacementIds: [placementId],
-      immediatePersist: true,
-      computeAfter: (before) => applyVisualTimelineAction(before, {
-        type: "UPDATE_CLIP_ANIMATION",
-        clip_id: placementId,
-        animation: { preset },
-        updated_at: new Date().toISOString(),
-      }),
-    });
-    setImageAnimationContextMenu(null);
-  }
-
-  function removeVisualPlacement(placementId: string): void {
-    const placement = editableVisualPlacements?.placements.find((item) => item.placement_id === placementId) ?? null;
-    applyHistoryMutation({
-      label: "Remove image placement",
-      kind: "visual_adjustment",
-      toolId: "video",
-      affectedSegments: placement ? [placement.anchor_segment_id] : undefined,
-      affectedPlacementIds: [placementId],
-      immediatePersist: true,
-      computeAfter: (before) => applyVisualTimelineAction(before, {
-        type: "DELETE_CLIP",
-        clip_id: placementId,
-        updated_at: new Date().toISOString(),
-      }),
-    });
-  }
-
-  function addImagePlacementFromLibrary(args: {
-    assetPath: string;
-    label: string;
-  }): void {
-    const placementId = createVisualPlacementId();
-
-    applyHistoryMutation({
-      label: "Add image placement",
-      kind: "visual_adjustment",
-      toolId: "video",
-      affectedPlacementIds: [placementId],
-      immediatePersist: true,
-      computeAfter: (before) => {
-        const anchorSegment = before.selectedSegmentId
-          ? before.transcriptSegments.find((segment) => segment.segment_id === before.selectedSegmentId) ?? null
-          : before.transcriptSegments[0] ?? null;
-        if (!anchorSegment) return before;
-
-        const nextStart = Math.max(0, roundToTenth(before.playheadSec));
-        const nextEnd = Math.max(nextStart + 0.5, Math.min(transcriptDurationSec, roundToTenth(nextStart + 3)));
-        const visualTimeline = resolveCanonicalVisualTimeline(before);
-        const updatedAt = new Date().toISOString();
-        const nextPlacement: HammerVisualPlacementRecord = {
-          placement_id: placementId,
-          entry_id: `manual:${placementId}`,
-          anchor_segment_id: anchorSegment.segment_id,
-          matched_segment_ids: [anchorSegment.segment_id],
-          anchor_text: anchorSegment.text,
-          asset_ref: args.assetPath,
-          asset_id: null,
-          asset_path: args.assetPath,
-          storage_key: args.assetPath,
-          label: args.label,
-          visual_mode: "still_image",
-          start_sec: nextStart,
-          end_sec: nextEnd,
-          confidence: null,
-          timing_source: "ordered_fallback",
-          status: "placed",
-          ingest_state: "approved",
-          uncertainty_flags: [],
-          overlay_geometry: DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
-          animation_preset: "none",
-          overlay_opacity: 1,
-          overlay_z_index: visualTimeline.clips.length + 1,
-        };
-        const assetId = deriveStableHammerVisualAssetId(nextPlacement);
-        return applyVisualTimelineActions({
-          ...before,
-          selectedSegmentId: anchorSegment.segment_id,
-        }, [
-          {
-            type: "UPSERT_ASSETS",
-            assets: [migrateLegacyPlacementRecordToAsset({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt })],
-            updated_at: updatedAt,
-          },
-          {
-            type: "CREATE_CLIP",
-            clip: migrateLegacyPlacementRecordToClip({
-              record: nextPlacement,
-              asset_id: assetId,
-              updated_at: updatedAt,
-            }),
-            updated_at: updatedAt,
-          },
-        ]);
-      },
-    });
-  }
-
-  function addVisualAssetPlacementFromLibrary(args: {
-    assetPath: string;
-    label: string;
-    kind: "broll" | "reference_clip";
-  }): void {
-    if (!args.assetPath.trim()) {
-      setTranscriptTimingHint("Stored asset path is unavailable. Reload workspace media state before placing it.");
-      return;
-    }
-    const placementId = createVisualPlacementId();
-    applyHistoryMutation({
-      label: args.kind === "reference_clip" ? "Add reference clip placement" : "Add b-roll placement",
-      kind: "visual_adjustment",
-      toolId: "video",
-      affectedPlacementIds: [placementId],
-      immediatePersist: true,
-      computeAfter: (before) => {
-        const anchorSegment = before.selectedSegmentId
-          ? before.transcriptSegments.find((segment) => segment.segment_id === before.selectedSegmentId) ?? null
-          : before.transcriptSegments[0] ?? null;
-        if (!anchorSegment) return before;
-
-        const nextStart = Math.max(0, roundToTenth(before.playheadSec));
-        const nextEnd = Math.max(nextStart + 0.5, Math.min(transcriptDurationSec, roundToTenth(nextStart + 3)));
-        const visualTimeline = resolveCanonicalVisualTimeline(before);
-        const updatedAt = new Date().toISOString();
-        const nextPlacement: HammerVisualPlacementRecord = {
-          placement_id: placementId,
-          entry_id: `manual:${placementId}`,
-          anchor_segment_id: anchorSegment.segment_id,
-          matched_segment_ids: [anchorSegment.segment_id],
-          anchor_text: anchorSegment.text,
-          asset_ref: args.assetPath,
-          asset_id: null,
-          asset_path: args.assetPath,
-          storage_key: args.assetPath,
-          label: args.label,
-          visual_mode: args.kind,
-          start_sec: nextStart,
-          end_sec: nextEnd,
-          confidence: null,
-          timing_source: "ordered_fallback",
-          status: "placed",
-          ingest_state: "approved",
-          uncertainty_flags: [],
-          overlay_geometry: {
-            ...DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
-            x: 0.08,
-            y: 0.08,
-            width: 0.84,
-            height: 0.84,
-          },
-          animation_preset: "none",
-          overlay_opacity: 1,
-          overlay_z_index: visualTimeline.clips.length + 1,
-        };
-        const assetId = deriveStableHammerVisualAssetId(nextPlacement);
-        return applyVisualTimelineActions({
-          ...before,
-          selectedSegmentId: anchorSegment.segment_id,
-        }, [
-          {
-            type: "UPSERT_ASSETS",
-            assets: [migrateLegacyPlacementRecordToAsset({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt })],
-            updated_at: updatedAt,
-          },
-          {
-            type: "CREATE_CLIP",
-            clip: migrateLegacyPlacementRecordToClip({
-              record: nextPlacement,
-              asset_id: assetId,
-              updated_at: updatedAt,
-            }),
-            updated_at: updatedAt,
-          },
-        ]);
-      },
-    });
-  }
-
-  function upsertPackagingPlacement(args: {
-    entryId: string;
-    assetPath: string;
-    assetId?: string;
-    label: string;
-    startSec: number;
-    endSec: number;
-    visualMode: string;
-    uncertaintyFlags?: string[];
-    overlayGeometry?: HammerVisualGeometry;
-    systemMeta?: {
-      system_managed: true;
-      system_type: "intro" | "outro";
-      system_source: "profile" | "episode" | "manual";
-      system_asset_id: string;
-    };
-  }): void {
-    applyHistoryMutation({
-      label: `Apply ${args.label}`,
-      kind: "visual_adjustment",
-      toolId: "finishing",
-      immediatePersist: true,
-      computeAfter: (before) => {
-        const anchorSegment = before.transcriptSegments[0] ?? null;
-        if (!anchorSegment) return before;
-        const visualTimeline = resolveCanonicalVisualTimeline(before);
-        const existingClip = visualTimeline.clips.find((clip) => clip.entry_id === args.entryId) ?? null;
-        const placementId = existingClip
-          ? existingClip.clip_id
-          : createVisualPlacementId();
-        const updatedAt = new Date().toISOString();
-        const nextPlacement: HammerVisualPlacementRecord = {
-          placement_id: placementId,
-          entry_id: args.entryId,
-          anchor_segment_id: anchorSegment.segment_id,
-          matched_segment_ids: [anchorSegment.segment_id],
-          anchor_text: anchorSegment.text,
-          asset_ref: args.assetPath,
-          asset_id: null,
-          asset_path: args.assetPath,
-          storage_key: args.assetPath,
-          label: args.label,
-          visual_mode: args.visualMode,
-          start_sec: Math.max(0, roundToTenth(args.startSec)),
-          end_sec: Math.max(
-            roundToTenth(args.startSec + MIN_IMAGE_PLACEMENT_DURATION_SEC),
-            roundToTenth(args.endSec),
-          ),
-          confidence: null,
-          timing_source: "ordered_fallback",
-          status: "placed",
-          ingest_state: "approved",
-          uncertainty_flags: args.uncertaintyFlags ?? [],
-          overlay_geometry: args.entryId === PACKAGING_LOGO_ENTRY_ID
-            ? (
-              args.overlayGeometry ?? positionFromLogoOption(packagingLogoPosition, packagingLogoSize)
-            )
-            : {
-              ...DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
-              x: 0,
-              y: 0,
-              width: 1,
-              height: 1,
-            },
-          animation_preset: "none",
-          overlay_opacity: 1,
-          overlay_z_index: existingClip?.z_index ?? (visualTimeline.clips.length + 1),
-        };
-        const assetId = args.assetId ?? deriveStableHammerVisualAssetId(nextPlacement);
-        const nextClipBase = migrateLegacyPlacementRecordToClip({
-          record: nextPlacement,
-          asset_id: assetId,
-          updated_at: updatedAt,
-        });
-        const nextClip: HammerVisualClip = args.systemMeta
-          ? {
-            ...nextClipBase,
-            system_managed: true,
-            system_type: args.systemMeta.system_type,
-            system_source: args.systemMeta.system_source,
-            system_asset_id: args.systemMeta.system_asset_id,
-          }
-          : nextClipBase;
-        if (existingClip) {
-          let nextState = applyVisualTimelineAction(before, {
-            type: "UPDATE_CLIP_TIMING",
-            clip_id: existingClip.clip_id,
-            start_sec: nextClip.start_sec,
-            end_sec: nextClip.end_sec,
-            updated_at: updatedAt,
-          });
-          nextState = applyVisualTimelineAction(nextState, {
-            type: "UPDATE_CLIP_GEOMETRY",
-            clip_id: existingClip.clip_id,
-            geometry: nextClip.geometry,
-            updated_at: updatedAt,
-          });
-          nextState = applyVisualTimelineAction(nextState, {
-            type: "UPDATE_CLIP_ANIMATION",
-            clip_id: existingClip.clip_id,
-            animation: nextClip.animation,
-            updated_at: updatedAt,
-          });
-          const nextTimeline = resolveCanonicalVisualTimeline(nextState);
-          return {
-            ...nextState,
-            visualTimeline: {
-              ...nextTimeline,
-              assets: nextTimeline.assets.some((asset) => asset.asset_id === assetId)
-                ? nextTimeline.assets.map((asset) => (asset.asset_id === assetId
-                  ? migrateLegacyPlacementRecordToAsset({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt })
-                  : asset))
-                : [...nextTimeline.assets, migrateLegacyPlacementRecordToAsset({
-                  record: nextPlacement,
-                  asset_id: assetId,
-                  updated_at: updatedAt,
-                })],
-              clips: nextTimeline.clips.map((clip) => (
-                clip.clip_id === existingClip.clip_id
-                  ? {
-                    ...clip,
-                    asset_id: assetId,
-                    entry_id: nextClip.entry_id,
-                    system_managed: args.systemMeta?.system_managed ?? clip.system_managed,
-                    system_type: args.systemMeta?.system_type ?? clip.system_type,
-                    system_source: args.systemMeta?.system_source ?? clip.system_source,
-                    system_asset_id: args.systemMeta?.system_asset_id ?? clip.system_asset_id,
-                    label: nextClip.label,
-                    visual_mode: nextClip.visual_mode,
-                    confidence: nextClip.confidence,
-                    placement_status: nextClip.placement_status,
-                    ingest_state: nextClip.ingest_state,
-                    uncertainty_flags: [...nextClip.uncertainty_flags],
-                    source_mode: nextClip.source_mode,
-                    opacity: nextClip.opacity,
-                    z_index: nextClip.z_index,
-                    enabled: nextClip.enabled,
-                    locked: nextClip.locked,
-                    anchor_hint: {
-                      ...nextClip.anchor_hint,
-                      matched_segment_ids: [...nextClip.anchor_hint.matched_segment_ids],
-                    },
-                    authority_operation_id: nextClip.authority_operation_id,
-                    updated_at: updatedAt,
-                  }
-                  : clip
-              )),
-            },
-            visualPlacements: deriveLegacyVisualPlacementsFromTimeline({
-              ...resolveCanonicalVisualTimeline(nextState),
-              assets: resolveCanonicalVisualTimeline(nextState).assets.some((asset) => asset.asset_id === assetId)
-                ? resolveCanonicalVisualTimeline(nextState).assets.map((asset) => (asset.asset_id === assetId
-                  ? migrateLegacyPlacementRecordToAsset({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt })
-                  : asset))
-                : [...resolveCanonicalVisualTimeline(nextState).assets, migrateLegacyPlacementRecordToAsset({
-                  record: nextPlacement,
-                  asset_id: assetId,
-                  updated_at: updatedAt,
-                })],
-              clips: resolveCanonicalVisualTimeline(nextState).clips.map((clip) => (
-                clip.clip_id === existingClip.clip_id
-                  ? {
-                    ...clip,
-                    asset_id: assetId,
-                    entry_id: nextClip.entry_id,
-                    label: nextClip.label,
-                    visual_mode: nextClip.visual_mode,
-                    confidence: nextClip.confidence,
-                    placement_status: nextClip.placement_status,
-                    ingest_state: nextClip.ingest_state,
-                    uncertainty_flags: [...nextClip.uncertainty_flags],
-                    source_mode: nextClip.source_mode,
-                    opacity: nextClip.opacity,
-                    z_index: nextClip.z_index,
-                    enabled: nextClip.enabled,
-                    locked: nextClip.locked,
-                    anchor_hint: {
-                      ...nextClip.anchor_hint,
-                      matched_segment_ids: [...nextClip.anchor_hint.matched_segment_ids],
-                    },
-                    authority_operation_id: nextClip.authority_operation_id,
-                    updated_at: updatedAt,
-                  }
-                  : clip
-              )),
-            }),
-          };
-        }
-        return applyVisualTimelineActions(before, [
-          {
-            type: "UPSERT_ASSETS",
-            assets: [migrateLegacyPlacementRecordToAsset({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt })],
-            updated_at: updatedAt,
-          },
-          {
-            type: "CREATE_CLIP",
-            clip: nextClip,
-            updated_at: updatedAt,
-          },
-        ]);
-      },
-    });
-  }
-
-  function removePackagingPlacement(entryId: string, label: string): void {
-    applyHistoryMutation({
-      label,
-      kind: "visual_adjustment",
-      toolId: "finishing",
-      immediatePersist: true,
-      computeAfter: (before) => {
-        const clip = resolveCanonicalVisualTimeline(before).clips.find((candidate) => candidate.entry_id === entryId) ?? null;
-        if (!clip) return before;
-        return applyVisualTimelineAction(before, {
-          type: "DELETE_CLIP",
-          clip_id: clip.clip_id,
-          updated_at: new Date().toISOString(),
-        });
-      },
-    });
-  }
-
-  function applyIntroToTimeline(
-    assetId: string,
-    source: "profile" | "episode" | "manual",
-  ): void {
-    const resolved = introOutroCandidateItemsById.get(assetId) ?? null;
-    if (!resolved?.path) {
-      setTranscriptTimingHint("Intro asset is unavailable. Re-upload or re-select it in Intro/Outro Source Desk.");
-      return;
-    }
-    upsertResolvedIntroPlacement(assetId, resolved.path, source);
-  }
-
-  function applyOutroToTimeline(
-    assetId: string,
-    source: "profile" | "episode" | "manual",
-  ): void {
-    const resolved = introOutroCandidateItemsById.get(assetId) ?? null;
-    if (!resolved?.path) {
-      setTranscriptTimingHint("Outro asset is unavailable. Re-upload or re-select it in Intro/Outro Source Desk.");
-      return;
-    }
-    upsertResolvedOutroPlacement(assetId, resolved.path, source);
-  }
-
-  function applyIntroPlacement(): void {
-    const assetId = introOutroSelection.intro_asset_id;
-    if (!assetId) {
-      setTranscriptTimingHint("Select an intro asset first in Intro/Outro Source Desk.");
-      return;
-    }
-    applyIntroToTimeline(assetId, "manual");
-  }
-
-  function applyOutroPlacement(): void {
-    const assetId = introOutroSelection.outro_asset_id;
-    if (!assetId) {
-      setTranscriptTimingHint("Select an outro asset first in Intro/Outro Source Desk.");
-      return;
-    }
-    applyOutroToTimeline(assetId, "manual");
-  }
-
-  function toggleLogoOverlay(): void {
-    if (packagingLogoPlacement) {
-      removePackagingPlacement(PACKAGING_LOGO_ENTRY_ID, "Remove logo overlay");
-      return;
-    }
-    if (!packagingLogoAssetPath) {
-      setTranscriptTimingHint("Select a logo asset before enabling overlay.");
-      return;
-    }
-    upsertPackagingPlacement({
-      entryId: PACKAGING_LOGO_ENTRY_ID,
-      assetPath: packagingLogoAssetPath,
-      label: `Logo Overlay (${packagingLogoPosition.replace("_", " ")}, ${packagingLogoSize})`,
-      startSec: 0,
-      endSec: transcriptDurationSec,
-      visualMode: "overlay_graphic",
-      overlayGeometry: positionFromLogoOption(packagingLogoPosition, packagingLogoSize),
-      uncertaintyFlags: [
-        "packaging:logo",
-        `logo_position:${packagingLogoPosition}`,
-        `logo_size:${packagingLogoSize}`,
-      ],
-    });
-  }
-
-  function applyLogoOverlayStyle(next: {
-    position?: HammerLogoOverlayPosition;
-    size?: HammerLogoOverlaySize;
-    assetPath?: string | null;
-  }): void {
-    if (next.position) setPackagingLogoPosition(next.position);
-    if (next.size) setPackagingLogoSize(next.size);
-    if (typeof next.assetPath !== "undefined") setPackagingLogoAssetPath(next.assetPath);
-    if (!packagingLogoPlacement) return;
-    const position = next.position ?? packagingLogoPosition;
-    const size = next.size ?? packagingLogoSize;
-    const assetPath = next.assetPath ?? packagingLogoAssetPath ?? packagingLogoPlacement.asset_path ?? "";
-    if (!assetPath) return;
-    upsertPackagingPlacement({
-      entryId: PACKAGING_LOGO_ENTRY_ID,
-      assetPath,
-      label: `Logo Overlay (${position.replace("_", " ")}, ${size})`,
-      startSec: 0,
-      endSec: transcriptDurationSec,
-      visualMode: "overlay_graphic",
-      overlayGeometry: positionFromLogoOption(position, size),
-      uncertaintyFlags: [
-        "packaging:logo",
-        `logo_position:${position}`,
-        `logo_size:${size}`,
-      ],
     });
   }
 
