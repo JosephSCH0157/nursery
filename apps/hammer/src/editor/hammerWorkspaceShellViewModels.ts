@@ -457,8 +457,8 @@ export function buildToolbarVM(args: any) {
 
 export function buildToolBayVM(args: any) {
   return {
-    passLabel: args.currentPassMeta.label,
-    passStatus: args.currentPassSelectorResult.status,
+    passLabel: args.passLabel,
+    passStatus: args.passStatus,
     onMarkComplete: args.markCurrentPassComplete,
     activeVisualTool: args.activeVisualTool,
     onSelectVisualTool: args.selectVisualTool,
