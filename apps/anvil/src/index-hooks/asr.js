@@ -491,7 +491,17 @@ function normalizeAsrEngine(value) {
   if (normalized === "offline") return "vosk";
   return normalized;
 }
+function isAsrEngineExplicit(value) {
+  return value === true || value === 1 || value === "1" || value === "true";
+}
 function readLocalAsrEngineExplicit() {
+  try {
+    const store = window?.__tpStore;
+    if (store && typeof store.get === "function") {
+      return isAsrEngineExplicit(store.get("asr.engineExplicit"));
+    }
+  } catch {
+  }
   try {
     return localStorage.getItem(ASR_ENGINE_EXPLICIT_KEY) === "1";
   } catch {
@@ -737,6 +747,7 @@ var persistMap = {
   rehearsalPunct: REH_PUNCT_KEY,
   rehearsalResumeMs: REH_RESUME_KEY,
   "asr.engine": ASR_ENGINE_KEY,
+  "asr.engineExplicit": ASR_ENGINE_EXPLICIT_KEY,
   "asr.language": ASR_LANG_KEY,
   "asr.useInterimResults": ASR_INTERIM_KEY,
   "asr.threshold": ASR_THRESHOLD_KEY,
@@ -1007,6 +1018,7 @@ function buildInitialState() {
     })(),
     asrLive: false,
     "asr.engine": readInitialAsrEngine(legacyAsrSettings),
+    "asr.engineExplicit": readLocalAsrEngineExplicit(),
     "asr.language": (() => {
       try {
         const raw = localStorage.getItem(ASR_LANG_KEY);
@@ -1310,6 +1322,9 @@ function sanitizeState(state) {
       localStorage.removeItem(OVERLAY_KEY);
     } catch {
     }
+  }
+  if (typeof state["asr.engineExplicit"] !== "boolean") {
+    state["asr.engineExplicit"] = !!state["asr.engineExplicit"];
   }
   if (state.scrollMode === "manual") {
     state.scrollMode = "step";
