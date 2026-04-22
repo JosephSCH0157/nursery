@@ -7745,6 +7745,7 @@ export class TongsCommitService {
     const contentType = normalizeContentType(input.content_type, path);
     const fileType = (typeof input.file_type === "string" && input.file_type.trim()) || inferFileType(path, contentType);
     const writtenBy = normalizeWrittenBy(input.written_by);
+    const storageKey = buildStorageKey(workpieceId, path);
 
     let bytes: Uint8Array;
     let commitMode: "replace" | "append_jsonl" = "replace";

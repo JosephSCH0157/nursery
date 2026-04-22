@@ -242,7 +242,7 @@ function resolveUploadStrategyConfig(): UploadStrategyConfig {
   const largeUploadWarnMb = readNumericConfig(LARGE_UPLOAD_WARN_MB_KEY) ?? DEFAULT_LARGE_UPLOAD_WARN_MB;
   const chunkUploadThresholdMb = readNumericConfig(CHUNK_UPLOAD_THRESHOLD_MB_KEY) ?? DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB;
   const chunkSizeMbRaw = readNumericConfig(CHUNK_SIZE_MB_KEY) ?? DEFAULT_CHUNK_SIZE_MB;
-  const chunkSizeMb = Math.max(1, Math.min(chunkSizeMbRaw, chunkUploadThresholdMb));
+  const chunkSizeMb = chunkSizeMbRaw > 0 ? Math.min(chunkSizeMbRaw, chunkUploadThresholdMb) : DEFAULT_CHUNK_SIZE_MB;
   return {
     largeUploadWarnMb,
     chunkUploadThresholdMb,
@@ -258,7 +258,7 @@ export function selectUploadStrategyForBytes(
     ...resolveUploadStrategyConfig(),
     ...config,
   };
-  const thresholdBytes = mbToBytes(Math.max(1, cfg.chunkUploadThresholdMb));
+  const thresholdBytes = mbToBytes(cfg.chunkUploadThresholdMb > 0 ? cfg.chunkUploadThresholdMb : DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB);
   return byteLength > thresholdBytes ? "chunked" : "single";
 }
 

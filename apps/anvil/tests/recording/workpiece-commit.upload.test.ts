@@ -6,10 +6,12 @@ const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const WORKPIECE_ID = "22222222-2222-4222-8222-222222222222";
 
 function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
+  const raw = JSON.stringify(body);
+  return {
+    ok: status >= 200 && status < 300,
     status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
+    text: async () => raw,
+  } as unknown as Response;
 }
 
 describe('workpiece recording upload strategy', () => {
@@ -126,6 +128,9 @@ describe('workpiece recording upload strategy', () => {
     });
 
     expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error('expected failed commit result');
+    }
     expect(result.reason).toBe('commit_failed');
     expect(chunkCalls).toBe(3);
     expect(finalizeCalls).toBe(0);
