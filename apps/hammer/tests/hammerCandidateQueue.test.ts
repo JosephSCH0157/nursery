@@ -176,6 +176,80 @@ async function testRetakeChainCardRemovesMarkerAndAbort() {
   assert.equal(card.afterText, "Florida oranges didn't start small.");
   assert.equal(card.suggestedRemoval.length, 2);
   assert.equal(card.suggestedRemovalText, "Florida oranges really sta—\nlet me start that again");
+  assert.match(card.description, /restart marker \+ reread/i);
+}
+
+async function testRetakeRestartTrimCardShowsCueOnlyAsProposedRemoval() {
+  const segments = [
+    {
+      segment_id: "seg_trim",
+      start_sec: 0,
+      end_sec: 3.2,
+      speaker: "S1",
+      text: "Let me start that again. Not little shelters with a cash box.",
+    },
+    {
+      segment_id: "seg_next",
+      start_sec: 3.25,
+      end_sec: 4.7,
+      speaker: "S1",
+      text: "Florida oranges didn't start small.",
+    },
+  ];
+
+  const result = buildCandidateQueue({
+    kind: "retakes",
+    segments: segments as never,
+    fillerOptions: fillerOptions as never,
+    retakeOptions: retakeOptions as never,
+    handledCandidateIds: new Set<string>(),
+  });
+
+  assert.equal(result.cards.length >= 1, true);
+  const card = result.cards.find((item) => item.id.includes("restart_trim"))!;
+  assert.ok(card);
+  assert.match(card.description, /explicit restart cue/i);
+  assert.equal(card.afterText, "Not little shelters with a cash box.");
+  assert.equal(card.apply.removeSegmentIds.length, 0);
+  assert.deepEqual(card.apply.updateSegments, [{ segmentId: "seg_trim", text: "Not little shelters with a cash box." }]);
+  assert.equal(card.suggestedRemovalText.includes("Let me start that again"), true);
+  assert.equal(card.suggestedRemovalText.includes("Not little shelters with a cash box"), false);
+}
+
+async function testRetakeBackwardExplicitCueCardMatchesEditorIntent() {
+  const segments = [
+    {
+      segment_id: "seg_prev",
+      start_sec: 0,
+      end_sec: 2.4,
+      speaker: "S1",
+      text: "In the years that followed, changes started to be made.",
+    },
+    {
+      segment_id: "seg_restart",
+      start_sec: 2.45,
+      end_sec: 5.8,
+      speaker: "S1",
+      text: "Let me start that again. In the years that followed, changes started to be made.",
+    },
+  ];
+
+  const result = buildCandidateQueue({
+    kind: "retakes",
+    segments: segments as never,
+    fillerOptions: fillerOptions as never,
+    retakeOptions: retakeOptions as never,
+    handledCandidateIds: new Set<string>(),
+  });
+
+  assert.equal(result.cards.length, 1);
+  const card = result.cards[0]!;
+  assert.match(card.description, /explicit restart cue/i);
+  assert.equal(card.afterText, "In the years that followed, changes started to be made.");
+  assert.equal(card.apply.removeSegmentIds.includes("seg_prev"), true);
+  assert.deepEqual(card.apply.updateSegments, [{ segmentId: "seg_restart", text: "In the years that followed, changes started to be made." }]);
+  assert.equal(card.suggestedRemovalText.includes("Let me start that again"), true);
+  assert.equal(card.suggestedRemovalText.includes("In the years that followed, changes started to be made."), true);
 }
 
 async function testClampIndex() {
@@ -190,6 +264,8 @@ async function run() {
   await testFillerCardCanRemoveSegmentWhenFillerOnly();
   await testRetakePairCardBuildsFromSuggestionId();
   await testRetakeChainCardRemovesMarkerAndAbort();
+  await testRetakeRestartTrimCardShowsCueOnlyAsProposedRemoval();
+  await testRetakeBackwardExplicitCueCardMatchesEditorIntent();
   await testClampIndex();
   // eslint-disable-next-line no-console
   console.log("Hammer candidate queue tests passed.");
