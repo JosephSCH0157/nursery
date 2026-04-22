@@ -2086,7 +2086,7 @@ function HammerWorkspaceShellWithContext(
     applyOutroPlacement,
     toggleLogoOverlay,
     applyLogoOverlayStyle,
-    flushPendingPlacementDrafts,
+    flushPendingPlacementDrafts: flushPendingPlacementDraftsFromVisualEditing,
   } = useHammerWorkspaceShellVisualEditing({
     workpieceId: launchContext.workpiece_id,
     workspaceId: launchContext.workspace_id,
@@ -3255,6 +3255,10 @@ function HammerWorkspaceShellWithContext(
 
   function requestDurablePersistBoundary(): void {
     setPersistNowRequestNonce((current) => current + 1);
+  }
+
+  function flushPendingPlacementDrafts(): void {
+    flushPendingPlacementDraftsFromVisualEditing();
   }
 
   function appendAuthorityInstructionForState(
