@@ -2,8 +2,7 @@
 // Sidebar now mirrors the ScriptStore directly (mapped entries) and triggers loads via the store.
 import { debugLog } from '../env/logging';
 import { ScriptStore } from '../features/scripts-store';
-import { applyScript } from '../features/apply-script';
-import { getLastScriptId } from '../features/script-selection';
+import { getLastScriptId, loadScriptById } from '../features/script-selection';
 import { getMappedFolderManagerHint, isMappedFolderManagedByNursery } from '../fs/mapped-folder';
 import { getNurseryStorageSettingsUrl } from '../forge/nursery-mounts';
 import { getScriptSourceMode } from '../forge/script-source';
@@ -231,12 +230,7 @@ async function handleLoadClick(): Promise<void> {
   const resetFlag = () => { try { w.__TP_LOADING_SCRIPT = false; } catch {} };
   try { w.__TP_LOADING_SCRIPT = true; } catch {}
   try {
-    const rec = await ScriptStore.get(id);
-    if (!rec || typeof rec.content !== 'string') return;
-    const raw = rec.content ?? '';
-    applyScript(raw, 'load', { updateEditor: true });
-    // Still emit tp:script-load for any listeners that rely on the event path
-    try { window.dispatchEvent(new CustomEvent('tp:script-load', { detail: { name: rec.title, text: raw } })); } catch {}
+    await loadScriptById(id);
   } catch {}
   finally {
     loadInFlight = false;

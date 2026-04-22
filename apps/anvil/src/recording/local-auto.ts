@@ -12,12 +12,14 @@ import {
   type RecordingCommitResult,
 } from '../forge/workpiece-commit';
 import { startSpeechBackendForSession, stopSpeechBackendForSession } from '../features/speech-loader';
+import { ScriptStore } from '../features/scripts-store';
 import {
   hideRecordingFinalizeIndicator,
   showRecordingDecisionDialog,
   showRecordingFinalizeIndicator,
 } from './recording-decision-dialog';
 import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name';
+import { resolveActiveWorkpieceId } from '../forge/workpiece-context';
 import {
   RecordingTranscriptController,
   type RecordingTranscriptFinalizeResult,
@@ -42,6 +44,11 @@ import {
   let audioSampleRate = 48000;
   let recordingStartedAtMs: number | null = null;
   let activeStrategy: RecordingCaptureStrategy | null = null;
+  type RecordingSaveIdentity = {
+    workpieceId: string | null;
+    baseTitle: string;
+  };
+  let activeSaveIdentity: RecordingSaveIdentity | null = null;
   const transcriptController = new RecordingTranscriptController({
     ensureCaptureTarget: ensureRecordingCaptureTarget,
     commitJsonArtifact: commitRecordingJsonArtifactToTongs,
@@ -51,6 +58,43 @@ import {
   });
 
   const pad = (n: number) => String(n).padStart(2, '0');
+
+  const READY_SCRIPT_PREFIX = 'ready:';
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  function parseReadyScriptWorkpieceId(scriptId: string | null | undefined): string | null {
+    const raw = String(scriptId || '').trim();
+    if (!raw.toLowerCase().startsWith(READY_SCRIPT_PREFIX)) return null;
+    const rest = raw.slice(READY_SCRIPT_PREFIX.length);
+    const separator = rest.indexOf(':');
+    if (separator <= 0) return null;
+    const candidate = rest.slice(0, separator).trim().toLowerCase();
+    return UUID_RE.test(candidate) ? candidate : null;
+  }
+
+  function buildWorkpieceFallbackTitle(workpieceId: string): string {
+    return `Episode_${workpieceId.slice(0, 8)}`;
+  }
+
+  function getCurrentInputTitle(): string | null {
+    try {
+      const value = (document.getElementById('scriptTitle') as HTMLInputElement | null)?.value ?? null;
+      const trimmed = String(value || '').trim();
+      return trimmed.length > 0 ? trimmed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function getStoredTitle(): string | null {
+    try {
+      const value = localStorage.getItem('tp_last_script_title') || localStorage.getItem('tp_last_script_name');
+      const trimmed = String(value || '').trim();
+      return trimmed.length > 0 ? trimmed : null;
+    } catch {
+      return null;
+    }
+  }
 
   function readStorageLimitHintBytes(): number | null {
     try {
@@ -197,6 +241,63 @@ import {
     }
   }
 
+  function getReadyScriptTitleForWorkpiece(workpieceId: string | null): string | null {
+    if (!workpieceId) return null;
+    try {
+      const entries = ScriptStore.list();
+      const selectedIds = [
+        (document.getElementById('scriptSelectSidebar') as HTMLSelectElement | null)?.value || '',
+        (document.getElementById('scriptSelect') as HTMLSelectElement | null)?.value || '',
+      ].map((value) => String(value || '').trim()).filter(Boolean);
+
+      for (const selectedId of selectedIds) {
+        if (parseReadyScriptWorkpieceId(selectedId) !== workpieceId) continue;
+        const match = entries.find((entry) => entry.id === selectedId);
+        const title = String(match?.title || '').trim();
+        if (title) return title;
+      }
+
+      const firstMatch = entries.find((entry) => parseReadyScriptWorkpieceId(entry.id) === workpieceId);
+      const fallbackTitle = String(firstMatch?.title || '').trim();
+      return fallbackTitle || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function captureRecordingSaveIdentity(): RecordingSaveIdentity {
+    const workpieceId = resolveActiveWorkpieceId();
+    const routeEpisodeTitle = getRouteEpisodeTitle();
+    const readyTitle = getReadyScriptTitleForWorkpiece(workpieceId);
+    const inputTitle = getCurrentInputTitle();
+    const storedTitle = getStoredTitle();
+
+    const trustedWorkpieceTitle =
+      routeEpisodeTitle
+      || readyTitle;
+
+    const baseTitle = trustedWorkpieceTitle
+      || (workpieceId ? buildWorkpieceFallbackTitle(workpieceId) : null)
+      || pickRecordingBaseTitle({
+        inputTitle,
+        routeEpisodeTitle,
+        storedTitle,
+      });
+
+    try {
+      console.log('[core-recorder] save identity snapshot', {
+        workpieceId,
+        baseTitle,
+        trustedWorkpieceTitle: trustedWorkpieceTitle || null,
+      });
+    } catch {}
+
+    return {
+      workpieceId,
+      baseTitle,
+    };
+  }
+
   const applyFileExtension = (name: string, extension: string | null | undefined): string => {
     const cleanExtension = String(extension || '').trim().replace(/^\./, '');
     if (!cleanExtension) return name;
@@ -204,29 +305,18 @@ import {
     return `${stem}.${cleanExtension}`;
   };
 
-  const nowName = (mode: 'av' | 'audio', extensionOverride?: string | null): string => {
+  const nowName = (
+    mode: 'av' | 'audio',
+    extensionOverride?: string | null,
+    identity?: RecordingSaveIdentity | null,
+  ): string => {
     try {
-      const titleInput = (() => {
-        try {
-          return (document.getElementById('scriptTitle') as HTMLInputElement | null)?.value ?? null;
-        } catch {
-          return null;
-        }
-      })();
-      const storedTitle = (() => {
-        try {
-          return localStorage.getItem('tp_last_script_title') || localStorage.getItem('tp_last_script_name');
-        } catch {
-          return null;
-        }
-      })();
-
       return applyFileExtension(buildRecordingFilename({
         mode,
-        baseTitle: pickRecordingBaseTitle({
-          inputTitle: titleInput,
+        baseTitle: identity?.baseTitle || pickRecordingBaseTitle({
+          inputTitle: getCurrentInputTitle(),
           routeEpisodeTitle: getRouteEpisodeTitle(),
-          storedTitle,
+          storedTitle: getStoredTitle(),
         }),
       }), extensionOverride ?? (mode === 'audio' ? 'wav' : 'webm'));
     } catch {
@@ -394,6 +484,7 @@ import {
     durationMs: number | null,
     transcriptFinalize: RecordingTranscriptFinalizeResult | null,
     strategy: RecordingCaptureStrategy | null,
+    identity: RecordingSaveIdentity | null,
   ): Promise<void> => {
     try {
       if (audioProcessor) audioProcessor.disconnect();
@@ -416,7 +507,7 @@ import {
     audioChunks = [];
     const blob = new Blob([wavBuffer], { type: 'audio/wav' });
     try {
-      await saveBlob(blob, nowName('audio', strategy?.fileExtension ?? 'wav'), {
+      await saveBlob(blob, nowName('audio', strategy?.fileExtension ?? 'wav', identity), {
         durationMs,
         transcriptFinalize,
         strategy,
@@ -478,6 +569,7 @@ import {
 
       const strategy = selectBestRecordingStrategy({ mode: recordingMode });
       const captureSessionId = beginRecordingCaptureSession();
+      activeSaveIdentity = captureRecordingSaveIdentity();
       activeStrategy = strategy;
 
       if (recordingMode === 'audio' && strategy.mechanism === 'pcm-wav-fallback') {
@@ -516,6 +608,7 @@ import {
       try {
         console.warn('[auto-rec] start failed', e);
       } catch {}
+      activeSaveIdentity = null;
       activeStrategy = null;
     }
   }
@@ -525,6 +618,7 @@ import {
     if (!active) return;
     const durationMs = recordingStartedAtMs != null ? Math.max(0, Date.now() - recordingStartedAtMs) : null;
     const strategyAtStop = activeStrategy;
+    const saveIdentityAtStop = activeSaveIdentity;
     const transcriptFinalize = await transcriptController.stopSession({
       mediaDurationMs: durationMs,
     }).catch((error) => {
@@ -533,9 +627,10 @@ import {
     });
     try {
       if (activeMode === 'audio' && strategyAtStop?.mechanism === 'pcm-wav-fallback') {
-        await stopAudioOnly(durationMs, transcriptFinalize, strategyAtStop);
+        await stopAudioOnly(durationMs, transcriptFinalize, strategyAtStop, saveIdentityAtStop);
       } else if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         const recorder = mediaRecorder;
+        const stopName = nowName(strategyAtStop?.mode ?? 'av', strategyAtStop?.fileExtension, saveIdentityAtStop);
         recorder.onstop = async () => {
           try {
             console.log('[core-recorder] mediaRecorder.onstop fired', { chunks: chunks.length });
@@ -545,7 +640,7 @@ import {
             try {
               console.log('[core-recorder] about to save blob', { size: blob.size, type: blob.type });
             } catch {}
-            await saveBlob(blob, nowName(strategyAtStop?.mode ?? 'av', strategyAtStop?.fileExtension), {
+            await saveBlob(blob, stopName, {
               durationMs,
               transcriptFinalize,
               strategy: strategyAtStop,
@@ -575,6 +670,7 @@ import {
     active = false;
     activeMode = null;
     activeStrategy = null;
+    activeSaveIdentity = null;
     try {
       window.dispatchEvent(new CustomEvent('rec:state', { detail: { state: 'idle', adapter: 'local-auto' } }));
     } catch {}
