@@ -113,6 +113,9 @@ export function useHammerWorkspaceShellSourceDeskController(
   args: UseHammerWorkspaceShellSourceDeskControllerArgs,
 ): UseHammerWorkspaceShellSourceDeskControllerResult {
   const attemptedWorkspaceDefaultsApplyRef = useRef<string | null>(null);
+  const refreshRunIdRef = useRef(0);
+  const latestArgsRef = useRef(args);
+  latestArgsRef.current = args;
 
   const sourceDeskPreviewPaths = useMemo(() => {
     const paths = new Set<string>();
@@ -216,7 +219,7 @@ export function useHammerWorkspaceShellSourceDeskController(
       appendUniquePaths(next, paths);
       return areStringArraysEqual(current, next) ? current : next;
     });
-  }, [args]);
+  }, [args.setSourceDeskRequestedPreviewPaths]);
 
   const reportSourceDeskPreviewLoadError = useCallback((rawPath: string): void => {
     const path = rawPath.trim();
@@ -234,11 +237,11 @@ export function useHammerWorkspaceShellSourceDeskController(
         ? current
         : { ...current, [path]: true }
     ));
-  }, [args]);
+  }, [args.setSourceDeskPreviewFailures, args.setSourceDeskPreviewUrls]);
 
   const reportVisibleSourceDeskPreviewPaths = useCallback((paths: string[]): void => {
     args.setSourceDeskVisiblePreviewPaths((current) => (areStringArraysEqual(current, paths) ? current : paths));
-  }, [args]);
+  }, [args.setSourceDeskVisiblePreviewPaths]);
 
   useEffect(() => {
     args.setSourceDeskRequestedPreviewPaths([]);
@@ -276,15 +279,20 @@ export function useHammerWorkspaceShellSourceDeskController(
   ]);
 
   const refreshSourceDeskMedia = useCallback(async (): Promise<void> => {
-    args.setSourceDeskLoading(true);
-    args.setSourceDeskError(null);
+    const refreshRunId = refreshRunIdRef.current + 1;
+    refreshRunIdRef.current = refreshRunId;
+    const latestArgs = latestArgsRef.current;
+    const { workpieceId, workspaceId } = latestArgs;
+    latestArgs.setSourceDeskLoading(true);
+    latestArgs.setSourceDeskError(null);
     try {
       const [mediaFiles, selection, defaults] = await Promise.all([
-        listWorkpieceStoredMedia(args.workpieceId),
-        loadIntroOutroSelection(args.workpieceId),
-        loadWorkspaceIntroOutroDefaults(args.workspaceId),
+        listWorkpieceStoredMedia(workpieceId),
+        loadIntroOutroSelection(workpieceId),
+        loadWorkspaceIntroOutroDefaults(workspaceId),
       ]);
-      args.setWorkspaceIntroOutroDefaults(defaults);
+      if (refreshRunId !== refreshRunIdRef.current) return;
+      latestArgs.setWorkspaceIntroOutroDefaults(defaults);
 
       let nextMediaFiles = mediaFiles;
       let nextSelection = selection;
@@ -297,11 +305,11 @@ export function useHammerWorkspaceShellSourceDeskController(
         defaults,
       });
 
-      if (repairPlan.shouldApply && attemptedWorkspaceDefaultsApplyRef.current !== args.workpieceId) {
-        attemptedWorkspaceDefaultsApplyRef.current = args.workpieceId;
+      if (repairPlan.shouldApply && attemptedWorkspaceDefaultsApplyRef.current !== workpieceId) {
+        attemptedWorkspaceDefaultsApplyRef.current = workpieceId;
         try {
           const applied = defaults
-            ? await args.applyWorkspaceIntroOutroDefaultsToWorkpiece(defaults, {
+            ? await latestArgs.applyWorkspaceIntroOutroDefaultsToWorkpiece(defaults, {
               existingSelection: nextSelection,
               mediaFiles: nextMediaFiles,
             })
@@ -310,37 +318,41 @@ export function useHammerWorkspaceShellSourceDeskController(
             nextSelection = applied.selection;
             if (applied.appliedIntro) introSelectionSource = "profile";
             if (applied.appliedOutro) outroSelectionSource = "profile";
-            nextMediaFiles = await listWorkpieceStoredMedia(args.workpieceId);
+            nextMediaFiles = await listWorkpieceStoredMedia(workpieceId);
           }
         } catch (error) {
           console.warn("[Hammer][IntroOutroDefaults] Failed to auto-apply workspace defaults:", error);
         }
       }
 
-      args.setStoredMediaFiles(nextMediaFiles);
+      latestArgs.setStoredMediaFiles(nextMediaFiles);
       const resolvedSelection = nextSelection ?? {
         schema_version: 1,
         intro_asset_id: null,
         outro_asset_id: null,
         updated_at: new Date().toISOString(),
       };
-      args.setIntroOutroSelection(resolvedSelection);
-      args.reconcileIntroOutroSelectionWithPackaging({
+      latestArgs.setIntroOutroSelection(resolvedSelection);
+      latestArgs.reconcileIntroOutroSelectionWithPackaging({
         selection: resolvedSelection,
         mediaFiles: nextMediaFiles,
         introSource: introSelectionSource,
         outroSource: outroSelectionSource,
       });
     } catch (error) {
-      args.setSourceDeskError(error instanceof Error ? error.message : "Hammer could not load Source Desk media.");
+      if (refreshRunId === refreshRunIdRef.current) {
+        latestArgs.setSourceDeskError(error instanceof Error ? error.message : "Hammer could not load Source Desk media.");
+      }
     } finally {
-      args.setSourceDeskLoading(false);
+      if (refreshRunId === refreshRunIdRef.current) {
+        latestArgs.setSourceDeskLoading(false);
+      }
     }
-  }, [args]);
+  }, []);
 
   useEffect(() => {
     void refreshSourceDeskMedia();
-  }, [refreshSourceDeskMedia]);
+  }, [args.workpieceId, args.workspaceId, refreshSourceDeskMedia]);
 
   useHammerWorkspaceShellSourceDeskPreviews({
     workpieceId: args.workpieceId,
@@ -363,23 +375,24 @@ export function useHammerWorkspaceShellSourceDeskController(
     category: "images" | "broll" | "introoutro",
     fileList: FileList | null,
   ): Promise<void> => {
+    const latestArgs = latestArgsRef.current;
     const file = fileList?.[0] ?? null;
     if (!file) return;
-    args.setUploadingCategory(category);
-    args.setSourceDeskError(null);
+    latestArgs.setUploadingCategory(category);
+    latestArgs.setSourceDeskError(null);
     try {
       await uploadWorkpieceMediaFile({
-        workpieceId: args.workpieceId,
+        workpieceId: latestArgs.workpieceId,
         file,
         category,
       });
       await refreshSourceDeskMedia();
     } catch (error) {
-      args.setSourceDeskError(error instanceof Error ? error.message : "Hammer could not upload the selected file.");
+      latestArgs.setSourceDeskError(error instanceof Error ? error.message : "Hammer could not upload the selected file.");
     } finally {
-      args.setUploadingCategory(null);
+      latestArgs.setUploadingCategory(null);
     }
-  }, [args, refreshSourceDeskMedia]);
+  }, [refreshSourceDeskMedia]);
 
   return {
     sourceDeskPreviewPaths,

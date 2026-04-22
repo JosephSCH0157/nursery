@@ -53,20 +53,22 @@ export function decideHammerTranscriptHydrationSource(
     return { selected_source: "none", downgrade_guard_applied: false };
   }
 
-  // Primary semantics: prefer the registered pointer (workpiece-level) when it is viable.
-  // Hard guardrail: never silently downgrade if a clearly better transcript exists (e.g. 120 segments vs 14).
-  if (registeredOk) {
-    if (revisionOk && isMaterialUpgrade(revisionCount, registeredCount)) {
-      return { selected_source: "revision_transcript", downgrade_guard_applied: true };
+  // Reopen semantics: prefer the active revision transcript when viable because it
+  // carries the latest editor state/history basis for this workpiece session.
+  if (revisionOk) {
+    if (registeredOk && isMaterialUpgrade(registeredCount, revisionCount)) {
+      return { selected_source: "registered_transcript", downgrade_guard_applied: true };
     }
-    if (!revisionOk && baselineOk && isMaterialUpgrade(baselineCount, registeredCount)) {
+    return { selected_source: "revision_transcript", downgrade_guard_applied: false };
+  }
+
+  if (registeredOk) {
+    if (baselineOk && isMaterialUpgrade(baselineCount, registeredCount)) {
       return { selected_source: "canonical_baseline", downgrade_guard_applied: true };
     }
     return { selected_source: "registered_transcript", downgrade_guard_applied: false };
   }
 
-  // If the registered pointer isn't viable, fall back to revision then baseline.
-  if (revisionOk) return { selected_source: "revision_transcript", downgrade_guard_applied: false };
   return { selected_source: "canonical_baseline", downgrade_guard_applied: false };
 }
 
