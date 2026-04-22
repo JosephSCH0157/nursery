@@ -253,6 +253,7 @@ import {
   PACKAGING_INTRO_ENTRY_ID,
   PACKAGING_LOGO_ENTRY_ID,
   PACKAGING_OUTRO_ENTRY_ID,
+  resolveImageFirstEditablePreviewMoment,
   resolveImageAnimationClass,
   resolvePlacementAnimationPreset,
   resolvePlacementGeometry,
@@ -486,6 +487,7 @@ type HammerSourceImageItem = {
   confidence: number | null;
   visualMode: string | null;
   assetPath: string | null;
+  firstVisibleEditableSec: number | null;
 };
 
 type HammerSourceAssetKind = "image" | "broll" | "reference_clip" | "audio" | "other";
@@ -1281,6 +1283,7 @@ function HammerWorkspaceShellWithContext(
   const scrubRectRef = useRef<{ left: number; width: number } | null>(null);
   const scrubAutoPlayRef = useRef(false);
   const scrubReturnToPausedRef = useRef(false);
+  const hydratedInitialEditorStateRef = useRef<string | null>(null);
   const hydratedVisualPreviewSettingsRef = useRef<string | null>(null);
   const playbackOwnerIdRef = useRef(`hammer-preview-${Math.random().toString(36).slice(2, 10)}`);
   const handledCandidateIdsRef = useRef<{ fillers: Set<string>; retakes: Set<string> }>({
@@ -1350,6 +1353,10 @@ function HammerWorkspaceShellWithContext(
   }, [editableAudioPolish]);
 
   useEffect(() => {
+    const hydrationKey = `${launchContext.workspace_id}:${launchContext.workpiece_id}`;
+    if (hydratedInitialEditorStateRef.current === hydrationKey) return;
+    hydratedInitialEditorStateRef.current = hydrationKey;
+
     const nextInitialPass = resolveInitialPassId(props.initialCurrentPass);
     const nextSelectedSegmentId = resolveSelectedSegmentId(transcriptSegments, props.initialSelectedSegmentId ?? null);
     setCurrentPass(nextInitialPass);
@@ -1373,7 +1380,6 @@ function HammerWorkspaceShellWithContext(
       clearTranscriptTextRange: true,
     });
   }, [
-    editableVisualTimeline?.clips,
     launchContext.workspace_id,
     launchContext.workpiece_id,
     props.initialCurrentPass,
@@ -2080,7 +2086,7 @@ function HammerWorkspaceShellWithContext(
     applyOutroPlacement,
     toggleLogoOverlay,
     applyLogoOverlayStyle,
-    flushPendingPlacementDrafts,
+    flushPendingPlacementDrafts: flushPendingPlacementDraftsFromVisualEditing,
   } = useHammerWorkspaceShellVisualEditing({
     workpieceId: launchContext.workpiece_id,
     workspaceId: launchContext.workspace_id,
@@ -2112,6 +2118,15 @@ function HammerWorkspaceShellWithContext(
           assetPath: asset?.path ?? null,
         });
         if (kind !== "image" && kind !== "broll" && kind !== "reference_clip") return null;
+        const startSec = imagePlacementDraftWindows[clip.clip_id]?.startSec ?? clip.start_sec;
+        const endSec = imagePlacementDraftWindows[clip.clip_id]?.endSec ?? clip.end_sec;
+        const firstVisibleEditableSec = kind === "image"
+          ? resolveImageFirstEditablePreviewMoment({
+            startSec,
+            endSec,
+            animationPreset: clip.animation?.preset ?? null,
+          })
+          : null;
         const fallbackAnchorSegmentId = clip.anchor_hint.anchor_segment_id
           ?? clip.anchor_hint.matched_segment_ids[0]
           ?? selectedSegmentId
@@ -2124,12 +2139,13 @@ function HammerWorkspaceShellWithContext(
           anchorSegmentId: fallbackAnchorSegmentId,
           anchorText: clip.anchor_hint.anchor_text ?? null,
           anchorLabel: clip.anchor_hint.anchor_label ?? null,
-          startSec: imagePlacementDraftWindows[clip.clip_id]?.startSec ?? clip.start_sec,
-          endSec: imagePlacementDraftWindows[clip.clip_id]?.endSec ?? clip.end_sec,
+          startSec,
+          endSec,
           status: clip.placement_status,
           confidence: clip.confidence,
           visualMode: clip.visual_mode,
           assetPath: asset?.path ?? null,
+          firstVisibleEditableSec,
         };
       })
       .filter((item): item is HammerSourceImageItem => Boolean(item))
@@ -2684,6 +2700,7 @@ function HammerWorkspaceShellWithContext(
   const selection = useHammerWorkspaceShellSelection({
     transcriptSegments: editableTranscriptSegments,
     visualPlacementItems: sourceVisualPlacementItems,
+    currentCompositionPlayheadSec: compositionPlayheadSec,
     linkedSelection,
     selectionOriginRef,
     selectedTranscriptRangeDetailRef,
@@ -2741,7 +2758,18 @@ function HammerWorkspaceShellWithContext(
       inRange: linkedVisualIdSet.has(item.id),
       tone: "image",
       onSelect: () => {
-        selectVisualClip({ clipId: item.id, origin: "timeline", revealUI: true });
+        selectVisualClip({
+          clipId: item.id,
+          origin: "timeline",
+          revealUI: true,
+          allowSurfaceSwitch: true,
+          snapTarget: {
+            editableStartSec: item.startSec,
+            editableEndSec: item.endSec,
+            firstVisibleEditableSec: item.firstVisibleEditableSec,
+            preservePlayheadIfWithinEditableWindow: true,
+          },
+        });
       },
     }))
   ), [compositionOffsetSec, linkedPrimaryVisualId, linkedVisualIdSet, selectVisualClip, sourceImageItems]);
@@ -2757,7 +2785,12 @@ function HammerWorkspaceShellWithContext(
         inRange: linkedVisualIdSet.has(item.id),
         tone: "broll",
         onSelect: () => {
-          selectVisualClip({ clipId: item.id, origin: "timeline", revealUI: true });
+          selectVisualClip({
+            clipId: item.id,
+            origin: "timeline",
+            revealUI: true,
+            allowSurfaceSwitch: true,
+          });
         },
       }))
   ), [compositionOffsetSec, linkedPrimaryVisualId, linkedVisualIdSet, selectVisualClip, sourceBrollPlacementItems]);
@@ -3224,6 +3257,10 @@ function HammerWorkspaceShellWithContext(
     setPersistNowRequestNonce((current) => current + 1);
   }
 
+  function flushPendingPlacementDrafts(): void {
+    flushPendingPlacementDraftsFromVisualEditing();
+  }
+
   function appendAuthorityInstructionForState(
     state: HammerEditorStateSerializable,
     instruction: HammerEditInstruction,
@@ -3255,6 +3292,7 @@ function HammerWorkspaceShellWithContext(
             op,
             context: {
               playbackDurationSec: playbackTransportDurationSec,
+              waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
               authorityFallback: {
                 graphId: `${launchContext.workpiece_id}:authority`,
                 workspaceId: launchContext.workspace_id,
@@ -3277,6 +3315,7 @@ function HammerWorkspaceShellWithContext(
             op,
             context: {
               playbackDurationSec: playbackTransportDurationSec,
+              waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
               authorityFallback: {
                 graphId: `${launchContext.workpiece_id}:authority`,
                 workspaceId: launchContext.workspace_id,
@@ -3299,6 +3338,7 @@ function HammerWorkspaceShellWithContext(
             op,
             context: {
               playbackDurationSec: playbackTransportDurationSec,
+              waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
               authorityFallback: {
                 graphId: `${launchContext.workpiece_id}:authority`,
                 workspaceId: launchContext.workspace_id,
@@ -3321,6 +3361,7 @@ function HammerWorkspaceShellWithContext(
             op,
             context: {
               playbackDurationSec: playbackTransportDurationSec,
+              waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
               authorityFallback: {
                 graphId: `${launchContext.workpiece_id}:authority`,
                 workspaceId: launchContext.workspace_id,
@@ -3343,6 +3384,7 @@ function HammerWorkspaceShellWithContext(
             op,
             context: {
               playbackDurationSec: playbackTransportDurationSec,
+              waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
               authorityFallback: {
                 graphId: `${launchContext.workpiece_id}:authority`,
                 workspaceId: launchContext.workspace_id,
@@ -4103,6 +4145,7 @@ function HammerWorkspaceShellWithContext(
       beforeSegments: beforeState.transcriptSegments,
       afterSegments: updatedSegments,
       durationSec: playbackTransportDurationSec,
+      waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
     });
     const beforeAudioOpCount = beforeState.audioEdit?.operations?.length ?? 0;
 
@@ -4117,6 +4160,7 @@ function HammerWorkspaceShellWithContext(
           beforeSegments: before.transcriptSegments,
           afterSegments: nextSegments,
           durationSec: playbackTransportDurationSec,
+          waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
         });
         return {
           ...before,
@@ -4745,6 +4789,8 @@ function HammerWorkspaceShellWithContext(
             segment,
             deletion,
             audioDurationSec: playbackTransportDurationSec,
+            waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
+            editKind: card.kind === "fillers" ? "filler" : "retake",
           });
           if (!cutSelection) return [];
           return [{

@@ -6,10 +6,20 @@ import { defineConfig } from "playwright/test";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const baseURL = process.env.FORGE_TEST_BASE_URL
+const baseURL = process.env.FORGE_SMOKE_BASE_URL
+  ?? process.env.FORGE_TEST_BASE_URL
   ?? process.env.PLAYWRIGHT_BASE_URL
-  ?? "http://127.0.0.1:4173";
-const hasExternalBaseURL = Boolean(process.env.FORGE_TEST_BASE_URL ?? process.env.PLAYWRIGHT_BASE_URL);
+  ?? "http://127.0.0.1:5173";
+
+if (baseURL.includes(":4173")) {
+  throw new Error("Playwright baseURL port 4173 is deprecated. Use http://127.0.0.1:5173.");
+}
+
+const hasExternalBaseURL = Boolean(
+  process.env.FORGE_SMOKE_BASE_URL
+  ?? process.env.FORGE_TEST_BASE_URL
+  ?? process.env.PLAYWRIGHT_BASE_URL,
+);
 const storageStatePath = process.env.PLAYWRIGHT_STORAGE_STATE
   ?? path.resolve(__dirname, "playwright/.auth/state.json");
 const hasStorageState = fs.existsSync(storageStatePath);
@@ -31,7 +41,7 @@ export default defineConfig({
   webServer: hasExternalBaseURL
     ? undefined
     : {
-      command: "pnpm --filter nursery dev --host 127.0.0.1 --port 4173",
+      command: "pnpm --filter nursery dev --host 127.0.0.1 --port 5173",
       url: baseURL,
       reuseExistingServer: true,
       timeout: 180_000,

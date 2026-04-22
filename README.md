@@ -82,6 +82,13 @@ Optional fallback for `smoke:team`:
 
 - `NURSERY_SUPABASE_ACCESS_TOKEN` may be used when `NURSERY_SUPABASE_SERVICE_ROLE_KEY` is not provided.
 
+## Playwright origin law
+
+- Canonical Playwright dev origin is `http://127.0.0.1:5173`.
+- `apps/nursery/playwright/.auth/state.json` MUST be captured and replayed on the same origin.
+- Use `FORGE_SMOKE_BASE_URL` first for smoke/auth runs (fallbacks: `FORGE_TEST_BASE_URL`, then `PLAYWRIGHT_BASE_URL`).
+- Port `4173` is deprecated for Playwright auth/smoke flow and is rejected by `apps/nursery/playwright.config.ts`.
+
 ## Routes
 
 ### Public

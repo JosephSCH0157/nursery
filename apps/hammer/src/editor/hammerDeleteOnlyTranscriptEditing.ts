@@ -1,5 +1,10 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
-import { computeRemovalTrimRange } from "./hammerCleanupExecution";
+import type { HammerAudioPolishAnalysisWaveformProxy } from "../persistence/hammerPersistenceContract";
+import { computeTranscriptCutRange } from "./hammerCleanupExecution";
+import {
+  resolveSmartCutRange,
+  type HammerSmartCutEditKind,
+} from "./hammerWaveformCutRefinement";
 
 export type HammerDeleteOnlyTranscriptDirection = "backward" | "forward" | "selection";
 
@@ -31,6 +36,14 @@ export type HammerDeleteOnlyTranscriptSelectionRange = {
 };
 
 const MIN_DURATION_SEC = 0.0001;
+
+function maybeLogSmartCutDebug(payload: Record<string, unknown>): void {
+  if (!(globalThis as { __forgeHammerDebugSmartCut__?: boolean }).__forgeHammerDebugSmartCut__) {
+    return;
+  }
+  // eslint-disable-next-line no-console
+  console.debug("[hammer-smart-cut]", payload);
+}
 
 export function tokenizeDeleteOnlyTranscriptText(text: string): HammerDeleteOnlyTranscriptToken[] {
   const normalized = String(text ?? "");
@@ -137,6 +150,8 @@ export function deriveDeleteOnlyTranscriptCutSelection(args: {
   segment: HammerTranscriptSegment;
   deletion: HammerDeleteOnlyTranscriptDeletion;
   audioDurationSec?: number;
+  waveformProxy?: HammerAudioPolishAnalysisWaveformProxy | null;
+  editKind?: HammerSmartCutEditKind;
 }): HammerDeleteOnlyTranscriptCutSelection | null {
   const durationSec = Number(args.segment.end_sec) - Number(args.segment.start_sec);
   if (!Number.isFinite(durationSec) || durationSec <= MIN_DURATION_SEC) {
@@ -156,18 +171,32 @@ export function deriveDeleteOnlyTranscriptCutSelection(args: {
     return null;
   }
 
-  const cut = computeRemovalTrimRange({
+  const baseRange = computeTranscriptCutRange({
     wordStartSec: startSec,
     wordEndSec: endSec,
     audioDurationSec: Number(args.audioDurationSec ?? args.segment.end_sec),
   });
-  if (!cut) {
+  if (!baseRange) {
     return null;
   }
 
+  const resolved = resolveSmartCutRange({
+    baseRange,
+    editKind: args.editKind ?? "delete_only",
+    waveformProxy: args.waveformProxy ?? null,
+    previousProtectedBoundarySec: startSec,
+    nextProtectedBoundarySec: endSec,
+  });
+  maybeLogSmartCutDebug({
+    source: "deriveDeleteOnlyTranscriptCutSelection",
+    segmentId: args.segment.segment_id,
+    deletedTokenCount: args.deletion.deletedTokenCount,
+    ...resolved.debug,
+  });
+
   return {
-    startSec: cut.startSec,
-    endSec: cut.endSec,
+    startSec: resolved.range.startSec,
+    endSec: resolved.range.endSec,
   };
 }
 

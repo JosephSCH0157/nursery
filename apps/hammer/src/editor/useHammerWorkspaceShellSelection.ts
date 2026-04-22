@@ -22,9 +22,17 @@ type HammerSelectionSeekFn = (
   options?: { snapToBoundary?: boolean },
 ) => void;
 
+type HammerVisualSelectionSnapTarget = {
+  editableStartSec?: number | null;
+  editableEndSec?: number | null;
+  firstVisibleEditableSec?: number | null;
+  preservePlayheadIfWithinEditableWindow?: boolean;
+};
+
 export type UseHammerWorkspaceShellSelectionArgs = {
   transcriptSegments: HammerTranscriptSegment[];
   visualPlacementItems: HammerWorkspaceShellSelectionPlacementItem[];
+  currentCompositionPlayheadSec: number;
   linkedSelection: HammerLinkedSelection | null;
   selectionOriginRef: MutableRefObject<HammerWorkspaceShellSelectionOrigin>;
   selectedTranscriptRangeDetailRef: MutableRefObject<HammerSelectedTranscriptRangeDetail | null>;
@@ -69,15 +77,57 @@ export type UseHammerWorkspaceShellSelectionResult = {
     clipId: string;
     origin: "tool_window" | "timeline" | "preview";
     revealUI?: boolean;
+    allowSurfaceSwitch?: boolean;
     snapPlayhead?: boolean;
+    snapTarget?: HammerVisualSelectionSnapTarget;
   }) => void;
   selectVisualClip: (args: {
     clipId: string;
     origin: "tool_window" | "timeline" | "preview";
     snapPlayhead?: boolean;
     revealUI?: boolean;
+    allowSurfaceSwitch?: boolean;
+    snapTarget?: HammerVisualSelectionSnapTarget;
   }) => void;
 };
+
+function readFiniteOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function resolveVisualSelectionSnapTime(args: {
+  currentCompositionPlayheadSec: number;
+  defaultStartSec: number | null;
+  defaultEndSec: number | null;
+  snapTarget?: HammerVisualSelectionSnapTarget;
+}): number | null {
+  const defaultStartSec = readFiniteOrNull(args.defaultStartSec);
+  if (defaultStartSec == null) return null;
+  const defaultEndSec = readFiniteOrNull(args.defaultEndSec) ?? defaultStartSec;
+  const targetStart = readFiniteOrNull(args.snapTarget?.editableStartSec) ?? defaultStartSec;
+  const targetEnd = readFiniteOrNull(args.snapTarget?.editableEndSec) ?? defaultEndSec;
+  const windowStart = Math.min(targetStart, targetEnd);
+  const windowEnd = Math.max(targetStart, targetEnd);
+
+  if (
+    args.snapTarget?.preservePlayheadIfWithinEditableWindow
+    && readFiniteOrNull(args.currentCompositionPlayheadSec) != null
+  ) {
+    const playheadSec = args.currentCompositionPlayheadSec;
+    if (playheadSec >= windowStart && playheadSec <= windowEnd) {
+      return playheadSec;
+    }
+  }
+
+  const firstVisibleEditableSec = readFiniteOrNull(args.snapTarget?.firstVisibleEditableSec);
+  if (firstVisibleEditableSec != null) {
+    if (firstVisibleEditableSec <= windowStart) return windowStart;
+    if (firstVisibleEditableSec >= windowEnd) return windowStart;
+    return firstVisibleEditableSec;
+  }
+
+  return windowStart;
+}
 
 export function useHammerWorkspaceShellSelection(
   args: UseHammerWorkspaceShellSelectionArgs,
@@ -199,10 +249,13 @@ export function useHammerWorkspaceShellSelection(
     clipId: string;
     origin: "tool_window" | "timeline" | "preview";
     revealUI?: boolean;
+    allowSurfaceSwitch?: boolean;
     snapPlayhead?: boolean;
+    snapTarget?: HammerVisualSelectionSnapTarget;
   }): void => {
     const placement = args.visualPlacementItems.find((item) => item.id === nextArgs.clipId) ?? null;
-    if (nextArgs.revealUI && placement) {
+    // Surface/tool switches are opt-in only; passive selection sync must remain non-navigating.
+    if (nextArgs.revealUI && nextArgs.allowSurfaceSwitch && placement) {
       args.revealVisualSelectionUI(placement);
     }
 
@@ -214,7 +267,12 @@ export function useHammerWorkspaceShellSelection(
       kind: "visual",
     });
 
-    const nextRevealTime = nextSelection?.timeRange?.startSec ?? placement?.startSec ?? null;
+    const nextRevealTime = resolveVisualSelectionSnapTime({
+      currentCompositionPlayheadSec: args.currentCompositionPlayheadSec,
+      defaultStartSec: nextSelection?.timeRange?.startSec ?? placement?.startSec ?? null,
+      defaultEndSec: nextSelection?.timeRange?.endSec ?? placement?.endSec ?? null,
+      snapTarget: nextArgs.snapTarget,
+    });
     applyLinkedSelectionState({
       selection: nextSelection,
       origin: nextArgs.origin === "preview"
@@ -241,6 +299,8 @@ export function useHammerWorkspaceShellSelection(
     origin: "tool_window" | "timeline" | "preview";
     snapPlayhead?: boolean;
     revealUI?: boolean;
+    allowSurfaceSwitch?: boolean;
+    snapTarget?: HammerVisualSelectionSnapTarget;
   }) => {
     selectLinkedVisualTarget(nextArgs);
   }, [selectLinkedVisualTarget]);

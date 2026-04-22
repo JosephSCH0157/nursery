@@ -20,6 +20,7 @@ export interface VisualPreviewOverlayModel {
 
 interface VisualPreviewComposerProps {
   overlays: VisualPreviewOverlayModel[];
+  emptyStateMessage?: string;
   editable: boolean;
   onSelectClip: (clipId: string) => void;
   onBeginMove: (event: MouseEvent<HTMLElement>, clipId: string) => void;
@@ -28,6 +29,8 @@ interface VisualPreviewComposerProps {
 }
 
 export default function VisualPreviewComposer(props: VisualPreviewComposerProps) {
+  const emptyStateMessage = props.emptyStateMessage ?? "No active visual overlay at this playhead time.";
+
   const applyOverlayLayout = (node: HTMLDivElement | null, overlay: VisualPreviewOverlayModel) => {
     if (!node) return;
     node.style.left = `${overlay.left_pct}%`;
@@ -100,7 +103,7 @@ export default function VisualPreviewComposer(props: VisualPreviewComposerProps)
       ))}
       {props.overlays.length === 0 ? (
         <div className="hammer-preview-canvas__empty-badge">
-          No active visual overlay at this playhead time.
+          {emptyStateMessage}
         </div>
       ) : null}
     </div>
