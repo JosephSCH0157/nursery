@@ -7114,11 +7114,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             : null;
         const liveForwardHoldActive =
           !hasRecentFreshSpeech || !hasRecentVadSpeech || !!pending.liveForwardGuardActive;
-        if (
-          liveStepTarget != null &&
-          requestedTargetLine > liveStepTarget &&
-          liveForwardHoldActive
-        ) {
+        const tryApplyStallRecoveryOverride = (): boolean => {
+          if (liveStepTarget == null) return false;
           const sinceCommitMs = Math.max(0, now - lastCommitTime);
           const starvationDetected =
             lastCommitIndex != null &&
@@ -7139,44 +7136,50 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             asrRuntimeSpeechRunningActual &&
             conf >= stallRecoveryMinSim &&
             now - lastStallRecoveryOverrideAt >= DEFAULT_STARVATION_COMMIT_GAP_MS;
-          if (stallRecoveryOverrideEligible) {
-            lastStallRecoveryOverrideAt = now;
-            const overrideSim = Math.max(
-              conf,
-              DEFAULT_MULTI_JUMP_MIN_SIM,
-              DEFAULT_STRONG_FORWARD_COMMIT_SIM,
+          if (!stallRecoveryOverrideEligible) return false;
+          lastStallRecoveryOverrideAt = now;
+          const overrideSim = Math.max(
+            conf,
+            DEFAULT_MULTI_JUMP_MIN_SIM,
+            DEFAULT_STRONG_FORWARD_COMMIT_SIM,
+          );
+          const overrideMatchId = matchId
+            ? `${matchId}:stall_override`
+            : `stall-override-${now.toString(36)}-${liveStepTarget}`;
+          try {
+            console.warn(
+              `ASR_STALL_RECOVERY_OVERRIDE current=${lastLineIndex} requested=${requestedTargetLine} committed=${liveStepTarget} reason=stall_recovery_override`,
             );
-            const overrideMatchId = matchId
-              ? `${matchId}:stall_override`
-              : `stall-override-${now.toString(36)}-${liveStepTarget}`;
-            try {
-              console.warn(
-                `ASR_STALL_RECOVERY_OVERRIDE current=${lastLineIndex} requested=${requestedTargetLine} committed=${liveStepTarget} reason=stall_recovery_override`,
-              );
-            } catch {}
-            emitHudStatus(
-              'stall_recovery_override',
-              `Rescue: stall override +${liveStepTarget - lastLineIndex}`,
-            );
-            adoptPendingMatch({
-              ...pending,
-              line: liveStepTarget,
-              conf: overrideSim,
-              isFinal: true,
-              hasEvidence: true,
-              forced: true,
-              forceReason: 'stall_recovery_override',
-              matchId: overrideMatchId,
-              // This override is explicitly escaping the live-forward guard once.
-              liveForwardGuardActive: undefined,
-              cursorLine: lastLineIndex,
-              searchWindowFrom: lastLineIndex,
-              searchWindowTo: liveStepTarget,
-              cueBridgeNudgeDelta: Math.max(1, liveStepTarget - lastLineIndex),
-            });
-            schedulePending();
-            return;
-          }
+          } catch {}
+          emitHudStatus(
+            'stall_recovery_override',
+            `Rescue: stall override +${liveStepTarget - lastLineIndex}`,
+          );
+          adoptPendingMatch({
+            ...pending,
+            line: liveStepTarget,
+            conf: overrideSim,
+            isFinal: true,
+            hasEvidence: true,
+            forced: true,
+            forceReason: 'stall_recovery_override',
+            matchId: overrideMatchId,
+            // This override is explicitly escaping the live-forward guard once.
+            liveForwardGuardActive: undefined,
+            cursorLine: lastLineIndex,
+            searchWindowFrom: lastLineIndex,
+            searchWindowTo: liveStepTarget,
+            cueBridgeNudgeDelta: Math.max(1, liveStepTarget - lastLineIndex),
+          });
+          schedulePending();
+          return true;
+        };
+        if (
+          liveStepTarget != null &&
+          requestedTargetLine > liveStepTarget &&
+          liveForwardHoldActive
+        ) {
+          if (tryApplyStallRecoveryOverride()) return;
           const liveStepScore = Number(
             rankedTopScores.find((entry) => entry.idx === liveStepTarget)?.score,
           );
@@ -7191,6 +7194,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             snippet ? `clue="${snippet}"` : '',
           ]);
           emitHudStatus('asr_live_single_step_hold', 'Hold: waiting for fresh next-line evidence');
+          return;
+        }
+        if (
+          liveStepTarget != null &&
+          requestedTargetLine === liveStepTarget &&
+          liveForwardHoldActive &&
+          tryApplyStallRecoveryOverride()
+        ) {
           return;
         }
         if (liveStepTarget != null && targetLine > liveStepTarget) {
