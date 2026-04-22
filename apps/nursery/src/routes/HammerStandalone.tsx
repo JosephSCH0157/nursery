@@ -479,6 +479,15 @@ export default function HammerStandalone() {
     [location.search, workspaceId, workpieceId],
   );
 
+  const goldenCleanupHref = useMemo(
+    () => buildForgeRouteHref("/app/hammer/dev/golden-cleanup", {
+      search: location.search,
+      workspaceId,
+      workpieceId,
+    }),
+    [location.search, workspaceId, workpieceId],
+  );
+
   const relinkHref = useMemo(
     () => buildForgeRouteHref("/app/hammer/dev/relink", {
       search: location.search,
@@ -599,6 +608,7 @@ export default function HammerStandalone() {
                   <NavLink to={harnessHref} onClick={() => setMenuOpen(false)}>Dev Harness</NavLink>
                   <NavLink to={launchHref} onClick={() => setMenuOpen(false)}>Dev Launch</NavLink>
                   <NavLink to={cardsHref} onClick={() => setMenuOpen(false)}>Dev Cards</NavLink>
+                  <NavLink to={goldenCleanupHref} onClick={() => setMenuOpen(false)}>Golden Cleanup Diff</NavLink>
                   <NavLink to={relinkHref} onClick={() => setMenuOpen(false)}>Dev Relink</NavLink>
                 </>
               ) : null}
