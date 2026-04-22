@@ -106,6 +106,18 @@ function shouldUseFallback(req, basePath) {
   if (!req || req.method !== 'GET') return false;
   if (!basePath) basePath = (req.url || '/').split('?')[0];
   const clean = (basePath || '').toLowerCase();
+  const fetchDest = String((req.headers && req.headers['sec-fetch-dest']) || '').toLowerCase();
+  const accept = String((req.headers && req.headers.accept) || '').toLowerCase();
+  const ext = path.posix.extname(clean);
+  const isLikelyAssetRequest = !!ext;
+
+  // Only treat navigation-style requests as eligible for SPA fallback.
+  if (fetchDest && fetchDest !== 'document' && fetchDest !== 'iframe') return false;
+  if (accept && !accept.includes('text/html')) return false;
+
+  // Never serve HTML fallback for asset-like paths (.js/.css/.map/.json/images/etc).
+  if (isLikelyAssetRequest) return false;
+
   if (clean === '/login' || clean === '/login.html') return false;
   if (clean.startsWith('/display/')) return false;
   if (clean.startsWith('/ws/')) return false;

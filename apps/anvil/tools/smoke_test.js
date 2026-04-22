@@ -6,7 +6,7 @@
    - Emits one-line [SMOKE-REPORT] JSON for CI.
    Usage examples:
      node tools/smoke_test.js --calm --timeout=120000
-     node tools/smoke_test.js --url=http://127.0.0.1:8080/teleprompter_pro.html
+     node tools/smoke_test.js --controlled --url=http://127.0.0.1:8080/teleprompter_pro.html
 */
 
 // Build default URL from CI_HOST/CI_PORT if provided, else fall back to 127.0.0.1:5180
@@ -24,6 +24,14 @@ const ARG_URL = (argv.find(a => a.startsWith('--url=')) || '').split('=')[1];
 const ARG_TIMEOUT = Number((argv.find(a => a.startsWith('--timeout=')) || '').split('=')[1]) || 60000;
 const ARG_CALM = argv.includes('--calm');
 const ARG_CI = argv.includes('--ci');
+const ARG_CONTROLLED = argv.includes('--controlled') || process.env.SMOKE_CONTROLLED === '1' || ARG_CI;
+
+function isNonFatalSmokeError(text) {
+  const t = String(text || '');
+  if (!ARG_CONTROLLED) return false;
+  // Controlled smoke intentionally tolerates missing cloud creds.
+  return t.includes('[supabaseClient] Missing Supabase URL or anon key.');
+}
 
 function withParam(url, key, val = '1') {
   const u = new URL(url);
@@ -35,6 +43,12 @@ let RAW_URL = ARG_URL || process.env.TP_URL || DEFAULT_URL;
 // Append flags as query params where requested
 if (ARG_CALM) RAW_URL = withParam(RAW_URL, 'calm', '1');
 if (process.env.SMOKE_CI === '1' || ARG_CI) RAW_URL = withParam(RAW_URL, 'ci', '1');
+if (ARG_CONTROLLED) {
+  RAW_URL = withParam(RAW_URL, 'ci', '1');
+  RAW_URL = withParam(RAW_URL, 'mockFolder', '1');
+  RAW_URL = withParam(RAW_URL, 'uiMock', '1');
+  RAW_URL = withParam(RAW_URL, 'noRelax', '1');
+}
 const URL_TO_OPEN = RAW_URL;
 
 (async function run() {
@@ -64,10 +78,18 @@ const URL_TO_OPEN = RAW_URL;
         if (t.includes('script-enter')) scriptEnterCount++;
         if (t.includes('rs:complete')) rsCompleteCount++;
 
-        if (msg.type && msg.type() === 'error') errorLogs.push(t);
-        else if (msg.type && msg.type() === 'warning') warnLogs.push(t);
+        if (msg.type && msg.type() === 'error') {
+          if (isNonFatalSmokeError(t)) warnLogs.push(`[smoke-nonfatal] ${t}`);
+          else errorLogs.push(t);
+        } else if (msg.type && msg.type() === 'warning') {
+          warnLogs.push(t);
+        }
       });
-      page.on('pageerror', err => errorLogs.push(String(err && err.message || err)));
+      page.on('pageerror', err => {
+        const text = String(err && err.message || err);
+        if (isNonFatalSmokeError(text)) warnLogs.push(`[smoke-nonfatal] ${text}`);
+        else errorLogs.push(text);
+      });
       page.on('requestfailed', req => warnLogs.push(`[requestfailed] ${req.url()} ${req.failure()?.errorText || ''}`));
 
       // Open page
