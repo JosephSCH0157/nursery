@@ -16,10 +16,10 @@ function buildMatteCanvas(args: { matte: ForegroundMatte; featherPx: number }): 
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Canvas 2D not available for matte compositing.");
   const image = ctx.createImageData(args.matte.width, args.matte.height);
-  const threshold = Math.max(4, Math.min(16, Math.round(4 + (args.featherPx * 0.35))));
-  const gamma = 0.9;
   const confidence = Math.max(0, Math.min(1, args.matte.metadata.confidenceScore || 0));
-  const edgeBoost = 0.03 + ((1 - confidence) * 0.04);
+  const threshold = Math.max(6, Math.min(20, Math.round(6 + (args.featherPx * 0.28))));
+  const gamma = 1.02 + ((1 - confidence) * 0.08);
+  const edgeTighten = 0.05 + ((1 - confidence) * 0.09);
   for (let i = 0, px = 0; i < image.data.length; i += 4, px += 1) {
     const raw = args.matte.alphaMask[px] ?? 0;
     let a = raw;
@@ -28,13 +28,13 @@ function buildMatteCanvas(args: { matte: ForegroundMatte; featherPx: number }): 
     } else {
       const normalized = a / 255;
       a = Math.max(0, Math.min(255, Math.round((normalized ** gamma) * 255)));
-      if (a >= 16 && a <= 220) {
-        const centered = 1 - (Math.abs(a - 138) / 138);
-        const boost = Math.max(0, centered) * edgeBoost;
-        a = Math.round(a + ((255 - a) * boost));
+      if (a >= 14 && a <= 208) {
+        const centered = 1 - (Math.abs(a - 118) / 118);
+        const tighten = Math.max(0, centered) * edgeTighten;
+        a = Math.round(a * (1 - tighten));
       }
     }
-    if (a < 6) a = 0;
+    if (a < 10) a = 0;
     image.data[i] = 255;
     image.data[i + 1] = 255;
     image.data[i + 2] = 255;

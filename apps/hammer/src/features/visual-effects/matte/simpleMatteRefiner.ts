@@ -107,21 +107,24 @@ function applyHaloClamp(args: {
 }): { refinedAlpha: Uint8ClampedArray; edgeBandAlpha: Uint8ClampedArray } {
   const refined = new Uint8ClampedArray(args.featheredAlpha.length);
   const edgeBand = new Uint8ClampedArray(args.featheredAlpha.length);
-  const allowance = Math.round(6 + (Math.max(0, args.featherPx) * 1.1));
+  const allowance = Math.round(3 + (Math.max(0, args.featherPx) * 0.65));
 
   for (let i = 0; i < refined.length; i += 1) {
     const expanded = args.expandedAlpha[i] ?? 0;
     const feathered = args.featheredAlpha[i] ?? 0;
     let next = feathered;
-    if (expanded < 180) {
+    if (expanded < 192) {
       next = Math.min(next, expanded + allowance);
     }
-    if (expanded < 120 && next > 0) {
-      next = Math.round(next * 0.94);
+    if (expanded < 150 && next > 0) {
+      next = Math.round(next * 0.9);
     }
-    if (next < 8) next = 0;
+    if (expanded < 96 && next > 0) {
+      next = Math.min(next, Math.round(expanded * 0.88) + allowance);
+    }
+    if (next < 10) next = 0;
     refined[i] = clamp(next, 0, 255);
-    edgeBand[i] = (refined[i] >= 18 && refined[i] <= 220) ? 255 : 0;
+    edgeBand[i] = (refined[i] >= 22 && refined[i] <= 210) ? 255 : 0;
   }
 
   return { refinedAlpha: refined, edgeBandAlpha: edgeBand };
@@ -151,10 +154,12 @@ function applyFeather(args: {
     radius: Math.max(1, Math.round(featherPx * 0.55)),
   });
   const out = new Uint8ClampedArray(args.alpha.length);
+  const smoothMix = clamp(0.18 + (featherPx * 0.015), 0.22, 0.38);
+  const sourceMix = 1 - smoothMix;
   for (let i = 0; i < out.length; i += 1) {
     const source = args.alpha[i] ?? 0;
     const smooth = wide[i] ?? 0;
-    const mixed = Math.round((source * 0.58) + (smooth * 0.42));
+    const mixed = Math.round((source * sourceMix) + (smooth * smoothMix));
     out[i] = clamp(mixed, 0, 255);
   }
   return out;
