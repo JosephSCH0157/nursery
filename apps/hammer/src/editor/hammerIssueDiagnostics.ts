@@ -52,20 +52,41 @@ export function deriveHammerIssueDiagnostics(args: {
   sessionState: HammerSessionStateResult;
   mediaPrepOutputs: HammerMediaPrepOutputsPackage | null;
   mediaLabelMismatchWarning: string | null;
+  actualRecordingMismatchWarning: string | null;
   jobsStatusUnavailable: { status: number; message: string } | null;
 }): HammerIssueDiagnostic[] {
   const issues: HammerIssueDiagnostic[] = [];
-  const { sessionState, mediaPrepOutputs, mediaLabelMismatchWarning, jobsStatusUnavailable } = args;
+  const {
+    sessionState,
+    mediaPrepOutputs,
+    mediaLabelMismatchWarning,
+    actualRecordingMismatchWarning,
+    jobsStatusUnavailable,
+  } = args;
+
+  if (actualRecordingMismatchWarning) {
+    issues.push({
+      id: "actual_recording_mismatch",
+      severity: "error",
+      title: "Actual recording mismatch detected",
+      summary: `${actualRecordingMismatchWarning} History replay stays blocked until Hammer is reopened against the canonical Tongs-bound recording.`,
+      affectedAreas: ["playback", "preview_fidelity", "export", "persistence"],
+      safeActions: ["Transcript inspection is safe, but do not trust replayed history or media-derived prep outputs."],
+      recommendedAction: "Reopen Hammer from the episode/workpiece whose canonical Tongs binding matches this recording.",
+      canAutoFix: false,
+      fixActionId: null,
+    });
+  }
 
   if (mediaLabelMismatchWarning) {
     issues.push({
       id: "media_label_mismatch",
       severity: "warning",
-      title: "Recording mismatch detected",
-      summary: `${mediaLabelMismatchWarning} Playback and prep results may be inaccurate until the correct media is bound.`,
-      affectedAreas: ["playback", "preview_fidelity", "export"],
-      safeActions: ["Transcript review and non-destructive transcript editing are still safe."],
-      recommendedAction: "Verify this episode is linked to the correct recording before trusting playback or prep artifacts.",
+      title: "Capture label mismatch",
+      summary: `${mediaLabelMismatchWarning} This is advisory only; canonical Tongs binding still controls replay and hydration.`,
+      affectedAreas: ["preview_fidelity"],
+      safeActions: ["Replay, hydration, transcript review, and non-destructive editing remain safe when Tongs binding is correct."],
+      recommendedAction: "Rename or relabel the capture if you want the UI naming to match the episode title.",
       canAutoFix: false,
       fixActionId: null,
     });

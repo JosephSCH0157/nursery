@@ -346,6 +346,7 @@ export function buildPreviewBayVM(args: any) {
     playbackModeLabel: args.playbackModeLabel,
     playbackSourceLabel: args.playbackSourceLabel,
     mediaLabelMismatchWarning: args.mediaLabelMismatchWarning,
+    actualRecordingMismatchWarning: args.actualRecordingMismatchWarning,
     playbackBackendLabel: args.studioRackPlaybackConfig.backend,
     currentPassId: args.currentPass,
     selectedImageAnimationLabel: args.selectedImageAnimationLabel,

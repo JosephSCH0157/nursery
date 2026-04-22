@@ -3591,11 +3591,13 @@ export default function HammerWorkspaceEditor(
     sessionState,
     mediaPrepOutputs: handoffMediaPrepOutputs,
     mediaLabelMismatchWarning: workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning ?? null,
+    actualRecordingMismatchWarning: workspaceSnapshot?.diagnostics?.actualRecordingMismatchWarning ?? null,
     jobsStatusUnavailable,
   }), [
     handoffMediaPrepOutputs,
     jobsStatusUnavailable,
     sessionState,
+    workspaceSnapshot?.diagnostics?.actualRecordingMismatchWarning,
     workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning,
   ]);
   const diagnosticsIssueSetHash = useMemo(
@@ -4587,6 +4589,7 @@ export default function HammerWorkspaceEditor(
           ) : null}
           <HammerWorkspaceShell
             launchContext={effectiveLaunchContext}
+            canonicalMediaPath={activeCanonicalRecording?.media_path ?? null}
             recordingRevisionId={activeRevision?.id ?? null}
             structuredTranscript={loadedPersistenceSnapshot?.structured_transcript.data ?? null}
             editorialAuthorityGraph={loadedPersistenceSnapshot?.editorial_authority.data ?? null}

@@ -42,6 +42,7 @@ export type UseHammerWorkspaceShellSnapshotEmitterArgs = {
   canonicalWorkpieceLabel: string | null;
   legacyCaptureLabel: string | null;
   mediaLabelMismatchWarning: string | null;
+  actualRecordingMismatchWarning: string | null;
   selectedMacroRecipeRef: string | null;
   lastMacroRunRef: string | null;
   canonicalStructuredTranscript: HammerPersistedStructuredTranscript | null;
@@ -162,6 +163,7 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
       canonicalWorkpieceLabel: args.canonicalWorkpieceLabel,
       legacyCaptureLabel: args.legacyCaptureLabel,
       mediaLabelMismatchWarning: args.mediaLabelMismatchWarning,
+      actualRecordingMismatchWarning: args.actualRecordingMismatchWarning,
       selectedMacroRecipeRef: args.selectedMacroRecipeRef,
       lastMacroRunRef: args.lastMacroRunRef,
     }));
@@ -182,6 +184,7 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
       args.canonicalWorkpieceLabel ?? "",
       args.legacyCaptureLabel ?? "",
       args.mediaLabelMismatchWarning ?? "",
+      args.actualRecordingMismatchWarning ?? "",
       args.selectedMacroRecipeRef ?? "",
       args.lastMacroRunRef ?? "",
       normalizedBackgroundReplaceUrl ?? "",
@@ -221,6 +224,7 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
         canonicalWorkpieceLabel: args.canonicalWorkpieceLabel,
         legacyCaptureLabel: args.legacyCaptureLabel,
         mediaLabelMismatchWarning: args.mediaLabelMismatchWarning,
+        actualRecordingMismatchWarning: args.actualRecordingMismatchWarning,
       },
       selectedMacroRecipeRef: args.selectedMacroRecipeRef ?? null,
       lastMacroRunRef: args.lastMacroRunRef ?? null,
@@ -242,6 +246,7 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
     args.canonicalWorkpieceLabel,
     args.legacyCaptureLabel,
     args.mediaLabelMismatchWarning,
+    args.actualRecordingMismatchWarning,
     args.previewMode,
     args.lastMacroRunRef,
     args.onWorkspaceSnapshotChange,

@@ -29,6 +29,7 @@ export type HammerWorkspaceShellPreviewBayVM = {
   playbackModeLabel: string;
   playbackSourceLabel: string | null;
   mediaLabelMismatchWarning: string | null;
+  actualRecordingMismatchWarning: string | null;
   playbackBackendLabel: string;
 
   currentPassId: string;
@@ -179,6 +180,9 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             </button>
           ) : null}
           <span>{vm.playbackSourceLabel ?? "No media source"}</span>
+          {vm.actualRecordingMismatchWarning ? (
+            <span className="hammer-preview-meta__warning">{vm.actualRecordingMismatchWarning}</span>
+          ) : null}
           {vm.mediaLabelMismatchWarning ? (
             <span className="hammer-preview-meta__warning">{vm.mediaLabelMismatchWarning}</span>
           ) : null}
