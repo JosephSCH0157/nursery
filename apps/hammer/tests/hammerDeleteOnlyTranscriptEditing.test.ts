@@ -23,6 +23,17 @@ function assertClose(actual: number | undefined, expected: number): void {
   assert.ok(Math.abs(actual - expected) < 0.000001, `Expected ${expected}, received ${actual}`);
 }
 
+function buildWaveformProxy(peaks: number[], bucketDurationSec = 0.05) {
+  return {
+    version: "v1" as const,
+    duration_sec: peaks.length * bucketDurationSec,
+    bucket_count: peaks.length,
+    bucket_duration_sec: bucketDurationSec,
+    channel_mode: "mono_mixdown" as const,
+    peaks,
+  };
+}
+
 async function testTokenization() {
   const tokens = tokenizeDeleteOnlyTranscriptText("alpha beta, gamma");
   assert.deepEqual(tokens.map((token) => token.text), ["alpha", "beta,", "gamma"]);
@@ -86,6 +97,35 @@ async function testCutSelectionFollowsTokenSpan() {
   assertClose(cut?.endSec, 13.03);
 }
 
+async function testInitialFillerCutSelectionAllowsWaveformExpansionBeyondTokenBoundary() {
+  const segment = buildSegment({
+    text: "um alpha beta gamma",
+    start_sec: 0,
+    end_sec: 2,
+  });
+  const deletion = resolveDeleteOnlyTranscriptDeletion({
+    text: segment.text,
+    selectionStart: 0,
+    selectionEnd: 2,
+    direction: "selection",
+  });
+  assert.ok(deletion);
+
+  const peaks = new Array(60).fill(0.62);
+  peaks[0] = 0.01;
+  peaks[12] = 0.01; // ~0.625s; beyond first-token seed boundary.
+  const cut = deriveDeleteOnlyTranscriptCutSelection({
+    segment,
+    deletion: deletion!,
+    editKind: "filler",
+    waveformProxy: buildWaveformProxy(peaks),
+    audioDurationSec: 2,
+  });
+  assert.ok(cut);
+  assert.equal((cut?.endSec ?? 0) > 0.58, true);
+  assert.equal((cut?.endSec ?? 0) < 0.9, true);
+}
+
 async function testSelectionFromBeforeAndAfterTexts() {
   const selection = resolveDeleteOnlyTranscriptSelectionFromTexts({
     beforeText: "um we should start now",
@@ -114,6 +154,7 @@ async function run() {
   await testBackwardDeletionRemovesPreviousToken();
   await testForwardDeletionRemovesNextToken();
   await testCutSelectionFollowsTokenSpan();
+  await testInitialFillerCutSelectionAllowsWaveformExpansionBeyondTokenBoundary();
   await testSelectionFromBeforeAndAfterTexts();
   await testSelectionFromBeforeAndNullAfterDeletesWholeRange();
   // eslint-disable-next-line no-console

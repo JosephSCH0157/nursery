@@ -138,6 +138,51 @@ async function testRetakeRemovalSurfacesExplicitCueTrimInNormal() {
   assert.equal(updated.startsWith("Not little shelters"), true);
 }
 
+async function testRetakeRemovalExpandsPreTriggerForPhraseRestartAfterTrigger() {
+  const segments = [
+    s("a", 0, 1.1, "Host", "Florida oranges didn't sta—"),
+    s("b", 1.15, 3.4, "Host", "Let me start that again. Florida oranges didn't start small."),
+  ];
+  const preview = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 1);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "a"), false);
+  const kept = preview.resultSegments.find((segment) => segment.segment_id === "b");
+  assert.equal(kept?.text, "Florida oranges didn't start small.");
+  assert.equal(
+    preview.suggestions.some((suggestion) => (
+      suggestion.type === "retake_remove"
+      && suggestion.description.toLowerCase().includes("trigger + phrase restart")
+    )),
+    true,
+  );
+}
+
+async function testRetakeRemovalHandlesInlineTriggerRestartInSingleSegment() {
+  const segments = [
+    s(
+      "a",
+      0,
+      3.6,
+      "Host",
+      "Florida oranges didn't sta- let me start that again. Florida oranges didn't start small.",
+    ),
+  ];
+  const preview = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 0);
+  assert.equal(preview.suggestions.some((sugg) => sugg.type === "restart_trim" && sugg.segmentId === "a"), true);
+  assert.equal(preview.resultSegments[0]?.text, "Florida oranges didn't start small.");
+}
+
 async function testRetakeRemovalRiskySimilarityDoesNotLeakIntoNormal() {
   const segments = [
     s("a", 0, 1.5, "Host", "Florida oranges didn't start small."),
@@ -470,6 +515,8 @@ async function run() {
   await testRetakeRemovalCatchesNearImmediateReread();
   await testRetakeRemovalCatchesAbortThenMarkerThenRedoChain();
   await testRetakeRemovalSurfacesExplicitCueTrimInNormal();
+  await testRetakeRemovalExpandsPreTriggerForPhraseRestartAfterTrigger();
+  await testRetakeRemovalHandlesInlineTriggerRestartInSingleSegment();
   await testRetakeRemovalRiskySimilarityDoesNotLeakIntoNormal();
   await testRetakeRemovalAllowsMarkerOnlyAcrossSpeakerMismatch();
   await testRetakeRemovalCatchesShortAbortedLeadInReread();

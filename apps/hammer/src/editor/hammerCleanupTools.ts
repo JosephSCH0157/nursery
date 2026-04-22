@@ -385,6 +385,73 @@ export function previewRemoveFillers(
 const RETAKE_PHRASES_STRONG =
   /\b(?:redo|retake|take that again|take again|take two|take 2|one more time|scratch that|start over|from the top|let me start that again|let me start again|let me start over|let me do that again|let me try that again|let me redo that|let me rephrase that)\b/i;
 const RETAKE_PHRASES_WEAK = /\b(?:sorry|nope|no|wait|hold on|hang on)\b/i;
+type RetakeCategory =
+  | "trigger_only"
+  | "trigger_phrase_restart"
+  | "no_trigger_restart"
+  | "long_abandoned_restart";
+
+function splitOnStrongRetakeCue(text: string): { before: string; cue: string; after: string } | null {
+  const normalized = normalizeTextSpacing(String(text || ""));
+  if (!normalized) return null;
+  const match = RETAKE_PHRASES_STRONG.exec(normalized);
+  if (!match) return null;
+  const cue = normalizeTextSpacing(match[0] ?? "");
+  const start = Math.max(0, match.index ?? 0);
+  const end = Math.min(normalized.length, start + String(match[0] ?? "").length);
+  const before = normalizeTextSpacing(normalized.slice(0, start).replace(/[,\s.\-–—]+$/g, ""));
+  const after = normalizeTextSpacing(normalized.slice(end).replace(/^[,\s.\-–—]+/g, ""));
+  if (!cue) return null;
+  return { before, cue, after };
+}
+
+type RestartEvidence = {
+  score: number;
+  openingMatch: boolean;
+  intentMatch: boolean;
+  subjectRepeat: boolean;
+  abortedLeadIn: boolean;
+  shortLeadInReread: boolean;
+  prefixRaw: number;
+  overlap: number;
+  jaccard: number;
+};
+
+function evaluateRestartEvidence(beforeText: string, afterText: string): RestartEvidence {
+  const rawBefore = tokens(beforeText);
+  const rawAfter = tokens(afterText);
+  const beforeContent = contentTokens(beforeText);
+  const afterContent = contentTokens(afterText);
+  const prefixRaw = commonPrefixLength(rawBefore, rawAfter, 10);
+  const similarity = tokenOverlapScore(beforeContent, afterContent);
+  const openingMatch = prefixRaw >= 2;
+  const intentMatch = similarity.overlap >= 0.72 && similarity.jaccard >= 0.4;
+  const subjectRepeat = Boolean(
+    beforeContent[0]
+    && afterContent[0]
+    && beforeContent[0] === afterContent[0],
+  );
+  const abortedLeadIn = isLikelyAborted(beforeText) || hasLocalRepairMarker(beforeText);
+  const shortLeadInReread = isShortAbortedLeadInReread(beforeText, afterText);
+  const score = Number(Math.min(0.99, (
+    (openingMatch ? 0.34 : 0)
+    + (intentMatch ? 0.22 : 0)
+    + (subjectRepeat ? 0.16 : 0)
+    + (abortedLeadIn ? 0.16 : 0)
+    + (shortLeadInReread ? 0.12 : 0)
+  )).toFixed(2));
+  return {
+    score,
+    openingMatch,
+    intentMatch,
+    subjectRepeat,
+    abortedLeadIn,
+    shortLeadInReread,
+    prefixRaw,
+    overlap: similarity.overlap,
+    jaccard: similarity.jaccard,
+  };
+}
 
 function stripRetakeCuePrefix(text: string): string {
   const normalized = normalizeTextSpacing(String(text || ""));
@@ -522,6 +589,7 @@ export function previewRemoveRetakes(
   const sorted = cloneSegments(segments).sort((a, b) => a.start_sec - b.start_sec);
   const suggestions: HammerCleanupSuggestion[] = [];
   const removeIds = new Set<string>();
+  const restartTrimUpdates = new Map<string, { text: string; confidence: number; description: string; index: number }>();
 
   const maxGapSec = options.detection === "aggressive" ? 1.8 : options.detection === "normal" ? 1.2 : 0.8;
   const includeProbable = options.detection !== "conservative";
@@ -549,6 +617,7 @@ export function previewRemoveRetakes(
     description: string;
     confidence: number;
     index: number;
+    category: RetakeCategory;
   }): void {
     const uniqueRemove = Array.from(new Set(args.removeSegmentIds)).filter(Boolean);
     if (uniqueRemove.length === 0) return;
@@ -564,8 +633,8 @@ export function previewRemoveRetakes(
     );
     suggestions.push({
       id: uniqueRemove.length === 1
-        ? `retake_pair:${uniqueRemove[0]}:${args.keepSegmentId}:${args.index}`
-        : `retake_chain:${uniqueRemove.join(",")}:${args.keepSegmentId}:${args.index}`,
+        ? `retake_pair:${uniqueRemove[0]}:${args.keepSegmentId}:${args.category}:${args.index}`
+        : `retake_chain:${uniqueRemove.join(",")}:${args.keepSegmentId}:${args.category}:${args.index}`,
       type: "retake_remove",
       segmentId: uniqueRemove[0]!,
       description: args.description,
@@ -586,7 +655,18 @@ export function previewRemoveRetakes(
     if (!before || !after) return;
     if (before === after) return;
     if (removeIds.has(args.segment.segment_id)) return;
-    args.segment.text = after;
+    const existing = restartTrimUpdates.get(args.segment.segment_id);
+    const shouldReplace = !existing || args.confidence > (existing.confidence + 0.001);
+    if (shouldReplace) {
+      restartTrimUpdates.set(args.segment.segment_id, {
+        text: after,
+        description: args.description,
+        confidence: args.confidence,
+        index: args.index,
+      });
+    } else {
+      return;
+    }
     suggestions.push({
       id: `retake:restart_trim:${args.segment.segment_id}:${args.index}`,
       type: "restart_trim",
@@ -595,28 +675,6 @@ export function previewRemoveRetakes(
       confidence: args.confidence,
       timeSavedSec: 0,
     });
-  }
-
-  // Certain bucket: explicit restart cues embedded in a substantive segment.
-  // These should always be surfaced (Normal+Aggressive) even if we can't deterministically pair a reread.
-  if (options.honorExplicitRetakePhrases && (options.detection === "normal" || options.detection === "aggressive")) {
-    for (let index = 0; index < sorted.length; index += 1) {
-      const segment = sorted[index]!;
-      if (removeIds.has(segment.segment_id)) continue;
-      const raw = normalizeTextSpacing(segment.text);
-      if (!raw) continue;
-      if (isRetakeMarkerOnly(raw)) continue;
-      if (!RETAKE_PHRASES_STRONG.test(raw)) continue;
-      const stripped = stripRetakeCuePrefix(raw);
-      if (!stripped || normalizeTextSpacing(stripped) === raw) continue;
-      pushRestartTrimSuggestion({
-        segment,
-        trimmedText: stripped,
-        description: "Possible retake detected (explicit restart cue). Remove the restart cue phrase?",
-        confidence: 0.93,
-        index,
-      });
-    }
   }
 
   for (let index = 0; index < sorted.length - 1; index += 1) {
@@ -653,6 +711,7 @@ export function previewRemoveRetakes(
             description: "Possible retake detected (restart marker + reread). Keep the cleaner delivery?",
             confidence: 0.93,
             index,
+            category: "trigger_phrase_restart",
           });
           continue;
         }
@@ -670,36 +729,6 @@ export function previewRemoveRetakes(
     const repaired = hasLocalRepairMarker(currentText);
     const shortLeadInReread = isShortAbortedLeadInReread(currentText, nextText);
 
-    // Strong retake cues usually refer to a previous take, not the immediately following unrelated segment.
-    // If the cue is embedded in a substantive segment, try to pair backwards first.
-    if (explicitStrong && !markerOnly && index > 0) {
-      const previous = sorted[index - 1]!;
-      if (!removeIds.has(previous.segment_id)) {
-        const gapToCurrent = Math.max(0, current.start_sec - previous.end_sec);
-        if (gapToCurrent <= maxGapSec && speakersCompatible(previous, current)) {
-          const prevTokens = contentTokens(previous.text);
-          const currTokens = contentTokens(currentText);
-          const prefix = commonPrefixLength(prevTokens, currTokens, 14);
-          const similarity = tokenOverlapScore(prevTokens, currTokens);
-          const resemblesRedo = (
-            (prefix >= 3 && prefix >= Math.ceil(Math.min(10, prevTokens.length) * 0.55))
-            || (isLikelyAborted(previous.text) && prevTokens.length <= 4 && prefix >= 2)
-            || (similarity.overlap >= 0.86 && similarity.jaccard >= 0.65 && Math.min(prevTokens.length, currTokens.length) >= 5)
-          );
-          if (resemblesRedo && (isLikelyAborted(previous.text) || hasLocalRepairMarker(previous.text) || includeProbable)) {
-            pushRetakeSuggestion({
-              removeSegmentIds: [previous.segment_id],
-              keepSegmentId: current.segment_id,
-              description: "Possible retake detected (explicit restart cue). Keep the restarted delivery?",
-              confidence: 0.92,
-              index,
-            });
-            continue;
-          }
-        }
-      }
-    }
-
     // If speakers differ, only marker-only segments are safe to drop.
     if (!pairSpeakersCompatible && !markerOnly) continue;
 
@@ -708,9 +737,10 @@ export function previewRemoveRetakes(
       pushRetakeSuggestion({
         removeSegmentIds: [current.segment_id],
         keepSegmentId: next.segment_id,
-        description: "Remove restart marker (explicit retake cue).",
+        description: "Possible retake detected (trigger-only retake). Remove restart marker and keep the following take?",
         confidence: explicitStrong ? 0.96 : 0.86,
         index,
+        category: "trigger_only",
       });
       continue;
     }
@@ -763,28 +793,209 @@ export function previewRemoveRetakes(
       removeSegmentIds: [removeTarget.segment_id],
       keepSegmentId: keepTarget.segment_id,
       description: explicitStrong
-        ? "Possible retake detected (explicit retake cue). Keep the cleaner delivery?"
+        ? "Possible retake detected (trigger + phrase restart). Keep the cleaner restarted delivery?"
         : aborted
-        ? "Possible retake detected. Earlier delivery appears aborted or restarted."
+        ? "Possible retake detected (no-trigger restart). Earlier delivery appears aborted or restarted."
         : repaired
-        ? "Possible retake detected. Earlier delivery contains spoken repair markers."
+        ? "Possible retake detected (no-trigger restart). Earlier delivery contains spoken repair markers."
         : includeRisky && explicitWeak
-        ? "Possible retake detected (weak restart cue). Keep the cleaner delivery?"
-        : "Possible retake detected. Near-immediate reread detected; keep the cleaner delivery?",
+        ? "Possible retake detected (no-trigger restart, weak cue). Keep the cleaner delivery?"
+        : "Possible retake detected (no-trigger restart). Near-immediate reread detected; keep the cleaner delivery?",
       confidence: explicitStrong ? 0.95 : aborted ? 0.86 : repaired ? 0.82 : includeRisky ? 0.76 : 0.8,
       index,
+      category: explicitStrong
+        ? "trigger_phrase_restart"
+        : ((isLikelyAborted(removeTarget.text) && tokenCount(removeTarget.text) >= 12) ? "long_abandoned_restart" : "no_trigger_restart"),
     });
   }
 
+  if (options.honorExplicitRetakePhrases) {
+    for (let index = 0; index < sorted.length; index += 1) {
+      const current = sorted[index]!;
+      if (removeIds.has(current.segment_id)) continue;
+      const currentTextRaw = normalizeTextSpacing(current.text);
+      if (!currentTextRaw) continue;
+      if (!RETAKE_PHRASES_STRONG.test(currentTextRaw)) continue;
+      if (index <= 0) continue;
+
+      const cueSplit = splitOnStrongRetakeCue(currentTextRaw);
+      const markerOnly = isRetakeMarkerOnly(currentTextRaw);
+      const inlineAfter = cueSplit?.after || stripRetakeCuePrefix(currentTextRaw);
+      const preCandidates: HammerTranscriptSegment[] = [];
+      for (let offset = 1; offset <= 2; offset += 1) {
+        const preIndex = index - offset;
+        if (preIndex < 0) break;
+        const candidate = sorted[preIndex]!;
+        if (removeIds.has(candidate.segment_id)) continue;
+        const rightNeighbor = sorted[preIndex + 1]!;
+        const gapToRight = Math.max(0, rightNeighbor.start_sec - candidate.end_sec);
+        if (gapToRight > maxGapSec) break;
+        if (!speakersCompatible(candidate, current)) continue;
+        preCandidates.push(candidate);
+      }
+      if (preCandidates.length === 0) continue;
+
+      const postCandidates: Array<{
+        keepSegmentId: string;
+        text: string;
+        removeCurrentWithTrigger: boolean;
+        trimCurrentTo?: string;
+      }> = [];
+      if (inlineAfter && tokenCount(inlineAfter) >= 2) {
+        postCandidates.push({
+          keepSegmentId: current.segment_id,
+          text: inlineAfter,
+          removeCurrentWithTrigger: false,
+          trimCurrentTo: inlineAfter,
+        });
+      }
+      for (let offset = 1; offset <= 2; offset += 1) {
+        const postIndex = index + offset;
+        if (postIndex >= sorted.length) break;
+        const candidate = sorted[postIndex]!;
+        if (removeIds.has(candidate.segment_id)) continue;
+        const leftNeighbor = sorted[postIndex - 1]!;
+        const gapToCandidate = Math.max(0, candidate.start_sec - leftNeighbor.end_sec);
+        if (gapToCandidate > maxGapSec) break;
+        if (!speakersCompatible(current, candidate)) continue;
+        postCandidates.push({
+          keepSegmentId: candidate.segment_id,
+          text: candidate.text,
+          removeCurrentWithTrigger: true,
+        });
+      }
+      if (postCandidates.length === 0) continue;
+
+      let bestMatch: {
+        pre: HammerTranscriptSegment;
+        post: {
+          keepSegmentId: string;
+          text: string;
+          removeCurrentWithTrigger: boolean;
+          trimCurrentTo?: string;
+        };
+        evidence: RestartEvidence;
+      } | null = null;
+      for (const pre of preCandidates) {
+        for (const post of postCandidates) {
+          const evidence = evaluateRestartEvidence(pre.text, post.text);
+          if (!bestMatch || evidence.score > bestMatch.evidence.score) {
+            bestMatch = { pre, post, evidence };
+          }
+        }
+      }
+      if (
+        !bestMatch
+        || bestMatch.evidence.score < 0.72
+        || (!bestMatch.evidence.openingMatch && !bestMatch.evidence.intentMatch && !bestMatch.evidence.shortLeadInReread)
+      ) {
+        continue;
+      }
+
+      const removeSegmentIds = [bestMatch.pre.segment_id];
+      const removeTriggerSegment = bestMatch.post.removeCurrentWithTrigger
+        && (markerOnly || tokenCount(inlineAfter) < 3 || bestMatch.evidence.score >= 0.82);
+      if (removeTriggerSegment) {
+        removeSegmentIds.push(current.segment_id);
+      } else if (bestMatch.post.trimCurrentTo) {
+        pushRestartTrimSuggestion({
+          segment: current,
+          trimmedText: bestMatch.post.trimCurrentTo,
+          description: "Possible retake detected (trigger + phrase restart). Remove trigger phrase and keep the restarted wording?",
+          confidence: Math.max(0.8, bestMatch.evidence.score - 0.02),
+          index,
+        });
+      }
+      const preDurationSec = Math.max(0, bestMatch.pre.end_sec - bestMatch.pre.start_sec);
+      const longAbandoned = preDurationSec >= 2 || tokenCount(bestMatch.pre.text) >= 12;
+      pushRetakeSuggestion({
+        removeSegmentIds,
+        keepSegmentId: bestMatch.post.keepSegmentId,
+        description: longAbandoned
+          ? "Possible retake detected (long abandoned take + restart). Remove abandoned take and trigger; keep the clean restart?"
+          : "Possible retake detected (trigger + phrase restart). Remove abandoned pre-trigger phrase and keep the restarted phrase?",
+        confidence: Math.max(0.83, Math.min(0.97, bestMatch.evidence.score + (removeTriggerSegment ? 0.08 : 0.03))),
+        index,
+        category: longAbandoned ? "long_abandoned_restart" : "trigger_phrase_restart",
+      });
+    }
+  }
+
+  if (options.honorExplicitRetakePhrases && (options.detection === "normal" || options.detection === "aggressive")) {
+    for (let index = 0; index < sorted.length; index += 1) {
+      const segment = sorted[index]!;
+      if (removeIds.has(segment.segment_id)) continue;
+      const raw = normalizeTextSpacing(segment.text);
+      if (!raw) continue;
+      if (isRetakeMarkerOnly(raw)) continue;
+      if (!RETAKE_PHRASES_STRONG.test(raw)) continue;
+
+      const prefixTrimmed = stripRetakeCuePrefix(raw);
+      if (prefixTrimmed && normalizeTextSpacing(prefixTrimmed) !== raw) {
+        pushRestartTrimSuggestion({
+          segment,
+          trimmedText: prefixTrimmed,
+          description: "Possible retake detected (trigger-only retake). Remove restart trigger phrase?",
+          confidence: 0.93,
+          index,
+        });
+        continue;
+      }
+
+      const cueSplit = splitOnStrongRetakeCue(raw);
+      if (cueSplit && cueSplit.before && cueSplit.after) {
+        const evidence = evaluateRestartEvidence(cueSplit.before, cueSplit.after);
+        if (evidence.score >= 0.74 && (evidence.openingMatch || evidence.intentMatch || evidence.shortLeadInReread)) {
+          pushRestartTrimSuggestion({
+            segment,
+            trimmedText: cueSplit.after,
+            description: "Possible retake detected (trigger + phrase restart in one take). Remove abandoned phrase and trigger, keep restarted phrase?",
+            confidence: Math.max(0.82, evidence.score),
+            index,
+          });
+        }
+      }
+    }
+  }
+
+  for (const segment of sorted) {
+    if (removeIds.has(segment.segment_id)) continue;
+    const update = restartTrimUpdates.get(segment.segment_id);
+    if (!update) continue;
+    segment.text = update.text;
+  }
+
+  const retakeKeepSegmentIds = new Set<string>();
+  for (const suggestion of suggestions) {
+    if (suggestion.type !== "retake_remove") continue;
+    const parts = String(suggestion.id).split(":");
+    if (parts[0] !== "retake_pair" && parts[0] !== "retake_chain") continue;
+    const keepSegmentId = parts[2] ?? "";
+    if (keepSegmentId) retakeKeepSegmentIds.add(keepSegmentId);
+  }
+  const filteredSuggestions = suggestions.filter((suggestion) => {
+    if (suggestion.type !== "restart_trim") return true;
+    if (removeIds.has(suggestion.segmentId)) return false;
+    if (retakeKeepSegmentIds.has(suggestion.segmentId)) return false;
+    return true;
+  });
+  const finalSuggestionsById = new Map<string, HammerCleanupSuggestion>();
+  for (const suggestion of filteredSuggestions) {
+    const existing = finalSuggestionsById.get(suggestion.id);
+    if (!existing || suggestion.confidence > existing.confidence + 0.001) {
+      finalSuggestionsById.set(suggestion.id, suggestion);
+    }
+  }
+  const finalSuggestions = Array.from(finalSuggestionsById.values());
   const result = sorted.filter((segment) => !removeIds.has(segment.segment_id));
   return {
     label: "Remove Retakes",
     resultSegments: result,
-    suggestions,
+    suggestions: finalSuggestions,
     summary: {
-      changedSegments: suggestions.length,
+      changedSegments: finalSuggestions.length,
       removedSegments: removeIds.size,
-      timeSavedSec: roundToTenth(suggestions.reduce((sum, item) => sum + item.timeSavedSec, 0)),
+      timeSavedSec: roundToTenth(finalSuggestions.reduce((sum, item) => sum + item.timeSavedSec, 0)),
     },
   };
 }
