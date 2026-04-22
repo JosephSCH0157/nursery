@@ -5,6 +5,12 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const FALLBACK_HTML = path.join(ROOT, 'teleprompter_pro.html');
+const SERVER_ID = 'anvil-static-server';
+
+// IMPORTANT:
+// Do NOT serve HTML fallback for asset requests (.js, .css, .map, etc).
+// This previously caused "Unexpected token '<'" in smoke runs.
+// See smoke harness contract in tools/smoke_test.js.
 
 // Choose host/port (allow overrides via env or argv)
 const DEFAULT_HOST = process.env.CI_HOST || '0.0.0.0';
@@ -183,6 +189,10 @@ const server = http.createServer((req, res) => {
   try {
     const rawPath = (req.url || '/').split('?')[0];
     const basePath = BOT_PATH_ALIASES.get(String(rawPath || '').toLowerCase()) || rawPath;
+    if (basePath === '/__smoke-health') {
+      sendJson(res, 200, { ok: true, server: SERVER_ID, pid: process.pid });
+      return;
+    }
     if (basePath === '/display/host') {
       sendJson(res, 200, { host: getLanHostCandidate() });
       return;
