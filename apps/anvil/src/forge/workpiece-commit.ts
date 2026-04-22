@@ -26,6 +26,31 @@ export type RecordingChunk = {
   totalChunks: number;
 };
 
+export type RecordingUploadStatusPhase = "preflight" | "uploading" | "finalizing" | "done" | "failed";
+
+export type RecordingUploadStatusDetail = {
+  phase: RecordingUploadStatusPhase;
+  strategy: UploadStrategy;
+  bytes: number;
+  mb: number;
+  sessionRunKey: string;
+  workpieceId: string;
+  workspaceId: string | null;
+  title: string;
+  scriptHash: string | null;
+  destinationPath: string;
+  commitPathMode: string;
+  warningThresholdMb: number;
+  warningThresholdExceeded: boolean;
+  chunkIndex?: number | null;
+  totalChunks?: number | null;
+  chunkBytes?: number | null;
+  progressPct?: number | null;
+  safeToLeave?: boolean;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+};
+
 export type RecordingDecisionEventName = "take_kept" | "take_discarded";
 
 export type RecordingCommitResult =
@@ -690,6 +715,29 @@ function emitLargeUploadWarning(detail: {
   }
 }
 
+function emitRecordingUploadStatus(detail: RecordingUploadStatusDetail): void {
+  try {
+    console.info("[recording/upload] status", detail);
+  } catch {
+    // ignore
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:recording:upload-status", { detail }));
+  } catch {
+    // ignore
+  }
+  try {
+    document.dispatchEvent(new CustomEvent("tp:recording:upload-status", { detail }));
+  } catch {
+    // ignore
+  }
+  try {
+    (window as any).HUD?.log?.("recording:upload:status", detail);
+  } catch {
+    // ignore
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -816,8 +864,24 @@ async function uploadRecordingWithStrategy(args: {
   chunkSizeMb: number;
   commitPayloadBase: Record<string, unknown>;
   apiToken?: string;
+  onStatus?: (status: {
+    phase: RecordingUploadStatusPhase;
+    chunkIndex?: number | null;
+    totalChunks?: number | null;
+    chunkBytes?: number | null;
+    progressPct?: number | null;
+    errorCode?: string | null;
+    errorMessage?: string | null;
+  }) => void;
 }): Promise<{ status: number; body: unknown; ok: boolean }> {
   if (args.strategy === "single") {
+    args.onStatus?.({
+      phase: "uploading",
+      chunkIndex: 1,
+      totalChunks: 1,
+      chunkBytes: args.bytes.byteLength,
+      progressPct: 0,
+    });
     return commitFileToWorkpiece(
       args.workpieceId,
       {
@@ -852,6 +916,16 @@ async function uploadRecordingWithStrategy(args: {
   const uploadedChunks = new Set<number>(
     (begin.data.uploaded_chunks || []).filter((value) => Number.isInteger(value) && value >= 0),
   );
+  const progressPctFor = (uploadedCount: number, totalChunks: number): number =>
+    Math.max(0, Math.min(100, Math.round((uploadedCount / Math.max(1, totalChunks)) * 100)));
+
+  args.onStatus?.({
+    phase: "uploading",
+    chunkIndex: uploadedChunks.size > 0 ? uploadedChunks.size : 1,
+    totalChunks: chunks.length,
+    chunkBytes: chunks[0]?.size ?? null,
+    progressPct: progressPctFor(uploadedChunks.size, chunks.length),
+  });
 
   for (const chunk of chunks) {
     if (uploadedChunks.has(chunk.index)) {
@@ -865,6 +939,13 @@ async function uploadRecordingWithStrategy(args: {
       } catch {
         // ignore
       }
+      args.onStatus?.({
+        phase: "uploading",
+        chunkIndex: chunk.index + 1,
+        totalChunks: chunk.totalChunks,
+        chunkBytes: chunk.size,
+        progressPct: progressPctFor(uploadedChunks.size, chunk.totalChunks),
+      });
       continue;
     }
 
@@ -899,6 +980,13 @@ async function uploadRecordingWithStrategy(args: {
         } catch {
           // ignore
         }
+        args.onStatus?.({
+          phase: "uploading",
+          chunkIndex: chunk.index + 1,
+          totalChunks: chunk.totalChunks,
+          chunkBytes: chunk.size,
+          progressPct: progressPctFor(uploadedChunks.size, chunk.totalChunks),
+        });
         break;
       }
 
@@ -920,6 +1008,16 @@ async function uploadRecordingWithStrategy(args: {
     }
 
     if (!completed) {
+      const apiError = extractApiError(lastFailure?.body ?? null);
+      args.onStatus?.({
+        phase: "failed",
+        chunkIndex: chunk.index + 1,
+        totalChunks: chunk.totalChunks,
+        chunkBytes: chunk.size,
+        progressPct: progressPctFor(uploadedChunks.size, chunk.totalChunks),
+        errorCode: apiError.code ?? "chunk_upload_failed",
+        errorMessage: apiError.message ?? "Failed uploading chunk",
+      });
       return {
         status: lastFailure?.status ?? 500,
         body: {
@@ -941,10 +1039,17 @@ async function uploadRecordingWithStrategy(args: {
     console.info("[recording/upload] finalize-start", {
       totalChunks: chunks.length,
       totalBytes: args.bytes.byteLength,
-    });
+      });
   } catch {
     // ignore
   }
+  args.onStatus?.({
+    phase: "finalizing",
+    chunkIndex: chunks.length,
+    totalChunks: chunks.length,
+    chunkBytes: null,
+    progressPct: 100,
+  });
   const finalize = await finalizeChunkedRecordingUpload(
     args.workpieceId,
     uploadId,
@@ -998,19 +1103,44 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
   const strategy = selectUploadStrategyForBytes(input.bytes.byteLength, uploadConfig);
   const bytesMb = Number((input.bytes.byteLength / (1024 * 1024)).toFixed(2));
   const thresholdExceeded = input.bytes.byteLength > mbToBytes(uploadConfig.largeUploadWarnMb);
+  const sessionRunKey = readSessionRunKey(captureSessionId);
+  const title = deriveRecordingTitleFromName(input.originalName);
+  const scriptHash = readScriptHash();
+  const commitPathMode = strategy === "chunked" ? "recording-upload.chunked" : "commit-file.single";
+  const emitUploadStatus = (
+    phase: RecordingUploadStatusPhase,
+    patch: Partial<Omit<RecordingUploadStatusDetail, "phase">> = {},
+  ) => {
+    emitRecordingUploadStatus({
+      phase,
+      strategy,
+      bytes: input.bytes.byteLength,
+      mb: bytesMb,
+      sessionRunKey,
+      workpieceId,
+      workspaceId,
+      title,
+      scriptHash,
+      destinationPath: path,
+      commitPathMode,
+      warningThresholdMb: uploadConfig.largeUploadWarnMb,
+      warningThresholdExceeded: thresholdExceeded,
+      ...(patch as Partial<RecordingUploadStatusDetail>),
+    });
+  };
 
   try {
     console.info("[recording/upload] blob-summary", {
       bytes: input.bytes.byteLength,
       mb: bytesMb,
-      sessionRunKey: readSessionRunKey(captureSessionId),
+      sessionRunKey,
       workpieceId,
       workspaceId,
-      title: deriveRecordingTitleFromName(input.originalName),
-      scriptHash: readScriptHash(),
+      title,
+      scriptHash,
       strategy,
       destinationPath: path,
-      commitPathMode: strategy === "chunked" ? "recording-upload.chunked" : "commit-file.single",
+      commitPathMode,
       warningThresholdMb: uploadConfig.largeUploadWarnMb,
       warningThresholdExceeded: thresholdExceeded,
     });
@@ -1026,6 +1156,12 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
       path,
     });
   }
+  emitUploadStatus("preflight", {
+    progressPct: 0,
+    safeToLeave: false,
+    chunkIndex: 0,
+    totalChunks: strategy === "chunked" ? null : 1,
+  });
 
   const commitPayloadBase = {
     path,
@@ -1052,13 +1188,24 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
 
   let didRetry404 = false;
   let commit = await uploadRecordingWithStrategy({
-    strategy,
-    workpieceId,
-    bytes: input.bytes,
-    chunkSizeMb: uploadConfig.chunkSizeMb,
-    commitPayloadBase,
-    apiToken,
-  });
+      strategy,
+      workpieceId,
+      bytes: input.bytes,
+      chunkSizeMb: uploadConfig.chunkSizeMb,
+      commitPayloadBase,
+      apiToken,
+      onStatus: (status) => {
+        emitUploadStatus(status.phase, {
+          chunkIndex: status.chunkIndex ?? null,
+          totalChunks: status.totalChunks ?? null,
+          chunkBytes: status.chunkBytes ?? null,
+          progressPct: status.progressPct ?? null,
+          safeToLeave: false,
+          errorCode: status.errorCode ?? null,
+          errorMessage: status.errorMessage ?? null,
+        });
+      },
+    });
 
   // Single defensive retry: stale cached workpiece IDs can happen after cradle resets.
   if (!commit.ok && commit.status === 404 && workspaceId) {
@@ -1076,12 +1223,29 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
         chunkSizeMb: uploadConfig.chunkSizeMb,
         commitPayloadBase,
         apiToken,
+        onStatus: (status) => {
+          emitUploadStatus(status.phase, {
+            chunkIndex: status.chunkIndex ?? null,
+            totalChunks: status.totalChunks ?? null,
+            chunkBytes: status.chunkBytes ?? null,
+            progressPct: status.progressPct ?? null,
+            safeToLeave: false,
+            errorCode: status.errorCode ?? null,
+            errorMessage: status.errorMessage ?? null,
+          });
+        },
       });
     }
   }
 
   if (!commit.ok) {
     const apiError = extractApiError(commit.body);
+    emitUploadStatus("failed", {
+      safeToLeave: false,
+      progressPct: null,
+      errorCode: apiError.code ?? null,
+      errorMessage: apiError.message ?? "Canonical upload failed",
+    });
     return {
       ok: false,
       reason: didRetry404 ? "commit_failed_after_retry" : "commit_failed",
@@ -1093,6 +1257,13 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
       workpieceId,
     };
   }
+  emitUploadStatus("done", {
+    safeToLeave: true,
+    progressPct: 100,
+    chunkIndex: strategy === "chunked" ? null : 1,
+    totalChunks: strategy === "chunked" ? null : 1,
+    chunkBytes: strategy === "chunked" ? null : input.bytes.byteLength,
+  });
 
   return {
     ok: true,

@@ -96,44 +96,57 @@ describe('workpiece recording upload strategy', () => {
     (window as any).ANVIL_CHUNK_SIZE_MB = 0.000001;
     let finalizeCalls = 0;
     let chunkCalls = 0;
+    const uploadStatusEvents: Array<Record<string, unknown>> = [];
+    const onUploadStatus = (ev: Event) => {
+      uploadStatusEvents.push(((ev as CustomEvent).detail || {}) as Record<string, unknown>);
+    };
+    window.addEventListener('tp:recording:upload-status', onUploadStatus as EventListener);
 
-    (global as any).fetch = jest.fn(async (url: string) => {
-      if (url.includes('/recording-upload/begin')) {
-        return jsonResponse(200, {
-          ok: true,
-          data: {
-            upload_id: 'upl_test_fail',
-            total_chunks: 3,
-            chunk_size_bytes: 1,
-            uploaded_chunks: [],
-          },
-        });
-      }
-      if (url.includes('/recording-upload/') && url.endsWith('/chunk')) {
-        chunkCalls += 1;
-        return jsonResponse(500, { ok: false, error: { code: 'chunk_fail' } });
-      }
-      if (url.includes('/recording-upload/') && url.endsWith('/finalize')) {
-        finalizeCalls += 1;
-        return jsonResponse(200, { ok: true, data: { workpiece_id: WORKPIECE_ID, path: 'recordings/fail.webm' } });
-      }
-      throw new Error(`unexpected fetch url: ${url}`);
-    });
+    try {
+      (global as any).fetch = jest.fn(async (url: string) => {
+        if (url.includes('/recording-upload/begin')) {
+          return jsonResponse(200, {
+            ok: true,
+            data: {
+              upload_id: 'upl_test_fail',
+              total_chunks: 3,
+              chunk_size_bytes: 1,
+              uploaded_chunks: [],
+            },
+          });
+        }
+        if (url.includes('/recording-upload/') && url.endsWith('/chunk')) {
+          chunkCalls += 1;
+          return jsonResponse(500, { ok: false, error: { code: 'chunk_fail' } });
+        }
+        if (url.includes('/recording-upload/') && url.endsWith('/finalize')) {
+          finalizeCalls += 1;
+          return jsonResponse(200, { ok: true, data: { workpiece_id: WORKPIECE_ID, path: 'recordings/fail.webm' } });
+        }
+        throw new Error(`unexpected fetch url: ${url}`);
+      });
 
-    const { commitRecordingBytesToTongs } = await import('../../src/forge/workpiece-commit');
-    const result = await commitRecordingBytesToTongs({
-      bytes: new Uint8Array([1, 2, 3]),
-      originalName: 'Florida_Oranges.webm',
-      contentType: 'video/webm',
-    });
+      const { commitRecordingBytesToTongs } = await import('../../src/forge/workpiece-commit');
+      const result = await commitRecordingBytesToTongs({
+        bytes: new Uint8Array([1, 2, 3]),
+        originalName: 'Florida_Oranges.webm',
+        contentType: 'video/webm',
+      });
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error('expected failed commit result');
+      expect(result.ok).toBe(false);
+      if (result.ok) {
+        throw new Error('expected failed commit result');
+      }
+      expect(result.reason).toBe('commit_failed');
+      expect(chunkCalls).toBe(3);
+      expect(finalizeCalls).toBe(0);
+      expect(uploadStatusEvents.some((event) => event.phase === 'failed')).toBe(true);
+      const last = uploadStatusEvents[uploadStatusEvents.length - 1] || {};
+      expect(last.phase).toBe('failed');
+      expect(last.safeToLeave).toBe(false);
+    } finally {
+      window.removeEventListener('tp:recording:upload-status', onUploadStatus as EventListener);
     }
-    expect(result.reason).toBe('commit_failed');
-    expect(chunkCalls).toBe(3);
-    expect(finalizeCalls).toBe(0);
   });
 
   it('finalizes exactly once after all chunks succeed', async () => {
@@ -141,40 +154,58 @@ describe('workpiece recording upload strategy', () => {
     (window as any).ANVIL_CHUNK_SIZE_MB = 0.000001;
     let finalizeCalls = 0;
     let chunkCalls = 0;
+    const uploadStatusEvents: Array<Record<string, unknown>> = [];
+    const onUploadStatus = (ev: Event) => {
+      uploadStatusEvents.push(((ev as CustomEvent).detail || {}) as Record<string, unknown>);
+    };
+    window.addEventListener('tp:recording:upload-status', onUploadStatus as EventListener);
 
-    (global as any).fetch = jest.fn(async (url: string) => {
-      if (url.includes('/recording-upload/begin')) {
-        return jsonResponse(200, {
-          ok: true,
-          data: {
-            upload_id: 'upl_test_ok',
-            total_chunks: 3,
-            chunk_size_bytes: 1,
-            uploaded_chunks: [],
-          },
-        });
-      }
-      if (url.includes('/recording-upload/') && url.endsWith('/chunk')) {
-        chunkCalls += 1;
-        return jsonResponse(200, { ok: true, data: { index: chunkCalls - 1 } });
-      }
-      if (url.includes('/recording-upload/') && url.endsWith('/finalize')) {
-        finalizeCalls += 1;
-        return jsonResponse(200, { ok: true, data: { workpiece_id: WORKPIECE_ID, path: 'recordings/ok.webm' } });
-      }
-      throw new Error(`unexpected fetch url: ${url}`);
-    });
+    try {
+      (global as any).fetch = jest.fn(async (url: string) => {
+        if (url.includes('/recording-upload/begin')) {
+          return jsonResponse(200, {
+            ok: true,
+            data: {
+              upload_id: 'upl_test_ok',
+              total_chunks: 3,
+              chunk_size_bytes: 1,
+              uploaded_chunks: [],
+            },
+          });
+        }
+        if (url.includes('/recording-upload/') && url.endsWith('/chunk')) {
+          chunkCalls += 1;
+          return jsonResponse(200, { ok: true, data: { index: chunkCalls - 1 } });
+        }
+        if (url.includes('/recording-upload/') && url.endsWith('/finalize')) {
+          finalizeCalls += 1;
+          return jsonResponse(200, { ok: true, data: { workpiece_id: WORKPIECE_ID, path: 'recordings/ok.webm' } });
+        }
+        throw new Error(`unexpected fetch url: ${url}`);
+      });
 
-    const { commitRecordingBytesToTongs } = await import('../../src/forge/workpiece-commit');
-    const result = await commitRecordingBytesToTongs({
-      bytes: new Uint8Array([4, 5, 6]),
-      originalName: 'Florida_Oranges.webm',
-      contentType: 'video/webm',
-    });
+      const { commitRecordingBytesToTongs } = await import('../../src/forge/workpiece-commit');
+      const result = await commitRecordingBytesToTongs({
+        bytes: new Uint8Array([4, 5, 6]),
+        originalName: 'Florida_Oranges.webm',
+        contentType: 'video/webm',
+      });
 
-    expect(result.ok).toBe(true);
-    expect(chunkCalls).toBe(3);
-    expect(finalizeCalls).toBe(1);
+      expect(result.ok).toBe(true);
+      expect(chunkCalls).toBe(3);
+      expect(finalizeCalls).toBe(1);
+      expect(uploadStatusEvents.some((event) => event.phase === 'preflight')).toBe(true);
+      expect(uploadStatusEvents.some((event) => event.phase === 'uploading')).toBe(true);
+      expect(uploadStatusEvents.some((event) => event.phase === 'finalizing')).toBe(true);
+      expect(uploadStatusEvents.some((event) => event.phase === 'done')).toBe(true);
+      const done = uploadStatusEvents.find((event) => event.phase === 'done');
+      expect(done).toEqual(expect.objectContaining({
+        safeToLeave: true,
+        strategy: 'chunked',
+      }));
+    } finally {
+      window.removeEventListener('tp:recording:upload-status', onUploadStatus as EventListener);
+    }
   });
 
   it('keeps original title metadata through chunked upload even if UI selection mutates mid-run', async () => {
