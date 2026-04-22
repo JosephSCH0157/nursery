@@ -512,6 +512,49 @@ export default function BackgroundBlurPreviewLayer(props: {
 
   useEffect(() => {
     if (!props.enabled) return;
+    // When compositing controls change on a paused frame, force a redraw instead of
+    // waiting for source time to advance.
+    lastCompositeAtMsRef.current = null;
+    lastCompositeSourceTimeSecRef.current = null;
+    degradedReasonSinceMsRef.current = null;
+  }, [
+    props.enabled,
+    props.maskPreviewMode,
+    props.maskPreviewStage,
+    props.settings.enabled,
+    props.settings.blurPx,
+    props.settings.replacementEnabled,
+    props.settings.replacementMode,
+    props.settings.replacementColor,
+    props.settings.replacementImageUrl,
+    props.settings.washEnabled,
+    props.settings.washDimAmount,
+    props.settings.washDesaturateAmount,
+    props.settings.fallbackMode,
+  ]);
+
+  useEffect(() => {
+    if (!props.enabled) return;
+    // Matte-shaping controls require a fresh segmentation/matte pass; otherwise the
+    // preview can appear frozen because cached matte/composite state is reused.
+    matteRefiner.reset();
+    latestMatteFrameRef.current = null;
+    lastSegmentationAttemptAtMsRef.current = null;
+    lastSegmentationSourceTimeSecRef.current = null;
+    lastCompositeAtMsRef.current = null;
+    lastCompositeSourceTimeSecRef.current = null;
+  }, [
+    matteRefiner,
+    props.enabled,
+    resolvedProviderId,
+    props.settings.edgeFeatherPx,
+    props.settings.temporalSmoothing,
+    props.settings.subjectExpansionPx,
+    props.settings.qualityMode,
+  ]);
+
+  useEffect(() => {
+    if (!props.enabled) return;
     void provider.initialize();
   }, [props.enabled, provider]);
 

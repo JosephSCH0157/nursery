@@ -1250,6 +1250,7 @@ function HammerWorkspaceShellWithContext(
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
   const previewAudioRef = useRef<HTMLVideoElement | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const segmentationSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const previewVideoHardSeekAtMsRef = useRef<number>(0);
   const previewSurfaceRef = useRef<HTMLDivElement | null>(null);
   const imageAnimationContextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -1993,6 +1994,7 @@ function HammerWorkspaceShellWithContext(
     resolveTransportTimeForMediaTime: resolveTransportTimeForActiveMediaTime,
     playbackMediaSrc: effectivePlaybackMediaSrc,
     previewVideoSrc: effectivePreviewVideoSrc,
+    segmentationVideoSrc: previewVideoSrc,
     visualPolishPreviewActive,
     focusOverride,
     playheadSec,
@@ -2004,6 +2006,7 @@ function HammerWorkspaceShellWithContext(
     selectionOriginRef,
     previewAudioRef,
     previewVideoRef,
+    segmentationVideoRef: segmentationSourceVideoRef,
     previewVideoHardSeekAtMsRef,
     cutSeekFadeRef,
     scrubRectRef,
@@ -6891,9 +6894,11 @@ function HammerWorkspaceShellWithContext(
     visualPolishPreviewActive,
     previewSurfaceRef,
     previewVideoRef,
+    segmentationSourceVideoRef,
     previewAudioRef,
     previewBrollVideoRefs,
     effectivePreviewVideoSrc,
+    segmentationSourceVideoSrc: previewVideoSrc,
     effectivePlaybackMediaSrc,
     isPlaybackActive,
     playbackWindow,
@@ -6962,6 +6967,7 @@ function HammerWorkspaceShellWithContext(
     previewAudioRef,
     previewBrollVideoRefs,
     previewVideoRef,
+    segmentationSourceVideoRef,
     previewVideoSrc,
     previewMode,
     previewSurfaceLabel,

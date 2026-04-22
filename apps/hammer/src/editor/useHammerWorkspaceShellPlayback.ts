@@ -44,6 +44,7 @@ export type UseHammerWorkspaceShellPlaybackArgs = {
   resolveTransportTimeForMediaTime: (mediaTimeSec: number) => number;
   playbackMediaSrc: string | null;
   previewVideoSrc: string | null;
+  segmentationVideoSrc?: string | null;
   visualPolishPreviewActive: boolean;
   focusOverride: HammerWorkspaceFocusOverride;
   playheadSec: number;
@@ -55,6 +56,7 @@ export type UseHammerWorkspaceShellPlaybackArgs = {
   selectionOriginRef: MutableRefObject<PlaybackSelectionOrigin>;
   previewAudioRef: MutableRefObject<HTMLVideoElement | null>;
   previewVideoRef: MutableRefObject<HTMLVideoElement | null>;
+  segmentationVideoRef?: MutableRefObject<HTMLVideoElement | null>;
   previewVideoHardSeekAtMsRef: MutableRefObject<number>;
   cutSeekFadeRef: MutableRefObject<{ token: number; timerId: number | null }>;
   scrubRectRef: MutableRefObject<{ left: number; width: number } | null>;
@@ -103,6 +105,7 @@ export function useHammerWorkspaceShellPlayback(
 ): UseHammerWorkspaceShellPlaybackResult {
   const lastPlaybackMediaSrcRef = useRef<string | null>(null);
   const lastPreviewVideoSrcRef = useRef<string | null>(null);
+  const lastSegmentationVideoSrcRef = useRef<string | null>(null);
   const resolveAudibleSeekTarget = useCallback(
     (requestedTimeSec: number): number | null => args.resolveAudibleTransportTime(requestedTimeSec),
     [args.resolveAudibleTransportTime],
@@ -328,6 +331,7 @@ export function useHammerWorkspaceShellPlayback(
     const previewAudio = args.previewAudioRef.current;
     if (!previewAudio) return;
     const previewVideo = args.previewVideoRef.current;
+    const segmentationVideo = args.segmentationVideoRef?.current ?? null;
     const runtimeWindow = window as HammerPlaybackAuthorityWindow;
     const activeOwnerId = runtimeWindow.__forgeHammerActivePreviewOwnerId__;
     if (args.isPlaybackActive && activeOwnerId && activeOwnerId !== args.playbackOwnerIdRef.current) {
@@ -349,6 +353,12 @@ export function useHammerWorkspaceShellPlayback(
       previewVideo.pause();
       previewVideoSrcChanged = true;
     }
+    let segmentationVideoSrcChanged = false;
+    if (segmentationVideo && lastSegmentationVideoSrcRef.current !== args.segmentationVideoSrc) {
+      lastSegmentationVideoSrcRef.current = args.segmentationVideoSrc ?? null;
+      segmentationVideo.pause();
+      segmentationVideoSrcChanged = true;
+    }
 
     if (!args.playbackMediaSrc) {
       previewAudio.pause();
@@ -358,6 +368,9 @@ export function useHammerWorkspaceShellPlayback(
 
     if (previewVideo && !args.previewVideoSrc) {
       previewVideo.pause();
+    }
+    if (segmentationVideo && !args.segmentationVideoSrc) {
+      segmentationVideo.pause();
     }
 
     const transportProgress = args.isPlaybackActive
@@ -379,7 +392,13 @@ export function useHammerWorkspaceShellPlayback(
     if (Math.abs(args.playheadSec - targetTransportTime) >= SCRUB_SEEK_THRESHOLD_SEC) {
       args.setPlayheadSec(roundToTenth(targetTransportTime));
     }
-    const shouldSynchronizeCurrentTime = srcChanged || !args.isPlaybackActive || args.isScrubbing || transportProgress.shouldSyncMediaTime;
+    const shouldSynchronizeCurrentTime = (
+      srcChanged
+      || segmentationVideoSrcChanged
+      || !args.isPlaybackActive
+      || args.isScrubbing
+      || transportProgress.shouldSyncMediaTime
+    );
     if (shouldSynchronizeCurrentTime && Math.abs(previewAudio.currentTime - targetMediaTime) > SCRUB_SEEK_THRESHOLD_SEC) {
       seekPreviewAudioWithOptionalSeamFade({
         audio: previewAudio,
@@ -426,10 +445,19 @@ export function useHammerWorkspaceShellPlayback(
         }
       }
     }
+    if (args.segmentationVideoSrc && segmentationVideo) {
+      segmentationVideo.muted = true;
+      segmentationVideo.volume = 0;
+      segmentationVideo.playbackRate = previewAudio.playbackRate;
+      if (shouldSynchronizeCurrentTime && Math.abs(segmentationVideo.currentTime - targetMediaTime) > SCRUB_SEEK_THRESHOLD_SEC) {
+        segmentationVideo.currentTime = targetMediaTime;
+      }
+    }
 
     if (transportProgress.shouldStop) {
       previewAudio.pause();
       previewVideo?.pause();
+      segmentationVideo?.pause();
       if (args.isPlaybackActive) args.setIsPlaybackActive(false);
       if (args.playbackWindow?.mode === "roll") {
         args.setPlaybackWindow(null);
@@ -440,6 +468,7 @@ export function useHammerWorkspaceShellPlayback(
     if (!args.isPlaybackActive) {
       previewAudio.pause();
       previewVideo?.pause();
+      segmentationVideo?.pause();
       return;
     }
 
@@ -463,6 +492,15 @@ export function useHammerWorkspaceShellPlayback(
         });
       }
     }
+    if (args.segmentationVideoSrc && segmentationVideo) {
+      segmentationVideo.muted = true;
+      segmentationVideo.volume = 0;
+      if (segmentationVideo.paused) {
+        void segmentationVideo.play().catch(() => {
+          // segmentation source video is best-effort and should never block playback.
+        });
+      }
+    }
   }, [
     args.isPlaybackActive,
     args.isScrubbing,
@@ -476,6 +514,8 @@ export function useHammerWorkspaceShellPlayback(
     args.previewVideoHardSeekAtMsRef,
     args.previewVideoRef,
     args.previewVideoSrc,
+    args.segmentationVideoRef,
+    args.segmentationVideoSrc,
     args.setIsPlaybackActive,
     args.setPlaybackWindow,
     args.setPlayheadSec,

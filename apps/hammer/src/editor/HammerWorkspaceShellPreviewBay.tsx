@@ -10,10 +10,12 @@ export type HammerWorkspaceShellPreviewBayVM = {
 
   previewSurfaceRef: RefObject<HTMLDivElement | null>;
   previewVideoRef: RefObject<HTMLVideoElement | null>;
+  segmentationSourceVideoRef: RefObject<HTMLVideoElement | null>;
   previewAudioRef: RefObject<HTMLVideoElement | null>;
   previewBrollVideoRefs: MutableRefObject<Map<string, HTMLVideoElement>>;
 
   previewVideoSrc: string | null;
+  segmentationSourceVideoSrc: string | null;
   playbackMediaSrc: string | null;
   isPlaybackActive: boolean;
   playbackWindow: { mode: "loop" | "roll"; startSec: number; endSec: number; label: string } | null;
@@ -41,6 +43,7 @@ export type HammerWorkspaceShellPreviewBayVM = {
     enabled: boolean;
     settings: any;
     providerId: string | null;
+    sourceVideoRef: RefObject<HTMLVideoElement | null>;
     debugMasks: boolean;
     maskPreviewMode: boolean;
     maskPreviewStage: "raw" | "expanded" | "feathered" | "refined" | "final_composite";
@@ -87,6 +90,15 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             className="hammer-preview-media"
           />
           <video
+            ref={vm.segmentationSourceVideoRef}
+            src={vm.segmentationSourceVideoSrc ?? undefined}
+            muted
+            preload="auto"
+            playsInline
+            className="hammer-preview-media hammer-preview-media--segmentation-source"
+            aria-hidden="true"
+          />
+          <video
             ref={vm.previewAudioRef}
             src={vm.playbackMediaSrc ?? undefined}
             preload="metadata"
@@ -104,7 +116,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             enabled={vm.backgroundEffect.enabled}
             settings={vm.backgroundEffect.settings}
             providerId={vm.backgroundEffect.providerId}
-            videoRef={vm.previewVideoRef}
+            videoRef={vm.backgroundEffect.sourceVideoRef}
             onStatus={vm.backgroundEffect.onStatus}
             debugMasks={vm.backgroundEffect.debugMasks}
             maskPreviewMode={vm.backgroundEffect.maskPreviewMode}

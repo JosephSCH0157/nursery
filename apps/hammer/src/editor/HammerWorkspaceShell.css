@@ -1244,6 +1244,16 @@ Guardrails:
   pointer-events: none;
 }
 
+.hammer-preview-media--segmentation-source {
+  width: 1px;
+  height: 1px;
+  left: -9999px;
+  right: auto;
+  bottom: auto;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .hammer-preview-meta,
 .hammer-tool-state-grid {
   display: grid;
