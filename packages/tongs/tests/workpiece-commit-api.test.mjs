@@ -4502,7 +4502,7 @@ test("GET /tongs/workspaces/:id/ready-scripts dispatches listWorkspaceReadyScrip
   assert.equal(response.status, 200);
   assert.equal(calls.listWorkspaceReadyScripts.length, 1);
   assert.equal(calls.listWorkspaceReadyScripts[0]?.workspaceId, "11111111-1111-4111-8111-111111111111");
-  assert.equal(calls.listWorkspaceReadyScripts[0]?.options?.unrecordedOnly, false);
+  assert.equal(calls.listWorkspaceReadyScripts[0]?.options?.unrecordedOnly, undefined);
   assert.equal(calls.listWorkspaceReadyScripts[0]?.options?.userAccessToken, "user_token_abc");
   assert.equal(body.ok, true);
   assert.equal(Array.isArray(body.data?.scripts), true);
@@ -4858,7 +4858,7 @@ test("POST /tongs/workpieces/:id/restore dispatches restoreWorkpiece", async () 
   assert.equal(body.data?.workpiece?.archived_at, null);
 });
 
-test("GET /tongs/workspaces/:id/ready-scripts?unrecorded=1 enables unrecorded filter", async () => {
+test("GET /tongs/workspaces/:id/ready-scripts?unrecorded=1 ignores unrecorded filter", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);
 
@@ -4878,7 +4878,7 @@ test("GET /tongs/workspaces/:id/ready-scripts?unrecorded=1 enables unrecorded fi
   assert.equal(response.status, 200);
   assert.equal(calls.listWorkspaceReadyScripts.length, 1);
   assert.equal(calls.listWorkspaceReadyScripts[0]?.workspaceId, "11111111-1111-4111-8111-111111111111");
-  assert.equal(calls.listWorkspaceReadyScripts[0]?.options?.unrecordedOnly, true);
+  assert.equal(calls.listWorkspaceReadyScripts[0]?.options?.unrecordedOnly, undefined);
   assert.equal(calls.listWorkspaceReadyScripts[0]?.options?.userAccessToken, "user_token_abc");
   assert.equal(body.ok, true);
 });
@@ -6661,7 +6661,7 @@ test("TongsCommitService.listWorkspaceReadyScripts includes hidden ranked entrie
   assert.equal(result.some((row) => row.workpiece_id === workpieceC), false);
 });
 
-test("TongsCommitService.listWorkspaceReadyScripts treats take_kept as recorded truth for unrecorded filters", async () => {
+test("TongsCommitService.listWorkspaceReadyScripts keeps take_kept episodes in the Ready list", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
   const workpieceA = "11111111-1111-4111-8111-111111111111";
@@ -6774,14 +6774,13 @@ test("TongsCommitService.listWorkspaceReadyScripts treats take_kept as recorded 
 
   const result = await service.listWorkspaceReadyScripts(workspaceId, {
     userAccessToken: "viewer_token",
-    unrecordedOnly: true,
   });
 
   assert.deepEqual(
     result.map((row) => row.workpiece_id),
-    [workpieceA, workpieceB],
+    [workpieceA, workpieceB, workpieceC],
   );
-  assert.equal(result.some((row) => row.workpiece_id === workpieceC), false);
+  assert.equal(result.some((row) => row.workpiece_id === workpieceC), true);
 });
 
 test("TongsCommitService.updateWorkspaceReadyQueueState upserts rank and hide state while clearing empty rows", async () => {

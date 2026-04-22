@@ -1105,7 +1105,6 @@ export type ResolveWorkpieceAssetVariantRequest = {
 };
 
 export type ListWorkspaceReadyScriptsOptions = {
-  unrecordedOnly?: boolean;
   includeHidden?: boolean;
   userAccessToken?: string | null;
 };
@@ -10255,16 +10254,6 @@ export class TongsCommitService {
       }
     }
 
-    const recordedWorkpieceIds = new Set<string>();
-    if (options?.unrecordedOnly) {
-      const keptTakeByWorkpiece = await this.listLatestKeptTakeByWorkpieceIds(
-        Array.from(readyPathsByWorkpiece.keys()),
-      );
-      for (const workpieceId of keptTakeByWorkpiece.keys()) {
-        recordedWorkpieceIds.add(workpieceId);
-      }
-    }
-
     const categoryByWorkpiece = new Map<string, string | null>();
     const categoryCandidateIds = Array.from(readyPathsByWorkpiece.keys());
     if (categoryCandidateIds.length) {
@@ -10299,7 +10288,6 @@ export class TongsCommitService {
     const nowIso = new Date().toISOString();
     const readyScripts: WorkspaceReadyScript[] = [];
     for (const [workpieceId, readyPointer] of readyPointerByWorkpiece.entries()) {
-      if (recordedWorkpieceIds.has(workpieceId)) continue;
       const readyKey = readyScriptMetaKey(workpieceId, readyPointer.script_path);
       const file = fileByWorkpiecePath.get(readyKey);
       if (!file) continue;
@@ -10578,11 +10566,9 @@ export function createTongsCommitApiHandlerWithService(
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "ready-scripts") {
         requireMethod(request, "GET");
         const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
-        const unrecordedOnly = parseBooleanQueryFlag(url.searchParams.get("unrecorded"));
         const includeHidden = parseBooleanQueryFlag(url.searchParams.get("include_hidden"));
         const userAccessToken = requireUserAccessTokenHeader(request);
         const result = await service.listWorkspaceReadyScripts(workspaceId, {
-          unrecordedOnly,
           includeHidden,
           userAccessToken,
         });
