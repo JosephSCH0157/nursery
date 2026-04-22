@@ -124,6 +124,66 @@ import {
     } catch {}
   }
 
+  function readCaptureSessionRunKey(): string | null {
+    try {
+      const fromAsr = String((window as any).__tpAsrRunKey || '').trim();
+      if (fromAsr) return fromAsr;
+    } catch {}
+    try {
+      const fromSession = sessionStorage.getItem('forge_anvil_capture_session_v1');
+      const trimmed = String(fromSession || '').trim();
+      if (trimmed) return trimmed;
+    } catch {}
+    return null;
+  }
+
+  function readWorkspaceIdForAudit(): string | null {
+    try {
+      const value = localStorage.getItem('forge_workspace_id_v1') || localStorage.getItem('barstock_workspace_id');
+      const trimmed = String(value || '').trim();
+      return trimmed || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function emitUploadFallbackAudit(detail: {
+    saveIdentity: RecordingSaveIdentity | null;
+    originalName: string;
+    bytes: number;
+    canonicalAttempted: boolean;
+    canonicalSucceeded: boolean;
+    fallbackUsed: boolean;
+    safeToLeave: boolean;
+    errorCode?: string | null;
+    errorMessage?: string | null;
+    finalStorageKey?: string | null;
+  }): void {
+    const cleanTitle = String(detail.saveIdentity?.baseTitle || '').trim();
+    const fallbackTitle = cleanTitle || String(detail.originalName || '').replace(/\.[^.]+$/, '').trim() || null;
+    const payload = {
+      sessionRunKey: readCaptureSessionRunKey(),
+      workpieceId: detail.saveIdentity?.workpieceId || null,
+      workspaceId: readWorkspaceIdForAudit(),
+      title: fallbackTitle,
+      scriptHash: String((window as any).__TP_LAST_APPLIED_HASH || '').trim() || null,
+      strategy: 'single' as const,
+      phase: 'failed' as const,
+      safeToLeave: detail.safeToLeave,
+      blobBytes: detail.bytes,
+      blobMb: Number((detail.bytes / (1024 * 1024)).toFixed(2)),
+      canonicalAttempted: detail.canonicalAttempted,
+      canonicalSucceeded: detail.canonicalSucceeded,
+      fallbackUsed: detail.fallbackUsed,
+      errorCode: detail.errorCode || null,
+      errorMessage: detail.errorMessage || null,
+      finalStorageKey: detail.finalStorageKey || null,
+    };
+    try {
+      window.dispatchEvent(new CustomEvent('tp:recording:upload-fallback', { detail: payload }));
+    } catch {}
+  }
+
   function isStorageTooLargeCommitResult(result: unknown): boolean {
     if (!result || typeof result !== 'object') return false;
     const row = result as {
@@ -142,6 +202,28 @@ import {
         ? row.details.error.message
         : '';
     return message.toLowerCase().includes('object size limit');
+  }
+
+  function extractCommitErrorSummary(result: unknown): { code: string | null; message: string | null } {
+    if (!result || typeof result !== 'object') return { code: null, message: null };
+    const row = result as {
+      errorCode?: unknown;
+      errorMessage?: unknown;
+      details?: { error?: { code?: unknown; message?: unknown } };
+    };
+    const code =
+      typeof row.errorCode === 'string'
+        ? row.errorCode
+        : typeof row.details?.error?.code === 'string'
+        ? row.details.error.code
+        : null;
+    const message =
+      typeof row.errorMessage === 'string'
+        ? row.errorMessage
+        : typeof row.details?.error?.message === 'string'
+        ? row.details.error.message
+        : null;
+    return { code, message };
   }
 
   function readCommitResultSuccess(
@@ -511,6 +593,7 @@ import {
         durationMs,
         transcriptFinalize,
         strategy,
+        saveIdentity: identity,
       });
     } finally {
       recordingStartedAtMs = null;
@@ -644,6 +727,7 @@ import {
               durationMs,
               transcriptFinalize,
               strategy: strategyAtStop,
+              saveIdentity: saveIdentityAtStop,
             });
           } catch (e) {
             try {
@@ -683,6 +767,7 @@ import {
       durationMs?: number | null;
       transcriptFinalize?: RecordingTranscriptFinalizeResult | null;
       strategy?: RecordingCaptureStrategy | null;
+      saveIdentity?: RecordingSaveIdentity | null;
     } = {},
   ): Promise<boolean> {
     const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -691,6 +776,9 @@ import {
     showRecordingFinalizeIndicator({ takeName: name });
     let committed = false;
     let commitResultOk: Extract<RecordingCommitResult, { ok: true }> | null = null;
+    let canonicalAttempted = false;
+    let canonicalErrorCode: string | null = null;
+    let canonicalErrorMessage: string | null = null;
     try {
       const storageLimitHintBytes = readStorageLimitHintBytes();
       const skipCanonicalCommit =
@@ -707,7 +795,11 @@ import {
           'Cloud save skipped for this take after a prior Storage size-limit failure. Recording will be mirrored locally.',
           'warning',
         );
+        canonicalAttempted = false;
+        canonicalErrorCode = 'canonical_commit_skipped_size_hint';
+        canonicalErrorMessage = 'Canonical upload skipped after prior storage size-limit failure';
       } else {
+        canonicalAttempted = true;
         try {
           const commitResult = await commitRecordingBytesToTongs({
             bytes,
@@ -755,6 +847,9 @@ import {
               });
             } catch {}
           } else {
+            const commitError = extractCommitErrorSummary(commitResult);
+            canonicalErrorCode = commitError.code;
+            canonicalErrorMessage = commitError.message;
             if (isStorageTooLargeCommitResult(commitResult)) {
               writeStorageLimitHintBytes(bytes.length);
               showRecorderToast(
@@ -767,6 +862,8 @@ import {
             } catch {}
           }
         } catch (commitErr) {
+          canonicalErrorCode = 'canonical_commit_exception';
+          canonicalErrorMessage = String((commitErr as any)?.message || commitErr || 'Canonical commit failed');
           try {
             console.warn('[core-recorder] canonical commit failed; using local fallback', commitErr);
           } catch {}
@@ -817,6 +914,20 @@ import {
                     : null,
                   transcriptFinalize: opts.transcriptFinalize ?? null,
                   strategy: opts.strategy ?? null,
+                });
+              }
+              if (!committed) {
+                emitUploadFallbackAudit({
+                  saveIdentity: opts.saveIdentity ?? null,
+                  originalName: name,
+                  bytes: bytes.length,
+                  canonicalAttempted,
+                  canonicalSucceeded: false,
+                  fallbackUsed: true,
+                  safeToLeave: true,
+                  errorCode: canonicalErrorCode,
+                  errorMessage: canonicalErrorMessage,
+                  finalStorageKey: `local:directory:${name}`,
                 });
               }
               return true;
@@ -874,6 +985,18 @@ import {
             } catch {}
           }, 2000);
         } catch {}
+        emitUploadFallbackAudit({
+          saveIdentity: opts.saveIdentity ?? null,
+          originalName: name,
+          bytes: bytes.length,
+          canonicalAttempted,
+          canonicalSucceeded: false,
+          fallbackUsed: true,
+          safeToLeave: true,
+          errorCode: canonicalErrorCode,
+          errorMessage: canonicalErrorMessage,
+          finalStorageKey: `local:download:${name}`,
+        });
         return false;
       } finally {
         hideRecordingFinalizeIndicator();

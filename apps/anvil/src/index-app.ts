@@ -337,6 +337,7 @@ import { kick } from './features/kick/kick';
 import { initPersistence } from './features/persistence';
 import { initTelemetry } from './features/telemetry';
 import { initToasts } from './features/toasts';
+import { initRecordingUploadAudit } from './features/recording-upload-audit';
 import './ui/script-editor';
 
 // === UI Scroll Mode Router ===
@@ -1372,6 +1373,7 @@ const startTelemetry   = initOnce('telemetry',   initTelemetry);
 const startScroll      = initOnce('scroll',      () => {});
 const startHotkeys     = initOnce('hotkeys',     initHotkeys);
 const startToasts      = initOnce('toasts',      initToasts);
+const startUploadAudit = initOnce('upload-audit', initRecordingUploadAudit);
 // Dev HUD for notes (only activates under ?dev=1 or __TP_DEV)
 // Tiny HUD chip that reflects current scroll mode
 import './features/scroll/mode-chip';
@@ -1931,6 +1933,7 @@ try { initScrollPrefsPersistence(appStore as any); } catch {}
 					try { startScroll(); } catch {}
 					try { startHotkeys(); } catch {}
 					try { startToasts(); } catch {}
+					try { startUploadAudit(); } catch {}
 
 					// Readiness summary for visibility and testability
 					try {

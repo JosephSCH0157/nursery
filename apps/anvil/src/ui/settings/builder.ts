@@ -227,6 +227,12 @@ export function buildSettingsContent(rootEl: HTMLElement | null) {
         <small class="muted">These buttons call the recorder registry so Bridge + OBS stay in sync.</small>
       </div>
 
+      <div class="settings-card anim-in" id="recordingUploadAuditCard">
+        <h4>Upload History</h4>
+        <div id="recordingUploadAuditLatest" class="settings-small">No recording uploads yet.</div>
+        <div id="recordingUploadAuditList"></div>
+      </div>
+
       <div class="settings-card anim-in">
         <h4>Audio-only mode</h4>
         <div class="row">

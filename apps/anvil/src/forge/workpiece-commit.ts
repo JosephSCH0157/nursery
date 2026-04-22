@@ -49,6 +49,7 @@ export type RecordingUploadStatusDetail = {
   safeToLeave?: boolean;
   errorCode?: string | null;
   errorMessage?: string | null;
+  finalStorageKey?: string | null;
 };
 
 export type RecordingDecisionEventName = "take_kept" | "take_discarded";
@@ -1263,6 +1264,7 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
     chunkIndex: strategy === "chunked" ? null : 1,
     totalChunks: strategy === "chunked" ? null : 1,
     chunkBytes: strategy === "chunked" ? null : input.bytes.byteLength,
+    finalStorageKey: path,
   });
 
   return {
