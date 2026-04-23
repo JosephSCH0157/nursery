@@ -232,8 +232,8 @@ const DEFAULT_CATCHUP_FAST_MIN_PX = 250;
 const DEFAULT_MAX_TARGET_JUMP_PX = 180;
 const DEFAULT_MAX_TARGET_JUMP_HYBRID_PX = 80;
 const LIVE_ASR_COMMIT_MIN_PX = 96;
-const LIVE_ASR_COMMIT_MAX_LINES = 8;
-const LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO = 0.75;
+const LIVE_ASR_COMMIT_MAX_LINES = 4;
+const LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO = 0.5;
 const LIVE_ASR_GLIDE_MIN_MS = 180;
 const LIVE_ASR_GLIDE_MAX_MS = 520;
 const LIVE_ASR_GLIDE_PX_PER_SEC = 900;
@@ -535,6 +535,7 @@ const DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES = 4;
 const DEFAULT_STRONG_MARKER_SNAP_SIM_PER_EXTRA_LINE = 0.03;
 const DEFAULT_STRONG_MARKER_SNAP_MAX_REQUIRED_SIM = 0.9;
 const DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES = 2;
+const DEFAULT_ASR_MARKER_ANCHOR_LIVE_MAX_DELTA_LINES = 1;
 const DEFAULT_LIVE_ASR_SOFT_COMMIT_MIN_DELTA_LINES = 4;
 const DEFAULT_LIVE_ASR_SOFT_COMMIT_LOW_CONF_SIM = 0.84;
 const DEFAULT_LIVE_ASR_SOFT_COMMIT_MAX_LINES = 3;
@@ -7081,12 +7082,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       });
       targetLine = cueSafeTargetLine;
       if (asrMode && !forced && !forceReason) {
-        const markerAnchorMaxLine = lastLineIndex + DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES;
+        const markerAnchorMaxDeltaLines =
+          isSessionLivePhase() && isSessionAsrArmed() && !strongForwardCommit
+            ? DEFAULT_ASR_MARKER_ANCHOR_LIVE_MAX_DELTA_LINES
+            : DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES;
+        const markerAnchorMaxLine = lastLineIndex + markerAnchorMaxDeltaLines;
         if (targetLine > markerAnchorMaxLine) {
           const markerAnchorCapped = resolveCueSafeCommitLine(
             markerAnchorMaxLine,
             lastLineIndex,
-            DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES,
+            markerAnchorMaxDeltaLines,
           ).nextLine;
           const safeMarkerAnchorLine =
             markerAnchorCapped != null && markerAnchorCapped > lastLineIndex
@@ -7096,7 +7101,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `current=${lastLineIndex}`,
             `requested=${targetLine}`,
             `capped=${safeMarkerAnchorLine}`,
-            `maxDelta=${DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES}`,
+            `maxDelta=${markerAnchorMaxDeltaLines}`,
             snippet ? `clue="${snippet}"` : '',
           ]);
           targetLine = safeMarkerAnchorLine;
@@ -7113,7 +7118,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             ? Math.max(0, Math.floor(liveStep.nextLine))
             : null;
         const liveForwardHoldActive =
-          !hasRecentFreshSpeech || !hasRecentVadSpeech || !!pending.liveForwardGuardActive;
+          !hasRecentVadSpeech ||
+          !runtimeSpeechFresh ||
+          !!pending.liveForwardGuardActive;
         const tryApplyStallRecoveryOverride = (): boolean => {
           if (liveStepTarget == null) return false;
           const sinceCommitMs = Math.max(0, now - lastCommitTime);
@@ -8496,7 +8503,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       asrMode &&
       isSessionAsrArmed() &&
       isSessionLivePhase() &&
-      (starvationDetected || !freshSpeechSinceCommit || !hasRecentVadSpeech || !runtimeSpeechFresh);
+      (!hasRecentVadSpeech || !runtimeSpeechFresh);
     const cueStallRescueDelayMs = resolveCueStallRescueDelayMs({
       asrMode,
       finalsSinceCommit,
