@@ -462,6 +462,14 @@ const DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS = 1200;
 const DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MIN_SIM = 0.66;
 const DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_SIM_BONUS = 0.06;
 const DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MAX_FORWARD_LINES = 2;
+const DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_DELTA_LINES = 3;
+const DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MAX_DELTA_LINES = 12;
+const DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM = 0.62;
+const DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_STABLE_HITS = 2;
+const DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS = 3500;
+const DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_INDEX_EPS = 2;
+const DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM = 0.58;
+const DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS = 1400;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 1;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 1;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS;
@@ -3123,6 +3131,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastAutoCueSkipAt = 0;
   let lastStallRecoveryOverrideAt = 0;
   let liveStrictSpeculativeStepUsed = false;
+  let liveStrictForwardClusterCursor = -1;
+  let liveStrictForwardClusterLine = -1;
+  let liveStrictForwardClusterSim = 0;
+  let liveStrictForwardClusterHits = 0;
+  let liveStrictForwardClusterUpdatedAt = 0;
+  let liveStrictForwardClusterContradictionAt = 0;
 
   const noteRuntimeSpeechState = (detail: unknown) => {
     const actualRaw = (detail as { speechRunningActual?: unknown } | null | undefined)?.speechRunningActual;
@@ -3153,6 +3167,93 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
   const isLiveStrictSpeculativeForceReason = (reason: string | undefined) =>
     LIVE_STRICT_SPECULATIVE_FORCE_REASONS.has(String(reason || '').trim().toLowerCase());
+  const resetLiveStrictForwardCluster = () => {
+    liveStrictForwardClusterCursor = -1;
+    liveStrictForwardClusterLine = -1;
+    liveStrictForwardClusterSim = 0;
+    liveStrictForwardClusterHits = 0;
+    liveStrictForwardClusterUpdatedAt = 0;
+    liveStrictForwardClusterContradictionAt = 0;
+  };
+  const noteLiveStrictForwardClusterEvidence = (args: {
+    now: number;
+    cursorLine: number;
+    bestLine: number;
+    bestSim: number;
+    isFinal: boolean;
+    requiredThreshold: number;
+    topScores: Array<{ idx: number; score: number }>;
+    currentLineDirectSim: number;
+  }) => {
+    const { now, cursorLine, bestLine, bestSim, isFinal, requiredThreshold, topScores, currentLineDirectSim } = args;
+    const safeCursor = Math.max(0, Math.floor(cursorLine));
+    const safeBest = Math.max(0, Math.floor(bestLine));
+    const delta = safeBest - safeCursor;
+    if (!isFinal || !Number.isFinite(bestSim) || delta <= 0) {
+      if (liveStrictForwardClusterCursor === safeCursor) {
+        liveStrictForwardClusterHits = 0;
+        liveStrictForwardClusterLine = -1;
+        liveStrictForwardClusterSim = 0;
+        liveStrictForwardClusterUpdatedAt = now;
+      }
+      return;
+    }
+    const contradictionNeed = Math.max(
+      DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM,
+      bestSim - 0.08,
+    );
+    const hasBackwardContradiction =
+      (Number.isFinite(currentLineDirectSim) && currentLineDirectSim >= contradictionNeed) ||
+      (Array.isArray(topScores) && topScores.some((entry) => {
+        const idx = Number(entry.idx);
+        const score = Number(entry.score);
+        if (!Number.isFinite(idx) || !Number.isFinite(score)) return false;
+        if (Math.floor(idx) > safeCursor) return false;
+        return score >= contradictionNeed;
+      }));
+    if (hasBackwardContradiction) {
+      liveStrictForwardClusterContradictionAt = now;
+      if (liveStrictForwardClusterCursor === safeCursor) {
+        liveStrictForwardClusterHits = 0;
+      }
+      return;
+    }
+    const minNeed = Math.max(
+      DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM,
+      Number.isFinite(requiredThreshold) ? requiredThreshold : 0,
+    );
+    const farForwardCandidate =
+      delta >= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_DELTA_LINES &&
+      delta <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MAX_DELTA_LINES &&
+      bestSim >= minNeed;
+    if (!farForwardCandidate) {
+      if (liveStrictForwardClusterCursor === safeCursor) {
+        liveStrictForwardClusterHits = 0;
+        liveStrictForwardClusterLine = -1;
+        liveStrictForwardClusterSim = 0;
+        liveStrictForwardClusterUpdatedAt = now;
+      }
+      return;
+    }
+    if (
+      liveStrictForwardClusterCursor === safeCursor &&
+      now - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS &&
+      liveStrictForwardClusterLine >= 0 &&
+      Math.abs(liveStrictForwardClusterLine - safeBest) <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_INDEX_EPS
+    ) {
+      liveStrictForwardClusterHits += 1;
+      liveStrictForwardClusterSim = Math.max(liveStrictForwardClusterSim, bestSim);
+      if (bestSim >= liveStrictForwardClusterSim || liveStrictForwardClusterLine < 0) {
+        liveStrictForwardClusterLine = safeBest;
+      }
+    } else {
+      liveStrictForwardClusterCursor = safeCursor;
+      liveStrictForwardClusterLine = safeBest;
+      liveStrictForwardClusterSim = bestSim;
+      liveStrictForwardClusterHits = 1;
+    }
+    liveStrictForwardClusterUpdatedAt = now;
+  };
   let noProgressStreak = 0;
   let lostForwardWallStreak = 0;
   let lastProgressCursorLine = -1;
@@ -5097,14 +5198,38 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       (lastRescueMatchEvidenceLine === safeCursor || lastRescueMatchEvidenceLine === safeTarget) &&
       Number.isFinite(lastRescueMatchEvidenceSim) &&
       lastRescueMatchEvidenceSim >= DEFAULT_LIVE_STRICT_LOCAL_PROOF_RESCUE_MIN_SIM;
-    const ok = adjacentSupport || rescueSupport;
+    const clusterNeed = clamp(
+      Number.isFinite(requiredThreshold)
+        ? Math.max(Number(requiredThreshold) - 0.02, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM)
+        : DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM,
+      DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM,
+      1,
+    );
+    const clusterContradictionFresh =
+      liveStrictForwardClusterContradictionAt > 0 &&
+      now - liveStrictForwardClusterContradictionAt <= DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS;
+    const clusterSupport =
+      liveStrictForwardClusterCursor === safeCursor &&
+      liveStrictForwardClusterHits >= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_STABLE_HITS &&
+      liveStrictForwardClusterLine >= safeCursor + DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_DELTA_LINES &&
+      liveStrictForwardClusterLine <= safeCursor + DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MAX_DELTA_LINES &&
+      liveStrictForwardClusterUpdatedAt > 0 &&
+      now - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS &&
+      Number.isFinite(liveStrictForwardClusterSim) &&
+      liveStrictForwardClusterSim >= clusterNeed &&
+      !clusterContradictionFresh;
+    const ok = adjacentSupport || rescueSupport || clusterSupport;
     if (ok) {
       warnGuard('live_strict_local_proof_ok', [
         `current=${safeCursor}`,
         `target=${safeTarget}`,
         `adjacentNeed=${formatLogScore(adjacentNeed)}`,
         Number.isFinite(adjacentSim) ? `adjacentSim=${formatLogScore(adjacentSim)}` : 'adjacentSim=na',
-        rescueSupport ? 'source=rescue-evidence' : 'source=adjacent',
+        rescueSupport
+          ? 'source=rescue-evidence'
+          : (clusterSupport
+            ? `source=forward-cluster line=${liveStrictForwardClusterLine} hits=${liveStrictForwardClusterHits}`
+            : 'source=adjacent'),
       ]);
     }
     return ok;
@@ -5278,6 +5403,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastForwardCommitAt = now;
     resetLowSimStreak();
     resetNoProgressStreak('cue-skip', targetLine);
+    resetLiveStrictForwardCluster();
     lowSimFreezeLogged = false;
     const cueSkipGuard = liveStrictFollow ? 'live_strict_cue_step' : 'cue_skip';
     emitHudStatus(cueSkipGuard, liveStrictFollow ? 'Strict cue step +1' : 'Skipped cue line');
@@ -5625,6 +5751,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const next = Number.isFinite(nextIndex) ? Math.max(0, Math.floor(nextIndex)) : -1;
     if (next > prev) {
       resetNoProgressStreak('forward-commit', next);
+      resetLiveStrictForwardCluster();
     }
     if (next >= 0) {
       maybeEmitScriptEndEvent(next, 'commit');
@@ -9415,6 +9542,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
         requiredThreshold = relaxedThreshold;
       }
+    }
+    const liveStrictFollow = asrMode && isSessionLivePhase() && isSessionAsrArmed();
+    if (liveStrictFollow && Number.isFinite(rawIdx) && rawIdx >= 0) {
+      noteLiveStrictForwardClusterEvidence({
+        now,
+        cursorLine,
+        bestLine: Math.max(0, Math.floor(rawIdx)),
+        bestSim: conf,
+        isFinal,
+        requiredThreshold,
+        topScores: topScoresSpeakable,
+        currentLineDirectSim,
+      });
+    } else if (!liveStrictFollow) {
+      resetLiveStrictForwardCluster();
     }
     const interimHighThreshold = clamp(requiredThreshold + interimHysteresisBonus, 0, 1);
     const consistencyMinSim = clamp(requiredThreshold - consistencySimSlack, 0, 1);
