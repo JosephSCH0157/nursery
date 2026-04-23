@@ -452,7 +452,7 @@ const DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS = 1400;
 const DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS = 320;
 const DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS = 260;
 const DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS = 220;
-const DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS = 2600;
+const DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS = 3200;
 const DEFAULT_RESCUE_MATCH_MIN_SIM = 0.62;
 const DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES = 2;
 const DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS = 1200;
@@ -469,6 +469,7 @@ const DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK = 0.06;
 const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM = 0.55;
 const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES = 4;
 const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES = 1;
+const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_LIVE_PROMOTE_MAX_LINES = 0;
 const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_DELTA_LINES = 5;
 const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_MIN_SIM = 0.86;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES = 3;
@@ -527,7 +528,7 @@ const DEFAULT_GRACE_ROLLBACK_MIN_MARGIN = 0.35;
 const DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS = 5000;
 const DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES = 1;
 const DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM = 0.84;
-const DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM = 0.32;
+const DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM = 0.45;
 const DEFAULT_STRONG_FORWARD_COMMIT_SIM = 0.82;
 const DEFAULT_STRONG_MARKER_SNAP_MIN_SIM = 0.82;
 const DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES = 2;
@@ -6958,9 +6959,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 snippet ? `clue="${snippet}"` : '',
               ]);
             } else if (asrWeakClampFallbackAllow) {
+              const liveWeakClampPromoteMaxLines =
+                asrMode && isSessionLivePhase() && isSessionAsrArmed()
+                  ? DEFAULT_ASR_WEAK_CLAMP_FALLBACK_LIVE_PROMOTE_MAX_LINES
+                  : DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES;
               targetLine = Math.min(
                 requestedLine,
-                clampedLine + DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES,
+                clampedLine + liveWeakClampPromoteMaxLines,
               );
               warnGuard('asr_weak_clamp_fallback_allow', [
                 `current=${lastLineIndex}`,
@@ -6972,7 +6977,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 `minSim=${formatLogScore(weakClampFallbackMinSim)}`,
                 `delta=${weakClampFallbackDelta}`,
                 `maxDelta=${DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES}`,
-                `stepMax=${DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES}`,
+                `stepMax=${liveWeakClampPromoteMaxLines}`,
                 snippet ? `clue="${snippet}"` : '',
               ]);
             } else {
@@ -10382,6 +10387,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       markerIdx >= 0 &&
       rawIdx < markerIdx;
     if (holdAheadOfMarker) {
+      const currentLineScoreForMarkerBackstep = Number.isFinite(arbitrationCurrentScore)
+        ? Number(arbitrationCurrentScore)
+        : conf;
+      if (tryLiveAsrCorrectiveBackstep(
+        cursorLine,
+        rawIdx,
+        now,
+        conf,
+        currentLineScoreForMarkerBackstep,
+        requiredThreshold,
+        'ahead-of-marker-correct',
+        matchId,
+        snippet,
+      )) {
+        return;
+      }
       warnGuard('ahead_of_marker_hold', [
         `current=${cursorLine}`,
         `best=${rawIdx}`,
