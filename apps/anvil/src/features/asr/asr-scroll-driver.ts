@@ -5463,7 +5463,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (!isSessionLivePhase() || !isSessionAsrArmed()) return false;
     const liveStrictFollow = getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed();
     const now = Date.now();
-    if (now - lastCueStallRescueAt < DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS) return false;
     const cursorRaw = lastLineIndex >= 0 ? lastLineIndex : Number((window as any)?.currentIndex ?? -1);
     if (!Number.isFinite(cursorRaw) || cursorRaw < 0) return false;
     const cursorLine = Math.max(0, Math.floor(cursorRaw));
@@ -5518,13 +5517,29 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       Number.isFinite(lastRescueMatchEvidenceLine) && Number.isFinite(lastRescueMatchEvidenceSim)
         ? [{ idx: lastRescueMatchEvidenceLine, score: lastRescueMatchEvidenceSim }]
         : [];
-    const strictLocalProofOk = !liveStrictFollow || hasLiveStrictLocalProof(
-      cursorLine,
-      targetLine,
-      now,
-      strictLocalProofTopScores,
-      DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+    const strictLocalProofOk = !liveStrictFollow || (
+      hasLiveStrictLocalProof(
+        cursorLine,
+        targetLine,
+        now,
+        strictLocalProofTopScores,
+        DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+      ) ||
+      hasLiveStrictCueExitProof(
+        cursorLine,
+        targetLine,
+        now,
+        strictLocalProofTopScores,
+        DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+      )
     );
+    const strictContinuityRescue =
+      liveStrictFollow &&
+      deltaLines === 1 &&
+      strictLocalProofOk;
+    if (!strictContinuityRescue && now - lastCueStallRescueAt < DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS) {
+      return false;
+    }
     if (liveStrictFollow && !strictLocalProofOk) {
       stallRescueRequested = false;
       warnGuard('live_strict_rescue_hold_no_local_proof', [
@@ -7174,12 +7189,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const strictLocalProofForAdjacent =
         liveStrictFollow &&
         line > lastLineIndex &&
-        hasLiveStrictLocalProof(
-          lastLineIndex,
-          lastLineIndex + 1,
-          now,
-          rankedTopScores,
-          baselineRequired,
+        (
+          hasLiveStrictLocalProof(
+            lastLineIndex,
+            lastLineIndex + 1,
+            now,
+            rankedTopScores,
+            baselineRequired,
+          ) ||
+          hasLiveStrictCueExitProof(
+            lastLineIndex,
+            lastLineIndex + 1,
+            now,
+            rankedTopScores,
+            baselineRequired,
+          )
         );
       const strictBypassRequested =
         watchdogBypass ||
@@ -7739,6 +7763,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           !runtimeSpeechFresh ||
           !!pending.liveForwardGuardActive;
         const tryApplyStallRecoveryOverride = (): boolean => {
+          if (liveStrictFollow) return false;
           if (liveStepTarget == null) return false;
           const sinceCommitMs = Math.max(0, now - lastCommitTime);
           const starvationDetected =
@@ -7863,12 +7888,28 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const strictLocalProofForCommit =
         liveStrictFollow &&
         targetLine > lastLineIndex &&
-        hasLiveStrictLocalProof(
-          lastLineIndex,
-          targetLine,
-          now,
-          rankedTopScores,
-          baselineRequired,
+        (
+          hasLiveStrictLocalProof(
+            lastLineIndex,
+            targetLine,
+            now,
+            rankedTopScores,
+            baselineRequired,
+          ) ||
+          hasLiveStrictCueExitProof(
+            lastLineIndex,
+            targetLine,
+            now,
+            rankedTopScores,
+            baselineRequired,
+          )
+        );
+      const strictBackwardContradictionForCommit =
+        liveStrictFollow &&
+        targetLine > lastLineIndex &&
+        rankedTopScores.some((entry) =>
+          entry.idx <= lastLineIndex &&
+          entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06),
         );
       const strictForwardCommit =
         liveStrictFollow &&
@@ -7938,7 +7979,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const liveStrictProofCommit =
         strictForwardCommit &&
         targetLine === lastLineIndex + 1 &&
-        !!strictLocalProofForCommit;
+        !!strictLocalProofForCommit &&
+        !strictBackwardContradictionForCommit;
       const liveSpeechGuardActive =
         !hasRecentVadSpeech ||
         !runtimeSpeechFresh ||
@@ -8355,6 +8397,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
 
       const starvationNoEvidenceBypass =
+        !liveStrictFollow &&
         isFinal &&
         !noInputGuardActive &&
         lastCommitIndex != null &&
@@ -8367,7 +8410,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM,
           baselineRequired - DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK,
         );
-      if (!hasEvidence && !starvationNoEvidenceBypass && !starvationForwardBypass) {
+      if (!hasEvidence && !liveStrictProofCommit && !starvationNoEvidenceBypass && !starvationForwardBypass) {
         warnGuard('no_evidence', [
           `current=${lastLineIndex}`,
           `best=${line}`,
@@ -8385,6 +8428,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           emitHudStatus('no_evidence', 'Blocked: min evidence');
         }
         return;
+      }
+      if (!hasEvidence && liveStrictProofCommit) {
+        warnGuard('live_strict_immediate_adjacent', [
+          `current=${lastLineIndex}`,
+          `target=${targetLine}`,
+          `sim=${formatLogScore(conf)}`,
+          'source=adjacent-proof',
+          snippet ? `clue="${snippet}"` : '',
+        ]);
       }
       if (!hasEvidence && starvationNoEvidenceBypass) {
         warnGuard('starvation_no_evidence_bypass', [
@@ -9223,6 +9275,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     maybeBumpForStall(now);
     const mode = getScrollMode();
     const asrMode = mode === 'asr';
+    const liveStrictFlowPhasePre =
+      asrMode &&
+      isSessionAsrArmed() &&
+      isSessionLivePhase();
     const vadSpeechAgeMs =
       lastVadSpeechAt > 0 ? Math.max(0, now - lastVadSpeechAt) : Number.POSITIVE_INFINITY;
     const hasRecentVadSpeech =
@@ -9231,9 +9287,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       vadSpeechAgeMs <= DEFAULT_ASR_VAD_SPEECH_GRACE_MS;
     const runtimeSpeechFresh = hasRecentActualSpeech(now);
     const liveForwardGuardActive =
-      asrMode &&
-      isSessionAsrArmed() &&
-      isSessionLivePhase() &&
+      liveStrictFlowPhasePre &&
       (!hasRecentVadSpeech || !runtimeSpeechFresh);
     const cueStallRescueDelayMs = resolveCueStallRescueDelayMs({
       asrMode,
@@ -9242,7 +9296,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     });
     if (
       commitCount > 0 &&
-      eventsSinceCommit >= 2 &&
+      eventsSinceCommit >= (liveStrictFlowPhasePre ? 1 : 2) &&
       now - lastForwardCommitAt >= cueStallRescueDelayMs
     ) {
       if (maybeScheduleStallCueRescue('auto-stall')) {
