@@ -459,8 +459,9 @@ const DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS = 1200;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 1;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 1;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS;
+const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MIN_COMMITS = 8;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_MIN_COMMITS = 6;
-const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS * 2;
+const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS;
 const DEFAULT_MULTI_JUMP_MIN_SIM = 0.4;
 const DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS = 0.08;
 const DEFAULT_MULTI_JUMP_HARD_DENY_SIM = 0.26;
@@ -1094,6 +1095,12 @@ export function shouldAllowAutoStallContentRescue(opts: {
   const sinceLastForwardMs = Number.isFinite(opts.sinceLastForwardMs)
     ? Math.max(0, Number(opts.sinceLastForwardMs))
     : 0;
+  const matureRun =
+    commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MIN_COMMITS &&
+    sinceLastForwardMs >= DEFAULT_STARVATION_COMMIT_GAP_MS;
+  if (matureRun && deltaLines <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES) {
+    return true;
+  }
   if (deltaLines > 1) {
     return (
       deltaLines <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES &&
@@ -5192,6 +5199,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       sinceLastForwardMs: now - lastForwardCommitAt,
       lostForwardGateCountSinceCommit,
     });
+    const matureRunStartupGuardDisabled =
+      commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MIN_COMMITS &&
+      Math.max(0, now - lastForwardCommitAt) >= DEFAULT_STARVATION_COMMIT_GAP_MS;
+    if (reasonTag === 'auto-stall' && directContentForwardRescue && autoStallContentRescueAllowed && matureRunStartupGuardDisabled) {
+      warnGuard('startup_guard_degraded', [
+        `at=${cursorLine}`,
+        `commits=${commitCount}`,
+        `delta=${deltaLines}`,
+        `sinceForwardMs=${Math.max(0, now - lastForwardCommitAt)}`,
+        reason ? `source=${reason}` : '',
+      ]);
+    }
     const neededLostForwardGates =
       commitCount >= 2
         ? 1
