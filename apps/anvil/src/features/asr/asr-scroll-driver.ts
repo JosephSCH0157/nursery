@@ -459,6 +459,9 @@ const DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS = 1200;
 const DEFAULT_LIVE_STRICT_LOCAL_PROOF_ADJACENT_MIN_SIM = 0.55;
 const DEFAULT_LIVE_STRICT_LOCAL_PROOF_RESCUE_MIN_SIM = 0.6;
 const DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS = 1200;
+const DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MIN_SIM = 0.66;
+const DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_SIM_BONUS = 0.06;
+const DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MAX_FORWARD_LINES = 2;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 1;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 1;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS;
@@ -5107,6 +5110,95 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return ok;
   };
 
+  const hasLiveStrictCueExitProof = (
+    cursorLine: number,
+    targetLine: number,
+    now: number,
+    topScores: Array<{ idx: number; score: number }>,
+    requiredThreshold: number,
+  ): boolean => {
+    if (!Number.isFinite(cursorLine) || cursorLine < 0) return false;
+    if (!Number.isFinite(targetLine) || targetLine < 0) return false;
+    const safeCursor = Math.max(0, Math.floor(cursorLine));
+    const safeTarget = Math.max(0, Math.floor(targetLine));
+    if (safeTarget !== safeCursor + 1) return false;
+    if (!isIgnorableCueLineText(getLineTextAt(safeCursor))) return false;
+    if (!hasRecentActualSpeech(now) || !hasRecentVadSpeechNow(now)) return false;
+
+    const cueBridge = findNextSpeakableWithinBridge(
+      safeCursor,
+      DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES + 1,
+      { strict: true },
+    );
+    const nextSpeakableLine =
+      cueBridge.nextLine != null && cueBridge.nextLine > safeCursor
+        ? Math.max(0, Math.floor(cueBridge.nextLine))
+        : -1;
+    if (nextSpeakableLine < safeTarget) return false;
+    const maxForwardLine = Math.max(
+      safeTarget,
+      nextSpeakableLine + DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MAX_FORWARD_LINES,
+    );
+    const lookaheadNeed = clamp(
+      Number.isFinite(requiredThreshold)
+        ? Math.max(
+          Number(requiredThreshold) + DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_SIM_BONUS,
+          DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MIN_SIM,
+        )
+        : DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MIN_SIM,
+      DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MIN_SIM,
+      1,
+    );
+    const rankedTopScores = (Array.isArray(topScores) ? topScores : [])
+      .map((entry) => ({
+        idx: Number((entry as any)?.idx),
+        score: Number((entry as any)?.score),
+      }))
+      .filter((entry) => Number.isFinite(entry.idx) && Number.isFinite(entry.score))
+      .map((entry) => ({
+        idx: Math.max(0, Math.floor(entry.idx)),
+        score: entry.score,
+      }))
+      .sort((a, b) => b.score - a.score || a.idx - b.idx);
+    const bestForwardSupport = rankedTopScores.find((entry) => {
+      if (entry.idx < nextSpeakableLine || entry.idx > maxForwardLine) return false;
+      if (entry.score < lookaheadNeed) return false;
+      const candidateText = getLineTextAt(entry.idx);
+      if (isIgnorableCueLineText(candidateText)) return false;
+      return true;
+    });
+    const rescueEvidenceAgeMs =
+      lastRescueMatchEvidenceAt > 0
+        ? Math.max(0, now - lastRescueMatchEvidenceAt)
+        : Number.POSITIVE_INFINITY;
+    const rescueLookaheadSupport =
+      rescueEvidenceAgeMs <= DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS &&
+      lastRescueMatchEvidenceLine >= nextSpeakableLine &&
+      lastRescueMatchEvidenceLine <= maxForwardLine &&
+      Number.isFinite(lastRescueMatchEvidenceSim) &&
+      lastRescueMatchEvidenceSim >= Math.max(
+        DEFAULT_LIVE_STRICT_LOCAL_PROOF_RESCUE_MIN_SIM,
+        lookaheadNeed - 0.04,
+      );
+    const ok = !!bestForwardSupport || rescueLookaheadSupport;
+    if (ok) {
+      warnGuard('live_strict_local_proof_ok', [
+        `current=${safeCursor}`,
+        `target=${safeTarget}`,
+        `nextSpeakable=${nextSpeakableLine}`,
+        `lookaheadNeed=${formatLogScore(lookaheadNeed)}`,
+        bestForwardSupport
+          ? `lookahead=${bestForwardSupport.idx}:${formatLogScore(bestForwardSupport.score)}`
+          : 'lookahead=na',
+        rescueLookaheadSupport
+          ? `rescue=${lastRescueMatchEvidenceLine}:${formatLogScore(lastRescueMatchEvidenceSim)}`
+          : '',
+        'source=cue-exit-lookahead',
+      ]);
+    }
+    return ok;
+  };
+
   const maybeSkipCueLine = (
     cursorLine: number,
     now: number,
@@ -5145,7 +5237,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         topScores,
         requiredThreshold,
       );
-      if (!localProofOk) {
+      const cueExitProofOk = !localProofOk && hasLiveStrictCueExitProof(
+        cursorLine,
+        targetLine,
+        now,
+        topScores,
+        requiredThreshold,
+      );
+      if (!localProofOk && !cueExitProofOk) {
         warnGuard('live_strict_cue_skip_hold', [
           `current=${cursorLine}`,
           `requested=${targetLine}`,

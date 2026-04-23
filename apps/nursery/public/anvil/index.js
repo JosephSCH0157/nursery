@@ -36894,24 +36894,6 @@ function createAsrScrollDriver(options = {}) {
         emitHudStatus("live_strict_cue_skip_hold", "Hold: cue step requires local proof");
         return false;
       }
-      if (liveStrictSpeculativeStepUsed) {
-        warnGuard("live_strict_cue_skip_hold", [
-          `current=${cursorLine}`,
-          `requested=${targetLine}`,
-          "reason=latch_used",
-          reason ? `source=${reason}` : "",
-          clue ? `clue="${clue}"` : ""
-        ]);
-        emitHudStatus("live_strict_cue_skip_hold", "Hold: cue step blocked by speculative latch");
-        return false;
-      }
-      liveStrictSpeculativeStepUsed = true;
-      warnGuard("live_strict_speculative_latch_set", [
-        `current=${cursorLine}`,
-        `target=${targetLine}`,
-        "source=cue-step",
-        reason ? `reason=${reason}` : ""
-      ]);
     } else {
       if (!Number.isFinite(nextSpoken) || nextSpoken <= cursorLine) return false;
       targetLine = Math.max(0, Math.floor(nextSpoken));
@@ -37051,21 +37033,6 @@ function createAsrScrollDriver(options = {}) {
       emitHudStatus(
         "live_strict_rescue_hold_no_local_proof",
         "Hold: rescue requires adjacent local proof"
-      );
-      return false;
-    }
-    if (liveStrictFollow && liveStrictSpeculativeStepUsed) {
-      stallRescueRequested = false;
-      warnGuard("live_strict_speculative_latch_hold", [
-        `at=${cursorLine}`,
-        `target=${targetLine}`,
-        `delta=${deltaLines}`,
-        "reason=latch_used",
-        reason ? `source=${reason}` : ""
-      ]);
-      emitHudStatus(
-        "live_strict_speculative_latch_hold",
-        "Hold: rescue blocked by speculative latch"
       );
       return false;
     }
@@ -38375,33 +38342,21 @@ function createAsrScrollDriver(options = {}) {
           baselineRequired
         );
         const strictBypassRequested = watchdogBypass || progressiveFloorBypass || cueBridgeBypass || lostForwardBypass || permissiveForwardBypass || finalForwardBypass || starvationForwardBypass || consistentCatchupBypass || completionAdjacentBypass || stallRescueBypass;
-        if (liveStrictFollow && line > lastLineIndex && strictBypassRequested) {
-          const strictBypassHoldReason = !strictLocalProofForAdjacent ? "no_local_proof" : liveStrictSpeculativeStepUsed ? "latch_used" : "";
-          if (strictBypassHoldReason) {
-            warnGuard("live_strict_speculative_latch_hold", [
-              `current=${lastLineIndex}`,
-              `best=${line}`,
-              `delta=${line - lastLineIndex}`,
-              `reason=${strictBypassHoldReason}`,
-              "source=bypass-admission",
-              forceReason ? `force=${forceReason}` : "",
-              snippet ? `clue="${snippet}"` : ""
-            ]);
-            emitHudStatus(
-              "live_strict_speculative_latch_hold",
-              strictBypassHoldReason === "latch_used" ? "Hold: speculative latch consumed" : "Hold: bypass needs adjacent local proof"
-            );
-            watchdogBypass = false;
-            progressiveFloorBypass = false;
-            cueBridgeBypass = false;
-            lostForwardBypass = false;
-            permissiveForwardBypass = false;
-            finalForwardBypass = false;
-            starvationForwardBypass = false;
-            consistentCatchupBypass = false;
-            completionAdjacentBypass = false;
-            stallRescueBypass = false;
-          }
+        if (liveStrictFollow && line > lastLineIndex && strictBypassRequested && !strictLocalProofForAdjacent) {
+          warnGuard("live_strict_speculative_latch_hold", [
+            `current=${lastLineIndex}`,
+            `best=${line}`,
+            `delta=${line - lastLineIndex}`,
+            "reason=no_local_proof",
+            "source=bypass-admission",
+            forceReason ? `force=${forceReason}` : "",
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+          emitHudStatus(
+            "live_strict_speculative_latch_hold",
+            "Hold: bypass needs adjacent local proof"
+          );
+          return;
         }
         const strongMatch = watchdogBypass || progressiveFloorBypass || cueBridgeBypass || lostForwardBypass || permissiveForwardBypass || finalForwardBypass || starvationForwardBypass || consistentCatchupBypass || completionAdjacentBypass || stallRescueBypass || conf >= effectiveMatchThreshold && tieGateOk;
         if (!strongMatch) {
@@ -38915,25 +38870,26 @@ function createAsrScrollDriver(options = {}) {
           rankedTopScores,
           baselineRequired
         );
-        const strictBypassOnlyAdmission = liveStrictFollow && targetLine > lastLineIndex && conf < baselineRequired && (progressiveFloorBypass || completionAdjacentBypass || starvationForwardBypass || stallRescueBypass);
-        const strictSpeculativeForward = liveStrictFollow && targetLine > lastLineIndex && (isLiveStrictSpeculativeForceReason(forceReason) || cueCommitFallbackApplied || strictBypassOnlyAdmission);
+        const strictForwardCommit = liveStrictFollow && targetLine > lastLineIndex;
+        const strictBypassOnlyAdmission = strictForwardCommit && conf < baselineRequired && (progressiveFloorBypass || completionAdjacentBypass || starvationForwardBypass || stallRescueBypass);
+        const strictSpeculativeSource = strictForwardCommit && (isLiveStrictSpeculativeForceReason(forceReason) || cueCommitFallbackApplied || strictBypassOnlyAdmission);
+        const strictNoProofForward = strictForwardCommit && !strictLocalProofForCommit;
+        const strictSpeculativeForward = strictNoProofForward && strictSpeculativeSource;
+        if (strictNoProofForward && !strictSpeculativeSource) {
+          warnGuard("live_strict_speculative_latch_hold", [
+            `current=${lastLineIndex}`,
+            `target=${targetLine}`,
+            "reason=no_local_proof",
+            forceReason ? `force=${forceReason}` : "",
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+          emitHudStatus(
+            "live_strict_speculative_latch_hold",
+            "Hold: strict forward needs local proof"
+          );
+          return;
+        }
         if (strictSpeculativeForward) {
-          if (!strictLocalProofForCommit) {
-            warnGuard("live_strict_speculative_latch_hold", [
-              `current=${lastLineIndex}`,
-              `target=${targetLine}`,
-              "reason=no_local_proof",
-              cueCommitFallbackApplied ? "source=cue_commit_fallback" : "",
-              forceReason ? `force=${forceReason}` : "",
-              strictBypassOnlyAdmission ? "source=bypass-only" : "",
-              snippet ? `clue="${snippet}"` : ""
-            ]);
-            emitHudStatus(
-              "live_strict_speculative_latch_hold",
-              "Hold: speculative step needs local proof"
-            );
-            return;
-          }
           if (liveStrictSpeculativeStepUsed) {
             warnGuard("live_strict_speculative_latch_hold", [
               `current=${lastLineIndex}`,
@@ -38941,7 +38897,7 @@ function createAsrScrollDriver(options = {}) {
               "reason=latch_used",
               cueCommitFallbackApplied ? "source=cue_commit_fallback" : "",
               forceReason ? `force=${forceReason}` : "",
-              strictBypassOnlyAdmission ? "source=bypass-only" : "",
+              strictBypassOnlyAdmission ? "source=bypass-only" : "source=speculative",
               snippet ? `clue="${snippet}"` : ""
             ]);
             emitHudStatus(
@@ -38959,7 +38915,7 @@ function createAsrScrollDriver(options = {}) {
             strictBypassOnlyAdmission ? "source=bypass-only" : "source=speculative"
           ]);
         }
-        const liveStrictProofCommit = liveStrictFollow && targetLine === lastLineIndex + 1 && !strictSpeculativeForward && !!strictLocalProofForCommit;
+        const liveStrictProofCommit = strictForwardCommit && targetLine === lastLineIndex + 1 && !!strictLocalProofForCommit;
         const liveSpeechGuardActive = !hasRecentVadSpeech || !runtimeSpeechFresh || !!pending.liveForwardGuardActive;
         if (asrMode && targetLine > lastLineIndex && liveSpeechGuardActive && forceReason !== "stall-rescue" && forceReason !== "stall_recovery_override") {
           warnGuard("asr_live_no_input_hold", [
