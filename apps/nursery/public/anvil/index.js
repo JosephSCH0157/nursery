@@ -33562,9 +33562,10 @@ function evaluateStallCueRescuePolicy(opts) {
   if (reasonTag === "auto-stall") {
     if (!cursorLineSkippable) {
       return {
-        allow: false,
-        directContentForwardRescue: false,
-        blockedReason: "content-line"
+        // Completion-first: allow bounded +1 progression on content lines when stalled.
+        allow: true,
+        directContentForwardRescue: true,
+        blockedReason: ""
       };
     }
     return {
@@ -33589,10 +33590,20 @@ function evaluateStallCueRescuePolicy(opts) {
 function shouldAllowAutoStallContentRescue(opts) {
   const commitCount = Number.isFinite(opts.commitCount) ? Math.max(0, Math.floor(opts.commitCount)) : 0;
   const deltaLines = Number.isFinite(opts.deltaLines) ? Math.max(0, Math.floor(opts.deltaLines)) : 0;
-  if (deltaLines !== 1) return false;
+  if (deltaLines <= 0) return false;
+  const sinceLastForwardMs = Number.isFinite(opts.sinceLastForwardMs) ? Math.max(0, Number(opts.sinceLastForwardMs)) : 0;
+  const matureRun = commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MIN_COMMITS && sinceLastForwardMs >= DEFAULT_STARVATION_COMMIT_GAP_MS;
+  if (matureRun && deltaLines === 1) {
+    return true;
+  }
+  if (matureRun && deltaLines > 1 && deltaLines <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES && commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MULTI_STEP_MIN_COMMITS && sinceLastForwardMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS) {
+    return true;
+  }
+  if (deltaLines > 1) {
+    return deltaLines <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES && commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_MIN_COMMITS && sinceLastForwardMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS;
+  }
   if (commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS) return true;
   if (commitCount <= 0) return false;
-  const sinceLastForwardMs = Number.isFinite(opts.sinceLastForwardMs) ? Math.max(0, Number(opts.sinceLastForwardMs)) : 0;
   if (sinceLastForwardMs < DEFAULT_STARVATION_COMMIT_GAP_MS) return false;
   if (commitCount >= 2 && sinceLastForwardMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS) {
     return true;
@@ -35828,7 +35839,7 @@ function createAsrScrollDriver(options = {}) {
       consistencyEntries.length = 0;
     }
   };
-  const readScriptHash = () => {
+  const readScriptHash2 = () => {
     try {
       return String(window.__TP_LAST_APPLIED_HASH || "");
     } catch {
@@ -35836,7 +35847,7 @@ function createAsrScrollDriver(options = {}) {
     }
   };
   if (!lastScriptHash) {
-    lastScriptHash = readScriptHash();
+    lastScriptHash = readScriptHash2();
   }
   const publishSharedCursor = (index, reason) => {
     try {
@@ -35855,7 +35866,7 @@ function createAsrScrollDriver(options = {}) {
     const next = Math.max(0, Math.floor(nextIndex));
     const prevRaw = Number(window?.currentIndex ?? lastLineIndex ?? -1);
     const prev2 = Number.isFinite(prevRaw) ? Math.floor(prevRaw) : 0;
-    const scriptHash = readScriptHash();
+    const scriptHash = readScriptHash2();
     const scriptHashChanged = !!scriptHash && scriptHash !== lastScriptHash;
     const isBackJump = next < prev2 - DEFAULT_BACKJUMP_BLOCK_LINES;
     const allowBackJump = reason === "manualReset" || reason === "scriptChanged";
@@ -36845,7 +36856,10 @@ function createAsrScrollDriver(options = {}) {
     if (!Number.isFinite(cursorLine) || cursorLine < 0) return false;
     if (!Number.isFinite(landingLine) || landingLine < 0) return false;
     if (lastRescueMatchEvidenceAt <= 0) return false;
-    if (now3 - lastRescueMatchEvidenceAt > DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS) return false;
+    const _safeCursorForWindow = Math.max(0, Math.floor(cursorLine));
+    const _isEvidenceAtCursor = Math.abs(lastRescueMatchEvidenceLine - _safeCursorForWindow) <= 1;
+    const _evidenceWindowMs = _isEvidenceAtCursor ? DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS * 4 : DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS;
+    if (now3 - lastRescueMatchEvidenceAt > _evidenceWindowMs) return false;
     if (lastRescueNoMatchAt > 0 && now3 - lastRescueNoMatchAt < DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS) {
       return false;
     }
@@ -36871,6 +36885,9 @@ function createAsrScrollDriver(options = {}) {
     if (!Number.isFinite(cursorRaw) || cursorRaw < 0) return false;
     const cursorLine = Math.max(0, Math.floor(cursorRaw));
     const reasonTag = String(reason || "").trim().toLowerCase();
+    if (manualAnchorPending && now3 - manualAnchorPending.ts >= MANUAL_ANCHOR_PENDING_TIMEOUT_MS) {
+      rejectManualAnchorPending("timeout:stall-rescue");
+    }
     if (manualAnchorPending && isAutomaticStallRescueReason(reasonTag)) {
       stallRescueRequested = false;
       if (isDevMode4()) {
@@ -36904,7 +36921,11 @@ function createAsrScrollDriver(options = {}) {
       now3,
       skippedIgnorableLines
     );
-    if (reasonTag === "auto-stall" && landingRequiresEvidence && !hasLandingEvidence) {
+    const severeStallAgeMs = lastForwardCommitAt > 0 ? Math.max(0, now3 - lastForwardCommitAt) : Number.POSITIVE_INFINITY;
+    const allowMultiStepEvidenceBypass = reasonTag === "auto-stall" && deltaLines > 1 && deltaLines <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES && commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MULTI_STEP_MIN_COMMITS && severeStallAgeMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS;
+    const allowEvidenceBypass = reasonTag === "auto-stall" && deltaLines === 1 && commitCount >= 1 && severeStallAgeMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS;
+    const allowEvidenceBypassAny = allowEvidenceBypass || allowMultiStepEvidenceBypass;
+    if (reasonTag === "auto-stall" && landingRequiresEvidence && !hasLandingEvidence && !allowEvidenceBypassAny) {
       stallRescueRequested = false;
       warnGuard("blocked_on_content_without_evidence", [
         `at=${cursorLine}`,
@@ -36920,6 +36941,17 @@ function createAsrScrollDriver(options = {}) {
       ]);
       emitHudStatus("cue_stall_rescue_blocked", "Blocked: content landing lacks fresh evidence");
       return false;
+    }
+    if (reasonTag === "auto-stall" && landingRequiresEvidence && !hasLandingEvidence && allowEvidenceBypassAny) {
+      warnGuard("cue_stall_rescue_evidence_bypass", [
+        `at=${cursorLine}`,
+        `target=${targetLine}`,
+        `delta=${deltaLines}`,
+        `commitCount=${commitCount}`,
+        `sinceForwardMs=${Number.isFinite(severeStallAgeMs) ? severeStallAgeMs : -1}`,
+        `mode=${allowMultiStepEvidenceBypass ? "multi-step" : "single-step"}`,
+        reason ? `source=${reason}` : ""
+      ]);
     }
     const rescuePolicy = evaluateStallCueRescuePolicy({
       reasonTag,
@@ -36951,6 +36983,16 @@ function createAsrScrollDriver(options = {}) {
       sinceLastForwardMs: now3 - lastForwardCommitAt,
       lostForwardGateCountSinceCommit
     });
+    const matureRunStartupGuardDisabled = commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MIN_COMMITS && Math.max(0, now3 - lastForwardCommitAt) >= DEFAULT_STARVATION_COMMIT_GAP_MS;
+    if (reasonTag === "auto-stall" && directContentForwardRescue && autoStallContentRescueAllowed && matureRunStartupGuardDisabled) {
+      warnGuard("startup_guard_degraded", [
+        `at=${cursorLine}`,
+        `commits=${commitCount}`,
+        `delta=${deltaLines}`,
+        `sinceForwardMs=${Math.max(0, now3 - lastForwardCommitAt)}`,
+        reason ? `source=${reason}` : ""
+      ]);
+    }
     const neededLostForwardGates = commitCount >= 2 ? 1 : DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES;
     if (reasonTag === "auto-stall" && directContentForwardRescue && !autoStallContentRescueAllowed) {
       stallRescueRequested = false;
@@ -37814,6 +37856,7 @@ function createAsrScrollDriver(options = {}) {
     if (isWriterCommitWindowActive()) return false;
     if (getScrollMode3() !== "asr") return false;
     if (!isSessionLivePhase() || !isSessionAsrArmed()) return false;
+    if (commitCount < DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_COMMITS) return false;
     const safeCursor = Math.max(0, Math.floor(cursorLine));
     const safeTarget = Math.max(0, Math.floor(targetLine));
     if (safeTarget >= safeCursor) return false;
@@ -38137,8 +38180,12 @@ function createAsrScrollDriver(options = {}) {
         const finalForwardBypass = (forceReason === "final-forward-nudge" || forceReason === "final-forward-fallback") && line > lastLineIndex && conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM && runtimeSpeechFresh && isSessionAsrArmed() && isSessionLivePhase();
         const stallRescueBypass = forceReason === "stall-rescue" && line > lastLineIndex && line - lastLineIndex <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES && conf >= DEFAULT_MULTI_JUMP_MIN_SIM && isSessionAsrArmed() && isSessionLivePhase();
         const consistentCatchupBypass = forceReason === "catchup-consistent" && line > lastLineIndex && line - lastLineIndex <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES && conf >= DELTA_MIN_SIM_SMALL && isSessionAsrArmed() && isSessionLivePhase();
-        const starvationForwardBypass = asrMode && isFinal && line > lastLineIndex && runtimeSpeechFresh && isSessionAsrArmed() && isSessionLivePhase() && now3 - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS && conf >= Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, effectiveMatchThreshold - 0.18);
-        const strongMatch = watchdogBypass || progressiveFloorBypass || cueBridgeBypass || lostForwardBypass || permissiveForwardBypass || finalForwardBypass || starvationForwardBypass || consistentCatchupBypass || stallRescueBypass || conf >= effectiveMatchThreshold && tieGateOk;
+        const completionAdjacentBypass = asrMode && isFinal && line === lastLineIndex + 1 && runtimeSpeechFresh && isSessionAsrArmed() && isSessionLivePhase() && conf >= Math.max(
+          DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+          effectiveMatchThreshold - DEFAULT_ASR_ADJACENT_COMPLETION_SIM_SLACK
+        );
+        const starvationForwardBypass = asrMode && isFinal && line > lastLineIndex && line - lastLineIndex <= DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES && runtimeSpeechFresh && isSessionAsrArmed() && isSessionLivePhase() && now3 - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS && conf >= Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, effectiveMatchThreshold - 0.18);
+        const strongMatch = watchdogBypass || progressiveFloorBypass || cueBridgeBypass || lostForwardBypass || permissiveForwardBypass || finalForwardBypass || starvationForwardBypass || consistentCatchupBypass || completionAdjacentBypass || stallRescueBypass || conf >= effectiveMatchThreshold && tieGateOk;
         if (!strongMatch) {
           const tieParts = !tieOk && typeof tieMargin === "number" ? [`tie=${formatLogScore(tieMargin)}`, `tieNeed=${formatLogScore(thresholds.tieDelta)}`] : [];
           const deltaParts = deltaMinSim > matchThreshold ? [`deltaNeed=${formatLogScore(deltaMinSim)}`] : [];
@@ -38215,6 +38262,14 @@ function createAsrScrollDriver(options = {}) {
           try {
             console.info(
               `ASR_STARVATION_FORWARD_BYPASS current=${lastLineIndex} target=${line} delta=${line - lastLineIndex} sim=${formatLogScore(conf)} since=${Math.round(now3 - lastForwardCommitAt)}ms`
+            );
+          } catch {
+          }
+        }
+        if (completionAdjacentBypass && isDevMode4()) {
+          try {
+            console.info(
+              `ASR_ADJACENT_COMPLETION_BYPASS current=${lastLineIndex} target=${line} delta=${line - lastLineIndex} sim=${formatLogScore(conf)} need=${formatLogScore(effectiveMatchThreshold)}`
             );
           } catch {
           }
@@ -38401,9 +38456,10 @@ function createAsrScrollDriver(options = {}) {
                   snippet ? `clue="${snippet}"` : ""
                 ]);
               } else if (asrWeakClampFallbackAllow) {
+                const liveWeakClampPromoteMaxLines = asrMode && isSessionLivePhase() && isSessionAsrArmed() ? DEFAULT_ASR_WEAK_CLAMP_FALLBACK_LIVE_PROMOTE_MAX_LINES : DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES;
                 targetLine = Math.min(
                   requestedLine,
-                  clampedLine + DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES
+                  clampedLine + liveWeakClampPromoteMaxLines
                 );
                 warnGuard("asr_weak_clamp_fallback_allow", [
                   `current=${lastLineIndex}`,
@@ -38415,7 +38471,7 @@ function createAsrScrollDriver(options = {}) {
                   `minSim=${formatLogScore(weakClampFallbackMinSim)}`,
                   `delta=${weakClampFallbackDelta}`,
                   `maxDelta=${DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES}`,
-                  `stepMax=${DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES}`,
+                  `stepMax=${liveWeakClampPromoteMaxLines}`,
                   snippet ? `clue="${snippet}"` : ""
                 ]);
               } else {
@@ -38512,19 +38568,20 @@ function createAsrScrollDriver(options = {}) {
         });
         targetLine = cueSafeTargetLine;
         if (asrMode && !forced && !forceReason) {
-          const markerAnchorMaxLine = lastLineIndex + DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES;
+          const markerAnchorMaxDeltaLines = isSessionLivePhase() && isSessionAsrArmed() && !strongForwardCommit ? DEFAULT_ASR_MARKER_ANCHOR_LIVE_MAX_DELTA_LINES : DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES;
+          const markerAnchorMaxLine = lastLineIndex + markerAnchorMaxDeltaLines;
           if (targetLine > markerAnchorMaxLine) {
             const markerAnchorCapped = resolveCueSafeCommitLine(
               markerAnchorMaxLine,
               lastLineIndex,
-              DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES
+              markerAnchorMaxDeltaLines
             ).nextLine;
             const safeMarkerAnchorLine = markerAnchorCapped != null && markerAnchorCapped > lastLineIndex ? markerAnchorCapped : markerAnchorMaxLine;
             warnGuard("asr_marker_anchor_cap", [
               `current=${lastLineIndex}`,
               `requested=${targetLine}`,
               `capped=${safeMarkerAnchorLine}`,
-              `maxDelta=${DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES}`,
+              `maxDelta=${markerAnchorMaxDeltaLines}`,
               snippet ? `clue="${snippet}"` : ""
             ]);
             targetLine = safeMarkerAnchorLine;
@@ -38537,8 +38594,9 @@ function createAsrScrollDriver(options = {}) {
             { strict: true }
           );
           const liveStepTarget = liveStep.nextLine != null && liveStep.nextLine > lastLineIndex ? Math.max(0, Math.floor(liveStep.nextLine)) : null;
-          const liveForwardHoldActive = !hasRecentFreshSpeech || !hasRecentVadSpeech || !!pending.liveForwardGuardActive;
-          if (liveStepTarget != null && requestedTargetLine > liveStepTarget && liveForwardHoldActive) {
+          const liveForwardHoldActive = !hasRecentVadSpeech || !runtimeSpeechFresh || !!pending.liveForwardGuardActive;
+          const tryApplyStallRecoveryOverride = () => {
+            if (liveStepTarget == null) return false;
             const sinceCommitMs = Math.max(0, now3 - lastCommitTime);
             const starvationDetected = lastCommitIndex != null && sinceCommitMs >= DEFAULT_STARVATION_COMMIT_GAP_MS && Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
             const stallRecoveryRequired = typeof pendingRequiredThreshold === "number" && Number.isFinite(pendingRequiredThreshold) ? pendingRequiredThreshold : DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM;
@@ -38547,43 +38605,45 @@ function createAsrScrollDriver(options = {}) {
               stallRecoveryRequired - 0.18
             );
             const stallRecoveryOverrideEligible = starvationDetected && isFinal && asrRuntimeSpeechSeen && asrRuntimeSpeechRunningActual && conf >= stallRecoveryMinSim && now3 - lastStallRecoveryOverrideAt >= DEFAULT_STARVATION_COMMIT_GAP_MS;
-            if (stallRecoveryOverrideEligible) {
-              lastStallRecoveryOverrideAt = now3;
-              const overrideSim = Math.max(
-                conf,
-                DEFAULT_MULTI_JUMP_MIN_SIM,
-                DEFAULT_STRONG_FORWARD_COMMIT_SIM
+            if (!stallRecoveryOverrideEligible) return false;
+            lastStallRecoveryOverrideAt = now3;
+            const overrideSim = Math.max(
+              conf,
+              DEFAULT_MULTI_JUMP_MIN_SIM,
+              DEFAULT_STRONG_FORWARD_COMMIT_SIM
+            );
+            const overrideMatchId = matchId ? `${matchId}:stall_override` : `stall-override-${now3.toString(36)}-${liveStepTarget}`;
+            try {
+              console.warn(
+                `ASR_STALL_RECOVERY_OVERRIDE current=${lastLineIndex} requested=${requestedTargetLine} committed=${liveStepTarget} reason=stall_recovery_override`
               );
-              const overrideMatchId = matchId ? `${matchId}:stall_override` : `stall-override-${now3.toString(36)}-${liveStepTarget}`;
-              try {
-                console.warn(
-                  `ASR_STALL_RECOVERY_OVERRIDE current=${lastLineIndex} requested=${requestedTargetLine} committed=${liveStepTarget} reason=stall_recovery_override`
-                );
-              } catch {
-              }
-              emitHudStatus(
-                "stall_recovery_override",
-                `Rescue: stall override +${liveStepTarget - lastLineIndex}`
-              );
-              adoptPendingMatch({
-                ...pending,
-                line: liveStepTarget,
-                conf: overrideSim,
-                isFinal: true,
-                hasEvidence: true,
-                forced: true,
-                forceReason: "stall_recovery_override",
-                matchId: overrideMatchId,
-                // This override is explicitly escaping the live-forward guard once.
-                liveForwardGuardActive: void 0,
-                cursorLine: lastLineIndex,
-                searchWindowFrom: lastLineIndex,
-                searchWindowTo: liveStepTarget,
-                cueBridgeNudgeDelta: Math.max(1, liveStepTarget - lastLineIndex)
-              });
-              schedulePending();
-              return;
+            } catch {
             }
+            emitHudStatus(
+              "stall_recovery_override",
+              `Rescue: stall override +${liveStepTarget - lastLineIndex}`
+            );
+            adoptPendingMatch({
+              ...pending,
+              line: liveStepTarget,
+              conf: overrideSim,
+              isFinal: true,
+              hasEvidence: true,
+              forced: true,
+              forceReason: "stall_recovery_override",
+              matchId: overrideMatchId,
+              // This override is explicitly escaping the live-forward guard once.
+              liveForwardGuardActive: void 0,
+              cursorLine: lastLineIndex,
+              searchWindowFrom: lastLineIndex,
+              searchWindowTo: liveStepTarget,
+              cueBridgeNudgeDelta: Math.max(1, liveStepTarget - lastLineIndex)
+            });
+            schedulePending();
+            return true;
+          };
+          if (liveStepTarget != null && requestedTargetLine > liveStepTarget && liveForwardHoldActive) {
+            if (tryApplyStallRecoveryOverride()) return;
             const liveStepScore = Number(
               rankedTopScores.find((entry) => entry.idx === liveStepTarget)?.score
             );
@@ -38598,6 +38658,9 @@ function createAsrScrollDriver(options = {}) {
             emitHudStatus("asr_live_single_step_hold", "Hold: waiting for fresh next-line evidence");
             return;
           }
+          if (liveStepTarget != null && requestedTargetLine === liveStepTarget && liveForwardHoldActive && tryApplyStallRecoveryOverride()) {
+            return;
+          }
           if (liveStepTarget != null && targetLine > liveStepTarget) {
             const liveStepScore = Number(
               rankedTopScores.find((entry) => entry.idx === liveStepTarget)?.score
@@ -38606,6 +38669,7 @@ function createAsrScrollDriver(options = {}) {
               `current=${lastLineIndex}`,
               `requested=${targetLine}`,
               `capped=${liveStepTarget}`,
+              `starvationBypass=${starvationForwardBypass ? 1 : 0}`,
               Number.isFinite(liveStepScore) ? `stepSim=${formatLogScore(liveStepScore)}` : "stepSim=na",
               liveStep.skippedReasons.length ? `skipped=[${liveStep.skippedReasons.join(",")}]` : "",
               snippet ? `clue="${snippet}"` : ""
@@ -38962,7 +39026,7 @@ function createAsrScrollDriver(options = {}) {
           DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM,
           baselineRequired - DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK
         );
-        if (!hasEvidence && !starvationNoEvidenceBypass) {
+        if (!hasEvidence && !starvationNoEvidenceBypass && !starvationForwardBypass) {
           warnGuard("no_evidence", [
             `current=${lastLineIndex}`,
             `best=${line}`,
@@ -39730,7 +39794,7 @@ function createAsrScrollDriver(options = {}) {
     const vadSpeechAgeMs = lastVadSpeechAt > 0 ? Math.max(0, now3 - lastVadSpeechAt) : Number.POSITIVE_INFINITY;
     const hasRecentVadSpeech = !asrVadSeen || asrVadSpeaking || vadSpeechAgeMs <= DEFAULT_ASR_VAD_SPEECH_GRACE_MS;
     const runtimeSpeechFresh = hasRecentActualSpeech(now3);
-    const liveForwardGuardActive = asrMode && isSessionAsrArmed() && isSessionLivePhase() && (starvationDetected || !freshSpeechSinceCommit || !hasRecentVadSpeech || !runtimeSpeechFresh);
+    const liveForwardGuardActive = asrMode && isSessionAsrArmed() && isSessionLivePhase() && (!hasRecentVadSpeech || !runtimeSpeechFresh);
     const cueStallRescueDelayMs = resolveCueStallRescueDelayMs({
       asrMode,
       finalsSinceCommit,
@@ -40696,6 +40760,9 @@ function createAsrScrollDriver(options = {}) {
           `eps=${forwardTieEps}`,
           snippet ? `clue="${snippet}"` : ""
         ]);
+        if (guardReason === "same_line_noop" && starvationDetected && maybeScheduleStallCueRescue("auto-stall")) {
+          return;
+        }
         if (!permissiveMatcher) return;
       }
       if (forwardPick && (forwardPick.idx !== rawIdx || forwardPick.score !== conf)) {
@@ -41267,6 +41334,20 @@ function createAsrScrollDriver(options = {}) {
     }
     const holdAheadOfMarker = isSessionAsrArmed() && isSessionLivePhase() && markerIdx >= 0 && rawIdx < markerIdx;
     if (holdAheadOfMarker) {
+      const currentLineScoreForMarkerBackstep = Number.isFinite(arbitrationCurrentScore) ? Number(arbitrationCurrentScore) : conf;
+      if (tryLiveAsrCorrectiveBackstep(
+        cursorLine,
+        rawIdx,
+        now3,
+        conf,
+        currentLineScoreForMarkerBackstep,
+        requiredThreshold,
+        "ahead-of-marker-correct",
+        matchId,
+        snippet
+      )) {
+        return;
+      }
       warnGuard("ahead_of_marker_hold", [
         `current=${cursorLine}`,
         `best=${rawIdx}`,
@@ -42708,7 +42789,7 @@ function createAsrScrollDriver(options = {}) {
   }
   return driver;
 }
-var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_MATCH_BACKTRACK_LINES, DEFAULT_MATCH_LOOKAHEAD_LINES, DEFAULT_MATCH_LOOKAHEAD_STEPS, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_BAND_BACK_TOLERANCE_LINES, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, LIVE_ASR_COMMIT_MIN_PX, LIVE_ASR_COMMIT_MAX_LINES, LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO, LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_MIN_TOKEN_COUNT, DEFAULT_MIN_EVIDENCE_CHARS, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_NO_MATCH_WINDOW_MS, DEFAULT_NO_MATCH_BUMP_HITS, DEFAULT_NO_MATCH_RELOCK_HITS, GUARD_THROTTLE_MS, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_NOISE_INTERIM_MIN_TOKENS, DEFAULT_NOISE_INTERIM_MIN_CHARS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_ASR_VAD_SPEECH_GRACE_MS, DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS, AUTO_CUE_SKIP_COOLDOWN_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_STALL_LOG_COOLDOWN_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, EVENT_RING_MAX, EVENT_DUMP_COUNT, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MANUAL_ANCHOR_MIN_SCROLL_PX, MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS, MANUAL_ANCHOR_PENDING_TIMEOUT_MS, MANUAL_ANCHOR_WINDOW_LINES, MANUAL_ANCHOR_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS, DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS, DEFAULT_RESCUE_MATCH_MIN_SIM, DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES, DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES, DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES, DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM, DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK, DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, HOLD_TICK_LOG_THROTTLE_MS, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_SIM_PER_EXTRA_LINE, DEFAULT_STRONG_MARKER_SNAP_MAX_REQUIRED_SIM, DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_MIN_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_LOW_CONF_SIM, DEFAULT_LIVE_ASR_SOFT_COMMIT_MAX_LINES, DEFAULT_STARVATION_TIE_FORWARD_MAX_DELTA_LINES, DEFAULT_STARVATION_TIE_FORWARD_SIM_SLACK, DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES, DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_REQUIRED_LEAD, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_FINAL_MATCH_NUDGE_MAX_DELTA_LINES, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CUE_LINE_BRACKET_RE, CUE_LINE_WORD_RE, STRUCTURAL_EMPTY_LINE_RE, SPEAKER_TAG_ONLY_RE, NOTE_TAG_ONLY_RE, NOTE_INLINE_BLOCK_RE, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, GUARD_DEBUG_REASONS, LOG_THROTTLE_MS, HUD_STATUS_THROTTLE_MS, HUD_PURSUE_THROTTLE_MS, lastPursueHudAt, SUMMARY_TOAST_DEDUPE_MS, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, NAN_GUARD_THROTTLE_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
+var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_MATCH_BACKTRACK_LINES, DEFAULT_MATCH_LOOKAHEAD_LINES, DEFAULT_MATCH_LOOKAHEAD_STEPS, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_BAND_BACK_TOLERANCE_LINES, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, LIVE_ASR_COMMIT_MIN_PX, LIVE_ASR_COMMIT_MAX_LINES, LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO, LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_MIN_TOKEN_COUNT, DEFAULT_MIN_EVIDENCE_CHARS, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_NO_MATCH_WINDOW_MS, DEFAULT_NO_MATCH_BUMP_HITS, DEFAULT_NO_MATCH_RELOCK_HITS, GUARD_THROTTLE_MS, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_NOISE_INTERIM_MIN_TOKENS, DEFAULT_NOISE_INTERIM_MIN_CHARS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_ASR_VAD_SPEECH_GRACE_MS, DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS, AUTO_CUE_SKIP_COOLDOWN_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_STALL_LOG_COOLDOWN_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, EVENT_RING_MAX, EVENT_DUMP_COUNT, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MANUAL_ANCHOR_MIN_SCROLL_PX, MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS, MANUAL_ANCHOR_PENDING_TIMEOUT_MS, MANUAL_ANCHOR_WINDOW_LINES, MANUAL_ANCHOR_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS, DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS, DEFAULT_RESCUE_MATCH_MIN_SIM, DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES, DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES, DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MULTI_STEP_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES, DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM, DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK, DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_LIVE_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, HOLD_TICK_LOG_THROTTLE_MS, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_COMMITS, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_SIM_PER_EXTRA_LINE, DEFAULT_STRONG_MARKER_SNAP_MAX_REQUIRED_SIM, DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES, DEFAULT_ASR_MARKER_ANCHOR_LIVE_MAX_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_MIN_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_LOW_CONF_SIM, DEFAULT_LIVE_ASR_SOFT_COMMIT_MAX_LINES, DEFAULT_STARVATION_TIE_FORWARD_MAX_DELTA_LINES, DEFAULT_STARVATION_TIE_FORWARD_SIM_SLACK, DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES, DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM, DEFAULT_ASR_ADJACENT_COMPLETION_SIM_SLACK, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_REQUIRED_LEAD, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_FINAL_MATCH_NUDGE_MAX_DELTA_LINES, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CUE_LINE_BRACKET_RE, CUE_LINE_WORD_RE, STRUCTURAL_EMPTY_LINE_RE, SPEAKER_TAG_ONLY_RE, NOTE_TAG_ONLY_RE, NOTE_INLINE_BLOCK_RE, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, GUARD_DEBUG_REASONS, LOG_THROTTLE_MS, HUD_STATUS_THROTTLE_MS, HUD_PURSUE_THROTTLE_MS, lastPursueHudAt, SUMMARY_TOAST_DEDUPE_MS, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, NAN_GUARD_THROTTLE_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
 var init_asr_scroll_driver = __esm({
   "src/features/asr/asr-scroll-driver.ts"() {
     "use strict";
@@ -42756,8 +42837,8 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_MAX_TARGET_JUMP_PX = 180;
     DEFAULT_MAX_TARGET_JUMP_HYBRID_PX = 80;
     LIVE_ASR_COMMIT_MIN_PX = 96;
-    LIVE_ASR_COMMIT_MAX_LINES = 8;
-    LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO = 0.75;
+    LIVE_ASR_COMMIT_MAX_LINES = 4;
+    LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO = 0.5;
     LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES = 1;
     DEFAULT_PURSUE_KP = 3.2;
     DEFAULT_PURSUE_MANUAL_CANCEL_PX = 48;
@@ -42970,13 +43051,17 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS = 320;
     DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS = 260;
     DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS = 220;
-    DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS = 2600;
+    DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS = 3200;
     DEFAULT_RESCUE_MATCH_MIN_SIM = 0.62;
     DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES = 2;
     DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS = 1200;
     DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 1;
     DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 1;
     DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS;
+    DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MIN_COMMITS = 8;
+    DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MULTI_STEP_MIN_COMMITS = 12;
+    DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_MIN_COMMITS = 12;
+    DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS * 4;
     DEFAULT_MULTI_JUMP_MIN_SIM = 0.4;
     DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS = 0.08;
     DEFAULT_MULTI_JUMP_HARD_DENY_SIM = 0.26;
@@ -42987,6 +43072,7 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM = 0.55;
     DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES = 4;
     DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES = 1;
+    DEFAULT_ASR_WEAK_CLAMP_FALLBACK_LIVE_PROMOTE_MAX_LINES = 0;
     DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_DELTA_LINES = 5;
     DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_MIN_SIM = 0.86;
     DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES = 3;
@@ -43045,7 +43131,8 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS = 5e3;
     DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES = 1;
     DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM = 0.84;
-    DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM = 0.32;
+    DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM = 0.45;
+    DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_COMMITS = 6;
     DEFAULT_STRONG_FORWARD_COMMIT_SIM = 0.82;
     DEFAULT_STRONG_MARKER_SNAP_MIN_SIM = 0.82;
     DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES = 2;
@@ -43053,6 +43140,7 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_STRONG_MARKER_SNAP_SIM_PER_EXTRA_LINE = 0.03;
     DEFAULT_STRONG_MARKER_SNAP_MAX_REQUIRED_SIM = 0.9;
     DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES = 2;
+    DEFAULT_ASR_MARKER_ANCHOR_LIVE_MAX_DELTA_LINES = 1;
     DEFAULT_LIVE_ASR_SOFT_COMMIT_MIN_DELTA_LINES = 4;
     DEFAULT_LIVE_ASR_SOFT_COMMIT_LOW_CONF_SIM = 0.84;
     DEFAULT_LIVE_ASR_SOFT_COMMIT_MAX_LINES = 3;
@@ -43060,6 +43148,7 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_STARVATION_TIE_FORWARD_SIM_SLACK = 0.08;
     DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES = 2;
     DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM = 0.56;
+    DEFAULT_ASR_ADJACENT_COMPLETION_SIM_SLACK = 0.1;
     DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS = 2;
     DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS = 2;
     DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO = 0.25;
@@ -49717,9 +49806,9 @@ function toastObs(msg, type = "info") {
   if (shouldSilenceObsLogs) return;
   try {
     const w3 = window;
-    const toast5 = w3._toast || w3.toast;
-    if (typeof toast5 === "function") {
-      toast5(msg, { type });
+    const toast6 = w3._toast || w3.toast;
+    if (typeof toast6 === "function") {
+      toast6(msg, { type });
       return;
     }
   } catch {
@@ -50499,19 +50588,28 @@ async function initBuiltIns() {
     const adapters = [];
     const resolver = typeof window !== "undefined" && typeof window.__TP_ADDV === "function" ? window.__TP_ADDV.bind(window) : ((p) => p);
     try {
-      const m = await import(resolver("./adapters/bridge.js"));
+      const m = await import(
+        /* @vite-ignore */
+        resolver("./adapters/bridge.js")
+      );
       const a = m?.createBridgeAdapter?.();
       if (a) adapters.push(a);
     } catch {
     }
     try {
-      const m = await import(resolver("./adapters/obs.js"));
+      const m = await import(
+        /* @vite-ignore */
+        resolver("./adapters/obs.js")
+      );
       const a = m?.createOBSAdapter?.();
       if (a) adapters.push(a);
     } catch {
     }
     try {
-      const m = await import(resolver("./adapters/hotkey.js"));
+      const m = await import(
+        /* @vite-ignore */
+        resolver("./adapters/hotkey.js")
+      );
       const aPrem = m?.createHotkeyAdapter?.("premiere", "Adobe Premiere Pro");
       if (aPrem) adapters.push(aPrem);
     } catch {
@@ -52834,13 +52932,13 @@ function renderScript(text, container) {
         const mode = window.__tpCurrentScrollMode || window.__tpScrollMode || "unknown";
         const viewerInfo = viewerEl ? `${viewerEl.id || "no-id"} ${viewerEl.className || "no-class"}` : "no-viewer";
         const hybridMotorInit = !!auto2;
-        const listenersWired = !!window.__tpHybridListenersReady;
+        const listenersWired2 = !!window.__tpHybridListenersReady;
         try {
           console.warn("[SCROLL_ROUTER] install debug", {
             mode,
             viewer: viewerInfo.trim(),
             hybridMotorInit,
-            listenersWired
+            listenersWired: listenersWired2
           });
         } catch {
         }
@@ -52868,7 +52966,7 @@ function renderScript(text, container) {
               mode,
               viewer: viewerInfo.trim(),
               hybridMotorInit,
-              listenersWired
+              listenersWired: listenersWired2
             });
             console.error("[SCROLL_ROUTER] INSTALL FAILED", errObj);
             if (errObj.stack) {
@@ -53219,10 +53317,10 @@ async function saveProfileSettings(opts) {
   const safeExpectedRev = Number.isFinite(parsedRev) ? Math.max(0, Math.trunc(parsedRev)) : 0;
   const asrSettings = mergedSettings?.asrSettings ?? {};
   const asrProfiles = mergedSettings?.asrProfiles ?? [];
-  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  const nowIso2 = (/* @__PURE__ */ new Date()).toISOString();
   const updatePayload = {
     settings: mergedSettings,
-    settings_updated_at: nowIso
+    settings_updated_at: nowIso2
   };
   if (profileSettingsSchemaSupport.settingsRev) {
     updatePayload.settings_rev = safeExpectedRev + 1;
@@ -53230,7 +53328,7 @@ async function saveProfileSettings(opts) {
   if (profileSettingsSchemaSupport.asrColumns) {
     updatePayload.asr_settings = asrSettings;
     updatePayload.asr_calibration_profiles = asrProfiles;
-    updatePayload.asr_updated_at = nowIso;
+    updatePayload.asr_updated_at = nowIso2;
   }
   let data = null;
   let error = null;
@@ -55355,9 +55453,9 @@ function handleToggle(on3, sourceId) {
         const doc2 = window.document;
         syncEnabledCheckboxes(doc2, false);
         try {
-          const toast5 = window.toast;
-          if (typeof toast5 === "function") {
-            toast5("Finish configuring OBS in Settings \u2192 Recording before enabling remote OBS.");
+          const toast6 = window.toast;
+          if (typeof toast6 === "function") {
+            toast6("Finish configuring OBS in Settings \u2192 Recording before enabling remote OBS.");
           }
         } catch {
         }
@@ -56939,9 +57037,19 @@ function ensureMainHost() {
     pill.textContent = "REC";
     pill.setAttribute("aria-hidden", "true");
   }
+  let transcriptPill = document.getElementById("recTranscriptPill");
+  if (!transcriptPill) {
+    transcriptPill = document.createElement("span");
+    transcriptPill.id = "recTranscriptPill";
+    transcriptPill.className = "rec-pill rec-pill--main";
+    transcriptPill.textContent = "TX";
+    transcriptPill.setAttribute("aria-hidden", "true");
+    transcriptPill.style.display = "none";
+  }
   const live = ensureLiveRegion();
   if (!live) return null;
   if (!pill.parentElement) host.appendChild(pill);
+  if (!transcriptPill.parentElement) host.appendChild(transcriptPill);
   if (!live.parentElement) host.appendChild(live);
   if (!host.parentElement) {
     const right = document.getElementById("topbarRight");
@@ -56952,7 +57060,7 @@ function ensureMainHost() {
       (bar || document.body).appendChild(host);
     }
   }
-  return { pill, live };
+  return { pill, transcriptPill, live };
 }
 function ensureDisplayPill() {
   if (typeof document === "undefined") return null;
@@ -56964,6 +57072,26 @@ function ensureDisplayPill() {
   pill.textContent = "REC";
   pill.setAttribute("aria-hidden", "true");
   pill.style.display = "none";
+  const inject = () => {
+    try {
+      document.body.appendChild(pill);
+    } catch {
+    }
+  };
+  whenDomReady(inject);
+  return pill;
+}
+function ensureDisplayTranscriptPill() {
+  if (typeof document === "undefined") return null;
+  const existing = document.getElementById("displayRecTranscriptPill");
+  if (existing) return existing;
+  const pill = document.createElement("span");
+  pill.id = "displayRecTranscriptPill";
+  pill.className = "rec-pill rec-pill--display";
+  pill.textContent = "TX";
+  pill.setAttribute("aria-hidden", "true");
+  pill.style.display = "none";
+  pill.style.right = "calc(84px * var(--tp-ui-scale))";
   const inject = () => {
     try {
       document.body.appendChild(pill);
@@ -57018,6 +57146,51 @@ function announceState(live, prev2, next) {
   }
   if (msg) live.textContent = msg;
 }
+function transcriptLabel(state8) {
+  switch (state8) {
+    case "starting":
+      return "TX STARTING";
+    case "live":
+      return "TX LIVE";
+    case "partial":
+      return "TX PARTIAL";
+    case "finalizing":
+      return "TX FINALIZING";
+    case "ready":
+      return "TX READY";
+    case "degraded":
+      return "TX DEGRADED";
+    default:
+      return "TX";
+  }
+}
+function renderTranscriptPill(pill, next, variant) {
+  const showing = next !== "idle";
+  pill.classList.remove(
+    "rec-pill--transcript-starting",
+    "rec-pill--transcript-live",
+    "rec-pill--transcript-partial",
+    "rec-pill--transcript-finalizing",
+    "rec-pill--transcript-ready",
+    "rec-pill--transcript-degraded"
+  );
+  if (variant === "display") {
+    pill.classList.add("rec-pill--display");
+  } else {
+    pill.classList.add("rec-pill--main");
+  }
+  if (!showing) {
+    pill.classList.remove("is-visible");
+    pill.setAttribute("aria-hidden", "true");
+    pill.style.display = "none";
+    return;
+  }
+  pill.textContent = transcriptLabel(next);
+  pill.classList.add(`rec-pill--transcript-${next}`);
+  pill.style.display = "inline-flex";
+  pill.setAttribute("aria-hidden", "false");
+  pill.classList.add("is-visible");
+}
 function broadcastState(state8) {
   if (isDisplayContext2()) return;
   try {
@@ -57035,6 +57208,19 @@ function broadcastState(state8) {
   } catch {
   }
 }
+function broadcastTranscriptState(state8) {
+  if (isDisplayContext2()) return;
+  try {
+    bc = bc || new BroadcastChannel("tp_rec_state");
+    bc.postMessage({ type: "transcript-state", state: state8 });
+  } catch {
+  }
+  try {
+    const send = window.sendToDisplay;
+    if (typeof send === "function") send({ type: "transcript-state", state: state8 });
+  } catch {
+  }
+}
 function setMainState(next) {
   if (mainState === next) return;
   const ctx = ensureMainHost();
@@ -57044,6 +57230,14 @@ function setMainState(next) {
   mainState = next;
   broadcastState(next);
 }
+function setMainTranscriptState(next) {
+  if (mainTranscriptState === next) return;
+  const ctx = ensureMainHost();
+  if (!ctx) return;
+  renderTranscriptPill(ctx.transcriptPill, next, "main");
+  mainTranscriptState = next;
+  broadcastTranscriptState(next);
+}
 function setDisplayState(next) {
   const pill = ensureDisplayPill();
   if (!pill || displayState === next) {
@@ -57052,6 +57246,15 @@ function setDisplayState(next) {
   }
   renderPill(pill, next, displayState, "display");
   displayState = next;
+}
+function setDisplayTranscriptState(next) {
+  const pill = ensureDisplayTranscriptPill();
+  if (!pill || displayTranscriptState === next) {
+    displayTranscriptState = next;
+    return;
+  }
+  renderTranscriptPill(pill, next, "display");
+  displayTranscriptState = next;
 }
 function initRecPillsDisplay() {
   if (displayWired) return;
@@ -57066,6 +57269,9 @@ function initRecPillsDisplay() {
         if (data && data.type === "rec-state" && data.state) {
           setDisplayState(data.state);
         }
+        if (data && data.type === "transcript-state" && data.state) {
+          setDisplayTranscriptState(data.state);
+        }
       });
     } catch {
     }
@@ -57074,6 +57280,9 @@ function initRecPillsDisplay() {
         const data = ev && ev.data || {};
         if (data && data.type === "rec-state" && data.state) {
           setDisplayState(data.state);
+        }
+        if (data && data.type === "transcript-state" && data.state) {
+          setDisplayTranscriptState(data.state);
         }
       });
     } catch {
@@ -57149,12 +57358,23 @@ function initRecPillsMain(store3) {
   } catch {
   }
   try {
-    window.addEventListener("tp:display:opened", () => broadcastState(mainState));
+    window.addEventListener("tp:recording:transcript-state", (ev) => {
+      const detail = ev?.detail || {};
+      const status2 = String(detail.status || "idle");
+      setMainTranscriptState(status2);
+    });
+  } catch {
+  }
+  try {
+    window.addEventListener("tp:display:opened", () => {
+      broadcastState(mainState);
+      broadcastTranscriptState(mainTranscriptState);
+    });
   } catch {
   }
   recompute();
 }
-var mainState, displayState, mainWired, displayWired, bc, DISPLAY_STYLE_ID, REC_PILL_BASE_CSS;
+var mainState, displayState, mainTranscriptState, displayTranscriptState, mainWired, displayWired, bc, DISPLAY_STYLE_ID, REC_PILL_BASE_CSS;
 var init_rec_pills = __esm({
   "src/features/rec-pills.ts"() {
     "use strict";
@@ -57164,6 +57384,8 @@ var init_rec_pills = __esm({
     init_display_sync();
     mainState = "off";
     displayState = "off";
+    mainTranscriptState = "idle";
+    displayTranscriptState = "idle";
     mainWired = false;
     displayWired = false;
     bc = null;
@@ -57173,12 +57395,18 @@ var init_rec_pills = __esm({
 .rec-pill.is-visible{opacity:1;transform:scale(1)}
 .rec-pill.rec-pill--armed{background:#ffd54f;color:#1a1f27}
 .rec-pill.rec-pill--recording{background:#ef5350;color:#fff;animation:recPulse 2.5s ease-in-out infinite}
+.rec-pill.rec-pill--transcript-starting{background:#7c8aa5;color:#fff}
+.rec-pill.rec-pill--transcript-live{background:#2e7d32;color:#fff}
+.rec-pill.rec-pill--transcript-partial{background:#00838f;color:#fff}
+.rec-pill.rec-pill--transcript-finalizing{background:#ef6c00;color:#fff}
+.rec-pill.rec-pill--transcript-ready{background:#5e35b1;color:#fff}
+.rec-pill.rec-pill--transcript-degraded{background:#546e7a;color:#fff}
 .rec-pill--main{height:calc(24px * var(--tp-ui-scale));padding:0 calc(12px * var(--tp-ui-scale));font-size:var(--tp-ui-font-sm)}
 .rec-pill--display{position:fixed;top:calc(10px * var(--tp-ui-scale));right:calc(14px * var(--tp-ui-scale));height:calc(18px * var(--tp-ui-scale));padding:0 calc(10px * var(--tp-ui-scale));font-size:var(--tp-ui-font-xs);z-index:1200;opacity:0.75}
 .rec-pill--display.is-visible{opacity:0.75}
 .rec-pill--display.rec-pill--recording.is-visible{opacity:0.85}
 .rec-pill--display.rec-pill--recording{opacity:0.85}
-.rec-pill-host{display:inline-flex;align-items:center;margin-left:calc(10px * var(--tp-ui-scale));margin-right:calc(8px * var(--tp-ui-scale))}
+.rec-pill-host{display:inline-flex;align-items:center;gap:calc(6px * var(--tp-ui-scale));margin-left:calc(10px * var(--tp-ui-scale));margin-right:calc(8px * var(--tp-ui-scale))}
 .rec-pill-live{min-width:1px;min-height:1px}
 @keyframes recPulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.03);opacity:.95}100%{transform:scale(1);opacity:1}}
 `;
@@ -57233,6 +57461,70 @@ function getQueryParam2(...keys) {
   }
   return null;
 }
+function toPositiveNumber(raw) {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+function readNumericConfig(key) {
+  const fromQuery = toPositiveNumber(getQueryParam2(key, key.toLowerCase()));
+  if (fromQuery != null) return fromQuery;
+  try {
+    const fromWindow = toPositiveNumber(window?.[key]);
+    if (fromWindow != null) return fromWindow;
+  } catch {
+  }
+  const fromStorage = toPositiveNumber(readLocalStorage2(key) ?? readLocalStorage2(key.toLowerCase()));
+  if (fromStorage != null) return fromStorage;
+  return null;
+}
+function mbToBytes(mb) {
+  return Math.max(1, Math.floor(mb * 1024 * 1024));
+}
+function resolveUploadStrategyConfig() {
+  const largeUploadWarnMb = readNumericConfig(LARGE_UPLOAD_WARN_MB_KEY) ?? DEFAULT_LARGE_UPLOAD_WARN_MB;
+  const chunkUploadThresholdMb = readNumericConfig(CHUNK_UPLOAD_THRESHOLD_MB_KEY) ?? DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB;
+  const chunkSizeMbRaw = readNumericConfig(CHUNK_SIZE_MB_KEY) ?? DEFAULT_CHUNK_SIZE_MB;
+  const chunkSizeMb = chunkSizeMbRaw > 0 ? Math.min(chunkSizeMbRaw, chunkUploadThresholdMb) : DEFAULT_CHUNK_SIZE_MB;
+  return {
+    largeUploadWarnMb,
+    chunkUploadThresholdMb,
+    chunkSizeMb
+  };
+}
+function selectUploadStrategyForBytes(byteLength, config) {
+  const cfg = {
+    ...resolveUploadStrategyConfig(),
+    ...config
+  };
+  const thresholdBytes = mbToBytes(cfg.chunkUploadThresholdMb > 0 ? cfg.chunkUploadThresholdMb : DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB);
+  return byteLength > thresholdBytes ? "chunked" : "single";
+}
+function buildRecordingChunks(totalBytes, chunkSizeBytes) {
+  const normalizedTotal = Math.max(0, Math.floor(totalBytes));
+  const normalizedChunkSize = Math.max(1, Math.floor(chunkSizeBytes));
+  const totalChunks = Math.max(1, Math.ceil(normalizedTotal / normalizedChunkSize));
+  const chunks = [];
+  for (let index = 0; index < totalChunks; index += 1) {
+    const startByte = index * normalizedChunkSize;
+    const endByte = Math.min(normalizedTotal, startByte + normalizedChunkSize);
+    chunks.push({
+      index,
+      startByte,
+      endByte,
+      size: Math.max(0, endByte - startByte),
+      totalChunks
+    });
+  }
+  return chunks;
+}
+function deriveRecordingTitleFromName(name) {
+  const normalized = String(name || "").trim();
+  if (!normalized) return "Untitled";
+  const noPath = normalized.split(/[\\/]/).pop() || normalized;
+  const noExt = noPath.replace(/\.[^.]+$/, "").trim();
+  return noExt || noPath || "Untitled";
+}
 function resolveLane() {
   const w3 = window;
   const fromQuery = readString7(getQueryParam2("forge_lane", "lane"));
@@ -57256,17 +57548,24 @@ function getApiToken() {
   if (fromQuery) return fromQuery;
   const fromWindow = readString7(window.__forgeTongsApiToken ?? window.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
-  try {
-    const meta3 = import.meta;
-    const fromEnv = readString7(meta3.env?.VITE_TONGS_API_TOKEN);
-    if (fromEnv) return fromEnv;
-  } catch {
-  }
   return readLocalStorage2("forge_tongs_api_token_v1") ?? void 0;
 }
 function getOrCreateCaptureSessionId() {
   const existing = readSessionStorage(CAPTURE_SESSION_KEY);
   if (existing) return existing;
+  let next = "";
+  try {
+    const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
+    next = readString7(randomUuid) || "";
+  } catch {
+  }
+  if (!next) {
+    next = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+  writeSessionStorage(CAPTURE_SESSION_KEY, next);
+  return next;
+}
+function beginRecordingCaptureSession() {
   let next = "";
   try {
     const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
@@ -57433,7 +57732,94 @@ async function commitFileToWorkpiece(workpieceId, payload, apiToken) {
   const body = await readBodyAsJson(response);
   return { status: response.status, body, ok: response.ok && isCommitAck(body) };
 }
-async function commitRecordingBytesToTongs(input) {
+async function beginChunkedRecordingUpload(workpieceId, payload, apiToken) {
+  const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/begin`, {
+    method: "POST",
+    headers: await buildHeaders(apiToken),
+    body: JSON.stringify(payload)
+  });
+  const body = await readBodyAsJson(response);
+  const data = body?.data ?? null;
+  return { status: response.status, body, ok: response.ok && isCommitAck(body), data };
+}
+async function uploadChunkToSession(workpieceId, uploadId, payload, apiToken) {
+  const response = await fetch(
+    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/${encodeURIComponent(uploadId)}/chunk`,
+    {
+      method: "POST",
+      headers: await buildHeaders(apiToken),
+      body: JSON.stringify(payload)
+    }
+  );
+  const body = await readBodyAsJson(response);
+  return { status: response.status, body, ok: response.ok && isCommitAck(body) };
+}
+async function finalizeChunkedRecordingUpload(workpieceId, uploadId, payload, apiToken) {
+  const response = await fetch(
+    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/${encodeURIComponent(uploadId)}/finalize`,
+    {
+      method: "POST",
+      headers: await buildHeaders(apiToken),
+      body: JSON.stringify(payload)
+    }
+  );
+  const body = await readBodyAsJson(response);
+  const data = body?.data ?? null;
+  return { status: response.status, body, ok: response.ok && isCommitAck(body), data };
+}
+function readScriptHash() {
+  try {
+    const raw = window.__TP_LAST_APPLIED_HASH;
+    return readString7(raw);
+  } catch {
+    return null;
+  }
+}
+function readSessionRunKey(captureSessionId) {
+  try {
+    return readString7(window.__tpAsrRunKey) || captureSessionId;
+  } catch {
+    return captureSessionId;
+  }
+}
+function emitLargeUploadWarning(detail) {
+  try {
+    console.warn("[recording/upload] large-upload-warning", detail);
+  } catch {
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:recording:upload-warning", { detail }));
+  } catch {
+  }
+  try {
+    window.HUD?.log?.("recording:upload:large-warning", detail);
+  } catch {
+  }
+}
+function emitRecordingUploadStatus(detail) {
+  try {
+    console.info("[recording/upload] status", detail);
+  } catch {
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:recording:upload-status", { detail }));
+  } catch {
+  }
+  try {
+    document.dispatchEvent(new CustomEvent("tp:recording:upload-status", { detail }));
+  } catch {
+  }
+  try {
+    window.HUD?.log?.("recording:upload:status", detail);
+  } catch {
+  }
+}
+function sleep2(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+async function resolveRecordingCaptureTarget() {
   const writtenBy = getWrittenBy();
   const apiToken = getApiToken();
   const workspaceId = resolveWorkspaceId2();
@@ -57464,16 +57850,341 @@ async function commitRecordingBytesToTongs(input) {
     createdCradle = true;
   }
   persistWorkpiece2(workspaceId, workpieceId);
+  return {
+    ok: true,
+    workspaceId,
+    workpieceId,
+    createdCradle,
+    plannerRecordingSessionId,
+    captureSessionId: getOrCreateCaptureSessionId()
+  };
+}
+async function ensureRecordingCaptureTarget() {
+  return resolveRecordingCaptureTarget();
+}
+async function commitRecordingJsonArtifactToTongs(input) {
+  const apiToken = getApiToken();
+  const writtenBy = getWrittenBy();
+  const commit = await commitFileToWorkpiece(
+    input.workpieceId,
+    {
+      path: input.path,
+      content_type: "application/json",
+      written_by: writtenBy,
+      bytes_base64: encodeBase64(new TextEncoder().encode(JSON.stringify(input.data))),
+      event_name: input.eventName,
+      event_payload: input.eventPayload ?? null,
+      correlation_id: nextCorrelationId(`anvil-${input.eventName}`)
+    },
+    apiToken
+  );
+  if (!commit.ok) {
+    const apiError = extractApiError(commit.body);
+    return {
+      ok: false,
+      reason: "commit_json_artifact_failed",
+      status: commit.status,
+      details: commit.body,
+      ...apiError.code ? { errorCode: apiError.code } : {},
+      ...apiError.message ? { errorMessage: apiError.message } : {},
+      workpieceId: input.workpieceId,
+      path: input.path
+    };
+  }
+  return {
+    ok: true,
+    status: commit.status,
+    workpieceId: input.workpieceId,
+    path: input.path
+  };
+}
+async function promoteRecordingTranscriptForHammer(input) {
+  return commitRecordingJsonArtifactToTongs({
+    workpieceId: input.workpieceId,
+    path: HAMMER_STRUCTURED_TRANSCRIPT_PATH,
+    data: input.transcript,
+    eventName: "take_transcript_promoted",
+    eventPayload: {
+      source: "anvil.local-auto",
+      transcript_path: HAMMER_STRUCTURED_TRANSCRIPT_PATH,
+      transcript_source_path: input.sourceTranscriptPath ?? null,
+      transcript_status: "ready",
+      anvil_capture_session_id: input.captureSessionId ?? getOrCreateCaptureSessionId(),
+      recording_session_id: input.plannerRecordingSessionId ?? resolvePlannerRecordingSessionId()
+    }
+  });
+}
+async function uploadRecordingWithStrategy(args) {
+  if (args.strategy === "single") {
+    args.onStatus?.({
+      phase: "uploading",
+      chunkIndex: 1,
+      totalChunks: 1,
+      chunkBytes: args.bytes.byteLength,
+      progressPct: 0
+    });
+    return commitFileToWorkpiece(
+      args.workpieceId,
+      {
+        ...args.commitPayloadBase,
+        bytes_base64: encodeBase64(args.bytes)
+      },
+      args.apiToken
+    );
+  }
+  const chunkSizeBytes = mbToBytes(args.chunkSizeMb);
+  const chunks = buildRecordingChunks(args.bytes.byteLength, chunkSizeBytes);
+  const begin = await beginChunkedRecordingUpload(
+    args.workpieceId,
+    {
+      ...args.commitPayloadBase,
+      total_bytes: args.bytes.byteLength,
+      total_chunks: chunks.length,
+      chunk_size_bytes: chunkSizeBytes,
+      strategy: "chunked"
+    },
+    args.apiToken
+  );
+  if (!begin.ok || !begin.data?.upload_id) {
+    return {
+      status: begin.status,
+      body: begin.body,
+      ok: false
+    };
+  }
+  const uploadId = begin.data.upload_id;
+  const uploadedChunks = new Set(
+    (begin.data.uploaded_chunks || []).filter((value) => Number.isInteger(value) && value >= 0)
+  );
+  const progressPctFor = (uploadedCount, totalChunks) => Math.max(0, Math.min(100, Math.round(uploadedCount / Math.max(1, totalChunks) * 100)));
+  args.onStatus?.({
+    phase: "uploading",
+    chunkIndex: uploadedChunks.size > 0 ? uploadedChunks.size : 1,
+    totalChunks: chunks.length,
+    chunkBytes: chunks[0]?.size ?? null,
+    progressPct: progressPctFor(uploadedChunks.size, chunks.length)
+  });
+  for (const chunk of chunks) {
+    if (uploadedChunks.has(chunk.index)) {
+      try {
+        console.info("[recording/upload] chunk-complete", {
+          index: chunk.index + 1,
+          total: chunk.totalChunks,
+          bytes: chunk.size,
+          skipped: true
+        });
+      } catch {
+      }
+      args.onStatus?.({
+        phase: "uploading",
+        chunkIndex: chunk.index + 1,
+        totalChunks: chunk.totalChunks,
+        chunkBytes: chunk.size,
+        progressPct: progressPctFor(uploadedChunks.size, chunk.totalChunks)
+      });
+      continue;
+    }
+    try {
+      console.info("[recording/upload] chunk-start", {
+        index: chunk.index + 1,
+        total: chunk.totalChunks,
+        bytes: chunk.size
+      });
+    } catch {
+    }
+    let completed = false;
+    let lastFailure = null;
+    for (let attempt = 1; attempt <= CHUNK_UPLOAD_RETRY_ATTEMPTS; attempt += 1) {
+      const payload = {
+        index: chunk.index,
+        total_chunks: chunk.totalChunks,
+        bytes_base64: encodeBase64(args.bytes.subarray(chunk.startByte, chunk.endByte))
+      };
+      const chunkResult = await uploadChunkToSession(args.workpieceId, uploadId, payload, args.apiToken);
+      if (chunkResult.ok) {
+        completed = true;
+        uploadedChunks.add(chunk.index);
+        try {
+          console.info("[recording/upload] chunk-complete", {
+            index: chunk.index + 1,
+            total: chunk.totalChunks,
+            bytes: chunk.size
+          });
+        } catch {
+        }
+        args.onStatus?.({
+          phase: "uploading",
+          chunkIndex: chunk.index + 1,
+          totalChunks: chunk.totalChunks,
+          chunkBytes: chunk.size,
+          progressPct: progressPctFor(uploadedChunks.size, chunk.totalChunks)
+        });
+        break;
+      }
+      lastFailure = { status: chunkResult.status, body: chunkResult.body };
+      try {
+        console.warn("[recording/upload] chunk-failed", {
+          index: chunk.index + 1,
+          total: chunk.totalChunks,
+          attempt,
+          status: chunkResult.status,
+          error: chunkResult.body
+        });
+      } catch {
+      }
+      if (attempt < CHUNK_UPLOAD_RETRY_ATTEMPTS) {
+        await sleep2(CHUNK_UPLOAD_RETRY_BACKOFF_MS * attempt);
+      }
+    }
+    if (!completed) {
+      const apiError = extractApiError(lastFailure?.body ?? null);
+      args.onStatus?.({
+        phase: "failed",
+        chunkIndex: chunk.index + 1,
+        totalChunks: chunk.totalChunks,
+        chunkBytes: chunk.size,
+        progressPct: progressPctFor(uploadedChunks.size, chunk.totalChunks),
+        errorCode: apiError.code ?? "chunk_upload_failed",
+        errorMessage: apiError.message ?? "Failed uploading chunk"
+      });
+      return {
+        status: lastFailure?.status ?? 500,
+        body: {
+          ok: false,
+          error: {
+            code: "chunk_upload_failed",
+            message: "Failed uploading chunk",
+            index: chunk.index,
+            total_chunks: chunk.totalChunks,
+            details: lastFailure?.body ?? null
+          }
+        },
+        ok: false
+      };
+    }
+  }
+  try {
+    console.info("[recording/upload] finalize-start", {
+      totalChunks: chunks.length,
+      totalBytes: args.bytes.byteLength
+    });
+  } catch {
+  }
+  args.onStatus?.({
+    phase: "finalizing",
+    chunkIndex: chunks.length,
+    totalChunks: chunks.length,
+    chunkBytes: null,
+    progressPct: 100
+  });
+  const finalize = await finalizeChunkedRecordingUpload(
+    args.workpieceId,
+    uploadId,
+    {
+      correlation_id: nextCorrelationId("anvil-recording-finalize")
+    },
+    args.apiToken
+  );
+  if (finalize.ok) {
+    try {
+      console.info("[recording/upload] finalize-complete", {
+        objectId: finalize.data?.path ?? null,
+        totalChunks: chunks.length,
+        totalBytes: args.bytes.byteLength
+      });
+    } catch {
+    }
+  }
+  return {
+    status: finalize.status,
+    body: finalize.body,
+    ok: finalize.ok
+  };
+}
+async function commitRecordingBytesToTongs(input) {
+  const apiToken = getApiToken();
+  const writtenBy = getWrittenBy();
+  const target = await resolveRecordingCaptureTarget();
+  if (!target.ok) {
+    return {
+      ok: false,
+      reason: target.reason,
+      status: target.status,
+      details: target.details,
+      workspaceId: target.workspaceId,
+      workpieceId: target.workpieceId
+    };
+  }
+  const workspaceId = target.workspaceId;
+  let workpieceId = target.workpieceId;
+  let createdCradle = target.createdCradle;
+  const plannerRecordingSessionId = target.plannerRecordingSessionId;
   const name = sanitizeFilename(input.originalName);
   const path = `recordings/${name}`;
   const contentType = inferContentType(input.contentType, name);
-  const bytesBase64 = encodeBase64(input.bytes);
-  const captureSessionId = getOrCreateCaptureSessionId();
-  const commitPayload = {
+  const captureSessionId = target.captureSessionId;
+  const uploadConfig = resolveUploadStrategyConfig();
+  const strategy = selectUploadStrategyForBytes(input.bytes.byteLength, uploadConfig);
+  const bytesMb = Number((input.bytes.byteLength / (1024 * 1024)).toFixed(2));
+  const thresholdExceeded = input.bytes.byteLength > mbToBytes(uploadConfig.largeUploadWarnMb);
+  const sessionRunKey = readSessionRunKey(captureSessionId);
+  const title = deriveRecordingTitleFromName(input.originalName);
+  const scriptHash = readScriptHash();
+  const commitPathMode = strategy === "chunked" ? "recording-upload.chunked" : "commit-file.single";
+  const emitUploadStatus = (phase, patch = {}) => {
+    emitRecordingUploadStatus({
+      phase,
+      strategy,
+      bytes: input.bytes.byteLength,
+      mb: bytesMb,
+      sessionRunKey,
+      workpieceId,
+      workspaceId,
+      title,
+      scriptHash,
+      destinationPath: path,
+      commitPathMode,
+      warningThresholdMb: uploadConfig.largeUploadWarnMb,
+      warningThresholdExceeded: thresholdExceeded,
+      ...patch
+    });
+  };
+  try {
+    console.info("[recording/upload] blob-summary", {
+      bytes: input.bytes.byteLength,
+      mb: bytesMb,
+      sessionRunKey,
+      workpieceId,
+      workspaceId,
+      title,
+      scriptHash,
+      strategy,
+      destinationPath: path,
+      commitPathMode,
+      warningThresholdMb: uploadConfig.largeUploadWarnMb,
+      warningThresholdExceeded: thresholdExceeded
+    });
+  } catch {
+  }
+  if (thresholdExceeded) {
+    emitLargeUploadWarning({
+      bytes: input.bytes.byteLength,
+      mb: bytesMb,
+      thresholdMb: uploadConfig.largeUploadWarnMb,
+      strategy,
+      path
+    });
+  }
+  emitUploadStatus("preflight", {
+    progressPct: 0,
+    safeToLeave: false,
+    chunkIndex: 0,
+    totalChunks: strategy === "chunked" ? null : 1
+  });
+  const commitPayloadBase = {
     path,
     content_type: contentType,
     written_by: writtenBy,
-    bytes_base64: bytesBase64,
     event_name: "take_completed",
     event_payload: {
       source: "anvil.local-auto",
@@ -57483,12 +58194,35 @@ async function commitRecordingBytesToTongs(input) {
       content_type: contentType,
       created_cradle: createdCradle,
       recording_session_id: plannerRecordingSessionId,
-      anvil_capture_session_id: captureSessionId
+      anvil_capture_session_id: captureSessionId,
+      transcript_path: input.transcriptPath ?? null,
+      transcript_status: input.transcriptStatus ?? null,
+      recording_medium: input.recordingMedium ?? null,
+      requires_post_normalization: input.requiresPostNormalization === true,
+      upload_strategy: strategy
     },
     correlation_id: nextCorrelationId("anvil-recording")
   };
   let didRetry404 = false;
-  let commit = await commitFileToWorkpiece(workpieceId, commitPayload, apiToken);
+  let commit = await uploadRecordingWithStrategy({
+    strategy,
+    workpieceId,
+    bytes: input.bytes,
+    chunkSizeMb: uploadConfig.chunkSizeMb,
+    commitPayloadBase,
+    apiToken,
+    onStatus: (status2) => {
+      emitUploadStatus(status2.phase, {
+        chunkIndex: status2.chunkIndex ?? null,
+        totalChunks: status2.totalChunks ?? null,
+        chunkBytes: status2.chunkBytes ?? null,
+        progressPct: status2.progressPct ?? null,
+        safeToLeave: false,
+        errorCode: status2.errorCode ?? null,
+        errorMessage: status2.errorMessage ?? null
+      });
+    }
+  });
   if (!commit.ok && commit.status === 404 && workspaceId) {
     didRetry404 = true;
     const replacement = await createCradle(workspaceId, writtenBy, apiToken);
@@ -57496,11 +58230,36 @@ async function commitRecordingBytesToTongs(input) {
       workpieceId = replacement.workpieceId;
       createdCradle = true;
       persistWorkpiece2(workspaceId, workpieceId);
-      commit = await commitFileToWorkpiece(workpieceId, commitPayload, apiToken);
+      commitPayloadBase.event_payload.created_cradle = true;
+      commit = await uploadRecordingWithStrategy({
+        strategy,
+        workpieceId,
+        bytes: input.bytes,
+        chunkSizeMb: uploadConfig.chunkSizeMb,
+        commitPayloadBase,
+        apiToken,
+        onStatus: (status2) => {
+          emitUploadStatus(status2.phase, {
+            chunkIndex: status2.chunkIndex ?? null,
+            totalChunks: status2.totalChunks ?? null,
+            chunkBytes: status2.chunkBytes ?? null,
+            progressPct: status2.progressPct ?? null,
+            safeToLeave: false,
+            errorCode: status2.errorCode ?? null,
+            errorMessage: status2.errorMessage ?? null
+          });
+        }
+      });
     }
   }
   if (!commit.ok) {
     const apiError = extractApiError(commit.body);
+    emitUploadStatus("failed", {
+      safeToLeave: false,
+      progressPct: null,
+      errorCode: apiError.code ?? null,
+      errorMessage: apiError.message ?? "Canonical upload failed"
+    });
     return {
       ok: false,
       reason: didRetry404 ? "commit_failed_after_retry" : "commit_failed",
@@ -57512,6 +58271,14 @@ async function commitRecordingBytesToTongs(input) {
       workpieceId
     };
   }
+  emitUploadStatus("done", {
+    safeToLeave: true,
+    progressPct: 100,
+    chunkIndex: strategy === "chunked" ? null : 1,
+    totalChunks: strategy === "chunked" ? null : 1,
+    chunkBytes: strategy === "chunked" ? null : input.bytes.byteLength,
+    finalStorageKey: path
+  });
   return {
     ok: true,
     workpieceId,
@@ -57541,7 +58308,12 @@ async function appendRecordingDecisionToTongs(input) {
         duration_ms: typeof input.durationMs === "number" && Number.isFinite(input.durationMs) ? Math.max(0, Math.round(input.durationMs)) : null,
         created_cradle: input.createdCradle === true,
         recording_session_id: input.plannerRecordingSessionId ?? null,
-        anvil_capture_session_id: captureSessionId
+        anvil_capture_session_id: captureSessionId,
+        transcript_path: input.transcriptPath ?? null,
+        transcript_status: input.transcriptStatus ?? null,
+        transcript_source_path: input.transcriptSourcePath ?? null,
+        recording_medium: input.recordingMedium ?? null,
+        requires_post_normalization: input.requiresPostNormalization === true
       },
       correlation_id: nextCorrelationId(`anvil-${input.eventName}`)
     })
@@ -57563,7 +58335,7 @@ async function appendRecordingDecisionToTongs(input) {
     status: response.status
   };
 }
-var UUID_RE2, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS2, WORKPIECE_STORAGE_KEYS2, ACTIVE_WORKPIECE_KEY2, WORKSPACE_WORKPIECE_PREFIX2, CAPTURE_SESSION_KEY, PLANNER_RECORDING_SESSION_KEY, correlationSeq;
+var UUID_RE2, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS2, WORKPIECE_STORAGE_KEYS2, ACTIVE_WORKPIECE_KEY2, WORKSPACE_WORKPIECE_PREFIX2, CAPTURE_SESSION_KEY, PLANNER_RECORDING_SESSION_KEY, LARGE_UPLOAD_WARN_MB_KEY, CHUNK_UPLOAD_THRESHOLD_MB_KEY, CHUNK_SIZE_MB_KEY, DEFAULT_LARGE_UPLOAD_WARN_MB, DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB, DEFAULT_CHUNK_SIZE_MB, CHUNK_UPLOAD_RETRY_ATTEMPTS, CHUNK_UPLOAD_RETRY_BACKOFF_MS, HAMMER_STRUCTURED_TRANSCRIPT_PATH, correlationSeq;
 var init_workpiece_commit = __esm({
   "src/forge/workpiece-commit.ts"() {
     "use strict";
@@ -57581,7 +58353,680 @@ var init_workpiece_commit = __esm({
     WORKSPACE_WORKPIECE_PREFIX2 = "forge_anvil_recording_workpiece_v1:";
     CAPTURE_SESSION_KEY = "forge_anvil_capture_session_v1";
     PLANNER_RECORDING_SESSION_KEY = "forge_anvil_recording_session_v1";
+    LARGE_UPLOAD_WARN_MB_KEY = "ANVIL_LARGE_UPLOAD_WARN_MB";
+    CHUNK_UPLOAD_THRESHOLD_MB_KEY = "ANVIL_CHUNK_UPLOAD_THRESHOLD_MB";
+    CHUNK_SIZE_MB_KEY = "ANVIL_CHUNK_SIZE_MB";
+    DEFAULT_LARGE_UPLOAD_WARN_MB = 100;
+    DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB = 32;
+    DEFAULT_CHUNK_SIZE_MB = 8;
+    CHUNK_UPLOAD_RETRY_ATTEMPTS = 3;
+    CHUNK_UPLOAD_RETRY_BACKOFF_MS = 250;
+    HAMMER_STRUCTURED_TRANSCRIPT_PATH = "hammer/transcript/structured.v1.json";
     correlationSeq = 0;
+  }
+});
+
+// src/forge/ready-scripts.ts
+function readString8(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+function normalizeUuid3(value) {
+  const str = readString8(value);
+  if (!str) return null;
+  return UUID_RE3.test(str) ? str.toLowerCase() : null;
+}
+function readLocalStorage3(key) {
+  try {
+    return readString8(window.localStorage.getItem(key));
+  } catch {
+    return null;
+  }
+}
+function getQueryParam3(...keys) {
+  try {
+    const q3 = new URLSearchParams(window.location.search || "");
+    for (const key of keys) {
+      const value = readString8(q3.get(key));
+      if (value) return value;
+    }
+  } catch {
+  }
+  return null;
+}
+function resolveWorkspaceId3() {
+  const fromQuery = normalizeUuid3(getQueryParam3("workspace_id", "workspaceId", "workspace"));
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = normalizeUuid3(
+    w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
+  );
+  if (fromWindow) return fromWindow;
+  for (const key of WORKSPACE_STORAGE_KEYS3) {
+    const value = normalizeUuid3(readLocalStorage3(key));
+    if (value) return value;
+  }
+  return null;
+}
+function resolveTongsApiToken2() {
+  const fromQuery = readString8(getQueryParam3("tongs_api_token", "tongsApiToken"));
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = readString8(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  if (fromWindow) return fromWindow;
+  try {
+    const meta3 = import.meta;
+    const fromEnv = readString8(meta3.env?.VITE_TONGS_API_TOKEN);
+    if (fromEnv) return fromEnv;
+  } catch {
+  }
+  return readLocalStorage3("forge_tongs_api_token_v1") ?? void 0;
+}
+async function withAuthHeaders() {
+  const headers = new Headers();
+  const token = resolveTongsApiToken2();
+  if (token) {
+    headers.set("authorization", `Bearer ${token}`);
+  }
+  return appendForgeUserAuthorization(headers);
+}
+function normalizeScriptPath(value) {
+  const path = readString8(value);
+  if (!path) return null;
+  if (path.startsWith("/") || path.includes("..")) return null;
+  return path;
+}
+function normalizeIso(value) {
+  const iso = readString8(value);
+  if (!iso) return void 0;
+  const timestamp = Date.parse(iso);
+  if (!Number.isFinite(timestamp)) return void 0;
+  return new Date(timestamp).toISOString();
+}
+function normalizeScriptPaths(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (const entry of value) {
+    const path = normalizeScriptPath(entry);
+    if (!path || out.includes(path)) continue;
+    out.push(path);
+  }
+  return out;
+}
+function toReadyScriptId(workpieceId, path) {
+  return `ready:${workpieceId}:${path}`;
+}
+function parseReadyScriptsPayload(payload, workspaceId) {
+  if (!payload || typeof payload !== "object") return [];
+  const root = payload;
+  if (root.ok !== true) return [];
+  const data = root.data;
+  const rowsMaybe = Array.isArray(data) ? data : data && typeof data === "object" && Array.isArray(data.scripts) ? data.scripts : [];
+  if (!rowsMaybe.length) return [];
+  const scripts = [];
+  for (const row of rowsMaybe) {
+    if (!row || typeof row !== "object") continue;
+    const item = row;
+    const rowWorkspace = normalizeUuid3(item.workspace_id) ?? workspaceId;
+    const workpieceId = normalizeUuid3(item.workpiece_id);
+    const primaryPath = normalizeScriptPath(item.primary_script_path) ?? normalizeScriptPath(item.path);
+    const scriptPaths = normalizeScriptPaths(item.script_paths);
+    const path = primaryPath ?? scriptPaths[0] ?? null;
+    if (!rowWorkspace || !workpieceId || !path) continue;
+    const normalizedScriptPaths = scriptPaths.length ? scriptPaths.includes(path) ? scriptPaths : [path, ...scriptPaths] : [path];
+    const title = readString8(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
+    scripts.push({
+      id: toReadyScriptId(workpieceId, path),
+      workspaceId: rowWorkspace,
+      workpieceId,
+      path,
+      primaryPath: path,
+      scriptPaths: normalizedScriptPaths,
+      title,
+      updatedAt: normalizeIso(item.updated_at),
+      markedReadyBy: normalizeUuid3(item.marked_ready_by) ?? void 0,
+      markedReadyAt: normalizeIso(item.marked_ready_at)
+    });
+  }
+  scripts.sort((a, b) => {
+    const aTs = a.updatedAt ?? "";
+    const bTs = b.updatedAt ?? "";
+    const byUpdated = bTs.localeCompare(aTs);
+    if (byUpdated !== 0) return byUpdated;
+    return a.title.localeCompare(b.title);
+  });
+  return scripts;
+}
+function parseRecordingSessionsPayload(payload, workspaceId) {
+  if (!payload || typeof payload !== "object") return [];
+  const root = payload;
+  if (root.ok !== true) return [];
+  const data = root.data;
+  const rowsMaybe = Array.isArray(data) ? data : data && typeof data === "object" && Array.isArray(data.sessions) ? data.sessions : [];
+  const out = [];
+  for (const row of rowsMaybe) {
+    if (!row || typeof row !== "object") continue;
+    const item = row;
+    const id = normalizeUuid3(item.id);
+    const rowWorkspace = normalizeUuid3(item.workspace_id) ?? workspaceId;
+    if (!id || !rowWorkspace) continue;
+    const title = readString8(item.title) ?? "Recording Session";
+    out.push({
+      id,
+      workspaceId: rowWorkspace,
+      title,
+      createdAt: normalizeIso(item.created_at),
+      updatedAt: normalizeIso(item.updated_at),
+      calendarEventId: normalizeUuid3(item.calendar_event_id)
+    });
+  }
+  out.sort((a, b) => {
+    const aUpdated = a.updatedAt ?? a.createdAt ?? "";
+    const bUpdated = b.updatedAt ?? b.createdAt ?? "";
+    const byUpdated = bUpdated.localeCompare(aUpdated);
+    if (byUpdated !== 0) return byUpdated;
+    return a.title.localeCompare(b.title);
+  });
+  return out;
+}
+function parseRecordingSessionDetailPayload(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const root = payload;
+  if (root.ok !== true) return null;
+  if (!root.data || typeof root.data !== "object") return null;
+  return root.data;
+}
+function toScriptReferenceFromSessionItem(args) {
+  const workpieceId = normalizeUuid3(args.item.episode_id);
+  const path = normalizeScriptPath(args.item.script_path);
+  if (!workpieceId || !path) return null;
+  const key = `${workpieceId}::${path}`;
+  const matchedReady = args.readyByKey.get(key) ?? null;
+  const title = args.titleByKey.get(key) ?? args.fallbackTitle;
+  const scriptPaths = matchedReady ? Array.from(new Set([path, matchedReady.primaryPath, ...matchedReady.scriptPaths].filter(Boolean))) : [path];
+  return {
+    id: toReadyScriptId(workpieceId, path),
+    workspaceId: args.workspaceId,
+    workpieceId,
+    path,
+    primaryPath: matchedReady?.primaryPath ?? path,
+    scriptPaths,
+    title,
+    updatedAt: matchedReady?.updatedAt
+  };
+}
+async function listWorkspaceReadyScripts() {
+  const workspaceId = resolveWorkspaceId3();
+  if (!workspaceId) return [];
+  const response = await fetch(`/tongs/workspaces/${encodeURIComponent(workspaceId)}/ready-scripts?unrecorded=1`, {
+    method: "GET",
+    headers: await withAuthHeaders()
+  });
+  if (!response.ok) return [];
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    return [];
+  }
+  return parseReadyScriptsPayload(body, workspaceId);
+}
+async function listRecordingSessionsForWorkspace() {
+  const workspaceId = resolveWorkspaceId3();
+  if (!workspaceId) return [];
+  const response = await fetch(
+    `/tongs/recording-sessions?workspace_id=${encodeURIComponent(workspaceId)}&limit=100`,
+    {
+      method: "GET",
+      headers: await withAuthHeaders()
+    }
+  );
+  if (!response.ok) return [];
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    return [];
+  }
+  return parseRecordingSessionsPayload(body, workspaceId);
+}
+async function readRecordingSessionScripts(sessionId) {
+  const safeSessionId = normalizeUuid3(sessionId);
+  if (!safeSessionId) return null;
+  const response = await fetch(`/tongs/recording-sessions/${encodeURIComponent(safeSessionId)}`, {
+    method: "GET",
+    headers: await withAuthHeaders()
+  });
+  if (!response.ok) return null;
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    return null;
+  }
+  const detail = parseRecordingSessionDetailPayload(body);
+  if (!detail) return null;
+  const workspaceId = normalizeUuid3(detail.workspace_id);
+  const parsedSessionId = normalizeUuid3(detail.id);
+  if (!workspaceId || !parsedSessionId) return null;
+  const sessionTitle = readString8(detail.title) ?? "Recording Session";
+  const workspaceReady = await listWorkspaceReadyScripts().catch(() => []);
+  const titleByKey = /* @__PURE__ */ new Map();
+  const readyByKey = /* @__PURE__ */ new Map();
+  const readyMetaByKey = /* @__PURE__ */ new Map();
+  for (const script of workspaceReady) {
+    titleByKey.set(`${script.workpieceId}::${script.path}`, script.title);
+    readyByKey.set(`${script.workpieceId}::${script.path}`, script);
+    readyMetaByKey.set(`${script.workpieceId}::${script.path}`, {
+      markedReadyBy: script.markedReadyBy,
+      markedReadyAt: script.markedReadyAt
+    });
+    for (const scriptPath of script.scriptPaths) {
+      titleByKey.set(`${script.workpieceId}::${scriptPath}`, script.title);
+      readyByKey.set(`${script.workpieceId}::${scriptPath}`, script);
+      readyMetaByKey.set(`${script.workpieceId}::${scriptPath}`, {
+        markedReadyBy: script.markedReadyBy,
+        markedReadyAt: script.markedReadyAt
+      });
+    }
+  }
+  const rawItems = Array.isArray(detail.items) ? detail.items : [];
+  const parsedItems = rawItems.filter((entry) => !!entry && typeof entry === "object").sort((a, b) => {
+    const aPos = Number.isFinite(Number(a.position)) ? Number(a.position) : 0;
+    const bPos = Number.isFinite(Number(b.position)) ? Number(b.position) : 0;
+    return aPos - bPos;
+  });
+  const scripts = [];
+  for (const item of parsedItems) {
+    const fallbackTitle = `Episode ${String(item.episode_id ?? "").slice(0, 8) || "unknown"}`;
+    const ref = toScriptReferenceFromSessionItem({
+      item,
+      workspaceId,
+      fallbackTitle,
+      titleByKey,
+      readyByKey
+    });
+    if (ref) {
+      const key = `${ref.workpieceId}::${ref.path}`;
+      const readyMeta = readyMetaByKey.get(key);
+      scripts.push({
+        ...ref,
+        markedReadyBy: readyMeta?.markedReadyBy,
+        markedReadyAt: readyMeta?.markedReadyAt
+      });
+    }
+  }
+  return {
+    session: {
+      id: parsedSessionId,
+      workspaceId,
+      title: sessionTitle,
+      calendarEventId: normalizeUuid3(detail.calendar_event_id)
+    },
+    scripts
+  };
+}
+async function readReadyScriptText(workpieceId, path) {
+  const safeWorkpieceId = normalizeUuid3(workpieceId);
+  const safePath = normalizeScriptPath(path);
+  if (!safeWorkpieceId || !safePath) return null;
+  const response = await fetch(
+    `/tongs/workpieces/${encodeURIComponent(safeWorkpieceId)}/read-file?path=${encodeURIComponent(safePath)}`,
+    {
+      method: "GET",
+      headers: await withAuthHeaders()
+    }
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) return null;
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    return null;
+  }
+  if (!body || typeof body !== "object" || body.ok !== true) {
+    return null;
+  }
+  const data = body.data;
+  return typeof data === "string" ? data : null;
+}
+var UUID_RE3, WORKSPACE_STORAGE_KEYS3;
+var init_ready_scripts = __esm({
+  "src/forge/ready-scripts.ts"() {
+    "use strict";
+    init_tongs_user_auth();
+    UUID_RE3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    WORKSPACE_STORAGE_KEYS3 = ["forge_workspace_id_v1", "barstock_workspace_id"];
+  }
+});
+
+// src/features/ready-script-loading.ts
+function hasUsableReadyScriptContent(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+function buildReadyScriptPathCandidates(entry) {
+  const candidates = [entry.path, entry.primaryPath, ...entry.scriptPaths];
+  const out = [];
+  for (const candidate of candidates) {
+    const path = String(candidate || "").trim();
+    if (!path || out.includes(path)) continue;
+    out.push(path);
+  }
+  return out;
+}
+async function readReadyScriptRecordContent(entry, readText2) {
+  for (const path of buildReadyScriptPathCandidates(entry)) {
+    const text = await readText2(entry.workpieceId, path);
+    if (hasUsableReadyScriptContent(text)) {
+      return text;
+    }
+  }
+  return null;
+}
+var init_ready_script_loading = __esm({
+  "src/features/ready-script-loading.ts"() {
+    "use strict";
+  }
+});
+
+// src/features/scripts-store.ts
+function shortUserId(value) {
+  const userId = String(value ?? "").trim();
+  if (!userId) return "Unknown";
+  if (userId.length <= 12) return userId;
+  return `${userId.slice(0, 8)}...`;
+}
+function formatRelativeTime(iso) {
+  if (!iso) return "unknown";
+  const timestamp = Date.parse(iso);
+  if (!Number.isFinite(timestamp)) return "unknown";
+  const diffMs = Date.now() - timestamp;
+  const absMs = Math.abs(diffMs);
+  const minuteMs = 60 * 1e3;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+  const weekMs = 7 * dayMs;
+  const formatUnit = (unit, amount) => {
+    try {
+      return new Intl.RelativeTimeFormat(void 0, { numeric: "auto" }).format(amount, unit);
+    } catch {
+      const abs = Math.abs(amount);
+      const suffix = amount <= 0 ? "ago" : "from now";
+      return `${abs} ${unit}${abs === 1 ? "" : "s"} ${suffix}`;
+    }
+  };
+  if (absMs < hourMs) return formatUnit("minute", -Math.max(1, Math.round(absMs / minuteMs)));
+  if (absMs < dayMs) return formatUnit("hour", -Math.round(absMs / hourMs));
+  if (absMs < weekMs) return formatUnit("day", -Math.round(absMs / dayMs));
+  return formatUnit("week", -Math.round(absMs / weekMs));
+}
+function formatReadyAttribution(entry) {
+  const by = shortUserId(entry.markedReadyBy);
+  const at = entry.markedReadyAt ?? entry.updatedAt ?? null;
+  return at ? `Ready by ${by} (${formatRelativeTime(at)})` : `Ready by ${by}`;
+}
+async function ensureReadPermission(handle) {
+  try {
+    const h = handle;
+    const hasQuery = typeof h?.queryPermission === "function";
+    const hasRequest = typeof h?.requestPermission === "function";
+    if (!hasQuery && !hasRequest) return true;
+    const state8 = hasQuery ? await h.queryPermission({ mode: "read" }) : null;
+    if (state8 === "granted") return true;
+    if (!hasRequest) return true;
+    const req = await h.requestPermission({ mode: "read" });
+    return req === "granted";
+  } catch {
+    return false;
+  }
+}
+function emitScriptsUpdated() {
+  try {
+    window.dispatchEvent(new CustomEvent("tp:scripts-updated"));
+  } catch {
+  }
+}
+async function readMappedFile(file) {
+  try {
+    const name = file?.name || "";
+    const lower = name.toLowerCase();
+    if (/\.docx$/i.test(lower)) {
+      const buf = await file.arrayBuffer();
+      const docText = await extractDocxText(buf);
+      if (docText) return docText;
+    }
+    return await file.text();
+  } catch (err) {
+    try {
+      console.warn("[scripts-store] readMappedFile failed", err);
+    } catch {
+    }
+    return "";
+  }
+}
+async function extractDocxText(buf) {
+  try {
+    const ensure = window.ensureMammoth;
+    const mod = ensure ? await ensure() : null;
+    const mammoth = mod && (mod.mammoth || mod.default) || window.mammoth || null;
+    if (!mammoth) throw new Error("mammoth not available");
+    const res = await mammoth.extractRawText({ arrayBuffer: buf });
+    const raw = res && (res.value || res.text || "") || "";
+    return String(raw).replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  } catch (err) {
+    try {
+      console.warn("[scripts-store] docx parse failed", err);
+    } catch {
+    }
+    return "";
+  }
+}
+var scriptsById, mappedHandles, readyRefsById, lastMappedFingerprint, lastReadyFingerprint, computeFingerprint, computeReadyFingerprint, ScriptStore;
+var init_scripts_store = __esm({
+  "src/features/scripts-store.ts"() {
+    "use strict";
+    init_logging();
+    init_ready_scripts();
+    init_ready_script_loading();
+    scriptsById = /* @__PURE__ */ new Map();
+    mappedHandles = /* @__PURE__ */ new Map();
+    readyRefsById = /* @__PURE__ */ new Map();
+    lastMappedFingerprint = "";
+    lastReadyFingerprint = "";
+    computeFingerprint = (entries) => entries.map((e) => String(e.id || "")).sort().join("|");
+    computeReadyFingerprint = (entries) => entries.map((e) => `${String(e.id || "")}:${String(e.updatedAt || "")}:${String(e.path || "")}`).sort().join("|");
+    ScriptStore = {
+      list() {
+        const all2 = Array.from(scriptsById.values());
+        debugLog("[SCRIPT-STORE] list size", all2.length, all2.map((r) => r.id));
+        return all2.map((rec2) => ({
+          id: rec2.id,
+          title: rec2.title,
+          updated: rec2.updated
+        }));
+      },
+      async get(id) {
+        const existing = scriptsById.get(id);
+        if (existing && hasUsableReadyScriptContent(existing.content)) return existing;
+        const mapped = mappedHandles.get(id);
+        if (!mapped) {
+          const ready = readyRefsById.get(id);
+          if (!ready) return hasUsableReadyScriptContent(existing?.content) ? existing : null;
+          try {
+            const text = await readReadyScriptRecordContent(ready, readReadyScriptText);
+            if (!hasUsableReadyScriptContent(text)) {
+              return hasUsableReadyScriptContent(existing?.content) ? existing : null;
+            }
+            const rec2 = {
+              id: ready.id,
+              title: ready.title,
+              content: text,
+              source: "ready",
+              created: existing?.created || ready.updatedAt || (/* @__PURE__ */ new Date()).toISOString(),
+              updated: ready.updatedAt || (/* @__PURE__ */ new Date()).toISOString()
+            };
+            scriptsById.set(id, rec2);
+            return rec2;
+          } catch (err) {
+            try {
+              console.warn("[scripts-store] failed to load ready script", err);
+            } catch {
+            }
+            return hasUsableReadyScriptContent(existing?.content) ? existing : null;
+          }
+        }
+        try {
+          const ok = await ensureReadPermission(mapped.handle);
+          if (!ok) {
+            hudLog("script:permission:denied", { id });
+            try {
+              window.toast?.("Allow folder access to load scripts, then try Refresh.", { type: "warning" });
+            } catch {
+            }
+            return hasUsableReadyScriptContent(existing?.content) ? existing : null;
+          }
+          const file = await mapped.handle.getFile();
+          const text = await readMappedFile(file);
+          const rec2 = {
+            id: mapped.id,
+            title: mapped.title,
+            content: text,
+            source: "mapped",
+            created: existing?.created,
+            updated: (/* @__PURE__ */ new Date()).toISOString()
+          };
+          scriptsById.set(id, rec2);
+          return rec2;
+        } catch (err) {
+          try {
+            console.warn("[scripts-store] failed to load mapped script", err);
+          } catch {
+          }
+          return hasUsableReadyScriptContent(existing?.content) ? existing : null;
+        }
+      },
+      save(data) {
+        const fallbackId = data.title?.trim() || `script-${Date.now()}`;
+        const id = (data.id || "").trim() || fallbackId;
+        const existing = scriptsById.get(id);
+        const now3 = (/* @__PURE__ */ new Date()).toISOString();
+        const rec2 = {
+          id,
+          title: data.title || existing?.title || id,
+          content: data.content,
+          source: existing?.source || "local",
+          created: existing?.created || now3,
+          updated: now3
+        };
+        scriptsById.set(id, rec2);
+        emitScriptsUpdated();
+        return id;
+      },
+      rename(id, title) {
+        const rec2 = scriptsById.get(id);
+        if (!rec2) return;
+        rec2.title = title;
+        rec2.updated = (/* @__PURE__ */ new Date()).toISOString();
+        scriptsById.set(id, rec2);
+        emitScriptsUpdated();
+      },
+      remove(id) {
+        scriptsById.delete(id);
+        mappedHandles.delete(id);
+        emitScriptsUpdated();
+      },
+      getMappedEntries() {
+        return Array.from(mappedHandles.values()).map((m) => ({
+          id: m.id,
+          title: m.title,
+          handle: m.handle
+        }));
+      },
+      getSelectableEntries() {
+        const mapped = Array.from(mappedHandles.values()).map((m) => ({
+          id: m.id,
+          title: m.title,
+          handle: m.handle,
+          source: "mapped"
+        }));
+        const ready = Array.from(readyRefsById.values()).map((r) => ({
+          id: r.id,
+          title: r.title,
+          subtitle: formatReadyAttribution(r),
+          source: "ready"
+        }));
+        return [...ready, ...mapped];
+      },
+      syncMapped(entries) {
+        const fingerprint = computeFingerprint(entries);
+        if (fingerprint && fingerprint === lastMappedFingerprint) {
+          debugLog("[SCRIPT-STORE] syncMapped skipped (unchanged)", { fingerprint, count: entries.length });
+          return;
+        }
+        lastMappedFingerprint = fingerprint;
+        debugLog("[SCRIPT-STORE] syncMapped entries", entries);
+        for (const [id, rec2] of scriptsById.entries()) {
+          if (rec2.source === "mapped" && !entries.some((entry) => entry.id === id)) {
+            scriptsById.delete(id);
+          }
+        }
+        mappedHandles.clear();
+        for (const e of entries) {
+          mappedHandles.set(e.id, { id: e.id, title: e.title, handle: e.handle });
+          const existing = scriptsById.get(e.id);
+          scriptsById.set(e.id, {
+            id: e.id,
+            title: e.title,
+            content: existing?.content || "",
+            created: existing?.created || (/* @__PURE__ */ new Date()).toISOString(),
+            updated: existing?.updated,
+            source: existing?.source ?? "mapped"
+          });
+        }
+        const ids = Array.from(scriptsById.keys());
+        debugLog("[SCRIPT-STORE] scriptsById size after sync", scriptsById.size, ids);
+        hudLog("script-store:syncMapped", { size: scriptsById.size, ids });
+        emitScriptsUpdated();
+      },
+      syncReady(entries) {
+        const fingerprint = computeReadyFingerprint(entries);
+        if (fingerprint && fingerprint === lastReadyFingerprint) {
+          debugLog("[SCRIPT-STORE] syncReady skipped (unchanged)", { fingerprint, count: entries.length });
+          return;
+        }
+        lastReadyFingerprint = fingerprint;
+        debugLog("[SCRIPT-STORE] syncReady entries", entries);
+        for (const [id, rec2] of scriptsById.entries()) {
+          if (rec2.source === "ready" && !entries.some((entry) => entry.id === id)) {
+            scriptsById.delete(id);
+          }
+        }
+        readyRefsById.clear();
+        for (const entry of entries) {
+          readyRefsById.set(entry.id, entry);
+          const existing = scriptsById.get(entry.id);
+          scriptsById.set(entry.id, {
+            id: entry.id,
+            title: entry.title,
+            content: existing?.content || "",
+            source: "ready",
+            created: existing?.created || entry.updatedAt || (/* @__PURE__ */ new Date()).toISOString(),
+            updated: entry.updatedAt || existing?.updated
+          });
+        }
+        const ids = Array.from(scriptsById.keys());
+        debugLog("[SCRIPT-STORE] scriptsById size after ready sync", scriptsById.size, ids);
+        hudLog("script-store:syncReady", { size: scriptsById.size, ids });
+        emitScriptsUpdated();
+      }
+    };
+    try {
+      window.Scripts = ScriptStore;
+      window.getScriptsApi = () => ScriptStore;
+    } catch {
+    }
   }
 });
 
@@ -57879,7 +59324,7 @@ var init_recording_decision_dialog = __esm({
 });
 
 // src/recording/recording-name.ts
-function readString8(value) {
+function readString9(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -57891,7 +59336,7 @@ function sanitizeRecordingTitle(title) {
   return sliced || "Script";
 }
 function pickRecordingBaseTitle(args) {
-  return readString8(args.inputTitle) ?? readString8(args.routeEpisodeTitle) ?? readString8(args.storedTitle) ?? "Script";
+  return readString9(args.inputTitle) ?? readString9(args.routeEpisodeTitle) ?? readString9(args.storedTitle) ?? "Script";
 }
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -57915,6 +59360,558 @@ function buildRecordingFilename(args) {
 var init_recording_name = __esm({
   "src/recording/recording-name.ts"() {
     "use strict";
+  }
+});
+
+// src/forge/workpiece-context.ts
+function readString10(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+function normalizeUuid4(value) {
+  const str = readString10(value);
+  if (!str) return null;
+  return UUID_RE4.test(str) ? str.toLowerCase() : null;
+}
+function readLocalStorage4(key) {
+  try {
+    return readString10(window.localStorage.getItem(key));
+  } catch {
+    return null;
+  }
+}
+function writeLocalStorage3(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+  }
+}
+function getQueryParam4(...keys) {
+  try {
+    const q3 = new URLSearchParams(window.location.search || "");
+    for (const key of keys) {
+      const value = readString10(q3.get(key));
+      if (value) return value;
+    }
+  } catch {
+  }
+  return null;
+}
+function resolveWorkspaceId4() {
+  const fromQuery = normalizeUuid4(getQueryParam4("workspace_id", "workspaceId", "workspace"));
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = normalizeUuid4(
+    w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
+  );
+  if (fromWindow) return fromWindow;
+  for (const key of WORKSPACE_STORAGE_KEYS4) {
+    const value = normalizeUuid4(readLocalStorage4(key));
+    if (value) return value;
+  }
+  return null;
+}
+function resolveDirectWorkpieceId2() {
+  const fromQuery = normalizeUuid4(
+    getQueryParam4("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
+  );
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = normalizeUuid4(
+    w3.__forgeWorkpieceId ?? w3.__tpWorkpieceId ?? w3.__forgeCradleId ?? w3.__tpCradleId
+  );
+  if (fromWindow) return fromWindow;
+  for (const key of WORKPIECE_STORAGE_KEYS3) {
+    const value = normalizeUuid4(readLocalStorage4(key));
+    if (value) return value;
+  }
+  return null;
+}
+function loadCachedWorkpiece2(workspaceId) {
+  if (!workspaceId) return null;
+  return normalizeUuid4(readLocalStorage4(`${WORKSPACE_WORKPIECE_PREFIX3}${workspaceId}`));
+}
+function parseReadyScriptWorkpieceId(scriptId) {
+  const id = readString10(scriptId);
+  if (!id) return null;
+  if (!id.toLowerCase().startsWith("ready:")) return null;
+  const rest = id.slice("ready:".length);
+  const separator = rest.indexOf(":");
+  if (separator <= 0) return null;
+  return normalizeUuid4(rest.slice(0, separator));
+}
+function persistActiveWorkpieceFromScriptId(scriptId) {
+  const workpieceId = parseReadyScriptWorkpieceId(scriptId);
+  if (!workpieceId) return null;
+  writeLocalStorage3(ACTIVE_WORKPIECE_KEY3, workpieceId);
+  const workspaceId = resolveWorkspaceId4();
+  if (workspaceId) {
+    writeLocalStorage3(`${WORKSPACE_WORKPIECE_PREFIX3}${workspaceId}`, workpieceId);
+  }
+  return workpieceId;
+}
+function resolveActiveWorkpieceId() {
+  const direct = resolveDirectWorkpieceId2();
+  if (direct) return direct;
+  return loadCachedWorkpiece2(resolveWorkspaceId4());
+}
+var UUID_RE4, WORKSPACE_STORAGE_KEYS4, WORKPIECE_STORAGE_KEYS3, ACTIVE_WORKPIECE_KEY3, WORKSPACE_WORKPIECE_PREFIX3;
+var init_workpiece_context = __esm({
+  "src/forge/workpiece-context.ts"() {
+    "use strict";
+    UUID_RE4 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    WORKSPACE_STORAGE_KEYS4 = ["forge_workspace_id_v1", "barstock_workspace_id"];
+    WORKPIECE_STORAGE_KEYS3 = [
+      "forge_active_workpiece_id_v1",
+      "forge_workpiece_id_v1",
+      "tp_workpiece_id"
+    ];
+    ACTIVE_WORKPIECE_KEY3 = "forge_active_workpiece_id_v1";
+    WORKSPACE_WORKPIECE_PREFIX3 = "forge_anvil_recording_workpiece_v1:";
+  }
+});
+
+// src/recording/recordingTranscriptController.ts
+function readText(value) {
+  if (typeof value !== "string") return null;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 0 ? normalized : null;
+}
+function readBoolean(value) {
+  return value === true;
+}
+function buildLocalSnapshotKey(captureSessionId) {
+  return `${LOCAL_SNAPSHOT_KEY_PREFIX}${captureSessionId}`;
+}
+function safeNow() {
+  return Date.now();
+}
+function safeTimestampMs(recordingStartedAtMs) {
+  return Math.max(0, safeNow() - recordingStartedAtMs);
+}
+function toSeconds(valueMs) {
+  return Number((Math.max(0, valueMs) / 1e3).toFixed(3));
+}
+function estimateSegmentStartSec(text, endSec, previousEndSec) {
+  const wordCount = Math.max(1, text.split(/\s+/).length);
+  const estimatedDurationSec = Math.min(6, Math.max(0.35, wordCount / 2.75));
+  return Number(Math.max(previousEndSec, endSec - estimatedDurationSec).toFixed(3));
+}
+function pushFinalSegment(session, text, endSec) {
+  const previousSegment = session.segments[session.segments.length - 1] ?? null;
+  if (previousSegment && previousSegment.text === text) {
+    previousSegment.end_sec = Math.max(previousSegment.end_sec, endSec);
+    return;
+  }
+  const previousEndSec = previousSegment?.end_sec ?? 0;
+  const startSec = session.partialStartSec != null ? Math.max(previousEndSec, Number(session.partialStartSec.toFixed(3))) : estimateSegmentStartSec(text, endSec, previousEndSec);
+  const segmentIndex = session.segments.length + 1;
+  session.segments.push({
+    segment_id: `seg-${segmentIndex}`,
+    start_sec: startSec,
+    end_sec: Math.max(startSec, Number(endSec.toFixed(3))),
+    speaker: DEFAULT_SPEAKER,
+    text
+  });
+}
+function buildSnapshot(session) {
+  return {
+    schema_version: 1,
+    capture_session_id: session.captureSessionId,
+    workpiece_id: session.target?.ok ? session.target.workpieceId : null,
+    started_at: session.startedAtIso,
+    updated_at: (/* @__PURE__ */ new Date()).toISOString(),
+    status: session.status,
+    degraded_reason: session.degradedReason,
+    live_path: session.livePath,
+    final_path: session.finalized ? session.finalPath : null,
+    partial_text: session.partialText,
+    segment_count: session.segments.length,
+    segments: session.segments,
+    recording_medium: session.strategy.recordingMedium
+  };
+}
+function buildFinalArtifact(args) {
+  return {
+    schema_version: 1,
+    transcript_id: args.session.captureSessionId,
+    media_id: `capture-session:${args.session.captureSessionId}`,
+    media_signature: null,
+    prepared_at: (/* @__PURE__ */ new Date()).toISOString(),
+    structure: "speaker_turns",
+    source_media_ref: args.mediaPath ? {
+      kind: "workpiece",
+      path: args.mediaPath,
+      content_type: args.contentType
+    } : null,
+    diarization: {
+      label_scheme: "forge-neutral-speakers.v1",
+      labels: [DEFAULT_SPEAKER],
+      raw_labels: [DEFAULT_SPEAKER],
+      version: "anvil-live-transcript.v1",
+      provider: "anvil-live-asr",
+      provider_request_id: null,
+      model: null
+    },
+    confidence_flags: [],
+    segments: args.session.segments
+  };
+}
+var LIVE_SNAPSHOT_PREFIX, FINAL_TRANSCRIPT_PREFIX, LOCAL_SNAPSHOT_KEY_PREFIX, SNAPSHOT_PERSIST_INTERVAL_MS, DEFAULT_SPEAKER, RecordingTranscriptController;
+var init_recordingTranscriptController = __esm({
+  "src/recording/recordingTranscriptController.ts"() {
+    "use strict";
+    LIVE_SNAPSHOT_PREFIX = "anvil/transcript/live";
+    FINAL_TRANSCRIPT_PREFIX = "anvil/transcript/final";
+    LOCAL_SNAPSHOT_KEY_PREFIX = "forge_anvil_live_transcript_v1:";
+    SNAPSHOT_PERSIST_INTERVAL_MS = 1500;
+    DEFAULT_SPEAKER = "unknown";
+    RecordingTranscriptController = class {
+      deps;
+      session = null;
+      persistChain = Promise.resolve();
+      transcriptListener = (event) => {
+        const detail = event.detail;
+        const session = this.session;
+        if (!session || session.finalized) return;
+        if (readBoolean(detail?.meta)) return;
+        const text = readText(detail?.text);
+        if (!text) return;
+        session.eventCount += 1;
+        const isFinal = readBoolean(detail?.final) || readBoolean(detail?.isFinal);
+        const endSec = toSeconds(safeTimestampMs(session.recordingStartedAtMs));
+        if (isFinal) {
+          pushFinalSegment(session, text, endSec);
+          session.partialText = null;
+          session.partialStartSec = null;
+          session.status = "live";
+          session.degradedReason = null;
+          this.emitState();
+          void this.persistSnapshot(true);
+          return;
+        }
+        session.partialText = text;
+        if (session.partialStartSec == null) {
+          session.partialStartSec = session.segments[session.segments.length - 1]?.end_sec ?? Math.max(0, endSec - 0.35);
+        }
+        session.status = "partial";
+        this.emitState();
+        void this.persistSnapshot(false);
+      };
+      constructor(deps) {
+        this.deps = deps;
+      }
+      async startSession(args) {
+        await this.disposeSession();
+        const target = await this.deps.ensureCaptureTarget();
+        const livePath = `${LIVE_SNAPSHOT_PREFIX}/${args.captureSessionId}.snapshot.v1.json`;
+        const finalPath = `${FINAL_TRANSCRIPT_PREFIX}/${args.captureSessionId}.structured.v1.json`;
+        this.session = {
+          captureSessionId: args.captureSessionId,
+          recordingStartedAtMs: args.recordingStartedAtMs,
+          strategy: args.strategy,
+          startedAtIso: new Date(args.recordingStartedAtMs).toISOString(),
+          livePath,
+          finalPath,
+          status: "starting",
+          degradedReason: null,
+          target,
+          segments: [],
+          partialText: null,
+          partialStartSec: null,
+          eventCount: 0,
+          lastPersistedAtMs: 0,
+          finalized: false
+        };
+        this.emitState();
+        window.addEventListener("tp:speech:transcript", this.transcriptListener);
+        void this.persistSnapshot(true);
+        const started = await this.deps.startSpeech({
+          reason: "recording-transcript",
+          mode: "asr"
+        }).catch(() => false);
+        const session = this.session;
+        if (!session) {
+          return {
+            captureSessionId: args.captureSessionId,
+            workpieceId: null,
+            status: "degraded",
+            degradedReason: "transcript-session-released",
+            livePath
+          };
+        }
+        if (!started) {
+          session.status = "degraded";
+          session.degradedReason = "speech-backend-unavailable";
+          this.emitState();
+          void this.persistSnapshot(true);
+        } else {
+          session.status = "live";
+          session.degradedReason = null;
+          this.emitState();
+          void this.persistSnapshot(true);
+        }
+        return {
+          captureSessionId: args.captureSessionId,
+          workpieceId: session.target?.ok ? session.target.workpieceId : null,
+          status: session.status,
+          degradedReason: session.degradedReason,
+          livePath
+        };
+      }
+      async stopSession(args) {
+        const session = this.session;
+        if (!session) {
+          return {
+            captureSessionId: "",
+            workpieceId: null,
+            status: "idle",
+            degradedReason: null,
+            livePath: null,
+            finalPath: null,
+            finalArtifact: null,
+            segmentCount: 0
+          };
+        }
+        session.status = "finalizing";
+        this.emitState();
+        try {
+          this.deps.stopSpeech("recording-stop");
+        } catch {
+        }
+        window.removeEventListener("tp:speech:transcript", this.transcriptListener);
+        if (session.partialText) {
+          const durationMs = args.mediaDurationMs ?? safeTimestampMs(session.recordingStartedAtMs);
+          pushFinalSegment(session, session.partialText, toSeconds(durationMs));
+          session.partialText = null;
+          session.partialStartSec = null;
+        }
+        const finalArtifact = session.segments.length > 0 ? buildFinalArtifact({
+          session,
+          mediaPath: args.mediaPath ?? null,
+          contentType: args.contentType ?? null
+        }) : null;
+        let finalCommitFailed = false;
+        const captureTarget = session.target;
+        if (finalArtifact && captureTarget?.ok) {
+          const commitResult = await this.deps.commitJsonArtifact({
+            workpieceId: captureTarget.workpieceId,
+            path: session.finalPath,
+            data: finalArtifact,
+            eventName: "take_transcript_finalized",
+            eventPayload: {
+              source: "anvil.recording-transcript",
+              transcript_path: session.finalPath,
+              anvil_capture_session_id: session.captureSessionId,
+              recording_session_id: captureTarget.plannerRecordingSessionId,
+              segment_count: session.segments.length,
+              transcript_status: "ready"
+            }
+          });
+          if (!commitResult.ok) {
+            finalCommitFailed = true;
+          }
+        }
+        session.finalized = true;
+        session.status = finalArtifact && !finalCommitFailed ? "ready" : "degraded";
+        session.degradedReason = finalArtifact ? finalCommitFailed ? "transcript-final-commit-failed" : null : "no-transcript-captured";
+        await this.persistSnapshot(true);
+        this.emitState();
+        return {
+          captureSessionId: session.captureSessionId,
+          workpieceId: session.target?.ok ? session.target.workpieceId : null,
+          status: session.status,
+          degradedReason: session.degradedReason,
+          livePath: session.livePath,
+          finalPath: finalArtifact ? session.finalPath : null,
+          finalArtifact,
+          segmentCount: session.segments.length
+        };
+      }
+      async disposeSession() {
+        window.removeEventListener("tp:speech:transcript", this.transcriptListener);
+        await this.persistChain.catch(() => void 0);
+        this.session = null;
+      }
+      emitState() {
+        const session = this.session;
+        const detail = {
+          captureSessionId: session?.captureSessionId ?? null,
+          workpieceId: session?.target?.ok ? session.target.workpieceId : null,
+          status: session?.status ?? "idle",
+          degradedReason: session?.degradedReason ?? null,
+          livePath: session?.livePath ?? null,
+          finalPath: session?.finalized ? session.finalPath : null,
+          segmentCount: session?.segments.length ?? 0,
+          partialText: session?.partialText ?? null
+        };
+        try {
+          window.dispatchEvent(new CustomEvent("tp:recording:transcript-state", { detail }));
+        } catch {
+        }
+        try {
+          window.__tpBus?.emit?.("tp:recording:transcript-state", detail);
+        } catch {
+        }
+      }
+      async persistSnapshot(force) {
+        const session = this.session;
+        if (!session) return;
+        const now3 = safeNow();
+        if (!force && now3 - session.lastPersistedAtMs < SNAPSHOT_PERSIST_INTERVAL_MS) {
+          return;
+        }
+        session.lastPersistedAtMs = now3;
+        const snapshot = buildSnapshot(session);
+        try {
+          this.deps.localStorage.setItem(buildLocalSnapshotKey(session.captureSessionId), JSON.stringify(snapshot));
+        } catch {
+        }
+        const captureTarget = session.target;
+        if (!captureTarget?.ok) return;
+        this.persistChain = this.persistChain.catch(() => void 0).then(async () => {
+          await this.deps.commitJsonArtifact({
+            workpieceId: captureTarget.workpieceId,
+            path: session.livePath,
+            data: snapshot,
+            eventName: "take_transcript_snapshot",
+            eventPayload: {
+              source: "anvil.recording-transcript",
+              transcript_path: session.livePath,
+              transcript_status: session.status,
+              anvil_capture_session_id: session.captureSessionId,
+              recording_session_id: captureTarget.plannerRecordingSessionId,
+              segment_count: session.segments.length
+            }
+          });
+        });
+        await this.persistChain;
+      }
+    };
+  }
+});
+
+// src/recording/selectBestRecordingStrategy.ts
+function supportsMimeType(mediaRecorderCtor, mimeType) {
+  if (!mediaRecorderCtor || typeof mediaRecorderCtor.isTypeSupported !== "function") {
+    return false;
+  }
+  try {
+    return mediaRecorderCtor.isTypeSupported(mimeType);
+  } catch {
+    return false;
+  }
+}
+function selectBestRecordingStrategy(args) {
+  const diagnostics = [];
+  const mediaRecorderCtor = args.mediaRecorderCtor ?? globalThis.MediaRecorder;
+  if (args.mode === "av") {
+    const candidates = [
+      {
+        mimeType: "video/webm;codecs=vp9,opus",
+        fileExtension: "webm",
+        recordingMedium: "browser-mediarecorder:video/webm;codecs=vp9,opus"
+      },
+      {
+        mimeType: "video/webm;codecs=vp8,opus",
+        fileExtension: "webm",
+        recordingMedium: "browser-mediarecorder:video/webm;codecs=vp8,opus"
+      },
+      {
+        mimeType: "video/webm;codecs=h264,opus",
+        fileExtension: "webm",
+        recordingMedium: "browser-mediarecorder:video/webm;codecs=h264,opus"
+      },
+      {
+        mimeType: "video/webm",
+        fileExtension: "webm",
+        recordingMedium: "browser-mediarecorder:video/webm"
+      }
+    ];
+    for (const candidate of candidates) {
+      if (supportsMimeType(mediaRecorderCtor, candidate.mimeType)) {
+        diagnostics.push(`selected:${candidate.mimeType}`);
+        return {
+          mode: "av",
+          mechanism: "media-recorder",
+          mimeType: candidate.mimeType,
+          fileExtension: candidate.fileExtension,
+          recordingMedium: candidate.recordingMedium,
+          requiresPostNormalization: false,
+          videoBitsPerSecond: DEFAULT_VIDEO_BITS_PER_SECOND,
+          audioBitsPerSecond: DEFAULT_AUDIO_BITS_PER_SECOND,
+          diagnostics
+        };
+      }
+      diagnostics.push(`unsupported:${candidate.mimeType}`);
+    }
+    diagnostics.push("fallback:video/webm");
+    return {
+      mode: "av",
+      mechanism: "media-recorder",
+      mimeType: "video/webm",
+      fileExtension: "webm",
+      recordingMedium: "browser-mediarecorder:video/webm",
+      requiresPostNormalization: false,
+      videoBitsPerSecond: DEFAULT_VIDEO_BITS_PER_SECOND,
+      audioBitsPerSecond: DEFAULT_AUDIO_BITS_PER_SECOND,
+      diagnostics
+    };
+  }
+  const audioCandidates = [
+    {
+      mimeType: "audio/webm;codecs=opus",
+      fileExtension: "webm",
+      recordingMedium: "browser-mediarecorder:audio/webm;codecs=opus"
+    },
+    {
+      mimeType: "audio/ogg;codecs=opus",
+      fileExtension: "ogg",
+      recordingMedium: "browser-mediarecorder:audio/ogg;codecs=opus"
+    },
+    {
+      mimeType: "audio/webm",
+      fileExtension: "webm",
+      recordingMedium: "browser-mediarecorder:audio/webm"
+    }
+  ];
+  for (const candidate of audioCandidates) {
+    if (supportsMimeType(mediaRecorderCtor, candidate.mimeType)) {
+      diagnostics.push(`selected:${candidate.mimeType}`);
+      return {
+        mode: "audio",
+        mechanism: "media-recorder",
+        mimeType: candidate.mimeType,
+        fileExtension: candidate.fileExtension,
+        recordingMedium: candidate.recordingMedium,
+        requiresPostNormalization: false,
+        videoBitsPerSecond: null,
+        audioBitsPerSecond: DEFAULT_AUDIO_BITS_PER_SECOND,
+        diagnostics
+      };
+    }
+    diagnostics.push(`unsupported:${candidate.mimeType}`);
+  }
+  diagnostics.push("fallback:audio/wav");
+  return {
+    mode: "audio",
+    mechanism: "pcm-wav-fallback",
+    mimeType: "audio/wav",
+    fileExtension: "wav",
+    recordingMedium: "browser-pcm-wav-fallback",
+    requiresPostNormalization: false,
+    videoBitsPerSecond: null,
+    audioBitsPerSecond: null,
+    diagnostics
+  };
+}
+var DEFAULT_VIDEO_BITS_PER_SECOND, DEFAULT_AUDIO_BITS_PER_SECOND;
+var init_selectBestRecordingStrategy = __esm({
+  "src/recording/selectBestRecordingStrategy.ts"() {
+    "use strict";
+    DEFAULT_VIDEO_BITS_PER_SECOND = 12e5;
+    DEFAULT_AUDIO_BITS_PER_SECOND = 96e3;
   }
 });
 
@@ -58090,12 +60087,15 @@ var init_local_auto = __esm({
     "use strict";
     init_recording_settings();
     init_workpiece_commit();
+    init_speech_loader();
+    init_scripts_store();
     init_recording_decision_dialog();
     init_recording_name();
+    init_workpiece_context();
+    init_recordingTranscriptController();
+    init_selectBestRecordingStrategy();
     (() => {
       const RECORDING_STORAGE_LIMIT_HINT_KEY = "forge_anvil_recording_storage_limit_hint_bytes_v1";
-      const DEFAULT_VIDEO_BITS_PER_SECOND = 12e5;
-      const DEFAULT_AUDIO_BITS_PER_SECOND = 96e3;
       let mediaRecorder = null;
       let chunks = [];
       let active = false;
@@ -58108,7 +60108,48 @@ var init_local_auto = __esm({
       let audioChunks = [];
       let audioSampleRate = 48e3;
       let recordingStartedAtMs = null;
+      let activeStrategy = null;
+      let activeSaveIdentity = null;
+      const transcriptController = new RecordingTranscriptController({
+        ensureCaptureTarget: ensureRecordingCaptureTarget,
+        commitJsonArtifact: commitRecordingJsonArtifactToTongs,
+        startSpeech: startSpeechBackendForSession,
+        stopSpeech: stopSpeechBackendForSession,
+        localStorage
+      });
       const pad = (n) => String(n).padStart(2, "0");
+      const READY_SCRIPT_PREFIX = "ready:";
+      const UUID_RE5 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      function parseReadyScriptWorkpieceId2(scriptId) {
+        const raw = String(scriptId || "").trim();
+        if (!raw.toLowerCase().startsWith(READY_SCRIPT_PREFIX)) return null;
+        const rest = raw.slice(READY_SCRIPT_PREFIX.length);
+        const separator = rest.indexOf(":");
+        if (separator <= 0) return null;
+        const candidate = rest.slice(0, separator).trim().toLowerCase();
+        return UUID_RE5.test(candidate) ? candidate : null;
+      }
+      function buildWorkpieceFallbackTitle(workpieceId) {
+        return `Episode_${workpieceId.slice(0, 8)}`;
+      }
+      function getCurrentInputTitle() {
+        try {
+          const value = document.getElementById("scriptTitle")?.value ?? null;
+          const trimmed = String(value || "").trim();
+          return trimmed.length > 0 ? trimmed : null;
+        } catch {
+          return null;
+        }
+      }
+      function getStoredTitle() {
+        try {
+          const value = localStorage.getItem("tp_last_script_title") || localStorage.getItem("tp_last_script_name");
+          const trimmed = String(value || "").trim();
+          return trimmed.length > 0 ? trimmed : null;
+        } catch {
+          return null;
+        }
+      }
       function readStorageLimitHintBytes() {
         try {
           const raw = sessionStorage.getItem(RECORDING_STORAGE_LIMIT_HINT_KEY);
@@ -58129,10 +60170,59 @@ var init_local_auto = __esm({
       }
       function showRecorderToast(message, type = "warning") {
         try {
-          const toast5 = window.toast;
-          if (typeof toast5 === "function") {
-            toast5(message, { type });
+          const toast6 = window.toast;
+          if (typeof toast6 === "function") {
+            toast6(message, { type });
           }
+        } catch {
+        }
+      }
+      function readCaptureSessionRunKey() {
+        try {
+          const fromAsr = String(window.__tpAsrRunKey || "").trim();
+          if (fromAsr) return fromAsr;
+        } catch {
+        }
+        try {
+          const fromSession = sessionStorage.getItem("forge_anvil_capture_session_v1");
+          const trimmed = String(fromSession || "").trim();
+          if (trimmed) return trimmed;
+        } catch {
+        }
+        return null;
+      }
+      function readWorkspaceIdForAudit() {
+        try {
+          const value = localStorage.getItem("forge_workspace_id_v1") || localStorage.getItem("barstock_workspace_id");
+          const trimmed = String(value || "").trim();
+          return trimmed || null;
+        } catch {
+          return null;
+        }
+      }
+      function emitUploadFallbackAudit(detail) {
+        const cleanTitle = String(detail.saveIdentity?.baseTitle || "").trim();
+        const fallbackTitle = cleanTitle || String(detail.originalName || "").replace(/\.[^.]+$/, "").trim() || null;
+        const payload = {
+          sessionRunKey: readCaptureSessionRunKey(),
+          workpieceId: detail.saveIdentity?.workpieceId || null,
+          workspaceId: readWorkspaceIdForAudit(),
+          title: fallbackTitle,
+          scriptHash: String(window.__TP_LAST_APPLIED_HASH || "").trim() || null,
+          strategy: "single",
+          phase: "failed",
+          safeToLeave: detail.safeToLeave,
+          blobBytes: detail.bytes,
+          blobMb: Number((detail.bytes / (1024 * 1024)).toFixed(2)),
+          canonicalAttempted: detail.canonicalAttempted,
+          canonicalSucceeded: detail.canonicalSucceeded,
+          fallbackUsed: detail.fallbackUsed,
+          errorCode: detail.errorCode || null,
+          errorMessage: detail.errorMessage || null,
+          finalStorageKey: detail.finalStorageKey || null
+        };
+        try {
+          window.dispatchEvent(new CustomEvent("tp:recording:upload-fallback", { detail: payload }));
         } catch {
         }
       }
@@ -58145,11 +60235,37 @@ var init_local_auto = __esm({
         const message = typeof row.errorMessage === "string" ? row.errorMessage : typeof row.details?.error?.message === "string" ? row.details.error.message : "";
         return message.toLowerCase().includes("object size limit");
       }
+      function extractCommitErrorSummary(result) {
+        if (!result || typeof result !== "object") return { code: null, message: null };
+        const row = result;
+        const code = typeof row.errorCode === "string" ? row.errorCode : typeof row.details?.error?.code === "string" ? row.details.error.code : null;
+        const message = typeof row.errorMessage === "string" ? row.errorMessage : typeof row.details?.error?.message === "string" ? row.details.error.message : null;
+        return { code, message };
+      }
       function readCommitResultSuccess(result) {
         return result.ok ? result : null;
       }
       async function promptForTakeDecision(args) {
         const persistDecision = async (eventName) => {
+          let transcriptPath = args.transcriptFinalize?.finalPath ?? null;
+          let transcriptStatus = args.transcriptFinalize?.status ?? null;
+          let transcriptSourcePath = args.transcriptFinalize?.finalPath ?? null;
+          if (eventName === "take_kept" && args.transcriptFinalize?.finalArtifact && args.transcriptFinalize.workpieceId === args.commitResult.workpieceId) {
+            const promoteResult = await promoteRecordingTranscriptForHammer({
+              workpieceId: args.commitResult.workpieceId,
+              transcript: args.transcriptFinalize.finalArtifact,
+              captureSessionId: args.commitResult.captureSessionId,
+              plannerRecordingSessionId: args.commitResult.plannerRecordingSessionId,
+              sourceTranscriptPath: args.transcriptFinalize.finalPath
+            });
+            if (promoteResult.ok) {
+              transcriptPath = HAMMER_STRUCTURED_TRANSCRIPT_PATH;
+              transcriptStatus = "ready";
+            } else {
+              transcriptStatus = "degraded";
+              showRecorderToast("Transcript could not be promoted into Hammer readiness path. Media was still kept.", "warning");
+            }
+          }
           const result = await appendRecordingDecisionToTongs({
             workpieceId: args.commitResult.workpieceId,
             eventName,
@@ -58160,7 +60276,12 @@ var init_local_auto = __esm({
             durationMs: args.durationMs,
             createdCradle: args.commitResult.createdCradle,
             plannerRecordingSessionId: args.commitResult.plannerRecordingSessionId,
-            captureSessionId: args.commitResult.captureSessionId
+            captureSessionId: args.commitResult.captureSessionId,
+            transcriptPath,
+            transcriptStatus,
+            transcriptSourcePath,
+            recordingMedium: args.strategy?.recordingMedium ?? null,
+            requiresPostNormalization: args.strategy?.requiresPostNormalization === true
           });
           if (!result.ok) {
             const summary = eventName === "take_kept" ? "Could not mark this take as kept in Tongs." : "Could not mark this take as discarded in Tongs.";
@@ -58189,30 +60310,68 @@ var init_local_auto = __esm({
           return null;
         }
       }
-      const nowName = (mode) => {
+      function getReadyScriptTitleForWorkpiece(workpieceId) {
+        if (!workpieceId) return null;
         try {
-          const titleInput = (() => {
-            try {
-              return document.getElementById("scriptTitle")?.value ?? null;
-            } catch {
-              return null;
-            }
-          })();
-          const storedTitle = (() => {
-            try {
-              return localStorage.getItem("tp_last_script_title") || localStorage.getItem("tp_last_script_name");
-            } catch {
-              return null;
-            }
-          })();
-          return buildRecordingFilename({
-            mode,
-            baseTitle: pickRecordingBaseTitle({
-              inputTitle: titleInput,
-              routeEpisodeTitle: getRouteEpisodeTitle(),
-              storedTitle
-            })
+          const entries = ScriptStore.list();
+          const selectedIds2 = [
+            document.getElementById("scriptSelectSidebar")?.value || "",
+            document.getElementById("scriptSelect")?.value || ""
+          ].map((value) => String(value || "").trim()).filter(Boolean);
+          for (const selectedId of selectedIds2) {
+            if (parseReadyScriptWorkpieceId2(selectedId) !== workpieceId) continue;
+            const match = entries.find((entry) => entry.id === selectedId);
+            const title = String(match?.title || "").trim();
+            if (title) return title;
+          }
+          const firstMatch = entries.find((entry) => parseReadyScriptWorkpieceId2(entry.id) === workpieceId);
+          const fallbackTitle = String(firstMatch?.title || "").trim();
+          return fallbackTitle || null;
+        } catch {
+          return null;
+        }
+      }
+      function captureRecordingSaveIdentity() {
+        const workpieceId = resolveActiveWorkpieceId();
+        const routeEpisodeTitle = getRouteEpisodeTitle();
+        const readyTitle = getReadyScriptTitleForWorkpiece(workpieceId);
+        const inputTitle = getCurrentInputTitle();
+        const storedTitle = getStoredTitle();
+        const trustedWorkpieceTitle = routeEpisodeTitle || readyTitle;
+        const baseTitle = trustedWorkpieceTitle || (workpieceId ? buildWorkpieceFallbackTitle(workpieceId) : null) || pickRecordingBaseTitle({
+          inputTitle,
+          routeEpisodeTitle,
+          storedTitle
+        });
+        try {
+          console.log("[core-recorder] save identity snapshot", {
+            workpieceId,
+            baseTitle,
+            trustedWorkpieceTitle: trustedWorkpieceTitle || null
           });
+        } catch {
+        }
+        return {
+          workpieceId,
+          baseTitle
+        };
+      }
+      const applyFileExtension = (name, extension) => {
+        const cleanExtension = String(extension || "").trim().replace(/^\./, "");
+        if (!cleanExtension) return name;
+        const stem = name.replace(/\.[^.]+$/, "");
+        return `${stem}.${cleanExtension}`;
+      };
+      const nowName = (mode, extensionOverride, identity) => {
+        try {
+          return applyFileExtension(buildRecordingFilename({
+            mode,
+            baseTitle: identity?.baseTitle || pickRecordingBaseTitle({
+              inputTitle: getCurrentInputTitle(),
+              routeEpisodeTitle: getRouteEpisodeTitle(),
+              storedTitle: getStoredTitle()
+            })
+          }), extensionOverride ?? (mode === "audio" ? "wav" : "webm"));
         } catch {
           const date = /* @__PURE__ */ new Date();
           const year = date.getFullYear();
@@ -58222,18 +60381,11 @@ var init_local_auto = __esm({
           const minute = pad(date.getMinutes());
           const second = pad(date.getSeconds());
           const fallback = `${year}-${month}-${day}_${hour}-${minute}-${second}`;
-          return mode === "audio" ? `Script_${fallback}_audio.wav` : `Script_${fallback}.webm`;
+          return applyFileExtension(
+            mode === "audio" ? `Script_${fallback}_audio.wav` : `Script_${fallback}.webm`,
+            extensionOverride ?? (mode === "audio" ? "wav" : "webm")
+          );
         }
-      };
-      const pickMime = () => {
-        try {
-          const cand = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
-          for (const t of cand) {
-            if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) return t;
-          }
-        } catch {
-        }
-        return "video/webm";
       };
       const encodeWav = (buffers, sampleRate) => {
         const numChannels = 1;
@@ -58385,7 +60537,7 @@ var init_local_auto = __esm({
         audioProcessor.connect(audioGain);
         audioGain.connect(ctx.destination);
       };
-      const stopAudioOnly = async (durationMs) => {
+      const stopAudioOnly = async (durationMs, transcriptFinalize, strategy, identity) => {
         try {
           if (audioProcessor) audioProcessor.disconnect();
         } catch {
@@ -58410,10 +60562,51 @@ var init_local_auto = __esm({
         audioChunks = [];
         const blob = new Blob([wavBuffer], { type: "audio/wav" });
         try {
-          await saveBlob(blob, nowName("audio"), { durationMs });
+          await saveBlob(blob, nowName("audio", strategy?.fileExtension ?? "wav", identity), {
+            durationMs,
+            transcriptFinalize,
+            strategy,
+            saveIdentity: identity
+          });
         } finally {
           recordingStartedAtMs = null;
         }
+      };
+      const startMediaRecorderWithStrategy = async (strategy) => {
+        const mix = new MediaStream();
+        if (strategy.mode === "audio") {
+          const audioStream2 = await getAudioStream();
+          try {
+            audioStream2.getAudioTracks().forEach((track) => mix.addTrack(track));
+          } catch {
+          }
+        } else {
+          const videoStream = await getVideoStream();
+          const audioStream2 = await getAudioStream();
+          try {
+            audioStream2.getAudioTracks().forEach((track) => mix.addTrack(track));
+          } catch {
+          }
+          try {
+            videoStream.getVideoTracks().forEach((track) => mix.addTrack(track));
+          } catch {
+          }
+        }
+        currentStream = mix;
+        const recorderOptions = {};
+        if (strategy.mimeType) recorderOptions.mimeType = strategy.mimeType;
+        if (strategy.videoBitsPerSecond != null) recorderOptions.videoBitsPerSecond = strategy.videoBitsPerSecond;
+        if (strategy.audioBitsPerSecond != null) recorderOptions.audioBitsPerSecond = strategy.audioBitsPerSecond;
+        mediaRecorder = new MediaRecorder(mix, recorderOptions);
+        chunks = [];
+        mediaRecorder.ondataavailable = (e) => {
+          try {
+            if (e && e.data && e.data.size) chunks.push(e.data);
+            else console.log("[core-recorder] dataavailable empty chunk");
+          } catch {
+          }
+        };
+        mediaRecorder.start();
       };
       async function start2() {
         if (active) return;
@@ -58433,7 +60626,11 @@ var init_local_auto = __esm({
             });
           } catch {
           }
-          if (recordingMode === "audio") {
+          const strategy = selectBestRecordingStrategy({ mode: recordingMode });
+          const captureSessionId = beginRecordingCaptureSession();
+          activeSaveIdentity = captureRecordingSaveIdentity();
+          activeStrategy = strategy;
+          if (recordingMode === "audio" && strategy.mechanism === "pcm-wav-fallback") {
             await startAudioOnly();
             active = true;
             activeMode = "audio";
@@ -58442,47 +60639,43 @@ var init_local_auto = __esm({
               window.dispatchEvent(new CustomEvent("rec:state", { detail: { state: "recording", adapter: "local-auto" } }));
             } catch {
             }
+            void transcriptController.startSession({
+              captureSessionId,
+              recordingStartedAtMs,
+              strategy
+            }).catch((error) => {
+              try {
+                console.warn("[auto-rec] transcript start failed", error);
+              } catch {
+              }
+            });
             return;
           }
-          const v = await getVideoStream();
-          const a = await getAudioStream();
-          const mix = new MediaStream();
-          try {
-            a.getAudioTracks().forEach((t) => mix.addTrack(t));
-          } catch {
-          }
-          try {
-            v.getVideoTracks().forEach((t) => mix.addTrack(t));
-          } catch {
-          }
-          currentStream = mix;
-          const mime = pickMime();
-          mediaRecorder = new MediaRecorder(mix, {
-            mimeType: mime,
-            videoBitsPerSecond: DEFAULT_VIDEO_BITS_PER_SECOND,
-            audioBitsPerSecond: DEFAULT_AUDIO_BITS_PER_SECOND
-          });
-          chunks = [];
-          mediaRecorder.ondataavailable = (e) => {
-            try {
-              if (e && e.data && e.data.size) chunks.push(e.data);
-              else console.log("[core-recorder] dataavailable empty chunk");
-            } catch {
-            }
-          };
-          mediaRecorder.start();
+          await startMediaRecorderWithStrategy(strategy);
           active = true;
-          activeMode = "av";
+          activeMode = strategy.mode;
           recordingStartedAtMs = Date.now();
           try {
             window.dispatchEvent(new CustomEvent("rec:state", { detail: { state: "recording", adapter: "local-auto" } }));
           } catch {
           }
+          void transcriptController.startSession({
+            captureSessionId,
+            recordingStartedAtMs,
+            strategy
+          }).catch((error) => {
+            try {
+              console.warn("[auto-rec] transcript start failed", error);
+            } catch {
+            }
+          });
         } catch (e) {
           try {
             console.warn("[auto-rec] start failed", e);
           } catch {
           }
+          activeSaveIdentity = null;
+          activeStrategy = null;
         }
       }
       async function stop3() {
@@ -58491,24 +60684,40 @@ var init_local_auto = __esm({
         } catch {
         }
         if (!active) return;
+        const durationMs = recordingStartedAtMs != null ? Math.max(0, Date.now() - recordingStartedAtMs) : null;
+        const strategyAtStop = activeStrategy;
+        const saveIdentityAtStop = activeSaveIdentity;
+        const transcriptFinalize = await transcriptController.stopSession({
+          mediaDurationMs: durationMs
+        }).catch((error) => {
+          try {
+            console.warn("[auto-rec] transcript finalize failed", error);
+          } catch {
+          }
+          return null;
+        });
         try {
-          if (activeMode === "audio") {
-            const durationMs = recordingStartedAtMs != null ? Math.max(0, Date.now() - recordingStartedAtMs) : null;
-            await stopAudioOnly(durationMs);
+          if (activeMode === "audio" && strategyAtStop?.mechanism === "pcm-wav-fallback") {
+            await stopAudioOnly(durationMs, transcriptFinalize, strategyAtStop, saveIdentityAtStop);
           } else if (mediaRecorder && mediaRecorder.state !== "inactive") {
-            const durationMs = recordingStartedAtMs != null ? Math.max(0, Date.now() - recordingStartedAtMs) : null;
             const recorder2 = mediaRecorder;
+            const stopName = nowName(strategyAtStop?.mode ?? "av", strategyAtStop?.fileExtension, saveIdentityAtStop);
             recorder2.onstop = async () => {
               try {
                 console.log("[core-recorder] mediaRecorder.onstop fired", { chunks: chunks.length });
                 console.log("[core-recorder] mediaRecorder.onstop fired");
-                const blob = new Blob(chunks, { type: recorder2.mimeType || "video/webm" });
+                const blob = new Blob(chunks, { type: recorder2.mimeType || strategyAtStop?.mimeType || "video/webm" });
                 chunks = [];
                 try {
                   console.log("[core-recorder] about to save blob", { size: blob.size, type: blob.type });
                 } catch {
                 }
-                await saveBlob(blob, nowName("av"), { durationMs });
+                await saveBlob(blob, stopName, {
+                  durationMs,
+                  transcriptFinalize,
+                  strategy: strategyAtStop,
+                  saveIdentity: saveIdentityAtStop
+                });
               } catch (e) {
                 try {
                   console.warn("[auto-rec] save failed", e);
@@ -58537,6 +60746,8 @@ var init_local_auto = __esm({
         mediaRecorder = null;
         active = false;
         activeMode = null;
+        activeStrategy = null;
+        activeSaveIdentity = null;
         try {
           window.dispatchEvent(new CustomEvent("rec:state", { detail: { state: "idle", adapter: "local-auto" } }));
         } catch {
@@ -58549,6 +60760,9 @@ var init_local_auto = __esm({
         showRecordingFinalizeIndicator({ takeName: name });
         let committed = false;
         let commitResultOk = null;
+        let canonicalAttempted = false;
+        let canonicalErrorCode = null;
+        let canonicalErrorMessage = null;
         try {
           const storageLimitHintBytes = readStorageLimitHintBytes();
           const skipCanonicalCommit = storageLimitHintBytes != null && bytes.length >= storageLimitHintBytes;
@@ -58565,17 +60779,50 @@ var init_local_auto = __esm({
               "Cloud save skipped for this take after a prior Storage size-limit failure. Recording will be mirrored locally.",
               "warning"
             );
+            canonicalAttempted = false;
+            canonicalErrorCode = "canonical_commit_skipped_size_hint";
+            canonicalErrorMessage = "Canonical upload skipped after prior storage size-limit failure";
           } else {
+            canonicalAttempted = true;
             try {
               const commitResult = await commitRecordingBytesToTongs({
                 bytes,
                 originalName: name,
-                contentType
+                contentType,
+                transcriptPath: opts.transcriptFinalize?.finalPath ?? null,
+                transcriptStatus: opts.transcriptFinalize?.status ?? null,
+                recordingMedium: opts.strategy?.recordingMedium ?? null,
+                requiresPostNormalization: opts.strategy?.requiresPostNormalization === true
               });
               const commitResultSuccess = readCommitResultSuccess(commitResult);
               if (commitResultSuccess) {
                 committed = true;
                 commitResultOk = commitResultSuccess;
+                if (opts.transcriptFinalize?.finalArtifact && opts.transcriptFinalize.finalPath) {
+                  const artifact = {
+                    ...opts.transcriptFinalize.finalArtifact,
+                    source_media_ref: {
+                      kind: "workpiece",
+                      path: commitResultSuccess.path,
+                      content_type: contentType
+                    }
+                  };
+                  await commitRecordingJsonArtifactToTongs({
+                    workpieceId: commitResultSuccess.workpieceId,
+                    path: opts.transcriptFinalize.finalPath,
+                    data: artifact,
+                    eventName: "take_transcript_linked_media",
+                    eventPayload: {
+                      source: "anvil.local-auto",
+                      transcript_path: opts.transcriptFinalize.finalPath,
+                      file_path: commitResultSuccess.path,
+                      transcript_status: opts.transcriptFinalize.status,
+                      anvil_capture_session_id: commitResultSuccess.captureSessionId,
+                      recording_session_id: commitResultSuccess.plannerRecordingSessionId
+                    }
+                  }).catch(() => void 0);
+                  opts.transcriptFinalize.finalArtifact = artifact;
+                }
                 try {
                   console.log("[core-recorder] canonical commit ok", {
                     workpieceId: commitResultSuccess.workpieceId,
@@ -58585,6 +60832,9 @@ var init_local_auto = __esm({
                 } catch {
                 }
               } else {
+                const commitError = extractCommitErrorSummary(commitResult);
+                canonicalErrorCode = commitError.code;
+                canonicalErrorMessage = commitError.message;
                 if (isStorageTooLargeCommitResult(commitResult)) {
                   writeStorageLimitHintBytes(bytes.length);
                   showRecorderToast(
@@ -58598,6 +60848,8 @@ var init_local_auto = __esm({
                 }
               }
             } catch (commitErr) {
+              canonicalErrorCode = "canonical_commit_exception";
+              canonicalErrorMessage = String(commitErr?.message || commitErr || "Canonical commit failed");
               try {
                 console.warn("[core-recorder] canonical commit failed; using local fallback", commitErr);
               } catch {
@@ -58649,7 +60901,23 @@ var init_local_auto = __esm({
                       name,
                       contentType,
                       bytes: bytes.length,
-                      durationMs: typeof opts.durationMs === "number" && Number.isFinite(opts.durationMs) ? opts.durationMs : null
+                      durationMs: typeof opts.durationMs === "number" && Number.isFinite(opts.durationMs) ? opts.durationMs : null,
+                      transcriptFinalize: opts.transcriptFinalize ?? null,
+                      strategy: opts.strategy ?? null
+                    });
+                  }
+                  if (!committed) {
+                    emitUploadFallbackAudit({
+                      saveIdentity: opts.saveIdentity ?? null,
+                      originalName: name,
+                      bytes: bytes.length,
+                      canonicalAttempted,
+                      canonicalSucceeded: false,
+                      fallbackUsed: true,
+                      safeToLeave: true,
+                      errorCode: canonicalErrorCode,
+                      errorMessage: canonicalErrorMessage,
+                      finalStorageKey: `local:directory:${name}`
                     });
                   }
                   return true;
@@ -58684,7 +60952,9 @@ var init_local_auto = __esm({
                   name,
                   contentType,
                   bytes: bytes.length,
-                  durationMs: typeof opts.durationMs === "number" && Number.isFinite(opts.durationMs) ? opts.durationMs : null
+                  durationMs: typeof opts.durationMs === "number" && Number.isFinite(opts.durationMs) ? opts.durationMs : null,
+                  transcriptFinalize: opts.transcriptFinalize ?? null,
+                  strategy: opts.strategy ?? null
                 });
               }
               return true;
@@ -58711,6 +60981,18 @@ var init_local_auto = __esm({
               }, 2e3);
             } catch {
             }
+            emitUploadFallbackAudit({
+              saveIdentity: opts.saveIdentity ?? null,
+              originalName: name,
+              bytes: bytes.length,
+              canonicalAttempted,
+              canonicalSucceeded: false,
+              fallbackUsed: true,
+              safeToLeave: true,
+              errorCode: canonicalErrorCode,
+              errorMessage: canonicalErrorMessage,
+              finalStorageKey: `local:download:${name}`
+            });
             return false;
           } finally {
             hideRecordingFinalizeIndicator();
@@ -60227,18 +62509,26 @@ function initRecStatsHud(opts = {}) {
   if (!panel) {
     panel = document.createElement("div");
     panel.id = HUD_ID3;
-    panel.style.cssText = "font:12px/1.3 system-ui,Segoe UI,Roboto,Arial,sans-serif;color:#9fb4c9;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:6px 8px;margin:4px 0;max-width:360px;";
+    panel.style.cssText = "font:12px/1.3 system-ui,Segoe UI,Roboto,Arial,sans-serif;color:#9fb4c9;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:6px 8px;margin:4px 0;max-width:420px;";
+    const topRow = document.createElement("div");
+    topRow.style.cssText = "display:flex;align-items:center;gap:6px;";
     const strong = document.createElement("strong");
     strong.textContent = "REC";
-    strong.style.marginRight = "6px";
-    panel.appendChild(strong);
     const span = document.createElement("span");
     span.id = TEXT_ID2;
     span.textContent = "\u2026";
-    panel.appendChild(span);
+    topRow.appendChild(strong);
+    topRow.appendChild(span);
+    panel.appendChild(topRow);
+    const upload = document.createElement("div");
+    upload.id = UPLOAD_TEXT_ID;
+    upload.textContent = "upload idle";
+    upload.style.cssText = "margin-top:4px;color:#b8cbe0;opacity:.92;";
+    panel.appendChild(upload);
     root.appendChild(panel);
   }
   const textEl = document.getElementById(TEXT_ID2);
+  const uploadEl = document.getElementById(UPLOAD_TEXT_ID);
   const fmt = (x) => {
     try {
       return x == null || !isFinite(Number(x)) ? "\u2026" : String(Math.round(Number(x)));
@@ -60256,16 +62546,63 @@ function initRecStatsHud(opts = {}) {
     } catch {
     }
   };
+  const setUploadText = (value) => {
+    try {
+      if (uploadEl) uploadEl.textContent = value;
+    } catch {
+    }
+  };
+  const handleUploadStatus = (payload) => {
+    try {
+      const detail = payload?.detail ?? payload ?? {};
+      const phase = String(detail.phase || "").toLowerCase();
+      const strategy = String(detail.strategy || "").toLowerCase();
+      const chunkIndex = Number(detail.chunkIndex);
+      const totalChunks = Number(detail.totalChunks);
+      const pctRaw = Number(detail.progressPct);
+      const pct = Number.isFinite(pctRaw) ? Math.max(0, Math.min(100, Math.round(pctRaw))) : null;
+      if (phase === "preflight") {
+        setUploadText(`upload preflight \u2022 ${strategy || "single"}`);
+        return;
+      }
+      if (phase === "uploading") {
+        if (strategy === "chunked" && Number.isFinite(chunkIndex) && Number.isFinite(totalChunks) && totalChunks > 0) {
+          const pctText = pct == null ? "" : ` \u2022 ${pct}%`;
+          setUploadText(`upload chunk ${chunkIndex}/${totalChunks}${pctText}`);
+        } else {
+          setUploadText("uploading single commit");
+        }
+        return;
+      }
+      if (phase === "finalizing") {
+        setUploadText("upload finalizing canonical commit");
+        return;
+      }
+      if (phase === "done") {
+        setUploadText(detail.safeToLeave ? "upload complete \u2022 safe to leave" : "upload complete");
+        return;
+      }
+      if (phase === "failed") {
+        setUploadText("upload failed \u2022 fallback path engaged");
+      }
+    } catch {
+    }
+  };
   const onWindowStats = (e) => handleStats(e?.detail ?? {});
+  const onWindowUpload = (e) => handleUploadStatus(e?.detail ?? {});
   window.addEventListener("rec:stats", onWindowStats, { passive: true });
+  window.addEventListener("tp:recording:upload-status", onWindowUpload, { passive: true });
   try {
     bus?.on("rec:stats", handleStats);
+    bus?.on("recording:upload:status", handleUploadStatus);
   } catch {
   }
   const destroy = () => {
     window.removeEventListener("rec:stats", onWindowStats);
+    window.removeEventListener("tp:recording:upload-status", onWindowUpload);
     try {
       bus?.off?.("rec:stats", handleStats);
+      bus?.off?.("recording:upload:status", handleUploadStatus);
     } catch {
     }
     try {
@@ -60280,12 +62617,13 @@ function initRecStatsHud(opts = {}) {
   }
   return { destroy };
 }
-var HUD_ID3, TEXT_ID2;
+var HUD_ID3, TEXT_ID2, UPLOAD_TEXT_ID;
 var init_rec_stats = __esm({
   "src/hud/rec-stats.ts"() {
     "use strict";
     HUD_ID3 = "recStatsHud";
     TEXT_ID2 = "recStatsText";
+    UPLOAD_TEXT_ID = "recUploadText";
   }
 });
 
@@ -61713,684 +64051,20 @@ var init_mic_gate = __esm({
   }
 });
 
-// src/forge/ready-scripts.ts
-function readString9(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : null;
-}
-function normalizeUuid3(value) {
-  const str = readString9(value);
-  if (!str) return null;
-  return UUID_RE3.test(str) ? str.toLowerCase() : null;
-}
-function readLocalStorage3(key) {
-  try {
-    return readString9(window.localStorage.getItem(key));
-  } catch {
-    return null;
-  }
-}
-function getQueryParam3(...keys) {
-  try {
-    const q3 = new URLSearchParams(window.location.search || "");
-    for (const key of keys) {
-      const value = readString9(q3.get(key));
-      if (value) return value;
-    }
-  } catch {
-  }
-  return null;
-}
-function resolveWorkspaceId3() {
-  const fromQuery = normalizeUuid3(getQueryParam3("workspace_id", "workspaceId", "workspace"));
-  if (fromQuery) return fromQuery;
-  const w3 = window;
-  const fromWindow = normalizeUuid3(
-    w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
-  );
-  if (fromWindow) return fromWindow;
-  for (const key of WORKSPACE_STORAGE_KEYS3) {
-    const value = normalizeUuid3(readLocalStorage3(key));
-    if (value) return value;
-  }
-  return null;
-}
-function resolveTongsApiToken2() {
-  const fromQuery = readString9(getQueryParam3("tongs_api_token", "tongsApiToken"));
-  if (fromQuery) return fromQuery;
-  const w3 = window;
-  const fromWindow = readString9(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
-  if (fromWindow) return fromWindow;
-  try {
-    const meta3 = import.meta;
-    const fromEnv = readString9(meta3.env?.VITE_TONGS_API_TOKEN);
-    if (fromEnv) return fromEnv;
-  } catch {
-  }
-  return readLocalStorage3("forge_tongs_api_token_v1") ?? void 0;
-}
-async function withAuthHeaders() {
-  const headers = new Headers();
-  const token = resolveTongsApiToken2();
-  if (token) {
-    headers.set("authorization", `Bearer ${token}`);
-  }
-  return appendForgeUserAuthorization(headers);
-}
-function normalizeScriptPath(value) {
-  const path = readString9(value);
-  if (!path) return null;
-  if (path.startsWith("/") || path.includes("..")) return null;
-  return path;
-}
-function normalizeIso(value) {
-  const iso = readString9(value);
-  if (!iso) return void 0;
-  const timestamp = Date.parse(iso);
-  if (!Number.isFinite(timestamp)) return void 0;
-  return new Date(timestamp).toISOString();
-}
-function normalizeScriptPaths(value) {
-  if (!Array.isArray(value)) return [];
-  const out = [];
-  for (const entry of value) {
-    const path = normalizeScriptPath(entry);
-    if (!path || out.includes(path)) continue;
-    out.push(path);
-  }
-  return out;
-}
-function toReadyScriptId(workpieceId, path) {
-  return `ready:${workpieceId}:${path}`;
-}
-function parseReadyScriptsPayload(payload, workspaceId) {
-  if (!payload || typeof payload !== "object") return [];
-  const root = payload;
-  if (root.ok !== true) return [];
-  const data = root.data;
-  const rowsMaybe = Array.isArray(data) ? data : data && typeof data === "object" && Array.isArray(data.scripts) ? data.scripts : [];
-  if (!rowsMaybe.length) return [];
-  const scripts = [];
-  for (const row of rowsMaybe) {
-    if (!row || typeof row !== "object") continue;
-    const item = row;
-    const rowWorkspace = normalizeUuid3(item.workspace_id) ?? workspaceId;
-    const workpieceId = normalizeUuid3(item.workpiece_id);
-    const primaryPath = normalizeScriptPath(item.primary_script_path) ?? normalizeScriptPath(item.path);
-    const scriptPaths = normalizeScriptPaths(item.script_paths);
-    const path = primaryPath ?? scriptPaths[0] ?? null;
-    if (!rowWorkspace || !workpieceId || !path) continue;
-    const normalizedScriptPaths = scriptPaths.length ? scriptPaths.includes(path) ? scriptPaths : [path, ...scriptPaths] : [path];
-    const title = readString9(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
-    scripts.push({
-      id: toReadyScriptId(workpieceId, path),
-      workspaceId: rowWorkspace,
-      workpieceId,
-      path,
-      primaryPath: path,
-      scriptPaths: normalizedScriptPaths,
-      title,
-      updatedAt: normalizeIso(item.updated_at),
-      markedReadyBy: normalizeUuid3(item.marked_ready_by) ?? void 0,
-      markedReadyAt: normalizeIso(item.marked_ready_at)
-    });
-  }
-  scripts.sort((a, b) => {
-    const aTs = a.updatedAt ?? "";
-    const bTs = b.updatedAt ?? "";
-    const byUpdated = bTs.localeCompare(aTs);
-    if (byUpdated !== 0) return byUpdated;
-    return a.title.localeCompare(b.title);
-  });
-  return scripts;
-}
-function parseRecordingSessionsPayload(payload, workspaceId) {
-  if (!payload || typeof payload !== "object") return [];
-  const root = payload;
-  if (root.ok !== true) return [];
-  const data = root.data;
-  const rowsMaybe = Array.isArray(data) ? data : data && typeof data === "object" && Array.isArray(data.sessions) ? data.sessions : [];
-  const out = [];
-  for (const row of rowsMaybe) {
-    if (!row || typeof row !== "object") continue;
-    const item = row;
-    const id = normalizeUuid3(item.id);
-    const rowWorkspace = normalizeUuid3(item.workspace_id) ?? workspaceId;
-    if (!id || !rowWorkspace) continue;
-    const title = readString9(item.title) ?? "Recording Session";
-    out.push({
-      id,
-      workspaceId: rowWorkspace,
-      title,
-      createdAt: normalizeIso(item.created_at),
-      updatedAt: normalizeIso(item.updated_at),
-      calendarEventId: normalizeUuid3(item.calendar_event_id)
-    });
-  }
-  out.sort((a, b) => {
-    const aUpdated = a.updatedAt ?? a.createdAt ?? "";
-    const bUpdated = b.updatedAt ?? b.createdAt ?? "";
-    const byUpdated = bUpdated.localeCompare(aUpdated);
-    if (byUpdated !== 0) return byUpdated;
-    return a.title.localeCompare(b.title);
-  });
-  return out;
-}
-function parseRecordingSessionDetailPayload(payload) {
-  if (!payload || typeof payload !== "object") return null;
-  const root = payload;
-  if (root.ok !== true) return null;
-  if (!root.data || typeof root.data !== "object") return null;
-  return root.data;
-}
-function toScriptReferenceFromSessionItem(args) {
-  const workpieceId = normalizeUuid3(args.item.episode_id);
-  const path = normalizeScriptPath(args.item.script_path);
-  if (!workpieceId || !path) return null;
-  const key = `${workpieceId}::${path}`;
-  const matchedReady = args.readyByKey.get(key) ?? null;
-  const title = args.titleByKey.get(key) ?? args.fallbackTitle;
-  const scriptPaths = matchedReady ? Array.from(new Set([path, matchedReady.primaryPath, ...matchedReady.scriptPaths].filter(Boolean))) : [path];
-  return {
-    id: toReadyScriptId(workpieceId, path),
-    workspaceId: args.workspaceId,
-    workpieceId,
-    path,
-    primaryPath: matchedReady?.primaryPath ?? path,
-    scriptPaths,
-    title,
-    updatedAt: matchedReady?.updatedAt
-  };
-}
-async function listWorkspaceReadyScripts() {
-  const workspaceId = resolveWorkspaceId3();
-  if (!workspaceId) return [];
-  const response = await fetch(`/tongs/workspaces/${encodeURIComponent(workspaceId)}/ready-scripts?unrecorded=1`, {
-    method: "GET",
-    headers: await withAuthHeaders()
-  });
-  if (!response.ok) return [];
-  let body = null;
-  try {
-    body = await response.json();
-  } catch {
-    return [];
-  }
-  return parseReadyScriptsPayload(body, workspaceId);
-}
-async function listRecordingSessionsForWorkspace() {
-  const workspaceId = resolveWorkspaceId3();
-  if (!workspaceId) return [];
-  const response = await fetch(
-    `/tongs/recording-sessions?workspace_id=${encodeURIComponent(workspaceId)}&limit=100`,
-    {
-      method: "GET",
-      headers: await withAuthHeaders()
-    }
-  );
-  if (!response.ok) return [];
-  let body = null;
-  try {
-    body = await response.json();
-  } catch {
-    return [];
-  }
-  return parseRecordingSessionsPayload(body, workspaceId);
-}
-async function readRecordingSessionScripts(sessionId) {
-  const safeSessionId = normalizeUuid3(sessionId);
-  if (!safeSessionId) return null;
-  const response = await fetch(`/tongs/recording-sessions/${encodeURIComponent(safeSessionId)}`, {
-    method: "GET",
-    headers: await withAuthHeaders()
-  });
-  if (!response.ok) return null;
-  let body = null;
-  try {
-    body = await response.json();
-  } catch {
-    return null;
-  }
-  const detail = parseRecordingSessionDetailPayload(body);
-  if (!detail) return null;
-  const workspaceId = normalizeUuid3(detail.workspace_id);
-  const parsedSessionId = normalizeUuid3(detail.id);
-  if (!workspaceId || !parsedSessionId) return null;
-  const sessionTitle = readString9(detail.title) ?? "Recording Session";
-  const workspaceReady = await listWorkspaceReadyScripts().catch(() => []);
-  const titleByKey = /* @__PURE__ */ new Map();
-  const readyByKey = /* @__PURE__ */ new Map();
-  const readyMetaByKey = /* @__PURE__ */ new Map();
-  for (const script of workspaceReady) {
-    titleByKey.set(`${script.workpieceId}::${script.path}`, script.title);
-    readyByKey.set(`${script.workpieceId}::${script.path}`, script);
-    readyMetaByKey.set(`${script.workpieceId}::${script.path}`, {
-      markedReadyBy: script.markedReadyBy,
-      markedReadyAt: script.markedReadyAt
-    });
-    for (const scriptPath of script.scriptPaths) {
-      titleByKey.set(`${script.workpieceId}::${scriptPath}`, script.title);
-      readyByKey.set(`${script.workpieceId}::${scriptPath}`, script);
-      readyMetaByKey.set(`${script.workpieceId}::${scriptPath}`, {
-        markedReadyBy: script.markedReadyBy,
-        markedReadyAt: script.markedReadyAt
-      });
-    }
-  }
-  const rawItems = Array.isArray(detail.items) ? detail.items : [];
-  const parsedItems = rawItems.filter((entry) => !!entry && typeof entry === "object").sort((a, b) => {
-    const aPos = Number.isFinite(Number(a.position)) ? Number(a.position) : 0;
-    const bPos = Number.isFinite(Number(b.position)) ? Number(b.position) : 0;
-    return aPos - bPos;
-  });
-  const scripts = [];
-  for (const item of parsedItems) {
-    const fallbackTitle = `Episode ${String(item.episode_id ?? "").slice(0, 8) || "unknown"}`;
-    const ref = toScriptReferenceFromSessionItem({
-      item,
-      workspaceId,
-      fallbackTitle,
-      titleByKey,
-      readyByKey
-    });
-    if (ref) {
-      const key = `${ref.workpieceId}::${ref.path}`;
-      const readyMeta = readyMetaByKey.get(key);
-      scripts.push({
-        ...ref,
-        markedReadyBy: readyMeta?.markedReadyBy,
-        markedReadyAt: readyMeta?.markedReadyAt
-      });
-    }
-  }
-  return {
-    session: {
-      id: parsedSessionId,
-      workspaceId,
-      title: sessionTitle,
-      calendarEventId: normalizeUuid3(detail.calendar_event_id)
-    },
-    scripts
-  };
-}
-async function readReadyScriptText(workpieceId, path) {
-  const safeWorkpieceId = normalizeUuid3(workpieceId);
-  const safePath = normalizeScriptPath(path);
-  if (!safeWorkpieceId || !safePath) return null;
-  const response = await fetch(
-    `/tongs/workpieces/${encodeURIComponent(safeWorkpieceId)}/read-file?path=${encodeURIComponent(safePath)}`,
-    {
-      method: "GET",
-      headers: await withAuthHeaders()
-    }
-  );
-  if (response.status === 404) return null;
-  if (!response.ok) return null;
-  let body = null;
-  try {
-    body = await response.json();
-  } catch {
-    return null;
-  }
-  if (!body || typeof body !== "object" || body.ok !== true) {
-    return null;
-  }
-  const data = body.data;
-  return typeof data === "string" ? data : null;
-}
-var UUID_RE3, WORKSPACE_STORAGE_KEYS3;
-var init_ready_scripts = __esm({
-  "src/forge/ready-scripts.ts"() {
-    "use strict";
-    init_tongs_user_auth();
-    UUID_RE3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    WORKSPACE_STORAGE_KEYS3 = ["forge_workspace_id_v1", "barstock_workspace_id"];
-  }
-});
-
-// src/features/ready-script-loading.ts
-function hasUsableReadyScriptContent(value) {
-  return typeof value === "string" && value.trim().length > 0;
-}
-function buildReadyScriptPathCandidates(entry) {
-  const candidates = [entry.path, entry.primaryPath, ...entry.scriptPaths];
-  const out = [];
-  for (const candidate of candidates) {
-    const path = String(candidate || "").trim();
-    if (!path || out.includes(path)) continue;
-    out.push(path);
-  }
-  return out;
-}
-async function readReadyScriptRecordContent(entry, readText) {
-  for (const path of buildReadyScriptPathCandidates(entry)) {
-    const text = await readText(entry.workpieceId, path);
-    if (hasUsableReadyScriptContent(text)) {
-      return text;
-    }
-  }
-  return null;
-}
-var init_ready_script_loading = __esm({
-  "src/features/ready-script-loading.ts"() {
-    "use strict";
-  }
-});
-
-// src/features/scripts-store.ts
-function shortUserId(value) {
-  const userId = String(value ?? "").trim();
-  if (!userId) return "Unknown";
-  if (userId.length <= 12) return userId;
-  return `${userId.slice(0, 8)}...`;
-}
-function formatRelativeTime(iso) {
-  if (!iso) return "unknown";
-  const timestamp = Date.parse(iso);
-  if (!Number.isFinite(timestamp)) return "unknown";
-  const diffMs = Date.now() - timestamp;
-  const absMs = Math.abs(diffMs);
-  const minuteMs = 60 * 1e3;
-  const hourMs = 60 * minuteMs;
-  const dayMs = 24 * hourMs;
-  const weekMs = 7 * dayMs;
-  const formatUnit = (unit, amount) => {
-    try {
-      return new Intl.RelativeTimeFormat(void 0, { numeric: "auto" }).format(amount, unit);
-    } catch {
-      const abs = Math.abs(amount);
-      const suffix = amount <= 0 ? "ago" : "from now";
-      return `${abs} ${unit}${abs === 1 ? "" : "s"} ${suffix}`;
-    }
-  };
-  if (absMs < hourMs) return formatUnit("minute", -Math.max(1, Math.round(absMs / minuteMs)));
-  if (absMs < dayMs) return formatUnit("hour", -Math.round(absMs / hourMs));
-  if (absMs < weekMs) return formatUnit("day", -Math.round(absMs / dayMs));
-  return formatUnit("week", -Math.round(absMs / weekMs));
-}
-function formatReadyAttribution(entry) {
-  const by = shortUserId(entry.markedReadyBy);
-  const at = entry.markedReadyAt ?? entry.updatedAt ?? null;
-  return at ? `Ready by ${by} (${formatRelativeTime(at)})` : `Ready by ${by}`;
-}
-async function ensureReadPermission(handle) {
-  try {
-    const h = handle;
-    const hasQuery = typeof h?.queryPermission === "function";
-    const hasRequest = typeof h?.requestPermission === "function";
-    if (!hasQuery && !hasRequest) return true;
-    const state8 = hasQuery ? await h.queryPermission({ mode: "read" }) : null;
-    if (state8 === "granted") return true;
-    if (!hasRequest) return true;
-    const req = await h.requestPermission({ mode: "read" });
-    return req === "granted";
-  } catch {
-    return false;
-  }
-}
-function emitScriptsUpdated() {
-  try {
-    window.dispatchEvent(new CustomEvent("tp:scripts-updated"));
-  } catch {
-  }
-}
-async function readMappedFile(file) {
-  try {
-    const name = file?.name || "";
-    const lower = name.toLowerCase();
-    if (/\.docx$/i.test(lower)) {
-      const buf = await file.arrayBuffer();
-      const docText = await extractDocxText(buf);
-      if (docText) return docText;
-    }
-    return await file.text();
-  } catch (err) {
-    try {
-      console.warn("[scripts-store] readMappedFile failed", err);
-    } catch {
-    }
-    return "";
-  }
-}
-async function extractDocxText(buf) {
-  try {
-    const ensure = window.ensureMammoth;
-    const mod = ensure ? await ensure() : null;
-    const mammoth = mod && (mod.mammoth || mod.default) || window.mammoth || null;
-    if (!mammoth) throw new Error("mammoth not available");
-    const res = await mammoth.extractRawText({ arrayBuffer: buf });
-    const raw = res && (res.value || res.text || "") || "";
-    return String(raw).replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-  } catch (err) {
-    try {
-      console.warn("[scripts-store] docx parse failed", err);
-    } catch {
-    }
-    return "";
-  }
-}
-var scriptsById, mappedHandles, readyRefsById, lastMappedFingerprint, lastReadyFingerprint, computeFingerprint, computeReadyFingerprint, ScriptStore;
-var init_scripts_store = __esm({
-  "src/features/scripts-store.ts"() {
-    "use strict";
-    init_logging();
-    init_ready_scripts();
-    init_ready_script_loading();
-    scriptsById = /* @__PURE__ */ new Map();
-    mappedHandles = /* @__PURE__ */ new Map();
-    readyRefsById = /* @__PURE__ */ new Map();
-    lastMappedFingerprint = "";
-    lastReadyFingerprint = "";
-    computeFingerprint = (entries) => entries.map((e) => String(e.id || "")).sort().join("|");
-    computeReadyFingerprint = (entries) => entries.map((e) => `${String(e.id || "")}:${String(e.updatedAt || "")}:${String(e.path || "")}`).sort().join("|");
-    ScriptStore = {
-      list() {
-        const all2 = Array.from(scriptsById.values());
-        debugLog("[SCRIPT-STORE] list size", all2.length, all2.map((r) => r.id));
-        return all2.map((rec2) => ({
-          id: rec2.id,
-          title: rec2.title,
-          updated: rec2.updated
-        }));
-      },
-      async get(id) {
-        const existing = scriptsById.get(id);
-        if (existing && hasUsableReadyScriptContent(existing.content)) return existing;
-        const mapped = mappedHandles.get(id);
-        if (!mapped) {
-          const ready = readyRefsById.get(id);
-          if (!ready) return hasUsableReadyScriptContent(existing?.content) ? existing : null;
-          try {
-            const text = await readReadyScriptRecordContent(ready, readReadyScriptText);
-            if (!hasUsableReadyScriptContent(text)) {
-              return hasUsableReadyScriptContent(existing?.content) ? existing : null;
-            }
-            const rec2 = {
-              id: ready.id,
-              title: ready.title,
-              content: text,
-              source: "ready",
-              created: existing?.created || ready.updatedAt || (/* @__PURE__ */ new Date()).toISOString(),
-              updated: ready.updatedAt || (/* @__PURE__ */ new Date()).toISOString()
-            };
-            scriptsById.set(id, rec2);
-            return rec2;
-          } catch (err) {
-            try {
-              console.warn("[scripts-store] failed to load ready script", err);
-            } catch {
-            }
-            return hasUsableReadyScriptContent(existing?.content) ? existing : null;
-          }
-        }
-        try {
-          const ok = await ensureReadPermission(mapped.handle);
-          if (!ok) {
-            hudLog("script:permission:denied", { id });
-            try {
-              window.toast?.("Allow folder access to load scripts, then try Refresh.", { type: "warning" });
-            } catch {
-            }
-            return hasUsableReadyScriptContent(existing?.content) ? existing : null;
-          }
-          const file = await mapped.handle.getFile();
-          const text = await readMappedFile(file);
-          const rec2 = {
-            id: mapped.id,
-            title: mapped.title,
-            content: text,
-            source: "mapped",
-            created: existing?.created,
-            updated: (/* @__PURE__ */ new Date()).toISOString()
-          };
-          scriptsById.set(id, rec2);
-          return rec2;
-        } catch (err) {
-          try {
-            console.warn("[scripts-store] failed to load mapped script", err);
-          } catch {
-          }
-          return hasUsableReadyScriptContent(existing?.content) ? existing : null;
-        }
-      },
-      save(data) {
-        const fallbackId = data.title?.trim() || `script-${Date.now()}`;
-        const id = (data.id || "").trim() || fallbackId;
-        const existing = scriptsById.get(id);
-        const now3 = (/* @__PURE__ */ new Date()).toISOString();
-        const rec2 = {
-          id,
-          title: data.title || existing?.title || id,
-          content: data.content,
-          source: existing?.source || "local",
-          created: existing?.created || now3,
-          updated: now3
-        };
-        scriptsById.set(id, rec2);
-        emitScriptsUpdated();
-        return id;
-      },
-      rename(id, title) {
-        const rec2 = scriptsById.get(id);
-        if (!rec2) return;
-        rec2.title = title;
-        rec2.updated = (/* @__PURE__ */ new Date()).toISOString();
-        scriptsById.set(id, rec2);
-        emitScriptsUpdated();
-      },
-      remove(id) {
-        scriptsById.delete(id);
-        mappedHandles.delete(id);
-        emitScriptsUpdated();
-      },
-      getMappedEntries() {
-        return Array.from(mappedHandles.values()).map((m) => ({
-          id: m.id,
-          title: m.title,
-          handle: m.handle
-        }));
-      },
-      getSelectableEntries() {
-        const mapped = Array.from(mappedHandles.values()).map((m) => ({
-          id: m.id,
-          title: m.title,
-          handle: m.handle,
-          source: "mapped"
-        }));
-        const ready = Array.from(readyRefsById.values()).map((r) => ({
-          id: r.id,
-          title: r.title,
-          subtitle: formatReadyAttribution(r),
-          source: "ready"
-        }));
-        return [...ready, ...mapped];
-      },
-      syncMapped(entries) {
-        const fingerprint = computeFingerprint(entries);
-        if (fingerprint && fingerprint === lastMappedFingerprint) {
-          debugLog("[SCRIPT-STORE] syncMapped skipped (unchanged)", { fingerprint, count: entries.length });
-          return;
-        }
-        lastMappedFingerprint = fingerprint;
-        debugLog("[SCRIPT-STORE] syncMapped entries", entries);
-        for (const [id, rec2] of scriptsById.entries()) {
-          if (rec2.source === "mapped" && !entries.some((entry) => entry.id === id)) {
-            scriptsById.delete(id);
-          }
-        }
-        mappedHandles.clear();
-        for (const e of entries) {
-          mappedHandles.set(e.id, { id: e.id, title: e.title, handle: e.handle });
-          const existing = scriptsById.get(e.id);
-          scriptsById.set(e.id, {
-            id: e.id,
-            title: e.title,
-            content: existing?.content || "",
-            created: existing?.created || (/* @__PURE__ */ new Date()).toISOString(),
-            updated: existing?.updated,
-            source: existing?.source ?? "mapped"
-          });
-        }
-        const ids = Array.from(scriptsById.keys());
-        debugLog("[SCRIPT-STORE] scriptsById size after sync", scriptsById.size, ids);
-        hudLog("script-store:syncMapped", { size: scriptsById.size, ids });
-        emitScriptsUpdated();
-      },
-      syncReady(entries) {
-        const fingerprint = computeReadyFingerprint(entries);
-        if (fingerprint && fingerprint === lastReadyFingerprint) {
-          debugLog("[SCRIPT-STORE] syncReady skipped (unchanged)", { fingerprint, count: entries.length });
-          return;
-        }
-        lastReadyFingerprint = fingerprint;
-        debugLog("[SCRIPT-STORE] syncReady entries", entries);
-        for (const [id, rec2] of scriptsById.entries()) {
-          if (rec2.source === "ready" && !entries.some((entry) => entry.id === id)) {
-            scriptsById.delete(id);
-          }
-        }
-        readyRefsById.clear();
-        for (const entry of entries) {
-          readyRefsById.set(entry.id, entry);
-          const existing = scriptsById.get(entry.id);
-          scriptsById.set(entry.id, {
-            id: entry.id,
-            title: entry.title,
-            content: existing?.content || "",
-            source: "ready",
-            created: existing?.created || entry.updatedAt || (/* @__PURE__ */ new Date()).toISOString(),
-            updated: entry.updatedAt || existing?.updated
-          });
-        }
-        const ids = Array.from(scriptsById.keys());
-        debugLog("[SCRIPT-STORE] scriptsById size after ready sync", scriptsById.size, ids);
-        hudLog("script-store:syncReady", { size: scriptsById.size, ids });
-        emitScriptsUpdated();
-      }
-    };
-    try {
-      window.Scripts = ScriptStore;
-      window.getScriptsApi = () => ScriptStore;
-    } catch {
-    }
-  }
-});
-
 // src/forge/script-source.ts
-function readString10(value) {
+function readString11(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
-function readLocalStorage4(key) {
+function readLocalStorage5(key) {
   try {
-    return readString10(window.localStorage.getItem(key));
+    return readString11(window.localStorage.getItem(key));
   } catch {
     return null;
   }
 }
-function writeLocalStorage3(key, value) {
+function writeLocalStorage4(key, value) {
   try {
     window.localStorage.setItem(key, value);
   } catch {
@@ -62409,18 +64083,18 @@ function emitRecordingSessionChange() {
   }
 }
 function getScriptSourceMode() {
-  const stored = readLocalStorage4(SOURCE_KEY);
+  const stored = readLocalStorage5(SOURCE_KEY);
   if (stored === "library") return "library";
   return "session";
 }
 function setScriptSourceMode(mode) {
   const prev2 = getScriptSourceMode();
   if (prev2 === mode) return;
-  writeLocalStorage3(SOURCE_KEY, mode);
+  writeLocalStorage4(SOURCE_KEY, mode);
   emitScriptSourceChange();
 }
 function getSelectedRecordingSessionId() {
-  return readLocalStorage4(RECORDING_SESSION_KEY);
+  return readLocalStorage5(RECORDING_SESSION_KEY);
 }
 function setSelectedRecordingSessionId(sessionId) {
   const normalized = sessionId ? sessionId.trim() : "";
@@ -62428,7 +64102,7 @@ function setSelectedRecordingSessionId(sessionId) {
   const prev2 = getSelectedRecordingSessionId();
   if (prev2 === next) return;
   if (next) {
-    writeLocalStorage3(RECORDING_SESSION_KEY, next);
+    writeLocalStorage4(RECORDING_SESSION_KEY, next);
   } else {
     try {
       window.localStorage.removeItem(RECORDING_SESSION_KEY);
@@ -64171,6 +65845,12 @@ function buildSettingsContent(rootEl2) {
           <button id="stopRecBtn" class="btn" type="button">Stop recording</button>
         </div>
         <small class="muted">These buttons call the recorder registry so Bridge + OBS stay in sync.</small>
+      </div>
+
+      <div class="settings-card anim-in" id="recordingUploadAuditCard">
+        <h4>Upload History</h4>
+        <div id="recordingUploadAuditLatest" class="settings-small">No recording uploads yet.</div>
+        <div id="recordingUploadAuditList"></div>
       </div>
 
       <div class="settings-card anim-in">
@@ -66103,15 +67783,407 @@ var init_telemetry = __esm({
 });
 
 // src/features/toasts.ts
-function initToasts() {
+function isDevMode10() {
   try {
+    if (window.__TP_DEV || window.__TP_DEV1) return true;
+    const qs = new URLSearchParams(String(window.location.search || ""));
+    if (qs.has("dev") || qs.has("debug") || qs.has("hud") || qs.has("scrollDebug")) return true;
+    return localStorage.getItem("tp_dev_mode") === "1";
+  } catch {
+    return false;
+  }
+}
+function toast3(message, type = "info", timeoutMs = 2600) {
+  try {
+    showToast(message, { type, timeoutMs });
+  } catch {
+  }
+}
+function normalizePct(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+function shouldEmitProgressToast(now3) {
+  const MIN_INTERVAL_MS = 1500;
+  if (now3 - lastProgressToastAt < MIN_INTERVAL_MS) return false;
+  lastProgressToastAt = now3;
+  return true;
+}
+function onUploadWarning(ev) {
+  const detail = ev.detail ?? {};
+  const mb = Number.isFinite(Number(detail.mb)) ? Number(detail.mb).toFixed(1) : "unknown";
+  const threshold = Number.isFinite(Number(detail.thresholdMb)) ? Number(detail.thresholdMb).toFixed(0) : "unknown";
+  toast3(`Large upload (${mb} MB) exceeds ${threshold} MB warning threshold`, "warning", 3200);
+}
+function onUploadStatus(ev) {
+  const detail = ev.detail ?? {};
+  const phase = String(detail.phase || "").toLowerCase();
+  const strategy = String(detail.strategy || "").toLowerCase();
+  const chunkIndex = Number(detail.chunkIndex);
+  const totalChunks = Number(detail.totalChunks);
+  const pct = normalizePct(detail.progressPct);
+  if (phase === "preflight") {
+    chunkedNoticeShown = false;
+    safeToLeaveShown = false;
+    failedShown = false;
+    lastProgressToastAt = 0;
+    return;
+  }
+  if (phase === "uploading" && strategy === "chunked" && isDevMode10() && !chunkedNoticeShown) {
+    const mb = Number.isFinite(Number(detail.mb)) ? Number(detail.mb).toFixed(1) : "?";
+    const chunkLabel = Number.isFinite(totalChunks) && totalChunks > 0 ? ` in ${totalChunks} chunks` : "";
+    toast3(`Chunked upload active (${mb} MB${chunkLabel})`, "info", 2800);
+    chunkedNoticeShown = true;
+    return;
+  }
+  if (phase === "uploading" && strategy === "chunked" && isDevMode10() && Number.isFinite(chunkIndex) && Number.isFinite(totalChunks) && totalChunks > 1 && shouldEmitProgressToast(Date.now())) {
+    const progressText = pct == null ? "" : ` (${pct}%)`;
+    toast3(`Uploading chunk ${chunkIndex}/${totalChunks}${progressText}`, "info", 1800);
+    return;
+  }
+  if (phase === "done" && detail.safeToLeave && !safeToLeaveShown) {
+    toast3("Recording upload complete. Safe to leave.", "success", 3200);
+    safeToLeaveShown = true;
+    return;
+  }
+  if (phase === "failed" && !failedShown) {
+    const msg = detail.errorMessage ? ` (${detail.errorMessage})` : "";
+    toast3(`Canonical upload failed${msg}. Falling back to local save.`, "warning", 4200);
+    failedShown = true;
+  }
+}
+function initToasts() {
+  if (installed) return;
+  installed = true;
+  try {
+    window.addEventListener("tp:recording:upload-warning", onUploadWarning);
+    window.addEventListener("tp:recording:upload-status", onUploadStatus);
     console.log("[src/features/toasts] initToasts");
   } catch {
   }
 }
+var installed, chunkedNoticeShown, safeToLeaveShown, failedShown, lastProgressToastAt;
 var init_toasts2 = __esm({
   "src/features/toasts.ts"() {
     "use strict";
+    init_toasts();
+    installed = false;
+    chunkedNoticeShown = false;
+    safeToLeaveShown = false;
+    failedShown = false;
+    lastProgressToastAt = 0;
+  }
+});
+
+// src/features/recording-upload-audit.ts
+function nowIso() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function toStringOrNull(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+function toBoolean2(value, fallback = false) {
+  return typeof value === "boolean" ? value : fallback;
+}
+function toNumberOrNull(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return n;
+}
+function toPhase(value) {
+  const candidate = String(value || "").toLowerCase();
+  if (candidate === "preflight") return "preflight";
+  if (candidate === "uploading") return "uploading";
+  if (candidate === "finalizing") return "finalizing";
+  if (candidate === "done") return "done";
+  return "failed";
+}
+function toStrategy(value) {
+  return String(value || "").toLowerCase() === "chunked" ? "chunked" : "single";
+}
+function sanitizeEntry(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw;
+  const id = toStringOrNull(row.id);
+  if (!id) return null;
+  return {
+    id,
+    createdAtIso: toStringOrNull(row.createdAtIso) || nowIso(),
+    updatedAtIso: toStringOrNull(row.updatedAtIso) || nowIso(),
+    sessionRunKey: toStringOrNull(row.sessionRunKey),
+    workpieceId: toStringOrNull(row.workpieceId),
+    workspaceId: toStringOrNull(row.workspaceId),
+    title: toStringOrNull(row.title),
+    scriptHash: toStringOrNull(row.scriptHash),
+    strategy: toStrategy(row.strategy),
+    phase: toPhase(row.phase),
+    safeToLeave: toBoolean2(row.safeToLeave),
+    blobBytes: toNumberOrNull(row.blobBytes),
+    blobMb: toNumberOrNull(row.blobMb),
+    chunkIndex: toNumberOrNull(row.chunkIndex),
+    chunkTotal: toNumberOrNull(row.chunkTotal),
+    progressPct: toNumberOrNull(row.progressPct),
+    canonicalAttempted: toBoolean2(row.canonicalAttempted),
+    canonicalSucceeded: toBoolean2(row.canonicalSucceeded),
+    fallbackUsed: toBoolean2(row.fallbackUsed),
+    errorCode: toStringOrNull(row.errorCode),
+    errorMessage: toStringOrNull(row.errorMessage),
+    finalStorageKey: toStringOrNull(row.finalStorageKey)
+  };
+}
+function makeAuditId(seed) {
+  const safeSeed = toStringOrNull(seed) || "upload";
+  return `audit:${safeSeed}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 9)}`;
+}
+function chooseTitle(existing, incoming) {
+  if (existing) return existing;
+  return incoming;
+}
+function clampProgress(value) {
+  if (!Number.isFinite(Number(value))) return null;
+  const n = Math.round(Number(value));
+  return Math.max(0, Math.min(100, n));
+}
+function toEntryArray(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => sanitizeEntry(item)).filter((item) => !!item);
+}
+function trimRecordingUploadAuditHistory(entries, maxEntries = RECORDING_UPLOAD_AUDIT_MAX_ENTRIES) {
+  const limit = Math.max(1, Math.floor(maxEntries));
+  return entries.slice(0, limit);
+}
+function loadRecordingUploadAuditHistory(storage = typeof localStorage === "undefined" ? null : localStorage) {
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(RECORDING_UPLOAD_AUDIT_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return trimRecordingUploadAuditHistory(toEntryArray(parsed));
+  } catch {
+    return [];
+  }
+}
+function saveRecordingUploadAuditHistory(entries, storage = typeof localStorage === "undefined" ? null : localStorage) {
+  if (!storage) return;
+  try {
+    const trimmed = trimRecordingUploadAuditHistory(entries);
+    storage.setItem(RECORDING_UPLOAD_AUDIT_STORAGE_KEY, JSON.stringify(trimmed));
+  } catch {
+  }
+}
+function resolveEntryIndex(entries, sessionRunKey, id) {
+  if (sessionRunKey) {
+    return entries.findIndex((entry) => entry.sessionRunKey === sessionRunKey);
+  }
+  if (id) return entries.findIndex((entry) => entry.id === id);
+  return -1;
+}
+function upsertEntry(entries, next) {
+  const sessionRunKey = toStringOrNull(next.sessionRunKey);
+  const now3 = nowIso();
+  const idx = resolveEntryIndex(entries, sessionRunKey, toStringOrNull(next.id));
+  const existing = idx >= 0 ? entries[idx] : null;
+  const id = toStringOrNull(next.id) || existing?.id || makeAuditId(sessionRunKey);
+  const createdAtIso = existing?.createdAtIso || now3;
+  const merged = {
+    id,
+    createdAtIso,
+    updatedAtIso: now3,
+    sessionRunKey: sessionRunKey ?? existing?.sessionRunKey ?? null,
+    workpieceId: toStringOrNull(next.workpieceId) ?? existing?.workpieceId ?? null,
+    workspaceId: toStringOrNull(next.workspaceId) ?? existing?.workspaceId ?? null,
+    title: chooseTitle(existing?.title ?? null, toStringOrNull(next.title)),
+    scriptHash: toStringOrNull(next.scriptHash) ?? existing?.scriptHash ?? null,
+    strategy: toStrategy(next.strategy ?? existing?.strategy ?? "single"),
+    phase: toPhase(next.phase ?? existing?.phase ?? "preflight"),
+    safeToLeave: toBoolean2(next.safeToLeave, existing?.safeToLeave ?? false),
+    blobBytes: toNumberOrNull(next.blobBytes) ?? existing?.blobBytes ?? null,
+    blobMb: toNumberOrNull(next.blobMb) ?? existing?.blobMb ?? null,
+    chunkIndex: toNumberOrNull(next.chunkIndex) ?? existing?.chunkIndex ?? null,
+    chunkTotal: toNumberOrNull(next.chunkTotal) ?? existing?.chunkTotal ?? null,
+    progressPct: clampProgress(toNumberOrNull(next.progressPct) ?? existing?.progressPct ?? null),
+    canonicalAttempted: toBoolean2(next.canonicalAttempted, existing?.canonicalAttempted ?? false),
+    canonicalSucceeded: toBoolean2(next.canonicalSucceeded, existing?.canonicalSucceeded ?? false),
+    fallbackUsed: toBoolean2(next.fallbackUsed, existing?.fallbackUsed ?? false),
+    errorCode: toStringOrNull(next.errorCode) ?? existing?.errorCode ?? null,
+    errorMessage: toStringOrNull(next.errorMessage) ?? existing?.errorMessage ?? null,
+    finalStorageKey: toStringOrNull(next.finalStorageKey) ?? existing?.finalStorageKey ?? null
+  };
+  const output = entries.slice();
+  if (idx >= 0) output.splice(idx, 1);
+  output.unshift(merged);
+  return trimRecordingUploadAuditHistory(output);
+}
+function applyUploadStatusToAuditEntries(entries, detail) {
+  const phase = toPhase(detail.phase);
+  const canonicalAttempted = true;
+  const canonicalSucceeded = phase === "done";
+  const fallbackUsed = phase === "done" ? false : entries.find((entry) => entry.sessionRunKey === toStringOrNull(detail.sessionRunKey))?.fallbackUsed ?? false;
+  return upsertEntry(entries, {
+    sessionRunKey: toStringOrNull(detail.sessionRunKey),
+    workpieceId: toStringOrNull(detail.workpieceId),
+    workspaceId: toStringOrNull(detail.workspaceId),
+    title: toStringOrNull(detail.title),
+    scriptHash: toStringOrNull(detail.scriptHash),
+    strategy: toStrategy(detail.strategy),
+    phase,
+    safeToLeave: toBoolean2(detail.safeToLeave, phase === "done"),
+    blobBytes: toNumberOrNull(detail.bytes),
+    blobMb: toNumberOrNull(detail.mb),
+    chunkIndex: toNumberOrNull(detail.chunkIndex),
+    chunkTotal: toNumberOrNull(detail.totalChunks),
+    progressPct: clampProgress(toNumberOrNull(detail.progressPct)),
+    canonicalAttempted,
+    canonicalSucceeded,
+    fallbackUsed,
+    errorCode: toStringOrNull(detail.errorCode),
+    errorMessage: toStringOrNull(detail.errorMessage),
+    finalStorageKey: toStringOrNull(detail.finalStorageKey)
+  });
+}
+function applyUploadFallbackToAuditEntries(entries, detail) {
+  const canonicalAttempted = toBoolean2(detail.canonicalAttempted, false);
+  const canonicalSucceeded = toBoolean2(detail.canonicalSucceeded, false);
+  return upsertEntry(entries, {
+    sessionRunKey: toStringOrNull(detail.sessionRunKey),
+    workpieceId: toStringOrNull(detail.workpieceId),
+    workspaceId: toStringOrNull(detail.workspaceId),
+    title: toStringOrNull(detail.title),
+    scriptHash: toStringOrNull(detail.scriptHash),
+    strategy: toStrategy(detail.strategy ?? "single"),
+    phase: toPhase(detail.phase ?? "failed"),
+    safeToLeave: toBoolean2(detail.safeToLeave, true),
+    blobBytes: toNumberOrNull(detail.blobBytes),
+    blobMb: toNumberOrNull(detail.blobMb),
+    canonicalAttempted,
+    canonicalSucceeded,
+    fallbackUsed: toBoolean2(detail.fallbackUsed, true),
+    errorCode: toStringOrNull(detail.errorCode),
+    errorMessage: toStringOrNull(detail.errorMessage),
+    finalStorageKey: toStringOrNull(detail.finalStorageKey)
+  });
+}
+function escapeHtml4(value) {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+function formatLocalTime(iso) {
+  if (!iso) return "unknown";
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
+}
+function deriveStatusBadge(entry) {
+  if (entry.fallbackUsed && !entry.canonicalSucceeded) return "Fallback saved locally";
+  if (entry.phase === "preflight") return "Preparing upload";
+  if (entry.phase === "uploading") return "Uploading";
+  if (entry.phase === "finalizing") return "Finalizing";
+  if (entry.phase === "done") return "Upload complete";
+  return "Upload failed";
+}
+function deriveCanonicalSummary(entry) {
+  if (entry.canonicalSucceeded) return "Canonical: succeeded";
+  if (entry.canonicalAttempted) return "Canonical: failed";
+  return "Canonical: skipped";
+}
+function deriveFallbackSummary(entry) {
+  return entry.fallbackUsed ? "Fallback: saved locally" : "Fallback: not used";
+}
+function formatSize(entry) {
+  if (entry.blobMb != null) return `${entry.blobMb.toFixed(2)} MB`;
+  if (entry.blobBytes != null) return `${entry.blobBytes} bytes`;
+  return "unknown size";
+}
+function renderLatestEntry(entry) {
+  const safe = entry.safeToLeave ? "Yes" : "No";
+  const progress = entry.strategy === "chunked" && entry.chunkTotal && entry.chunkTotal > 0 ? `Chunk ${entry.chunkIndex ?? 0}/${entry.chunkTotal}${entry.progressPct != null ? ` (${entry.progressPct}%)` : ""}` : entry.progressPct != null ? `Progress ${entry.progressPct}%` : "Progress n/a";
+  const title = escapeHtml4(entry.title || "Untitled recording");
+  return [
+    `<div class="settings-small"><strong>${title}</strong></div>`,
+    `<div class="settings-small"><span class="badge">${escapeHtml4(deriveStatusBadge(entry))}</span> \xB7 ${escapeHtml4(entry.strategy.toUpperCase())} \xB7 ${escapeHtml4(formatSize(entry))}</div>`,
+    `<div class="settings-small">${escapeHtml4(progress)} \xB7 Safe to leave: <strong>${escapeHtml4(safe)}</strong></div>`,
+    `<div class="settings-small">${escapeHtml4(deriveCanonicalSummary(entry))} \xB7 ${escapeHtml4(deriveFallbackSummary(entry))}</div>`,
+    entry.errorMessage ? `<div class="settings-small" style="color:#ffb3b3">Error: ${escapeHtml4(entry.errorMessage)}</div>` : ""
+  ].join("");
+}
+function renderHistoryRow(entry) {
+  const title = escapeHtml4(entry.title || "Untitled recording");
+  const updated = escapeHtml4(formatLocalTime(entry.updatedAtIso));
+  const progress = entry.strategy === "chunked" && entry.chunkTotal && entry.chunkTotal > 0 ? `chunk ${entry.chunkIndex ?? 0}/${entry.chunkTotal}${entry.progressPct != null ? ` (${entry.progressPct}%)` : ""}` : entry.progressPct != null ? `${entry.progressPct}%` : "n/a";
+  const error = entry.errorMessage ? ` \xB7 ${escapeHtml4(entry.errorMessage)}` : "";
+  return `<li><strong>${title}</strong> \xB7 ${escapeHtml4(deriveStatusBadge(entry))} \xB7 ${escapeHtml4(entry.strategy)} \xB7 ${escapeHtml4(formatSize(entry))} \xB7 ${escapeHtml4(progress)} \xB7 ${updated}${error}</li>`;
+}
+function renderAuditPanel(entries) {
+  const latestEl = document.getElementById("recordingUploadAuditLatest");
+  const listEl = document.getElementById("recordingUploadAuditList");
+  if (!latestEl || !listEl) return;
+  if (!entries.length) {
+    latestEl.innerHTML = `<div class="settings-small">No recording uploads yet.</div>`;
+    listEl.innerHTML = "";
+    return;
+  }
+  const latest = entries[0];
+  latestEl.innerHTML = renderLatestEntry(latest);
+  const rows = entries.slice(0, 10).map((entry) => renderHistoryRow(entry)).join("");
+  listEl.innerHTML = `<ul class="settings-small" style="margin:8px 0 0 16px;display:grid;gap:4px;">${rows}</ul>`;
+}
+function emitAuditUpdated(entries) {
+  try {
+    window.dispatchEvent(new CustomEvent("tp:recording:upload-audit-updated", { detail: { entries } }));
+  } catch {
+  }
+}
+function commitHistory(next) {
+  historyCache = trimRecordingUploadAuditHistory(next);
+  saveRecordingUploadAuditHistory(historyCache);
+  renderAuditPanel(historyCache);
+  emitAuditUpdated(historyCache);
+}
+function ensureHistoryLoaded() {
+  if (historyCache) return historyCache;
+  historyCache = loadRecordingUploadAuditHistory();
+  return historyCache;
+}
+function onUploadStatus2(event) {
+  const detail = event.detail || {};
+  const next = applyUploadStatusToAuditEntries(ensureHistoryLoaded(), detail);
+  commitHistory(next);
+}
+function onUploadFallback(event) {
+  const detail = event.detail || {};
+  const next = applyUploadFallbackToAuditEntries(ensureHistoryLoaded(), detail);
+  commitHistory(next);
+}
+function onSettingsRendered() {
+  renderAuditPanel(ensureHistoryLoaded());
+}
+function initRecordingUploadAudit() {
+  if (listenersWired) {
+    renderAuditPanel(ensureHistoryLoaded());
+    return;
+  }
+  listenersWired = true;
+  ensureHistoryLoaded();
+  try {
+    window.addEventListener("tp:recording:upload-status", onUploadStatus2);
+    window.addEventListener("tp:recording:upload-fallback", onUploadFallback);
+    document.addEventListener("tp:settings:rendered", onSettingsRendered);
+    renderAuditPanel(ensureHistoryLoaded());
+  } catch {
+  }
+}
+var RECORDING_UPLOAD_AUDIT_STORAGE_KEY, RECORDING_UPLOAD_AUDIT_MAX_ENTRIES, historyCache, listenersWired;
+var init_recording_upload_audit = __esm({
+  "src/features/recording-upload-audit.ts"() {
+    "use strict";
+    RECORDING_UPLOAD_AUDIT_STORAGE_KEY = "forge_anvil_recording_upload_audit_v1";
+    RECORDING_UPLOAD_AUDIT_MAX_ENTRIES = 25;
+    historyCache = null;
+    listenersWired = false;
   }
 });
 
@@ -66192,6 +68264,7 @@ async function loadScriptById(id) {
       window.__tpCurrentName = rec2.title;
     } catch {
     }
+    persistActiveWorkpieceFromScriptId(id);
     persistLastScriptId(id);
     return true;
   } catch (err) {
@@ -66208,6 +68281,7 @@ var init_script_selection = __esm({
     "use strict";
     init_apply_script();
     init_scripts_store();
+    init_workpiece_context();
     LAST_SCRIPT_KEY = "tp:last_script_id";
     restoreAttempted = false;
     restoreDeadlineAt = 0;
@@ -66397,14 +68471,7 @@ async function handleLoadClick() {
   } catch {
   }
   try {
-    const rec2 = await ScriptStore.get(id);
-    if (!rec2 || typeof rec2.content !== "string") return;
-    const raw = rec2.content ?? "";
-    applyScript(raw, "load", { updateEditor: true });
-    try {
-      window.dispatchEvent(new CustomEvent("tp:script-load", { detail: { name: rec2.title, text: raw } }));
-    } catch {
-    }
+    await loadScriptById(id);
   } catch {
   } finally {
     loadInFlight = false;
@@ -66456,7 +68523,6 @@ var init_script_editor = __esm({
     "use strict";
     init_logging();
     init_scripts_store();
-    init_apply_script();
     init_script_selection();
     init_mapped_folder();
     init_nursery_mounts();
@@ -67020,7 +69086,7 @@ function writeAutoRecordPref(next) {
   } catch {
   }
 }
-function toast3(msg) {
+function toast4(msg) {
   try {
     window.toasts?.show?.(msg);
   } catch {
@@ -67102,11 +69168,11 @@ function keyGuard(e) {
     e.stopImmediatePropagation();
     e.stopPropagation();
     if (k === " ") {
-      toast3("Auto-scroll disabled in Rehearsal Mode");
+      toast4("Auto-scroll disabled in Rehearsal Mode");
     } else if (nav.includes(k)) {
-      toast3("Keyboard scroll is disabled in Rehearsal Mode");
+      toast4("Keyboard scroll is disabled in Rehearsal Mode");
     } else {
-      toast3("Recording/automation is disabled in Rehearsal Mode");
+      toast4("Recording/automation is disabled in Rehearsal Mode");
     }
   }
 }
@@ -67235,7 +69301,7 @@ function enable() {
     keyListenerInstalled = true;
   }
   wireSelectObserversOnce();
-  toast3("Rehearsal Mode enabled");
+  toast4("Rehearsal Mode enabled");
   try {
     broadcastRehearsal(true);
   } catch {
@@ -67247,7 +69313,7 @@ function disable() {
   setState(false);
   markUiDisabled(false);
   restorePrev();
-  toast3("Exited Rehearsal Mode");
+  toast4("Exited Rehearsal Mode");
   try {
     broadcastRehearsal(false);
   } catch {
@@ -67531,7 +69597,7 @@ function updateRouterDiag(extra = {}) {
   } catch {
   }
 }
-function isDevMode10() {
+function isDevMode11() {
   try {
     const w3 = window;
     if (w3.__TP_DEV || w3.__TP_DEV1) return true;
@@ -67543,7 +69609,7 @@ function isDevMode10() {
   return false;
 }
 function shouldDisableAutoMotors() {
-  return isDevMode10();
+  return isDevMode11();
 }
 function shouldAutoRun(mode, sess) {
   if (shouldDisableAutoMotors()) return false;
@@ -68509,10 +70575,10 @@ function bindCameraUI() {
       setButtons(false, false);
       updateChip("CamRTC: error");
       try {
-        const toast5 = window.toast;
-        if (typeof toast5 === "function") {
+        const toast6 = window.toast;
+        if (typeof toast6 === "function") {
           const msg = busy ? 'Camera is in use by another app. Close it or pick "OBS Virtual Camera" in Settings \u2192 Recording.' : "Camera failed to start. Check permissions or pick another device.";
-          toast5(msg, { type: "warn" });
+          toast6(msg, { type: "warn" });
         }
       } catch {
       }
@@ -70951,7 +73017,7 @@ Need a deeper dive? Open Help > How it Works for the full guide.
 });
 
 // src/features/welcome-intro.ts
-function isDevMode11() {
+function isDevMode12() {
   try {
     const w3 = window;
     if (w3?.__TP_DEV_MODE === true) return true;
@@ -71173,7 +73239,7 @@ async function loadWelcomeGuide(opts) {
 }
 async function devResetWelcomeSeen() {
   if (typeof window === "undefined") return;
-  if (!isDevMode11()) {
+  if (!isDevMode12()) {
     console.warn("[welcome-intro] devResetWelcomeSeen blocked (not in dev mode)");
     return;
   }
@@ -71216,7 +73282,7 @@ var init_welcome_intro = __esm({
     welcomeCheckInFlight = false;
     welcomeCheckDone = false;
     try {
-      if (typeof window !== "undefined" && isDevMode11()) {
+      if (typeof window !== "undefined" && isDevMode12()) {
         window.__tpDevResetWelcome = devResetWelcomeSeen;
       }
     } catch {
@@ -73818,7 +75884,7 @@ var init_dom = __esm({
 });
 
 // src/pairing/pairing-api.ts
-function readString11(value) {
+function readString12(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -73893,9 +75959,9 @@ var init_pairing_api = __esm({
     w2 = typeof window !== "undefined" ? window : {};
     metaEnv2 = typeof import.meta !== "undefined" ? import.meta.env || {} : {};
     DEFAULT_PAIR_QR_URL = "https://wtvdjndyxegudufrompx.functions.supabase.co/pair-qr";
-    PAIR_QR_URL = readString11(w2.__TP_PAIR_QR_URL) || readString11(metaEnv2.VITE_PAIR_QR_URL) || DEFAULT_PAIR_QR_URL;
-    SUPABASE_ANON_KEY2 = readString11(w2.__forgeSupabaseAnonKey) || readString11(metaEnv2.VITE_SUPABASE_ANON_KEY) || "";
-    PAIR_BASE_URL_OVERRIDE = readString11(w2.__TP_PAIR_BASE_URL) || readString11(metaEnv2.VITE_PAIR_BASE_URL) || null;
+    PAIR_QR_URL = readString12(w2.__TP_PAIR_QR_URL) || readString12(metaEnv2.VITE_PAIR_QR_URL) || DEFAULT_PAIR_QR_URL;
+    SUPABASE_ANON_KEY2 = readString12(w2.__forgeSupabaseAnonKey) || readString12(metaEnv2.VITE_SUPABASE_ANON_KEY) || "";
+    PAIR_BASE_URL_OVERRIDE = readString12(w2.__TP_PAIR_BASE_URL) || readString12(metaEnv2.VITE_PAIR_BASE_URL) || null;
     DEFAULT_PAIR_PATH = "/display.html";
     DEFAULT_TTL_MINUTES = Number(w2.__TP_PAIR_QR_TTL_MINUTES ?? metaEnv2.VITE_PAIR_QR_TTL_MINUTES ?? 10);
     DEFAULT_METADATA = typeof w2.__TP_PAIR_QR_METADATA === "object" && w2.__TP_PAIR_QR_METADATA !== null ? { ...w2.__TP_PAIR_QR_METADATA } : { role: "display", app: "anvil" };
@@ -77606,7 +79672,7 @@ async function bindMappedFolderUI(opts) {
           hudLog("folder:permission:denied", { id: sel.id });
         } catch {
         }
-        toast4(
+        toast5(
           isMappedFolderManagedByNursery() ? `Allow folder access, then re-link scripts mount in The Forge Storage (${getNurseryStorageSettingsUrl()}).` : "Allow folder access to load scripts, or re-pick the folder in Settings."
         );
         return;
@@ -77685,7 +79751,7 @@ async function bindMappedFolderUI(opts) {
       } catch {
       }
       try {
-        toast4(
+        toast5(
           isMappedFolderManagedByNursery() ? `Could not load script from The Forge-managed folder. Recheck The Forge Storage link (${getNurseryStorageSettingsUrl()}).` : "Could not load script from the mapped folder. Recheck permissions or pick the folder again."
         );
       } catch {
@@ -78176,18 +80242,18 @@ async function docxToTextViaMammoth(file) {
 async function recheckMappedFolderPermissions() {
   try {
     if (isMappedFolderManagedByNursery()) {
-      toast4(`Scripts folder is managed by The Forge. Configure it in The Forge > Settings > Storage (${getNurseryStorageSettingsUrl()}).`);
+      toast5(`Scripts folder is managed by The Forge. Configure it in The Forge > Settings > Storage (${getNurseryStorageSettingsUrl()}).`);
       return false;
     }
     const dir = window.__tpFolder?.get?.();
     if (!dir) {
-      toast4("No folder mapped");
+      toast5("No folder mapped");
       return false;
     }
     const res = await dir.requestPermission?.({ mode: "read" });
     const granted = res === "granted";
     hudLog("folder:permission", { granted });
-    toast4(granted ? "Folder access granted" : "Folder access denied");
+    toast5(granted ? "Folder access granted" : "Folder access denied");
     if (!granted) {
       try {
         await window.__tpFolder?.clear?.();
@@ -78199,7 +80265,7 @@ async function recheckMappedFolderPermissions() {
     return false;
   }
 }
-function toast4(msg) {
+function toast5(msg) {
   hudLog("toast", { msg });
   try {
     window.dispatchEvent(new CustomEvent("tp:toast", { detail: { msg, ts: Date.now() } }));
@@ -78444,7 +80510,7 @@ var init_importSettings = __esm({
 });
 
 // src/dev/scroll-write-guard.ts
-function isDevMode12() {
+function isDevMode13() {
   if (shouldLogLevel(1)) return true;
   try {
     const qs = new URLSearchParams(String(location.search || ""));
@@ -78532,7 +80598,7 @@ function findScrollTopDescriptor(el) {
 }
 function installScrollWriteGuard(scroller) {
   if (!scroller) return;
-  if (!isDevMode12()) return;
+  if (!isDevMode13()) return;
   try {
     window.__tpScrollGuardDevOverride = true;
     window.__tpScrollWriteActive = true;
@@ -78855,9 +80921,9 @@ async function computeAuth(pass, salt, challenge) {
 }
 function notifyObsConnectionError(reason) {
   try {
-    const toast5 = window.toast;
-    if (typeof toast5 === "function") {
-      toast5("Could not connect to OBS. Make sure OBS is running and check Settings \u2192 Recording.");
+    const toast6 = window.toast;
+    if (typeof toast6 === "function") {
+      toast6("Could not connect to OBS. Make sure OBS is running and check Settings \u2192 Recording.");
     }
   } catch {
   }
@@ -79597,7 +81663,7 @@ function isAsrEngineEngaged() {
 function isAsrOverlayActive() {
   return selectPrefersAsr || isAsrEngineEngaged();
 }
-function isDevMode13() {
+function isDevMode14() {
   try {
     const params = new URLSearchParams(location.search || "");
     if (params.has("dev")) return true;
@@ -79609,7 +81675,7 @@ function isDevMode13() {
   }
 }
 function attachKickDevGlobalOnce() {
-  if (!isDevMode13()) return;
+  if (!isDevMode14()) return;
   try {
     const w3 = window;
     if (typeof w3.__tpKick === "function") return;
@@ -79624,7 +81690,7 @@ function attachKickDevGlobalOnce() {
   }
 }
 function devLog(...args) {
-  if (!isDevMode13()) return;
+  if (!isDevMode14()) return;
   try {
     console.debug("[settings]", ...args);
   } catch {
@@ -80831,6 +82897,10 @@ async function boot() {
         } catch {
         }
         try {
+          startUploadAudit();
+        } catch {
+        }
+        try {
           const ready = Object.assign({}, window.__tpInit || {});
           console.log("[TP-READY]", ready);
         } catch {
@@ -81269,7 +83339,7 @@ async function boot() {
     }
   }
 }
-var TS_BOOT_OWNER, IS_CI_MODE, SCROLL_MODE_SELECT_ID, ALLOWED_SCROLL_MODES, lastStableUiMode, selectPrefersAsr, lastScrollModeSource, SETTINGS_KEYS, settingsSync, asrRejectionToastShown, lastAsrReadyState, asrGatePending, ENABLE_HUD, startPersistence, startTelemetry, startScroll, startHotkeys, startToasts, __docCh2, __isDisplay;
+var TS_BOOT_OWNER, IS_CI_MODE, SCROLL_MODE_SELECT_ID, ALLOWED_SCROLL_MODES, lastStableUiMode, selectPrefersAsr, lastScrollModeSource, SETTINGS_KEYS, settingsSync, asrRejectionToastShown, lastAsrReadyState, asrGatePending, ENABLE_HUD, startPersistence, startTelemetry, startScroll, startHotkeys, startToasts, startUploadAudit, __docCh2, __isDisplay;
 var init_index_app = __esm({
   "src/index-app.ts"() {
     "use strict";
@@ -81344,6 +83414,7 @@ var init_index_app = __esm({
     init_persistence();
     init_telemetry();
     init_toasts2();
+    init_recording_upload_audit();
     init_script_editor();
     init_asr_bridge();
     init_brain_access();
@@ -81610,6 +83681,7 @@ var init_index_app = __esm({
     });
     startHotkeys = initOnce("hotkeys", initHotkeys);
     startToasts = initOnce("toasts", initToasts);
+    startUploadAudit = initOnce("upload-audit", initRecordingUploadAudit);
     bootTrace("index-app.ts:dom-ready-hook:install:start");
     try {
       onDomReady2(() => {
