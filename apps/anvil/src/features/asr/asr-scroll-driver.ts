@@ -487,6 +487,9 @@ const LIVE_STRICT_BEHIND_RECOVERY_MIN_LINES = 1;
 const LIVE_STRICT_BEHIND_RECOVERY_MAX_LINES = 2;
 const LIVE_STRICT_BEHIND_RECOVERY_ADJACENT_SLACK = 0.04;
 const LIVE_STRICT_MAX_CUE_BRIDGE_SPAN = DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES;
+const LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS = 2;
+const LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT = 3;
+const LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS = 2;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 1;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 1;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS;
@@ -1463,6 +1466,7 @@ const GUARD_DEBUG_REASONS = new Set<string>([
   'adjacent_rescue_proofed',
   'autonomous_path_blocked',
   'strict_live_adjacent_speakable_bridge',
+  'strict_live_backlog_drain',
 ]);
 
 const LIVE_STRICT_SPECULATIVE_FORCE_REASONS = new Set<string>([
@@ -8227,6 +8231,82 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           targetLine = strictTarget;
         }
       }
+      let strictBacklogDrainAppliedSteps = 0;
+      let strictBacklogDrainProofSatisfied = false;
+      if (
+        liveStrictFollow &&
+        targetLine === adjacentLine &&
+        targetLine > lastLineIndex
+      ) {
+        const strictClusterContradictionFresh =
+          liveStrictForwardClusterContradictionAt > 0 &&
+          now - liveStrictForwardClusterContradictionAt <= DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS;
+        const strictStarvationActive = now - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS;
+        const strictRepeatedForwardClusterAhead =
+          liveStrictForwardClusterCursor === lastLineIndex &&
+          liveStrictForwardClusterHits >= LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS &&
+          liveStrictForwardClusterLine > adjacentLine &&
+          liveStrictForwardClusterUpdatedAt > 0 &&
+          now - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS &&
+          !strictClusterContradictionFresh;
+        if (strictSpeechFreshNow && strictStarvationActive && strictRepeatedForwardClusterAhead) {
+          let drainCursor = targetLine;
+          let speakableStepsUsed = 1;
+          let remainingExtraSteps = Math.min(
+            LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS,
+            Math.max(0, LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT - speakableStepsUsed),
+          );
+          while (remainingExtraSteps > 0) {
+            const drainStep = resolveLiveStrictNextSpeakableStep(drainCursor, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN);
+            if (!drainStep || drainStep.targetLine <= drainCursor) break;
+            const stepProofOk =
+              hasLiveStrictLocalProof(
+                drainCursor,
+                drainStep.targetLine,
+                now,
+                rankedTopScores,
+                baselineRequired,
+              ) ||
+              hasLiveStrictCueExitProof(
+                drainCursor,
+                drainStep.targetLine,
+                now,
+                rankedTopScores,
+                baselineRequired,
+              ) ||
+              hasLiveStrictSpeakableBridgeProof(
+                drainCursor,
+                drainStep.targetLine,
+                now,
+                rankedTopScores,
+                baselineRequired,
+              );
+            if (!stepProofOk) break;
+            const fromLine = drainCursor;
+            drainCursor = drainStep.targetLine;
+            targetLine = drainCursor;
+            strictBacklogDrainAppliedSteps += 1;
+            speakableStepsUsed += 1;
+            remainingExtraSteps -= 1;
+            warnGuard('strict_live_backlog_drain', [
+              `from=${fromLine}`,
+              `to=${drainCursor}`,
+              `step=${strictBacklogDrainAppliedSteps}`,
+              `speakableSteps=${speakableStepsUsed}`,
+              `clusterLine=${liveStrictForwardClusterLine}`,
+              `clusterHits=${liveStrictForwardClusterHits}`,
+              `sinceForwardMs=${Math.max(0, now - lastForwardCommitAt)}`,
+              `skipped=[${drainStep.skippedReasons.join(',')}]`,
+              snippet ? `clue="${snippet}"` : '',
+            ]);
+            emitHudStatus(
+              'strict_live_backlog_drain',
+              `Backlog drain: speakable +${strictBacklogDrainAppliedSteps}`,
+            );
+          }
+          strictBacklogDrainProofSatisfied = strictBacklogDrainAppliedSteps > 0;
+        }
+      }
       const strictLocalProofForCommit =
         liveStrictFollow &&
         targetLine > lastLineIndex &&
@@ -8251,7 +8331,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             now,
             rankedTopScores,
             baselineRequired,
-          )
+          ) ||
+          strictBacklogDrainProofSatisfied
         );
       const strictBackwardContradictionForCommit =
         liveStrictFollow &&
@@ -8397,8 +8478,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !!strictSpeakableStep &&
         targetLine === strictSpeakableStep.targetLine &&
         targetLine > lastLineIndex + 1;
+      const strictBacklogDrainStep =
+        liveStrictFollow &&
+        strictBacklogDrainAppliedSteps > 0 &&
+        targetLine > adjacentLine;
       if (multiJumpDelta > 1 && liveStrictFollow) {
-        if (!strictLogicalSpeakableBridgeStep) {
+        if (!strictLogicalSpeakableBridgeStep && !strictBacklogDrainStep) {
           warnGuard('live_strict_multi_step_blocked', [
             `current=${lastLineIndex}`,
             `requested=${targetLine}`,
@@ -8414,12 +8499,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `target=${targetLine}`,
             `deltaRaw=${multiJumpDelta}`,
             `logicalStep=+1`,
-            `skipped=[${strictSpeakableStep?.skippedReasons.join(',')}]`,
+            `skipped=[${strictBacklogDrainStep ? 'backlog-drain' : (strictSpeakableStep?.skippedReasons.join(',') || '')}]`,
             snippet ? `clue="${snippet}"` : '',
           ]);
         }
       }
-      if (multiJumpDelta > 1 && !strictLogicalSpeakableBridgeStep) {
+      if (multiJumpDelta > 1 && !strictLogicalSpeakableBridgeStep && !strictBacklogDrainStep) {
         const multiJumpNeedBase = Math.max(
           DEFAULT_MULTI_JUMP_HARD_DENY_SIM,
           DEFAULT_MULTI_JUMP_MIN_SIM - (multiJumpRelaxation.allowBridgeEps ? DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS : 0),
