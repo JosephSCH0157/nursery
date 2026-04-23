@@ -5037,7 +5037,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (!Number.isFinite(cursorLine) || cursorLine < 0) return false;
     if (!Number.isFinite(landingLine) || landingLine < 0) return false;
     if (lastRescueMatchEvidenceAt <= 0) return false;
-    if (now - lastRescueMatchEvidenceAt > DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS) return false;
+    // When evidence is at/near the current cursor (we know exactly where we are),
+    // accept older evidence – it still proves our position even if slightly stale.
+    const _safeCursorForWindow = Math.max(0, Math.floor(cursorLine));
+    const _isEvidenceAtCursor = Math.abs(lastRescueMatchEvidenceLine - _safeCursorForWindow) <= 1;
+    const _evidenceWindowMs = _isEvidenceAtCursor
+      ? DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS * 4
+      : DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS;
+    if (now - lastRescueMatchEvidenceAt > _evidenceWindowMs) return false;
     if (lastRescueNoMatchAt > 0 && now - lastRescueNoMatchAt < DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS) {
       return false;
     }
@@ -7216,7 +7223,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ) {
           return;
         }
-        if (liveStepTarget != null && targetLine > liveStepTarget) {
+        // Skip the single-step cap when starvation bypass already cleared the low-sim gate.
+        // Starvation bypass means the speaker is clearly ahead and we need to catch up.
+        if (liveStepTarget != null && targetLine > liveStepTarget && !starvationForwardBypass) {
           const liveStepScore = Number(
             rankedTopScores.find((entry) => entry.idx === liveStepTarget)?.score,
           );
@@ -7650,7 +7659,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM,
           baselineRequired - DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK,
         );
-      if (!hasEvidence && !starvationNoEvidenceBypass) {
+      if (!hasEvidence && !starvationNoEvidenceBypass && !starvationForwardBypass) {
         warnGuard('no_evidence', [
           `current=${lastLineIndex}`,
           `best=${line}`,
