@@ -459,6 +459,8 @@ const DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS = 1200;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 1;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 1;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS;
+const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_MIN_COMMITS = 6;
+const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS * 2;
 const DEFAULT_MULTI_JUMP_MIN_SIM = 0.4;
 const DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS = 0.08;
 const DEFAULT_MULTI_JUMP_HARD_DENY_SIM = 0.26;
@@ -1088,12 +1090,19 @@ export function shouldAllowAutoStallContentRescue(opts: {
   const deltaLines = Number.isFinite(opts.deltaLines)
     ? Math.max(0, Math.floor(opts.deltaLines))
     : 0;
-  if (deltaLines !== 1) return false;
-  if (commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS) return true;
-  if (commitCount <= 0) return false;
+  if (deltaLines <= 0) return false;
   const sinceLastForwardMs = Number.isFinite(opts.sinceLastForwardMs)
     ? Math.max(0, Number(opts.sinceLastForwardMs))
     : 0;
+  if (deltaLines > 1) {
+    return (
+      deltaLines <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES &&
+      commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_MIN_COMMITS &&
+      sinceLastForwardMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS
+    );
+  }
+  if (commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS) return true;
+  if (commitCount <= 0) return false;
   if (sinceLastForwardMs < DEFAULT_STARVATION_COMMIT_GAP_MS) return false;
   if (commitCount >= 2 && sinceLastForwardMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS) {
     return true;
@@ -5113,12 +5122,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     );
     const severeStallAgeMs =
       lastForwardCommitAt > 0 ? Math.max(0, now - lastForwardCommitAt) : Number.POSITIVE_INFINITY;
+    const allowMultiStepEvidenceBypass =
+      reasonTag === 'auto-stall' &&
+      deltaLines > 1 &&
+      deltaLines <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES &&
+      commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_MIN_COMMITS &&
+      severeStallAgeMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS;
     const allowEvidenceBypass =
       reasonTag === 'auto-stall' &&
       deltaLines === 1 &&
       commitCount >= 1 &&
       severeStallAgeMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS;
-    if (reasonTag === 'auto-stall' && landingRequiresEvidence && !hasLandingEvidence && !allowEvidenceBypass) {
+    const allowEvidenceBypassAny = allowEvidenceBypass || allowMultiStepEvidenceBypass;
+    if (reasonTag === 'auto-stall' && landingRequiresEvidence && !hasLandingEvidence && !allowEvidenceBypassAny) {
       stallRescueRequested = false;
       warnGuard('blocked_on_content_without_evidence', [
         `at=${cursorLine}`,
@@ -5135,13 +5151,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       emitHudStatus('cue_stall_rescue_blocked', 'Blocked: content landing lacks fresh evidence');
       return false;
     }
-    if (reasonTag === 'auto-stall' && landingRequiresEvidence && !hasLandingEvidence && allowEvidenceBypass) {
+    if (reasonTag === 'auto-stall' && landingRequiresEvidence && !hasLandingEvidence && allowEvidenceBypassAny) {
       warnGuard('cue_stall_rescue_evidence_bypass', [
         `at=${cursorLine}`,
         `target=${targetLine}`,
         `delta=${deltaLines}`,
         `commitCount=${commitCount}`,
         `sinceForwardMs=${Number.isFinite(severeStallAgeMs) ? severeStallAgeMs : -1}`,
+        `mode=${allowMultiStepEvidenceBypass ? 'multi-step' : 'single-step'}`,
         reason ? `source=${reason}` : '',
       ]);
     }
