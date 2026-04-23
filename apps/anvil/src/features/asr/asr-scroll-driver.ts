@@ -7267,9 +7267,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ) {
           return;
         }
-        // Skip the single-step cap when starvation bypass already cleared the low-sim gate.
-        // Starvation bypass means the speaker is clearly ahead and we need to catch up.
-        if (liveStepTarget != null && targetLine > liveStepTarget && !starvationForwardBypass) {
+        // Keep live ASR movement stepwise even when starvation bypass is active.
+        // Starvation bypass may allow forward progress on weaker evidence, but it should not
+        // turn into multi-line jumps that outrun the reader.
+        if (liveStepTarget != null && targetLine > liveStepTarget) {
           const liveStepScore = Number(
             rankedTopScores.find((entry) => entry.idx === liveStepTarget)?.score,
           );
@@ -7277,6 +7278,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `current=${lastLineIndex}`,
             `requested=${targetLine}`,
             `capped=${liveStepTarget}`,
+            `starvationBypass=${starvationForwardBypass ? 1 : 0}`,
             Number.isFinite(liveStepScore) ? `stepSim=${formatLogScore(liveStepScore)}` : 'stepSim=na',
             liveStep.skippedReasons.length
               ? `skipped=[${liveStep.skippedReasons.join(',')}]`
