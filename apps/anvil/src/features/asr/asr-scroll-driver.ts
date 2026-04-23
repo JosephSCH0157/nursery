@@ -9558,6 +9558,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     } else if (!liveStrictFollow) {
       resetLiveStrictForwardCluster();
     }
+    if (
+      liveStrictFollow &&
+      commitCount > 0 &&
+      eventsSinceCommit >= 2 &&
+      now - lastForwardCommitAt >= cueStallRescueDelayMs
+    ) {
+      // Re-evaluate rescue after we have updated strict forward-cluster proof
+      // from this transcript chunk.
+      if (maybeScheduleStallCueRescue('auto-stall')) {
+        return;
+      }
+    }
     const interimHighThreshold = clamp(requiredThreshold + interimHysteresisBonus, 0, 1);
     const consistencyMinSim = clamp(requiredThreshold - consistencySimSlack, 0, 1);
     const catchupMinSim = clamp(requiredThreshold - catchupSimSlack, 0, 1);
@@ -11137,6 +11149,54 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       )) {
         return;
       }
+      const strictClusterNeed = clamp(
+        Number.isFinite(requiredThreshold)
+          ? Math.max(Number(requiredThreshold) - 0.02, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM)
+          : DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM,
+        DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM,
+        1,
+      );
+      const strictClusterContradictionFresh =
+        liveStrictForwardClusterContradictionAt > 0 &&
+        now - liveStrictForwardClusterContradictionAt <= DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS;
+      const strictClusterProofForImmediateStep =
+        liveStrictFollow &&
+        liveStrictForwardClusterCursor === cursorLine &&
+        liveStrictForwardClusterHits >= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_STABLE_HITS &&
+        liveStrictForwardClusterLine >= cursorLine + DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_DELTA_LINES &&
+        liveStrictForwardClusterLine <= cursorLine + DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MAX_DELTA_LINES &&
+        liveStrictForwardClusterUpdatedAt > 0 &&
+        now - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS &&
+        Number.isFinite(liveStrictForwardClusterSim) &&
+        liveStrictForwardClusterSim >= strictClusterNeed &&
+        !strictClusterContradictionFresh;
+      const strictCueAdjacentStepAllowed =
+        strictClusterProofForImmediateStep &&
+        markerIdx === cursorLine + 1 &&
+        rawIdx <= cursorLine &&
+        hasLiveStrictLocalProof(
+          cursorLine,
+          cursorLine + 1,
+          now,
+          topScoresSpeakable,
+          requiredThreshold,
+        );
+      if (strictCueAdjacentStepAllowed) {
+        const before = rawIdx;
+        rawIdx = cursorLine + 1;
+        if (Number.isFinite(liveStrictForwardClusterSim)) {
+          conf = Math.max(conf, Number(liveStrictForwardClusterSim));
+        }
+        warnGuard('live_strict_ahead_marker_step', [
+          `current=${cursorLine}`,
+          `best=${before}`,
+          `marker=${markerIdx}`,
+          `step=${rawIdx}`,
+          `sim=${formatLogScore(conf)}`,
+          `clusterLine=${liveStrictForwardClusterLine}`,
+          `clusterHits=${liveStrictForwardClusterHits}`,
+        ]);
+      } else {
       warnGuard('ahead_of_marker_hold', [
         `current=${cursorLine}`,
         `best=${rawIdx}`,
@@ -11146,6 +11206,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ]);
       emitHudStatus('ahead_of_marker_hold', 'Ahead of marker - holding scroll');
       return;
+      }
     }
     const nearMarker = consistencyRequireNearMarker
       ? (markerIdx < 0 || Math.abs(rawIdx - markerIdx) <= Math.max(1, consistencyMarkerBandLines))
