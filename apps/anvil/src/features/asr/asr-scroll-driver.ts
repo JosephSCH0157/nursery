@@ -465,7 +465,7 @@ const DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MAX_FORWARD_LINES = 2;
 const DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_DELTA_LINES = 3;
 const DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MAX_DELTA_LINES = 12;
 const DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM = 0.62;
-const DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_STABLE_HITS = 2;
+const DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_STABLE_HITS = 1;
 const DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS = 3500;
 const DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_INDEX_EPS = 2;
 const DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM = 0.58;
@@ -5542,12 +5542,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     const skippedIgnorableLines = cueBridge.skippedReasons;
     const landingRequiresEvidence = true;
-    const hasLandingEvidence = hasFreshNearbyRescueMatchEvidence(
+    const hasLandingEvidenceByRescueMatch = hasFreshNearbyRescueMatchEvidence(
       cursorLine,
       targetLine,
       now,
       skippedIgnorableLines,
     );
+    const strictContinuityProofSatisfied =
+      liveStrictFollow &&
+      deltaLines === 1 &&
+      strictLocalProofOk;
+    const hasLandingEvidence =
+      hasLandingEvidenceByRescueMatch || strictContinuityProofSatisfied;
     const severeStallAgeMs =
       lastForwardCommitAt > 0 ? Math.max(0, now - lastForwardCommitAt) : Number.POSITIVE_INFINITY;
     const allowMultiStepEvidenceBypass =
@@ -5580,6 +5586,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ]);
       emitHudStatus('cue_stall_rescue_blocked', 'Blocked: content landing lacks fresh evidence');
       return false;
+    }
+    if (
+      reasonTag === 'auto-stall' &&
+      landingRequiresEvidence &&
+      !hasLandingEvidenceByRescueMatch &&
+      strictContinuityProofSatisfied
+    ) {
+      warnGuard('live_strict_continuity_rescue', [
+        `at=${cursorLine}`,
+        `target=${targetLine}`,
+        `delta=${deltaLines}`,
+        `proof=local-strict`,
+        reason ? `source=${reason}` : '',
+      ]);
     }
     if (reasonTag === 'auto-stall' && landingRequiresEvidence && !hasLandingEvidence && allowEvidenceBypassAny) {
       warnGuard('cue_stall_rescue_evidence_bypass', [
@@ -9561,7 +9581,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (
       liveStrictFollow &&
       commitCount > 0 &&
-      eventsSinceCommit >= 2 &&
+      eventsSinceCommit >= 1 &&
       now - lastForwardCommitAt >= cueStallRescueDelayMs
     ) {
       // Re-evaluate rescue after we have updated strict forward-cluster proof
