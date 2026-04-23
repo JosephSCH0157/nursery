@@ -7228,6 +7228,76 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         hasRecentVadSpeech &&
         runtimeSpeechFresh &&
         !pending.liveForwardGuardActive;
+      const strictBacklogDrainTrail: Array<{
+        from: number;
+        to: number;
+        skippedReasons: CueBridgeSkipReason[];
+      }> = [];
+      if (liveStrictFollow && strictSpeechFreshNow) {
+        const strictClusterContradictionFresh =
+          liveStrictForwardClusterContradictionAt > 0 &&
+          now - liveStrictForwardClusterContradictionAt <= DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS;
+        const strictStarvationActive = now - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS;
+        const strictForwardClusterAhead =
+          liveStrictForwardClusterCursor === lastLineIndex &&
+          liveStrictForwardClusterHits >= LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS &&
+          liveStrictForwardClusterLine > lastLineIndex &&
+          liveStrictForwardClusterUpdatedAt > 0 &&
+          now - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS &&
+          !strictClusterContradictionFresh;
+        if (strictStarvationActive && strictForwardClusterAhead) {
+          let drainCursor = Math.max(0, lastLineIndex);
+          const maxDrainSteps = Math.min(
+            LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT,
+            1 + LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS,
+          );
+          while (strictBacklogDrainTrail.length < maxDrainSteps) {
+            const drainStep = resolveLiveStrictNextSpeakableStep(
+              drainCursor,
+              LIVE_STRICT_MAX_CUE_BRIDGE_SPAN,
+            );
+            if (!drainStep || drainStep.targetLine <= drainCursor) break;
+            const stepProofOk =
+              hasLiveStrictLocalProof(
+                drainCursor,
+                drainStep.targetLine,
+                now,
+                rankedTopScores,
+                baselineRequired,
+              ) ||
+              hasLiveStrictCueExitProof(
+                drainCursor,
+                drainStep.targetLine,
+                now,
+                rankedTopScores,
+                baselineRequired,
+              ) ||
+              hasLiveStrictSpeakableBridgeProof(
+                drainCursor,
+                drainStep.targetLine,
+                now,
+                rankedTopScores,
+                baselineRequired,
+              );
+            if (!stepProofOk) break;
+            strictBacklogDrainTrail.push({
+              from: drainCursor,
+              to: drainStep.targetLine,
+              skippedReasons: drainStep.skippedReasons,
+            });
+            drainCursor = drainStep.targetLine;
+          }
+        }
+      }
+      const strictBacklogDrainPlannedSteps = strictBacklogDrainTrail.length;
+      const strictBacklogDrainPlannedTargetLine =
+        strictBacklogDrainPlannedSteps > 0
+          ? strictBacklogDrainTrail[strictBacklogDrainPlannedSteps - 1].to
+          : -1;
+      const strictEarlyBacklogDrainActive =
+        liveStrictFollow &&
+        strictBacklogDrainPlannedSteps > 0 &&
+        strictBacklogDrainPlannedTargetLine > lastLineIndex;
       const farForwardDelta = Math.max(0, Math.floor(line) - Math.max(0, Math.floor(lastLineIndex)));
       const nearForwardCandidate = rankedTopScores.find((entry) =>
         entry.idx > lastLineIndex && entry.idx <= (lastLineIndex + 1),
@@ -7240,7 +7310,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         conf < Math.max(DEFAULT_STRONG_FORWARD_COMMIT_SIM, effectiveMatchThreshold + 0.08);
       const nearSupportNeed = Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, conf - 0.08);
       const nearSupportOk = Number.isFinite(nearForwardSim) && nearForwardSim >= nearSupportNeed;
-      if (farLowConfidenceCandidate && !nearSupportOk && !forced) {
+      if (farLowConfidenceCandidate && !nearSupportOk && !forced && !strictEarlyBacklogDrainActive) {
         warnGuard('live_strict_far_candidate_hold', [
           `current=${lastLineIndex}`,
           `best=${line}`,
@@ -7578,6 +7648,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         consistentCatchupBypass ||
         completionAdjacentBypass ||
         stallRescueBypass ||
+        strictEarlyBacklogDrainActive ||
         (strictFastAdjacentAllowed && line > lastLineIndex) ||
         (conf >= effectiveMatchThreshold && tieGateOk);
       if (!strongMatch) {
@@ -7695,7 +7766,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } catch {}
       }
 
-      let targetLine = Math.max(0, Math.floor(line));
+      let targetLine = strictEarlyBacklogDrainActive
+        ? strictBacklogDrainPlannedTargetLine
+        : Math.max(0, Math.floor(line));
       const continuityLine = chooseWithinBlockContinuityLine(
         targetLine,
         topScores,
@@ -8187,7 +8260,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         // Keep live ASR movement stepwise even when starvation bypass is active.
         // Starvation bypass may allow forward progress on weaker evidence, but it should not
         // turn into multi-line jumps that outrun the reader.
-        if (liveStepTarget != null && targetLine > liveStepTarget) {
+        if (liveStepTarget != null && targetLine > liveStepTarget && !strictEarlyBacklogDrainActive) {
           const liveStepScore = Number(
             rankedTopScores.find((entry) => entry.idx === liveStepTarget)?.score,
           );
@@ -8219,7 +8292,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ]);
           targetLine = strictSpeakableStep.targetLine;
         }
-        if (liveStrictFollow && targetLine > adjacentLine) {
+        if (liveStrictFollow && targetLine > adjacentLine && !strictEarlyBacklogDrainActive) {
           const strictTarget = adjacentLine;
           warnGuard('live_strict_cap', [
             `current=${lastLineIndex}`,
@@ -8232,79 +8305,32 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
       }
       let strictBacklogDrainAppliedSteps = 0;
-      let strictBacklogDrainProofSatisfied = false;
-      if (
+      const strictBacklogDrainProofSatisfied =
         liveStrictFollow &&
-        targetLine === adjacentLine &&
-        targetLine > lastLineIndex
-      ) {
-        const strictClusterContradictionFresh =
-          liveStrictForwardClusterContradictionAt > 0 &&
-          now - liveStrictForwardClusterContradictionAt <= DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS;
-        const strictStarvationActive = now - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS;
-        const strictRepeatedForwardClusterAhead =
-          liveStrictForwardClusterCursor === lastLineIndex &&
-          liveStrictForwardClusterHits >= LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS &&
-          liveStrictForwardClusterLine > adjacentLine &&
-          liveStrictForwardClusterUpdatedAt > 0 &&
-          now - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS &&
-          !strictClusterContradictionFresh;
-        if (strictSpeechFreshNow && strictStarvationActive && strictRepeatedForwardClusterAhead) {
-          let drainCursor = targetLine;
-          let speakableStepsUsed = 1;
-          let remainingExtraSteps = Math.min(
-            LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS,
-            Math.max(0, LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT - speakableStepsUsed),
+        strictEarlyBacklogDrainActive &&
+        strictBacklogDrainPlannedSteps > 0;
+      if (strictBacklogDrainProofSatisfied) {
+        if (targetLine < strictBacklogDrainPlannedTargetLine) {
+          targetLine = strictBacklogDrainPlannedTargetLine;
+        }
+        for (const drainStep of strictBacklogDrainTrail) {
+          if (drainStep.to > targetLine) break;
+          strictBacklogDrainAppliedSteps += 1;
+          warnGuard('strict_live_backlog_drain', [
+            `from=${drainStep.from}`,
+            `to=${drainStep.to}`,
+            `step=${strictBacklogDrainAppliedSteps}`,
+            `speakableSteps=${strictBacklogDrainAppliedSteps}`,
+            `clusterLine=${liveStrictForwardClusterLine}`,
+            `clusterHits=${liveStrictForwardClusterHits}`,
+            `sinceForwardMs=${Math.max(0, now - lastForwardCommitAt)}`,
+            `skipped=[${drainStep.skippedReasons.join(',')}]`,
+            snippet ? `clue="${snippet}"` : '',
+          ]);
+          emitHudStatus(
+            'strict_live_backlog_drain',
+            `Backlog drain: speakable +${strictBacklogDrainAppliedSteps}`,
           );
-          while (remainingExtraSteps > 0) {
-            const drainStep = resolveLiveStrictNextSpeakableStep(drainCursor, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN);
-            if (!drainStep || drainStep.targetLine <= drainCursor) break;
-            const stepProofOk =
-              hasLiveStrictLocalProof(
-                drainCursor,
-                drainStep.targetLine,
-                now,
-                rankedTopScores,
-                baselineRequired,
-              ) ||
-              hasLiveStrictCueExitProof(
-                drainCursor,
-                drainStep.targetLine,
-                now,
-                rankedTopScores,
-                baselineRequired,
-              ) ||
-              hasLiveStrictSpeakableBridgeProof(
-                drainCursor,
-                drainStep.targetLine,
-                now,
-                rankedTopScores,
-                baselineRequired,
-              );
-            if (!stepProofOk) break;
-            const fromLine = drainCursor;
-            drainCursor = drainStep.targetLine;
-            targetLine = drainCursor;
-            strictBacklogDrainAppliedSteps += 1;
-            speakableStepsUsed += 1;
-            remainingExtraSteps -= 1;
-            warnGuard('strict_live_backlog_drain', [
-              `from=${fromLine}`,
-              `to=${drainCursor}`,
-              `step=${strictBacklogDrainAppliedSteps}`,
-              `speakableSteps=${speakableStepsUsed}`,
-              `clusterLine=${liveStrictForwardClusterLine}`,
-              `clusterHits=${liveStrictForwardClusterHits}`,
-              `sinceForwardMs=${Math.max(0, now - lastForwardCommitAt)}`,
-              `skipped=[${drainStep.skippedReasons.join(',')}]`,
-              snippet ? `clue="${snippet}"` : '',
-            ]);
-            emitHudStatus(
-              'strict_live_backlog_drain',
-              `Backlog drain: speakable +${strictBacklogDrainAppliedSteps}`,
-            );
-          }
-          strictBacklogDrainProofSatisfied = strictBacklogDrainAppliedSteps > 0;
         }
       }
       const strictLocalProofForCommit =
