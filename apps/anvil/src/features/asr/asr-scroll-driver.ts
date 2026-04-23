@@ -529,6 +529,7 @@ const DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS = 5000;
 const DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES = 1;
 const DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM = 0.84;
 const DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM = 0.45;
+const DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_COMMITS = 6;
 const DEFAULT_STRONG_FORWARD_COMMIT_SIM = 0.82;
 const DEFAULT_STRONG_MARKER_SNAP_MIN_SIM = 0.82;
 const DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES = 2;
@@ -544,6 +545,7 @@ const DEFAULT_STARVATION_TIE_FORWARD_MAX_DELTA_LINES = 2;
 const DEFAULT_STARVATION_TIE_FORWARD_SIM_SLACK = 0.08;
 const DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES = 2;
 const DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM = 0.56;
+const DEFAULT_ASR_ADJACENT_COMPLETION_SIM_SLACK = 0.1;
 const DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS = 2;
 const DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS = 2;
 const DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO = 0.25;
@@ -1048,9 +1050,10 @@ export function evaluateStallCueRescuePolicy(opts: {
   if (reasonTag === 'auto-stall') {
     if (!cursorLineSkippable) {
       return {
-        allow: false,
-        directContentForwardRescue: false,
-        blockedReason: 'content-line',
+        // Completion-first: allow bounded +1 progression on content lines when stalled.
+        allow: true,
+        directContentForwardRescue: true,
+        blockedReason: '',
       };
     }
     return {
@@ -5071,6 +5074,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (!Number.isFinite(cursorRaw) || cursorRaw < 0) return false;
     const cursorLine = Math.max(0, Math.floor(cursorRaw));
     const reasonTag = String(reason || '').trim().toLowerCase();
+    if (manualAnchorPending && now - manualAnchorPending.ts >= MANUAL_ANCHOR_PENDING_TIMEOUT_MS) {
+      rejectManualAnchorPending('timeout:stall-rescue');
+    }
     if (manualAnchorPending && isAutomaticStallRescueReason(reasonTag)) {
       stallRescueRequested = false;
       if (isDevMode()) {
@@ -5105,7 +5111,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       now,
       skippedIgnorableLines,
     );
-    if (reasonTag === 'auto-stall' && landingRequiresEvidence && !hasLandingEvidence) {
+    const severeStallAgeMs =
+      lastForwardCommitAt > 0 ? Math.max(0, now - lastForwardCommitAt) : Number.POSITIVE_INFINITY;
+    const allowEvidenceBypass =
+      reasonTag === 'auto-stall' &&
+      deltaLines === 1 &&
+      commitCount >= 1 &&
+      severeStallAgeMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS;
+    if (reasonTag === 'auto-stall' && landingRequiresEvidence && !hasLandingEvidence && !allowEvidenceBypass) {
       stallRescueRequested = false;
       warnGuard('blocked_on_content_without_evidence', [
         `at=${cursorLine}`,
@@ -5121,6 +5134,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ]);
       emitHudStatus('cue_stall_rescue_blocked', 'Blocked: content landing lacks fresh evidence');
       return false;
+    }
+    if (reasonTag === 'auto-stall' && landingRequiresEvidence && !hasLandingEvidence && allowEvidenceBypass) {
+      warnGuard('cue_stall_rescue_evidence_bypass', [
+        `at=${cursorLine}`,
+        `target=${targetLine}`,
+        `delta=${deltaLines}`,
+        `commitCount=${commitCount}`,
+        `sinceForwardMs=${Number.isFinite(severeStallAgeMs) ? severeStallAgeMs : -1}`,
+        reason ? `source=${reason}` : '',
+      ]);
     }
     const rescuePolicy = evaluateStallCueRescuePolicy({
       reasonTag,
@@ -6161,6 +6184,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (isWriterCommitWindowActive()) return false;
     if (getScrollMode() !== 'asr') return false;
     if (!isSessionLivePhase() || !isSessionAsrArmed()) return false;
+    if (commitCount < DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_COMMITS) return false;
     const safeCursor = Math.max(0, Math.floor(cursorLine));
     const safeTarget = Math.max(0, Math.floor(targetLine));
     if (safeTarget >= safeCursor) return false;
@@ -6609,10 +6633,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         conf >= DELTA_MIN_SIM_SMALL &&
         isSessionAsrArmed() &&
         isSessionLivePhase();
+      const completionAdjacentBypass =
+        asrMode &&
+        isFinal &&
+        line === lastLineIndex + 1 &&
+        runtimeSpeechFresh &&
+        isSessionAsrArmed() &&
+        isSessionLivePhase() &&
+        conf >= Math.max(
+          DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+          effectiveMatchThreshold - DEFAULT_ASR_ADJACENT_COMPLETION_SIM_SLACK,
+        );
       const starvationForwardBypass =
         asrMode &&
         isFinal &&
         line > lastLineIndex &&
+        line - lastLineIndex <= DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES &&
         runtimeSpeechFresh &&
         isSessionAsrArmed() &&
         isSessionLivePhase() &&
@@ -6627,6 +6663,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         finalForwardBypass ||
         starvationForwardBypass ||
         consistentCatchupBypass ||
+        completionAdjacentBypass ||
         stallRescueBypass ||
         (conf >= effectiveMatchThreshold && tieGateOk);
       if (!strongMatch) {
@@ -6712,6 +6749,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         try {
           console.info(
             `ASR_STARVATION_FORWARD_BYPASS current=${lastLineIndex} target=${line} delta=${line - lastLineIndex} sim=${formatLogScore(conf)} since=${Math.round(now - lastForwardCommitAt)}ms`,
+          );
+        } catch {}
+      }
+      if (completionAdjacentBypass && isDevMode()) {
+        try {
+          console.info(
+            `ASR_ADJACENT_COMPLETION_BYPASS current=${lastLineIndex} target=${line} delta=${line - lastLineIndex} sim=${formatLogScore(conf)} need=${formatLogScore(effectiveMatchThreshold)}`,
           );
         } catch {}
       }
@@ -9664,6 +9708,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `eps=${forwardTieEps}`,
           snippet ? `clue="${snippet}"` : '',
         ]);
+        if (guardReason === 'same_line_noop' && starvationDetected && maybeScheduleStallCueRescue('auto-stall')) {
+          return;
+        }
         if (!permissiveMatcher) return;
       }
       if (forwardPick && (forwardPick.idx !== rawIdx || forwardPick.score !== conf)) {
