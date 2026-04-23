@@ -486,6 +486,7 @@ const LIVE_STRICT_WEAK_POSITIVE_ADJACENT_MIN_SIM = 0.48;
 const LIVE_STRICT_BEHIND_RECOVERY_MIN_LINES = 1;
 const LIVE_STRICT_BEHIND_RECOVERY_MAX_LINES = 2;
 const LIVE_STRICT_BEHIND_RECOVERY_ADJACENT_SLACK = 0.04;
+const LIVE_STRICT_MAX_CUE_BRIDGE_SPAN = DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 1;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 1;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS;
@@ -1461,6 +1462,7 @@ const GUARD_DEBUG_REASONS = new Set<string>([
   'behind_marker_recovery',
   'adjacent_rescue_proofed',
   'autonomous_path_blocked',
+  'strict_live_adjacent_speakable_bridge',
 ]);
 
 const LIVE_STRICT_SPECULATIVE_FORCE_REASONS = new Set<string>([
@@ -5205,6 +5207,28 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return picked;
   };
 
+  const resolveLiveStrictNextSpeakableStep = (
+    cursorLine: number,
+    maxSpan = LIVE_STRICT_MAX_CUE_BRIDGE_SPAN,
+  ): { targetLine: number; skippedReasons: CueBridgeSkipReason[] } | null => {
+    if (!Number.isFinite(cursorLine) || cursorLine < 0) return null;
+    const safeCursor = Math.max(0, Math.floor(cursorLine));
+    const safeSpan = Math.max(1, Math.floor(maxSpan));
+    const bridge = findNextSpeakableWithinBridge(safeCursor, safeSpan, { strict: true });
+    const targetLine =
+      bridge.nextLine != null && bridge.nextLine > safeCursor
+        ? Math.max(0, Math.floor(bridge.nextLine))
+        : -1;
+    if (targetLine <= safeCursor) return null;
+    if (targetLine > safeCursor + safeSpan) return null;
+    const expectedSkipped = Math.max(0, targetLine - safeCursor - 1);
+    if ((bridge.skippedReasons?.length ?? 0) !== expectedSkipped) return null;
+    return {
+      targetLine,
+      skippedReasons: Array.isArray(bridge.skippedReasons) ? bridge.skippedReasons : [],
+    };
+  };
+
   const hasLiveStrictLocalProof = (
     cursorLine: number,
     targetLine: number,
@@ -5281,6 +5305,64 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           : (clusterSupport
             ? `source=forward-cluster line=${liveStrictForwardClusterLine} hits=${liveStrictForwardClusterHits}`
             : 'source=adjacent'),
+      ]);
+    }
+    return ok;
+  };
+
+  const hasLiveStrictSpeakableBridgeProof = (
+    cursorLine: number,
+    targetLine: number,
+    now: number,
+    topScores: Array<{ idx: number; score: number }>,
+    requiredThreshold: number,
+  ): boolean => {
+    if (!Number.isFinite(cursorLine) || cursorLine < 0) return false;
+    if (!Number.isFinite(targetLine) || targetLine < 0) return false;
+    const safeCursor = Math.max(0, Math.floor(cursorLine));
+    const safeTarget = Math.max(0, Math.floor(targetLine));
+    if (safeTarget <= safeCursor + 1) return false;
+    const step = resolveLiveStrictNextSpeakableStep(safeCursor, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN);
+    if (!step || step.targetLine !== safeTarget) return false;
+    if (!hasRecentActualSpeech(now) || !hasRecentVadSpeechNow(now)) return false;
+    const rankedTopScores = (Array.isArray(topScores) ? topScores : [])
+      .map((entry) => ({
+        idx: Number((entry as any)?.idx),
+        score: Number((entry as any)?.score),
+      }))
+      .filter((entry) => Number.isFinite(entry.idx) && Number.isFinite(entry.score))
+      .map((entry) => ({
+        idx: Math.max(0, Math.floor(entry.idx)),
+        score: entry.score,
+      }));
+    const targetNeed = clamp(
+      Number.isFinite(requiredThreshold)
+        ? Number(requiredThreshold) - 0.08
+        : DEFAULT_LIVE_STRICT_LOCAL_PROOF_ADJACENT_MIN_SIM,
+      DEFAULT_LIVE_STRICT_LOCAL_PROOF_ADJACENT_MIN_SIM,
+      1,
+    );
+    const targetSupport = rankedTopScores.some((entry) =>
+      entry.idx === safeTarget && entry.score >= targetNeed
+    );
+    const rescueEvidenceAgeMs =
+      lastRescueMatchEvidenceAt > 0
+        ? Math.max(0, now - lastRescueMatchEvidenceAt)
+        : Number.POSITIVE_INFINITY;
+    const rescueSupport =
+      rescueEvidenceAgeMs <= DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS &&
+      lastRescueMatchEvidenceLine >= safeTarget - 1 &&
+      lastRescueMatchEvidenceLine <= safeTarget &&
+      Number.isFinite(lastRescueMatchEvidenceSim) &&
+      lastRescueMatchEvidenceSim >= DEFAULT_LIVE_STRICT_LOCAL_PROOF_RESCUE_MIN_SIM;
+    const ok = targetSupport || rescueSupport;
+    if (ok) {
+      warnGuard('live_strict_local_proof_ok', [
+        `current=${safeCursor}`,
+        `target=${safeTarget}`,
+        `targetNeed=${formatLogScore(targetNeed)}`,
+        `bridge=[${step.skippedReasons.join(',')}]`,
+        targetSupport ? 'source=speakable-bridge' : 'source=speakable-bridge-rescue',
       ]);
     }
     return ok;
@@ -5545,21 +5627,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (targetLine == null || targetLine <= cursorLine) return false;
     let deltaLines = targetLine - cursorLine;
     if (deltaLines <= 0 || deltaLines > DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES) return false;
+    const strictSpeakableStep = liveStrictFollow
+      ? resolveLiveStrictNextSpeakableStep(cursorLine, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN)
+      : null;
     if (liveStrictFollow && deltaLines > 1) {
-      const totalLines = getTotalLines();
-      const strictTargetLine = totalLines > 0
-        ? Math.min(cursorLine + 1, totalLines - 1)
-        : (cursorLine + 1);
-      if (strictTargetLine <= cursorLine) return false;
-      warnGuard('live_strict_multi_step_blocked', [
-        `at=${cursorLine}`,
-        `requested=${targetLine}`,
-        `delta=${deltaLines}`,
-        `capped=${strictTargetLine}`,
+      if (!strictSpeakableStep || strictSpeakableStep.targetLine !== targetLine) {
+        warnGuard('live_strict_multi_step_blocked', [
+          `at=${cursorLine}`,
+          `requested=${targetLine}`,
+          `delta=${deltaLines}`,
+          reason ? `source=${reason}` : '',
+        ]);
+        return false;
+      }
+      warnGuard('strict_live_adjacent_speakable_bridge', [
+        `current=${cursorLine}`,
+        `target=${targetLine}`,
+        `deltaRaw=${deltaLines}`,
+        `logicalStep=+1`,
+        `skipped=[${strictSpeakableStep.skippedReasons.join(',')}]`,
         reason ? `source=${reason}` : '',
       ]);
-      targetLine = strictTargetLine;
-      deltaLines = targetLine - cursorLine;
     }
     const targetText = getLineTextAt(targetLine);
     if (!targetText) return false;
@@ -5582,18 +5670,32 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         now,
         strictLocalProofTopScores,
         DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+      ) ||
+      hasLiveStrictSpeakableBridgeProof(
+        cursorLine,
+        targetLine,
+        now,
+        strictLocalProofTopScores,
+        DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
       )
     );
-    const strictContinuityRescue =
+    const strictLogicalAdjacentRescue =
       liveStrictFollow &&
-      deltaLines === 1 &&
+      (
+        deltaLines === 1 ||
+        (
+          !!strictSpeakableStep &&
+          strictSpeakableStep.targetLine === targetLine &&
+          targetLine > cursorLine + 1
+        )
+      ) &&
       strictLocalProofOk;
     const strictSpeechFreshForRescue =
       liveStrictFollow &&
       hasRecentActualSpeech(now) &&
       hasRecentVadSpeechNow(now) &&
       !asrSilenceActive;
-    if (!strictContinuityRescue && now - lastCueStallRescueAt < DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS) {
+    if (!strictLogicalAdjacentRescue && now - lastCueStallRescueAt < DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS) {
       return false;
     }
     if (liveStrictFollow && !strictLocalProofOk) {
@@ -5621,7 +5723,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     );
     const strictContinuityProofSatisfied =
       liveStrictFollow &&
-      deltaLines === 1 &&
+      (
+        deltaLines === 1 ||
+        (
+          !!strictSpeakableStep &&
+          strictSpeakableStep.targetLine === targetLine &&
+          targetLine > cursorLine + 1
+        )
+      ) &&
       strictLocalProofOk;
     const hasLandingEvidence =
       hasLandingEvidenceByRescueMatch || strictContinuityProofSatisfied;
@@ -5766,7 +5875,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (
       reasonTag === 'auto-stall' &&
       !hasRecentFreshSpeech &&
-      !(strictContinuityRescue && strictSpeechFreshForRescue)
+      !(strictLogicalAdjacentRescue && strictSpeechFreshForRescue)
     ) {
       stallRescueRequested = false;
       if (isDevMode()) {
@@ -7100,7 +7209,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         : '';
       liveProgressHeuristics.consecutiveNoAdvanceFrames = Math.max(0, eventsSinceCommit);
       const bestForwardCandidate = rankedTopScores.find((entry) => entry.idx > lastLineIndex) || null;
-      const adjacentLine = Math.max(0, lastLineIndex + 1);
+      const strictSpeakableStep =
+        liveStrictFollow
+          ? resolveLiveStrictNextSpeakableStep(lastLineIndex, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN)
+          : null;
+      const adjacentLine = strictSpeakableStep?.targetLine ?? Math.max(0, lastLineIndex + 1);
       const adjacentCandidate = rankedTopScores.find((entry) => entry.idx === adjacentLine) || null;
       const adjacentCandidateSim = Number(adjacentCandidate?.score);
       liveProgressHeuristics.estimatedBehindByLines = bestForwardCandidate
@@ -7246,7 +7359,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       let completionAdjacentBypass =
         asrMode &&
         isFinal &&
-        line === lastLineIndex + 1 &&
+        line === adjacentLine &&
         runtimeSpeechFresh &&
         isSessionAsrArmed() &&
         isSessionLivePhase() &&
@@ -7258,7 +7371,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         asrMode &&
         isFinal &&
         line > lastLineIndex &&
-        line - lastLineIndex <= DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES &&
+        line <= adjacentLine &&
         runtimeSpeechFresh &&
         isSessionAsrArmed() &&
         isSessionLivePhase() &&
@@ -7266,18 +7379,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         conf >= Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, effectiveMatchThreshold - 0.18);
       const strictLocalProofForAdjacent =
         liveStrictFollow &&
-        line > lastLineIndex &&
+        adjacentLine > lastLineIndex &&
+        (!strictSpeakableStep || adjacentLine <= lastLineIndex + LIVE_STRICT_MAX_CUE_BRIDGE_SPAN) &&
         (
           hasLiveStrictLocalProof(
             lastLineIndex,
-            lastLineIndex + 1,
+            adjacentLine,
             now,
             rankedTopScores,
             baselineRequired,
           ) ||
           hasLiveStrictCueExitProof(
             lastLineIndex,
-            lastLineIndex + 1,
+            adjacentLine,
+            now,
+            rankedTopScores,
+            baselineRequired,
+          ) ||
+          hasLiveStrictSpeakableBridgeProof(
+            lastLineIndex,
+            adjacentLine,
             now,
             rankedTopScores,
             baselineRequired,
@@ -7324,12 +7445,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       const recentlySyncedNow = liveStrictFollow && isRecentlyInSync(now, liveProgressHeuristics);
       const stalledNow = liveStrictFollow && isStalling(now, liveProgressHeuristics);
+      const strictLogicalAdjacentSignal =
+        adjacentLine > lastLineIndex &&
+        (!strictSpeakableStep || strictSpeakableStep.targetLine === adjacentLine);
       const strictImmediateAdjacentEligible =
         liveStrictFollow &&
         strictSpeechFreshNow &&
         !strictBackwardContradictionForAdjacent &&
         strictLocalProofForAdjacent &&
-        isForwardishSignal(adjacentLine, lastLineIndex, 1);
+        strictLogicalAdjacentSignal;
       const strictMomentumBiasEligible =
         liveStrictFollow &&
         !strictImmediateAdjacentEligible &&
@@ -7337,7 +7461,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !strictBackwardContradictionForAdjacent &&
         weakAdjacentEvidence &&
         recentlySyncedNow &&
-        isForwardishSignal(adjacentLine, lastLineIndex, 1);
+        strictLogicalAdjacentSignal;
       const strictAntiStallEligible =
         liveStrictFollow &&
         !strictImmediateAdjacentEligible &&
@@ -7350,7 +7474,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           recentlySyncedNow ||
           liveProgressHeuristics.consecutiveWeakForwardSignals >= LIVE_STRICT_WEAK_SIGNAL_REPEAT_COUNT
         ) &&
-        isForwardishSignal(adjacentLine, lastLineIndex, 1);
+        strictLogicalAdjacentSignal;
       const strictBehindRecoveryEligible =
         liveStrictFollow &&
         !strictImmediateAdjacentEligible &&
@@ -7360,12 +7484,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !strictBackwardContradictionForAdjacent &&
         behindRecoveryWindowActive &&
         weakAdjacentEvidence &&
-        isForwardishSignal(adjacentLine, lastLineIndex, 1);
+        strictLogicalAdjacentSignal;
       const strictFastAdjacentAllowed =
         strictImmediateAdjacentEligible ||
         strictMomentumBiasEligible ||
         strictAntiStallEligible ||
         strictBehindRecoveryEligible;
+      const strictSpeakableBridgeAuthorized =
+        liveStrictFollow &&
+        strictSpeechFreshNow &&
+        recentlySyncedNow &&
+        !!strictSpeakableStep &&
+        strictSpeakableStep.targetLine === adjacentLine &&
+        adjacentLine > lastLineIndex + 1 &&
+        strictLocalProofForAdjacent &&
+        !strictBackwardContradictionForAdjacent;
       const strictBypassRequested =
         watchdogBypass ||
         progressiveFloorBypass ||
@@ -8067,8 +8200,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ]);
           targetLine = liveStepTarget;
         }
-        if (liveStrictFollow && targetLine > lastLineIndex + 1) {
-          const strictTarget = lastLineIndex + 1;
+        if (
+          liveStrictFollow &&
+          strictSpeakableBridgeAuthorized &&
+          strictSpeakableStep &&
+          targetLine < strictSpeakableStep.targetLine
+        ) {
+          warnGuard('strict_live_adjacent_speakable_bridge', [
+            `current=${lastLineIndex}`,
+            `requested=${targetLine}`,
+            `bridged=${strictSpeakableStep.targetLine}`,
+            `skipped=[${strictSpeakableStep.skippedReasons.join(',')}]`,
+            snippet ? `clue="${snippet}"` : '',
+          ]);
+          targetLine = strictSpeakableStep.targetLine;
+        }
+        if (liveStrictFollow && targetLine > adjacentLine) {
+          const strictTarget = adjacentLine;
           warnGuard('live_strict_cap', [
             `current=${lastLineIndex}`,
             `requested=${targetLine}`,
@@ -8091,6 +8239,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             baselineRequired,
           ) ||
           hasLiveStrictCueExitProof(
+            lastLineIndex,
+            targetLine,
+            now,
+            rankedTopScores,
+            baselineRequired,
+          ) ||
+          hasLiveStrictSpeakableBridgeProof(
             lastLineIndex,
             targetLine,
             now,
@@ -8126,7 +8281,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         );
       const strictSpeechBackedFallbackCommit =
         strictForwardCommit &&
-        targetLine === lastLineIndex + 1 &&
+        targetLine === adjacentLine &&
         !strictBackwardContradictionForCommit &&
         !strictLocalProofForCommit &&
         (
@@ -8183,12 +8338,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       const liveStrictProofCommit =
         strictForwardCommit &&
-        targetLine === lastLineIndex + 1 &&
+        targetLine === adjacentLine &&
         !!strictLocalProofForCommit &&
         !strictBackwardContradictionForCommit;
       const liveStrictAdjacentReason =
         strictForwardCommit &&
-        targetLine === lastLineIndex + 1
+        targetLine === adjacentLine
           ? (
             liveStrictProofCommit
               ? 'strict_live_accept'
@@ -8236,18 +8391,35 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         return;
       }
       let multiJumpDelta = targetLine - lastLineIndex;
+      const strictLogicalSpeakableBridgeStep =
+        liveStrictFollow &&
+        strictSpeakableBridgeAuthorized &&
+        !!strictSpeakableStep &&
+        targetLine === strictSpeakableStep.targetLine &&
+        targetLine > lastLineIndex + 1;
       if (multiJumpDelta > 1 && liveStrictFollow) {
-        warnGuard('live_strict_multi_step_blocked', [
-          `current=${lastLineIndex}`,
-          `requested=${targetLine}`,
-          `delta=${multiJumpDelta}`,
-          'source=commit-path',
-          snippet ? `clue="${snippet}"` : '',
-        ]);
-        targetLine = lastLineIndex + 1;
-        multiJumpDelta = targetLine - lastLineIndex;
+        if (!strictLogicalSpeakableBridgeStep) {
+          warnGuard('live_strict_multi_step_blocked', [
+            `current=${lastLineIndex}`,
+            `requested=${targetLine}`,
+            `delta=${multiJumpDelta}`,
+            'source=commit-path',
+            snippet ? `clue="${snippet}"` : '',
+          ]);
+          targetLine = lastLineIndex + 1;
+          multiJumpDelta = targetLine - lastLineIndex;
+        } else {
+          warnGuard('strict_live_adjacent_speakable_bridge', [
+            `current=${lastLineIndex}`,
+            `target=${targetLine}`,
+            `deltaRaw=${multiJumpDelta}`,
+            `logicalStep=+1`,
+            `skipped=[${strictSpeakableStep?.skippedReasons.join(',')}]`,
+            snippet ? `clue="${snippet}"` : '',
+          ]);
+        }
       }
-      if (multiJumpDelta > 1) {
+      if (multiJumpDelta > 1 && !strictLogicalSpeakableBridgeStep) {
         const multiJumpNeedBase = Math.max(
           DEFAULT_MULTI_JUMP_HARD_DENY_SIM,
           DEFAULT_MULTI_JUMP_MIN_SIM - (multiJumpRelaxation.allowBridgeEps ? DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS : 0),
