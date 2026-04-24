@@ -5316,13 +5316,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     );
     const leashLimit = leashLimitResolved != null ? leashLimitResolved : proofBase;
     if (safeTarget <= leashLimit) return true;
-    if (targetHasFreshProof) return true;
     warnGuard('asr_reader_leash_hold', [
       `current=${safeCurrent}`,
       `target=${safeTarget}`,
       `freshProof=${proofBase}`,
       `leashLimit=${leashLimit}`,
       `maxReadableAhead=${ASR_READER_LEASH_MAX_READABLE_AHEAD}`,
+      `targetFreshProof=${targetHasFreshProof ? 1 : 0}`,
       source ? `source=${source}` : '',
       clue ? `clue="${formatLogSnippet(String(clue || ''), 72)}"` : '',
     ]);
@@ -9022,9 +9022,33 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const strictForwardCommit =
         liveStrictFollow &&
         targetLine > lastLineIndex;
-      const strictTargetHasFreshProof =
+      const strictFreshProofForTarget =
         strictForwardCommit &&
-        !!strictLocalProofForCommit &&
+        (
+          hasLiveStrictLocalProof(
+            lastLineIndex,
+            targetLine,
+            now,
+            rankedTopScores,
+            baselineRequired,
+          ) ||
+          hasLiveStrictCueExitProof(
+            lastLineIndex,
+            targetLine,
+            now,
+            rankedTopScores,
+            baselineRequired,
+          ) ||
+          hasLiveStrictSpeakableBridgeProof(
+            lastLineIndex,
+            targetLine,
+            now,
+            rankedTopScores,
+            baselineRequired,
+          )
+        );
+      const strictTargetHasFreshProof =
+        strictFreshProofForTarget &&
         !strictBackwardContradictionForCommit;
       if (strictForwardCommit && !allowAsrReaderLeashAdvance({
         currentLine: lastLineIndex,
