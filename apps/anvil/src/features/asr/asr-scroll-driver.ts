@@ -5571,8 +5571,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (strictStep && strictStep.targetLine > safeFrom) {
       return strictStep.targetLine;
     }
-    const fallback = resolveNthNextSpeakableLine(safeFrom, 1);
-    return fallback != null && fallback > safeFrom ? fallback : null;
+    const total = getTotalLines();
+    if (total <= 0) return null;
+    const start = Math.max(0, safeFrom + 1);
+    const end = Math.min(total - 1, safeFrom + Math.max(1, Math.floor(maxSpan)));
+    if (end < start) return null;
+    for (let idx = start; idx <= end; idx += 1) {
+      const lineText = getLineTextAt(idx);
+      if (classifyStrictSkippableLineForCueBridge(lineText) == null) {
+        return idx;
+      }
+    }
+    return null;
   };
 
   const resolveNthReaderLeashSpeakableLine = (
@@ -5644,6 +5654,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ASR_READER_LEASH_MAX_READABLE_AHEAD,
     );
     const leashLimit = leashLimitResolved != null ? leashLimitResolved : proofBase;
+    const strictNextSpeakableAfterProof = resolveReaderLeashNextSpeakableLine(
+      proofBase,
+      LIVE_STRICT_MAX_CUE_BRIDGE_SPAN,
+    );
+    const isStrictBridgeSource =
+      String(source || '').trim().toLowerCase() === 'strict-live-adjacent-speakable-bridge';
+    const targetIsStrictNextSpeakable =
+      strictNextSpeakableAfterProof != null &&
+      safeTarget === strictNextSpeakableAfterProof;
     if (leashLimit !== physicalLimit) {
       warnGuard('asr_reader_leash_speakable_limit', [
         `current=${safeCurrent}`,
@@ -5653,6 +5672,34 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         `speakableLimit=${leashLimit}`,
         source ? `source=${source}` : '',
       ]);
+    }
+    if (
+      targetHasFreshProof &&
+      isStrictBridgeSource &&
+      targetIsStrictNextSpeakable
+    ) {
+      if (leashLimit !== safeTarget) {
+        warnGuard('asr_reader_leash_physical_limit_bug', [
+          `current=${safeCurrent}`,
+          `target=${safeTarget}`,
+          `freshProof=${proofBase}`,
+          `physicalLimit=${physicalLimit}`,
+          `leashLimit=${leashLimit}`,
+          `speakableLimit=${strictNextSpeakableAfterProof}`,
+          source ? `source=${source}` : '',
+          clue ? `clue="${formatLogSnippet(String(clue || ''), 72)}"` : '',
+        ]);
+      }
+      warnGuard('asr_reader_leash_speakable_limit', [
+        `state=strict_bridge_allow`,
+        `current=${safeCurrent}`,
+        `target=${safeTarget}`,
+        `freshProof=${proofBase}`,
+        `physicalLimit=${physicalLimit}`,
+        `speakableLimit=${strictNextSpeakableAfterProof}`,
+        source ? `source=${source}` : '',
+      ]);
+      return true;
     }
     if (
       targetHasFreshProof &&
