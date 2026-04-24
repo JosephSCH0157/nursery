@@ -1471,6 +1471,7 @@ const GUARD_DEBUG_REASONS = new Set<string>([
   'autonomous_path_blocked',
   'strict_live_adjacent_speakable_bridge',
   'live_strict_bridge_landing_hold',
+  'live_strict_bridge_stale_landing_hold',
   'strict_live_backlog_drain',
   'strict_live_backlog_drain_start',
   'strict_live_backlog_drain_step',
@@ -3160,6 +3161,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastRescueSpeechTokenCount = 0;
   let lastFinalTranscriptNorm = '';
   let lastFinalTranscriptAt = 0;
+  let lastCommitTranscriptTextLength = 0;
+  let lastCommitTranscriptTimestamp = 0;
+  let lastCommitTargetLine = -1;
+  let lastCommitTranscriptNormSnapshot = '';
   let lastRescueSpeechAt = 0;
   let freshSpeechSinceCommit = false;
   let asrSilenceActive = true;
@@ -3235,6 +3240,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
   const isLiveStrictSpeculativeForceReason = (reason: string | undefined) =>
     LIVE_STRICT_SPECULATIVE_FORCE_REASONS.has(String(reason || '').trim().toLowerCase());
+  const markCommitTranscriptCursor = (nextIndex: number, now: number) => {
+    const transcriptNorm = String(lastFinalTranscriptNorm || '').trim();
+    lastCommitTranscriptNormSnapshot = transcriptNorm;
+    lastCommitTranscriptTextLength = transcriptNorm.length;
+    lastCommitTranscriptTimestamp =
+      lastFinalTranscriptAt > 0
+        ? lastFinalTranscriptAt
+        : now;
+    lastCommitTargetLine = Number.isFinite(nextIndex)
+      ? Math.max(0, Math.floor(nextIndex))
+      : -1;
+  };
   const resetLiveStrictForwardCluster = () => {
     liveStrictForwardClusterCursor = -1;
     liveStrictForwardClusterLine = -1;
@@ -4314,6 +4331,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     pursuitActive = false;
     pursuitTargetTop = null;
     pursuitVel = 0;
+    markCommitTranscriptCursor(normalized, now);
     logDev('[ASR_ADOPT] accepted bestIndex=' + normalized + ' sim=' + formatLogScore(sim));
     setCurrentIndex(normalized, 'manualAdopt');
     updateDebugState('manual-adopt');
@@ -5339,6 +5357,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     requiredHits: number;
     requiredRatio: number;
     requiredSim: number;
+    fullContentHits: number;
+    fullHitRatio: number;
+    fromStaleTranscriptOnly: boolean;
+    tailChars: number;
   } => {
     const safeTarget = Math.max(0, Math.floor(Number(targetLine)));
     const transcriptNorm = String(lastFinalTranscriptNorm || '').trim();
@@ -5358,6 +5380,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         requiredHits: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS,
         requiredRatio: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO,
         requiredSim: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM,
+        fullContentHits: 0,
+        fullHitRatio: 0,
+        fromStaleTranscriptOnly: false,
+        tailChars: 0,
       };
     }
     if (transcriptAgeMs > DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS) {
@@ -5372,6 +5398,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         requiredHits: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS,
         requiredRatio: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO,
         requiredSim: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM,
+        fullContentHits: 0,
+        fullHitRatio: 0,
+        fromStaleTranscriptOnly: false,
+        tailChars: 0,
       };
     }
     const targetNorm = normalizeComparableText(getLineTextAt(safeTarget));
@@ -5388,13 +5418,70 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         requiredHits: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS,
         requiredRatio: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO,
         requiredSim: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM,
+        fullContentHits: 0,
+        fullHitRatio: 0,
+        fromStaleTranscriptOnly: false,
+        tailChars: 0,
       };
     }
-    const transcriptTokens = normTokens(transcriptNorm);
+    const hasCommitTranscriptCursor =
+      lastCommitTargetLine >= 0 &&
+      (lastCommitTranscriptTextLength > 0 || lastCommitTranscriptNormSnapshot.length > 0);
+    const commitSnapshotNorm = hasCommitTranscriptCursor
+      ? String(lastCommitTranscriptNormSnapshot || '').trim()
+      : '';
+    let transcriptTailNorm = transcriptNorm;
+    if (commitSnapshotNorm) {
+      if (transcriptNorm === commitSnapshotNorm) {
+        transcriptTailNorm = '';
+      } else if (transcriptNorm.startsWith(commitSnapshotNorm)) {
+        const prefixLen = Math.max(
+          0,
+          Math.min(
+            transcriptNorm.length,
+            lastCommitTranscriptTextLength > 0
+              ? lastCommitTranscriptTextLength
+              : commitSnapshotNorm.length,
+          ),
+        );
+        transcriptTailNorm = transcriptNorm.slice(prefixLen).trim();
+      } else {
+        const commitTokens = commitSnapshotNorm.split(' ').filter(Boolean);
+        const latestTokens = transcriptNorm.split(' ').filter(Boolean);
+        let overlap = Math.min(commitTokens.length, latestTokens.length);
+        while (overlap > 0) {
+          const suffix = commitTokens.slice(commitTokens.length - overlap).join(' ');
+          const prefix = latestTokens.slice(0, overlap).join(' ');
+          if (suffix === prefix) break;
+          overlap -= 1;
+        }
+        if (overlap > 0) {
+          transcriptTailNorm = latestTokens.slice(overlap).join(' ').trim();
+        } else {
+          const directMatchPos = transcriptNorm.lastIndexOf(commitSnapshotNorm);
+          if (directMatchPos >= 0) {
+            transcriptTailNorm = transcriptNorm.slice(directMatchPos + commitSnapshotNorm.length).trim();
+          } else if (
+            lastCommitTranscriptTimestamp > 0 &&
+            lastFinalTranscriptAt > lastCommitTranscriptTimestamp
+          ) {
+            // Final transcript stream may deliver standalone chunks; treat the latest
+            // post-commit final chunk as the fresh tail when there is no textual overlap.
+            transcriptTailNorm = transcriptNorm;
+          } else {
+            transcriptTailNorm = '';
+          }
+        }
+      }
+    }
+    const transcriptTokens = normTokens(transcriptTailNorm || '');
+    const transcriptTokensFull = normTokens(transcriptNorm);
     const targetContentSet = getContentTokenSet(targetTokens);
     const contentCount = targetContentSet.size;
     const contentHits = countSharedContentTokenHits(targetContentSet, transcriptTokens);
+    const fullContentHits = countSharedContentTokenHits(targetContentSet, transcriptTokensFull);
     const hitRatio = contentCount > 0 ? contentHits / contentCount : 0;
+    const fullHitRatio = contentCount > 0 ? fullContentHits / contentCount : 0;
     const sim = computeLineSimilarityFromTokens(transcriptTokens, targetTokens);
     const requiredHits = contentCount <= 2
       ? Math.min(1, contentCount)
@@ -5403,12 +5490,28 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ? 0.5
       : DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO;
     const requiredSim = DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM;
+    const lexicalHitsOk =
+      contentCount > 0 &&
+      contentHits >= requiredHits &&
+      hitRatio >= requiredRatio;
+    const fullLexicalHitsOk =
+      contentCount > 0 &&
+      fullContentHits >= requiredHits &&
+      fullHitRatio >= requiredRatio;
     const lexicalOk = contentCount > 0
-      ? contentHits >= requiredHits && hitRatio >= requiredRatio && sim >= requiredSim
+      ? lexicalHitsOk
       : sim >= Math.max(requiredSim, 0.55);
+    const fromStaleTranscriptOnly =
+      !lexicalOk &&
+      fullLexicalHitsOk &&
+      !lexicalHitsOk;
     return {
       ok: lexicalOk,
-      reason: lexicalOk ? 'ok' : 'no_landing_lexical_proof',
+      reason: lexicalOk
+        ? 'ok'
+        : fromStaleTranscriptOnly
+          ? 'stale_landing_lexical_only'
+          : (contentCount > 0 ? 'no_landing_lexical_proof' : 'no_landing_similarity'),
       transcriptAgeMs,
       contentHits,
       contentCount,
@@ -5417,6 +5520,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       requiredHits,
       requiredRatio,
       requiredSim,
+      fullContentHits,
+      fullHitRatio,
+      fromStaleTranscriptOnly,
+      tailChars: transcriptTailNorm.length,
     };
   };
 
@@ -5472,19 +5579,30 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const landingLexical = evaluateLiveStrictBridgeLandingLexicalProof(safeTarget, now);
     const ok = !!landingLexical?.ok;
     if (!ok && landingLexical) {
-      warnGuard('live_strict_bridge_landing_hold', [
+      const staleOnlyHold = !!landingLexical.fromStaleTranscriptOnly;
+      const holdReason = staleOnlyHold
+        ? 'live_strict_bridge_stale_landing_hold'
+        : 'live_strict_bridge_landing_hold';
+      warnGuard(holdReason, [
         `current=${safeCursor}`,
         `target=${safeTarget}`,
         `reason=${landingLexical.reason}`,
         `finalAgeMs=${Math.round(landingLexical.transcriptAgeMs)}`,
         `content=${landingLexical.contentHits}/${landingLexical.contentCount}`,
+        `fullContent=${landingLexical.fullContentHits}/${landingLexical.contentCount}`,
         `ratio=${formatLogScore(landingLexical.hitRatio)}`,
+        `fullRatio=${formatLogScore(landingLexical.fullHitRatio)}`,
         `sim=${formatLogScore(landingLexical.sim)}`,
+        `tailChars=${landingLexical.tailChars}`,
+        `commitLine=${lastCommitTargetLine}`,
+        `commitTs=${lastCommitTranscriptTimestamp > 0 ? Math.round(lastCommitTranscriptTimestamp) : 0}`,
         bridgeSupport ? 'support=score_or_rescue' : 'support=landing_lexical_only',
       ]);
       emitHudStatus(
-        'live_strict_bridge_landing_hold',
-        'Hold: bridge landing words not heard yet',
+        holdReason,
+        staleOnlyHold
+          ? 'Hold: landing words only in pre-commit transcript'
+          : 'Hold: bridge landing words not heard yet',
       );
     }
     if (ok) {
@@ -5497,7 +5615,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ? (targetSupport ? 'source=speakable-bridge' : 'source=speakable-bridge-rescue')
           : 'source=speakable-bridge-landing-lexical',
         landingLexical
-          ? `landing=${landingLexical.contentHits}/${landingLexical.contentCount} sim=${formatLogScore(landingLexical.sim)}`
+          ? `landing=${landingLexical.contentHits}/${landingLexical.contentCount} full=${landingLexical.fullContentHits}/${landingLexical.contentCount} tailChars=${landingLexical.tailChars} sim=${formatLogScore(landingLexical.sim)}`
           : '',
       ]);
     }
@@ -5670,6 +5788,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     matchAnchorIdx = targetLine;
     setCurrentIndex(targetLine, 'cue-skip');
     lastForwardCommitAt = now;
+    markCommitTranscriptCursor(targetLine, now);
     resetLowSimStreak();
     resetNoProgressStreak('cue-skip', targetLine);
     resetLiveStrictForwardCluster();
@@ -6291,6 +6410,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastCommitTime = now;
     const prev = Number.isFinite(prevIndex) ? Math.max(0, Math.floor(prevIndex)) : -1;
     const next = Number.isFinite(nextIndex) ? Math.max(0, Math.floor(nextIndex)) : -1;
+    markCommitTranscriptCursor(next, now);
     liveProgressHeuristics.lastAdvanceAtMs = now;
     liveProgressHeuristics.lastAcceptedForwardIndex = next;
     liveProgressHeuristics.consecutiveNoAdvanceFrames = 0;
@@ -14051,6 +14171,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastStuckDumpAt = 0;
     manualAnchorPending = null;
     updateManualAnchorGlobalState();
+    markCommitTranscriptCursor(lastLineIndex, lastForwardCommitAt);
     setCurrentIndex(lastLineIndex, 'manualReset');
     updateDebugState('sync-index');
   };
