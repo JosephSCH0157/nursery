@@ -5434,7 +5434,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (safeTarget <= safeCursor + 1) return false;
     const step = resolveLiveStrictNextSpeakableStep(safeCursor, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN);
     if (!step || step.targetLine !== safeTarget) return false;
-    if (!hasRecentActualSpeech(now) || !hasRecentVadSpeechNow(now)) return false;
+    const freshFinalTranscriptSignal =
+      lastFinalTranscriptAt > 0 &&
+      now - lastFinalTranscriptAt <= DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS;
+    if (!hasRecentActualSpeech(now) && !freshFinalTranscriptSignal) return false;
     const rankedTopScores = (Array.isArray(topScores) ? topScores : [])
       .map((entry) => ({
         idx: Number((entry as any)?.idx),
@@ -5466,11 +5469,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       Number.isFinite(lastRescueMatchEvidenceSim) &&
       lastRescueMatchEvidenceSim >= DEFAULT_LIVE_STRICT_LOCAL_PROOF_RESCUE_MIN_SIM;
     const bridgeSupport = targetSupport || rescueSupport;
-    const landingLexical = bridgeSupport
-      ? evaluateLiveStrictBridgeLandingLexicalProof(safeTarget, now)
-      : null;
-    const ok = bridgeSupport && !!landingLexical?.ok;
-    if (bridgeSupport && !ok && landingLexical) {
+    const landingLexical = evaluateLiveStrictBridgeLandingLexicalProof(safeTarget, now);
+    const ok = !!landingLexical?.ok;
+    if (!ok && landingLexical) {
       warnGuard('live_strict_bridge_landing_hold', [
         `current=${safeCursor}`,
         `target=${safeTarget}`,
@@ -5479,6 +5480,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         `content=${landingLexical.contentHits}/${landingLexical.contentCount}`,
         `ratio=${formatLogScore(landingLexical.hitRatio)}`,
         `sim=${formatLogScore(landingLexical.sim)}`,
+        bridgeSupport ? 'support=score_or_rescue' : 'support=landing_lexical_only',
       ]);
       emitHudStatus(
         'live_strict_bridge_landing_hold',
@@ -5491,7 +5493,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         `target=${safeTarget}`,
         `targetNeed=${formatLogScore(targetNeed)}`,
         `bridge=[${step.skippedReasons.join(',')}]`,
-        targetSupport ? 'source=speakable-bridge' : 'source=speakable-bridge-rescue',
+        bridgeSupport
+          ? (targetSupport ? 'source=speakable-bridge' : 'source=speakable-bridge-rescue')
+          : 'source=speakable-bridge-landing-lexical',
         landingLexical
           ? `landing=${landingLexical.contentHits}/${landingLexical.contentCount} sim=${formatLogScore(landingLexical.sim)}`
           : '',
@@ -7558,6 +7562,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         hasRecentVadSpeech &&
         runtimeSpeechFresh &&
         !pending.liveForwardGuardActive;
+      const strictSpeakableBridgeProofForAdjacent =
+        liveStrictFollow &&
+        !!strictSpeakableStep &&
+        strictSpeakableStep.targetLine === adjacentLine &&
+        adjacentLine > lastLineIndex + 1 &&
+        hasLiveStrictSpeakableBridgeProof(
+          lastLineIndex,
+          adjacentLine,
+          now,
+          rankedTopScores,
+          baselineRequired,
+        );
       const strictClusterContradictionFresh =
         liveStrictFollow &&
         liveStrictForwardClusterContradictionAt > 0 &&
@@ -7699,7 +7715,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         conf < Math.max(DEFAULT_STRONG_FORWARD_COMMIT_SIM, effectiveMatchThreshold + 0.08);
       const nearSupportNeed = Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, conf - 0.08);
       const nearSupportOk = Number.isFinite(nearForwardSim) && nearForwardSim >= nearSupportNeed;
-      if (farLowConfidenceCandidate && !nearSupportOk && !forced && !strictEarlyBacklogDrainActive) {
+      if (
+        farLowConfidenceCandidate &&
+        !nearSupportOk &&
+        !forced &&
+        !strictEarlyBacklogDrainActive &&
+        !strictSpeakableBridgeProofForAdjacent
+      ) {
         warnGuard('live_strict_far_candidate_hold', [
           `current=${lastLineIndex}`,
           `best=${line}`,
@@ -7859,13 +7881,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             rankedTopScores,
             baselineRequired,
           ) ||
-          hasLiveStrictSpeakableBridgeProof(
-            lastLineIndex,
-            adjacentLine,
-            now,
-            rankedTopScores,
-            baselineRequired,
-          )
+          strictSpeakableBridgeProofForAdjacent
         );
       const strictBackwardContradictionForAdjacent =
         liveStrictFollow &&
@@ -7955,8 +7971,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         strictBehindRecoveryEligible;
       const strictSpeakableBridgeAuthorized =
         liveStrictFollow &&
-        strictSpeechFreshNow &&
-        recentlySyncedNow &&
         !!strictSpeakableStep &&
         strictSpeakableStep.targetLine === adjacentLine &&
         adjacentLine > lastLineIndex + 1 &&
@@ -8053,6 +8067,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         completionAdjacentBypass ||
         stallRescueBypass ||
         strictEarlyBacklogDrainActive ||
+        strictSpeakableBridgeAuthorized ||
+        strictBridgeForceProofOk ||
         (strictFastAdjacentAllowed && line > lastLineIndex) ||
         (conf >= effectiveMatchThreshold && tieGateOk);
       if (!strongMatch) {
