@@ -1467,6 +1467,10 @@ const GUARD_DEBUG_REASONS = new Set<string>([
   'autonomous_path_blocked',
   'strict_live_adjacent_speakable_bridge',
   'strict_live_backlog_drain',
+  'strict_live_backlog_drain_start',
+  'strict_live_backlog_drain_step',
+  'strict_live_backlog_drain_stop',
+  'strict_live_backlog_drain_terminal',
 ]);
 
 const LIVE_STRICT_SPECULATIVE_FORCE_REASONS = new Set<string>([
@@ -7228,24 +7232,29 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         hasRecentVadSpeech &&
         runtimeSpeechFresh &&
         !pending.liveForwardGuardActive;
+      const strictClusterContradictionFresh =
+        liveStrictFollow &&
+        liveStrictForwardClusterContradictionAt > 0 &&
+        now - liveStrictForwardClusterContradictionAt <= DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS;
+      const strictStarvationActive =
+        liveStrictFollow &&
+        strictSpeechFreshNow &&
+        now - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS;
+      const strictForwardClusterAhead =
+        strictStarvationActive &&
+        liveStrictForwardClusterCursor === lastLineIndex &&
+        liveStrictForwardClusterHits >= LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS &&
+        liveStrictForwardClusterLine > lastLineIndex &&
+        liveStrictForwardClusterUpdatedAt > 0 &&
+        now - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS &&
+        !strictClusterContradictionFresh;
       const strictBacklogDrainTrail: Array<{
         from: number;
         to: number;
         skippedReasons: CueBridgeSkipReason[];
       }> = [];
-      if (liveStrictFollow && strictSpeechFreshNow) {
-        const strictClusterContradictionFresh =
-          liveStrictForwardClusterContradictionAt > 0 &&
-          now - liveStrictForwardClusterContradictionAt <= DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS;
-        const strictStarvationActive = now - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS;
-        const strictForwardClusterAhead =
-          liveStrictForwardClusterCursor === lastLineIndex &&
-          liveStrictForwardClusterHits >= LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS &&
-          liveStrictForwardClusterLine > lastLineIndex &&
-          liveStrictForwardClusterUpdatedAt > 0 &&
-          now - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS &&
-          !strictClusterContradictionFresh;
-        if (strictStarvationActive && strictForwardClusterAhead) {
+      let strictBacklogDrainStopReason = '';
+      if (strictForwardClusterAhead) {
           let drainCursor = Math.max(0, lastLineIndex);
           const maxDrainSteps = Math.min(
             LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT,
@@ -7256,7 +7265,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               drainCursor,
               LIVE_STRICT_MAX_CUE_BRIDGE_SPAN,
             );
-            if (!drainStep || drainStep.targetLine <= drainCursor) break;
+            if (!drainStep || drainStep.targetLine <= drainCursor) {
+              strictBacklogDrainStopReason = 'no_next_speakable';
+              break;
+            }
             const stepProofOk =
               hasLiveStrictLocalProof(
                 drainCursor,
@@ -7279,7 +7291,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 rankedTopScores,
                 baselineRequired,
               );
-            if (!stepProofOk) break;
+            if (!stepProofOk) {
+              strictBacklogDrainStopReason = 'no_step_proof';
+              break;
+            }
             strictBacklogDrainTrail.push({
               from: drainCursor,
               to: drainStep.targetLine,
@@ -7287,17 +7302,50 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             });
             drainCursor = drainStep.targetLine;
           }
-        }
+          if (!strictBacklogDrainStopReason) {
+            strictBacklogDrainStopReason =
+              strictBacklogDrainTrail.length >= maxDrainSteps
+                ? 'step_limit'
+                : 'plan_exhausted';
+          }
       }
       const strictBacklogDrainPlannedSteps = strictBacklogDrainTrail.length;
       const strictBacklogDrainPlannedTargetLine =
         strictBacklogDrainPlannedSteps > 0
           ? strictBacklogDrainTrail[strictBacklogDrainPlannedSteps - 1].to
           : -1;
-      const strictEarlyBacklogDrainActive =
+      const strictBacklogDrainTerminalActive =
         liveStrictFollow &&
+        strictStarvationActive &&
         strictBacklogDrainPlannedSteps > 0 &&
         strictBacklogDrainPlannedTargetLine > lastLineIndex;
+      const strictEarlyBacklogDrainActive = strictBacklogDrainTerminalActive;
+      if (strictForwardClusterAhead) {
+        if (strictBacklogDrainTerminalActive) {
+          warnGuard('strict_live_backlog_drain_start', [
+            `current=${lastLineIndex}`,
+            `target=${strictBacklogDrainPlannedTargetLine}`,
+            `steps=${strictBacklogDrainPlannedSteps}`,
+            `clusterLine=${liveStrictForwardClusterLine}`,
+            `clusterHits=${liveStrictForwardClusterHits}`,
+            `sinceForwardMs=${Math.max(0, now - lastForwardCommitAt)}`,
+          ]);
+          warnGuard('strict_live_backlog_drain_terminal', [
+            `current=${lastLineIndex}`,
+            `target=${strictBacklogDrainPlannedTargetLine}`,
+            `steps=${strictBacklogDrainPlannedSteps}`,
+            'mode=replace-legacy',
+          ]);
+        } else {
+          warnGuard('strict_live_backlog_drain_stop', [
+            `current=${lastLineIndex}`,
+            `reason=${strictBacklogDrainStopReason || 'no_plan'}`,
+            `clusterLine=${liveStrictForwardClusterLine}`,
+            `clusterHits=${liveStrictForwardClusterHits}`,
+            `sinceForwardMs=${Math.max(0, now - lastForwardCommitAt)}`,
+          ]);
+        }
+      }
       const farForwardDelta = Math.max(0, Math.floor(line) - Math.max(0, Math.floor(lastLineIndex)));
       const nearForwardCandidate = rankedTopScores.find((entry) =>
         entry.idx > lastLineIndex && entry.idx <= (lastLineIndex + 1),
@@ -7620,6 +7668,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         );
       if (
         strictAutonomousCandidate &&
+        !strictBacklogDrainTerminalActive &&
         !strictFastAdjacentAllowed &&
         !strictLocalProofForAdjacent
       ) {
@@ -8230,6 +8279,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (
           liveStepTarget != null &&
           requestedTargetLine > liveStepTarget &&
+          !strictBacklogDrainTerminalActive &&
           liveForwardHoldActive
         ) {
           if (tryApplyStallRecoveryOverride()) return;
@@ -8252,6 +8302,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (
           liveStepTarget != null &&
           requestedTargetLine === liveStepTarget &&
+          !strictBacklogDrainTerminalActive &&
           liveForwardHoldActive &&
           tryApplyStallRecoveryOverride()
         ) {
@@ -8316,7 +8367,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         for (const drainStep of strictBacklogDrainTrail) {
           if (drainStep.to > targetLine) break;
           strictBacklogDrainAppliedSteps += 1;
-          warnGuard('strict_live_backlog_drain', [
+          warnGuard('strict_live_backlog_drain_step', [
             `from=${drainStep.from}`,
             `to=${drainStep.to}`,
             `step=${strictBacklogDrainAppliedSteps}`,
@@ -8332,6 +8383,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `Backlog drain: speakable +${strictBacklogDrainAppliedSteps}`,
           );
         }
+        warnGuard('strict_live_backlog_drain_stop', [
+          `current=${lastLineIndex}`,
+          `target=${targetLine}`,
+          `applied=${strictBacklogDrainAppliedSteps}`,
+          `planned=${strictBacklogDrainPlannedSteps}`,
+          `reason=${strictBacklogDrainAppliedSteps >= strictBacklogDrainPlannedSteps ? 'plan_exhausted' : 'target_bound'}`,
+        ]);
       }
       const strictLocalProofForCommit =
         liveStrictFollow &&
