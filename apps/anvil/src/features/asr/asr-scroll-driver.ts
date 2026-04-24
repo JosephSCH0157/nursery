@@ -5825,6 +5825,37 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         `skipped=[${strictSpeakableStep.skippedReasons.join(',')}]`,
         reason ? `source=${reason}` : '',
       ]);
+      const strictBridgeImmediateCommit = true;
+      if (strictBridgeImmediateCommit) {
+        const targetText = getLineTextAt(targetLine);
+        if (!targetText) return false;
+        const rescueSim = Math.max(DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_MULTI_JUMP_MIN_SIM);
+        const matchId = `strict-live-bridge-${Date.now().toString(36)}-${targetLine}`;
+        adoptPendingMatch({
+          line: targetLine,
+          conf: rescueSim,
+          isFinal: true,
+          hasEvidence: true,
+          snippet: formatLogSnippet(targetText, 80),
+          minThreshold: DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+          forced: true,
+          forceReason: 'strict-live-adjacent-speakable-bridge',
+          matchId,
+          requiredThreshold: DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+          topScores: [{ idx: targetLine, score: rescueSim }],
+          cursorLine,
+          searchWindowFrom: cursorLine,
+          searchWindowTo: targetLine,
+          lostMode: false,
+          cueBridgeNudgeDelta: deltaLines,
+        });
+        emitHudStatus(
+          'strict_live_adjacent_speakable_bridge',
+          `Bridge commit: +${Math.max(1, deltaLines)} logical step`,
+        );
+        schedulePending();
+        return true;
+      }
     }
     const targetText = getLineTextAt(targetLine);
     if (!targetText) return false;
@@ -7808,6 +7839,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         consistentCatchupBypass ||
         completionAdjacentBypass ||
         stallRescueBypass;
+      const strictBridgeForceCommit =
+        liveStrictFollow &&
+        forceReason === 'strict-live-adjacent-speakable-bridge';
       if (liveStrictFollow && line > lastLineIndex && strictBypassRequested) {
         const strictPathStates: Array<{ path: string; kind: 'speech_backed' | 'autonomous_candidate' }> = [];
         if (watchdogBypass) strictPathStates.push({ path: 'watchdog', kind: 'autonomous_candidate' });
@@ -8012,6 +8046,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         targetLine = continuityLine;
       }
       const requestedTargetLine = targetLine;
+      const strictSpeakableBridgeAuthoritative =
+        liveStrictFollow &&
+        !!strictSpeakableStep &&
+        strictSpeakableStep.targetLine > lastLineIndex &&
+        (
+          strictSpeakableBridgeAuthorized ||
+          (
+            strictBridgeForceCommit &&
+            targetLine === strictSpeakableStep.targetLine
+          )
+        );
       if (
         commitCount === 0 &&
         lastLineIndex <= 3 &&
@@ -8137,6 +8182,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       if (
         targetLine > lastLineIndex + effectiveClampDeltaLimit &&
+        !strictSpeakableBridgeAuthoritative &&
         !(
           strongForwardCommit &&
           (
@@ -8506,7 +8552,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
         if (
           liveStrictFollow &&
-          strictSpeakableBridgeAuthorized &&
+          strictSpeakableBridgeAuthoritative &&
           strictSpeakableStep &&
           targetLine < strictSpeakableStep.targetLine
         ) {
@@ -8592,6 +8638,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             rankedTopScores,
             baselineRequired,
           ) ||
+          strictSpeakableBridgeAuthoritative ||
           strictBacklogDrainProofSatisfied
         );
       const strictBackwardContradictionForCommit =
@@ -8734,7 +8781,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       let multiJumpDelta = targetLine - lastLineIndex;
       const strictLogicalSpeakableBridgeStep =
         liveStrictFollow &&
-        strictSpeakableBridgeAuthorized &&
+        strictSpeakableBridgeAuthoritative &&
         !!strictSpeakableStep &&
         targetLine === strictSpeakableStep.targetLine &&
         targetLine > lastLineIndex + 1;
