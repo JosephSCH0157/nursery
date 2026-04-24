@@ -5638,6 +5638,175 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const strictSpeakableStep = liveStrictFollow
       ? resolveLiveStrictNextSpeakableStep(cursorLine, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN)
       : null;
+    const strictSpeechFreshForRescue =
+      liveStrictFollow &&
+      hasRecentActualSpeech(now) &&
+      hasRecentVadSpeechNow(now) &&
+      !asrSilenceActive;
+    const strictStarvationActive =
+      liveStrictFollow &&
+      strictSpeechFreshForRescue &&
+      now - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS;
+    const strictFinalEvidenceArriving =
+      liveStrictFollow &&
+      finalsSinceCommit > 0;
+    const strictClusterContradictionFresh =
+      liveStrictFollow &&
+      liveStrictForwardClusterContradictionAt > 0 &&
+      now - liveStrictForwardClusterContradictionAt <= DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS;
+    const strictNoMatchBlockActive =
+      liveStrictFollow &&
+      lastRescueNoMatchAt > 0 &&
+      now - lastRescueNoMatchAt < DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS;
+    const strictTerminalDrainCandidate =
+      liveStrictFollow &&
+      strictStarvationActive &&
+      strictFinalEvidenceArriving &&
+      !strictClusterContradictionFresh &&
+      !strictNoMatchBlockActive;
+    const strictRescueProofTopScores: Array<{ idx: number; score: number }> = [];
+    if (Number.isFinite(lastRescueMatchEvidenceLine) && Number.isFinite(lastRescueMatchEvidenceSim)) {
+      strictRescueProofTopScores.push({
+        idx: Math.max(0, Math.floor(lastRescueMatchEvidenceLine)),
+        score: Number(lastRescueMatchEvidenceSim),
+      });
+    }
+    if (
+      liveStrictFollow &&
+      liveStrictForwardClusterLine > cursorLine &&
+      liveStrictForwardClusterUpdatedAt > 0 &&
+      now - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS &&
+      Number.isFinite(liveStrictForwardClusterSim)
+    ) {
+      strictRescueProofTopScores.push({
+        idx: Math.max(0, Math.floor(liveStrictForwardClusterLine)),
+        score: Number(liveStrictForwardClusterSim),
+      });
+    }
+    if (strictTerminalDrainCandidate) {
+      const strictTerminalDrainTrail: Array<{
+        from: number;
+        to: number;
+        skippedReasons: CueBridgeSkipReason[];
+      }> = [];
+      const maxDrainSteps = Math.min(
+        LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT,
+        1 + LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS,
+      );
+      let drainCursor = Math.max(0, cursorLine);
+      let strictTerminalDrainStopReason = '';
+      while (strictTerminalDrainTrail.length < maxDrainSteps) {
+        const drainStep = resolveLiveStrictNextSpeakableStep(
+          drainCursor,
+          LIVE_STRICT_MAX_CUE_BRIDGE_SPAN,
+        );
+        if (!drainStep || drainStep.targetLine <= drainCursor) {
+          strictTerminalDrainStopReason = 'no_next_speakable';
+          break;
+        }
+        const stepProofOk =
+          hasLiveStrictLocalProof(
+            drainCursor,
+            drainStep.targetLine,
+            now,
+            strictRescueProofTopScores,
+            DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+          ) ||
+          hasLiveStrictCueExitProof(
+            drainCursor,
+            drainStep.targetLine,
+            now,
+            strictRescueProofTopScores,
+            DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+          ) ||
+          hasLiveStrictSpeakableBridgeProof(
+            drainCursor,
+            drainStep.targetLine,
+            now,
+            strictRescueProofTopScores,
+            DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+          );
+        if (!stepProofOk) {
+          strictTerminalDrainStopReason = 'no_step_proof';
+          break;
+        }
+        strictTerminalDrainTrail.push({
+          from: drainCursor,
+          to: drainStep.targetLine,
+          skippedReasons: drainStep.skippedReasons,
+        });
+        drainCursor = drainStep.targetLine;
+      }
+      if (strictTerminalDrainTrail.length > 0) {
+        const terminalTargetLine =
+          strictTerminalDrainTrail[strictTerminalDrainTrail.length - 1].to;
+        const rescueSim = Math.max(DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_MULTI_JUMP_MIN_SIM);
+        const terminalScores = strictTerminalDrainTrail.map((step) => ({
+          idx: step.to,
+          score: rescueSim,
+        }));
+        const targetText = getLineTextAt(terminalTargetLine);
+        warnGuard('strict_live_backlog_drain_start', [
+          `current=${cursorLine}`,
+          `target=${terminalTargetLine}`,
+          `steps=${strictTerminalDrainTrail.length}`,
+          `sinceForwardMs=${Math.max(0, now - lastForwardCommitAt)}`,
+          'source=stall-rescue',
+        ]);
+        warnGuard('strict_live_backlog_drain_terminal', [
+          `current=${cursorLine}`,
+          `target=${terminalTargetLine}`,
+          `steps=${strictTerminalDrainTrail.length}`,
+          'mode=replace-legacy',
+          'source=stall-rescue',
+        ]);
+        strictTerminalDrainTrail.forEach((step, idx) => {
+          warnGuard('strict_live_backlog_drain_step', [
+            `from=${step.from}`,
+            `to=${step.to}`,
+            `step=${idx + 1}`,
+            `speakableSteps=${idx + 1}`,
+            `skipped=[${step.skippedReasons.join(',')}]`,
+            reason ? `source=${reason}` : '',
+          ]);
+        });
+        warnGuard('strict_live_backlog_drain_stop', [
+          `current=${cursorLine}`,
+          `target=${terminalTargetLine}`,
+          `applied=${strictTerminalDrainTrail.length}`,
+          `planned=${strictTerminalDrainTrail.length}`,
+          'reason=plan_exhausted',
+          reason ? `source=${reason}` : '',
+        ]);
+        const matchId = `strict-live-drain-${Date.now().toString(36)}-${terminalTargetLine}`;
+        adoptPendingMatch({
+          line: terminalTargetLine,
+          conf: rescueSim,
+          isFinal: true,
+          hasEvidence: true,
+          snippet: formatLogSnippet(targetText, 80),
+          minThreshold: DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+          forced: true,
+          forceReason: 'stall-rescue',
+          matchId,
+          requiredThreshold: DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+          topScores: terminalScores,
+          cursorLine,
+          searchWindowFrom: cursorLine,
+          searchWindowTo: terminalTargetLine,
+          lostMode: false,
+          cueBridgeNudgeDelta: Math.max(1, terminalTargetLine - cursorLine),
+        });
+        schedulePending();
+        return true;
+      }
+      warnGuard('strict_live_backlog_drain_stop', [
+        `current=${cursorLine}`,
+        `reason=${strictTerminalDrainStopReason || 'no_plan'}`,
+        `sinceForwardMs=${Math.max(0, now - lastForwardCommitAt)}`,
+        reason ? `source=${reason}` : '',
+      ]);
+    }
     if (liveStrictFollow && deltaLines > 1) {
       if (!strictSpeakableStep || strictSpeakableStep.targetLine !== targetLine) {
         warnGuard('live_strict_multi_step_blocked', [
@@ -5660,10 +5829,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const targetText = getLineTextAt(targetLine);
     if (!targetText) return false;
     if (!liveStrictFollow && isIgnorableCueLineText(targetText)) return false;
-    const strictLocalProofTopScores =
-      Number.isFinite(lastRescueMatchEvidenceLine) && Number.isFinite(lastRescueMatchEvidenceSim)
-        ? [{ idx: lastRescueMatchEvidenceLine, score: lastRescueMatchEvidenceSim }]
-        : [];
+    const strictLocalProofTopScores = strictRescueProofTopScores;
     const strictLocalProofOk = !liveStrictFollow || (
       hasLiveStrictLocalProof(
         cursorLine,
@@ -5698,11 +5864,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         )
       ) &&
       strictLocalProofOk;
-    const strictSpeechFreshForRescue =
-      liveStrictFollow &&
-      hasRecentActualSpeech(now) &&
-      hasRecentVadSpeechNow(now) &&
-      !asrSilenceActive;
     if (!strictLogicalAdjacentRescue && now - lastCueStallRescueAt < DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS) {
       return false;
     }
@@ -7236,25 +7397,37 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveStrictFollow &&
         liveStrictForwardClusterContradictionAt > 0 &&
         now - liveStrictForwardClusterContradictionAt <= DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS;
+      const strictNoMatchBlockActive =
+        liveStrictFollow &&
+        lastRescueNoMatchAt > 0 &&
+        now - lastRescueNoMatchAt < DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS;
+      const strictFinalEvidenceArriving =
+        liveStrictFollow &&
+        isFinal &&
+        !!hasEvidence;
       const strictStarvationActive =
         liveStrictFollow &&
         strictSpeechFreshNow &&
         now - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS;
-      const strictForwardClusterAhead =
+      const strictTerminalDrainCandidate =
         strictStarvationActive &&
+        strictFinalEvidenceArriving &&
+        !strictNoMatchBlockActive &&
+        !strictClusterContradictionFresh;
+      const strictForwardClusterAhead =
+        strictTerminalDrainCandidate &&
         liveStrictForwardClusterCursor === lastLineIndex &&
         liveStrictForwardClusterHits >= LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS &&
         liveStrictForwardClusterLine > lastLineIndex &&
         liveStrictForwardClusterUpdatedAt > 0 &&
-        now - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS &&
-        !strictClusterContradictionFresh;
+        now - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS;
       const strictBacklogDrainTrail: Array<{
         from: number;
         to: number;
         skippedReasons: CueBridgeSkipReason[];
       }> = [];
       let strictBacklogDrainStopReason = '';
-      if (strictForwardClusterAhead) {
+      if (strictTerminalDrainCandidate) {
           let drainCursor = Math.max(0, lastLineIndex);
           const maxDrainSteps = Math.min(
             LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT,
@@ -7316,33 +7489,36 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           : -1;
       const strictBacklogDrainTerminalActive =
         liveStrictFollow &&
-        strictStarvationActive &&
+        strictTerminalDrainCandidate &&
         strictBacklogDrainPlannedSteps > 0 &&
         strictBacklogDrainPlannedTargetLine > lastLineIndex;
       const strictEarlyBacklogDrainActive = strictBacklogDrainTerminalActive;
-      if (strictForwardClusterAhead) {
+      if (strictTerminalDrainCandidate) {
         if (strictBacklogDrainTerminalActive) {
           warnGuard('strict_live_backlog_drain_start', [
             `current=${lastLineIndex}`,
             `target=${strictBacklogDrainPlannedTargetLine}`,
             `steps=${strictBacklogDrainPlannedSteps}`,
-            `clusterLine=${liveStrictForwardClusterLine}`,
-            `clusterHits=${liveStrictForwardClusterHits}`,
+            strictForwardClusterAhead ? `clusterLine=${liveStrictForwardClusterLine}` : '',
+            strictForwardClusterAhead ? `clusterHits=${liveStrictForwardClusterHits}` : '',
             `sinceForwardMs=${Math.max(0, now - lastForwardCommitAt)}`,
+            `final=${isFinal ? 1 : 0}`,
           ]);
           warnGuard('strict_live_backlog_drain_terminal', [
             `current=${lastLineIndex}`,
             `target=${strictBacklogDrainPlannedTargetLine}`,
             `steps=${strictBacklogDrainPlannedSteps}`,
             'mode=replace-legacy',
+            strictForwardClusterAhead ? 'source=forward-cluster' : 'source=next-speakable-proof',
           ]);
         } else {
           warnGuard('strict_live_backlog_drain_stop', [
             `current=${lastLineIndex}`,
             `reason=${strictBacklogDrainStopReason || 'no_plan'}`,
-            `clusterLine=${liveStrictForwardClusterLine}`,
-            `clusterHits=${liveStrictForwardClusterHits}`,
+            strictForwardClusterAhead ? `clusterLine=${liveStrictForwardClusterLine}` : '',
+            strictForwardClusterAhead ? `clusterHits=${liveStrictForwardClusterHits}` : '',
             `sinceForwardMs=${Math.max(0, now - lastForwardCommitAt)}`,
+            `final=${isFinal ? 1 : 0}`,
           ]);
         }
       }
