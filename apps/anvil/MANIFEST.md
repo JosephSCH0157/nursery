@@ -65,6 +65,7 @@ In `scrollMode='asr'`:
 - `session.scrollAutoOnLive` must not gate ASR startup/attach decisions.
 - ASR driver attach/readiness is independent from movement arming: mode selection with script blocks present should attach/create driver + ingest path before live.
 - `session.asrArmed` gates ASR movement permission only (commit may process bookkeeping while unarmed, but must not write scroll).
+- Live ASR focus trust gate is absolute: if the Anvil document loses focus or visibility becomes hidden, ASR-driven movement must freeze immediately (`asr_focus_lost_movement_hold`). While held, no ASR scroll writes, forced commits, bridge commits, cue rescue, marker snaps, or recovery snaps are allowed. On focus regain, movement remains blocked until one fresh post-focus final ASR proof is observed, and transcript accumulated while unfocused must not be consumed as movement proof.
 - Must only move on ASR commit (`tp:asr:commit` or canonical equivalent).
 - ASR movement authority is single-lane: `speech-loader -> asr-scroll-driver` commit path owns movement in ASR mode.
 - Transcript/ASR lifecycle wiring must be single-instance per window: repeated mode-router or scroll-router init/toggle cycles must not stack duplicate subscriptions/listeners.

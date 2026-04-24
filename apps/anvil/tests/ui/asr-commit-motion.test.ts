@@ -406,4 +406,108 @@ describe('ASR live commit motion', () => {
 
     driver.dispose();
   });
+
+  test('freezes ASR movement immediately while window focus is lost', async () => {
+    const driver = createAsrScrollDriver();
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    let focusActive = true;
+    const hasFocusSpy = jest.spyOn(document, 'hasFocus').mockImplementation(() => focusActive);
+
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'focus-hold-prime',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.9,
+        topScores: [{ idx: 1, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(200);
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    const beforeTop = scroller.scrollTop;
+    focusActive = false;
+    window.dispatchEvent(new Event('blur'));
+
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'focus-hold-forward',
+      match: {
+        bestIdx: 2,
+        bestSim: 0.95,
+        topScores: [{ idx: 2, score: 0.95 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+    expect(scroller.scrollTop).toBe(beforeTop);
+
+    hasFocusSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('requires a fresh post-focus final proof before movement resumes', async () => {
+    const driver = createAsrScrollDriver();
+    const visibilityDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    const hiddenDescriptor = Object.getOwnPropertyDescriptor(document, 'hidden');
+    let visibilityState: DocumentVisibilityState = 'visible';
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => visibilityState,
+    });
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      get: () => visibilityState === 'hidden',
+    });
+
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'post-focus-prime',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.9,
+        topScores: [{ idx: 1, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(200);
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    visibilityState = 'hidden';
+    document.dispatchEvent(new Event('visibilitychange'));
+    visibilityState = 'visible';
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'post-focus-unlock-final',
+      match: {
+        bestIdx: 2,
+        bestSim: 0.95,
+        topScores: [{ idx: 2, score: 0.95 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(200);
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'post-focus-forward-after-proof',
+      match: {
+        bestIdx: 2,
+        bestSim: 0.95,
+        topScores: [{ idx: 2, score: 0.95 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(200);
+    expect(driver.getLastLineIndex()).toBe(2);
+
+    if (visibilityDescriptor) Object.defineProperty(document, 'visibilityState', visibilityDescriptor);
+    else delete (document as any).visibilityState;
+    if (hiddenDescriptor) Object.defineProperty(document, 'hidden', hiddenDescriptor);
+    else delete (document as any).hidden;
+    driver.dispose();
+  });
 });

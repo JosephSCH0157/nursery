@@ -1481,6 +1481,7 @@ const GUARD_DEBUG_REASONS = new Set<string>([
   'strict_live_backlog_drain_stop',
   'strict_live_backlog_drain_terminal',
 ]);
+const ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD = 'asr_focus_lost_movement_hold';
 
 const LIVE_STRICT_SPECULATIVE_FORCE_REASONS = new Set<string>([
   'stall-rescue',
@@ -2790,6 +2791,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       });
       return currentTop;
     }
+    if (!canApplyAsrMovement(`scroll-write:${reason}`, Date.now())) {
+      logAsrScrollAttempt('denied', {
+        targetTop,
+        currentTop,
+        reason: `${reason}:${ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD}`,
+        scroller,
+        source,
+        applied: false,
+      });
+      return currentTop;
+    }
     const payload = { ...opts, scroller };
     const appliedTop = applyCanonicalScrollTop(targetTop, { ...payload, source });
     scheduleAsrWriteCheck(scroller, currentTop, reason, targetTop, source);
@@ -2995,6 +3007,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const targetIdx = rewind > BEHIND_RECOVERY_MAX_REWIND
       ? Math.max(0, cursorLine - BEHIND_RECOVERY_MAX_REWIND)
       : targetIdxRaw;
+    if (!canApplyAsrMovement('behind-recovery', now, { final: isFinal })) return false;
     const scroller = getScroller();
     const targetTop = scroller ? resolveTargetTop(scroller, targetIdx) : null;
     if (scroller && targetTop != null) {
@@ -3065,6 +3078,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (!currentSimLow) return false;
     const margin = prevSim - currentSim;
     if (!Number.isFinite(margin) || margin < DEFAULT_GRACE_ROLLBACK_MIN_MARGIN) return false;
+    if (!canApplyAsrMovement('grace-rollback', now, { final: true, clue })) return false;
     const sinceCommitMs = Math.max(0, now - lastCommitAt);
     const scroller = getScroller();
     const targetTop = scroller ? resolveTargetTop(scroller, safePrev) : null;
@@ -3400,6 +3414,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let noMatchHits = 0;
     let lastNoMatchAt = 0;
     let lastStuckDumpAt = 0;
+    let asrFocusGeneration = 0;
+    let lastFocusLostAt = 0;
+    let lastFocusRegainedAt = 0;
+    let asrFocusMovementHoldActive = false;
+    let asrFocusSignalSeen = false;
+    let postFocusFreshProofRequired = false;
     let lastMatchId: string | undefined;
     let syntheticMatchIdSeq = 0;
     let lastScriptHash = '';
@@ -4404,6 +4424,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ambiguityHoldActive && ambiguityHoldSecondIdx >= 0
             ? Number(ambiguityHoldSecondSim.toFixed(3))
             : null,
+        asrFocusGeneration,
+        lastFocusLostAt,
+        lastFocusRegainedAt,
+        postFocusFreshProofRequired,
+        asrFocusMovementHoldActive,
       };
     } catch {}
   };
@@ -4427,6 +4452,201 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     consistencyEntries.length = 0;
     logDev('evidence buffer cleared', { reason });
     updateDebugState('buffer-clear');
+  };
+
+  const publishAsrFocusGateState = () => {
+    try {
+      (window as any).__tpAsrFocusGate = {
+        asrFocusGeneration,
+        lastFocusLostAt,
+        lastFocusRegainedAt,
+        postFocusFreshProofRequired,
+        movementHoldActive: asrFocusMovementHoldActive,
+      };
+    } catch {
+      // ignore
+    }
+  };
+
+  const isAsrLiveMovementSession = () =>
+    getScrollMode() === 'asr' &&
+    isSessionLivePhase() &&
+    isSessionAsrArmed();
+
+  const isDocumentVisible = () => {
+    try {
+      if (typeof document === 'undefined') return true;
+      return !document.hidden && document.visibilityState !== 'hidden';
+    } catch {
+      return true;
+    }
+  };
+
+  const isDocumentFocused = () => {
+    try {
+      if (typeof document === 'undefined') return true;
+      const focused = typeof document.hasFocus === 'function' ? !!document.hasFocus() : true;
+      if (!focused && !asrFocusSignalSeen && isDocumentVisible()) {
+        // In headless/test contexts document.hasFocus() can default false at boot.
+        // Treat as focused until an explicit focus/blur signal is observed.
+        return true;
+      }
+      return focused;
+    } catch {
+      // ignore
+    }
+    return true;
+  };
+
+  const freezeAsrMovementForFocusHold = (reason: string) => {
+    pendingSeq += 1;
+    pendingMatch = null;
+    if (pendingRaf) {
+      try { cancelAnimationFrame(pendingRaf); } catch {}
+      pendingRaf = 0;
+    }
+    releaseCommitWindow(`focus-hold:${reason}`);
+    stopGlide(`focus-hold:${reason}`);
+    pursuitTargetTop = null;
+    pursuitVel = 0;
+    pursuitActive = false;
+    microPursuitUntil = 0;
+    lastCommitDeltaPx = 0;
+    clearEvidenceBuffer(`focus-hold:${reason}`);
+  };
+
+  const syncAsrFocusMovementGate = (source: string, now: number) => {
+    if (source === 'window-focus' || source === 'window-blur') {
+      asrFocusSignalSeen = true;
+    }
+    if (!isAsrLiveMovementSession()) {
+      if (asrFocusMovementHoldActive) {
+        asrFocusMovementHoldActive = false;
+        publishAsrFocusGateState();
+      }
+      return;
+    }
+    const shouldHold = !isDocumentVisible() || !isDocumentFocused();
+    if (shouldHold) {
+      if (!asrFocusMovementHoldActive) {
+        asrFocusMovementHoldActive = true;
+        asrFocusGeneration += 1;
+        lastFocusLostAt = now;
+        postFocusFreshProofRequired = true;
+        freezeAsrMovementForFocusHold('lost');
+        warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
+          `state=lost`,
+          `source=${source}`,
+          `generation=${asrFocusGeneration}`,
+        ]);
+        emitHudStatus(
+          ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD,
+          'Hold: focus lost, movement frozen',
+        );
+        publishAsrFocusGateState();
+      }
+      return;
+    }
+    if (asrFocusMovementHoldActive) {
+      asrFocusMovementHoldActive = false;
+      asrFocusGeneration += 1;
+      lastFocusRegainedAt = now;
+      postFocusFreshProofRequired = true;
+      freezeAsrMovementForFocusHold('regain');
+      warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
+        `state=regained`,
+        `source=${source}`,
+        `generation=${asrFocusGeneration}`,
+      ]);
+      emitHudStatus(
+        ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD,
+        'Hold: waiting for fresh post-focus final proof',
+      );
+      publishAsrFocusGateState();
+    }
+  };
+
+  const canApplyAsrMovement = (
+    source: string,
+    now: number,
+    detail?: { final?: boolean; clue?: string },
+  ): boolean => {
+    syncAsrFocusMovementGate(source, now);
+    if (!isAsrLiveMovementSession()) return true;
+    if (asrFocusMovementHoldActive) {
+      warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
+        `state=lost`,
+        `source=${source}`,
+        `generation=${asrFocusGeneration}`,
+      ]);
+      emitHudStatus(
+        ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD,
+        'Hold: focus lost, movement frozen',
+      );
+      return false;
+    }
+    if (postFocusFreshProofRequired) {
+      warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
+        `state=awaiting_post_focus_final`,
+        `source=${source}`,
+        `generation=${asrFocusGeneration}`,
+        detail?.final ? 'final=1' : 'final=0',
+        detail?.clue ? `clue="${detail.clue}"` : '',
+      ]);
+      emitHudStatus(
+        ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD,
+        'Hold: waiting for fresh post-focus final proof',
+      );
+      return false;
+    }
+    return true;
+  };
+
+  const allowMovementForIngest = (isFinal: boolean, now: number, clue: string): boolean => {
+    syncAsrFocusMovementGate('ingest', now);
+    if (!isAsrLiveMovementSession()) return true;
+    if (asrFocusMovementHoldActive) {
+      warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
+        `state=lost`,
+        `source=ingest`,
+        `generation=${asrFocusGeneration}`,
+      ]);
+      emitHudStatus(
+        ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD,
+        'Hold: focus lost, movement frozen',
+      );
+      return false;
+    }
+    if (!postFocusFreshProofRequired) return true;
+    const isFinalAfterRegain =
+      isFinal &&
+      lastFocusRegainedAt > 0 &&
+      now >= lastFocusRegainedAt;
+    const hasFreshSpeechProof = hasRecentActualSpeech(now) && hasRecentVadSpeechNow(now);
+    if (!isFinalAfterRegain || !hasFreshSpeechProof) {
+      warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
+        `state=awaiting_post_focus_final`,
+        `source=ingest`,
+        `generation=${asrFocusGeneration}`,
+        isFinal ? 'final=1' : 'final=0',
+      ]);
+      emitHudStatus(
+        ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD,
+        'Hold: waiting for fresh post-focus final proof',
+      );
+      return false;
+    }
+    postFocusFreshProofRequired = false;
+    clearEvidenceBuffer('post-focus-fresh-proof');
+    warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
+      `state=fresh_post_focus_final_ok`,
+      `source=ingest`,
+      `generation=${asrFocusGeneration}`,
+      clue ? `clue="${formatLogSnippet(clue, 56)}"` : '',
+    ]);
+    publishAsrFocusGateState();
+    // Fresh final proof only unlocks movement; this chunk is never consumed for movement.
+    return false;
   };
 
   const updateEvidenceBuffer = (text: string, isFinal: boolean, now: number) => {
@@ -4636,6 +4856,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     stallRescueRequested = scheduled;
   };
+  const focusGateFocusHandler = () => {
+    syncAsrFocusMovementGate('window-focus', Date.now());
+  };
+  const focusGateBlurHandler = () => {
+    syncAsrFocusMovementGate('window-blur', Date.now());
+  };
+  const focusGateVisibilityHandler = () => {
+    syncAsrFocusMovementGate('visibilitychange', Date.now());
+  };
 
   try { window.addEventListener('tp:asr:silence', silenceHandler as EventListener); } catch {}
   try { window.addEventListener('tp:vad', vadHandler as EventListener); } catch {}
@@ -4645,6 +4874,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   try { window.addEventListener('tp:asr:rescue', rescueHandler as EventListener); } catch {}
   try { window.addEventListener(ASR_MANUAL_ANCHOR_EVENT, handleManualAnchorSignal as EventListener); } catch {}
   try { (window as any).__tpAsrRequestRescue = rescueHandler; } catch {}
+  try { window.addEventListener('focus', focusGateFocusHandler as EventListener); } catch {}
+  try { window.addEventListener('blur', focusGateBlurHandler as EventListener); } catch {}
+  try { document.addEventListener('visibilitychange', focusGateVisibilityHandler as EventListener); } catch {}
+  syncAsrFocusMovementGate('init', Date.now());
+  publishAsrFocusGateState();
 
   const summarizeGuardCounts = (limit = Number.POSITIVE_INFINITY) => {
     const entries = Array.from(guardCounts.entries())
@@ -5124,7 +5358,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (
       (opts?.allowNudge ?? true) &&
       !writeSuppressedByCommitWindow &&
-      Math.abs(targetTop - beforeTop) > POST_COMMIT_MIN_NUDGE_PX
+      Math.abs(targetTop - beforeTop) > POST_COMMIT_MIN_NUDGE_PX &&
+      canApplyAsrMovement('post-commit-readability', Date.now())
     ) {
       const applied = applyCanonicalScrollTop(targetTop, {
         scroller,
@@ -5792,6 +6027,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     requiredThreshold = DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
   ): boolean => {
     if (!Number.isFinite(cursorLine) || cursorLine < 0) return false;
+    if (!canApplyAsrMovement(`cue-skip:${reason || 'unknown'}`, now)) return false;
     const currentLineText = getLineTextAt(cursorLine);
     if (!isIgnorableCueLineText(currentLineText)) return false;
     const liveStrictFollow = getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed();
@@ -5936,6 +6172,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (disposed) return false;
     if (getScrollMode() !== 'asr') return false;
     if (!isSessionLivePhase() || !isSessionAsrArmed()) return false;
+    if (!canApplyAsrMovement(`stall-rescue:${reason || 'unknown'}`, Date.now())) return false;
     const liveStrictFollow = getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed();
     const now = Date.now();
     const cursorRaw = lastLineIndex >= 0 ? lastLineIndex : Number((window as any)?.currentIndex ?? -1);
@@ -7197,6 +7434,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lineIdx: commit.lineIdx,
         blockId: commit.blockId,
       }) ?? beforeTop;
+    if (!canApplyAsrMovement('commit-move', Date.now())) {
+      return {
+        method: deps.writerAvailable && commit.blockId >= 0 ? 'writer' : 'pixel',
+        writerCommitted: false,
+        beforeTop,
+        afterTop: beforeTop,
+        movedPx: 0,
+      };
+    }
     const targetTop = clamp(targetTopRaw, 0, max);
     const reason = commit.forced ? 'asr-forced-commit' : 'asr-commit';
     const liveAsrGlideActive =
@@ -7362,6 +7608,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
     const cappedTop = clamp(Math.min(afterTop, beforeTop + liveAsrCommitCapPx), 0, maxTop);
     if (cappedTop >= afterTop - 0.5) return afterTop;
+    if (!canApplyAsrMovement('commit-cap', Date.now())) return afterTop;
     stopGlide('live-asr-commit-cap');
     const applied = applyCanonicalScrollTop(cappedTop, {
       scroller,
@@ -7420,6 +7667,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (currentSim > Math.max(needSim, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM)) return false;
     const margin = targetSim - currentSim;
     if (!Number.isFinite(margin) || margin < DEFAULT_GRACE_ROLLBACK_MIN_MARGIN) return false;
+    if (!canApplyAsrMovement('corrective-backstep', now, { final: true, clue })) return false;
     const scroller = getScroller();
     const targetTop = scroller ? resolveTargetTop(scroller, safeTarget) : null;
     if (!scroller || targetTop == null) return false;
@@ -7586,7 +7834,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       targetEl = await findLineElWithRetry(settledScroller, targetLine, 1);
     }
     const correctionTop = resolveExpectedTop(settledScroller, firstExpected);
-    if (Number.isFinite(correctionTop)) {
+    if (Number.isFinite(correctionTop) && canApplyAsrMovement('truth-correction', Date.now())) {
       applyCanonicalScrollTop(correctionTop, {
         scroller: settledScroller,
         reason: 'asr-truth-correction',
@@ -7659,6 +7907,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const now = Date.now();
       const asrMode = getScrollMode() === 'asr';
       const liveStrictFollow = asrMode && isSessionLivePhase() && isSessionAsrArmed();
+      if (!canApplyAsrMovement('pending-commit', now)) {
+        return;
+      }
       const jumpCap = getMaxTargetJumpPx();
       const noInputSpeechWindowMs = DEFAULT_STARVATION_COMMIT_GAP_MS;
       const freshSpeechAgeMs =
@@ -10270,6 +10521,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           // ignore
         }
       }
+      return;
+    }
+    if (!allowMovementForIngest(isFinal, now, compacted)) {
       return;
     }
     const permissiveMatcher = isPermissiveAsrMatcherEnabled();
@@ -13986,6 +14240,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         conf >= Math.max(behindRecoveryMinSim, requiredThreshold) &&
         now - lastBehindRecoveryAt >= behindRecoveryCooldownMs
       ) {
+        if (!canApplyAsrMovement('behind-reanchor', now, { final: isFinal, clue: snippet })) {
+          return;
+        }
         const scroller = getScroller();
         const scrollTopBefore = scroller?.scrollTop ?? 0;
         const targetTop = scroller ? resolveTargetTop(scroller, rawIdx) : null;
@@ -14267,6 +14524,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     try { window.removeEventListener('tp:script:reset', resetHandler as EventListener); } catch {}
     try { window.removeEventListener('tp:asr:rescue', rescueHandler as EventListener); } catch {}
     try { window.removeEventListener(ASR_MANUAL_ANCHOR_EVENT, handleManualAnchorSignal as EventListener); } catch {}
+    try { window.removeEventListener('focus', focusGateFocusHandler as EventListener); } catch {}
+    try { window.removeEventListener('blur', focusGateBlurHandler as EventListener); } catch {}
+    try { document.removeEventListener('visibilitychange', focusGateVisibilityHandler as EventListener); } catch {}
     try {
       if ((window as any).__tpAsrRequestRescue === rescueHandler) {
         (window as any).__tpAsrRequestRescue = undefined;
@@ -14278,6 +14538,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     manualAnchorPending = null;
     resetAmbiguityHoldState();
     updateManualAnchorGlobalState();
+    asrFocusMovementHoldActive = false;
+    publishAsrFocusGateState();
     if (activeGuardCounts === guardCounts) {
       activeGuardCounts = null;
     }
