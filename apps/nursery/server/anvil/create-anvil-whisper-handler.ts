@@ -21,6 +21,11 @@ import {
   type BillingMode,
 } from "../ai-usage-accounting";
 import {
+  MissingForgeKeyError,
+  MissingUserKeyError,
+  resolveEffectiveAiCredentials,
+} from "../hearth/resolve-effective-ai-credentials";
+import {
   readForgeFfmpegClientConfig,
   transcodeToWavWithForgeFfmpeg,
   type ForgeFfmpegClientConfig,
@@ -37,6 +42,7 @@ export type AnvilWhisperRuntimeConfig = {
   configuredBillingMode?: BillingMode;
   supabaseUrl?: string | null;
   supabaseServiceRoleKey?: string | null;
+  disableUserKeys?: boolean;
   ffmpegClient?: ForgeFfmpegClientConfig | null;
 };
 
@@ -177,6 +183,7 @@ export function resolveAnvilWhisperRuntimeConfig(): AnvilWhisperRuntimeConfig {
     configuredBillingMode: runtime.configuredBillingMode,
     supabaseUrl: runtime.supabaseUrl,
     supabaseServiceRoleKey: runtime.supabaseServiceRoleKey,
+    disableUserKeys: runtime.disableUserKeys,
     ffmpegClient: readForgeFfmpegClientConfig(process.env, {
       baseUrlEnvNames: [
         "ANVIL_FORGE_FFMPEG_BASE_URL",
@@ -206,6 +213,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
   const apiKey = readOptionalString(config.apiKey);
   const sttModel = readOptionalString(config.sttModel) ?? DEFAULT_MODEL;
   const configuredBillingMode = normalizeBillingMode(config.configuredBillingMode, "forge");
+  const disableUserKeys = config.disableUserKeys === true;
   const ffmpegClient = config.ffmpegClient ?? null;
   const supabaseService: SupabaseClient<Database> | null = config.supabaseUrl && config.supabaseServiceRoleKey
     ? createClient<Database>(config.supabaseUrl, config.supabaseServiceRoleKey, {
@@ -234,14 +242,6 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
       const method = (request.method || "GET").toUpperCase();
       if (method !== "POST") {
         return jsonResponse(405, { ok: false, text: "", error: "Method not allowed" });
-      }
-
-      if (!apiKey) {
-        return jsonResponse(500, {
-          ok: false,
-          text: "",
-          error: MISSING_OPENAI_API_KEY_ERROR,
-        });
       }
 
       let formData: FormData;
@@ -285,22 +285,23 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
 
       const laneFromBody = readOptionalString(formData.get("lane"));
       const laneFromQuery = readOptionalString(url.searchParams.get("lane"));
-      const lane = normalizeBillingMode(laneFromBody ?? laneFromQuery, configuredBillingMode);
-      if (lane === AI_USAGE_LANE.FORGE && !supabaseService) {
+      const requestedLane = normalizeBillingMode(laneFromBody ?? laneFromQuery, configuredBillingMode);
+      const requiresForgeLane = requestedLane === AI_USAGE_LANE.FORGE || disableUserKeys;
+      if (requiresForgeLane && !supabaseService) {
         return jsonResponse(500, {
           ok: false,
           text: "",
           error: "Supabase service role is not configured.",
-          billing_mode: lane,
+          billing_mode: AI_USAGE_LANE.FORGE,
         });
       }
       const userAccessToken = readUserAccessToken(request.headers);
-      if (lane === AI_USAGE_LANE.FORGE && !userAccessToken) {
+      if (requiresForgeLane && !userAccessToken) {
         return jsonResponse(401, {
           ok: false,
           text: "",
           error: "Authentication required.",
-          billing_mode: lane,
+          billing_mode: AI_USAGE_LANE.FORGE,
         });
       }
 
@@ -308,13 +309,81 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         supabaseService,
         accessToken: userAccessToken,
       });
-      if (lane === AI_USAGE_LANE.FORGE && !userId) {
+      if (requiresForgeLane && !userId) {
         return jsonResponse(401, {
           ok: false,
           text: "",
           error: "Authentication required.",
-          billing_mode: lane,
+          billing_mode: AI_USAGE_LANE.FORGE,
         });
+      }
+      let lane: BillingMode = requestedLane;
+      let effectiveApiKey: string;
+      if (requestedLane === AI_USAGE_LANE.BYO && !disableUserKeys) {
+        if (!supabaseService) {
+          return jsonResponse(500, {
+            ok: false,
+            text: "",
+            error: "Supabase service role is not configured.",
+            billing_mode: lane,
+          });
+        }
+        if (!userAccessToken || !userId) {
+          return jsonResponse(401, {
+            ok: false,
+            text: "",
+            error: "Authentication required.",
+            billing_mode: lane,
+          });
+        }
+        try {
+          const credentials = await resolveEffectiveAiCredentials({
+            requestedLane: AI_USAGE_LANE.BYO,
+            provider: "openai",
+            // BYO lane must not silently spend forge capacity when key resolution fails.
+            forgeManagedApiKey: null,
+            userId,
+            supabaseService,
+            disableUserKeys: false,
+          });
+          lane = credentials.billingLane;
+          effectiveApiKey = credentials.apiKey;
+        } catch (error) {
+          if (error instanceof MissingUserKeyError) {
+            return jsonResponse(422, {
+              ok: false,
+              text: "",
+              error: error.message,
+              code: "missing_user_byo_key",
+              billing_mode: AI_USAGE_LANE.BYO,
+            });
+          }
+          if (error instanceof MissingForgeKeyError) {
+            return jsonResponse(500, {
+              ok: false,
+              text: "",
+              error: MISSING_OPENAI_API_KEY_ERROR,
+              billing_mode: AI_USAGE_LANE.FORGE,
+            });
+          }
+          return jsonResponse(500, {
+            ok: false,
+            text: "",
+            error: "Failed resolving effective AI credentials.",
+            billing_mode: AI_USAGE_LANE.BYO,
+          });
+        }
+      } else {
+        if (!apiKey) {
+          return jsonResponse(500, {
+            ok: false,
+            text: "",
+            error: MISSING_OPENAI_API_KEY_ERROR,
+            billing_mode: AI_USAGE_LANE.FORGE,
+          });
+        }
+        lane = AI_USAGE_LANE.FORGE;
+        effectiveApiKey = apiKey;
       }
       const providedActionId = readOptionalString(formData.get("action_id"));
       const actionId = providedActionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(providedActionId)
@@ -358,7 +427,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
             method: "POST",
             headers: {
-              authorization: `Bearer ${apiKey}`,
+              authorization: `Bearer ${effectiveApiKey}`,
             },
             body: buildUpstreamForm(nextFileValue, nextFileName, usedLanguageHint),
             signal: upstreamAbort.signal,
@@ -377,7 +446,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
               upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
                 method: "POST",
                 headers: {
-                  authorization: `Bearer ${apiKey}`,
+                  authorization: `Bearer ${effectiveApiKey}`,
                 },
                 body: buildUpstreamForm(nextFileValue, nextFileName, false),
                 signal: upstreamAbort.signal,
