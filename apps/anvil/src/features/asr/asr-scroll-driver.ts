@@ -1474,6 +1474,7 @@ const GUARD_DEBUG_REASONS = new Set<string>([
   'strict_live_adjacent_speakable_bridge',
   'live_strict_bridge_landing_hold',
   'live_strict_bridge_stale_landing_hold',
+  'asr_reader_leash_bridge_override_allow',
   'asr_reader_leash_speakable_limit',
   'asr_reader_leash_physical_limit_bug',
   'asr_reader_leash_hold',
@@ -5658,11 +5659,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       proofBase,
       LIVE_STRICT_MAX_CUE_BRIDGE_SPAN,
     );
+    const strictNextSpeakableAfterCurrent = resolveLiveStrictNextSpeakableStep(
+      safeCurrent,
+      LIVE_STRICT_MAX_CUE_BRIDGE_SPAN,
+    )?.targetLine ?? null;
     const isStrictBridgeSource =
       String(source || '').trim().toLowerCase() === 'strict-live-adjacent-speakable-bridge';
     const targetIsStrictNextSpeakable =
       strictNextSpeakableAfterProof != null &&
       safeTarget === strictNextSpeakableAfterProof;
+    const targetIsStrictNextFromCurrent =
+      strictNextSpeakableAfterCurrent != null &&
+      safeTarget === strictNextSpeakableAfterCurrent;
     if (leashLimit !== physicalLimit) {
       warnGuard('asr_reader_leash_speakable_limit', [
         `current=${safeCurrent}`,
@@ -5676,7 +5684,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (
       targetHasFreshProof &&
       isStrictBridgeSource &&
-      targetIsStrictNextSpeakable
+      (targetIsStrictNextSpeakable || targetIsStrictNextFromCurrent)
     ) {
       if (leashLimit !== safeTarget) {
         warnGuard('asr_reader_leash_physical_limit_bug', [
@@ -5690,13 +5698,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           clue ? `clue="${formatLogSnippet(String(clue || ''), 72)}"` : '',
         ]);
       }
-      warnGuard('asr_reader_leash_speakable_limit', [
-        `state=strict_bridge_allow`,
+      warnGuard('asr_reader_leash_bridge_override_allow', [
         `current=${safeCurrent}`,
         `target=${safeTarget}`,
         `freshProof=${proofBase}`,
-        `physicalLimit=${physicalLimit}`,
-        `speakableLimit=${strictNextSpeakableAfterProof}`,
+        `leashLimit=${leashLimit}`,
+        `nextSpeakableProof=${strictNextSpeakableAfterProof ?? -1}`,
+        `nextSpeakableCurrent=${strictNextSpeakableAfterCurrent ?? -1}`,
         source ? `source=${source}` : '',
       ]);
       return true;
