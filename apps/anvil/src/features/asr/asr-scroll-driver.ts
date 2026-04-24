@@ -1474,6 +1474,7 @@ const GUARD_DEBUG_REASONS = new Set<string>([
   'live_strict_bridge_landing_hold',
   'live_strict_bridge_stale_landing_hold',
   'asr_reader_leash_hold',
+  'asr_reader_leash_downgrade',
   'strict_live_backlog_drain',
   'strict_live_backlog_drain_start',
   'strict_live_backlog_drain_step',
@@ -8983,6 +8984,63 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `planned=${strictBacklogDrainPlannedSteps}`,
           `reason=${strictBacklogDrainAppliedSteps >= strictBacklogDrainPlannedSteps ? 'plan_exhausted' : 'target_bound'}`,
         ]);
+      }
+      if (liveStrictFollow && targetLine > lastLineIndex) {
+        const strictLeashProofBase = lastFreshProofLine >= 0
+          ? lastFreshProofLine
+          : (lastCommittedLine >= 0 ? lastCommittedLine : lastLineIndex);
+        const strictLeashLimitResolved = resolveNthNextSpeakableLine(
+          strictLeashProofBase,
+          ASR_READER_LEASH_MAX_READABLE_AHEAD,
+        );
+        const strictLeashLimit =
+          strictLeashLimitResolved != null ? strictLeashLimitResolved : strictLeashProofBase;
+        if (targetLine > strictLeashLimit && strictLeashLimit > lastLineIndex) {
+          const strictLeashDowngradeProof =
+            hasLiveStrictLocalProof(
+              lastLineIndex,
+              strictLeashLimit,
+              now,
+              rankedTopScores,
+              baselineRequired,
+            ) ||
+            hasLiveStrictCueExitProof(
+              lastLineIndex,
+              strictLeashLimit,
+              now,
+              rankedTopScores,
+              baselineRequired,
+            ) ||
+            hasLiveStrictSpeakableBridgeProof(
+              lastLineIndex,
+              strictLeashLimit,
+              now,
+              rankedTopScores,
+              baselineRequired,
+            );
+          const strictLeashBackwardContradiction =
+            rankedTopScores.some((entry) =>
+              entry.idx <= lastLineIndex &&
+              entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06),
+            );
+          if (strictLeashDowngradeProof && !strictLeashBackwardContradiction) {
+            warnGuard('asr_reader_leash_downgrade', [
+              `current=${lastLineIndex}`,
+              `target=${targetLine}`,
+              `downgraded=${strictLeashLimit}`,
+              `freshProof=${strictLeashProofBase}`,
+              `leashLimit=${strictLeashLimit}`,
+              `maxReadableAhead=${ASR_READER_LEASH_MAX_READABLE_AHEAD}`,
+              forceReason ? `source=${forceReason}` : 'source=commit-path',
+              snippet ? `clue="${snippet}"` : '',
+            ]);
+            emitHudStatus(
+              'asr_reader_leash_downgrade',
+              'Reader leash: downgraded to nearest safe speakable line',
+            );
+            targetLine = strictLeashLimit;
+          }
+        }
       }
       const strictLocalProofForCommit =
         liveStrictFollow &&
