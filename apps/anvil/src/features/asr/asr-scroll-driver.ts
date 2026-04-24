@@ -477,6 +477,10 @@ const DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM = 0.62;
 const DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_STABLE_HITS = 1;
 const DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS = 3500;
 const DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_INDEX_EPS = 2;
+const DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS = 2500;
+const DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS = 2;
+const DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO = 0.34;
+const DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM = 0.38;
 const DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM = 0.58;
 const DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS = 1400;
 const LIVE_STRICT_MOMENTUM_SYNC_WINDOW_MS = 7000;
@@ -1466,6 +1470,7 @@ const GUARD_DEBUG_REASONS = new Set<string>([
   'adjacent_rescue_proofed',
   'autonomous_path_blocked',
   'strict_live_adjacent_speakable_bridge',
+  'live_strict_bridge_landing_hold',
   'strict_live_backlog_drain',
   'strict_live_backlog_drain_start',
   'strict_live_backlog_drain_step',
@@ -3153,6 +3158,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let stableInterimLastMeaningfulChangeAt = 0;
   let lastRescueSpeechTranscriptNorm = '';
   let lastRescueSpeechTokenCount = 0;
+  let lastFinalTranscriptNorm = '';
+  let lastFinalTranscriptAt = 0;
   let lastRescueSpeechAt = 0;
   let freshSpeechSinceCommit = false;
   let asrSilenceActive = true;
@@ -5318,6 +5325,101 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return ok;
   };
 
+  const evaluateLiveStrictBridgeLandingLexicalProof = (
+    targetLine: number,
+    now: number,
+  ): {
+    ok: boolean;
+    reason: string;
+    transcriptAgeMs: number;
+    contentHits: number;
+    contentCount: number;
+    hitRatio: number;
+    sim: number;
+    requiredHits: number;
+    requiredRatio: number;
+    requiredSim: number;
+  } => {
+    const safeTarget = Math.max(0, Math.floor(Number(targetLine)));
+    const transcriptNorm = String(lastFinalTranscriptNorm || '').trim();
+    const transcriptAgeMs =
+      lastFinalTranscriptAt > 0
+        ? Math.max(0, now - lastFinalTranscriptAt)
+        : Number.POSITIVE_INFINITY;
+    if (!transcriptNorm) {
+      return {
+        ok: false,
+        reason: 'no_final_transcript',
+        transcriptAgeMs,
+        contentHits: 0,
+        contentCount: 0,
+        hitRatio: 0,
+        sim: 0,
+        requiredHits: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS,
+        requiredRatio: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO,
+        requiredSim: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM,
+      };
+    }
+    if (transcriptAgeMs > DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS) {
+      return {
+        ok: false,
+        reason: 'final_transcript_stale',
+        transcriptAgeMs,
+        contentHits: 0,
+        contentCount: 0,
+        hitRatio: 0,
+        sim: 0,
+        requiredHits: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS,
+        requiredRatio: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO,
+        requiredSim: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM,
+      };
+    }
+    const targetNorm = normalizeComparableText(getLineTextAt(safeTarget));
+    const targetTokens = targetNorm ? normTokens(targetNorm) : [];
+    if (!targetTokens.length) {
+      return {
+        ok: false,
+        reason: 'target_empty',
+        transcriptAgeMs,
+        contentHits: 0,
+        contentCount: 0,
+        hitRatio: 0,
+        sim: 0,
+        requiredHits: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS,
+        requiredRatio: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO,
+        requiredSim: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM,
+      };
+    }
+    const transcriptTokens = normTokens(transcriptNorm);
+    const targetContentSet = getContentTokenSet(targetTokens);
+    const contentCount = targetContentSet.size;
+    const contentHits = countSharedContentTokenHits(targetContentSet, transcriptTokens);
+    const hitRatio = contentCount > 0 ? contentHits / contentCount : 0;
+    const sim = computeLineSimilarityFromTokens(transcriptTokens, targetTokens);
+    const requiredHits = contentCount <= 2
+      ? Math.min(1, contentCount)
+      : Math.min(DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS, contentCount);
+    const requiredRatio = contentCount <= 2
+      ? 0.5
+      : DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO;
+    const requiredSim = DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM;
+    const lexicalOk = contentCount > 0
+      ? contentHits >= requiredHits && hitRatio >= requiredRatio && sim >= requiredSim
+      : sim >= Math.max(requiredSim, 0.55);
+    return {
+      ok: lexicalOk,
+      reason: lexicalOk ? 'ok' : 'no_landing_lexical_proof',
+      transcriptAgeMs,
+      contentHits,
+      contentCount,
+      hitRatio,
+      sim,
+      requiredHits,
+      requiredRatio,
+      requiredSim,
+    };
+  };
+
   const hasLiveStrictSpeakableBridgeProof = (
     cursorLine: number,
     targetLine: number,
@@ -5363,7 +5465,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastRescueMatchEvidenceLine <= safeTarget &&
       Number.isFinite(lastRescueMatchEvidenceSim) &&
       lastRescueMatchEvidenceSim >= DEFAULT_LIVE_STRICT_LOCAL_PROOF_RESCUE_MIN_SIM;
-    const ok = targetSupport || rescueSupport;
+    const bridgeSupport = targetSupport || rescueSupport;
+    const landingLexical = bridgeSupport
+      ? evaluateLiveStrictBridgeLandingLexicalProof(safeTarget, now)
+      : null;
+    const ok = bridgeSupport && !!landingLexical?.ok;
+    if (bridgeSupport && !ok && landingLexical) {
+      warnGuard('live_strict_bridge_landing_hold', [
+        `current=${safeCursor}`,
+        `target=${safeTarget}`,
+        `reason=${landingLexical.reason}`,
+        `finalAgeMs=${Math.round(landingLexical.transcriptAgeMs)}`,
+        `content=${landingLexical.contentHits}/${landingLexical.contentCount}`,
+        `ratio=${formatLogScore(landingLexical.hitRatio)}`,
+        `sim=${formatLogScore(landingLexical.sim)}`,
+      ]);
+      emitHudStatus(
+        'live_strict_bridge_landing_hold',
+        'Hold: bridge landing words not heard yet',
+      );
+    }
     if (ok) {
       warnGuard('live_strict_local_proof_ok', [
         `current=${safeCursor}`,
@@ -5371,6 +5492,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         `targetNeed=${formatLogScore(targetNeed)}`,
         `bridge=[${step.skippedReasons.join(',')}]`,
         targetSupport ? 'source=speakable-bridge' : 'source=speakable-bridge-rescue',
+        landingLexical
+          ? `landing=${landingLexical.contentHits}/${landingLexical.contentCount} sim=${formatLogScore(landingLexical.sim)}`
+          : '',
       ]);
     }
     return ok;
@@ -5817,16 +5941,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ]);
         return false;
       }
-      warnGuard('strict_live_adjacent_speakable_bridge', [
-        `current=${cursorLine}`,
-        `target=${targetLine}`,
-        `deltaRaw=${deltaLines}`,
-        `logicalStep=+1`,
-        `skipped=[${strictSpeakableStep.skippedReasons.join(',')}]`,
-        reason ? `source=${reason}` : '',
-      ]);
       const strictBridgeImmediateCommit = true;
       if (strictBridgeImmediateCommit) {
+        const strictBridgeProofOk = hasLiveStrictSpeakableBridgeProof(
+          cursorLine,
+          targetLine,
+          now,
+          strictRescueProofTopScores,
+          DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+        );
+        if (!strictBridgeProofOk) {
+          return false;
+        }
+        warnGuard('strict_live_adjacent_speakable_bridge', [
+          `current=${cursorLine}`,
+          `target=${targetLine}`,
+          `deltaRaw=${deltaLines}`,
+          `logicalStep=+1`,
+          `skipped=[${strictSpeakableStep.skippedReasons.join(',')}]`,
+          reason ? `source=${reason}` : '',
+        ]);
         const targetText = getLineTextAt(targetLine);
         if (!targetText) return false;
         const rescueSim = Math.max(DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_MULTI_JUMP_MIN_SIM);
@@ -7842,6 +7976,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const strictBridgeForceCommit =
         liveStrictFollow &&
         forceReason === 'strict-live-adjacent-speakable-bridge';
+      const strictBridgeForceProofOk =
+        strictBridgeForceCommit &&
+        !!strictSpeakableStep &&
+        strictSpeakableStep.targetLine > lastLineIndex &&
+        hasLiveStrictSpeakableBridgeProof(
+          lastLineIndex,
+          strictSpeakableStep.targetLine,
+          now,
+          rankedTopScores,
+          baselineRequired,
+        );
       if (liveStrictFollow && line > lastLineIndex && strictBypassRequested) {
         const strictPathStates: Array<{ path: string; kind: 'speech_backed' | 'autonomous_candidate' }> = [];
         if (watchdogBypass) strictPathStates.push({ path: 'watchdog', kind: 'autonomous_candidate' });
@@ -8053,7 +8198,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         (
           strictSpeakableBridgeAuthorized ||
           (
-            strictBridgeForceCommit &&
+            strictBridgeForceProofOk &&
             targetLine === strictSpeakableStep.targetLine
           )
         );
@@ -9842,6 +9987,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     eventsSinceCommit += 1;
     if (isFinal) {
       finalsSinceCommit += 1;
+      if (compactedComparable.length > 0) {
+        lastFinalTranscriptNorm = compactedComparable;
+        lastFinalTranscriptAt = now;
+      }
     }
     const stateCurrentIdx = getStateCurrentIndex();
     const incomingIdxRaw = Number((detail as any)?.currentIdx ?? NaN);
