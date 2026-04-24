@@ -9106,8 +9106,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           )
         );
       const strictTargetHasFreshProof =
-        strictFreshProofForTarget &&
-        !strictBackwardContradictionForCommit;
+        strictFreshProofForTarget;
       if (strictForwardCommit && !allowAsrReaderLeashAdvance({
         currentLine: lastLineIndex,
         targetLine,
