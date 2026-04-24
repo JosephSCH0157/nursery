@@ -490,6 +490,7 @@ const LIVE_STRICT_WEAK_POSITIVE_ADJACENT_MIN_SIM = 0.48;
 const LIVE_STRICT_BEHIND_RECOVERY_MIN_LINES = 1;
 const LIVE_STRICT_BEHIND_RECOVERY_MAX_LINES = 2;
 const LIVE_STRICT_BEHIND_RECOVERY_ADJACENT_SLACK = 0.04;
+const ASR_READER_LEASH_MAX_READABLE_AHEAD = 1;
 const LIVE_STRICT_MAX_CUE_BRIDGE_SPAN = DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES;
 const LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS = 2;
 const LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT = 3;
@@ -1472,6 +1473,7 @@ const GUARD_DEBUG_REASONS = new Set<string>([
   'strict_live_adjacent_speakable_bridge',
   'live_strict_bridge_landing_hold',
   'live_strict_bridge_stale_landing_hold',
+  'asr_reader_leash_hold',
   'strict_live_backlog_drain',
   'strict_live_backlog_drain_start',
   'strict_live_backlog_drain_step',
@@ -2473,6 +2475,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let commitCount = 0;
   let firstCommitIndex: number | null = null;
   let lastCommitIndex: number | null = null;
+  let lastCommittedLine = -1;
+  let lastFreshProofLine = -1;
   let lastKnownScrollTop = 0;
   let summaryEmitted = false;
   let scriptEndEventEmitted = false;
@@ -4309,6 +4313,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     pendingMatch = null;
     pendingSeq += 1;
     lastLineIndex = normalized;
+    lastCommittedLine = normalized;
+    lastFreshProofLine = normalized;
     matchAnchorIdx = normalized;
     lastEvidenceAt = now;
     lastForwardCommitAt = now;
@@ -5262,6 +5268,71 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     };
   };
 
+  const resolveNthNextSpeakableLine = (
+    fromLine: number,
+    steps: number,
+  ): number | null => {
+    const total = getTotalLines();
+    if (total <= 0) return null;
+    const safeSteps = Math.max(0, Math.floor(steps));
+    let cursor = Number.isFinite(fromLine) ? Math.floor(fromLine) : -1;
+    if (safeSteps <= 0) {
+      if (cursor >= 0) return Math.min(total - 1, Math.max(0, cursor));
+      return findNextSpokenLineIndex(0, total);
+    }
+    for (let i = 0; i < safeSteps; i += 1) {
+      const start = Math.max(0, cursor + 1);
+      const next = findNextSpokenLineIndex(start, total);
+      if (next == null) return null;
+      cursor = next;
+    }
+    return cursor >= 0 ? cursor : null;
+  };
+
+  const allowAsrReaderLeashAdvance = (args: {
+    currentLine: number;
+    targetLine: number;
+    targetHasFreshProof: boolean;
+    source?: string;
+    clue?: string;
+  }): boolean => {
+    const {
+      currentLine,
+      targetLine,
+      targetHasFreshProof,
+      source,
+      clue,
+    } = args;
+    if (getScrollMode() !== 'asr' || !isSessionLivePhase() || !isSessionAsrArmed()) return true;
+    const safeCurrent = Math.max(0, Math.floor(currentLine));
+    const safeTarget = Math.max(0, Math.floor(targetLine));
+    if (safeTarget <= safeCurrent) return true;
+    const proofBase = lastFreshProofLine >= 0
+      ? lastFreshProofLine
+      : (lastCommittedLine >= 0 ? lastCommittedLine : safeCurrent);
+    const leashLimitResolved = resolveNthNextSpeakableLine(
+      proofBase,
+      ASR_READER_LEASH_MAX_READABLE_AHEAD,
+    );
+    const leashLimit = leashLimitResolved != null ? leashLimitResolved : proofBase;
+    if (safeTarget <= leashLimit) return true;
+    if (targetHasFreshProof) return true;
+    warnGuard('asr_reader_leash_hold', [
+      `current=${safeCurrent}`,
+      `target=${safeTarget}`,
+      `freshProof=${proofBase}`,
+      `leashLimit=${leashLimit}`,
+      `maxReadableAhead=${ASR_READER_LEASH_MAX_READABLE_AHEAD}`,
+      source ? `source=${source}` : '',
+      clue ? `clue="${formatLogSnippet(String(clue || ''), 72)}"` : '',
+    ]);
+    emitHudStatus(
+      'asr_reader_leash_hold',
+      'Hold: reader leash blocked forward overrun',
+    );
+    return false;
+  };
+
   const hasLiveStrictLocalProof = (
     cursorLine: number,
     targetLine: number,
@@ -5725,6 +5796,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const liveStrictFollow = getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed();
     const nextSpoken = findNextSpokenLineIndex(cursorLine + 1);
     let targetLine: number;
+    let targetHasFreshProof = false;
     if (liveStrictFollow) {
       const totalLines = getTotalLines();
       const strictTargetLine = totalLines > 0
@@ -5756,6 +5828,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         topScores,
         requiredThreshold,
       );
+      targetHasFreshProof = localProofOk || cueExitProofOk;
       if (!localProofOk && !cueExitProofOk) {
         warnGuard('live_strict_cue_skip_hold', [
           `current=${cursorLine}`,
@@ -5771,6 +5844,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (!Number.isFinite(nextSpoken as number) || (nextSpoken as number) <= cursorLine) return false;
       targetLine = Math.max(0, Math.floor(nextSpoken as number));
     }
+    if (!allowAsrReaderLeashAdvance({
+      currentLine: cursorLine,
+      targetLine,
+      targetHasFreshProof,
+      source: 'cue-skip',
+      clue,
+    })) {
+      return false;
+    }
     const scroller = getScroller();
     const targetTop = scroller ? resolveTargetTop(scroller, targetLine) : null;
     if (scroller && targetTop != null) {
@@ -5785,6 +5867,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       markProgrammaticScroll();
     }
     lastLineIndex = targetLine;
+    lastCommittedLine = targetLine;
+    if (liveStrictFollow && targetHasFreshProof) {
+      lastFreshProofLine = Math.max(lastFreshProofLine, targetLine);
+    }
     matchAnchorIdx = targetLine;
     setCurrentIndex(targetLine, 'cue-skip');
     lastForwardCommitAt = now;
@@ -6410,6 +6496,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastCommitTime = now;
     const prev = Number.isFinite(prevIndex) ? Math.max(0, Math.floor(prevIndex)) : -1;
     const next = Number.isFinite(nextIndex) ? Math.max(0, Math.floor(nextIndex)) : -1;
+    lastCommittedLine = next;
+    if (next >= 0 && (lastFreshProofLine < 0 || next < lastFreshProofLine)) {
+      lastFreshProofLine = next;
+    }
     markCommitTranscriptCursor(next, now);
     liveProgressHeuristics.lastAdvanceAtMs = now;
     liveProgressHeuristics.lastAcceptedForwardIndex = next;
@@ -8932,6 +9022,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const strictForwardCommit =
         liveStrictFollow &&
         targetLine > lastLineIndex;
+      const strictTargetHasFreshProof =
+        strictForwardCommit &&
+        !!strictLocalProofForCommit &&
+        !strictBackwardContradictionForCommit;
+      if (strictForwardCommit && !allowAsrReaderLeashAdvance({
+        currentLine: lastLineIndex,
+        targetLine,
+        targetHasFreshProof: strictTargetHasFreshProof,
+        source: forceReason || 'commit-path',
+        clue: snippet,
+      })) {
+        return;
+      }
       const strictBypassOnlyAdmission =
         strictForwardCommit &&
         conf < baselineRequired &&
@@ -9860,6 +9963,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         jumpHistory.push(now);
       }
       noteCommit(prevLineIndex, targetLine, now);
+      if (targetLine > prevLineIndex && strictTargetHasFreshProof) {
+        lastFreshProofLine = targetLine;
+      } else if (targetLine > prevLineIndex && lastFreshProofLine < 0) {
+        lastFreshProofLine = Math.max(0, prevLineIndex);
+      }
       if (liveStrictFollow && targetLine > prevLineIndex) {
         liveProgressHeuristics.lastAdvanceAtMs = now;
         liveProgressHeuristics.lastAcceptedForwardIndex = targetLine;
@@ -14099,6 +14207,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     scriptEndEventEmitted = false;
     releaseCommitWindow('setLastLineIndex');
     lastLineIndex = Math.max(0, Math.floor(index));
+    lastCommittedLine = lastLineIndex;
+    lastFreshProofLine = lastLineIndex;
     _postCommitReadabilitySeq += 1;
     lastSeekTs = 0;
     lastSameLineNudgeTs = 0;
@@ -14143,6 +14253,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lagRelockHits = 0;
     lagRelockWindowStart = 0;
     lastForwardCommitAt = Date.now();
+    lastCommittedLine = lastLineIndex;
+    lastFreshProofLine = lastLineIndex;
     finalsSinceCommit = 0;
     eventsSinceCommit = 0;
     lostForwardGateCountAtLastCommit = getGuardCount('lost_forward_gate');
