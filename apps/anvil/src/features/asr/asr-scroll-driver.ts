@@ -146,6 +146,7 @@ type AsrBlockMatch = {
 
 type AsrCommit = {
   forced: boolean;
+  forceReason?: string;
   lineIdx: number;
   blockId: number;
   fromTop: number;
@@ -1473,6 +1474,8 @@ const GUARD_DEBUG_REASONS = new Set<string>([
   'strict_live_adjacent_speakable_bridge',
   'live_strict_bridge_landing_hold',
   'live_strict_bridge_stale_landing_hold',
+  'asr_reader_leash_speakable_limit',
+  'asr_reader_leash_physical_limit_bug',
   'asr_reader_leash_hold',
   'asr_reader_leash_downgrade',
   'strict_live_backlog_drain',
@@ -4428,6 +4431,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lastFocusLostAt,
         lastFocusRegainedAt,
         postFocusFreshProofRequired,
+        hasFreshPostFocusFinalProof: hasFreshPostFocusFinalProof(),
         asrFocusMovementHoldActive,
       };
     } catch {}
@@ -4461,7 +4465,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lastFocusLostAt,
         lastFocusRegainedAt,
         postFocusFreshProofRequired,
+        hasFreshPostFocusFinalProof: hasFreshPostFocusFinalProof(),
         movementHoldActive: asrFocusMovementHoldActive,
+        canAsrMove: canAsrMove(),
       };
     } catch {
       // ignore
@@ -4473,10 +4479,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     isSessionLivePhase() &&
     isSessionAsrArmed();
 
+  const getDocumentVisibilityState = () => {
+    try {
+      if (typeof document === 'undefined') return 'visible';
+      const state = String((document as any).visibilityState || 'visible').toLowerCase();
+      return state === 'hidden' ? 'hidden' : 'visible';
+    } catch {
+      return 'visible';
+    }
+  };
+
   const isDocumentVisible = () => {
     try {
       if (typeof document === 'undefined') return true;
-      return !document.hidden && document.visibilityState !== 'hidden';
+      return !document.hidden && getDocumentVisibilityState() === 'visible';
     } catch {
       return true;
     }
@@ -4566,6 +4582,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
   };
 
+  const hasFreshPostFocusFinalProof = () => !postFocusFreshProofRequired;
+
+  const canAsrMove = (): boolean => (
+    getScrollMode() === 'asr' &&
+    isSessionLivePhase() &&
+    isSessionAsrArmed() &&
+    isDocumentFocused() &&
+    getDocumentVisibilityState() === 'visible' &&
+    hasFreshPostFocusFinalProof()
+  );
+
   const canApplyAsrMovement = (
     source: string,
     now: number,
@@ -4573,11 +4600,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   ): boolean => {
     syncAsrFocusMovementGate(source, now);
     if (!isAsrLiveMovementSession()) return true;
-    if (asrFocusMovementHoldActive) {
+    if (canAsrMove()) return true;
+    const visibilityState = getDocumentVisibilityState();
+    const focused = isDocumentFocused();
+    const freshPostFocusProof = hasFreshPostFocusFinalProof();
+    if (asrFocusMovementHoldActive || !focused || visibilityState !== 'visible') {
       warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
         `state=lost`,
         `source=${source}`,
         `generation=${asrFocusGeneration}`,
+        focused ? '' : 'focus=0',
+        visibilityState === 'visible' ? '' : `visibility=${visibilityState}`,
       ]);
       emitHudStatus(
         ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD,
@@ -4585,7 +4618,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       );
       return false;
     }
-    if (postFocusFreshProofRequired) {
+    if (!freshPostFocusProof) {
       warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
         `state=awaiting_post_focus_final`,
         `source=${source}`,
@@ -4617,7 +4650,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       );
       return false;
     }
-    if (!postFocusFreshProofRequired) return true;
+    if (hasFreshPostFocusFinalProof()) return true;
     const isFinalAfterRegain =
       isFinal &&
       lastFocusRegainedAt > 0 &&
@@ -4848,6 +4881,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const source =
       String((event as CustomEvent | undefined)?.detail?.reason || '').trim() ||
       'signal';
+    if (!canApplyAsrMovement(`rescue-signal:${source}`, Date.now())) {
+      stallRescueRequested = false;
+      return;
+    }
     let scheduled = false;
     try {
       scheduled = maybeScheduleStallCueRescue(source);
@@ -5525,6 +5562,53 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return cursor >= 0 ? cursor : null;
   };
 
+  const resolveReaderLeashNextSpeakableLine = (
+    fromLine: number,
+    maxSpan = LIVE_STRICT_MAX_CUE_BRIDGE_SPAN,
+  ): number | null => {
+    const safeFrom = Number.isFinite(fromLine) ? Math.max(-1, Math.floor(fromLine)) : -1;
+    const strictStep = resolveLiveStrictNextSpeakableStep(safeFrom, maxSpan);
+    if (strictStep && strictStep.targetLine > safeFrom) {
+      return strictStep.targetLine;
+    }
+    const fallback = resolveNthNextSpeakableLine(safeFrom, 1);
+    return fallback != null && fallback > safeFrom ? fallback : null;
+  };
+
+  const resolveNthReaderLeashSpeakableLine = (
+    fromLine: number,
+    steps: number,
+    maxSpan = LIVE_STRICT_MAX_CUE_BRIDGE_SPAN,
+  ): number | null => {
+    const total = getTotalLines();
+    if (total <= 0) return null;
+    const safeSteps = Math.max(0, Math.floor(steps));
+    let cursor = Number.isFinite(fromLine) ? Math.floor(fromLine) : -1;
+    if (safeSteps <= 0) {
+      if (cursor >= 0) return Math.min(total - 1, Math.max(0, cursor));
+      return resolveReaderLeashNextSpeakableLine(-1, maxSpan);
+    }
+    for (let i = 0; i < safeSteps; i += 1) {
+      const next = resolveReaderLeashNextSpeakableLine(cursor, maxSpan);
+      if (next == null) return null;
+      cursor = next;
+    }
+    return cursor >= 0 ? cursor : null;
+  };
+
+  const isReaderLeashHardRecoverySource = (source?: string): boolean => {
+    const normalized = String(source || '').trim().toLowerCase();
+    if (!normalized) return false;
+    return (
+      normalized.includes('behind-recovery') ||
+      normalized.includes('behind-reanchor') ||
+      normalized.includes('stall_recovery_override') ||
+      normalized.includes('watchdog') ||
+      normalized.includes('catchup') ||
+      normalized.includes('lost-forward')
+    );
+  };
+
   const allowAsrReaderLeashAdvance = (args: {
     currentLine: number;
     targetLine: number;
@@ -5546,12 +5630,64 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const proofBase = lastFreshProofLine >= 0
       ? lastFreshProofLine
       : (lastCommittedLine >= 0 ? lastCommittedLine : safeCurrent);
-    const leashLimitResolved = resolveNthNextSpeakableLine(
+    const totalLines = getTotalLines();
+    const physicalLimit =
+      totalLines > 0
+        ? clamp(
+          proofBase + ASR_READER_LEASH_MAX_READABLE_AHEAD,
+          0,
+          Math.max(0, totalLines - 1),
+        )
+        : proofBase + ASR_READER_LEASH_MAX_READABLE_AHEAD;
+    const leashLimitResolved = resolveNthReaderLeashSpeakableLine(
       proofBase,
       ASR_READER_LEASH_MAX_READABLE_AHEAD,
     );
     const leashLimit = leashLimitResolved != null ? leashLimitResolved : proofBase;
+    if (leashLimit !== physicalLimit) {
+      warnGuard('asr_reader_leash_speakable_limit', [
+        `current=${safeCurrent}`,
+        `target=${safeTarget}`,
+        `freshProof=${proofBase}`,
+        `physicalLimit=${physicalLimit}`,
+        `speakableLimit=${leashLimit}`,
+        source ? `source=${source}` : '',
+      ]);
+    }
+    if (
+      targetHasFreshProof &&
+      safeTarget === leashLimit &&
+      safeTarget > physicalLimit
+    ) {
+      warnGuard('asr_reader_leash_physical_limit_bug', [
+        `current=${safeCurrent}`,
+        `target=${safeTarget}`,
+        `freshProof=${proofBase}`,
+        `physicalLimit=${physicalLimit}`,
+        `speakableLimit=${leashLimit}`,
+        source ? `source=${source}` : '',
+        clue ? `clue="${formatLogSnippet(String(clue || ''), 72)}"` : '',
+      ]);
+      return true;
+    }
     if (safeTarget <= leashLimit) return true;
+    const hardRecoveryPolicyAllow =
+      targetHasFreshProof &&
+      isReaderLeashHardRecoverySource(source) &&
+      safeTarget > leashLimit &&
+      safeTarget - leashLimit <= DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES;
+    if (hardRecoveryPolicyAllow) {
+      warnGuard('asr_reader_leash_speakable_limit', [
+        `state=hard_recovery_allow`,
+        `current=${safeCurrent}`,
+        `target=${safeTarget}`,
+        `freshProof=${proofBase}`,
+        `physicalLimit=${physicalLimit}`,
+        `speakableLimit=${leashLimit}`,
+        source ? `source=${source}` : '',
+      ]);
+      return true;
+    }
     warnGuard('asr_reader_leash_hold', [
       `current=${safeCurrent}`,
       `target=${safeTarget}`,
@@ -7434,7 +7570,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lineIdx: commit.lineIdx,
         blockId: commit.blockId,
       }) ?? beforeTop;
-    if (!canApplyAsrMovement('commit-move', Date.now())) {
+    const commitMoveSource = commit.forceReason
+      ? `commit-move:${commit.forceReason}`
+      : (commit.forced ? 'commit-move:forced' : 'commit-move');
+    if (!canApplyAsrMovement(commitMoveSource, Date.now())) {
       return {
         method: deps.writerAvailable && commit.blockId >= 0 ? 'writer' : 'pixel',
         writerCommitted: false,
@@ -7907,9 +8046,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const now = Date.now();
       const asrMode = getScrollMode() === 'asr';
       const liveStrictFollow = asrMode && isSessionLivePhase() && isSessionAsrArmed();
-      if (!canApplyAsrMovement('pending-commit', now)) {
-        return;
-      }
       const jumpCap = getMaxTargetJumpPx();
       const noInputSpeechWindowMs = DEFAULT_STARVATION_COMMIT_GAP_MS;
       const freshSpeechAgeMs =
@@ -7953,6 +8089,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lostMode: pendingLostMode,
         cueBridgeNudgeDelta: pendingCueBridgeNudgeDelta,
       } = pending;
+      const pendingCommitSource = forceReason
+        ? `pending-commit:${forceReason}`
+        : 'pending-commit';
+      if (!canApplyAsrMovement(pendingCommitSource, now, { final: isFinal, clue: snippet })) {
+        return;
+      }
       const thresholds = getAsrDriverThresholds();
       syncMotionTuning(thresholds, now);
       const requiredThresholdValue =
@@ -9240,7 +9382,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const strictLeashProofBase = lastFreshProofLine >= 0
           ? lastFreshProofLine
           : (lastCommittedLine >= 0 ? lastCommittedLine : lastLineIndex);
-        const strictLeashLimitResolved = resolveNthNextSpeakableLine(
+        const strictLeashLimitResolved = resolveNthReaderLeashSpeakableLine(
           strictLeashProofBase,
           ASR_READER_LEASH_MAX_READABLE_AHEAD,
         );
