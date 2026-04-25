@@ -79,10 +79,11 @@ export function mwHearthChatApi() {
 
       const body = await readBody(req);
       try {
+        const requestBody = body ? new Uint8Array(body) : undefined;
         const request = new Request(fullUrl.toString(), {
           method: req.method || "GET",
           headers: nodeHeadersToFetch(req.headers),
-          ...(body ? { body } : {}),
+          ...(requestBody ? { body: requestBody } : {}),
           signal: requestAbort.signal,
         });
 

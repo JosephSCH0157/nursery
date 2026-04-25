@@ -12,6 +12,7 @@ import {
   saveHammerPersistenceSnapshot,
 } from "../../../hammer/src/persistence/hammerPersistence";
 import type {
+  HammerPersistenceSaveRequest,
   HammerPersistenceSnapshot,
   HammerPersistenceTarget,
 } from "../../../hammer/src/persistence/hammerPersistenceContract";
@@ -48,12 +49,20 @@ function toErrorMessage(error: unknown, fallback: string): string {
 }
 
 function buildBaseSaveRequest(snapshot: HammerPersistenceSnapshot, now: string) {
+  const editorialAuthority = snapshot.editorial_authority.data;
+  if (!editorialAuthority) {
+    return null;
+  }
+
   return {
     written_by: TONGS_OPERATOR_WRITTEN_BY,
     active_session_id: snapshot.state?.active_session_id
       ?? snapshot.editor_session.data?.session_id
       ?? null,
     last_opened_at: now,
+    editorial_authority: {
+      data: editorialAuthority,
+    },
   };
 }
 
@@ -80,12 +89,21 @@ async function saveStructuredTranscript(args: {
     generatedAt: args.now,
   });
   const updatedTranscript = setHammerSubtitleArtifact(transcript, artifact);
+  const baseSaveRequest = buildBaseSaveRequest(args.snapshot, args.now);
+  if (!baseSaveRequest) {
+    return {
+      result: "failed",
+      message: "Hammer persistence is missing editorial authority and cannot be updated.",
+      snapshot: null,
+    };
+  }
+
   const saveResult = await saveHammerPersistenceSnapshot(args.target, {
-    ...buildBaseSaveRequest(args.snapshot, args.now),
+    ...baseSaveRequest,
     structured_transcript: {
       data: updatedTranscript,
     },
-  });
+  } satisfies HammerPersistenceSaveRequest);
 
   if (!saveResult.ok) {
     return {
@@ -146,12 +164,21 @@ async function regenerateVisualPlacements(args: {
     };
   }
 
+  const baseSaveRequest = buildBaseSaveRequest(args.snapshot, args.now);
+  if (!baseSaveRequest) {
+    return {
+      result: "failed",
+      message: "Hammer persistence is missing editorial authority and cannot be updated.",
+      snapshot: null,
+    };
+  }
+
   const saveResult = await saveHammerPersistenceSnapshot(args.target, {
-    ...buildBaseSaveRequest(args.snapshot, args.now),
+    ...baseSaveRequest,
     visual_placements: {
       data: nextPlacements,
     },
-  });
+  } satisfies HammerPersistenceSaveRequest);
 
   if (!saveResult.ok) {
     return {
@@ -184,12 +211,21 @@ async function regenerateAudioPolish(args: {
     };
   }
 
+  const preparingBaseSaveRequest = buildBaseSaveRequest(args.snapshot, args.now);
+  if (!preparingBaseSaveRequest) {
+    return {
+      result: "failed",
+      message: "Hammer persistence is missing editorial authority and cannot be updated.",
+      snapshot: null,
+    };
+  }
+
   const preparingSave = await saveHammerPersistenceSnapshot(args.target, {
-    ...buildBaseSaveRequest(args.snapshot, args.now),
+    ...preparingBaseSaveRequest,
     audio_polish: {
       data: buildPreparingHammerAudioPolish(prepSource),
     },
-  });
+  } satisfies HammerPersistenceSaveRequest);
   if (!preparingSave.ok) {
     return {
       result: "failed",
@@ -238,12 +274,21 @@ async function regenerateAudioPolish(args: {
         settingsSummary: response.settings_summary,
       });
 
+    const finalBaseSaveRequest = buildBaseSaveRequest(preparingSave.data, args.now);
+    if (!finalBaseSaveRequest) {
+      return {
+        result: "failed",
+        message: "Hammer persistence is missing editorial authority and cannot be updated.",
+        snapshot: null,
+      };
+    }
+
     const finalSave = await saveHammerPersistenceSnapshot(args.target, {
-      ...buildBaseSaveRequest(preparingSave.data, args.now),
+      ...finalBaseSaveRequest,
       audio_polish: {
         data: audioPolish,
       },
-    });
+    } satisfies HammerPersistenceSaveRequest);
     if (!finalSave.ok) {
       return {
         result: "failed",
@@ -270,8 +315,17 @@ async function regenerateAudioPolish(args: {
       error,
       "Hammer audio polish failed during operator execution.",
     );
+    const failedBaseSaveRequest = buildBaseSaveRequest(preparingSave.data, args.now);
+    if (!failedBaseSaveRequest) {
+      return {
+        result: "failed",
+        message: "Hammer persistence is missing editorial authority and cannot be updated.",
+        snapshot: null,
+      };
+    }
+
     const failedSave = await saveHammerPersistenceSnapshot(args.target, {
-      ...buildBaseSaveRequest(preparingSave.data, args.now),
+      ...failedBaseSaveRequest,
       audio_polish: {
         data: buildFailedHammerAudioPolish({
           prepSource,
@@ -279,7 +333,7 @@ async function regenerateAudioPolish(args: {
           failureReason,
         }),
       },
-    });
+    } satisfies HammerPersistenceSaveRequest);
 
     if (!failedSave.ok) {
       return {

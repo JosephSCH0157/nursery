@@ -528,7 +528,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
                 sourceFilename: uploadFileName,
                 contentType: mimeType ?? undefined,
               });
-              const transcodedBlob = new Blob([transcoded.audioBytes], { type: "audio/wav" });
+              const transcodedBlob = new Blob([new Uint8Array(transcoded.audioBytes)], { type: "audio/wav" });
               const transcodedAttempt = await sendToOpenAi(
                 transcodedBlob,
                 replaceFileExtension(uploadFileName, "wav"),

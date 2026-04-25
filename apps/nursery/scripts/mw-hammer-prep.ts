@@ -441,18 +441,6 @@ function readUpstreamErrorMessage(text: string): string | null {
   }
 }
 
-function buildRequestOrigin(req: IncomingMessage): string {
-  const forwardedProtoHeader = req.headers["x-forwarded-proto"];
-  const forwardedProto = Array.isArray(forwardedProtoHeader)
-    ? readTrimmed(forwardedProtoHeader[0])
-    : readTrimmed(forwardedProtoHeader);
-  const hostHeader = req.headers.host;
-  const host = Array.isArray(hostHeader)
-    ? readTrimmed(hostHeader[0])
-    : readTrimmed(hostHeader);
-  return `${forwardedProto ?? "http"}://${host ?? "localhost"}`;
-}
-
 function readJsonObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -1972,7 +1960,7 @@ export function createHammerPrepMiddleware() {
       form.set("chunking_strategy", "auto");
       form.set(
         "file",
-        new Blob([fileBytes], { type: contentType }),
+        new Blob([new Uint8Array(fileBytes)], { type: contentType }),
         path.basename(sourceLabel),
       );
 
