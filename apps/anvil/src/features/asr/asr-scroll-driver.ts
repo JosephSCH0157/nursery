@@ -354,6 +354,10 @@ const DEFAULT_NOISE_INTERIM_MIN_TOKENS = 3;
 const DEFAULT_NOISE_INTERIM_MIN_CHARS = 12;
 const DEFAULT_STARVATION_COMMIT_GAP_MS = 1500;
 const DEFAULT_STARVATION_WARN_COOLDOWN_MS = 1500;
+const DEFAULT_ASR_SOFT_RUNTIME_REBASE_STALL_MS = 5000;
+const DEFAULT_ASR_SOFT_RUNTIME_REBASE_COOLDOWN_MS = 7000;
+const DEFAULT_ASR_SOFT_RUNTIME_REBASE_FINAL_MAX_AGE_MS = 5000;
+const DEFAULT_ASR_SOFT_RUNTIME_REBASE_SKIP_LOG_COOLDOWN_MS = 1200;
 const DEFAULT_ASR_VAD_SPEECH_GRACE_MS = 900;
 const DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS = 900;
 const DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES = 5;
@@ -3202,6 +3206,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastRescueSpeechTokenCount = 0;
   let lastFinalTranscriptNorm = '';
   let lastFinalTranscriptAt = 0;
+  let lastFinalTranscriptRaw = '';
+  let lastFinalTranscriptRunKey = '';
+  let lastFinalTranscriptRunGeneration: number | null = null;
   let lastCommitTranscriptTextLength = 0;
   let lastCommitTranscriptTimestamp = 0;
   let lastCommitTargetLine = -1;
@@ -3223,6 +3230,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastRescueMatchEvidenceSim = 0;
   let lastRescueNoMatchAt = 0;
   let lastStableInterimNudgeAt = 0;
+  let softRuntimeRebaseCooldownUntil = 0;
+  let softRuntimeRebaseLastStallAnchorAt = -1;
+  let softRuntimeRebaseRetryActive = false;
+  let softRuntimeRebaseLastSkipLogAt = 0;
   let lastBadCursorOnCueLogAt = 0;
   let lastAutoCueSkipAt = 0;
   let lastStallRecoveryOverrideAt = 0;
@@ -11952,6 +11963,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (compactedComparable.length > 0) {
         lastFinalTranscriptNorm = compactedComparable;
         lastFinalTranscriptAt = now;
+        lastFinalTranscriptRaw = compacted;
+        lastFinalTranscriptRunKey = transcriptRunKey;
+        lastFinalTranscriptRunGeneration = transcriptRunGeneration;
       }
     }
     const stateCurrentIdx = getStateCurrentIndex();
@@ -12121,6 +12135,218 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       emitHudStatus('no_match', 'No match (pipeline)');
       noteNoMatchGap(now, 'missing_payload', snippet);
       return;
+    }
+    const bestIdxForSoftRuntimeRebase = Number.isFinite(Number(incomingMatch.bestIdx))
+      ? Math.max(0, Math.floor(Number(incomingMatch.bestIdx)))
+      : -1;
+    const bestSimForSoftRuntimeRebase = Number.isFinite(Number(incomingMatch.bestSim))
+      ? Number(incomingMatch.bestSim)
+      : 0;
+    const currentForSoftRuntimeRebase = Number.isFinite(currentCursorIndex)
+      ? Math.max(0, Math.floor(currentCursorIndex))
+      : (lastLineIndex >= 0 ? Math.max(0, Math.floor(lastLineIndex)) : -1);
+    const noCommitMsForSoftRuntimeRebase = Math.max(0, now - lastCommitTime);
+    const starvationMsForSoftRuntimeRebase = Math.max(0, now - lastForwardCommitAt);
+    const lastFinalAgeMsForSoftRuntimeRebase =
+      lastFinalTranscriptAt > 0
+        ? Math.max(0, now - lastFinalTranscriptAt)
+        : Number.POSITIVE_INFINITY;
+    const shouldConsiderSoftRuntimeRebase =
+      !softRuntimeRebaseRetryActive &&
+      liveAsrSessionActive &&
+      isFinal &&
+      noCommitMsForSoftRuntimeRebase >= DEFAULT_ASR_SOFT_RUNTIME_REBASE_STALL_MS &&
+      starvationMsForSoftRuntimeRebase >= DEFAULT_ASR_SOFT_RUNTIME_REBASE_STALL_MS;
+    const maybeLogSoftRuntimeRebaseSkip = (reason: string, extraParts: string[] = []) => {
+      if (!shouldConsiderSoftRuntimeRebase) return;
+      if (now - softRuntimeRebaseLastSkipLogAt < DEFAULT_ASR_SOFT_RUNTIME_REBASE_SKIP_LOG_COOLDOWN_MS) {
+        return;
+      }
+      softRuntimeRebaseLastSkipLogAt = now;
+      warnGuard('asr_soft_runtime_rebase_skip', [
+        `current=${currentForSoftRuntimeRebase}`,
+        `bestIdx=${bestIdxForSoftRuntimeRebase}`,
+        `bestSim=${formatLogScore(bestSimForSoftRuntimeRebase)}`,
+        `starvationMs=${starvationMsForSoftRuntimeRebase}`,
+        `noCommitMs=${noCommitMsForSoftRuntimeRebase}`,
+        `lastCommitIndex=${lastCommitIndex ?? -1}`,
+        Number.isFinite(lastFinalAgeMsForSoftRuntimeRebase)
+          ? `lastFinalAgeMs=${Math.round(lastFinalAgeMsForSoftRuntimeRebase)}`
+          : 'lastFinalAgeMs=inf',
+        `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+        `reason=${reason}`,
+        ...extraParts,
+      ]);
+    };
+    if (shouldConsiderSoftRuntimeRebase) {
+      const stallWindowAlreadyRebased =
+        softRuntimeRebaseLastStallAnchorAt >= 0 &&
+        softRuntimeRebaseLastStallAnchorAt === lastForwardCommitAt;
+      const hasRecentFinalTranscript =
+        Number.isFinite(lastFinalAgeMsForSoftRuntimeRebase) &&
+        lastFinalAgeMsForSoftRuntimeRebase <= DEFAULT_ASR_SOFT_RUNTIME_REBASE_FINAL_MAX_AGE_MS;
+      const hasForwardEvidence =
+        bestIdxForSoftRuntimeRebase > currentForSoftRuntimeRebase &&
+        bestSimForSoftRuntimeRebase >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM;
+      const retryText = String(lastFinalTranscriptRaw || compacted || '').trim();
+      if (!asrRuntimeSpeechRunningActual) {
+        maybeLogSoftRuntimeRebaseSkip('speech_not_running');
+      } else if (isRunIdentityStale({
+        runKey: transcriptRunKey || undefined,
+        runGeneration: transcriptRunGeneration,
+      })) {
+        maybeLogSoftRuntimeRebaseSkip('stale_run_identity');
+      } else if (now < softRuntimeRebaseCooldownUntil) {
+        maybeLogSoftRuntimeRebaseSkip('cooldown', [
+          `cooldownMs=${Math.max(0, Math.round(softRuntimeRebaseCooldownUntil - now))}`,
+        ]);
+      } else if (stallWindowAlreadyRebased) {
+        maybeLogSoftRuntimeRebaseSkip('stall_window_already_rebased', [
+          `stallAnchor=${softRuntimeRebaseLastStallAnchorAt}`,
+        ]);
+      } else if (!hasRecentFinalTranscript) {
+        maybeLogSoftRuntimeRebaseSkip('final_transcript_stale', [
+          Number.isFinite(lastFinalAgeMsForSoftRuntimeRebase)
+            ? `maxFinalAgeMs=${DEFAULT_ASR_SOFT_RUNTIME_REBASE_FINAL_MAX_AGE_MS}`
+            : 'maxFinalAgeMs=na',
+        ]);
+      } else if (!hasForwardEvidence) {
+        maybeLogSoftRuntimeRebaseSkip('no_forward_evidence');
+      } else if (!retryText) {
+        maybeLogSoftRuntimeRebaseSkip('no_retry_final_transcript');
+      } else {
+        const clearedState: string[] = [];
+        const clearState = (name: string, changed: boolean, apply: () => void) => {
+          if (!changed) return;
+          apply();
+          clearedState.push(name);
+        };
+        clearState('bridge_landing_commit_cursor', (
+          lastCommitTranscriptNormSnapshot.length > 0 ||
+          lastCommitTranscriptTextLength > 0 ||
+          lastCommitTranscriptTimestamp > 0 ||
+          lastCommitTargetLine >= 0
+        ), () => {
+          lastCommitTranscriptNormSnapshot = '';
+          lastCommitTranscriptTextLength = 0;
+          lastCommitTranscriptTimestamp = 0;
+          lastCommitTargetLine = -1;
+        });
+        clearState('speculative_latch', liveStrictSpeculativeStepUsed, () => {
+          liveStrictSpeculativeStepUsed = false;
+        });
+        clearState('cue_stall_rescue_cooldown', lastCueStallRescueAt !== 0, () => {
+          lastCueStallRescueAt = 0;
+        });
+        clearState('stall_rescue_requested', stallRescueRequested, () => {
+          stallRescueRequested = false;
+        });
+        clearState(
+          'bridge_contradiction_latch',
+          liveStrictForwardClusterContradictionAt > 0,
+          () => {
+            liveStrictForwardClusterContradictionAt = 0;
+          },
+        );
+        clearState('weak_forward_signals', liveProgressHeuristics.consecutiveWeakForwardSignals > 0, () => {
+          liveProgressHeuristics.consecutiveWeakForwardSignals = 0;
+        });
+        clearState('rescue_no_match_latch', lastRescueNoMatchAt > 0, () => {
+          lastRescueNoMatchAt = 0;
+        });
+        clearState('stable_interim_nudge_latch', lastStableInterimNudgeAt > 0, () => {
+          lastStableInterimNudgeAt = 0;
+        });
+        clearState('ambiguity_hold', ambiguityHoldActive, () => {
+          resetAmbiguityHoldState();
+        });
+        clearState('fresh_speech_flags', !freshSpeechSinceCommit || lastRescueSpeechAt <= 0, () => {
+          freshSpeechSinceCommit = true;
+          lastRescueSpeechAt = now;
+        });
+        if (hasForwardEvidence) {
+          lastRescueMatchEvidenceAt = now;
+          lastRescueMatchEvidenceLine = bestIdxForSoftRuntimeRebase;
+          lastRescueMatchEvidenceSim = bestSimForSoftRuntimeRebase;
+          clearedState.push('rescue_match_evidence_refreshed');
+        }
+        softRuntimeRebaseLastStallAnchorAt = lastForwardCommitAt;
+        softRuntimeRebaseCooldownUntil = now + DEFAULT_ASR_SOFT_RUNTIME_REBASE_COOLDOWN_MS;
+        warnGuard('asr_soft_runtime_rebase', [
+          `current=${currentForSoftRuntimeRebase}`,
+          `bestIdx=${bestIdxForSoftRuntimeRebase}`,
+          `bestSim=${formatLogScore(bestSimForSoftRuntimeRebase)}`,
+          `starvationMs=${starvationMsForSoftRuntimeRebase}`,
+          `noCommitMs=${noCommitMsForSoftRuntimeRebase}`,
+          `lastCommitIndex=${lastCommitIndex ?? -1}`,
+          Number.isFinite(lastFinalAgeMsForSoftRuntimeRebase)
+            ? `lastFinalAgeMs=${Math.round(lastFinalAgeMsForSoftRuntimeRebase)}`
+            : 'lastFinalAgeMs=inf',
+          `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+          'reason=starvation_state_flush',
+          `clearedState=[${clearedState.join(',')}]`,
+        ]);
+        const retryMatchId = `${matchId}:soft_runtime_rebase_retry`;
+        warnGuard('asr_soft_runtime_rebase_retry', [
+          `current=${currentForSoftRuntimeRebase}`,
+          `bestIdx=${bestIdxForSoftRuntimeRebase}`,
+          `bestSim=${formatLogScore(bestSimForSoftRuntimeRebase)}`,
+          `starvationMs=${starvationMsForSoftRuntimeRebase}`,
+          `noCommitMs=${noCommitMsForSoftRuntimeRebase}`,
+          `lastCommitIndex=${lastCommitIndex ?? -1}`,
+          Number.isFinite(lastFinalAgeMsForSoftRuntimeRebase)
+            ? `lastFinalAgeMs=${Math.round(lastFinalAgeMsForSoftRuntimeRebase)}`
+            : 'lastFinalAgeMs=inf',
+          `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+          'reason=retry_dispatch',
+          `matchId=${retryMatchId}`,
+        ]);
+        const retryDetail: TranscriptDetail = {
+          source: 'soft_runtime_rebase_retry',
+          matchId: retryMatchId,
+          match: incomingMatch,
+          runKey: (lastFinalTranscriptRunKey || transcriptRunKey || null),
+          runGeneration: lastFinalTranscriptRunGeneration ?? transcriptRunGeneration ?? null,
+          currentIdx: currentForSoftRuntimeRebase >= 0 ? currentForSoftRuntimeRebase : null,
+          speechRunningActual: asrRuntimeSpeechRunningActual,
+        };
+        const commitsBeforeRetry = commitCount;
+        const guardEventsBeforeRetry = guardEvents.length;
+        softRuntimeRebaseRetryActive = true;
+        try {
+          ingest(retryText, true, retryDetail);
+        } finally {
+          softRuntimeRebaseRetryActive = false;
+        }
+        const committedOnRetry =
+          commitCount > commitsBeforeRetry ||
+          (lastCommitIndex != null && lastCommitIndex > currentForSoftRuntimeRebase);
+        const refusalReason = !committedOnRetry
+          ? (
+            guardEvents.length > guardEventsBeforeRetry
+              ? String(guardEvents[guardEvents.length - 1]?.reason || 'unknown_guard')
+              : 'no_guard_reason'
+          )
+          : '';
+        warnGuard('asr_soft_runtime_rebase_retry', [
+          `current=${currentForSoftRuntimeRebase}`,
+          `bestIdx=${bestIdxForSoftRuntimeRebase}`,
+          `bestSim=${formatLogScore(bestSimForSoftRuntimeRebase)}`,
+          `starvationMs=${starvationMsForSoftRuntimeRebase}`,
+          `noCommitMs=${noCommitMsForSoftRuntimeRebase}`,
+          `lastCommitIndex=${lastCommitIndex ?? -1}`,
+          Number.isFinite(lastFinalAgeMsForSoftRuntimeRebase)
+            ? `lastFinalAgeMs=${Math.round(lastFinalAgeMsForSoftRuntimeRebase)}`
+            : 'lastFinalAgeMs=inf',
+          `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+          committedOnRetry ? 'reason=commit' : 'reason=refused',
+          committedOnRetry
+            ? 'sourceBranch=soft_runtime_rebase_retry'
+            : `refusalReason=${refusalReason}`,
+          `matchId=${retryMatchId}`,
+        ]);
+        return;
+      }
     }
     resetNoMatchTracking('match');
     const prevBufferChars = lastBufferChars;
@@ -16198,6 +16424,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lostForwardWallStreak = 0;
     lastProgressCursorLine = lastLineIndex;
     lastCueStallRescueAt = 0;
+    softRuntimeRebaseCooldownUntil = 0;
+    softRuntimeRebaseLastStallAnchorAt = -1;
+    softRuntimeRebaseRetryActive = false;
+    softRuntimeRebaseLastSkipLogAt = 0;
     lostForwardActive = false;
     lostForwardStage = 0;
     lostForwardEnteredAt = 0;
