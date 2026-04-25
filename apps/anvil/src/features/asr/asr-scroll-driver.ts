@@ -8817,6 +8817,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         runKey: pendingRunKey || undefined,
         runGeneration: pendingRunGeneration,
       });
+      const proofOwnedPrimarySpeechFresh =
+        !asrSilenceActive &&
+        runtimeSpeechFresh &&
+        asrRuntimeSpeechRunningActual;
       const liveSpeechForwardPushAllow =
         liveStrictFollow &&
         !!strictSpeakableStep &&
@@ -8827,8 +8831,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ) &&
         liveSpeechForwardPushTarget === adjacentLine &&
         liveSpeechForwardPushTarget > lastLineIndex &&
-        asrRuntimeSpeechRunningActual &&
-        strictSpeechFreshNow &&
+        proofOwnedPrimarySpeechFresh &&
         !liveSpeechForwardPushRunStale &&
         !liveSpeechForwardPushBackwardContradiction &&
         (
@@ -9845,6 +9848,101 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           !hasRecentVadSpeech ||
           !runtimeSpeechFresh ||
           !!pending.liveForwardGuardActive;
+        const tryApplyProofOwnedPrimaryCommitFromLiveStepHold = (): boolean => {
+          if (!liveStrictFollow) return false;
+          if (liveStepTarget == null || liveStepTarget <= lastLineIndex) return false;
+          const strictStepNow = resolveLiveStrictNextSpeakableStep(
+            lastLineIndex,
+            LIVE_STRICT_MAX_CUE_BRIDGE_SPAN,
+          );
+          if (!strictStepNow || strictStepNow.targetLine !== liveStepTarget) return false;
+          const skippedIgnorableLines = strictStepNow.skippedReasons;
+          const localProof =
+            hasLiveStrictLocalProof(
+              lastLineIndex,
+              liveStepTarget,
+              now,
+              rankedTopScores,
+              baselineRequired,
+            ) ||
+            hasLiveStrictCueExitProof(
+              lastLineIndex,
+              liveStepTarget,
+              now,
+              rankedTopScores,
+              baselineRequired,
+            );
+          const bridgeProof = hasLiveStrictSpeakableBridgeProof(
+            lastLineIndex,
+            liveStepTarget,
+            now,
+            rankedTopScores,
+            baselineRequired,
+          );
+          const rescueProof = hasFreshNearbyRescueMatchEvidence(
+            lastLineIndex,
+            liveStepTarget,
+            now,
+            skippedIgnorableLines,
+          );
+          const proofSource = localProof
+            ? 'live_strict_local_proof_ok'
+            : (bridgeProof ? 'strict_speakable_bridge_landing' : (rescueProof ? 'adjacent_rescue_proofed' : 'none'));
+          if (!localProof && !bridgeProof && !rescueProof) return false;
+          const runStale = isRunIdentityStale({
+            runKey: pendingRunKey || undefined,
+            runGeneration: pendingRunGeneration,
+          });
+          if (runStale) return false;
+          const backwardContradiction =
+            rankedTopScores.some((entry) =>
+              entry.idx <= lastLineIndex &&
+              entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06),
+            );
+          if (backwardContradiction) return false;
+          const speechFresh =
+            !asrSilenceActive &&
+            runtimeSpeechFresh &&
+            asrRuntimeSpeechRunningActual;
+          if (!speechFresh) return false;
+          const sinceCommitMs = Math.max(0, now - lastCommitTime);
+          const starvationDetected =
+            lastCommitIndex != null &&
+            sinceCommitMs >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
+            Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
+          warnGuard('proof_owned_primary_commit', [
+            `current=${lastLineIndex}`,
+            `target=${liveStepTarget}`,
+            `bestIdx=${line}`,
+            `proofSource=${proofSource}`,
+            skippedIgnorableLines.length
+              ? `skippedIgnorableLines=[${skippedIgnorableLines.join(',')}]`
+              : 'skippedIgnorableLines=[]',
+            `stallMs=${Math.max(0, now - lastForwardCommitAt)}`,
+            'sourceBranch=pending-live-step-hold',
+            `oldWouldHaveUsedStallOverride=${starvationDetected && isFinal ? 'true' : 'false'}`,
+            snippet ? `clue="${snippet}"` : '',
+          ]);
+          const matchIdProofOwned = matchId
+            ? `${matchId}:proof-owned-primary`
+            : `proof-owned-primary-${now.toString(36)}-${liveStepTarget}`;
+          adoptPendingMatch({
+            ...pending,
+            line: liveStepTarget,
+            conf: Math.max(conf, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM),
+            hasEvidence: true,
+            forced: true,
+            forceReason: 'live_strict_proof_owned_commit',
+            matchId: matchIdProofOwned,
+            cursorLine: lastLineIndex,
+            searchWindowFrom: lastLineIndex,
+            searchWindowTo: liveStepTarget,
+            cueBridgeNudgeDelta: Math.max(1, liveStepTarget - lastLineIndex),
+            liveForwardGuardActive: undefined,
+          });
+          schedulePending();
+          return true;
+        };
         const tryApplyStallRecoveryOverride = (): boolean => {
           if (liveStepTarget == null) return false;
           const sinceCommitMs = Math.max(0, now - lastCommitTime);
@@ -9911,6 +10009,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           !strictBacklogDrainTerminalActive &&
           liveForwardHoldActive
         ) {
+          if (tryApplyProofOwnedPrimaryCommitFromLiveStepHold()) return;
           if (tryApplyStallRecoveryOverride()) return;
           const liveStepScore = Number(
             rankedTopScores.find((entry) => entry.idx === liveStepTarget)?.score,
