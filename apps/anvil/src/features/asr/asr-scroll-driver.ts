@@ -5864,9 +5864,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       normalized.includes('behind-recovery') ||
       normalized.includes('behind-reanchor') ||
       normalized.includes('stall_recovery_override') ||
+      normalized.includes('starvation_future_speech_reconcile') ||
       normalized.includes('watchdog') ||
       normalized.includes('catchup') ||
       normalized.includes('lost-forward')
+    );
+  };
+
+  const isProofOwnedPrimaryForceReason = (reason?: unknown): boolean => {
+    const normalized = String(reason || '').trim().toLowerCase();
+    if (!normalized) return false;
+    return (
+      normalized === 'live_strict_proof_owned_commit' ||
+      normalized === 'starvation_future_speech_reconcile'
     );
   };
 
@@ -8916,7 +8926,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         };
       };
       const strictProofOwnedCapBypassTarget = evaluateStrictProofOwnedCapBypassTarget();
-      if (strictProofOwnedCapBypassTarget && forceReason !== 'live_strict_proof_owned_commit') {
+      if (strictProofOwnedCapBypassTarget && !isProofOwnedPrimaryForceReason(forceReason)) {
         const oldWouldHaveUsedStallOverride =
           isFinal &&
           lastCommitIndex != null &&
@@ -8937,6 +8947,157 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           snippet ? `clue="${snippet}"` : '',
         ]);
         forceReason = 'live_strict_proof_owned_commit';
+      }
+      type StarvationFutureSpeechReconcileTarget = {
+        target: number;
+        proofSource: string;
+        skippedIgnorableLines: CueBridgeSkipReason[];
+        speakableSteps: number;
+        starvationMs: number;
+      };
+      const evaluateStarvationFutureSpeechReconcileTarget = (): StarvationFutureSpeechReconcileTarget | null => {
+        if (!liveStrictFollow) return null;
+        if (!isFinal || !hasEvidence) return null;
+        if (!proofOwnedPrimarySpeechFresh) return null;
+        if (isProofOwnedPrimaryForceReason(forceReason)) return null;
+        if (liveSpeechForwardPushRunStale) return null;
+        const starvationMs = Math.max(0, now - lastForwardCommitAt);
+        if (starvationMs < DEFAULT_STARVATION_COMMIT_GAP_MS) return null;
+        const requestedBestIdx = Math.max(
+          Math.floor(line),
+          Number.isFinite(bestForwardCandidate?.idx) ? Number(bestForwardCandidate?.idx) : -1,
+        );
+        if (!Number.isFinite(requestedBestIdx) || requestedBestIdx <= lastLineIndex + 1) return null;
+        const backwardContradiction = rankedTopScores.some((entry) =>
+          entry.idx <= lastLineIndex &&
+          entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06),
+        );
+        if (backwardContradiction) return null;
+        const maxDeltaLines = 8;
+        const maxSpeakableSteps = 6;
+        const candidateMaxTarget = Math.min(
+          lastLineIndex + maxDeltaLines,
+          Math.max(lastLineIndex + 2, requestedBestIdx),
+        );
+        let cursor = lastLineIndex;
+        let furthestTarget = -1;
+        const skippedReasons: CueBridgeSkipReason[] = [];
+        const proofSources: string[] = [];
+        let steps = 0;
+        while (steps < maxSpeakableSteps) {
+          const step = resolveLiveStrictNextSpeakableStep(
+            cursor,
+            LIVE_STRICT_MAX_CUE_BRIDGE_SPAN,
+          );
+          if (!step || step.targetLine <= cursor) break;
+          if (step.targetLine > candidateMaxTarget) break;
+          const localProof =
+            hasLiveStrictLocalProof(
+              cursor,
+              step.targetLine,
+              now,
+              rankedTopScores,
+              baselineRequired,
+            ) ||
+            hasLiveStrictCueExitProof(
+              cursor,
+              step.targetLine,
+              now,
+              rankedTopScores,
+              baselineRequired,
+            );
+          const bridgeProof = hasLiveStrictSpeakableBridgeProof(
+            cursor,
+            step.targetLine,
+            now,
+            rankedTopScores,
+            baselineRequired,
+          );
+          const rescueProof = hasFreshNearbyRescueMatchEvidence(
+            cursor,
+            step.targetLine,
+            now,
+            step.skippedReasons,
+          );
+          const landingLexical = evaluateLiveStrictBridgeLandingLexicalProof(step.targetLine, now);
+          const fullLexicalProof =
+            landingLexical.contentCount > 0 &&
+            landingLexical.fullContentHits >= landingLexical.requiredHits &&
+            landingLexical.fullHitRatio >= landingLexical.requiredRatio;
+          let stepProofSource = '';
+          if (localProof) {
+            stepProofSource = 'live_strict_local_proof_ok';
+          } else if (bridgeProof) {
+            stepProofSource = 'strict_speakable_bridge_landing';
+          } else if (rescueProof) {
+            stepProofSource = 'adjacent_rescue_proofed';
+          } else if (landingLexical.ok) {
+            stepProofSource = 'future_tail_lexical';
+          } else if (fullLexicalProof) {
+            stepProofSource = 'future_full_lexical';
+          } else {
+            break;
+          }
+          furthestTarget = step.targetLine;
+          steps += 1;
+          proofSources.push(stepProofSource);
+          skippedReasons.push(...step.skippedReasons);
+          cursor = step.targetLine;
+        }
+        if (furthestTarget <= lastLineIndex + 1 || steps <= 1) return null;
+        return {
+          target: furthestTarget,
+          proofSource: proofSources.join('+'),
+          skippedIgnorableLines: skippedReasons,
+          speakableSteps: steps,
+          starvationMs,
+        };
+      };
+      const starvationFutureSpeechReconcileTarget = evaluateStarvationFutureSpeechReconcileTarget();
+      if (starvationFutureSpeechReconcileTarget) {
+        warnGuard('starvation_future_speech_reconcile', [
+          `current=${lastLineIndex}`,
+          `target=${starvationFutureSpeechReconcileTarget.target}`,
+          `bestIdx=${line}`,
+          `proofSource=${starvationFutureSpeechReconcileTarget.proofSource}`,
+          `speakableSteps=${starvationFutureSpeechReconcileTarget.speakableSteps}`,
+          `starvationMs=${starvationFutureSpeechReconcileTarget.starvationMs}`,
+          snippet ? `clue="${snippet}"` : '',
+        ]);
+        warnGuard('proof_owned_primary_commit', [
+          `current=${lastLineIndex}`,
+          `target=${starvationFutureSpeechReconcileTarget.target}`,
+          `bestIdx=${line}`,
+          `proofSource=${starvationFutureSpeechReconcileTarget.proofSource}`,
+          starvationFutureSpeechReconcileTarget.skippedIgnorableLines.length
+            ? `skippedIgnorableLines=[${starvationFutureSpeechReconcileTarget.skippedIgnorableLines.join(',')}]`
+            : 'skippedIgnorableLines=[]',
+          `stallMs=${starvationFutureSpeechReconcileTarget.starvationMs}`,
+          'sourceBranch=starvation_future_speech_reconcile',
+          'oldWouldHaveUsedStallOverride=true',
+          snippet ? `clue="${snippet}"` : '',
+        ]);
+        adoptPendingMatch({
+          ...pending,
+          line: starvationFutureSpeechReconcileTarget.target,
+          conf: Math.max(conf, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM),
+          hasEvidence: true,
+          forced: true,
+          forceReason: 'starvation_future_speech_reconcile',
+          matchId: matchId
+            ? `${matchId}:future-reconcile`
+            : `future-reconcile-${now.toString(36)}-${starvationFutureSpeechReconcileTarget.target}`,
+          cursorLine: lastLineIndex,
+          searchWindowFrom: lastLineIndex,
+          searchWindowTo: starvationFutureSpeechReconcileTarget.target,
+          cueBridgeNudgeDelta: Math.max(
+            1,
+            starvationFutureSpeechReconcileTarget.target - lastLineIndex,
+          ),
+          liveForwardGuardActive: undefined,
+        });
+        schedulePending();
+        return;
       }
       const liveSpeechForwardPushAllow =
         liveStrictFollow &&
@@ -8992,7 +9153,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           snippet ? `clue="${snippet}"` : '',
         ]);
       }
-      if (liveSpeechForwardPushCommit && forceReason !== 'live_strict_proof_owned_commit') {
+      if (liveSpeechForwardPushCommit && !isProofOwnedPrimaryForceReason(forceReason)) {
         const oldWouldHaveUsedStallOverride =
           isFinal &&
           lastCommitIndex != null &&
@@ -9203,7 +9364,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveSpeechForwardPushCommit &&
         liveSpeechForwardPushTarget > lastLineIndex;
       let proofOwnedForceBypass =
-        forceReason === 'live_strict_proof_owned_commit' &&
+        isProofOwnedPrimaryForceReason(forceReason) &&
         line > lastLineIndex &&
         line <= adjacentLine &&
         asrRuntimeSpeechRunningActual &&
@@ -9717,7 +9878,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       if (
         targetLine > lastLineIndex + effectiveClampDeltaLimit &&
-        forceReason !== 'live_strict_proof_owned_commit' &&
+        !isProofOwnedPrimaryForceReason(forceReason) &&
         !strictSpeakableBridgeAuthoritative &&
         !(
           strongForwardCommit &&
@@ -10132,6 +10293,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           liveStepTarget != null &&
           requestedTargetLine > liveStepTarget &&
           !strictBacklogDrainTerminalActive &&
+          !isProofOwnedPrimaryForceReason(forceReason) &&
           liveForwardHoldActive
         ) {
           if (tryApplyProofOwnedPrimaryCommitFromLiveStepHold()) return;
@@ -10156,6 +10318,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           liveStepTarget != null &&
           requestedTargetLine === liveStepTarget &&
           !strictBacklogDrainTerminalActive &&
+          !isProofOwnedPrimaryForceReason(forceReason) &&
           tryApplyStallRecoveryOverride()
         ) {
           return;
@@ -10164,7 +10327,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         // Starvation bypass may allow forward progress on weaker evidence, but it should not
         // turn into multi-line jumps that outrun the reader.
         if (liveStepTarget != null && targetLine > liveStepTarget && !strictEarlyBacklogDrainActive) {
-          if (forceReason === 'live_strict_proof_owned_commit') {
+          if (isProofOwnedPrimaryForceReason(forceReason)) {
             // Proof-owned primary target is already validated; do not single-step cap it.
           } else {
           const starvationHoldActive =
@@ -10217,7 +10380,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           liveStrictFollow &&
           targetLine > adjacentLine &&
           !strictEarlyBacklogDrainActive &&
-          forceReason !== 'live_strict_proof_owned_commit'
+          !isProofOwnedPrimaryForceReason(forceReason)
         ) {
           const strictTarget = adjacentLine;
           warnGuard('live_strict_cap', [
@@ -10356,7 +10519,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const strictFreshProofForTarget =
         strictLocalAdjacentProofForCommit ||
         strictCueExitProofForCommit ||
-        strictBridgeProofForCommit;
+        strictBridgeProofForCommit ||
+        forceReason === 'starvation_future_speech_reconcile';
       const strictLocalProofForCommit =
         liveStrictFollow &&
         targetLine > lastLineIndex &&
@@ -10546,7 +10710,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveSpeechGuardActive &&
         forceReason !== 'stall-rescue' &&
         forceReason !== 'stall_recovery_override' &&
-        forceReason !== 'live_strict_proof_owned_commit'
+        !isProofOwnedPrimaryForceReason(forceReason)
       ) {
         warnGuard('asr_live_no_input_hold', [
           `current=${lastLineIndex}`,
@@ -10572,7 +10736,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         strictBacklogDrainAppliedSteps > 0 &&
         targetLine > adjacentLine;
       if (multiJumpDelta > 1 && liveStrictFollow) {
-        if (!strictLogicalSpeakableBridgeStep && !strictBacklogDrainStep) {
+        if (!strictLogicalSpeakableBridgeStep && !strictBacklogDrainStep && !isProofOwnedPrimaryForceReason(forceReason)) {
           warnGuard('live_strict_multi_step_blocked', [
             `current=${lastLineIndex}`,
             `requested=${targetLine}`,
@@ -10593,7 +10757,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ]);
         }
       }
-      if (multiJumpDelta > 1 && !strictLogicalSpeakableBridgeStep && !strictBacklogDrainStep) {
+      if (multiJumpDelta > 1 && !strictLogicalSpeakableBridgeStep && !strictBacklogDrainStep && !isProofOwnedPrimaryForceReason(forceReason)) {
         const multiJumpNeedBase = Math.max(
           DEFAULT_MULTI_JUMP_HARD_DENY_SIM,
           DEFAULT_MULTI_JUMP_MIN_SIM - (multiJumpRelaxation.allowBridgeEps ? DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS : 0),
