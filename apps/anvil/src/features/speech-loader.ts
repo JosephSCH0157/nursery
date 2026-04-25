@@ -92,6 +92,9 @@ type TranscriptPayload = {
   sim?: number;
   noMatch?: boolean;
   currentIdx?: number | null;
+  runKey?: string | null;
+  runGeneration?: number | null;
+  speechRunningActual?: boolean;
 };
 
 type HudSnapshotPayload = {
@@ -179,6 +182,7 @@ type AsrRuntimeStatusPayload = {
   recognizerAttached: boolean;
   phase: string;
   runKey: string | null;
+  runGeneration?: number | null;
   state: string;
   speechRunning: boolean;
   speechRunningActual: boolean;
@@ -237,6 +241,7 @@ declare global {
     __tpSpeechOrchestrator?: { start?: () => Promise<RecognizerLike | void> | RecognizerLike | void };
     __tpSpeechCanDynImport?: boolean;
     __tpAsrRunKey?: string | null;
+    __tpAsrRunGeneration?: number | null;
     __tpAsrLastEndedRunKey?: string | null;
     __tpAsrLastEndedRunAt?: number | null;
     __tpSpeech?: {
@@ -533,6 +538,7 @@ function emitAsrRuntimeStatus(reason: string): void {
     recognizerAttached: !!activeRecognizer,
     phase: String(getSession().phase || 'idle').toLowerCase(),
     runKey: activeAsrRunKey || null,
+    runGeneration: asrRunGeneration > 0 ? asrRunGeneration : null,
     state: currentAsrState,
     speechRunning: !!running,
     speechRunningActual: !!speechRunningActual,
@@ -2152,6 +2158,15 @@ function enrichTranscriptPayloadForAsr(payload: TranscriptPayload): TranscriptPa
   const mode = String(next.mode || lastScrollMode || getScrollMode() || '').toLowerCase();
   const asrLike = mode === 'asr' || mode === 'hybrid';
   if (!asrLike) return next;
+  if (next.runKey == null) {
+    next.runKey = activeAsrRunKey || null;
+  }
+  if (next.runGeneration == null) {
+    next.runGeneration = asrRunGeneration > 0 ? asrRunGeneration : null;
+  }
+  if (next.speechRunningActual == null) {
+    next.speechRunningActual = !!speechRunningActual;
+  }
 
   const match = deriveFallbackMatch(next);
   if (match && (!next.match || typeof next.match !== 'object')) {
@@ -3132,6 +3147,7 @@ let asrDriverLifecycleHooked = false;
 let asrSessionIntentActive = false;
 let asrRunCounter = 0;
 let activeAsrRunKey = '';
+let asrRunGeneration = 0;
 let lastAsrBlockSyncAt = 0;
 let lastAsrBlockSyncLogAt = 0;
 let lastAsrSyncLogAtByType: Record<'block sync' | 'index sync', number> = {
@@ -3288,13 +3304,22 @@ function shouldCreateAsrDriver(mode: string, reason: string): boolean {
 
 function beginAsrRunKey(mode: string, reason?: string): string {
   if (activeAsrRunKey) return activeAsrRunKey;
+  asrRunGeneration += 1;
   asrRunCounter += 1;
   activeAsrRunKey = `asr-${Date.now().toString(36)}-${asrRunCounter}-${String(mode || 'unknown').toLowerCase()}`;
   if (typeof window !== 'undefined') {
     try { window.__tpAsrRunKey = activeAsrRunKey; } catch {}
+    try { window.__tpAsrRunGeneration = asrRunGeneration; } catch {}
   }
   if (isDevMode() && shouldLogLevel(1)) {
-    try { console.info('[ASR] run begin', { runKey: activeAsrRunKey, mode, reason }); } catch {}
+    try {
+      console.info('[ASR] run begin', {
+        runKey: activeAsrRunKey,
+        runGeneration: asrRunGeneration,
+        mode,
+        reason,
+      });
+    } catch {}
   }
   emitAsrRuntimeStatus(`run-begin:${String(reason || 'unspecified')}`);
   return activeAsrRunKey;
@@ -3303,14 +3328,22 @@ function beginAsrRunKey(mode: string, reason?: string): string {
 function clearAsrRunKey(reason: string): void {
   if (!activeAsrRunKey) return;
   const endedRunKey = activeAsrRunKey;
+  asrRunGeneration += 1;
   if (isDevMode() && shouldLogLevel(1)) {
-    try { console.info('[ASR] run clear', { runKey: endedRunKey, reason }); } catch {}
+    try {
+      console.info('[ASR] run clear', {
+        runKey: endedRunKey,
+        runGeneration: asrRunGeneration,
+        reason,
+      });
+    } catch {}
   }
   activeAsrRunKey = '';
   if (typeof window !== 'undefined') {
     try { window.__tpAsrLastEndedRunKey = endedRunKey; } catch {}
     try { window.__tpAsrLastEndedRunAt = Date.now(); } catch {}
     try { window.__tpAsrRunKey = null; } catch {}
+    try { window.__tpAsrRunGeneration = asrRunGeneration; } catch {}
   }
   emitAsrRuntimeStatus(`run-clear:${reason}`);
 }
@@ -3400,7 +3433,7 @@ function logAsrBlockSyncComplete(payload: {
 
 function ensureAsrScrollDriver(
   reason: string,
-  opts?: { mode?: string; allowCreate?: boolean; runKey?: string },
+  opts?: { mode?: string; allowCreate?: boolean; runKey?: string; runGeneration?: number | null },
 ): AsrScrollDriver | null {
   if (typeof window === 'undefined') return null;
   if (asrScrollDriver) return asrScrollDriver;
@@ -3408,7 +3441,14 @@ function ensureAsrScrollDriver(
   const mode = String(opts?.mode || getScrollMode() || '').toLowerCase();
   if (!shouldCreateAsrDriver(mode, reason)) return null;
   const runKey = String(opts?.runKey || activeAsrRunKey || '').trim();
-  asrScrollDriver = createAsrScrollDriver({ runKey: runKey || undefined });
+  const runGenerationRaw = Number(opts?.runGeneration ?? asrRunGeneration);
+  const runGeneration = Number.isFinite(runGenerationRaw)
+    ? Math.max(0, Math.floor(runGenerationRaw))
+    : undefined;
+  asrScrollDriver = createAsrScrollDriver({
+    runKey: runKey || undefined,
+    runGeneration,
+  });
   try { (window as any).__tpAsrScrollDriver = asrScrollDriver; } catch {}
   if (isDevMode() && shouldLogLevel(1)) {
     try { console.info('[ASR] driver created', { reason, mode, phase: getSession().phase, runKey: runKey || null }); } catch {}
@@ -3417,7 +3457,10 @@ function ensureAsrScrollDriver(
   return asrScrollDriver;
 }
 
-function syncAsrDriverFromBlocks(reason: string, opts?: { mode?: string; allowCreate?: boolean; runKey?: string }): void {
+function syncAsrDriverFromBlocks(
+  reason: string,
+  opts?: { mode?: string; allowCreate?: boolean; runKey?: string; runGeneration?: number | null },
+): void {
   const mode = String(opts?.mode || getScrollMode() || '').toLowerCase();
   const phase = String(getSession().phase || '').toLowerCase();
   const livePhase = phase === 'live';
@@ -3429,6 +3472,7 @@ function syncAsrDriverFromBlocks(reason: string, opts?: { mode?: string; allowCr
       mode,
       allowCreate: opts?.allowCreate === true,
       runKey: opts?.runKey,
+      runGeneration: opts?.runGeneration,
     });
   if (!driver) return;
   if (livePhase && mode !== 'asr') {
@@ -3551,7 +3595,9 @@ function pushAsrTranscript(text: string, isFinal: boolean, detail?: any): void {
   maybeConfirmPendingAsrScriptEnd(t, !!isFinal, detail);
 }
 
-function attachAsrScrollDriver(opts?: { reason?: string; mode?: string; allowCreate?: boolean; runKey?: string }): void {
+function attachAsrScrollDriver(
+  opts?: { reason?: string; mode?: string; allowCreate?: boolean; runKey?: string; runGeneration?: number | null },
+): void {
   if (typeof window === 'undefined') return;
   const mode = String(opts?.mode || getScrollMode() || '').toLowerCase();
   bootTrace('speech-loader:attach-asr-driver:start', {
@@ -3559,11 +3605,15 @@ function attachAsrScrollDriver(opts?: { reason?: string; mode?: string; allowCre
     mode,
     allowCreate: opts?.allowCreate === true,
     runKey: opts?.runKey || null,
+    runGeneration: Number.isFinite(Number(opts?.runGeneration ?? asrRunGeneration))
+      ? Math.max(0, Math.floor(Number(opts?.runGeneration ?? asrRunGeneration)))
+      : null,
   });
   ensureAsrScrollDriver(opts?.reason || 'attach', {
     mode,
     allowCreate: opts?.allowCreate === true,
     runKey: opts?.runKey,
+    runGeneration: opts?.runGeneration,
   });
   if (transcriptListener) {
     bootTrace('speech-loader:attach-asr-driver:done', {
@@ -4151,9 +4201,15 @@ export async function startSpeechBackendForSession(info?: { reason?: string; mod
       return true;
     }
     const runKey = beginAsrRunKey(mode, info?.reason);
+    const runGeneration = asrRunGeneration;
 
-    attachAsrScrollDriver({ reason: 'session-start', mode, allowCreate: true, runKey });
-    syncAsrDriverFromBlocks(info?.reason || 'session-start', { mode, allowCreate: true, runKey });
+    attachAsrScrollDriver({ reason: 'session-start', mode, allowCreate: true, runKey, runGeneration });
+    syncAsrDriverFromBlocks(info?.reason || 'session-start', {
+      mode,
+      allowCreate: true,
+      runKey,
+      runGeneration,
+    });
     const startIdx = computeMarkerLineIndex();
     syncAsrIndices(startIdx, 'session-start');
     if (!asrBrainLogged) {

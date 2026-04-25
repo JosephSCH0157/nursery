@@ -38,6 +38,8 @@ type DriverOptions = {
   interimConfidenceScale?: number;
   /** Stable ASR run key passed by lifecycle owner to dedupe duplicate driver summaries. */
   runKey?: string;
+  /** Monotonic ASR run/session generation token from lifecycle owner. */
+  runGeneration?: number;
 };
 
 type TranscriptDetail = {
@@ -47,6 +49,9 @@ type TranscriptDetail = {
   meta?: boolean;
   noMatch?: boolean;
   currentIdx?: number | null;
+  runKey?: string | null;
+  runGeneration?: number | null;
+  speechRunningActual?: boolean;
 };
 
 type PendingMatch = {
@@ -81,6 +86,8 @@ type PendingMatch = {
   lostMode?: boolean;
   cueBridgeNudgeDelta?: number;
   liveForwardGuardActive?: boolean;
+  runKey?: string | null;
+  runGeneration?: number | null;
 };
 
 type AsrEventSnapshot = {
@@ -2447,6 +2454,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     seekThrottleMs: options.seekThrottleMs,
     interimConfidenceScale: options.interimConfidenceScale,
     runKey: options.runKey || null,
+    runGeneration: Number.isFinite(options.runGeneration as number)
+      ? Math.max(0, Math.floor(Number(options.runGeneration)))
+      : null,
   });
   const minLineAdvance = Number.isFinite(options.minLineAdvance ?? DEFAULT_MIN_LINE_ADVANCE)
     ? Math.max(0, options.minLineAdvance ?? DEFAULT_MIN_LINE_ADVANCE)
@@ -2461,6 +2471,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const sessionStartAt = Date.now();
   const driverInstanceId = Math.random().toString(36).slice(2);
   const summaryRunKey = String(options.runKey || '').trim();
+  const summaryRunGenerationRaw = Number(options.runGeneration);
+  const summaryRunGeneration = Number.isFinite(summaryRunGenerationRaw)
+    ? Math.max(0, Math.floor(summaryRunGenerationRaw))
+    : null;
   try { console.log('[ASR DRIVER CREATED]', driverInstanceId); } catch {}
   let threshold = resolveThreshold();
   // Respect dev/manual threshold ownership (dev panel/profile overrides) and avoid
@@ -3197,6 +3211,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let asrRuntimeSpeechEverTrue = false;
   let asrRuntimeSpeechRunningActual = false;
   let lastRuntimeSpeechAt = 0;
+  let asrRuntimeRunKey = summaryRunKey;
+  let asrRuntimeRunGeneration = summaryRunGeneration;
   let lastRescueMatchEvidenceAt = 0;
   let lastRescueMatchEvidenceLine = -1;
   let lastRescueMatchEvidenceSim = 0;
@@ -3213,7 +3229,80 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let liveStrictForwardClusterUpdatedAt = 0;
   let liveStrictForwardClusterContradictionAt = 0;
 
+  const normalizeRunGeneration = (value: unknown): number | null => {
+    const raw = Number(value);
+    if (!Number.isFinite(raw)) return null;
+    return Math.max(0, Math.floor(raw));
+  };
+
+  const readWindowRunGeneration = (): number | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+      return normalizeRunGeneration((window as any).__tpAsrRunGeneration);
+    } catch {
+      return null;
+    }
+  };
+
+  const readWindowRunKey = (): string => {
+    if (typeof window === 'undefined') return '';
+    try {
+      return String((window as any).__tpAsrRunKey || '').trim();
+    } catch {
+      return '';
+    }
+  };
+
+  const resolveActiveRunGeneration = (): number | null => {
+    const runtimeGeneration = normalizeRunGeneration(asrRuntimeRunGeneration);
+    if (runtimeGeneration != null) return runtimeGeneration;
+    return readWindowRunGeneration();
+  };
+
+  const resolveActiveRunKey = (): string => {
+    const runtimeKey = String(asrRuntimeRunKey || '').trim();
+    if (runtimeKey) return runtimeKey;
+    return readWindowRunKey();
+  };
+
+  const isRunIdentityStale = (detail?: { runKey?: unknown; runGeneration?: unknown }): boolean => {
+    const transcriptRunGeneration = normalizeRunGeneration(detail?.runGeneration);
+    const activeRunGeneration = resolveActiveRunGeneration();
+    if (
+      transcriptRunGeneration != null &&
+      activeRunGeneration != null &&
+      transcriptRunGeneration !== activeRunGeneration
+    ) {
+      return true;
+    }
+    if (
+      summaryRunGeneration != null &&
+      activeRunGeneration != null &&
+      summaryRunGeneration !== activeRunGeneration
+    ) {
+      return true;
+    }
+    const transcriptRunKey = String(detail?.runKey || '').trim();
+    if (summaryRunKey && transcriptRunKey && transcriptRunKey !== summaryRunKey) {
+      return true;
+    }
+    if (summaryRunKey) {
+      const activeRunKey = resolveActiveRunKey();
+      if (activeRunKey !== summaryRunKey) return true;
+    }
+    return false;
+  };
+
   const noteRuntimeSpeechState = (detail: unknown) => {
+    const runKeyRaw = (detail as { runKey?: unknown } | null | undefined)?.runKey;
+    const runGenerationRaw =
+      (detail as { runGeneration?: unknown } | null | undefined)?.runGeneration;
+    if (runKeyRaw !== undefined) {
+      asrRuntimeRunKey = String(runKeyRaw || '').trim();
+    }
+    if (runGenerationRaw !== undefined) {
+      asrRuntimeRunGeneration = normalizeRunGeneration(runGenerationRaw);
+    }
     const actualRaw = (detail as { speechRunningActual?: unknown } | null | undefined)?.speechRunningActual;
     if (typeof actualRaw !== 'boolean') return;
     if (actualRaw) {
@@ -4603,11 +4692,54 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     hasFreshPostFocusFinalProof()
   );
 
+  const isLiveAsrCommitSource = (source: string): boolean => {
+    const normalized = String(source || '').trim().toLowerCase();
+    if (!normalized) return false;
+    return (
+      normalized.startsWith('pending-commit') ||
+      normalized.startsWith('cue-skip') ||
+      normalized.startsWith('stall-rescue') ||
+      normalized.startsWith('rescue-signal') ||
+      normalized === 'asr-truth-correction' ||
+      normalized === 'truth-correction'
+    );
+  };
+
   const canApplyAsrMovement = (
     source: string,
     now: number,
     detail?: { final?: boolean; clue?: string },
   ): boolean => {
+    const commitLikeAsrSource = isLiveAsrCommitSource(source);
+    if (getScrollMode() === 'asr' && commitLikeAsrSource) {
+      if (!isSessionLivePhase() || !isSessionAsrArmed()) {
+        warnGuard('asr_live_commit_inactive_hold', [
+          `source=${source}`,
+          `phaseLive=${isSessionLivePhase() ? 1 : 0}`,
+          `armed=${isSessionAsrArmed() ? 1 : 0}`,
+        ]);
+        return false;
+      }
+      if (asrRuntimeSpeechSeen && !asrRuntimeSpeechRunningActual) {
+        warnGuard('asr_live_speech_stopped_hold', [
+          `source=${source}`,
+          'speechRunning=0',
+          `runGeneration=${resolveActiveRunGeneration() ?? -1}`,
+          summaryRunKey ? `runKey=${summaryRunKey}` : '',
+        ]);
+        return false;
+      }
+      if (isRunIdentityStale()) {
+        warnGuard('asr_live_stale_generation_hold', [
+          `source=${source}`,
+          `driverRunGeneration=${summaryRunGeneration ?? -1}`,
+          `activeRunGeneration=${resolveActiveRunGeneration() ?? -1}`,
+          summaryRunKey ? `driverRunKey=${summaryRunKey}` : '',
+          `activeRunKey=${resolveActiveRunKey() || 'none'}`,
+        ]);
+        return false;
+      }
+    }
     syncAsrFocusMovementGate(source, now);
     if (!isAsrLiveMovementSession()) return true;
     if (canAsrMove()) return true;
@@ -5616,6 +5748,30 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return cursor >= 0 ? cursor : null;
   };
 
+  const countSpeakableDistanceAhead = (
+    fromLine: number,
+    targetLine: number,
+  ): number => {
+    const safeFrom = Number.isFinite(fromLine) ? Math.floor(fromLine) : -1;
+    const safeTarget = Number.isFinite(targetLine) ? Math.max(0, Math.floor(targetLine)) : -1;
+    if (safeTarget <= safeFrom) return 0;
+    const total = getTotalLines();
+    if (total <= 0) {
+      return Math.max(0, safeTarget - Math.max(0, safeFrom));
+    }
+    let steps = 0;
+    let cursor = safeFrom;
+    const maxIterations = Math.max(1, total + 4);
+    for (let i = 0; i < maxIterations; i += 1) {
+      const next = findNextSpokenLineIndex(Math.max(0, cursor + 1), total);
+      if (next == null) break;
+      steps += 1;
+      if (next >= safeTarget) return steps;
+      cursor = next;
+    }
+    return Number.POSITIVE_INFINITY;
+  };
+
   const isReaderLeashHardRecoverySource = (source?: string): boolean => {
     const normalized = String(source || '').trim().toLowerCase();
     if (!normalized) return false;
@@ -5634,6 +5790,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     targetLine: number;
     targetHasFreshProof: boolean;
     source?: string;
+    forceReason?: string;
+    runKey?: string | null;
+    speechRunning?: boolean;
+    runGeneration?: number | null;
     clue?: string;
   }): boolean => {
     const {
@@ -5641,6 +5801,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       targetLine,
       targetHasFreshProof,
       source,
+      forceReason,
+      runKey,
+      speechRunning,
+      runGeneration,
       clue,
     } = args;
     if (getScrollMode() !== 'asr' || !isSessionLivePhase() || !isSessionAsrArmed()) return true;
@@ -5733,6 +5897,29 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         clue ? `clue="${formatLogSnippet(String(clue || ''), 72)}"` : '',
       ]);
       return true;
+    }
+    const speakableDistanceAhead = countSpeakableDistanceAhead(proofBase, safeTarget);
+    if (
+      Number.isFinite(speakableDistanceAhead) &&
+      speakableDistanceAhead > ASR_READER_LEASH_MAX_READABLE_AHEAD &&
+      !targetHasFreshProof
+    ) {
+      warnGuard('asr_forward_drift_clamp_hold', [
+        `current=${safeCurrent}`,
+        `requestedTarget=${safeTarget}`,
+        `lastFreshProofLine=${proofBase}`,
+        `speakableDistanceAhead=${Math.max(0, Math.floor(speakableDistanceAhead))}`,
+        source ? `source=${source}` : 'source=unknown',
+        forceReason ? `forceReason=${forceReason}` : '',
+        runKey ? `runKey=${runKey}` : '',
+        `speechRunning=${speechRunning === false ? 0 : 1}`,
+        `runGeneration=${normalizeRunGeneration(runGeneration) ?? resolveActiveRunGeneration() ?? -1}`,
+      ]);
+      emitHudStatus(
+        'asr_forward_drift_clamp_hold',
+        'Hold: forward drift clamp blocked ahead target',
+      );
+      return false;
     }
     if (safeTarget <= leashLimit) return true;
     const hardRecoveryPolicyAllow =
@@ -6286,6 +6473,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       targetLine,
       targetHasFreshProof,
       source: 'cue-skip',
+      forceReason: reason,
+      runKey: summaryRunKey || undefined,
+      speechRunning: asrRuntimeSpeechRunningActual,
+      runGeneration: resolveActiveRunGeneration(),
       clue,
     })) {
       return false;
@@ -8152,6 +8343,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         searchWindowTo,
         lostMode: pendingLostMode,
         cueBridgeNudgeDelta: pendingCueBridgeNudgeDelta,
+        runKey: pendingRunKey,
+        runGeneration: pendingRunGeneration,
       } = pending;
       const pendingCommitSource = forceReason
         ? `pending-commit:${forceReason}`
@@ -9594,6 +9787,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         targetLine,
         targetHasFreshProof: strictTargetHasFreshProof,
         source: forceReason || 'commit-path',
+        forceReason: forceReason || undefined,
+        runKey: String(pendingRunKey || summaryRunKey || '').trim() || undefined,
+        speechRunning: asrRuntimeSpeechRunningActual,
+        runGeneration: normalizeRunGeneration(pendingRunGeneration) ?? resolveActiveRunGeneration(),
         clue: snippet,
       })) {
         return;
@@ -10754,6 +10951,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       getScrollMode() === 'asr' &&
       isSessionLivePhase() &&
       isSessionAsrArmed();
+    const transcriptRunKey = String((detail as { runKey?: unknown } | null | undefined)?.runKey || '').trim();
+    const transcriptRunGeneration = normalizeRunGeneration(
+      (detail as { runGeneration?: unknown } | null | undefined)?.runGeneration,
+    );
     if (getScrollMode() === 'asr' && !liveAsrSessionActive) {
       if (isDevMode() && shouldLogTag('ASR_INGEST_IGNORED_INACTIVE', 2, 500)) {
         try {
@@ -10767,6 +10968,34 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           // ignore
         }
       }
+      return;
+    }
+    if (getScrollMode() === 'asr' && liveAsrSessionActive && asrRuntimeSpeechSeen && !asrRuntimeSpeechRunningActual) {
+      warnGuard('asr_live_speech_stopped_hold', [
+        'source=ingest',
+        'speechRunning=0',
+        `runGeneration=${transcriptRunGeneration ?? resolveActiveRunGeneration() ?? -1}`,
+        transcriptRunKey ? `runKey=${transcriptRunKey}` : '',
+      ]);
+      return;
+    }
+    if (
+      getScrollMode() === 'asr' &&
+      liveAsrSessionActive &&
+      isRunIdentityStale({
+        runKey: transcriptRunKey || undefined,
+        runGeneration: transcriptRunGeneration,
+      })
+    ) {
+      warnGuard('asr_live_stale_generation_hold', [
+        'source=ingest',
+        `driverRunGeneration=${summaryRunGeneration ?? -1}`,
+        `transcriptRunGeneration=${transcriptRunGeneration ?? -1}`,
+        `activeRunGeneration=${resolveActiveRunGeneration() ?? -1}`,
+        summaryRunKey ? `driverRunKey=${summaryRunKey}` : '',
+        transcriptRunKey ? `transcriptRunKey=${transcriptRunKey}` : '',
+        `activeRunKey=${resolveActiveRunKey() || 'none'}`,
+      ]);
       return;
     }
     if (!allowMovementForIngest(isFinal, now, compacted)) {
@@ -14726,6 +14955,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lostMode,
       cueBridgeNudgeDelta,
       liveForwardGuardActive: liveForwardGuardActive || undefined,
+      runKey: transcriptRunKey || undefined,
+      runGeneration: transcriptRunGeneration ?? undefined,
     });
     schedulePending();
   };
