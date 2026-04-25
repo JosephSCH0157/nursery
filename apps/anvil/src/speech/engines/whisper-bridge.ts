@@ -1069,6 +1069,9 @@ class WhisperBridgeRecognizer {
     queueDepthAfter?: number,
   ): Promise<WhisperBridgeResponse> {
     const accessToken = await resolveWhisperAccessToken();
+    if (this.getStaleDropReason(requestGeneration)) {
+      throw new Error("whisper_stale_response");
+    }
 
     const form = new FormData();
     const mimeType = blob.type || this.recorderMimeType || chooseMimeType();
@@ -1100,6 +1103,15 @@ class WhisperBridgeRecognizer {
 
     const abortController = new AbortController();
     this.inFlightTranscriptionControllers.add(abortController);
+    if (this.getStaleDropReason(requestGeneration)) {
+      try {
+        abortController.abort();
+      } catch {
+        // ignore abort errors
+      }
+      this.inFlightTranscriptionControllers.delete(abortController);
+      throw new Error("whisper_stale_response");
+    }
     let response: Response;
     try {
       response = await fetch(this.route, {
@@ -1149,7 +1161,7 @@ class WhisperBridgeRecognizer {
       }
       throw new WhisperBridgeHttpError(response.status, readResponseError(payload, response.status), payload);
     }
-    if (requestGeneration !== this.generation || !this.running) {
+    if (this.getStaleDropReason(requestGeneration)) {
       throw new Error("whisper_stale_response");
     }
     return payload;

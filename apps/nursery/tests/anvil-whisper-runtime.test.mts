@@ -11,6 +11,7 @@ import {
   type AnvilWhisperRuntimeConfig,
 } from "../server/anvil/create-anvil-whisper-handler";
 import { mwAnvilWhisperApi } from "../scripts/mw-anvil-whisper-api";
+import { AI_USAGE_LANE } from "../../../packages/tongs/src/ai-usage-taxonomy";
 
 function buildConfig(overrides: Partial<AnvilWhisperRuntimeConfig> = {}): AnvilWhisperRuntimeConfig {
   return {
@@ -33,6 +34,8 @@ function buildChunkRequest(url: string): Request {
     body: buildChunkFormData(),
   });
 }
+
+const TEST_USER_ID = "11111111-2222-4333-8444-555555555555";
 
 async function startForgeFfmpegStub(args: {
   responseBody: Buffer | string;
@@ -153,9 +156,16 @@ test("createAnvilWhisperHandler retries unsupported audio through forge-ffmpeg f
   let openAiCalls = 0;
   let ffmpegCalls = 0;
   const seenOpenAiFileTypes: string[] = [];
+  let applyDeltaCalls = 0;
 
   globalThis.fetch = async (input, init) => {
     const url = String(input);
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({ id: TEST_USER_ID }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
     if (url === "https://api.openai.com/v1/audio/transcriptions") {
       openAiCalls += 1;
       const body = init?.body;
@@ -187,6 +197,13 @@ test("createAnvilWhisperHandler retries unsupported audio through forge-ffmpeg f
     if (url === `${ffmpegServer.baseUrl}/transcode/wav`) {
       ffmpegCalls += 1;
     }
+    if (url.includes("/rest/v1/rpc/apply_ai_token_delta")) {
+      applyDeltaCalls += 1;
+      return new Response(JSON.stringify([{ token_balance: 999_999 }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
 
     return originalFetch(input, init);
   };
@@ -194,7 +211,10 @@ test("createAnvilWhisperHandler retries unsupported audio through forge-ffmpeg f
   try {
     const handler = createAnvilWhisperHandler(buildConfig({
       apiKey: "test-key",
-      configuredBillingMode: "byo",
+      configuredBillingMode: AI_USAGE_LANE.FORGE,
+      initialTokenBalance: 999_999,
+      supabaseUrl: "https://runtime-test.supabase.co",
+      supabaseServiceRoleKey: "service-role",
       ffmpegClient: {
         baseUrl: ffmpegServer.baseUrl,
         timeoutMs: 5_000,
@@ -203,7 +223,11 @@ test("createAnvilWhisperHandler retries unsupported audio through forge-ffmpeg f
       },
     }));
 
-    const response = await handler(buildChunkRequest(`http://localhost${ANVIL_WHISPER_ROUTE}`));
+    const response = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-access-token" },
+      body: buildChunkFormData(),
+    }));
     assert.equal(response.status, 200);
     const payload = await response.json();
 
@@ -214,9 +238,113 @@ test("createAnvilWhisperHandler retries unsupported audio through forge-ffmpeg f
     assert.equal(payload.ffmpeg_fallback_used, true);
     assert.equal(openAiCalls, 2);
     assert.equal(ffmpegCalls, 1);
+    assert.equal(applyDeltaCalls, 1);
     assert.deepEqual(seenOpenAiFileTypes, ["audio/webm", "audio/wav"]);
   } finally {
     globalThis.fetch = originalFetch;
     await ffmpegServer.close();
+  }
+});
+
+test("createAnvilWhisperHandler treats client lane as advisory and still enforces BYO resolution", async () => {
+  const originalFetch = globalThis.fetch;
+  let openAiCalls = 0;
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({ id: TEST_USER_ID }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.includes("/rest/v1/rpc/get_user_ai_key_for_resolution")) {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://api.openai.com/v1/audio/transcriptions") {
+      openAiCalls += 1;
+      return new Response(JSON.stringify({ text: "should-not-run" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch call in test: ${url} ${init?.method ?? "GET"}`);
+  };
+
+  try {
+    const handler = createAnvilWhisperHandler(buildConfig({
+      apiKey: "forge-key",
+      configuredBillingMode: AI_USAGE_LANE.BYO,
+      supabaseUrl: "https://runtime-test.supabase.co",
+      supabaseServiceRoleKey: "service-role",
+    }));
+    const form = buildChunkFormData();
+    form.set("lane", AI_USAGE_LANE.FORGE);
+    const response = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-access-token" },
+      body: form,
+    }));
+
+    assert.equal(response.status, 422);
+    const payload = await response.json();
+    assert.equal(payload.ok, false);
+    assert.equal(payload.code, "missing_user_byo_key");
+    assert.equal(payload.billing_mode, AI_USAGE_LANE.BYO);
+    assert.equal(openAiCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createAnvilWhisperHandler blocks forge requests with exhausted credits before upstream OpenAI call", async () => {
+  const originalFetch = globalThis.fetch;
+  let openAiCalls = 0;
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({ id: TEST_USER_ID }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://api.openai.com/v1/audio/transcriptions") {
+      openAiCalls += 1;
+      return new Response(JSON.stringify({ text: "should-not-run" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch call in test: ${url} ${init?.method ?? "GET"}`);
+  };
+
+  try {
+    const handler = createAnvilWhisperHandler(buildConfig({
+      apiKey: "forge-key",
+      configuredBillingMode: AI_USAGE_LANE.FORGE,
+      initialTokenBalance: 0,
+      supabaseUrl: "https://runtime-test.supabase.co",
+      supabaseServiceRoleKey: "service-role",
+    }));
+    const form = buildChunkFormData();
+    form.set("lane", AI_USAGE_LANE.FORGE);
+    const response = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-access-token" },
+      body: form,
+    }));
+
+    assert.equal(response.status, 402);
+    const payload = await response.json();
+    assert.equal(payload.ok, false);
+    assert.equal(payload.error, "No AI credits remaining.");
+    assert.equal(payload.billing_mode, AI_USAGE_LANE.FORGE);
+    assert.equal(openAiCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });

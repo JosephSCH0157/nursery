@@ -19642,27 +19642,53 @@ function shouldShowDeprecationWarning() {
 if (shouldShowDeprecationWarning()) console.warn("\u26A0\uFE0F  Node.js 18 and below are deprecated and will no longer be supported in future versions of @supabase/supabase-js. Please upgrade to Node.js 20 or later. For more information, visit: https://github.com/orgs/supabase/discussions/37217");
 
 // src/forge/supabaseClient.ts
+function readMetaEnv() {
+  try {
+    const env = (0, eval)("import.meta.env");
+    if (env && typeof env === "object") {
+      return env;
+    }
+  } catch {
+  }
+  return {};
+}
 var w = typeof window !== "undefined" ? window : {};
-var meta = typeof import.meta !== "undefined" ? import.meta : {};
-var metaEnv = meta.env || {};
+var metaEnv = readMetaEnv();
 var SUPABASE_URL = w.__forgeSupabaseUrl || metaEnv.VITE_SUPABASE_URL || "";
 var SUPABASE_ANON_KEY = w.__forgeSupabaseAnonKey || metaEnv.VITE_SUPABASE_ANON_KEY || "";
 var AUTH_STORAGE_KEY = "forge-auth";
 var hasSupabaseConfig = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 function createSupabaseStub(reason) {
+  const noopError = { message: reason };
+  const noopSubscription = { unsubscribe() {
+  } };
+  const noopResponse = Promise.resolve({ data: null, error: noopError });
+  const authStub = {
+    getSession: async () => ({ data: { session: null }, error: null }),
+    getUser: async () => ({ data: { user: null }, error: null }),
+    onAuthStateChange: () => ({ data: { subscription: noopSubscription }, error: null }),
+    signOut: async () => ({ error: null })
+  };
+  const noopChain = new Proxy({}, {
+    get(_target, prop) {
+      if (prop === "then") return void 0;
+      return () => noopResponse;
+    }
+  });
+  const base = {
+    auth: authStub,
+    from: () => noopChain,
+    rpc: () => noopResponse,
+    schema: () => ({ rpc: () => noopResponse })
+  };
   const handler = {
-    get() {
-      return new Proxy(() => {
-        throw new Error(reason);
-      }, handler);
-    },
-    apply() {
-      throw new Error(reason);
+    get(target, prop) {
+      if (typeof prop === "string" && prop in target) return target[prop];
+      if (typeof prop === "symbol") return target[prop];
+      return () => noopResponse;
     }
   };
-  return new Proxy(() => {
-    throw new Error(reason);
-  }, handler);
+  return new Proxy(base, handler);
 }
 if (!hasSupabaseConfig) {
   try {

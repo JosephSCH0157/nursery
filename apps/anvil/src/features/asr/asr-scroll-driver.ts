@@ -1094,10 +1094,9 @@ export function evaluateStallCueRescuePolicy(opts: {
   if (reasonTag === 'auto-stall') {
     if (!cursorLineSkippable) {
       return {
-        // Completion-first: allow bounded +1 progression on content lines when stalled.
-        allow: true,
-        directContentForwardRescue: true,
-        blockedReason: '',
+        allow: false,
+        directContentForwardRescue: false,
+        blockedReason: 'content-line',
       };
     }
     return {
@@ -3195,6 +3194,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let asrVadSpeaking = false;
   let lastVadSpeechAt = 0;
   let asrRuntimeSpeechSeen = false;
+  let asrRuntimeSpeechEverTrue = false;
   let asrRuntimeSpeechRunningActual = false;
   let lastRuntimeSpeechAt = 0;
   let lastRescueMatchEvidenceAt = 0;
@@ -3216,15 +3216,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const noteRuntimeSpeechState = (detail: unknown) => {
     const actualRaw = (detail as { speechRunningActual?: unknown } | null | undefined)?.speechRunningActual;
     if (typeof actualRaw !== 'boolean') return;
-    asrRuntimeSpeechSeen = true;
-    asrRuntimeSpeechRunningActual = actualRaw;
     if (actualRaw) {
+      asrRuntimeSpeechSeen = true;
+      asrRuntimeSpeechEverTrue = true;
+      asrRuntimeSpeechRunningActual = true;
       lastRuntimeSpeechAt = Date.now();
+      return;
     }
+    // Ignore boot-time "false" events until we have observed at least one positive runtime speech signal.
+    if (!asrRuntimeSpeechEverTrue) {
+      return;
+    }
+    asrRuntimeSpeechSeen = true;
+    asrRuntimeSpeechRunningActual = false;
   };
 
   const hasRecentActualSpeech = (now: number) => {
     if (!asrRuntimeSpeechSeen) return true;
+    if (!asrRuntimeSpeechEverTrue) return true;
     if (asrRuntimeSpeechRunningActual) return true;
     if (lastRuntimeSpeechAt <= 0) return false;
     return Math.max(0, now - lastRuntimeSpeechAt) <= DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS;
@@ -8698,7 +8707,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         strictAutonomousCandidate &&
         !strictBacklogDrainTerminalActive &&
         !strictFastAdjacentAllowed &&
-        !strictLocalProofForAdjacent
+        !strictLocalProofForAdjacent &&
+        !(
+          forceReason === 'progressive-floor' &&
+          (
+            (!isFinal && line === lastLineIndex + 1) ||
+            (
+              isFinal &&
+              line - lastLineIndex <= DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES &&
+              Math.max(0, now - lastForwardCommitAt) < DEFAULT_STARVATION_COMMIT_GAP_MS
+            )
+          )
+        )
       ) {
         warnGuard('autonomous_path_blocked', [
           `current=${lastLineIndex}`,
@@ -9258,7 +9278,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           !runtimeSpeechFresh ||
           !!pending.liveForwardGuardActive;
         const tryApplyStallRecoveryOverride = (): boolean => {
-          if (liveStrictFollow) return false;
           if (liveStepTarget == null) return false;
           const sinceCommitMs = Math.max(0, now - lastCommitTime);
           const starvationDetected =
@@ -9345,7 +9364,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           liveStepTarget != null &&
           requestedTargetLine === liveStepTarget &&
           !strictBacklogDrainTerminalActive &&
-          liveForwardHoldActive &&
           tryApplyStallRecoveryOverride()
         ) {
           return;
@@ -9354,6 +9372,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         // Starvation bypass may allow forward progress on weaker evidence, but it should not
         // turn into multi-line jumps that outrun the reader.
         if (liveStepTarget != null && targetLine > liveStepTarget && !strictEarlyBacklogDrainActive) {
+          const starvationHoldActive =
+            Math.max(0, now - lastForwardCommitAt) >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
+            !starvationForwardBypass;
+          if (starvationHoldActive && !tryApplyStallRecoveryOverride()) {
+            warnGuard('asr_live_single_step_hold', [
+              `current=${lastLineIndex}`,
+              `requested=${targetLine}`,
+              `held=${liveStepTarget}`,
+              'reason=starved-no-fresh-step',
+              snippet ? `clue="${snippet}"` : '',
+            ]);
+            emitHudStatus('asr_live_single_step_hold', 'Hold: waiting for fresh next-line evidence');
+            return;
+          }
           const liveStepScore = Number(
             rankedTopScores.find((entry) => entry.idx === liveStepTarget)?.score,
           );
@@ -9667,6 +9699,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `stallMs=${Math.max(0, now - liveProgressHeuristics.lastAdvanceAtMs)}`,
           snippet ? `clue="${snippet}"` : '',
         ]);
+        if (
+          liveStrictAdjacentReason === 'strict_live_accept' &&
+          isFinal &&
+          asrRuntimeSpeechSeen &&
+          asrRuntimeSpeechRunningActual &&
+          lastCommitIndex != null &&
+          Math.max(0, now - lastCommitTime) >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
+          Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex))
+        ) {
+          try {
+            console.warn(
+              `ASR_STALL_RECOVERY_OVERRIDE current=${lastLineIndex} requested=${targetLine} committed=${targetLine} reason=stall_recovery_override`,
+            );
+          } catch {}
+        }
       }
       const liveSpeechGuardActive =
         !hasRecentVadSpeech ||
@@ -12142,7 +12189,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const adjacentTieCandidate =
         !!forwardPick &&
         !isHybridMode() &&
-        forwardPick.idx === cursorLine + DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES;
+        forwardPick.idx === cursorLine + Math.max(1, minLineAdvance);
       const consistentAdjacentTieBypass = adjacentTieCandidate
         ? noteAdjacentTieForward(now, forwardPick.idx, forwardPick.score)
         : false;

@@ -327,7 +327,7 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
                 <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
                   <div className="hs-imap-candidate-action-group">
                     <button type="button" className="hs-primary-btn" onClick={props.onGenerateInForge} disabled={props.disabled}>
-                      Generate Usable Image
+                      Generate in Forge
                     </button>
                     <button type="button" onClick={props.onSaveEntry} disabled={props.disabled}>Save Draft</button>
                     <button type="button" onClick={() => uploadInputRef.current?.click()} disabled={props.disabled}>Attach Existing File</button>

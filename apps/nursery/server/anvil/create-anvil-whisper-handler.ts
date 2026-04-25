@@ -40,6 +40,7 @@ export type AnvilWhisperRuntimeConfig = {
   apiKey: string | null;
   sttModel: string;
   configuredBillingMode?: BillingMode;
+  initialTokenBalance?: number | null;
   supabaseUrl?: string | null;
   supabaseServiceRoleKey?: string | null;
   disableUserKeys?: boolean;
@@ -181,6 +182,7 @@ export function resolveAnvilWhisperRuntimeConfig(): AnvilWhisperRuntimeConfig {
     apiKey: runtime.textApiKey ?? runtime.apiKey ?? null,
     sttModel: modelOverride ?? runtime.sttModel ?? DEFAULT_MODEL,
     configuredBillingMode: runtime.configuredBillingMode,
+    initialTokenBalance: runtime.initialTokenBalance,
     supabaseUrl: runtime.supabaseUrl,
     supabaseServiceRoleKey: runtime.supabaseServiceRoleKey,
     disableUserKeys: runtime.disableUserKeys,
@@ -213,6 +215,9 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
   const apiKey = readOptionalString(config.apiKey);
   const sttModel = readOptionalString(config.sttModel) ?? DEFAULT_MODEL;
   const configuredBillingMode = normalizeBillingMode(config.configuredBillingMode, "forge");
+  let tokenBalance = typeof config.initialTokenBalance === "number" && Number.isFinite(config.initialTokenBalance)
+    ? Math.max(0, Math.floor(config.initialTokenBalance))
+    : null;
   const disableUserKeys = config.disableUserKeys === true;
   const ffmpegClient = config.ffmpegClient ?? null;
   const supabaseService: SupabaseClient<Database> | null = config.supabaseUrl && config.supabaseServiceRoleKey
@@ -285,47 +290,26 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
 
       const laneFromBody = readOptionalString(formData.get("lane"));
       const laneFromQuery = readOptionalString(url.searchParams.get("lane"));
-      const requestedLane = normalizeBillingMode(laneFromBody ?? laneFromQuery, configuredBillingMode);
-      const requiresForgeLane = requestedLane === AI_USAGE_LANE.FORGE || disableUserKeys;
-      if (requiresForgeLane && !supabaseService) {
-        return jsonResponse(500, {
-          ok: false,
-          text: "",
-          error: "Supabase service role is not configured.",
-          billing_mode: AI_USAGE_LANE.FORGE,
-        });
-      }
+      const laneHint = normalizeBillingMode(laneFromBody ?? laneFromQuery, configuredBillingMode);
+      // Client lane is advisory only; server config + credential resolution is authoritative.
+      const byoRequested = !disableUserKeys && (
+        configuredBillingMode === AI_USAGE_LANE.BYO
+        || laneHint === AI_USAGE_LANE.BYO
+      );
       const userAccessToken = readUserAccessToken(request.headers);
-      if (requiresForgeLane && !userAccessToken) {
-        return jsonResponse(401, {
-          ok: false,
-          text: "",
-          error: "Authentication required.",
-          billing_mode: AI_USAGE_LANE.FORGE,
-        });
-      }
-
       const userId = await resolveUserIdFromAccessToken({
         supabaseService,
         accessToken: userAccessToken,
       });
-      if (requiresForgeLane && !userId) {
-        return jsonResponse(401, {
-          ok: false,
-          text: "",
-          error: "Authentication required.",
-          billing_mode: AI_USAGE_LANE.FORGE,
-        });
-      }
-      let lane: BillingMode = requestedLane;
+      let lane: BillingMode = AI_USAGE_LANE.FORGE;
       let effectiveApiKey: string;
-      if (requestedLane === AI_USAGE_LANE.BYO && !disableUserKeys) {
+      if (byoRequested) {
         if (!supabaseService) {
           return jsonResponse(500, {
             ok: false,
             text: "",
             error: "Supabase service role is not configured.",
-            billing_mode: lane,
+            billing_mode: AI_USAGE_LANE.BYO,
           });
         }
         if (!userAccessToken || !userId) {
@@ -333,7 +317,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             ok: false,
             text: "",
             error: "Authentication required.",
-            billing_mode: lane,
+            billing_mode: AI_USAGE_LANE.BYO,
           });
         }
         try {
@@ -346,6 +330,15 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             supabaseService,
             disableUserKeys: false,
           });
+          if (credentials.billingLane !== AI_USAGE_LANE.BYO || credentials.keySource !== "user_byo") {
+            return jsonResponse(422, {
+              ok: false,
+              text: "",
+              error: "A connected BYO key is required for this request.",
+              code: "missing_user_byo_key",
+              billing_mode: AI_USAGE_LANE.BYO,
+            });
+          }
           lane = credentials.billingLane;
           effectiveApiKey = credentials.apiKey;
         } catch (error) {
@@ -374,6 +367,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           });
         }
       } else {
+        lane = AI_USAGE_LANE.FORGE;
         if (!apiKey) {
           return jsonResponse(500, {
             ok: false,
@@ -382,7 +376,30 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             billing_mode: AI_USAGE_LANE.FORGE,
           });
         }
-        lane = AI_USAGE_LANE.FORGE;
+        if (!supabaseService) {
+          return jsonResponse(500, {
+            ok: false,
+            text: "",
+            error: "Supabase service role is not configured.",
+            billing_mode: AI_USAGE_LANE.FORGE,
+          });
+        }
+        if (!userAccessToken || !userId) {
+          return jsonResponse(401, {
+            ok: false,
+            text: "",
+            error: "Authentication required.",
+            billing_mode: AI_USAGE_LANE.FORGE,
+          });
+        }
+        if (tokenBalance != null && tokenBalance <= 0) {
+          return jsonResponse(402, {
+            ok: false,
+            text: "",
+            error: "No AI credits remaining.",
+            billing_mode: AI_USAGE_LANE.FORGE,
+          });
+        }
         effectiveApiKey = apiKey;
       }
       const providedActionId = readOptionalString(formData.get("action_id"));
@@ -654,6 +671,9 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
               provider_request_id: providerRequestId,
               billing_mode: lane,
             });
+          }
+          if (deltaResult.tokenBalance != null) {
+            tokenBalance = deltaResult.tokenBalance;
           }
         }
 
