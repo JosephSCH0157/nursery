@@ -2475,6 +2475,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const summaryRunGeneration = Number.isFinite(summaryRunGenerationRaw)
     ? Math.max(0, Math.floor(summaryRunGenerationRaw))
     : null;
+  let driverRunKey = summaryRunKey;
+  let driverRunGeneration = summaryRunGeneration;
   try { console.log('[ASR DRIVER CREATED]', driverInstanceId); } catch {}
   let threshold = resolveThreshold();
   // Respect dev/manual threshold ownership (dev panel/profile overrides) and avoid
@@ -3230,10 +3232,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let liveStrictForwardClusterContradictionAt = 0;
 
   const normalizeRunGeneration = (value: unknown): number | null => {
+    if (value == null || value === '') return null;
     const raw = Number(value);
     if (!Number.isFinite(raw)) return null;
     return Math.max(0, Math.floor(raw));
   };
+  const normalizeRunKey = (value: unknown): string => String(value || '').trim();
 
   const readWindowRunGeneration = (): number | null => {
     if (typeof window === 'undefined') return null;
@@ -3247,7 +3251,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const readWindowRunKey = (): string => {
     if (typeof window === 'undefined') return '';
     try {
-      return String((window as any).__tpAsrRunKey || '').trim();
+      return normalizeRunKey((window as any).__tpAsrRunKey);
     } catch {
       return '';
     }
@@ -3255,17 +3259,98 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
   const resolveActiveRunGeneration = (): number | null => {
     const runtimeGeneration = normalizeRunGeneration(asrRuntimeRunGeneration);
-    if (runtimeGeneration != null) return runtimeGeneration;
-    return readWindowRunGeneration();
+    const windowGeneration = readWindowRunGeneration();
+    if (runtimeGeneration == null) return windowGeneration;
+    if (windowGeneration != null && windowGeneration > runtimeGeneration) return windowGeneration;
+    return runtimeGeneration;
   };
 
   const resolveActiveRunKey = (): string => {
-    const runtimeKey = String(asrRuntimeRunKey || '').trim();
+    const runtimeKey = normalizeRunKey(asrRuntimeRunKey);
     if (runtimeKey) return runtimeKey;
     return readWindowRunKey();
   };
+  const resolveDriverRunGeneration = (): number | null => normalizeRunGeneration(driverRunGeneration);
+  const resolveDriverRunKey = (): string => normalizeRunKey(driverRunKey);
+
+  const syncDriverRunIdentity = (args: {
+    source: string;
+    runKeyProvided: boolean;
+    runGenerationProvided: boolean;
+    runKey?: unknown;
+    runGeneration?: unknown;
+    transcriptRunKey?: string;
+    transcriptRunGeneration?: number | null;
+    activeRunKey?: string;
+    activeRunGeneration?: number | null;
+  }): boolean => {
+    if (!args.runKeyProvided && !args.runGenerationProvided) return false;
+    const prevDriverRunKey = resolveDriverRunKey();
+    const prevDriverRunGeneration = resolveDriverRunGeneration();
+    const nextDriverRunKey = args.runKeyProvided ? normalizeRunKey(args.runKey) : prevDriverRunKey;
+    const nextDriverRunGeneration = args.runGenerationProvided
+      ? normalizeRunGeneration(args.runGeneration)
+      : prevDriverRunGeneration;
+    if (
+      prevDriverRunKey === nextDriverRunKey &&
+      prevDriverRunGeneration === nextDriverRunGeneration
+    ) {
+      return false;
+    }
+    if (args.runKeyProvided) {
+      driverRunKey = nextDriverRunKey;
+    }
+    if (args.runGenerationProvided) {
+      driverRunGeneration = nextDriverRunGeneration;
+    }
+    const activeRunKey = args.activeRunKey ?? resolveActiveRunKey();
+    const activeRunGeneration = args.activeRunGeneration ?? resolveActiveRunGeneration();
+    warnGuard('asr_live_generation_synced', [
+      `source=${args.source}`,
+      `driverRunGeneration=${resolveDriverRunGeneration() ?? -1}`,
+      `prevDriverRunGeneration=${prevDriverRunGeneration ?? -1}`,
+      `activeRunGeneration=${activeRunGeneration ?? -1}`,
+      `transcriptRunGeneration=${args.transcriptRunGeneration ?? -1}`,
+      resolveDriverRunKey() ? `driverRunKey=${resolveDriverRunKey()}` : '',
+      prevDriverRunKey ? `prevDriverRunKey=${prevDriverRunKey}` : '',
+      activeRunKey ? `activeRunKey=${activeRunKey}` : 'activeRunKey=none',
+      args.transcriptRunKey ? `transcriptRunKey=${args.transcriptRunKey}` : '',
+    ]);
+    return true;
+  };
+
+  const maybeSyncDriverRunIdentityForIngest = (
+    detail?: { runKey?: unknown; runGeneration?: unknown },
+  ): boolean => {
+    if (!detail) return false;
+    if (getScrollMode() !== 'asr' || !isSessionLivePhase() || !isSessionAsrArmed()) return false;
+    const driverGeneration = resolveDriverRunGeneration();
+    const activeRunGeneration = resolveActiveRunGeneration();
+    if (activeRunGeneration == null || activeRunGeneration <= 0) return false;
+    if (driverGeneration != null && driverGeneration > 0) return false;
+    const transcriptRunGeneration = normalizeRunGeneration(detail.runGeneration);
+    if (transcriptRunGeneration == null || transcriptRunGeneration !== activeRunGeneration) {
+      return false;
+    }
+    const transcriptRunKey = normalizeRunKey(detail.runKey);
+    const activeRunKey = resolveActiveRunKey();
+    if (transcriptRunKey && activeRunKey && transcriptRunKey !== activeRunKey) return false;
+    return syncDriverRunIdentity({
+      source: 'ingest-adopt-active',
+      runKeyProvided: true,
+      runGenerationProvided: true,
+      runKey: activeRunKey || transcriptRunKey,
+      runGeneration: activeRunGeneration,
+      transcriptRunKey: transcriptRunKey || undefined,
+      transcriptRunGeneration,
+      activeRunKey,
+      activeRunGeneration,
+    });
+  };
 
   const isRunIdentityStale = (detail?: { runKey?: unknown; runGeneration?: unknown }): boolean => {
+    maybeSyncDriverRunIdentityForIngest(detail);
+    if (!detail) return false;
     const transcriptRunGeneration = normalizeRunGeneration(detail?.runGeneration);
     const activeRunGeneration = resolveActiveRunGeneration();
     if (
@@ -3275,21 +3360,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     ) {
       return true;
     }
-    if (
-      summaryRunGeneration != null &&
-      activeRunGeneration != null &&
-      summaryRunGeneration !== activeRunGeneration
-    ) {
-      return true;
-    }
-    const transcriptRunKey = String(detail?.runKey || '').trim();
-    if (summaryRunKey && transcriptRunKey && transcriptRunKey !== summaryRunKey) {
-      return true;
-    }
-    if (summaryRunKey) {
-      const activeRunKey = resolveActiveRunKey();
-      if (activeRunKey !== summaryRunKey) return true;
-    }
+    const transcriptRunKey = normalizeRunKey(detail?.runKey);
+    const activeRunKey = resolveActiveRunKey();
+    if (transcriptRunKey && activeRunKey && transcriptRunKey !== activeRunKey) return true;
     return false;
   };
 
@@ -3298,10 +3371,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const runGenerationRaw =
       (detail as { runGeneration?: unknown } | null | undefined)?.runGeneration;
     if (runKeyRaw !== undefined) {
-      asrRuntimeRunKey = String(runKeyRaw || '').trim();
+      asrRuntimeRunKey = normalizeRunKey(runKeyRaw);
     }
     if (runGenerationRaw !== undefined) {
       asrRuntimeRunGeneration = normalizeRunGeneration(runGenerationRaw);
+    }
+    if (runKeyRaw !== undefined || runGenerationRaw !== undefined) {
+      syncDriverRunIdentity({
+        source: 'runtime-status',
+        runKeyProvided: runKeyRaw !== undefined,
+        runGenerationProvided: runGenerationRaw !== undefined,
+        runKey: runKeyRaw,
+        runGeneration: runGenerationRaw,
+      });
     }
     const actualRaw = (detail as { speechRunningActual?: unknown } | null | undefined)?.speechRunningActual;
     if (typeof actualRaw !== 'boolean') return;
@@ -4725,16 +4807,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `source=${source}`,
           'speechRunning=0',
           `runGeneration=${resolveActiveRunGeneration() ?? -1}`,
-          summaryRunKey ? `runKey=${summaryRunKey}` : '',
+          resolveDriverRunKey() ? `runKey=${resolveDriverRunKey()}` : '',
         ]);
         return false;
       }
       if (isRunIdentityStale()) {
         warnGuard('asr_live_stale_generation_hold', [
           `source=${source}`,
-          `driverRunGeneration=${summaryRunGeneration ?? -1}`,
+          `driverRunGeneration=${resolveDriverRunGeneration() ?? -1}`,
           `activeRunGeneration=${resolveActiveRunGeneration() ?? -1}`,
-          summaryRunKey ? `driverRunKey=${summaryRunKey}` : '',
+          resolveDriverRunKey() ? `driverRunKey=${resolveDriverRunKey()}` : '',
           `activeRunKey=${resolveActiveRunKey() || 'none'}`,
         ]);
         return false;
@@ -10989,10 +11071,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     ) {
       warnGuard('asr_live_stale_generation_hold', [
         'source=ingest',
-        `driverRunGeneration=${summaryRunGeneration ?? -1}`,
+        `driverRunGeneration=${resolveDriverRunGeneration() ?? -1}`,
         `transcriptRunGeneration=${transcriptRunGeneration ?? -1}`,
         `activeRunGeneration=${resolveActiveRunGeneration() ?? -1}`,
-        summaryRunKey ? `driverRunKey=${summaryRunKey}` : '',
+        resolveDriverRunKey() ? `driverRunKey=${resolveDriverRunKey()}` : '',
         transcriptRunKey ? `transcriptRunKey=${transcriptRunKey}` : '',
         `activeRunKey=${resolveActiveRunKey() || 'none'}`,
       ]);
