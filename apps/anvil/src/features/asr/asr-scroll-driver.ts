@@ -398,6 +398,9 @@ const DEFAULT_ASR_SOFT_RUNTIME_REBASE_FINAL_MAX_AGE_MS = 5000;
 const DEFAULT_ASR_SOFT_RUNTIME_REBASE_SKIP_LOG_COOLDOWN_MS = 1200;
 const DEFAULT_ASR_VAD_SPEECH_GRACE_MS = 900;
 const DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS = 900;
+const DEFAULT_ASR_AUTHORITY_SPEECH_STOP_BRAKE_MS = 1800;
+const DEFAULT_ASR_AUTHORITY_FINAL_AFTER_SPEECH_STOP_MAX_AGE_MS = 1500;
+const DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS = 1;
 const DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES = 5;
 const DEFAULT_STARVATION_RELOCK_SIM_SLACK = 0.08;
 const DEFAULT_STARVATION_RELOCK_COOLDOWN_MS = 1200;
@@ -3260,7 +3263,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let asrRuntimeSpeechSeen = false;
   let asrRuntimeSpeechEverTrue = false;
   let asrRuntimeSpeechRunningActual = false;
+  let lastSpeechRunningActualAtMs = 0;
   let lastRuntimeSpeechAt = 0;
+  let speechStopBrakeCleanupUsed = false;
   let asrRuntimeRunKey = summaryRunKey;
   let asrRuntimeRunGeneration = summaryRunGeneration;
   let lastRescueMatchEvidenceAt = 0;
@@ -3443,6 +3448,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       asrRuntimeSpeechSeen = true;
       asrRuntimeSpeechEverTrue = true;
       asrRuntimeSpeechRunningActual = true;
+      lastSpeechRunningActualAtMs = Date.now();
+      speechStopBrakeCleanupUsed = false;
       lastRuntimeSpeechAt = Date.now();
       return;
     }
@@ -10120,6 +10127,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       const requestedTargetLine = targetLine;
       const movementAuthorityStarvationMs = Math.max(0, now - lastForwardCommitAt);
+      const movementAuthorityFinalTranscriptAgeMs =
+        lastFinalTranscriptAt > 0
+          ? Math.max(0, now - lastFinalTranscriptAt)
+          : Number.POSITIVE_INFINITY;
+      const msSinceSpeechRunningActual =
+        lastSpeechRunningActualAtMs > 0
+          ? Math.max(0, now - lastSpeechRunningActualAtMs)
+          : Number.POSITIVE_INFINITY;
+      const hasActiveSpeechWindow =
+        asrRuntimeSpeechRunningActual === true ||
+        (
+          Number.isFinite(msSinceSpeechRunningActual) &&
+          msSinceSpeechRunningActual <= DEFAULT_ASR_AUTHORITY_SPEECH_STOP_BRAKE_MS
+        );
       const movementAuthorityProofSource =
         pendingProofSource ||
         strictProofOwnedCapBypassTarget?.proofSource ||
@@ -10174,7 +10195,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         bestIdx: line,
         bestSim: conf,
         starvationMs: movementAuthorityStarvationMs,
-        speechRunningActual: asrRuntimeSpeechRunningActual,
+        speechRunningActual: hasActiveSpeechWindow,
         isFinal,
         hasStrictLocalProof: movementAuthorityHasStrictLocalProof,
         hasAdjacentProof: movementAuthorityHasAdjacentProof,
@@ -10182,10 +10203,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         hasFinalForwardProof: movementAuthorityHasFinalForwardProof,
         proofSource: movementAuthorityProofSource || undefined,
       });
+      const attemptedAuthority = movementAuthorityDecision.authority;
       let movementAuthority = movementAuthorityDecision.authority;
       let movementAuthorityReason = movementAuthorityDecision.reason;
       let movementAuthoritySourceBranch = movementAuthorityDecision.sourceBranch;
-      const bypassDownstreamVeto = movementAuthorityDecision.bypassDownstreamVeto;
+      let bypassDownstreamVeto = movementAuthorityDecision.bypassDownstreamVeto;
       const emitMovementAuthorityVetoBypassed = (
         blocker: string,
         requested: number,
@@ -10201,22 +10223,96 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `reason=${reason}`,
         ]);
       };
+      if (hasActiveSpeechWindow) {
+        speechStopBrakeCleanupUsed = false;
+      } else {
+        const cleanupTarget = resolveForwardSpeakableTarget(
+          lastLineIndex,
+          Math.max(lastLineIndex + 1, movementAuthorityDecision.target),
+          DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS,
+        );
+        const cleanupEligible =
+          !speechStopBrakeCleanupUsed &&
+          movementAuthorityDecision.target > lastLineIndex &&
+          isFinal === true &&
+          Number.isFinite(movementAuthorityFinalTranscriptAgeMs) &&
+          movementAuthorityFinalTranscriptAgeMs <= DEFAULT_ASR_AUTHORITY_FINAL_AFTER_SPEECH_STOP_MAX_AGE_MS &&
+          cleanupTarget > lastLineIndex &&
+          movementAuthorityDecision.target === cleanupTarget;
+        warnGuard('movement_authority_speech_brake', [
+          `current=${lastLineIndex}`,
+          `target=${movementAuthorityDecision.target}`,
+          `bestIdx=${line}`,
+          `bestSim=${formatLogScore(conf)}`,
+          `attemptedAuthority=${attemptedAuthority}`,
+          Number.isFinite(msSinceSpeechRunningActual)
+            ? `msSinceSpeechRunningActual=${Math.round(msSinceSpeechRunningActual)}`
+            : 'msSinceSpeechRunningActual=inf',
+          Number.isFinite(movementAuthorityFinalTranscriptAgeMs)
+            ? `finalTranscriptAgeMs=${Math.round(movementAuthorityFinalTranscriptAgeMs)}`
+            : 'finalTranscriptAgeMs=inf',
+          `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+          'reason=speech_stopped_window_expired',
+        ]);
+        if (cleanupEligible) {
+          warnGuard('movement_authority_speech_brake_cleanup_commit', [
+            `current=${lastLineIndex}`,
+            `target=${cleanupTarget}`,
+            `bestIdx=${line}`,
+            `bestSim=${formatLogScore(conf)}`,
+            `attemptedAuthority=${attemptedAuthority}`,
+            Number.isFinite(msSinceSpeechRunningActual)
+              ? `msSinceSpeechRunningActual=${Math.round(msSinceSpeechRunningActual)}`
+              : 'msSinceSpeechRunningActual=inf',
+            Number.isFinite(movementAuthorityFinalTranscriptAgeMs)
+              ? `finalTranscriptAgeMs=${Math.round(movementAuthorityFinalTranscriptAgeMs)}`
+              : 'finalTranscriptAgeMs=inf',
+            `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+            'reason=single_step_cleanup_commit_allowed',
+          ]);
+          movementAuthority = 'weak';
+          movementAuthorityReason = 'speech_stop_cleanup_commit';
+          movementAuthoritySourceBranch = 'movement_authority_speech_brake_cleanup';
+          targetLine = cleanupTarget;
+          bypassDownstreamVeto = false;
+        } else {
+          warnGuard('movement_authority_speech_brake_blocked', [
+            `current=${lastLineIndex}`,
+            `target=${movementAuthorityDecision.target}`,
+            `bestIdx=${line}`,
+            `bestSim=${formatLogScore(conf)}`,
+            `attemptedAuthority=${attemptedAuthority}`,
+            Number.isFinite(msSinceSpeechRunningActual)
+              ? `msSinceSpeechRunningActual=${Math.round(msSinceSpeechRunningActual)}`
+              : 'msSinceSpeechRunningActual=inf',
+            Number.isFinite(movementAuthorityFinalTranscriptAgeMs)
+              ? `finalTranscriptAgeMs=${Math.round(movementAuthorityFinalTranscriptAgeMs)}`
+              : 'finalTranscriptAgeMs=inf',
+            `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+            'reason=speech_stopped_brake',
+          ]);
+          movementAuthority = 'none';
+          movementAuthorityReason = 'speech_stopped_brake';
+          movementAuthoritySourceBranch = 'movement_authority_speech_brake';
+          targetLine = lastLineIndex;
+          bypassDownstreamVeto = false;
+        }
+      }
       warnGuard('movement_authority_resolved', [
         `current=${movementAuthorityDecision.current}`,
-        `target=${movementAuthorityDecision.target}`,
+        `target=${targetLine}`,
         `bestIdx=${movementAuthorityDecision.bestIdx}`,
         `bestSim=${formatLogScore(movementAuthorityDecision.bestSim)}`,
-        `authority=${movementAuthorityDecision.authority}`,
-        `reason=${movementAuthorityDecision.reason}`,
+        `authority=${movementAuthority}`,
+        `reason=${movementAuthorityReason}`,
         movementAuthorityDecision.proofSource
           ? `proofSource=${movementAuthorityDecision.proofSource}`
           : '',
-        `sourceBranch=${movementAuthorityDecision.sourceBranch}`,
+        `sourceBranch=${movementAuthoritySourceBranch}`,
         `starvationMs=${movementAuthorityStarvationMs}`,
         `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
         `isFinal=${isFinal ? 1 : 0}`,
       ]);
-      targetLine = movementAuthorityDecision.target;
       if (movementAuthority === 'proof' || movementAuthority === 'reconcile') {
         const totalLines = getTotalLines();
         let authorityTarget = Math.max(0, Math.floor(targetLine));
@@ -11328,10 +11424,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !hasRecentVadSpeech ||
         !runtimeSpeechFresh ||
         !!pending.liveForwardGuardActive;
+      const speechStopCleanupCommit = movementAuthorityReason === 'speech_stop_cleanup_commit';
       if (
         asrMode &&
         targetLine > lastLineIndex &&
         liveSpeechGuardActive &&
+        !speechStopCleanupCommit &&
         forceReason !== 'stall-rescue' &&
         forceReason !== 'stall_recovery_override' &&
         !isProofOwnedPrimaryForceReason(forceReason)
@@ -12160,6 +12258,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `sourceBranch=${movementAuthoritySourceBranch}`,
           `bypassDownstreamVeto=${bypassDownstreamVeto ? 1 : 0}`,
         ]);
+        if (movementAuthorityReason === 'speech_stop_cleanup_commit') {
+          speechStopBrakeCleanupUsed = true;
+        }
       }
       lastCommitTime = Date.now();
       lastCommitIndex = cursorIndex;
@@ -12397,6 +12498,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const transcriptRunGeneration = normalizeRunGeneration(
       (detail as { runGeneration?: unknown } | null | undefined)?.runGeneration,
     );
+    const detailSpeechRunningActualRaw =
+      (detail as { speechRunningActual?: unknown } | null | undefined)?.speechRunningActual;
+    if (detailSpeechRunningActualRaw === true) {
+      asrRuntimeSpeechSeen = true;
+      asrRuntimeSpeechEverTrue = true;
+      asrRuntimeSpeechRunningActual = true;
+      lastRuntimeSpeechAt = now;
+      lastSpeechRunningActualAtMs = now;
+      speechStopBrakeCleanupUsed = false;
+    }
     if (getScrollMode() === 'asr' && !liveAsrSessionActive) {
       if (isDevMode() && shouldLogTag('ASR_INGEST_IGNORED_INACTIVE', 2, 500)) {
         try {
@@ -12413,13 +12524,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       return;
     }
     if (getScrollMode() === 'asr' && liveAsrSessionActive && asrRuntimeSpeechSeen && !asrRuntimeSpeechRunningActual) {
-      warnGuard('asr_live_speech_stopped_hold', [
+      warnGuard('asr_live_speech_stopped_observed', [
         'source=ingest',
         'speechRunning=0',
         `runGeneration=${transcriptRunGeneration ?? resolveActiveRunGeneration() ?? -1}`,
         transcriptRunKey ? `runKey=${transcriptRunKey}` : '',
       ]);
-      return;
     }
     if (
       getScrollMode() === 'asr' &&
