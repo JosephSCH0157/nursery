@@ -8948,6 +8948,95 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ]);
         forceReason = 'live_strict_proof_owned_commit';
       }
+      const starvationFutureSpeechReconcileMinMs = 3000;
+      const starvationFutureSpeechReconcileMinSim = 0.8;
+      let starvationFutureSpeechReconcileTargetLine: number | null = null;
+      const starvationFutureSpeechReconcileCandidateIdx = Math.max(
+        Math.max(0, Math.floor(line)),
+        Number.isFinite(bestForwardCandidate?.idx)
+          ? Math.max(0, Math.floor(Number(bestForwardCandidate?.idx)))
+          : -1,
+      );
+      const starvationFutureSpeechReconcileCandidateSim = Math.max(
+        Number.isFinite(conf) ? conf : 0,
+        Number.isFinite(bestForwardCandidate?.score)
+          ? Number(bestForwardCandidate?.score)
+          : 0,
+      );
+      const starvationFutureSpeechReconcileMs = Math.max(0, now - lastForwardCommitAt);
+      const logStarvationFutureSpeechReconcileSkip = (
+        reason: string,
+        extraParts: string[] = [],
+      ) => {
+        warnGuard('starvation_future_speech_reconcile_skip', [
+          `current=${lastLineIndex}`,
+          `bestIdx=${starvationFutureSpeechReconcileCandidateIdx}`,
+          `bestSim=${formatLogScore(starvationFutureSpeechReconcileCandidateSim)}`,
+          `starvationMs=${starvationFutureSpeechReconcileMs}`,
+          `reason=${reason}`,
+          ...extraParts,
+          snippet ? `clue="${snippet}"` : '',
+        ]);
+      };
+      const starvationFutureSpeechReconcileCandidateActive =
+        liveStrictFollow &&
+        isFinal &&
+        hasEvidence &&
+        starvationFutureSpeechReconcileMs >= starvationFutureSpeechReconcileMinMs &&
+        starvationFutureSpeechReconcileCandidateIdx > lastLineIndex;
+      if (
+        starvationFutureSpeechReconcileCandidateActive &&
+        !isProofOwnedPrimaryForceReason(forceReason)
+      ) {
+        if (!proofOwnedPrimarySpeechFresh) {
+          logStarvationFutureSpeechReconcileSkip('speech_not_fresh');
+        } else if (liveSpeechForwardPushRunStale) {
+          logStarvationFutureSpeechReconcileSkip('stale_run_identity');
+        } else if (starvationFutureSpeechReconcileCandidateSim < starvationFutureSpeechReconcileMinSim) {
+          logStarvationFutureSpeechReconcileSkip('sim_below_floor', [
+            `minSim=${formatLogScore(starvationFutureSpeechReconcileMinSim)}`,
+          ]);
+        } else {
+          const backwardContradiction = rankedTopScores.some((entry) =>
+            entry.idx <= lastLineIndex &&
+            entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06),
+          );
+          if (backwardContradiction) {
+            logStarvationFutureSpeechReconcileSkip('backward_contradiction');
+          } else {
+            let furthestSpeakable = -1;
+            for (let idx = lastLineIndex + 1; idx <= starvationFutureSpeechReconcileCandidateIdx; idx += 1) {
+              if (!isIgnorableCueLineText(getLineTextAt(idx))) {
+                furthestSpeakable = idx;
+              }
+            }
+            if (furthestSpeakable <= lastLineIndex) {
+              logStarvationFutureSpeechReconcileSkip('no_speakable_target');
+            } else {
+              const skippedIgnorableLines: CueBridgeSkipReason[] = [];
+              for (let idx = lastLineIndex + 1; idx < furthestSpeakable; idx += 1) {
+                const reason = classifyStrictSkippableLineForCueBridge(getLineTextAt(idx));
+                if (reason) skippedIgnorableLines.push(reason);
+              }
+              starvationFutureSpeechReconcileTargetLine = furthestSpeakable;
+              forceReason = 'starvation_future_speech_reconcile';
+              warnGuard('proof_owned_primary_commit', [
+                `current=${lastLineIndex}`,
+                `target=${starvationFutureSpeechReconcileTargetLine}`,
+                `bestIdx=${starvationFutureSpeechReconcileCandidateIdx}`,
+                'proofSource=starvation_best_sim',
+                skippedIgnorableLines.length
+                  ? `skippedIgnorableLines=[${skippedIgnorableLines.join(',')}]`
+                  : 'skippedIgnorableLines=[]',
+                `stallMs=${starvationFutureSpeechReconcileMs}`,
+                'sourceBranch=starvation_future_speech_reconcile',
+                'oldWouldHaveUsedStallOverride=true',
+                snippet ? `clue="${snippet}"` : '',
+              ]);
+            }
+          }
+        }
+      }
       type StarvationFutureSpeechReconcileTarget = {
         target: number;
         proofSource: string;
@@ -9212,6 +9301,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       if (
         farLowConfidenceCandidate &&
+        !isProofOwnedPrimaryForceReason(forceReason) &&
         !nearSupportOk &&
         !forced &&
         !strictEarlyBacklogDrainActive &&
@@ -9714,6 +9804,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       let targetLine = strictEarlyBacklogDrainActive
         ? strictBacklogDrainPlannedTargetLine
         : Math.max(0, Math.floor(line));
+      if (
+        starvationFutureSpeechReconcileTargetLine != null &&
+        starvationFutureSpeechReconcileTargetLine > lastLineIndex &&
+        starvationFutureSpeechReconcileTargetLine > targetLine
+      ) {
+        targetLine = starvationFutureSpeechReconcileTargetLine;
+      }
       if (
         strictProofOwnedCapBypassTarget &&
         strictProofOwnedCapBypassTarget.target > lastLineIndex &&
