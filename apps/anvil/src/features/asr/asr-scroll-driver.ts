@@ -558,6 +558,9 @@ const DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM = 0.45;
 const DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM = 0.4;
 const DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS = 4;
 const DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK = 2;
+const DEFAULT_LIVE_SPEECH_FORWARD_PUSH_STALL_MS = 350;
+const DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SIM = 0.34;
+const DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SCORE_GAP = 0.06;
 const LOST_FORWARD_WINDOW_STEPS = [10, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, 60] as const;
 const LOST_FORWARD_STAGE_STREAKS = [
   DEFAULT_NO_PROGRESS_STREAK_TRIGGER,
@@ -14410,6 +14413,39 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       rawIdx > cursorLine &&
       rawIdx - cursorLine <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES &&
       conf >= DELTA_MIN_SIM_SMALL;
+    const currentLineScoreNumeric = Number(currentLineScoreFromTop);
+    const liveSpeechForwardScoreGapOk =
+      !Number.isFinite(currentLineScoreNumeric) ||
+      conf - currentLineScoreNumeric >= DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SCORE_GAP;
+    const liveSpeechForwardPushEligible =
+      !isFinal &&
+      rawIdx === cursorLine + 1 &&
+      bufferGrowing &&
+      tokenCount >= DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS &&
+      conf >= Math.max(DELTA_MIN_SIM_SMALL, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SIM) &&
+      asrRuntimeSpeechRunningActual &&
+      hasRecentActualSpeech(now) &&
+      hasRecentVadSpeechNow(now) &&
+      (
+        noProgressStreak >= 1 ||
+        now - lastForwardCommitAt >= DEFAULT_LIVE_SPEECH_FORWARD_PUSH_STALL_MS
+      ) &&
+      (
+        liveSpeechForwardScoreGapOk ||
+        (!!strongLongAnchorCandidate && strongLongAnchorCandidate.idx === rawIdx) ||
+        hasFreshNearbyRescueMatchEvidence(cursorLine, rawIdx, now, [])
+      );
+    if (liveSpeechForwardPushEligible) {
+      warnGuard('live_speech_forward_push', [
+        `current=${cursorLine}`,
+        `target=${rawIdx}`,
+        `sim=${formatLogScore(conf)}`,
+        `streak=${noProgressStreak}`,
+        `sinceForwardMs=${Math.max(0, now - lastForwardCommitAt)}`,
+        `scoreGap=${Number.isFinite(currentLineScoreNumeric) ? formatLogScore(conf - currentLineScoreNumeric) : 'na'}`,
+        snippet ? `clue="${snippet}"` : '',
+      ]);
+    }
     if (!isFinal) {
       if (!allowInterimCommit) {
         interimEligible = false;
@@ -14419,7 +14455,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !strongForwardInterimProgress &&
         !watchdogForwardInterimProgress &&
         !progressiveForwardInterimProgress &&
-        !adjacentForwardInterimProgress
+        !adjacentForwardInterimProgress &&
+        !liveSpeechForwardPushEligible
       ) {
         lastInterimBestIdx = -1;
         interimRepeatCount = 0;
@@ -14452,7 +14489,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             strongForwardInterimProgress ||
             watchdogForwardInterimProgress ||
             progressiveForwardInterimProgress ||
-            adjacentForwardInterimProgress
+            adjacentForwardInterimProgress ||
+            liveSpeechForwardPushEligible
           ) {
             interimEligible = true;
           } else {
@@ -14496,6 +14534,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           adjacentForwardInterimProgress ||
           progressiveForwardInterimProgress ||
           strongForwardInterimProgress ||
+          watchdogForwardInterimProgress ||
+          liveSpeechForwardPushEligible ||
           catchupCommit ||
           consistencyState.ok
         );
