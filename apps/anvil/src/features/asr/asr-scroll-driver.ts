@@ -6931,28 +6931,37 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (!targetText) return false;
     if (!liveStrictFollow && isIgnorableCueLineText(targetText)) return false;
     const strictLocalProofTopScores = strictRescueProofTopScores;
-    const strictLocalProofOk = !liveStrictFollow || (
+    const strictLocalAdjacentProof =
+      liveStrictFollow &&
       hasLiveStrictLocalProof(
         cursorLine,
         targetLine,
         now,
         strictLocalProofTopScores,
         DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
-      ) ||
+      );
+    const strictCueExitProof =
+      liveStrictFollow &&
       hasLiveStrictCueExitProof(
         cursorLine,
         targetLine,
         now,
         strictLocalProofTopScores,
         DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
-      ) ||
+      );
+    const strictBridgeProof =
+      liveStrictFollow &&
       hasLiveStrictSpeakableBridgeProof(
         cursorLine,
         targetLine,
         now,
         strictLocalProofTopScores,
         DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
-      )
+      );
+    const strictLocalProofOk = !liveStrictFollow || (
+      strictLocalAdjacentProof ||
+      strictCueExitProof ||
+      strictBridgeProof
     );
     const strictLogicalAdjacentRescue =
       liveStrictFollow &&
@@ -6965,6 +6974,61 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         )
       ) &&
       strictLocalProofOk;
+    const strictProofOwnedPrimaryEligible =
+      strictLogicalAdjacentRescue &&
+      asrRuntimeSpeechRunningActual &&
+      strictSpeechFreshForRescue &&
+      !strictClusterContradictionFresh &&
+      !isRunIdentityStale();
+    if (strictProofOwnedPrimaryEligible) {
+      const proofSource = strictBridgeProof
+        ? 'strict_speakable_bridge_landing'
+        : (strictCueExitProof
+          ? 'live_strict_cue_exit_proof'
+          : 'live_strict_local_proof_ok');
+      const oldWouldHaveUsedStallOverride =
+        reasonTag === 'auto-stall' &&
+        strictStarvationActive &&
+        strictFinalEvidenceArriving &&
+        asrRuntimeSpeechSeen &&
+        asrRuntimeSpeechRunningActual;
+      warnGuard('proof_owned_primary_commit', [
+        `current=${cursorLine}`,
+        `target=${targetLine}`,
+        `bestIdx=${targetLine}`,
+        `proofSource=${proofSource}`,
+        `skippedIgnorableLines=[${cueBridge.skippedReasons.join(',')}]`,
+        `stallMs=${Math.max(0, now - lastForwardCommitAt)}`,
+        'sourceBranch=stall-rescue:proof-owned',
+        `oldWouldHaveUsedStallOverride=${oldWouldHaveUsedStallOverride ? 'true' : 'false'}`,
+        reason ? `source=${reason}` : '',
+      ]);
+      const proofOwnedMatchId = `proof-owned-${Date.now().toString(36)}-${targetLine}`;
+      const proofOwnedSim = Math.max(
+        DEFAULT_STRONG_FORWARD_COMMIT_SIM,
+        DEFAULT_MULTI_JUMP_MIN_SIM,
+      );
+      adoptPendingMatch({
+        line: targetLine,
+        conf: proofOwnedSim,
+        isFinal: true,
+        hasEvidence: true,
+        snippet: formatLogSnippet(targetText, 80),
+        minThreshold: DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+        forced: true,
+        forceReason: 'live_strict_proof_owned_commit',
+        matchId: proofOwnedMatchId,
+        requiredThreshold: DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+        topScores: [{ idx: targetLine, score: proofOwnedSim }],
+        cursorLine,
+        searchWindowFrom: cursorLine,
+        searchWindowTo: targetLine,
+        lostMode: false,
+        cueBridgeNudgeDelta: Math.max(1, targetLine - cursorLine),
+      });
+      schedulePending();
+      return true;
+    }
     if (!strictLogicalAdjacentRescue && now - lastCueStallRescueAt < DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS) {
       return false;
     }
@@ -8425,7 +8489,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         snippet,
         minThreshold,
         forced,
-        forceReason,
+        forceReason: pendingForceReason,
         consistency,
         relockOverride,
         relockReason,
@@ -8444,6 +8508,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         runKey: pendingRunKey,
         runGeneration: pendingRunGeneration,
       } = pending;
+      let forceReason = pendingForceReason;
       const pendingCommitSource = forceReason
         ? `pending-commit:${forceReason}`
         : 'pending-commit';
@@ -8755,7 +8820,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const liveSpeechForwardPushAllow =
         liveStrictFollow &&
         !!strictSpeakableStep &&
-        liveSpeechForwardPushForwardTextPresent &&
+        (
+          liveSpeechForwardPushForwardTextPresent ||
+          liveSpeechForwardPushLexicalProof ||
+          liveSpeechForwardPushAdjacentRescueProof
+        ) &&
         liveSpeechForwardPushTarget === adjacentLine &&
         liveSpeechForwardPushTarget > lastLineIndex &&
         asrRuntimeSpeechRunningActual &&
@@ -8804,6 +8873,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ]);
       }
       if (liveSpeechForwardPushCommit && forceReason !== 'live_strict_proof_owned_commit') {
+        const oldWouldHaveUsedStallOverride =
+          isFinal &&
+          lastCommitIndex != null &&
+          Math.max(0, now - lastCommitTime) >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
+          Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
+        warnGuard('proof_owned_primary_commit', [
+          `current=${lastLineIndex}`,
+          `target=${liveSpeechForwardPushTarget}`,
+          `bestIdx=${line}`,
+          `proofSource=${liveSpeechForwardPushProofSource}`,
+          liveSpeechForwardPushSkippedIgnorableLines.length
+            ? `skippedIgnorableLines=[${liveSpeechForwardPushSkippedIgnorableLines.join(',')}]`
+            : 'skippedIgnorableLines=[]',
+          `stallMs=${liveSpeechForwardPushStallMs}`,
+          'sourceBranch=pending-proof-owned-pre-hold',
+          `oldWouldHaveUsedStallOverride=${oldWouldHaveUsedStallOverride ? 'true' : 'false'}`,
+          snippet ? `clue="${snippet}"` : '',
+        ]);
         warnGuard('live_strict_proof_owned_commit', [
           `current=${lastLineIndex}`,
           `target=${liveSpeechForwardPushTarget}`,
@@ -10003,31 +10090,45 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           }
         }
       }
+      const strictLocalAdjacentProofForCommit =
+        liveStrictFollow &&
+        targetLine > lastLineIndex &&
+        hasLiveStrictLocalProof(
+          lastLineIndex,
+          targetLine,
+          now,
+          rankedTopScores,
+          baselineRequired,
+        );
+      const strictCueExitProofForCommit =
+        liveStrictFollow &&
+        targetLine > lastLineIndex &&
+        hasLiveStrictCueExitProof(
+          lastLineIndex,
+          targetLine,
+          now,
+          rankedTopScores,
+          baselineRequired,
+        );
+      const strictBridgeProofForCommit =
+        liveStrictFollow &&
+        targetLine > lastLineIndex &&
+        hasLiveStrictSpeakableBridgeProof(
+          lastLineIndex,
+          targetLine,
+          now,
+          rankedTopScores,
+          baselineRequired,
+        );
+      const strictFreshProofForTarget =
+        strictLocalAdjacentProofForCommit ||
+        strictCueExitProofForCommit ||
+        strictBridgeProofForCommit;
       const strictLocalProofForCommit =
         liveStrictFollow &&
         targetLine > lastLineIndex &&
         (
-          hasLiveStrictLocalProof(
-            lastLineIndex,
-            targetLine,
-            now,
-            rankedTopScores,
-            baselineRequired,
-          ) ||
-          hasLiveStrictCueExitProof(
-            lastLineIndex,
-            targetLine,
-            now,
-            rankedTopScores,
-            baselineRequired,
-          ) ||
-          hasLiveStrictSpeakableBridgeProof(
-            lastLineIndex,
-            targetLine,
-            now,
-            rankedTopScores,
-            baselineRequired,
-          ) ||
+          strictFreshProofForTarget ||
           strictSpeakableBridgeAuthoritative ||
           strictBacklogDrainProofSatisfied
         );
@@ -10041,31 +10142,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const strictForwardCommit =
         liveStrictFollow &&
         targetLine > lastLineIndex;
-      const strictFreshProofForTarget =
-        strictForwardCommit &&
-        (
-          hasLiveStrictLocalProof(
-            lastLineIndex,
-            targetLine,
-            now,
-            rankedTopScores,
-            baselineRequired,
-          ) ||
-          hasLiveStrictCueExitProof(
-            lastLineIndex,
-            targetLine,
-            now,
-            rankedTopScores,
-            baselineRequired,
-          ) ||
-          hasLiveStrictSpeakableBridgeProof(
-            lastLineIndex,
-            targetLine,
-            now,
-            rankedTopScores,
-            baselineRequired,
-          )
-        );
       const strictTargetHasFreshProof =
         strictFreshProofForTarget;
       if (strictForwardCommit && !allowAsrReaderLeashAdvance({
@@ -10080,6 +10156,44 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         clue: snippet,
       })) {
         return;
+      }
+      const strictProofSourceForCommit = strictBridgeProofForCommit
+        ? 'strict_speakable_bridge_landing'
+        : (strictCueExitProofForCommit
+          ? 'live_strict_cue_exit_proof'
+          : (strictLocalAdjacentProofForCommit ? 'live_strict_local_proof_ok' : 'none'));
+      const proofOwnedPrimaryCommitEligible =
+        strictForwardCommit &&
+        targetLine === adjacentLine &&
+        strictFreshProofForTarget &&
+        !strictBackwardContradictionForCommit &&
+        asrRuntimeSpeechRunningActual &&
+        strictSpeechFreshNow &&
+        !isRunIdentityStale({
+          runKey: pendingRunKey || undefined,
+          runGeneration: pendingRunGeneration,
+        });
+      if (proofOwnedPrimaryCommitEligible) {
+        const oldWouldHaveUsedStallOverride =
+          isFinal &&
+          lastCommitIndex != null &&
+          Math.max(0, now - lastCommitTime) >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
+          Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
+        warnGuard('proof_owned_primary_commit', [
+          `current=${lastLineIndex}`,
+          `target=${targetLine}`,
+          `bestIdx=${line}`,
+          `proofSource=${strictProofSourceForCommit}`,
+          strictSpeakableStep?.skippedReasons?.length
+            ? `skippedIgnorableLines=[${strictSpeakableStep.skippedReasons.join(',')}]`
+            : 'skippedIgnorableLines=[]',
+          `stallMs=${Math.max(0, now - lastForwardCommitAt)}`,
+          'sourceBranch=pending-commit:strict-proof',
+          `oldWouldHaveUsedStallOverride=${oldWouldHaveUsedStallOverride ? 'true' : 'false'}`,
+          snippet ? `clue="${snippet}"` : '',
+        ]);
+        forceReason = 'live_strict_proof_owned_commit';
+        proofOwnedForceBypass = true;
       }
       const strictBypassOnlyAdmission =
         strictForwardCommit &&
@@ -10188,21 +10302,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `stallMs=${Math.max(0, now - liveProgressHeuristics.lastAdvanceAtMs)}`,
           snippet ? `clue="${snippet}"` : '',
         ]);
-        if (
-          liveStrictAdjacentReason === 'strict_live_accept' &&
-          isFinal &&
-          asrRuntimeSpeechSeen &&
-          asrRuntimeSpeechRunningActual &&
-          lastCommitIndex != null &&
-          Math.max(0, now - lastCommitTime) >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
-          Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex))
-        ) {
-          try {
-            console.warn(
-              `ASR_STALL_RECOVERY_OVERRIDE current=${lastLineIndex} requested=${targetLine} committed=${targetLine} reason=stall_recovery_override`,
-            );
-          } catch {}
-        }
       }
       const liveSpeechGuardActive =
         !hasRecentVadSpeech ||
