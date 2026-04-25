@@ -6019,6 +6019,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (safeTarget <= leashLimit) return true;
     const hardRecoveryPolicyAllow =
       targetHasFreshProof &&
+      speechRunning === true &&
       isReaderLeashHardRecoverySource(source) &&
       safeTarget > leashLimit &&
       safeTarget - leashLimit <= DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES;
@@ -8950,6 +8951,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       const starvationFutureSpeechReconcileMinMs = 3000;
       const starvationFutureSpeechReconcileMinSim = 0.8;
+      const starvationFutureSpeechReconcileFinalMaxAgeMs = Math.max(
+        starvationFutureSpeechReconcileMinMs,
+        DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS * 2,
+      );
+      const starvationFutureSpeechReconcileFinalAgeMs =
+        lastFinalTranscriptAt > 0
+          ? Math.max(0, now - lastFinalTranscriptAt)
+          : Number.POSITIVE_INFINITY;
+      const finalTranscriptFreshForReconcile =
+        Number.isFinite(starvationFutureSpeechReconcileFinalAgeMs) &&
+        starvationFutureSpeechReconcileFinalAgeMs <= starvationFutureSpeechReconcileFinalMaxAgeMs;
       let starvationFutureSpeechReconcileTargetLine: number | null = null;
       const starvationFutureSpeechReconcileCandidateIdx = Math.max(
         Math.max(0, Math.floor(line)),
@@ -8982,14 +8994,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveStrictFollow &&
         isFinal &&
         hasEvidence &&
+        asrRuntimeSpeechRunningActual &&
+        finalTranscriptFreshForReconcile &&
         starvationFutureSpeechReconcileMs >= starvationFutureSpeechReconcileMinMs &&
         starvationFutureSpeechReconcileCandidateIdx > lastLineIndex;
       if (
-        starvationFutureSpeechReconcileCandidateActive &&
-        !isProofOwnedPrimaryForceReason(forceReason)
+        !isProofOwnedPrimaryForceReason(forceReason) &&
+        liveStrictFollow &&
+        isFinal &&
+        hasEvidence &&
+        starvationFutureSpeechReconcileMs >= starvationFutureSpeechReconcileMinMs &&
+        starvationFutureSpeechReconcileCandidateIdx > lastLineIndex
       ) {
-        if (!proofOwnedPrimarySpeechFresh) {
-          logStarvationFutureSpeechReconcileSkip('speech_not_fresh');
+        if (!asrRuntimeSpeechRunningActual) {
+          logStarvationFutureSpeechReconcileSkip('speech_not_running');
+        } else if (!finalTranscriptFreshForReconcile) {
+          logStarvationFutureSpeechReconcileSkip('final_transcript_stale', [
+            `finalAgeMs=${Math.round(starvationFutureSpeechReconcileFinalAgeMs)}`,
+            `maxFinalAgeMs=${starvationFutureSpeechReconcileFinalMaxAgeMs}`,
+          ]);
         } else if (liveSpeechForwardPushRunStale) {
           logStarvationFutureSpeechReconcileSkip('stale_run_identity');
         } else if (starvationFutureSpeechReconcileCandidateSim < starvationFutureSpeechReconcileMinSim) {
@@ -9047,7 +9070,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const evaluateStarvationFutureSpeechReconcileTarget = (): StarvationFutureSpeechReconcileTarget | null => {
         if (!liveStrictFollow) return null;
         if (!isFinal || !hasEvidence) return null;
-        if (!proofOwnedPrimarySpeechFresh) return null;
+        if (!asrRuntimeSpeechRunningActual) return null;
+        if (!finalTranscriptFreshForReconcile) return null;
         if (isProofOwnedPrimaryForceReason(forceReason)) return null;
         if (liveSpeechForwardPushRunStale) return null;
         const starvationMs = Math.max(0, now - lastForwardCommitAt);
