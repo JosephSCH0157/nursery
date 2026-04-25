@@ -8526,6 +8526,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         line > lastLineIndex &&
         line <= adjacentLine &&
         runtimeSpeechFresh &&
+        asrRuntimeSpeechSeen &&
+        asrRuntimeSpeechRunningActual &&
         isSessionAsrArmed() &&
         isSessionLivePhase() &&
         now - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
@@ -12175,6 +12177,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastLineIndex >= 0 &&
       now - lastForwardCommitAt <= forwardBiasWindowMs;
     let consistentAdjacentForwardBypass = false;
+    let tieForwardPromoted = false;
     if (topScoresSpeakable.length) {
       const bestScore = conf;
       const tieCandidates = topScoresSpeakable
@@ -12219,7 +12222,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `eps=${forwardTieEps}`,
           snippet ? `clue="${snippet}"` : '',
         ]);
-        if (!permissiveMatcher) return;
+        // During starvation stalls, weak tie-forward alone should not advance.
+        if (starvationDetected || !permissiveMatcher) return;
       }
       if (starvationTieForwardBypass) {
         warnGuard('starvation_tie_forward_bypass', [
@@ -12274,6 +12278,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           const before = rawIdx;
           rawIdx = forwardPick.idx;
           conf = forwardPick.score;
+          tieForwardPromoted = true;
           if (hasTie) {
             warnGuard('tie_forward', [
               `current=${cursorLine}`,
@@ -12286,6 +12291,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           }
         }
       }
+    }
+    if (starvationDetected && tieForwardPromoted && !asrRuntimeSpeechRunningActual) {
+      warnGuard('starved_tie_forward_hold', [
+        `current=${cursorLine}`,
+        `target=${rawIdx}`,
+        `sim=${formatLogScore(conf)}`,
+        `runtimeActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+        snippet ? `clue="${snippet}"` : '',
+      ]);
+      emitHudStatus('starved_tie_forward_hold', 'Hold: stalled tie-forward needs runtime speech');
+      return;
     }
     const transcriptComparable = forwardMatcherInputs[0] || '';
     const stableComparable = transcriptComparable || normalizeComparableText(bufferedText || compacted || text);
@@ -13152,7 +13168,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (progressiveForwardFloorEligible) {
       const beforeNeed = effectiveThreshold;
       effectiveThreshold = Math.min(effectiveThreshold, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM);
-      if (rawIdx > cursorLine) {
+      if (rawIdx > cursorLine && !starvationDetected) {
         if (!interimShortLineAmbiguityHold) {
           forceReason = forceReason || 'progressive-floor';
         }

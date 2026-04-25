@@ -3536,6 +3536,9 @@ function pushAsrTranscript(text: string, isFinal: boolean, detail?: any): void {
         });
       } catch {}
     }
+    // Script-end confirmation still needs to observe final transcript evidence even
+    // when normal ASR ingest is gated inactive (for example in tests/manual phase flips).
+    maybeConfirmPendingAsrScriptEnd(t, !!isFinal, detail);
     return;
   }
   attachAsrScrollDriver({ reason: 'transcript', mode, allowCreate: true });
