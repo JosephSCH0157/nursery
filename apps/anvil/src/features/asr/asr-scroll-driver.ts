@@ -8661,12 +8661,89 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         conf < Math.max(DEFAULT_STRONG_FORWARD_COMMIT_SIM, effectiveMatchThreshold + 0.08);
       const nearSupportNeed = Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, conf - 0.08);
       const nearSupportOk = Number.isFinite(nearForwardSim) && nearForwardSim >= nearSupportNeed;
+      const liveSpeechForwardPushStallMs = Math.max(0, now - lastForwardCommitAt);
+      const liveSpeechForwardPushTarget =
+        liveStrictFollow && strictSpeakableStep && strictSpeakableStep.targetLine > lastLineIndex
+          ? strictSpeakableStep.targetLine
+          : -1;
+      const liveSpeechForwardPushLexicalProof =
+        liveStrictFollow &&
+        liveSpeechForwardPushTarget > lastLineIndex &&
+        (
+          hasLiveStrictLocalProof(
+            lastLineIndex,
+            liveSpeechForwardPushTarget,
+            now,
+            rankedTopScores,
+            baselineRequired,
+          ) ||
+          hasLiveStrictCueExitProof(
+            lastLineIndex,
+            liveSpeechForwardPushTarget,
+            now,
+            rankedTopScores,
+            baselineRequired,
+          ) ||
+          hasLiveStrictSpeakableBridgeProof(
+            lastLineIndex,
+            liveSpeechForwardPushTarget,
+            now,
+            rankedTopScores,
+            baselineRequired,
+          )
+        );
+      const liveSpeechForwardPushRepeatedForwardHits =
+        liveStrictFollow &&
+        liveStrictForwardClusterCursor === lastLineIndex &&
+        liveStrictForwardClusterLine === liveSpeechForwardPushTarget &&
+        liveStrictForwardClusterHits >= LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS &&
+        liveStrictForwardClusterUpdatedAt > 0 &&
+        now - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS;
+      const liveSpeechForwardPushCurrentStale =
+        noProgressStreak >= 1 ||
+        liveSpeechForwardPushStallMs >= DEFAULT_LIVE_SPEECH_FORWARD_PUSH_STALL_MS;
+      const liveSpeechForwardPushBackwardContradiction =
+        liveStrictFollow &&
+        rankedTopScores.some((entry) =>
+          entry.idx <= lastLineIndex &&
+          entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06),
+        );
+      const liveSpeechForwardPushAllow =
+        liveStrictFollow &&
+        !!strictSpeakableStep &&
+        line > lastLineIndex &&
+        liveSpeechForwardPushTarget === adjacentLine &&
+        liveSpeechForwardPushTarget > lastLineIndex &&
+        asrRuntimeSpeechRunningActual &&
+        strictSpeechFreshNow &&
+        !liveSpeechForwardPushBackwardContradiction &&
+        (
+          liveSpeechForwardPushLexicalProof ||
+          (
+            liveSpeechForwardPushCurrentStale &&
+            liveSpeechForwardPushRepeatedForwardHits
+          )
+        );
+      if (liveSpeechForwardPushAllow) {
+        const pushProofSource = liveSpeechForwardPushLexicalProof ? 'lexical' : 'forward-cluster';
+        warnGuard('live_speech_forward_push_allow', [
+          `current=${lastLineIndex}`,
+          `target=${liveSpeechForwardPushTarget}`,
+          `bestIdx=${line}`,
+          `proof=${pushProofSource}`,
+          `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+          `repeatedForwardHits=${liveStrictForwardClusterHits}`,
+          `stallMs=${liveSpeechForwardPushStallMs}`,
+          snippet ? `clue="${snippet}"` : '',
+        ]);
+      }
       if (
         farLowConfidenceCandidate &&
         !nearSupportOk &&
         !forced &&
         !strictEarlyBacklogDrainActive &&
-        !strictSpeakableBridgeProofForAdjacent
+        !strictSpeakableBridgeProofForAdjacent &&
+        !liveSpeechForwardPushAllow
       ) {
         warnGuard('live_strict_far_candidate_hold', [
           `current=${lastLineIndex}`,
@@ -8810,6 +8887,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         isSessionLivePhase() &&
         now - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
         conf >= Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, effectiveMatchThreshold - 0.18);
+      let liveSpeechForwardPushBypass =
+        liveSpeechForwardPushAllow &&
+        line > lastLineIndex &&
+        liveSpeechForwardPushTarget > lastLineIndex;
       const strictLocalProofForAdjacent =
         liveStrictFollow &&
         adjacentLine > lastLineIndex &&
@@ -8933,6 +9014,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         finalForwardBypass ||
         starvationForwardBypass ||
         consistentCatchupBypass ||
+        liveSpeechForwardPushBypass ||
         completionAdjacentBypass ||
         stallRescueBypass;
       const strictBridgeForceCommit =
@@ -8960,6 +9042,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (consistentCatchupBypass) strictPathStates.push({ path: 'catchup-consistent', kind: 'autonomous_candidate' });
         if (completionAdjacentBypass) strictPathStates.push({ path: 'adjacent-completion', kind: strictSpeechFreshNow ? 'speech_backed' : 'autonomous_candidate' });
         if (stallRescueBypass) strictPathStates.push({ path: 'stall-rescue', kind: strictSpeechFreshNow ? 'speech_backed' : 'autonomous_candidate' });
+        if (liveSpeechForwardPushBypass) strictPathStates.push({ path: 'live-speech-forward-push', kind: 'speech_backed' });
         logThrottled('ASR_STRICT_PATH_CLASS', 'debug', 'ASR_STRICT_PATH_CLASS', {
           current: lastLineIndex,
           best: line,
@@ -9023,6 +9106,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         finalForwardBypass ||
         starvationForwardBypass ||
         consistentCatchupBypass ||
+        liveSpeechForwardPushBypass ||
         completionAdjacentBypass ||
         stallRescueBypass ||
         strictEarlyBacklogDrainActive ||
@@ -9887,7 +9971,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           progressiveFloorBypass ||
           completionAdjacentBypass ||
           starvationForwardBypass ||
-          stallRescueBypass
+          stallRescueBypass ||
+          liveSpeechForwardPushBypass
         );
       const strictSpeculativeSource =
         strictForwardCommit &&
@@ -9902,6 +9987,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !strictBackwardContradictionForCommit &&
         !strictLocalProofForCommit &&
         (
+          liveSpeechForwardPushBypass ||
           strictMomentumBiasEligible ||
           strictAntiStallEligible ||
           strictBehindRecoveryEligible
