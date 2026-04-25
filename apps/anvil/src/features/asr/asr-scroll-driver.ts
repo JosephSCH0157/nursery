@@ -8666,7 +8666,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveStrictFollow && strictSpeakableStep && strictSpeakableStep.targetLine > lastLineIndex
           ? strictSpeakableStep.targetLine
           : -1;
-      const liveSpeechForwardPushLexicalProof =
+      const liveSpeechForwardPushLocalProof =
         liveStrictFollow &&
         liveSpeechForwardPushTarget > lastLineIndex &&
         (
@@ -8683,15 +8683,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             now,
             rankedTopScores,
             baselineRequired,
-          ) ||
-          hasLiveStrictSpeakableBridgeProof(
-            lastLineIndex,
-            liveSpeechForwardPushTarget,
-            now,
-            rankedTopScores,
-            baselineRequired,
           )
         );
+      const liveSpeechForwardPushBridgeLandingProof =
+        liveStrictFollow &&
+        liveSpeechForwardPushTarget > lastLineIndex &&
+        hasLiveStrictSpeakableBridgeProof(
+          lastLineIndex,
+          liveSpeechForwardPushTarget,
+          now,
+          rankedTopScores,
+          baselineRequired,
+        );
+      const liveSpeechForwardPushLexicalProof =
+        liveSpeechForwardPushLocalProof ||
+        liveSpeechForwardPushBridgeLandingProof;
+      const liveSpeechForwardPushProofSource = liveSpeechForwardPushLocalProof
+        ? 'live_strict_local_proof_ok'
+        : (liveSpeechForwardPushBridgeLandingProof ? 'strict_speakable_bridge_landing' : 'none');
       const liveSpeechForwardPushRepeatedForwardHits =
         liveStrictFollow &&
         liveStrictForwardClusterCursor === lastLineIndex &&
@@ -8702,20 +8711,28 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const liveSpeechForwardPushCurrentStale =
         noProgressStreak >= 1 ||
         liveSpeechForwardPushStallMs >= DEFAULT_LIVE_SPEECH_FORWARD_PUSH_STALL_MS;
+      const liveSpeechForwardPushForwardTextPresent =
+        line > lastLineIndex ||
+        (bestForwardCandidate?.idx ?? -1) > lastLineIndex;
       const liveSpeechForwardPushBackwardContradiction =
         liveStrictFollow &&
         rankedTopScores.some((entry) =>
           entry.idx <= lastLineIndex &&
           entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06),
         );
+      const liveSpeechForwardPushRunStale = isRunIdentityStale({
+        runKey: pendingRunKey || undefined,
+        runGeneration: pendingRunGeneration,
+      });
       const liveSpeechForwardPushAllow =
         liveStrictFollow &&
         !!strictSpeakableStep &&
-        line > lastLineIndex &&
+        liveSpeechForwardPushForwardTextPresent &&
         liveSpeechForwardPushTarget === adjacentLine &&
         liveSpeechForwardPushTarget > lastLineIndex &&
         asrRuntimeSpeechRunningActual &&
         strictSpeechFreshNow &&
+        !liveSpeechForwardPushRunStale &&
         !liveSpeechForwardPushBackwardContradiction &&
         (
           liveSpeechForwardPushLexicalProof ||
@@ -8725,15 +8742,34 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           )
         );
       if (liveSpeechForwardPushAllow) {
-        const pushProofSource = liveSpeechForwardPushLexicalProof ? 'lexical' : 'forward-cluster';
         warnGuard('live_speech_forward_push_allow', [
           `current=${lastLineIndex}`,
           `target=${liveSpeechForwardPushTarget}`,
           `bestIdx=${line}`,
-          `proof=${pushProofSource}`,
+          `proof=${liveSpeechForwardPushProofSource}`,
           `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
           `repeatedForwardHits=${liveStrictForwardClusterHits}`,
           `stallMs=${liveSpeechForwardPushStallMs}`,
+          snippet ? `clue="${snippet}"` : '',
+        ]);
+      }
+      const liveSpeechForwardPushCommit =
+        liveSpeechForwardPushAllow &&
+        liveSpeechForwardPushTarget > lastLineIndex &&
+        (
+          liveSpeechForwardPushLocalProof ||
+          liveSpeechForwardPushBridgeLandingProof
+        );
+      if (liveSpeechForwardPushCommit) {
+        warnGuard('live_speech_forward_push_commit', [
+          `current=${lastLineIndex}`,
+          `target=${liveSpeechForwardPushTarget}`,
+          `bestIdx=${line}`,
+          `proofSource=${liveSpeechForwardPushProofSource}`,
+          `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+          `repeatedForwardHits=${liveStrictForwardClusterHits}`,
+          `stallMs=${liveSpeechForwardPushStallMs}`,
+          'source=commit:pre-far-hold',
           snippet ? `clue="${snippet}"` : '',
         ]);
       }
@@ -8743,7 +8779,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !forced &&
         !strictEarlyBacklogDrainActive &&
         !strictSpeakableBridgeProofForAdjacent &&
-        !liveSpeechForwardPushAllow
+        !liveSpeechForwardPushCommit
       ) {
         warnGuard('live_strict_far_candidate_hold', [
           `current=${lastLineIndex}`,
@@ -8888,8 +8924,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         now - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
         conf >= Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, effectiveMatchThreshold - 0.18);
       let liveSpeechForwardPushBypass =
-        liveSpeechForwardPushAllow &&
-        line > lastLineIndex &&
+        liveSpeechForwardPushCommit &&
         liveSpeechForwardPushTarget > lastLineIndex;
       const strictLocalProofForAdjacent =
         liveStrictFollow &&
@@ -9232,6 +9267,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       let targetLine = strictEarlyBacklogDrainActive
         ? strictBacklogDrainPlannedTargetLine
         : Math.max(0, Math.floor(line));
+      if (liveSpeechForwardPushCommit && liveSpeechForwardPushTarget > lastLineIndex) {
+        targetLine = liveSpeechForwardPushTarget;
+      }
       const continuityLine = chooseWithinBlockContinuityLine(
         targetLine,
         topScores,
