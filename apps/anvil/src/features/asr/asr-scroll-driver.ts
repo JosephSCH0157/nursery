@@ -9061,6 +9061,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           rankedTopScores,
           baselineRequired,
         );
+      const liveSpeechForwardPushTailLexical = liveStrictFollow &&
+        liveSpeechForwardPushTarget === adjacentLine &&
+        liveSpeechForwardPushTarget > lastLineIndex
+        ? evaluateLiveStrictBridgeLandingLexicalProof(
+          liveSpeechForwardPushTarget,
+          now,
+        )
+        : null;
+      const liveSpeechForwardPushTailProofUsed =
+        !!liveSpeechForwardPushTailLexical?.ok &&
+        (
+          liveSpeechForwardPushTailLexical.tailChars > 0 ||
+          liveSpeechForwardPushTailLexical.stalePrefixIgnored
+        );
+      const liveSpeechForwardPushStalePrefixIgnored =
+        !!liveSpeechForwardPushTailLexical?.stalePrefixIgnored;
       const liveSpeechForwardPushSkippedIgnorableLines =
         liveStrictFollow && strictSpeakableStep
           ? strictSpeakableStep.skippedReasons
@@ -9076,12 +9092,40 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         );
       const liveSpeechForwardPushLexicalProof =
         liveSpeechForwardPushLocalProof ||
-        liveSpeechForwardPushBridgeLandingProof;
+        liveSpeechForwardPushBridgeLandingProof ||
+        liveSpeechForwardPushTailProofUsed;
       const liveSpeechForwardPushProofSource = liveSpeechForwardPushLocalProof
         ? 'live_strict_local_proof_ok'
         : (liveSpeechForwardPushBridgeLandingProof
           ? 'strict_speakable_bridge_landing'
-          : (liveSpeechForwardPushAdjacentRescueProof ? 'adjacent_rescue_proofed' : 'none'));
+          : (liveSpeechForwardPushTailProofUsed
+            ? 'strict_adjacent_tail_lexical'
+            : (liveSpeechForwardPushAdjacentRescueProof ? 'adjacent_rescue_proofed' : 'none')));
+      const liveSpeechForwardPushBackwardContradiction =
+        liveStrictFollow &&
+        rankedTopScores.some((entry) =>
+          entry.idx <= lastLineIndex &&
+          entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06),
+        );
+      const liveSpeechForwardPushBackwardContradictionOverriddenByTail =
+        liveSpeechForwardPushTarget === adjacentLine &&
+        liveSpeechForwardPushBackwardContradiction &&
+        liveSpeechForwardPushTailProofUsed;
+      const liveSpeechForwardPushContradictionBlocks =
+        liveSpeechForwardPushBackwardContradiction &&
+        !liveSpeechForwardPushBackwardContradictionOverriddenByTail;
+      if (liveSpeechForwardPushBackwardContradictionOverriddenByTail) {
+        warnGuard('live_adjacent_tail_proof_override', [
+          `current=${lastLineIndex}`,
+          `target=${liveSpeechForwardPushTarget}`,
+          `bestIdx=${line}`,
+          `tailProofUsed=${liveSpeechForwardPushTailProofUsed ? 1 : 0}`,
+          `stalePrefixIgnored=${liveSpeechForwardPushStalePrefixIgnored ? 1 : 0}`,
+          'backwardContradictionOverriddenByTail=1',
+          `commitTargetLine=${liveSpeechForwardPushTarget}`,
+          snippet ? `clue="${snippet}"` : '',
+        ]);
+      }
       const liveSpeechForwardPushRepeatedForwardHits =
         liveStrictFollow &&
         liveStrictForwardClusterCursor === lastLineIndex &&
@@ -9095,12 +9139,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const liveSpeechForwardPushForwardTextPresent =
         line > lastLineIndex ||
         (bestForwardCandidate?.idx ?? -1) > lastLineIndex;
-      const liveSpeechForwardPushBackwardContradiction =
-        liveStrictFollow &&
-        rankedTopScores.some((entry) =>
-          entry.idx <= lastLineIndex &&
-          entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06),
-        );
       const liveSpeechForwardPushRunStale = isRunIdentityStale({
         runKey: pendingRunKey || undefined,
         runGeneration: pendingRunGeneration,
@@ -9536,7 +9574,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveSpeechForwardPushTarget > lastLineIndex &&
         proofOwnedPrimarySpeechFresh &&
         !liveSpeechForwardPushRunStale &&
-        !liveSpeechForwardPushBackwardContradiction &&
+        !liveSpeechForwardPushContradictionBlocks &&
         (
           liveSpeechForwardPushLexicalProof ||
           liveSpeechForwardPushAdjacentRescueProof ||
@@ -9553,6 +9591,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `proof=${liveSpeechForwardPushProofSource}`,
           `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
           `repeatedForwardHits=${liveStrictForwardClusterHits}`,
+          `tailProofUsed=${liveSpeechForwardPushTailProofUsed ? 1 : 0}`,
+          `stalePrefixIgnored=${liveSpeechForwardPushStalePrefixIgnored ? 1 : 0}`,
+          `backwardContradictionOverriddenByTail=${liveSpeechForwardPushBackwardContradictionOverriddenByTail ? 1 : 0}`,
+          `commitTargetLine=${liveSpeechForwardPushTarget}`,
           `stallMs=${liveSpeechForwardPushStallMs}`,
           snippet ? `clue="${snippet}"` : '',
         ]);
@@ -9573,6 +9615,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `proofSource=${liveSpeechForwardPushProofSource}`,
           `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
           `repeatedForwardHits=${liveStrictForwardClusterHits}`,
+          `tailProofUsed=${liveSpeechForwardPushTailProofUsed ? 1 : 0}`,
+          `stalePrefixIgnored=${liveSpeechForwardPushStalePrefixIgnored ? 1 : 0}`,
+          `backwardContradictionOverriddenByTail=${liveSpeechForwardPushBackwardContradictionOverriddenByTail ? 1 : 0}`,
+          `commitTargetLine=${liveSpeechForwardPushTarget}`,
           `stallMs=${liveSpeechForwardPushStallMs}`,
           'source=commit:pre-far-hold',
           snippet ? `clue="${snippet}"` : '',
@@ -9589,6 +9635,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `target=${liveSpeechForwardPushTarget}`,
           `bestIdx=${line}`,
           `proofSource=${liveSpeechForwardPushProofSource}`,
+          `tailProofUsed=${liveSpeechForwardPushTailProofUsed ? 1 : 0}`,
+          `stalePrefixIgnored=${liveSpeechForwardPushStalePrefixIgnored ? 1 : 0}`,
+          `backwardContradictionOverriddenByTail=${liveSpeechForwardPushBackwardContradictionOverriddenByTail ? 1 : 0}`,
+          `commitTargetLine=${liveSpeechForwardPushTarget}`,
           liveSpeechForwardPushSkippedIgnorableLines.length
             ? `skippedIgnorableLines=[${liveSpeechForwardPushSkippedIgnorableLines.join(',')}]`
             : 'skippedIgnorableLines=[]',
