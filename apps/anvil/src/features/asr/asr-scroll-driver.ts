@@ -164,6 +164,8 @@ type AsrCommit = {
   targetTop: number;
   nextTargetTop: number;
   snapToMarker: boolean;
+  markerLockRequired?: boolean;
+  markerLockLineIdx?: number;
 };
 
 type ViewerRole = 'main' | 'display';
@@ -8261,6 +8263,57 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lineIdx: commit.lineIdx,
       }) ?? beforeTop;
     };
+    const markerLockLineIdxRaw = Number(commit.markerLockLineIdx);
+    const markerLockLineIdx =
+      Number.isFinite(markerLockLineIdxRaw) && markerLockLineIdxRaw >= 0
+        ? Math.max(0, Math.floor(markerLockLineIdxRaw))
+        : Math.max(0, Math.floor(commit.lineIdx));
+    if (commit.markerLockRequired) {
+      stopCommitPursuit('asr-marker-lock-commit');
+      const markerLockLineEl = getLineElementByIndex(deps.scroller, markerLockLineIdx);
+      const markerLockTopRaw = computeLineTargetTop(deps.scroller, markerLockLineEl);
+      const markerLockTop =
+        Number.isFinite(markerLockTopRaw as number)
+          ? clamp(Number(markerLockTopRaw), 0, max)
+          : targetTop;
+      const appliedTop = applyCanonicalScrollTop(markerLockTop, {
+        scroller: deps.scroller,
+        reason,
+        source: 'asr-commit',
+      });
+      const afterTop =
+        finiteNumberOrNull(
+          'commit.afterTop.markerLock',
+          Number.isFinite(appliedTop) ? appliedTop : readAfterTop(),
+          { reason, lineIdx: commit.lineIdx, blockId: commit.blockId, markerLockLineIdx },
+        ) ?? beforeTop;
+      bootTrace('SCROLL:apply', {
+        y: Math.round(afterTop),
+        from: Math.round(beforeTop),
+        via: 'marker-lock',
+        reason,
+        lineIdx: commit.lineIdx,
+        blockId: commit.blockId,
+      });
+      pursuitTargetTop = afterTop;
+      lastKnownScrollTop = afterTop;
+      lastMoveAt = Date.now();
+      markProgrammaticScroll();
+      if (isDevMode()) {
+        try {
+          console.info(
+            `ASR_MARKER_LOCK_COMMIT line=${commit.lineIdx} anchor=${markerLockLineIdx} before=${Math.round(beforeTop)} after=${Math.round(afterTop)} moved=${Math.round(afterTop - beforeTop)}`,
+          );
+        } catch {}
+      }
+      return {
+        method: 'pixel',
+        writerCommitted: false,
+        beforeTop,
+        afterTop,
+        movedPx: Math.round(afterTop - beforeTop),
+      };
+    }
     if (deps.writerAvailable && commit.blockId >= 0) {
       stopCommitPursuit('writer-commit');
       lastCommitDeltaPx = 0;
@@ -11978,6 +12031,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
       const prevLineIndex = lastLineIndex;
       const modeNow = getScrollMode();
+      const asrDeterministicMarkerLockCommit = modeNow === 'asr';
       const liveAsrCommitCapActive =
         modeNow === 'asr' &&
         isSessionLivePhase() &&
@@ -12023,7 +12077,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ? candidate
           : Math.min(candidate, baseClamped + effectiveJumpCap);
       let nextTargetTop = Math.max(baseClamped, limitedTarget);
-      if (liveAsrCommitCapActive) {
+      if (asrDeterministicMarkerLockCommit) {
+        nextTargetTop = clamp(targetTop, 0, max);
+      } else if (liveAsrCommitCapActive) {
         const markerTargetTop = clamp(targetTop, 0, max);
         const liveCappedMarkerTop = Math.min(markerTargetTop, currentTop + liveAsrCommitCapPx);
         nextTargetTop = Math.max(currentTop, liveCappedMarkerTop);
@@ -12067,7 +12123,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         writerSeekLineIdx = null;
       }
       const writerPathReady = targetBlockId >= 0 && writerAddressability.allowed;
-      const writerAllowed = writerPathReady && !forcePixelCommit;
+      const writerAllowed =
+        writerPathReady &&
+        !forcePixelCommit &&
+        !asrDeterministicMarkerLockCommit;
       if (isDevMode() && shouldLogLevel(2)) {
         console.log('[ASR] commit->seek', {
           commitCount: commitCount + 1,
@@ -12119,6 +12178,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             targetTop,
             nextTargetTop,
             snapToMarker: strongMarkerSnapEligible,
+            markerLockRequired: asrDeterministicMarkerLockCommit,
+            markerLockLineIdx: targetLine,
           },
           {
             scroller,
@@ -12133,83 +12194,85 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           beginWriterCommitWindow(writerCommitStartedAt);
         }
         didGlide = false;
-        _postCommitReadabilitySeq += 1;
-        const liveAsrReadabilitySuppressed =
-          getScrollMode() === 'asr' &&
-          isSessionLivePhase() &&
-          isSessionAsrArmed();
-        const liveAsrReadabilityMaxForwardLines =
-          liveAsrReadabilitySuppressed
-            ? LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES
-            : undefined;
-        const immediateReadability = applyPostCommitReadabilityGuarantee(scroller, targetLine, {
-          // In live ASR, avoid a second write in the same commit frame; that causes visible snap/flicker.
-          allowNudge: !writerCommitted && !liveAsrReadabilitySuppressed,
-          maxForwardLines: liveAsrReadabilityMaxForwardLines,
-        });
-        logPostCommitReadabilityProbe(
-          writerCommitted ? 'commit:writer-pending' : 'commit:immediate',
-          targetLine,
-          writerCommitted,
-          immediateReadability,
-        );
-        if (!writerCommitted && immediateReadability.nudgeApplied) {
-          commitAfterTop = immediateReadability.afterTop;
-        }
-        commitAfterTop = enforceLiveAsrCommitCap(
-          scroller,
-          commitBeforeTop,
-          commitAfterTop,
-          targetLine,
-          'commit:immediate',
-        );
-        if (writerCommitted) {
-          await waitForWriterCommitWindowRelease(writerCommitStartedAt);
-          const settledReadability = applyPostCommitReadabilityGuarantee(scroller, targetLine, {
-            allowNudge: true,
-            forwardOnly: true,
+        if (!asrDeterministicMarkerLockCommit) {
+          _postCommitReadabilitySeq += 1;
+          const liveAsrReadabilitySuppressed =
+            getScrollMode() === 'asr' &&
+            isSessionLivePhase() &&
+            isSessionAsrArmed();
+          const liveAsrReadabilityMaxForwardLines =
+            liveAsrReadabilitySuppressed
+              ? LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES
+              : undefined;
+          const immediateReadability = applyPostCommitReadabilityGuarantee(scroller, targetLine, {
+            // In live ASR, avoid a second write in the same commit frame; that causes visible snap/flicker.
+            allowNudge: !writerCommitted && !liveAsrReadabilitySuppressed,
             maxForwardLines: liveAsrReadabilityMaxForwardLines,
           });
           logPostCommitReadabilityProbe(
-            'commit:writer-settle',
+            writerCommitted ? 'commit:writer-pending' : 'commit:immediate',
             targetLine,
             writerCommitted,
-            settledReadability,
+            immediateReadability,
           );
-          if (settledReadability.nudgeApplied) {
-            commitAfterTop = settledReadability.afterTop;
+          if (!writerCommitted && immediateReadability.nudgeApplied) {
+            commitAfterTop = immediateReadability.afterTop;
           }
           commitAfterTop = enforceLiveAsrCommitCap(
             scroller,
             commitBeforeTop,
             commitAfterTop,
             targetLine,
-            'commit:writer-settle',
+            'commit:immediate',
           );
-          const truth = await verifyWriterCommitTruth(
-            (scrollerForStamp || scroller),
-            targetLine,
-            commitAfterTop,
-            lineEl,
-            writerCommitStartedAt,
-          );
-          commitAfterTop = truth.actualTop;
-          lastKnownScrollTop = commitAfterTop;
-          if (!truth.ok) {
-            const resyncAnchor = Math.max(0, Number.isFinite(lastLineIndex) ? Math.floor(lastLineIndex) : commitCursorLine);
-            stopGlide('scroll-desync');
-            pursuitTargetTop = null;
-            pursuitVel = 0;
-            pursuitActive = false;
-            microPursuitUntil = 0;
-            releaseCommitWindow('scroll-desync');
-            resetNoProgressStreak('scroll-desync', resyncAnchor);
-            clearEvidenceBuffer('scroll-desync');
-            activateStuckResync(resyncAnchor, now);
-            emitHudStatus('resync', 'Resyncing (scroll desync)...');
-            return;
+          if (writerCommitted) {
+            await waitForWriterCommitWindowRelease(writerCommitStartedAt);
+            const settledReadability = applyPostCommitReadabilityGuarantee(scroller, targetLine, {
+              allowNudge: true,
+              forwardOnly: true,
+              maxForwardLines: liveAsrReadabilityMaxForwardLines,
+            });
+            logPostCommitReadabilityProbe(
+              'commit:writer-settle',
+              targetLine,
+              writerCommitted,
+              settledReadability,
+            );
+            if (settledReadability.nudgeApplied) {
+              commitAfterTop = settledReadability.afterTop;
+            }
+            commitAfterTop = enforceLiveAsrCommitCap(
+              scroller,
+              commitBeforeTop,
+              commitAfterTop,
+              targetLine,
+              'commit:writer-settle',
+            );
+            const truth = await verifyWriterCommitTruth(
+              (scrollerForStamp || scroller),
+              targetLine,
+              commitAfterTop,
+              lineEl,
+              writerCommitStartedAt,
+            );
+            commitAfterTop = truth.actualTop;
+            lastKnownScrollTop = commitAfterTop;
+            if (!truth.ok) {
+              const resyncAnchor = Math.max(0, Number.isFinite(lastLineIndex) ? Math.floor(lastLineIndex) : commitCursorLine);
+              stopGlide('scroll-desync');
+              pursuitTargetTop = null;
+              pursuitVel = 0;
+              pursuitActive = false;
+              microPursuitUntil = 0;
+              releaseCommitWindow('scroll-desync');
+              resetNoProgressStreak('scroll-desync', resyncAnchor);
+              clearEvidenceBuffer('scroll-desync');
+              activateStuckResync(resyncAnchor, now);
+              emitHudStatus('resync', 'Resyncing (scroll desync)...');
+              return;
+            }
+            releaseCommitWindow('writer-commit-flush-complete');
           }
-          releaseCommitWindow('writer-commit-flush-complete');
         }
       } else if (!writerCommitted) {
         if (nextTargetTop > base) {
