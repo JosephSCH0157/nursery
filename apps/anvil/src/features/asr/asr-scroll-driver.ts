@@ -6140,6 +6140,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     fullHitRatio: number;
     fromStaleTranscriptOnly: boolean;
     tailChars: number;
+    tailPreview: string;
+    stalePrefixIgnored: boolean;
   } => {
     const safeTarget = Math.max(0, Math.floor(Number(targetLine)));
     const transcriptNorm = String(lastFinalTranscriptNorm || '').trim();
@@ -6163,6 +6165,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         fullHitRatio: 0,
         fromStaleTranscriptOnly: false,
         tailChars: 0,
+        tailPreview: '',
+        stalePrefixIgnored: false,
       };
     }
     if (transcriptAgeMs > DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS) {
@@ -6181,6 +6185,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         fullHitRatio: 0,
         fromStaleTranscriptOnly: false,
         tailChars: 0,
+        tailPreview: '',
+        stalePrefixIgnored: false,
       };
     }
     const targetNorm = normalizeComparableText(getLineTextAt(safeTarget));
@@ -6201,6 +6207,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         fullHitRatio: 0,
         fromStaleTranscriptOnly: false,
         tailChars: 0,
+        tailPreview: '',
+        stalePrefixIgnored: false,
       };
     }
     const hasCommitTranscriptCursor =
@@ -6284,6 +6292,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       !lexicalOk &&
       fullLexicalHitsOk &&
       !lexicalHitsOk;
+    const stalePrefixIgnored =
+      !!commitSnapshotNorm &&
+      transcriptTailNorm !== transcriptNorm;
     return {
       ok: lexicalOk,
       reason: lexicalOk
@@ -6303,6 +6314,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       fullHitRatio,
       fromStaleTranscriptOnly,
       tailChars: transcriptTailNorm.length,
+      tailPreview: formatLogSnippet(transcriptTailNorm, 80),
+      stalePrefixIgnored,
     };
   };
 
@@ -12618,6 +12631,98 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       cursorLine,
       scoredForwardCandidatesForAnchor,
     );
+    type ShortDuplicateBypassProof = {
+      target: number;
+      proofSource: string;
+      sourceBranch: string;
+      postCommitTailPreview: string;
+      stalePrefixIgnored: boolean;
+      skippedIgnorableLines: CueBridgeSkipReason[];
+      repeatedForwardHits: number;
+      stallMs: number;
+      secondIdx: number | null;
+      secondSim: number | null;
+    };
+    const evaluateLiveStrictShortDuplicateBypassProof = (
+      sourceBranch: string,
+      secondCandidate?: { idx: number; score: number } | null,
+    ): ShortDuplicateBypassProof | null => {
+      if (getScrollMode() !== 'asr' || !isSessionLivePhase() || !isSessionAsrArmed()) return null;
+      if (!asrRuntimeSpeechRunningActual) return null;
+      if (isRunIdentityStale({ runKey: transcriptRunKey || undefined, runGeneration: transcriptRunGeneration })) {
+        return null;
+      }
+      const step = resolveLiveStrictNextSpeakableStep(
+        cursorLine,
+        LIVE_STRICT_MAX_CUE_BRIDGE_SPAN,
+      );
+      if (!step || step.targetLine <= cursorLine) return null;
+      const target = Math.max(0, Math.floor(step.targetLine));
+      const skippedIgnorableLines = Array.isArray(step.skippedReasons) ? step.skippedReasons : [];
+      const backwardContradiction = topScoresSpeakable.some((entry) =>
+        Number(entry.idx) <= cursorLine &&
+        Number(entry.score) >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06),
+      );
+      if (backwardContradiction) return null;
+      const landingLexical = evaluateLiveStrictBridgeLandingLexicalProof(target, now);
+      const localProof =
+        hasLiveStrictLocalProof(cursorLine, target, now, topScoresSpeakable, requiredThreshold) ||
+        hasLiveStrictCueExitProof(cursorLine, target, now, topScoresSpeakable, requiredThreshold);
+      const bridgeTailLexicalProof =
+        landingLexical.ok &&
+        (landingLexical.stalePrefixIgnored || landingLexical.tailChars > 0);
+      const repeatedForwardClusterProof =
+        liveStrictForwardClusterCursor === cursorLine &&
+        liveStrictForwardClusterLine === target &&
+        liveStrictForwardClusterHits >= LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS &&
+        liveStrictForwardClusterUpdatedAt > 0 &&
+        now - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS;
+      if (!localProof && !bridgeTailLexicalProof && !repeatedForwardClusterProof) return null;
+      const proofSource = localProof
+        ? 'live_strict_local_proof_ok'
+        : (bridgeTailLexicalProof ? 'strict_bridge_landing_lexical_tail' : 'forward_cluster_repeat');
+      return {
+        target,
+        proofSource,
+        sourceBranch,
+        postCommitTailPreview: landingLexical.tailPreview || '',
+        stalePrefixIgnored: !!landingLexical.stalePrefixIgnored,
+        skippedIgnorableLines,
+        repeatedForwardHits: liveStrictForwardClusterHits,
+        stallMs: Math.max(0, now - lastForwardCommitAt),
+        secondIdx: Number.isFinite(Number(secondCandidate?.idx)) ? Math.max(0, Math.floor(Number(secondCandidate?.idx))) : null,
+        secondSim: Number.isFinite(Number(secondCandidate?.score)) ? Number(secondCandidate?.score) : null,
+      };
+    };
+    let liveStrictShortDuplicateBypassCommit: ShortDuplicateBypassProof | null = null;
+    let consistentAdjacentForwardBypass = false;
+    let tieForwardPromoted = false;
+    const applyLiveStrictShortDuplicateBypassCommit = (
+      proof: ShortDuplicateBypassProof,
+      sourceBranch: string,
+      bestIdxBefore: number,
+    ) => {
+      rawIdx = proof.target;
+      conf = Math.max(conf, DELTA_MIN_SIM_SMALL);
+      consistentAdjacentForwardBypass = true;
+      liveStrictShortDuplicateBypassCommit = proof;
+      warnGuard('live_strict_short_duplicate_bypass_commit', [
+        `current=${cursorLine}`,
+        `target=${proof.target}`,
+        `bestIdx=${bestIdxBefore}`,
+        proof.secondIdx != null ? `secondIdx=${proof.secondIdx}` : 'secondIdx=na',
+        proof.secondSim != null ? `secondSim=${formatLogScore(proof.secondSim)}` : 'secondSim=na',
+        `proofSource=${proof.proofSource}`,
+        proof.skippedIgnorableLines.length
+          ? `skippedIgnorableLines=[${proof.skippedIgnorableLines.join(',')}]`
+          : 'skippedIgnorableLines=[]',
+        `stallMs=${proof.stallMs}`,
+        `postCommitTailPreview="${proof.postCommitTailPreview}"`,
+        `stalePrefixIgnored=${proof.stalePrefixIgnored ? 'true' : 'false'}`,
+        `sourceBranch=${sourceBranch}`,
+        snippet ? `clue="${snippet}"` : '',
+      ]);
+    };
     const forwardCandidatesChecked = forwardCandidateLineIdx.length;
     const forwardWindowCandidatesChecked = forwardWindowScores.length;
     if (outrunRecent && forwardCandidatesChecked === 0 && isDevMode()) {
@@ -12683,8 +12788,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       behindByForBias <= forwardBiasRecentLines &&
       lastLineIndex >= 0 &&
       now - lastForwardCommitAt <= forwardBiasWindowMs;
-    let consistentAdjacentForwardBypass = false;
-    let tieForwardPromoted = false;
     if (topScoresSpeakable.length) {
       const bestScore = conf;
       const tieCandidates = topScoresSpeakable
@@ -12751,25 +12854,37 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       if (hasTie && !forwardPick && !forwardBiasEligible && !shortFinalRecent && !outrunEligible) {
         const guardReason = rawIdx <= cursorLine ? 'same_line_noop' : 'no_match_wait';
-        if (
-          guardReason === 'same_line_noop' &&
-          maybeSkipCueLine(cursorLine, now, guardReason, snippet, topScoresSpeakable, requiredThreshold)
-        ) {
-          return;
+        if (guardReason === 'same_line_noop') {
+          const shortDuplicateProof = evaluateLiveStrictShortDuplicateBypassProof(
+            'same_line_noop',
+            null,
+          );
+          if (shortDuplicateProof) {
+            const before = rawIdx;
+            applyLiveStrictShortDuplicateBypassCommit(shortDuplicateProof, 'same_line_noop', before);
+          }
         }
-        warnGuard(guardReason, [
-          `current=${cursorLine}`,
-          `best=${rawIdx}`,
-          `minForward=${forwardMinIdx}`,
-          `sim=${formatLogScore(bestScore)}`,
-          `need=${formatLogScore(requiredThreshold)}`,
-          `eps=${forwardTieEps}`,
-          snippet ? `clue="${snippet}"` : '',
-        ]);
-        if (guardReason === 'same_line_noop' && starvationDetected && maybeScheduleStallCueRescue('auto-stall')) {
-          return;
+        if (!liveStrictShortDuplicateBypassCommit) {
+          if (
+            guardReason === 'same_line_noop' &&
+            maybeSkipCueLine(cursorLine, now, guardReason, snippet, topScoresSpeakable, requiredThreshold)
+          ) {
+            return;
+          }
+          warnGuard(guardReason, [
+            `current=${cursorLine}`,
+            `best=${rawIdx}`,
+            `minForward=${forwardMinIdx}`,
+            `sim=${formatLogScore(bestScore)}`,
+            `need=${formatLogScore(requiredThreshold)}`,
+            `eps=${forwardTieEps}`,
+            snippet ? `clue="${snippet}"` : '',
+          ]);
+          if (guardReason === 'same_line_noop' && starvationDetected && maybeScheduleStallCueRescue('auto-stall')) {
+            return;
+          }
+          if (!permissiveMatcher) return;
         }
-        if (!permissiveMatcher) return;
       }
       if (forwardPick && (forwardPick.idx !== rawIdx || forwardPick.score !== conf)) {
         if (liveForwardGuardActive) {
@@ -13057,6 +13172,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let relockOverride = false;
     let relockReason: string | undefined;
     let interimShortLineAmbiguityHold = interimShortLineAmbiguityBase;
+    if (
+      liveStrictShortDuplicateBypassCommit &&
+      rawIdx > cursorLine &&
+      conf >= DELTA_MIN_SIM_SMALL
+    ) {
+      effectiveThreshold = Math.min(effectiveThreshold, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM);
+      forceReason = forceReason || 'live_strict_proof_owned_commit';
+      cueBridgeNudgeDelta = Math.max(1, rawIdx - cursorLine);
+    }
     if (
       consistentAdjacentForwardBypass &&
       rawIdx > cursorLine &&
@@ -14242,6 +14366,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       rawIdx >= cursorLine &&
       preNudgeAmbiguity.hold &&
       !preNudgeAnchorOverride;
+    let preNudgeShortLineAmbiguousHold = preNudgeShortLineAmbiguous;
+    if (
+      preNudgeShortLineAmbiguousHold &&
+      !liveStrictShortDuplicateBypassCommit
+    ) {
+      const preNudgeShortDuplicateProof = evaluateLiveStrictShortDuplicateBypassProof(
+        'pre_nudge_short_line_hold',
+        preNudgeSecond,
+      );
+      if (preNudgeShortDuplicateProof) {
+        const before = rawIdx;
+        applyLiveStrictShortDuplicateBypassCommit(
+          preNudgeShortDuplicateProof,
+          'pre_nudge_short_line_hold',
+          before,
+        );
+        preNudgeShortLineAmbiguousHold = false;
+      }
+    }
     const preNudgeStrongFinalHoldBypass =
       isFinal &&
       rawIdx === cursorLine &&
@@ -14267,7 +14410,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       );
     const preNudgeHoldReason = preNudgeAmbiguity.reason || 'short_line_ambiguous';
     if (
-      preNudgeShortLineAmbiguous &&
+      preNudgeShortLineAmbiguousHold &&
       !ambiguityHoldActive &&
       !preNudgeStrongFinalHoldBypass &&
       !permissiveMatcher
@@ -14286,7 +14429,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     const blockCueBridgeForHold =
       !permissiveMatcher &&
-      (ambiguityHoldActive || preNudgeShortLineAmbiguous);
+      (ambiguityHoldActive || preNudgeShortLineAmbiguousHold);
     const finalMatchNudgeEligible =
       isFinal &&
       rawIdx === cursorLine &&
@@ -14862,6 +15005,30 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const holdBestSim = holdBestCandidate ? holdBestCandidate.score : conf;
     const holdSecondIdx = holdSecondCandidate ? holdSecondCandidate.idx : null;
     const holdSecondSim = holdSecondCandidate ? holdSecondCandidate.score : null;
+    if (
+      !liveStrictShortDuplicateBypassCommit &&
+      (holdCandidateAmbiguous || shouldHoldCandidate || (ambiguityHoldActive && holdShortLineAmbiguous))
+    ) {
+      const holdShortDuplicateProof = evaluateLiveStrictShortDuplicateBypassProof(
+        'hold_wait',
+        holdSecondCandidate,
+      );
+      if (holdShortDuplicateProof) {
+        if (ambiguityHoldActive) {
+          closeAmbiguityHold(
+            now,
+            'proof_owned_adjacent',
+            cursorLine,
+            holdBestIdx,
+            holdBestSim,
+            holdSecondIdx,
+            holdSecondSim,
+          );
+        }
+        const before = rawIdx;
+        applyLiveStrictShortDuplicateBypassCommit(holdShortDuplicateProof, 'hold_wait', before);
+      }
+    }
     if (ambiguityHoldActive && permissiveMatcher) {
       closeAmbiguityHold(
         now,
@@ -14907,8 +15074,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           } catch {}
         }
       } else if (
-        shouldHoldCandidate ||
-        conf < Math.max(requiredThreshold, DEFAULT_HOLD_ANCHOR_MIN_SIM)
+        !liveStrictShortDuplicateBypassCommit &&
+        (
+          shouldHoldCandidate ||
+          conf < Math.max(requiredThreshold, DEFAULT_HOLD_ANCHOR_MIN_SIM)
+        )
       ) {
         beginOrRefreshAmbiguityHold(
           now,
@@ -14932,7 +15102,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           holdSecondSim,
         );
       }
-    } else if (holdCandidateAmbiguous) {
+    } else if (holdCandidateAmbiguous && !liveStrictShortDuplicateBypassCommit) {
       if (strongLongAnchorCandidate) {
         const before = rawIdx;
         rawIdx = strongLongAnchorCandidate.idx;
