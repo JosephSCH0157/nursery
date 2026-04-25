@@ -8821,6 +8821,123 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !asrSilenceActive &&
         runtimeSpeechFresh &&
         asrRuntimeSpeechRunningActual;
+      type StrictProofOwnedCapBypassTarget = {
+        target: number;
+        proofSource: string;
+        skippedIgnorableLines: CueBridgeSkipReason[];
+        speakableSteps: number;
+        stallMs: number;
+      };
+      const evaluateStrictProofOwnedCapBypassTarget = (): StrictProofOwnedCapBypassTarget | null => {
+        if (!liveStrictFollow) return null;
+        if (!proofOwnedPrimarySpeechFresh) return null;
+        if (liveSpeechForwardPushRunStale) return null;
+        const initialStep = strictSpeakableStep;
+        if (!initialStep || initialStep.targetLine <= lastLineIndex) return null;
+        const bestRequestedTarget = Math.max(lastLineIndex + 1, Math.floor(line));
+        const stepProof = (
+          fromLine: number,
+          toLine: number,
+          skippedReasons: CueBridgeSkipReason[],
+        ): { ok: boolean; source: string } => {
+          const localProof =
+            hasLiveStrictLocalProof(
+              fromLine,
+              toLine,
+              now,
+              rankedTopScores,
+              baselineRequired,
+            ) ||
+            hasLiveStrictCueExitProof(
+              fromLine,
+              toLine,
+              now,
+              rankedTopScores,
+              baselineRequired,
+            );
+          const bridgeProof = hasLiveStrictSpeakableBridgeProof(
+            fromLine,
+            toLine,
+            now,
+            rankedTopScores,
+            baselineRequired,
+          );
+          const rescueProof = hasFreshNearbyRescueMatchEvidence(
+            fromLine,
+            toLine,
+            now,
+            skippedReasons,
+          );
+          const backwardContradiction = rankedTopScores.some((entry) =>
+            entry.idx <= fromLine &&
+            entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06),
+          );
+          if (backwardContradiction) return { ok: false, source: 'backward_contradiction' };
+          if (localProof) return { ok: true, source: 'live_strict_local_proof_ok' };
+          if (bridgeProof) return { ok: true, source: 'strict_speakable_bridge_landing' };
+          if (rescueProof) return { ok: true, source: 'adjacent_rescue_proofed' };
+          return { ok: false, source: 'no_proof' };
+        };
+        let cursor = lastLineIndex;
+        let target = initialStep.targetLine;
+        const allSkippedReasons: CueBridgeSkipReason[] = [...initialStep.skippedReasons];
+        const firstProof = stepProof(cursor, target, initialStep.skippedReasons);
+        if (!firstProof.ok) return null;
+        let proofSource = firstProof.source;
+        let speakableSteps = 1;
+        const starvationDetected =
+          Math.max(0, now - lastForwardCommitAt) >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
+          bestRequestedTarget - lastLineIndex >= 2;
+        if (starvationDetected) {
+          const maxExtraSteps = 1;
+          let extraSteps = 0;
+          while (extraSteps < maxExtraSteps && target < bestRequestedTarget) {
+            const nextStep = resolveLiveStrictNextSpeakableStep(
+              target,
+              LIVE_STRICT_MAX_CUE_BRIDGE_SPAN,
+            );
+            if (!nextStep || nextStep.targetLine <= target) break;
+            if (nextStep.targetLine > bestRequestedTarget) break;
+            const nextProof = stepProof(target, nextStep.targetLine, nextStep.skippedReasons);
+            if (!nextProof.ok) break;
+            target = nextStep.targetLine;
+            speakableSteps += 1;
+            extraSteps += 1;
+            proofSource = `${proofSource}+${nextProof.source}`;
+            allSkippedReasons.push(...nextStep.skippedReasons);
+          }
+        }
+        return {
+          target,
+          proofSource,
+          skippedIgnorableLines: allSkippedReasons,
+          speakableSteps,
+          stallMs: Math.max(0, now - lastForwardCommitAt),
+        };
+      };
+      const strictProofOwnedCapBypassTarget = evaluateStrictProofOwnedCapBypassTarget();
+      if (strictProofOwnedCapBypassTarget && forceReason !== 'live_strict_proof_owned_commit') {
+        const oldWouldHaveUsedStallOverride =
+          isFinal &&
+          lastCommitIndex != null &&
+          Math.max(0, now - lastCommitTime) >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
+          Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
+        warnGuard('proof_owned_primary_commit', [
+          `current=${lastLineIndex}`,
+          `target=${strictProofOwnedCapBypassTarget.target}`,
+          `bestIdx=${line}`,
+          `proofSource=${strictProofOwnedCapBypassTarget.proofSource}`,
+          strictProofOwnedCapBypassTarget.skippedIgnorableLines.length
+            ? `skippedIgnorableLines=[${strictProofOwnedCapBypassTarget.skippedIgnorableLines.join(',')}]`
+            : 'skippedIgnorableLines=[]',
+          `speakableSteps=${strictProofOwnedCapBypassTarget.speakableSteps}`,
+          `stallMs=${strictProofOwnedCapBypassTarget.stallMs}`,
+          'sourceBranch=pending-cap-bypass-precap',
+          `oldWouldHaveUsedStallOverride=${oldWouldHaveUsedStallOverride ? 'true' : 'false'}`,
+          snippet ? `clue="${snippet}"` : '',
+        ]);
+        forceReason = 'live_strict_proof_owned_commit';
+      }
       const liveSpeechForwardPushAllow =
         liveStrictFollow &&
         !!strictSpeakableStep &&
@@ -9436,6 +9553,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       let targetLine = strictEarlyBacklogDrainActive
         ? strictBacklogDrainPlannedTargetLine
         : Math.max(0, Math.floor(line));
+      if (
+        strictProofOwnedCapBypassTarget &&
+        strictProofOwnedCapBypassTarget.target > lastLineIndex &&
+        strictProofOwnedCapBypassTarget.target > targetLine
+      ) {
+        targetLine = strictProofOwnedCapBypassTarget.target;
+      }
       if (liveSpeechForwardPushCommit && liveSpeechForwardPushTarget > lastLineIndex) {
         targetLine = liveSpeechForwardPushTarget;
       }
@@ -9593,6 +9717,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       if (
         targetLine > lastLineIndex + effectiveClampDeltaLimit &&
+        forceReason !== 'live_strict_proof_owned_commit' &&
         !strictSpeakableBridgeAuthoritative &&
         !(
           strongForwardCommit &&
@@ -10039,6 +10164,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         // Starvation bypass may allow forward progress on weaker evidence, but it should not
         // turn into multi-line jumps that outrun the reader.
         if (liveStepTarget != null && targetLine > liveStepTarget && !strictEarlyBacklogDrainActive) {
+          if (forceReason === 'live_strict_proof_owned_commit') {
+            // Proof-owned primary target is already validated; do not single-step cap it.
+          } else {
           const starvationHoldActive =
             Math.max(0, now - lastForwardCommitAt) >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
             !starvationForwardBypass;
@@ -10068,6 +10196,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             snippet ? `clue="${snippet}"` : '',
           ]);
           targetLine = liveStepTarget;
+          }
         }
         if (
           liveStrictFollow &&
@@ -10084,7 +10213,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ]);
           targetLine = strictSpeakableStep.targetLine;
         }
-        if (liveStrictFollow && targetLine > adjacentLine && !strictEarlyBacklogDrainActive) {
+        if (
+          liveStrictFollow &&
+          targetLine > adjacentLine &&
+          !strictEarlyBacklogDrainActive &&
+          forceReason !== 'live_strict_proof_owned_commit'
+        ) {
           const strictTarget = adjacentLine;
           warnGuard('live_strict_cap', [
             `current=${lastLineIndex}`,
