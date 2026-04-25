@@ -9352,7 +9352,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (isProofOwnedPrimaryForceReason(forceReason)) return null;
         if (liveSpeechForwardPushRunStale) return null;
         const starvationMs = Math.max(0, now - lastForwardCommitAt);
-        if (starvationMs < DEFAULT_STARVATION_COMMIT_GAP_MS) return null;
+        if (starvationMs < starvationFutureSpeechReconcileMinMs) return null;
         const requestedBestIdx = Math.max(
           Math.floor(line),
           Number.isFinite(bestForwardCandidate?.idx) ? Number(bestForwardCandidate?.idx) : -1,
@@ -9445,9 +9445,40 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       };
       const starvationFutureSpeechReconcileTarget = evaluateStarvationFutureSpeechReconcileTarget();
       if (starvationFutureSpeechReconcileTarget) {
+        const starvationFutureSpeechReconcileNoInputGuard =
+          !hasRecentVadSpeech ||
+          !runtimeSpeechFresh ||
+          !!pending.liveForwardGuardActive;
+        let starvationFutureSpeechReconcileAppliedTarget =
+          starvationFutureSpeechReconcileTarget.target;
+        if (
+          starvationFutureSpeechReconcileNoInputGuard &&
+          starvationFutureSpeechReconcileAppliedTarget >
+            lastLineIndex + DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS
+        ) {
+          const singleStepTarget = resolveForwardSpeakableTarget(
+            lastLineIndex,
+            starvationFutureSpeechReconcileAppliedTarget,
+            DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS,
+          );
+          if (singleStepTarget > lastLineIndex) {
+            warnGuard('starvation_future_speech_reconcile_single_step_guard_hold', [
+              `current=${lastLineIndex}`,
+              `target=${starvationFutureSpeechReconcileAppliedTarget}`,
+              `singleStep=${singleStepTarget}`,
+              `bestIdx=${line}`,
+              `bestSim=${formatLogScore(conf)}`,
+              `runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0}`,
+              `vadSpeech=${hasRecentVadSpeech ? 1 : 0}`,
+              `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+              snippet ? `clue="${snippet}"` : '',
+            ]);
+            starvationFutureSpeechReconcileAppliedTarget = singleStepTarget;
+          }
+        }
         warnGuard('starvation_future_speech_reconcile', [
           `current=${lastLineIndex}`,
-          `target=${starvationFutureSpeechReconcileTarget.target}`,
+          `target=${starvationFutureSpeechReconcileAppliedTarget}`,
           `bestIdx=${line}`,
           `proofSource=${starvationFutureSpeechReconcileTarget.proofSource}`,
           `speakableSteps=${starvationFutureSpeechReconcileTarget.speakableSteps}`,
@@ -9456,7 +9487,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ]);
         warnGuard('proof_owned_primary_commit', [
           `current=${lastLineIndex}`,
-          `target=${starvationFutureSpeechReconcileTarget.target}`,
+          `target=${starvationFutureSpeechReconcileAppliedTarget}`,
           `bestIdx=${line}`,
           `proofSource=${starvationFutureSpeechReconcileTarget.proofSource}`,
           starvationFutureSpeechReconcileTarget.skippedIgnorableLines.length
@@ -9469,20 +9500,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ]);
         adoptPendingMatch({
           ...pending,
-          line: starvationFutureSpeechReconcileTarget.target,
+          line: starvationFutureSpeechReconcileAppliedTarget,
           conf: Math.max(conf, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM),
           hasEvidence: true,
           forced: true,
           forceReason: 'starvation_future_speech_reconcile',
           matchId: matchId
             ? `${matchId}:future-reconcile`
-            : `future-reconcile-${now.toString(36)}-${starvationFutureSpeechReconcileTarget.target}`,
+            : `future-reconcile-${now.toString(36)}-${starvationFutureSpeechReconcileAppliedTarget}`,
           cursorLine: lastLineIndex,
           searchWindowFrom: lastLineIndex,
-          searchWindowTo: starvationFutureSpeechReconcileTarget.target,
+          searchWindowTo: starvationFutureSpeechReconcileAppliedTarget,
           cueBridgeNudgeDelta: Math.max(
             1,
-            starvationFutureSpeechReconcileTarget.target - lastLineIndex,
+            starvationFutureSpeechReconcileAppliedTarget - lastLineIndex,
           ),
           liveForwardGuardActive: undefined,
           sourceBranch: 'starvation_future_speech_reconcile',
@@ -10188,7 +10219,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lastSpeechRunningActualAtMs > 0
           ? Math.max(0, now - lastSpeechRunningActualAtMs)
           : Number.POSITIVE_INFINITY;
+      // Arm the stop brake only after runtime has positively reported active speech at least once.
+      // Before that, we cannot distinguish "stopped" from "not yet initialized".
+      const speechStopBrakeArmed = asrRuntimeSpeechEverTrue;
       const hasActiveSpeechWindow =
+        !speechStopBrakeArmed ||
         asrRuntimeSpeechRunningActual === true ||
         (
           Number.isFinite(msSinceSpeechRunningActual) &&
@@ -10261,6 +10296,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       let movementAuthorityReason = movementAuthorityDecision.reason;
       let movementAuthoritySourceBranch = movementAuthorityDecision.sourceBranch;
       let bypassDownstreamVeto = movementAuthorityDecision.bypassDownstreamVeto;
+      const movementAuthorityLiveForwardGuardHeld =
+        asrMode &&
+        isSessionLivePhase() &&
+        isSessionAsrArmed() &&
+        (
+          !hasRecentVadSpeech ||
+          !runtimeSpeechFresh ||
+          !!pending.liveForwardGuardActive
+        );
       const emitMovementAuthorityVetoBypassed = (
         blocker: string,
         requested: number,
@@ -10276,6 +10320,156 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `reason=${reason}`,
         ]);
       };
+      if (
+        !speechStopBrakeArmed &&
+        movementAuthorityStarvationMs >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
+        movementAuthorityDecision.target > lastLineIndex
+      ) {
+        warnGuard('movement_authority_runtime_uninitialized_starvation_hold', [
+          `current=${lastLineIndex}`,
+          `target=${movementAuthorityDecision.target}`,
+          `bestIdx=${line}`,
+          `bestSim=${formatLogScore(conf)}`,
+          `attemptedAuthority=${attemptedAuthority}`,
+          `starvationMs=${movementAuthorityStarvationMs}`,
+          'reason=runtime_speech_uninitialized',
+        ]);
+        movementAuthority = 'none';
+        movementAuthorityReason = 'runtime_speech_uninitialized_starvation_hold';
+        movementAuthoritySourceBranch = 'movement_authority_runtime_uninitialized';
+        targetLine = lastLineIndex;
+        bypassDownstreamVeto = false;
+      }
+      if (
+        (movementAuthority === 'reconcile' || movementAuthority === 'proof') &&
+        movementAuthorityLiveForwardGuardHeld &&
+        movementAuthorityStarvationMs >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
+        movementAuthorityDecision.target > lastLineIndex + DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS
+      ) {
+        const singleStepTarget = resolveForwardSpeakableTarget(
+          lastLineIndex,
+          movementAuthorityDecision.target,
+          DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS,
+        );
+        if (singleStepTarget > lastLineIndex) {
+          warnGuard('movement_authority_guard_held_single_step', [
+            `current=${lastLineIndex}`,
+            `target=${movementAuthorityDecision.target}`,
+            `singleStep=${singleStepTarget}`,
+            `bestIdx=${line}`,
+            `bestSim=${formatLogScore(conf)}`,
+            `authority=${movementAuthority}`,
+            `starvationMs=${movementAuthorityStarvationMs}`,
+            `runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0}`,
+            `vadFresh=${hasRecentVadSpeech ? 1 : 0}`,
+            `pendingGuard=${pending.liveForwardGuardActive ? 1 : 0}`,
+            'reason=guard_held_single_step',
+          ]);
+          targetLine = singleStepTarget;
+          movementAuthorityReason = 'guard_held_single_step';
+          movementAuthoritySourceBranch = 'movement_authority_guard_held_single_step';
+          bypassDownstreamVeto = false;
+        }
+      }
+      if (
+        (movementAuthority === 'reconcile' || movementAuthority === 'proof') &&
+        movementAuthorityStarvationMs >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
+        movementAuthorityDecision.target > lastLineIndex + DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS &&
+        conf < DEFAULT_STRONG_FORWARD_COMMIT_SIM
+      ) {
+        const singleStepTarget = resolveForwardSpeakableTarget(
+          lastLineIndex,
+          movementAuthorityDecision.target,
+          DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS,
+        );
+        if (singleStepTarget > lastLineIndex) {
+          warnGuard('movement_authority_starved_low_conf_single_step', [
+            `current=${lastLineIndex}`,
+            `target=${movementAuthorityDecision.target}`,
+            `singleStep=${singleStepTarget}`,
+            `bestIdx=${line}`,
+            `bestSim=${formatLogScore(conf)}`,
+            `authority=${movementAuthority}`,
+            `starvationMs=${movementAuthorityStarvationMs}`,
+            `strongNeed=${formatLogScore(DEFAULT_STRONG_FORWARD_COMMIT_SIM)}`,
+            'reason=starved_low_conf_single_step',
+          ]);
+          targetLine = singleStepTarget;
+          movementAuthorityReason = 'starved_low_conf_single_step';
+          movementAuthoritySourceBranch = 'movement_authority_starved_low_conf_single_step';
+          bypassDownstreamVeto = false;
+        }
+      }
+      if (
+        (movementAuthority === 'reconcile' || movementAuthority === 'proof') &&
+        Number.isFinite(starvationFutureSpeechReconcileTargetLine) &&
+        (starvationFutureSpeechReconcileTargetLine as number) >
+          lastLineIndex + DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS
+      ) {
+        const reconcileTarget = Math.max(
+          0,
+          Math.floor(starvationFutureSpeechReconcileTargetLine as number),
+        );
+        const singleStepTarget = resolveForwardSpeakableTarget(
+          lastLineIndex,
+          reconcileTarget,
+          DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS,
+        );
+        if (singleStepTarget > lastLineIndex) {
+          warnGuard('movement_authority_starvation_reconcile_single_step', [
+            `current=${lastLineIndex}`,
+            `target=${reconcileTarget}`,
+            `singleStep=${singleStepTarget}`,
+            `bestIdx=${line}`,
+            `bestSim=${formatLogScore(conf)}`,
+            `authority=${movementAuthority}`,
+            'reason=starvation_reconcile_single_step',
+          ]);
+          targetLine = singleStepTarget;
+          movementAuthorityReason = 'starvation_reconcile_single_step';
+          movementAuthoritySourceBranch = 'movement_authority_starvation_reconcile_single_step';
+          bypassDownstreamVeto = false;
+        }
+      }
+      const forcedReconcileLikeCommit =
+        !!forced &&
+        (
+          String(forceReason || '').includes('proof_owned') ||
+          String(forceReason || '').includes('reconcile') ||
+          String(matchId || '').includes('future-reconcile')
+        );
+      if (
+        forcedReconcileLikeCommit &&
+        (movementAuthority === 'reconcile' || movementAuthority === 'proof') &&
+        movementAuthorityDecision.target > lastLineIndex + DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS &&
+        (
+          movementAuthorityLiveForwardGuardHeld ||
+          movementAuthorityStarvationMs >= DEFAULT_STARVATION_COMMIT_GAP_MS
+        )
+      ) {
+        const singleStepTarget = resolveForwardSpeakableTarget(
+          lastLineIndex,
+          movementAuthorityDecision.target,
+          DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS,
+        );
+        if (singleStepTarget > lastLineIndex) {
+          warnGuard('movement_authority_forced_reconcile_single_step', [
+            `current=${lastLineIndex}`,
+            `target=${movementAuthorityDecision.target}`,
+            `singleStep=${singleStepTarget}`,
+            `bestIdx=${line}`,
+            `bestSim=${formatLogScore(conf)}`,
+            `authority=${movementAuthority}`,
+            `forceReason=${forceReason || ''}`,
+            matchId ? `matchId=${matchId}` : '',
+            'reason=forced_reconcile_single_step',
+          ]);
+          targetLine = singleStepTarget;
+          movementAuthorityReason = 'forced_reconcile_single_step';
+          movementAuthoritySourceBranch = 'movement_authority_forced_reconcile_single_step';
+          bypassDownstreamVeto = false;
+        }
+      }
       if (hasActiveSpeechWindow) {
         speechStopBrakeCleanupUsed = false;
       } else {
@@ -10819,6 +11013,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           !hasRecentVadSpeech ||
           !runtimeSpeechFresh ||
           !!pending.liveForwardGuardActive;
+        let guardHeldSingleStepApplied = false;
         const tryApplyProofOwnedPrimaryCommitFromLiveStepHold = (): boolean => {
           if (!liveStrictFollow) return false;
           if (liveStepTarget == null || liveStepTarget <= lastLineIndex) return false;
@@ -10984,12 +11179,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           if (tryApplyProofOwnedPrimaryCommitFromLiveStepHold()) return;
           if (tryApplyStallRecoveryOverride()) return;
           if (bypassDownstreamVeto) {
-            emitMovementAuthorityVetoBypassed(
-              'asr_live_single_step_cap',
-              requestedTargetLine,
-              targetLine,
-              'movement_authority_terminal',
-            );
+            warnGuard('movement_authority_guard_held_single_step', [
+              `current=${lastLineIndex}`,
+              `requested=${requestedTargetLine}`,
+              `capped=${liveStepTarget}`,
+              `authority=${movementAuthority}`,
+              `reason=${movementAuthorityReason}`,
+              `sourceBranch=${movementAuthoritySourceBranch}`,
+              `runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0}`,
+              `vadSpeech=${hasRecentVadSpeech ? 1 : 0}`,
+              `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+              snippet ? `clue="${snippet}"` : '',
+            ]);
+            targetLine = liveStepTarget;
+            bypassDownstreamVeto = false;
+            guardHeldSingleStepApplied = true;
           } else {
             const liveStepScore = Number(
               rankedTopScores.find((entry) => entry.idx === liveStepTarget)?.score,
@@ -11077,7 +11281,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           liveStrictFollow &&
           strictSpeakableBridgeAuthoritative &&
           strictSpeakableStep &&
-          targetLine < strictSpeakableStep.targetLine
+          targetLine < strictSpeakableStep.targetLine &&
+          !guardHeldSingleStepApplied
         ) {
           warnGuard('strict_live_adjacent_speakable_bridge', [
             `current=${lastLineIndex}`,
