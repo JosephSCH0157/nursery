@@ -139,7 +139,7 @@ export function hydrateHammerOpenLaunchContext(args: {
       }
       return {
         launchContext: transitionalLaunchContext,
-        hasCanonicalBasis: Boolean(launchContext ?? bootstrapLaunchContext),
+        hasCanonicalBasis: !hydratedSnapshot.editor_session.data && Boolean(launchContext ?? bootstrapLaunchContext),
         persistenceSource: "transitional",
       };
     }
