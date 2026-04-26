@@ -9565,10 +9565,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       );
       const starvationFutureSpeechReconcileMs = Math.max(0, now - lastForwardCommitAt);
       const starvationFutureSpeechReconcileNoCommitMs = Math.max(0, now - lastCommitTime);
-      const starvationFutureSpeechReconcileMarkerState = isMarkerTrackingHealthyForLine(
-        scroller,
-        lastLineIndex,
-      );
       const logStarvationFutureSpeechReconcileSkip = (
         reason: string,
         extraParts: string[] = [],
@@ -9591,7 +9587,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         finalTranscriptFreshForReconcile &&
         starvationFutureSpeechReconcileMs >= starvationFutureSpeechReconcileMinMs &&
         starvationFutureSpeechReconcileNoCommitMs >= starvationFutureSpeechReconcileMinMs &&
-        !starvationFutureSpeechReconcileMarkerState.healthy &&
         starvationFutureSpeechReconcileCandidateIdx > lastLineIndex;
       if (
         !isProofOwnedPrimaryForceReason(forceReason) &&
@@ -9607,17 +9602,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           logStarvationFutureSpeechReconcileSkip('no_commit_too_recent', [
             `noCommitMs=${starvationFutureSpeechReconcileNoCommitMs}`,
             `minNoCommitMs=${starvationFutureSpeechReconcileMinMs}`,
-          ]);
-        } else if (starvationFutureSpeechReconcileMarkerState.healthy) {
-          warnGuard('asr_recovery_skip_tracking_healthy', [
-            `current=${lastLineIndex}`,
-            `markerIdx=${starvationFutureSpeechReconcileMarkerState.markerIdx}`,
-            `starvationMs=${starvationFutureSpeechReconcileMs}`,
-            `noCommitMs=${starvationFutureSpeechReconcileNoCommitMs}`,
-            'sourceBranch=starvation_future_speech_reconcile',
-          ]);
-          logStarvationFutureSpeechReconcileSkip('tracking_healthy', [
-            `markerIdx=${starvationFutureSpeechReconcileMarkerState.markerIdx}`,
           ]);
         } else if (!finalTranscriptFreshForReconcile) {
           logStarvationFutureSpeechReconcileSkip('final_transcript_stale', [
@@ -9697,8 +9681,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (starvationMs < starvationFutureSpeechReconcileMinMs) return null;
         const noCommitMs = Math.max(0, now - lastCommitTime);
         if (noCommitMs < starvationFutureSpeechReconcileMinMs) return null;
-        const markerState = isMarkerTrackingHealthyForLine(scroller, lastLineIndex);
-        if (markerState.healthy) return null;
         const requestedBestIdx = Math.max(
           Math.floor(line),
           Number.isFinite(bestForwardCandidate?.idx) ? Number(bestForwardCandidate?.idx) : -1,
@@ -9772,18 +9754,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       };
       const starvationFutureSpeechReconcileTarget = evaluateStarvationFutureSpeechReconcileTarget();
       if (starvationFutureSpeechReconcileTarget) {
-        const reconcileMarkerState = isMarkerTrackingHealthyForLine(scroller, lastLineIndex);
-        const reconcileNoCommitMs = Math.max(0, now - lastCommitTime);
-        if (reconcileMarkerState.healthy) {
-          warnGuard('asr_recovery_skip_tracking_healthy', [
-            `current=${lastLineIndex}`,
-            `markerIdx=${reconcileMarkerState.markerIdx}`,
-            `starvationMs=${starvationFutureSpeechReconcileTarget.starvationMs}`,
-            `noCommitMs=${reconcileNoCommitMs}`,
-            'sourceBranch=starvation_future_speech_reconcile',
-          ]);
-          return;
-        }
         const starvationFutureSpeechReconcileNoInputGuard =
           !hasRecentVadSpeech ||
           !runtimeSpeechFresh ||
@@ -9903,6 +9873,29 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             liveSpeechForwardPushRepeatedForwardHits
           )
         );
+      const liveSpeechForwardPushAdjacentProofPending =
+        liveStrictFollow &&
+        liveSpeechForwardPushTarget === adjacentLine &&
+        liveSpeechForwardPushTarget > lastLineIndex &&
+        (
+          liveSpeechForwardPushLocalProof ||
+          liveSpeechForwardPushBridgeLandingProof ||
+          liveSpeechForwardPushAdjacentRescueProof ||
+          !!liveSpeechForwardPushAdjacentTailProgression?.ok ||
+          liveSpeechForwardPushRepeatedForwardHits
+        );
+      const liveSpeechForwardPushAdjacentProofCommitEligible =
+        liveSpeechForwardPushAdjacentProofPending &&
+        asrRuntimeSpeechRunningActual &&
+        !liveSpeechForwardPushRunStale &&
+        !liveSpeechForwardPushContradictionBlocks;
+      if (
+        liveSpeechForwardPushAdjacentProofCommitEligible &&
+        liveSpeechForwardPushProofSource === 'none' &&
+        liveSpeechForwardPushRepeatedForwardHits
+      ) {
+        liveSpeechForwardPushProofSource = 'forward_cluster_proof';
+      }
       if (liveSpeechForwardPushAllow) {
         warnGuard('live_speech_forward_push_allow', [
           `current=${lastLineIndex}`,
@@ -9929,12 +9922,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ]);
       }
       const liveSpeechForwardPushCommit =
-        liveSpeechForwardPushAllow &&
+        (liveSpeechForwardPushAllow || liveSpeechForwardPushAdjacentProofCommitEligible) &&
         liveSpeechForwardPushTarget > lastLineIndex &&
         (
           liveSpeechForwardPushLocalProof ||
           liveSpeechForwardPushBridgeLandingProof ||
-          liveSpeechForwardPushAdjacentRescueProof
+          liveSpeechForwardPushAdjacentRescueProof ||
+          !!liveSpeechForwardPushAdjacentTailProgression?.ok ||
+          liveSpeechForwardPushRepeatedForwardHits
         );
       if (liveSpeechForwardPushCommit) {
         warnGuard('live_speech_forward_push_commit', [
@@ -10644,6 +10639,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           strictSpeakableBridgeProofForAdjacent ||
           liveSpeechForwardPushCommit
         );
+      const movementAuthorityAdjacentProofPending =
+        movementAuthorityNextSpeakableTarget > lastLineIndex &&
+        (
+          movementAuthorityHasAdjacentProof ||
+          liveSpeechForwardPushAdjacentRescueProof ||
+          !!liveSpeechForwardPushAdjacentTailProgression?.ok ||
+          liveSpeechForwardPushRepeatedForwardHits
+        );
       const movementAuthorityBridgeLexical = targetLine > lastLineIndex
         ? evaluateLiveStrictBridgeLandingLexicalProof(targetLine, now)
         : null;
@@ -10725,6 +10728,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           movementAuthorityRecoverySourceText.includes('starvation_future_speech_reconcile') ||
           movementAuthorityRecoverySourceText.includes('soft_runtime_rebase')
         ) &&
+        requestedTargetLine > movementAuthorityNextSpeakableTarget &&
+        !movementAuthorityAdjacentProofPending &&
         movementAuthorityMarkerState.healthy
       ) {
         warnGuard('asr_recovery_skip_tracking_healthy', [
@@ -13399,6 +13404,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `state=${stateCurrentIdx ?? 'na'}`,
           `detail=${incomingIdx ?? 'na'}`,
         ]);
+      } else if (
+        liveAsrSession &&
+        commitCount > 0 &&
+        committedFloor != null &&
+        preferredIdx > committedFloor &&
+        preferredBackstepIdx == null
+      ) {
+        warnGuard('cursor_progression_ignored', [
+          `current=${lastLineIndex}`,
+          `incoming=${preferredIdx}`,
+          `floor=${committedFloor}`,
+          `state=${stateCurrentIdx ?? 'na'}`,
+          `detail=${incomingIdx ?? 'na'}`,
+          'reason=uncommitted_cursor_drift',
+        ]);
       } else {
         lastLineIndex = preferredIdx;
         matchAnchorIdx = preferredIdx;
@@ -13619,6 +13639,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         rebaseAdjacentTarget > currentForSoftRuntimeRebase
           ? rebaseAdjacentTarget
           : rebaseForwardEvidenceIdx;
+      const rebaseForwardWasNonAdjacent =
+        rebaseForwardEvidenceIdx > rebaseForwardCappedIdx;
       if (rebaseForwardEvidenceIdx > rebaseForwardCappedIdx) {
         warnGuard('asr_recovery_skip_non_adjacent_target', [
           `current=${currentForSoftRuntimeRebase}`,
@@ -13659,7 +13681,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const retryText = String(lastFinalTranscriptRaw || compacted || '').trim();
       if (!asrRuntimeSpeechRunningActual) {
         maybeLogSoftRuntimeRebaseSkip('speech_not_running');
-      } else if (markerStateForSoftRuntimeRebase.healthy) {
+      } else if (markerStateForSoftRuntimeRebase.healthy && rebaseForwardWasNonAdjacent) {
         warnGuard('asr_recovery_skip_tracking_healthy', [
           `current=${currentForSoftRuntimeRebase}`,
           `markerIdx=${markerStateForSoftRuntimeRebase.markerIdx}`,

@@ -502,6 +502,47 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('does not allow live cursor state to drift ahead of last committed line without a commit', async () => {
+    const driver = createAsrScrollDriver();
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    driver.setLastLineIndex(0);
+    (window as any).currentIndex = 0;
+
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'cursor-coherence-prime',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.91,
+        topScores: [{ idx: 1, score: 0.91 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(200);
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    // Simulate stale external cursor drift without any accepted commit.
+    (window as any).currentIndex = 3;
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 3,
+      matchId: 'cursor-coherence-drift',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.95,
+        topScores: [{ idx: 1, score: 0.95 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    delete (window as any).currentIndex;
+    driver.dispose();
+  });
+
   test('freezes ASR movement immediately while window focus is lost', async () => {
     const driver = createAsrScrollDriver();
     const scroller = document.getElementById('viewer') as HTMLElement;
