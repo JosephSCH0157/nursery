@@ -226,6 +226,19 @@ type AsrMovementAuthorityContext = {
   proofSource?: string;
 };
 
+type PendingSpeakableBridgeState = {
+  semanticFrom: number;
+  semanticTarget: number;
+  visualCurrent: number;
+  visualReducedTarget: number;
+  skippedVisibleRows: number;
+  proofSource: string;
+  sourceBranch: string;
+  createdAtMs: number;
+  runKey: string;
+  runGeneration: number | null;
+};
+
 type StallCueRescuePolicy = {
   allow: boolean;
   directContentForwardRescue: boolean;
@@ -548,6 +561,10 @@ const LIVE_STRICT_BEHIND_RECOVERY_ADJACENT_SLACK = 0.04;
 const ASR_READER_LEASH_MAX_READABLE_AHEAD = 1;
 const LIVE_STRICT_MAX_CUE_BRIDGE_SPAN = DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES;
 const DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS = 1;
+const DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS = 2200;
+const DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_LINES = 2;
+const DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_NO_COMMIT_MS = 850;
+const DEFAULT_ASR_MARKER_LAG_PRESSURE_ADJACENT_SIM_SLACK = 0.12;
 const LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS = 2;
 const LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT = 3;
 const LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS = 2;
@@ -3272,6 +3289,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastSpeechRunningActualAtMs = 0;
   let lastRuntimeSpeechAt = 0;
   let speechStopBrakeCleanupUsed = false;
+  let pendingSpeakableBridgeState: PendingSpeakableBridgeState | null = null;
   let asrRuntimeRunKey = summaryRunKey;
   let asrRuntimeRunGeneration = summaryRunGeneration;
   let lastRescueMatchEvidenceAt = 0;
@@ -3429,6 +3447,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return false;
   };
 
+  const clearPendingSpeakableBridge = (
+    reason: string,
+    extras?: string[],
+  ) => {
+    const state = pendingSpeakableBridgeState;
+    if (!state) return;
+    warnGuard('asr_pending_speakable_bridge_clear', [
+      `semanticFrom=${state.semanticFrom}`,
+      `semanticTarget=${state.semanticTarget}`,
+      `visualCurrent=${state.visualCurrent}`,
+      `visualReducedTarget=${state.visualReducedTarget}`,
+      `skippedVisibleRows=${state.skippedVisibleRows}`,
+      `proofSource=${state.proofSource || 'unknown'}`,
+      `sourceBranch=${state.sourceBranch || 'unknown'}`,
+      `ageMs=${Math.max(0, Date.now() - state.createdAtMs)}`,
+      `reason=${reason}`,
+      ...(extras || []),
+    ]);
+    pendingSpeakableBridgeState = null;
+  };
+
   const noteRuntimeSpeechState = (detail: unknown) => {
     const runKeyRaw = (detail as { runKey?: unknown } | null | undefined)?.runKey;
     const runGenerationRaw =
@@ -3465,6 +3504,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     asrRuntimeSpeechSeen = true;
     asrRuntimeSpeechRunningActual = false;
+    clearPendingSpeakableBridge('speech_stopped_runtime');
   };
 
   const hasRecentActualSpeech = (now: number) => {
@@ -4585,6 +4625,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastLineIndex = normalized;
     lastCommittedLine = normalized;
     lastFreshProofLine = normalized;
+    pendingSpeakableBridgeState = null;
     matchAnchorIdx = normalized;
     lastEvidenceAt = now;
     lastForwardCommitAt = now;
@@ -4673,6 +4714,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ambiguityHoldActive && ambiguityHoldSecondIdx >= 0
             ? Number(ambiguityHoldSecondSim.toFixed(3))
             : null,
+        pendingSpeakableBridge: pendingSpeakableBridgeState
+          ? {
+            semanticFrom: pendingSpeakableBridgeState.semanticFrom,
+            semanticTarget: pendingSpeakableBridgeState.semanticTarget,
+            visualCurrent: pendingSpeakableBridgeState.visualCurrent,
+            visualReducedTarget: pendingSpeakableBridgeState.visualReducedTarget,
+            skippedVisibleRows: pendingSpeakableBridgeState.skippedVisibleRows,
+            proofSource: pendingSpeakableBridgeState.proofSource,
+            sourceBranch: pendingSpeakableBridgeState.sourceBranch,
+            ageMs: Math.max(0, Date.now() - pendingSpeakableBridgeState.createdAtMs),
+          }
+          : null,
         asrFocusGeneration,
         lastFocusLostAt,
         lastFocusRegainedAt,
@@ -5940,7 +5993,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       normalized === 'live_strict_proof_owned_commit' ||
       normalized === 'starvation_future_speech_reconcile' ||
       normalized === 'movement_authority_proof' ||
-      normalized === 'movement_authority_reconcile'
+      normalized === 'movement_authority_reconcile' ||
+      normalized === 'pending_speakable_bridge_complete'
     );
   };
 
@@ -6038,6 +6092,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     );
     return renderedHeight > 1;
   };
+
+  const isSpeakableScriptLine = (lineIndex: number): boolean =>
+    !isIgnorableCueLineText(getLineTextAt(Math.max(0, Math.floor(Number(lineIndex) || 0))));
 
   const resolveLiveVisibleForwardTarget = (
     currentLine: number,
@@ -10374,6 +10431,58 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         strictMomentumBiasEligible ||
         strictAntiStallEligible ||
         strictBehindRecoveryEligible;
+      const markerLagState = isMarkerTrackingHealthyForLine(scroller, lastLineIndex);
+      const markerLagLines = markerLagState.markerIdx >= 0
+        ? Math.max(0, lastLineIndex - markerLagState.markerIdx)
+        : 0;
+      const markerLagPressureActive =
+        liveStrictFollow &&
+        strictSpeechFreshNow &&
+        !strictBackwardContradictionForAdjacent &&
+        strictLogicalAdjacentSignal &&
+        markerLagLines >= DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_LINES &&
+        Math.max(0, now - lastForwardCommitAt) >= DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_NO_COMMIT_MS &&
+        (
+          (bestForwardCandidate?.idx ?? -1) > lastLineIndex ||
+          !!liveSpeechForwardPushAdjacentTailProgression?.ok ||
+          liveSpeechForwardPushAdjacentRescueProof ||
+          liveSpeechForwardPushRepeatedForwardHits
+        );
+      const markerLagAdjacentNeed = clamp(
+        weakAdjacentNeed - DEFAULT_ASR_MARKER_LAG_PRESSURE_ADJACENT_SIM_SLACK,
+        DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+        1,
+      );
+      const markerLagAdjacentEvidence =
+        Number.isFinite(adjacentCandidateSim) &&
+        adjacentCandidateSim >= markerLagAdjacentNeed;
+      const markerLagTailEvidence =
+        !!liveSpeechForwardPushAdjacentTailProgression?.ok ||
+        liveSpeechForwardPushAdjacentRescueProof ||
+        liveSpeechForwardPushRepeatedForwardHits;
+      const markerLagPressureBypass =
+        markerLagPressureActive &&
+        adjacentLine > lastLineIndex &&
+        (
+          strictLocalProofForAdjacent ||
+          markerLagAdjacentEvidence ||
+          markerLagTailEvidence
+        );
+      if (markerLagPressureBypass) {
+        warnGuard('asr_marker_lag_pressure_adjacent_allow', [
+          `current=${lastLineIndex}`,
+          `adjacent=${adjacentLine}`,
+          `bestIdx=${line}`,
+          `bestSim=${formatLogScore(conf)}`,
+          `markerIdx=${markerLagState.markerIdx}`,
+          `markerLagLines=${markerLagLines}`,
+          `noCommitMs=${Math.max(0, now - lastForwardCommitAt)}`,
+          `adjacentSim=${Number.isFinite(adjacentCandidateSim) ? formatLogScore(adjacentCandidateSim) : 'na'}`,
+          `adjacentNeed=${formatLogScore(markerLagAdjacentNeed)}`,
+          `tailEvidence=${markerLagTailEvidence ? 1 : 0}`,
+          snippet ? `clue="${snippet}"` : '',
+        ]);
+      }
       const strictSpeakableBridgeAuthorized =
         liveStrictFollow &&
         !!strictSpeakableStep &&
@@ -10392,6 +10501,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         consistentCatchupBypass ||
         liveSpeechForwardPushBypass ||
         proofOwnedForceBypass ||
+        markerLagPressureBypass ||
         completionAdjacentBypass ||
         stallRescueBypass;
       const strictBridgeForceCommit =
@@ -10421,6 +10531,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (stallRescueBypass) strictPathStates.push({ path: 'stall-rescue', kind: strictSpeechFreshNow ? 'speech_backed' : 'autonomous_candidate' });
         if (liveSpeechForwardPushBypass) strictPathStates.push({ path: 'live-speech-forward-push', kind: 'speech_backed' });
         if (proofOwnedForceBypass) strictPathStates.push({ path: 'live-strict-proof-owned', kind: 'speech_backed' });
+        if (markerLagPressureBypass) strictPathStates.push({ path: 'marker-lag-pressure', kind: 'speech_backed' });
         logThrottled('ASR_STRICT_PATH_CLASS', 'debug', 'ASR_STRICT_PATH_CLASS', {
           current: lastLineIndex,
           best: line,
@@ -10447,7 +10558,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (
         strictAutonomousCandidate &&
         !strictBacklogDrainTerminalActive &&
-        !strictFastAdjacentAllowed &&
+        !(strictFastAdjacentAllowed || markerLagPressureBypass) &&
         !strictLocalProofForAdjacent &&
         isProofOwnedPrimaryForceReason(forceReason)
       ) {
@@ -10463,7 +10574,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (
         strictAutonomousCandidate &&
         !strictBacklogDrainTerminalActive &&
-        !strictFastAdjacentAllowed &&
+        !(strictFastAdjacentAllowed || markerLagPressureBypass) &&
         !strictLocalProofForAdjacent &&
         !isProofOwnedPrimaryForceReason(forceReason) &&
         !(
@@ -10503,12 +10614,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         consistentCatchupBypass ||
         liveSpeechForwardPushBypass ||
         proofOwnedForceBypass ||
+        markerLagPressureBypass ||
         completionAdjacentBypass ||
         stallRescueBypass ||
         strictEarlyBacklogDrainActive ||
         strictSpeakableBridgeAuthorized ||
         strictBridgeForceProofOk ||
-        (strictFastAdjacentAllowed && line > lastLineIndex) ||
+        ((strictFastAdjacentAllowed || markerLagPressureBypass) && line > lastLineIndex) ||
         (conf >= effectiveMatchThreshold && tieGateOk);
       if (!strongMatch) {
         const tieParts = !tieOk && typeof tieMargin === 'number'
@@ -10661,6 +10773,54 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           });
         }
         targetLine = continuityLine;
+      }
+      let pendingSpeakableBridgeCompletion = false;
+      const pendingBridgeState = pendingSpeakableBridgeState;
+      if (pendingBridgeState) {
+        const pendingBridgeAgeMs = Math.max(0, now - pendingBridgeState.createdAtMs);
+        const pendingBridgeRunStale = isRunIdentityStale({
+          runKey: pendingBridgeState.runKey,
+          runGeneration: pendingBridgeState.runGeneration,
+        });
+        if (pendingBridgeAgeMs > DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS) {
+          clearPendingSpeakableBridge('expired', [
+            `ttlMs=${DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS}`,
+          ]);
+        } else if (pendingBridgeState.semanticFrom !== lastLineIndex) {
+          clearPendingSpeakableBridge('cursor_shifted', [
+            `current=${lastLineIndex}`,
+          ]);
+        } else if (!asrRuntimeSpeechRunningActual || !runtimeSpeechFresh) {
+          clearPendingSpeakableBridge('speech_not_active', [
+            `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+            `runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0}`,
+          ]);
+        } else if (pendingBridgeRunStale) {
+          clearPendingSpeakableBridge('run_identity_stale');
+        } else if (pendingBridgeState.semanticTarget <= lastLineIndex) {
+          clearPendingSpeakableBridge('target_already_reached', [
+            `current=${lastLineIndex}`,
+          ]);
+        } else {
+          const bridgeSemanticTarget = Math.max(
+            pendingBridgeState.semanticTarget,
+            targetLine,
+          );
+          targetLine = bridgeSemanticTarget;
+          pendingSpeakableBridgeCompletion = true;
+          proofOwnedForceBypass = true;
+          forceReason = 'pending_speakable_bridge_complete';
+          warnGuard('asr_pending_speakable_bridge_retry', [
+            `semanticFrom=${pendingBridgeState.semanticFrom}`,
+            `semanticTarget=${pendingBridgeState.semanticTarget}`,
+            `visualCurrent=${pendingBridgeState.visualCurrent}`,
+            `visualReducedTarget=${pendingBridgeState.visualReducedTarget}`,
+            `skippedVisibleRows=${pendingBridgeState.skippedVisibleRows}`,
+            `proofSource=${pendingBridgeState.proofSource || 'unknown'}`,
+            `sourceBranch=${pendingBridgeState.sourceBranch || 'unknown'}`,
+            `ageMs=${pendingBridgeAgeMs}`,
+          ]);
+        }
       }
       const requestedTargetLine = targetLine;
       const movementAuthorityStarvationMs = Math.max(0, now - lastForwardCommitAt);
@@ -10969,6 +11129,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (hasActiveSpeechWindow) {
         speechStopBrakeCleanupUsed = false;
       } else {
+        clearPendingSpeakableBridge('speech_stopped_brake_window_expired');
         const cleanupTarget = resolveForwardSpeakableTarget(
           lastLineIndex,
           Math.max(lastLineIndex + 1, movementAuthorityDecision.target),
@@ -12237,25 +12398,91 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveStrictFollow &&
         strictBacklogDrainAppliedSteps > 0 &&
         targetLine > adjacentLine;
-      if (liveStrictFollow && multiJumpDelta > 1) {
+      if (liveStrictFollow && multiJumpDelta > 1 && !pendingSpeakableBridgeCompletion) {
         const visibleStepTarget = resolveLiveVisibleForwardTarget(
           lastLineIndex,
           targetLine,
           DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS,
         );
         if (visibleStepTarget > lastLineIndex && visibleStepTarget < targetLine) {
+          const reducedLineSpeakable = isSpeakableScriptLine(visibleStepTarget);
+          if (!reducedLineSpeakable) {
+            const reducedLineEl = getLineElementByIndex(scroller, visibleStepTarget);
+            const reducedLineTopRaw = computeLineTargetTop(scroller, reducedLineEl);
+            const reducedLineTop = finiteNumberOrNull(
+              'pending.bridgeVisualTop',
+              reducedLineTopRaw,
+              { line: visibleStepTarget, cursor: lastLineIndex },
+            );
+            if (reducedLineTop == null) {
+              warnGuard('asr_pending_speakable_bridge_skip', [
+                `semanticFrom=${lastLineIndex}`,
+                `semanticTarget=${targetLine}`,
+                `visualReducedTarget=${visibleStepTarget}`,
+                'reason=invalid_visual_target_top',
+                snippet ? `clue="${snippet}"` : '',
+              ]);
+            } else {
+              const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+              const reducedClampedTop = clamp(reducedLineTop, 0, maxScrollTop);
+              const appliedTop = applyCanonicalScrollTop(reducedClampedTop, {
+                scroller,
+                reason: 'asr-pending-speakable-bridge',
+                source: 'asr-commit',
+              });
+              markProgrammaticScroll();
+              lastMoveAt = now;
+              lastKnownScrollTop = appliedTop;
+              pursuitTargetTop = appliedTop;
+              pursuitVel = 0;
+              pursuitActive = false;
+              microPursuitUntil = 0;
+              pendingSpeakableBridgeState = {
+                semanticFrom: lastLineIndex,
+                semanticTarget: targetLine,
+                visualCurrent: visibleStepTarget,
+                visualReducedTarget: visibleStepTarget,
+                skippedVisibleRows: Math.max(1, targetLine - visibleStepTarget),
+                proofSource: pendingProofSource || movementAuthorityProofSource || 'unknown',
+                sourceBranch:
+                  pendingSourceBranch ||
+                  movementAuthoritySourceBranch ||
+                  forceReason ||
+                  'commit-path',
+                createdAtMs: now,
+                runKey: String(pendingRunKey || summaryRunKey || '').trim(),
+                runGeneration:
+                  normalizeRunGeneration(pendingRunGeneration) ?? resolveActiveRunGeneration(),
+              };
+              warnGuard('asr_pending_speakable_bridge_set', [
+                `semanticFrom=${pendingSpeakableBridgeState.semanticFrom}`,
+                `semanticTarget=${pendingSpeakableBridgeState.semanticTarget}`,
+                `visualCurrent=${pendingSpeakableBridgeState.visualCurrent}`,
+                `visualReducedTarget=${pendingSpeakableBridgeState.visualReducedTarget}`,
+                `skippedVisibleRows=${pendingSpeakableBridgeState.skippedVisibleRows}`,
+                `proofSource=${pendingSpeakableBridgeState.proofSource || 'unknown'}`,
+                `sourceBranch=${pendingSpeakableBridgeState.sourceBranch || 'unknown'}`,
+                'reason=non_speakable_visual_cap',
+                snippet ? `clue="${snippet}"` : '',
+              ]);
+              return;
+            }
+          }
           warnGuard('asr_live_visible_bridge_step_cap', [
             `current=${lastLineIndex}`,
             `requested=${targetLine}`,
             `reducedTarget=${visibleStepTarget}`,
             `deltaRaw=${multiJumpDelta}`,
             `maxRenderedSteps=${DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS}`,
+            `speakableReducedTarget=${reducedLineSpeakable ? 1 : 0}`,
             `sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'commit-path'}`,
             pendingProofSource ? `proofSource=${pendingProofSource}` : '',
             snippet ? `clue="${snippet}"` : '',
           ]);
-          targetLine = visibleStepTarget;
-          multiJumpDelta = targetLine - lastLineIndex;
+          if (reducedLineSpeakable) {
+            targetLine = visibleStepTarget;
+            multiJumpDelta = targetLine - lastLineIndex;
+          }
         }
       }
       if (multiJumpDelta > 1 && liveStrictFollow) {
@@ -13093,6 +13320,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         jumpHistory.push(now);
       }
       noteCommit(prevLineIndex, targetLine, now);
+      if (pendingSpeakableBridgeState) {
+        if (targetLine >= pendingSpeakableBridgeState.semanticTarget) {
+          clearPendingSpeakableBridge('semantic_target_committed', [
+            `commitTarget=${targetLine}`,
+          ]);
+        } else if (targetLine !== pendingSpeakableBridgeState.semanticFrom) {
+          clearPendingSpeakableBridge('commit_target_diverged', [
+            `commitTarget=${targetLine}`,
+          ]);
+        }
+      }
       if (targetLine > prevLineIndex && strictTargetHasFreshProof) {
         lastFreshProofLine = targetLine;
       } else if (targetLine > prevLineIndex && lastFreshProofLine < 0) {
@@ -17979,6 +18217,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       pendingRaf = 0;
     }
     pendingMatch = null;
+    pendingSpeakableBridgeState = null;
     asrSilenceActive = true;
     lastStallRecoveryOverrideAt = 0;
     _postCommitReadabilitySeq += 1;
@@ -18096,6 +18335,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       pendingRaf = 0;
     }
     pendingMatch = null;
+    pendingSpeakableBridgeState = null;
     strongHits.length = 0;
     evidenceEntries.length = 0;
     evidenceText = '';
