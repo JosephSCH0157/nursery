@@ -5943,6 +5943,44 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     );
   };
 
+  const isAsrRecoverySource = (
+    sourceBranch?: unknown,
+    forceReason?: unknown,
+    matchId?: unknown,
+  ): boolean => {
+    const normalized = [
+      String(sourceBranch || '').trim().toLowerCase(),
+      String(forceReason || '').trim().toLowerCase(),
+      String(matchId || '').trim().toLowerCase(),
+    ].join('|');
+    if (!normalized) return false;
+    return (
+      normalized.includes('starvation_future_speech_reconcile') ||
+      normalized.includes('soft_runtime_rebase') ||
+      normalized.includes('stall_override') ||
+      normalized.includes('stall-rescue') ||
+      normalized.includes('strict-live-bridge') ||
+      normalized.includes('strict-live-drain') ||
+      normalized.includes('bridge_recovery') ||
+      normalized.includes('cue_stall_rescue')
+    );
+  };
+
+  const isMarkerTrackingHealthyForLine = (scroller: HTMLElement | null, currentLine: number): {
+    markerIdx: number;
+    healthy: boolean;
+  } => {
+    const markerIdx = computeCueSafeMarkerIndex(scroller);
+    if (!Number.isFinite(markerIdx) || markerIdx < 0) {
+      return { markerIdx: -1, healthy: false };
+    }
+    const safeCurrent = Math.max(0, Math.floor(Number(currentLine) || 0));
+    return {
+      markerIdx,
+      healthy: Math.abs(markerIdx - safeCurrent) <= 1,
+    };
+  };
+
   const resolveForwardSpeakableTarget = (
     currentLine: number,
     requestedTarget: number,
@@ -5986,7 +6024,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       return {
         authority: 'reconcile',
         current: safeCurrent,
-        target: Math.max(safeTarget, safeBestIdx),
+        target: resolveForwardSpeakableTarget(safeCurrent, Math.max(safeTarget, safeBestIdx), 1),
         bestIdx: safeBestIdx,
         bestSim: safeBestSim,
         reason: 'starvation_forward_evidence',
@@ -9455,26 +9493,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (!firstProof.ok) return null;
         let proofSource = firstProof.source;
         let speakableSteps = 1;
-        const starvationDetected =
-          Math.max(0, now - lastForwardCommitAt) >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
-          bestRequestedTarget - lastLineIndex >= 2;
-        if (starvationDetected) {
-          const maxExtraSteps = 1;
-          let extraSteps = 0;
-          while (extraSteps < maxExtraSteps && target < bestRequestedTarget) {
-            const nextStep = resolveLiveStrictNextSpeakableStep(
-              target,
-              LIVE_STRICT_MAX_CUE_BRIDGE_SPAN,
-            );
-            if (!nextStep || nextStep.targetLine <= target) break;
-            if (nextStep.targetLine > bestRequestedTarget) break;
-            const nextProof = stepProof(target, nextStep.targetLine, nextStep.skippedReasons);
-            if (!nextProof.ok) break;
-            target = nextStep.targetLine;
-            speakableSteps += 1;
-            extraSteps += 1;
-            proofSource = `${proofSource}+${nextProof.source}`;
-            allSkippedReasons.push(...nextStep.skippedReasons);
+        if (target > lastLineIndex + 1) {
+          const adjacentTarget = resolveForwardSpeakableTarget(lastLineIndex, target, 1);
+          if (adjacentTarget > lastLineIndex && adjacentTarget < target) {
+            warnGuard('asr_recovery_skip_non_adjacent_target', [
+              `current=${lastLineIndex}`,
+              `requested=${target}`,
+              `adjacentTarget=${adjacentTarget}`,
+              'sourceBranch=pending-cap-bypass-precap',
+            ]);
+            target = adjacentTarget;
+            speakableSteps = 1;
           }
         }
         return {
@@ -9535,6 +9564,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           : 0,
       );
       const starvationFutureSpeechReconcileMs = Math.max(0, now - lastForwardCommitAt);
+      const starvationFutureSpeechReconcileNoCommitMs = Math.max(0, now - lastCommitTime);
+      const starvationFutureSpeechReconcileMarkerState = isMarkerTrackingHealthyForLine(
+        scroller,
+        lastLineIndex,
+      );
       const logStarvationFutureSpeechReconcileSkip = (
         reason: string,
         extraParts: string[] = [],
@@ -9556,6 +9590,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         asrRuntimeSpeechRunningActual &&
         finalTranscriptFreshForReconcile &&
         starvationFutureSpeechReconcileMs >= starvationFutureSpeechReconcileMinMs &&
+        starvationFutureSpeechReconcileNoCommitMs >= starvationFutureSpeechReconcileMinMs &&
+        !starvationFutureSpeechReconcileMarkerState.healthy &&
         starvationFutureSpeechReconcileCandidateIdx > lastLineIndex;
       if (
         !isProofOwnedPrimaryForceReason(forceReason) &&
@@ -9567,6 +9603,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ) {
         if (!asrRuntimeSpeechRunningActual) {
           logStarvationFutureSpeechReconcileSkip('speech_not_running');
+        } else if (starvationFutureSpeechReconcileNoCommitMs < starvationFutureSpeechReconcileMinMs) {
+          logStarvationFutureSpeechReconcileSkip('no_commit_too_recent', [
+            `noCommitMs=${starvationFutureSpeechReconcileNoCommitMs}`,
+            `minNoCommitMs=${starvationFutureSpeechReconcileMinMs}`,
+          ]);
+        } else if (starvationFutureSpeechReconcileMarkerState.healthy) {
+          warnGuard('asr_recovery_skip_tracking_healthy', [
+            `current=${lastLineIndex}`,
+            `markerIdx=${starvationFutureSpeechReconcileMarkerState.markerIdx}`,
+            `starvationMs=${starvationFutureSpeechReconcileMs}`,
+            `noCommitMs=${starvationFutureSpeechReconcileNoCommitMs}`,
+            'sourceBranch=starvation_future_speech_reconcile',
+          ]);
+          logStarvationFutureSpeechReconcileSkip('tracking_healthy', [
+            `markerIdx=${starvationFutureSpeechReconcileMarkerState.markerIdx}`,
+          ]);
         } else if (!finalTranscriptFreshForReconcile) {
           logStarvationFutureSpeechReconcileSkip('final_transcript_stale', [
             `finalAgeMs=${Math.round(starvationFutureSpeechReconcileFinalAgeMs)}`,
@@ -9586,21 +9638,28 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           if (backwardContradiction) {
             logStarvationFutureSpeechReconcileSkip('backward_contradiction');
           } else {
-            let furthestSpeakable = -1;
-            for (let idx = lastLineIndex + 1; idx <= starvationFutureSpeechReconcileCandidateIdx; idx += 1) {
-              if (!isIgnorableCueLineText(getLineTextAt(idx))) {
-                furthestSpeakable = idx;
-              }
-            }
-            if (furthestSpeakable <= lastLineIndex) {
+            const adjacentTarget = resolveForwardSpeakableTarget(
+              lastLineIndex,
+              starvationFutureSpeechReconcileCandidateIdx,
+              1,
+            );
+            if (adjacentTarget <= lastLineIndex) {
               logStarvationFutureSpeechReconcileSkip('no_speakable_target');
             } else {
+              if (starvationFutureSpeechReconcileCandidateIdx > adjacentTarget) {
+                warnGuard('asr_recovery_skip_non_adjacent_target', [
+                  `current=${lastLineIndex}`,
+                  `requested=${starvationFutureSpeechReconcileCandidateIdx}`,
+                  `adjacentTarget=${adjacentTarget}`,
+                  'sourceBranch=starvation_future_speech_reconcile',
+                ]);
+              }
               const skippedIgnorableLines: CueBridgeSkipReason[] = [];
-              for (let idx = lastLineIndex + 1; idx < furthestSpeakable; idx += 1) {
+              for (let idx = lastLineIndex + 1; idx < adjacentTarget; idx += 1) {
                 const reason = classifyStrictSkippableLineForCueBridge(getLineTextAt(idx));
                 if (reason) skippedIgnorableLines.push(reason);
               }
-              starvationFutureSpeechReconcileTargetLine = furthestSpeakable;
+              starvationFutureSpeechReconcileTargetLine = adjacentTarget;
               forceReason = 'starvation_future_speech_reconcile';
               warnGuard('proof_owned_primary_commit', [
                 `current=${lastLineIndex}`,
@@ -9613,6 +9672,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 `stallMs=${starvationFutureSpeechReconcileMs}`,
                 'sourceBranch=starvation_future_speech_reconcile',
                 'oldWouldHaveUsedStallOverride=true',
+                `commitTargetLine=${starvationFutureSpeechReconcileTargetLine}`,
                 snippet ? `clue="${snippet}"` : '',
               ]);
             }
@@ -9635,6 +9695,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (liveSpeechForwardPushRunStale) return null;
         const starvationMs = Math.max(0, now - lastForwardCommitAt);
         if (starvationMs < starvationFutureSpeechReconcileMinMs) return null;
+        const noCommitMs = Math.max(0, now - lastCommitTime);
+        if (noCommitMs < starvationFutureSpeechReconcileMinMs) return null;
+        const markerState = isMarkerTrackingHealthyForLine(scroller, lastLineIndex);
+        if (markerState.healthy) return null;
         const requestedBestIdx = Math.max(
           Math.floor(line),
           Number.isFinite(bestForwardCandidate?.idx) ? Number(bestForwardCandidate?.idx) : -1,
@@ -9645,94 +9709,104 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06),
         );
         if (backwardContradiction) return null;
-        const maxDeltaLines = 8;
-        const maxSpeakableSteps = 6;
-        const candidateMaxTarget = Math.min(
-          lastLineIndex + maxDeltaLines,
-          Math.max(lastLineIndex + 2, requestedBestIdx),
+        const step = resolveLiveStrictNextSpeakableStep(
+          lastLineIndex,
+          LIVE_STRICT_MAX_CUE_BRIDGE_SPAN,
         );
-        let cursor = lastLineIndex;
-        let furthestTarget = -1;
-        const skippedReasons: CueBridgeSkipReason[] = [];
-        const proofSources: string[] = [];
-        let steps = 0;
-        while (steps < maxSpeakableSteps) {
-          const step = resolveLiveStrictNextSpeakableStep(
-            cursor,
-            LIVE_STRICT_MAX_CUE_BRIDGE_SPAN,
-          );
-          if (!step || step.targetLine <= cursor) break;
-          if (step.targetLine > candidateMaxTarget) break;
-          const localProof =
-            hasLiveStrictLocalProof(
-              cursor,
-              step.targetLine,
-              now,
-              rankedTopScores,
-              baselineRequired,
-            ) ||
-            hasLiveStrictCueExitProof(
-              cursor,
-              step.targetLine,
-              now,
-              rankedTopScores,
-              baselineRequired,
-            );
-          const bridgeProof = hasLiveStrictSpeakableBridgeProof(
-            cursor,
+        if (!step || step.targetLine <= lastLineIndex) return null;
+        if (step.targetLine > requestedBestIdx) return null;
+        const localProof =
+          hasLiveStrictLocalProof(
+            lastLineIndex,
+            step.targetLine,
+            now,
+            rankedTopScores,
+            baselineRequired,
+          ) ||
+          hasLiveStrictCueExitProof(
+            lastLineIndex,
             step.targetLine,
             now,
             rankedTopScores,
             baselineRequired,
           );
-          const rescueProof = hasFreshNearbyRescueMatchEvidence(
-            cursor,
-            step.targetLine,
-            now,
-            step.skippedReasons,
-          );
-          const landingLexical = evaluateLiveStrictBridgeLandingLexicalProof(step.targetLine, now);
-          const fullLexicalProof =
-            landingLexical.contentCount > 0 &&
-            landingLexical.fullContentHits >= landingLexical.requiredHits &&
-            landingLexical.fullHitRatio >= landingLexical.requiredRatio;
-          let stepProofSource = '';
-          if (localProof) {
-            stepProofSource = 'live_strict_local_proof_ok';
-          } else if (bridgeProof) {
-            stepProofSource = 'strict_speakable_bridge_landing';
-          } else if (rescueProof) {
-            stepProofSource = 'adjacent_rescue_proofed';
-          } else if (landingLexical.ok) {
-            stepProofSource = 'future_tail_lexical';
-          } else if (fullLexicalProof) {
-            stepProofSource = 'future_full_lexical';
-          } else {
-            break;
-          }
-          furthestTarget = step.targetLine;
-          steps += 1;
-          proofSources.push(stepProofSource);
-          skippedReasons.push(...step.skippedReasons);
-          cursor = step.targetLine;
+        const bridgeProof = hasLiveStrictSpeakableBridgeProof(
+          lastLineIndex,
+          step.targetLine,
+          now,
+          rankedTopScores,
+          baselineRequired,
+        );
+        const rescueProof = hasFreshNearbyRescueMatchEvidence(
+          lastLineIndex,
+          step.targetLine,
+          now,
+          step.skippedReasons,
+        );
+        const landingLexical = evaluateLiveStrictBridgeLandingLexicalProof(step.targetLine, now);
+        const fullLexicalProof =
+          landingLexical.contentCount > 0 &&
+          landingLexical.fullContentHits >= landingLexical.requiredHits &&
+          landingLexical.fullHitRatio >= landingLexical.requiredRatio;
+        let proofSource = '';
+        if (localProof) {
+          proofSource = 'live_strict_local_proof_ok';
+        } else if (bridgeProof) {
+          proofSource = 'strict_speakable_bridge_landing';
+        } else if (rescueProof) {
+          proofSource = 'adjacent_rescue_proofed';
+        } else if (landingLexical.ok) {
+          proofSource = 'future_tail_lexical';
+        } else if (fullLexicalProof) {
+          proofSource = 'future_full_lexical';
+        } else {
+          return null;
         }
-        if (furthestTarget <= lastLineIndex + 1 || steps <= 1) return null;
         return {
-          target: furthestTarget,
-          proofSource: proofSources.join('+'),
-          skippedIgnorableLines: skippedReasons,
-          speakableSteps: steps,
+          target: step.targetLine,
+          proofSource,
+          skippedIgnorableLines: step.skippedReasons,
+          speakableSteps: 1,
           starvationMs,
         };
       };
       const starvationFutureSpeechReconcileTarget = evaluateStarvationFutureSpeechReconcileTarget();
       if (starvationFutureSpeechReconcileTarget) {
+        const reconcileMarkerState = isMarkerTrackingHealthyForLine(scroller, lastLineIndex);
+        const reconcileNoCommitMs = Math.max(0, now - lastCommitTime);
+        if (reconcileMarkerState.healthy) {
+          warnGuard('asr_recovery_skip_tracking_healthy', [
+            `current=${lastLineIndex}`,
+            `markerIdx=${reconcileMarkerState.markerIdx}`,
+            `starvationMs=${starvationFutureSpeechReconcileTarget.starvationMs}`,
+            `noCommitMs=${reconcileNoCommitMs}`,
+            'sourceBranch=starvation_future_speech_reconcile',
+          ]);
+          return;
+        }
         const starvationFutureSpeechReconcileNoInputGuard =
           !hasRecentVadSpeech ||
           !runtimeSpeechFresh ||
           !!pending.liveForwardGuardActive;
         let starvationFutureSpeechReconcileAppliedTarget =
           starvationFutureSpeechReconcileTarget.target;
+        const starvationFutureSpeechReconcileAdjacentTarget = resolveForwardSpeakableTarget(
+          lastLineIndex,
+          starvationFutureSpeechReconcileAppliedTarget,
+          1,
+        );
+        if (
+          starvationFutureSpeechReconcileAdjacentTarget > lastLineIndex &&
+          starvationFutureSpeechReconcileAppliedTarget > starvationFutureSpeechReconcileAdjacentTarget
+        ) {
+          warnGuard('asr_recovery_skip_non_adjacent_target', [
+            `current=${lastLineIndex}`,
+            `requested=${starvationFutureSpeechReconcileAppliedTarget}`,
+            `adjacentTarget=${starvationFutureSpeechReconcileAdjacentTarget}`,
+            'sourceBranch=starvation_future_speech_reconcile',
+          ]);
+          starvationFutureSpeechReconcileAppliedTarget = starvationFutureSpeechReconcileAdjacentTarget;
+        }
         if (
           starvationFutureSpeechReconcileNoInputGuard &&
           starvationFutureSpeechReconcileAppliedTarget >
@@ -9765,6 +9839,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `proofSource=${starvationFutureSpeechReconcileTarget.proofSource}`,
           `speakableSteps=${starvationFutureSpeechReconcileTarget.speakableSteps}`,
           `starvationMs=${starvationFutureSpeechReconcileTarget.starvationMs}`,
+          `commitTargetLine=${starvationFutureSpeechReconcileAppliedTarget}`,
           snippet ? `clue="${snippet}"` : '',
         ]);
         warnGuard('proof_owned_primary_commit', [
@@ -9778,6 +9853,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `stallMs=${starvationFutureSpeechReconcileTarget.starvationMs}`,
           'sourceBranch=starvation_future_speech_reconcile',
           'oldWouldHaveUsedStallOverride=true',
+          `commitTargetLine=${starvationFutureSpeechReconcileAppliedTarget}`,
           snippet ? `clue="${snippet}"` : '',
         ]);
         adoptPendingMatch({
@@ -10518,6 +10594,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       const requestedTargetLine = targetLine;
       const movementAuthorityStarvationMs = Math.max(0, now - lastForwardCommitAt);
+      const movementAuthorityNoCommitMs = Math.max(0, now - lastCommitTime);
       const movementAuthorityFinalTranscriptAgeMs =
         lastFinalTranscriptAt > 0
           ? Math.max(0, now - lastFinalTranscriptAt)
@@ -10603,6 +10680,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       let movementAuthorityReason = movementAuthorityDecision.reason;
       let movementAuthoritySourceBranch = movementAuthorityDecision.sourceBranch;
       let bypassDownstreamVeto = movementAuthorityDecision.bypassDownstreamVeto;
+      const movementAuthorityRecoverySourceText = String(
+        pendingSourceBranch || movementAuthoritySourceBranch || forceReason || '',
+      )
+        .trim()
+        .toLowerCase();
+      const movementAuthorityRecoveryLike = isAsrRecoverySource(
+        movementAuthorityRecoverySourceText,
+        forceReason,
+        matchId,
+      );
+      const movementAuthorityMarkerState = isMarkerTrackingHealthyForLine(scroller, lastLineIndex);
       const movementAuthorityLiveForwardGuardHeld =
         asrMode &&
         isSessionLivePhase() &&
@@ -10627,6 +10715,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `reason=${reason}`,
         ]);
       };
+      if (
+        liveStrictFollow &&
+        movementAuthorityRecoveryLike &&
+        movementAuthorityDecision.target > lastLineIndex &&
+        movementAuthorityStarvationMs >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
+        movementAuthorityNoCommitMs >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
+        (
+          movementAuthorityRecoverySourceText.includes('starvation_future_speech_reconcile') ||
+          movementAuthorityRecoverySourceText.includes('soft_runtime_rebase')
+        ) &&
+        movementAuthorityMarkerState.healthy
+      ) {
+        warnGuard('asr_recovery_skip_tracking_healthy', [
+          `current=${lastLineIndex}`,
+          `markerIdx=${movementAuthorityMarkerState.markerIdx}`,
+          `starvationMs=${movementAuthorityStarvationMs}`,
+          `noCommitMs=${movementAuthorityNoCommitMs}`,
+          `sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || 'unknown'}`,
+        ]);
+        return;
+      }
       if (
         !speechStopBrakeArmed &&
         movementAuthorityStarvationMs >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
@@ -10849,6 +10958,32 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           movementAuthorityReason = 'speech_stopped_brake';
           movementAuthoritySourceBranch = 'movement_authority_speech_brake';
           targetLine = lastLineIndex;
+          bypassDownstreamVeto = false;
+        }
+      }
+      if (liveStrictFollow && targetLine > lastLineIndex) {
+        const adjacentAuthorityTarget = resolveForwardSpeakableTarget(
+          lastLineIndex,
+          targetLine,
+          1,
+        );
+        if (adjacentAuthorityTarget > lastLineIndex && targetLine !== adjacentAuthorityTarget) {
+          warnGuard('asr_adjacent_commit_enforced', [
+            `current=${lastLineIndex}`,
+            `requested=${targetLine}`,
+            `reducedTarget=${adjacentAuthorityTarget}`,
+            `sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || 'unknown'}`,
+            movementAuthorityProofSource ? `proofSource=${movementAuthorityProofSource}` : '',
+          ]);
+          if (movementAuthorityRecoveryLike) {
+            warnGuard('asr_recovery_skip_non_adjacent_target', [
+              `current=${lastLineIndex}`,
+              `requested=${targetLine}`,
+              `adjacentTarget=${adjacentAuthorityTarget}`,
+              `sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || 'unknown'}`,
+            ]);
+          }
+          targetLine = adjacentAuthorityTarget;
           bypassDownstreamVeto = false;
         }
       }
@@ -12825,6 +12960,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         warnGuard('movement_authority_commit', [
           `current=${prevLineIndex}`,
           `target=${targetLine}`,
+          `commitTargetLine=${targetLine}`,
           `authority=${movementAuthority}`,
           `reason=${movementAuthorityReason}`,
           movementAuthorityProofSource
@@ -13355,6 +13491,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       : (lastLineIndex >= 0 ? Math.max(0, Math.floor(lastLineIndex)) : -1);
     const noCommitMsForSoftRuntimeRebase = Math.max(0, now - lastCommitTime);
     const starvationMsForSoftRuntimeRebase = Math.max(0, now - lastForwardCommitAt);
+    const markerStateForSoftRuntimeRebase = isMarkerTrackingHealthyForLine(
+      getScroller(),
+      currentForSoftRuntimeRebase,
+    );
     const lastFinalAgeMsForSoftRuntimeRebase =
       lastFinalTranscriptAt > 0
         ? Math.max(0, now - lastFinalTranscriptAt)
@@ -13413,7 +13553,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } else if (!hasRecentFinalTranscript) {
           softRuntimeRebaseForwardLexicalSkipReason = 'final_transcript_stale';
         } else {
-          const maxSpeakableSteps = 6;
+          const maxSpeakableSteps = 1;
           let cursor = currentForSoftRuntimeRebase;
           let furthestTarget = -1;
           let speakableSteps = 0;
@@ -13470,12 +13610,29 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       const rebaseForwardEvidenceIdx =
         softRuntimeRebaseForwardLexicalFallback?.target ?? bestIdxForSoftRuntimeRebase;
+      const rebaseAdjacentTarget = resolveForwardSpeakableTarget(
+        currentForSoftRuntimeRebase,
+        rebaseForwardEvidenceIdx,
+        1,
+      );
+      const rebaseForwardCappedIdx =
+        rebaseAdjacentTarget > currentForSoftRuntimeRebase
+          ? rebaseAdjacentTarget
+          : rebaseForwardEvidenceIdx;
+      if (rebaseForwardEvidenceIdx > rebaseForwardCappedIdx) {
+        warnGuard('asr_recovery_skip_non_adjacent_target', [
+          `current=${currentForSoftRuntimeRebase}`,
+          `requested=${rebaseForwardEvidenceIdx}`,
+          `adjacentTarget=${rebaseForwardCappedIdx}`,
+          'sourceBranch=soft_runtime_rebase',
+        ]);
+      }
       const rebaseForwardEvidenceSim = Math.max(
         bestSimForSoftRuntimeRebase,
         softRuntimeRebaseForwardLexicalFallback?.sim ?? 0,
       );
       const hasForwardEvidence =
-        rebaseForwardEvidenceIdx > currentForSoftRuntimeRebase &&
+        rebaseForwardCappedIdx > currentForSoftRuntimeRebase &&
         rebaseForwardEvidenceSim >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM;
       if (shouldTrySoftRuntimeRebaseForwardLexicalFallback) {
         if (softRuntimeRebaseForwardLexicalFallback) {
@@ -13502,6 +13659,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const retryText = String(lastFinalTranscriptRaw || compacted || '').trim();
       if (!asrRuntimeSpeechRunningActual) {
         maybeLogSoftRuntimeRebaseSkip('speech_not_running');
+      } else if (markerStateForSoftRuntimeRebase.healthy) {
+        warnGuard('asr_recovery_skip_tracking_healthy', [
+          `current=${currentForSoftRuntimeRebase}`,
+          `markerIdx=${markerStateForSoftRuntimeRebase.markerIdx}`,
+          `starvationMs=${starvationMsForSoftRuntimeRebase}`,
+          `noCommitMs=${noCommitMsForSoftRuntimeRebase}`,
+          'sourceBranch=soft_runtime_rebase',
+        ]);
+        maybeLogSoftRuntimeRebaseSkip('tracking_healthy', [
+          `markerIdx=${markerStateForSoftRuntimeRebase.markerIdx}`,
+        ]);
       } else if (isRunIdentityStale({
         runKey: transcriptRunKey || undefined,
         runGeneration: transcriptRunGeneration,
@@ -13527,9 +13695,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         maybeLogSoftRuntimeRebaseSkip('no_retry_final_transcript');
       } else {
         const retryForwardEvidenceIdx = Math.max(
-          bestIdxForSoftRuntimeRebase,
+          rebaseForwardCappedIdx,
           softRuntimeRebaseForwardLexicalFallback?.target ?? -1,
         );
+        const retryAdjacentTarget = resolveForwardSpeakableTarget(
+          currentForSoftRuntimeRebase,
+          retryForwardEvidenceIdx,
+          1,
+        );
+        const retryForwardCappedIdx =
+          retryAdjacentTarget > currentForSoftRuntimeRebase
+            ? retryAdjacentTarget
+            : retryForwardEvidenceIdx;
+        if (retryForwardEvidenceIdx > retryForwardCappedIdx) {
+          warnGuard('asr_recovery_skip_non_adjacent_target', [
+            `current=${currentForSoftRuntimeRebase}`,
+            `requested=${retryForwardEvidenceIdx}`,
+            `adjacentTarget=${retryForwardCappedIdx}`,
+            'sourceBranch=soft_runtime_rebase_retry',
+          ]);
+        }
         const retryForwardEvidenceSim = Math.max(
           bestSimForSoftRuntimeRebase,
           softRuntimeRebaseForwardLexicalFallback?.sim ?? 0,
@@ -13551,7 +13736,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
         const retryIncomingMatch = {
           ...(incomingMatch as any),
-          bestIdx: retryForwardEvidenceIdx,
+          bestIdx: retryForwardCappedIdx,
           bestSim: retryForwardEvidenceSim,
           topScores: retryTopScores,
         } as MatchResult;
@@ -13606,7 +13791,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         });
         if (hasForwardEvidence) {
           lastRescueMatchEvidenceAt = now;
-          lastRescueMatchEvidenceLine = rebaseForwardEvidenceIdx;
+          lastRescueMatchEvidenceLine = rebaseForwardCappedIdx;
           lastRescueMatchEvidenceSim = rebaseForwardEvidenceSim;
           clearedState.push('rescue_match_evidence_refreshed');
         }
@@ -13614,7 +13799,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         softRuntimeRebaseCooldownUntil = now + DEFAULT_ASR_SOFT_RUNTIME_REBASE_COOLDOWN_MS;
         warnGuard('asr_soft_runtime_rebase', [
           `current=${currentForSoftRuntimeRebase}`,
-          `bestIdx=${rebaseForwardEvidenceIdx}`,
+          `bestIdx=${rebaseForwardCappedIdx}`,
           `bestSim=${formatLogScore(rebaseForwardEvidenceSim)}`,
           `starvationMs=${starvationMsForSoftRuntimeRebase}`,
           `noCommitMs=${noCommitMsForSoftRuntimeRebase}`,
@@ -13629,7 +13814,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const retryMatchId = `${matchId}:soft_runtime_rebase_retry`;
         warnGuard('asr_soft_runtime_rebase_retry', [
           `current=${currentForSoftRuntimeRebase}`,
-          `bestIdx=${rebaseForwardEvidenceIdx}`,
+          `bestIdx=${rebaseForwardCappedIdx}`,
           `bestSim=${formatLogScore(rebaseForwardEvidenceSim)}`,
           `starvationMs=${starvationMsForSoftRuntimeRebase}`,
           `noCommitMs=${noCommitMsForSoftRuntimeRebase}`,
@@ -13670,7 +13855,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           : '';
         warnGuard('asr_soft_runtime_rebase_retry', [
           `current=${currentForSoftRuntimeRebase}`,
-          `bestIdx=${rebaseForwardEvidenceIdx}`,
+          `bestIdx=${rebaseForwardCappedIdx}`,
           `bestSim=${formatLogScore(rebaseForwardEvidenceSim)}`,
           `starvationMs=${starvationMsForSoftRuntimeRebase}`,
           `noCommitMs=${noCommitMsForSoftRuntimeRebase}`,

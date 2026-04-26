@@ -407,6 +407,101 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('limits cumulative future final evidence to one speakable commit step at a time', async () => {
+    const driver = createAsrScrollDriver();
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'adjacent-invariant-prime',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.91,
+        topScores: [{ idx: 1, score: 0.91 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(200);
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    await jest.advanceTimersByTimeAsync(3500);
+
+    driver.ingest('The seats remember every early shift. Neon ads hum above the aisle.', true, {
+      currentIdx: 1,
+      matchId: 'adjacent-invariant-far',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.92,
+        topScores: [
+          { idx: 2, score: 0.86 },
+          { idx: 3, score: 0.92 },
+        ],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(200);
+    expect(driver.getLastLineIndex()).toBe(2);
+
+    driver.ingest('Neon ads hum above the aisle.', true, {
+      currentIdx: 2,
+      matchId: 'adjacent-invariant-next-step',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.93,
+        topScores: [{ idx: 3, score: 0.93 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(200);
+    expect(driver.getLastLineIndex()).toBe(3);
+
+    driver.dispose();
+  });
+
+  test('does not self-trigger additional recovery movement while marker tracking remains healthy', async () => {
+    const driver = createAsrScrollDriver();
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'recovery-healthy-prime',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.9,
+        topScores: [{ idx: 1, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(200);
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    await jest.advanceTimersByTimeAsync(3500);
+
+    driver.ingest('The seats remember every early shift. Neon ads hum above the aisle.', true, {
+      currentIdx: 1,
+      matchId: 'recovery-healthy-far',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.9,
+        topScores: [
+          { idx: 2, score: 0.84 },
+          { idx: 3, score: 0.9 },
+        ],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(200);
+    expect(driver.getLastLineIndex()).toBe(2);
+
+    await jest.advanceTimersByTimeAsync(4000);
+    expect(driver.getLastLineIndex()).toBe(2);
+
+    driver.dispose();
+  });
+
   test('freezes ASR movement immediately while window focus is lost', async () => {
     const driver = createAsrScrollDriver();
     const scroller = document.getElementById('viewer') as HTMLElement;
