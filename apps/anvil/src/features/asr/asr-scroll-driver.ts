@@ -547,6 +547,7 @@ const LIVE_STRICT_BEHIND_RECOVERY_MAX_LINES = 2;
 const LIVE_STRICT_BEHIND_RECOVERY_ADJACENT_SLACK = 0.04;
 const ASR_READER_LEASH_MAX_READABLE_AHEAD = 1;
 const LIVE_STRICT_MAX_CUE_BRIDGE_SPAN = DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES;
+const DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS = 1;
 const LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS = 2;
 const LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT = 3;
 const LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS = 2;
@@ -6008,6 +6009,59 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return Math.min(physicalCapped, safeCurrent + stepsCap);
   };
 
+  const isLineVisiblyRenderedForLiveBridge = (lineIndex: number): boolean => {
+    const safeIndex = Math.max(0, Math.floor(Number(lineIndex) || 0));
+    const lineEl = getLineElementByIndex(getScroller(), safeIndex);
+    if (!lineEl) return true;
+    let hidden = false;
+    try {
+      const style = typeof window !== 'undefined' && typeof window.getComputedStyle === 'function'
+        ? window.getComputedStyle(lineEl)
+        : null;
+      hidden = style != null && (style.display === 'none' || style.visibility === 'hidden');
+    } catch {
+      hidden = false;
+    }
+    if (hidden) return false;
+    const offsetHeight = Number((lineEl as any).offsetHeight);
+    const clientHeight = Number((lineEl as any).clientHeight);
+    let rectHeight = 0;
+    try {
+      rectHeight = Number(lineEl.getBoundingClientRect?.().height || 0);
+    } catch {
+      rectHeight = 0;
+    }
+    const renderedHeight = Math.max(
+      Number.isFinite(offsetHeight) ? offsetHeight : 0,
+      Number.isFinite(clientHeight) ? clientHeight : 0,
+      Number.isFinite(rectHeight) ? rectHeight : 0,
+    );
+    return renderedHeight > 1;
+  };
+
+  const resolveLiveVisibleForwardTarget = (
+    currentLine: number,
+    requestedTarget: number,
+    maxRenderedSteps = DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS,
+  ): number => {
+    const safeCurrent = Math.max(0, Math.floor(Number(currentLine) || 0));
+    const safeRequested = Math.max(safeCurrent, Math.floor(Number(requestedTarget) || safeCurrent));
+    const totalLines = getTotalLines();
+    const hardMax = totalLines > 0 ? Math.max(0, totalLines - 1) : safeRequested;
+    const cappedRequested = Math.min(safeRequested, hardMax);
+    const visibleStepCap = Math.max(1, Math.floor(Number(maxRenderedSteps) || 1));
+    let cursor = safeCurrent;
+    let renderedSteps = 0;
+    for (let idx = safeCurrent + 1; idx <= cappedRequested; idx += 1) {
+      if (isLineVisiblyRenderedForLiveBridge(idx)) {
+        renderedSteps += 1;
+        if (renderedSteps > visibleStepCap) break;
+      }
+      cursor = idx;
+    }
+    return Math.max(safeCurrent, cursor);
+  };
+
   const resolveAsrMovementAuthority = (ctx: AsrMovementAuthorityContext): AsrMovementAuthorityDecision => {
     const safeCurrent = Math.max(0, Math.floor(Number(ctx.current) || 0));
     const safeTarget = Math.max(safeCurrent, Math.floor(Number(ctx.target) || safeCurrent));
@@ -6202,6 +6256,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const targetIsStrictNextFromCurrent =
       strictNextSpeakableAfterCurrent != null &&
       safeTarget === strictNextSpeakableAfterCurrent;
+    if (targetHasFreshProof && targetIsStrictNextFromCurrent) {
+      if (proofBase < safeCurrent) {
+        lastFreshProofLine = Math.max(lastFreshProofLine, safeCurrent);
+        warnGuard('asr_reader_leash_adjacent_proof_allow', [
+          `current=${safeCurrent}`,
+          `target=${safeTarget}`,
+          `freshProof=${proofBase}`,
+          `refreshedFreshProof=${lastFreshProofLine}`,
+          `leashLimit=${leashLimit}`,
+          source ? `source=${source}` : '',
+        ]);
+      }
+      return true;
+    }
     if (leashLimit !== physicalLimit) {
       warnGuard('asr_reader_leash_speakable_limit', [
         `current=${safeCurrent}`,
@@ -12169,6 +12237,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveStrictFollow &&
         strictBacklogDrainAppliedSteps > 0 &&
         targetLine > adjacentLine;
+      if (liveStrictFollow && multiJumpDelta > 1) {
+        const visibleStepTarget = resolveLiveVisibleForwardTarget(
+          lastLineIndex,
+          targetLine,
+          DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS,
+        );
+        if (visibleStepTarget > lastLineIndex && visibleStepTarget < targetLine) {
+          warnGuard('asr_live_visible_bridge_step_cap', [
+            `current=${lastLineIndex}`,
+            `requested=${targetLine}`,
+            `reducedTarget=${visibleStepTarget}`,
+            `deltaRaw=${multiJumpDelta}`,
+            `maxRenderedSteps=${DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS}`,
+            `sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'commit-path'}`,
+            pendingProofSource ? `proofSource=${pendingProofSource}` : '',
+            snippet ? `clue="${snippet}"` : '',
+          ]);
+          targetLine = visibleStepTarget;
+          multiJumpDelta = targetLine - lastLineIndex;
+        }
+      }
       if (multiJumpDelta > 1 && liveStrictFollow) {
         if (!strictLogicalSpeakableBridgeStep && !strictBacklogDrainStep && !isProofOwnedPrimaryForceReason(forceReason)) {
           warnGuard('live_strict_multi_step_blocked', [
