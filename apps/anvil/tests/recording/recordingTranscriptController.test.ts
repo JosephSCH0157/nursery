@@ -116,4 +116,145 @@ describe('RecordingTranscriptController', () => {
     expect(finalResult.degradedReason).toBe('no-transcript-captured');
     expect(finalResult.finalArtifact).toBeNull();
   });
+
+  test('does not append growing interim hypotheses to canonical transcript and clears pending after finalize', async () => {
+    const controller = new RecordingTranscriptController({
+      ensureCaptureTarget: async () => ({
+        ok: true as const,
+        workspaceId: 'workspace-1',
+        workpieceId: 'workpiece-1',
+        createdCradle: false,
+        plannerRecordingSessionId: 'planner-1',
+        captureSessionId: 'capture-3',
+      }),
+      commitJsonArtifact: async () => ({
+        ok: true as const,
+        status: 200,
+        workpieceId: 'workpiece-1',
+        path: 'ok',
+      }),
+      startSpeech: async () => true,
+      stopSpeech: jest.fn(),
+      localStorage: { setItem: jest.fn() },
+    });
+
+    const states: Array<any> = [];
+    const onState = (event: Event) => {
+      states.push((event as CustomEvent).detail);
+    };
+    window.addEventListener('tp:recording:transcript-state', onState as EventListener);
+
+    const strategy = selectBestRecordingStrategy({
+      mode: 'audio',
+      mediaRecorderCtor: { isTypeSupported: () => true },
+    });
+
+    await controller.startSession({
+      captureSessionId: 'capture-3',
+      recordingStartedAtMs: Date.now() - 2_000,
+      strategy,
+    });
+
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', {
+      detail: {
+        text: 'Driving through northern...',
+        final: false,
+        isFinal: false,
+      },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', {
+      detail: {
+        text: 'Driving through northern Orlando...',
+        final: false,
+        isFinal: false,
+      },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', {
+      detail: {
+        text: 'Driving through northern Orlando on Orange Blossom Trail...',
+        final: false,
+        isFinal: false,
+      },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', {
+      detail: {
+        text: 'Driving through northern Orlando on Orange Blossom Trail used to smell amazing.',
+        final: true,
+        isFinal: true,
+      },
+    }));
+
+    const finalResult = await controller.stopSession({
+      mediaDurationMs: 5_000,
+      mediaPath: 'recordings/example.webm',
+      contentType: 'audio/webm',
+    });
+
+    window.removeEventListener('tp:recording:transcript-state', onState as EventListener);
+
+    expect(finalResult.finalArtifact?.segments).toHaveLength(1);
+    expect(finalResult.finalArtifact?.segments[0]?.text).toBe(
+      'Driving through northern Orlando on Orange Blossom Trail used to smell amazing.',
+    );
+    expect(
+      states.some((state) => state && state.status === 'ready' && state.partialText == null),
+    ).toBe(true);
+  });
+
+  test('finalizes pending interim exactly once on stop and does not append again on repeated stop', async () => {
+    const controller = new RecordingTranscriptController({
+      ensureCaptureTarget: async () => ({
+        ok: true as const,
+        workspaceId: 'workspace-1',
+        workpieceId: 'workpiece-1',
+        createdCradle: false,
+        plannerRecordingSessionId: 'planner-1',
+        captureSessionId: 'capture-4',
+      }),
+      commitJsonArtifact: async () => ({
+        ok: true as const,
+        status: 200,
+        workpieceId: 'workpiece-1',
+        path: 'ok',
+      }),
+      startSpeech: async () => true,
+      stopSpeech: jest.fn(),
+      localStorage: { setItem: jest.fn() },
+    });
+
+    const strategy = selectBestRecordingStrategy({
+      mode: 'audio',
+      mediaRecorderCtor: { isTypeSupported: () => true },
+    });
+
+    await controller.startSession({
+      captureSessionId: 'capture-4',
+      recordingStartedAtMs: Date.now() - 1_000,
+      strategy,
+    });
+
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', {
+      detail: {
+        text: 'pending interim phrase',
+        final: false,
+        isFinal: false,
+      },
+    }));
+
+    const firstStop = await controller.stopSession({
+      mediaDurationMs: 3_000,
+      mediaPath: 'recordings/example.webm',
+      contentType: 'audio/webm',
+    });
+    const secondStop = await controller.stopSession({
+      mediaDurationMs: 3_100,
+      mediaPath: 'recordings/example.webm',
+      contentType: 'audio/webm',
+    });
+
+    expect(firstStop.finalArtifact?.segments).toHaveLength(1);
+    expect(firstStop.finalArtifact?.segments[0]?.text).toBe('pending interim phrase');
+    expect(secondStop.finalArtifact?.segments).toHaveLength(1);
+    expect(secondStop.finalArtifact?.segments[0]?.text).toBe('pending interim phrase');
+  });
 });
