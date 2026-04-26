@@ -608,6 +608,9 @@ const DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK = 2;
 const DEFAULT_LIVE_SPEECH_FORWARD_PUSH_STALL_MS = 350;
 const DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SIM = 0.34;
 const DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SCORE_GAP = 0.06;
+const DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_RATIO = 0.26;
+const DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_HITS = 2;
+const DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_NOVEL_TOKENS = 1;
 const LOST_FORWARD_WINDOW_STEPS = [10, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, 60] as const;
 const LOST_FORWARD_STAGE_STREAKS = [
   DEFAULT_NO_PROGRESS_STREAK_TRIGGER,
@@ -6552,6 +6555,180 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     };
   };
 
+  const evaluateLiveStrictAdjacentTailProgressionProof = (
+    cursorLine: number,
+    targetLine: number,
+    now: number,
+  ): {
+    ok: boolean;
+    reason: string;
+    transcriptAgeMs: number;
+    targetTailHits: number;
+    targetContentCount: number;
+    targetTailRatio: number;
+    novelTailTokenCount: number;
+    stalePrefixIgnored: boolean;
+    tailProofUsed: boolean;
+    tailPreview: string;
+  } => {
+    const safeCursor = Math.max(0, Math.floor(Number(cursorLine) || 0));
+    const safeTarget = Math.max(0, Math.floor(Number(targetLine) || 0));
+    if (safeTarget <= safeCursor) {
+      return {
+        ok: false,
+        reason: 'target_not_forward',
+        transcriptAgeMs: Number.POSITIVE_INFINITY,
+        targetTailHits: 0,
+        targetContentCount: 0,
+        targetTailRatio: 0,
+        novelTailTokenCount: 0,
+        stalePrefixIgnored: false,
+        tailProofUsed: false,
+        tailPreview: '',
+      };
+    }
+    const transcriptNorm = String(lastFinalTranscriptNorm || '').trim();
+    const transcriptAgeMs =
+      lastFinalTranscriptAt > 0
+        ? Math.max(0, now - lastFinalTranscriptAt)
+        : Number.POSITIVE_INFINITY;
+    if (!transcriptNorm) {
+      return {
+        ok: false,
+        reason: 'no_final_transcript',
+        transcriptAgeMs,
+        targetTailHits: 0,
+        targetContentCount: 0,
+        targetTailRatio: 0,
+        novelTailTokenCount: 0,
+        stalePrefixIgnored: false,
+        tailProofUsed: false,
+        tailPreview: '',
+      };
+    }
+    if (transcriptAgeMs > DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS) {
+      return {
+        ok: false,
+        reason: 'final_transcript_stale',
+        transcriptAgeMs,
+        targetTailHits: 0,
+        targetContentCount: 0,
+        targetTailRatio: 0,
+        novelTailTokenCount: 0,
+        stalePrefixIgnored: false,
+        tailProofUsed: false,
+        tailPreview: '',
+      };
+    }
+    const targetNorm = normalizeComparableText(getLineTextAt(safeTarget));
+    const currentNorm = normalizeComparableText(getLineTextAt(safeCursor));
+    const targetTokens = targetNorm ? normTokens(targetNorm) : [];
+    if (!targetTokens.length) {
+      return {
+        ok: false,
+        reason: 'target_empty',
+        transcriptAgeMs,
+        targetTailHits: 0,
+        targetContentCount: 0,
+        targetTailRatio: 0,
+        novelTailTokenCount: 0,
+        stalePrefixIgnored: false,
+        tailProofUsed: false,
+        tailPreview: '',
+      };
+    }
+    const hasCommitTranscriptCursor =
+      lastCommitTargetLine >= 0 &&
+      (lastCommitTranscriptTextLength > 0 || lastCommitTranscriptNormSnapshot.length > 0);
+    const commitSnapshotNorm = hasCommitTranscriptCursor
+      ? String(lastCommitTranscriptNormSnapshot || '').trim()
+      : '';
+    let transcriptTailNorm = transcriptNorm;
+    if (commitSnapshotNorm) {
+      if (transcriptNorm === commitSnapshotNorm) {
+        transcriptTailNorm = '';
+      } else if (transcriptNorm.startsWith(commitSnapshotNorm)) {
+        const prefixLen = Math.max(
+          0,
+          Math.min(
+            transcriptNorm.length,
+            lastCommitTranscriptTextLength > 0
+              ? lastCommitTranscriptTextLength
+              : commitSnapshotNorm.length,
+          ),
+        );
+        transcriptTailNorm = transcriptNorm.slice(prefixLen).trim();
+      } else {
+        const commitTokens = commitSnapshotNorm.split(' ').filter(Boolean);
+        const latestTokens = transcriptNorm.split(' ').filter(Boolean);
+        let overlap = Math.min(commitTokens.length, latestTokens.length);
+        while (overlap > 0) {
+          const suffix = commitTokens.slice(commitTokens.length - overlap).join(' ');
+          const prefix = latestTokens.slice(0, overlap).join(' ');
+          if (suffix === prefix) break;
+          overlap -= 1;
+        }
+        if (overlap > 0) {
+          transcriptTailNorm = latestTokens.slice(overlap).join(' ').trim();
+        } else {
+          const directMatchPos = transcriptNorm.lastIndexOf(commitSnapshotNorm);
+          if (directMatchPos >= 0) {
+            transcriptTailNorm = transcriptNorm.slice(directMatchPos + commitSnapshotNorm.length).trim();
+          } else if (
+            lastCommitTranscriptTimestamp > 0 &&
+            lastFinalTranscriptAt > lastCommitTranscriptTimestamp
+          ) {
+            transcriptTailNorm = transcriptNorm;
+          } else {
+            transcriptTailNorm = '';
+          }
+        }
+      }
+    }
+    const targetContentSet = getContentTokenSet(targetTokens);
+    const targetContentCount = targetContentSet.size;
+    const tailTokens = normTokens(transcriptTailNorm || '');
+    const targetTailHits = countSharedContentTokenHits(targetContentSet, tailTokens);
+    const targetTailRatio = targetContentCount > 0 ? targetTailHits / targetContentCount : 0;
+    const currentTokens = currentNorm ? normTokens(currentNorm) : [];
+    const currentContentSet = getContentTokenSet(currentTokens);
+    const tailContentSet = getContentTokenSet(tailTokens);
+    let novelTailTokenCount = 0;
+    for (const token of tailContentSet) {
+      if (!currentContentSet.has(token)) novelTailTokenCount += 1;
+    }
+    const stalePrefixIgnored =
+      !!commitSnapshotNorm &&
+      transcriptTailNorm !== transcriptNorm;
+    const relaxedHitsNeed = targetContentCount <= 2
+      ? Math.min(1, targetContentCount)
+      : Math.min(DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_HITS, targetContentCount);
+    const relaxedRatioNeed = targetContentCount <= 2
+      ? 0.5
+      : DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_RATIO;
+    const overlapOk =
+      targetContentCount > 0 &&
+      targetTailHits >= relaxedHitsNeed &&
+      targetTailRatio >= relaxedRatioNeed;
+    const noveltyOk = novelTailTokenCount >= DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_NOVEL_TOKENS;
+    const ok = overlapOk && noveltyOk;
+    const tailPreview = formatLogSnippet(transcriptTailNorm, 80);
+    return {
+      ok,
+      reason: ok
+        ? 'adjacent_tail_progression_ok'
+        : (!overlapOk ? 'adjacent_tail_overlap_low' : 'adjacent_tail_no_novel_tokens'),
+      transcriptAgeMs,
+      targetTailHits,
+      targetContentCount,
+      targetTailRatio,
+      novelTailTokenCount,
+      stalePrefixIgnored,
+      tailProofUsed: ok,
+      tailPreview,
+    };
+  };
+
   const hasLiveStrictSpeakableBridgeProof = (
     cursorLine: number,
     targetLine: number,
@@ -7191,10 +7368,50 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         strictLocalProofTopScores,
         DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
       );
+    const strictAdjacentTailProgressionProof =
+      liveStrictFollow &&
+      asrRuntimeSpeechRunningActual &&
+      (
+        deltaLines === 1 ||
+        (
+          !!strictSpeakableStep &&
+          strictSpeakableStep.targetLine === targetLine &&
+          targetLine > cursorLine + 1
+        )
+      )
+        ? evaluateLiveStrictAdjacentTailProgressionProof(cursorLine, targetLine, now)
+        : null;
+    const strictAdjacentTailProgressionOk =
+      !!strictAdjacentTailProgressionProof?.ok;
+    if (strictAdjacentTailProgressionOk) {
+      warnGuard('live_strict_rescue_tail_progression_proof', [
+        `current=${cursorLine}`,
+        `target=${targetLine}`,
+        `delta=${deltaLines}`,
+        `tailProofUsed=${strictAdjacentTailProgressionProof?.tailProofUsed ? 1 : 0}`,
+        `stalePrefixIgnored=${strictAdjacentTailProgressionProof?.stalePrefixIgnored ? 1 : 0}`,
+        'backwardContradictionOverriddenByTail=1',
+        `commitTargetLine=${targetLine}`,
+        Number.isFinite(strictAdjacentTailProgressionProof?.targetTailHits)
+          ? `targetTailHits=${strictAdjacentTailProgressionProof?.targetTailHits}`
+          : '',
+        Number.isFinite(strictAdjacentTailProgressionProof?.targetContentCount)
+          ? `targetContentCount=${strictAdjacentTailProgressionProof?.targetContentCount}`
+          : '',
+        Number.isFinite(strictAdjacentTailProgressionProof?.novelTailTokenCount)
+          ? `novelTailTokens=${strictAdjacentTailProgressionProof?.novelTailTokenCount}`
+          : '',
+        strictAdjacentTailProgressionProof?.tailPreview
+          ? `tail="${strictAdjacentTailProgressionProof.tailPreview}"`
+          : '',
+        reason ? `source=${reason}` : '',
+      ]);
+    }
     const strictLocalProofOk = !liveStrictFollow || (
       strictLocalAdjacentProof ||
       strictCueExitProof ||
-      strictBridgeProof
+      strictBridgeProof ||
+      strictAdjacentTailProgressionOk
     );
     const strictLogicalAdjacentRescue =
       liveStrictFollow &&
@@ -7216,9 +7433,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (strictProofOwnedPrimaryEligible) {
       const proofSource = strictBridgeProof
         ? 'strict_speakable_bridge_landing'
+        : (strictAdjacentTailProgressionOk
+          ? 'strict_adjacent_tail_progression'
         : (strictCueExitProof
           ? 'live_strict_cue_exit_proof'
-          : 'live_strict_local_proof_ok');
+          : 'live_strict_local_proof_ok'));
       const oldWouldHaveUsedStallOverride =
         reasonTag === 'auto-stall' &&
         strictStarvationActive &&
@@ -9069,14 +9288,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           now,
         )
         : null;
+      const liveSpeechForwardPushAdjacentTailProgression =
+        liveStrictFollow &&
+        liveSpeechForwardPushTarget === adjacentLine &&
+        liveSpeechForwardPushTarget > lastLineIndex &&
+        asrRuntimeSpeechRunningActual
+          ? evaluateLiveStrictAdjacentTailProgressionProof(
+            lastLineIndex,
+            liveSpeechForwardPushTarget,
+            now,
+          )
+          : null;
       const liveSpeechForwardPushTailProofUsed =
         !!liveSpeechForwardPushTailLexical?.ok &&
         (
           liveSpeechForwardPushTailLexical.tailChars > 0 ||
           liveSpeechForwardPushTailLexical.stalePrefixIgnored
-        );
+        ) ||
+        !!liveSpeechForwardPushAdjacentTailProgression?.ok;
       const liveSpeechForwardPushStalePrefixIgnored =
-        !!liveSpeechForwardPushTailLexical?.stalePrefixIgnored;
+        !!liveSpeechForwardPushTailLexical?.stalePrefixIgnored ||
+        !!liveSpeechForwardPushAdjacentTailProgression?.stalePrefixIgnored;
       const liveSpeechForwardPushSkippedIgnorableLines =
         liveStrictFollow && strictSpeakableStep
           ? strictSpeakableStep.skippedReasons
@@ -9094,13 +9326,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveSpeechForwardPushLocalProof ||
         liveSpeechForwardPushBridgeLandingProof ||
         liveSpeechForwardPushTailProofUsed;
-      const liveSpeechForwardPushProofSource = liveSpeechForwardPushLocalProof
-        ? 'live_strict_local_proof_ok'
-        : (liveSpeechForwardPushBridgeLandingProof
-          ? 'strict_speakable_bridge_landing'
-          : (liveSpeechForwardPushTailProofUsed
-            ? 'strict_adjacent_tail_lexical'
-            : (liveSpeechForwardPushAdjacentRescueProof ? 'adjacent_rescue_proofed' : 'none')));
+      let liveSpeechForwardPushProofSource = 'none';
+      if (liveSpeechForwardPushLocalProof) {
+        liveSpeechForwardPushProofSource = 'live_strict_local_proof_ok';
+      } else if (liveSpeechForwardPushBridgeLandingProof) {
+        liveSpeechForwardPushProofSource = 'strict_speakable_bridge_landing';
+      } else if (liveSpeechForwardPushAdjacentTailProgression?.ok) {
+        liveSpeechForwardPushProofSource = 'strict_adjacent_tail_progression';
+      } else if (liveSpeechForwardPushTailProofUsed) {
+        liveSpeechForwardPushProofSource = 'strict_adjacent_tail_lexical';
+      } else if (liveSpeechForwardPushAdjacentRescueProof) {
+        liveSpeechForwardPushProofSource = 'adjacent_rescue_proofed';
+      }
       const liveSpeechForwardPushBackwardContradiction =
         liveStrictFollow &&
         rankedTopScores.some((entry) =>
@@ -9110,7 +9347,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const liveSpeechForwardPushBackwardContradictionOverriddenByTail =
         liveSpeechForwardPushTarget === adjacentLine &&
         liveSpeechForwardPushBackwardContradiction &&
-        liveSpeechForwardPushTailProofUsed;
+        (
+          (
+            !!liveSpeechForwardPushAdjacentTailProgression?.ok &&
+            !!liveSpeechForwardPushAdjacentTailProgression?.stalePrefixIgnored
+          ) ||
+          (liveSpeechForwardPushTailProofUsed && liveSpeechForwardPushStalePrefixIgnored)
+        );
       const liveSpeechForwardPushContradictionBlocks =
         liveSpeechForwardPushBackwardContradiction &&
         !liveSpeechForwardPushBackwardContradictionOverriddenByTail;
@@ -9138,7 +9381,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveSpeechForwardPushStallMs >= DEFAULT_LIVE_SPEECH_FORWARD_PUSH_STALL_MS;
       const liveSpeechForwardPushForwardTextPresent =
         line > lastLineIndex ||
-        (bestForwardCandidate?.idx ?? -1) > lastLineIndex;
+        (bestForwardCandidate?.idx ?? -1) > lastLineIndex ||
+        !!liveSpeechForwardPushAdjacentTailProgression?.ok;
       const liveSpeechForwardPushRunStale = isRunIdentityStale({
         runKey: pendingRunKey || undefined,
         runGeneration: pendingRunGeneration,
@@ -9595,6 +9839,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `stalePrefixIgnored=${liveSpeechForwardPushStalePrefixIgnored ? 1 : 0}`,
           `backwardContradictionOverriddenByTail=${liveSpeechForwardPushBackwardContradictionOverriddenByTail ? 1 : 0}`,
           `commitTargetLine=${liveSpeechForwardPushTarget}`,
+          Number.isFinite(liveSpeechForwardPushAdjacentTailProgression?.targetTailHits)
+            ? `targetTailHits=${liveSpeechForwardPushAdjacentTailProgression?.targetTailHits}`
+            : '',
+          Number.isFinite(liveSpeechForwardPushAdjacentTailProgression?.targetContentCount)
+            ? `targetTailContent=${liveSpeechForwardPushAdjacentTailProgression?.targetContentCount}`
+            : '',
+          Number.isFinite(liveSpeechForwardPushAdjacentTailProgression?.novelTailTokenCount)
+            ? `novelTailTokens=${liveSpeechForwardPushAdjacentTailProgression?.novelTailTokenCount}`
+            : '',
           `stallMs=${liveSpeechForwardPushStallMs}`,
           snippet ? `clue="${snippet}"` : '',
         ]);
@@ -9863,7 +10116,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         line <= adjacentLine &&
         asrRuntimeSpeechRunningActual &&
         !liveSpeechForwardPushRunStale &&
-        !liveSpeechForwardPushBackwardContradiction;
+        !liveSpeechForwardPushContradictionBlocks;
       const strictLocalProofForAdjacent =
         liveStrictFollow &&
         adjacentLine > lastLineIndex &&
@@ -9890,6 +10143,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         rankedTopScores.some((entry) =>
           entry.idx <= lastLineIndex &&
           entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06),
+        ) &&
+        !(
+          !!liveSpeechForwardPushAdjacentTailProgression?.ok &&
+          !!liveSpeechForwardPushAdjacentTailProgression?.stalePrefixIgnored
         );
       const behindRecoveryWindowActive =
         liveStrictFollow &&
@@ -14585,11 +14842,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (!step || step.targetLine <= cursorLine) return null;
       const target = Math.max(0, Math.floor(step.targetLine));
       const skippedIgnorableLines = Array.isArray(step.skippedReasons) ? step.skippedReasons : [];
+      const adjacentTailProgression = evaluateLiveStrictAdjacentTailProgressionProof(
+        cursorLine,
+        target,
+        now,
+      );
       const backwardContradiction = topScoresSpeakable.some((entry) =>
         Number(entry.idx) <= cursorLine &&
         Number(entry.score) >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06),
       );
-      if (backwardContradiction) return null;
+      const backwardContradictionOverriddenByTail =
+        backwardContradiction &&
+        adjacentTailProgression.ok &&
+        adjacentTailProgression.stalePrefixIgnored;
+      if (backwardContradiction && !backwardContradictionOverriddenByTail) return null;
       const landingLexical = evaluateLiveStrictBridgeLandingLexicalProof(target, now);
       const localProof =
         hasLiveStrictLocalProof(cursorLine, target, now, topScoresSpeakable, requiredThreshold) ||
@@ -14597,22 +14863,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const bridgeTailLexicalProof =
         landingLexical.ok &&
         (landingLexical.stalePrefixIgnored || landingLexical.tailChars > 0);
+      const adjacentTailProgressionProof = adjacentTailProgression.ok;
       const repeatedForwardClusterProof =
         liveStrictForwardClusterCursor === cursorLine &&
         liveStrictForwardClusterLine === target &&
         liveStrictForwardClusterHits >= LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS &&
         liveStrictForwardClusterUpdatedAt > 0 &&
         now - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS;
-      if (!localProof && !bridgeTailLexicalProof && !repeatedForwardClusterProof) return null;
+      if (!localProof && !bridgeTailLexicalProof && !adjacentTailProgressionProof && !repeatedForwardClusterProof) return null;
       const proofSource = localProof
         ? 'live_strict_local_proof_ok'
-        : (bridgeTailLexicalProof ? 'strict_bridge_landing_lexical_tail' : 'forward_cluster_repeat');
+        : (bridgeTailLexicalProof
+          ? 'strict_bridge_landing_lexical_tail'
+          : (adjacentTailProgressionProof ? 'strict_adjacent_tail_progression' : 'forward_cluster_repeat'));
       return {
         target,
         proofSource,
         sourceBranch,
-        postCommitTailPreview: landingLexical.tailPreview || '',
-        stalePrefixIgnored: !!landingLexical.stalePrefixIgnored,
+        postCommitTailPreview: adjacentTailProgression.tailPreview || landingLexical.tailPreview || '',
+        stalePrefixIgnored: !!adjacentTailProgression.stalePrefixIgnored || !!landingLexical.stalePrefixIgnored,
         skippedIgnorableLines,
         repeatedForwardHits: liveStrictForwardClusterHits,
         stallMs: Math.max(0, now - lastForwardCommitAt),
