@@ -6036,6 +6036,33 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     };
   };
 
+  const resolveReaderVisualBand = (
+    scroller: HTMLElement | null,
+    lineIndex: number,
+  ): 'top' | 'middle' | 'bottom' | 'unknown' => {
+    if (!scroller) return 'unknown';
+    const lineEl = getLineElementByIndex(scroller, Math.max(0, Math.floor(Number(lineIndex) || 0)));
+    if (!lineEl) return 'unknown';
+    let scrollerRect: DOMRect | null = null;
+    let lineRect: DOMRect | null = null;
+    try {
+      scrollerRect = scroller.getBoundingClientRect();
+      lineRect = lineEl.getBoundingClientRect();
+    } catch {
+      scrollerRect = null;
+      lineRect = null;
+    }
+    if (!scrollerRect || !lineRect || !Number.isFinite(scrollerRect.height) || scrollerRect.height <= 0) {
+      return 'unknown';
+    }
+    const centerY = lineRect.top + lineRect.height * 0.5;
+    const ratio = (centerY - scrollerRect.top) / scrollerRect.height;
+    if (!Number.isFinite(ratio)) return 'unknown';
+    if (ratio <= 0.34) return 'top';
+    if (ratio <= 0.68) return 'middle';
+    return 'bottom';
+  };
+
   const resolveForwardSpeakableTarget = (
     currentLine: number,
     requestedTarget: number,
@@ -6313,6 +6340,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const targetIsStrictNextFromCurrent =
       strictNextSpeakableAfterCurrent != null &&
       safeTarget === strictNextSpeakableAfterCurrent;
+    const pendingBridgeCompletionSource =
+      normalizedForceReason === 'pending_speakable_bridge_complete' ||
+      normalizedSourceBranch.includes('pending_speakable_bridge');
+    if (
+      pendingBridgeCompletionSource &&
+      targetIsStrictNextFromCurrent &&
+      speechRunning === true
+    ) {
+      if (proofBase < safeCurrent) {
+        lastFreshProofLine = Math.max(lastFreshProofLine, safeCurrent);
+      }
+      warnGuard('asr_reader_leash_pending_bridge_allow', [
+        `current=${safeCurrent}`,
+        `target=${safeTarget}`,
+        `freshProof=${proofBase}`,
+        `refreshedFreshProof=${lastFreshProofLine}`,
+        `leashLimit=${leashLimit}`,
+        `sourceBranch=${sourceBranch || 'unknown'}`,
+      ]);
+      return true;
+    }
     if (targetHasFreshProof && targetIsStrictNextFromCurrent) {
       if (proofBase < safeCurrent) {
         lastFreshProofLine = Math.max(lastFreshProofLine, safeCurrent);
@@ -9183,6 +9231,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ? `pending-commit:${forceReason}`
         : 'pending-commit';
       if (!canApplyAsrMovement(pendingCommitSource, now, { final: isFinal, clue: snippet })) {
+        clearPendingSpeakableBridge('movement_not_allowed');
         return;
       }
       const thresholds = getAsrDriverThresholds();
@@ -10469,6 +10518,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           markerLagTailEvidence
         );
       if (markerLagPressureBypass) {
+        const markerLagReaderVisualBand = resolveReaderVisualBand(scroller, lastLineIndex);
+        const markerLagPendingBridgeAgeMs = pendingSpeakableBridgeState
+          ? Math.max(0, now - pendingSpeakableBridgeState.createdAtMs)
+          : -1;
         warnGuard('asr_marker_lag_pressure_adjacent_allow', [
           `current=${lastLineIndex}`,
           `adjacent=${adjacentLine}`,
@@ -10477,6 +10530,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `markerIdx=${markerLagState.markerIdx}`,
           `markerLagLines=${markerLagLines}`,
           `noCommitMs=${Math.max(0, now - lastForwardCommitAt)}`,
+          `readerVisualBand=${markerLagReaderVisualBand}`,
+          pendingSpeakableBridgeState
+            ? `semanticTarget=${pendingSpeakableBridgeState.semanticTarget}`
+            : '',
+          pendingSpeakableBridgeState
+            ? `visualReducedTarget=${pendingSpeakableBridgeState.visualReducedTarget}`
+            : '',
+          pendingSpeakableBridgeState
+            ? `pendingBridgeAgeMs=${markerLagPendingBridgeAgeMs}`
+            : '',
           `adjacentSim=${Number.isFinite(adjacentCandidateSim) ? formatLogScore(adjacentCandidateSim) : 'na'}`,
           `adjacentNeed=${formatLogScore(markerLagAdjacentNeed)}`,
           `tailEvidence=${markerLagTailEvidence ? 1 : 0}`,
@@ -10518,6 +10581,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           rankedTopScores,
           baselineRequired,
         );
+      const pendingBridgeBypassCandidate =
+        !!pendingSpeakableBridgeState &&
+        pendingSpeakableBridgeState.semanticFrom === lastLineIndex &&
+        pendingSpeakableBridgeState.semanticTarget > lastLineIndex &&
+        asrRuntimeSpeechRunningActual &&
+        runtimeSpeechFresh &&
+        !isRunIdentityStale({
+          runKey: pendingSpeakableBridgeState.runKey,
+          runGeneration: pendingSpeakableBridgeState.runGeneration,
+        });
+      if (pendingBridgeBypassCandidate && !proofOwnedForceBypass) {
+        proofOwnedForceBypass = true;
+        forceReason = 'pending_speakable_bridge_complete';
+      }
       if (liveStrictFollow && line > lastLineIndex && strictBypassRequested) {
         const strictPathStates: Array<{ path: string; kind: 'speech_backed' | 'autonomous_candidate' }> = [];
         if (watchdogBypass) strictPathStates.push({ path: 'watchdog', kind: 'autonomous_candidate' });
@@ -10531,6 +10608,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (stallRescueBypass) strictPathStates.push({ path: 'stall-rescue', kind: strictSpeechFreshNow ? 'speech_backed' : 'autonomous_candidate' });
         if (liveSpeechForwardPushBypass) strictPathStates.push({ path: 'live-speech-forward-push', kind: 'speech_backed' });
         if (proofOwnedForceBypass) strictPathStates.push({ path: 'live-strict-proof-owned', kind: 'speech_backed' });
+        if (pendingBridgeBypassCandidate) strictPathStates.push({ path: 'pending-speakable-bridge', kind: 'speech_backed' });
         if (markerLagPressureBypass) strictPathStates.push({ path: 'marker-lag-pressure', kind: 'speech_backed' });
         logThrottled('ASR_STRICT_PATH_CLASS', 'debug', 'ASR_STRICT_PATH_CLASS', {
           current: lastLineIndex,
@@ -10614,6 +10692,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         consistentCatchupBypass ||
         liveSpeechForwardPushBypass ||
         proofOwnedForceBypass ||
+        pendingBridgeBypassCandidate ||
         markerLagPressureBypass ||
         completionAdjacentBypass ||
         stallRescueBypass ||
@@ -10778,6 +10857,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const pendingBridgeState = pendingSpeakableBridgeState;
       if (pendingBridgeState) {
         const pendingBridgeAgeMs = Math.max(0, now - pendingBridgeState.createdAtMs);
+        const pendingBridgeMarkerState = isMarkerTrackingHealthyForLine(scroller, lastLineIndex);
+        const pendingBridgeMarkerLagLines = pendingBridgeMarkerState.markerIdx >= 0
+          ? Math.max(0, lastLineIndex - pendingBridgeMarkerState.markerIdx)
+          : 0;
+        const pendingBridgeReaderVisualBand = resolveReaderVisualBand(scroller, lastLineIndex);
+        const pendingBridgeNoCommitMs = Math.max(0, now - lastCommitTime);
         const pendingBridgeRunStale = isRunIdentityStale({
           runKey: pendingBridgeState.runKey,
           runGeneration: pendingBridgeState.runGeneration,
@@ -10816,6 +10901,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `visualCurrent=${pendingBridgeState.visualCurrent}`,
             `visualReducedTarget=${pendingBridgeState.visualReducedTarget}`,
             `skippedVisibleRows=${pendingBridgeState.skippedVisibleRows}`,
+            `markerLagLines=${pendingBridgeMarkerLagLines}`,
+            `readerVisualBand=${pendingBridgeReaderVisualBand}`,
+            `pendingBridgeAgeMs=${pendingBridgeAgeMs}`,
+            `noCommitMs=${pendingBridgeNoCommitMs}`,
             `proofSource=${pendingBridgeState.proofSource || 'unknown'}`,
             `sourceBranch=${pendingBridgeState.sourceBranch || 'unknown'}`,
             `ageMs=${pendingBridgeAgeMs}`,
@@ -10929,6 +11018,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         matchId,
       );
       const movementAuthorityMarkerState = isMarkerTrackingHealthyForLine(scroller, lastLineIndex);
+      const movementAuthorityMarkerLagLines = movementAuthorityMarkerState.markerIdx >= 0
+        ? Math.max(0, lastLineIndex - movementAuthorityMarkerState.markerIdx)
+        : 0;
+      const movementAuthorityReaderVisualBand = resolveReaderVisualBand(scroller, lastLineIndex);
+      const movementAuthorityPendingBridgeAgeMs = pendingSpeakableBridgeState
+        ? Math.max(0, now - pendingSpeakableBridgeState.createdAtMs)
+        : Number.POSITIVE_INFINITY;
       const movementAuthorityLiveForwardGuardHeld =
         asrMode &&
         isSessionLivePhase() &&
@@ -10938,6 +11034,35 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           !runtimeSpeechFresh ||
           !!pending.liveForwardGuardActive
         );
+      const pendingBridgePressureCommit =
+        pendingSpeakableBridgeCompletion &&
+        !!pendingSpeakableBridgeState &&
+        asrRuntimeSpeechRunningActual &&
+        runtimeSpeechFresh &&
+        hasActiveSpeechWindow &&
+        movementAuthorityDecision.target > lastLineIndex &&
+        movementAuthorityNoCommitMs >= 1200;
+      if (pendingBridgePressureCommit) {
+        const bridgeState = pendingSpeakableBridgeState as PendingSpeakableBridgeState;
+        warnGuard('asr_pending_speakable_bridge_pressure_commit', [
+          `current=${lastLineIndex}`,
+          `target=${movementAuthorityDecision.target}`,
+          `semanticTarget=${bridgeState.semanticTarget}`,
+          `visualReducedTarget=${bridgeState.visualReducedTarget}`,
+          `markerLagLines=${movementAuthorityMarkerLagLines}`,
+          `readerVisualBand=${movementAuthorityReaderVisualBand}`,
+          `pendingBridgeAgeMs=${Math.max(0, now - bridgeState.createdAtMs)}`,
+          `noCommitMs=${movementAuthorityNoCommitMs}`,
+          `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+          `proofSource=${bridgeState.proofSource || movementAuthorityProofSource || 'unknown'}`,
+          `sourceBranch=${bridgeState.sourceBranch || pendingSourceBranch || 'unknown'}`,
+        ]);
+        movementAuthority = 'proof';
+        movementAuthorityReason = 'pending_bridge_pressure_commit';
+        movementAuthoritySourceBranch = 'movement_authority_pending_bridge_pressure';
+        bypassDownstreamVeto = true;
+        targetLine = movementAuthorityDecision.target;
+      }
       const emitMovementAuthorityVetoBypassed = (
         blocker: string,
         requested: number,
@@ -10963,6 +11088,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           movementAuthorityRecoverySourceText.includes('starvation_future_speech_reconcile') ||
           movementAuthorityRecoverySourceText.includes('soft_runtime_rebase')
         ) &&
+        !pendingSpeakableBridgeCompletion &&
         requestedTargetLine > movementAuthorityNextSpeakableTarget &&
         !movementAuthorityAdjacentProofPending &&
         movementAuthorityMarkerState.healthy

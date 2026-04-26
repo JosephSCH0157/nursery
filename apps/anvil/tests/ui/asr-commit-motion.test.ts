@@ -502,7 +502,7 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
-  test('keeps semantic bridge target speakable when visible cap lands on a non-speakable row', async () => {
+  test('completes pending semantic bridge before starvation while keeping non-speakable visual cap safety', async () => {
     const scroller = document.getElementById('viewer') as HTMLElement;
     const script = document.getElementById('script') as HTMLElement;
     script.innerHTML = `
@@ -560,6 +560,9 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(250);
     expect(driver.getLastLineIndex()).toBe(4);
+
+    // Keep this below the starvation window: completion should not wait for full starvation.
+    await jest.advanceTimersByTimeAsync(900);
 
     driver.ingest('Growers moved south.', true, {
       currentIdx: 4,
@@ -682,6 +685,83 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(500);
 
     expect(driver.getLastLineIndex()).toBe(4);
+
+    driver.dispose();
+  });
+
+  test('continues pending semantic bridge when a follow-up final re-matches the stale current line', async () => {
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const script = document.getElementById('script') as HTMLElement;
+    script.innerHTML = `
+      <div class="line" data-line="0" style="line-height:24px;">Different climates.</div>
+      <div class="line" data-line="1" style="line-height:24px;">Different strengths.</div>
+      <div class="line" data-line="2" style="line-height:24px;">For decades, Florida wore the crown.</div>
+      <div class="line" data-line="3" style="line-height:24px;">Not because California was weak.</div>
+      <div class="line" data-line="4" style="line-height:24px;">But citrus did not die.</div>
+      <div class="line" data-line="5" style="line-height:24px;">[beat]</div>
+      <div class="line" data-line="6" style="line-height:24px;"></div>
+      <div class="line" data-line="7" style="line-height:24px;">Growers moved south.</div>
+      <div class="line" data-line="8" style="line-height:24px;">They replanted.</div>
+    `;
+    const metrics = Array.from({ length: 9 }, (_, idx) => ({
+      top: idx * 360,
+      height: 236,
+    }));
+    Array.from(script.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+      const metric = metrics[idx];
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: metric.top,
+          left: 0,
+          right: 800,
+          bottom: metric.top + metric.height,
+          width: 800,
+          height: metric.height,
+        }),
+      });
+    });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 5200 });
+    scroller.scrollTop = 0;
+
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    driver.setLastLineIndex(4);
+    await jest.advanceTimersByTimeAsync(3600);
+
+    driver.ingest('Growers moved south.', true, {
+      currentIdx: 4,
+      matchId: 'pending-bridge-same-line-prime',
+      match: {
+        bestIdx: 7,
+        bestSim: 0.9,
+        topScores: [{ idx: 7, score: 0.9 }],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(250);
+    expect(driver.getLastLineIndex()).toBe(4);
+
+    // Simulate cumulative/stale prefix re-matching current line.
+    driver.ingest('But citrus did not die.', true, {
+      currentIdx: 4,
+      matchId: 'pending-bridge-same-line-follow',
+      match: {
+        bestIdx: 4,
+        bestSim: 0.95,
+        topScores: [{ idx: 4, score: 0.95 }],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(250);
+
+    expect(driver.getLastLineIndex()).toBe(7);
 
     driver.dispose();
   });
