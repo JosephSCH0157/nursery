@@ -562,6 +562,7 @@ const ASR_READER_LEASH_MAX_READABLE_AHEAD = 1;
 const LIVE_STRICT_MAX_CUE_BRIDGE_SPAN = DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES;
 const DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS = 1;
 const DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS = 2200;
+const DEFAULT_ASR_PENDING_BRIDGE_PRESSURE_COMMIT_MS = 1000;
 const DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_LINES = 2;
 const DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_NO_COMMIT_MS = 850;
 const DEFAULT_ASR_MARKER_LAG_PRESSURE_ADJACENT_SIM_SLACK = 0.12;
@@ -1642,8 +1643,15 @@ function warnGuard(reason: string, parts: Array<string | number | null | undefin
   } catch {
     // ignore
   }
-  const last = guardLastAt.get(reason) ?? 0;
-  if (now - last < GUARD_THROTTLE_MS) return;
+  const rawLast = guardLastAt.get(reason);
+  const last = Number.isFinite(rawLast) ? Number(rawLast) : 0;
+  // Test harnesses can rewind clocks between cases; avoid negative elapsed
+  // time from permanently suppressing guard telemetry for that reason key.
+  if (Number.isFinite(rawLast) && now < last) {
+    guardLastAt.delete(reason);
+  } else if (now - last < GUARD_THROTTLE_MS) {
+    return;
+  }
   guardLastAt.set(reason, now);
   const level: 'warn' | 'debug' = GUARD_DEBUG_REASONS.has(reason) ? 'debug' : 'warn';
   try {
@@ -6036,31 +6044,89 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     };
   };
 
+  type LineVisualTelemetry = {
+    band: 'top' | 'middle' | 'bottom' | 'above' | 'below' | 'unknown';
+    viewportState: 'visible' | 'above' | 'below' | 'unknown';
+    distanceToBottomPx: number;
+    distanceToMarkerPx: number;
+    markerYInViewport: number;
+    lineCenterInViewport: number;
+  };
+
+  const resolveLineVisualTelemetry = (
+    scroller: HTMLElement | null,
+    lineIndex: number,
+  ): LineVisualTelemetry => {
+    const unknown: LineVisualTelemetry = {
+      band: 'unknown',
+      viewportState: 'unknown',
+      distanceToBottomPx: Number.NaN,
+      distanceToMarkerPx: Number.NaN,
+      markerYInViewport: Number.NaN,
+      lineCenterInViewport: Number.NaN,
+    };
+    if (!scroller) return unknown;
+    const lineEl = getLineElementByIndex(scroller, Math.max(0, Math.floor(Number(lineIndex) || 0)));
+    if (!lineEl) return unknown;
+    const viewportHeight = Number(scroller.clientHeight);
+    if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) return unknown;
+    const scrollTop = Number(scroller.scrollTop || 0);
+    const lineTop = Number((lineEl as any).offsetTop || 0);
+    const lineHeight = Math.max(
+      Number((lineEl as any).offsetHeight || 0),
+      Number((lineEl as any).clientHeight || 0),
+      Number(lineEl.getBoundingClientRect?.().height || 0),
+      1,
+    );
+    const lineCenterContent = lineTop + lineHeight * 0.5;
+    const lineCenterInViewport = lineCenterContent - scrollTop;
+    const ratio = lineCenterInViewport / viewportHeight;
+    const markerRatioRaw =
+      typeof (window as any).__TP_MARKER_PCT === 'number'
+        ? Number((window as any).__TP_MARKER_PCT)
+        : POST_COMMIT_ACTIVE_TARGET_RATIO;
+    const markerRatio = clamp(markerRatioRaw, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_MAX_RATIO);
+    const markerYInViewport = viewportHeight * markerRatio;
+    const distanceToMarkerPx = lineCenterInViewport - markerYInViewport;
+    const distanceToBottomPx = viewportHeight - lineCenterInViewport;
+    if (!Number.isFinite(ratio)) return unknown;
+    if (ratio < 0) {
+      return {
+        band: 'above',
+        viewportState: 'above',
+        distanceToBottomPx,
+        distanceToMarkerPx,
+        markerYInViewport,
+        lineCenterInViewport,
+      };
+    }
+    if (ratio > 1) {
+      return {
+        band: 'below',
+        viewportState: 'below',
+        distanceToBottomPx,
+        distanceToMarkerPx,
+        markerYInViewport,
+        lineCenterInViewport,
+      };
+    }
+    const band: LineVisualTelemetry['band'] =
+      ratio <= 0.34 ? 'top' : (ratio <= 0.68 ? 'middle' : 'bottom');
+    return {
+      band,
+      viewportState: 'visible',
+      distanceToBottomPx,
+      distanceToMarkerPx,
+      markerYInViewport,
+      lineCenterInViewport,
+    };
+  };
+
   const resolveReaderVisualBand = (
     scroller: HTMLElement | null,
     lineIndex: number,
-  ): 'top' | 'middle' | 'bottom' | 'unknown' => {
-    if (!scroller) return 'unknown';
-    const lineEl = getLineElementByIndex(scroller, Math.max(0, Math.floor(Number(lineIndex) || 0)));
-    if (!lineEl) return 'unknown';
-    let scrollerRect: DOMRect | null = null;
-    let lineRect: DOMRect | null = null;
-    try {
-      scrollerRect = scroller.getBoundingClientRect();
-      lineRect = lineEl.getBoundingClientRect();
-    } catch {
-      scrollerRect = null;
-      lineRect = null;
-    }
-    if (!scrollerRect || !lineRect || !Number.isFinite(scrollerRect.height) || scrollerRect.height <= 0) {
-      return 'unknown';
-    }
-    const centerY = lineRect.top + lineRect.height * 0.5;
-    const ratio = (centerY - scrollerRect.top) / scrollerRect.height;
-    if (!Number.isFinite(ratio)) return 'unknown';
-    if (ratio <= 0.34) return 'top';
-    if (ratio <= 0.68) return 'middle';
-    return 'bottom';
+  ): 'top' | 'middle' | 'bottom' | 'above' | 'below' | 'unknown' => {
+    return resolveLineVisualTelemetry(scroller, lineIndex).band;
   };
 
   const resolveForwardSpeakableTarget = (
@@ -10518,7 +10584,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           markerLagTailEvidence
         );
       if (markerLagPressureBypass) {
-        const markerLagReaderVisualBand = resolveReaderVisualBand(scroller, lastLineIndex);
+        const markerLagReaderVisual = resolveLineVisualTelemetry(scroller, lastLineIndex);
+        const markerLagTargetVisual = resolveLineVisualTelemetry(scroller, adjacentLine);
+        const markerLagReaderVisualBand = markerLagReaderVisual.band;
         const markerLagPendingBridgeAgeMs = pendingSpeakableBridgeState
           ? Math.max(0, now - pendingSpeakableBridgeState.createdAtMs)
           : -1;
@@ -10531,6 +10599,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `markerLagLines=${markerLagLines}`,
           `noCommitMs=${Math.max(0, now - lastForwardCommitAt)}`,
           `readerVisualBand=${markerLagReaderVisualBand}`,
+          `readerViewportState=${markerLagReaderVisual.viewportState}`,
+          Number.isFinite(markerLagReaderVisual.distanceToBottomPx)
+            ? `readerDistanceToBottomPx=${Math.round(markerLagReaderVisual.distanceToBottomPx)}`
+            : '',
+          Number.isFinite(markerLagReaderVisual.distanceToMarkerPx)
+            ? `readerDistanceToMarkerPx=${Math.round(markerLagReaderVisual.distanceToMarkerPx)}`
+            : '',
+          `adjacentTargetBand=${markerLagTargetVisual.band}`,
+          `adjacentTargetViewportState=${markerLagTargetVisual.viewportState}`,
+          Number.isFinite(markerLagTargetVisual.distanceToBottomPx)
+            ? `adjacentTargetDistanceToBottomPx=${Math.round(markerLagTargetVisual.distanceToBottomPx)}`
+            : '',
+          Number.isFinite(markerLagTargetVisual.distanceToMarkerPx)
+            ? `adjacentTargetDistanceToMarkerPx=${Math.round(markerLagTargetVisual.distanceToMarkerPx)}`
+            : '',
           pendingSpeakableBridgeState
             ? `semanticTarget=${pendingSpeakableBridgeState.semanticTarget}`
             : '',
@@ -10822,7 +10905,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (
         starvationFutureSpeechReconcileTargetLine != null &&
         starvationFutureSpeechReconcileTargetLine > lastLineIndex &&
-        starvationFutureSpeechReconcileTargetLine > targetLine
+        starvationFutureSpeechReconcileTargetLine > targetLine &&
+        !pendingSpeakableBridgeState
       ) {
         targetLine = starvationFutureSpeechReconcileTargetLine;
       }
@@ -10861,16 +10945,56 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const pendingBridgeMarkerLagLines = pendingBridgeMarkerState.markerIdx >= 0
           ? Math.max(0, lastLineIndex - pendingBridgeMarkerState.markerIdx)
           : 0;
-        const pendingBridgeReaderVisualBand = resolveReaderVisualBand(scroller, lastLineIndex);
+        const pendingBridgeCurrentVisual = resolveLineVisualTelemetry(scroller, lastLineIndex);
+        const pendingBridgeTargetVisual = resolveLineVisualTelemetry(
+          scroller,
+          pendingBridgeState.semanticTarget,
+        );
+        const pendingBridgeReaderVisualBand = pendingBridgeCurrentVisual.band;
         const pendingBridgeNoCommitMs = Math.max(0, now - lastCommitTime);
         const pendingBridgeRunStale = isRunIdentityStale({
           runKey: pendingBridgeState.runKey,
           runGeneration: pendingBridgeState.runGeneration,
         });
         if (pendingBridgeAgeMs > DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS) {
-          clearPendingSpeakableBridge('expired', [
-            `ttlMs=${DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS}`,
-          ]);
+          const canRefreshPendingBridge =
+            asrRuntimeSpeechRunningActual &&
+            runtimeSpeechFresh &&
+            !pendingBridgeRunStale &&
+            isFinal &&
+            pendingBridgeState.semanticTarget > lastLineIndex;
+          if (canRefreshPendingBridge) {
+            pendingSpeakableBridgeState = {
+              ...pendingBridgeState,
+              createdAtMs: now,
+              proofSource: pendingProofSource || pendingBridgeState.proofSource,
+              sourceBranch:
+                pendingSourceBranch ||
+                pendingBridgeState.sourceBranch ||
+                'pending_speakable_bridge',
+            };
+            warnGuard('asr_pending_speakable_bridge_refresh', [
+              `semanticFrom=${pendingBridgeState.semanticFrom}`,
+              `semanticTarget=${pendingBridgeState.semanticTarget}`,
+              `visualReducedTarget=${pendingBridgeState.visualReducedTarget}`,
+              `pendingBridgeAgeMs=${pendingBridgeAgeMs}`,
+              `ttlMs=${DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS}`,
+              `readerVisualBand=${pendingBridgeReaderVisualBand}`,
+              `semanticTargetViewportState=${pendingBridgeTargetVisual.viewportState}`,
+              Number.isFinite(pendingBridgeTargetVisual.distanceToBottomPx)
+                ? `semanticTargetDistanceToBottomPx=${Math.round(pendingBridgeTargetVisual.distanceToBottomPx)}`
+                : '',
+              Number.isFinite(pendingBridgeTargetVisual.distanceToMarkerPx)
+                ? `semanticTargetDistanceToMarkerPx=${Math.round(pendingBridgeTargetVisual.distanceToMarkerPx)}`
+                : '',
+              `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+              'reason=continued_speech_refresh',
+            ]);
+          } else {
+            clearPendingSpeakableBridge('expired', [
+              `ttlMs=${DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS}`,
+            ]);
+          }
         } else if (pendingBridgeState.semanticFrom !== lastLineIndex) {
           clearPendingSpeakableBridge('cursor_shifted', [
             `current=${lastLineIndex}`,
@@ -10903,6 +11027,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `skippedVisibleRows=${pendingBridgeState.skippedVisibleRows}`,
             `markerLagLines=${pendingBridgeMarkerLagLines}`,
             `readerVisualBand=${pendingBridgeReaderVisualBand}`,
+            `readerViewportState=${pendingBridgeCurrentVisual.viewportState}`,
+            Number.isFinite(pendingBridgeCurrentVisual.distanceToBottomPx)
+              ? `readerDistanceToBottomPx=${Math.round(pendingBridgeCurrentVisual.distanceToBottomPx)}`
+              : '',
+            Number.isFinite(pendingBridgeCurrentVisual.distanceToMarkerPx)
+              ? `readerDistanceToMarkerPx=${Math.round(pendingBridgeCurrentVisual.distanceToMarkerPx)}`
+              : '',
+            `semanticTargetBand=${pendingBridgeTargetVisual.band}`,
+            `semanticTargetViewportState=${pendingBridgeTargetVisual.viewportState}`,
+            Number.isFinite(pendingBridgeTargetVisual.distanceToBottomPx)
+              ? `semanticTargetDistanceToBottomPx=${Math.round(pendingBridgeTargetVisual.distanceToBottomPx)}`
+              : '',
+            Number.isFinite(pendingBridgeTargetVisual.distanceToMarkerPx)
+              ? `semanticTargetDistanceToMarkerPx=${Math.round(pendingBridgeTargetVisual.distanceToMarkerPx)}`
+              : '',
             `pendingBridgeAgeMs=${pendingBridgeAgeMs}`,
             `noCommitMs=${pendingBridgeNoCommitMs}`,
             `proofSource=${pendingBridgeState.proofSource || 'unknown'}`,
@@ -11016,7 +11155,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         movementAuthorityRecoverySourceText,
         forceReason,
         matchId,
-      );
+      ) && !pendingSpeakableBridgeCompletion;
       const movementAuthorityMarkerState = isMarkerTrackingHealthyForLine(scroller, lastLineIndex);
       const movementAuthorityMarkerLagLines = movementAuthorityMarkerState.markerIdx >= 0
         ? Math.max(0, lastLineIndex - movementAuthorityMarkerState.markerIdx)
@@ -11034,6 +11173,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           !runtimeSpeechFresh ||
           !!pending.liveForwardGuardActive
         );
+      if (
+        pendingSpeakableBridgeCompletion &&
+        asrRuntimeSpeechRunningActual &&
+        runtimeSpeechFresh &&
+        hasActiveSpeechWindow &&
+        targetLine > lastLineIndex
+      ) {
+        movementAuthority = 'proof';
+        movementAuthorityReason = 'pending_bridge_marker_maintenance';
+        movementAuthoritySourceBranch = 'movement_authority_pending_bridge_maintenance';
+        bypassDownstreamVeto = true;
+      }
       const pendingBridgePressureCommit =
         pendingSpeakableBridgeCompletion &&
         !!pendingSpeakableBridgeState &&
@@ -11041,9 +11192,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         runtimeSpeechFresh &&
         hasActiveSpeechWindow &&
         movementAuthorityDecision.target > lastLineIndex &&
-        movementAuthorityNoCommitMs >= 1200;
+        movementAuthorityNoCommitMs >= DEFAULT_ASR_PENDING_BRIDGE_PRESSURE_COMMIT_MS;
       if (pendingBridgePressureCommit) {
         const bridgeState = pendingSpeakableBridgeState as PendingSpeakableBridgeState;
+        const pressureCurrentVisual = resolveLineVisualTelemetry(scroller, lastLineIndex);
+        const pressureTargetVisual = resolveLineVisualTelemetry(scroller, bridgeState.semanticTarget);
         warnGuard('asr_pending_speakable_bridge_pressure_commit', [
           `current=${lastLineIndex}`,
           `target=${movementAuthorityDecision.target}`,
@@ -11051,6 +11204,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `visualReducedTarget=${bridgeState.visualReducedTarget}`,
           `markerLagLines=${movementAuthorityMarkerLagLines}`,
           `readerVisualBand=${movementAuthorityReaderVisualBand}`,
+          `readerViewportState=${pressureCurrentVisual.viewportState}`,
+          Number.isFinite(pressureCurrentVisual.distanceToBottomPx)
+            ? `readerDistanceToBottomPx=${Math.round(pressureCurrentVisual.distanceToBottomPx)}`
+            : '',
+          Number.isFinite(pressureCurrentVisual.distanceToMarkerPx)
+            ? `readerDistanceToMarkerPx=${Math.round(pressureCurrentVisual.distanceToMarkerPx)}`
+            : '',
+          `semanticTargetBand=${pressureTargetVisual.band}`,
+          `semanticTargetViewportState=${pressureTargetVisual.viewportState}`,
+          Number.isFinite(pressureTargetVisual.distanceToBottomPx)
+            ? `semanticTargetDistanceToBottomPx=${Math.round(pressureTargetVisual.distanceToBottomPx)}`
+            : '',
+          Number.isFinite(pressureTargetVisual.distanceToMarkerPx)
+            ? `semanticTargetDistanceToMarkerPx=${Math.round(pressureTargetVisual.distanceToMarkerPx)}`
+            : '',
           `pendingBridgeAgeMs=${Math.max(0, now - bridgeState.createdAtMs)}`,
           `noCommitMs=${movementAuthorityNoCommitMs}`,
           `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
