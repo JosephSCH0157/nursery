@@ -9954,6 +9954,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           lastCommitIndex != null &&
           Math.max(0, now - lastCommitTime) >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
           Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
+        if (oldWouldHaveUsedStallOverride && asrRuntimeSpeechRunningActual) {
+          try {
+            console.warn(
+              `ASR_STALL_RECOVERY_OVERRIDE current=${lastLineIndex} requested=${line} committed=${liveSpeechForwardPushTarget} reason=stall_recovery_override`,
+            );
+          } catch {}
+        }
         warnGuard('proof_owned_primary_commit', [
           `current=${lastLineIndex}`,
           `target=${liveSpeechForwardPushTarget}`,
