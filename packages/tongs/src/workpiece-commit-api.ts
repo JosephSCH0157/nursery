@@ -215,6 +215,7 @@ const STORAGE_LIST_MAX_ITEMS_PER_DIRECTORY = 80;
 const HAMMER_ARTIFACT_PATHS = {
   editor_session: "hammer/session/editor-state.v1.json",
   structured_transcript: "hammer/transcript/structured.v1.json",
+  transcript_version_registry: "hammer/transcript-versions.json",
   speaker_map: "hammer/transcript/speaker-map.v1.json",
   visual_placements: "hammer/prep/visual-placements.v1.json",
   audio_polish: "hammer/prep/audio-polish.v1.json",
@@ -223,6 +224,7 @@ const HAMMER_ARTIFACT_PATHS = {
 const HAMMER_ARTIFACT_EVENT_NAMES = {
   editor_session: "hammer.editor-session.saved.v1",
   structured_transcript: "hammer.transcript.saved.v1",
+  transcript_version_registry: "hammer.transcript-version-registry.saved.v1",
   speaker_map: "hammer.speaker-map.saved.v1",
   visual_placements: "hammer.visual-placements.saved.v1",
   audio_polish: "hammer.audio-polish.saved.v1",
@@ -591,6 +593,7 @@ export type SaveHammerWorkpieceStateRequest = {
   last_macro_run_ref?: string | null;
   editor_session?: HammerArtifactWriteRequest;
   structured_transcript?: HammerArtifactWriteRequest;
+  transcript_version_registry?: HammerArtifactWriteRequest;
   speaker_map?: HammerArtifactWriteRequest;
   visual_placements?: HammerArtifactWriteRequest;
   audio_polish?: HammerArtifactWriteRequest;
@@ -743,6 +746,7 @@ export type HammerPersistenceSnapshot = {
   state: HammerWorkpieceStateRow | null;
   editor_session: HammerPersistedArtifactRecord;
   structured_transcript: HammerPersistedArtifactRecord;
+  transcript_version_registry: HammerPersistedArtifactRecord;
   speaker_map: HammerPersistedArtifactRecord;
   visual_placements: HammerPersistedArtifactRecord;
   audio_polish: HammerPersistedArtifactRecord;
@@ -3226,6 +3230,9 @@ function normalizeSaveHammerWorkpieceStateRequest(
           };
         })(),
       }),
+    ...(typeof body.transcript_version_registry === "undefined"
+      ? {}
+      : { transcript_version_registry: normalizeHammerArtifactWriteRequest(body.transcript_version_registry, "transcript_version_registry") }),
     ...(typeof body.speaker_map === "undefined"
       ? {}
       : { speaker_map: normalizeHammerArtifactWriteRequest(body.speaker_map, "speaker_map") }),
@@ -5723,6 +5730,7 @@ export class TongsCommitService {
       state: normalizedState,
       editor_session: await readArtifact(normalizedState?.editor_session_path ?? null),
       structured_transcript: await readArtifact(normalizedState?.transcript_artifact_path ?? null),
+      transcript_version_registry: await readArtifact(normalizedState?.transcript_versions_artifact_path ?? null),
       speaker_map: await readArtifact(normalizedState?.speaker_map_artifact_path ?? null),
       visual_placements: await readArtifact(normalizedState?.visual_placement_artifact_path ?? null),
       audio_polish: await readArtifact(normalizedState?.audio_polish_artifact_path ?? null),
@@ -5862,6 +5870,7 @@ export class TongsCommitService {
 
     const editorSessionPath = await commitArtifact("editor_session", input.editor_session, "session_current");
     const transcriptArtifactPath = await commitArtifact("structured_transcript", input.structured_transcript);
+    const transcriptVersionsArtifactPath = await commitArtifact("transcript_version_registry", input.transcript_version_registry);
     const speakerMapArtifactPath = await commitArtifact("speaker_map", input.speaker_map);
     const visualPlacementArtifactPath = await commitArtifact("visual_placements", input.visual_placements);
     const audioPolishArtifactPath = await commitArtifact("audio_polish", input.audio_polish);
@@ -5879,6 +5888,9 @@ export class TongsCommitService {
       transcript_artifact_path: typeof transcriptArtifactPath === "undefined"
         ? normalizedExistingState?.transcript_artifact_path ?? null
         : transcriptArtifactPath,
+      transcript_versions_artifact_path: typeof transcriptVersionsArtifactPath === "undefined"
+        ? normalizedExistingState?.transcript_versions_artifact_path ?? null
+        : transcriptVersionsArtifactPath,
       speaker_map_artifact_path: typeof speakerMapArtifactPath === "undefined"
         ? normalizedExistingState?.speaker_map_artifact_path ?? null
         : speakerMapArtifactPath,

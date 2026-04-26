@@ -149,6 +149,7 @@ export function buildSourceBayVM(args: any) {
     aiInUse: Boolean(args.props.aiInUse),
     onRequestRegenerateAiTranscript: args.props.onRequestRegenerateAiTranscript,
     regenerateAiTranscriptDisabled: args.props.regenerateAiTranscriptDisabled ?? false,
+    transcriptVersionRegistry: args.props.transcriptVersionRegistry ?? null,
     undo: {
       canUndo: args.canUndo,
       label: args.undoLabel,

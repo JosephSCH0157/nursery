@@ -451,6 +451,7 @@ type HammerWorkspaceShellProps = {
   onRequestResetToRaw?: () => void;
   onRequestRegenerateAiTranscript?: () => void;
   regenerateAiTranscriptDisabled?: boolean;
+  transcriptVersionRegistry?: import("../../../../packages/contracts/hammer/transcript-versions.contract").HammerPersistedTranscriptVersionRegistry | null;
   onHistoryRecoveryStatusChange?: (status: string | null) => void;
   onWorkspaceSnapshotChange?: (
     snapshot: HammerWorkspaceSnapshot,
