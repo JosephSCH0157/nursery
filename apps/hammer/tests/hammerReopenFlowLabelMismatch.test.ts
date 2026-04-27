@@ -90,7 +90,8 @@ async function testReopenFlowWithLabelChangeButSameCanonicalPath() {
     jobsStatusUnavailable: null,
   });
 
-  // Should have exactly one issue: the advisory label mismatch
+  // Capture label vs episode title mismatch is intentionally suppressed as a diagnostic:
+  // it is an internal label and must not appear as a "Fix available issues" prompt.
   const blockingIssues = diagnostics.filter((issue) => issue.severity === "error");
   const advisoryIssues = diagnostics.filter((issue) => issue.severity === "warning");
 
@@ -100,32 +101,21 @@ async function testReopenFlowWithLabelChangeButSameCanonicalPath() {
     "Should have NO blocking (error) issues when only label differs",
   );
 
-  assert.ok(
-    advisoryIssues.length >= 1,
-    "Should have at least one advisory issue for the label mismatch",
-  );
-
-  const labelMismatchIssue = advisoryIssues.find((issue) => issue.id === "media_label_mismatch");
-  assert.ok(labelMismatchIssue, "Should include the advisory media_label_mismatch issue");
-
   assert.equal(
-    labelMismatchIssue?.severity,
-    "warning",
-    "Label mismatch should be a warning (advisory), not error",
+    advisoryIssues.length,
+    0,
+    "Should have NO advisory (warning) issues for a label-only mismatch — capture label is an internal field",
   );
 
-  assert.ok(
-    labelMismatchIssue?.summary.includes("advisory only"),
-    "Advisory issue summary must clarify that it's advisory only",
-  );
-
-  assert.ok(
-    labelMismatchIssue?.summary.includes("Tongs binding"),
-    "Advisory issue summary must reference canonical Tongs binding",
+  const labelMismatchIssue = diagnostics.find((issue) => issue.id === "media_label_mismatch");
+  assert.equal(
+    labelMismatchIssue,
+    undefined,
+    "Should NOT emit media_label_mismatch diagnostic — capture filename must not produce a Fix prompt",
   );
 
   // === Step 4: Verify NO actual recording mismatch issue ===
-  const actualMismatchIssue = blockingIssues.find((issue) => issue.id === "actual_recording_mismatch");
+  const actualMismatchIssue = diagnostics.find((issue) => issue.id === "actual_recording_mismatch");
   assert.equal(
     actualMismatchIssue,
     undefined,
@@ -151,9 +141,9 @@ async function testReopenFlowWithLabelChangeButSameCanonicalPath() {
       canonicalBindingIntact: true,
       historyReplayEnabled: true,
       hasBlockingIssue: false,
-      hasAdvisoryIssue: true,
+      hasAdvisoryIssue: false,
     },
-    "Reopen behavior must match expected semantics: label mismatch advisory only, replay enabled",
+    "Reopen behavior must match expected semantics: capture label mismatch is suppressed, replay enabled",
   );
 }
 

@@ -78,19 +78,10 @@ export function deriveHammerIssueDiagnostics(args: {
     });
   }
 
-  if (mediaLabelMismatchWarning) {
-    issues.push({
-      id: "media_label_mismatch",
-      severity: "warning",
-      title: "Capture label mismatch",
-      summary: `${mediaLabelMismatchWarning} This is advisory only; canonical Tongs binding still controls replay and hydration.`,
-      affectedAreas: ["preview_fidelity"],
-      safeActions: ["Replay, hydration, transcript review, and non-destructive editing remain safe when Tongs binding is correct."],
-      recommendedAction: "Rename or relabel the capture if you want the UI naming to match the episode title.",
-      canAutoFix: false,
-      fixActionId: null,
-    });
-  }
+  // Note: mediaLabelMismatchWarning (capture filename vs episode title) is intentionally not
+  // surfaced as a diagnostic issue. Capture filenames are internal labels and a mismatch
+  // with the episode title is not actionable — it must never block replay, history, or saving,
+  // and must not produce a "Fix available issues" prompt.
 
   if (jobsStatusUnavailable) {
     issues.push({
