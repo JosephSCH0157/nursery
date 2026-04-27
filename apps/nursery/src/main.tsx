@@ -38,6 +38,7 @@ const SettingsStorage = lazy(() => import("./routes/SettingsStorage"));
 const AdminRoute = lazy(() => import("./routes/Admin"));
 const HammerRoute = lazy(() => import("./routes/Hammer"));
 const HammerDevCardsRoute = lazy(() => import("./routes/HammerDevCards"));
+const HammerCleanupGoldenRoute = lazy(() => import("./routes/HammerCleanupGolden"));
 const HammerEditorRoute = lazy(() => import("./routes/HammerEditor"));
 const HammerEditorHarnessRoute = lazy(() => import("./routes/HammerEditorHarness"));
 const HammerLaunchStubRoute = lazy(() => import("./routes/HammerLaunchStub"));
@@ -110,6 +111,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
                   <Route path="dev/editor" element={withRouteFallback(<HammerEditorHarnessRoute />, "Loading Hammer Dev Harness...")} />
                   <Route path="dev/launch" element={withRouteFallback(<HammerLaunchStubRoute />, "Loading Hammer Dev Launch...")} />
                   <Route path="dev/cards" element={withRouteFallback(<HammerDevCardsRoute />, "Loading Hammer Dev Cards...")} />
+                  <Route path="dev/golden-cleanup" element={withRouteFallback(<HammerCleanupGoldenRoute />, "Loading Hammer Golden Cleanup...")} />
                   <Route path="dev/relink" element={withRouteFallback(<HammerRelinkRoute />, "Loading Hammer Dev Relink...")} />
                 </>
               ) : null}

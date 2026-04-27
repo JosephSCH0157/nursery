@@ -87,6 +87,7 @@ export const TONGS_WORKPIECE_BUCKET = "forge-workpieces";
 
 const MANIFEST_PATH = "manifest.json";
 const SHA256_ALGO = "sha256";
+const RECORDING_UPLOAD_SESSION_SCHEMA = "forge.recording-upload-session.v1";
 const DEFAULT_ORIGIN_TOOL = { name: "tongs", version: "0.1.0" } as const;
 const DEFAULT_WRITTEN_BY = { tool: "tongs", tool_version: "0.1.0", lane: "forge-managed" } as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -214,6 +215,7 @@ const STORAGE_LIST_MAX_ITEMS_PER_DIRECTORY = 80;
 const HAMMER_ARTIFACT_PATHS = {
   editor_session: "hammer/session/editor-state.v1.json",
   structured_transcript: "hammer/transcript/structured.v1.json",
+  transcript_version_registry: "hammer/transcript-versions.json",
   speaker_map: "hammer/transcript/speaker-map.v1.json",
   visual_placements: "hammer/prep/visual-placements.v1.json",
   audio_polish: "hammer/prep/audio-polish.v1.json",
@@ -222,6 +224,7 @@ const HAMMER_ARTIFACT_PATHS = {
 const HAMMER_ARTIFACT_EVENT_NAMES = {
   editor_session: "hammer.editor-session.saved.v1",
   structured_transcript: "hammer.transcript.saved.v1",
+  transcript_version_registry: "hammer.transcript-version-registry.saved.v1",
   speaker_map: "hammer.speaker-map.saved.v1",
   visual_placements: "hammer.visual-placements.saved.v1",
   audio_polish: "hammer.audio-polish.saved.v1",
@@ -244,6 +247,29 @@ type WorkpieceFileRow = Database["tongs"]["Tables"]["workpiece_files"]["Row"];
 type WorkpieceEventRow = Database["tongs"]["Tables"]["workpiece_events"]["Row"];
 type WorkspaceRow = Database["tongs"]["Tables"]["workspaces"]["Row"];
 type WorkspaceReadyQueueStateRow = Database["tongs"]["Tables"]["workspace_ready_queue_state"]["Row"];
+
+type RecordingUploadSessionState = {
+  schema: typeof RECORDING_UPLOAD_SESSION_SCHEMA;
+  upload_id: string;
+  workpiece_id: string;
+  workspace_id: string;
+  path: string;
+  content_type: string;
+  file_type: string;
+  written_by: WrittenBy;
+  pointer: ManifestPointerKey | null;
+  event_name: string | null;
+  event_payload: Json | null;
+  correlation_id: string | null;
+  expected_previous_updated_at: string | null;
+  total_bytes: number;
+  total_chunks: number;
+  chunk_size_bytes: number;
+  uploaded_chunks: Record<string, { bytes: number; updated_at: string }>;
+  created_at: string;
+  updated_at: string;
+  finalized_at: string | null;
+};
 
 type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
@@ -377,6 +403,55 @@ export type CommitFileResponse = {
   file_row: WorkpieceFileRow;
   manifest_row: WorkpieceFileRow;
   event: WorkpieceEventRow;
+};
+
+export type BeginRecordingUploadSessionRequest = {
+  upload_id?: string;
+  path: string;
+  content_type?: string;
+  file_type?: string;
+  written_by: WrittenBy;
+  pointer?: ManifestPointerKey;
+  event_name?: string;
+  event_payload?: Json;
+  correlation_id?: string;
+  user_access_token?: string | null;
+  expected_previous_updated_at?: string;
+  total_bytes: number;
+  total_chunks: number;
+  chunk_size_bytes: number;
+};
+
+export type BeginRecordingUploadSessionResponse = {
+  upload_id: string;
+  workpiece_id: string;
+  path: string;
+  total_bytes: number;
+  total_chunks: number;
+  chunk_size_bytes: number;
+  uploaded_chunks: number[];
+};
+
+export type UploadRecordingChunkRequest = {
+  index: number;
+  total_chunks: number;
+  bytes_base64: string;
+  correlation_id?: string;
+};
+
+export type UploadRecordingChunkResponse = {
+  upload_id: string;
+  workpiece_id: string;
+  index: number;
+  total_chunks: number;
+  bytes: number;
+  already_uploaded: boolean;
+};
+
+export type FinalizeRecordingUploadResponse = CommitFileResponse & {
+  upload_id: string;
+  total_chunks: number;
+  total_bytes: number;
 };
 
 export type CommitWorkspaceFileResponse = {
@@ -518,6 +593,7 @@ export type SaveHammerWorkpieceStateRequest = {
   last_macro_run_ref?: string | null;
   editor_session?: HammerArtifactWriteRequest;
   structured_transcript?: HammerArtifactWriteRequest;
+  transcript_version_registry?: HammerArtifactWriteRequest;
   speaker_map?: HammerArtifactWriteRequest;
   visual_placements?: HammerArtifactWriteRequest;
   audio_polish?: HammerArtifactWriteRequest;
@@ -670,6 +746,7 @@ export type HammerPersistenceSnapshot = {
   state: HammerWorkpieceStateRow | null;
   editor_session: HammerPersistedArtifactRecord;
   structured_transcript: HammerPersistedArtifactRecord;
+  transcript_version_registry: HammerPersistedArtifactRecord;
   speaker_map: HammerPersistedArtifactRecord;
   visual_placements: HammerPersistedArtifactRecord;
   audio_polish: HammerPersistedArtifactRecord;
@@ -1105,7 +1182,6 @@ export type ResolveWorkpieceAssetVariantRequest = {
 };
 
 export type ListWorkspaceReadyScriptsOptions = {
-  unrecordedOnly?: boolean;
   includeHidden?: boolean;
   userAccessToken?: string | null;
 };
@@ -1152,6 +1228,19 @@ export type TongsCommitApiOptions = {
 export type TongsCommitApiService = {
   createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse>;
   commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse>;
+  beginRecordingUploadSession(
+    workpieceId: string,
+    input: BeginRecordingUploadSessionRequest,
+  ): Promise<BeginRecordingUploadSessionResponse>;
+  uploadRecordingChunk(
+    workpieceId: string,
+    uploadId: string,
+    input: UploadRecordingChunkRequest,
+  ): Promise<UploadRecordingChunkResponse>;
+  finalizeRecordingUpload(
+    workpieceId: string,
+    uploadId: string,
+  ): Promise<FinalizeRecordingUploadResponse>;
   commitWorkspaceFile(workspaceId: string, input: CommitFileRequest): Promise<CommitWorkspaceFileResponse>;
   deleteReadyScript(workpieceId: string, path: string, options?: DeleteReadyScriptOptions): Promise<DeleteReadyScriptResult>;
   deleteWorkpiece(
@@ -1850,6 +1939,28 @@ function buildStorageKey(workpieceId: string, path: string): string {
   return `workpieces/${workpieceId}/${path}`;
 }
 
+function buildRecordingUploadSessionStorageKey(workpieceId: string, uploadId: string): string {
+  return `workpieces/${workpieceId}/_uploads/${uploadId}/session.v1.json`;
+}
+
+function buildRecordingUploadChunkStorageKey(
+  workpieceId: string,
+  uploadId: string,
+  index: number,
+  totalChunks: number,
+): string {
+  const width = Math.max(3, String(Math.max(1, totalChunks)).length);
+  const part = String(index).padStart(width, "0");
+  return `workpieces/${workpieceId}/_uploads/${uploadId}/chunks/${part}.part`;
+}
+
+function parseUploadedChunkIndices(state: RecordingUploadSessionState): number[] {
+  return Object.keys(state.uploaded_chunks)
+    .map((key) => Number.parseInt(key, 10))
+    .filter((value) => Number.isInteger(value) && value >= 0)
+    .sort((a, b) => a - b);
+}
+
 function buildManifestFileEntry(
   type: string,
   contentType: string,
@@ -2431,6 +2542,54 @@ function normalizeCommitFileRequest(
       ?? (typeof body.user_access_token === "string"
         ? normalizeNonEmptyString(body.user_access_token, "user_access_token")
         : undefined),
+  };
+}
+
+function normalizePositiveInteger(input: unknown, field: string): number {
+  const value = normalizeNonNegativeInteger(input, field);
+  if (value <= 0) {
+    throw new HttpError(400, "invalid_integer", `${field} must be a positive integer`);
+  }
+  return value;
+}
+
+function normalizeRecordingUploadSessionId(input: unknown, field = "upload_id"): string {
+  const value = normalizeNonEmptyString(input, field);
+  if (!/^[a-z0-9_-]{6,96}$/i.test(value)) {
+    throw new HttpError(400, "invalid_upload_id", `${field} must be an opaque upload session id`);
+  }
+  return value;
+}
+
+function normalizeBeginRecordingUploadSessionRequest(
+  body: Record<string, unknown>,
+  userAccessTokenFromHeader?: string | null,
+): BeginRecordingUploadSessionRequest {
+  const base = normalizeCommitFileRequest(body, userAccessTokenFromHeader);
+  return {
+    ...base,
+    upload_id: typeof body.upload_id === "string"
+      ? normalizeRecordingUploadSessionId(body.upload_id, "upload_id")
+      : undefined,
+    total_bytes: normalizePositiveInteger(body.total_bytes, "total_bytes"),
+    total_chunks: normalizePositiveInteger(body.total_chunks, "total_chunks"),
+    chunk_size_bytes: normalizePositiveInteger(body.chunk_size_bytes, "chunk_size_bytes"),
+  };
+}
+
+function normalizeUploadRecordingChunkRequest(
+  body: Record<string, unknown>,
+): UploadRecordingChunkRequest {
+  const index = normalizeNonNegativeInteger(body.index, "index");
+  const totalChunks = normalizePositiveInteger(body.total_chunks, "total_chunks");
+  if (index >= totalChunks) {
+    throw new HttpError(400, "invalid_chunk_index", "index must be less than total_chunks");
+  }
+  return {
+    index,
+    total_chunks: totalChunks,
+    bytes_base64: normalizeNonEmptyString(body.bytes_base64, "bytes_base64"),
+    correlation_id: typeof body.correlation_id === "string" ? body.correlation_id : undefined,
   };
 }
 
@@ -3071,6 +3230,9 @@ function normalizeSaveHammerWorkpieceStateRequest(
           };
         })(),
       }),
+    ...(typeof body.transcript_version_registry === "undefined"
+      ? {}
+      : { transcript_version_registry: normalizeHammerArtifactWriteRequest(body.transcript_version_registry, "transcript_version_registry") }),
     ...(typeof body.speaker_map === "undefined"
       ? {}
       : { speaker_map: normalizeHammerArtifactWriteRequest(body.speaker_map, "speaker_map") }),
@@ -5568,6 +5730,7 @@ export class TongsCommitService {
       state: normalizedState,
       editor_session: await readArtifact(normalizedState?.editor_session_path ?? null),
       structured_transcript: await readArtifact(normalizedState?.transcript_artifact_path ?? null),
+      transcript_version_registry: await readArtifact(normalizedState?.transcript_versions_artifact_path ?? null),
       speaker_map: await readArtifact(normalizedState?.speaker_map_artifact_path ?? null),
       visual_placements: await readArtifact(normalizedState?.visual_placement_artifact_path ?? null),
       audio_polish: await readArtifact(normalizedState?.audio_polish_artifact_path ?? null),
@@ -5707,6 +5870,7 @@ export class TongsCommitService {
 
     const editorSessionPath = await commitArtifact("editor_session", input.editor_session, "session_current");
     const transcriptArtifactPath = await commitArtifact("structured_transcript", input.structured_transcript);
+    const transcriptVersionsArtifactPath = await commitArtifact("transcript_version_registry", input.transcript_version_registry);
     const speakerMapArtifactPath = await commitArtifact("speaker_map", input.speaker_map);
     const visualPlacementArtifactPath = await commitArtifact("visual_placements", input.visual_placements);
     const audioPolishArtifactPath = await commitArtifact("audio_polish", input.audio_polish);
@@ -5724,6 +5888,9 @@ export class TongsCommitService {
       transcript_artifact_path: typeof transcriptArtifactPath === "undefined"
         ? normalizedExistingState?.transcript_artifact_path ?? null
         : transcriptArtifactPath,
+      transcript_versions_artifact_path: typeof transcriptVersionsArtifactPath === "undefined"
+        ? normalizedExistingState?.transcript_versions_artifact_path ?? null
+        : transcriptVersionsArtifactPath,
       speaker_map_artifact_path: typeof speakerMapArtifactPath === "undefined"
         ? normalizedExistingState?.speaker_map_artifact_path ?? null
         : speakerMapArtifactPath,
@@ -5828,7 +5995,60 @@ export class TongsCommitService {
       });
     }
     if (existingResult.data) {
-      return existingResult.data as CanonicalRecordingRecord;
+      const existing = existingResult.data as CanonicalRecordingRecord;
+      // If the existing canonical recording is archived, return it as-is — archived is terminal.
+      if (existing.status !== "archived") {
+        // Check whether the latest accepted take introduced a new media_path that
+        // the canonical recording hasn't yet been reconciled against.
+        const truth = await this.getWorkpieceRecordingTruth(workpieceId);
+        const latestTake = truth.latest_kept_take;
+        const latestPath = latestTake?.file_path?.trim() ?? "";
+        const existingPath = existing.media_path?.trim() ?? "";
+        if (latestPath && latestPath !== existingPath) {
+          // The canonical recording is stale relative to the latest accepted take.
+          // Reconcile: update media_path (and take metadata) so Hammer doesn't raise a
+          // false "actual recording mismatch" after the user accepts a new Anvil take.
+          const nowIso = new Date().toISOString();
+          const mediaId = this.buildCanonicalRecordingMediaId(workpieceId, latestTake!);
+          const isSealed = existing.status === "sealed";
+          const updateFields: Record<string, unknown> = {
+            media_path: latestPath,
+            kept_take_event_id: latestTake!.event_id ?? null,
+            media_content_type: latestTake!.content_type ?? null,
+            media_bytes: latestTake!.bytes ?? null,
+            media_duration_ms: latestTake!.duration_ms ?? null,
+            recording_session_id: latestTake!.recording_session_id ?? null,
+            anvil_capture_session_id: latestTake!.anvil_capture_session_id ?? null,
+            media_id: mediaId,
+            media_signature: null,
+            updated_at: nowIso,
+            updated_by: auth.userId,
+          };
+          if (isSealed) {
+            // Accepting a new take after sealing voids the sealed baseline transcript.
+            // Reset to draft so Hammer knows to re-run prep for the new recording.
+            updateFields.status = "draft";
+            updateFields.sealed_at = null;
+            updateFields.baseline_transcript_path = null;
+            updateFields.baseline_speaker_map_path = null;
+            updateFields.baseline_timing_path = null;
+          }
+          const reconcileResult = await tongsUntyped
+            .from("canonical_recordings")
+            .update(updateFields)
+            .eq("workspace_id", workspaceId)
+            .eq("workpiece_id", workpieceId)
+            .eq("id", existing.id)
+            .select("*")
+            .single();
+          if (!reconcileResult.error && reconcileResult.data) {
+            return reconcileResult.data as CanonicalRecordingRecord;
+          }
+          // Reconcile write failed (e.g. concurrent update). Fall through and return the
+          // best-effort existing record; Hammer can retry on the next open.
+        }
+      }
+      return existing;
     }
 
     const truth = await this.getWorkpieceRecordingTruth(workpieceId);
@@ -7194,6 +7414,160 @@ export class TongsCommitService {
     return normalizeLoadedManifest(parsed, fallback);
   }
 
+  private async commitFileBytes(args: {
+    cradle: EpisodeRow;
+    path: string;
+    contentType: string;
+    fileType: string;
+    writtenBy: WrittenBy;
+    bytes: Uint8Array;
+    pointer?: ManifestPointerKey;
+    eventName?: string;
+    eventPayload?: Json;
+    correlationId?: string;
+    commitMode: "replace" | "append_jsonl" | "chunked_finalize";
+    readyScriptActor?: { userId: string; role: WorkspaceRole } | null;
+  }): Promise<CommitFileResponse> {
+    const nowIso = new Date().toISOString();
+    const workpieceId = args.cradle.id;
+    const storageKey = buildStorageKey(workpieceId, args.path);
+
+    assertApprovedScriptTagContract(args.path, args.eventName, args.bytes);
+
+    const hash = await sha256Hex(args.bytes);
+    await uploadStorageObject(this.supabase, this.bucket, storageKey, args.bytes, args.contentType);
+
+    await this.upsertWorkpieceFile([
+      {
+        workpiece_id: workpieceId,
+        path: args.path,
+        file_type: args.fileType,
+        content_type: args.contentType,
+        bytes: args.bytes.length,
+        hash_algo: SHA256_ALGO,
+        hash_value: hash,
+        storage_bucket: this.bucket,
+        storage_key: storageKey,
+        written_by_tool: args.writtenBy.tool,
+        written_by_tool_version: args.writtenBy.tool_version,
+        written_by_lane: args.writtenBy.lane,
+      },
+    ]);
+
+    const manifest = await this.loadManifestOrDefault(args.cradle);
+    manifest.updated_at = nowIso;
+    if (!manifest.status) {
+      manifest.status = "draft";
+    }
+    manifest.files[args.path] = buildManifestFileEntry(
+      args.fileType,
+      args.contentType,
+      args.bytes.length,
+      hash,
+      args.writtenBy,
+      nowIso,
+    );
+    applyPointerUpdates(manifest, args.path, args.pointer);
+
+    const finalized = await finalizeManifestTwoPass(manifest, args.writtenBy, nowIso);
+
+    await uploadStorageObject(
+      this.supabase,
+      this.bucket,
+      buildStorageKey(workpieceId, MANIFEST_PATH),
+      finalized.manifestBytes,
+      "application/json",
+    );
+
+    await this.upsertWorkpieceFile([
+      {
+        workpiece_id: workpieceId,
+        path: MANIFEST_PATH,
+        file_type: "manifest",
+        content_type: "application/json",
+        bytes: finalized.finalBytes,
+        hash_algo: SHA256_ALGO,
+        hash_value: finalized.finalHash,
+        storage_bucket: this.bucket,
+        storage_key: buildStorageKey(workpieceId, MANIFEST_PATH),
+        written_by_tool: args.writtenBy.tool,
+        written_by_tool_version: args.writtenBy.tool_version,
+        written_by_lane: args.writtenBy.lane,
+      },
+    ]);
+
+    if (args.readyScriptActor) {
+      await this.upsertReadyScriptMeta(
+        args.cradle.workspace_id,
+        args.cradle.id,
+        args.path,
+        args.readyScriptActor.userId,
+      );
+    }
+
+    const eventName = args.eventName?.trim() || "workpiece.file.committed";
+    const eventPayload =
+      typeof args.eventPayload === "undefined"
+        ? ({
+            path: args.path,
+            content_type: args.contentType,
+            bytes: args.bytes.length,
+            hash,
+            mode: args.commitMode,
+          } as Json)
+        : args.eventPayload;
+
+    const event = await this.insertEvent({
+      workpieceId,
+      eventName,
+      payload: eventPayload,
+      writtenBy: args.writtenBy,
+      correlationId: normalizeCorrelationId(args.correlationId),
+    });
+
+    const { data: fileRow, error: fileRowError } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_files")
+      .select("*")
+      .eq("workpiece_id", workpieceId)
+      .eq("path", args.path)
+      .single();
+
+    if (fileRowError || !fileRow) {
+      throw new HttpError(502, "db_read_failed", "Failed to read committed workpiece_files row", {
+        reason: fileRowError?.message,
+      });
+    }
+
+    const { data: manifestRow, error: manifestRowError } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_files")
+      .select("*")
+      .eq("workpiece_id", workpieceId)
+      .eq("path", MANIFEST_PATH)
+      .single();
+
+    if (manifestRowError || !manifestRow) {
+      throw new HttpError(502, "db_read_failed", "Failed to read manifest workpiece_files row", {
+        reason: manifestRowError?.message,
+      });
+    }
+
+    return {
+      workpiece_id: workpieceId,
+      path: args.path,
+      storage_key: storageKey,
+      hash,
+      bytes: args.bytes.length,
+      content_type: args.contentType,
+      manifest_hash: finalized.finalHash,
+      manifest_bytes: finalized.finalBytes,
+      file_row: fileRow,
+      manifest_row: manifestRow,
+      event,
+    };
+  }
+
   async createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse> {
     const nowIso = new Date().toISOString();
     const writtenBy = input.written_by ?? DEFAULT_WRITTEN_BY;
@@ -7433,7 +7807,6 @@ export class TongsCommitService {
       }
     }
 
-    const nowIso = new Date().toISOString();
     const contentType = normalizeContentType(input.content_type, path);
     const fileType = (typeof input.file_type === "string" && input.file_type.trim()) || inferFileType(path, contentType);
     const writtenBy = normalizeWrittenBy(input.written_by);
@@ -7457,132 +7830,308 @@ export class TongsCommitService {
       bytes = canonicalizeReplaceBytes(path, contentType, input);
     }
 
-    assertApprovedScriptTagContract(path, input.event_name, bytes);
+    return this.commitFileBytes({
+      cradle,
+      path,
+      contentType,
+      fileType,
+      writtenBy,
+      bytes,
+      pointer: input.pointer,
+      eventName: input.event_name,
+      eventPayload: input.event_payload,
+      correlationId: input.correlation_id,
+      commitMode,
+      readyScriptActor,
+    });
+  }
 
-    const hash = await sha256Hex(bytes);
-    await uploadStorageObject(this.supabase, this.bucket, storageKey, bytes, contentType);
-
-    await this.upsertWorkpieceFile([
-      {
-        workpiece_id: cradle.id,
-        path,
-        file_type: fileType,
-        content_type: contentType,
-        bytes: bytes.length,
-        hash_algo: SHA256_ALGO,
-        hash_value: hash,
-        storage_bucket: this.bucket,
-        storage_key: storageKey,
-        written_by_tool: writtenBy.tool,
-        written_by_tool_version: writtenBy.tool_version,
-        written_by_lane: writtenBy.lane,
-      },
-    ]);
-
-    const manifest = await this.loadManifestOrDefault(cradle);
-    manifest.updated_at = nowIso;
-    if (!manifest.status) {
-      manifest.status = "draft";
+  private async loadRecordingUploadSessionState(
+    workpieceId: string,
+    uploadId: string,
+  ): Promise<RecordingUploadSessionState> {
+    const key = buildRecordingUploadSessionStorageKey(workpieceId, uploadId);
+    const bytes = await downloadStorageObject(this.supabase, this.bucket, key);
+    if (!bytes) {
+      throw new HttpError(404, "upload_session_not_found", "Recording upload session was not found", {
+        workpiece_id: workpieceId,
+        upload_id: uploadId,
+      });
     }
-    manifest.files[path] = buildManifestFileEntry(fileType, contentType, bytes.length, hash, writtenBy, nowIso);
-    applyPointerUpdates(manifest, path, input.pointer);
+    const parsed = parseJsonText(textDecoder.decode(bytes), key);
+    if (!isRecord(parsed)) {
+      throw new HttpError(500, "upload_session_invalid", "Recording upload session state is invalid");
+    }
+    if (parsed.schema !== RECORDING_UPLOAD_SESSION_SCHEMA) {
+      throw new HttpError(500, "upload_session_invalid_schema", "Recording upload session schema mismatch");
+    }
+    const parsedWorkpieceId =
+      typeof parsed.workpiece_id === "string" && UUID_RE.test(parsed.workpiece_id)
+        ? parsed.workpiece_id.toLowerCase()
+        : null;
+    if (parsedWorkpieceId !== workpieceId) {
+      throw new HttpError(500, "upload_session_workpiece_mismatch", "Recording upload session workpiece mismatch");
+    }
+    return parsed as RecordingUploadSessionState;
+  }
 
-    const finalized = await finalizeManifestTwoPass(manifest, writtenBy, nowIso);
+  private async saveRecordingUploadSessionState(state: RecordingUploadSessionState): Promise<void> {
+    const key = buildRecordingUploadSessionStorageKey(state.workpiece_id, state.upload_id);
+    const bytes = canonicalJsonBytes(state);
+    await uploadStorageObject(this.supabase, this.bucket, key, bytes, "application/json");
+  }
 
-    await uploadStorageObject(
-      this.supabase,
-      this.bucket,
-      buildStorageKey(workpieceId, MANIFEST_PATH),
-      finalized.manifestBytes,
-      "application/json",
-    );
-
-    await this.upsertWorkpieceFile([
-      {
-        workpiece_id: cradle.id,
-        path: MANIFEST_PATH,
-        file_type: "manifest",
-        content_type: "application/json",
-        bytes: finalized.finalBytes,
-        hash_algo: SHA256_ALGO,
-        hash_value: finalized.finalHash,
-        storage_bucket: this.bucket,
-        storage_key: buildStorageKey(workpieceId, MANIFEST_PATH),
-        written_by_tool: writtenBy.tool,
-        written_by_tool_version: writtenBy.tool_version,
-        written_by_lane: writtenBy.lane,
-      },
-    ]);
-
-    if (readyScriptActor) {
-      await this.upsertReadyScriptMeta(
-        cradle.workspace_id,
-        cradle.id,
-        path,
-        readyScriptActor.userId,
+  private async deleteRecordingUploadArtifacts(state: RecordingUploadSessionState): Promise<void> {
+    const keys: string[] = [];
+    keys.push(buildRecordingUploadSessionStorageKey(state.workpiece_id, state.upload_id));
+    for (const chunkIndex of parseUploadedChunkIndices(state)) {
+      keys.push(
+        buildRecordingUploadChunkStorageKey(
+          state.workpiece_id,
+          state.upload_id,
+          chunkIndex,
+          state.total_chunks,
+        ),
       );
     }
+    if (!keys.length) return;
+    const { error } = await this.supabase.storage.from(this.bucket).remove(keys);
+    if (error) {
+      logStorageError("delete", this.bucket, keys[0], error);
+    }
+  }
 
-    const eventName = input.event_name?.trim() || "workpiece.file.committed";
-    const eventPayload =
-      typeof input.event_payload === "undefined"
-        ? ({
-            path,
-            content_type: contentType,
-            bytes: bytes.length,
-            hash,
-            mode: commitMode,
-          } as Json)
-        : input.event_payload;
+  async beginRecordingUploadSession(
+    workpieceId: string,
+    input: BeginRecordingUploadSessionRequest,
+  ): Promise<BeginRecordingUploadSessionResponse> {
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    const path = normalizeRelativePath(input.path);
+    if (path === MANIFEST_PATH) {
+      throw new HttpError(400, "invalid_path", "manifest.json is managed by Tongs and cannot be committed directly");
+    }
+    if (READY_SCRIPT_PATH_SET.has(path)) {
+      await this.assertWorkspaceRoleFromAccessToken(
+        cradle.workspace_id,
+        "editor",
+        input.user_access_token,
+      );
+    }
+    if (input.expected_previous_updated_at) {
+      const { data: existingFile, error: existingFileError } = await this.supabase
+        .schema("tongs")
+        .from("workpiece_files")
+        .select("updated_at")
+        .eq("workpiece_id", cradle.id)
+        .eq("path", path)
+        .maybeSingle();
 
-    const event = await this.insertEvent({
-      workpieceId,
-      eventName,
-      payload: eventPayload,
-      writtenBy,
-      correlationId: normalizeCorrelationId(input.correlation_id),
-    });
+      if (existingFileError) {
+        throw new HttpError(502, "db_read_failed", "Failed to read existing file metadata for conflict check", {
+          reason: existingFileError.message,
+        });
+      }
 
-    const { data: fileRow, error: fileRowError } = await this.supabase
-      .schema("tongs")
-      .from("workpiece_files")
-      .select("*")
-      .eq("workpiece_id", cradle.id)
-      .eq("path", path)
-      .single();
-
-    if (fileRowError || !fileRow) {
-      throw new HttpError(502, "db_read_failed", "Failed to read committed workpiece_files row", {
-        reason: fileRowError?.message,
-      });
+      const expectedUpdatedAt = new Date(input.expected_previous_updated_at).toISOString();
+      const currentUpdatedAt = existingFile?.updated_at ? new Date(existingFile.updated_at).toISOString() : null;
+      if (currentUpdatedAt !== expectedUpdatedAt) {
+        throw new HttpError(409, "file_conflict", "File changed since last load", {
+          path,
+          expected_previous_updated_at: expectedUpdatedAt,
+          current_updated_at: currentUpdatedAt,
+        });
+      }
     }
 
-    const { data: manifestRow, error: manifestRowError } = await this.supabase
-      .schema("tongs")
-      .from("workpiece_files")
-      .select("*")
-      .eq("workpiece_id", cradle.id)
-      .eq("path", MANIFEST_PATH)
-      .single();
+    const contentType = normalizeContentType(input.content_type, path);
+    const fileType = (typeof input.file_type === "string" && input.file_type.trim()) || inferFileType(path, contentType);
+    const writtenBy = normalizeWrittenBy(input.written_by);
 
-    if (manifestRowError || !manifestRow) {
-      throw new HttpError(502, "db_read_failed", "Failed to read manifest workpiece_files row", {
-        reason: manifestRowError?.message,
-      });
+    if (input.total_chunks <= 0 || input.chunk_size_bytes <= 0 || input.total_bytes <= 0) {
+      throw new HttpError(400, "invalid_upload_shape", "total_bytes, total_chunks, and chunk_size_bytes must be > 0");
     }
+    const coveredBytes = input.total_chunks * input.chunk_size_bytes;
+    if (coveredBytes < input.total_bytes) {
+      throw new HttpError(400, "invalid_upload_shape", "Chunk shape does not cover total_bytes");
+    }
+
+    const uploadId = input.upload_id || `upl_${createRequestId()}`;
+    if (input.upload_id) {
+      const existing = await this.loadRecordingUploadSessionState(workpieceId, uploadId);
+      if (existing.finalized_at) {
+        throw new HttpError(409, "upload_session_finalized", "Recording upload session is already finalized");
+      }
+      if (existing.path !== path) {
+        throw new HttpError(409, "upload_session_path_mismatch", "Upload session path mismatch");
+      }
+      return {
+        upload_id: existing.upload_id,
+        workpiece_id: existing.workpiece_id,
+        path: existing.path,
+        total_bytes: existing.total_bytes,
+        total_chunks: existing.total_chunks,
+        chunk_size_bytes: existing.chunk_size_bytes,
+        uploaded_chunks: parseUploadedChunkIndices(existing),
+      };
+    }
+
+    const nowIso = new Date().toISOString();
+    const state: RecordingUploadSessionState = {
+      schema: RECORDING_UPLOAD_SESSION_SCHEMA,
+      upload_id: uploadId,
+      workpiece_id: cradle.id,
+      workspace_id: cradle.workspace_id,
+      path,
+      content_type: contentType,
+      file_type: fileType,
+      written_by: writtenBy,
+      pointer: input.pointer ?? null,
+      event_name: input.event_name?.trim() || null,
+      event_payload: typeof input.event_payload === "undefined" ? null : input.event_payload,
+      correlation_id: normalizeCorrelationId(input.correlation_id),
+      expected_previous_updated_at: input.expected_previous_updated_at ?? null,
+      total_bytes: input.total_bytes,
+      total_chunks: input.total_chunks,
+      chunk_size_bytes: input.chunk_size_bytes,
+      uploaded_chunks: {},
+      created_at: nowIso,
+      updated_at: nowIso,
+      finalized_at: null,
+    };
+    await this.saveRecordingUploadSessionState(state);
 
     return {
-      workpiece_id: cradle.id,
-      path,
-      storage_key: storageKey,
-      hash,
+      upload_id: state.upload_id,
+      workpiece_id: state.workpiece_id,
+      path: state.path,
+      total_bytes: state.total_bytes,
+      total_chunks: state.total_chunks,
+      chunk_size_bytes: state.chunk_size_bytes,
+      uploaded_chunks: [],
+    };
+  }
+
+  async uploadRecordingChunk(
+    workpieceId: string,
+    uploadId: string,
+    input: UploadRecordingChunkRequest,
+  ): Promise<UploadRecordingChunkResponse> {
+    const state = await this.loadRecordingUploadSessionState(workpieceId, uploadId);
+    if (state.finalized_at) {
+      throw new HttpError(409, "upload_session_finalized", "Recording upload session is already finalized");
+    }
+    if (input.total_chunks !== state.total_chunks) {
+      throw new HttpError(409, "chunk_total_mismatch", "Chunk total does not match upload session");
+    }
+    if (input.index < 0 || input.index >= state.total_chunks) {
+      throw new HttpError(400, "invalid_chunk_index", "Chunk index is out of range");
+    }
+
+    const chunkKey = buildRecordingUploadChunkStorageKey(workpieceId, uploadId, input.index, state.total_chunks);
+    const bytes = decodeBase64(input.bytes_base64);
+    const maxChunk = Math.min(state.chunk_size_bytes, state.total_bytes - (input.index * state.chunk_size_bytes));
+    if (bytes.length > maxChunk) {
+      throw new HttpError(400, "chunk_too_large", "Chunk exceeds expected size", {
+        index: input.index,
+        expected_max_bytes: maxChunk,
+        actual_bytes: bytes.length,
+      });
+    }
+
+    const existing = state.uploaded_chunks[String(input.index)];
+    if (existing && existing.bytes === bytes.length) {
+      return {
+        upload_id: state.upload_id,
+        workpiece_id: state.workpiece_id,
+        index: input.index,
+        total_chunks: state.total_chunks,
+        bytes: existing.bytes,
+        already_uploaded: true,
+      };
+    }
+
+    await uploadStorageObject(this.supabase, this.bucket, chunkKey, bytes, "application/octet-stream");
+
+    const nowIso = new Date().toISOString();
+    state.uploaded_chunks[String(input.index)] = {
       bytes: bytes.length,
-      content_type: contentType,
-      manifest_hash: finalized.finalHash,
-      manifest_bytes: finalized.finalBytes,
-      file_row: fileRow,
-      manifest_row: manifestRow,
-      event,
+      updated_at: nowIso,
+    };
+    state.updated_at = nowIso;
+    await this.saveRecordingUploadSessionState(state);
+
+    return {
+      upload_id: state.upload_id,
+      workpiece_id: state.workpiece_id,
+      index: input.index,
+      total_chunks: state.total_chunks,
+      bytes: bytes.length,
+      already_uploaded: false,
+    };
+  }
+
+  async finalizeRecordingUpload(
+    workpieceId: string,
+    uploadId: string,
+  ): Promise<FinalizeRecordingUploadResponse> {
+    const state = await this.loadRecordingUploadSessionState(workpieceId, uploadId);
+    if (state.finalized_at) {
+      throw new HttpError(409, "upload_session_finalized", "Recording upload session is already finalized");
+    }
+
+    const uploadedIndices = new Set(parseUploadedChunkIndices(state));
+    if (uploadedIndices.size !== state.total_chunks) {
+      throw new HttpError(409, "upload_session_incomplete", "Not all chunks are uploaded", {
+        uploaded_chunks: uploadedIndices.size,
+        total_chunks: state.total_chunks,
+      });
+    }
+
+    const combined = new Uint8Array(state.total_bytes);
+    let offset = 0;
+    for (let index = 0; index < state.total_chunks; index += 1) {
+      const chunkKey = buildRecordingUploadChunkStorageKey(workpieceId, uploadId, index, state.total_chunks);
+      const chunkBytes = await downloadStorageObject(this.supabase, this.bucket, chunkKey);
+      if (!chunkBytes) {
+        throw new HttpError(409, "upload_chunk_missing", "Missing uploaded chunk during finalize", { index });
+      }
+      combined.set(chunkBytes, offset);
+      offset += chunkBytes.length;
+    }
+    if (offset !== state.total_bytes) {
+      throw new HttpError(409, "upload_size_mismatch", "Assembled upload size mismatch", {
+        expected_bytes: state.total_bytes,
+        assembled_bytes: offset,
+      });
+    }
+
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    const result = await this.commitFileBytes({
+      cradle,
+      path: state.path,
+      contentType: state.content_type,
+      fileType: state.file_type,
+      writtenBy: state.written_by,
+      bytes: combined,
+      pointer: state.pointer ?? undefined,
+      eventName: state.event_name ?? undefined,
+      eventPayload: state.event_payload ?? undefined,
+      correlationId: state.correlation_id ?? undefined,
+      commitMode: "chunked_finalize",
+      readyScriptActor: null,
+    });
+
+    const finalizedAt = new Date().toISOString();
+    state.finalized_at = finalizedAt;
+    state.updated_at = finalizedAt;
+    await this.saveRecordingUploadSessionState(state);
+    await this.deleteRecordingUploadArtifacts(state);
+
+    return {
+      ...result,
+      upload_id: uploadId,
+      total_chunks: state.total_chunks,
+      total_bytes: state.total_bytes,
     };
   }
 
@@ -10255,16 +10804,6 @@ export class TongsCommitService {
       }
     }
 
-    const recordedWorkpieceIds = new Set<string>();
-    if (options?.unrecordedOnly) {
-      const keptTakeByWorkpiece = await this.listLatestKeptTakeByWorkpieceIds(
-        Array.from(readyPathsByWorkpiece.keys()),
-      );
-      for (const workpieceId of keptTakeByWorkpiece.keys()) {
-        recordedWorkpieceIds.add(workpieceId);
-      }
-    }
-
     const categoryByWorkpiece = new Map<string, string | null>();
     const categoryCandidateIds = Array.from(readyPathsByWorkpiece.keys());
     if (categoryCandidateIds.length) {
@@ -10299,7 +10838,6 @@ export class TongsCommitService {
     const nowIso = new Date().toISOString();
     const readyScripts: WorkspaceReadyScript[] = [];
     for (const [workpieceId, readyPointer] of readyPointerByWorkpiece.entries()) {
-      if (recordedWorkpieceIds.has(workpieceId)) continue;
       const readyKey = readyScriptMetaKey(workpieceId, readyPointer.script_path);
       const file = fileByWorkpiecePath.get(readyKey);
       if (!file) continue;
@@ -10507,6 +11045,52 @@ export function createTongsCommitApiHandlerWithService(
         return jsonResponse(200, { ok: true, data: result });
       }
 
+      if (
+        parts.length === 5
+        && parts[0] === "tongs"
+        && parts[1] === "workpieces"
+        && parts[3] === "recording-upload"
+        && parts[4] === "begin"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = readUserAccessTokenHeader(request);
+        const payload = normalizeBeginRecordingUploadSessionRequest(body, userAccessToken);
+        const result = await service.beginRecordingUploadSession(workpieceId, payload);
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 6
+        && parts[0] === "tongs"
+        && parts[1] === "workpieces"
+        && parts[3] === "recording-upload"
+        && parts[5] === "chunk"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const uploadId = normalizeRecordingUploadSessionId(decodeURIComponent(parts[4]), "upload_id");
+        const body = await parseJsonBody(request);
+        const payload = normalizeUploadRecordingChunkRequest(body);
+        const result = await service.uploadRecordingChunk(workpieceId, uploadId, payload);
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 6
+        && parts[0] === "tongs"
+        && parts[1] === "workpieces"
+        && parts[3] === "recording-upload"
+        && parts[5] === "finalize"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const uploadId = normalizeRecordingUploadSessionId(decodeURIComponent(parts[4]), "upload_id");
+        const result = await service.finalizeRecordingUpload(workpieceId, uploadId);
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "commit-file") {
         requireMethod(request, "POST");
         const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
@@ -10578,11 +11162,9 @@ export function createTongsCommitApiHandlerWithService(
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "ready-scripts") {
         requireMethod(request, "GET");
         const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
-        const unrecordedOnly = parseBooleanQueryFlag(url.searchParams.get("unrecorded"));
         const includeHidden = parseBooleanQueryFlag(url.searchParams.get("include_hidden"));
         const userAccessToken = requireUserAccessTokenHeader(request);
         const result = await service.listWorkspaceReadyScripts(workspaceId, {
-          unrecordedOnly,
           includeHidden,
           userAccessToken,
         });

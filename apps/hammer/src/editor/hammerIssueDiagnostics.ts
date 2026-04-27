@@ -52,24 +52,36 @@ export function deriveHammerIssueDiagnostics(args: {
   sessionState: HammerSessionStateResult;
   mediaPrepOutputs: HammerMediaPrepOutputsPackage | null;
   mediaLabelMismatchWarning: string | null;
+  actualRecordingMismatchWarning: string | null;
   jobsStatusUnavailable: { status: number; message: string } | null;
 }): HammerIssueDiagnostic[] {
   const issues: HammerIssueDiagnostic[] = [];
-  const { sessionState, mediaPrepOutputs, mediaLabelMismatchWarning, jobsStatusUnavailable } = args;
+  const {
+    sessionState,
+    mediaPrepOutputs,
+    mediaLabelMismatchWarning,
+    actualRecordingMismatchWarning,
+    jobsStatusUnavailable,
+  } = args;
 
-  if (mediaLabelMismatchWarning) {
+  if (actualRecordingMismatchWarning) {
     issues.push({
-      id: "media_label_mismatch",
-      severity: "warning",
-      title: "Recording mismatch detected",
-      summary: `${mediaLabelMismatchWarning} Playback and prep results may be inaccurate until the correct media is bound.`,
-      affectedAreas: ["playback", "preview_fidelity", "export"],
-      safeActions: ["Transcript review and non-destructive transcript editing are still safe."],
-      recommendedAction: "Verify this episode is linked to the correct recording before trusting playback or prep artifacts.",
+      id: "actual_recording_mismatch",
+      severity: "error",
+      title: "Actual recording mismatch detected",
+      summary: `${actualRecordingMismatchWarning} History replay stays blocked until Hammer is reopened against the canonical Tongs-bound recording.`,
+      affectedAreas: ["playback", "preview_fidelity", "export", "persistence"],
+      safeActions: ["Transcript inspection is safe, but do not trust replayed history or media-derived prep outputs."],
+      recommendedAction: "Reopen Hammer from the episode/workpiece whose canonical Tongs binding matches this recording.",
       canAutoFix: false,
       fixActionId: null,
     });
   }
+
+  // Note: mediaLabelMismatchWarning (capture filename vs episode title) is intentionally not
+  // surfaced as a diagnostic issue. Capture filenames are internal labels and a mismatch
+  // with the episode title is not actionable — it must never block replay, history, or saving,
+  // and must not produce a "Fix available issues" prompt.
 
   if (jobsStatusUnavailable) {
     issues.push({

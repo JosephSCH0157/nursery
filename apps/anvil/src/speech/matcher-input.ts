@@ -1,4 +1,4 @@
-const MATCH_TOKEN_WINDOW = 28;
+const MATCH_TOKEN_WINDOW = 18;
 
 const META_PHRASES: RegExp[] = [
   /\bit(?:'s| is) not keeping up\b/gi,

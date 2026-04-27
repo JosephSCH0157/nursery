@@ -824,17 +824,17 @@ export async function initBuiltIns(): Promise<void> {
       ? window.__TP_ADDV.bind(window)
       : ((p: string) => p);
     try {
-      const m = await import(resolver('./adapters/bridge.js'));
+      const m = await import(/* @vite-ignore */ resolver('./adapters/bridge.js'));
       const a = m?.createBridgeAdapter?.();
       if (a) adapters.push(a);
     } catch {}
     try {
-      const m = await import(resolver('./adapters/obs.js'));
+      const m = await import(/* @vite-ignore */ resolver('./adapters/obs.js'));
       const a = m?.createOBSAdapter?.();
       if (a) adapters.push(a);
     } catch {}
     try {
-      const m = await import(resolver('./adapters/hotkey.js'));
+      const m = await import(/* @vite-ignore */ resolver('./adapters/hotkey.js'));
       const aPrem = m?.createHotkeyAdapter?.('premiere', 'Adobe Premiere Pro');
       if (aPrem) adapters.push(aPrem);
     } catch {}
@@ -1018,4 +1018,3 @@ try {
 
 // --- Compatibility recorder surface used by the app ---
 // Provides a small surface with idempotent lifecycle and status events.
-

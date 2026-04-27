@@ -385,7 +385,7 @@ export async function listHearthReadyScripts(workspaceId: string): Promise<Heart
   const safeWorkspaceId = normalizeUuid(workspaceId);
   if (!safeWorkspaceId) return [];
 
-  const url = `/tongs/workspaces/${encodeURIComponent(safeWorkspaceId)}/ready-scripts?unrecorded=1&include_hidden=1`;
+  const url = `/tongs/workspaces/${encodeURIComponent(safeWorkspaceId)}/ready-scripts?include_hidden=1`;
   const response = await tongsFetch(url, { method: "GET" });
   if (!response.ok) return [];
 

@@ -27,7 +27,7 @@ async function runWithSupabaseAuthLock<Result>(
   fn: () => Promise<Result>,
 ): Promise<Result> {
   const previous = (supabaseAuthLockQueues.get(name) ?? Promise.resolve()).catch(() => undefined);
-  let releaseCurrent: (() => void) | null = null;
+  let releaseCurrent: (() => void) | undefined;
   const current = new Promise<void>((resolve) => {
     releaseCurrent = resolve;
   });
@@ -38,7 +38,9 @@ async function runWithSupabaseAuthLock<Result>(
   try {
     return await fn();
   } finally {
-    releaseCurrent?.();
+    if (releaseCurrent) {
+      releaseCurrent();
+    }
     if (supabaseAuthLockQueues.get(name) === queued) {
       supabaseAuthLockQueues.delete(name);
     }

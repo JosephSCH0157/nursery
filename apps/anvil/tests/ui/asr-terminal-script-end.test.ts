@@ -86,4 +86,86 @@ describe('ASR terminal script-end watchdog suppression', () => {
     warnSpy.mockRestore();
     driver.dispose();
   });
+
+  test('applies starvation override for single-step live target under live guard', () => {
+    document.body.innerHTML = `
+      <main id="viewer" class="viewer" style="overflow-y:auto">
+        <div id="script">
+          <div class="line" data-line="0">Alpha opening line</div>
+          <div class="line" data-line="1">Beta bridge line</div>
+          <div class="line" data-line="2">Gamma follow line</div>
+        </div>
+      </main>
+    `;
+
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 500 });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 1600 });
+    Object.defineProperty(scroller, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 0, left: 0, right: 400, bottom: 500, width: 400, height: 500 }),
+    });
+    scroller.scrollTop = 0;
+
+    const lineEls = Array.from(document.querySelectorAll<HTMLElement>('.line'));
+    lineEls.forEach((lineEl, idx) => {
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: idx * 180 });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: 120 });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: 120 });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: idx * 180,
+          left: 0,
+          right: 400,
+          bottom: idx * 180 + 120,
+          width: 400,
+          height: 120,
+        }),
+      });
+    });
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(0);
+
+    // Prime a forward commit so starvation detection has a commit anchor.
+    driver.ingest('Beta bridge line', true, {
+      currentIdx: 0,
+      matchId: 'prime-forward',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.96,
+        topScores: [{ idx: 1, score: 0.96 }],
+      },
+    });
+    jest.advanceTimersByTime(50);
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    // Mark runtime speech as active so override eligibility is satisfied.
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    // Force starvation window; then request exactly +1 (requested == liveStepTarget).
+    jest.advanceTimersByTime(1700);
+    driver.ingest('Gamma follow line', true, {
+      currentIdx: 1,
+      matchId: 'equal-live-step',
+      match: {
+        bestIdx: 2,
+        bestSim: 0.84,
+        topScores: [{ idx: 2, score: 0.84 }],
+      },
+    });
+    jest.advanceTimersByTime(50);
+
+    expect(driver.getLastLineIndex()).toBe(2);
+    expect(
+      warnSpy.mock.calls.some((call) => String(call[0]).includes('ASR_STALL_RECOVERY_OVERRIDE')),
+    ).toBe(true);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
 });

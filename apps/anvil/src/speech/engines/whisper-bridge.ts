@@ -409,10 +409,12 @@ class WhisperBridgeRecognizer {
   private requestsInFlight = 0;
   private lastAiSnapshotKey = "";
   private seq = 0;
+  private generation = 0;
   private unauthorized = false;
   private requestInvalid = false;
   private consecutiveUnsupportedAudioErrors = 0;
   private deterministicLatchLogged = false;
+  private readonly inFlightTranscriptionControllers = new Set<AbortController>();
 
   constructor(options: WhisperBridgeRecognizerOptions = {}) {
     this.route = options.route || DEFAULT_ROUTE;
@@ -510,6 +512,8 @@ class WhisperBridgeRecognizer {
     this.deterministicLatchLogged = false;
     this.pendingRecorderStop = null;
     this.endEmitted = false;
+    this.generation += 1;
+    this.abortInFlightTranscriptions();
     this.running = true;
     this.startRecorderSegment();
     this.syncAiActivity();
@@ -519,9 +523,11 @@ class WhisperBridgeRecognizer {
   stop(): void {
     if (!this.recorder && !this.running) return;
     this.running = false;
+    this.generation += 1;
     this.queue = [];
     this.pendingRecorderStop = "final";
     this.clearSegmentTimer();
+    this.abortInFlightTranscriptions();
     this.syncAiActivity();
     try { this.recorder?.requestData(); } catch {}
     try {
@@ -537,6 +543,88 @@ class WhisperBridgeRecognizer {
 
   abort(): void {
     this.stop();
+  }
+
+  private abortInFlightTranscriptions(): void {
+    if (this.inFlightTranscriptionControllers.size === 0) return;
+    for (const controller of this.inFlightTranscriptionControllers) {
+      try {
+        controller.abort();
+      } catch {
+        // ignore abort errors
+      }
+    }
+    this.inFlightTranscriptionControllers.clear();
+  }
+
+  private isAbortError(error: unknown): boolean {
+    if (!error || typeof error !== "object") return false;
+    const named = (error as { name?: unknown }).name;
+    if (typeof named === "string" && named.toLowerCase() === "aborterror") return true;
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    return /aborted?/i.test(message);
+  }
+
+  private readLiveArmedState(): {
+    known: boolean;
+    liveArmed: boolean;
+    phase: string | null;
+    armed: boolean | null;
+  } {
+    try {
+      const store = (window as any).__tpStore;
+      if (store && typeof store.get === "function") {
+        const phaseRaw = String(store.get("session.phase") || "").trim().toLowerCase();
+        const armed = !!store.get("session.asrArmed");
+        const liveArmed = phaseRaw === "live" && armed;
+        return {
+          known: phaseRaw.length > 0,
+          liveArmed,
+          phase: phaseRaw || null,
+          armed,
+        };
+      }
+    } catch {
+      // ignore lookup failures
+    }
+    // If session SSOT is unavailable, keep legacy permissive behavior.
+    return {
+      known: false,
+      liveArmed: true,
+      phase: null,
+      armed: null,
+    };
+  }
+
+  private getStaleDropReason(requestGeneration: number): string | null {
+    if (requestGeneration !== this.generation) return "generation-mismatch";
+    if (!this.running) return "recognizer-stopped";
+    const liveState = this.readLiveArmedState();
+    if (liveState.known && !liveState.liveArmed) return "session-not-live-armed";
+    return null;
+  }
+
+  private logStaleResponseDropped(info: {
+    seq: number;
+    reason: string;
+    requestGeneration: number;
+    currentGeneration: number;
+  }): void {
+    if (!shouldLogLevel(1)) return;
+    const liveState = this.readLiveArmedState();
+    try {
+      console.warn("[whisper-bridge] whisper_stale_response_dropped", {
+        seq: info.seq,
+        reason: info.reason,
+        requestGeneration: info.requestGeneration,
+        currentGeneration: info.currentGeneration,
+        running: this.running,
+        phase: liveState.phase,
+        asrArmed: liveState.armed,
+      });
+    } catch {
+      // ignore logging failures
+    }
   }
 
   private startRecorderSegment(): void {
@@ -721,20 +809,42 @@ class WhisperBridgeRecognizer {
         const queueDepthAfter = this.queue.length;
         this.requestsInFlight += 1;
         this.syncAiActivity();
+        const requestGeneration = this.generation;
         try {
           const payload = await this.transcribe(
             next.blob,
             next.seq,
+            requestGeneration,
             next.durationMs,
             queueDepthBefore,
             queueDepthAfter,
           );
+          const staleDropReason = this.getStaleDropReason(requestGeneration);
+          if (staleDropReason) {
+            this.logStaleResponseDropped({
+              seq: next.seq,
+              reason: staleDropReason,
+              requestGeneration,
+              currentGeneration: this.generation,
+            });
+            continue;
+          }
           this.lastModel = payload.model ?? this.lastModel;
           this.lastAiError = null;
           this.consecutiveUnsupportedAudioErrors = 0;
           this.logRecoveredChunkViaServerFallback(payload, next.seq);
           this.handleTranscript(payload);
         } catch (error) {
+          const staleDropReason = this.getStaleDropReason(requestGeneration);
+          if (staleDropReason || this.isAbortError(error)) {
+            this.logStaleResponseDropped({
+              seq: next.seq,
+              reason: staleDropReason ?? "request-aborted",
+              requestGeneration,
+              currentGeneration: this.generation,
+            });
+            continue;
+          }
           let message = error instanceof Error ? error.message : "Whisper bridge error";
           this.lastAiError = message;
           if (
@@ -953,11 +1063,15 @@ class WhisperBridgeRecognizer {
   private async transcribe(
     blob: Blob,
     seq: number,
+    requestGeneration: number,
     durationMs?: number,
     queueDepthBefore?: number,
     queueDepthAfter?: number,
   ): Promise<WhisperBridgeResponse> {
     const accessToken = await resolveWhisperAccessToken();
+    if (this.getStaleDropReason(requestGeneration)) {
+      throw new Error("whisper_stale_response");
+    }
 
     const form = new FormData();
     const mimeType = blob.type || this.recorderMimeType || chooseMimeType();
@@ -987,15 +1101,32 @@ class WhisperBridgeRecognizer {
       requestInvalid: this.requestInvalid,
     });
 
-    const response = await fetch(this.route, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: form,
-      cache: "no-store",
-      credentials: "same-origin",
-    });
+    const abortController = new AbortController();
+    this.inFlightTranscriptionControllers.add(abortController);
+    if (this.getStaleDropReason(requestGeneration)) {
+      try {
+        abortController.abort();
+      } catch {
+        // ignore abort errors
+      }
+      this.inFlightTranscriptionControllers.delete(abortController);
+      throw new Error("whisper_stale_response");
+    }
+    let response: Response;
+    try {
+      response = await fetch(this.route, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: form,
+        cache: "no-store",
+        credentials: "same-origin",
+        signal: abortController.signal,
+      });
+    } finally {
+      this.inFlightTranscriptionControllers.delete(abortController);
+    }
 
     const rawText = await response.text();
     let payload: WhisperBridgeResponse = {};
@@ -1029,6 +1160,9 @@ class WhisperBridgeRecognizer {
         }
       }
       throw new WhisperBridgeHttpError(response.status, readResponseError(payload, response.status), payload);
+    }
+    if (this.getStaleDropReason(requestGeneration)) {
+      throw new Error("whisper_stale_response");
     }
     return payload;
   }

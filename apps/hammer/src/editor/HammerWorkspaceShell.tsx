@@ -239,6 +239,7 @@ import {
 } from "./hammerAudioProcessingBackend";
 import { buildHammerMediaBackboneRuntimeSummary } from "../media/hammerMediaBackbone";
 import { preserveTranscriptMetadata } from "../prep/hammerPrep";
+import { resolveHammerRecordingIdentityStatus } from "./hammerRecordingIdentity";
 import {
   clampImagePlacementTransform,
   clampNumber,
@@ -426,6 +427,7 @@ const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
 
 type HammerWorkspaceShellProps = {
   launchContext?: HammerLaunchContext;
+  canonicalMediaPath?: string | null;
   recordingRevisionId?: string | null;
   structuredTranscript?: HammerPersistedStructuredTranscript | null;
   editorialAuthorityGraph?: HammerEditorialAuthorityGraph | null;
@@ -449,6 +451,7 @@ type HammerWorkspaceShellProps = {
   onRequestResetToRaw?: () => void;
   onRequestRegenerateAiTranscript?: () => void;
   regenerateAiTranscriptDisabled?: boolean;
+  transcriptVersionRegistry?: import("../../../../packages/contracts/hammer/transcript-versions.contract").HammerPersistedTranscriptVersionRegistry | null;
   onHistoryRecoveryStatusChange?: (status: string | null) => void;
   onWorkspaceSnapshotChange?: (
     snapshot: HammerWorkspaceSnapshot,
@@ -732,25 +735,6 @@ function toErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   if (typeof error === "string" && error.trim()) return error;
   return fallback;
-}
-
-function normalizeLabelForComparison(value: string | null | undefined): string {
-  const raw = value?.trim() ?? "";
-  if (!raw) return "";
-  return raw
-    .toLowerCase()
-    .replace(/[_\-]+/g, " ")
-    .replace(/[^a-z0-9 ]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function isSystemMediaLabel(value: string | null | undefined): boolean {
-  const raw = value?.trim() ?? "";
-  if (!raw) return true;
-  return raw.startsWith("tongs:")
-    || raw.includes("/")
-    || raw.includes("\\");
 }
 
 function isSubtractiveTranscriptEdit(previousText: string, nextText: string): boolean {
@@ -1250,6 +1234,7 @@ function HammerWorkspaceShellWithContext(
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
   const previewAudioRef = useRef<HTMLVideoElement | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const segmentationSourceVideoRef = useRef<HTMLVideoElement | null>(null);
   const previewVideoHardSeekAtMsRef = useRef<number>(0);
   const previewSurfaceRef = useRef<HTMLDivElement | null>(null);
   const imageAnimationContextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -1583,6 +1568,12 @@ function HammerWorkspaceShellWithContext(
   const legacyCaptureLabel = launchContext.media.kind === "dev-tone"
     ? null
     : launchContext.media.label ?? null;
+  const recordingIdentity = useMemo(() => resolveHammerRecordingIdentityStatus({
+    canonicalWorkpieceLabel,
+    legacyCaptureLabel,
+    canonicalMediaPath: props.canonicalMediaPath ?? null,
+    mediaRef,
+  }), [canonicalWorkpieceLabel, legacyCaptureLabel, mediaRef, props.canonicalMediaPath]);
   const playbackLocalRootAbs = workspaceMapping?.local_root_abs
     ?? (launchContext.media.kind === "mapped-local" ? (launchContext.media.media_root_abs ?? null) : null);
   const mediaBackboneRuntime = useMemo(
@@ -1993,6 +1984,7 @@ function HammerWorkspaceShellWithContext(
     resolveTransportTimeForMediaTime: resolveTransportTimeForActiveMediaTime,
     playbackMediaSrc: effectivePlaybackMediaSrc,
     previewVideoSrc: effectivePreviewVideoSrc,
+    segmentationVideoSrc: previewVideoSrc,
     visualPolishPreviewActive,
     focusOverride,
     playheadSec,
@@ -2004,6 +1996,7 @@ function HammerWorkspaceShellWithContext(
     selectionOriginRef,
     previewAudioRef,
     previewVideoRef,
+    segmentationVideoRef: segmentationSourceVideoRef,
     previewVideoHardSeekAtMsRef,
     cutSeekFadeRef,
     scrubRectRef,
@@ -3044,14 +3037,8 @@ function HammerWorkspaceShellWithContext(
     setStudioRackRenderStatus,
     inferPlaybackMimeTypeFromPath,
   });
-  const mediaLabelMismatchWarning = useMemo(() => {
-    const canonical = normalizeLabelForComparison(canonicalWorkpieceLabel);
-    const legacy = normalizeLabelForComparison(legacyCaptureLabel);
-    if (!canonical || !legacy) return null;
-    if (isSystemMediaLabel(legacyCaptureLabel)) return null;
-    if (canonical.includes(legacy) || legacy.includes(canonical)) return null;
-    return `Capture label "${legacyCaptureLabel}" does not match this episode title "${canonicalWorkpieceLabel}".`;
-  }, [canonicalWorkpieceLabel, legacyCaptureLabel]);
+  const mediaLabelMismatchWarning = recordingIdentity.labelMismatchWarning;
+  const actualRecordingMismatchWarning = recordingIdentity.actualRecordingMismatchWarning;
   const canUndo = historyController?.canUndo() ?? false;
   const canRedo = historyController?.canRedo() ?? false;
   const undoLabel = historyController?.peekUndoEntry()?.label ?? null;
@@ -3720,6 +3707,7 @@ function HammerWorkspaceShellWithContext(
 
   useHammerWorkspaceShellHistoryController({
     launchContext,
+    actualRecordingMismatchWarning,
     recordingRevisionId: props.recordingRevisionId ?? null,
     editorialAuthorityGraph: props.editorialAuthorityGraph ?? null,
     structuredTranscriptResetKey,
@@ -6891,9 +6879,11 @@ function HammerWorkspaceShellWithContext(
     visualPolishPreviewActive,
     previewSurfaceRef,
     previewVideoRef,
+    segmentationSourceVideoRef,
     previewAudioRef,
     previewBrollVideoRefs,
     effectivePreviewVideoSrc,
+    segmentationSourceVideoSrc: previewVideoSrc,
     effectivePlaybackMediaSrc,
     isPlaybackActive,
     playbackWindow,
@@ -6906,6 +6896,7 @@ function HammerWorkspaceShellWithContext(
     playbackModeLabel,
     playbackSourceLabel,
     mediaLabelMismatchWarning,
+    actualRecordingMismatchWarning,
     studioRackPlaybackConfig,
     currentPass,
     selectedImageAnimationLabel,
@@ -6950,6 +6941,7 @@ function HammerWorkspaceShellWithContext(
     handlePlaybackProgressWithOrigin,
     isPlaybackActive,
     isVisualPreviewAuthority,
+    actualRecordingMismatchWarning,
     mediaLabelMismatchWarning,
     packagingIntroPlacement,
     packagingLogoPlacement,
@@ -6962,6 +6954,7 @@ function HammerWorkspaceShellWithContext(
     previewAudioRef,
     previewBrollVideoRefs,
     previewVideoRef,
+    segmentationSourceVideoRef,
     previewVideoSrc,
     previewMode,
     previewSurfaceLabel,
@@ -7542,6 +7535,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     canonicalWorkpieceLabel,
     legacyCaptureLabel,
     mediaLabelMismatchWarning,
+    actualRecordingMismatchWarning,
     selectedMacroRecipeRef: props.selectedMacroRecipeRef ?? null,
     lastMacroRunRef: props.lastMacroRunRef ?? null,
     canonicalStructuredTranscript: canonicalStructuredTranscriptForPersistence,

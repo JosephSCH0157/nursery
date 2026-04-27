@@ -149,6 +149,7 @@ export function buildSourceBayVM(args: any) {
     aiInUse: Boolean(args.props.aiInUse),
     onRequestRegenerateAiTranscript: args.props.onRequestRegenerateAiTranscript,
     regenerateAiTranscriptDisabled: args.props.regenerateAiTranscriptDisabled ?? false,
+    transcriptVersionRegistry: args.props.transcriptVersionRegistry ?? null,
     undo: {
       canUndo: args.canUndo,
       label: args.undoLabel,
@@ -310,6 +311,15 @@ export function buildPreviewBayVM(args: any) {
     previewVideoSrc: args.effectivePreviewVideoSrc,
     activePreviewOverlays: args.activePreviewOverlays ?? [],
   });
+  const segmentationSourceVideoRef = args.segmentationSourceVideoRef ?? args.previewVideoRef;
+  const segmentationSourceVideoSrc = typeof args.segmentationSourceVideoSrc === "string"
+    ? args.segmentationSourceVideoSrc
+    : (typeof args.effectivePreviewVideoSrc === "string" ? args.effectivePreviewVideoSrc : null);
+  const segmentationSourceMatchesDisplayedBase = Boolean(
+    segmentationSourceVideoSrc
+      && args.effectivePreviewVideoSrc
+      && segmentationSourceVideoSrc === args.effectivePreviewVideoSrc,
+  );
   const hasBackgroundEffectRequest = Boolean(
     args.visualBackgroundBlur || args.visualBackgroundReplaceEnabled || args.visualBackgroundWashEnabled,
   );
@@ -320,9 +330,11 @@ export function buildPreviewBayVM(args: any) {
     visualPolishPreviewActive: args.visualPolishPreviewActive,
     previewSurfaceRef: args.previewSurfaceRef,
     previewVideoRef: args.previewVideoRef,
+    segmentationSourceVideoRef,
     previewAudioRef: args.previewAudioRef,
     previewBrollVideoRefs: args.previewBrollVideoRefs,
     previewVideoSrc: args.effectivePreviewVideoSrc,
+    segmentationSourceVideoSrc,
     playbackMediaSrc: args.effectivePlaybackMediaSrc,
     isPlaybackActive: args.isPlaybackActive,
     playbackWindow: args.playbackWindow,
@@ -335,6 +347,7 @@ export function buildPreviewBayVM(args: any) {
     playbackModeLabel: args.playbackModeLabel,
     playbackSourceLabel: args.playbackSourceLabel,
     mediaLabelMismatchWarning: args.mediaLabelMismatchWarning,
+    actualRecordingMismatchWarning: args.actualRecordingMismatchWarning,
     playbackBackendLabel: args.studioRackPlaybackConfig.backend,
     currentPassId: args.currentPass,
     selectedImageAnimationLabel: args.selectedImageAnimationLabel,
@@ -345,9 +358,12 @@ export function buildPreviewBayVM(args: any) {
       : null,
     previewSurfaceLabel: args.previewSurfaceLabel,
     backgroundEffect: {
-      enabled: polishPreviewTarget.segmentationEligible && hasBackgroundEffectRequest,
+      enabled: polishPreviewTarget.segmentationEligible
+        && hasBackgroundEffectRequest
+        && segmentationSourceMatchesDisplayedBase,
       settings: args.backgroundBlurSettings,
       providerId: args.visualBackgroundBlurProviderId,
+      sourceVideoRef: segmentationSourceVideoRef,
       debugMasks: args.visualBackgroundBlurDebugMask,
       maskPreviewMode: args.visualBackgroundMaskPreviewMode,
       maskPreviewStage: args.visualBackgroundMaskPreviewStage,
@@ -355,7 +371,9 @@ export function buildPreviewBayVM(args: any) {
       onCanvas: args.handleBackgroundEffectCanvas,
     },
     eyeContactAssist: {
-      enabled: polishPreviewTarget.segmentationEligible && args.visualEyeContactAssistEnabled,
+      enabled: polishPreviewTarget.segmentationEligible
+        && segmentationSourceMatchesDisplayedBase
+        && args.visualEyeContactAssistEnabled,
       strength: Math.max(0, Math.min(1, Number(args.visualEyeContactAssistStrength) || 0)),
       backgroundCanvasRef: args.visualBackgroundEffectCanvasRef,
       useBackgroundCanvasAsSource: args.eyeContactUseBackgroundCanvasAsSource,

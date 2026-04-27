@@ -6,6 +6,7 @@ const FINAL_TRANSCRIPT_PREFIX = "anvil/transcript/final";
 const LOCAL_SNAPSHOT_KEY_PREFIX = "forge_anvil_live_transcript_v1:";
 const SNAPSHOT_PERSIST_INTERVAL_MS = 1_500;
 const DEFAULT_SPEAKER = "unknown";
+const FINAL_HYPOTHESIS_BOUNDARY_WINDOW_MS = 1_200;
 
 type TranscriptPayload = {
   text?: unknown;
@@ -133,6 +134,9 @@ type ActiveTranscriptSession = {
   segments: HammerTranscriptSegment[];
   partialText: string | null;
   partialStartSec: number | null;
+  pendingFinalText: string | null;
+  pendingFinalStartSec: number | null;
+  lastFinalHypothesisAtMs: number;
   eventCount: number;
   lastPersistedAtMs: number;
   finalized: boolean;
@@ -189,6 +193,105 @@ function pushFinalSegment(session: ActiveTranscriptSession, text: string, endSec
     speaker: DEFAULT_SPEAKER,
     text,
   });
+}
+
+function buildCanonicalTranscriptText(session: ActiveTranscriptSession): string {
+  return session.segments
+    .map((segment) => readText(segment.text))
+    .filter((segment): segment is string => !!segment)
+    .join(" ");
+}
+
+function splitWords(value: string): string[] {
+  return String(value || "")
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+}
+
+function trimCommittedPrefix(candidateText: string, committedText: string): string {
+  const candidate = readText(candidateText) ?? "";
+  const committed = readText(committedText) ?? "";
+  if (!candidate) return "";
+  if (!committed) return candidate;
+  if (candidate === committed) return "";
+  if (candidate.startsWith(`${committed} `)) {
+    return readText(candidate.slice(committed.length)) ?? "";
+  }
+  if (candidate.startsWith(committed)) {
+    return readText(candidate.slice(committed.length)) ?? "";
+  }
+
+  const committedWords = splitWords(committed);
+  const candidateWords = splitWords(candidate);
+  const maxOverlap = Math.min(committedWords.length, candidateWords.length, 24);
+  for (let overlap = maxOverlap; overlap >= 1; overlap -= 1) {
+    const committedTail = committedWords.slice(committedWords.length - overlap).join(" ");
+    const candidateHead = candidateWords.slice(0, overlap).join(" ");
+    if (committedTail && committedTail === candidateHead) {
+      return readText(candidateWords.slice(overlap).join(" ")) ?? "";
+    }
+  }
+  return candidate;
+}
+
+function commitPendingFinal(session: ActiveTranscriptSession, endSec: number): boolean {
+  const pendingText = readText(session.pendingFinalText);
+  const pendingStartSec = session.pendingFinalStartSec;
+  if (!pendingText) {
+    session.pendingFinalText = null;
+    session.pendingFinalStartSec = null;
+    return false;
+  }
+  const appendableText = trimCommittedPrefix(pendingText, buildCanonicalTranscriptText(session));
+  session.pendingFinalText = null;
+  session.pendingFinalStartSec = null;
+  if (!appendableText) {
+    session.partialText = null;
+    session.partialStartSec = null;
+    return false;
+  }
+  if (pendingStartSec != null) {
+    session.partialStartSec = pendingStartSec;
+  }
+  pushFinalSegment(session, appendableText, endSec);
+  session.partialText = null;
+  session.partialStartSec = null;
+  return true;
+}
+
+function absorbFinalHypothesis(session: ActiveTranscriptSession, text: string, endSec: number): boolean {
+  const finalText = readText(text);
+  if (!finalText) return false;
+  const now = safeNow();
+  const pendingText = readText(session.pendingFinalText);
+  if (!pendingText) {
+    session.pendingFinalText = finalText;
+    session.pendingFinalStartSec = session.partialStartSec;
+    session.partialText = finalText;
+    session.lastFinalHypothesisAtMs = now;
+    return false;
+  }
+
+  const boundaryElapsedMs = Math.max(0, now - session.lastFinalHypothesisAtMs);
+  session.lastFinalHypothesisAtMs = now;
+
+  if (finalText === pendingText) {
+    return commitPendingFinal(session, endSec);
+  }
+
+  const pendingAsPrefix = finalText.startsWith(`${pendingText} `) || finalText.startsWith(pendingText);
+  if (pendingAsPrefix && boundaryElapsedMs <= FINAL_HYPOTHESIS_BOUNDARY_WINDOW_MS) {
+    session.pendingFinalText = finalText;
+    session.partialText = finalText;
+    return false;
+  }
+
+  const committed = commitPendingFinal(session, endSec);
+  session.pendingFinalText = finalText;
+  session.pendingFinalStartSec = session.partialStartSec;
+  session.partialText = finalText;
+  return committed;
 }
 
 function buildSnapshot(session: ActiveTranscriptSession): RecordingTranscriptSnapshot {
@@ -261,9 +364,7 @@ export class RecordingTranscriptController {
     const isFinal = readBoolean(detail?.final) || readBoolean(detail?.isFinal);
     const endSec = toSeconds(safeTimestampMs(session.recordingStartedAtMs));
     if (isFinal) {
-      pushFinalSegment(session, text, endSec);
-      session.partialText = null;
-      session.partialStartSec = null;
+      absorbFinalHypothesis(session, text, endSec);
       session.status = "live";
       session.degradedReason = null;
       this.emitState();
@@ -307,6 +408,9 @@ export class RecordingTranscriptController {
       segments: [],
       partialText: null,
       partialStartSec: null,
+      pendingFinalText: null,
+      pendingFinalStartSec: null,
+      lastFinalHypothesisAtMs: 0,
       eventCount: 0,
       lastPersistedAtMs: 0,
       finalized: false,
@@ -379,6 +483,9 @@ export class RecordingTranscriptController {
     } catch {}
 
     window.removeEventListener("tp:speech:transcript", this.transcriptListener as EventListener);
+
+    const stopEndSec = toSeconds(args.mediaDurationMs ?? safeTimestampMs(session.recordingStartedAtMs));
+    commitPendingFinal(session, stopEndSec);
 
     if (session.partialText) {
       const durationMs = args.mediaDurationMs ?? safeTimestampMs(session.recordingStartedAtMs);

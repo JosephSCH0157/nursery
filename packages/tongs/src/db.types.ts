@@ -707,6 +707,7 @@ export type Database = {
           pass_status: Json
           editor_session_path: string | null
           transcript_artifact_path: string | null
+          transcript_versions_artifact_path: string | null
           speaker_map_artifact_path: string | null
           visual_placement_artifact_path: string | null
           audio_polish_artifact_path: string | null
@@ -729,6 +730,7 @@ export type Database = {
           pass_status?: Json
           editor_session_path?: string | null
           transcript_artifact_path?: string | null
+          transcript_versions_artifact_path?: string | null
           speaker_map_artifact_path?: string | null
           visual_placement_artifact_path?: string | null
           audio_polish_artifact_path?: string | null
@@ -751,6 +753,7 @@ export type Database = {
           pass_status?: Json
           editor_session_path?: string | null
           transcript_artifact_path?: string | null
+          transcript_versions_artifact_path?: string | null
           speaker_map_artifact_path?: string | null
           visual_placement_artifact_path?: string | null
           audio_polish_artifact_path?: string | null

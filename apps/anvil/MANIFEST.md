@@ -65,6 +65,8 @@ In `scrollMode='asr'`:
 - `session.scrollAutoOnLive` must not gate ASR startup/attach decisions.
 - ASR driver attach/readiness is independent from movement arming: mode selection with script blocks present should attach/create driver + ingest path before live.
 - `session.asrArmed` gates ASR movement permission only (commit may process bookkeeping while unarmed, but must not write scroll).
+- Live ASR movement authority is absolute: every ASR-driven movement path must pass `canAsrMove()` (`scrollMode==='asr'`, live, armed, focused, `visibilityState==='visible'`, fresh post-focus final proof). If this gate is false (`asr_focus_lost_movement_hold`), block all movement classes: ASR commits, forced commits, bridge commits, rescue/watchdog commits, readability nudges, marker snaps, writer truth corrections, and recovery snaps. On focus regain, movement remains blocked until one fresh post-focus final ASR proof is observed, and transcript accumulated while unfocused must not be consumed as movement proof.
+- Reader leash limits are speakable-first, never physical-line-first: leash advancement is measured by next strict speakable landing(s) from fresh proof, so cue/blank/ignorable intermediates must not block a proven next-speakable bridge commit.
 - Must only move on ASR commit (`tp:asr:commit` or canonical equivalent).
 - ASR movement authority is single-lane: `speech-loader -> asr-scroll-driver` commit path owns movement in ASR mode.
 - Transcript/ASR lifecycle wiring must be single-instance per window: repeated mode-router or scroll-router init/toggle cycles must not stack duplicate subscriptions/listeners.

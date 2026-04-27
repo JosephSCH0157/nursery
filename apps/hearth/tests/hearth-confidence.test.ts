@@ -1049,7 +1049,7 @@ async function testReadyScriptsRoundtripIgnoresLegacyLocalOrder() {
     assert.equal(harness.listRequests.length, 1);
     assert.equal(harness.listRequests[0]?.workspaceId, WORKSPACE_ID);
     assert.equal(harness.listRequests[0]?.includeHidden, "1");
-    assert.equal(harness.listRequests[0]?.unrecorded, "1");
+    assert.equal(harness.listRequests[0]?.unrecorded, null);
     assert.equal(scripts[0]?.queueRank, 0);
     assert.equal(scripts[0]?.hiddenAt, "2026-03-10T14:31:00.000Z");
     assert.equal(scripts[0]?.hiddenBy, WORKPIECE_A);

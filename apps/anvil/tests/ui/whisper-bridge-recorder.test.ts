@@ -250,4 +250,75 @@ describe('whisper bridge recorder segmentation', () => {
     recognizer.stop();
     await flushMicrotasks();
   });
+
+  test('drops stale in-flight whisper responses after stop and logs stale-drop marker', async () => {
+    jest.doMock('../../src/forge/supabaseClient', () => ({
+      supabase: {
+        auth: {
+          getSession: jest.fn(async () => ({
+            data: {
+              session: {
+                access_token: 'test-access-token',
+              },
+            },
+            error: null,
+          })),
+        },
+      },
+    }));
+
+    const recorderInstances = installMockRecorder();
+    let resolveFetch: ((value: Response) => void) | undefined;
+    const fetchMock = jest.fn(
+      () => new Promise<Response>((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
+    (globalThis as any).fetch = fetchMock;
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const inputStream = new MockMediaStream([new MockTrack()]);
+    (window as any).__tpMic = {
+      requestMic: jest.fn(async () => inputStream),
+    };
+
+    const { createWhisperBridgeRecognizer } = await import('../../src/speech/engines/whisper-bridge');
+    const recognizer = createWhisperBridgeRecognizer({ endpointingMs: 100 });
+    const finalPayloads: Array<{ text?: string }> = [];
+    recognizer.on('final', (payload) => {
+      finalPayloads.push(payload as { text?: string });
+    });
+
+    await recognizer.start();
+    expect(recorderInstances).toHaveLength(1);
+
+    recorderInstances[0]?.ondataavailable?.({
+      data: new Blob([new Uint8Array(4096)], { type: 'audio/webm' }),
+      timecode: 1000,
+    } as BlobEvent);
+    await flushMicrotasks();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    recognizer.stop();
+    await flushMicrotasks();
+
+    expect(resolveFetch).toBeDefined();
+    resolveFetch!(createMockJsonResponse(200, {
+      ok: true,
+      text: 'late transcript should be ignored',
+      provider_request_id: 'req_stale_response',
+    }));
+    await flushMicrotasks(12);
+
+    expect(finalPayloads).toHaveLength(0);
+    expect(warnSpy.mock.calls).toEqual(expect.arrayContaining([
+      [
+        '[whisper-bridge] whisper_stale_response_dropped',
+        expect.objectContaining({
+          seq: 1,
+        }),
+      ],
+    ]));
+  });
 });

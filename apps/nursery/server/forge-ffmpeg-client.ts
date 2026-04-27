@@ -127,13 +127,14 @@ export async function transcodeToWavWithForgeFfmpeg(args: {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const timeout = createTimeoutAbortController(args.client.timeoutMs);
     try {
+      const sourceBytesBody = new Uint8Array(args.sourceBytes);
       const response = await fetch(`${args.client.baseUrl}/transcode/wav`, {
         method: "POST",
         headers: {
           "content-type": readTrimmed(args.contentType) ?? "application/octet-stream",
           ...(readTrimmed(args.sourceFilename) ? { "x-file-name": readTrimmed(args.sourceFilename)! } : {}),
         },
-        body: args.sourceBytes,
+        body: sourceBytesBody,
         signal: timeout.controller.signal,
       });
 

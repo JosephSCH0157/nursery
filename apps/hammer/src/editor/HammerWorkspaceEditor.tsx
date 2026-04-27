@@ -10,6 +10,13 @@ import {
   buildHammerPreparedHandoffModel,
   type HammerPreparedNextStepActionId,
 } from "./hammerPreparedHandoff";
+import {
+  addVersionToRegistry,
+  countVersionsBySource,
+  normalizeTranscriptVersionRegistry,
+  HAMMER_TRANSCRIPT_VERSIONS_ARTIFACT_PATH,
+} from "../transcript/hammerTranscriptVersionRegistry";
+import type { HammerPersistedTranscriptVersionRegistry } from "../persistence/hammerPersistenceContract";
 import { applyHammerSessionAction } from "./hammerSessionActions";
 import {
   resolveHammerReloadFailure,
@@ -648,6 +655,13 @@ export default function HammerWorkspaceEditor(
     uncertainCountBefore: number | null;
     previousAiFallbackRequested: boolean;
   } | null>(null);
+  // Tracks a pending transcript version registry save after regen completes.
+  // Holds the transcript path that was current BEFORE regen started (the "Anvil original" to preserve).
+  const pendingVersionRegistryBootRef = useRef<{
+    transcriptPathBefore: string | null;
+    transcriptVersionRegistry: HammerPersistedTranscriptVersionRegistry | null;
+    regenFinishedAt: string | null;
+  } | null>(null);
   const openedAtRef = useRef(new Date().toISOString());
   const ingestCorrelationIdRef = useRef<string | null>(null);
   const ingestDiagnosticRef = useRef<HammerIngestDiagnosticV1 | null>(null);
@@ -953,6 +967,7 @@ export default function HammerWorkspaceEditor(
         state: null,
         editor_session: { path: null, updated_at: null, data: null },
         structured_transcript: { path: null, updated_at: null, data: null },
+        transcript_version_registry: { path: null, updated_at: null, data: null },
         speaker_map: { path: null, updated_at: null, data: null },
         visual_placements: { path: null, updated_at: null, data: null },
         visual_timeline: { path: null, updated_at: null, data: null },
@@ -1120,6 +1135,7 @@ export default function HammerWorkspaceEditor(
       state: null,
       editor_session: { path: null, updated_at: null, data: null },
       structured_transcript: { path: null, updated_at: null, data: null },
+      transcript_version_registry: { path: null, updated_at: null, data: null },
       speaker_map: { path: null, updated_at: null, data: null },
       visual_placements: { path: null, updated_at: null, data: null },
       visual_timeline: { path: null, updated_at: null, data: null },
@@ -1321,6 +1337,7 @@ export default function HammerWorkspaceEditor(
         visual_timeline_artifact_path: args.revision.visual_timeline_path,
         audio_polish_artifact_path: args.revision.audio_polish_path,
         edit_plan_artifact_path: null,
+        transcript_versions_artifact_path: null,
         editorial_authority_artifact_path: persistedState?.editorial_authority_artifact_path
           ?? persistedEditorialAuthority?.path
           ?? null,
@@ -1342,6 +1359,11 @@ export default function HammerWorkspaceEditor(
         path: args.revision.revision_transcript_path ?? args.canonicalRecording.baseline_transcript_path,
         updated_at: null,
         data: transcript,
+      },
+      transcript_version_registry: {
+        path: null,
+        updated_at: null,
+        data: null,
       },
       speaker_map: {
         path: args.canonicalRecording.baseline_speaker_map_path,
@@ -2021,6 +2043,13 @@ export default function HammerWorkspaceEditor(
         setRegenAiTranscriptError(null);
         setRegenAiTranscriptInFlight(false);
         setRegenAiTranscriptJobId(null);
+        // Mark the pending registry boot as ready for the next snapshot reload.
+        if (pendingVersionRegistryBootRef.current) {
+          pendingVersionRegistryBootRef.current = {
+            ...pendingVersionRegistryBootRef.current,
+            regenFinishedAt: finishedAt,
+          };
+        }
         setReloadRequestNonce((current) => current + 1);
         return;
       }
@@ -2043,6 +2072,87 @@ export default function HammerWorkspaceEditor(
       if (timer != null) window.clearTimeout(timer);
     };
   }, [canRunTongsBootEffects, regenAiTranscriptJobId, persistenceTarget, setReloadRequestNonce]);
+
+  // After a transcript regen job completes and the snapshot reloads, bootstrap/update the
+  // transcript version registry so the Anvil original and the new AI version are both tracked.
+  useEffect(() => {
+    const pending = pendingVersionRegistryBootRef.current;
+    if (!pending || !pending.regenFinishedAt) return;
+    if (!loadedPersistenceSnapshot || !persistenceTarget) return;
+
+    const newTranscriptPath = loadedPersistenceSnapshot.state?.transcript_artifact_path ?? null;
+    if (!newTranscriptPath) return;
+    // Confirm the transcript path actually changed (i.e., reload captured the new regen).
+    if (newTranscriptPath === pending.transcriptPathBefore) return;
+
+    const newTranscript = loadedPersistenceSnapshot.structured_transcript.data;
+    if (!newTranscript) return;
+
+    // Clear the pending ref immediately to prevent re-running this effect.
+    pendingVersionRegistryBootRef.current = null;
+
+    let registry = normalizeTranscriptVersionRegistry(pending.transcriptVersionRegistry);
+
+    // Bootstrap the registry with the Anvil original if it wasn't already persisted,
+    // but only if we have a prior transcript path to anchor to.
+    // We can't reconstruct the prior transcript object, so we synthesize a minimal entry.
+    if (!registry) {
+      if (pending.transcriptPathBefore) {
+        // Build a minimal registry: the new AI version is our only tracked entry (original path is recorded
+        // as the active-before path but not as a full structured transcript object, so we note it as anvil).
+        const syntheticAnvilEntry: import("../../../../packages/contracts/hammer/transcript-versions.contract").HammerTranscriptVersionEntry = {
+          version_id: `anvil_${Date.now().toString(36)}`,
+          label: "Anvil original",
+          source: "anvil",
+          created_at: new Date(0).toISOString(),
+          transcript_artifact_path: pending.transcriptPathBefore,
+          segment_count: 0,
+          model: null,
+          provider: null,
+          provider_request_id: null,
+          confidence_summary: null,
+        };
+        registry = {
+          schema_version: 1,
+          active_version_id: syntheticAnvilEntry.version_id,
+          versions: [syntheticAnvilEntry],
+        };
+      }
+    }
+
+    // Add the new AI version to the registry.
+    const regenCount = registry ? countVersionsBySource(registry, "hammer_ai") : 0;
+    const newVersionId = `tvid_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+    const newAiEntry: import("../../../../packages/contracts/hammer/transcript-versions.contract").HammerTranscriptVersionEntry = {
+      version_id: newVersionId,
+      label: `AI regeneration ${regenCount + 1}`,
+      source: "hammer_ai",
+      created_at: pending.regenFinishedAt,
+      transcript_artifact_path: newTranscriptPath,
+      segment_count: newTranscript.segments.length,
+      model: newTranscript.diarization?.model ?? null,
+      provider: newTranscript.diarization?.provider ?? null,
+      provider_request_id: newTranscript.diarization?.provider_request_id ?? null,
+      confidence_summary: null,
+    };
+
+    const updatedRegistry: HammerPersistedTranscriptVersionRegistry = registry
+      ? addVersionToRegistry(registry, newAiEntry)
+      : { schema_version: 1, active_version_id: newVersionId, versions: [newAiEntry] };
+
+    // Save the updated registry to Supabase via the normal save path.
+    void saveHammerPersistenceSnapshot(persistenceTarget, {
+      written_by: { tool: "hammer", tool_version: "forge-v1.2.0/hammer-runtime", lane: "forge-managed" },
+      transcript_version_registry: {
+        path: HAMMER_TRANSCRIPT_VERSIONS_ARTIFACT_PATH,
+        data: updatedRegistry,
+      },
+    }).then((result) => {
+      if (result.ok) {
+        setLoadedPersistenceSnapshot(result.data);
+      }
+    });
+  }, [loadedPersistenceSnapshot, persistenceTarget]);
 
   useEffect(() => {
     if (!canRunTongsBootEffects) return;
@@ -3591,11 +3701,13 @@ export default function HammerWorkspaceEditor(
     sessionState,
     mediaPrepOutputs: handoffMediaPrepOutputs,
     mediaLabelMismatchWarning: workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning ?? null,
+    actualRecordingMismatchWarning: workspaceSnapshot?.diagnostics?.actualRecordingMismatchWarning ?? null,
     jobsStatusUnavailable,
   }), [
     handoffMediaPrepOutputs,
     jobsStatusUnavailable,
     sessionState,
+    workspaceSnapshot?.diagnostics?.actualRecordingMismatchWarning,
     workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning,
   ]);
   const diagnosticsIssueSetHash = useMemo(
@@ -3770,6 +3882,14 @@ export default function HammerWorkspaceEditor(
     setRegenAiTranscriptResult(null);
     setRegenAiTranscriptError(null);
     setRegenAiTranscriptInFlight(true);
+
+    // Record the current transcript path and version registry so we can bootstrap
+    // the version registry after regen completes (preserving the Anvil original).
+    pendingVersionRegistryBootRef.current = {
+      transcriptPathBefore: loadedPersistenceSnapshot?.state?.transcript_artifact_path ?? null,
+      transcriptVersionRegistry: loadedPersistenceSnapshot?.transcript_version_registry?.data ?? null,
+      regenFinishedAt: null,
+    };
 
     const prepSource = resolveHammerPrepSource(effectiveLaunchContext);
     if (!prepSource || prepSource.local_root_abs) {
@@ -4587,6 +4707,7 @@ export default function HammerWorkspaceEditor(
           ) : null}
           <HammerWorkspaceShell
             launchContext={effectiveLaunchContext}
+            canonicalMediaPath={activeCanonicalRecording?.media_path ?? null}
             recordingRevisionId={activeRevision?.id ?? null}
             structuredTranscript={loadedPersistenceSnapshot?.structured_transcript.data ?? null}
             editorialAuthorityGraph={loadedPersistenceSnapshot?.editorial_authority.data ?? null}
@@ -4607,6 +4728,7 @@ export default function HammerWorkspaceEditor(
             onRequestResetToRaw={canPersistCanonicalState ? handleResetToRaw : undefined}
             onRequestRegenerateAiTranscript={openRegenAiTranscriptModal}
             regenerateAiTranscriptDisabled={!canPersistCanonicalState || regenAiTranscriptInFlight}
+            transcriptVersionRegistry={loadedPersistenceSnapshot?.transcript_version_registry?.data ?? null}
             onHistoryRecoveryStatusChange={setHistoryRecoveryStatus}
             onWorkspaceSnapshotChange={canPersistCanonicalState ? handleWorkspaceSnapshotChange : undefined}
           />

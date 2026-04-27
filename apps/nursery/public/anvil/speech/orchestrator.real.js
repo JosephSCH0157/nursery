@@ -325,7 +325,7 @@ function matchBatch(spokenTokens, _scriptWords, paraIndex, vParaIndex, cfg, curr
 }
 
 // src/speech/matcher-input.ts
-var MATCH_TOKEN_WINDOW = 28;
+var MATCH_TOKEN_WINDOW = 18;
 var META_PHRASES = [
   /\bit(?:'s| is) not keeping up\b/gi,
   /\bit(?:'s| is) not moving\b/gi,

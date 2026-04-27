@@ -307,7 +307,7 @@ export default function TongsRecordingSessions() {
     setReadyError(null);
     try {
       const data = await tongsApiRequest<{ scripts: ReadyScriptCandidate[] }>(
-        `/tongs/workspaces/${encodeURIComponent(workspaceId)}/ready-scripts?unrecorded=1`,
+        `/tongs/workspaces/${encodeURIComponent(workspaceId)}/ready-scripts`,
         { method: "GET" },
       );
       if (readyCandidatesRequestSeqRef.current !== requestSeq) return;

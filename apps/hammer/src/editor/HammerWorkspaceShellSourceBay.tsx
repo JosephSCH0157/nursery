@@ -44,6 +44,7 @@ export type HammerWorkspaceShellSourceBayVM = {
   aiInUse: boolean;
   onRequestRegenerateAiTranscript?: () => void;
   regenerateAiTranscriptDisabled?: boolean;
+  transcriptVersionRegistry?: import("../../../../packages/contracts/hammer/transcript-versions.contract").HammerPersistedTranscriptVersionRegistry | null;
 
   undo: {
     canUndo: boolean;
@@ -707,6 +708,37 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
         <div className="hammer-source-status hammer-source-status--info" role="status">
           History: {vm.undo.depth} undo / {vm.redo.depth} redo
         </div>
+        {selectedSourceTab === "transcript" && vm.transcriptVersionRegistry ? (
+          <details className="hammer-transcript-versions" open>
+            <summary className="hammer-transcript-versions__head">
+              <strong>Transcript Versions</strong>
+              <span>{vm.transcriptVersionRegistry.versions.length} version{vm.transcriptVersionRegistry.versions.length !== 1 ? "s" : ""}</span>
+            </summary>
+            <ul className="hammer-transcript-versions__list">
+              {vm.transcriptVersionRegistry.versions.map((v) => {
+                const isActive = v.version_id === vm.transcriptVersionRegistry!.active_version_id;
+                const sourceLabel = v.source === "anvil" ? "Anvil original" : v.source === "hammer_ai" ? "AI regeneration" : "Imported";
+                return (
+                  <li
+                    key={v.version_id}
+                    className={`hammer-transcript-versions__entry${isActive ? " is-active" : ""}`}
+                    aria-current={isActive ? "true" : undefined}
+                  >
+                    <span className="hammer-transcript-versions__label">{v.label}</span>
+                    <span className="hammer-transcript-versions__source">{sourceLabel}</span>
+                    {v.segment_count != null ? (
+                      <span className="hammer-transcript-versions__meta">{v.segment_count} segments</span>
+                    ) : null}
+                    {v.model ? (
+                      <span className="hammer-transcript-versions__meta">Model: {v.model}</span>
+                    ) : null}
+                    {isActive ? <span className="hammer-transcript-versions__active-badge">Active</span> : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </details>
+        ) : null}
         {showAdvancedLayerState ? (
           <details className="hammer-layer-selector" aria-label="Advanced transcript layer controls">
             <summary className="hammer-layer-selector__head">

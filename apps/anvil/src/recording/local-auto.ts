@@ -12,12 +12,14 @@ import {
   type RecordingCommitResult,
 } from '../forge/workpiece-commit';
 import { startSpeechBackendForSession, stopSpeechBackendForSession } from '../features/speech-loader';
+import { ScriptStore } from '../features/scripts-store';
 import {
   hideRecordingFinalizeIndicator,
   showRecordingDecisionDialog,
   showRecordingFinalizeIndicator,
 } from './recording-decision-dialog';
 import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name';
+import { resolveActiveWorkpieceId } from '../forge/workpiece-context';
 import {
   RecordingTranscriptController,
   type RecordingTranscriptFinalizeResult,
@@ -42,6 +44,11 @@ import {
   let audioSampleRate = 48000;
   let recordingStartedAtMs: number | null = null;
   let activeStrategy: RecordingCaptureStrategy | null = null;
+  type RecordingSaveIdentity = {
+    workpieceId: string | null;
+    baseTitle: string;
+  };
+  let activeSaveIdentity: RecordingSaveIdentity | null = null;
   const transcriptController = new RecordingTranscriptController({
     ensureCaptureTarget: ensureRecordingCaptureTarget,
     commitJsonArtifact: commitRecordingJsonArtifactToTongs,
@@ -51,6 +58,43 @@ import {
   });
 
   const pad = (n: number) => String(n).padStart(2, '0');
+
+  const READY_SCRIPT_PREFIX = 'ready:';
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  function parseReadyScriptWorkpieceId(scriptId: string | null | undefined): string | null {
+    const raw = String(scriptId || '').trim();
+    if (!raw.toLowerCase().startsWith(READY_SCRIPT_PREFIX)) return null;
+    const rest = raw.slice(READY_SCRIPT_PREFIX.length);
+    const separator = rest.indexOf(':');
+    if (separator <= 0) return null;
+    const candidate = rest.slice(0, separator).trim().toLowerCase();
+    return UUID_RE.test(candidate) ? candidate : null;
+  }
+
+  function buildWorkpieceFallbackTitle(workpieceId: string): string {
+    return `Episode_${workpieceId.slice(0, 8)}`;
+  }
+
+  function getCurrentInputTitle(): string | null {
+    try {
+      const value = (document.getElementById('scriptTitle') as HTMLInputElement | null)?.value ?? null;
+      const trimmed = String(value || '').trim();
+      return trimmed.length > 0 ? trimmed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function getStoredTitle(): string | null {
+    try {
+      const value = localStorage.getItem('tp_last_script_title') || localStorage.getItem('tp_last_script_name');
+      const trimmed = String(value || '').trim();
+      return trimmed.length > 0 ? trimmed : null;
+    } catch {
+      return null;
+    }
+  }
 
   function readStorageLimitHintBytes(): number | null {
     try {
@@ -80,6 +124,66 @@ import {
     } catch {}
   }
 
+  function readCaptureSessionRunKey(): string | null {
+    try {
+      const fromAsr = String((window as any).__tpAsrRunKey || '').trim();
+      if (fromAsr) return fromAsr;
+    } catch {}
+    try {
+      const fromSession = sessionStorage.getItem('forge_anvil_capture_session_v1');
+      const trimmed = String(fromSession || '').trim();
+      if (trimmed) return trimmed;
+    } catch {}
+    return null;
+  }
+
+  function readWorkspaceIdForAudit(): string | null {
+    try {
+      const value = localStorage.getItem('forge_workspace_id_v1') || localStorage.getItem('barstock_workspace_id');
+      const trimmed = String(value || '').trim();
+      return trimmed || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function emitUploadFallbackAudit(detail: {
+    saveIdentity: RecordingSaveIdentity | null;
+    originalName: string;
+    bytes: number;
+    canonicalAttempted: boolean;
+    canonicalSucceeded: boolean;
+    fallbackUsed: boolean;
+    safeToLeave: boolean;
+    errorCode?: string | null;
+    errorMessage?: string | null;
+    finalStorageKey?: string | null;
+  }): void {
+    const cleanTitle = String(detail.saveIdentity?.baseTitle || '').trim();
+    const fallbackTitle = cleanTitle || String(detail.originalName || '').replace(/\.[^.]+$/, '').trim() || null;
+    const payload = {
+      sessionRunKey: readCaptureSessionRunKey(),
+      workpieceId: detail.saveIdentity?.workpieceId || null,
+      workspaceId: readWorkspaceIdForAudit(),
+      title: fallbackTitle,
+      scriptHash: String((window as any).__TP_LAST_APPLIED_HASH || '').trim() || null,
+      strategy: 'single' as const,
+      phase: 'failed' as const,
+      safeToLeave: detail.safeToLeave,
+      blobBytes: detail.bytes,
+      blobMb: Number((detail.bytes / (1024 * 1024)).toFixed(2)),
+      canonicalAttempted: detail.canonicalAttempted,
+      canonicalSucceeded: detail.canonicalSucceeded,
+      fallbackUsed: detail.fallbackUsed,
+      errorCode: detail.errorCode || null,
+      errorMessage: detail.errorMessage || null,
+      finalStorageKey: detail.finalStorageKey || null,
+    };
+    try {
+      window.dispatchEvent(new CustomEvent('tp:recording:upload-fallback', { detail: payload }));
+    } catch {}
+  }
+
   function isStorageTooLargeCommitResult(result: unknown): boolean {
     if (!result || typeof result !== 'object') return false;
     const row = result as {
@@ -100,10 +204,89 @@ import {
     return message.toLowerCase().includes('object size limit');
   }
 
+  function extractCommitErrorSummary(result: unknown): { code: string | null; message: string | null } {
+    if (!result || typeof result !== 'object') return { code: null, message: null };
+    const row = result as {
+      errorCode?: unknown;
+      errorMessage?: unknown;
+      details?: { error?: { code?: unknown; message?: unknown } };
+    };
+    const code =
+      typeof row.errorCode === 'string'
+        ? row.errorCode
+        : typeof row.details?.error?.code === 'string'
+        ? row.details.error.code
+        : null;
+    const message =
+      typeof row.errorMessage === 'string'
+        ? row.errorMessage
+        : typeof row.details?.error?.message === 'string'
+        ? row.details.error.message
+        : null;
+    return { code, message };
+  }
+
   function readCommitResultSuccess(
     result: RecordingCommitResult,
   ): Extract<RecordingCommitResult, { ok: true }> | null {
     return result.ok ? result : null;
+  }
+
+  // --- Pending recording decision persistence ---
+  // Written to localStorage before showing the keep/discard dialog so that a page
+  // reload or browser crash can recover and re-surface the decision prompt.
+  const PENDING_DECISION_KEY = 'anvil_pending_recording_decision_v1';
+  const PENDING_DECISION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+  type PendingRecordingDecisionState = {
+    v: 1;
+    savedAt: string;
+    takeName: string;
+    workpieceId: string;
+    filePath: string;
+    contentType: string;
+    bytes: number;
+    durationMs: number | null;
+    captureSessionId: string | null;
+    plannerRecordingSessionId: string | null;
+    createdCradle: boolean;
+    transcriptPath: string | null;
+    transcriptStatus: string | null;
+    transcriptSourcePath: string | null;
+    recordingMedium: string | null;
+    requiresPostNormalization: boolean;
+  };
+
+  function writePendingDecisionState(
+    state: Omit<PendingRecordingDecisionState, 'v' | 'savedAt'>,
+  ): void {
+    try {
+      const entry: PendingRecordingDecisionState = { v: 1, savedAt: new Date().toISOString(), ...state };
+      localStorage.setItem(PENDING_DECISION_KEY, JSON.stringify(entry));
+    } catch {}
+  }
+
+  function readPendingDecisionState(): PendingRecordingDecisionState | null {
+    try {
+      const raw = localStorage.getItem(PENDING_DECISION_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Partial<PendingRecordingDecisionState>;
+      if (parsed?.v !== 1) return null;
+      if (parsed.savedAt) {
+        const age = Date.now() - new Date(parsed.savedAt).getTime();
+        if (!Number.isFinite(age) || age > PENDING_DECISION_TTL_MS) {
+          try { localStorage.removeItem(PENDING_DECISION_KEY); } catch {}
+          return null;
+        }
+      }
+      return parsed as PendingRecordingDecisionState;
+    } catch {
+      return null;
+    }
+  }
+
+  function clearPendingDecisionState(): void {
+    try { localStorage.removeItem(PENDING_DECISION_KEY); } catch {}
   }
 
   async function promptForTakeDecision(args: {
@@ -167,6 +350,7 @@ import {
           : '';
         throw new Error(`${summary}${detail}`);
       }
+      clearPendingDecisionState();
       showRecorderToast(
         eventName === 'take_kept'
           ? 'Take kept. Hammer can use it now.'
@@ -175,11 +359,31 @@ import {
       );
     };
 
+    writePendingDecisionState({
+      takeName: args.name,
+      workpieceId: args.commitResult.workpieceId,
+      filePath: args.commitResult.path,
+      contentType: args.contentType,
+      bytes: args.bytes,
+      durationMs: args.durationMs ?? null,
+      captureSessionId: args.commitResult.captureSessionId ?? null,
+      plannerRecordingSessionId: args.commitResult.plannerRecordingSessionId ?? null,
+      createdCradle: args.commitResult.createdCradle === true,
+      transcriptPath: args.transcriptFinalize?.finalPath ?? null,
+      transcriptStatus: args.transcriptFinalize?.status ?? null,
+      transcriptSourcePath: args.transcriptFinalize?.finalPath ?? null,
+      recordingMedium: args.strategy?.recordingMedium ?? null,
+      requiresPostNormalization: args.strategy?.requiresPostNormalization === true,
+    });
+
     await showRecordingDecisionDialog({
       takeName: args.name,
       onKeep: async () => persistDecision('take_kept'),
       onDiscard: async () => persistDecision('take_discarded'),
     });
+    // Safety net: if the dialog resolved without going through persistDecision (should not
+    // happen in practice), ensure the pending state is not left behind.
+    clearPendingDecisionState();
   }
 
   function getRouteEpisodeTitle(): string | null {
@@ -197,6 +401,63 @@ import {
     }
   }
 
+  function getReadyScriptTitleForWorkpiece(workpieceId: string | null): string | null {
+    if (!workpieceId) return null;
+    try {
+      const entries = ScriptStore.list();
+      const selectedIds = [
+        (document.getElementById('scriptSelectSidebar') as HTMLSelectElement | null)?.value || '',
+        (document.getElementById('scriptSelect') as HTMLSelectElement | null)?.value || '',
+      ].map((value) => String(value || '').trim()).filter(Boolean);
+
+      for (const selectedId of selectedIds) {
+        if (parseReadyScriptWorkpieceId(selectedId) !== workpieceId) continue;
+        const match = entries.find((entry) => entry.id === selectedId);
+        const title = String(match?.title || '').trim();
+        if (title) return title;
+      }
+
+      const firstMatch = entries.find((entry) => parseReadyScriptWorkpieceId(entry.id) === workpieceId);
+      const fallbackTitle = String(firstMatch?.title || '').trim();
+      return fallbackTitle || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function captureRecordingSaveIdentity(): RecordingSaveIdentity {
+    const workpieceId = resolveActiveWorkpieceId();
+    const routeEpisodeTitle = getRouteEpisodeTitle();
+    const readyTitle = getReadyScriptTitleForWorkpiece(workpieceId);
+    const inputTitle = getCurrentInputTitle();
+    const storedTitle = getStoredTitle();
+
+    const trustedWorkpieceTitle =
+      routeEpisodeTitle
+      || readyTitle;
+
+    const baseTitle = trustedWorkpieceTitle
+      || (workpieceId ? buildWorkpieceFallbackTitle(workpieceId) : null)
+      || pickRecordingBaseTitle({
+        inputTitle,
+        routeEpisodeTitle,
+        storedTitle,
+      });
+
+    try {
+      console.log('[core-recorder] save identity snapshot', {
+        workpieceId,
+        baseTitle,
+        trustedWorkpieceTitle: trustedWorkpieceTitle || null,
+      });
+    } catch {}
+
+    return {
+      workpieceId,
+      baseTitle,
+    };
+  }
+
   const applyFileExtension = (name: string, extension: string | null | undefined): string => {
     const cleanExtension = String(extension || '').trim().replace(/^\./, '');
     if (!cleanExtension) return name;
@@ -204,29 +465,18 @@ import {
     return `${stem}.${cleanExtension}`;
   };
 
-  const nowName = (mode: 'av' | 'audio', extensionOverride?: string | null): string => {
+  const nowName = (
+    mode: 'av' | 'audio',
+    extensionOverride?: string | null,
+    identity?: RecordingSaveIdentity | null,
+  ): string => {
     try {
-      const titleInput = (() => {
-        try {
-          return (document.getElementById('scriptTitle') as HTMLInputElement | null)?.value ?? null;
-        } catch {
-          return null;
-        }
-      })();
-      const storedTitle = (() => {
-        try {
-          return localStorage.getItem('tp_last_script_title') || localStorage.getItem('tp_last_script_name');
-        } catch {
-          return null;
-        }
-      })();
-
       return applyFileExtension(buildRecordingFilename({
         mode,
-        baseTitle: pickRecordingBaseTitle({
-          inputTitle: titleInput,
+        baseTitle: identity?.baseTitle || pickRecordingBaseTitle({
+          inputTitle: getCurrentInputTitle(),
           routeEpisodeTitle: getRouteEpisodeTitle(),
-          storedTitle,
+          storedTitle: getStoredTitle(),
         }),
       }), extensionOverride ?? (mode === 'audio' ? 'wav' : 'webm'));
     } catch {
@@ -394,6 +644,7 @@ import {
     durationMs: number | null,
     transcriptFinalize: RecordingTranscriptFinalizeResult | null,
     strategy: RecordingCaptureStrategy | null,
+    identity: RecordingSaveIdentity | null,
   ): Promise<void> => {
     try {
       if (audioProcessor) audioProcessor.disconnect();
@@ -416,10 +667,11 @@ import {
     audioChunks = [];
     const blob = new Blob([wavBuffer], { type: 'audio/wav' });
     try {
-      await saveBlob(blob, nowName('audio', strategy?.fileExtension ?? 'wav'), {
+      await saveBlob(blob, nowName('audio', strategy?.fileExtension ?? 'wav', identity), {
         durationMs,
         transcriptFinalize,
         strategy,
+        saveIdentity: identity,
       });
     } finally {
       recordingStartedAtMs = null;
@@ -478,6 +730,7 @@ import {
 
       const strategy = selectBestRecordingStrategy({ mode: recordingMode });
       const captureSessionId = beginRecordingCaptureSession();
+      activeSaveIdentity = captureRecordingSaveIdentity();
       activeStrategy = strategy;
 
       if (recordingMode === 'audio' && strategy.mechanism === 'pcm-wav-fallback') {
@@ -516,6 +769,7 @@ import {
       try {
         console.warn('[auto-rec] start failed', e);
       } catch {}
+      activeSaveIdentity = null;
       activeStrategy = null;
     }
   }
@@ -525,6 +779,7 @@ import {
     if (!active) return;
     const durationMs = recordingStartedAtMs != null ? Math.max(0, Date.now() - recordingStartedAtMs) : null;
     const strategyAtStop = activeStrategy;
+    const saveIdentityAtStop = activeSaveIdentity;
     const transcriptFinalize = await transcriptController.stopSession({
       mediaDurationMs: durationMs,
     }).catch((error) => {
@@ -533,9 +788,10 @@ import {
     });
     try {
       if (activeMode === 'audio' && strategyAtStop?.mechanism === 'pcm-wav-fallback') {
-        await stopAudioOnly(durationMs, transcriptFinalize, strategyAtStop);
+        await stopAudioOnly(durationMs, transcriptFinalize, strategyAtStop, saveIdentityAtStop);
       } else if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         const recorder = mediaRecorder;
+        const stopName = nowName(strategyAtStop?.mode ?? 'av', strategyAtStop?.fileExtension, saveIdentityAtStop);
         recorder.onstop = async () => {
           try {
             console.log('[core-recorder] mediaRecorder.onstop fired', { chunks: chunks.length });
@@ -545,10 +801,11 @@ import {
             try {
               console.log('[core-recorder] about to save blob', { size: blob.size, type: blob.type });
             } catch {}
-            await saveBlob(blob, nowName(strategyAtStop?.mode ?? 'av', strategyAtStop?.fileExtension), {
+            await saveBlob(blob, stopName, {
               durationMs,
               transcriptFinalize,
               strategy: strategyAtStop,
+              saveIdentity: saveIdentityAtStop,
             });
           } catch (e) {
             try {
@@ -575,6 +832,7 @@ import {
     active = false;
     activeMode = null;
     activeStrategy = null;
+    activeSaveIdentity = null;
     try {
       window.dispatchEvent(new CustomEvent('rec:state', { detail: { state: 'idle', adapter: 'local-auto' } }));
     } catch {}
@@ -587,6 +845,7 @@ import {
       durationMs?: number | null;
       transcriptFinalize?: RecordingTranscriptFinalizeResult | null;
       strategy?: RecordingCaptureStrategy | null;
+      saveIdentity?: RecordingSaveIdentity | null;
     } = {},
   ): Promise<boolean> {
     const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -595,6 +854,9 @@ import {
     showRecordingFinalizeIndicator({ takeName: name });
     let committed = false;
     let commitResultOk: Extract<RecordingCommitResult, { ok: true }> | null = null;
+    let canonicalAttempted = false;
+    let canonicalErrorCode: string | null = null;
+    let canonicalErrorMessage: string | null = null;
     try {
       const storageLimitHintBytes = readStorageLimitHintBytes();
       const skipCanonicalCommit =
@@ -611,7 +873,11 @@ import {
           'Cloud save skipped for this take after a prior Storage size-limit failure. Recording will be mirrored locally.',
           'warning',
         );
+        canonicalAttempted = false;
+        canonicalErrorCode = 'canonical_commit_skipped_size_hint';
+        canonicalErrorMessage = 'Canonical upload skipped after prior storage size-limit failure';
       } else {
+        canonicalAttempted = true;
         try {
           const commitResult = await commitRecordingBytesToTongs({
             bytes,
@@ -659,6 +925,9 @@ import {
               });
             } catch {}
           } else {
+            const commitError = extractCommitErrorSummary(commitResult);
+            canonicalErrorCode = commitError.code;
+            canonicalErrorMessage = commitError.message;
             if (isStorageTooLargeCommitResult(commitResult)) {
               writeStorageLimitHintBytes(bytes.length);
               showRecorderToast(
@@ -671,6 +940,8 @@ import {
             } catch {}
           }
         } catch (commitErr) {
+          canonicalErrorCode = 'canonical_commit_exception';
+          canonicalErrorMessage = String((commitErr as any)?.message || commitErr || 'Canonical commit failed');
           try {
             console.warn('[core-recorder] canonical commit failed; using local fallback', commitErr);
           } catch {}
@@ -721,6 +992,20 @@ import {
                     : null,
                   transcriptFinalize: opts.transcriptFinalize ?? null,
                   strategy: opts.strategy ?? null,
+                });
+              }
+              if (!committed) {
+                emitUploadFallbackAudit({
+                  saveIdentity: opts.saveIdentity ?? null,
+                  originalName: name,
+                  bytes: bytes.length,
+                  canonicalAttempted,
+                  canonicalSucceeded: false,
+                  fallbackUsed: true,
+                  safeToLeave: true,
+                  errorCode: canonicalErrorCode,
+                  errorMessage: canonicalErrorMessage,
+                  finalStorageKey: `local:directory:${name}`,
                 });
               }
               return true;
@@ -778,6 +1063,18 @@ import {
             } catch {}
           }, 2000);
         } catch {}
+        emitUploadFallbackAudit({
+          saveIdentity: opts.saveIdentity ?? null,
+          originalName: name,
+          bytes: bytes.length,
+          canonicalAttempted,
+          canonicalSucceeded: false,
+          fallbackUsed: true,
+          safeToLeave: true,
+          errorCode: canonicalErrorCode,
+          errorMessage: canonicalErrorMessage,
+          finalStorageKey: `local:download:${name}`,
+        });
         return false;
       } finally {
         hideRecordingFinalizeIndicator();
@@ -853,6 +1150,62 @@ import {
     (window as any).__tpRecording = coreSurface; // override to ensure we hit the real recorder
     try { console.log('[core-recorder] bridged to __tpRecording'); } catch {}
   } catch {}
+
+  // --- Pending recording decision recovery ---
+  // If a previous page session wrote a pending decision state (the keep/discard dialog was
+  // showing when the page reloaded or crashed), re-surface the decision prompt so the user
+  // can still choose. Transcript promotion is skipped on recovery; the recording is still
+  // marked kept and Hammer can process the transcript independently.
+  function recoverPendingDecision(): void {
+    const state = readPendingDecisionState();
+    if (!state) return;
+    try { console.log('[core-recorder] found pending recording decision; showing recovery prompt', { workpieceId: state.workpieceId }); } catch {}
+
+    const makeRecoveryDecision = async (eventName: 'take_kept' | 'take_discarded'): Promise<void> => {
+      const result = await appendRecordingDecisionToTongs({
+        workpieceId: state.workpieceId,
+        eventName,
+        filePath: state.filePath,
+        originalName: state.takeName,
+        contentType: state.contentType,
+        bytes: state.bytes,
+        durationMs: state.durationMs,
+        createdCradle: state.createdCradle,
+        plannerRecordingSessionId: state.plannerRecordingSessionId,
+        captureSessionId: state.captureSessionId,
+        transcriptPath: state.transcriptPath,
+        transcriptStatus: state.transcriptStatus,
+        transcriptSourcePath: state.transcriptSourcePath,
+        recordingMedium: state.recordingMedium,
+        requiresPostNormalization: state.requiresPostNormalization,
+      });
+      if (!result.ok) {
+        const summary = eventName === 'take_kept'
+          ? 'Could not mark this take as kept in Tongs.'
+          : 'Could not mark this take as discarded in Tongs.';
+        const detail = typeof result.errorMessage === 'string' && result.errorMessage.trim()
+          ? ` ${result.errorMessage.trim()}`
+          : '';
+        throw new Error(`${summary}${detail}`);
+      }
+      clearPendingDecisionState();
+      showRecorderToast(
+        eventName === 'take_kept' ? 'Take kept. Hammer can use it now.' : 'Take discarded. It will stay out of Hammer.',
+        'info',
+      );
+    };
+
+    void showRecordingDecisionDialog({
+      takeName: state.takeName,
+      isRecovery: true,
+      onKeep: () => makeRecoveryDecision('take_kept'),
+      onDiscard: () => makeRecoveryDecision('take_discarded'),
+    }).catch((err) => {
+      try { console.warn('[core-recorder] recovery dialog failed', err); } catch {}
+    });
+  }
+
+  try { recoverPendingDecision(); } catch {}
 })();
 
 export {};

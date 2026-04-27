@@ -168,7 +168,6 @@ async function main(): Promise<void> {
     service.listWorkspaceEpisodes(fixtures.workspaceId, { userAccessToken: accessToken }),
     service.listWorkspaceReadyScripts(fixtures.workspaceId, {
       userAccessToken: accessToken,
-      unrecordedOnly: true,
       includeHidden: true,
     }),
     service.readWorkpieceText(fixtures.workpieceId, PRIMARY_SCRIPT_PATH),

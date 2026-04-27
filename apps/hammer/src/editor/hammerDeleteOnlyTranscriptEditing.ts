@@ -1,6 +1,9 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type { HammerAudioPolishAnalysisWaveformProxy } from "../persistence/hammerPersistenceContract";
-import { computeTranscriptCutRange } from "./hammerCleanupExecution";
+import {
+  computeTranscriptCutRange,
+  resolveFillerBoundaryHints,
+} from "./hammerCleanupExecution";
 import {
   resolveSmartCutRange,
   type HammerSmartCutEditKind,
@@ -180,17 +183,41 @@ export function deriveDeleteOnlyTranscriptCutSelection(args: {
     return null;
   }
 
-  const resolved = resolveSmartCutRange({
+  const hasWaveformProxy = Boolean(
+    args.waveformProxy
+    && Array.isArray(args.waveformProxy.peaks)
+    && args.waveformProxy.peaks.length > 0
+    && Number.isFinite(args.waveformProxy.bucket_duration_sec)
+    && Number(args.waveformProxy.bucket_duration_sec) > 0,
+  );
+  const editKind = args.editKind ?? "delete_only";
+  const boundaryHints = (
+    editKind === "filler" && hasWaveformProxy
+  ) ? resolveFillerBoundaryHints({
     baseRange,
-    editKind: args.editKind ?? "delete_only",
+    segmentStartSec: Number(args.segment.start_sec),
+    segmentEndSec: Number(args.segment.end_sec),
+    audioDurationSec: Number(args.audioDurationSec ?? args.segment.end_sec),
+    seedStartSec: startSec,
+    seedEndSec: endSec,
+    totalTokenCount: totalTokenCount,
+    deleteStartTokenIndex: args.deletion.startTokenIndex,
+    deleteEndTokenIndexExclusive: args.deletion.endTokenIndexExclusive,
+  }) : null;
+
+  const resolved = resolveSmartCutRange({
+    baseRange: boundaryHints?.baseRange ?? baseRange,
+    editKind,
     waveformProxy: args.waveformProxy ?? null,
-    previousProtectedBoundarySec: startSec,
-    nextProtectedBoundarySec: endSec,
+    previousProtectedBoundarySec: boundaryHints?.previousProtectedBoundarySec ?? startSec,
+    nextProtectedBoundarySec: boundaryHints?.nextProtectedBoundarySec ?? endSec,
   });
   maybeLogSmartCutDebug({
     source: "deriveDeleteOnlyTranscriptCutSelection",
     segmentId: args.segment.segment_id,
     deletedTokenCount: args.deletion.deletedTokenCount,
+    boundaryPolicy: boundaryHints ? "filler_slack" : "default",
+    phraseInitial: boundaryHints?.isPhraseInitial ?? false,
     ...resolved.debug,
   });
 

@@ -41,6 +41,7 @@ type DerivedLayersState = HammerPersistedStructuredTranscript["derived_text_laye
 
 export type UseHammerWorkspaceShellHistoryControllerArgs = {
   launchContext: HammerLaunchContext;
+  actualRecordingMismatchWarning: string | null;
   recordingRevisionId: string | null;
   editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
   structuredTranscriptResetKey: string;
@@ -186,6 +187,14 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
     args.setPackagingLogoPosition("top_right");
     args.setPackagingLogoSize("medium");
     args.setCaptionBuildFeedback(null);
+
+    if (args.actualRecordingMismatchWarning) {
+      args.setHistoryStatus("Actual recording mismatch detected. Opened baseline without replay.");
+      return () => {
+        active = false;
+        args.clearPersistTimer();
+      };
+    }
 
     void (async () => {
       const revisionId = args.recordingRevisionId ?? null;
@@ -347,6 +356,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       args.clearPersistTimer();
     };
   }, [
+    args.actualRecordingMismatchWarning,
     args.launchContext.workpiece_id,
     args.recordingRevisionId,
     args.structuredTranscriptResetKey,

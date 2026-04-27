@@ -1,5 +1,6 @@
 import { applyScript } from './apply-script';
 import { ScriptStore } from './scripts-store';
+import { persistActiveWorkpieceFromScriptId } from '../forge/workpiece-context';
 
 const LAST_SCRIPT_KEY = 'tp:last_script_id';
 let restoreAttempted = false;
@@ -92,6 +93,7 @@ export async function loadScriptById(id: string): Promise<boolean> {
     } catch {
       // ignore
     }
+    persistActiveWorkpieceFromScriptId(id);
     persistLastScriptId(id);
     return true;
   } catch (err) {

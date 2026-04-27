@@ -28,10 +28,10 @@ function buildReplacementMatteCanvas(args: { matte: ForegroundMatte; featherPx: 
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Canvas 2D not available for matte compositing.");
   const image = ctx.createImageData(args.matte.width, args.matte.height);
-  const threshold = Math.max(6, Math.min(22, Math.round(8 + (args.featherPx * 0.4))));
-  const gamma = 0.78;
   const confidence = Math.max(0, Math.min(1, args.matte.metadata.confidenceScore || 0));
-  const edgeFavor = 0.08 + ((1 - confidence) * 0.1);
+  const threshold = Math.max(10, Math.min(28, Math.round(12 + (args.featherPx * 0.45))));
+  const gamma = 1.14 + ((1 - confidence) * 0.1);
+  const edgeTighten = 0.14 + ((1 - confidence) * 0.16);
   for (let i = 0, px = 0; i < image.data.length; i += 4, px += 1) {
     const raw = args.matte.alphaMask[px] ?? 0;
     let a = raw;
@@ -40,12 +40,13 @@ function buildReplacementMatteCanvas(args: { matte: ForegroundMatte; featherPx: 
     } else {
       const normalized = a / 255;
       a = Math.max(0, Math.min(255, Math.round((normalized ** gamma) * 255)));
-      if (a >= 18 && a <= 210) {
-        const centered = 1 - (Math.abs(a - 128) / 128);
-        const boost = Math.max(0, centered) * edgeFavor;
-        a = Math.round(a + ((255 - a) * boost));
+      if (a >= 16 && a <= 220) {
+        const centered = 1 - (Math.abs(a - 110) / 110);
+        const tighten = Math.max(0, centered) * edgeTighten;
+        a = Math.round(a * (1 - tighten));
       }
     }
+    if (a < 18) a = 0;
     image.data[i] = 255;
     image.data[i + 1] = 255;
     image.data[i + 2] = 255;
@@ -65,7 +66,7 @@ function applyBoundaryDesaturation(args: {
   const data = image.data;
   const edgeBand = args.matte.metadata.edgeBandAlphaMask;
   const confidence = Math.max(0, Math.min(1, args.matte.metadata.confidenceScore || 0));
-  const factor = 0.06 + ((1 - confidence) * 0.08);
+  const factor = 0.08 + ((1 - confidence) * 0.1);
   for (let i = 0, px = 0; i < data.length; i += 4, px += 1) {
     const alpha = data[i + 3] ?? 0;
     if (alpha <= 0) continue;

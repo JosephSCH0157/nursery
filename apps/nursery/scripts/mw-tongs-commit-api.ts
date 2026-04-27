@@ -98,10 +98,11 @@ export function createNurseryTongsMiddleware(opts?: { routePrefix?: string }) {
       const origin = `http://${req.headers.host || "localhost"}`;
       const fullUrl = new URL(rawUrl, origin).toString();
       const body = await readBody(req);
+      const requestBody = body ? new Uint8Array(body) : undefined;
       const request = new Request(fullUrl, {
         method: req.method || "GET",
         headers: nodeHeadersToFetch(req.headers),
-        body,
+        body: requestBody,
       });
 
       const response = await handler(request);

@@ -8,7 +8,17 @@ type RecordingDecisionDialogOptions = {
   takeName: string;
   onKeep: () => Promise<void>;
   onDiscard: () => Promise<void>;
+  isRecovery?: boolean;
 };
+
+// Module-level cleanup handle for the currently active decision dialog.
+// Called by closeAllRecordingOverlays to detach guards when a new dialog preempts the old one.
+let _activeDecisionCleanup: (() => void) | null = null;
+
+/** Returns true when a keep/discard decision dialog is currently in the DOM awaiting user input. */
+export function isRecordingDecisionPending(): boolean {
+  return typeof document !== "undefined" && document.getElementById(MODAL_ID) !== null;
+}
 
 type RecordingFinalizeIndicatorOptions = {
   takeName?: string;
@@ -38,6 +48,10 @@ function closeWorkingModal(): void {
 }
 
 function closeAllRecordingOverlays(): void {
+  if (_activeDecisionCleanup) {
+    _activeDecisionCleanup();
+    _activeDecisionCleanup = null;
+  }
   closeModal();
   closeWorkingModal();
 }
@@ -207,11 +221,15 @@ function buildWorkingMarkup(options: RecordingFinalizeIndicatorOptions): string 
   `;
 }
 
-function buildMarkup(takeName: string): string {
+function buildMarkup(takeName: string, isRecovery?: boolean): string {
+  const title = isRecovery ? "Recording awaiting review" : "Recording complete";
+  const copy = isRecovery
+    ? "This recording was saved but not reviewed. Keep or discard it?"
+    : "Keep this take for editing?";
   return `
     <div class="tp-recording-decision-panel" role="dialog" aria-modal="true" aria-labelledby="${MODAL_ID}-title">
-      <h2 id="${MODAL_ID}-title">Recording complete</h2>
-      <p class="tp-recording-decision-copy">Keep this take for editing?</p>
+      <h2 id="${MODAL_ID}-title">${title}</h2>
+      <p class="tp-recording-decision-copy">${copy}</p>
       <div class="tp-recording-decision-file">${escapeHtml(takeName)}</div>
       <div class="tp-recording-decision-error" data-role="error" aria-live="polite"></div>
       <div class="tp-recording-decision-actions">
@@ -252,7 +270,7 @@ export async function showRecordingDecisionDialog(
     const overlay = document.createElement("div");
     overlay.id = MODAL_ID;
     overlay.className = "tp-recording-decision-overlay";
-    overlay.innerHTML = buildMarkup(options.takeName);
+    overlay.innerHTML = buildMarkup(options.takeName, options.isRecovery);
 
     const discardButton = overlay.querySelector<HTMLButtonElement>('[data-action="discard"]');
     const keepButton = overlay.querySelector<HTMLButtonElement>('[data-action="keep"]');
@@ -271,9 +289,38 @@ export async function showRecordingDecisionDialog(
       }
     };
 
+    // Visibility guard: if the tab is backgrounded and something removes the overlay
+    // from the DOM while the decision is still pending, re-insert it when the tab
+    // becomes visible again so the user still gets to make their choice.
+    const visibilityGuard = (): void => {
+      try {
+        if (document.visibilityState !== "visible") return;
+        if (!finished && !document.body.contains(overlay)) {
+          document.body.appendChild(overlay);
+          keepButton?.focus();
+        }
+      } catch {}
+    };
+
+    // Navigation guard: warn the browser before the user leaves the page while a
+    // keep/discard decision is still pending, preventing silent recording loss.
+    const beforeUnloadGuard = (event: BeforeUnloadEvent): void => {
+      if (!finished) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+
+    const cleanupGuards = (): void => {
+      _activeDecisionCleanup = null;
+      try { document.removeEventListener("visibilitychange", visibilityGuard); } catch {}
+      try { window.removeEventListener("beforeunload", beforeUnloadGuard); } catch {}
+    };
+
     const finish = (): void => {
       if (finished) return;
       finished = true;
+      cleanupGuards();
       closeModal();
       resolve();
     };
@@ -281,6 +328,7 @@ export async function showRecordingDecisionDialog(
     const fail = (error: unknown): void => {
       if (finished) return;
       finished = true;
+      cleanupGuards();
       closeModal();
       reject(error);
     };
@@ -321,8 +369,13 @@ export async function showRecordingDecisionDialog(
 
     try {
       document.body.appendChild(overlay);
+      // Install safety guards only after the overlay is in the DOM.
+      _activeDecisionCleanup = cleanupGuards;
+      try { document.addEventListener("visibilitychange", visibilityGuard); } catch {}
+      try { window.addEventListener("beforeunload", beforeUnloadGuard); } catch {}
       keepButton?.focus();
     } catch (error) {
+      cleanupGuards();
       fail(error);
     }
   });

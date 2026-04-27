@@ -28,8 +28,10 @@ export function useMediaMapWorkspace() {
   const [mediaMapConversationSeed, setMediaMapConversationSeed] = useState<MediaMapConversationSeed | null>(null);
   const [mediaMapConversationState, setMediaMapConversationState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [mediaMapConversationError, setMediaMapConversationError] = useState<string | null>(null);
+  const selectedMediaMapEntryIdRef = useRef<string | null>(selectedMediaMapEntryId);
   const hydratedMediaMapEntryIdRef = useRef<string | null>(null);
   const hydratedMediaMapSnapshotRef = useRef<string>("none");
+  selectedMediaMapEntryIdRef.current = selectedMediaMapEntryId;
 
   function setMediaMapDraftEditing<T extends string | boolean>(fieldSetter: (value: T) => void, value: T): void {
     fieldSetter(value);
@@ -61,6 +63,13 @@ export function useMediaMapWorkspace() {
 
   const syncMediaMapDraftFromEntry = useCallback((selectedMediaMapEntry: EpisodeMediaMapEntry | null): void => {
     if (!selectedMediaMapEntry) {
+      if (
+        hydratedMediaMapEntryIdRef.current === null
+        && hydratedMediaMapSnapshotRef.current === "none"
+        && mediaMapSaveState === "saved"
+      ) {
+        return;
+      }
       hydratedMediaMapEntryIdRef.current = null;
       hydratedMediaMapSnapshotRef.current = "none";
       setMediaMapTypeDraft("image");
@@ -76,6 +85,7 @@ export function useMediaMapWorkspace() {
       setMediaMapOptionalDraft(false);
       setMediaMapCriticalDraft(false);
       setMediaMapSaveState("saved");
+      setMediaMapSaveError(null);
       return;
     }
 
@@ -128,15 +138,21 @@ export function useMediaMapWorkspace() {
   }, [mediaMapSaveState]);
 
   const syncSelectedMediaMapEntryId = useCallback((mediaMapEntries: EpisodeMediaMapEntry[]): void => {
-    if (mediaMapEntries.length === 0) {
-      setSelectedMediaMapEntryId(null);
+    const currentSelection = selectedMediaMapEntryIdRef.current;
+    const nextSelection = mediaMapEntries.length === 0
+      ? null
+      : (
+          currentSelection && mediaMapEntries.some((entry) => entry.id === currentSelection)
+            ? currentSelection
+            : (mediaMapEntries[0]?.id ?? null)
+        );
+
+    if (currentSelection === nextSelection) {
       return;
     }
-    setSelectedMediaMapEntryId((current) => (
-      current && mediaMapEntries.some((entry) => entry.id === current)
-        ? current
-        : (mediaMapEntries[0]?.id ?? null)
-    ));
+
+    selectedMediaMapEntryIdRef.current = nextSelection;
+    setSelectedMediaMapEntryId(nextSelection);
   }, []);
 
   const resetMediaMapWorkspaceForWorkpieceSwitch = useCallback((): void => {

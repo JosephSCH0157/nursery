@@ -76,6 +76,7 @@ async function testAudioPolishStaleMapsToAction() {
       },
     }),
     mediaLabelMismatchWarning: null,
+    actualRecordingMismatchWarning: null,
   });
 
   const stale = issues.find((issue) => issue.id === "audio_polish_stale") ?? null;
@@ -97,6 +98,7 @@ async function testVisualsUncertainIncludesCounts() {
       },
     }),
     mediaLabelMismatchWarning: null,
+    actualRecordingMismatchWarning: null,
   });
 
   const uncertain = issues.find((issue) => issue.id === "visuals_uncertain") ?? null;
@@ -109,21 +111,39 @@ async function testMediaMismatchProducesStandaloneIssue() {
   const issues = deriveHammerIssueDiagnostics({
     sessionState: sessionState({ status: "idle", reasonCodes: [] }),
     mediaPrepOutputs: null,
-    mediaLabelMismatchWarning: "Capture label \"A\" does not match this episode title \"B\".",
+    mediaLabelMismatchWarning: "Capture label \"A\" does not match this episode title \"B\". Tongs binding remains authoritative.",
+    actualRecordingMismatchWarning: null,
   });
 
   const mismatch = issues.find((issue) => issue.id === "media_label_mismatch") ?? null;
   assert.ok(mismatch);
   assert.equal(mismatch.canAutoFix, false);
   assert.equal(mismatch.fixActionId, null);
+  assert.equal(mismatch.title, "Capture label mismatch");
   assert.ok(mismatch.summary.includes("\"A\""));
   assert.ok(mismatch.summary.includes("\"B\""));
+  assert.ok(mismatch.summary.includes("advisory only"));
+}
+
+async function testActualRecordingMismatchProducesBlockingIssue() {
+  const issues = deriveHammerIssueDiagnostics({
+    sessionState: sessionState({ status: "idle", reasonCodes: [] }),
+    mediaPrepOutputs: null,
+    mediaLabelMismatchWarning: null,
+    actualRecordingMismatchWarning: "Bound recording path \"takes/wrong.wav\" does not match the canonical Tongs media for this episode.",
+  });
+
+  const mismatch = issues.find((issue) => issue.id === "actual_recording_mismatch") ?? null;
+  assert.ok(mismatch);
+  assert.equal(mismatch.severity, "error");
+  assert.ok(mismatch.summary.includes("History replay stays blocked"));
 }
 
 async function run() {
   await testAudioPolishStaleMapsToAction();
   await testVisualsUncertainIncludesCounts();
   await testMediaMismatchProducesStandaloneIssue();
+  await testActualRecordingMismatchProducesBlockingIssue();
   // eslint-disable-next-line no-console
   console.log("Hammer issue diagnostics tests passed.");
 }

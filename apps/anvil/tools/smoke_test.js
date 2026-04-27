@@ -6,11 +6,13 @@
    - Emits one-line [SMOKE-REPORT] JSON for CI.
    Usage examples:
      node tools/smoke_test.js --calm --timeout=120000
-     node tools/smoke_test.js --url=http://127.0.0.1:8080/teleprompter_pro.html
+     node tools/smoke_test.js --controlled --url=http://127.0.0.1:8080/teleprompter_pro.html
 */
+const http = require('http');
 
 // Build default URL from CI_HOST/CI_PORT if provided, else fall back to 127.0.0.1:5180
 const CI_HOST = process.env.CI_HOST || '127.0.0.1';
+const PROBE_HOST = CI_HOST === '0.0.0.0' ? '127.0.0.1' : CI_HOST;
 const argv = process.argv.slice(2);
 const argPortFlag = argv.find(a => a.startsWith('--port='));
 let ARG_PORT = argPortFlag ? (argPortFlag.split('=')[1] || '').trim() : '';
@@ -24,6 +26,15 @@ const ARG_URL = (argv.find(a => a.startsWith('--url=')) || '').split('=')[1];
 const ARG_TIMEOUT = Number((argv.find(a => a.startsWith('--timeout=')) || '').split('=')[1]) || 60000;
 const ARG_CALM = argv.includes('--calm');
 const ARG_CI = argv.includes('--ci');
+const ARG_CONTROLLED = argv.includes('--controlled') || process.env.SMOKE_CONTROLLED === '1' || ARG_CI;
+const CONTROLLED_SMOKE_PARAMS = ['calm=1', 'ci=1', 'mockFolder=1', 'uiMock=1', 'noRelax=1'];
+
+function isNonFatalSmokeError(text) {
+  const t = String(text || '');
+  if (!ARG_CONTROLLED) return false;
+  // Controlled smoke intentionally tolerates missing cloud creds.
+  return t.includes('[supabaseClient] Missing Supabase URL or anon key.');
+}
 
 function withParam(url, key, val = '1') {
   const u = new URL(url);
@@ -31,16 +42,136 @@ function withParam(url, key, val = '1') {
   return u.toString();
 }
 
+function withParams(url, entries) {
+  let next = url;
+  for (const entry of entries) {
+    const [key, val = '1'] = String(entry).split('=');
+    if (!key) continue;
+    next = withParam(next, key, val);
+  }
+  return next;
+}
+
+function classifyFailure({ ok, errorLogs = [], warnLogs = [], initDone = true, hasToast = true, hasScripts = true, rawError = '' }) {
+  if (ok) return null;
+  const blob = [
+    ...errorLogs.map(String),
+    ...warnLogs.map(String),
+    String(rawError || ''),
+  ].join('\n');
+
+  if (blob.includes('JS asset returned HTML (bad fallback)') || blob.includes("Unexpected token '<'")) {
+    return 'asset-fallback';
+  }
+  if (blob.includes('[supabaseClient] Missing Supabase URL or anon key.')) {
+    return 'supabase-config';
+  }
+  if (!initDone) return 'init-timeout';
+  if (!hasToast || !hasScripts) return 'ui-missing';
+  if (blob.toLowerCase().includes('already in use')) return 'port-in-use';
+  if (blob.toLowerCase().includes('spawn eperm')) return 'browser-launch';
+  return 'unknown';
+}
+
+function probeSmokeServerOwner(host, port, timeoutMs = 1200) {
+  const probeUrl = `http://${host}:${port}/__smoke-health`;
+  return new Promise((resolve) => {
+    const req = http.get(probeUrl, (res) => {
+      let raw = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { raw += chunk; });
+      res.on('end', () => {
+        let body = null;
+        try { body = JSON.parse(raw); } catch {}
+        const isAnvil = !!(body && body.server === 'anvil-static-server');
+        resolve({
+          listening: true,
+          isAnvil,
+          status: res.statusCode || 0,
+          body,
+          raw,
+        });
+      });
+    });
+    req.on('error', (err) => {
+      const msg = String(err && err.message || err);
+      const low = msg.toLowerCase();
+      const looksClosed =
+        low.includes('econnrefused') ||
+        low.includes('ehostunreach') ||
+        low.includes('socket hang up') ||
+        low.includes('timeout') ||
+        low.includes('connect');
+      resolve({
+        listening: !looksClosed,
+        isAnvil: false,
+        status: 0,
+        body: null,
+        raw: '',
+        error: msg,
+      });
+    });
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error('probe timeout'));
+    });
+  });
+}
+
+function looksLikeJsAsset(url) {
+  try {
+    const parsed = new URL(url);
+    const pathname = (parsed.pathname || '').toLowerCase();
+    return pathname.endsWith('.js') || pathname.endsWith('.mjs') || pathname.endsWith('.cjs');
+  } catch {
+    const value = String(url || '').toLowerCase();
+    return value.endsWith('.js') || value.endsWith('.mjs') || value.endsWith('.cjs');
+  }
+}
+
 let RAW_URL = ARG_URL || process.env.TP_URL || DEFAULT_URL;
 // Append flags as query params where requested
-if (ARG_CALM) RAW_URL = withParam(RAW_URL, 'calm', '1');
-if (process.env.SMOKE_CI === '1' || ARG_CI) RAW_URL = withParam(RAW_URL, 'ci', '1');
+if (ARG_CONTROLLED) {
+  RAW_URL = withParams(RAW_URL, CONTROLLED_SMOKE_PARAMS);
+} else {
+  if (ARG_CALM) RAW_URL = withParam(RAW_URL, 'calm', '1');
+  if (process.env.SMOKE_CI === '1' || ARG_CI) RAW_URL = withParam(RAW_URL, 'ci', '1');
+}
 const URL_TO_OPEN = RAW_URL;
 
 (async function run() {
   try {
-    // Try to spin up static server if present (ignore errors if it self-manages or is already running)
-    try { require('./static_server.js'); } catch {}
+    const ownerBeforeStart = await probeSmokeServerOwner(PROBE_HOST, CI_PORT);
+    if (ownerBeforeStart.listening && !ownerBeforeStart.isAnvil) {
+      const portFailure = {
+        ok: false,
+        runner: null,
+        url: URL_TO_OPEN,
+        timeoutMs: ARG_TIMEOUT,
+        failureReason: 'port-in-use',
+        error: `Port ${CI_PORT} already in use - possible stale process (owner is not anvil-static-server)`,
+      };
+      console.log(`[SMOKE-REPORT] ${JSON.stringify(portFailure)}`);
+      process.exit(6);
+    }
+
+    // Start static server only when nothing is listening yet.
+    if (!ownerBeforeStart.listening) {
+      try { require('./static_server.js'); } catch {}
+    }
+
+    const ownerAfterStart = await probeSmokeServerOwner(PROBE_HOST, CI_PORT);
+    if (!ownerAfterStart.listening || !ownerAfterStart.isAnvil) {
+      const startFailure = {
+        ok: false,
+        runner: null,
+        url: URL_TO_OPEN,
+        timeoutMs: ARG_TIMEOUT,
+        failureReason: 'port-in-use',
+        error: `Smoke server ownership check failed on port ${CI_PORT}`,
+      };
+      console.log(`[SMOKE-REPORT] ${JSON.stringify(startFailure)}`);
+      process.exit(6);
+    }
 
     // Prefer Playwright
     let playwright;
@@ -55,6 +186,12 @@ const URL_TO_OPEN = RAW_URL;
 
       // Collect console + errors to detect dup boot and failures
       let bootCount = 0, scriptEnterCount = 0, rsCompleteCount = 0, errorLogs = [], warnLogs = [];
+      let fatalAssetFallbackError = '';
+      const failIfAssetFallback = () => {
+        if (fatalAssetFallbackError) {
+          throw new Error(fatalAssetFallbackError);
+        }
+      };
 
       page.on('console', msg => {
         const text = msg.text ? msg.text() : String(msg);
@@ -64,14 +201,41 @@ const URL_TO_OPEN = RAW_URL;
         if (t.includes('script-enter')) scriptEnterCount++;
         if (t.includes('rs:complete')) rsCompleteCount++;
 
-        if (msg.type && msg.type() === 'error') errorLogs.push(t);
-        else if (msg.type && msg.type() === 'warning') warnLogs.push(t);
+        if (msg.type && msg.type() === 'error') {
+          if (isNonFatalSmokeError(t)) warnLogs.push(`[smoke-nonfatal] ${t}`);
+          else errorLogs.push(t);
+        } else if (msg.type && msg.type() === 'warning') {
+          warnLogs.push(t);
+        }
       });
-      page.on('pageerror', err => errorLogs.push(String(err && err.message || err)));
+      page.on('pageerror', err => {
+        const text = String(err && err.message || err);
+        if (isNonFatalSmokeError(text)) warnLogs.push(`[smoke-nonfatal] ${text}`);
+        else errorLogs.push(text);
+      });
       page.on('requestfailed', req => warnLogs.push(`[requestfailed] ${req.url()} ${req.failure()?.errorText || ''}`));
+      page.on('response', (response) => {
+        try {
+          const req = response.request ? response.request() : null;
+          const reqUrl = req && req.url ? req.url() : (response.url ? response.url() : '');
+          const reqType = req && req.resourceType ? req.resourceType() : '';
+          const headers = response.headers ? response.headers() : {};
+          const contentType = String(headers['content-type'] || headers['Content-Type'] || '').toLowerCase();
+          if (!contentType.includes('text/html')) return;
+          if (!looksLikeJsAsset(reqUrl) && reqType !== 'script') return;
+          if (fatalAssetFallbackError) return;
+          fatalAssetFallbackError = `JS asset returned HTML (bad fallback): ${reqUrl}`;
+          errorLogs.push(fatalAssetFallbackError);
+          // Fail fast: once we detect fallback regression, stop the page lifecycle immediately.
+          try { void page.close(); } catch {}
+        } catch {
+          // ignore parsing failures in the observer path
+        }
+      });
 
       // Open page
       await page.goto(URL_TO_OPEN, { waitUntil: type === 'playwright' ? 'networkidle' : 'networkidle0', timeout: ARG_TIMEOUT });
+      failIfAssetFallback();
 
       // Wait for UI bits (race tolerant)
       const waitFor = async (selector) => {
@@ -90,6 +254,7 @@ const URL_TO_OPEN = RAW_URL;
         } catch {}
         return false;
       });
+      failIfAssetFallback();
 
       // VAD gate latency (simulated)
       try {
@@ -351,6 +516,14 @@ const URL_TO_OPEN = RAW_URL;
           warnings: warnLogs.slice(0, 5),
         }
       };
+      report.failureReason = classifyFailure({
+        ok,
+        errorLogs,
+        warnLogs,
+        initDone,
+        hasToast,
+        hasScripts,
+      });
 
       // Expose duplicate-boot explicitly for CI parsing
       report.dupBoot = dupBoot;
@@ -394,11 +567,28 @@ const URL_TO_OPEN = RAW_URL;
     }
 
     console.error('No Playwright or Puppeteer installed. Install one to run the smoke test:\n  npm i -D playwright  # or puppeteer');
+    const noBrowserReport = {
+      ok: false,
+      runner: null,
+      url: URL_TO_OPEN,
+      timeoutMs: ARG_TIMEOUT,
+      failureReason: 'browser-launch',
+      error: 'No Playwright or Puppeteer installed.',
+    };
+    console.log(`[SMOKE-REPORT] ${JSON.stringify(noBrowserReport)}`);
     process.exit(3);
   } catch (e) {
     console.error('[SMOKE-ERROR]', e && e.stack || e);
     // Emit a report so CI still has a JSON artifact
-    const fallback = { ok: false, runner: null, url: URL_TO_OPEN, timeoutMs: ARG_TIMEOUT, error: String(e && e.message || e) };
+    const fallbackError = String(e && e.message || e);
+    const fallback = {
+      ok: false,
+      runner: null,
+      url: URL_TO_OPEN,
+      timeoutMs: ARG_TIMEOUT,
+      failureReason: classifyFailure({ ok: false, rawError: fallbackError }),
+      error: fallbackError,
+    };
     console.log(`[SMOKE-REPORT] ${JSON.stringify(fallback)}`);
     process.exit(4);
   }

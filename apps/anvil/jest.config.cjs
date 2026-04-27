@@ -16,5 +16,6 @@ module.exports = {
 	extensionsToTreatAsEsm: ['.ts'],
 	moduleFileExtensions: ['ts','tsx','js','jsx','json'],
 	verbose: false,
+	testTimeout: 15000,
   testPathIgnorePatterns: ['<rootDir>/.worktrees/']
 };

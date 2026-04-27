@@ -2,10 +2,22 @@
 // Shared Supabase client for Forge / Anvil surfaces.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-// Prefer window-provided values; fall back to import.meta.env if available.
+function readMetaEnv(): Record<string, unknown> {
+  try {
+    // Avoid direct `import.meta` syntax so CommonJS test transforms can parse this file.
+    const env = (0, eval)('import.meta.env');
+    if (env && typeof env === 'object') {
+      return env as Record<string, unknown>;
+    }
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+// Prefer window-provided values; fall back to import-meta env if available.
 const w = (typeof window !== 'undefined' ? (window as any) : {}) as any;
-const meta = (typeof import.meta !== 'undefined' ? (import.meta as any) : {}) as any;
-const metaEnv = meta.env || {};
+const metaEnv = readMetaEnv();
 
 const SUPABASE_URL: string =
   w.__forgeSupabaseUrl ||
@@ -21,15 +33,35 @@ const AUTH_STORAGE_KEY = 'forge-auth';
 export let hasSupabaseConfig = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
 function createSupabaseStub(reason: string): SupabaseClient {
-  const handler: ProxyHandler<any> = {
-    get() {
-      return new Proxy(() => { throw new Error(reason); }, handler);
+  const noopError = { message: reason };
+  const noopSubscription = { unsubscribe() {} };
+  const noopResponse = Promise.resolve({ data: null, error: noopError });
+  const authStub = {
+    getSession: async () => ({ data: { session: null }, error: null }),
+    getUser: async () => ({ data: { user: null }, error: null }),
+    onAuthStateChange: () => ({ data: { subscription: noopSubscription }, error: null }),
+    signOut: async () => ({ error: null }),
+  };
+  const noopChain = new Proxy({}, {
+    get(_target, prop) {
+      if (prop === 'then') return undefined;
+      return () => noopResponse;
     },
-    apply() {
-      throw new Error(reason);
+  });
+  const base: Record<string, unknown> = {
+    auth: authStub,
+    from: () => noopChain,
+    rpc: () => noopResponse,
+    schema: () => ({ rpc: () => noopResponse }),
+  };
+  const handler: ProxyHandler<Record<string, unknown>> = {
+    get(target, prop) {
+      if (typeof prop === 'string' && prop in target) return target[prop];
+      if (typeof prop === 'symbol') return (target as any)[prop];
+      return () => noopResponse;
     },
   };
-  return new Proxy(() => { throw new Error(reason); }, handler) as SupabaseClient;
+  return new Proxy(base, handler) as unknown as SupabaseClient;
 }
 
 if (!hasSupabaseConfig) {

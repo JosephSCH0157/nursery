@@ -38,6 +38,7 @@ import type {
   HammerPersistedStateRecord,
   HammerPersistedSpeakerMap,
   HammerPersistedStructuredTranscript,
+  HammerPersistedTranscriptVersionRegistry,
   HammerPersistedVisualPreviewSettings,
   HammerPersistedVisualPlacements,
   HammerPresenceRequest,
@@ -718,6 +719,7 @@ function normalizeStateRecord(value: unknown): HammerPersistedStateRecord | null
     pass_status: orchestration.pass_status,
     editor_session_path: readString(row.editor_session_path),
     transcript_artifact_path: readString(row.transcript_artifact_path),
+    transcript_versions_artifact_path: readString(row.transcript_versions_artifact_path),
     speaker_map_artifact_path: readString(row.speaker_map_artifact_path),
     visual_placement_artifact_path: readString(row.visual_placement_artifact_path),
     visual_timeline_artifact_path: readString(row.visual_timeline_artifact_path),
@@ -759,6 +761,11 @@ function normalizeSnapshot(payload: unknown): HammerPersistenceSnapshot | null {
       path: structuredTranscript.path,
       updated_at: structuredTranscript.file_updated_at,
       data: structuredTranscript.data,
+    },
+    transcript_version_registry: {
+      path: normalizeArtifact<HammerPersistedTranscriptVersionRegistry>(snapshot.transcript_version_registry).path,
+      updated_at: normalizeArtifact<HammerPersistedTranscriptVersionRegistry>(snapshot.transcript_version_registry).file_updated_at,
+      data: normalizeArtifact<HammerPersistedTranscriptVersionRegistry>(snapshot.transcript_version_registry).data,
     },
     speaker_map: {
       path: normalizeArtifact<HammerPersistedSpeakerMap>(snapshot.speaker_map).path,

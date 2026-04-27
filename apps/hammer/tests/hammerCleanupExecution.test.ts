@@ -22,6 +22,17 @@ function assertClose(actual: number | undefined, expected: number): void {
   assert.ok(Math.abs(actual - expected) < 0.000001, `Expected ${expected}, received ${actual}`);
 }
 
+function buildWaveformProxy(peaks: number[], bucketDurationSec = 0.05) {
+  return {
+    version: "v1" as const,
+    duration_sec: peaks.length * bucketDurationSec,
+    bucket_count: peaks.length,
+    bucket_duration_sec: bucketDurationSec,
+    channel_mode: "mono_mixdown" as const,
+    peaks,
+  };
+}
+
 async function testFillerPaddingExpandsCut() {
   const cuts = deriveAudioCutsForRemovedSegments({
     segments: [
@@ -173,6 +184,37 @@ async function testCleanupSubtractiveTextCutsExpandBufferForVeryShortRemoval() {
   assertClose(cuts[0]?.endSec, 3.13);
 }
 
+async function testCleanupSubtractiveTextCutsAllowInitialFillerWaveformTailExpansion() {
+  const peaks = new Array(80).fill(0.62);
+  peaks[0] = 0.01;
+  peaks[12] = 0.01; // ~0.625s quiet valley after token seed window.
+
+  const cuts = deriveAudioCutsForSubtractiveTextEdits({
+    beforeSegments: [{
+      segment_id: "a",
+      start_sec: 0,
+      end_sec: 2,
+      speaker: "S1",
+      text: "um alpha beta gamma",
+    }] as never,
+    afterSegments: [{
+      segment_id: "a",
+      start_sec: 0,
+      end_sec: 2,
+      speaker: "S1",
+      text: "alpha beta gamma",
+    }] as never,
+    durationSec: 2,
+    padBeforeSec: HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
+    padAfterSec: HAMMER_FILLER_CUT_PAD_AFTER_SEC,
+    waveformProxy: buildWaveformProxy(peaks),
+  });
+
+  assert.equal(cuts.length, 1);
+  assert.equal((cuts[0]?.endSec ?? 0) > 0.58, true);
+  assert.equal((cuts[0]?.endSec ?? 0) < 0.9, true);
+}
+
 await testFillerPaddingExpandsCut();
 await testPaddingClampedToDuration();
 await testNoPaddingLeavesWindowUntouched();
@@ -180,6 +222,7 @@ await testCleanupTimelineCompressionCanPadRetakeRemoval();
 await testCleanupSubtractiveTextCutsCanPadSingleWordRemoval();
 await testCleanupSubtractiveTextCutsExpandBufferForShortRemoval();
 await testCleanupSubtractiveTextCutsExpandBufferForVeryShortRemoval();
+await testCleanupSubtractiveTextCutsAllowInitialFillerWaveformTailExpansion();
 
 console.log("Hammer cleanup execution tests passed.");
 

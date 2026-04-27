@@ -2345,6 +2345,9 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                               }}
                             />
                           </label>
+                        <div className="hammer-tool-hint">
+                          Temporal smoothing stabilizes mask edges across moving frames and is most visible during playback.
+                        </div>
                         <label className="hammer-tool-field">
                           <span>Quality</span>
                           <select

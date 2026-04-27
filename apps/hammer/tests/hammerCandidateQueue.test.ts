@@ -252,6 +252,43 @@ async function testRetakeBackwardExplicitCueCardMatchesEditorIntent() {
   assert.equal(card.suggestedRemovalText.includes("In the years that followed, changes started to be made."), true);
 }
 
+async function testRetakeCardIncludesPreTriggerAndTriggerRemovalWhenKeepingRestart() {
+  const segments = [
+    {
+      segment_id: "seg_a",
+      start_sec: 0,
+      end_sec: 1.0,
+      speaker: "S1",
+      text: "Florida oranges didn't sta—",
+    },
+    {
+      segment_id: "seg_b",
+      start_sec: 1.05,
+      end_sec: 3.2,
+      speaker: "S1",
+      text: "Let me start that again. Florida oranges didn't start small.",
+    },
+  ];
+
+  const result = buildCandidateQueue({
+    kind: "retakes",
+    segments: segments as never,
+    fillerOptions: fillerOptions as never,
+    retakeOptions: retakeOptions as never,
+    handledCandidateIds: new Set<string>(),
+  });
+
+  assert.equal(result.cards.length, 1);
+  const card = result.cards[0]!;
+  assert.equal(card.apply.removeSegmentIds.includes("seg_a"), true);
+  assert.equal(card.apply.updateSegments.some((entry) => entry.segmentId === "seg_b"), true);
+  assert.equal(card.afterText, "Florida oranges didn't start small.");
+  assert.equal(card.suggestedRemoval.some((item) => item.segmentId === "seg_a"), true);
+  assert.equal(card.suggestedRemoval.some((item) => (
+    item.segmentId === "seg_b" && item.text.toLowerCase().includes("let me start that again")
+  )), true);
+}
+
 async function testClampIndex() {
   assert.equal(clampActiveCandidateIndex(0, 0), 0);
   assert.equal(clampActiveCandidateIndex(5, 1), 0);
@@ -266,6 +303,7 @@ async function run() {
   await testRetakeChainCardRemovesMarkerAndAbort();
   await testRetakeRestartTrimCardShowsCueOnlyAsProposedRemoval();
   await testRetakeBackwardExplicitCueCardMatchesEditorIntent();
+  await testRetakeCardIncludesPreTriggerAndTriggerRemovalWhenKeepingRestart();
   await testClampIndex();
   // eslint-disable-next-line no-console
   console.log("Hammer candidate queue tests passed.");

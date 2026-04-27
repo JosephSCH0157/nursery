@@ -19938,29 +19938,55 @@ var init_dist4 = __esm({
 });
 
 // src/forge/supabaseClient.ts
+function readMetaEnv() {
+  try {
+    const env = (0, eval)("import.meta.env");
+    if (env && typeof env === "object") {
+      return env;
+    }
+  } catch {
+  }
+  return {};
+}
 function createSupabaseStub(reason) {
+  const noopError = { message: reason };
+  const noopSubscription = { unsubscribe() {
+  } };
+  const noopResponse = Promise.resolve({ data: null, error: noopError });
+  const authStub = {
+    getSession: async () => ({ data: { session: null }, error: null }),
+    getUser: async () => ({ data: { user: null }, error: null }),
+    onAuthStateChange: () => ({ data: { subscription: noopSubscription }, error: null }),
+    signOut: async () => ({ error: null })
+  };
+  const noopChain = new Proxy({}, {
+    get(_target, prop) {
+      if (prop === "then") return void 0;
+      return () => noopResponse;
+    }
+  });
+  const base = {
+    auth: authStub,
+    from: () => noopChain,
+    rpc: () => noopResponse,
+    schema: () => ({ rpc: () => noopResponse })
+  };
   const handler = {
-    get() {
-      return new Proxy(() => {
-        throw new Error(reason);
-      }, handler);
-    },
-    apply() {
-      throw new Error(reason);
+    get(target, prop) {
+      if (typeof prop === "string" && prop in target) return target[prop];
+      if (typeof prop === "symbol") return target[prop];
+      return () => noopResponse;
     }
   };
-  return new Proxy(() => {
-    throw new Error(reason);
-  }, handler);
+  return new Proxy(base, handler);
 }
-var w, meta, metaEnv, SUPABASE_URL, SUPABASE_ANON_KEY, AUTH_STORAGE_KEY, hasSupabaseConfig, supabaseClient, supabase;
+var w, metaEnv, SUPABASE_URL, SUPABASE_ANON_KEY, AUTH_STORAGE_KEY, hasSupabaseConfig, supabaseClient, supabase;
 var init_supabaseClient = __esm({
   "src/forge/supabaseClient.ts"() {
     "use strict";
     init_dist4();
     w = typeof window !== "undefined" ? window : {};
-    meta = typeof import.meta !== "undefined" ? import.meta : {};
-    metaEnv = meta.env || {};
+    metaEnv = readMetaEnv();
     SUPABASE_URL = w.__forgeSupabaseUrl || metaEnv.VITE_SUPABASE_URL || "";
     SUPABASE_ANON_KEY = w.__forgeSupabaseAnonKey || metaEnv.VITE_SUPABASE_ANON_KEY || "";
     AUTH_STORAGE_KEY = "forge-auth";
@@ -20822,14 +20848,14 @@ function isDevMode() {
   }
   return false;
 }
-function setAsrBlocks(nextEls, meta3) {
+function setAsrBlocks(nextEls, meta2) {
   blockEls = Array.isArray(nextEls) ? nextEls : [];
-  blockMeta = meta3 || null;
+  blockMeta = meta2 || null;
   const payload = {
     ready: true,
     blockCount: blockEls.length,
-    schemaVersion: Number(meta3?.schemaVersion || 1),
-    source: meta3?.source || "render"
+    schemaVersion: Number(meta2?.schemaVersion || 1),
+    source: meta2?.source || "render"
   };
   try {
     window.__tpAsrBlocksReady = true;
@@ -21987,9 +22013,9 @@ function auditEnabled() {
   }
   return false;
 }
-function withScrollModeWriter(writer, fn, meta3) {
+function withScrollModeWriter(writer, fn, meta2) {
   if (!auditEnabled()) return fn();
-  writerStack.push({ writer, meta: meta3 });
+  writerStack.push({ writer, meta: meta2 });
   try {
     return fn();
   } finally {
@@ -24520,10 +24546,10 @@ function describeEl(el) {
     cls: e.className && String(e.className) || null
   };
 }
-function scrollWrite(y, meta3) {
+function scrollWrite(y, meta2) {
   if (!isMainViewer()) {
     try {
-      console.warn("[SCROLL_WRITE] denied (display role)", { y, meta: meta3 });
+      console.warn("[SCROLL_WRITE] denied (display role)", { y, meta: meta2 });
     } catch {
     }
     return false;
@@ -24541,32 +24567,32 @@ function scrollWrite(y, meta3) {
     } else if (target) {
       applyCanonicalScrollTop(y, {
         scroller: target,
-        reason: meta3.reason ?? "router-scroll-write-fallback",
-        source: meta3.from || "router-scroll-write-fallback"
+        reason: meta2.reason ?? "router-scroll-write-fallback",
+        source: meta2.from || "router-scroll-write-fallback"
       });
       ok = true;
     }
   } catch (err) {
     try {
-      console.error("[SCROLL_WRITE] exception", { y, meta: meta3, err });
+      console.error("[SCROLL_WRITE] exception", { y, meta: meta2, err });
     } catch {
     }
   }
   const afterTop = target?.scrollTop ?? null;
   const writeAt = nowMs();
-  tpLastWriter = { from: meta3.from, at: writeAt, y };
+  tpLastWriter = { from: meta2.from, at: writeAt, y };
   try {
     window.__tpLastWriter = tpLastWriter;
   } catch {
   }
-  const stampSource = meta3.reason || meta3.from || "writer";
+  const stampSource = meta2.reason || meta2.from || "writer";
   const stampKind = classifyProgrammaticWriterKind(stampSource, getScrollMode2());
   noteProgrammaticWriterStamp(stampSource, stampKind, writeAt);
   try {
     console.info("[SCROLL_WRITE]", {
       ok,
-      from: meta3.from,
-      reason: meta3.reason ?? null,
+      from: meta2.from,
+      reason: meta2.reason ?? null,
       before: beforeTop,
       y,
       after: afterTop
@@ -24582,8 +24608,8 @@ function scrollWrite(y, meta3) {
       const snappedBack = afterTop != null && afterTopRaf != null ? afterTopRaf !== afterTop : null;
       try {
         console.warn("[SCROLL_WRITE_TRUTH]", {
-          from: meta3.from,
-          reason: meta3.reason ?? null,
+          from: meta2.from,
+          reason: meta2.reason ?? null,
           target: targetInfo,
           beforeTop,
           requestedTop,
@@ -25526,10 +25552,10 @@ function isHybridBackendReady() {
   }
   return false;
 }
-function computeAsrBlockScriptSig(meta3) {
-  if (!meta3 || !Array.isArray(meta3.units) || !meta3.units.length) return null;
+function computeAsrBlockScriptSig(meta2) {
+  if (!meta2 || !Array.isArray(meta2.units) || !meta2.units.length) return null;
   try {
-    const units = meta3.units;
+    const units = meta2.units;
     const first = units[0];
     const last = units[units.length - 1];
     const sums = units.reduce(
@@ -25565,7 +25591,7 @@ function readHybridScriptHash() {
 }
 function getHybridBlockRuntimeState() {
   const blockEls2 = getAsrBlockElements();
-  const meta3 = getAsrBlockIndex();
+  const meta2 = getAsrBlockIndex();
   const storeCount = Array.isArray(blockEls2) ? blockEls2.length : 0;
   let globalCount = 0;
   let globalReady = false;
@@ -25577,12 +25603,12 @@ function getHybridBlockRuntimeState() {
   }
   const blockCount = Math.max(storeCount, globalCount);
   const blocksReady = (globalReady || storeCount > 0) && blockCount > 0;
-  const scriptSig = computeAsrBlockScriptSig(meta3);
+  const scriptSig = computeAsrBlockScriptSig(meta2);
   return {
     blocksReady,
     blockCount,
-    blockSource: String(meta3?.source || "unknown"),
-    schemaVersion: Number.isFinite(Number(meta3?.schemaVersion)) ? Number(meta3?.schemaVersion) : null,
+    blockSource: String(meta2?.source || "unknown"),
+    schemaVersion: Number.isFinite(Number(meta2?.schemaVersion)) ? Number(meta2?.schemaVersion) : null,
     scriptSig,
     scriptHash: readHybridScriptHash(),
     backendReady: isHybridBackendReady(),
@@ -33587,12 +33613,24 @@ function evaluateStallCueRescuePolicy(opts) {
   };
 }
 function shouldAllowAutoStallContentRescue(opts) {
+  const liveStrictFollow = opts.liveStrictFollow === true;
   const commitCount = Number.isFinite(opts.commitCount) ? Math.max(0, Math.floor(opts.commitCount)) : 0;
   const deltaLines = Number.isFinite(opts.deltaLines) ? Math.max(0, Math.floor(opts.deltaLines)) : 0;
-  if (deltaLines !== 1) return false;
+  if (deltaLines <= 0) return false;
+  if (liveStrictFollow && deltaLines > 1) return false;
+  const sinceLastForwardMs = Number.isFinite(opts.sinceLastForwardMs) ? Math.max(0, Number(opts.sinceLastForwardMs)) : 0;
+  const matureRun = commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MIN_COMMITS && sinceLastForwardMs >= DEFAULT_STARVATION_COMMIT_GAP_MS;
+  if (matureRun && deltaLines === 1) {
+    return true;
+  }
+  if (matureRun && deltaLines > 1 && deltaLines <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES && commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MULTI_STEP_MIN_COMMITS && sinceLastForwardMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS) {
+    return true;
+  }
+  if (deltaLines > 1) {
+    return deltaLines <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES && commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_MIN_COMMITS && sinceLastForwardMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS;
+  }
   if (commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS) return true;
   if (commitCount <= 0) return false;
-  const sinceLastForwardMs = Number.isFinite(opts.sinceLastForwardMs) ? Math.max(0, Number(opts.sinceLastForwardMs)) : 0;
   if (sinceLastForwardMs < DEFAULT_STARVATION_COMMIT_GAP_MS) return false;
   if (commitCount >= 2 && sinceLastForwardMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS) {
     return true;
@@ -33824,8 +33862,13 @@ function warnGuard(reason, parts) {
     }
   } catch {
   }
-  const last = guardLastAt.get(reason) ?? 0;
-  if (now3 - last < GUARD_THROTTLE_MS) return;
+  const rawLast = guardLastAt.get(reason);
+  const last = Number.isFinite(rawLast) ? Number(rawLast) : 0;
+  if (Number.isFinite(rawLast) && now3 < last) {
+    guardLastAt.delete(reason);
+  } else if (now3 - last < GUARD_THROTTLE_MS) {
+    return;
+  }
   guardLastAt.set(reason, now3);
   const level = GUARD_DEBUG_REASONS.has(reason) ? "debug" : "warn";
   try {
@@ -34512,7 +34555,8 @@ function createAsrScrollDriver(options = {}) {
     minLineAdvance: options.minLineAdvance,
     seekThrottleMs: options.seekThrottleMs,
     interimConfidenceScale: options.interimConfidenceScale,
-    runKey: options.runKey || null
+    runKey: options.runKey || null,
+    runGeneration: Number.isFinite(options.runGeneration) ? Math.max(0, Math.floor(Number(options.runGeneration))) : null
   });
   const minLineAdvance = Number.isFinite(options.minLineAdvance ?? DEFAULT_MIN_LINE_ADVANCE) ? Math.max(0, options.minLineAdvance ?? DEFAULT_MIN_LINE_ADVANCE) : DEFAULT_MIN_LINE_ADVANCE;
   const seekThrottleMs = Number.isFinite(options.seekThrottleMs ?? DEFAULT_SEEK_THROTTLE_MS) ? Math.max(0, options.seekThrottleMs ?? DEFAULT_SEEK_THROTTLE_MS) : DEFAULT_SEEK_THROTTLE_MS;
@@ -34520,6 +34564,10 @@ function createAsrScrollDriver(options = {}) {
   const sessionStartAt = Date.now();
   const driverInstanceId = Math.random().toString(36).slice(2);
   const summaryRunKey = String(options.runKey || "").trim();
+  const summaryRunGenerationRaw = Number(options.runGeneration);
+  const summaryRunGeneration = Number.isFinite(summaryRunGenerationRaw) ? Math.max(0, Math.floor(summaryRunGenerationRaw)) : null;
+  let driverRunKey = summaryRunKey;
+  let driverRunGeneration = summaryRunGeneration;
   try {
     console.log("[ASR DRIVER CREATED]", driverInstanceId);
   } catch {
@@ -34540,6 +34588,8 @@ function createAsrScrollDriver(options = {}) {
   let commitCount = 0;
   let firstCommitIndex = null;
   let lastCommitIndex = null;
+  let lastCommittedLine = -1;
+  let lastFreshProofLine = -1;
   let lastKnownScrollTop = 0;
   let summaryEmitted = false;
   let scriptEndEventEmitted = false;
@@ -34547,6 +34597,14 @@ function createAsrScrollDriver(options = {}) {
   let lastStarvationWarnAt = 0;
   let lastStarvationRelockAt = 0;
   let lastForwardCommitAt = Date.now();
+  const liveProgressHeuristics = {
+    lastAdvanceAtMs: lastForwardCommitAt,
+    lastStrongSyncAtMs: sessionStartAt,
+    lastAcceptedForwardIndex: -1,
+    consecutiveNoAdvanceFrames: 0,
+    consecutiveWeakForwardSignals: 0,
+    estimatedBehindByLines: 0
+  };
   let finalsSinceCommit = 0;
   let eventsSinceCommit = 0;
   let lastStuckWatchdogAt = 0;
@@ -34779,6 +34837,17 @@ function createAsrScrollDriver(options = {}) {
       });
       return currentTop;
     }
+    if (!canApplyAsrMovement(`scroll-write:${reason}`, Date.now())) {
+      logAsrScrollAttempt("denied", {
+        targetTop,
+        currentTop,
+        reason: `${reason}:${ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD}`,
+        scroller,
+        source,
+        applied: false
+      });
+      return currentTop;
+    }
     const payload = { ...opts, scroller };
     const appliedTop = applyCanonicalScrollTop(targetTop, { ...payload, source });
     scheduleAsrWriteCheck(scroller, currentTop, reason, targetTop, source);
@@ -34974,6 +35043,7 @@ function createAsrScrollDriver(options = {}) {
     const rewind = Math.max(0, cursorLine - targetIdxRaw);
     if (rewind <= 0) return false;
     const targetIdx = rewind > BEHIND_RECOVERY_MAX_REWIND ? Math.max(0, cursorLine - BEHIND_RECOVERY_MAX_REWIND) : targetIdxRaw;
+    if (!canApplyAsrMovement("behind-recovery", now3, { final: isFinal })) return false;
     const scroller = getScroller();
     const targetTop = scroller ? resolveTargetTop(scroller, targetIdx) : null;
     if (scroller && targetTop != null) {
@@ -35034,6 +35104,7 @@ function createAsrScrollDriver(options = {}) {
     if (!currentSimLow) return false;
     const margin = prevSim - currentSim;
     if (!Number.isFinite(margin) || margin < DEFAULT_GRACE_ROLLBACK_MIN_MARGIN) return false;
+    if (!canApplyAsrMovement("grace-rollback", now3, { final: true, clue })) return false;
     const sinceCommitMs = Math.max(0, now3 - lastCommitAt2);
     const scroller = getScroller();
     const targetTop = scroller ? resolveTargetTop(scroller, safePrev) : null;
@@ -35134,6 +35205,15 @@ function createAsrScrollDriver(options = {}) {
   let stableInterimLastMeaningfulChangeAt = 0;
   let lastRescueSpeechTranscriptNorm = "";
   let lastRescueSpeechTokenCount = 0;
+  let lastFinalTranscriptNorm = "";
+  let lastFinalTranscriptAt = 0;
+  let lastFinalTranscriptRaw = "";
+  let lastFinalTranscriptRunKey = "";
+  let lastFinalTranscriptRunGeneration = null;
+  let lastCommitTranscriptTextLength = 0;
+  let lastCommitTranscriptTimestamp = 0;
+  let lastCommitTargetLine = -1;
+  let lastCommitTranscriptNormSnapshot = "";
   let lastRescueSpeechAt = 0;
   let freshSpeechSinceCommit = false;
   let asrSilenceActive = true;
@@ -35141,30 +35221,284 @@ function createAsrScrollDriver(options = {}) {
   let asrVadSpeaking = false;
   let lastVadSpeechAt = 0;
   let asrRuntimeSpeechSeen = false;
+  let asrRuntimeSpeechEverTrue = false;
   let asrRuntimeSpeechRunningActual = false;
+  let lastSpeechRunningActualAtMs = 0;
   let lastRuntimeSpeechAt = 0;
+  let speechStopBrakeCleanupUsed = false;
+  let pendingSpeakableBridgeState = null;
+  let asrRuntimeRunKey = summaryRunKey;
+  let asrRuntimeRunGeneration = summaryRunGeneration;
   let lastRescueMatchEvidenceAt = 0;
   let lastRescueMatchEvidenceLine = -1;
   let lastRescueMatchEvidenceSim = 0;
   let lastRescueNoMatchAt = 0;
   let lastStableInterimNudgeAt = 0;
+  let softRuntimeRebaseCooldownUntil = 0;
+  let softRuntimeRebaseLastStallAnchorAt = -1;
+  let softRuntimeRebaseRetryActive = false;
+  let softRuntimeRebaseLastSkipLogAt = 0;
   let lastBadCursorOnCueLogAt = 0;
   let lastAutoCueSkipAt = 0;
   let lastStallRecoveryOverrideAt = 0;
+  let liveStrictSpeculativeStepUsed = false;
+  let liveStrictForwardClusterCursor = -1;
+  let liveStrictForwardClusterLine = -1;
+  let liveStrictForwardClusterSim = 0;
+  let liveStrictForwardClusterHits = 0;
+  let liveStrictForwardClusterUpdatedAt = 0;
+  let liveStrictForwardClusterContradictionAt = 0;
+  const normalizeRunGeneration = (value) => {
+    if (value == null || value === "") return null;
+    const raw = Number(value);
+    if (!Number.isFinite(raw)) return null;
+    return Math.max(0, Math.floor(raw));
+  };
+  const normalizeRunKey = (value) => String(value || "").trim();
+  const readWindowRunGeneration = () => {
+    if (typeof window === "undefined") return null;
+    try {
+      return normalizeRunGeneration(window.__tpAsrRunGeneration);
+    } catch {
+      return null;
+    }
+  };
+  const readWindowRunKey = () => {
+    if (typeof window === "undefined") return "";
+    try {
+      return normalizeRunKey(window.__tpAsrRunKey);
+    } catch {
+      return "";
+    }
+  };
+  const resolveActiveRunGeneration = () => {
+    const runtimeGeneration = normalizeRunGeneration(asrRuntimeRunGeneration);
+    const windowGeneration = readWindowRunGeneration();
+    if (runtimeGeneration == null) return windowGeneration;
+    if (windowGeneration != null && windowGeneration > runtimeGeneration) return windowGeneration;
+    return runtimeGeneration;
+  };
+  const resolveActiveRunKey = () => {
+    const runtimeKey = normalizeRunKey(asrRuntimeRunKey);
+    if (runtimeKey) return runtimeKey;
+    return readWindowRunKey();
+  };
+  const resolveDriverRunGeneration = () => normalizeRunGeneration(driverRunGeneration);
+  const resolveDriverRunKey = () => normalizeRunKey(driverRunKey);
+  const syncDriverRunIdentity = (args) => {
+    if (!args.runKeyProvided && !args.runGenerationProvided) return false;
+    const prevDriverRunKey = resolveDriverRunKey();
+    const prevDriverRunGeneration = resolveDriverRunGeneration();
+    const nextDriverRunKey = args.runKeyProvided ? normalizeRunKey(args.runKey) : prevDriverRunKey;
+    const nextDriverRunGeneration = args.runGenerationProvided ? normalizeRunGeneration(args.runGeneration) : prevDriverRunGeneration;
+    if (prevDriverRunKey === nextDriverRunKey && prevDriverRunGeneration === nextDriverRunGeneration) {
+      return false;
+    }
+    if (args.runKeyProvided) {
+      driverRunKey = nextDriverRunKey;
+    }
+    if (args.runGenerationProvided) {
+      driverRunGeneration = nextDriverRunGeneration;
+    }
+    const activeRunKey = args.activeRunKey ?? resolveActiveRunKey();
+    const activeRunGeneration = args.activeRunGeneration ?? resolveActiveRunGeneration();
+    warnGuard("asr_live_generation_synced", [
+      `source=${args.source}`,
+      `driverRunGeneration=${resolveDriverRunGeneration() ?? -1}`,
+      `prevDriverRunGeneration=${prevDriverRunGeneration ?? -1}`,
+      `activeRunGeneration=${activeRunGeneration ?? -1}`,
+      `transcriptRunGeneration=${args.transcriptRunGeneration ?? -1}`,
+      resolveDriverRunKey() ? `driverRunKey=${resolveDriverRunKey()}` : "",
+      prevDriverRunKey ? `prevDriverRunKey=${prevDriverRunKey}` : "",
+      activeRunKey ? `activeRunKey=${activeRunKey}` : "activeRunKey=none",
+      args.transcriptRunKey ? `transcriptRunKey=${args.transcriptRunKey}` : ""
+    ]);
+    return true;
+  };
+  const maybeSyncDriverRunIdentityForIngest = (detail) => {
+    if (!detail) return false;
+    if (getScrollMode3() !== "asr" || !isSessionLivePhase() || !isSessionAsrArmed()) return false;
+    const driverGeneration = resolveDriverRunGeneration();
+    const activeRunGeneration = resolveActiveRunGeneration();
+    if (activeRunGeneration == null || activeRunGeneration <= 0) return false;
+    if (driverGeneration != null && driverGeneration > 0) return false;
+    const transcriptRunGeneration = normalizeRunGeneration(detail.runGeneration);
+    if (transcriptRunGeneration == null || transcriptRunGeneration !== activeRunGeneration) {
+      return false;
+    }
+    const transcriptRunKey = normalizeRunKey(detail.runKey);
+    const activeRunKey = resolveActiveRunKey();
+    if (transcriptRunKey && activeRunKey && transcriptRunKey !== activeRunKey) return false;
+    return syncDriverRunIdentity({
+      source: "ingest-adopt-active",
+      runKeyProvided: true,
+      runGenerationProvided: true,
+      runKey: activeRunKey || transcriptRunKey,
+      runGeneration: activeRunGeneration,
+      transcriptRunKey: transcriptRunKey || void 0,
+      transcriptRunGeneration,
+      activeRunKey,
+      activeRunGeneration
+    });
+  };
+  const isRunIdentityStale = (detail) => {
+    maybeSyncDriverRunIdentityForIngest(detail);
+    if (!detail) return false;
+    const transcriptRunGeneration = normalizeRunGeneration(detail?.runGeneration);
+    const activeRunGeneration = resolveActiveRunGeneration();
+    if (transcriptRunGeneration != null && activeRunGeneration != null && transcriptRunGeneration !== activeRunGeneration) {
+      return true;
+    }
+    const transcriptRunKey = normalizeRunKey(detail?.runKey);
+    const activeRunKey = resolveActiveRunKey();
+    if (transcriptRunKey && activeRunKey && transcriptRunKey !== activeRunKey) return true;
+    return false;
+  };
+  const clearPendingSpeakableBridge = (reason, extras) => {
+    const state8 = pendingSpeakableBridgeState;
+    if (!state8) return;
+    warnGuard("asr_pending_speakable_bridge_clear", [
+      `semanticFrom=${state8.semanticFrom}`,
+      `semanticTarget=${state8.semanticTarget}`,
+      `visualCurrent=${state8.visualCurrent}`,
+      `visualReducedTarget=${state8.visualReducedTarget}`,
+      `skippedVisibleRows=${state8.skippedVisibleRows}`,
+      `proofSource=${state8.proofSource || "unknown"}`,
+      `sourceBranch=${state8.sourceBranch || "unknown"}`,
+      `ageMs=${Math.max(0, Date.now() - state8.createdAtMs)}`,
+      `reason=${reason}`,
+      ...extras || []
+    ]);
+    pendingSpeakableBridgeState = null;
+  };
   const noteRuntimeSpeechState = (detail) => {
+    const runKeyRaw = detail?.runKey;
+    const runGenerationRaw = detail?.runGeneration;
+    if (runKeyRaw !== void 0) {
+      asrRuntimeRunKey = normalizeRunKey(runKeyRaw);
+    }
+    if (runGenerationRaw !== void 0) {
+      asrRuntimeRunGeneration = normalizeRunGeneration(runGenerationRaw);
+    }
+    if (runKeyRaw !== void 0 || runGenerationRaw !== void 0) {
+      syncDriverRunIdentity({
+        source: "runtime-status",
+        runKeyProvided: runKeyRaw !== void 0,
+        runGenerationProvided: runGenerationRaw !== void 0,
+        runKey: runKeyRaw,
+        runGeneration: runGenerationRaw
+      });
+    }
     const actualRaw = detail?.speechRunningActual;
     if (typeof actualRaw !== "boolean") return;
-    asrRuntimeSpeechSeen = true;
-    asrRuntimeSpeechRunningActual = actualRaw;
     if (actualRaw) {
+      asrRuntimeSpeechSeen = true;
+      asrRuntimeSpeechEverTrue = true;
+      asrRuntimeSpeechRunningActual = true;
+      lastSpeechRunningActualAtMs = Date.now();
+      speechStopBrakeCleanupUsed = false;
       lastRuntimeSpeechAt = Date.now();
+      return;
     }
+    if (!asrRuntimeSpeechEverTrue) {
+      return;
+    }
+    asrRuntimeSpeechSeen = true;
+    asrRuntimeSpeechRunningActual = false;
+    clearPendingSpeakableBridge("speech_stopped_runtime");
   };
   const hasRecentActualSpeech = (now3) => {
     if (!asrRuntimeSpeechSeen) return true;
+    if (!asrRuntimeSpeechEverTrue) return true;
     if (asrRuntimeSpeechRunningActual) return true;
     if (lastRuntimeSpeechAt <= 0) return false;
     return Math.max(0, now3 - lastRuntimeSpeechAt) <= DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS;
+  };
+  const hasRecentVadSpeechNow = (now3) => {
+    const vadSpeechAgeMs = lastVadSpeechAt > 0 ? Math.max(0, now3 - lastVadSpeechAt) : Number.POSITIVE_INFINITY;
+    return !asrVadSeen || asrVadSpeaking || vadSpeechAgeMs <= DEFAULT_ASR_VAD_SPEECH_GRACE_MS;
+  };
+  const isRecentlyInSync = (nowMs2, heuristics, windowMs = LIVE_STRICT_MOMENTUM_SYNC_WINDOW_MS) => nowMs2 - heuristics.lastStrongSyncAtMs <= windowMs;
+  const isStalling = (nowMs2, heuristics, stallMs = LIVE_STRICT_STALL_AFTER_MS) => nowMs2 - heuristics.lastAdvanceAtMs >= stallMs;
+  const isForwardishSignal = (candidateIndex, currentIndex, maxLeap = 3) => {
+    const delta = candidateIndex - currentIndex;
+    return delta >= 1 && delta <= maxLeap;
+  };
+  const isLiveStrictSpeculativeForceReason = (reason) => LIVE_STRICT_SPECULATIVE_FORCE_REASONS.has(String(reason || "").trim().toLowerCase());
+  const markCommitTranscriptCursor = (nextIndex, now3) => {
+    const transcriptNorm = String(lastFinalTranscriptNorm || "").trim();
+    lastCommitTranscriptNormSnapshot = transcriptNorm;
+    lastCommitTranscriptTextLength = transcriptNorm.length;
+    lastCommitTranscriptTimestamp = lastFinalTranscriptAt > 0 ? lastFinalTranscriptAt : now3;
+    lastCommitTargetLine = Number.isFinite(nextIndex) ? Math.max(0, Math.floor(nextIndex)) : -1;
+  };
+  const resetLiveStrictForwardCluster = () => {
+    liveStrictForwardClusterCursor = -1;
+    liveStrictForwardClusterLine = -1;
+    liveStrictForwardClusterSim = 0;
+    liveStrictForwardClusterHits = 0;
+    liveStrictForwardClusterUpdatedAt = 0;
+    liveStrictForwardClusterContradictionAt = 0;
+  };
+  const noteLiveStrictForwardClusterEvidence = (args) => {
+    const { now: now3, cursorLine, bestLine, bestSim, isFinal, requiredThreshold, topScores, currentLineDirectSim } = args;
+    const safeCursor = Math.max(0, Math.floor(cursorLine));
+    const safeBest = Math.max(0, Math.floor(bestLine));
+    const delta = safeBest - safeCursor;
+    if (!isFinal || !Number.isFinite(bestSim) || delta <= 0) {
+      if (liveStrictForwardClusterCursor === safeCursor) {
+        liveStrictForwardClusterHits = 0;
+        liveStrictForwardClusterLine = -1;
+        liveStrictForwardClusterSim = 0;
+        liveStrictForwardClusterUpdatedAt = now3;
+      }
+      return;
+    }
+    const contradictionNeed = Math.max(
+      DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM,
+      bestSim - 0.08
+    );
+    const hasBackwardContradiction = Number.isFinite(currentLineDirectSim) && currentLineDirectSim >= contradictionNeed || Array.isArray(topScores) && topScores.some((entry) => {
+      const idx = Number(entry.idx);
+      const score = Number(entry.score);
+      if (!Number.isFinite(idx) || !Number.isFinite(score)) return false;
+      if (Math.floor(idx) > safeCursor) return false;
+      return score >= contradictionNeed;
+    });
+    if (hasBackwardContradiction) {
+      liveStrictForwardClusterContradictionAt = now3;
+      if (liveStrictForwardClusterCursor === safeCursor) {
+        liveStrictForwardClusterHits = 0;
+      }
+      return;
+    }
+    const minNeed = Math.max(
+      DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM,
+      Number.isFinite(requiredThreshold) ? requiredThreshold : 0
+    );
+    const farForwardCandidate = delta >= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_DELTA_LINES && delta <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MAX_DELTA_LINES && bestSim >= minNeed;
+    if (!farForwardCandidate) {
+      if (liveStrictForwardClusterCursor === safeCursor) {
+        liveStrictForwardClusterHits = 0;
+        liveStrictForwardClusterLine = -1;
+        liveStrictForwardClusterSim = 0;
+        liveStrictForwardClusterUpdatedAt = now3;
+      }
+      return;
+    }
+    if (liveStrictForwardClusterCursor === safeCursor && now3 - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS && liveStrictForwardClusterLine >= 0 && Math.abs(liveStrictForwardClusterLine - safeBest) <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_INDEX_EPS) {
+      liveStrictForwardClusterHits += 1;
+      liveStrictForwardClusterSim = Math.max(liveStrictForwardClusterSim, bestSim);
+      if (bestSim >= liveStrictForwardClusterSim || liveStrictForwardClusterLine < 0) {
+        liveStrictForwardClusterLine = safeBest;
+      }
+    } else {
+      liveStrictForwardClusterCursor = safeCursor;
+      liveStrictForwardClusterLine = safeBest;
+      liveStrictForwardClusterSim = bestSim;
+      liveStrictForwardClusterHits = 1;
+    }
+    liveStrictForwardClusterUpdatedAt = now3;
   };
   let noProgressStreak = 0;
   let lostForwardWallStreak = 0;
@@ -35221,6 +35555,12 @@ function createAsrScrollDriver(options = {}) {
   let noMatchHits = 0;
   let lastNoMatchAt = 0;
   let lastStuckDumpAt = 0;
+  let asrFocusGeneration = 0;
+  let lastFocusLostAt = 0;
+  let lastFocusRegainedAt = 0;
+  let asrFocusMovementHoldActive = false;
+  let asrFocusSignalSeen = false;
+  let postFocusFreshProofRequired = false;
   let lastMatchId;
   let syntheticMatchIdSeq = 0;
   let lastScriptHash = "";
@@ -35828,7 +36168,7 @@ function createAsrScrollDriver(options = {}) {
       consistencyEntries.length = 0;
     }
   };
-  const readScriptHash = () => {
+  const readScriptHash2 = () => {
     try {
       return String(window.__TP_LAST_APPLIED_HASH || "");
     } catch {
@@ -35836,7 +36176,7 @@ function createAsrScrollDriver(options = {}) {
     }
   };
   if (!lastScriptHash) {
-    lastScriptHash = readScriptHash();
+    lastScriptHash = readScriptHash2();
   }
   const publishSharedCursor = (index, reason) => {
     try {
@@ -35855,7 +36195,7 @@ function createAsrScrollDriver(options = {}) {
     const next = Math.max(0, Math.floor(nextIndex));
     const prevRaw = Number(window?.currentIndex ?? lastLineIndex ?? -1);
     const prev2 = Number.isFinite(prevRaw) ? Math.floor(prevRaw) : 0;
-    const scriptHash = readScriptHash();
+    const scriptHash = readScriptHash2();
     const scriptHashChanged = !!scriptHash && scriptHash !== lastScriptHash;
     const isBackJump = next < prev2 - DEFAULT_BACKJUMP_BLOCK_LINES;
     const allowBackJump = reason === "manualReset" || reason === "scriptChanged";
@@ -36022,6 +36362,9 @@ function createAsrScrollDriver(options = {}) {
     pendingMatch = null;
     pendingSeq += 1;
     lastLineIndex = normalized;
+    lastCommittedLine = normalized;
+    lastFreshProofLine = normalized;
+    pendingSpeakableBridgeState = null;
     matchAnchorIdx = normalized;
     lastEvidenceAt = now3;
     lastForwardCommitAt = now3;
@@ -36044,6 +36387,7 @@ function createAsrScrollDriver(options = {}) {
     pursuitActive = false;
     pursuitTargetTop = null;
     pursuitVel = 0;
+    markCommitTranscriptCursor(normalized, now3);
     logDev("[ASR_ADOPT] accepted bestIndex=" + normalized + " sim=" + formatLogScore(sim));
     setCurrentIndex(normalized, "manualAdopt");
     updateDebugState("manual-adopt");
@@ -36096,7 +36440,23 @@ function createAsrScrollDriver(options = {}) {
         holdAgeMs: ambiguityHoldActive && ambiguityHoldSince > 0 ? Math.max(0, Date.now() - ambiguityHoldSince) : 0,
         holdReason: ambiguityHoldActive ? ambiguityHoldReason : null,
         holdBestSim: ambiguityHoldActive ? Number(ambiguityHoldBestSim.toFixed(3)) : null,
-        holdSecondSim: ambiguityHoldActive && ambiguityHoldSecondIdx >= 0 ? Number(ambiguityHoldSecondSim.toFixed(3)) : null
+        holdSecondSim: ambiguityHoldActive && ambiguityHoldSecondIdx >= 0 ? Number(ambiguityHoldSecondSim.toFixed(3)) : null,
+        pendingSpeakableBridge: pendingSpeakableBridgeState ? {
+          semanticFrom: pendingSpeakableBridgeState.semanticFrom,
+          semanticTarget: pendingSpeakableBridgeState.semanticTarget,
+          visualCurrent: pendingSpeakableBridgeState.visualCurrent,
+          visualReducedTarget: pendingSpeakableBridgeState.visualReducedTarget,
+          skippedVisibleRows: pendingSpeakableBridgeState.skippedVisibleRows,
+          proofSource: pendingSpeakableBridgeState.proofSource,
+          sourceBranch: pendingSpeakableBridgeState.sourceBranch,
+          ageMs: Math.max(0, Date.now() - pendingSpeakableBridgeState.createdAtMs)
+        } : null,
+        asrFocusGeneration,
+        lastFocusLostAt,
+        lastFocusRegainedAt,
+        postFocusFreshProofRequired,
+        hasFreshPostFocusFinalProof: hasFreshPostFocusFinalProof(),
+        asrFocusMovementHoldActive
       };
     } catch {
     }
@@ -36119,6 +36479,235 @@ function createAsrScrollDriver(options = {}) {
     consistencyEntries.length = 0;
     logDev("evidence buffer cleared", { reason });
     updateDebugState("buffer-clear");
+  };
+  const publishAsrFocusGateState = () => {
+    try {
+      window.__tpAsrFocusGate = {
+        asrFocusGeneration,
+        lastFocusLostAt,
+        lastFocusRegainedAt,
+        postFocusFreshProofRequired,
+        hasFreshPostFocusFinalProof: hasFreshPostFocusFinalProof(),
+        movementHoldActive: asrFocusMovementHoldActive,
+        canAsrMove: canAsrMove()
+      };
+    } catch {
+    }
+  };
+  const isAsrLiveMovementSession = () => getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed();
+  const getDocumentVisibilityState = () => {
+    try {
+      if (typeof document === "undefined") return "visible";
+      const state8 = String(document.visibilityState || "visible").toLowerCase();
+      return state8 === "hidden" ? "hidden" : "visible";
+    } catch {
+      return "visible";
+    }
+  };
+  const isDocumentVisible = () => {
+    try {
+      if (typeof document === "undefined") return true;
+      return !document.hidden && getDocumentVisibilityState() === "visible";
+    } catch {
+      return true;
+    }
+  };
+  const isDocumentFocused = () => {
+    try {
+      if (typeof document === "undefined") return true;
+      const focused = typeof document.hasFocus === "function" ? !!document.hasFocus() : true;
+      if (!focused && !asrFocusSignalSeen && isDocumentVisible()) {
+        return true;
+      }
+      return focused;
+    } catch {
+    }
+    return true;
+  };
+  const freezeAsrMovementForFocusHold = (reason) => {
+    pendingSeq += 1;
+    pendingMatch = null;
+    if (pendingRaf) {
+      try {
+        cancelAnimationFrame(pendingRaf);
+      } catch {
+      }
+      pendingRaf = 0;
+    }
+    releaseCommitWindow(`focus-hold:${reason}`);
+    stopGlide(`focus-hold:${reason}`);
+    pursuitTargetTop = null;
+    pursuitVel = 0;
+    pursuitActive = false;
+    microPursuitUntil = 0;
+    lastCommitDeltaPx = 0;
+    clearEvidenceBuffer(`focus-hold:${reason}`);
+  };
+  const syncAsrFocusMovementGate = (source, now3) => {
+    if (source === "window-focus" || source === "window-blur") {
+      asrFocusSignalSeen = true;
+    }
+    if (!isAsrLiveMovementSession()) {
+      if (asrFocusMovementHoldActive) {
+        asrFocusMovementHoldActive = false;
+        publishAsrFocusGateState();
+      }
+      return;
+    }
+    const shouldHold = !isDocumentVisible() || !isDocumentFocused();
+    if (shouldHold) {
+      if (!asrFocusMovementHoldActive) {
+        asrFocusMovementHoldActive = true;
+        asrFocusGeneration += 1;
+        lastFocusLostAt = now3;
+        postFocusFreshProofRequired = true;
+        freezeAsrMovementForFocusHold("lost");
+        warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
+          `state=lost`,
+          `source=${source}`,
+          `generation=${asrFocusGeneration}`
+        ]);
+        emitHudStatus(
+          ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD,
+          "Hold: focus lost, movement frozen"
+        );
+        publishAsrFocusGateState();
+      }
+      return;
+    }
+    if (asrFocusMovementHoldActive) {
+      asrFocusMovementHoldActive = false;
+      asrFocusGeneration += 1;
+      lastFocusRegainedAt = now3;
+      postFocusFreshProofRequired = true;
+      freezeAsrMovementForFocusHold("regain");
+      warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
+        `state=regained`,
+        `source=${source}`,
+        `generation=${asrFocusGeneration}`
+      ]);
+      emitHudStatus(
+        ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD,
+        "Hold: waiting for fresh post-focus final proof"
+      );
+      publishAsrFocusGateState();
+    }
+  };
+  const hasFreshPostFocusFinalProof = () => !postFocusFreshProofRequired;
+  const canAsrMove = () => getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed() && isDocumentFocused() && getDocumentVisibilityState() === "visible" && hasFreshPostFocusFinalProof();
+  const isLiveAsrCommitSource = (source) => {
+    const normalized = String(source || "").trim().toLowerCase();
+    if (!normalized) return false;
+    return normalized.startsWith("pending-commit") || normalized.startsWith("cue-skip") || normalized.startsWith("stall-rescue") || normalized.startsWith("rescue-signal") || normalized === "asr-truth-correction" || normalized === "truth-correction";
+  };
+  const canApplyAsrMovement = (source, now3, detail) => {
+    const commitLikeAsrSource = isLiveAsrCommitSource(source);
+    if (getScrollMode3() === "asr" && commitLikeAsrSource) {
+      if (!isSessionLivePhase() || !isSessionAsrArmed()) {
+        warnGuard("asr_live_commit_inactive_hold", [
+          `source=${source}`,
+          `phaseLive=${isSessionLivePhase() ? 1 : 0}`,
+          `armed=${isSessionAsrArmed() ? 1 : 0}`
+        ]);
+        return false;
+      }
+      if (asrRuntimeSpeechSeen && !asrRuntimeSpeechRunningActual) {
+        warnGuard("asr_live_speech_stopped_hold", [
+          `source=${source}`,
+          "speechRunning=0",
+          `runGeneration=${resolveActiveRunGeneration() ?? -1}`,
+          resolveDriverRunKey() ? `runKey=${resolveDriverRunKey()}` : ""
+        ]);
+        return false;
+      }
+      if (isRunIdentityStale()) {
+        warnGuard("asr_live_stale_generation_hold", [
+          `source=${source}`,
+          `driverRunGeneration=${resolveDriverRunGeneration() ?? -1}`,
+          `activeRunGeneration=${resolveActiveRunGeneration() ?? -1}`,
+          resolveDriverRunKey() ? `driverRunKey=${resolveDriverRunKey()}` : "",
+          `activeRunKey=${resolveActiveRunKey() || "none"}`
+        ]);
+        return false;
+      }
+    }
+    syncAsrFocusMovementGate(source, now3);
+    if (!isAsrLiveMovementSession()) return true;
+    if (canAsrMove()) return true;
+    const visibilityState = getDocumentVisibilityState();
+    const focused = isDocumentFocused();
+    const freshPostFocusProof = hasFreshPostFocusFinalProof();
+    if (asrFocusMovementHoldActive || !focused || visibilityState !== "visible") {
+      warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
+        `state=lost`,
+        `source=${source}`,
+        `generation=${asrFocusGeneration}`,
+        focused ? "" : "focus=0",
+        visibilityState === "visible" ? "" : `visibility=${visibilityState}`
+      ]);
+      emitHudStatus(
+        ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD,
+        "Hold: focus lost, movement frozen"
+      );
+      return false;
+    }
+    if (!freshPostFocusProof) {
+      warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
+        `state=awaiting_post_focus_final`,
+        `source=${source}`,
+        `generation=${asrFocusGeneration}`,
+        detail?.final ? "final=1" : "final=0",
+        detail?.clue ? `clue="${detail.clue}"` : ""
+      ]);
+      emitHudStatus(
+        ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD,
+        "Hold: waiting for fresh post-focus final proof"
+      );
+      return false;
+    }
+    return true;
+  };
+  const allowMovementForIngest = (isFinal, now3, clue) => {
+    syncAsrFocusMovementGate("ingest", now3);
+    if (!isAsrLiveMovementSession()) return true;
+    if (asrFocusMovementHoldActive) {
+      warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
+        `state=lost`,
+        `source=ingest`,
+        `generation=${asrFocusGeneration}`
+      ]);
+      emitHudStatus(
+        ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD,
+        "Hold: focus lost, movement frozen"
+      );
+      return false;
+    }
+    if (hasFreshPostFocusFinalProof()) return true;
+    const isFinalAfterRegain = isFinal && lastFocusRegainedAt > 0 && now3 >= lastFocusRegainedAt;
+    const hasFreshSpeechProof = hasRecentActualSpeech(now3) && hasRecentVadSpeechNow(now3);
+    if (!isFinalAfterRegain || !hasFreshSpeechProof) {
+      warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
+        `state=awaiting_post_focus_final`,
+        `source=ingest`,
+        `generation=${asrFocusGeneration}`,
+        isFinal ? "final=1" : "final=0"
+      ]);
+      emitHudStatus(
+        ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD,
+        "Hold: waiting for fresh post-focus final proof"
+      );
+      return false;
+    }
+    postFocusFreshProofRequired = false;
+    clearEvidenceBuffer("post-focus-fresh-proof");
+    warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
+      `state=fresh_post_focus_final_ok`,
+      `source=ingest`,
+      `generation=${asrFocusGeneration}`,
+      clue ? `clue="${formatLogSnippet(clue, 56)}"` : ""
+    ]);
+    publishAsrFocusGateState();
+    return false;
   };
   const updateEvidenceBuffer = (text, isFinal, now3) => {
     if (!bufferMs || bufferMs <= 0) return text;
@@ -36275,6 +36864,10 @@ function createAsrScrollDriver(options = {}) {
   };
   const rescueHandler = (event) => {
     const source = String(event?.detail?.reason || "").trim() || "signal";
+    if (!canApplyAsrMovement(`rescue-signal:${source}`, Date.now())) {
+      stallRescueRequested = false;
+      return;
+    }
     let scheduled = false;
     try {
       scheduled = maybeScheduleStallCueRescue(source);
@@ -36282,6 +36875,15 @@ function createAsrScrollDriver(options = {}) {
       scheduled = false;
     }
     stallRescueRequested = scheduled;
+  };
+  const focusGateFocusHandler = () => {
+    syncAsrFocusMovementGate("window-focus", Date.now());
+  };
+  const focusGateBlurHandler = () => {
+    syncAsrFocusMovementGate("window-blur", Date.now());
+  };
+  const focusGateVisibilityHandler = () => {
+    syncAsrFocusMovementGate("visibilitychange", Date.now());
   };
   try {
     window.addEventListener("tp:asr:silence", silenceHandler);
@@ -36312,6 +36914,20 @@ function createAsrScrollDriver(options = {}) {
     window.__tpAsrRequestRescue = rescueHandler;
   } catch {
   }
+  try {
+    window.addEventListener("focus", focusGateFocusHandler);
+  } catch {
+  }
+  try {
+    window.addEventListener("blur", focusGateBlurHandler);
+  } catch {
+  }
+  try {
+    document.addEventListener("visibilitychange", focusGateVisibilityHandler);
+  } catch {
+  }
+  syncAsrFocusMovementGate("init", Date.now());
+  publishAsrFocusGateState();
   const summarizeGuardCounts = (limit = Number.POSITIVE_INFINITY) => {
     const entries = Array.from(guardCounts.entries()).map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count);
     return entries.slice(0, limit);
@@ -36705,7 +37321,7 @@ function createAsrScrollDriver(options = {}) {
     let nudgeApplied = false;
     let afterTop = beforeTop;
     const writeSuppressedByCommitWindow = (opts?.allowNudge ?? true) && isWriterCommitWindowActive();
-    if ((opts?.allowNudge ?? true) && !writeSuppressedByCommitWindow && Math.abs(targetTop - beforeTop) > POST_COMMIT_MIN_NUDGE_PX) {
+    if ((opts?.allowNudge ?? true) && !writeSuppressedByCommitWindow && Math.abs(targetTop - beforeTop) > POST_COMMIT_MIN_NUDGE_PX && canApplyAsrMovement("post-commit-readability", Date.now())) {
       const applied = applyCanonicalScrollTop(targetTop, {
         scroller,
         reason: "asr-post-commit-readability",
@@ -36797,13 +37413,1042 @@ function createAsrScrollDriver(options = {}) {
     }
     return picked;
   };
-  const maybeSkipCueLine = (cursorLine, now3, reason, clue) => {
+  const resolveLiveStrictNextSpeakableStep = (cursorLine, maxSpan = LIVE_STRICT_MAX_CUE_BRIDGE_SPAN) => {
+    if (!Number.isFinite(cursorLine) || cursorLine < 0) return null;
+    const safeCursor = Math.max(0, Math.floor(cursorLine));
+    const safeSpan = Math.max(1, Math.floor(maxSpan));
+    const bridge = findNextSpeakableWithinBridge(safeCursor, safeSpan, { strict: true });
+    const targetLine = bridge.nextLine != null && bridge.nextLine > safeCursor ? Math.max(0, Math.floor(bridge.nextLine)) : -1;
+    if (targetLine <= safeCursor) return null;
+    if (targetLine > safeCursor + safeSpan) return null;
+    const expectedSkipped = Math.max(0, targetLine - safeCursor - 1);
+    if ((bridge.skippedReasons?.length ?? 0) !== expectedSkipped) return null;
+    return {
+      targetLine,
+      skippedReasons: Array.isArray(bridge.skippedReasons) ? bridge.skippedReasons : []
+    };
+  };
+  const resolveNthNextSpeakableLine = (fromLine, steps) => {
+    const total = getTotalLines();
+    if (total <= 0) return null;
+    const safeSteps = Math.max(0, Math.floor(steps));
+    let cursor = Number.isFinite(fromLine) ? Math.floor(fromLine) : -1;
+    if (safeSteps <= 0) {
+      if (cursor >= 0) return Math.min(total - 1, Math.max(0, cursor));
+      return findNextSpokenLineIndex(0, total);
+    }
+    for (let i = 0; i < safeSteps; i += 1) {
+      const start2 = Math.max(0, cursor + 1);
+      const next = findNextSpokenLineIndex(start2, total);
+      if (next == null) return null;
+      cursor = next;
+    }
+    return cursor >= 0 ? cursor : null;
+  };
+  const resolveReaderLeashNextSpeakableLine = (fromLine, maxSpan = LIVE_STRICT_MAX_CUE_BRIDGE_SPAN) => {
+    const safeFrom = Number.isFinite(fromLine) ? Math.max(-1, Math.floor(fromLine)) : -1;
+    const strictStep = resolveLiveStrictNextSpeakableStep(safeFrom, maxSpan);
+    if (strictStep && strictStep.targetLine > safeFrom) {
+      return strictStep.targetLine;
+    }
+    const total = getTotalLines();
+    if (total <= 0) return null;
+    const start2 = Math.max(0, safeFrom + 1);
+    const end = Math.min(total - 1, safeFrom + Math.max(1, Math.floor(maxSpan)));
+    if (end < start2) return null;
+    for (let idx = start2; idx <= end; idx += 1) {
+      const lineText = getLineTextAt(idx);
+      if (classifyStrictSkippableLineForCueBridge(lineText) == null) {
+        return idx;
+      }
+    }
+    return null;
+  };
+  const resolveNthReaderLeashSpeakableLine = (fromLine, steps, maxSpan = LIVE_STRICT_MAX_CUE_BRIDGE_SPAN) => {
+    const total = getTotalLines();
+    if (total <= 0) return null;
+    const safeSteps = Math.max(0, Math.floor(steps));
+    let cursor = Number.isFinite(fromLine) ? Math.floor(fromLine) : -1;
+    if (safeSteps <= 0) {
+      if (cursor >= 0) return Math.min(total - 1, Math.max(0, cursor));
+      return resolveReaderLeashNextSpeakableLine(-1, maxSpan);
+    }
+    for (let i = 0; i < safeSteps; i += 1) {
+      const next = resolveReaderLeashNextSpeakableLine(cursor, maxSpan);
+      if (next == null) return null;
+      cursor = next;
+    }
+    return cursor >= 0 ? cursor : null;
+  };
+  const countSpeakableDistanceAhead = (fromLine, targetLine) => {
+    const safeFrom = Number.isFinite(fromLine) ? Math.floor(fromLine) : -1;
+    const safeTarget = Number.isFinite(targetLine) ? Math.max(0, Math.floor(targetLine)) : -1;
+    if (safeTarget <= safeFrom) return 0;
+    const total = getTotalLines();
+    if (total <= 0) {
+      return Math.max(0, safeTarget - Math.max(0, safeFrom));
+    }
+    let steps = 0;
+    let cursor = safeFrom;
+    const maxIterations = Math.max(1, total + 4);
+    for (let i = 0; i < maxIterations; i += 1) {
+      const next = findNextSpokenLineIndex(Math.max(0, cursor + 1), total);
+      if (next == null) break;
+      steps += 1;
+      if (next >= safeTarget) return steps;
+      cursor = next;
+    }
+    return Number.POSITIVE_INFINITY;
+  };
+  const isReaderLeashHardRecoverySource = (source) => {
+    const normalized = String(source || "").trim().toLowerCase();
+    if (!normalized) return false;
+    return normalized.includes("behind-recovery") || normalized.includes("behind-reanchor") || normalized.includes("stall_recovery_override") || normalized.includes("starvation_future_speech_reconcile") || normalized.includes("watchdog") || normalized.includes("catchup") || normalized.includes("lost-forward");
+  };
+  const isProofOwnedPrimaryForceReason = (reason) => {
+    const normalized = String(reason || "").trim().toLowerCase();
+    if (!normalized) return false;
+    return normalized === "live_strict_proof_owned_commit" || normalized === "starvation_future_speech_reconcile" || normalized === "movement_authority_proof" || normalized === "movement_authority_reconcile" || normalized === "pending_speakable_bridge_complete";
+  };
+  const isAsrRecoverySource = (sourceBranch, forceReason, matchId) => {
+    const normalized = [
+      String(sourceBranch || "").trim().toLowerCase(),
+      String(forceReason || "").trim().toLowerCase(),
+      String(matchId || "").trim().toLowerCase()
+    ].join("|");
+    if (!normalized) return false;
+    return normalized.includes("starvation_future_speech_reconcile") || normalized.includes("soft_runtime_rebase") || normalized.includes("stall_override") || normalized.includes("stall-rescue") || normalized.includes("strict-live-bridge") || normalized.includes("strict-live-drain") || normalized.includes("bridge_recovery") || normalized.includes("cue_stall_rescue");
+  };
+  const isMarkerTrackingHealthyForLine = (scroller, currentLine) => {
+    const markerIdx = computeCueSafeMarkerIndex(scroller);
+    if (!Number.isFinite(markerIdx) || markerIdx < 0) {
+      return { markerIdx: -1, healthy: false };
+    }
+    const safeCurrent = Math.max(0, Math.floor(Number(currentLine) || 0));
+    return {
+      markerIdx,
+      healthy: Math.abs(markerIdx - safeCurrent) <= 1
+    };
+  };
+  const resolveLineVisualTelemetry = (scroller, lineIndex) => {
+    const unknown = {
+      band: "unknown",
+      viewportState: "unknown",
+      distanceToBottomPx: Number.NaN,
+      distanceToMarkerPx: Number.NaN,
+      markerYInViewport: Number.NaN,
+      lineCenterInViewport: Number.NaN
+    };
+    if (!scroller) return unknown;
+    const lineEl = getLineElementByIndex(scroller, Math.max(0, Math.floor(Number(lineIndex) || 0)));
+    if (!lineEl) return unknown;
+    const viewportHeight = Number(scroller.clientHeight);
+    if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) return unknown;
+    const scrollTop = Number(scroller.scrollTop || 0);
+    const lineTop = Number(lineEl.offsetTop || 0);
+    const lineHeight = Math.max(
+      Number(lineEl.offsetHeight || 0),
+      Number(lineEl.clientHeight || 0),
+      Number(lineEl.getBoundingClientRect?.().height || 0),
+      1
+    );
+    const lineCenterContent = lineTop + lineHeight * 0.5;
+    const lineCenterInViewport = lineCenterContent - scrollTop;
+    const ratio = lineCenterInViewport / viewportHeight;
+    const markerRatioRaw = typeof window.__TP_MARKER_PCT === "number" ? Number(window.__TP_MARKER_PCT) : POST_COMMIT_ACTIVE_TARGET_RATIO;
+    const markerRatio = clamp4(markerRatioRaw, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_MAX_RATIO);
+    const markerYInViewport = viewportHeight * markerRatio;
+    const distanceToMarkerPx = lineCenterInViewport - markerYInViewport;
+    const distanceToBottomPx = viewportHeight - lineCenterInViewport;
+    if (!Number.isFinite(ratio)) return unknown;
+    if (ratio < 0) {
+      return {
+        band: "above",
+        viewportState: "above",
+        distanceToBottomPx,
+        distanceToMarkerPx,
+        markerYInViewport,
+        lineCenterInViewport
+      };
+    }
+    if (ratio > 1) {
+      return {
+        band: "below",
+        viewportState: "below",
+        distanceToBottomPx,
+        distanceToMarkerPx,
+        markerYInViewport,
+        lineCenterInViewport
+      };
+    }
+    const band = ratio <= 0.34 ? "top" : ratio <= 0.68 ? "middle" : "bottom";
+    return {
+      band,
+      viewportState: "visible",
+      distanceToBottomPx,
+      distanceToMarkerPx,
+      markerYInViewport,
+      lineCenterInViewport
+    };
+  };
+  const resolveReaderVisualBand = (scroller, lineIndex) => {
+    return resolveLineVisualTelemetry(scroller, lineIndex).band;
+  };
+  const resolveForwardSpeakableTarget = (currentLine, requestedTarget, maxSpeakableSteps) => {
+    const safeCurrent = Math.max(0, Math.floor(Number(currentLine) || 0));
+    const safeRequested = Math.max(safeCurrent, Math.floor(Number(requestedTarget) || safeCurrent));
+    const stepsCap = Math.max(1, Math.floor(Number(maxSpeakableSteps) || 1));
+    const totalLines = getTotalLines();
+    const physicalCapped = totalLines > 0 ? clamp4(safeRequested, safeCurrent, Math.max(0, totalLines - 1)) : safeRequested;
+    let cursor = safeCurrent;
+    let steps = 0;
+    while (steps < stepsCap) {
+      const next = findNextSpokenLineIndex(Math.max(0, cursor + 1), totalLines);
+      if (!Number.isFinite(next) || next <= cursor) break;
+      const safeNext = Math.max(0, Math.floor(next));
+      if (safeNext > physicalCapped) break;
+      cursor = safeNext;
+      steps += 1;
+      if (cursor >= physicalCapped) break;
+    }
+    if (cursor > safeCurrent) return cursor;
+    return Math.min(physicalCapped, safeCurrent + stepsCap);
+  };
+  const isLineVisiblyRenderedForLiveBridge = (lineIndex) => {
+    const safeIndex = Math.max(0, Math.floor(Number(lineIndex) || 0));
+    const lineEl = getLineElementByIndex(getScroller(), safeIndex);
+    if (!lineEl) return true;
+    let hidden = false;
+    try {
+      const style = typeof window !== "undefined" && typeof window.getComputedStyle === "function" ? window.getComputedStyle(lineEl) : null;
+      hidden = style != null && (style.display === "none" || style.visibility === "hidden");
+    } catch {
+      hidden = false;
+    }
+    if (hidden) return false;
+    const offsetHeight = Number(lineEl.offsetHeight);
+    const clientHeight = Number(lineEl.clientHeight);
+    let rectHeight = 0;
+    try {
+      rectHeight = Number(lineEl.getBoundingClientRect?.().height || 0);
+    } catch {
+      rectHeight = 0;
+    }
+    const renderedHeight = Math.max(
+      Number.isFinite(offsetHeight) ? offsetHeight : 0,
+      Number.isFinite(clientHeight) ? clientHeight : 0,
+      Number.isFinite(rectHeight) ? rectHeight : 0
+    );
+    return renderedHeight > 1;
+  };
+  const isSpeakableScriptLine = (lineIndex) => !isIgnorableCueLineText(getLineTextAt(Math.max(0, Math.floor(Number(lineIndex) || 0))));
+  const resolveLiveVisibleForwardTarget = (currentLine, requestedTarget, maxRenderedSteps = DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS) => {
+    const safeCurrent = Math.max(0, Math.floor(Number(currentLine) || 0));
+    const safeRequested = Math.max(safeCurrent, Math.floor(Number(requestedTarget) || safeCurrent));
+    const totalLines = getTotalLines();
+    const hardMax = totalLines > 0 ? Math.max(0, totalLines - 1) : safeRequested;
+    const cappedRequested = Math.min(safeRequested, hardMax);
+    const visibleStepCap = Math.max(1, Math.floor(Number(maxRenderedSteps) || 1));
+    let cursor = safeCurrent;
+    let renderedSteps = 0;
+    for (let idx = safeCurrent + 1; idx <= cappedRequested; idx += 1) {
+      if (isLineVisiblyRenderedForLiveBridge(idx)) {
+        renderedSteps += 1;
+        if (renderedSteps > visibleStepCap) break;
+      }
+      cursor = idx;
+    }
+    return Math.max(safeCurrent, cursor);
+  };
+  const resolveAsrMovementAuthority = (ctx) => {
+    const safeCurrent = Math.max(0, Math.floor(Number(ctx.current) || 0));
+    const safeTarget = Math.max(safeCurrent, Math.floor(Number(ctx.target) || safeCurrent));
+    const safeBestIdx = Math.max(0, Math.floor(Number(ctx.bestIdx) || 0));
+    const safeBestSim = Number.isFinite(Number(ctx.bestSim)) ? Number(ctx.bestSim) : 0;
+    const starvationMs = Math.max(0, Math.floor(Number(ctx.starvationMs) || 0));
+    if (starvationMs >= 3e3 && safeBestIdx > safeCurrent && safeBestSim >= 0.8 && ctx.speechRunningActual === true && ctx.isFinal === true) {
+      return {
+        authority: "reconcile",
+        current: safeCurrent,
+        target: resolveForwardSpeakableTarget(safeCurrent, Math.max(safeTarget, safeBestIdx), 1),
+        bestIdx: safeBestIdx,
+        bestSim: safeBestSim,
+        reason: "starvation_forward_evidence",
+        proofSource: ctx.proofSource,
+        sourceBranch: "movement_authority_reconcile",
+        bypassDownstreamVeto: true
+      };
+    }
+    if ((ctx.hasStrictLocalProof || ctx.hasAdjacentProof || ctx.hasBridgeLexicalProof || ctx.hasFinalForwardProof) && safeTarget > safeCurrent && ctx.speechRunningActual === true) {
+      return {
+        authority: "proof",
+        current: safeCurrent,
+        target: resolveForwardSpeakableTarget(safeCurrent, safeTarget, 1),
+        bestIdx: safeBestIdx,
+        bestSim: safeBestSim,
+        reason: "strict_or_lexical_proof",
+        proofSource: ctx.proofSource,
+        sourceBranch: "movement_authority_proof",
+        bypassDownstreamVeto: true
+      };
+    }
+    if (safeBestIdx > safeCurrent && safeBestSim >= 0.75) {
+      return {
+        authority: "strong",
+        current: safeCurrent,
+        target: resolveForwardSpeakableTarget(safeCurrent, safeTarget, 2),
+        bestIdx: safeBestIdx,
+        bestSim: safeBestSim,
+        reason: "strong_forward_match",
+        sourceBranch: "movement_authority_strong",
+        bypassDownstreamVeto: false
+      };
+    }
+    if (safeBestIdx > safeCurrent) {
+      return {
+        authority: "weak",
+        current: safeCurrent,
+        target: resolveForwardSpeakableTarget(safeCurrent, safeTarget, 1),
+        bestIdx: safeBestIdx,
+        bestSim: safeBestSim,
+        reason: "weak_forward_match",
+        sourceBranch: "movement_authority_weak",
+        bypassDownstreamVeto: false
+      };
+    }
+    return {
+      authority: "none",
+      current: safeCurrent,
+      target: safeCurrent,
+      bestIdx: safeBestIdx,
+      bestSim: safeBestSim,
+      reason: "no_forward_evidence",
+      sourceBranch: "movement_authority_none",
+      bypassDownstreamVeto: false
+    };
+  };
+  const allowAsrReaderLeashAdvance = (args) => {
+    const {
+      currentLine,
+      targetLine,
+      targetHasFreshProof,
+      source,
+      forceReason,
+      runKey,
+      speechRunning,
+      runGeneration,
+      clue,
+      sourceBranch,
+      proofSource,
+      starvationMs,
+      provenSpeakablePath
+    } = args;
+    if (getScrollMode3() !== "asr" || !isSessionLivePhase() || !isSessionAsrArmed()) return true;
+    const safeCurrent = Math.max(0, Math.floor(currentLine));
+    const safeTarget = Math.max(0, Math.floor(targetLine));
+    if (safeTarget <= safeCurrent) return true;
+    const proofBase = lastFreshProofLine >= 0 ? lastFreshProofLine : lastCommittedLine >= 0 ? lastCommittedLine : safeCurrent;
+    const totalLines = getTotalLines();
+    const physicalLimit = totalLines > 0 ? clamp4(
+      proofBase + ASR_READER_LEASH_MAX_READABLE_AHEAD,
+      0,
+      Math.max(0, totalLines - 1)
+    ) : proofBase + ASR_READER_LEASH_MAX_READABLE_AHEAD;
+    const leashLimitResolved = resolveNthReaderLeashSpeakableLine(
+      proofBase,
+      ASR_READER_LEASH_MAX_READABLE_AHEAD
+    );
+    const leashLimit = leashLimitResolved != null ? leashLimitResolved : proofBase;
+    const normalizedForceReason = String(forceReason || "").trim().toLowerCase();
+    const normalizedSourceBranch = String(sourceBranch || "").trim().toLowerCase();
+    const resolvedStarvationMs = Number.isFinite(Number(starvationMs)) ? Math.max(0, Math.round(Number(starvationMs))) : -1;
+    const reconcileBypassSource = normalizedForceReason === "starvation_future_speech_reconcile" || normalizedSourceBranch === "starvation_future_speech_reconcile";
+    const logReconcileBypassSkip = (reason) => {
+      warnGuard("asr_reader_leash_reconcile_bypass_skip", [
+        `current=${safeCurrent}`,
+        `target=${safeTarget}`,
+        `freshProof=${proofBase}`,
+        `leashLimit=${leashLimit}`,
+        `speakableLimit=${leashLimit}`,
+        `sourceBranch=${sourceBranch || "unknown"}`,
+        `proofSource=${proofSource || "unknown"}`,
+        `starvationMs=${resolvedStarvationMs}`,
+        `reason=${reason}`
+      ]);
+    };
+    if (reconcileBypassSource) {
+      if (!provenSpeakablePath) {
+        logReconcileBypassSkip("not_proven_speakable_path");
+      } else if (resolvedStarvationMs >= 0 && resolvedStarvationMs < DEFAULT_ASR_SOFT_RUNTIME_REBASE_STALL_MS) {
+        logReconcileBypassSkip("starvation_below_bypass_floor");
+      } else if (speechRunning !== true) {
+        logReconcileBypassSkip("speech_not_running");
+      } else if (!targetHasFreshProof) {
+        logReconcileBypassSkip("target_not_fresh_proof");
+      } else if (safeTarget <= safeCurrent) {
+        logReconcileBypassSkip("non_forward_target");
+      } else {
+        warnGuard("asr_reader_leash_reconcile_bypass", [
+          `current=${safeCurrent}`,
+          `target=${safeTarget}`,
+          `freshProof=${proofBase}`,
+          `leashLimit=${leashLimit}`,
+          `speakableLimit=${leashLimit}`,
+          `sourceBranch=${sourceBranch || "unknown"}`,
+          `proofSource=${proofSource || "unknown"}`,
+          `starvationMs=${resolvedStarvationMs}`
+        ]);
+        return true;
+      }
+    }
+    const strictNextSpeakableAfterProof = resolveReaderLeashNextSpeakableLine(
+      proofBase,
+      LIVE_STRICT_MAX_CUE_BRIDGE_SPAN
+    );
+    const strictNextSpeakableAfterCurrent = resolveLiveStrictNextSpeakableStep(
+      safeCurrent,
+      LIVE_STRICT_MAX_CUE_BRIDGE_SPAN
+    )?.targetLine ?? null;
+    const isStrictBridgeSource = String(source || "").trim().toLowerCase() === "strict-live-adjacent-speakable-bridge";
+    const targetIsStrictNextSpeakable = strictNextSpeakableAfterProof != null && safeTarget === strictNextSpeakableAfterProof;
+    const targetIsStrictNextFromCurrent = strictNextSpeakableAfterCurrent != null && safeTarget === strictNextSpeakableAfterCurrent;
+    const pendingBridgeCompletionSource = normalizedForceReason === "pending_speakable_bridge_complete" || normalizedSourceBranch.includes("pending_speakable_bridge");
+    if (pendingBridgeCompletionSource && targetIsStrictNextFromCurrent && speechRunning === true) {
+      if (proofBase < safeCurrent) {
+        lastFreshProofLine = Math.max(lastFreshProofLine, safeCurrent);
+      }
+      warnGuard("asr_reader_leash_pending_bridge_allow", [
+        `current=${safeCurrent}`,
+        `target=${safeTarget}`,
+        `freshProof=${proofBase}`,
+        `refreshedFreshProof=${lastFreshProofLine}`,
+        `leashLimit=${leashLimit}`,
+        `sourceBranch=${sourceBranch || "unknown"}`
+      ]);
+      return true;
+    }
+    if (targetHasFreshProof && targetIsStrictNextFromCurrent) {
+      if (proofBase < safeCurrent) {
+        lastFreshProofLine = Math.max(lastFreshProofLine, safeCurrent);
+        warnGuard("asr_reader_leash_adjacent_proof_allow", [
+          `current=${safeCurrent}`,
+          `target=${safeTarget}`,
+          `freshProof=${proofBase}`,
+          `refreshedFreshProof=${lastFreshProofLine}`,
+          `leashLimit=${leashLimit}`,
+          source ? `source=${source}` : ""
+        ]);
+      }
+      return true;
+    }
+    if (leashLimit !== physicalLimit) {
+      warnGuard("asr_reader_leash_speakable_limit", [
+        `current=${safeCurrent}`,
+        `target=${safeTarget}`,
+        `freshProof=${proofBase}`,
+        `physicalLimit=${physicalLimit}`,
+        `speakableLimit=${leashLimit}`,
+        source ? `source=${source}` : ""
+      ]);
+    }
+    if (targetHasFreshProof && isStrictBridgeSource && (targetIsStrictNextSpeakable || targetIsStrictNextFromCurrent)) {
+      if (leashLimit !== safeTarget) {
+        warnGuard("asr_reader_leash_physical_limit_bug", [
+          `current=${safeCurrent}`,
+          `target=${safeTarget}`,
+          `freshProof=${proofBase}`,
+          `physicalLimit=${physicalLimit}`,
+          `leashLimit=${leashLimit}`,
+          `speakableLimit=${strictNextSpeakableAfterProof}`,
+          source ? `source=${source}` : "",
+          clue ? `clue="${formatLogSnippet(String(clue || ""), 72)}"` : ""
+        ]);
+      }
+      warnGuard("asr_reader_leash_bridge_override_allow", [
+        `current=${safeCurrent}`,
+        `target=${safeTarget}`,
+        `freshProof=${proofBase}`,
+        `leashLimit=${leashLimit}`,
+        `nextSpeakableProof=${strictNextSpeakableAfterProof ?? -1}`,
+        `nextSpeakableCurrent=${strictNextSpeakableAfterCurrent ?? -1}`,
+        source ? `source=${source}` : ""
+      ]);
+      return true;
+    }
+    if (targetHasFreshProof && safeTarget === leashLimit && safeTarget > physicalLimit) {
+      warnGuard("asr_reader_leash_physical_limit_bug", [
+        `current=${safeCurrent}`,
+        `target=${safeTarget}`,
+        `freshProof=${proofBase}`,
+        `physicalLimit=${physicalLimit}`,
+        `speakableLimit=${leashLimit}`,
+        source ? `source=${source}` : "",
+        clue ? `clue="${formatLogSnippet(String(clue || ""), 72)}"` : ""
+      ]);
+      return true;
+    }
+    const speakableDistanceAhead = countSpeakableDistanceAhead(proofBase, safeTarget);
+    if (Number.isFinite(speakableDistanceAhead) && speakableDistanceAhead > ASR_READER_LEASH_MAX_READABLE_AHEAD && !targetHasFreshProof) {
+      warnGuard("asr_forward_drift_clamp_hold", [
+        `current=${safeCurrent}`,
+        `requestedTarget=${safeTarget}`,
+        `lastFreshProofLine=${proofBase}`,
+        `speakableDistanceAhead=${Math.max(0, Math.floor(speakableDistanceAhead))}`,
+        source ? `source=${source}` : "source=unknown",
+        forceReason ? `forceReason=${forceReason}` : "",
+        runKey ? `runKey=${runKey}` : "",
+        `speechRunning=${speechRunning === false ? 0 : 1}`,
+        `runGeneration=${normalizeRunGeneration(runGeneration) ?? resolveActiveRunGeneration() ?? -1}`
+      ]);
+      emitHudStatus(
+        "asr_forward_drift_clamp_hold",
+        "Hold: forward drift clamp blocked ahead target"
+      );
+      return false;
+    }
+    if (safeTarget <= leashLimit) return true;
+    const hardRecoveryPolicyAllow = targetHasFreshProof && speechRunning === true && isReaderLeashHardRecoverySource(source) && safeTarget > leashLimit && safeTarget - leashLimit <= DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES;
+    if (hardRecoveryPolicyAllow) {
+      warnGuard("asr_reader_leash_speakable_limit", [
+        `state=hard_recovery_allow`,
+        `current=${safeCurrent}`,
+        `target=${safeTarget}`,
+        `freshProof=${proofBase}`,
+        `physicalLimit=${physicalLimit}`,
+        `speakableLimit=${leashLimit}`,
+        source ? `source=${source}` : ""
+      ]);
+      return true;
+    }
+    warnGuard("asr_reader_leash_hold", [
+      `current=${safeCurrent}`,
+      `target=${safeTarget}`,
+      `freshProof=${proofBase}`,
+      `leashLimit=${leashLimit}`,
+      `maxReadableAhead=${ASR_READER_LEASH_MAX_READABLE_AHEAD}`,
+      `targetFreshProof=${targetHasFreshProof ? 1 : 0}`,
+      source ? `source=${source}` : "",
+      clue ? `clue="${formatLogSnippet(String(clue || ""), 72)}"` : ""
+    ]);
+    emitHudStatus(
+      "asr_reader_leash_hold",
+      "Hold: reader leash blocked forward overrun"
+    );
+    return false;
+  };
+  const hasLiveStrictLocalProof = (cursorLine, targetLine, now3, topScores, requiredThreshold) => {
     if (!Number.isFinite(cursorLine) || cursorLine < 0) return false;
+    if (!Number.isFinite(targetLine) || targetLine < 0) return false;
+    const safeCursor = Math.max(0, Math.floor(cursorLine));
+    const safeTarget = Math.max(0, Math.floor(targetLine));
+    if (safeTarget !== safeCursor + 1) return false;
+    const runtimeSpeechFresh = hasRecentActualSpeech(now3);
+    const vadSpeechFresh = hasRecentVadSpeechNow(now3);
+    if (!runtimeSpeechFresh || !vadSpeechFresh) return false;
+    const adjacentNeed = clamp4(
+      Number.isFinite(requiredThreshold) ? Number(requiredThreshold) - 0.08 : DEFAULT_LIVE_STRICT_LOCAL_PROOF_ADJACENT_MIN_SIM,
+      DEFAULT_LIVE_STRICT_LOCAL_PROOF_ADJACENT_MIN_SIM,
+      1
+    );
+    const rankedTopScores = (Array.isArray(topScores) ? topScores : []).map((entry) => ({
+      idx: Number(entry?.idx),
+      score: Number(entry?.score)
+    })).filter((entry) => Number.isFinite(entry.idx) && Number.isFinite(entry.score)).map((entry) => ({
+      idx: Math.max(0, Math.floor(entry.idx)),
+      score: entry.score
+    }));
+    const adjacentCandidate = rankedTopScores.find((entry) => entry.idx === safeTarget);
+    const adjacentSim = Number(adjacentCandidate?.score);
+    const adjacentSupport = Number.isFinite(adjacentSim) && adjacentSim >= adjacentNeed;
+    const rescueEvidenceAgeMs = lastRescueMatchEvidenceAt > 0 ? Math.max(0, now3 - lastRescueMatchEvidenceAt) : Number.POSITIVE_INFINITY;
+    const rescueSupport = rescueEvidenceAgeMs <= DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS && (lastRescueMatchEvidenceLine === safeCursor || lastRescueMatchEvidenceLine === safeTarget) && Number.isFinite(lastRescueMatchEvidenceSim) && lastRescueMatchEvidenceSim >= DEFAULT_LIVE_STRICT_LOCAL_PROOF_RESCUE_MIN_SIM;
+    const clusterNeed = clamp4(
+      Number.isFinite(requiredThreshold) ? Math.max(Number(requiredThreshold) - 0.02, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM) : DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM,
+      DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM,
+      1
+    );
+    const clusterContradictionFresh = liveStrictForwardClusterContradictionAt > 0 && now3 - liveStrictForwardClusterContradictionAt <= DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS;
+    const clusterSupport = liveStrictForwardClusterCursor === safeCursor && liveStrictForwardClusterHits >= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_STABLE_HITS && liveStrictForwardClusterLine >= safeCursor + DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_DELTA_LINES && liveStrictForwardClusterLine <= safeCursor + DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MAX_DELTA_LINES && liveStrictForwardClusterUpdatedAt > 0 && now3 - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS && Number.isFinite(liveStrictForwardClusterSim) && liveStrictForwardClusterSim >= clusterNeed && !clusterContradictionFresh;
+    const ok = adjacentSupport || rescueSupport || clusterSupport;
+    if (ok) {
+      warnGuard("live_strict_local_proof_ok", [
+        `current=${safeCursor}`,
+        `target=${safeTarget}`,
+        `adjacentNeed=${formatLogScore(adjacentNeed)}`,
+        Number.isFinite(adjacentSim) ? `adjacentSim=${formatLogScore(adjacentSim)}` : "adjacentSim=na",
+        rescueSupport ? "source=rescue-evidence" : clusterSupport ? `source=forward-cluster line=${liveStrictForwardClusterLine} hits=${liveStrictForwardClusterHits}` : "source=adjacent"
+      ]);
+    }
+    return ok;
+  };
+  const evaluateLiveStrictBridgeLandingLexicalProof = (targetLine, now3) => {
+    const safeTarget = Math.max(0, Math.floor(Number(targetLine)));
+    const transcriptNorm = String(lastFinalTranscriptNorm || "").trim();
+    const transcriptAgeMs = lastFinalTranscriptAt > 0 ? Math.max(0, now3 - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
+    if (!transcriptNorm) {
+      return {
+        ok: false,
+        reason: "no_final_transcript",
+        transcriptAgeMs,
+        contentHits: 0,
+        contentCount: 0,
+        hitRatio: 0,
+        sim: 0,
+        requiredHits: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS,
+        requiredRatio: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO,
+        requiredSim: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM,
+        fullContentHits: 0,
+        fullHitRatio: 0,
+        fromStaleTranscriptOnly: false,
+        tailChars: 0,
+        tailPreview: "",
+        stalePrefixIgnored: false
+      };
+    }
+    if (transcriptAgeMs > DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS) {
+      return {
+        ok: false,
+        reason: "final_transcript_stale",
+        transcriptAgeMs,
+        contentHits: 0,
+        contentCount: 0,
+        hitRatio: 0,
+        sim: 0,
+        requiredHits: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS,
+        requiredRatio: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO,
+        requiredSim: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM,
+        fullContentHits: 0,
+        fullHitRatio: 0,
+        fromStaleTranscriptOnly: false,
+        tailChars: 0,
+        tailPreview: "",
+        stalePrefixIgnored: false
+      };
+    }
+    const targetNorm = normalizeComparableText(getLineTextAt(safeTarget));
+    const targetTokens = targetNorm ? normTokens(targetNorm) : [];
+    if (!targetTokens.length) {
+      return {
+        ok: false,
+        reason: "target_empty",
+        transcriptAgeMs,
+        contentHits: 0,
+        contentCount: 0,
+        hitRatio: 0,
+        sim: 0,
+        requiredHits: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS,
+        requiredRatio: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO,
+        requiredSim: DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM,
+        fullContentHits: 0,
+        fullHitRatio: 0,
+        fromStaleTranscriptOnly: false,
+        tailChars: 0,
+        tailPreview: "",
+        stalePrefixIgnored: false
+      };
+    }
+    const hasCommitTranscriptCursor = lastCommitTargetLine >= 0 && (lastCommitTranscriptTextLength > 0 || lastCommitTranscriptNormSnapshot.length > 0);
+    const commitSnapshotNorm = hasCommitTranscriptCursor ? String(lastCommitTranscriptNormSnapshot || "").trim() : "";
+    let transcriptTailNorm = transcriptNorm;
+    if (commitSnapshotNorm) {
+      if (transcriptNorm === commitSnapshotNorm) {
+        transcriptTailNorm = "";
+      } else if (transcriptNorm.startsWith(commitSnapshotNorm)) {
+        const prefixLen = Math.max(
+          0,
+          Math.min(
+            transcriptNorm.length,
+            lastCommitTranscriptTextLength > 0 ? lastCommitTranscriptTextLength : commitSnapshotNorm.length
+          )
+        );
+        transcriptTailNorm = transcriptNorm.slice(prefixLen).trim();
+      } else {
+        const commitTokens = commitSnapshotNorm.split(" ").filter(Boolean);
+        const latestTokens = transcriptNorm.split(" ").filter(Boolean);
+        let overlap = Math.min(commitTokens.length, latestTokens.length);
+        while (overlap > 0) {
+          const suffix = commitTokens.slice(commitTokens.length - overlap).join(" ");
+          const prefix = latestTokens.slice(0, overlap).join(" ");
+          if (suffix === prefix) break;
+          overlap -= 1;
+        }
+        if (overlap > 0) {
+          transcriptTailNorm = latestTokens.slice(overlap).join(" ").trim();
+        } else {
+          const directMatchPos = transcriptNorm.lastIndexOf(commitSnapshotNorm);
+          if (directMatchPos >= 0) {
+            transcriptTailNorm = transcriptNorm.slice(directMatchPos + commitSnapshotNorm.length).trim();
+          } else if (lastCommitTranscriptTimestamp > 0 && lastFinalTranscriptAt > lastCommitTranscriptTimestamp) {
+            transcriptTailNorm = transcriptNorm;
+          } else {
+            transcriptTailNorm = "";
+          }
+        }
+      }
+    }
+    const transcriptTokens = normTokens(transcriptTailNorm || "");
+    const transcriptTokensFull = normTokens(transcriptNorm);
+    const targetContentSet = getContentTokenSet(targetTokens);
+    const contentCount = targetContentSet.size;
+    const contentHits = countSharedContentTokenHits(targetContentSet, transcriptTokens);
+    const fullContentHits = countSharedContentTokenHits(targetContentSet, transcriptTokensFull);
+    const hitRatio = contentCount > 0 ? contentHits / contentCount : 0;
+    const fullHitRatio = contentCount > 0 ? fullContentHits / contentCount : 0;
+    const sim = computeLineSimilarityFromTokens(transcriptTokens, targetTokens);
+    const requiredHits = contentCount <= 2 ? Math.min(1, contentCount) : Math.min(DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS, contentCount);
+    const requiredRatio = contentCount <= 2 ? 0.5 : DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO;
+    const requiredSim = DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM;
+    const lexicalHitsOk = contentCount > 0 && contentHits >= requiredHits && hitRatio >= requiredRatio;
+    const fullLexicalHitsOk = contentCount > 0 && fullContentHits >= requiredHits && fullHitRatio >= requiredRatio;
+    const lexicalOk = contentCount > 0 ? lexicalHitsOk : sim >= Math.max(requiredSim, 0.55);
+    const fromStaleTranscriptOnly = !lexicalOk && fullLexicalHitsOk && !lexicalHitsOk;
+    const stalePrefixIgnored = !!commitSnapshotNorm && transcriptTailNorm !== transcriptNorm;
+    return {
+      ok: lexicalOk,
+      reason: lexicalOk ? "ok" : fromStaleTranscriptOnly ? "stale_landing_lexical_only" : contentCount > 0 ? "no_landing_lexical_proof" : "no_landing_similarity",
+      transcriptAgeMs,
+      contentHits,
+      contentCount,
+      hitRatio,
+      sim,
+      requiredHits,
+      requiredRatio,
+      requiredSim,
+      fullContentHits,
+      fullHitRatio,
+      fromStaleTranscriptOnly,
+      tailChars: transcriptTailNorm.length,
+      tailPreview: formatLogSnippet(transcriptTailNorm, 80),
+      stalePrefixIgnored
+    };
+  };
+  const evaluateLiveStrictAdjacentTailProgressionProof = (cursorLine, targetLine, now3) => {
+    const safeCursor = Math.max(0, Math.floor(Number(cursorLine) || 0));
+    const safeTarget = Math.max(0, Math.floor(Number(targetLine) || 0));
+    if (safeTarget <= safeCursor) {
+      return {
+        ok: false,
+        reason: "target_not_forward",
+        transcriptAgeMs: Number.POSITIVE_INFINITY,
+        targetTailHits: 0,
+        targetContentCount: 0,
+        targetTailRatio: 0,
+        novelTailTokenCount: 0,
+        stalePrefixIgnored: false,
+        tailProofUsed: false,
+        tailPreview: ""
+      };
+    }
+    const transcriptNorm = String(lastFinalTranscriptNorm || "").trim();
+    const transcriptAgeMs = lastFinalTranscriptAt > 0 ? Math.max(0, now3 - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
+    if (!transcriptNorm) {
+      return {
+        ok: false,
+        reason: "no_final_transcript",
+        transcriptAgeMs,
+        targetTailHits: 0,
+        targetContentCount: 0,
+        targetTailRatio: 0,
+        novelTailTokenCount: 0,
+        stalePrefixIgnored: false,
+        tailProofUsed: false,
+        tailPreview: ""
+      };
+    }
+    if (transcriptAgeMs > DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS) {
+      return {
+        ok: false,
+        reason: "final_transcript_stale",
+        transcriptAgeMs,
+        targetTailHits: 0,
+        targetContentCount: 0,
+        targetTailRatio: 0,
+        novelTailTokenCount: 0,
+        stalePrefixIgnored: false,
+        tailProofUsed: false,
+        tailPreview: ""
+      };
+    }
+    const targetNorm = normalizeComparableText(getLineTextAt(safeTarget));
+    const currentNorm = normalizeComparableText(getLineTextAt(safeCursor));
+    const targetTokens = targetNorm ? normTokens(targetNorm) : [];
+    if (!targetTokens.length) {
+      return {
+        ok: false,
+        reason: "target_empty",
+        transcriptAgeMs,
+        targetTailHits: 0,
+        targetContentCount: 0,
+        targetTailRatio: 0,
+        novelTailTokenCount: 0,
+        stalePrefixIgnored: false,
+        tailProofUsed: false,
+        tailPreview: ""
+      };
+    }
+    const hasCommitTranscriptCursor = lastCommitTargetLine >= 0 && (lastCommitTranscriptTextLength > 0 || lastCommitTranscriptNormSnapshot.length > 0);
+    const commitSnapshotNorm = hasCommitTranscriptCursor ? String(lastCommitTranscriptNormSnapshot || "").trim() : "";
+    let transcriptTailNorm = transcriptNorm;
+    if (commitSnapshotNorm) {
+      if (transcriptNorm === commitSnapshotNorm) {
+        transcriptTailNorm = "";
+      } else if (transcriptNorm.startsWith(commitSnapshotNorm)) {
+        const prefixLen = Math.max(
+          0,
+          Math.min(
+            transcriptNorm.length,
+            lastCommitTranscriptTextLength > 0 ? lastCommitTranscriptTextLength : commitSnapshotNorm.length
+          )
+        );
+        transcriptTailNorm = transcriptNorm.slice(prefixLen).trim();
+      } else {
+        const commitTokens = commitSnapshotNorm.split(" ").filter(Boolean);
+        const latestTokens = transcriptNorm.split(" ").filter(Boolean);
+        let overlap = Math.min(commitTokens.length, latestTokens.length);
+        while (overlap > 0) {
+          const suffix = commitTokens.slice(commitTokens.length - overlap).join(" ");
+          const prefix = latestTokens.slice(0, overlap).join(" ");
+          if (suffix === prefix) break;
+          overlap -= 1;
+        }
+        if (overlap > 0) {
+          transcriptTailNorm = latestTokens.slice(overlap).join(" ").trim();
+        } else {
+          const directMatchPos = transcriptNorm.lastIndexOf(commitSnapshotNorm);
+          if (directMatchPos >= 0) {
+            transcriptTailNorm = transcriptNorm.slice(directMatchPos + commitSnapshotNorm.length).trim();
+          } else if (lastCommitTranscriptTimestamp > 0 && lastFinalTranscriptAt > lastCommitTranscriptTimestamp) {
+            transcriptTailNorm = transcriptNorm;
+          } else {
+            transcriptTailNorm = "";
+          }
+        }
+      }
+    }
+    const targetContentSet = getContentTokenSet(targetTokens);
+    const targetContentCount = targetContentSet.size;
+    const tailTokens = normTokens(transcriptTailNorm || "");
+    const targetTailHits = countSharedContentTokenHits(targetContentSet, tailTokens);
+    const targetTailRatio = targetContentCount > 0 ? targetTailHits / targetContentCount : 0;
+    const currentTokens = currentNorm ? normTokens(currentNorm) : [];
+    const currentContentSet = getContentTokenSet(currentTokens);
+    const tailContentSet = getContentTokenSet(tailTokens);
+    let novelTailTokenCount = 0;
+    for (const token of tailContentSet) {
+      if (!currentContentSet.has(token)) novelTailTokenCount += 1;
+    }
+    const stalePrefixIgnored = !!commitSnapshotNorm && transcriptTailNorm !== transcriptNorm;
+    const relaxedHitsNeed = targetContentCount <= 2 ? Math.min(1, targetContentCount) : Math.min(DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_HITS, targetContentCount);
+    const relaxedRatioNeed = targetContentCount <= 2 ? 0.5 : DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_RATIO;
+    const overlapOk = targetContentCount > 0 && targetTailHits >= relaxedHitsNeed && targetTailRatio >= relaxedRatioNeed;
+    const noveltyOk = novelTailTokenCount >= DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_NOVEL_TOKENS;
+    const ok = overlapOk && noveltyOk;
+    const tailPreview = formatLogSnippet(transcriptTailNorm, 80);
+    return {
+      ok,
+      reason: ok ? "adjacent_tail_progression_ok" : !overlapOk ? "adjacent_tail_overlap_low" : "adjacent_tail_no_novel_tokens",
+      transcriptAgeMs,
+      targetTailHits,
+      targetContentCount,
+      targetTailRatio,
+      novelTailTokenCount,
+      stalePrefixIgnored,
+      tailProofUsed: ok,
+      tailPreview
+    };
+  };
+  const hasLiveStrictSpeakableBridgeProof = (cursorLine, targetLine, now3, topScores, requiredThreshold) => {
+    if (!Number.isFinite(cursorLine) || cursorLine < 0) return false;
+    if (!Number.isFinite(targetLine) || targetLine < 0) return false;
+    const safeCursor = Math.max(0, Math.floor(cursorLine));
+    const safeTarget = Math.max(0, Math.floor(targetLine));
+    if (safeTarget <= safeCursor + 1) return false;
+    const step = resolveLiveStrictNextSpeakableStep(safeCursor, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN);
+    if (!step || step.targetLine !== safeTarget) return false;
+    const freshFinalTranscriptSignal = lastFinalTranscriptAt > 0 && now3 - lastFinalTranscriptAt <= DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS;
+    if (!hasRecentActualSpeech(now3) && !freshFinalTranscriptSignal) return false;
+    const rankedTopScores = (Array.isArray(topScores) ? topScores : []).map((entry) => ({
+      idx: Number(entry?.idx),
+      score: Number(entry?.score)
+    })).filter((entry) => Number.isFinite(entry.idx) && Number.isFinite(entry.score)).map((entry) => ({
+      idx: Math.max(0, Math.floor(entry.idx)),
+      score: entry.score
+    }));
+    const targetNeed = clamp4(
+      Number.isFinite(requiredThreshold) ? Number(requiredThreshold) - 0.08 : DEFAULT_LIVE_STRICT_LOCAL_PROOF_ADJACENT_MIN_SIM,
+      DEFAULT_LIVE_STRICT_LOCAL_PROOF_ADJACENT_MIN_SIM,
+      1
+    );
+    const targetSupport = rankedTopScores.some(
+      (entry) => entry.idx === safeTarget && entry.score >= targetNeed
+    );
+    const rescueEvidenceAgeMs = lastRescueMatchEvidenceAt > 0 ? Math.max(0, now3 - lastRescueMatchEvidenceAt) : Number.POSITIVE_INFINITY;
+    const rescueSupport = rescueEvidenceAgeMs <= DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS && lastRescueMatchEvidenceLine >= safeTarget - 1 && lastRescueMatchEvidenceLine <= safeTarget && Number.isFinite(lastRescueMatchEvidenceSim) && lastRescueMatchEvidenceSim >= DEFAULT_LIVE_STRICT_LOCAL_PROOF_RESCUE_MIN_SIM;
+    const bridgeSupport = targetSupport || rescueSupport;
+    const landingLexical = evaluateLiveStrictBridgeLandingLexicalProof(safeTarget, now3);
+    const ok = !!landingLexical?.ok;
+    if (!ok && landingLexical) {
+      const staleOnlyHold = !!landingLexical.fromStaleTranscriptOnly;
+      const holdReason = staleOnlyHold ? "live_strict_bridge_stale_landing_hold" : "live_strict_bridge_landing_hold";
+      warnGuard(holdReason, [
+        `current=${safeCursor}`,
+        `target=${safeTarget}`,
+        `reason=${landingLexical.reason}`,
+        `finalAgeMs=${Math.round(landingLexical.transcriptAgeMs)}`,
+        `content=${landingLexical.contentHits}/${landingLexical.contentCount}`,
+        `fullContent=${landingLexical.fullContentHits}/${landingLexical.contentCount}`,
+        `ratio=${formatLogScore(landingLexical.hitRatio)}`,
+        `fullRatio=${formatLogScore(landingLexical.fullHitRatio)}`,
+        `sim=${formatLogScore(landingLexical.sim)}`,
+        `tailChars=${landingLexical.tailChars}`,
+        `commitLine=${lastCommitTargetLine}`,
+        `commitTs=${lastCommitTranscriptTimestamp > 0 ? Math.round(lastCommitTranscriptTimestamp) : 0}`,
+        bridgeSupport ? "support=score_or_rescue" : "support=landing_lexical_only"
+      ]);
+      emitHudStatus(
+        holdReason,
+        staleOnlyHold ? "Hold: landing words only in pre-commit transcript" : "Hold: bridge landing words not heard yet"
+      );
+    }
+    if (ok) {
+      warnGuard("live_strict_local_proof_ok", [
+        `current=${safeCursor}`,
+        `target=${safeTarget}`,
+        `targetNeed=${formatLogScore(targetNeed)}`,
+        `bridge=[${step.skippedReasons.join(",")}]`,
+        bridgeSupport ? targetSupport ? "source=speakable-bridge" : "source=speakable-bridge-rescue" : "source=speakable-bridge-landing-lexical",
+        landingLexical ? `landing=${landingLexical.contentHits}/${landingLexical.contentCount} full=${landingLexical.fullContentHits}/${landingLexical.contentCount} tailChars=${landingLexical.tailChars} sim=${formatLogScore(landingLexical.sim)}` : ""
+      ]);
+    }
+    return ok;
+  };
+  const hasLiveStrictCueExitProof = (cursorLine, targetLine, now3, topScores, requiredThreshold) => {
+    if (!Number.isFinite(cursorLine) || cursorLine < 0) return false;
+    if (!Number.isFinite(targetLine) || targetLine < 0) return false;
+    const safeCursor = Math.max(0, Math.floor(cursorLine));
+    const safeTarget = Math.max(0, Math.floor(targetLine));
+    if (safeTarget !== safeCursor + 1) return false;
+    if (!isIgnorableCueLineText(getLineTextAt(safeCursor))) return false;
+    if (!hasRecentActualSpeech(now3) || !hasRecentVadSpeechNow(now3)) return false;
+    const cueBridge = findNextSpeakableWithinBridge(
+      safeCursor,
+      DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES + 1,
+      { strict: true }
+    );
+    const nextSpeakableLine = cueBridge.nextLine != null && cueBridge.nextLine > safeCursor ? Math.max(0, Math.floor(cueBridge.nextLine)) : -1;
+    if (nextSpeakableLine < safeTarget) return false;
+    const maxForwardLine = Math.max(
+      safeTarget,
+      nextSpeakableLine + DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MAX_FORWARD_LINES
+    );
+    const lookaheadNeed = clamp4(
+      Number.isFinite(requiredThreshold) ? Math.max(
+        Number(requiredThreshold) + DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_SIM_BONUS,
+        DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MIN_SIM
+      ) : DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MIN_SIM,
+      DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MIN_SIM,
+      1
+    );
+    const rankedTopScores = (Array.isArray(topScores) ? topScores : []).map((entry) => ({
+      idx: Number(entry?.idx),
+      score: Number(entry?.score)
+    })).filter((entry) => Number.isFinite(entry.idx) && Number.isFinite(entry.score)).map((entry) => ({
+      idx: Math.max(0, Math.floor(entry.idx)),
+      score: entry.score
+    })).sort((a, b) => b.score - a.score || a.idx - b.idx);
+    const bestForwardSupport = rankedTopScores.find((entry) => {
+      if (entry.idx < nextSpeakableLine || entry.idx > maxForwardLine) return false;
+      if (entry.score < lookaheadNeed) return false;
+      const candidateText = getLineTextAt(entry.idx);
+      if (isIgnorableCueLineText(candidateText)) return false;
+      return true;
+    });
+    const rescueEvidenceAgeMs = lastRescueMatchEvidenceAt > 0 ? Math.max(0, now3 - lastRescueMatchEvidenceAt) : Number.POSITIVE_INFINITY;
+    const rescueLookaheadSupport = rescueEvidenceAgeMs <= DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS && lastRescueMatchEvidenceLine >= nextSpeakableLine && lastRescueMatchEvidenceLine <= maxForwardLine && Number.isFinite(lastRescueMatchEvidenceSim) && lastRescueMatchEvidenceSim >= Math.max(
+      DEFAULT_LIVE_STRICT_LOCAL_PROOF_RESCUE_MIN_SIM,
+      lookaheadNeed - 0.04
+    );
+    const ok = !!bestForwardSupport || rescueLookaheadSupport;
+    if (ok) {
+      warnGuard("live_strict_local_proof_ok", [
+        `current=${safeCursor}`,
+        `target=${safeTarget}`,
+        `nextSpeakable=${nextSpeakableLine}`,
+        `lookaheadNeed=${formatLogScore(lookaheadNeed)}`,
+        bestForwardSupport ? `lookahead=${bestForwardSupport.idx}:${formatLogScore(bestForwardSupport.score)}` : "lookahead=na",
+        rescueLookaheadSupport ? `rescue=${lastRescueMatchEvidenceLine}:${formatLogScore(lastRescueMatchEvidenceSim)}` : "",
+        "source=cue-exit-lookahead"
+      ]);
+    }
+    return ok;
+  };
+  const maybeSkipCueLine = (cursorLine, now3, reason, clue, topScores = [], requiredThreshold = DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM) => {
+    if (!Number.isFinite(cursorLine) || cursorLine < 0) return false;
+    if (!canApplyAsrMovement(`cue-skip:${reason || "unknown"}`, now3)) return false;
     const currentLineText = getLineTextAt(cursorLine);
     if (!isIgnorableCueLineText(currentLineText)) return false;
+    const liveStrictFollow = getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed();
     const nextSpoken = findNextSpokenLineIndex(cursorLine + 1);
-    if (!Number.isFinite(nextSpoken) || nextSpoken <= cursorLine) return false;
-    const targetLine = Math.max(0, Math.floor(nextSpoken));
+    let targetLine;
+    let targetHasFreshProof = false;
+    if (liveStrictFollow) {
+      const totalLines = getTotalLines();
+      const strictTargetLine = totalLines > 0 ? Math.min(cursorLine + 1, totalLines - 1) : cursorLine + 1;
+      if (strictTargetLine <= cursorLine) return false;
+      if (Number.isFinite(nextSpoken) && nextSpoken > strictTargetLine) {
+        warnGuard("live_strict_multi_step_blocked", [
+          `current=${cursorLine}`,
+          `requested=${Math.max(0, Math.floor(nextSpoken))}`,
+          `capped=${strictTargetLine}`,
+          "source=cue-skip",
+          reason ? `reason=${reason}` : "",
+          clue ? `clue="${clue}"` : ""
+        ]);
+      }
+      targetLine = strictTargetLine;
+      const localProofOk = hasLiveStrictLocalProof(
+        cursorLine,
+        targetLine,
+        now3,
+        topScores,
+        requiredThreshold
+      );
+      const cueExitProofOk = !localProofOk && hasLiveStrictCueExitProof(
+        cursorLine,
+        targetLine,
+        now3,
+        topScores,
+        requiredThreshold
+      );
+      targetHasFreshProof = localProofOk || cueExitProofOk;
+      if (!localProofOk && !cueExitProofOk) {
+        warnGuard("live_strict_cue_skip_hold", [
+          `current=${cursorLine}`,
+          `requested=${targetLine}`,
+          "reason=no_local_proof",
+          reason ? `reason=${reason}` : "",
+          clue ? `clue="${clue}"` : ""
+        ]);
+        emitHudStatus("live_strict_cue_skip_hold", "Hold: cue step requires local proof");
+        return false;
+      }
+    } else {
+      if (!Number.isFinite(nextSpoken) || nextSpoken <= cursorLine) return false;
+      targetLine = Math.max(0, Math.floor(nextSpoken));
+    }
+    if (!allowAsrReaderLeashAdvance({
+      currentLine: cursorLine,
+      targetLine,
+      targetHasFreshProof,
+      source: "cue-skip",
+      forceReason: reason,
+      runKey: summaryRunKey || void 0,
+      speechRunning: asrRuntimeSpeechRunningActual,
+      runGeneration: resolveActiveRunGeneration(),
+      clue
+    })) {
+      return false;
+    }
     const scroller = getScroller();
     const targetTop = scroller ? resolveTargetTop(scroller, targetLine) : null;
     if (scroller && targetTop != null) {
@@ -36818,14 +38463,21 @@ function createAsrScrollDriver(options = {}) {
       markProgrammaticScroll();
     }
     lastLineIndex = targetLine;
+    lastCommittedLine = targetLine;
+    if (liveStrictFollow && targetHasFreshProof) {
+      lastFreshProofLine = Math.max(lastFreshProofLine, targetLine);
+    }
     matchAnchorIdx = targetLine;
     setCurrentIndex(targetLine, "cue-skip");
     lastForwardCommitAt = now3;
+    markCommitTranscriptCursor(targetLine, now3);
     resetLowSimStreak();
     resetNoProgressStreak("cue-skip", targetLine);
+    resetLiveStrictForwardCluster();
     lowSimFreezeLogged = false;
-    emitHudStatus("cue_skip", "Skipped cue line");
-    warnGuard("cue_skip", [
+    const cueSkipGuard = liveStrictFollow ? "live_strict_cue_step" : "cue_skip";
+    emitHudStatus(cueSkipGuard, liveStrictFollow ? "Strict cue step +1" : "Skipped cue line");
+    warnGuard(cueSkipGuard, [
       `from=${cursorLine}`,
       `to=${targetLine}`,
       reason ? `reason=${reason}` : "",
@@ -36845,7 +38497,10 @@ function createAsrScrollDriver(options = {}) {
     if (!Number.isFinite(cursorLine) || cursorLine < 0) return false;
     if (!Number.isFinite(landingLine) || landingLine < 0) return false;
     if (lastRescueMatchEvidenceAt <= 0) return false;
-    if (now3 - lastRescueMatchEvidenceAt > DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS) return false;
+    const _safeCursorForWindow = Math.max(0, Math.floor(cursorLine));
+    const _isEvidenceAtCursor = Math.abs(lastRescueMatchEvidenceLine - _safeCursorForWindow) <= 1;
+    const _evidenceWindowMs = _isEvidenceAtCursor ? DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS * 4 : DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS;
+    if (now3 - lastRescueMatchEvidenceAt > _evidenceWindowMs) return false;
     if (lastRescueNoMatchAt > 0 && now3 - lastRescueNoMatchAt < DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS) {
       return false;
     }
@@ -36865,12 +38520,16 @@ function createAsrScrollDriver(options = {}) {
     if (disposed) return false;
     if (getScrollMode3() !== "asr") return false;
     if (!isSessionLivePhase() || !isSessionAsrArmed()) return false;
+    if (!canApplyAsrMovement(`stall-rescue:${reason || "unknown"}`, Date.now())) return false;
+    const liveStrictFollow = getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed();
     const now3 = Date.now();
-    if (now3 - lastCueStallRescueAt < DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS) return false;
     const cursorRaw = lastLineIndex >= 0 ? lastLineIndex : Number(window?.currentIndex ?? -1);
     if (!Number.isFinite(cursorRaw) || cursorRaw < 0) return false;
     const cursorLine = Math.max(0, Math.floor(cursorRaw));
     const reasonTag = String(reason || "").trim().toLowerCase();
+    if (manualAnchorPending && now3 - manualAnchorPending.ts >= MANUAL_ANCHOR_PENDING_TIMEOUT_MS) {
+      rejectManualAnchorPending("timeout:stall-rescue");
+    }
     if (manualAnchorPending && isAutomaticStallRescueReason(reasonTag)) {
       stallRescueRequested = false;
       if (isDevMode4()) {
@@ -36890,21 +38549,325 @@ function createAsrScrollDriver(options = {}) {
       DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES,
       { strict: true }
     );
-    const targetLine = cueBridge.nextLine;
+    let targetLine = cueBridge.nextLine;
     if (targetLine == null || targetLine <= cursorLine) return false;
-    const deltaLines = targetLine - cursorLine;
+    let deltaLines = targetLine - cursorLine;
     if (deltaLines <= 0 || deltaLines > DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES) return false;
+    const strictSpeakableStep = liveStrictFollow ? resolveLiveStrictNextSpeakableStep(cursorLine, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN) : null;
+    const strictSpeechFreshForRescue = liveStrictFollow && hasRecentActualSpeech(now3) && hasRecentVadSpeechNow(now3) && !asrSilenceActive;
+    const strictStarvationActive = liveStrictFollow && strictSpeechFreshForRescue && now3 - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS;
+    const strictFinalEvidenceArriving = liveStrictFollow && finalsSinceCommit > 0;
+    const strictClusterContradictionFresh = liveStrictFollow && liveStrictForwardClusterContradictionAt > 0 && now3 - liveStrictForwardClusterContradictionAt <= DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS;
+    const strictNoMatchBlockActive = liveStrictFollow && lastRescueNoMatchAt > 0 && now3 - lastRescueNoMatchAt < DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS;
+    const strictTerminalDrainCandidate = liveStrictFollow && strictStarvationActive && strictFinalEvidenceArriving && !strictClusterContradictionFresh && !strictNoMatchBlockActive;
+    const strictRescueProofTopScores = [];
+    if (Number.isFinite(lastRescueMatchEvidenceLine) && Number.isFinite(lastRescueMatchEvidenceSim)) {
+      strictRescueProofTopScores.push({
+        idx: Math.max(0, Math.floor(lastRescueMatchEvidenceLine)),
+        score: Number(lastRescueMatchEvidenceSim)
+      });
+    }
+    if (liveStrictFollow && liveStrictForwardClusterLine > cursorLine && liveStrictForwardClusterUpdatedAt > 0 && now3 - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS && Number.isFinite(liveStrictForwardClusterSim)) {
+      strictRescueProofTopScores.push({
+        idx: Math.max(0, Math.floor(liveStrictForwardClusterLine)),
+        score: Number(liveStrictForwardClusterSim)
+      });
+    }
+    if (strictTerminalDrainCandidate) {
+      const strictTerminalDrainTrail = [];
+      const maxDrainSteps = Math.min(
+        LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT,
+        1 + LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS
+      );
+      let drainCursor = Math.max(0, cursorLine);
+      let strictTerminalDrainStopReason = "";
+      while (strictTerminalDrainTrail.length < maxDrainSteps) {
+        const drainStep = resolveLiveStrictNextSpeakableStep(
+          drainCursor,
+          LIVE_STRICT_MAX_CUE_BRIDGE_SPAN
+        );
+        if (!drainStep || drainStep.targetLine <= drainCursor) {
+          strictTerminalDrainStopReason = "no_next_speakable";
+          break;
+        }
+        const stepProofOk = hasLiveStrictLocalProof(
+          drainCursor,
+          drainStep.targetLine,
+          now3,
+          strictRescueProofTopScores,
+          DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM
+        ) || hasLiveStrictCueExitProof(
+          drainCursor,
+          drainStep.targetLine,
+          now3,
+          strictRescueProofTopScores,
+          DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM
+        ) || hasLiveStrictSpeakableBridgeProof(
+          drainCursor,
+          drainStep.targetLine,
+          now3,
+          strictRescueProofTopScores,
+          DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM
+        );
+        if (!stepProofOk) {
+          strictTerminalDrainStopReason = "no_step_proof";
+          break;
+        }
+        strictTerminalDrainTrail.push({
+          from: drainCursor,
+          to: drainStep.targetLine,
+          skippedReasons: drainStep.skippedReasons
+        });
+        drainCursor = drainStep.targetLine;
+      }
+      if (strictTerminalDrainTrail.length > 0) {
+        const terminalTargetLine = strictTerminalDrainTrail[strictTerminalDrainTrail.length - 1].to;
+        const rescueSim2 = Math.max(DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_MULTI_JUMP_MIN_SIM);
+        const terminalScores = strictTerminalDrainTrail.map((step) => ({
+          idx: step.to,
+          score: rescueSim2
+        }));
+        const targetText2 = getLineTextAt(terminalTargetLine);
+        warnGuard("strict_live_backlog_drain_start", [
+          `current=${cursorLine}`,
+          `target=${terminalTargetLine}`,
+          `steps=${strictTerminalDrainTrail.length}`,
+          `sinceForwardMs=${Math.max(0, now3 - lastForwardCommitAt)}`,
+          "source=stall-rescue"
+        ]);
+        warnGuard("strict_live_backlog_drain_terminal", [
+          `current=${cursorLine}`,
+          `target=${terminalTargetLine}`,
+          `steps=${strictTerminalDrainTrail.length}`,
+          "mode=replace-legacy",
+          "source=stall-rescue"
+        ]);
+        strictTerminalDrainTrail.forEach((step, idx) => {
+          warnGuard("strict_live_backlog_drain_step", [
+            `from=${step.from}`,
+            `to=${step.to}`,
+            `step=${idx + 1}`,
+            `speakableSteps=${idx + 1}`,
+            `skipped=[${step.skippedReasons.join(",")}]`,
+            reason ? `source=${reason}` : ""
+          ]);
+        });
+        warnGuard("strict_live_backlog_drain_stop", [
+          `current=${cursorLine}`,
+          `target=${terminalTargetLine}`,
+          `applied=${strictTerminalDrainTrail.length}`,
+          `planned=${strictTerminalDrainTrail.length}`,
+          "reason=plan_exhausted",
+          reason ? `source=${reason}` : ""
+        ]);
+        const matchId2 = `strict-live-drain-${Date.now().toString(36)}-${terminalTargetLine}`;
+        adoptPendingMatch({
+          line: terminalTargetLine,
+          conf: rescueSim2,
+          isFinal: true,
+          hasEvidence: true,
+          snippet: formatLogSnippet(targetText2, 80),
+          minThreshold: DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+          forced: true,
+          forceReason: "stall-rescue",
+          matchId: matchId2,
+          requiredThreshold: DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+          topScores: terminalScores,
+          cursorLine,
+          searchWindowFrom: cursorLine,
+          searchWindowTo: terminalTargetLine,
+          lostMode: false,
+          cueBridgeNudgeDelta: Math.max(1, terminalTargetLine - cursorLine)
+        });
+        schedulePending();
+        return true;
+      }
+      warnGuard("strict_live_backlog_drain_stop", [
+        `current=${cursorLine}`,
+        `reason=${strictTerminalDrainStopReason || "no_plan"}`,
+        `sinceForwardMs=${Math.max(0, now3 - lastForwardCommitAt)}`,
+        reason ? `source=${reason}` : ""
+      ]);
+    }
+    if (liveStrictFollow && deltaLines > 1) {
+      if (!strictSpeakableStep || strictSpeakableStep.targetLine !== targetLine) {
+        warnGuard("live_strict_multi_step_blocked", [
+          `at=${cursorLine}`,
+          `requested=${targetLine}`,
+          `delta=${deltaLines}`,
+          reason ? `source=${reason}` : ""
+        ]);
+        return false;
+      }
+      const strictBridgeImmediateCommit = true;
+      if (strictBridgeImmediateCommit) {
+        const strictBridgeProofOk = hasLiveStrictSpeakableBridgeProof(
+          cursorLine,
+          targetLine,
+          now3,
+          strictRescueProofTopScores,
+          DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM
+        );
+        if (!strictBridgeProofOk) {
+          return false;
+        }
+        warnGuard("strict_live_adjacent_speakable_bridge", [
+          `current=${cursorLine}`,
+          `target=${targetLine}`,
+          `deltaRaw=${deltaLines}`,
+          `logicalStep=+1`,
+          `skipped=[${strictSpeakableStep.skippedReasons.join(",")}]`,
+          reason ? `source=${reason}` : ""
+        ]);
+        const targetText2 = getLineTextAt(targetLine);
+        if (!targetText2) return false;
+        const rescueSim2 = Math.max(DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_MULTI_JUMP_MIN_SIM);
+        const matchId2 = `strict-live-bridge-${Date.now().toString(36)}-${targetLine}`;
+        adoptPendingMatch({
+          line: targetLine,
+          conf: rescueSim2,
+          isFinal: true,
+          hasEvidence: true,
+          snippet: formatLogSnippet(targetText2, 80),
+          minThreshold: DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+          forced: true,
+          forceReason: "strict-live-adjacent-speakable-bridge",
+          matchId: matchId2,
+          requiredThreshold: DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+          topScores: [{ idx: targetLine, score: rescueSim2 }],
+          cursorLine,
+          searchWindowFrom: cursorLine,
+          searchWindowTo: targetLine,
+          lostMode: false,
+          cueBridgeNudgeDelta: deltaLines
+        });
+        emitHudStatus(
+          "strict_live_adjacent_speakable_bridge",
+          `Bridge commit: +${Math.max(1, deltaLines)} logical step`
+        );
+        schedulePending();
+        return true;
+      }
+    }
     const targetText = getLineTextAt(targetLine);
-    if (!targetText || isIgnorableCueLineText(targetText)) return false;
+    if (!targetText) return false;
+    if (!liveStrictFollow && isIgnorableCueLineText(targetText)) return false;
+    const strictLocalProofTopScores = strictRescueProofTopScores;
+    const strictLocalAdjacentProof = liveStrictFollow && hasLiveStrictLocalProof(
+      cursorLine,
+      targetLine,
+      now3,
+      strictLocalProofTopScores,
+      DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM
+    );
+    const strictCueExitProof = liveStrictFollow && hasLiveStrictCueExitProof(
+      cursorLine,
+      targetLine,
+      now3,
+      strictLocalProofTopScores,
+      DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM
+    );
+    const strictBridgeProof = liveStrictFollow && hasLiveStrictSpeakableBridgeProof(
+      cursorLine,
+      targetLine,
+      now3,
+      strictLocalProofTopScores,
+      DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM
+    );
+    const strictAdjacentTailProgressionProof = liveStrictFollow && asrRuntimeSpeechRunningActual && (deltaLines === 1 || !!strictSpeakableStep && strictSpeakableStep.targetLine === targetLine && targetLine > cursorLine + 1) ? evaluateLiveStrictAdjacentTailProgressionProof(cursorLine, targetLine, now3) : null;
+    const strictAdjacentTailProgressionOk = !!strictAdjacentTailProgressionProof?.ok;
+    if (strictAdjacentTailProgressionOk) {
+      warnGuard("live_strict_rescue_tail_progression_proof", [
+        `current=${cursorLine}`,
+        `target=${targetLine}`,
+        `delta=${deltaLines}`,
+        `tailProofUsed=${strictAdjacentTailProgressionProof?.tailProofUsed ? 1 : 0}`,
+        `stalePrefixIgnored=${strictAdjacentTailProgressionProof?.stalePrefixIgnored ? 1 : 0}`,
+        "backwardContradictionOverriddenByTail=1",
+        `commitTargetLine=${targetLine}`,
+        Number.isFinite(strictAdjacentTailProgressionProof?.targetTailHits) ? `targetTailHits=${strictAdjacentTailProgressionProof?.targetTailHits}` : "",
+        Number.isFinite(strictAdjacentTailProgressionProof?.targetContentCount) ? `targetContentCount=${strictAdjacentTailProgressionProof?.targetContentCount}` : "",
+        Number.isFinite(strictAdjacentTailProgressionProof?.novelTailTokenCount) ? `novelTailTokens=${strictAdjacentTailProgressionProof?.novelTailTokenCount}` : "",
+        strictAdjacentTailProgressionProof?.tailPreview ? `tail="${strictAdjacentTailProgressionProof.tailPreview}"` : "",
+        reason ? `source=${reason}` : ""
+      ]);
+    }
+    const strictLocalProofOk = !liveStrictFollow || (strictLocalAdjacentProof || strictCueExitProof || strictBridgeProof || strictAdjacentTailProgressionOk);
+    const strictLogicalAdjacentRescue = liveStrictFollow && (deltaLines === 1 || !!strictSpeakableStep && strictSpeakableStep.targetLine === targetLine && targetLine > cursorLine + 1) && strictLocalProofOk;
+    const strictProofOwnedPrimaryEligible = strictLogicalAdjacentRescue && asrRuntimeSpeechRunningActual && strictSpeechFreshForRescue && !strictClusterContradictionFresh && !isRunIdentityStale();
+    if (strictProofOwnedPrimaryEligible) {
+      const proofSource = strictBridgeProof ? "strict_speakable_bridge_landing" : strictAdjacentTailProgressionOk ? "strict_adjacent_tail_progression" : strictCueExitProof ? "live_strict_cue_exit_proof" : "live_strict_local_proof_ok";
+      const oldWouldHaveUsedStallOverride = reasonTag === "auto-stall" && strictStarvationActive && strictFinalEvidenceArriving && asrRuntimeSpeechSeen && asrRuntimeSpeechRunningActual;
+      warnGuard("proof_owned_primary_commit", [
+        `current=${cursorLine}`,
+        `target=${targetLine}`,
+        `bestIdx=${targetLine}`,
+        `proofSource=${proofSource}`,
+        `skippedIgnorableLines=[${cueBridge.skippedReasons.join(",")}]`,
+        `stallMs=${Math.max(0, now3 - lastForwardCommitAt)}`,
+        "sourceBranch=stall-rescue:proof-owned",
+        `oldWouldHaveUsedStallOverride=${oldWouldHaveUsedStallOverride ? "true" : "false"}`,
+        reason ? `source=${reason}` : ""
+      ]);
+      const proofOwnedMatchId = `proof-owned-${Date.now().toString(36)}-${targetLine}`;
+      const proofOwnedSim = Math.max(
+        DEFAULT_STRONG_FORWARD_COMMIT_SIM,
+        DEFAULT_MULTI_JUMP_MIN_SIM
+      );
+      adoptPendingMatch({
+        line: targetLine,
+        conf: proofOwnedSim,
+        isFinal: true,
+        hasEvidence: true,
+        snippet: formatLogSnippet(targetText, 80),
+        minThreshold: DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+        forced: true,
+        forceReason: "live_strict_proof_owned_commit",
+        matchId: proofOwnedMatchId,
+        requiredThreshold: DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+        topScores: [{ idx: targetLine, score: proofOwnedSim }],
+        cursorLine,
+        searchWindowFrom: cursorLine,
+        searchWindowTo: targetLine,
+        lostMode: false,
+        cueBridgeNudgeDelta: Math.max(1, targetLine - cursorLine)
+      });
+      schedulePending();
+      return true;
+    }
+    if (!strictLogicalAdjacentRescue && now3 - lastCueStallRescueAt < DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS) {
+      return false;
+    }
+    if (liveStrictFollow && !strictLocalProofOk) {
+      stallRescueRequested = false;
+      warnGuard("live_strict_rescue_hold_no_local_proof", [
+        `at=${cursorLine}`,
+        `target=${targetLine}`,
+        `delta=${deltaLines}`,
+        reason ? `source=${reason}` : "",
+        targetText ? `line="${formatLogSnippet(targetText, 56)}"` : ""
+      ]);
+      emitHudStatus(
+        "live_strict_rescue_hold_no_local_proof",
+        "Hold: rescue requires adjacent local proof"
+      );
+      return false;
+    }
     const skippedIgnorableLines = cueBridge.skippedReasons;
     const landingRequiresEvidence = true;
-    const hasLandingEvidence = hasFreshNearbyRescueMatchEvidence(
+    const hasLandingEvidenceByRescueMatch = hasFreshNearbyRescueMatchEvidence(
       cursorLine,
       targetLine,
       now3,
       skippedIgnorableLines
     );
-    if (reasonTag === "auto-stall" && landingRequiresEvidence && !hasLandingEvidence) {
+    const strictContinuityProofSatisfied = liveStrictFollow && (deltaLines === 1 || !!strictSpeakableStep && strictSpeakableStep.targetLine === targetLine && targetLine > cursorLine + 1) && strictLocalProofOk;
+    const hasLandingEvidence = hasLandingEvidenceByRescueMatch || strictContinuityProofSatisfied;
+    const severeStallAgeMs = lastForwardCommitAt > 0 ? Math.max(0, now3 - lastForwardCommitAt) : Number.POSITIVE_INFINITY;
+    const allowMultiStepEvidenceBypass = !liveStrictFollow && reasonTag === "auto-stall" && deltaLines > 1 && deltaLines <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES && commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MULTI_STEP_MIN_COMMITS && severeStallAgeMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS;
+    const allowEvidenceBypass = !liveStrictFollow && reasonTag === "auto-stall" && deltaLines === 1 && commitCount >= 1 && severeStallAgeMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS;
+    const allowEvidenceBypassAny = allowEvidenceBypass || allowMultiStepEvidenceBypass;
+    if (reasonTag === "auto-stall" && landingRequiresEvidence && !hasLandingEvidence && !allowEvidenceBypassAny) {
       stallRescueRequested = false;
       warnGuard("blocked_on_content_without_evidence", [
         `at=${cursorLine}`,
@@ -36920,6 +38883,26 @@ function createAsrScrollDriver(options = {}) {
       ]);
       emitHudStatus("cue_stall_rescue_blocked", "Blocked: content landing lacks fresh evidence");
       return false;
+    }
+    if (reasonTag === "auto-stall" && landingRequiresEvidence && !hasLandingEvidenceByRescueMatch && strictContinuityProofSatisfied) {
+      warnGuard("adjacent_rescue_proofed", [
+        `at=${cursorLine}`,
+        `target=${targetLine}`,
+        `delta=${deltaLines}`,
+        `proof=local-strict`,
+        reason ? `source=${reason}` : ""
+      ]);
+    }
+    if (reasonTag === "auto-stall" && landingRequiresEvidence && !hasLandingEvidence && allowEvidenceBypassAny) {
+      warnGuard("cue_stall_rescue_evidence_bypass", [
+        `at=${cursorLine}`,
+        `target=${targetLine}`,
+        `delta=${deltaLines}`,
+        `commitCount=${commitCount}`,
+        `sinceForwardMs=${Number.isFinite(severeStallAgeMs) ? severeStallAgeMs : -1}`,
+        `mode=${allowMultiStepEvidenceBypass ? "multi-step" : "single-step"}`,
+        reason ? `source=${reason}` : ""
+      ]);
     }
     const rescuePolicy = evaluateStallCueRescuePolicy({
       reasonTag,
@@ -36949,8 +38932,19 @@ function createAsrScrollDriver(options = {}) {
       commitCount,
       deltaLines,
       sinceLastForwardMs: now3 - lastForwardCommitAt,
-      lostForwardGateCountSinceCommit
+      lostForwardGateCountSinceCommit,
+      liveStrictFollow
     });
+    const matureRunStartupGuardDisabled = commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MIN_COMMITS && Math.max(0, now3 - lastForwardCommitAt) >= DEFAULT_STARVATION_COMMIT_GAP_MS;
+    if (reasonTag === "auto-stall" && directContentForwardRescue && autoStallContentRescueAllowed && matureRunStartupGuardDisabled && !(liveStrictFollow && deltaLines > 1)) {
+      warnGuard("startup_guard_degraded", [
+        `at=${cursorLine}`,
+        `commits=${commitCount}`,
+        `delta=${deltaLines}`,
+        `sinceForwardMs=${Math.max(0, now3 - lastForwardCommitAt)}`,
+        reason ? `source=${reason}` : ""
+      ]);
+    }
     const neededLostForwardGates = commitCount >= 2 ? 1 : DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES;
     if (reasonTag === "auto-stall" && directContentForwardRescue && !autoStallContentRescueAllowed) {
       stallRescueRequested = false;
@@ -36974,7 +38968,7 @@ function createAsrScrollDriver(options = {}) {
     const recentSpeechWindowMs = DEFAULT_STARVATION_COMMIT_GAP_MS;
     const recentSpeechAgeMs = lastRescueSpeechAt > 0 ? Math.max(0, now3 - lastRescueSpeechAt) : Number.POSITIVE_INFINITY;
     const hasRecentFreshSpeech = freshSpeechSinceCommit && recentSpeechAgeMs <= recentSpeechWindowMs;
-    if (reasonTag === "auto-stall" && !hasRecentFreshSpeech) {
+    if (reasonTag === "auto-stall" && !hasRecentFreshSpeech && !(strictLogicalAdjacentRescue && strictSpeechFreshForRescue)) {
       stallRescueRequested = false;
       if (isDevMode4()) {
         warnGuard("cue_stall_rescue_blocked", [
@@ -37050,8 +39044,19 @@ function createAsrScrollDriver(options = {}) {
     lastCommitTime = now3;
     const prev2 = Number.isFinite(prevIndex) ? Math.max(0, Math.floor(prevIndex)) : -1;
     const next = Number.isFinite(nextIndex) ? Math.max(0, Math.floor(nextIndex)) : -1;
+    lastCommittedLine = next;
+    if (next >= 0 && (lastFreshProofLine < 0 || next < lastFreshProofLine)) {
+      lastFreshProofLine = next;
+    }
+    markCommitTranscriptCursor(next, now3);
+    liveProgressHeuristics.lastAdvanceAtMs = now3;
+    liveProgressHeuristics.lastAcceptedForwardIndex = next;
+    liveProgressHeuristics.consecutiveNoAdvanceFrames = 0;
+    liveProgressHeuristics.consecutiveWeakForwardSignals = 0;
+    liveProgressHeuristics.estimatedBehindByLines = 0;
     if (next > prev2) {
       resetNoProgressStreak("forward-commit", next);
+      resetLiveStrictForwardCluster();
     }
     if (next >= 0) {
       maybeEmitScriptEndEvent(next, "commit");
@@ -37627,6 +39632,16 @@ function createAsrScrollDriver(options = {}) {
       lineIdx: commit.lineIdx,
       blockId: commit.blockId
     }) ?? beforeTop;
+    const commitMoveSource = commit.forceReason ? `commit-move:${commit.forceReason}` : commit.forced ? "commit-move:forced" : "commit-move";
+    if (!canApplyAsrMovement(commitMoveSource, Date.now())) {
+      return {
+        method: deps.writerAvailable && commit.blockId >= 0 ? "writer" : "pixel",
+        writerCommitted: false,
+        beforeTop,
+        afterTop: beforeTop,
+        movedPx: 0
+      };
+    }
     const targetTop = clamp4(targetTopRaw, 0, max);
     const reason = commit.forced ? "asr-forced-commit" : "asr-commit";
     const liveAsrGlideActive = getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed();
@@ -37656,6 +39671,51 @@ function createAsrScrollDriver(options = {}) {
         lineIdx: commit.lineIdx
       }) ?? beforeTop;
     };
+    const markerLockLineIdxRaw = Number(commit.markerLockLineIdx);
+    const markerLockLineIdx = Number.isFinite(markerLockLineIdxRaw) && markerLockLineIdxRaw >= 0 ? Math.max(0, Math.floor(markerLockLineIdxRaw)) : Math.max(0, Math.floor(commit.lineIdx));
+    if (commit.markerLockRequired) {
+      stopCommitPursuit("asr-marker-lock-commit");
+      const markerLockLineEl = getLineElementByIndex(deps.scroller, markerLockLineIdx);
+      const markerLockTopRaw = computeLineTargetTop(deps.scroller, markerLockLineEl);
+      const markerLockTop = Number.isFinite(markerLockTopRaw) ? clamp4(Number(markerLockTopRaw), 0, max) : targetTop;
+      const appliedTop2 = applyCanonicalScrollTop(markerLockTop, {
+        scroller: deps.scroller,
+        reason,
+        source: "asr-commit"
+      });
+      const afterTop2 = finiteNumberOrNull(
+        "commit.afterTop.markerLock",
+        Number.isFinite(appliedTop2) ? appliedTop2 : readAfterTop(),
+        { reason, lineIdx: commit.lineIdx, blockId: commit.blockId, markerLockLineIdx }
+      ) ?? beforeTop;
+      bootTrace("SCROLL:apply", {
+        y: Math.round(afterTop2),
+        from: Math.round(beforeTop),
+        via: "marker-lock",
+        reason,
+        lineIdx: commit.lineIdx,
+        blockId: commit.blockId
+      });
+      pursuitTargetTop = afterTop2;
+      lastKnownScrollTop = afterTop2;
+      lastMoveAt = Date.now();
+      markProgrammaticScroll();
+      if (isDevMode4()) {
+        try {
+          console.info(
+            `ASR_MARKER_LOCK_COMMIT line=${commit.lineIdx} anchor=${markerLockLineIdx} before=${Math.round(beforeTop)} after=${Math.round(afterTop2)} moved=${Math.round(afterTop2 - beforeTop)}`
+          );
+        } catch {
+        }
+      }
+      return {
+        method: "pixel",
+        writerCommitted: false,
+        beforeTop,
+        afterTop: afterTop2,
+        movedPx: Math.round(afterTop2 - beforeTop)
+      };
+    }
     if (deps.writerAvailable && commit.blockId >= 0) {
       stopCommitPursuit("writer-commit");
       lastCommitDeltaPx = 0;
@@ -37778,6 +39838,7 @@ function createAsrScrollDriver(options = {}) {
     const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
     const cappedTop = clamp4(Math.min(afterTop, beforeTop + liveAsrCommitCapPx), 0, maxTop);
     if (cappedTop >= afterTop - 0.5) return afterTop;
+    if (!canApplyAsrMovement("commit-cap", Date.now())) return afterTop;
     stopGlide("live-asr-commit-cap");
     const applied = applyCanonicalScrollTop(cappedTop, {
       scroller,
@@ -37814,6 +39875,7 @@ function createAsrScrollDriver(options = {}) {
     if (isWriterCommitWindowActive()) return false;
     if (getScrollMode3() !== "asr") return false;
     if (!isSessionLivePhase() || !isSessionAsrArmed()) return false;
+    if (commitCount < DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_COMMITS) return false;
     const safeCursor = Math.max(0, Math.floor(cursorLine));
     const safeTarget = Math.max(0, Math.floor(targetLine));
     if (safeTarget >= safeCursor) return false;
@@ -37824,6 +39886,7 @@ function createAsrScrollDriver(options = {}) {
     if (currentSim > Math.max(needSim, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM)) return false;
     const margin = targetSim - currentSim;
     if (!Number.isFinite(margin) || margin < DEFAULT_GRACE_ROLLBACK_MIN_MARGIN) return false;
+    if (!canApplyAsrMovement("corrective-backstep", now3, { final: true, clue })) return false;
     const scroller = getScroller();
     const targetTop = scroller ? resolveTargetTop(scroller, safeTarget) : null;
     if (!scroller || targetTop == null) return false;
@@ -37969,7 +40032,7 @@ function createAsrScrollDriver(options = {}) {
       targetEl = await findLineElWithRetry(settledScroller, targetLine, 1);
     }
     const correctionTop = resolveExpectedTop(settledScroller, firstExpected);
-    if (Number.isFinite(correctionTop)) {
+    if (Number.isFinite(correctionTop) && canApplyAsrMovement("truth-correction", Date.now())) {
       applyCanonicalScrollTop(correctionTop, {
         scroller: settledScroller,
         reason: "asr-truth-correction",
@@ -38032,6 +40095,7 @@ function createAsrScrollDriver(options = {}) {
         }
         const now3 = Date.now();
         const asrMode = getScrollMode3() === "asr";
+        const liveStrictFollow = asrMode && isSessionLivePhase() && isSessionAsrArmed();
         const jumpCap = getMaxTargetJumpPx();
         const noInputSpeechWindowMs = DEFAULT_STARVATION_COMMIT_GAP_MS;
         const freshSpeechAgeMs = lastRescueSpeechAt > 0 ? Math.max(0, now3 - lastRescueSpeechAt) : Number.POSITIVE_INFINITY;
@@ -38048,7 +40112,7 @@ function createAsrScrollDriver(options = {}) {
           snippet,
           minThreshold,
           forced,
-          forceReason,
+          forceReason: pendingForceReason,
           consistency,
           relockOverride,
           relockReason,
@@ -38063,8 +40127,20 @@ function createAsrScrollDriver(options = {}) {
           searchWindowFrom,
           searchWindowTo,
           lostMode: pendingLostMode,
-          cueBridgeNudgeDelta: pendingCueBridgeNudgeDelta
+          cueBridgeNudgeDelta: pendingCueBridgeNudgeDelta,
+          runKey: pendingRunKey,
+          runGeneration: pendingRunGeneration,
+          sourceBranch: pendingSourceBranch,
+          proofSource: pendingProofSource,
+          starvationMs: pendingStarvationMs,
+          provenSpeakablePath: pendingProvenSpeakablePath
         } = pending;
+        let forceReason = pendingForceReason;
+        const pendingCommitSource = forceReason ? `pending-commit:${forceReason}` : "pending-commit";
+        if (!canApplyAsrMovement(pendingCommitSource, now3, { final: isFinal, clue: snippet })) {
+          clearPendingSpeakableBridge("movement_not_allowed");
+          return;
+        }
         const thresholds = getAsrDriverThresholds();
         syncMotionTuning(thresholds, now3);
         const requiredThresholdValue = typeof pendingRequiredThreshold === "number" ? pendingRequiredThreshold : NaN;
@@ -38097,12 +40173,676 @@ function createAsrScrollDriver(options = {}) {
         const secondSim = secondCandidate ? secondCandidate.score : void 0;
         const simGap = typeof secondSim === "number" && Number.isFinite(secondSim) ? conf - secondSim : void 0;
         const secondTextForLogs = secondIdx != null ? formatLogSnippet(getLineTextAt(secondIdx), 60) : "";
+        liveProgressHeuristics.consecutiveNoAdvanceFrames = Math.max(0, eventsSinceCommit);
+        const bestForwardCandidate = rankedTopScores.find((entry) => entry.idx > lastLineIndex) || null;
+        const strictSpeakableStep = liveStrictFollow ? resolveLiveStrictNextSpeakableStep(lastLineIndex, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN) : null;
+        const adjacentLine = strictSpeakableStep?.targetLine ?? Math.max(0, lastLineIndex + 1);
+        const adjacentCandidate = rankedTopScores.find((entry) => entry.idx === adjacentLine) || null;
+        const adjacentCandidateSim = Number(adjacentCandidate?.score);
+        liveProgressHeuristics.estimatedBehindByLines = bestForwardCandidate ? Math.max(0, bestForwardCandidate.idx - Math.max(0, lastLineIndex)) : 0;
+        const strictSpeechFreshNow = !asrSilenceActive && hasRecentVadSpeech && runtimeSpeechFresh && !pending.liveForwardGuardActive;
+        const strictSpeakableBridgeProofForAdjacent = liveStrictFollow && !!strictSpeakableStep && strictSpeakableStep.targetLine === adjacentLine && adjacentLine > lastLineIndex + 1 && hasLiveStrictSpeakableBridgeProof(
+          lastLineIndex,
+          adjacentLine,
+          now3,
+          rankedTopScores,
+          baselineRequired
+        );
+        const strictClusterContradictionFresh = liveStrictFollow && liveStrictForwardClusterContradictionAt > 0 && now3 - liveStrictForwardClusterContradictionAt <= DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS;
+        const strictNoMatchBlockActive = liveStrictFollow && lastRescueNoMatchAt > 0 && now3 - lastRescueNoMatchAt < DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS;
+        const strictFinalEvidenceArriving = liveStrictFollow && isFinal && !!hasEvidence;
+        const strictStarvationActive = liveStrictFollow && strictSpeechFreshNow && now3 - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS;
+        const strictTerminalDrainCandidate = strictStarvationActive && strictFinalEvidenceArriving && !strictNoMatchBlockActive && !strictClusterContradictionFresh;
+        const strictForwardClusterAhead = strictTerminalDrainCandidate && liveStrictForwardClusterCursor === lastLineIndex && liveStrictForwardClusterHits >= LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS && liveStrictForwardClusterLine > lastLineIndex && liveStrictForwardClusterUpdatedAt > 0 && now3 - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS;
+        const strictBacklogDrainTrail = [];
+        let strictBacklogDrainStopReason = "";
+        if (strictTerminalDrainCandidate) {
+          let drainCursor = Math.max(0, lastLineIndex);
+          const maxDrainSteps = Math.min(
+            LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT,
+            1 + LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS
+          );
+          while (strictBacklogDrainTrail.length < maxDrainSteps) {
+            const drainStep = resolveLiveStrictNextSpeakableStep(
+              drainCursor,
+              LIVE_STRICT_MAX_CUE_BRIDGE_SPAN
+            );
+            if (!drainStep || drainStep.targetLine <= drainCursor) {
+              strictBacklogDrainStopReason = "no_next_speakable";
+              break;
+            }
+            const stepProofOk = hasLiveStrictLocalProof(
+              drainCursor,
+              drainStep.targetLine,
+              now3,
+              rankedTopScores,
+              baselineRequired
+            ) || hasLiveStrictCueExitProof(
+              drainCursor,
+              drainStep.targetLine,
+              now3,
+              rankedTopScores,
+              baselineRequired
+            ) || hasLiveStrictSpeakableBridgeProof(
+              drainCursor,
+              drainStep.targetLine,
+              now3,
+              rankedTopScores,
+              baselineRequired
+            );
+            if (!stepProofOk) {
+              strictBacklogDrainStopReason = "no_step_proof";
+              break;
+            }
+            strictBacklogDrainTrail.push({
+              from: drainCursor,
+              to: drainStep.targetLine,
+              skippedReasons: drainStep.skippedReasons
+            });
+            drainCursor = drainStep.targetLine;
+          }
+          if (!strictBacklogDrainStopReason) {
+            strictBacklogDrainStopReason = strictBacklogDrainTrail.length >= maxDrainSteps ? "step_limit" : "plan_exhausted";
+          }
+        }
+        const strictBacklogDrainPlannedSteps = strictBacklogDrainTrail.length;
+        const strictBacklogDrainPlannedTargetLine = strictBacklogDrainPlannedSteps > 0 ? strictBacklogDrainTrail[strictBacklogDrainPlannedSteps - 1].to : -1;
+        const strictBacklogDrainTerminalActive = liveStrictFollow && strictTerminalDrainCandidate && strictBacklogDrainPlannedSteps > 0 && strictBacklogDrainPlannedTargetLine > lastLineIndex;
+        const strictEarlyBacklogDrainActive = strictBacklogDrainTerminalActive;
+        if (strictTerminalDrainCandidate) {
+          if (strictBacklogDrainTerminalActive) {
+            warnGuard("strict_live_backlog_drain_start", [
+              `current=${lastLineIndex}`,
+              `target=${strictBacklogDrainPlannedTargetLine}`,
+              `steps=${strictBacklogDrainPlannedSteps}`,
+              strictForwardClusterAhead ? `clusterLine=${liveStrictForwardClusterLine}` : "",
+              strictForwardClusterAhead ? `clusterHits=${liveStrictForwardClusterHits}` : "",
+              `sinceForwardMs=${Math.max(0, now3 - lastForwardCommitAt)}`,
+              `final=${isFinal ? 1 : 0}`
+            ]);
+            warnGuard("strict_live_backlog_drain_terminal", [
+              `current=${lastLineIndex}`,
+              `target=${strictBacklogDrainPlannedTargetLine}`,
+              `steps=${strictBacklogDrainPlannedSteps}`,
+              "mode=replace-legacy",
+              strictForwardClusterAhead ? "source=forward-cluster" : "source=next-speakable-proof"
+            ]);
+          } else {
+            warnGuard("strict_live_backlog_drain_stop", [
+              `current=${lastLineIndex}`,
+              `reason=${strictBacklogDrainStopReason || "no_plan"}`,
+              strictForwardClusterAhead ? `clusterLine=${liveStrictForwardClusterLine}` : "",
+              strictForwardClusterAhead ? `clusterHits=${liveStrictForwardClusterHits}` : "",
+              `sinceForwardMs=${Math.max(0, now3 - lastForwardCommitAt)}`,
+              `final=${isFinal ? 1 : 0}`
+            ]);
+          }
+        }
+        const farForwardDelta = Math.max(0, Math.floor(line) - Math.max(0, Math.floor(lastLineIndex)));
+        const nearForwardCandidate = rankedTopScores.find(
+          (entry) => entry.idx > lastLineIndex && entry.idx <= lastLineIndex + 1
+        );
+        const nearForwardSim = Number(nearForwardCandidate?.score);
+        const farLowConfidenceCandidate = liveStrictFollow && isFinal && farForwardDelta > DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES && conf < Math.max(DEFAULT_STRONG_FORWARD_COMMIT_SIM, effectiveMatchThreshold + 0.08);
+        const nearSupportNeed = Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, conf - 0.08);
+        const nearSupportOk = Number.isFinite(nearForwardSim) && nearForwardSim >= nearSupportNeed;
+        const liveSpeechForwardPushStallMs = Math.max(0, now3 - lastForwardCommitAt);
+        const liveSpeechForwardPushTarget = liveStrictFollow && strictSpeakableStep && strictSpeakableStep.targetLine > lastLineIndex ? strictSpeakableStep.targetLine : -1;
+        const liveSpeechForwardPushLocalProof = liveStrictFollow && liveSpeechForwardPushTarget > lastLineIndex && (hasLiveStrictLocalProof(
+          lastLineIndex,
+          liveSpeechForwardPushTarget,
+          now3,
+          rankedTopScores,
+          baselineRequired
+        ) || hasLiveStrictCueExitProof(
+          lastLineIndex,
+          liveSpeechForwardPushTarget,
+          now3,
+          rankedTopScores,
+          baselineRequired
+        ));
+        const liveSpeechForwardPushBridgeLandingProof = liveStrictFollow && liveSpeechForwardPushTarget > lastLineIndex && hasLiveStrictSpeakableBridgeProof(
+          lastLineIndex,
+          liveSpeechForwardPushTarget,
+          now3,
+          rankedTopScores,
+          baselineRequired
+        );
+        const liveSpeechForwardPushTailLexical = liveStrictFollow && liveSpeechForwardPushTarget === adjacentLine && liveSpeechForwardPushTarget > lastLineIndex ? evaluateLiveStrictBridgeLandingLexicalProof(
+          liveSpeechForwardPushTarget,
+          now3
+        ) : null;
+        const liveSpeechForwardPushAdjacentTailProgression = liveStrictFollow && liveSpeechForwardPushTarget === adjacentLine && liveSpeechForwardPushTarget > lastLineIndex && asrRuntimeSpeechRunningActual ? evaluateLiveStrictAdjacentTailProgressionProof(
+          lastLineIndex,
+          liveSpeechForwardPushTarget,
+          now3
+        ) : null;
+        const liveSpeechForwardPushTailProofUsed = !!liveSpeechForwardPushTailLexical?.ok && (liveSpeechForwardPushTailLexical.tailChars > 0 || liveSpeechForwardPushTailLexical.stalePrefixIgnored) || !!liveSpeechForwardPushAdjacentTailProgression?.ok;
+        const liveSpeechForwardPushStalePrefixIgnored = !!liveSpeechForwardPushTailLexical?.stalePrefixIgnored || !!liveSpeechForwardPushAdjacentTailProgression?.stalePrefixIgnored;
+        const liveSpeechForwardPushSkippedIgnorableLines = liveStrictFollow && strictSpeakableStep ? strictSpeakableStep.skippedReasons : [];
+        const liveSpeechForwardPushAdjacentRescueProof = liveStrictFollow && liveSpeechForwardPushTarget > lastLineIndex && hasFreshNearbyRescueMatchEvidence(
+          lastLineIndex,
+          liveSpeechForwardPushTarget,
+          now3,
+          liveSpeechForwardPushSkippedIgnorableLines
+        );
+        const liveSpeechForwardPushLexicalProof = liveSpeechForwardPushLocalProof || liveSpeechForwardPushBridgeLandingProof || liveSpeechForwardPushTailProofUsed;
+        let liveSpeechForwardPushProofSource = "none";
+        if (liveSpeechForwardPushLocalProof) {
+          liveSpeechForwardPushProofSource = "live_strict_local_proof_ok";
+        } else if (liveSpeechForwardPushBridgeLandingProof) {
+          liveSpeechForwardPushProofSource = "strict_speakable_bridge_landing";
+        } else if (liveSpeechForwardPushAdjacentTailProgression?.ok) {
+          liveSpeechForwardPushProofSource = "strict_adjacent_tail_progression";
+        } else if (liveSpeechForwardPushTailProofUsed) {
+          liveSpeechForwardPushProofSource = "strict_adjacent_tail_lexical";
+        } else if (liveSpeechForwardPushAdjacentRescueProof) {
+          liveSpeechForwardPushProofSource = "adjacent_rescue_proofed";
+        }
+        const liveSpeechForwardPushBackwardContradiction = liveStrictFollow && rankedTopScores.some(
+          (entry) => entry.idx <= lastLineIndex && entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06)
+        );
+        const liveSpeechForwardPushBackwardContradictionOverriddenByTail = liveSpeechForwardPushTarget === adjacentLine && liveSpeechForwardPushBackwardContradiction && (!!liveSpeechForwardPushAdjacentTailProgression?.ok && !!liveSpeechForwardPushAdjacentTailProgression?.stalePrefixIgnored || liveSpeechForwardPushTailProofUsed && liveSpeechForwardPushStalePrefixIgnored);
+        const liveSpeechForwardPushContradictionBlocks = liveSpeechForwardPushBackwardContradiction && !liveSpeechForwardPushBackwardContradictionOverriddenByTail;
+        if (liveSpeechForwardPushBackwardContradictionOverriddenByTail) {
+          warnGuard("live_adjacent_tail_proof_override", [
+            `current=${lastLineIndex}`,
+            `target=${liveSpeechForwardPushTarget}`,
+            `bestIdx=${line}`,
+            `tailProofUsed=${liveSpeechForwardPushTailProofUsed ? 1 : 0}`,
+            `stalePrefixIgnored=${liveSpeechForwardPushStalePrefixIgnored ? 1 : 0}`,
+            "backwardContradictionOverriddenByTail=1",
+            `commitTargetLine=${liveSpeechForwardPushTarget}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+        }
+        const liveSpeechForwardPushRepeatedForwardHits = liveStrictFollow && liveStrictForwardClusterCursor === lastLineIndex && liveStrictForwardClusterLine === liveSpeechForwardPushTarget && liveStrictForwardClusterHits >= LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS && liveStrictForwardClusterUpdatedAt > 0 && now3 - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS;
+        const liveSpeechForwardPushCurrentStale = noProgressStreak >= 1 || liveSpeechForwardPushStallMs >= DEFAULT_LIVE_SPEECH_FORWARD_PUSH_STALL_MS;
+        const liveSpeechForwardPushForwardTextPresent = line > lastLineIndex || (bestForwardCandidate?.idx ?? -1) > lastLineIndex || !!liveSpeechForwardPushAdjacentTailProgression?.ok;
+        const liveSpeechForwardPushRunStale = isRunIdentityStale({
+          runKey: pendingRunKey || void 0,
+          runGeneration: pendingRunGeneration
+        });
+        const proofOwnedPrimarySpeechFresh = !asrSilenceActive && runtimeSpeechFresh && asrRuntimeSpeechRunningActual;
+        const evaluateStrictProofOwnedCapBypassTarget = () => {
+          if (!liveStrictFollow) return null;
+          if (!proofOwnedPrimarySpeechFresh) return null;
+          if (liveSpeechForwardPushRunStale) return null;
+          const initialStep = strictSpeakableStep;
+          if (!initialStep || initialStep.targetLine <= lastLineIndex) return null;
+          const bestRequestedTarget = Math.max(lastLineIndex + 1, Math.floor(line));
+          const stepProof = (fromLine, toLine, skippedReasons) => {
+            const localProof = hasLiveStrictLocalProof(
+              fromLine,
+              toLine,
+              now3,
+              rankedTopScores,
+              baselineRequired
+            ) || hasLiveStrictCueExitProof(
+              fromLine,
+              toLine,
+              now3,
+              rankedTopScores,
+              baselineRequired
+            );
+            const bridgeProof = hasLiveStrictSpeakableBridgeProof(
+              fromLine,
+              toLine,
+              now3,
+              rankedTopScores,
+              baselineRequired
+            );
+            const rescueProof = hasFreshNearbyRescueMatchEvidence(
+              fromLine,
+              toLine,
+              now3,
+              skippedReasons
+            );
+            const backwardContradiction = rankedTopScores.some(
+              (entry) => entry.idx <= fromLine && entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06)
+            );
+            if (backwardContradiction) return { ok: false, source: "backward_contradiction" };
+            if (localProof) return { ok: true, source: "live_strict_local_proof_ok" };
+            if (bridgeProof) return { ok: true, source: "strict_speakable_bridge_landing" };
+            if (rescueProof) return { ok: true, source: "adjacent_rescue_proofed" };
+            return { ok: false, source: "no_proof" };
+          };
+          let cursor = lastLineIndex;
+          let target = initialStep.targetLine;
+          const allSkippedReasons = [...initialStep.skippedReasons];
+          const firstProof = stepProof(cursor, target, initialStep.skippedReasons);
+          if (!firstProof.ok) return null;
+          let proofSource = firstProof.source;
+          let speakableSteps = 1;
+          if (target > lastLineIndex + 1) {
+            const adjacentTarget = resolveForwardSpeakableTarget(lastLineIndex, target, 1);
+            if (adjacentTarget > lastLineIndex && adjacentTarget < target) {
+              warnGuard("asr_recovery_skip_non_adjacent_target", [
+                `current=${lastLineIndex}`,
+                `requested=${target}`,
+                `adjacentTarget=${adjacentTarget}`,
+                "sourceBranch=pending-cap-bypass-precap"
+              ]);
+              target = adjacentTarget;
+              speakableSteps = 1;
+            }
+          }
+          return {
+            target,
+            proofSource,
+            skippedIgnorableLines: allSkippedReasons,
+            speakableSteps,
+            stallMs: Math.max(0, now3 - lastForwardCommitAt)
+          };
+        };
+        const strictProofOwnedCapBypassTarget = evaluateStrictProofOwnedCapBypassTarget();
+        if (strictProofOwnedCapBypassTarget && !isProofOwnedPrimaryForceReason(forceReason)) {
+          const oldWouldHaveUsedStallOverride = isFinal && lastCommitIndex != null && Math.max(0, now3 - lastCommitTime) >= DEFAULT_STARVATION_COMMIT_GAP_MS && Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
+          warnGuard("proof_owned_primary_commit", [
+            `current=${lastLineIndex}`,
+            `target=${strictProofOwnedCapBypassTarget.target}`,
+            `bestIdx=${line}`,
+            `proofSource=${strictProofOwnedCapBypassTarget.proofSource}`,
+            strictProofOwnedCapBypassTarget.skippedIgnorableLines.length ? `skippedIgnorableLines=[${strictProofOwnedCapBypassTarget.skippedIgnorableLines.join(",")}]` : "skippedIgnorableLines=[]",
+            `speakableSteps=${strictProofOwnedCapBypassTarget.speakableSteps}`,
+            `stallMs=${strictProofOwnedCapBypassTarget.stallMs}`,
+            "sourceBranch=pending-cap-bypass-precap",
+            `oldWouldHaveUsedStallOverride=${oldWouldHaveUsedStallOverride ? "true" : "false"}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+          forceReason = "live_strict_proof_owned_commit";
+        }
+        const starvationFutureSpeechReconcileMinMs = 3e3;
+        const starvationFutureSpeechReconcileMinSim = 0.8;
+        const starvationFutureSpeechReconcileFinalMaxAgeMs = Math.max(
+          starvationFutureSpeechReconcileMinMs,
+          DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS * 2
+        );
+        const starvationFutureSpeechReconcileFinalAgeMs = lastFinalTranscriptAt > 0 ? Math.max(0, now3 - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
+        const finalTranscriptFreshForReconcile = Number.isFinite(starvationFutureSpeechReconcileFinalAgeMs) && starvationFutureSpeechReconcileFinalAgeMs <= starvationFutureSpeechReconcileFinalMaxAgeMs;
+        let starvationFutureSpeechReconcileTargetLine = null;
+        const starvationFutureSpeechReconcileCandidateIdx = Math.max(
+          Math.max(0, Math.floor(line)),
+          Number.isFinite(bestForwardCandidate?.idx) ? Math.max(0, Math.floor(Number(bestForwardCandidate?.idx))) : -1
+        );
+        const starvationFutureSpeechReconcileCandidateSim = Math.max(
+          Number.isFinite(conf) ? conf : 0,
+          Number.isFinite(bestForwardCandidate?.score) ? Number(bestForwardCandidate?.score) : 0
+        );
+        const starvationFutureSpeechReconcileMs = Math.max(0, now3 - lastForwardCommitAt);
+        const starvationFutureSpeechReconcileNoCommitMs = Math.max(0, now3 - lastCommitTime);
+        const logStarvationFutureSpeechReconcileSkip = (reason, extraParts = []) => {
+          warnGuard("starvation_future_speech_reconcile_skip", [
+            `current=${lastLineIndex}`,
+            `bestIdx=${starvationFutureSpeechReconcileCandidateIdx}`,
+            `bestSim=${formatLogScore(starvationFutureSpeechReconcileCandidateSim)}`,
+            `starvationMs=${starvationFutureSpeechReconcileMs}`,
+            `reason=${reason}`,
+            ...extraParts,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+        };
+        const starvationFutureSpeechReconcileCandidateActive = liveStrictFollow && isFinal && hasEvidence && asrRuntimeSpeechRunningActual && finalTranscriptFreshForReconcile && starvationFutureSpeechReconcileMs >= starvationFutureSpeechReconcileMinMs && starvationFutureSpeechReconcileNoCommitMs >= starvationFutureSpeechReconcileMinMs && starvationFutureSpeechReconcileCandidateIdx > lastLineIndex;
+        if (!isProofOwnedPrimaryForceReason(forceReason) && liveStrictFollow && isFinal && hasEvidence && starvationFutureSpeechReconcileMs >= starvationFutureSpeechReconcileMinMs && starvationFutureSpeechReconcileCandidateIdx > lastLineIndex) {
+          if (!asrRuntimeSpeechRunningActual) {
+            logStarvationFutureSpeechReconcileSkip("speech_not_running");
+          } else if (starvationFutureSpeechReconcileNoCommitMs < starvationFutureSpeechReconcileMinMs) {
+            logStarvationFutureSpeechReconcileSkip("no_commit_too_recent", [
+              `noCommitMs=${starvationFutureSpeechReconcileNoCommitMs}`,
+              `minNoCommitMs=${starvationFutureSpeechReconcileMinMs}`
+            ]);
+          } else if (!finalTranscriptFreshForReconcile) {
+            logStarvationFutureSpeechReconcileSkip("final_transcript_stale", [
+              `finalAgeMs=${Math.round(starvationFutureSpeechReconcileFinalAgeMs)}`,
+              `maxFinalAgeMs=${starvationFutureSpeechReconcileFinalMaxAgeMs}`
+            ]);
+          } else if (liveSpeechForwardPushRunStale) {
+            logStarvationFutureSpeechReconcileSkip("stale_run_identity");
+          } else if (starvationFutureSpeechReconcileCandidateSim < starvationFutureSpeechReconcileMinSim) {
+            logStarvationFutureSpeechReconcileSkip("sim_below_floor", [
+              `minSim=${formatLogScore(starvationFutureSpeechReconcileMinSim)}`
+            ]);
+          } else {
+            const backwardContradiction = rankedTopScores.some(
+              (entry) => entry.idx <= lastLineIndex && entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06)
+            );
+            if (backwardContradiction) {
+              logStarvationFutureSpeechReconcileSkip("backward_contradiction");
+            } else {
+              const adjacentTarget = resolveForwardSpeakableTarget(
+                lastLineIndex,
+                starvationFutureSpeechReconcileCandidateIdx,
+                1
+              );
+              if (adjacentTarget <= lastLineIndex) {
+                logStarvationFutureSpeechReconcileSkip("no_speakable_target");
+              } else {
+                if (starvationFutureSpeechReconcileCandidateIdx > adjacentTarget) {
+                  warnGuard("asr_recovery_skip_non_adjacent_target", [
+                    `current=${lastLineIndex}`,
+                    `requested=${starvationFutureSpeechReconcileCandidateIdx}`,
+                    `adjacentTarget=${adjacentTarget}`,
+                    "sourceBranch=starvation_future_speech_reconcile"
+                  ]);
+                }
+                const skippedIgnorableLines = [];
+                for (let idx = lastLineIndex + 1; idx < adjacentTarget; idx += 1) {
+                  const reason = classifyStrictSkippableLineForCueBridge(getLineTextAt(idx));
+                  if (reason) skippedIgnorableLines.push(reason);
+                }
+                starvationFutureSpeechReconcileTargetLine = adjacentTarget;
+                forceReason = "starvation_future_speech_reconcile";
+                warnGuard("proof_owned_primary_commit", [
+                  `current=${lastLineIndex}`,
+                  `target=${starvationFutureSpeechReconcileTargetLine}`,
+                  `bestIdx=${starvationFutureSpeechReconcileCandidateIdx}`,
+                  "proofSource=starvation_best_sim",
+                  skippedIgnorableLines.length ? `skippedIgnorableLines=[${skippedIgnorableLines.join(",")}]` : "skippedIgnorableLines=[]",
+                  `stallMs=${starvationFutureSpeechReconcileMs}`,
+                  "sourceBranch=starvation_future_speech_reconcile",
+                  "oldWouldHaveUsedStallOverride=true",
+                  `commitTargetLine=${starvationFutureSpeechReconcileTargetLine}`,
+                  snippet ? `clue="${snippet}"` : ""
+                ]);
+              }
+            }
+          }
+        }
+        const evaluateStarvationFutureSpeechReconcileTarget = () => {
+          if (!liveStrictFollow) return null;
+          if (!isFinal || !hasEvidence) return null;
+          if (!asrRuntimeSpeechRunningActual) return null;
+          if (!finalTranscriptFreshForReconcile) return null;
+          if (isProofOwnedPrimaryForceReason(forceReason)) return null;
+          if (liveSpeechForwardPushRunStale) return null;
+          const starvationMs = Math.max(0, now3 - lastForwardCommitAt);
+          if (starvationMs < starvationFutureSpeechReconcileMinMs) return null;
+          const noCommitMs = Math.max(0, now3 - lastCommitTime);
+          if (noCommitMs < starvationFutureSpeechReconcileMinMs) return null;
+          const requestedBestIdx = Math.max(
+            Math.floor(line),
+            Number.isFinite(bestForwardCandidate?.idx) ? Number(bestForwardCandidate?.idx) : -1
+          );
+          if (!Number.isFinite(requestedBestIdx) || requestedBestIdx <= lastLineIndex + 1) return null;
+          const backwardContradiction = rankedTopScores.some(
+            (entry) => entry.idx <= lastLineIndex && entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06)
+          );
+          if (backwardContradiction) return null;
+          const step = resolveLiveStrictNextSpeakableStep(
+            lastLineIndex,
+            LIVE_STRICT_MAX_CUE_BRIDGE_SPAN
+          );
+          if (!step || step.targetLine <= lastLineIndex) return null;
+          if (step.targetLine > requestedBestIdx) return null;
+          const localProof = hasLiveStrictLocalProof(
+            lastLineIndex,
+            step.targetLine,
+            now3,
+            rankedTopScores,
+            baselineRequired
+          ) || hasLiveStrictCueExitProof(
+            lastLineIndex,
+            step.targetLine,
+            now3,
+            rankedTopScores,
+            baselineRequired
+          );
+          const bridgeProof = hasLiveStrictSpeakableBridgeProof(
+            lastLineIndex,
+            step.targetLine,
+            now3,
+            rankedTopScores,
+            baselineRequired
+          );
+          const rescueProof = hasFreshNearbyRescueMatchEvidence(
+            lastLineIndex,
+            step.targetLine,
+            now3,
+            step.skippedReasons
+          );
+          const landingLexical = evaluateLiveStrictBridgeLandingLexicalProof(step.targetLine, now3);
+          const fullLexicalProof = landingLexical.contentCount > 0 && landingLexical.fullContentHits >= landingLexical.requiredHits && landingLexical.fullHitRatio >= landingLexical.requiredRatio;
+          let proofSource = "";
+          if (localProof) {
+            proofSource = "live_strict_local_proof_ok";
+          } else if (bridgeProof) {
+            proofSource = "strict_speakable_bridge_landing";
+          } else if (rescueProof) {
+            proofSource = "adjacent_rescue_proofed";
+          } else if (landingLexical.ok) {
+            proofSource = "future_tail_lexical";
+          } else if (fullLexicalProof) {
+            proofSource = "future_full_lexical";
+          } else {
+            return null;
+          }
+          return {
+            target: step.targetLine,
+            proofSource,
+            skippedIgnorableLines: step.skippedReasons,
+            speakableSteps: 1,
+            starvationMs
+          };
+        };
+        const starvationFutureSpeechReconcileTarget = evaluateStarvationFutureSpeechReconcileTarget();
+        if (starvationFutureSpeechReconcileTarget) {
+          const starvationFutureSpeechReconcileNoInputGuard = !hasRecentVadSpeech || !runtimeSpeechFresh || !!pending.liveForwardGuardActive;
+          let starvationFutureSpeechReconcileAppliedTarget = starvationFutureSpeechReconcileTarget.target;
+          const starvationFutureSpeechReconcileAdjacentTarget = resolveForwardSpeakableTarget(
+            lastLineIndex,
+            starvationFutureSpeechReconcileAppliedTarget,
+            1
+          );
+          if (starvationFutureSpeechReconcileAdjacentTarget > lastLineIndex && starvationFutureSpeechReconcileAppliedTarget > starvationFutureSpeechReconcileAdjacentTarget) {
+            warnGuard("asr_recovery_skip_non_adjacent_target", [
+              `current=${lastLineIndex}`,
+              `requested=${starvationFutureSpeechReconcileAppliedTarget}`,
+              `adjacentTarget=${starvationFutureSpeechReconcileAdjacentTarget}`,
+              "sourceBranch=starvation_future_speech_reconcile"
+            ]);
+            starvationFutureSpeechReconcileAppliedTarget = starvationFutureSpeechReconcileAdjacentTarget;
+          }
+          if (starvationFutureSpeechReconcileNoInputGuard && starvationFutureSpeechReconcileAppliedTarget > lastLineIndex + DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS) {
+            const singleStepTarget = resolveForwardSpeakableTarget(
+              lastLineIndex,
+              starvationFutureSpeechReconcileAppliedTarget,
+              DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS
+            );
+            if (singleStepTarget > lastLineIndex) {
+              warnGuard("starvation_future_speech_reconcile_single_step_guard_hold", [
+                `current=${lastLineIndex}`,
+                `target=${starvationFutureSpeechReconcileAppliedTarget}`,
+                `singleStep=${singleStepTarget}`,
+                `bestIdx=${line}`,
+                `bestSim=${formatLogScore(conf)}`,
+                `runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0}`,
+                `vadSpeech=${hasRecentVadSpeech ? 1 : 0}`,
+                `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+                snippet ? `clue="${snippet}"` : ""
+              ]);
+              starvationFutureSpeechReconcileAppliedTarget = singleStepTarget;
+            }
+          }
+          warnGuard("starvation_future_speech_reconcile", [
+            `current=${lastLineIndex}`,
+            `target=${starvationFutureSpeechReconcileAppliedTarget}`,
+            `bestIdx=${line}`,
+            `proofSource=${starvationFutureSpeechReconcileTarget.proofSource}`,
+            `speakableSteps=${starvationFutureSpeechReconcileTarget.speakableSteps}`,
+            `starvationMs=${starvationFutureSpeechReconcileTarget.starvationMs}`,
+            `commitTargetLine=${starvationFutureSpeechReconcileAppliedTarget}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+          warnGuard("proof_owned_primary_commit", [
+            `current=${lastLineIndex}`,
+            `target=${starvationFutureSpeechReconcileAppliedTarget}`,
+            `bestIdx=${line}`,
+            `proofSource=${starvationFutureSpeechReconcileTarget.proofSource}`,
+            starvationFutureSpeechReconcileTarget.skippedIgnorableLines.length ? `skippedIgnorableLines=[${starvationFutureSpeechReconcileTarget.skippedIgnorableLines.join(",")}]` : "skippedIgnorableLines=[]",
+            `stallMs=${starvationFutureSpeechReconcileTarget.starvationMs}`,
+            "sourceBranch=starvation_future_speech_reconcile",
+            "oldWouldHaveUsedStallOverride=true",
+            `commitTargetLine=${starvationFutureSpeechReconcileAppliedTarget}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+          adoptPendingMatch({
+            ...pending,
+            line: starvationFutureSpeechReconcileAppliedTarget,
+            conf: Math.max(conf, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM),
+            hasEvidence: true,
+            forced: true,
+            forceReason: "starvation_future_speech_reconcile",
+            matchId: matchId ? `${matchId}:future-reconcile` : `future-reconcile-${now3.toString(36)}-${starvationFutureSpeechReconcileAppliedTarget}`,
+            cursorLine: lastLineIndex,
+            searchWindowFrom: lastLineIndex,
+            searchWindowTo: starvationFutureSpeechReconcileAppliedTarget,
+            cueBridgeNudgeDelta: Math.max(
+              1,
+              starvationFutureSpeechReconcileAppliedTarget - lastLineIndex
+            ),
+            liveForwardGuardActive: void 0,
+            sourceBranch: "starvation_future_speech_reconcile",
+            proofSource: starvationFutureSpeechReconcileTarget.proofSource,
+            starvationMs: starvationFutureSpeechReconcileTarget.starvationMs,
+            provenSpeakablePath: true
+          });
+          schedulePending();
+          return;
+        }
+        const liveSpeechForwardPushAllow = liveStrictFollow && !!strictSpeakableStep && (liveSpeechForwardPushForwardTextPresent || liveSpeechForwardPushLexicalProof || liveSpeechForwardPushAdjacentRescueProof) && liveSpeechForwardPushTarget === adjacentLine && liveSpeechForwardPushTarget > lastLineIndex && proofOwnedPrimarySpeechFresh && !liveSpeechForwardPushRunStale && !liveSpeechForwardPushContradictionBlocks && (liveSpeechForwardPushLexicalProof || liveSpeechForwardPushAdjacentRescueProof || liveSpeechForwardPushCurrentStale && liveSpeechForwardPushRepeatedForwardHits);
+        const liveSpeechForwardPushAdjacentProofPending = liveStrictFollow && liveSpeechForwardPushTarget === adjacentLine && liveSpeechForwardPushTarget > lastLineIndex && (liveSpeechForwardPushLocalProof || liveSpeechForwardPushBridgeLandingProof || liveSpeechForwardPushAdjacentRescueProof || !!liveSpeechForwardPushAdjacentTailProgression?.ok || liveSpeechForwardPushRepeatedForwardHits);
+        const liveSpeechForwardPushAdjacentProofCommitEligible = liveSpeechForwardPushAdjacentProofPending && asrRuntimeSpeechRunningActual && !liveSpeechForwardPushRunStale && !liveSpeechForwardPushContradictionBlocks;
+        if (liveSpeechForwardPushAdjacentProofCommitEligible && liveSpeechForwardPushProofSource === "none" && liveSpeechForwardPushRepeatedForwardHits) {
+          liveSpeechForwardPushProofSource = "forward_cluster_proof";
+        }
+        if (liveSpeechForwardPushAllow) {
+          warnGuard("live_speech_forward_push_allow", [
+            `current=${lastLineIndex}`,
+            `target=${liveSpeechForwardPushTarget}`,
+            `bestIdx=${line}`,
+            `proof=${liveSpeechForwardPushProofSource}`,
+            `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+            `repeatedForwardHits=${liveStrictForwardClusterHits}`,
+            `tailProofUsed=${liveSpeechForwardPushTailProofUsed ? 1 : 0}`,
+            `stalePrefixIgnored=${liveSpeechForwardPushStalePrefixIgnored ? 1 : 0}`,
+            `backwardContradictionOverriddenByTail=${liveSpeechForwardPushBackwardContradictionOverriddenByTail ? 1 : 0}`,
+            `commitTargetLine=${liveSpeechForwardPushTarget}`,
+            Number.isFinite(liveSpeechForwardPushAdjacentTailProgression?.targetTailHits) ? `targetTailHits=${liveSpeechForwardPushAdjacentTailProgression?.targetTailHits}` : "",
+            Number.isFinite(liveSpeechForwardPushAdjacentTailProgression?.targetContentCount) ? `targetTailContent=${liveSpeechForwardPushAdjacentTailProgression?.targetContentCount}` : "",
+            Number.isFinite(liveSpeechForwardPushAdjacentTailProgression?.novelTailTokenCount) ? `novelTailTokens=${liveSpeechForwardPushAdjacentTailProgression?.novelTailTokenCount}` : "",
+            `stallMs=${liveSpeechForwardPushStallMs}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+        }
+        const liveSpeechForwardPushCommit = (liveSpeechForwardPushAllow || liveSpeechForwardPushAdjacentProofCommitEligible) && liveSpeechForwardPushTarget > lastLineIndex && (liveSpeechForwardPushLocalProof || liveSpeechForwardPushBridgeLandingProof || liveSpeechForwardPushAdjacentRescueProof || !!liveSpeechForwardPushAdjacentTailProgression?.ok || liveSpeechForwardPushRepeatedForwardHits);
+        if (liveSpeechForwardPushCommit) {
+          warnGuard("live_speech_forward_push_commit", [
+            `current=${lastLineIndex}`,
+            `target=${liveSpeechForwardPushTarget}`,
+            `bestIdx=${line}`,
+            `proofSource=${liveSpeechForwardPushProofSource}`,
+            `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+            `repeatedForwardHits=${liveStrictForwardClusterHits}`,
+            `tailProofUsed=${liveSpeechForwardPushTailProofUsed ? 1 : 0}`,
+            `stalePrefixIgnored=${liveSpeechForwardPushStalePrefixIgnored ? 1 : 0}`,
+            `backwardContradictionOverriddenByTail=${liveSpeechForwardPushBackwardContradictionOverriddenByTail ? 1 : 0}`,
+            `commitTargetLine=${liveSpeechForwardPushTarget}`,
+            `stallMs=${liveSpeechForwardPushStallMs}`,
+            "source=commit:pre-far-hold",
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+        }
+        if (liveSpeechForwardPushCommit && !isProofOwnedPrimaryForceReason(forceReason)) {
+          const oldWouldHaveUsedStallOverride = isFinal && lastCommitIndex != null && Math.max(0, now3 - lastCommitTime) >= DEFAULT_STARVATION_COMMIT_GAP_MS && Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
+          if (oldWouldHaveUsedStallOverride && asrRuntimeSpeechRunningActual) {
+            try {
+              console.warn(
+                `ASR_STALL_RECOVERY_OVERRIDE current=${lastLineIndex} requested=${line} committed=${liveSpeechForwardPushTarget} reason=stall_recovery_override`
+              );
+            } catch {
+            }
+          }
+          warnGuard("proof_owned_primary_commit", [
+            `current=${lastLineIndex}`,
+            `target=${liveSpeechForwardPushTarget}`,
+            `bestIdx=${line}`,
+            `proofSource=${liveSpeechForwardPushProofSource}`,
+            `tailProofUsed=${liveSpeechForwardPushTailProofUsed ? 1 : 0}`,
+            `stalePrefixIgnored=${liveSpeechForwardPushStalePrefixIgnored ? 1 : 0}`,
+            `backwardContradictionOverriddenByTail=${liveSpeechForwardPushBackwardContradictionOverriddenByTail ? 1 : 0}`,
+            `commitTargetLine=${liveSpeechForwardPushTarget}`,
+            liveSpeechForwardPushSkippedIgnorableLines.length ? `skippedIgnorableLines=[${liveSpeechForwardPushSkippedIgnorableLines.join(",")}]` : "skippedIgnorableLines=[]",
+            `stallMs=${liveSpeechForwardPushStallMs}`,
+            "sourceBranch=pending-proof-owned-pre-hold",
+            `oldWouldHaveUsedStallOverride=${oldWouldHaveUsedStallOverride ? "true" : "false"}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+          warnGuard("live_strict_proof_owned_commit", [
+            `current=${lastLineIndex}`,
+            `target=${liveSpeechForwardPushTarget}`,
+            `bestIdx=${line}`,
+            `proofSource=${liveSpeechForwardPushProofSource}`,
+            `skippedIgnorableLines=${liveSpeechForwardPushSkippedIgnorableLines.length}`,
+            liveSpeechForwardPushSkippedIgnorableLines.length ? `skipped=[${liveSpeechForwardPushSkippedIgnorableLines.join(",")}]` : "",
+            `stallMs=${liveSpeechForwardPushStallMs}`,
+            "sourceBranch=pending-proof-owned-pre-hold",
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+          const proofOwnedCommitSim = Math.max(
+            conf,
+            Number.isFinite(adjacentCandidateSim) ? Number(adjacentCandidateSim) : 0,
+            DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM
+          );
+          const proofOwnedMatchId = matchId ? `${matchId}:proof-owned` : `proof-owned-${now3.toString(36)}-${liveSpeechForwardPushTarget}`;
+          adoptPendingMatch({
+            ...pending,
+            line: liveSpeechForwardPushTarget,
+            conf: proofOwnedCommitSim,
+            hasEvidence: true,
+            forced: true,
+            forceReason: "live_strict_proof_owned_commit",
+            matchId: proofOwnedMatchId,
+            cursorLine: lastLineIndex,
+            searchWindowFrom: lastLineIndex,
+            searchWindowTo: liveSpeechForwardPushTarget,
+            cueBridgeNudgeDelta: Math.max(1, liveSpeechForwardPushTarget - lastLineIndex),
+            liveForwardGuardActive: void 0
+          });
+          schedulePending();
+          return;
+        }
+        if (farLowConfidenceCandidate && isProofOwnedPrimaryForceReason(forceReason) && !nearSupportOk && !forced && !strictEarlyBacklogDrainActive && !strictSpeakableBridgeProofForAdjacent && !liveSpeechForwardPushCommit) {
+          warnGuard("movement_authority_veto_bypassed", [
+            "authority=proof_or_reconcile",
+            "blocker=live_strict_far_candidate_hold",
+            `current=${lastLineIndex}`,
+            `requested=${line}`,
+            `target=${line}`,
+            "reason=movement_authority_terminal"
+          ]);
+        }
+        if (farLowConfidenceCandidate && !isProofOwnedPrimaryForceReason(forceReason) && !nearSupportOk && !forced && !strictEarlyBacklogDrainActive && !strictSpeakableBridgeProofForAdjacent && !liveSpeechForwardPushCommit) {
+          warnGuard("live_strict_far_candidate_hold", [
+            `current=${lastLineIndex}`,
+            `best=${line}`,
+            `delta=${farForwardDelta}`,
+            `sim=${formatLogScore(conf)}`,
+            `needNear=${formatLogScore(nearSupportNeed)}`,
+            Number.isFinite(nearForwardSim) ? `nearSim=${formatLogScore(nearForwardSim)}` : "nearSim=na",
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+          emitHudStatus(
+            "live_strict_far_candidate_hold",
+            "Hold: far low-confidence candidate ignored"
+          );
+          return;
+        }
         const tieMargin = typeof secondSim === "number" && Number.isFinite(secondSim) ? conf - secondSim : typeof tieGap === "number" ? tieGap : void 0;
         const tieOk = tieMargin === void 0 || tieMargin >= thresholds.tieDelta;
         const asrFinalTieBypass = asrMode && isFinal && line >= lastLineIndex && conf >= Math.max(DEFAULT_MULTI_JUMP_MIN_SIM, effectiveMatchThreshold + 0.06);
         const tieGateOk = tieOk || asrFinalTieBypass;
         const watchdogThreshold = clamp4(Math.max(stuckWatchdogForwardFloor, thresholds.candidateMinSim), 0, 1);
-        const watchdogBypass = forceReason === "watchdog" && line > lastLineIndex && conf >= watchdogThreshold;
+        let watchdogBypass = forceReason === "watchdog" && line > lastLineIndex && conf >= watchdogThreshold;
         const cueBridgeDelta = Number.isFinite(pendingCueBridgeNudgeDelta ?? NaN) ? Math.max(0, Math.floor(Number(pendingCueBridgeNudgeDelta))) : 0;
         const cueBridgePathEligible = cueBridgeDelta > 0 && cueBridgeDelta <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES && line > lastLineIndex && line - lastLineIndex <= cueBridgeDelta;
         const cueBridgeCurrent = Math.max(0, Math.floor(lastLineIndex));
@@ -38130,15 +40870,174 @@ function createAsrScrollDriver(options = {}) {
         const cueBridgeLargeSimGap = typeof tieMargin === "number" && Number.isFinite(tieMargin) && tieMargin >= Math.max(thresholds.tieDelta, DEFAULT_CUE_BRIDGE_LARGE_GAP);
         const cueBridgeFinalLargeGap = isFinal && cueBridgeLargeSimGap;
         const cueBridgeEvidenceOk = cueBridgeStrongSim || cueBridgeFinalLargeGap;
-        const cueBridgeBypass = cueBridgePathValid && cueBridgeSkipCountOk && cueBridgeEvidenceOk && conf >= cueBridgeFloor && isSessionAsrArmed() && isSessionLivePhase();
-        const progressiveFloorBypass = forceReason === "progressive-floor" && line >= lastLineIndex && conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM && isSessionAsrArmed() && isSessionLivePhase();
-        const lostForwardBypass = forceReason === "lost-forward" && line > lastLineIndex && conf >= DEFAULT_LOST_FORWARD_MIN_SIM;
-        const permissiveForwardBypass = forceReason === "permissive-final-advance" && isPermissiveAsrMatcherEnabled() && line > lastLineIndex && conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM && isSessionAsrArmed() && isSessionLivePhase();
-        const finalForwardBypass = (forceReason === "final-forward-nudge" || forceReason === "final-forward-fallback") && line > lastLineIndex && conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM && runtimeSpeechFresh && isSessionAsrArmed() && isSessionLivePhase();
-        const stallRescueBypass = forceReason === "stall-rescue" && line > lastLineIndex && line - lastLineIndex <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES && conf >= DEFAULT_MULTI_JUMP_MIN_SIM && isSessionAsrArmed() && isSessionLivePhase();
-        const consistentCatchupBypass = forceReason === "catchup-consistent" && line > lastLineIndex && line - lastLineIndex <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES && conf >= DELTA_MIN_SIM_SMALL && isSessionAsrArmed() && isSessionLivePhase();
-        const starvationForwardBypass = asrMode && isFinal && line > lastLineIndex && runtimeSpeechFresh && isSessionAsrArmed() && isSessionLivePhase() && now3 - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS && conf >= Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, effectiveMatchThreshold - 0.18);
-        const strongMatch = watchdogBypass || progressiveFloorBypass || cueBridgeBypass || lostForwardBypass || permissiveForwardBypass || finalForwardBypass || starvationForwardBypass || consistentCatchupBypass || stallRescueBypass || conf >= effectiveMatchThreshold && tieGateOk;
+        let cueBridgeBypass = cueBridgePathValid && cueBridgeSkipCountOk && cueBridgeEvidenceOk && conf >= cueBridgeFloor && isSessionAsrArmed() && isSessionLivePhase();
+        let progressiveFloorBypass = forceReason === "progressive-floor" && line >= lastLineIndex && conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM && isSessionAsrArmed() && isSessionLivePhase();
+        let lostForwardBypass = forceReason === "lost-forward" && line > lastLineIndex && conf >= DEFAULT_LOST_FORWARD_MIN_SIM;
+        let permissiveForwardBypass = forceReason === "permissive-final-advance" && isPermissiveAsrMatcherEnabled() && line > lastLineIndex && conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM && isSessionAsrArmed() && isSessionLivePhase();
+        let finalForwardBypass = (forceReason === "final-forward-nudge" || forceReason === "final-forward-fallback") && line > lastLineIndex && conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM && runtimeSpeechFresh && isSessionAsrArmed() && isSessionLivePhase();
+        let stallRescueBypass = forceReason === "stall-rescue" && line > lastLineIndex && line - lastLineIndex <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES && (!liveStrictFollow || line - lastLineIndex <= 1) && conf >= DEFAULT_MULTI_JUMP_MIN_SIM && isSessionAsrArmed() && isSessionLivePhase();
+        let consistentCatchupBypass = forceReason === "catchup-consistent" && line > lastLineIndex && line - lastLineIndex <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES && conf >= DELTA_MIN_SIM_SMALL && isSessionAsrArmed() && isSessionLivePhase();
+        let completionAdjacentBypass = asrMode && isFinal && line === adjacentLine && runtimeSpeechFresh && isSessionAsrArmed() && isSessionLivePhase() && conf >= Math.max(
+          DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+          effectiveMatchThreshold - DEFAULT_ASR_ADJACENT_COMPLETION_SIM_SLACK
+        );
+        let starvationForwardBypass = asrMode && isFinal && line > lastLineIndex && line <= adjacentLine && runtimeSpeechFresh && asrRuntimeSpeechSeen && asrRuntimeSpeechRunningActual && isSessionAsrArmed() && isSessionLivePhase() && now3 - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS && conf >= Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, effectiveMatchThreshold - 0.18);
+        let liveSpeechForwardPushBypass = liveSpeechForwardPushCommit && liveSpeechForwardPushTarget > lastLineIndex;
+        let proofOwnedForceBypass = isProofOwnedPrimaryForceReason(forceReason) && line > lastLineIndex && line <= adjacentLine && asrRuntimeSpeechRunningActual && !liveSpeechForwardPushRunStale && !liveSpeechForwardPushContradictionBlocks;
+        const strictLocalProofForAdjacent = liveStrictFollow && adjacentLine > lastLineIndex && (!strictSpeakableStep || adjacentLine <= lastLineIndex + LIVE_STRICT_MAX_CUE_BRIDGE_SPAN) && (hasLiveStrictLocalProof(
+          lastLineIndex,
+          adjacentLine,
+          now3,
+          rankedTopScores,
+          baselineRequired
+        ) || hasLiveStrictCueExitProof(
+          lastLineIndex,
+          adjacentLine,
+          now3,
+          rankedTopScores,
+          baselineRequired
+        ) || strictSpeakableBridgeProofForAdjacent);
+        const strictBackwardContradictionForAdjacent = liveStrictFollow && rankedTopScores.some(
+          (entry) => entry.idx <= lastLineIndex && entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06)
+        ) && !(!!liveSpeechForwardPushAdjacentTailProgression?.ok && !!liveSpeechForwardPushAdjacentTailProgression?.stalePrefixIgnored);
+        const behindRecoveryWindowActive = liveStrictFollow && liveProgressHeuristics.estimatedBehindByLines >= LIVE_STRICT_BEHIND_RECOVERY_MIN_LINES && liveProgressHeuristics.estimatedBehindByLines <= LIVE_STRICT_BEHIND_RECOVERY_MAX_LINES;
+        const weakAdjacentNeedBase = Math.max(
+          LIVE_STRICT_WEAK_POSITIVE_ADJACENT_MIN_SIM,
+          baselineRequired - 0.14
+        );
+        const weakAdjacentNeed = clamp4(
+          behindRecoveryWindowActive ? weakAdjacentNeedBase - LIVE_STRICT_BEHIND_RECOVERY_ADJACENT_SLACK : weakAdjacentNeedBase,
+          LIVE_STRICT_WEAK_POSITIVE_ADJACENT_MIN_SIM - LIVE_STRICT_BEHIND_RECOVERY_ADJACENT_SLACK,
+          1
+        );
+        const weakAdjacentEvidence = Number.isFinite(adjacentCandidateSim) && adjacentCandidateSim >= weakAdjacentNeed;
+        if (liveStrictFollow) {
+          if (strictSpeechFreshNow && weakAdjacentEvidence && !strictBackwardContradictionForAdjacent && (bestForwardCandidate?.idx ?? -1) > lastLineIndex) {
+            liveProgressHeuristics.consecutiveWeakForwardSignals += 1;
+          } else {
+            liveProgressHeuristics.consecutiveWeakForwardSignals = 0;
+          }
+        } else {
+          liveProgressHeuristics.consecutiveWeakForwardSignals = 0;
+          liveProgressHeuristics.estimatedBehindByLines = 0;
+        }
+        const recentlySyncedNow = liveStrictFollow && isRecentlyInSync(now3, liveProgressHeuristics);
+        const stalledNow = liveStrictFollow && isStalling(now3, liveProgressHeuristics);
+        const strictLogicalAdjacentSignal = adjacentLine > lastLineIndex && (!strictSpeakableStep || strictSpeakableStep.targetLine === adjacentLine);
+        const strictImmediateAdjacentEligible = liveStrictFollow && strictSpeechFreshNow && !strictBackwardContradictionForAdjacent && strictLocalProofForAdjacent && strictLogicalAdjacentSignal;
+        const strictMomentumBiasEligible = liveStrictFollow && !strictImmediateAdjacentEligible && strictSpeechFreshNow && !strictBackwardContradictionForAdjacent && weakAdjacentEvidence && recentlySyncedNow && strictLogicalAdjacentSignal;
+        const strictAntiStallEligible = liveStrictFollow && !strictImmediateAdjacentEligible && !strictMomentumBiasEligible && strictSpeechFreshNow && !strictBackwardContradictionForAdjacent && weakAdjacentEvidence && stalledNow && (recentlySyncedNow || liveProgressHeuristics.consecutiveWeakForwardSignals >= LIVE_STRICT_WEAK_SIGNAL_REPEAT_COUNT) && strictLogicalAdjacentSignal;
+        const strictBehindRecoveryEligible = liveStrictFollow && !strictImmediateAdjacentEligible && !strictMomentumBiasEligible && !strictAntiStallEligible && strictSpeechFreshNow && !strictBackwardContradictionForAdjacent && behindRecoveryWindowActive && weakAdjacentEvidence && strictLogicalAdjacentSignal;
+        const strictFastAdjacentAllowed = strictImmediateAdjacentEligible || strictMomentumBiasEligible || strictAntiStallEligible || strictBehindRecoveryEligible;
+        const markerLagState = isMarkerTrackingHealthyForLine(scroller, lastLineIndex);
+        const markerLagLines = markerLagState.markerIdx >= 0 ? Math.max(0, lastLineIndex - markerLagState.markerIdx) : 0;
+        const markerLagPressureActive = liveStrictFollow && strictSpeechFreshNow && !strictBackwardContradictionForAdjacent && strictLogicalAdjacentSignal && markerLagLines >= DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_LINES && Math.max(0, now3 - lastForwardCommitAt) >= DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_NO_COMMIT_MS && ((bestForwardCandidate?.idx ?? -1) > lastLineIndex || !!liveSpeechForwardPushAdjacentTailProgression?.ok || liveSpeechForwardPushAdjacentRescueProof || liveSpeechForwardPushRepeatedForwardHits);
+        const markerLagAdjacentNeed = clamp4(
+          weakAdjacentNeed - DEFAULT_ASR_MARKER_LAG_PRESSURE_ADJACENT_SIM_SLACK,
+          DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+          1
+        );
+        const markerLagAdjacentEvidence = Number.isFinite(adjacentCandidateSim) && adjacentCandidateSim >= markerLagAdjacentNeed;
+        const markerLagTailEvidence = !!liveSpeechForwardPushAdjacentTailProgression?.ok || liveSpeechForwardPushAdjacentRescueProof || liveSpeechForwardPushRepeatedForwardHits;
+        const markerLagPressureBypass = markerLagPressureActive && adjacentLine > lastLineIndex && (strictLocalProofForAdjacent || markerLagAdjacentEvidence || markerLagTailEvidence);
+        if (markerLagPressureBypass) {
+          const markerLagReaderVisual = resolveLineVisualTelemetry(scroller, lastLineIndex);
+          const markerLagTargetVisual = resolveLineVisualTelemetry(scroller, adjacentLine);
+          const markerLagReaderVisualBand = markerLagReaderVisual.band;
+          const markerLagPendingBridgeAgeMs = pendingSpeakableBridgeState ? Math.max(0, now3 - pendingSpeakableBridgeState.createdAtMs) : -1;
+          warnGuard("asr_marker_lag_pressure_adjacent_allow", [
+            `current=${lastLineIndex}`,
+            `adjacent=${adjacentLine}`,
+            `bestIdx=${line}`,
+            `bestSim=${formatLogScore(conf)}`,
+            `markerIdx=${markerLagState.markerIdx}`,
+            `markerLagLines=${markerLagLines}`,
+            `noCommitMs=${Math.max(0, now3 - lastForwardCommitAt)}`,
+            `readerVisualBand=${markerLagReaderVisualBand}`,
+            `readerViewportState=${markerLagReaderVisual.viewportState}`,
+            Number.isFinite(markerLagReaderVisual.distanceToBottomPx) ? `readerDistanceToBottomPx=${Math.round(markerLagReaderVisual.distanceToBottomPx)}` : "",
+            Number.isFinite(markerLagReaderVisual.distanceToMarkerPx) ? `readerDistanceToMarkerPx=${Math.round(markerLagReaderVisual.distanceToMarkerPx)}` : "",
+            `adjacentTargetBand=${markerLagTargetVisual.band}`,
+            `adjacentTargetViewportState=${markerLagTargetVisual.viewportState}`,
+            Number.isFinite(markerLagTargetVisual.distanceToBottomPx) ? `adjacentTargetDistanceToBottomPx=${Math.round(markerLagTargetVisual.distanceToBottomPx)}` : "",
+            Number.isFinite(markerLagTargetVisual.distanceToMarkerPx) ? `adjacentTargetDistanceToMarkerPx=${Math.round(markerLagTargetVisual.distanceToMarkerPx)}` : "",
+            pendingSpeakableBridgeState ? `semanticTarget=${pendingSpeakableBridgeState.semanticTarget}` : "",
+            pendingSpeakableBridgeState ? `visualReducedTarget=${pendingSpeakableBridgeState.visualReducedTarget}` : "",
+            pendingSpeakableBridgeState ? `pendingBridgeAgeMs=${markerLagPendingBridgeAgeMs}` : "",
+            `adjacentSim=${Number.isFinite(adjacentCandidateSim) ? formatLogScore(adjacentCandidateSim) : "na"}`,
+            `adjacentNeed=${formatLogScore(markerLagAdjacentNeed)}`,
+            `tailEvidence=${markerLagTailEvidence ? 1 : 0}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+        }
+        const strictSpeakableBridgeAuthorized = liveStrictFollow && !!strictSpeakableStep && strictSpeakableStep.targetLine === adjacentLine && adjacentLine > lastLineIndex + 1 && strictLocalProofForAdjacent && !strictBackwardContradictionForAdjacent;
+        const strictBypassRequested = watchdogBypass || progressiveFloorBypass || cueBridgeBypass || lostForwardBypass || permissiveForwardBypass || finalForwardBypass || starvationForwardBypass || consistentCatchupBypass || liveSpeechForwardPushBypass || proofOwnedForceBypass || markerLagPressureBypass || completionAdjacentBypass || stallRescueBypass;
+        const strictBridgeForceCommit = liveStrictFollow && forceReason === "strict-live-adjacent-speakable-bridge";
+        const strictBridgeForceProofOk = strictBridgeForceCommit && !!strictSpeakableStep && strictSpeakableStep.targetLine > lastLineIndex && hasLiveStrictSpeakableBridgeProof(
+          lastLineIndex,
+          strictSpeakableStep.targetLine,
+          now3,
+          rankedTopScores,
+          baselineRequired
+        );
+        const pendingBridgeBypassCandidate = !!pendingSpeakableBridgeState && pendingSpeakableBridgeState.semanticFrom === lastLineIndex && pendingSpeakableBridgeState.semanticTarget > lastLineIndex && asrRuntimeSpeechRunningActual && runtimeSpeechFresh && !isRunIdentityStale({
+          runKey: pendingSpeakableBridgeState.runKey,
+          runGeneration: pendingSpeakableBridgeState.runGeneration
+        });
+        if (pendingBridgeBypassCandidate && !proofOwnedForceBypass) {
+          proofOwnedForceBypass = true;
+          forceReason = "pending_speakable_bridge_complete";
+        }
+        if (liveStrictFollow && line > lastLineIndex && strictBypassRequested) {
+          const strictPathStates = [];
+          if (watchdogBypass) strictPathStates.push({ path: "watchdog", kind: "autonomous_candidate" });
+          if (progressiveFloorBypass) strictPathStates.push({ path: "progressive-floor", kind: "autonomous_candidate" });
+          if (lostForwardBypass) strictPathStates.push({ path: "lost-forward", kind: "autonomous_candidate" });
+          if (permissiveForwardBypass) strictPathStates.push({ path: "permissive-final-advance", kind: "autonomous_candidate" });
+          if (finalForwardBypass) strictPathStates.push({ path: "final-forward", kind: "autonomous_candidate" });
+          if (starvationForwardBypass) strictPathStates.push({ path: "starvation-forward", kind: "autonomous_candidate" });
+          if (consistentCatchupBypass) strictPathStates.push({ path: "catchup-consistent", kind: "autonomous_candidate" });
+          if (completionAdjacentBypass) strictPathStates.push({ path: "adjacent-completion", kind: strictSpeechFreshNow ? "speech_backed" : "autonomous_candidate" });
+          if (stallRescueBypass) strictPathStates.push({ path: "stall-rescue", kind: strictSpeechFreshNow ? "speech_backed" : "autonomous_candidate" });
+          if (liveSpeechForwardPushBypass) strictPathStates.push({ path: "live-speech-forward-push", kind: "speech_backed" });
+          if (proofOwnedForceBypass) strictPathStates.push({ path: "live-strict-proof-owned", kind: "speech_backed" });
+          if (pendingBridgeBypassCandidate) strictPathStates.push({ path: "pending-speakable-bridge", kind: "speech_backed" });
+          if (markerLagPressureBypass) strictPathStates.push({ path: "marker-lag-pressure", kind: "speech_backed" });
+          logThrottled("ASR_STRICT_PATH_CLASS", "debug", "ASR_STRICT_PATH_CLASS", {
+            current: lastLineIndex,
+            best: line,
+            speechFresh: strictSpeechFreshNow ? 1 : 0,
+            localProof: strictLocalProofForAdjacent ? 1 : 0,
+            paths: strictPathStates
+          });
+        }
+        const strictAutonomousCandidate = liveStrictFollow && line > lastLineIndex && (watchdogBypass || progressiveFloorBypass || lostForwardBypass || permissiveForwardBypass || finalForwardBypass || starvationForwardBypass || consistentCatchupBypass || forceReason === "catchup" || forceReason === "watchdog" || forceReason === "stall_recovery_override");
+        if (strictAutonomousCandidate && !strictBacklogDrainTerminalActive && !(strictFastAdjacentAllowed || markerLagPressureBypass) && !strictLocalProofForAdjacent && isProofOwnedPrimaryForceReason(forceReason)) {
+          warnGuard("movement_authority_veto_bypassed", [
+            "authority=proof_or_reconcile",
+            "blocker=autonomous_path_blocked",
+            `current=${lastLineIndex}`,
+            `requested=${line}`,
+            `target=${line}`,
+            "reason=movement_authority_terminal"
+          ]);
+        }
+        if (strictAutonomousCandidate && !strictBacklogDrainTerminalActive && !(strictFastAdjacentAllowed || markerLagPressureBypass) && !strictLocalProofForAdjacent && !isProofOwnedPrimaryForceReason(forceReason) && !(forceReason === "progressive-floor" && (!isFinal && line === lastLineIndex + 1 || isFinal && line - lastLineIndex <= DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES && Math.max(0, now3 - lastForwardCommitAt) < DEFAULT_STARVATION_COMMIT_GAP_MS))) {
+          warnGuard("autonomous_path_blocked", [
+            `current=${lastLineIndex}`,
+            `best=${line}`,
+            `delta=${line - lastLineIndex}`,
+            forceReason ? `force=${forceReason}` : "",
+            strictSpeechFreshNow ? "speech=1" : "speech=0",
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+          emitHudStatus(
+            "autonomous_path_blocked",
+            "Hold: adjacent speech proof required"
+          );
+          return;
+        }
+        const strongMatch = watchdogBypass || progressiveFloorBypass || cueBridgeBypass || lostForwardBypass || permissiveForwardBypass || finalForwardBypass || starvationForwardBypass || consistentCatchupBypass || liveSpeechForwardPushBypass || proofOwnedForceBypass || pendingBridgeBypassCandidate || markerLagPressureBypass || completionAdjacentBypass || stallRescueBypass || strictEarlyBacklogDrainActive || strictSpeakableBridgeAuthorized || strictBridgeForceProofOk || (strictFastAdjacentAllowed || markerLagPressureBypass) && line > lastLineIndex || conf >= effectiveMatchThreshold && tieGateOk;
         if (!strongMatch) {
           const tieParts = !tieOk && typeof tieMargin === "number" ? [`tie=${formatLogScore(tieMargin)}`, `tieNeed=${formatLogScore(thresholds.tieDelta)}`] : [];
           const deltaParts = deltaMinSim > matchThreshold ? [`deltaNeed=${formatLogScore(deltaMinSim)}`] : [];
@@ -38219,6 +41118,14 @@ function createAsrScrollDriver(options = {}) {
           } catch {
           }
         }
+        if (completionAdjacentBypass && isDevMode4()) {
+          try {
+            console.info(
+              `ASR_ADJACENT_COMPLETION_BYPASS current=${lastLineIndex} target=${line} delta=${line - lastLineIndex} sim=${formatLogScore(conf)} need=${formatLogScore(effectiveMatchThreshold)}`
+            );
+          } catch {
+          }
+        }
         if (permissiveForwardBypass && isDevMode4()) {
           try {
             console.info(
@@ -38243,7 +41150,16 @@ function createAsrScrollDriver(options = {}) {
           } catch {
           }
         }
-        let targetLine = Math.max(0, Math.floor(line));
+        let targetLine = strictEarlyBacklogDrainActive ? strictBacklogDrainPlannedTargetLine : Math.max(0, Math.floor(line));
+        if (starvationFutureSpeechReconcileTargetLine != null && starvationFutureSpeechReconcileTargetLine > lastLineIndex && starvationFutureSpeechReconcileTargetLine > targetLine && !pendingSpeakableBridgeState) {
+          targetLine = starvationFutureSpeechReconcileTargetLine;
+        }
+        if (strictProofOwnedCapBypassTarget && strictProofOwnedCapBypassTarget.target > lastLineIndex && strictProofOwnedCapBypassTarget.target > targetLine) {
+          targetLine = strictProofOwnedCapBypassTarget.target;
+        }
+        if (liveSpeechForwardPushCommit && liveSpeechForwardPushTarget > lastLineIndex) {
+          targetLine = liveSpeechForwardPushTarget;
+        }
         const continuityLine = chooseWithinBlockContinuityLine(
           targetLine,
           topScores,
@@ -38261,7 +41177,464 @@ function createAsrScrollDriver(options = {}) {
           }
           targetLine = continuityLine;
         }
+        let pendingSpeakableBridgeCompletion = false;
+        const pendingBridgeState = pendingSpeakableBridgeState;
+        if (pendingBridgeState) {
+          const pendingBridgeAgeMs = Math.max(0, now3 - pendingBridgeState.createdAtMs);
+          const pendingBridgeMarkerState = isMarkerTrackingHealthyForLine(scroller, lastLineIndex);
+          const pendingBridgeMarkerLagLines = pendingBridgeMarkerState.markerIdx >= 0 ? Math.max(0, lastLineIndex - pendingBridgeMarkerState.markerIdx) : 0;
+          const pendingBridgeCurrentVisual = resolveLineVisualTelemetry(scroller, lastLineIndex);
+          const pendingBridgeTargetVisual = resolveLineVisualTelemetry(
+            scroller,
+            pendingBridgeState.semanticTarget
+          );
+          const pendingBridgeReaderVisualBand = pendingBridgeCurrentVisual.band;
+          const pendingBridgeNoCommitMs = Math.max(0, now3 - lastCommitTime);
+          const pendingBridgeRunStale = isRunIdentityStale({
+            runKey: pendingBridgeState.runKey,
+            runGeneration: pendingBridgeState.runGeneration
+          });
+          if (pendingBridgeAgeMs > DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS) {
+            const canRefreshPendingBridge = asrRuntimeSpeechRunningActual && runtimeSpeechFresh && !pendingBridgeRunStale && isFinal && pendingBridgeState.semanticTarget > lastLineIndex;
+            if (canRefreshPendingBridge) {
+              pendingSpeakableBridgeState = {
+                ...pendingBridgeState,
+                createdAtMs: now3,
+                proofSource: pendingProofSource || pendingBridgeState.proofSource,
+                sourceBranch: pendingSourceBranch || pendingBridgeState.sourceBranch || "pending_speakable_bridge"
+              };
+              warnGuard("asr_pending_speakable_bridge_refresh", [
+                `semanticFrom=${pendingBridgeState.semanticFrom}`,
+                `semanticTarget=${pendingBridgeState.semanticTarget}`,
+                `visualReducedTarget=${pendingBridgeState.visualReducedTarget}`,
+                `pendingBridgeAgeMs=${pendingBridgeAgeMs}`,
+                `ttlMs=${DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS}`,
+                `readerVisualBand=${pendingBridgeReaderVisualBand}`,
+                `semanticTargetViewportState=${pendingBridgeTargetVisual.viewportState}`,
+                Number.isFinite(pendingBridgeTargetVisual.distanceToBottomPx) ? `semanticTargetDistanceToBottomPx=${Math.round(pendingBridgeTargetVisual.distanceToBottomPx)}` : "",
+                Number.isFinite(pendingBridgeTargetVisual.distanceToMarkerPx) ? `semanticTargetDistanceToMarkerPx=${Math.round(pendingBridgeTargetVisual.distanceToMarkerPx)}` : "",
+                `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+                "reason=continued_speech_refresh"
+              ]);
+            } else {
+              clearPendingSpeakableBridge("expired", [
+                `ttlMs=${DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS}`
+              ]);
+            }
+          } else if (pendingBridgeState.semanticFrom !== lastLineIndex) {
+            clearPendingSpeakableBridge("cursor_shifted", [
+              `current=${lastLineIndex}`
+            ]);
+          } else if (!asrRuntimeSpeechRunningActual || !runtimeSpeechFresh) {
+            clearPendingSpeakableBridge("speech_not_active", [
+              `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+              `runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0}`
+            ]);
+          } else if (pendingBridgeRunStale) {
+            clearPendingSpeakableBridge("run_identity_stale");
+          } else if (pendingBridgeState.semanticTarget <= lastLineIndex) {
+            clearPendingSpeakableBridge("target_already_reached", [
+              `current=${lastLineIndex}`
+            ]);
+          } else {
+            const bridgeSemanticTarget = Math.max(
+              pendingBridgeState.semanticTarget,
+              targetLine
+            );
+            targetLine = bridgeSemanticTarget;
+            pendingSpeakableBridgeCompletion = true;
+            proofOwnedForceBypass = true;
+            forceReason = "pending_speakable_bridge_complete";
+            warnGuard("asr_pending_speakable_bridge_retry", [
+              `semanticFrom=${pendingBridgeState.semanticFrom}`,
+              `semanticTarget=${pendingBridgeState.semanticTarget}`,
+              `visualCurrent=${pendingBridgeState.visualCurrent}`,
+              `visualReducedTarget=${pendingBridgeState.visualReducedTarget}`,
+              `skippedVisibleRows=${pendingBridgeState.skippedVisibleRows}`,
+              `markerLagLines=${pendingBridgeMarkerLagLines}`,
+              `readerVisualBand=${pendingBridgeReaderVisualBand}`,
+              `readerViewportState=${pendingBridgeCurrentVisual.viewportState}`,
+              Number.isFinite(pendingBridgeCurrentVisual.distanceToBottomPx) ? `readerDistanceToBottomPx=${Math.round(pendingBridgeCurrentVisual.distanceToBottomPx)}` : "",
+              Number.isFinite(pendingBridgeCurrentVisual.distanceToMarkerPx) ? `readerDistanceToMarkerPx=${Math.round(pendingBridgeCurrentVisual.distanceToMarkerPx)}` : "",
+              `semanticTargetBand=${pendingBridgeTargetVisual.band}`,
+              `semanticTargetViewportState=${pendingBridgeTargetVisual.viewportState}`,
+              Number.isFinite(pendingBridgeTargetVisual.distanceToBottomPx) ? `semanticTargetDistanceToBottomPx=${Math.round(pendingBridgeTargetVisual.distanceToBottomPx)}` : "",
+              Number.isFinite(pendingBridgeTargetVisual.distanceToMarkerPx) ? `semanticTargetDistanceToMarkerPx=${Math.round(pendingBridgeTargetVisual.distanceToMarkerPx)}` : "",
+              `pendingBridgeAgeMs=${pendingBridgeAgeMs}`,
+              `noCommitMs=${pendingBridgeNoCommitMs}`,
+              `proofSource=${pendingBridgeState.proofSource || "unknown"}`,
+              `sourceBranch=${pendingBridgeState.sourceBranch || "unknown"}`,
+              `ageMs=${pendingBridgeAgeMs}`
+            ]);
+          }
+        }
         const requestedTargetLine = targetLine;
+        const movementAuthorityStarvationMs = Math.max(0, now3 - lastForwardCommitAt);
+        const movementAuthorityNoCommitMs = Math.max(0, now3 - lastCommitTime);
+        const movementAuthorityFinalTranscriptAgeMs = lastFinalTranscriptAt > 0 ? Math.max(0, now3 - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
+        const msSinceSpeechRunningActual = lastSpeechRunningActualAtMs > 0 ? Math.max(0, now3 - lastSpeechRunningActualAtMs) : Number.POSITIVE_INFINITY;
+        const speechStopBrakeArmed = asrRuntimeSpeechEverTrue;
+        const hasActiveSpeechWindow = !speechStopBrakeArmed || asrRuntimeSpeechRunningActual === true || Number.isFinite(msSinceSpeechRunningActual) && msSinceSpeechRunningActual <= DEFAULT_ASR_AUTHORITY_SPEECH_STOP_BRAKE_MS;
+        const movementAuthorityProofSource = pendingProofSource || strictProofOwnedCapBypassTarget?.proofSource || (liveSpeechForwardPushCommit ? liveSpeechForwardPushProofSource : "") || (strictLocalProofForAdjacent ? "live_strict_local_proof_ok" : "") || (strictSpeakableBridgeProofForAdjacent ? "strict_speakable_bridge_landing" : "") || "";
+        const movementAuthorityHasStrictLocalProof = strictLocalProofForAdjacent || targetLine > lastLineIndex && hasLiveStrictLocalProof(
+          lastLineIndex,
+          targetLine,
+          now3,
+          rankedTopScores,
+          baselineRequired
+        );
+        const movementAuthorityNextSpeakableTarget = resolveLiveStrictNextSpeakableStep(
+          lastLineIndex,
+          LIVE_STRICT_MAX_CUE_BRIDGE_SPAN
+        )?.targetLine ?? Math.max(lastLineIndex + 1, adjacentLine);
+        const movementAuthorityHasAdjacentProof = targetLine === movementAuthorityNextSpeakableTarget && (strictLocalProofForAdjacent || strictSpeakableBridgeProofForAdjacent || liveSpeechForwardPushCommit);
+        const movementAuthorityAdjacentProofPending = movementAuthorityNextSpeakableTarget > lastLineIndex && (movementAuthorityHasAdjacentProof || liveSpeechForwardPushAdjacentRescueProof || !!liveSpeechForwardPushAdjacentTailProgression?.ok || liveSpeechForwardPushRepeatedForwardHits);
+        const movementAuthorityBridgeLexical = targetLine > lastLineIndex ? evaluateLiveStrictBridgeLandingLexicalProof(targetLine, now3) : null;
+        const movementAuthorityHasBridgeLexicalProof = !!movementAuthorityBridgeLexical?.ok || !!movementAuthorityBridgeLexical?.fromStaleTranscriptOnly;
+        const movementAuthorityHasFinalForwardProof = isFinal && targetLine > lastLineIndex && (finalForwardBypass || permissiveForwardBypass || completionAdjacentBypass || stallRescueBypass || !!strictProofOwnedCapBypassTarget || !!starvationFutureSpeechReconcileTargetLine);
+        const movementAuthorityDecision = resolveAsrMovementAuthority({
+          current: lastLineIndex,
+          target: targetLine,
+          bestIdx: line,
+          bestSim: conf,
+          starvationMs: movementAuthorityStarvationMs,
+          speechRunningActual: hasActiveSpeechWindow,
+          isFinal,
+          hasStrictLocalProof: movementAuthorityHasStrictLocalProof,
+          hasAdjacentProof: movementAuthorityHasAdjacentProof,
+          hasBridgeLexicalProof: movementAuthorityHasBridgeLexicalProof,
+          hasFinalForwardProof: movementAuthorityHasFinalForwardProof,
+          proofSource: movementAuthorityProofSource || void 0
+        });
+        const attemptedAuthority = movementAuthorityDecision.authority;
+        let movementAuthority = movementAuthorityDecision.authority;
+        let movementAuthorityReason = movementAuthorityDecision.reason;
+        let movementAuthoritySourceBranch = movementAuthorityDecision.sourceBranch;
+        let bypassDownstreamVeto = movementAuthorityDecision.bypassDownstreamVeto;
+        const movementAuthorityRecoverySourceText = String(
+          pendingSourceBranch || movementAuthoritySourceBranch || forceReason || ""
+        ).trim().toLowerCase();
+        const movementAuthorityRecoveryLike = isAsrRecoverySource(
+          movementAuthorityRecoverySourceText,
+          forceReason,
+          matchId
+        ) && !pendingSpeakableBridgeCompletion;
+        const movementAuthorityMarkerState = isMarkerTrackingHealthyForLine(scroller, lastLineIndex);
+        const movementAuthorityMarkerLagLines = movementAuthorityMarkerState.markerIdx >= 0 ? Math.max(0, lastLineIndex - movementAuthorityMarkerState.markerIdx) : 0;
+        const movementAuthorityReaderVisualBand = resolveReaderVisualBand(scroller, lastLineIndex);
+        const movementAuthorityPendingBridgeAgeMs = pendingSpeakableBridgeState ? Math.max(0, now3 - pendingSpeakableBridgeState.createdAtMs) : Number.POSITIVE_INFINITY;
+        const movementAuthorityLiveForwardGuardHeld = asrMode && isSessionLivePhase() && isSessionAsrArmed() && (!hasRecentVadSpeech || !runtimeSpeechFresh || !!pending.liveForwardGuardActive);
+        if (pendingSpeakableBridgeCompletion && asrRuntimeSpeechRunningActual && runtimeSpeechFresh && hasActiveSpeechWindow && targetLine > lastLineIndex) {
+          movementAuthority = "proof";
+          movementAuthorityReason = "pending_bridge_marker_maintenance";
+          movementAuthoritySourceBranch = "movement_authority_pending_bridge_maintenance";
+          bypassDownstreamVeto = true;
+        }
+        const pendingBridgePressureCommit = pendingSpeakableBridgeCompletion && !!pendingSpeakableBridgeState && asrRuntimeSpeechRunningActual && runtimeSpeechFresh && hasActiveSpeechWindow && movementAuthorityDecision.target > lastLineIndex && movementAuthorityNoCommitMs >= DEFAULT_ASR_PENDING_BRIDGE_PRESSURE_COMMIT_MS;
+        if (pendingBridgePressureCommit) {
+          const bridgeState = pendingSpeakableBridgeState;
+          const pressureCurrentVisual = resolveLineVisualTelemetry(scroller, lastLineIndex);
+          const pressureTargetVisual = resolveLineVisualTelemetry(scroller, bridgeState.semanticTarget);
+          warnGuard("asr_pending_speakable_bridge_pressure_commit", [
+            `current=${lastLineIndex}`,
+            `target=${movementAuthorityDecision.target}`,
+            `semanticTarget=${bridgeState.semanticTarget}`,
+            `visualReducedTarget=${bridgeState.visualReducedTarget}`,
+            `markerLagLines=${movementAuthorityMarkerLagLines}`,
+            `readerVisualBand=${movementAuthorityReaderVisualBand}`,
+            `readerViewportState=${pressureCurrentVisual.viewportState}`,
+            Number.isFinite(pressureCurrentVisual.distanceToBottomPx) ? `readerDistanceToBottomPx=${Math.round(pressureCurrentVisual.distanceToBottomPx)}` : "",
+            Number.isFinite(pressureCurrentVisual.distanceToMarkerPx) ? `readerDistanceToMarkerPx=${Math.round(pressureCurrentVisual.distanceToMarkerPx)}` : "",
+            `semanticTargetBand=${pressureTargetVisual.band}`,
+            `semanticTargetViewportState=${pressureTargetVisual.viewportState}`,
+            Number.isFinite(pressureTargetVisual.distanceToBottomPx) ? `semanticTargetDistanceToBottomPx=${Math.round(pressureTargetVisual.distanceToBottomPx)}` : "",
+            Number.isFinite(pressureTargetVisual.distanceToMarkerPx) ? `semanticTargetDistanceToMarkerPx=${Math.round(pressureTargetVisual.distanceToMarkerPx)}` : "",
+            `pendingBridgeAgeMs=${Math.max(0, now3 - bridgeState.createdAtMs)}`,
+            `noCommitMs=${movementAuthorityNoCommitMs}`,
+            `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+            `proofSource=${bridgeState.proofSource || movementAuthorityProofSource || "unknown"}`,
+            `sourceBranch=${bridgeState.sourceBranch || pendingSourceBranch || "unknown"}`
+          ]);
+          movementAuthority = "proof";
+          movementAuthorityReason = "pending_bridge_pressure_commit";
+          movementAuthoritySourceBranch = "movement_authority_pending_bridge_pressure";
+          bypassDownstreamVeto = true;
+          targetLine = movementAuthorityDecision.target;
+        }
+        const emitMovementAuthorityVetoBypassed = (blocker, requested, target, reason) => {
+          warnGuard("movement_authority_veto_bypassed", [
+            `authority=${movementAuthority}`,
+            `blocker=${blocker}`,
+            `current=${lastLineIndex}`,
+            `requested=${requested}`,
+            `target=${target}`,
+            `reason=${reason}`
+          ]);
+        };
+        if (liveStrictFollow && movementAuthorityRecoveryLike && movementAuthorityDecision.target > lastLineIndex && movementAuthorityStarvationMs >= DEFAULT_STARVATION_COMMIT_GAP_MS && movementAuthorityNoCommitMs >= DEFAULT_STARVATION_COMMIT_GAP_MS && (movementAuthorityRecoverySourceText.includes("starvation_future_speech_reconcile") || movementAuthorityRecoverySourceText.includes("soft_runtime_rebase")) && !pendingSpeakableBridgeCompletion && requestedTargetLine > movementAuthorityNextSpeakableTarget && !movementAuthorityAdjacentProofPending && movementAuthorityMarkerState.healthy) {
+          warnGuard("asr_recovery_skip_tracking_healthy", [
+            `current=${lastLineIndex}`,
+            `markerIdx=${movementAuthorityMarkerState.markerIdx}`,
+            `starvationMs=${movementAuthorityStarvationMs}`,
+            `noCommitMs=${movementAuthorityNoCommitMs}`,
+            `sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || "unknown"}`
+          ]);
+          return;
+        }
+        if (!speechStopBrakeArmed && movementAuthorityStarvationMs >= DEFAULT_STARVATION_COMMIT_GAP_MS && movementAuthorityDecision.target > lastLineIndex) {
+          warnGuard("movement_authority_runtime_uninitialized_starvation_hold", [
+            `current=${lastLineIndex}`,
+            `target=${movementAuthorityDecision.target}`,
+            `bestIdx=${line}`,
+            `bestSim=${formatLogScore(conf)}`,
+            `attemptedAuthority=${attemptedAuthority}`,
+            `starvationMs=${movementAuthorityStarvationMs}`,
+            "reason=runtime_speech_uninitialized"
+          ]);
+          movementAuthority = "none";
+          movementAuthorityReason = "runtime_speech_uninitialized_starvation_hold";
+          movementAuthoritySourceBranch = "movement_authority_runtime_uninitialized";
+          targetLine = lastLineIndex;
+          bypassDownstreamVeto = false;
+        }
+        if ((movementAuthority === "reconcile" || movementAuthority === "proof") && movementAuthorityLiveForwardGuardHeld && movementAuthorityStarvationMs >= DEFAULT_STARVATION_COMMIT_GAP_MS && movementAuthorityDecision.target > lastLineIndex + DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS) {
+          const singleStepTarget = resolveForwardSpeakableTarget(
+            lastLineIndex,
+            movementAuthorityDecision.target,
+            DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS
+          );
+          if (singleStepTarget > lastLineIndex) {
+            warnGuard("movement_authority_guard_held_single_step", [
+              `current=${lastLineIndex}`,
+              `target=${movementAuthorityDecision.target}`,
+              `singleStep=${singleStepTarget}`,
+              `bestIdx=${line}`,
+              `bestSim=${formatLogScore(conf)}`,
+              `authority=${movementAuthority}`,
+              `starvationMs=${movementAuthorityStarvationMs}`,
+              `runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0}`,
+              `vadFresh=${hasRecentVadSpeech ? 1 : 0}`,
+              `pendingGuard=${pending.liveForwardGuardActive ? 1 : 0}`,
+              "reason=guard_held_single_step"
+            ]);
+            targetLine = singleStepTarget;
+            movementAuthorityReason = "guard_held_single_step";
+            movementAuthoritySourceBranch = "movement_authority_guard_held_single_step";
+            bypassDownstreamVeto = false;
+          }
+        }
+        if ((movementAuthority === "reconcile" || movementAuthority === "proof") && movementAuthorityStarvationMs >= DEFAULT_STARVATION_COMMIT_GAP_MS && movementAuthorityDecision.target > lastLineIndex + DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS && conf < DEFAULT_STRONG_FORWARD_COMMIT_SIM) {
+          const singleStepTarget = resolveForwardSpeakableTarget(
+            lastLineIndex,
+            movementAuthorityDecision.target,
+            DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS
+          );
+          if (singleStepTarget > lastLineIndex) {
+            warnGuard("movement_authority_starved_low_conf_single_step", [
+              `current=${lastLineIndex}`,
+              `target=${movementAuthorityDecision.target}`,
+              `singleStep=${singleStepTarget}`,
+              `bestIdx=${line}`,
+              `bestSim=${formatLogScore(conf)}`,
+              `authority=${movementAuthority}`,
+              `starvationMs=${movementAuthorityStarvationMs}`,
+              `strongNeed=${formatLogScore(DEFAULT_STRONG_FORWARD_COMMIT_SIM)}`,
+              "reason=starved_low_conf_single_step"
+            ]);
+            targetLine = singleStepTarget;
+            movementAuthorityReason = "starved_low_conf_single_step";
+            movementAuthoritySourceBranch = "movement_authority_starved_low_conf_single_step";
+            bypassDownstreamVeto = false;
+          }
+        }
+        if ((movementAuthority === "reconcile" || movementAuthority === "proof") && Number.isFinite(starvationFutureSpeechReconcileTargetLine) && starvationFutureSpeechReconcileTargetLine > lastLineIndex + DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS) {
+          const reconcileTarget = Math.max(
+            0,
+            Math.floor(starvationFutureSpeechReconcileTargetLine)
+          );
+          const singleStepTarget = resolveForwardSpeakableTarget(
+            lastLineIndex,
+            reconcileTarget,
+            DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS
+          );
+          if (singleStepTarget > lastLineIndex) {
+            warnGuard("movement_authority_starvation_reconcile_single_step", [
+              `current=${lastLineIndex}`,
+              `target=${reconcileTarget}`,
+              `singleStep=${singleStepTarget}`,
+              `bestIdx=${line}`,
+              `bestSim=${formatLogScore(conf)}`,
+              `authority=${movementAuthority}`,
+              "reason=starvation_reconcile_single_step"
+            ]);
+            targetLine = singleStepTarget;
+            movementAuthorityReason = "starvation_reconcile_single_step";
+            movementAuthoritySourceBranch = "movement_authority_starvation_reconcile_single_step";
+            bypassDownstreamVeto = false;
+          }
+        }
+        const forcedReconcileLikeCommit = !!forced && (String(forceReason || "").includes("proof_owned") || String(forceReason || "").includes("reconcile") || String(matchId || "").includes("future-reconcile"));
+        if (forcedReconcileLikeCommit && (movementAuthority === "reconcile" || movementAuthority === "proof") && movementAuthorityDecision.target > lastLineIndex + DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS && (movementAuthorityLiveForwardGuardHeld || movementAuthorityStarvationMs >= DEFAULT_STARVATION_COMMIT_GAP_MS)) {
+          const singleStepTarget = resolveForwardSpeakableTarget(
+            lastLineIndex,
+            movementAuthorityDecision.target,
+            DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS
+          );
+          if (singleStepTarget > lastLineIndex) {
+            warnGuard("movement_authority_forced_reconcile_single_step", [
+              `current=${lastLineIndex}`,
+              `target=${movementAuthorityDecision.target}`,
+              `singleStep=${singleStepTarget}`,
+              `bestIdx=${line}`,
+              `bestSim=${formatLogScore(conf)}`,
+              `authority=${movementAuthority}`,
+              `forceReason=${forceReason || ""}`,
+              matchId ? `matchId=${matchId}` : "",
+              "reason=forced_reconcile_single_step"
+            ]);
+            targetLine = singleStepTarget;
+            movementAuthorityReason = "forced_reconcile_single_step";
+            movementAuthoritySourceBranch = "movement_authority_forced_reconcile_single_step";
+            bypassDownstreamVeto = false;
+          }
+        }
+        if (hasActiveSpeechWindow) {
+          speechStopBrakeCleanupUsed = false;
+        } else {
+          clearPendingSpeakableBridge("speech_stopped_brake_window_expired");
+          const cleanupTarget = resolveForwardSpeakableTarget(
+            lastLineIndex,
+            Math.max(lastLineIndex + 1, movementAuthorityDecision.target),
+            DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS
+          );
+          const cleanupEligible = !speechStopBrakeCleanupUsed && movementAuthorityDecision.target > lastLineIndex && isFinal === true && Number.isFinite(movementAuthorityFinalTranscriptAgeMs) && movementAuthorityFinalTranscriptAgeMs <= DEFAULT_ASR_AUTHORITY_FINAL_AFTER_SPEECH_STOP_MAX_AGE_MS && cleanupTarget > lastLineIndex && movementAuthorityDecision.target === cleanupTarget;
+          warnGuard("movement_authority_speech_brake", [
+            `current=${lastLineIndex}`,
+            `target=${movementAuthorityDecision.target}`,
+            `bestIdx=${line}`,
+            `bestSim=${formatLogScore(conf)}`,
+            `attemptedAuthority=${attemptedAuthority}`,
+            Number.isFinite(msSinceSpeechRunningActual) ? `msSinceSpeechRunningActual=${Math.round(msSinceSpeechRunningActual)}` : "msSinceSpeechRunningActual=inf",
+            Number.isFinite(movementAuthorityFinalTranscriptAgeMs) ? `finalTranscriptAgeMs=${Math.round(movementAuthorityFinalTranscriptAgeMs)}` : "finalTranscriptAgeMs=inf",
+            `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+            "reason=speech_stopped_window_expired"
+          ]);
+          if (cleanupEligible) {
+            warnGuard("movement_authority_speech_brake_cleanup_commit", [
+              `current=${lastLineIndex}`,
+              `target=${cleanupTarget}`,
+              `bestIdx=${line}`,
+              `bestSim=${formatLogScore(conf)}`,
+              `attemptedAuthority=${attemptedAuthority}`,
+              Number.isFinite(msSinceSpeechRunningActual) ? `msSinceSpeechRunningActual=${Math.round(msSinceSpeechRunningActual)}` : "msSinceSpeechRunningActual=inf",
+              Number.isFinite(movementAuthorityFinalTranscriptAgeMs) ? `finalTranscriptAgeMs=${Math.round(movementAuthorityFinalTranscriptAgeMs)}` : "finalTranscriptAgeMs=inf",
+              `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+              "reason=single_step_cleanup_commit_allowed"
+            ]);
+            movementAuthority = "weak";
+            movementAuthorityReason = "speech_stop_cleanup_commit";
+            movementAuthoritySourceBranch = "movement_authority_speech_brake_cleanup";
+            targetLine = cleanupTarget;
+            bypassDownstreamVeto = false;
+          } else {
+            warnGuard("movement_authority_speech_brake_blocked", [
+              `current=${lastLineIndex}`,
+              `target=${movementAuthorityDecision.target}`,
+              `bestIdx=${line}`,
+              `bestSim=${formatLogScore(conf)}`,
+              `attemptedAuthority=${attemptedAuthority}`,
+              Number.isFinite(msSinceSpeechRunningActual) ? `msSinceSpeechRunningActual=${Math.round(msSinceSpeechRunningActual)}` : "msSinceSpeechRunningActual=inf",
+              Number.isFinite(movementAuthorityFinalTranscriptAgeMs) ? `finalTranscriptAgeMs=${Math.round(movementAuthorityFinalTranscriptAgeMs)}` : "finalTranscriptAgeMs=inf",
+              `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+              "reason=speech_stopped_brake"
+            ]);
+            movementAuthority = "none";
+            movementAuthorityReason = "speech_stopped_brake";
+            movementAuthoritySourceBranch = "movement_authority_speech_brake";
+            targetLine = lastLineIndex;
+            bypassDownstreamVeto = false;
+          }
+        }
+        if (liveStrictFollow && targetLine > lastLineIndex) {
+          const adjacentAuthorityTarget = resolveForwardSpeakableTarget(
+            lastLineIndex,
+            targetLine,
+            1
+          );
+          if (adjacentAuthorityTarget > lastLineIndex && targetLine !== adjacentAuthorityTarget) {
+            warnGuard("asr_adjacent_commit_enforced", [
+              `current=${lastLineIndex}`,
+              `requested=${targetLine}`,
+              `reducedTarget=${adjacentAuthorityTarget}`,
+              `sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || "unknown"}`,
+              movementAuthorityProofSource ? `proofSource=${movementAuthorityProofSource}` : ""
+            ]);
+            if (movementAuthorityRecoveryLike) {
+              warnGuard("asr_recovery_skip_non_adjacent_target", [
+                `current=${lastLineIndex}`,
+                `requested=${targetLine}`,
+                `adjacentTarget=${adjacentAuthorityTarget}`,
+                `sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || "unknown"}`
+              ]);
+            }
+            targetLine = adjacentAuthorityTarget;
+            bypassDownstreamVeto = false;
+          }
+        }
+        warnGuard("movement_authority_resolved", [
+          `current=${movementAuthorityDecision.current}`,
+          `target=${targetLine}`,
+          `bestIdx=${movementAuthorityDecision.bestIdx}`,
+          `bestSim=${formatLogScore(movementAuthorityDecision.bestSim)}`,
+          `authority=${movementAuthority}`,
+          `reason=${movementAuthorityReason}`,
+          movementAuthorityDecision.proofSource ? `proofSource=${movementAuthorityDecision.proofSource}` : "",
+          `sourceBranch=${movementAuthoritySourceBranch}`,
+          `starvationMs=${movementAuthorityStarvationMs}`,
+          `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+          `isFinal=${isFinal ? 1 : 0}`
+        ]);
+        if (movementAuthority === "proof" || movementAuthority === "reconcile") {
+          const totalLines = getTotalLines();
+          let authorityTarget = Math.max(0, Math.floor(targetLine));
+          if (totalLines > 0 && authorityTarget >= totalLines) {
+            warnGuard("movement_authority_blocked", [
+              `current=${lastLineIndex}`,
+              `target=${authorityTarget}`,
+              `authority=${movementAuthority}`,
+              `reason=${movementAuthorityReason}`,
+              `blockReason=target_out_of_bounds`
+            ]);
+            return;
+          }
+          if (isIgnorableCueLineText(getLineTextAt(authorityTarget))) {
+            const searchEnd = totalLines > 0 ? Math.min(totalLines - 1, authorityTarget + DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES + LIVE_STRICT_MAX_CUE_BRIDGE_SPAN) : authorityTarget + DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES + LIVE_STRICT_MAX_CUE_BRIDGE_SPAN;
+            let resolved = null;
+            for (let idx = authorityTarget; idx <= searchEnd; idx += 1) {
+              if (!isIgnorableCueLineText(getLineTextAt(idx))) {
+                resolved = idx;
+                break;
+              }
+            }
+            if (resolved == null || resolved <= lastLineIndex) {
+              warnGuard("movement_authority_blocked", [
+                `current=${lastLineIndex}`,
+                `target=${authorityTarget}`,
+                `authority=${movementAuthority}`,
+                `reason=${movementAuthorityReason}`,
+                "blockReason=no_speakable_target"
+              ]);
+              return;
+            }
+            authorityTarget = resolved;
+          }
+          targetLine = authorityTarget;
+          if (movementAuthority === "reconcile") {
+            forceReason = "movement_authority_reconcile";
+          }
+          proofOwnedForceBypass = true;
+        }
+        const strictSpeakableBridgeAuthoritative = liveStrictFollow && !!strictSpeakableStep && strictSpeakableStep.targetLine > lastLineIndex && (strictSpeakableBridgeAuthorized || strictBridgeForceProofOk && targetLine === strictSpeakableStep.targetLine);
         if (commitCount === 0 && lastLineIndex <= 3 && !forced && targetLine - lastLineIndex > DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA) {
           const cappedLine = lastLineIndex + DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA;
           if (isDevMode4()) {
@@ -38339,7 +41712,7 @@ function createAsrScrollDriver(options = {}) {
           } catch {
           }
         }
-        if (targetLine > lastLineIndex + effectiveClampDeltaLimit && !(strongForwardCommit && (targetLine - lastLineIndex <= DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES || Array.isArray(topScores) && topScores.some((entry) => {
+        if (targetLine > lastLineIndex + effectiveClampDeltaLimit && !isProofOwnedPrimaryForceReason(forceReason) && !strictSpeakableBridgeAuthoritative && !(strongForwardCommit && (targetLine - lastLineIndex <= DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES || Array.isArray(topScores) && topScores.some((entry) => {
           const idx = Number(entry?.idx);
           const score = Number(entry?.score);
           if (!Number.isFinite(idx) || !Number.isFinite(score)) return false;
@@ -38401,9 +41774,10 @@ function createAsrScrollDriver(options = {}) {
                   snippet ? `clue="${snippet}"` : ""
                 ]);
               } else if (asrWeakClampFallbackAllow) {
+                const liveWeakClampPromoteMaxLines = asrMode && isSessionLivePhase() && isSessionAsrArmed() ? DEFAULT_ASR_WEAK_CLAMP_FALLBACK_LIVE_PROMOTE_MAX_LINES : DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES;
                 targetLine = Math.min(
                   requestedLine,
-                  clampedLine + DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES
+                  clampedLine + liveWeakClampPromoteMaxLines
                 );
                 warnGuard("asr_weak_clamp_fallback_allow", [
                   `current=${lastLineIndex}`,
@@ -38415,22 +41789,32 @@ function createAsrScrollDriver(options = {}) {
                   `minSim=${formatLogScore(weakClampFallbackMinSim)}`,
                   `delta=${weakClampFallbackDelta}`,
                   `maxDelta=${DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES}`,
-                  `stepMax=${DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES}`,
+                  `stepMax=${liveWeakClampPromoteMaxLines}`,
                   snippet ? `clue="${snippet}"` : ""
                 ]);
               } else {
-                warnGuard("weak_forward_clamp_blocked", [
-                  `current=${lastLineIndex}`,
-                  `req=${requestedLine}`,
-                  `clamped=${targetLine}`,
-                  `sim=${formatLogScore(conf)}`,
-                  `need=${formatLogScore(weakForwardClampSupport.minSupport)}`,
-                  weakForwardClampSupport.localBestIdx != null ? `local=${weakForwardClampSupport.localBestIdx}` : "local=na",
-                  weakForwardClampSupport.localBestScore != null ? `localSim=${formatLogScore(weakForwardClampSupport.localBestScore)}` : "",
-                  snippet ? `clue="${snippet}"` : ""
-                ]);
-                emitHudStatus("weak_forward_clamp_blocked", "Low-confidence far jump stepped");
-                targetLine = clampedLine;
+                if (bypassDownstreamVeto) {
+                  emitMovementAuthorityVetoBypassed(
+                    "weak_forward_clamp_blocked",
+                    requestedLine,
+                    requestedLine,
+                    "movement_authority_terminal"
+                  );
+                  targetLine = requestedLine;
+                } else {
+                  warnGuard("weak_forward_clamp_blocked", [
+                    `current=${lastLineIndex}`,
+                    `req=${requestedLine}`,
+                    `clamped=${targetLine}`,
+                    `sim=${formatLogScore(conf)}`,
+                    `need=${formatLogScore(weakForwardClampSupport.minSupport)}`,
+                    weakForwardClampSupport.localBestIdx != null ? `local=${weakForwardClampSupport.localBestIdx}` : "local=na",
+                    weakForwardClampSupport.localBestScore != null ? `localSim=${formatLogScore(weakForwardClampSupport.localBestScore)}` : "",
+                    snippet ? `clue="${snippet}"` : ""
+                  ]);
+                  emitHudStatus("weak_forward_clamp_blocked", "Low-confidence far jump stepped");
+                  targetLine = clampedLine;
+                }
               }
             }
           }
@@ -38451,6 +41835,7 @@ function createAsrScrollDriver(options = {}) {
           effectiveClampDeltaLimit
         );
         let cueSafeTargetLine = cueSafeInitialTarget.nextLine;
+        let cueCommitFallbackApplied = false;
         let cueFallbackBridgeReasons = [];
         if (cueSafeTargetLine == null) {
           const cueBridgeFallback = findNextSpeakableWithinBridge(
@@ -38461,6 +41846,7 @@ function createAsrScrollDriver(options = {}) {
           cueFallbackBridgeReasons = cueBridgeFallback.skippedReasons;
           if (cueBridgeFallback.nextLine != null && cueBridgeFallback.nextLine > lastLineIndex) {
             cueSafeTargetLine = cueBridgeFallback.nextLine;
+            cueCommitFallbackApplied = true;
             warnGuard("cue_commit_fallback", [
               `current=${lastLineIndex}`,
               `from=${targetLine}`,
@@ -38512,22 +41898,32 @@ function createAsrScrollDriver(options = {}) {
         });
         targetLine = cueSafeTargetLine;
         if (asrMode && !forced && !forceReason) {
-          const markerAnchorMaxLine = lastLineIndex + DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES;
+          const markerAnchorMaxDeltaLines = isSessionLivePhase() && isSessionAsrArmed() && !strongForwardCommit ? DEFAULT_ASR_MARKER_ANCHOR_LIVE_MAX_DELTA_LINES : DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES;
+          const markerAnchorMaxLine = lastLineIndex + markerAnchorMaxDeltaLines;
           if (targetLine > markerAnchorMaxLine) {
             const markerAnchorCapped = resolveCueSafeCommitLine(
               markerAnchorMaxLine,
               lastLineIndex,
-              DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES
+              markerAnchorMaxDeltaLines
             ).nextLine;
             const safeMarkerAnchorLine = markerAnchorCapped != null && markerAnchorCapped > lastLineIndex ? markerAnchorCapped : markerAnchorMaxLine;
-            warnGuard("asr_marker_anchor_cap", [
-              `current=${lastLineIndex}`,
-              `requested=${targetLine}`,
-              `capped=${safeMarkerAnchorLine}`,
-              `maxDelta=${DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES}`,
-              snippet ? `clue="${snippet}"` : ""
-            ]);
-            targetLine = safeMarkerAnchorLine;
+            if (bypassDownstreamVeto) {
+              emitMovementAuthorityVetoBypassed(
+                "asr_marker_anchor_cap",
+                targetLine,
+                targetLine,
+                "movement_authority_terminal"
+              );
+            } else {
+              warnGuard("asr_marker_anchor_cap", [
+                `current=${lastLineIndex}`,
+                `requested=${targetLine}`,
+                `capped=${safeMarkerAnchorLine}`,
+                `maxDelta=${markerAnchorMaxDeltaLines}`,
+                snippet ? `clue="${snippet}"` : ""
+              ]);
+              targetLine = safeMarkerAnchorLine;
+            }
           }
         }
         if (asrMode && isSessionLivePhase() && isSessionAsrArmed()) {
@@ -38537,8 +41933,89 @@ function createAsrScrollDriver(options = {}) {
             { strict: true }
           );
           const liveStepTarget = liveStep.nextLine != null && liveStep.nextLine > lastLineIndex ? Math.max(0, Math.floor(liveStep.nextLine)) : null;
-          const liveForwardHoldActive = !hasRecentFreshSpeech || !hasRecentVadSpeech || !!pending.liveForwardGuardActive;
-          if (liveStepTarget != null && requestedTargetLine > liveStepTarget && liveForwardHoldActive) {
+          const liveForwardHoldActive = !hasRecentVadSpeech || !runtimeSpeechFresh || !!pending.liveForwardGuardActive;
+          let guardHeldSingleStepApplied = false;
+          const tryApplyProofOwnedPrimaryCommitFromLiveStepHold = () => {
+            if (!liveStrictFollow) return false;
+            if (liveStepTarget == null || liveStepTarget <= lastLineIndex) return false;
+            const strictStepNow = resolveLiveStrictNextSpeakableStep(
+              lastLineIndex,
+              LIVE_STRICT_MAX_CUE_BRIDGE_SPAN
+            );
+            if (!strictStepNow || strictStepNow.targetLine !== liveStepTarget) return false;
+            const skippedIgnorableLines = strictStepNow.skippedReasons;
+            const localProof = hasLiveStrictLocalProof(
+              lastLineIndex,
+              liveStepTarget,
+              now3,
+              rankedTopScores,
+              baselineRequired
+            ) || hasLiveStrictCueExitProof(
+              lastLineIndex,
+              liveStepTarget,
+              now3,
+              rankedTopScores,
+              baselineRequired
+            );
+            const bridgeProof = hasLiveStrictSpeakableBridgeProof(
+              lastLineIndex,
+              liveStepTarget,
+              now3,
+              rankedTopScores,
+              baselineRequired
+            );
+            const rescueProof = hasFreshNearbyRescueMatchEvidence(
+              lastLineIndex,
+              liveStepTarget,
+              now3,
+              skippedIgnorableLines
+            );
+            const proofSource = localProof ? "live_strict_local_proof_ok" : bridgeProof ? "strict_speakable_bridge_landing" : rescueProof ? "adjacent_rescue_proofed" : "none";
+            if (!localProof && !bridgeProof && !rescueProof) return false;
+            const runStale = isRunIdentityStale({
+              runKey: pendingRunKey || void 0,
+              runGeneration: pendingRunGeneration
+            });
+            if (runStale) return false;
+            const backwardContradiction = rankedTopScores.some(
+              (entry) => entry.idx <= lastLineIndex && entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06)
+            );
+            if (backwardContradiction) return false;
+            const speechFresh = !asrSilenceActive && runtimeSpeechFresh && asrRuntimeSpeechRunningActual;
+            if (!speechFresh) return false;
+            const sinceCommitMs = Math.max(0, now3 - lastCommitTime);
+            const starvationDetected = lastCommitIndex != null && sinceCommitMs >= DEFAULT_STARVATION_COMMIT_GAP_MS && Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
+            warnGuard("proof_owned_primary_commit", [
+              `current=${lastLineIndex}`,
+              `target=${liveStepTarget}`,
+              `bestIdx=${line}`,
+              `proofSource=${proofSource}`,
+              skippedIgnorableLines.length ? `skippedIgnorableLines=[${skippedIgnorableLines.join(",")}]` : "skippedIgnorableLines=[]",
+              `stallMs=${Math.max(0, now3 - lastForwardCommitAt)}`,
+              "sourceBranch=pending-live-step-hold",
+              `oldWouldHaveUsedStallOverride=${starvationDetected && isFinal ? "true" : "false"}`,
+              snippet ? `clue="${snippet}"` : ""
+            ]);
+            const matchIdProofOwned = matchId ? `${matchId}:proof-owned-primary` : `proof-owned-primary-${now3.toString(36)}-${liveStepTarget}`;
+            adoptPendingMatch({
+              ...pending,
+              line: liveStepTarget,
+              conf: Math.max(conf, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM),
+              hasEvidence: true,
+              forced: true,
+              forceReason: "live_strict_proof_owned_commit",
+              matchId: matchIdProofOwned,
+              cursorLine: lastLineIndex,
+              searchWindowFrom: lastLineIndex,
+              searchWindowTo: liveStepTarget,
+              cueBridgeNudgeDelta: Math.max(1, liveStepTarget - lastLineIndex),
+              liveForwardGuardActive: void 0
+            });
+            schedulePending();
+            return true;
+          };
+          const tryApplyStallRecoveryOverride = () => {
+            if (liveStepTarget == null) return false;
             const sinceCommitMs = Math.max(0, now3 - lastCommitTime);
             const starvationDetected = lastCommitIndex != null && sinceCommitMs >= DEFAULT_STARVATION_COMMIT_GAP_MS && Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
             const stallRecoveryRequired = typeof pendingRequiredThreshold === "number" && Number.isFinite(pendingRequiredThreshold) ? pendingRequiredThreshold : DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM;
@@ -38547,74 +42024,407 @@ function createAsrScrollDriver(options = {}) {
               stallRecoveryRequired - 0.18
             );
             const stallRecoveryOverrideEligible = starvationDetected && isFinal && asrRuntimeSpeechSeen && asrRuntimeSpeechRunningActual && conf >= stallRecoveryMinSim && now3 - lastStallRecoveryOverrideAt >= DEFAULT_STARVATION_COMMIT_GAP_MS;
-            if (stallRecoveryOverrideEligible) {
-              lastStallRecoveryOverrideAt = now3;
-              const overrideSim = Math.max(
-                conf,
-                DEFAULT_MULTI_JUMP_MIN_SIM,
-                DEFAULT_STRONG_FORWARD_COMMIT_SIM
+            if (!stallRecoveryOverrideEligible) return false;
+            lastStallRecoveryOverrideAt = now3;
+            const overrideSim = Math.max(
+              conf,
+              DEFAULT_MULTI_JUMP_MIN_SIM,
+              DEFAULT_STRONG_FORWARD_COMMIT_SIM
+            );
+            const overrideMatchId = matchId ? `${matchId}:stall_override` : `stall-override-${now3.toString(36)}-${liveStepTarget}`;
+            try {
+              console.warn(
+                `ASR_STALL_RECOVERY_OVERRIDE current=${lastLineIndex} requested=${requestedTargetLine} committed=${liveStepTarget} reason=stall_recovery_override`
               );
-              const overrideMatchId = matchId ? `${matchId}:stall_override` : `stall-override-${now3.toString(36)}-${liveStepTarget}`;
-              try {
-                console.warn(
-                  `ASR_STALL_RECOVERY_OVERRIDE current=${lastLineIndex} requested=${requestedTargetLine} committed=${liveStepTarget} reason=stall_recovery_override`
-                );
-              } catch {
-              }
-              emitHudStatus(
-                "stall_recovery_override",
-                `Rescue: stall override +${liveStepTarget - lastLineIndex}`
+            } catch {
+            }
+            emitHudStatus(
+              "stall_recovery_override",
+              `Rescue: stall override +${liveStepTarget - lastLineIndex}`
+            );
+            adoptPendingMatch({
+              ...pending,
+              line: liveStepTarget,
+              conf: overrideSim,
+              isFinal: true,
+              hasEvidence: true,
+              forced: true,
+              forceReason: "stall_recovery_override",
+              matchId: overrideMatchId,
+              // This override is explicitly escaping the live-forward guard once.
+              liveForwardGuardActive: void 0,
+              cursorLine: lastLineIndex,
+              searchWindowFrom: lastLineIndex,
+              searchWindowTo: liveStepTarget,
+              cueBridgeNudgeDelta: Math.max(1, liveStepTarget - lastLineIndex)
+            });
+            schedulePending();
+            return true;
+          };
+          if (liveStepTarget != null && requestedTargetLine > liveStepTarget && !strictBacklogDrainTerminalActive && !isProofOwnedPrimaryForceReason(forceReason) && liveForwardHoldActive) {
+            if (tryApplyProofOwnedPrimaryCommitFromLiveStepHold()) return;
+            if (tryApplyStallRecoveryOverride()) return;
+            if (bypassDownstreamVeto) {
+              warnGuard("movement_authority_guard_held_single_step", [
+                `current=${lastLineIndex}`,
+                `requested=${requestedTargetLine}`,
+                `capped=${liveStepTarget}`,
+                `authority=${movementAuthority}`,
+                `reason=${movementAuthorityReason}`,
+                `sourceBranch=${movementAuthoritySourceBranch}`,
+                `runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0}`,
+                `vadSpeech=${hasRecentVadSpeech ? 1 : 0}`,
+                `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+                snippet ? `clue="${snippet}"` : ""
+              ]);
+              targetLine = liveStepTarget;
+              bypassDownstreamVeto = false;
+              guardHeldSingleStepApplied = true;
+            } else {
+              const liveStepScore = Number(
+                rankedTopScores.find((entry) => entry.idx === liveStepTarget)?.score
               );
-              adoptPendingMatch({
-                ...pending,
-                line: liveStepTarget,
-                conf: overrideSim,
-                isFinal: true,
-                hasEvidence: true,
-                forced: true,
-                forceReason: "stall_recovery_override",
-                matchId: overrideMatchId,
-                // This override is explicitly escaping the live-forward guard once.
-                liveForwardGuardActive: void 0,
-                cursorLine: lastLineIndex,
-                searchWindowFrom: lastLineIndex,
-                searchWindowTo: liveStepTarget,
-                cueBridgeNudgeDelta: Math.max(1, liveStepTarget - lastLineIndex)
-              });
-              schedulePending();
+              warnGuard("asr_live_single_step_hold", [
+                `current=${lastLineIndex}`,
+                `requested=${requestedTargetLine}`,
+                `held=${liveStepTarget}`,
+                Number.isFinite(liveStepScore) ? `stepSim=${formatLogScore(liveStepScore)}` : "stepSim=na",
+                liveStep.skippedReasons.length ? `skipped=[${liveStep.skippedReasons.join(",")}]` : "",
+                snippet ? `clue="${snippet}"` : ""
+              ]);
+              emitHudStatus("asr_live_single_step_hold", "Hold: waiting for fresh next-line evidence");
               return;
             }
-            const liveStepScore = Number(
-              rankedTopScores.find((entry) => entry.idx === liveStepTarget)?.score
-            );
-            warnGuard("asr_live_single_step_hold", [
-              `current=${lastLineIndex}`,
-              `requested=${requestedTargetLine}`,
-              `held=${liveStepTarget}`,
-              Number.isFinite(liveStepScore) ? `stepSim=${formatLogScore(liveStepScore)}` : "stepSim=na",
-              liveStep.skippedReasons.length ? `skipped=[${liveStep.skippedReasons.join(",")}]` : "",
-              snippet ? `clue="${snippet}"` : ""
-            ]);
-            emitHudStatus("asr_live_single_step_hold", "Hold: waiting for fresh next-line evidence");
+          }
+          if (liveStepTarget != null && requestedTargetLine === liveStepTarget && !strictBacklogDrainTerminalActive && !isProofOwnedPrimaryForceReason(forceReason) && tryApplyStallRecoveryOverride()) {
             return;
           }
-          if (liveStepTarget != null && targetLine > liveStepTarget) {
-            const liveStepScore = Number(
-              rankedTopScores.find((entry) => entry.idx === liveStepTarget)?.score
-            );
-            warnGuard("asr_live_single_step_cap", [
+          if (liveStepTarget != null && targetLine > liveStepTarget && !strictEarlyBacklogDrainActive) {
+            if (isProofOwnedPrimaryForceReason(forceReason)) {
+            } else {
+              const starvationHoldActive = Math.max(0, now3 - lastForwardCommitAt) >= DEFAULT_STARVATION_COMMIT_GAP_MS && !starvationForwardBypass;
+              if (starvationHoldActive && !tryApplyStallRecoveryOverride()) {
+                if (bypassDownstreamVeto) {
+                  emitMovementAuthorityVetoBypassed(
+                    "asr_live_single_step_cap",
+                    targetLine,
+                    targetLine,
+                    "movement_authority_terminal"
+                  );
+                } else {
+                  warnGuard("asr_live_single_step_hold", [
+                    `current=${lastLineIndex}`,
+                    `requested=${targetLine}`,
+                    `held=${liveStepTarget}`,
+                    "reason=starved-no-fresh-step",
+                    snippet ? `clue="${snippet}"` : ""
+                  ]);
+                  emitHudStatus("asr_live_single_step_hold", "Hold: waiting for fresh next-line evidence");
+                  return;
+                }
+              }
+              const liveStepScore = Number(
+                rankedTopScores.find((entry) => entry.idx === liveStepTarget)?.score
+              );
+              if (bypassDownstreamVeto) {
+                emitMovementAuthorityVetoBypassed(
+                  "asr_live_single_step_cap",
+                  targetLine,
+                  targetLine,
+                  "movement_authority_terminal"
+                );
+              } else {
+                warnGuard("asr_live_single_step_cap", [
+                  `current=${lastLineIndex}`,
+                  `requested=${targetLine}`,
+                  `capped=${liveStepTarget}`,
+                  `starvationBypass=${starvationForwardBypass ? 1 : 0}`,
+                  Number.isFinite(liveStepScore) ? `stepSim=${formatLogScore(liveStepScore)}` : "stepSim=na",
+                  liveStep.skippedReasons.length ? `skipped=[${liveStep.skippedReasons.join(",")}]` : "",
+                  snippet ? `clue="${snippet}"` : ""
+                ]);
+                targetLine = liveStepTarget;
+              }
+            }
+          }
+          if (liveStrictFollow && strictSpeakableBridgeAuthoritative && strictSpeakableStep && targetLine < strictSpeakableStep.targetLine && !guardHeldSingleStepApplied) {
+            warnGuard("strict_live_adjacent_speakable_bridge", [
               `current=${lastLineIndex}`,
               `requested=${targetLine}`,
-              `capped=${liveStepTarget}`,
-              Number.isFinite(liveStepScore) ? `stepSim=${formatLogScore(liveStepScore)}` : "stepSim=na",
-              liveStep.skippedReasons.length ? `skipped=[${liveStep.skippedReasons.join(",")}]` : "",
+              `bridged=${strictSpeakableStep.targetLine}`,
+              `skipped=[${strictSpeakableStep.skippedReasons.join(",")}]`,
               snippet ? `clue="${snippet}"` : ""
             ]);
-            targetLine = liveStepTarget;
+            targetLine = strictSpeakableStep.targetLine;
+          }
+          if (liveStrictFollow && targetLine > adjacentLine && !strictEarlyBacklogDrainActive && !isProofOwnedPrimaryForceReason(forceReason)) {
+            const strictTarget = adjacentLine;
+            warnGuard("live_strict_cap", [
+              `current=${lastLineIndex}`,
+              `requested=${targetLine}`,
+              `capped=${strictTarget}`,
+              forceReason ? `force=${forceReason}` : "",
+              snippet ? `clue="${snippet}"` : ""
+            ]);
+            targetLine = strictTarget;
           }
         }
+        let strictBacklogDrainAppliedSteps = 0;
+        const strictBacklogDrainProofSatisfied = liveStrictFollow && strictEarlyBacklogDrainActive && strictBacklogDrainPlannedSteps > 0;
+        if (strictBacklogDrainProofSatisfied) {
+          if (targetLine < strictBacklogDrainPlannedTargetLine) {
+            targetLine = strictBacklogDrainPlannedTargetLine;
+          }
+          for (const drainStep of strictBacklogDrainTrail) {
+            if (drainStep.to > targetLine) break;
+            strictBacklogDrainAppliedSteps += 1;
+            warnGuard("strict_live_backlog_drain_step", [
+              `from=${drainStep.from}`,
+              `to=${drainStep.to}`,
+              `step=${strictBacklogDrainAppliedSteps}`,
+              `speakableSteps=${strictBacklogDrainAppliedSteps}`,
+              `clusterLine=${liveStrictForwardClusterLine}`,
+              `clusterHits=${liveStrictForwardClusterHits}`,
+              `sinceForwardMs=${Math.max(0, now3 - lastForwardCommitAt)}`,
+              `skipped=[${drainStep.skippedReasons.join(",")}]`,
+              snippet ? `clue="${snippet}"` : ""
+            ]);
+            emitHudStatus(
+              "strict_live_backlog_drain",
+              `Backlog drain: speakable +${strictBacklogDrainAppliedSteps}`
+            );
+          }
+          warnGuard("strict_live_backlog_drain_stop", [
+            `current=${lastLineIndex}`,
+            `target=${targetLine}`,
+            `applied=${strictBacklogDrainAppliedSteps}`,
+            `planned=${strictBacklogDrainPlannedSteps}`,
+            `reason=${strictBacklogDrainAppliedSteps >= strictBacklogDrainPlannedSteps ? "plan_exhausted" : "target_bound"}`
+          ]);
+        }
+        if (liveStrictFollow && targetLine > lastLineIndex) {
+          const strictLeashProofBase = lastFreshProofLine >= 0 ? lastFreshProofLine : lastCommittedLine >= 0 ? lastCommittedLine : lastLineIndex;
+          const strictLeashLimitResolved = resolveNthReaderLeashSpeakableLine(
+            strictLeashProofBase,
+            ASR_READER_LEASH_MAX_READABLE_AHEAD
+          );
+          const strictLeashLimit = strictLeashLimitResolved != null ? strictLeashLimitResolved : strictLeashProofBase;
+          if (targetLine > strictLeashLimit && strictLeashLimit > lastLineIndex) {
+            const strictLeashReconcileBypassSource = String(forceReason || "").trim().toLowerCase() === "starvation_future_speech_reconcile" || String(pendingSourceBranch || "").trim().toLowerCase() === "starvation_future_speech_reconcile";
+            const strictLeashDowngradeProof = hasLiveStrictLocalProof(
+              lastLineIndex,
+              strictLeashLimit,
+              now3,
+              rankedTopScores,
+              baselineRequired
+            ) || hasLiveStrictCueExitProof(
+              lastLineIndex,
+              strictLeashLimit,
+              now3,
+              rankedTopScores,
+              baselineRequired
+            ) || hasLiveStrictSpeakableBridgeProof(
+              lastLineIndex,
+              strictLeashLimit,
+              now3,
+              rankedTopScores,
+              baselineRequired
+            );
+            const strictLeashBackwardContradiction = rankedTopScores.some(
+              (entry) => entry.idx <= lastLineIndex && entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06)
+            );
+            const strictLeashReconcileBypassAllow = strictLeashReconcileBypassSource && pendingProvenSpeakablePath === true && (!Number.isFinite(Number(pendingStarvationMs)) || Math.max(0, Math.round(Number(pendingStarvationMs))) >= DEFAULT_ASR_SOFT_RUNTIME_REBASE_STALL_MS) && asrRuntimeSpeechRunningActual === true && !strictLeashBackwardContradiction;
+            if (strictLeashReconcileBypassAllow) {
+              warnGuard("asr_reader_leash_reconcile_bypass", [
+                `current=${lastLineIndex}`,
+                `target=${targetLine}`,
+                `freshProof=${strictLeashProofBase}`,
+                `leashLimit=${strictLeashLimit}`,
+                `speakableLimit=${strictLeashLimit}`,
+                `sourceBranch=${pendingSourceBranch || forceReason || "unknown"}`,
+                `proofSource=${pendingProofSource || "unknown"}`,
+                `starvationMs=${Number.isFinite(Number(pendingStarvationMs)) ? Math.max(0, Math.round(Number(pendingStarvationMs))) : -1}`
+              ]);
+            } else if (strictLeashDowngradeProof && !strictLeashBackwardContradiction) {
+              if (bypassDownstreamVeto) {
+                emitMovementAuthorityVetoBypassed(
+                  "asr_reader_leash_downgrade",
+                  targetLine,
+                  targetLine,
+                  "movement_authority_terminal"
+                );
+              } else {
+                warnGuard("asr_reader_leash_downgrade", [
+                  `current=${lastLineIndex}`,
+                  `target=${targetLine}`,
+                  `downgraded=${strictLeashLimit}`,
+                  `freshProof=${strictLeashProofBase}`,
+                  `leashLimit=${strictLeashLimit}`,
+                  `maxReadableAhead=${ASR_READER_LEASH_MAX_READABLE_AHEAD}`,
+                  forceReason ? `source=${forceReason}` : "source=commit-path",
+                  snippet ? `clue="${snippet}"` : ""
+                ]);
+                emitHudStatus(
+                  "asr_reader_leash_downgrade",
+                  "Reader leash: downgraded to nearest safe speakable line"
+                );
+                targetLine = strictLeashLimit;
+              }
+            }
+          }
+        }
+        const strictLocalAdjacentProofForCommit = liveStrictFollow && targetLine > lastLineIndex && hasLiveStrictLocalProof(
+          lastLineIndex,
+          targetLine,
+          now3,
+          rankedTopScores,
+          baselineRequired
+        );
+        const strictCueExitProofForCommit = liveStrictFollow && targetLine > lastLineIndex && hasLiveStrictCueExitProof(
+          lastLineIndex,
+          targetLine,
+          now3,
+          rankedTopScores,
+          baselineRequired
+        );
+        const strictBridgeProofForCommit = liveStrictFollow && targetLine > lastLineIndex && hasLiveStrictSpeakableBridgeProof(
+          lastLineIndex,
+          targetLine,
+          now3,
+          rankedTopScores,
+          baselineRequired
+        );
+        const strictFreshProofForTarget = strictLocalAdjacentProofForCommit || strictCueExitProofForCommit || strictBridgeProofForCommit || forceReason === "starvation_future_speech_reconcile";
+        const strictLocalProofForCommit = liveStrictFollow && targetLine > lastLineIndex && (strictFreshProofForTarget || strictSpeakableBridgeAuthoritative || strictBacklogDrainProofSatisfied);
+        const strictBackwardContradictionForCommit = liveStrictFollow && targetLine > lastLineIndex && rankedTopScores.some(
+          (entry) => entry.idx <= lastLineIndex && entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06)
+        );
+        const strictForwardCommit = liveStrictFollow && targetLine > lastLineIndex;
+        const strictTargetHasFreshProof = strictFreshProofForTarget;
+        if (strictForwardCommit && bypassDownstreamVeto) {
+          emitMovementAuthorityVetoBypassed(
+            "asr_reader_leash_hold",
+            targetLine,
+            targetLine,
+            "movement_authority_terminal"
+          );
+        } else if (strictForwardCommit && !allowAsrReaderLeashAdvance({
+          currentLine: lastLineIndex,
+          targetLine,
+          targetHasFreshProof: strictTargetHasFreshProof,
+          source: forceReason || "commit-path",
+          forceReason: forceReason || void 0,
+          runKey: String(pendingRunKey || summaryRunKey || "").trim() || void 0,
+          speechRunning: asrRuntimeSpeechRunningActual,
+          runGeneration: normalizeRunGeneration(pendingRunGeneration) ?? resolveActiveRunGeneration(),
+          clue: snippet,
+          sourceBranch: pendingSourceBranch || forceReason || void 0,
+          proofSource: pendingProofSource,
+          starvationMs: pendingStarvationMs,
+          provenSpeakablePath: pendingProvenSpeakablePath
+        })) {
+          return;
+        }
+        const strictProofSourceForCommit = strictBridgeProofForCommit ? "strict_speakable_bridge_landing" : strictCueExitProofForCommit ? "live_strict_cue_exit_proof" : strictLocalAdjacentProofForCommit ? "live_strict_local_proof_ok" : "none";
+        const proofOwnedPrimaryCommitEligible = strictForwardCommit && targetLine === adjacentLine && strictFreshProofForTarget && !strictBackwardContradictionForCommit && asrRuntimeSpeechRunningActual && strictSpeechFreshNow && !isRunIdentityStale({
+          runKey: pendingRunKey || void 0,
+          runGeneration: pendingRunGeneration
+        });
+        if (proofOwnedPrimaryCommitEligible) {
+          const oldWouldHaveUsedStallOverride = isFinal && lastCommitIndex != null && Math.max(0, now3 - lastCommitTime) >= DEFAULT_STARVATION_COMMIT_GAP_MS && Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
+          warnGuard("proof_owned_primary_commit", [
+            `current=${lastLineIndex}`,
+            `target=${targetLine}`,
+            `bestIdx=${line}`,
+            `proofSource=${strictProofSourceForCommit}`,
+            strictSpeakableStep?.skippedReasons?.length ? `skippedIgnorableLines=[${strictSpeakableStep.skippedReasons.join(",")}]` : "skippedIgnorableLines=[]",
+            `stallMs=${Math.max(0, now3 - lastForwardCommitAt)}`,
+            "sourceBranch=pending-commit:strict-proof",
+            `oldWouldHaveUsedStallOverride=${oldWouldHaveUsedStallOverride ? "true" : "false"}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+          forceReason = "live_strict_proof_owned_commit";
+          proofOwnedForceBypass = true;
+        }
+        const strictBypassOnlyAdmission = strictForwardCommit && conf < baselineRequired && (progressiveFloorBypass || completionAdjacentBypass || starvationForwardBypass || stallRescueBypass || liveSpeechForwardPushBypass || proofOwnedForceBypass);
+        const strictSpeculativeSource = strictForwardCommit && (isLiveStrictSpeculativeForceReason(forceReason) || cueCommitFallbackApplied || strictBypassOnlyAdmission);
+        const strictSpeechBackedFallbackCommit = strictForwardCommit && targetLine === adjacentLine && !strictBackwardContradictionForCommit && !strictLocalProofForCommit && (liveSpeechForwardPushBypass || proofOwnedForceBypass || strictMomentumBiasEligible || strictAntiStallEligible || strictBehindRecoveryEligible);
+        const strictNoProofForward = strictForwardCommit && !strictLocalProofForCommit && !strictSpeechBackedFallbackCommit;
+        const strictSpeculativeForward = strictNoProofForward && strictSpeculativeSource;
+        if (strictNoProofForward && !strictSpeculativeSource) {
+          if (bypassDownstreamVeto) {
+            emitMovementAuthorityVetoBypassed(
+              "live_strict_speculative_latch_hold",
+              targetLine,
+              targetLine,
+              "movement_authority_terminal"
+            );
+          } else {
+            warnGuard("live_strict_speculative_latch_hold", [
+              `current=${lastLineIndex}`,
+              `target=${targetLine}`,
+              "reason=no_local_proof",
+              forceReason ? `force=${forceReason}` : "",
+              snippet ? `clue="${snippet}"` : ""
+            ]);
+            emitHudStatus(
+              "live_strict_speculative_latch_hold",
+              "Hold: strict forward needs local proof"
+            );
+            return;
+          }
+        }
+        if (strictSpeculativeForward) {
+          if (liveStrictSpeculativeStepUsed) {
+            if (bypassDownstreamVeto) {
+              emitMovementAuthorityVetoBypassed(
+                "live_strict_speculative_latch_hold",
+                targetLine,
+                targetLine,
+                "movement_authority_terminal"
+              );
+            } else {
+              warnGuard("live_strict_speculative_latch_hold", [
+                `current=${lastLineIndex}`,
+                `target=${targetLine}`,
+                "reason=latch_used",
+                cueCommitFallbackApplied ? "source=cue_commit_fallback" : "",
+                forceReason ? `force=${forceReason}` : "",
+                strictBypassOnlyAdmission ? "source=bypass-only" : "source=speculative",
+                snippet ? `clue="${snippet}"` : ""
+              ]);
+              emitHudStatus(
+                "live_strict_speculative_latch_hold",
+                "Hold: speculative latch consumed"
+              );
+              return;
+            }
+          }
+          liveStrictSpeculativeStepUsed = true;
+          warnGuard("live_strict_speculative_latch_set", [
+            `current=${lastLineIndex}`,
+            `target=${targetLine}`,
+            cueCommitFallbackApplied ? "source=cue_commit_fallback" : "",
+            forceReason ? `force=${forceReason}` : "",
+            strictBypassOnlyAdmission ? "source=bypass-only" : "source=speculative"
+          ]);
+        }
+        const liveStrictProofCommit = strictForwardCommit && targetLine === adjacentLine && !!strictLocalProofForCommit && !strictBackwardContradictionForCommit;
+        const liveStrictAdjacentReason = strictForwardCommit && targetLine === adjacentLine ? liveStrictProofCommit ? "strict_live_accept" : strictMomentumBiasEligible ? "momentum_bias_adjacent" : strictAntiStallEligible ? "anti_stall_nudge" : strictBehindRecoveryEligible ? "behind_marker_recovery" : "" : "";
+        if (liveStrictAdjacentReason) {
+          warnGuard(liveStrictAdjacentReason, [
+            `current=${lastLineIndex}`,
+            `target=${targetLine}`,
+            Number.isFinite(adjacentCandidateSim) ? `adjacentSim=${formatLogScore(adjacentCandidateSim)}` : "adjacentSim=na",
+            `weakNeed=${formatLogScore(weakAdjacentNeed)}`,
+            `weakSignals=${liveProgressHeuristics.consecutiveWeakForwardSignals}`,
+            `stallMs=${Math.max(0, now3 - liveProgressHeuristics.lastAdvanceAtMs)}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+        }
         const liveSpeechGuardActive = !hasRecentVadSpeech || !runtimeSpeechFresh || !!pending.liveForwardGuardActive;
-        if (asrMode && targetLine > lastLineIndex && liveSpeechGuardActive && forceReason !== "stall-rescue" && forceReason !== "stall_recovery_override") {
+        const speechStopCleanupCommit = movementAuthorityReason === "speech_stop_cleanup_commit";
+        if (asrMode && targetLine > lastLineIndex && liveSpeechGuardActive && !speechStopCleanupCommit && forceReason !== "stall-rescue" && forceReason !== "stall_recovery_override" && !isProofOwnedPrimaryForceReason(forceReason)) {
           warnGuard("asr_live_no_input_hold", [
             `current=${lastLineIndex}`,
             `requested=${targetLine}`,
@@ -38627,8 +42437,114 @@ function createAsrScrollDriver(options = {}) {
           emitHudStatus("asr_live_no_input_hold", "Hold: waiting for live speech before advancing");
           return;
         }
-        const multiJumpDelta = targetLine - lastLineIndex;
-        if (multiJumpDelta > 1) {
+        let multiJumpDelta = targetLine - lastLineIndex;
+        const strictLogicalSpeakableBridgeStep = liveStrictFollow && strictSpeakableBridgeAuthoritative && !!strictSpeakableStep && targetLine === strictSpeakableStep.targetLine && targetLine > lastLineIndex + 1;
+        const strictBacklogDrainStep = liveStrictFollow && strictBacklogDrainAppliedSteps > 0 && targetLine > adjacentLine;
+        if (liveStrictFollow && multiJumpDelta > 1 && !pendingSpeakableBridgeCompletion) {
+          const visibleStepTarget = resolveLiveVisibleForwardTarget(
+            lastLineIndex,
+            targetLine,
+            DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS
+          );
+          if (visibleStepTarget > lastLineIndex && visibleStepTarget < targetLine) {
+            const reducedLineSpeakable = isSpeakableScriptLine(visibleStepTarget);
+            if (!reducedLineSpeakable) {
+              const reducedLineEl = getLineElementByIndex(scroller, visibleStepTarget);
+              const reducedLineTopRaw = computeLineTargetTop(scroller, reducedLineEl);
+              const reducedLineTop = finiteNumberOrNull(
+                "pending.bridgeVisualTop",
+                reducedLineTopRaw,
+                { line: visibleStepTarget, cursor: lastLineIndex }
+              );
+              if (reducedLineTop == null) {
+                warnGuard("asr_pending_speakable_bridge_skip", [
+                  `semanticFrom=${lastLineIndex}`,
+                  `semanticTarget=${targetLine}`,
+                  `visualReducedTarget=${visibleStepTarget}`,
+                  "reason=invalid_visual_target_top",
+                  snippet ? `clue="${snippet}"` : ""
+                ]);
+              } else {
+                const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+                const reducedClampedTop = clamp4(reducedLineTop, 0, maxScrollTop);
+                const appliedTop = applyCanonicalScrollTop(reducedClampedTop, {
+                  scroller,
+                  reason: "asr-pending-speakable-bridge",
+                  source: "asr-commit"
+                });
+                markProgrammaticScroll();
+                lastMoveAt = now3;
+                lastKnownScrollTop = appliedTop;
+                pursuitTargetTop = appliedTop;
+                pursuitVel = 0;
+                pursuitActive = false;
+                microPursuitUntil = 0;
+                pendingSpeakableBridgeState = {
+                  semanticFrom: lastLineIndex,
+                  semanticTarget: targetLine,
+                  visualCurrent: visibleStepTarget,
+                  visualReducedTarget: visibleStepTarget,
+                  skippedVisibleRows: Math.max(1, targetLine - visibleStepTarget),
+                  proofSource: pendingProofSource || movementAuthorityProofSource || "unknown",
+                  sourceBranch: pendingSourceBranch || movementAuthoritySourceBranch || forceReason || "commit-path",
+                  createdAtMs: now3,
+                  runKey: String(pendingRunKey || summaryRunKey || "").trim(),
+                  runGeneration: normalizeRunGeneration(pendingRunGeneration) ?? resolveActiveRunGeneration()
+                };
+                warnGuard("asr_pending_speakable_bridge_set", [
+                  `semanticFrom=${pendingSpeakableBridgeState.semanticFrom}`,
+                  `semanticTarget=${pendingSpeakableBridgeState.semanticTarget}`,
+                  `visualCurrent=${pendingSpeakableBridgeState.visualCurrent}`,
+                  `visualReducedTarget=${pendingSpeakableBridgeState.visualReducedTarget}`,
+                  `skippedVisibleRows=${pendingSpeakableBridgeState.skippedVisibleRows}`,
+                  `proofSource=${pendingSpeakableBridgeState.proofSource || "unknown"}`,
+                  `sourceBranch=${pendingSpeakableBridgeState.sourceBranch || "unknown"}`,
+                  "reason=non_speakable_visual_cap",
+                  snippet ? `clue="${snippet}"` : ""
+                ]);
+                return;
+              }
+            }
+            warnGuard("asr_live_visible_bridge_step_cap", [
+              `current=${lastLineIndex}`,
+              `requested=${targetLine}`,
+              `reducedTarget=${visibleStepTarget}`,
+              `deltaRaw=${multiJumpDelta}`,
+              `maxRenderedSteps=${DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS}`,
+              `speakableReducedTarget=${reducedLineSpeakable ? 1 : 0}`,
+              `sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || forceReason || "commit-path"}`,
+              pendingProofSource ? `proofSource=${pendingProofSource}` : "",
+              snippet ? `clue="${snippet}"` : ""
+            ]);
+            if (reducedLineSpeakable) {
+              targetLine = visibleStepTarget;
+              multiJumpDelta = targetLine - lastLineIndex;
+            }
+          }
+        }
+        if (multiJumpDelta > 1 && liveStrictFollow) {
+          if (!strictLogicalSpeakableBridgeStep && !strictBacklogDrainStep && !isProofOwnedPrimaryForceReason(forceReason)) {
+            warnGuard("live_strict_multi_step_blocked", [
+              `current=${lastLineIndex}`,
+              `requested=${targetLine}`,
+              `delta=${multiJumpDelta}`,
+              "source=commit-path",
+              snippet ? `clue="${snippet}"` : ""
+            ]);
+            targetLine = lastLineIndex + 1;
+            multiJumpDelta = targetLine - lastLineIndex;
+          } else {
+            warnGuard("strict_live_adjacent_speakable_bridge", [
+              `current=${lastLineIndex}`,
+              `target=${targetLine}`,
+              `deltaRaw=${multiJumpDelta}`,
+              `logicalStep=+1`,
+              `skipped=[${strictBacklogDrainStep ? "backlog-drain" : strictSpeakableStep?.skippedReasons.join(",") || ""}]`,
+              snippet ? `clue="${snippet}"` : ""
+            ]);
+          }
+        }
+        if (multiJumpDelta > 1 && !strictLogicalSpeakableBridgeStep && !strictBacklogDrainStep && !isProofOwnedPrimaryForceReason(forceReason)) {
           const multiJumpNeedBase = Math.max(
             DEFAULT_MULTI_JUMP_HARD_DENY_SIM,
             DEFAULT_MULTI_JUMP_MIN_SIM - (multiJumpRelaxation.allowBridgeEps ? DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS : 0)
@@ -38672,18 +42588,27 @@ function createAsrScrollDriver(options = {}) {
         if (confirmDelta >= DELTA_LARGE_MIN_LINES) {
           const confirmed = confirmLargeDelta(targetLine, now3);
           if (!confirmed) {
-            warnGuard("large_delta_confirm", [
-              `current=${lastLineIndex}`,
-              `best=${targetLine}`,
-              `delta=${confirmDelta}`,
-              `need=${LARGE_DELTA_CONFIRM_HITS}`,
-              `window=${LARGE_DELTA_CONFIRM_WINDOW_MS}`
-            ]);
-            emitHudStatus(
-              "confirmations",
-              `Waiting: large jump confirm (${confirmDelta} lines)`
-            );
-            return;
+            if (bypassDownstreamVeto) {
+              emitMovementAuthorityVetoBypassed(
+                "confirmations",
+                targetLine,
+                targetLine,
+                "movement_authority_terminal"
+              );
+            } else {
+              warnGuard("large_delta_confirm", [
+                `current=${lastLineIndex}`,
+                `best=${targetLine}`,
+                `delta=${confirmDelta}`,
+                `need=${LARGE_DELTA_CONFIRM_HITS}`,
+                `window=${LARGE_DELTA_CONFIRM_WINDOW_MS}`
+              ]);
+              emitHudStatus(
+                "confirmations",
+                `Waiting: large jump confirm (${confirmDelta} lines)`
+              );
+              return;
+            }
           }
         }
         let lineEl = getLineElementByIndex(scroller, targetLine);
@@ -38958,28 +42883,47 @@ function createAsrScrollDriver(options = {}) {
           emitHudStatus("behind_blocked", "Behind match ignored");
           return;
         }
-        const starvationNoEvidenceBypass = isFinal && !noInputGuardActive && lastCommitIndex != null && now3 - lastCommitTime >= DEFAULT_STARVATION_COMMIT_GAP_MS && Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex)) && hasFreshNearbyRescueMatchEvidence(lastLineIndex, line, now3, []) && line > lastLineIndex && line - lastLineIndex <= DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES && conf >= Math.max(
+        const starvationNoEvidenceBypass = !liveStrictFollow && isFinal && !noInputGuardActive && lastCommitIndex != null && now3 - lastCommitTime >= DEFAULT_STARVATION_COMMIT_GAP_MS && Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex)) && hasFreshNearbyRescueMatchEvidence(lastLineIndex, line, now3, []) && line > lastLineIndex && line - lastLineIndex <= DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES && conf >= Math.max(
           DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM,
           baselineRequired - DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK
         );
-        if (!hasEvidence && !starvationNoEvidenceBypass) {
-          warnGuard("no_evidence", [
-            `current=${lastLineIndex}`,
-            `best=${line}`,
-            `delta=${line - lastLineIndex}`,
-            `sim=${formatLogScore(conf)}`,
-            `final=${isFinal ? 1 : 0}`,
-            snippet ? `clue="${snippet}"` : ""
-          ]);
-          if (consistency && consistency.needed > 0 && consistency.count < consistency.needed) {
-            emitHudStatus(
-              "confirmations",
-              `Waiting: confirmations ${consistency.count}/${consistency.needed}`
+        const liveStrictImmediateAdjacentCommit = liveStrictProofCommit || strictSpeechBackedFallbackCommit;
+        if (!hasEvidence && !liveStrictImmediateAdjacentCommit && !starvationNoEvidenceBypass && !starvationForwardBypass) {
+          if (bypassDownstreamVeto) {
+            emitMovementAuthorityVetoBypassed(
+              "no_evidence",
+              targetLine,
+              targetLine,
+              "movement_authority_terminal"
             );
           } else {
-            emitHudStatus("no_evidence", "Blocked: min evidence");
+            warnGuard("no_evidence", [
+              `current=${lastLineIndex}`,
+              `best=${line}`,
+              `delta=${line - lastLineIndex}`,
+              `sim=${formatLogScore(conf)}`,
+              `final=${isFinal ? 1 : 0}`,
+              snippet ? `clue="${snippet}"` : ""
+            ]);
+            if (consistency && consistency.needed > 0 && consistency.count < consistency.needed) {
+              emitHudStatus(
+                "confirmations",
+                `Waiting: confirmations ${consistency.count}/${consistency.needed}`
+              );
+            } else {
+              emitHudStatus("no_evidence", "Blocked: min evidence");
+            }
+            return;
           }
-          return;
+        }
+        if (!hasEvidence && liveStrictImmediateAdjacentCommit) {
+          warnGuard(liveStrictAdjacentReason || "live_strict_immediate_adjacent", [
+            `current=${lastLineIndex}`,
+            `target=${targetLine}`,
+            `sim=${formatLogScore(conf)}`,
+            `source=${liveStrictProofCommit ? "adjacent-proof" : "speech-backed-adjacent"}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
         }
         if (!hasEvidence && starvationNoEvidenceBypass) {
           warnGuard("starvation_no_evidence_bypass", [
@@ -39030,6 +42974,7 @@ function createAsrScrollDriver(options = {}) {
         }
         const prevLineIndex = lastLineIndex;
         const modeNow = getScrollMode3();
+        const asrDeterministicMarkerLockCommit = modeNow === "asr";
         const liveAsrCommitCapActive = modeNow === "asr" && isSessionLivePhase() && isSessionAsrArmed();
         const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
         const lineHeightPx = resolveMotionLineHeightPx(lineEl);
@@ -39056,7 +43001,9 @@ function createAsrScrollDriver(options = {}) {
         const effectiveJumpCap = liveAsrCommitCapActive ? Math.min(liveAsrCommitCapPx, softCommitCapPx) : jumpCap;
         const limitedTarget = forced && !liveAsrCommitCapActive ? candidate : Math.min(candidate, baseClamped + effectiveJumpCap);
         let nextTargetTop = Math.max(baseClamped, limitedTarget);
-        if (liveAsrCommitCapActive) {
+        if (asrDeterministicMarkerLockCommit) {
+          nextTargetTop = clamp4(targetTop, 0, max);
+        } else if (liveAsrCommitCapActive) {
           const markerTargetTop = clamp4(targetTop, 0, max);
           const liveCappedMarkerTop = Math.min(markerTargetTop, currentTop + liveAsrCommitCapPx);
           nextTargetTop = Math.max(currentTop, liveCappedMarkerTop);
@@ -39101,7 +43048,7 @@ function createAsrScrollDriver(options = {}) {
           writerSeekLineIdx = null;
         }
         const writerPathReady = targetBlockId >= 0 && writerAddressability.allowed;
-        const writerAllowed = writerPathReady && !forcePixelCommit;
+        const writerAllowed = writerPathReady && !forcePixelCommit && !asrDeterministicMarkerLockCommit;
         if (isDevMode4() && shouldLogLevel(2)) {
           console.log("[ASR] commit->seek", {
             commitCount: commitCount + 1,
@@ -39144,7 +43091,9 @@ function createAsrScrollDriver(options = {}) {
               fromTop: commitBeforeTop,
               targetTop,
               nextTargetTop,
-              snapToMarker: strongMarkerSnapEligible
+              snapToMarker: strongMarkerSnapEligible,
+              markerLockRequired: asrDeterministicMarkerLockCommit,
+              markerLockLineIdx: targetLine
             },
             {
               scroller,
@@ -39159,77 +43108,79 @@ function createAsrScrollDriver(options = {}) {
             beginWriterCommitWindow(writerCommitStartedAt);
           }
           didGlide = false;
-          _postCommitReadabilitySeq += 1;
-          const liveAsrReadabilitySuppressed = getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed();
-          const liveAsrReadabilityMaxForwardLines = liveAsrReadabilitySuppressed ? LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES : void 0;
-          const immediateReadability = applyPostCommitReadabilityGuarantee(scroller, targetLine, {
-            // In live ASR, avoid a second write in the same commit frame; that causes visible snap/flicker.
-            allowNudge: !writerCommitted && !liveAsrReadabilitySuppressed,
-            maxForwardLines: liveAsrReadabilityMaxForwardLines
-          });
-          logPostCommitReadabilityProbe(
-            writerCommitted ? "commit:writer-pending" : "commit:immediate",
-            targetLine,
-            writerCommitted,
-            immediateReadability
-          );
-          if (!writerCommitted && immediateReadability.nudgeApplied) {
-            commitAfterTop = immediateReadability.afterTop;
-          }
-          commitAfterTop = enforceLiveAsrCommitCap(
-            scroller,
-            commitBeforeTop,
-            commitAfterTop,
-            targetLine,
-            "commit:immediate"
-          );
-          if (writerCommitted) {
-            await waitForWriterCommitWindowRelease(writerCommitStartedAt);
-            const settledReadability = applyPostCommitReadabilityGuarantee(scroller, targetLine, {
-              allowNudge: true,
-              forwardOnly: true,
+          if (!asrDeterministicMarkerLockCommit) {
+            _postCommitReadabilitySeq += 1;
+            const liveAsrReadabilitySuppressed = getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed();
+            const liveAsrReadabilityMaxForwardLines = liveAsrReadabilitySuppressed ? LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES : void 0;
+            const immediateReadability = applyPostCommitReadabilityGuarantee(scroller, targetLine, {
+              // In live ASR, avoid a second write in the same commit frame; that causes visible snap/flicker.
+              allowNudge: !writerCommitted && !liveAsrReadabilitySuppressed,
               maxForwardLines: liveAsrReadabilityMaxForwardLines
             });
             logPostCommitReadabilityProbe(
-              "commit:writer-settle",
+              writerCommitted ? "commit:writer-pending" : "commit:immediate",
               targetLine,
               writerCommitted,
-              settledReadability
+              immediateReadability
             );
-            if (settledReadability.nudgeApplied) {
-              commitAfterTop = settledReadability.afterTop;
+            if (!writerCommitted && immediateReadability.nudgeApplied) {
+              commitAfterTop = immediateReadability.afterTop;
             }
             commitAfterTop = enforceLiveAsrCommitCap(
               scroller,
               commitBeforeTop,
               commitAfterTop,
               targetLine,
-              "commit:writer-settle"
+              "commit:immediate"
             );
-            const truth = await verifyWriterCommitTruth(
-              scrollerForStamp || scroller,
-              targetLine,
-              commitAfterTop,
-              lineEl,
-              writerCommitStartedAt
-            );
-            commitAfterTop = truth.actualTop;
-            lastKnownScrollTop = commitAfterTop;
-            if (!truth.ok) {
-              const resyncAnchor = Math.max(0, Number.isFinite(lastLineIndex) ? Math.floor(lastLineIndex) : commitCursorLine);
-              stopGlide("scroll-desync");
-              pursuitTargetTop = null;
-              pursuitVel = 0;
-              pursuitActive = false;
-              microPursuitUntil = 0;
-              releaseCommitWindow("scroll-desync");
-              resetNoProgressStreak("scroll-desync", resyncAnchor);
-              clearEvidenceBuffer("scroll-desync");
-              activateStuckResync(resyncAnchor, now3);
-              emitHudStatus("resync", "Resyncing (scroll desync)...");
-              return;
+            if (writerCommitted) {
+              await waitForWriterCommitWindowRelease(writerCommitStartedAt);
+              const settledReadability = applyPostCommitReadabilityGuarantee(scroller, targetLine, {
+                allowNudge: true,
+                forwardOnly: true,
+                maxForwardLines: liveAsrReadabilityMaxForwardLines
+              });
+              logPostCommitReadabilityProbe(
+                "commit:writer-settle",
+                targetLine,
+                writerCommitted,
+                settledReadability
+              );
+              if (settledReadability.nudgeApplied) {
+                commitAfterTop = settledReadability.afterTop;
+              }
+              commitAfterTop = enforceLiveAsrCommitCap(
+                scroller,
+                commitBeforeTop,
+                commitAfterTop,
+                targetLine,
+                "commit:writer-settle"
+              );
+              const truth = await verifyWriterCommitTruth(
+                scrollerForStamp || scroller,
+                targetLine,
+                commitAfterTop,
+                lineEl,
+                writerCommitStartedAt
+              );
+              commitAfterTop = truth.actualTop;
+              lastKnownScrollTop = commitAfterTop;
+              if (!truth.ok) {
+                const resyncAnchor = Math.max(0, Number.isFinite(lastLineIndex) ? Math.floor(lastLineIndex) : commitCursorLine);
+                stopGlide("scroll-desync");
+                pursuitTargetTop = null;
+                pursuitVel = 0;
+                pursuitActive = false;
+                microPursuitUntil = 0;
+                releaseCommitWindow("scroll-desync");
+                resetNoProgressStreak("scroll-desync", resyncAnchor);
+                clearEvidenceBuffer("scroll-desync");
+                activateStuckResync(resyncAnchor, now3);
+                emitHudStatus("resync", "Resyncing (scroll desync)...");
+                return;
+              }
+              releaseCommitWindow("writer-commit-flush-complete");
             }
-            releaseCommitWindow("writer-commit-flush-complete");
           }
         } else if (!writerCommitted) {
           if (nextTargetTop > base) {
@@ -39264,6 +43215,21 @@ function createAsrScrollDriver(options = {}) {
         }
         lastLineIndex = Math.max(lastLineIndex, targetLine);
         const cursorIndex = lastLineIndex;
+        if (targetLine > prevLineIndex && movementAuthority !== "none") {
+          warnGuard("movement_authority_commit", [
+            `current=${prevLineIndex}`,
+            `target=${targetLine}`,
+            `commitTargetLine=${targetLine}`,
+            `authority=${movementAuthority}`,
+            `reason=${movementAuthorityReason}`,
+            movementAuthorityProofSource ? `proofSource=${movementAuthorityProofSource}` : "",
+            `sourceBranch=${movementAuthoritySourceBranch}`,
+            `bypassDownstreamVeto=${bypassDownstreamVeto ? 1 : 0}`
+          ]);
+          if (movementAuthorityReason === "speech_stop_cleanup_commit") {
+            speechStopBrakeCleanupUsed = true;
+          }
+        }
         lastCommitTime = Date.now();
         lastCommitIndex = cursorIndex;
         creepBudgetLine = -1;
@@ -39282,6 +43248,40 @@ function createAsrScrollDriver(options = {}) {
           jumpHistory.push(now3);
         }
         noteCommit(prevLineIndex, targetLine, now3);
+        if (pendingSpeakableBridgeState) {
+          if (targetLine >= pendingSpeakableBridgeState.semanticTarget) {
+            clearPendingSpeakableBridge("semantic_target_committed", [
+              `commitTarget=${targetLine}`
+            ]);
+          } else if (targetLine !== pendingSpeakableBridgeState.semanticFrom) {
+            clearPendingSpeakableBridge("commit_target_diverged", [
+              `commitTarget=${targetLine}`
+            ]);
+          }
+        }
+        if (targetLine > prevLineIndex && strictTargetHasFreshProof) {
+          lastFreshProofLine = targetLine;
+        } else if (targetLine > prevLineIndex && lastFreshProofLine < 0) {
+          lastFreshProofLine = Math.max(0, prevLineIndex);
+        }
+        if (liveStrictFollow && targetLine > prevLineIndex) {
+          liveProgressHeuristics.lastAdvanceAtMs = now3;
+          liveProgressHeuristics.lastAcceptedForwardIndex = targetLine;
+          liveProgressHeuristics.consecutiveNoAdvanceFrames = 0;
+          liveProgressHeuristics.estimatedBehindByLines = 0;
+        }
+        if (liveStrictProofCommit) {
+          liveProgressHeuristics.lastStrongSyncAtMs = now3;
+          if (liveStrictSpeculativeStepUsed) {
+            liveStrictSpeculativeStepUsed = false;
+            warnGuard("live_strict_local_proof_ok", [
+              `current=${prevLineIndex}`,
+              `target=${targetLine}`,
+              "source=proof-commit",
+              "latch=reset"
+            ]);
+          }
+        }
         closeAmbiguityHold(now3, "commit", prevLineIndex, targetLine, conf);
         if (forwardDelta >= OVERSHOOT_RISK_DELTA_LINES) {
           overshootRiskUntil = now3 + OVERSHOOT_RISK_WINDOW_MS;
@@ -39456,6 +43456,19 @@ function createAsrScrollDriver(options = {}) {
     const compacted = normalized.replace(/\s+/g, " ").trim();
     const now3 = Date.now();
     const liveAsrSessionActive = getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed();
+    const transcriptRunKey = String(detail?.runKey || "").trim();
+    const transcriptRunGeneration = normalizeRunGeneration(
+      detail?.runGeneration
+    );
+    const detailSpeechRunningActualRaw = detail?.speechRunningActual;
+    if (detailSpeechRunningActualRaw === true) {
+      asrRuntimeSpeechSeen = true;
+      asrRuntimeSpeechEverTrue = true;
+      asrRuntimeSpeechRunningActual = true;
+      lastRuntimeSpeechAt = now3;
+      lastSpeechRunningActualAtMs = now3;
+      speechStopBrakeCleanupUsed = false;
+    }
     if (getScrollMode3() === "asr" && !liveAsrSessionActive) {
       if (isDevMode4() && shouldLogTag("ASR_INGEST_IGNORED_INACTIVE", 2, 500)) {
         try {
@@ -39468,6 +43481,32 @@ function createAsrScrollDriver(options = {}) {
         } catch {
         }
       }
+      return;
+    }
+    if (getScrollMode3() === "asr" && liveAsrSessionActive && asrRuntimeSpeechSeen && !asrRuntimeSpeechRunningActual) {
+      warnGuard("asr_live_speech_stopped_observed", [
+        "source=ingest",
+        "speechRunning=0",
+        `runGeneration=${transcriptRunGeneration ?? resolveActiveRunGeneration() ?? -1}`,
+        transcriptRunKey ? `runKey=${transcriptRunKey}` : ""
+      ]);
+    }
+    if (getScrollMode3() === "asr" && liveAsrSessionActive && isRunIdentityStale({
+      runKey: transcriptRunKey || void 0,
+      runGeneration: transcriptRunGeneration
+    })) {
+      warnGuard("asr_live_stale_generation_hold", [
+        "source=ingest",
+        `driverRunGeneration=${resolveDriverRunGeneration() ?? -1}`,
+        `transcriptRunGeneration=${transcriptRunGeneration ?? -1}`,
+        `activeRunGeneration=${resolveActiveRunGeneration() ?? -1}`,
+        resolveDriverRunKey() ? `driverRunKey=${resolveDriverRunKey()}` : "",
+        transcriptRunKey ? `transcriptRunKey=${transcriptRunKey}` : "",
+        `activeRunKey=${resolveActiveRunKey() || "none"}`
+      ]);
+      return;
+    }
+    if (!allowMovementForIngest(isFinal, now3, compacted)) {
       return;
     }
     const permissiveMatcher = isPermissiveAsrMatcherEnabled();
@@ -39504,6 +43543,13 @@ function createAsrScrollDriver(options = {}) {
     eventsSinceCommit += 1;
     if (isFinal) {
       finalsSinceCommit += 1;
+      if (compactedComparable.length > 0) {
+        lastFinalTranscriptNorm = compactedComparable;
+        lastFinalTranscriptAt = now3;
+        lastFinalTranscriptRaw = compacted;
+        lastFinalTranscriptRunKey = transcriptRunKey;
+        lastFinalTranscriptRunGeneration = transcriptRunGeneration;
+      }
     }
     const stateCurrentIdx = getStateCurrentIndex();
     const incomingIdxRaw = Number(detail?.currentIdx ?? NaN);
@@ -39566,6 +43612,15 @@ function createAsrScrollDriver(options = {}) {
           `floor=${committedFloor}`,
           `state=${stateCurrentIdx ?? "na"}`,
           `detail=${incomingIdx ?? "na"}`
+        ]);
+      } else if (liveAsrSession && commitCount > 0 && committedFloor != null && preferredIdx > committedFloor && preferredBackstepIdx == null) {
+        warnGuard("cursor_progression_ignored", [
+          `current=${lastLineIndex}`,
+          `incoming=${preferredIdx}`,
+          `floor=${committedFloor}`,
+          `state=${stateCurrentIdx ?? "na"}`,
+          `detail=${incomingIdx ?? "na"}`,
+          "reason=uncommitted_cursor_drift"
         ]);
       } else {
         lastLineIndex = preferredIdx;
@@ -39656,6 +43711,331 @@ function createAsrScrollDriver(options = {}) {
       noteNoMatchGap(now3, "missing_payload", snippet2);
       return;
     }
+    const bestIdxForSoftRuntimeRebase = Number.isFinite(Number(incomingMatch.bestIdx)) ? Math.max(0, Math.floor(Number(incomingMatch.bestIdx))) : -1;
+    const bestSimForSoftRuntimeRebase = Number.isFinite(Number(incomingMatch.bestSim)) ? Number(incomingMatch.bestSim) : 0;
+    const currentForSoftRuntimeRebase = Number.isFinite(currentCursorIndex) ? Math.max(0, Math.floor(currentCursorIndex)) : lastLineIndex >= 0 ? Math.max(0, Math.floor(lastLineIndex)) : -1;
+    const noCommitMsForSoftRuntimeRebase = Math.max(0, now3 - lastCommitTime);
+    const starvationMsForSoftRuntimeRebase = Math.max(0, now3 - lastForwardCommitAt);
+    const markerStateForSoftRuntimeRebase = isMarkerTrackingHealthyForLine(
+      getScroller(),
+      currentForSoftRuntimeRebase
+    );
+    const lastFinalAgeMsForSoftRuntimeRebase = lastFinalTranscriptAt > 0 ? Math.max(0, now3 - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
+    const shouldConsiderSoftRuntimeRebase = !softRuntimeRebaseRetryActive && liveAsrSessionActive && isFinal && noCommitMsForSoftRuntimeRebase >= DEFAULT_ASR_SOFT_RUNTIME_REBASE_STALL_MS && starvationMsForSoftRuntimeRebase >= DEFAULT_ASR_SOFT_RUNTIME_REBASE_STALL_MS;
+    const maybeLogSoftRuntimeRebaseSkip = (reason, extraParts = []) => {
+      if (!shouldConsiderSoftRuntimeRebase) return;
+      if (now3 - softRuntimeRebaseLastSkipLogAt < DEFAULT_ASR_SOFT_RUNTIME_REBASE_SKIP_LOG_COOLDOWN_MS) {
+        return;
+      }
+      softRuntimeRebaseLastSkipLogAt = now3;
+      warnGuard("asr_soft_runtime_rebase_skip", [
+        `current=${currentForSoftRuntimeRebase}`,
+        `bestIdx=${bestIdxForSoftRuntimeRebase}`,
+        `bestSim=${formatLogScore(bestSimForSoftRuntimeRebase)}`,
+        `starvationMs=${starvationMsForSoftRuntimeRebase}`,
+        `noCommitMs=${noCommitMsForSoftRuntimeRebase}`,
+        `lastCommitIndex=${lastCommitIndex ?? -1}`,
+        Number.isFinite(lastFinalAgeMsForSoftRuntimeRebase) ? `lastFinalAgeMs=${Math.round(lastFinalAgeMsForSoftRuntimeRebase)}` : "lastFinalAgeMs=inf",
+        `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+        `reason=${reason}`,
+        ...extraParts
+      ]);
+    };
+    if (shouldConsiderSoftRuntimeRebase) {
+      const stallWindowAlreadyRebased = softRuntimeRebaseLastStallAnchorAt >= 0 && softRuntimeRebaseLastStallAnchorAt === lastForwardCommitAt;
+      const hasRecentFinalTranscript = Number.isFinite(lastFinalAgeMsForSoftRuntimeRebase) && lastFinalAgeMsForSoftRuntimeRebase <= DEFAULT_ASR_SOFT_RUNTIME_REBASE_FINAL_MAX_AGE_MS;
+      let softRuntimeRebaseForwardLexicalFallback = null;
+      let softRuntimeRebaseForwardLexicalSkipReason = "not_evaluated";
+      const shouldTrySoftRuntimeRebaseForwardLexicalFallback = bestIdxForSoftRuntimeRebase <= currentForSoftRuntimeRebase;
+      if (shouldTrySoftRuntimeRebaseForwardLexicalFallback) {
+        if (currentForSoftRuntimeRebase < 0) {
+          softRuntimeRebaseForwardLexicalSkipReason = "no_current_index";
+        } else if (!liveAsrSessionActive || !isSessionLivePhase() || !isSessionAsrArmed()) {
+          softRuntimeRebaseForwardLexicalSkipReason = "not_live_strict";
+        } else if (!hasRecentFinalTranscript) {
+          softRuntimeRebaseForwardLexicalSkipReason = "final_transcript_stale";
+        } else {
+          const maxSpeakableSteps = 1;
+          let cursor = currentForSoftRuntimeRebase;
+          let furthestTarget = -1;
+          let speakableSteps = 0;
+          let bestLexicalSim = 0;
+          let stalePrefixIgnored = false;
+          let postCommitTailPreview = "";
+          const proofSources = [];
+          let blockedReason = "no_speakable_step";
+          while (speakableSteps < maxSpeakableSteps) {
+            const step = resolveLiveStrictNextSpeakableStep(
+              cursor,
+              LIVE_STRICT_MAX_CUE_BRIDGE_SPAN
+            );
+            if (!step || step.targetLine <= cursor) {
+              blockedReason = speakableSteps > 0 ? "forward_chain_exhausted" : "no_speakable_step";
+              break;
+            }
+            const landingLexical = evaluateLiveStrictBridgeLandingLexicalProof(step.targetLine, now3);
+            const fullLexicalFallbackOk = landingLexical.contentCount > 0 && landingLexical.fullContentHits >= landingLexical.requiredHits && landingLexical.fullHitRatio >= landingLexical.requiredRatio;
+            if (!landingLexical.ok && !fullLexicalFallbackOk) {
+              blockedReason = landingLexical.reason || "no_forward_lexical_evidence";
+              break;
+            }
+            furthestTarget = step.targetLine;
+            speakableSteps += 1;
+            cursor = step.targetLine;
+            bestLexicalSim = Math.max(
+              bestLexicalSim,
+              landingLexical.sim,
+              landingLexical.fullHitRatio
+            );
+            stalePrefixIgnored = stalePrefixIgnored || !!landingLexical.stalePrefixIgnored;
+            if (landingLexical.tailPreview) {
+              postCommitTailPreview = landingLexical.tailPreview;
+            }
+            proofSources.push(landingLexical.ok ? "tail_lexical" : "full_lexical");
+          }
+          if (furthestTarget > currentForSoftRuntimeRebase && speakableSteps > 0) {
+            softRuntimeRebaseForwardLexicalFallback = {
+              target: furthestTarget,
+              sim: bestLexicalSim,
+              proofSource: proofSources.join("+"),
+              speakableSteps,
+              stalePrefixIgnored,
+              postCommitTailPreview
+            };
+          } else {
+            softRuntimeRebaseForwardLexicalSkipReason = blockedReason;
+          }
+        }
+      }
+      const rebaseForwardEvidenceIdx = softRuntimeRebaseForwardLexicalFallback?.target ?? bestIdxForSoftRuntimeRebase;
+      const rebaseAdjacentTarget = resolveForwardSpeakableTarget(
+        currentForSoftRuntimeRebase,
+        rebaseForwardEvidenceIdx,
+        1
+      );
+      const rebaseForwardCappedIdx = rebaseAdjacentTarget > currentForSoftRuntimeRebase ? rebaseAdjacentTarget : rebaseForwardEvidenceIdx;
+      const rebaseForwardWasNonAdjacent = rebaseForwardEvidenceIdx > rebaseForwardCappedIdx;
+      if (rebaseForwardEvidenceIdx > rebaseForwardCappedIdx) {
+        warnGuard("asr_recovery_skip_non_adjacent_target", [
+          `current=${currentForSoftRuntimeRebase}`,
+          `requested=${rebaseForwardEvidenceIdx}`,
+          `adjacentTarget=${rebaseForwardCappedIdx}`,
+          "sourceBranch=soft_runtime_rebase"
+        ]);
+      }
+      const rebaseForwardEvidenceSim = Math.max(
+        bestSimForSoftRuntimeRebase,
+        softRuntimeRebaseForwardLexicalFallback?.sim ?? 0
+      );
+      const hasForwardEvidence = rebaseForwardCappedIdx > currentForSoftRuntimeRebase && rebaseForwardEvidenceSim >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM;
+      if (shouldTrySoftRuntimeRebaseForwardLexicalFallback) {
+        if (softRuntimeRebaseForwardLexicalFallback) {
+          warnGuard("asr_soft_runtime_rebase_forward_lexical_fallback", [
+            `current=${currentForSoftRuntimeRebase}`,
+            `bestIdx=${bestIdxForSoftRuntimeRebase}`,
+            `bestSim=${formatLogScore(bestSimForSoftRuntimeRebase)}`,
+            `fallbackTarget=${softRuntimeRebaseForwardLexicalFallback.target}`,
+            `fallbackSim=${formatLogScore(softRuntimeRebaseForwardLexicalFallback.sim)}`,
+            `proofSource=${softRuntimeRebaseForwardLexicalFallback.proofSource}`,
+            `speakableSteps=${softRuntimeRebaseForwardLexicalFallback.speakableSteps}`,
+            `stalePrefixIgnored=${softRuntimeRebaseForwardLexicalFallback.stalePrefixIgnored ? "true" : "false"}`,
+            `postCommitTailPreview="${softRuntimeRebaseForwardLexicalFallback.postCommitTailPreview}"`
+          ]);
+        } else {
+          warnGuard("asr_soft_runtime_rebase_forward_lexical_skip", [
+            `current=${currentForSoftRuntimeRebase}`,
+            `bestIdx=${bestIdxForSoftRuntimeRebase}`,
+            `bestSim=${formatLogScore(bestSimForSoftRuntimeRebase)}`,
+            `reason=${softRuntimeRebaseForwardLexicalSkipReason}`
+          ]);
+        }
+      }
+      const retryText = String(lastFinalTranscriptRaw || compacted || "").trim();
+      if (!asrRuntimeSpeechRunningActual) {
+        maybeLogSoftRuntimeRebaseSkip("speech_not_running");
+      } else if (markerStateForSoftRuntimeRebase.healthy && rebaseForwardWasNonAdjacent) {
+        warnGuard("asr_recovery_skip_tracking_healthy", [
+          `current=${currentForSoftRuntimeRebase}`,
+          `markerIdx=${markerStateForSoftRuntimeRebase.markerIdx}`,
+          `starvationMs=${starvationMsForSoftRuntimeRebase}`,
+          `noCommitMs=${noCommitMsForSoftRuntimeRebase}`,
+          "sourceBranch=soft_runtime_rebase"
+        ]);
+        maybeLogSoftRuntimeRebaseSkip("tracking_healthy", [
+          `markerIdx=${markerStateForSoftRuntimeRebase.markerIdx}`
+        ]);
+      } else if (isRunIdentityStale({
+        runKey: transcriptRunKey || void 0,
+        runGeneration: transcriptRunGeneration
+      })) {
+        maybeLogSoftRuntimeRebaseSkip("stale_run_identity");
+      } else if (now3 < softRuntimeRebaseCooldownUntil) {
+        maybeLogSoftRuntimeRebaseSkip("cooldown", [
+          `cooldownMs=${Math.max(0, Math.round(softRuntimeRebaseCooldownUntil - now3))}`
+        ]);
+      } else if (stallWindowAlreadyRebased) {
+        maybeLogSoftRuntimeRebaseSkip("stall_window_already_rebased", [
+          `stallAnchor=${softRuntimeRebaseLastStallAnchorAt}`
+        ]);
+      } else if (!hasRecentFinalTranscript) {
+        maybeLogSoftRuntimeRebaseSkip("final_transcript_stale", [
+          Number.isFinite(lastFinalAgeMsForSoftRuntimeRebase) ? `maxFinalAgeMs=${DEFAULT_ASR_SOFT_RUNTIME_REBASE_FINAL_MAX_AGE_MS}` : "maxFinalAgeMs=na"
+        ]);
+      } else if (!hasForwardEvidence) {
+        maybeLogSoftRuntimeRebaseSkip("no_forward_evidence");
+      } else if (!retryText) {
+        maybeLogSoftRuntimeRebaseSkip("no_retry_final_transcript");
+      } else {
+        const retryForwardEvidenceIdx = Math.max(
+          rebaseForwardCappedIdx,
+          softRuntimeRebaseForwardLexicalFallback?.target ?? -1
+        );
+        const retryAdjacentTarget = resolveForwardSpeakableTarget(
+          currentForSoftRuntimeRebase,
+          retryForwardEvidenceIdx,
+          1
+        );
+        const retryForwardCappedIdx = retryAdjacentTarget > currentForSoftRuntimeRebase ? retryAdjacentTarget : retryForwardEvidenceIdx;
+        if (retryForwardEvidenceIdx > retryForwardCappedIdx) {
+          warnGuard("asr_recovery_skip_non_adjacent_target", [
+            `current=${currentForSoftRuntimeRebase}`,
+            `requested=${retryForwardEvidenceIdx}`,
+            `adjacentTarget=${retryForwardCappedIdx}`,
+            "sourceBranch=soft_runtime_rebase_retry"
+          ]);
+        }
+        const retryForwardEvidenceSim = Math.max(
+          bestSimForSoftRuntimeRebase,
+          softRuntimeRebaseForwardLexicalFallback?.sim ?? 0,
+          DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM
+        );
+        const retryTopScores = Array.isArray(incomingMatch?.topScores) ? [...incomingMatch.topScores] : [];
+        if (softRuntimeRebaseForwardLexicalFallback && !retryTopScores.some(
+          (entry) => Math.max(0, Math.floor(Number(entry?.idx) || 0)) === softRuntimeRebaseForwardLexicalFallback?.target
+        )) {
+          retryTopScores.push({
+            idx: softRuntimeRebaseForwardLexicalFallback.target,
+            score: retryForwardEvidenceSim
+          });
+        }
+        const retryIncomingMatch = {
+          ...incomingMatch,
+          bestIdx: retryForwardCappedIdx,
+          bestSim: retryForwardEvidenceSim,
+          topScores: retryTopScores
+        };
+        const clearedState = [];
+        const clearState = (name, changed, apply) => {
+          if (!changed) return;
+          apply();
+          clearedState.push(name);
+        };
+        clearState("bridge_landing_commit_cursor", lastCommitTranscriptNormSnapshot.length > 0 || lastCommitTranscriptTextLength > 0 || lastCommitTranscriptTimestamp > 0 || lastCommitTargetLine >= 0, () => {
+          lastCommitTranscriptNormSnapshot = "";
+          lastCommitTranscriptTextLength = 0;
+          lastCommitTranscriptTimestamp = 0;
+          lastCommitTargetLine = -1;
+        });
+        clearState("speculative_latch", liveStrictSpeculativeStepUsed, () => {
+          liveStrictSpeculativeStepUsed = false;
+        });
+        clearState("cue_stall_rescue_cooldown", lastCueStallRescueAt !== 0, () => {
+          lastCueStallRescueAt = 0;
+        });
+        clearState("stall_rescue_requested", stallRescueRequested, () => {
+          stallRescueRequested = false;
+        });
+        clearState(
+          "bridge_contradiction_latch",
+          liveStrictForwardClusterContradictionAt > 0,
+          () => {
+            liveStrictForwardClusterContradictionAt = 0;
+          }
+        );
+        clearState("weak_forward_signals", liveProgressHeuristics.consecutiveWeakForwardSignals > 0, () => {
+          liveProgressHeuristics.consecutiveWeakForwardSignals = 0;
+        });
+        clearState("rescue_no_match_latch", lastRescueNoMatchAt > 0, () => {
+          lastRescueNoMatchAt = 0;
+        });
+        clearState("stable_interim_nudge_latch", lastStableInterimNudgeAt > 0, () => {
+          lastStableInterimNudgeAt = 0;
+        });
+        clearState("ambiguity_hold", ambiguityHoldActive, () => {
+          resetAmbiguityHoldState();
+        });
+        clearState("fresh_speech_flags", !freshSpeechSinceCommit || lastRescueSpeechAt <= 0, () => {
+          freshSpeechSinceCommit = true;
+          lastRescueSpeechAt = now3;
+        });
+        if (hasForwardEvidence) {
+          lastRescueMatchEvidenceAt = now3;
+          lastRescueMatchEvidenceLine = rebaseForwardCappedIdx;
+          lastRescueMatchEvidenceSim = rebaseForwardEvidenceSim;
+          clearedState.push("rescue_match_evidence_refreshed");
+        }
+        softRuntimeRebaseLastStallAnchorAt = lastForwardCommitAt;
+        softRuntimeRebaseCooldownUntil = now3 + DEFAULT_ASR_SOFT_RUNTIME_REBASE_COOLDOWN_MS;
+        warnGuard("asr_soft_runtime_rebase", [
+          `current=${currentForSoftRuntimeRebase}`,
+          `bestIdx=${rebaseForwardCappedIdx}`,
+          `bestSim=${formatLogScore(rebaseForwardEvidenceSim)}`,
+          `starvationMs=${starvationMsForSoftRuntimeRebase}`,
+          `noCommitMs=${noCommitMsForSoftRuntimeRebase}`,
+          `lastCommitIndex=${lastCommitIndex ?? -1}`,
+          Number.isFinite(lastFinalAgeMsForSoftRuntimeRebase) ? `lastFinalAgeMs=${Math.round(lastFinalAgeMsForSoftRuntimeRebase)}` : "lastFinalAgeMs=inf",
+          `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+          "reason=starvation_state_flush",
+          `clearedState=[${clearedState.join(",")}]`
+        ]);
+        const retryMatchId = `${matchId}:soft_runtime_rebase_retry`;
+        warnGuard("asr_soft_runtime_rebase_retry", [
+          `current=${currentForSoftRuntimeRebase}`,
+          `bestIdx=${rebaseForwardCappedIdx}`,
+          `bestSim=${formatLogScore(rebaseForwardEvidenceSim)}`,
+          `starvationMs=${starvationMsForSoftRuntimeRebase}`,
+          `noCommitMs=${noCommitMsForSoftRuntimeRebase}`,
+          `lastCommitIndex=${lastCommitIndex ?? -1}`,
+          Number.isFinite(lastFinalAgeMsForSoftRuntimeRebase) ? `lastFinalAgeMs=${Math.round(lastFinalAgeMsForSoftRuntimeRebase)}` : "lastFinalAgeMs=inf",
+          `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+          "reason=retry_dispatch",
+          `matchId=${retryMatchId}`
+        ]);
+        const retryDetail = {
+          source: "soft_runtime_rebase_retry",
+          matchId: retryMatchId,
+          match: retryIncomingMatch,
+          runKey: lastFinalTranscriptRunKey || transcriptRunKey || null,
+          runGeneration: lastFinalTranscriptRunGeneration ?? transcriptRunGeneration ?? null,
+          currentIdx: currentForSoftRuntimeRebase >= 0 ? currentForSoftRuntimeRebase : null,
+          speechRunningActual: asrRuntimeSpeechRunningActual
+        };
+        const commitsBeforeRetry = commitCount;
+        const guardEventsBeforeRetry = guardEvents.length;
+        softRuntimeRebaseRetryActive = true;
+        try {
+          ingest(retryText, true, retryDetail);
+        } finally {
+          softRuntimeRebaseRetryActive = false;
+        }
+        const committedOnRetry = commitCount > commitsBeforeRetry || lastCommitIndex != null && lastCommitIndex > currentForSoftRuntimeRebase;
+        const refusalReason = !committedOnRetry ? guardEvents.length > guardEventsBeforeRetry ? String(guardEvents[guardEvents.length - 1]?.reason || "unknown_guard") : "no_guard_reason" : "";
+        warnGuard("asr_soft_runtime_rebase_retry", [
+          `current=${currentForSoftRuntimeRebase}`,
+          `bestIdx=${rebaseForwardCappedIdx}`,
+          `bestSim=${formatLogScore(rebaseForwardEvidenceSim)}`,
+          `starvationMs=${starvationMsForSoftRuntimeRebase}`,
+          `noCommitMs=${noCommitMsForSoftRuntimeRebase}`,
+          `lastCommitIndex=${lastCommitIndex ?? -1}`,
+          Number.isFinite(lastFinalAgeMsForSoftRuntimeRebase) ? `lastFinalAgeMs=${Math.round(lastFinalAgeMsForSoftRuntimeRebase)}` : "lastFinalAgeMs=inf",
+          `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+          committedOnRetry ? "reason=commit" : "reason=refused",
+          committedOnRetry ? "sourceBranch=soft_runtime_rebase_retry" : `refusalReason=${refusalReason}`,
+          `matchId=${retryMatchId}`
+        ]);
+        return;
+      }
+    }
     resetNoMatchTracking("match");
     const prevBufferChars = lastBufferChars;
     const bufferedText = metaTranscript ? compacted : updateEvidenceBuffer(compacted, isFinal, now3);
@@ -39727,16 +44107,17 @@ function createAsrScrollDriver(options = {}) {
     maybeBumpForStall(now3);
     const mode = getScrollMode3();
     const asrMode = mode === "asr";
+    const liveStrictFlowPhasePre = asrMode && isSessionAsrArmed() && isSessionLivePhase();
     const vadSpeechAgeMs = lastVadSpeechAt > 0 ? Math.max(0, now3 - lastVadSpeechAt) : Number.POSITIVE_INFINITY;
     const hasRecentVadSpeech = !asrVadSeen || asrVadSpeaking || vadSpeechAgeMs <= DEFAULT_ASR_VAD_SPEECH_GRACE_MS;
     const runtimeSpeechFresh = hasRecentActualSpeech(now3);
-    const liveForwardGuardActive = asrMode && isSessionAsrArmed() && isSessionLivePhase() && (starvationDetected || !freshSpeechSinceCommit || !hasRecentVadSpeech || !runtimeSpeechFresh);
+    const liveForwardGuardActive = liveStrictFlowPhasePre && (!hasRecentVadSpeech || !runtimeSpeechFresh);
     const cueStallRescueDelayMs = resolveCueStallRescueDelayMs({
       asrMode,
       finalsSinceCommit,
       isFinal
     });
-    if (commitCount > 0 && eventsSinceCommit >= 2 && now3 - lastForwardCommitAt >= cueStallRescueDelayMs) {
+    if (commitCount > 0 && eventsSinceCommit >= (liveStrictFlowPhasePre ? 1 : 2) && now3 - lastForwardCommitAt >= cueStallRescueDelayMs) {
       if (maybeScheduleStallCueRescue("auto-stall")) {
         return;
       }
@@ -39918,7 +44299,14 @@ function createAsrScrollDriver(options = {}) {
           }
         }
         if (now3 - lastAutoCueSkipAt >= AUTO_CUE_SKIP_COOLDOWN_MS) {
-          if (maybeSkipCueLine(cursorLine, now3, "cursor-cue-auto", formatLogSnippet(compacted, 80))) {
+          if (maybeSkipCueLine(
+            cursorLine,
+            now3,
+            "cursor-cue-auto",
+            formatLogSnippet(compacted, 80),
+            topScoresSpeakable,
+            DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM
+          )) {
             lastAutoCueSkipAt = now3;
             return;
           }
@@ -39982,6 +44370,26 @@ function createAsrScrollDriver(options = {}) {
           }
         }
         requiredThreshold = relaxedThreshold;
+      }
+    }
+    const liveStrictFollow = asrMode && isSessionLivePhase() && isSessionAsrArmed();
+    if (liveStrictFollow && Number.isFinite(rawIdx) && rawIdx >= 0) {
+      noteLiveStrictForwardClusterEvidence({
+        now: now3,
+        cursorLine,
+        bestLine: Math.max(0, Math.floor(rawIdx)),
+        bestSim: conf,
+        isFinal,
+        requiredThreshold,
+        topScores: topScoresSpeakable,
+        currentLineDirectSim
+      });
+    } else if (!liveStrictFollow) {
+      resetLiveStrictForwardCluster();
+    }
+    if (liveStrictFollow && commitCount > 0 && eventsSinceCommit >= 1 && now3 - lastForwardCommitAt >= cueStallRescueDelayMs) {
+      if (maybeScheduleStallCueRescue("auto-stall")) {
+        return;
       }
     }
     const interimHighThreshold = clamp4(requiredThreshold + interimHysteresisBonus, 0, 1);
@@ -40053,7 +44461,7 @@ function createAsrScrollDriver(options = {}) {
       return;
     }
     if (rawIdx < 0) {
-      if (maybeSkipCueLine(cursorLine, now3, "no_match", snippet)) {
+      if (maybeSkipCueLine(cursorLine, now3, "no_match", snippet, topScoresSpeakable, requiredThreshold)) {
         return;
       }
       warnGuard("no_match", [
@@ -40585,6 +44993,72 @@ function createAsrScrollDriver(options = {}) {
       cursorLine,
       scoredForwardCandidatesForAnchor
     );
+    const evaluateLiveStrictShortDuplicateBypassProof = (sourceBranch, secondCandidate) => {
+      if (getScrollMode3() !== "asr" || !isSessionLivePhase() || !isSessionAsrArmed()) return null;
+      if (!asrRuntimeSpeechRunningActual) return null;
+      if (isRunIdentityStale({ runKey: transcriptRunKey || void 0, runGeneration: transcriptRunGeneration })) {
+        return null;
+      }
+      const step = resolveLiveStrictNextSpeakableStep(
+        cursorLine,
+        LIVE_STRICT_MAX_CUE_BRIDGE_SPAN
+      );
+      if (!step || step.targetLine <= cursorLine) return null;
+      const target = Math.max(0, Math.floor(step.targetLine));
+      const skippedIgnorableLines = Array.isArray(step.skippedReasons) ? step.skippedReasons : [];
+      const adjacentTailProgression = evaluateLiveStrictAdjacentTailProgressionProof(
+        cursorLine,
+        target,
+        now3
+      );
+      const backwardContradiction = topScoresSpeakable.some(
+        (entry) => Number(entry.idx) <= cursorLine && Number(entry.score) >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06)
+      );
+      const backwardContradictionOverriddenByTail = backwardContradiction && adjacentTailProgression.ok && adjacentTailProgression.stalePrefixIgnored;
+      if (backwardContradiction && !backwardContradictionOverriddenByTail) return null;
+      const landingLexical = evaluateLiveStrictBridgeLandingLexicalProof(target, now3);
+      const localProof = hasLiveStrictLocalProof(cursorLine, target, now3, topScoresSpeakable, requiredThreshold) || hasLiveStrictCueExitProof(cursorLine, target, now3, topScoresSpeakable, requiredThreshold);
+      const bridgeTailLexicalProof = landingLexical.ok && (landingLexical.stalePrefixIgnored || landingLexical.tailChars > 0);
+      const adjacentTailProgressionProof = adjacentTailProgression.ok;
+      const repeatedForwardClusterProof = liveStrictForwardClusterCursor === cursorLine && liveStrictForwardClusterLine === target && liveStrictForwardClusterHits >= LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS && liveStrictForwardClusterUpdatedAt > 0 && now3 - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS;
+      if (!localProof && !bridgeTailLexicalProof && !adjacentTailProgressionProof && !repeatedForwardClusterProof) return null;
+      const proofSource = localProof ? "live_strict_local_proof_ok" : bridgeTailLexicalProof ? "strict_bridge_landing_lexical_tail" : adjacentTailProgressionProof ? "strict_adjacent_tail_progression" : "forward_cluster_repeat";
+      return {
+        target,
+        proofSource,
+        sourceBranch,
+        postCommitTailPreview: adjacentTailProgression.tailPreview || landingLexical.tailPreview || "",
+        stalePrefixIgnored: !!adjacentTailProgression.stalePrefixIgnored || !!landingLexical.stalePrefixIgnored,
+        skippedIgnorableLines,
+        repeatedForwardHits: liveStrictForwardClusterHits,
+        stallMs: Math.max(0, now3 - lastForwardCommitAt),
+        secondIdx: Number.isFinite(Number(secondCandidate?.idx)) ? Math.max(0, Math.floor(Number(secondCandidate?.idx))) : null,
+        secondSim: Number.isFinite(Number(secondCandidate?.score)) ? Number(secondCandidate?.score) : null
+      };
+    };
+    let liveStrictShortDuplicateBypassCommit = null;
+    let consistentAdjacentForwardBypass = false;
+    let tieForwardPromoted = false;
+    const applyLiveStrictShortDuplicateBypassCommit = (proof, sourceBranch, bestIdxBefore) => {
+      rawIdx = proof.target;
+      conf = Math.max(conf, DELTA_MIN_SIM_SMALL);
+      consistentAdjacentForwardBypass = true;
+      liveStrictShortDuplicateBypassCommit = proof;
+      warnGuard("live_strict_short_duplicate_bypass_commit", [
+        `current=${cursorLine}`,
+        `target=${proof.target}`,
+        `bestIdx=${bestIdxBefore}`,
+        proof.secondIdx != null ? `secondIdx=${proof.secondIdx}` : "secondIdx=na",
+        proof.secondSim != null ? `secondSim=${formatLogScore(proof.secondSim)}` : "secondSim=na",
+        `proofSource=${proof.proofSource}`,
+        proof.skippedIgnorableLines.length ? `skippedIgnorableLines=[${proof.skippedIgnorableLines.join(",")}]` : "skippedIgnorableLines=[]",
+        `stallMs=${proof.stallMs}`,
+        `postCommitTailPreview="${proof.postCommitTailPreview}"`,
+        `stalePrefixIgnored=${proof.stalePrefixIgnored ? "true" : "false"}`,
+        `sourceBranch=${sourceBranch}`,
+        snippet ? `clue="${snippet}"` : ""
+      ]);
+    };
     const forwardCandidatesChecked = forwardCandidateLineIdx.length;
     const forwardWindowCandidatesChecked = forwardWindowScores.length;
     if (outrunRecent && forwardCandidatesChecked === 0 && isDevMode4()) {
@@ -40633,7 +45107,6 @@ function createAsrScrollDriver(options = {}) {
     const outrunEligible = !!outrunPick && outrunRecent && forcedEvidenceOk;
     const behindByForBias = cursorLine - rawIdx;
     const forwardBiasEligible = isFinal && behindByForBias > 0 && behindByForBias <= forwardBiasRecentLines && lastLineIndex >= 0 && now3 - lastForwardCommitAt <= forwardBiasWindowMs;
-    let consistentAdjacentForwardBypass = false;
     if (topScoresSpeakable.length) {
       const bestScore = conf;
       const tieCandidates = topScoresSpeakable.filter((entry) => entry.score >= bestScore - forwardTieEps);
@@ -40642,7 +45115,7 @@ function createAsrScrollDriver(options = {}) {
       const forwardCandidates = tieCandidates.filter((entry) => entry.idx >= forwardMinIdx).sort((a, b) => a.idx - b.idx || b.score - a.score);
       const forwardPick = forwardCandidates[0];
       const tieNeed = shortFinalRecent ? shortFinalNeed : requiredThreshold;
-      const adjacentTieCandidate = !!forwardPick && !isHybridMode() && forwardPick.idx === cursorLine + DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES;
+      const adjacentTieCandidate = !!forwardPick && !isHybridMode() && forwardPick.idx === cursorLine + Math.max(1, minLineAdvance);
       const consistentAdjacentTieBypass = adjacentTieCandidate ? noteAdjacentTieForward(now3, forwardPick.idx, forwardPick.score) : false;
       if (!adjacentTieCandidate) {
         resetAdjacentTieForward();
@@ -40662,7 +45135,7 @@ function createAsrScrollDriver(options = {}) {
           `eps=${forwardTieEps}`,
           snippet ? `clue="${snippet}"` : ""
         ]);
-        if (!permissiveMatcher) return;
+        if (starvationDetected || !permissiveMatcher) return;
       }
       if (starvationTieForwardBypass) {
         warnGuard("starvation_tie_forward_bypass", [
@@ -40684,19 +45157,34 @@ function createAsrScrollDriver(options = {}) {
       }
       if (hasTie && !forwardPick && !forwardBiasEligible && !shortFinalRecent && !outrunEligible) {
         const guardReason = rawIdx <= cursorLine ? "same_line_noop" : "no_match_wait";
-        if (guardReason === "same_line_noop" && maybeSkipCueLine(cursorLine, now3, guardReason, snippet)) {
-          return;
+        if (guardReason === "same_line_noop") {
+          const shortDuplicateProof = evaluateLiveStrictShortDuplicateBypassProof(
+            "same_line_noop",
+            null
+          );
+          if (shortDuplicateProof) {
+            const before = rawIdx;
+            applyLiveStrictShortDuplicateBypassCommit(shortDuplicateProof, "same_line_noop", before);
+          }
         }
-        warnGuard(guardReason, [
-          `current=${cursorLine}`,
-          `best=${rawIdx}`,
-          `minForward=${forwardMinIdx}`,
-          `sim=${formatLogScore(bestScore)}`,
-          `need=${formatLogScore(requiredThreshold)}`,
-          `eps=${forwardTieEps}`,
-          snippet ? `clue="${snippet}"` : ""
-        ]);
-        if (!permissiveMatcher) return;
+        if (!liveStrictShortDuplicateBypassCommit) {
+          if (guardReason === "same_line_noop" && maybeSkipCueLine(cursorLine, now3, guardReason, snippet, topScoresSpeakable, requiredThreshold)) {
+            return;
+          }
+          warnGuard(guardReason, [
+            `current=${cursorLine}`,
+            `best=${rawIdx}`,
+            `minForward=${forwardMinIdx}`,
+            `sim=${formatLogScore(bestScore)}`,
+            `need=${formatLogScore(requiredThreshold)}`,
+            `eps=${forwardTieEps}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+          if (guardReason === "same_line_noop" && starvationDetected && maybeScheduleStallCueRescue("auto-stall")) {
+            return;
+          }
+          if (!permissiveMatcher) return;
+        }
       }
       if (forwardPick && (forwardPick.idx !== rawIdx || forwardPick.score !== conf)) {
         if (liveForwardGuardActive) {
@@ -40712,6 +45200,7 @@ function createAsrScrollDriver(options = {}) {
           const before = rawIdx;
           rawIdx = forwardPick.idx;
           conf = forwardPick.score;
+          tieForwardPromoted = true;
           if (hasTie) {
             warnGuard("tie_forward", [
               `current=${cursorLine}`,
@@ -40724,6 +45213,17 @@ function createAsrScrollDriver(options = {}) {
           }
         }
       }
+    }
+    if (starvationDetected && tieForwardPromoted && !asrRuntimeSpeechRunningActual) {
+      warnGuard("starved_tie_forward_hold", [
+        `current=${cursorLine}`,
+        `target=${rawIdx}`,
+        `sim=${formatLogScore(conf)}`,
+        `runtimeActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+        snippet ? `clue="${snippet}"` : ""
+      ]);
+      emitHudStatus("starved_tie_forward_hold", "Hold: stalled tie-forward needs runtime speech");
+      return;
     }
     const transcriptComparable = forwardMatcherInputs[0] || "";
     const stableComparable = transcriptComparable || normalizeComparableText(bufferedText || compacted || text);
@@ -40890,6 +45390,11 @@ function createAsrScrollDriver(options = {}) {
     let relockOverride = false;
     let relockReason;
     let interimShortLineAmbiguityHold = interimShortLineAmbiguityBase;
+    if (liveStrictShortDuplicateBypassCommit && rawIdx > cursorLine && conf >= DELTA_MIN_SIM_SMALL) {
+      effectiveThreshold = Math.min(effectiveThreshold, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM);
+      forceReason = forceReason || "live_strict_proof_owned_commit";
+      cueBridgeNudgeDelta = Math.max(1, rawIdx - cursorLine);
+    }
     if (consistentAdjacentForwardBypass && rawIdx > cursorLine && conf >= DELTA_MIN_SIM_SMALL) {
       effectiveThreshold = Math.min(effectiveThreshold, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM);
       forceReason = forceReason || "progressive-floor";
@@ -41267,15 +45772,66 @@ function createAsrScrollDriver(options = {}) {
     }
     const holdAheadOfMarker = isSessionAsrArmed() && isSessionLivePhase() && markerIdx >= 0 && rawIdx < markerIdx;
     if (holdAheadOfMarker) {
-      warnGuard("ahead_of_marker_hold", [
-        `current=${cursorLine}`,
-        `best=${rawIdx}`,
-        `marker=${markerIdx}`,
-        `deltaToMarker=${markerIdx - rawIdx}`,
-        `sim=${formatLogScore(conf)}`
-      ]);
-      emitHudStatus("ahead_of_marker_hold", "Ahead of marker - holding scroll");
-      return;
+      const currentLineScoreForMarkerBackstep = Number.isFinite(arbitrationCurrentScore) ? Number(arbitrationCurrentScore) : conf;
+      if (tryLiveAsrCorrectiveBackstep(
+        cursorLine,
+        rawIdx,
+        now3,
+        conf,
+        currentLineScoreForMarkerBackstep,
+        requiredThreshold,
+        "ahead-of-marker-correct",
+        matchId,
+        snippet
+      )) {
+        return;
+      }
+      const strictClusterNeed = clamp4(
+        Number.isFinite(requiredThreshold) ? Math.max(Number(requiredThreshold) - 0.02, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM) : DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM,
+        DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM,
+        1
+      );
+      const strictClusterContradictionFresh = liveStrictForwardClusterContradictionAt > 0 && now3 - liveStrictForwardClusterContradictionAt <= DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS;
+      const strictClusterProofForImmediateStep = liveStrictFollow && liveStrictForwardClusterCursor === cursorLine && liveStrictForwardClusterHits >= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_STABLE_HITS && liveStrictForwardClusterLine >= cursorLine + DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_DELTA_LINES && liveStrictForwardClusterLine <= cursorLine + DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MAX_DELTA_LINES && liveStrictForwardClusterUpdatedAt > 0 && now3 - liveStrictForwardClusterUpdatedAt <= DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS && Number.isFinite(liveStrictForwardClusterSim) && liveStrictForwardClusterSim >= strictClusterNeed && !strictClusterContradictionFresh;
+      const strictCueAdjacentStepAllowed = strictClusterProofForImmediateStep && markerIdx === cursorLine + 1 && rawIdx <= cursorLine && (hasLiveStrictLocalProof(
+        cursorLine,
+        cursorLine + 1,
+        now3,
+        topScoresSpeakable,
+        requiredThreshold
+      ) || hasLiveStrictCueExitProof(
+        cursorLine,
+        cursorLine + 1,
+        now3,
+        topScoresSpeakable,
+        requiredThreshold
+      ));
+      if (strictCueAdjacentStepAllowed) {
+        const before = rawIdx;
+        rawIdx = cursorLine + 1;
+        if (Number.isFinite(liveStrictForwardClusterSim)) {
+          conf = Math.max(conf, Number(liveStrictForwardClusterSim));
+        }
+        warnGuard("live_strict_ahead_marker_step", [
+          `current=${cursorLine}`,
+          `best=${before}`,
+          `marker=${markerIdx}`,
+          `step=${rawIdx}`,
+          `sim=${formatLogScore(conf)}`,
+          `clusterLine=${liveStrictForwardClusterLine}`,
+          `clusterHits=${liveStrictForwardClusterHits}`
+        ]);
+      } else {
+        warnGuard("ahead_of_marker_hold", [
+          `current=${cursorLine}`,
+          `best=${rawIdx}`,
+          `marker=${markerIdx}`,
+          `deltaToMarker=${markerIdx - rawIdx}`,
+          `sim=${formatLogScore(conf)}`
+        ]);
+        emitHudStatus("ahead_of_marker_hold", "Ahead of marker - holding scroll");
+        return;
+      }
     }
     const nearMarker = consistencyRequireNearMarker ? markerIdx < 0 || Math.abs(rawIdx - markerIdx) <= Math.max(1, consistencyMarkerBandLines) : true;
     if (allowCatchup) {
@@ -41347,7 +45903,7 @@ function createAsrScrollDriver(options = {}) {
     if (progressiveForwardFloorEligible) {
       const beforeNeed = effectiveThreshold;
       effectiveThreshold = Math.min(effectiveThreshold, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM);
-      if (rawIdx > cursorLine) {
+      if (rawIdx > cursorLine && !starvationDetected) {
         if (!interimShortLineAmbiguityHold) {
           forceReason = forceReason || "progressive-floor";
         }
@@ -41601,7 +46157,7 @@ function createAsrScrollDriver(options = {}) {
           }
         } else {
           if (!relockModeActive) {
-            if (rawIdx <= cursorLine && maybeSkipCueLine(cursorLine, now3, "low_sim_wait", snippet)) {
+            if (rawIdx <= cursorLine && maybeSkipCueLine(cursorLine, now3, "low_sim_wait", snippet, topScoresSpeakable, requiredThreshold)) {
               return;
             }
             const microRelockCooldownReady = now3 - lastMicroRelockAt >= DEFAULT_MICRO_RELOCK_COOLDOWN_MS;
@@ -41778,13 +46334,29 @@ function createAsrScrollDriver(options = {}) {
       }
     }
     const preNudgeShortLineAmbiguous = rawIdx >= cursorLine && preNudgeAmbiguity.hold && !preNudgeAnchorOverride;
+    let preNudgeShortLineAmbiguousHold = preNudgeShortLineAmbiguous;
+    if (preNudgeShortLineAmbiguousHold && !liveStrictShortDuplicateBypassCommit) {
+      const preNudgeShortDuplicateProof = evaluateLiveStrictShortDuplicateBypassProof(
+        "pre_nudge_short_line_hold",
+        preNudgeSecond
+      );
+      if (preNudgeShortDuplicateProof) {
+        const before = rawIdx;
+        applyLiveStrictShortDuplicateBypassCommit(
+          preNudgeShortDuplicateProof,
+          "pre_nudge_short_line_hold",
+          before
+        );
+        preNudgeShortLineAmbiguousHold = false;
+      }
+    }
     const preNudgeStrongFinalHoldBypass = isFinal && rawIdx === cursorLine && conf >= Math.max(
       effectiveThreshold,
       permissiveMatcher ? DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM : DEFAULT_STRONG_FORWARD_COMMIT_SIM
     ) && overlapTokensCurrent.length >= (permissiveMatcher ? DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS : DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS) && overlapRatioCurrent >= (permissiveMatcher ? DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO : DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO);
     const permissiveMarkerConsistencyOk = markerIdx < 0 || markerIdx >= cursorLine - Math.max(DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, consistencyMarkerBandLines);
     const preNudgeHoldReason = preNudgeAmbiguity.reason || "short_line_ambiguous";
-    if (preNudgeShortLineAmbiguous && !ambiguityHoldActive && !preNudgeStrongFinalHoldBypass && !permissiveMatcher) {
+    if (preNudgeShortLineAmbiguousHold && !ambiguityHoldActive && !preNudgeStrongFinalHoldBypass && !permissiveMatcher) {
       beginOrRefreshAmbiguityHold(
         now3,
         preNudgeHoldReason,
@@ -41797,7 +46369,7 @@ function createAsrScrollDriver(options = {}) {
       );
       return;
     }
-    const blockCueBridgeForHold = !permissiveMatcher && (ambiguityHoldActive || preNudgeShortLineAmbiguous);
+    const blockCueBridgeForHold = !permissiveMatcher && (ambiguityHoldActive || preNudgeShortLineAmbiguousHold);
     const finalMatchNudgeEligible = isFinal && rawIdx === cursorLine && conf >= Math.max(effectiveThreshold, DEFAULT_STRONG_FORWARD_COMMIT_SIM) && cueBridgeNudgeEvidenceOk && !blockCueBridgeForHold;
     const permissiveFinalNudgeEligible = permissiveMatcher && isFinal && rawIdx === cursorLine && permissiveMarkerConsistencyOk && conf >= DEFAULT_CUE_BRIDGE_STRONG_SIM && preNudgeBestOverlapHits >= DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS && overlapTokensCurrent.length >= DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS && overlapRatioCurrent >= DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO;
     const strongFinalNudgeHoldBypass = preNudgeStrongFinalHoldBypass && blockCueBridgeForHold;
@@ -41997,10 +46569,24 @@ function createAsrScrollDriver(options = {}) {
     const strongForwardInterimProgress = !isFinal && rawIdx > cursorLine && (committedFloor == null || rawIdx > committedFloor) && conf >= forwardThreshold && bufferGrowing;
     const progressiveForwardInterimProgress = !isFinal && forceReason === "progressive-floor" && rawIdx >= cursorLine && conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM && bufferGrowing;
     const adjacentForwardInterimProgress = !isFinal && consistentAdjacentForwardBypass && rawIdx > cursorLine && rawIdx - cursorLine <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES && conf >= DELTA_MIN_SIM_SMALL;
+    const currentLineScoreNumeric = Number(currentLineScoreFromTop);
+    const liveSpeechForwardScoreGapOk = !Number.isFinite(currentLineScoreNumeric) || conf - currentLineScoreNumeric >= DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SCORE_GAP;
+    const liveSpeechForwardPushEligible = !isFinal && rawIdx === cursorLine + 1 && bufferGrowing && tokenCount >= DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS && conf >= Math.max(DELTA_MIN_SIM_SMALL, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SIM) && asrRuntimeSpeechRunningActual && hasRecentActualSpeech(now3) && hasRecentVadSpeechNow(now3) && (noProgressStreak >= 1 || now3 - lastForwardCommitAt >= DEFAULT_LIVE_SPEECH_FORWARD_PUSH_STALL_MS) && (liveSpeechForwardScoreGapOk || !!strongLongAnchorCandidate && strongLongAnchorCandidate.idx === rawIdx || hasFreshNearbyRescueMatchEvidence(cursorLine, rawIdx, now3, []));
+    if (liveSpeechForwardPushEligible) {
+      warnGuard("live_speech_forward_push", [
+        `current=${cursorLine}`,
+        `target=${rawIdx}`,
+        `sim=${formatLogScore(conf)}`,
+        `streak=${noProgressStreak}`,
+        `sinceForwardMs=${Math.max(0, now3 - lastForwardCommitAt)}`,
+        `scoreGap=${Number.isFinite(currentLineScoreNumeric) ? formatLogScore(conf - currentLineScoreNumeric) : "na"}`,
+        snippet ? `clue="${snippet}"` : ""
+      ]);
+    }
     if (!isFinal) {
       if (!allowInterimCommit) {
         interimEligible = false;
-      } else if (conf < interimHighThreshold && !(consistencyState.ok || catchupState.ok) && !strongForwardInterimProgress && !watchdogForwardInterimProgress && !progressiveForwardInterimProgress && !adjacentForwardInterimProgress) {
+      } else if (conf < interimHighThreshold && !(consistencyState.ok || catchupState.ok) && !strongForwardInterimProgress && !watchdogForwardInterimProgress && !progressiveForwardInterimProgress && !adjacentForwardInterimProgress && !liveSpeechForwardPushEligible) {
         lastInterimBestIdx = -1;
         interimRepeatCount = 0;
         interimEligible = false;
@@ -42027,7 +46613,7 @@ function createAsrScrollDriver(options = {}) {
         }
         interimEligible = interimRepeatCount >= effectiveInterimRepeats || consistencyState.ok || catchupState.ok;
         if (!interimEligible) {
-          if (strongForwardInterimProgress || watchdogForwardInterimProgress || progressiveForwardInterimProgress || adjacentForwardInterimProgress) {
+          if (strongForwardInterimProgress || watchdogForwardInterimProgress || progressiveForwardInterimProgress || adjacentForwardInterimProgress || liveSpeechForwardPushEligible) {
             interimEligible = true;
           } else {
             warnGuard("interim_unstable", [
@@ -42058,7 +46644,7 @@ function createAsrScrollDriver(options = {}) {
     });
     if (!isFinal) {
       const runtimeMode = getScrollMode3();
-      const allowAsrInterimCommit = runtimeMode === "asr" && interimEligible && rawIdx > cursorLine && rawIdx - cursorLine <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES && conf >= DELTA_MIN_SIM_SMALL && isSessionAsrArmed() && isSessionLivePhase() && (adjacentForwardInterimProgress || progressiveForwardInterimProgress || strongForwardInterimProgress || catchupCommit || consistencyState.ok);
+      const allowAsrInterimCommit = runtimeMode === "asr" && interimEligible && rawIdx > cursorLine && rawIdx - cursorLine <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES && conf >= DELTA_MIN_SIM_SMALL && isSessionAsrArmed() && isSessionLivePhase() && (adjacentForwardInterimProgress || progressiveForwardInterimProgress || strongForwardInterimProgress || watchdogForwardInterimProgress || liveSpeechForwardPushEligible || catchupCommit || consistencyState.ok);
       if (runtimeMode === "asr") {
         if (!allowAsrInterimCommit && isDevMode4()) {
           warnGuard("interim_commit_blocked", [
@@ -42150,6 +46736,27 @@ function createAsrScrollDriver(options = {}) {
     const holdBestSim = holdBestCandidate ? holdBestCandidate.score : conf;
     const holdSecondIdx = holdSecondCandidate ? holdSecondCandidate.idx : null;
     const holdSecondSim = holdSecondCandidate ? holdSecondCandidate.score : null;
+    if (!liveStrictShortDuplicateBypassCommit && (holdCandidateAmbiguous || shouldHoldCandidate || ambiguityHoldActive && holdShortLineAmbiguous)) {
+      const holdShortDuplicateProof = evaluateLiveStrictShortDuplicateBypassProof(
+        "hold_wait",
+        holdSecondCandidate
+      );
+      if (holdShortDuplicateProof) {
+        if (ambiguityHoldActive) {
+          closeAmbiguityHold(
+            now3,
+            "proof_owned_adjacent",
+            cursorLine,
+            holdBestIdx,
+            holdBestSim,
+            holdSecondIdx,
+            holdSecondSim
+          );
+        }
+        const before = rawIdx;
+        applyLiveStrictShortDuplicateBypassCommit(holdShortDuplicateProof, "hold_wait", before);
+      }
+    }
     if (ambiguityHoldActive && permissiveMatcher) {
       closeAmbiguityHold(
         now3,
@@ -42193,7 +46800,7 @@ function createAsrScrollDriver(options = {}) {
           } catch {
           }
         }
-      } else if (shouldHoldCandidate || conf < Math.max(requiredThreshold, DEFAULT_HOLD_ANCHOR_MIN_SIM)) {
+      } else if (!liveStrictShortDuplicateBypassCommit && (shouldHoldCandidate || conf < Math.max(requiredThreshold, DEFAULT_HOLD_ANCHOR_MIN_SIM))) {
         beginOrRefreshAmbiguityHold(
           now3,
           holdReasonCode || ambiguityHoldReason || "await_anchor",
@@ -42216,7 +46823,7 @@ function createAsrScrollDriver(options = {}) {
           holdSecondSim
         );
       }
-    } else if (holdCandidateAmbiguous) {
+    } else if (holdCandidateAmbiguous && !liveStrictShortDuplicateBypassCommit) {
       if (strongLongAnchorCandidate) {
         const before = rawIdx;
         rawIdx = strongLongAnchorCandidate.idx;
@@ -42313,6 +46920,9 @@ function createAsrScrollDriver(options = {}) {
         behindStrongSince = 0;
       }
       if (DEFAULT_ALLOW_BEHIND_REANCHOR && strongBehind && behindStrongCount >= backConfirmHits && behindStrongSince > 0 && now3 - behindStrongSince >= behindRecoveryMs && behindBy <= behindRecoveryMaxLines && conf >= Math.max(behindRecoveryMinSim, requiredThreshold) && now3 - lastBehindRecoveryAt >= behindRecoveryCooldownMs) {
+        if (!canApplyAsrMovement("behind-reanchor", now3, { final: isFinal, clue: snippet })) {
+          return;
+        }
         const scroller = getScroller();
         const scrollTopBefore = scroller?.scrollTop ?? 0;
         const targetTop = scroller ? resolveTargetTop(scroller, rawIdx) : null;
@@ -42514,7 +47124,9 @@ function createAsrScrollDriver(options = {}) {
       searchWindowTo: bandEnd,
       lostMode,
       cueBridgeNudgeDelta,
-      liveForwardGuardActive: liveForwardGuardActive || void 0
+      liveForwardGuardActive: liveForwardGuardActive || void 0,
+      runKey: transcriptRunKey || void 0,
+      runGeneration: transcriptRunGeneration ?? void 0
     });
     schedulePending();
   };
@@ -42555,6 +47167,7 @@ function createAsrScrollDriver(options = {}) {
       pendingRaf = 0;
     }
     pendingMatch = null;
+    pendingSpeakableBridgeState = null;
     asrSilenceActive = true;
     lastStallRecoveryOverrideAt = 0;
     _postCommitReadabilitySeq += 1;
@@ -42591,6 +47204,18 @@ function createAsrScrollDriver(options = {}) {
     } catch {
     }
     try {
+      window.removeEventListener("focus", focusGateFocusHandler);
+    } catch {
+    }
+    try {
+      window.removeEventListener("blur", focusGateBlurHandler);
+    } catch {
+    }
+    try {
+      document.removeEventListener("visibilitychange", focusGateVisibilityHandler);
+    } catch {
+    }
+    try {
       if (window.__tpAsrRequestRescue === rescueHandler) {
         window.__tpAsrRequestRescue = void 0;
       }
@@ -42600,6 +47225,8 @@ function createAsrScrollDriver(options = {}) {
     manualAnchorPending = null;
     resetAmbiguityHoldState();
     updateManualAnchorGlobalState();
+    asrFocusMovementHoldActive = false;
+    publishAsrFocusGateState();
     if (activeGuardCounts === guardCounts) {
       activeGuardCounts = null;
     }
@@ -42609,6 +47236,8 @@ function createAsrScrollDriver(options = {}) {
     scriptEndEventEmitted = false;
     releaseCommitWindow("setLastLineIndex");
     lastLineIndex = Math.max(0, Math.floor(index));
+    lastCommittedLine = lastLineIndex;
+    lastFreshProofLine = lastLineIndex;
     _postCommitReadabilitySeq += 1;
     lastSeekTs = 0;
     lastSameLineNudgeTs = 0;
@@ -42653,6 +47282,8 @@ function createAsrScrollDriver(options = {}) {
     lagRelockHits = 0;
     lagRelockWindowStart = 0;
     lastForwardCommitAt = Date.now();
+    lastCommittedLine = lastLineIndex;
+    lastFreshProofLine = lastLineIndex;
     finalsSinceCommit = 0;
     eventsSinceCommit = 0;
     lostForwardGateCountAtLastCommit = getGuardCount("lost_forward_gate");
@@ -42660,6 +47291,10 @@ function createAsrScrollDriver(options = {}) {
     lostForwardWallStreak = 0;
     lastProgressCursorLine = lastLineIndex;
     lastCueStallRescueAt = 0;
+    softRuntimeRebaseCooldownUntil = 0;
+    softRuntimeRebaseLastStallAnchorAt = -1;
+    softRuntimeRebaseRetryActive = false;
+    softRuntimeRebaseLastSkipLogAt = 0;
     lostForwardActive = false;
     lostForwardStage = 0;
     lostForwardEnteredAt = 0;
@@ -42676,6 +47311,7 @@ function createAsrScrollDriver(options = {}) {
       pendingRaf = 0;
     }
     pendingMatch = null;
+    pendingSpeakableBridgeState = null;
     strongHits.length = 0;
     evidenceEntries.length = 0;
     evidenceText = "";
@@ -42684,6 +47320,7 @@ function createAsrScrollDriver(options = {}) {
     lastStuckDumpAt = 0;
     manualAnchorPending = null;
     updateManualAnchorGlobalState();
+    markCommitTranscriptCursor(lastLineIndex, lastForwardCommitAt);
     setCurrentIndex(lastLineIndex, "manualReset");
     updateDebugState("sync-index");
   };
@@ -42708,7 +47345,7 @@ function createAsrScrollDriver(options = {}) {
   }
   return driver;
 }
-var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_MATCH_BACKTRACK_LINES, DEFAULT_MATCH_LOOKAHEAD_LINES, DEFAULT_MATCH_LOOKAHEAD_STEPS, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_BAND_BACK_TOLERANCE_LINES, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, LIVE_ASR_COMMIT_MIN_PX, LIVE_ASR_COMMIT_MAX_LINES, LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO, LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_MIN_TOKEN_COUNT, DEFAULT_MIN_EVIDENCE_CHARS, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_NO_MATCH_WINDOW_MS, DEFAULT_NO_MATCH_BUMP_HITS, DEFAULT_NO_MATCH_RELOCK_HITS, GUARD_THROTTLE_MS, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_NOISE_INTERIM_MIN_TOKENS, DEFAULT_NOISE_INTERIM_MIN_CHARS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_ASR_VAD_SPEECH_GRACE_MS, DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS, AUTO_CUE_SKIP_COOLDOWN_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_STALL_LOG_COOLDOWN_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, EVENT_RING_MAX, EVENT_DUMP_COUNT, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MANUAL_ANCHOR_MIN_SCROLL_PX, MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS, MANUAL_ANCHOR_PENDING_TIMEOUT_MS, MANUAL_ANCHOR_WINDOW_LINES, MANUAL_ANCHOR_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS, DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS, DEFAULT_RESCUE_MATCH_MIN_SIM, DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES, DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES, DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES, DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM, DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK, DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, HOLD_TICK_LOG_THROTTLE_MS, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_SIM_PER_EXTRA_LINE, DEFAULT_STRONG_MARKER_SNAP_MAX_REQUIRED_SIM, DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_MIN_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_LOW_CONF_SIM, DEFAULT_LIVE_ASR_SOFT_COMMIT_MAX_LINES, DEFAULT_STARVATION_TIE_FORWARD_MAX_DELTA_LINES, DEFAULT_STARVATION_TIE_FORWARD_SIM_SLACK, DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES, DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_REQUIRED_LEAD, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_FINAL_MATCH_NUDGE_MAX_DELTA_LINES, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CUE_LINE_BRACKET_RE, CUE_LINE_WORD_RE, STRUCTURAL_EMPTY_LINE_RE, SPEAKER_TAG_ONLY_RE, NOTE_TAG_ONLY_RE, NOTE_INLINE_BLOCK_RE, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, GUARD_DEBUG_REASONS, LOG_THROTTLE_MS, HUD_STATUS_THROTTLE_MS, HUD_PURSUE_THROTTLE_MS, lastPursueHudAt, SUMMARY_TOAST_DEDUPE_MS, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, NAN_GUARD_THROTTLE_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
+var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_MATCH_BACKTRACK_LINES, DEFAULT_MATCH_LOOKAHEAD_LINES, DEFAULT_MATCH_LOOKAHEAD_STEPS, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_BAND_BACK_TOLERANCE_LINES, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, LIVE_ASR_COMMIT_MIN_PX, LIVE_ASR_COMMIT_MAX_LINES, LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO, LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_MIN_TOKEN_COUNT, DEFAULT_MIN_EVIDENCE_CHARS, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_NO_MATCH_WINDOW_MS, DEFAULT_NO_MATCH_BUMP_HITS, DEFAULT_NO_MATCH_RELOCK_HITS, GUARD_THROTTLE_MS, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_NOISE_INTERIM_MIN_TOKENS, DEFAULT_NOISE_INTERIM_MIN_CHARS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_STALL_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_COOLDOWN_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_FINAL_MAX_AGE_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_SKIP_LOG_COOLDOWN_MS, DEFAULT_ASR_VAD_SPEECH_GRACE_MS, DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS, DEFAULT_ASR_AUTHORITY_SPEECH_STOP_BRAKE_MS, DEFAULT_ASR_AUTHORITY_FINAL_AFTER_SPEECH_STOP_MAX_AGE_MS, DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS, AUTO_CUE_SKIP_COOLDOWN_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_STALL_LOG_COOLDOWN_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, EVENT_RING_MAX, EVENT_DUMP_COUNT, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MANUAL_ANCHOR_MIN_SCROLL_PX, MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS, MANUAL_ANCHOR_PENDING_TIMEOUT_MS, MANUAL_ANCHOR_WINDOW_LINES, MANUAL_ANCHOR_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS, DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS, DEFAULT_RESCUE_MATCH_MIN_SIM, DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES, DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS, DEFAULT_LIVE_STRICT_LOCAL_PROOF_ADJACENT_MIN_SIM, DEFAULT_LIVE_STRICT_LOCAL_PROOF_RESCUE_MIN_SIM, DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MIN_SIM, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_SIM_BONUS, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MAX_FORWARD_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_DELTA_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MAX_DELTA_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_STABLE_HITS, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_INDEX_EPS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS, LIVE_STRICT_MOMENTUM_SYNC_WINDOW_MS, LIVE_STRICT_STALL_AFTER_MS, LIVE_STRICT_WEAK_SIGNAL_REPEAT_COUNT, LIVE_STRICT_WEAK_POSITIVE_ADJACENT_MIN_SIM, LIVE_STRICT_BEHIND_RECOVERY_MIN_LINES, LIVE_STRICT_BEHIND_RECOVERY_MAX_LINES, LIVE_STRICT_BEHIND_RECOVERY_ADJACENT_SLACK, ASR_READER_LEASH_MAX_READABLE_AHEAD, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN, DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS, DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS, DEFAULT_ASR_PENDING_BRIDGE_PRESSURE_COMMIT_MS, DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_LINES, DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_NO_COMMIT_MS, DEFAULT_ASR_MARKER_LAG_PRESSURE_ADJACENT_SIM_SLACK, LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS, LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT, LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES, DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MULTI_STEP_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES, DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM, DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK, DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_LIVE_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, HOLD_TICK_LOG_THROTTLE_MS, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_STALL_MS, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SIM, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SCORE_GAP, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_RATIO, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_HITS, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_NOVEL_TOKENS, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_COMMITS, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_SIM_PER_EXTRA_LINE, DEFAULT_STRONG_MARKER_SNAP_MAX_REQUIRED_SIM, DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES, DEFAULT_ASR_MARKER_ANCHOR_LIVE_MAX_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_MIN_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_LOW_CONF_SIM, DEFAULT_LIVE_ASR_SOFT_COMMIT_MAX_LINES, DEFAULT_STARVATION_TIE_FORWARD_MAX_DELTA_LINES, DEFAULT_STARVATION_TIE_FORWARD_SIM_SLACK, DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES, DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM, DEFAULT_ASR_ADJACENT_COMPLETION_SIM_SLACK, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_REQUIRED_LEAD, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_FINAL_MATCH_NUDGE_MAX_DELTA_LINES, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CUE_LINE_BRACKET_RE, CUE_LINE_WORD_RE, STRUCTURAL_EMPTY_LINE_RE, SPEAKER_TAG_ONLY_RE, NOTE_TAG_ONLY_RE, NOTE_INLINE_BLOCK_RE, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, GUARD_DEBUG_REASONS, ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, LIVE_STRICT_SPECULATIVE_FORCE_REASONS, LOG_THROTTLE_MS, HUD_STATUS_THROTTLE_MS, HUD_PURSUE_THROTTLE_MS, lastPursueHudAt, SUMMARY_TOAST_DEDUPE_MS, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, NAN_GUARD_THROTTLE_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
 var init_asr_scroll_driver = __esm({
   "src/features/asr/asr-scroll-driver.ts"() {
     "use strict";
@@ -42756,8 +47393,8 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_MAX_TARGET_JUMP_PX = 180;
     DEFAULT_MAX_TARGET_JUMP_HYBRID_PX = 80;
     LIVE_ASR_COMMIT_MIN_PX = 96;
-    LIVE_ASR_COMMIT_MAX_LINES = 8;
-    LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO = 0.75;
+    LIVE_ASR_COMMIT_MAX_LINES = 4;
+    LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO = 0.5;
     LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES = 1;
     DEFAULT_PURSUE_KP = 3.2;
     DEFAULT_PURSUE_MANUAL_CANCEL_PX = 48;
@@ -42855,8 +47492,15 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_NOISE_INTERIM_MIN_CHARS = 12;
     DEFAULT_STARVATION_COMMIT_GAP_MS = 1500;
     DEFAULT_STARVATION_WARN_COOLDOWN_MS = 1500;
+    DEFAULT_ASR_SOFT_RUNTIME_REBASE_STALL_MS = 5e3;
+    DEFAULT_ASR_SOFT_RUNTIME_REBASE_COOLDOWN_MS = 7e3;
+    DEFAULT_ASR_SOFT_RUNTIME_REBASE_FINAL_MAX_AGE_MS = 5e3;
+    DEFAULT_ASR_SOFT_RUNTIME_REBASE_SKIP_LOG_COOLDOWN_MS = 1200;
     DEFAULT_ASR_VAD_SPEECH_GRACE_MS = 900;
     DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS = 900;
+    DEFAULT_ASR_AUTHORITY_SPEECH_STOP_BRAKE_MS = 1800;
+    DEFAULT_ASR_AUTHORITY_FINAL_AFTER_SPEECH_STOP_MAX_AGE_MS = 1500;
+    DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS = 1;
     DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES = 5;
     DEFAULT_STARVATION_RELOCK_SIM_SLACK = 0.08;
     DEFAULT_STARVATION_RELOCK_COOLDOWN_MS = 1200;
@@ -42970,13 +47614,53 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS = 320;
     DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS = 260;
     DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS = 220;
-    DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS = 2600;
+    DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS = 3200;
     DEFAULT_RESCUE_MATCH_MIN_SIM = 0.62;
     DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES = 2;
     DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS = 1200;
+    DEFAULT_LIVE_STRICT_LOCAL_PROOF_ADJACENT_MIN_SIM = 0.55;
+    DEFAULT_LIVE_STRICT_LOCAL_PROOF_RESCUE_MIN_SIM = 0.6;
+    DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS = 1200;
+    DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MIN_SIM = 0.66;
+    DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_SIM_BONUS = 0.06;
+    DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MAX_FORWARD_LINES = 2;
+    DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_DELTA_LINES = 3;
+    DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MAX_DELTA_LINES = 12;
+    DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM = 0.62;
+    DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_STABLE_HITS = 1;
+    DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS = 3500;
+    DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_INDEX_EPS = 2;
+    DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS = 2500;
+    DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS = 2;
+    DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO = 0.34;
+    DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM = 0.38;
+    DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM = 0.58;
+    DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS = 1400;
+    LIVE_STRICT_MOMENTUM_SYNC_WINDOW_MS = 7e3;
+    LIVE_STRICT_STALL_AFTER_MS = 1800;
+    LIVE_STRICT_WEAK_SIGNAL_REPEAT_COUNT = 2;
+    LIVE_STRICT_WEAK_POSITIVE_ADJACENT_MIN_SIM = 0.48;
+    LIVE_STRICT_BEHIND_RECOVERY_MIN_LINES = 1;
+    LIVE_STRICT_BEHIND_RECOVERY_MAX_LINES = 2;
+    LIVE_STRICT_BEHIND_RECOVERY_ADJACENT_SLACK = 0.04;
+    ASR_READER_LEASH_MAX_READABLE_AHEAD = 1;
+    LIVE_STRICT_MAX_CUE_BRIDGE_SPAN = DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES;
+    DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS = 1;
+    DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS = 2200;
+    DEFAULT_ASR_PENDING_BRIDGE_PRESSURE_COMMIT_MS = 1e3;
+    DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_LINES = 2;
+    DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_NO_COMMIT_MS = 850;
+    DEFAULT_ASR_MARKER_LAG_PRESSURE_ADJACENT_SIM_SLACK = 0.12;
+    LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS = 2;
+    LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT = 3;
+    LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS = 2;
     DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 1;
     DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 1;
     DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS;
+    DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MIN_COMMITS = 8;
+    DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MULTI_STEP_MIN_COMMITS = 12;
+    DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_MIN_COMMITS = 12;
+    DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS * 4;
     DEFAULT_MULTI_JUMP_MIN_SIM = 0.4;
     DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS = 0.08;
     DEFAULT_MULTI_JUMP_HARD_DENY_SIM = 0.26;
@@ -42987,6 +47671,7 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM = 0.55;
     DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES = 4;
     DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES = 1;
+    DEFAULT_ASR_WEAK_CLAMP_FALLBACK_LIVE_PROMOTE_MAX_LINES = 0;
     DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_DELTA_LINES = 5;
     DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_MIN_SIM = 0.86;
     DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES = 3;
@@ -43024,6 +47709,12 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM = 0.4;
     DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS = 4;
     DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK = 2;
+    DEFAULT_LIVE_SPEECH_FORWARD_PUSH_STALL_MS = 350;
+    DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SIM = 0.34;
+    DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SCORE_GAP = 0.06;
+    DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_RATIO = 0.26;
+    DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_HITS = 2;
+    DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_NOVEL_TOKENS = 1;
     LOST_FORWARD_WINDOW_STEPS = [10, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, 60];
     LOST_FORWARD_STAGE_STREAKS = [
       DEFAULT_NO_PROGRESS_STREAK_TRIGGER,
@@ -43045,7 +47736,8 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS = 5e3;
     DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES = 1;
     DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM = 0.84;
-    DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM = 0.32;
+    DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM = 0.45;
+    DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_COMMITS = 6;
     DEFAULT_STRONG_FORWARD_COMMIT_SIM = 0.82;
     DEFAULT_STRONG_MARKER_SNAP_MIN_SIM = 0.82;
     DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES = 2;
@@ -43053,6 +47745,7 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_STRONG_MARKER_SNAP_SIM_PER_EXTRA_LINE = 0.03;
     DEFAULT_STRONG_MARKER_SNAP_MAX_REQUIRED_SIM = 0.9;
     DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES = 2;
+    DEFAULT_ASR_MARKER_ANCHOR_LIVE_MAX_DELTA_LINES = 1;
     DEFAULT_LIVE_ASR_SOFT_COMMIT_MIN_DELTA_LINES = 4;
     DEFAULT_LIVE_ASR_SOFT_COMMIT_LOW_CONF_SIM = 0.84;
     DEFAULT_LIVE_ASR_SOFT_COMMIT_MAX_LINES = 3;
@@ -43060,6 +47753,7 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_STARVATION_TIE_FORWARD_SIM_SLACK = 0.08;
     DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES = 2;
     DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM = 0.56;
+    DEFAULT_ASR_ADJACENT_COMPLETION_SIM_SLACK = 0.1;
     DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS = 2;
     DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS = 2;
     DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO = 0.25;
@@ -43211,7 +47905,44 @@ var init_asr_scroll_driver = __esm({
       "match_out_of_band",
       "low_sim_wait",
       "low_sim",
-      "interim_unstable"
+      "interim_unstable",
+      "live_strict_local_proof_ok",
+      "live_strict_speculative_latch_set",
+      "strict_live_accept",
+      "momentum_bias_adjacent",
+      "anti_stall_nudge",
+      "behind_marker_recovery",
+      "adjacent_rescue_proofed",
+      "autonomous_path_blocked",
+      "strict_live_adjacent_speakable_bridge",
+      "live_strict_bridge_landing_hold",
+      "live_strict_bridge_stale_landing_hold",
+      "asr_reader_leash_bridge_override_allow",
+      "asr_reader_leash_speakable_limit",
+      "asr_reader_leash_physical_limit_bug",
+      "asr_reader_leash_hold",
+      "asr_reader_leash_downgrade",
+      "strict_live_backlog_drain",
+      "strict_live_backlog_drain_start",
+      "strict_live_backlog_drain_step",
+      "strict_live_backlog_drain_stop",
+      "strict_live_backlog_drain_terminal"
+    ]);
+    ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD = "asr_focus_lost_movement_hold";
+    LIVE_STRICT_SPECULATIVE_FORCE_REASONS = /* @__PURE__ */ new Set([
+      "stall-rescue",
+      "progressive-floor",
+      "permissive-final-advance",
+      "final-forward-nudge",
+      "final-forward-fallback",
+      "marker-next-spoken-lock",
+      "watchdog",
+      "catchup-consistent",
+      "catchup",
+      "lost-forward",
+      "short-final",
+      "outrun",
+      "stall_recovery_override"
     ]);
     LOG_THROTTLE_MS = 500;
     HUD_STATUS_THROTTLE_MS = 500;
@@ -43946,10 +48677,12 @@ var init_whisper_bridge = __esm({
       requestsInFlight = 0;
       lastAiSnapshotKey = "";
       seq = 0;
+      generation = 0;
       unauthorized = false;
       requestInvalid = false;
       consecutiveUnsupportedAudioErrors = 0;
       deterministicLatchLogged = false;
+      inFlightTranscriptionControllers = /* @__PURE__ */ new Set();
       constructor(options = {}) {
         this.route = options.route || DEFAULT_ROUTE;
         this.lang = options.lang || "en-US";
@@ -44036,6 +48769,8 @@ var init_whisper_bridge = __esm({
         this.deterministicLatchLogged = false;
         this.pendingRecorderStop = null;
         this.endEmitted = false;
+        this.generation += 1;
+        this.abortInFlightTranscriptions();
         this.running = true;
         this.startRecorderSegment();
         this.syncAiActivity();
@@ -44044,9 +48779,11 @@ var init_whisper_bridge = __esm({
       stop() {
         if (!this.recorder && !this.running) return;
         this.running = false;
+        this.generation += 1;
         this.queue = [];
         this.pendingRecorderStop = "final";
         this.clearSegmentTimer();
+        this.abortInFlightTranscriptions();
         this.syncAiActivity();
         try {
           this.recorder?.requestData();
@@ -44064,6 +48801,69 @@ var init_whisper_bridge = __esm({
       }
       abort() {
         this.stop();
+      }
+      abortInFlightTranscriptions() {
+        if (this.inFlightTranscriptionControllers.size === 0) return;
+        for (const controller of this.inFlightTranscriptionControllers) {
+          try {
+            controller.abort();
+          } catch {
+          }
+        }
+        this.inFlightTranscriptionControllers.clear();
+      }
+      isAbortError(error) {
+        if (!error || typeof error !== "object") return false;
+        const named = error.name;
+        if (typeof named === "string" && named.toLowerCase() === "aborterror") return true;
+        const message = error instanceof Error ? error.message : String(error ?? "");
+        return /aborted?/i.test(message);
+      }
+      readLiveArmedState() {
+        try {
+          const store3 = window.__tpStore;
+          if (store3 && typeof store3.get === "function") {
+            const phaseRaw = String(store3.get("session.phase") || "").trim().toLowerCase();
+            const armed = !!store3.get("session.asrArmed");
+            const liveArmed = phaseRaw === "live" && armed;
+            return {
+              known: phaseRaw.length > 0,
+              liveArmed,
+              phase: phaseRaw || null,
+              armed
+            };
+          }
+        } catch {
+        }
+        return {
+          known: false,
+          liveArmed: true,
+          phase: null,
+          armed: null
+        };
+      }
+      getStaleDropReason(requestGeneration) {
+        if (requestGeneration !== this.generation) return "generation-mismatch";
+        if (!this.running) return "recognizer-stopped";
+        const liveState = this.readLiveArmedState();
+        if (liveState.known && !liveState.liveArmed) return "session-not-live-armed";
+        return null;
+      }
+      logStaleResponseDropped(info) {
+        if (!shouldLogLevel(1)) return;
+        const liveState = this.readLiveArmedState();
+        try {
+          console.warn("[whisper-bridge] whisper_stale_response_dropped", {
+            seq: info.seq,
+            reason: info.reason,
+            requestGeneration: info.requestGeneration,
+            currentGeneration: info.currentGeneration,
+            running: this.running,
+            phase: liveState.phase,
+            asrArmed: liveState.armed
+          });
+        } catch {
+        }
       }
       startRecorderSegment() {
         if (!this.running) return;
@@ -44231,20 +49031,42 @@ var init_whisper_bridge = __esm({
             const queueDepthAfter = this.queue.length;
             this.requestsInFlight += 1;
             this.syncAiActivity();
+            const requestGeneration = this.generation;
             try {
               const payload = await this.transcribe(
                 next.blob,
                 next.seq,
+                requestGeneration,
                 next.durationMs,
                 queueDepthBefore,
                 queueDepthAfter
               );
+              const staleDropReason = this.getStaleDropReason(requestGeneration);
+              if (staleDropReason) {
+                this.logStaleResponseDropped({
+                  seq: next.seq,
+                  reason: staleDropReason,
+                  requestGeneration,
+                  currentGeneration: this.generation
+                });
+                continue;
+              }
               this.lastModel = payload.model ?? this.lastModel;
               this.lastAiError = null;
               this.consecutiveUnsupportedAudioErrors = 0;
               this.logRecoveredChunkViaServerFallback(payload, next.seq);
               this.handleTranscript(payload);
             } catch (error) {
+              const staleDropReason = this.getStaleDropReason(requestGeneration);
+              if (staleDropReason || this.isAbortError(error)) {
+                this.logStaleResponseDropped({
+                  seq: next.seq,
+                  reason: staleDropReason ?? "request-aborted",
+                  requestGeneration,
+                  currentGeneration: this.generation
+                });
+                continue;
+              }
               let message = error instanceof Error ? error.message : "Whisper bridge error";
               this.lastAiError = message;
               if (error instanceof WhisperBridgeHttpError && error.status === 401 || error instanceof WhisperBridgeAuthError) {
@@ -44409,8 +49231,11 @@ var init_whisper_bridge = __esm({
         } catch {
         }
       }
-      async transcribe(blob, seq, durationMs, queueDepthBefore, queueDepthAfter) {
+      async transcribe(blob, seq, requestGeneration, durationMs, queueDepthBefore, queueDepthAfter) {
         const accessToken = await resolveWhisperAccessToken();
+        if (this.getStaleDropReason(requestGeneration)) {
+          throw new Error("whisper_stale_response");
+        }
         const form = new FormData();
         const mimeType = blob.type || this.recorderMimeType || chooseMimeType();
         const filename = buildChunkFilename(seq, mimeType);
@@ -44436,15 +49261,31 @@ var init_whisper_bridge = __esm({
           normalizedLanguage,
           requestInvalid: this.requestInvalid
         });
-        const response = await fetch(this.route, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`
-          },
-          body: form,
-          cache: "no-store",
-          credentials: "same-origin"
-        });
+        const abortController = new AbortController();
+        this.inFlightTranscriptionControllers.add(abortController);
+        if (this.getStaleDropReason(requestGeneration)) {
+          try {
+            abortController.abort();
+          } catch {
+          }
+          this.inFlightTranscriptionControllers.delete(abortController);
+          throw new Error("whisper_stale_response");
+        }
+        let response;
+        try {
+          response = await fetch(this.route, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`
+            },
+            body: form,
+            cache: "no-store",
+            credentials: "same-origin",
+            signal: abortController.signal
+          });
+        } finally {
+          this.inFlightTranscriptionControllers.delete(abortController);
+        }
         const rawText = await response.text();
         let payload = {};
         if (rawText.trim()) {
@@ -44475,6 +49316,9 @@ var init_whisper_bridge = __esm({
             }
           }
           throw new WhisperBridgeHttpError(response.status, readResponseError(payload, response.status), payload);
+        }
+        if (this.getStaleDropReason(requestGeneration)) {
+          throw new Error("whisper_stale_response");
         }
         return payload;
       }
@@ -44539,7 +49383,7 @@ var MATCH_TOKEN_WINDOW, META_PHRASES;
 var init_matcher_input = __esm({
   "src/speech/matcher-input.ts"() {
     "use strict";
-    MATCH_TOKEN_WINDOW = 28;
+    MATCH_TOKEN_WINDOW = 18;
     META_PHRASES = [
       /\bit(?:'s| is) not keeping up\b/gi,
       /\bit(?:'s| is) not moving\b/gi,
@@ -45564,6 +50408,7 @@ function emitAsrRuntimeStatus(reason) {
     recognizerAttached: !!activeRecognizer,
     phase: String(getSession().phase || "idle").toLowerCase(),
     runKey: activeAsrRunKey || null,
+    runGeneration: asrRunGeneration > 0 ? asrRunGeneration : null,
     state: currentAsrState,
     speechRunning: !!running,
     speechRunningActual: !!speechRunningActual
@@ -47222,6 +52067,15 @@ function enrichTranscriptPayloadForAsr(payload) {
   const mode = String(next.mode || lastScrollMode || getScrollMode4() || "").toLowerCase();
   const asrLike = mode === "asr" || mode === "hybrid";
   if (!asrLike) return next;
+  if (next.runKey == null) {
+    next.runKey = activeAsrRunKey || null;
+  }
+  if (next.runGeneration == null) {
+    next.runGeneration = asrRunGeneration > 0 ? asrRunGeneration : null;
+  }
+  if (next.speechRunningActual == null) {
+    next.speechRunningActual = !!speechRunningActual;
+  }
   const match = deriveFallbackMatch(next);
   if (match && (!next.match || typeof next.match !== "object")) {
     next.match = match;
@@ -48045,15 +52899,15 @@ function getAsrBlockSnapshot() {
   } catch {
   }
   try {
-    const meta3 = getAsrBlockIndex();
-    if (Number.isFinite(Number(meta3?.schemaVersion))) {
-      schemaVersion = Number(meta3.schemaVersion);
+    const meta2 = getAsrBlockIndex();
+    if (Number.isFinite(Number(meta2?.schemaVersion))) {
+      schemaVersion = Number(meta2.schemaVersion);
     }
-    if (typeof meta3?.source === "string") {
-      source = meta3.source;
+    if (typeof meta2?.source === "string") {
+      source = meta2.source;
     }
-    if (Array.isArray(meta3?.units) && meta3.units.length) {
-      const units = meta3.units;
+    if (Array.isArray(meta2?.units) && meta2.units.length) {
+      const units = meta2.units;
       const first = units[0] || {};
       const last = units[units.length - 1] || {};
       const sums = units.reduce(
@@ -48121,6 +52975,7 @@ function shouldCreateAsrDriver(mode, reason) {
 }
 function beginAsrRunKey(mode, reason) {
   if (activeAsrRunKey) return activeAsrRunKey;
+  asrRunGeneration += 1;
   asrRunCounter += 1;
   activeAsrRunKey = `asr-${Date.now().toString(36)}-${asrRunCounter}-${String(mode || "unknown").toLowerCase()}`;
   if (typeof window !== "undefined") {
@@ -48128,10 +52983,19 @@ function beginAsrRunKey(mode, reason) {
       window.__tpAsrRunKey = activeAsrRunKey;
     } catch {
     }
+    try {
+      window.__tpAsrRunGeneration = asrRunGeneration;
+    } catch {
+    }
   }
   if (isDevMode5() && shouldLogLevel(1)) {
     try {
-      console.info("[ASR] run begin", { runKey: activeAsrRunKey, mode, reason });
+      console.info("[ASR] run begin", {
+        runKey: activeAsrRunKey,
+        runGeneration: asrRunGeneration,
+        mode,
+        reason
+      });
     } catch {
     }
   }
@@ -48141,9 +53005,14 @@ function beginAsrRunKey(mode, reason) {
 function clearAsrRunKey(reason) {
   if (!activeAsrRunKey) return;
   const endedRunKey = activeAsrRunKey;
+  asrRunGeneration += 1;
   if (isDevMode5() && shouldLogLevel(1)) {
     try {
-      console.info("[ASR] run clear", { runKey: endedRunKey, reason });
+      console.info("[ASR] run clear", {
+        runKey: endedRunKey,
+        runGeneration: asrRunGeneration,
+        reason
+      });
     } catch {
     }
   }
@@ -48159,6 +53028,10 @@ function clearAsrRunKey(reason) {
     }
     try {
       window.__tpAsrRunKey = null;
+    } catch {
+    }
+    try {
+      window.__tpAsrRunGeneration = asrRunGeneration;
     } catch {
     }
   }
@@ -48238,7 +53111,12 @@ function ensureAsrScrollDriver(reason, opts) {
   const mode = String(opts?.mode || getScrollMode4() || "").toLowerCase();
   if (!shouldCreateAsrDriver(mode, reason)) return null;
   const runKey = String(opts?.runKey || activeAsrRunKey || "").trim();
-  asrScrollDriver = createAsrScrollDriver({ runKey: runKey || void 0 });
+  const runGenerationRaw = Number(opts?.runGeneration ?? asrRunGeneration);
+  const runGeneration = Number.isFinite(runGenerationRaw) ? Math.max(0, Math.floor(runGenerationRaw)) : void 0;
+  asrScrollDriver = createAsrScrollDriver({
+    runKey: runKey || void 0,
+    runGeneration
+  });
   try {
     window.__tpAsrScrollDriver = asrScrollDriver;
   } catch {
@@ -48261,7 +53139,8 @@ function syncAsrDriverFromBlocks(reason, opts) {
   const driver = asrScrollDriver || ensureAsrScrollDriver(`sync:${reason}`, {
     mode,
     allowCreate: opts?.allowCreate === true,
-    runKey: opts?.runKey
+    runKey: opts?.runKey,
+    runGeneration: opts?.runGeneration
   });
   if (!driver) return;
   if (livePhase && mode !== "asr") {
@@ -48367,6 +53246,7 @@ function pushAsrTranscript(text, isFinal, detail) {
       } catch {
       }
     }
+    maybeConfirmPendingAsrScriptEnd(t, !!isFinal, detail);
     return;
   }
   attachAsrScrollDriver({ reason: "transcript", mode, allowCreate: true });
@@ -48388,12 +53268,14 @@ function attachAsrScrollDriver(opts) {
     reason: opts?.reason || "attach",
     mode,
     allowCreate: opts?.allowCreate === true,
-    runKey: opts?.runKey || null
+    runKey: opts?.runKey || null,
+    runGeneration: Number.isFinite(Number(opts?.runGeneration ?? asrRunGeneration)) ? Math.max(0, Math.floor(Number(opts?.runGeneration ?? asrRunGeneration))) : null
   });
   ensureAsrScrollDriver(opts?.reason || "attach", {
     mode,
     allowCreate: opts?.allowCreate === true,
-    runKey: opts?.runKey
+    runKey: opts?.runKey,
+    runGeneration: opts?.runGeneration
   });
   if (transcriptListener) {
     bootTrace("speech-loader:attach-asr-driver:done", {
@@ -49034,8 +53916,14 @@ async function startSpeechBackendForSession(info) {
       return true;
     }
     const runKey = beginAsrRunKey(mode, info?.reason);
-    attachAsrScrollDriver({ reason: "session-start", mode, allowCreate: true, runKey });
-    syncAsrDriverFromBlocks(info?.reason || "session-start", { mode, allowCreate: true, runKey });
+    const runGeneration = asrRunGeneration;
+    attachAsrScrollDriver({ reason: "session-start", mode, allowCreate: true, runKey, runGeneration });
+    syncAsrDriverFromBlocks(info?.reason || "session-start", {
+      mode,
+      allowCreate: true,
+      runKey,
+      runGeneration
+    });
     const startIdx = computeMarkerLineIndex2();
     syncAsrIndices(startIdx, "session-start");
     if (!asrBrainLogged) {
@@ -49342,7 +54230,7 @@ function installSpeech() {
     }
   })();
 }
-var running, rec, lastScrollMode, lastResultTs, speechRunningActual, lastRecognizerOnResultTs, lastRecognizerAttachedTs, lastAsrIngestTs, lastAsrCommitTs, lastAsrCommitCount, lastRecognizerLifecycleEvent, lastRecognizerLifecycleAt, lastAsrStallClass, speechWatchdogTimer, asrHeartbeatTimer, activeRecognizer, lastStartedSpeechEngine, lastRequestedSpeechEngine, currentActualSpeechEngine, currentFallbackReason, currentAsrState, pendingManualRestartCount, lifecycleRestartTimer, lastLifecycleRestartAt, suppressRecognizerAutoRestart, lastHudSnapshotFingerprint, lastHudSnapshotAt, asrStallEpisodeId, asrStallEpisodeRestarted, asrStallAttemptCountThisEpisode, lastAsrStallEpisodeClass, lastAsrStallAutoRestartAt, suppressAsrStallAutoRestartUntil, lastAsrStallRescueAt, lastMatcherStallCommitCount, lastMatcherStallCommitStableSince, lastAsrScriptEndStopKey, pendingAsrScriptEndStop, deferredAsrScriptEndStop, deferredAsrScriptEndStopTimer, WATCHDOG_INTERVAL_MS, WATCHDOG_THRESHOLD_MS, ASR_WATCHDOG_THRESHOLD_MS, ASR_HEARTBEAT_INTERVAL_MS, ASR_STALL_SPEECH_THRESHOLD_MS, ASR_DEAF_RECOGNIZER_MS, ASR_STALL_MATCHER_THRESHOLD_MS, ASR_STALL_MATCHER_STABLE_COMMIT_MS, DIRECT_MATCHER_MULTI_LINE_MIN_LINES, DIRECT_MATCHER_MULTI_LINE_MAX_LINES, DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES, DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD, ASR_STALL_AUTORESTART_COOLDOWN_MS, ASR_STALL_AUTORESTART_SUPPRESS_MS, ASR_STALL_RESCUE_COOLDOWN_MS, LIFECYCLE_RESTART_DELAY_MS, LIFECYCLE_RESTART_COOLDOWN_MS, HUD_SNAPSHOT_THROTTLE_MS, ASR_SCRIPT_END_CONFIRM_MAX_WAIT_MS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_MEANINGFUL_TOKENS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_TOKENS, ASR_SCRIPT_END_MARKER_WAIT_MAX_MS, ASR_SCRIPT_END_MARKER_POLL_MS, ASR_SCRIPT_END_POSTROLL_MS, ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO, ASR_SCRIPT_END_STOPWORDS, speechStoreShimmed, speechStoreSubscribed, latestSpeechStoreState, fallbackTranscriptMatchSeq, __asrLastInterimText, __asrLastInterimAt, __asrInterimRepeatCount, CUE_LINE_BRACKET_RE2, CUE_LINE_WORD_RE2, SPEAKER_TAG_ONLY_RE2, NOTE_TAG_ONLY_RE2, NOTE_INLINE_BLOCK_RE2, SPEAKER_SLOTS, SPEAKER_NAME_SELECTORS, DEFAULT_SPEAKER_LABELS, LOWER_GUARDS, RAISE_GUARDS, summaryListenerAttached, ASR_LAYOUT_READY_MAX_MS, pendingLayoutReady, TRANSCRIPT_EVENT_OPTIONS, asrScrollDriver, transcriptListener, sessionStopHooked, asrBrainLogged, asrDriverLifecycleHooked, asrSessionIntentActive, asrRunCounter, activeAsrRunKey, lastAsrBlockSyncAt, lastAsrBlockSyncLogAt, lastAsrSyncLogAtByType, lastAsrSyncFingerprintByType, ASR_LIVE_BLOCK_SYNC_THROTTLE_MS, ASR_BLOCK_SYNC_LOG_THROTTLE_MS, ASR_SYNC_LOG_THROTTLE_MS, ASR_BLOCK_SYNC_UNCHANGED_LOG_THROTTLE_MS, lastAsrBlockSyncCompleteFingerprint, lastAsrBlockSyncUnchangedAt;
+var running, rec, lastScrollMode, lastResultTs, speechRunningActual, lastRecognizerOnResultTs, lastRecognizerAttachedTs, lastAsrIngestTs, lastAsrCommitTs, lastAsrCommitCount, lastRecognizerLifecycleEvent, lastRecognizerLifecycleAt, lastAsrStallClass, speechWatchdogTimer, asrHeartbeatTimer, activeRecognizer, lastStartedSpeechEngine, lastRequestedSpeechEngine, currentActualSpeechEngine, currentFallbackReason, currentAsrState, pendingManualRestartCount, lifecycleRestartTimer, lastLifecycleRestartAt, suppressRecognizerAutoRestart, lastHudSnapshotFingerprint, lastHudSnapshotAt, asrStallEpisodeId, asrStallEpisodeRestarted, asrStallAttemptCountThisEpisode, lastAsrStallEpisodeClass, lastAsrStallAutoRestartAt, suppressAsrStallAutoRestartUntil, lastAsrStallRescueAt, lastMatcherStallCommitCount, lastMatcherStallCommitStableSince, lastAsrScriptEndStopKey, pendingAsrScriptEndStop, deferredAsrScriptEndStop, deferredAsrScriptEndStopTimer, WATCHDOG_INTERVAL_MS, WATCHDOG_THRESHOLD_MS, ASR_WATCHDOG_THRESHOLD_MS, ASR_HEARTBEAT_INTERVAL_MS, ASR_STALL_SPEECH_THRESHOLD_MS, ASR_DEAF_RECOGNIZER_MS, ASR_STALL_MATCHER_THRESHOLD_MS, ASR_STALL_MATCHER_STABLE_COMMIT_MS, DIRECT_MATCHER_MULTI_LINE_MIN_LINES, DIRECT_MATCHER_MULTI_LINE_MAX_LINES, DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES, DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD, ASR_STALL_AUTORESTART_COOLDOWN_MS, ASR_STALL_AUTORESTART_SUPPRESS_MS, ASR_STALL_RESCUE_COOLDOWN_MS, LIFECYCLE_RESTART_DELAY_MS, LIFECYCLE_RESTART_COOLDOWN_MS, HUD_SNAPSHOT_THROTTLE_MS, ASR_SCRIPT_END_CONFIRM_MAX_WAIT_MS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_MEANINGFUL_TOKENS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_TOKENS, ASR_SCRIPT_END_MARKER_WAIT_MAX_MS, ASR_SCRIPT_END_MARKER_POLL_MS, ASR_SCRIPT_END_POSTROLL_MS, ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO, ASR_SCRIPT_END_STOPWORDS, speechStoreShimmed, speechStoreSubscribed, latestSpeechStoreState, fallbackTranscriptMatchSeq, __asrLastInterimText, __asrLastInterimAt, __asrInterimRepeatCount, CUE_LINE_BRACKET_RE2, CUE_LINE_WORD_RE2, SPEAKER_TAG_ONLY_RE2, NOTE_TAG_ONLY_RE2, NOTE_INLINE_BLOCK_RE2, SPEAKER_SLOTS, SPEAKER_NAME_SELECTORS, DEFAULT_SPEAKER_LABELS, LOWER_GUARDS, RAISE_GUARDS, summaryListenerAttached, ASR_LAYOUT_READY_MAX_MS, pendingLayoutReady, TRANSCRIPT_EVENT_OPTIONS, asrScrollDriver, transcriptListener, sessionStopHooked, asrBrainLogged, asrDriverLifecycleHooked, asrSessionIntentActive, asrRunCounter, activeAsrRunKey, asrRunGeneration, lastAsrBlockSyncAt, lastAsrBlockSyncLogAt, lastAsrSyncLogAtByType, lastAsrSyncFingerprintByType, ASR_LIVE_BLOCK_SYNC_THROTTLE_MS, ASR_BLOCK_SYNC_LOG_THROTTLE_MS, ASR_SYNC_LOG_THROTTLE_MS, ASR_BLOCK_SYNC_UNCHANGED_LOG_THROTTLE_MS, lastAsrBlockSyncCompleteFingerprint, lastAsrBlockSyncUnchangedAt;
 var init_speech_loader = __esm({
   "src/features/speech-loader.ts"() {
     "use strict";
@@ -49518,6 +54406,7 @@ var init_speech_loader = __esm({
     asrSessionIntentActive = false;
     asrRunCounter = 0;
     activeAsrRunKey = "";
+    asrRunGeneration = 0;
     lastAsrBlockSyncAt = 0;
     lastAsrBlockSyncLogAt = 0;
     lastAsrSyncLogAtByType = {
@@ -49717,9 +54606,9 @@ function toastObs(msg, type = "info") {
   if (shouldSilenceObsLogs) return;
   try {
     const w3 = window;
-    const toast5 = w3._toast || w3.toast;
-    if (typeof toast5 === "function") {
-      toast5(msg, { type });
+    const toast6 = w3._toast || w3.toast;
+    if (typeof toast6 === "function") {
+      toast6(msg, { type });
       return;
     }
   } catch {
@@ -50499,19 +55388,28 @@ async function initBuiltIns() {
     const adapters = [];
     const resolver = typeof window !== "undefined" && typeof window.__TP_ADDV === "function" ? window.__TP_ADDV.bind(window) : ((p) => p);
     try {
-      const m = await import(resolver("./adapters/bridge.js"));
+      const m = await import(
+        /* @vite-ignore */
+        resolver("./adapters/bridge.js")
+      );
       const a = m?.createBridgeAdapter?.();
       if (a) adapters.push(a);
     } catch {
     }
     try {
-      const m = await import(resolver("./adapters/obs.js"));
+      const m = await import(
+        /* @vite-ignore */
+        resolver("./adapters/obs.js")
+      );
       const a = m?.createOBSAdapter?.();
       if (a) adapters.push(a);
     } catch {
     }
     try {
-      const m = await import(resolver("./adapters/hotkey.js"));
+      const m = await import(
+        /* @vite-ignore */
+        resolver("./adapters/hotkey.js")
+      );
       const aPrem = m?.createHotkeyAdapter?.("premiere", "Adobe Premiere Pro");
       if (aPrem) adapters.push(aPrem);
     } catch {
@@ -52834,13 +57732,13 @@ function renderScript(text, container) {
         const mode = window.__tpCurrentScrollMode || window.__tpScrollMode || "unknown";
         const viewerInfo = viewerEl ? `${viewerEl.id || "no-id"} ${viewerEl.className || "no-class"}` : "no-viewer";
         const hybridMotorInit = !!auto2;
-        const listenersWired = !!window.__tpHybridListenersReady;
+        const listenersWired2 = !!window.__tpHybridListenersReady;
         try {
           console.warn("[SCROLL_ROUTER] install debug", {
             mode,
             viewer: viewerInfo.trim(),
             hybridMotorInit,
-            listenersWired
+            listenersWired: listenersWired2
           });
         } catch {
         }
@@ -52868,7 +57766,7 @@ function renderScript(text, container) {
               mode,
               viewer: viewerInfo.trim(),
               hybridMotorInit,
-              listenersWired
+              listenersWired: listenersWired2
             });
             console.error("[SCROLL_ROUTER] INSTALL FAILED", errObj);
             if (errObj.stack) {
@@ -53025,7 +57923,7 @@ function renderScript(text, container) {
   } catch {
   }
   try {
-    const meta3 = {
+    const meta2 = {
       schemaVersion: 1,
       blockCount: blockEls2.length,
       createdAt: isDevMode7() ? Date.now() : 0,
@@ -53039,7 +57937,7 @@ function renderScript(text, container) {
       })),
       warnings: warnings.length ? warnings : void 0
     };
-    setAsrBlocks(blockEls2, meta3);
+    setAsrBlocks(blockEls2, meta2);
   } catch {
   }
   if (isDevMode7()) {
@@ -53219,10 +58117,10 @@ async function saveProfileSettings(opts) {
   const safeExpectedRev = Number.isFinite(parsedRev) ? Math.max(0, Math.trunc(parsedRev)) : 0;
   const asrSettings = mergedSettings?.asrSettings ?? {};
   const asrProfiles = mergedSettings?.asrProfiles ?? [];
-  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  const nowIso2 = (/* @__PURE__ */ new Date()).toISOString();
   const updatePayload = {
     settings: mergedSettings,
-    settings_updated_at: nowIso
+    settings_updated_at: nowIso2
   };
   if (profileSettingsSchemaSupport.settingsRev) {
     updatePayload.settings_rev = safeExpectedRev + 1;
@@ -53230,7 +58128,7 @@ async function saveProfileSettings(opts) {
   if (profileSettingsSchemaSupport.asrColumns) {
     updatePayload.asr_settings = asrSettings;
     updatePayload.asr_calibration_profiles = asrProfiles;
-    updatePayload.asr_updated_at = nowIso;
+    updatePayload.asr_updated_at = nowIso2;
   }
   let data = null;
   let error = null;
@@ -55091,8 +59989,8 @@ function resolveTongsApiToken() {
   const fromWindow = readString5(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   try {
-    const meta3 = import.meta;
-    const fromEnv = readString5(meta3.env?.VITE_TONGS_API_TOKEN);
+    const meta2 = import.meta;
+    const fromEnv = readString5(meta2.env?.VITE_TONGS_API_TOKEN);
     if (fromEnv) return fromEnv;
   } catch {
   }
@@ -55355,9 +60253,9 @@ function handleToggle(on3, sourceId) {
         const doc2 = window.document;
         syncEnabledCheckboxes(doc2, false);
         try {
-          const toast5 = window.toast;
-          if (typeof toast5 === "function") {
-            toast5("Finish configuring OBS in Settings \u2192 Recording before enabling remote OBS.");
+          const toast6 = window.toast;
+          if (typeof toast6 === "function") {
+            toast6("Finish configuring OBS in Settings \u2192 Recording before enabling remote OBS.");
           }
         } catch {
         }
@@ -55654,14 +60552,14 @@ function getTypography(d) {
   return state5[d];
 }
 function isMaxChManual(d) {
-  return !!meta2?.[d]?.maxChManual;
+  return !!meta?.[d]?.maxChManual;
 }
 function setTypography(d, t) {
   if (Object.prototype.hasOwnProperty.call(t, "maxLineWidthCh")) {
-    const next = { ...meta2[d] || {}, maxChManual: true };
-    meta2 = { ...meta2, [d]: next };
+    const next = { ...meta[d] || {}, maxChManual: true };
+    meta = { ...meta, [d]: next };
     try {
-      localStorage.setItem(META_KEY, JSON.stringify(meta2));
+      localStorage.setItem(META_KEY, JSON.stringify(meta));
     } catch {
     }
   }
@@ -55698,7 +60596,7 @@ function clampTypography(t) {
     dimOthers: clamp11(t.dimOthers, 0, 0.7)
   };
 }
-var KEY4, META_KEY, DISPLAYS, state5, meta2, subs5;
+var KEY4, META_KEY, DISPLAYS, state5, meta, subs5;
 var init_typographyStore = __esm({
   "src/settings/typographyStore.ts"() {
     "use strict";
@@ -55719,7 +60617,7 @@ var init_typographyStore = __esm({
         return normalizeState({});
       }
     })();
-    meta2 = (() => {
+    meta = (() => {
       try {
         const raw = JSON.parse(localStorage.getItem(META_KEY) || "{}");
         return { main: {}, display: {}, ...raw };
@@ -55753,7 +60651,7 @@ var init_typographyStore = __esm({
         if (e.key === META_KEY) {
           try {
             const next = JSON.parse(e.newValue || "{}");
-            meta2 = { main: {}, display: {}, ...next };
+            meta = { main: {}, display: {}, ...next };
           } catch {
           }
         }
@@ -56939,9 +61837,19 @@ function ensureMainHost() {
     pill.textContent = "REC";
     pill.setAttribute("aria-hidden", "true");
   }
+  let transcriptPill = document.getElementById("recTranscriptPill");
+  if (!transcriptPill) {
+    transcriptPill = document.createElement("span");
+    transcriptPill.id = "recTranscriptPill";
+    transcriptPill.className = "rec-pill rec-pill--main";
+    transcriptPill.textContent = "TX";
+    transcriptPill.setAttribute("aria-hidden", "true");
+    transcriptPill.style.display = "none";
+  }
   const live = ensureLiveRegion();
   if (!live) return null;
   if (!pill.parentElement) host.appendChild(pill);
+  if (!transcriptPill.parentElement) host.appendChild(transcriptPill);
   if (!live.parentElement) host.appendChild(live);
   if (!host.parentElement) {
     const right = document.getElementById("topbarRight");
@@ -56952,7 +61860,7 @@ function ensureMainHost() {
       (bar || document.body).appendChild(host);
     }
   }
-  return { pill, live };
+  return { pill, transcriptPill, live };
 }
 function ensureDisplayPill() {
   if (typeof document === "undefined") return null;
@@ -56964,6 +61872,26 @@ function ensureDisplayPill() {
   pill.textContent = "REC";
   pill.setAttribute("aria-hidden", "true");
   pill.style.display = "none";
+  const inject = () => {
+    try {
+      document.body.appendChild(pill);
+    } catch {
+    }
+  };
+  whenDomReady(inject);
+  return pill;
+}
+function ensureDisplayTranscriptPill() {
+  if (typeof document === "undefined") return null;
+  const existing = document.getElementById("displayRecTranscriptPill");
+  if (existing) return existing;
+  const pill = document.createElement("span");
+  pill.id = "displayRecTranscriptPill";
+  pill.className = "rec-pill rec-pill--display";
+  pill.textContent = "TX";
+  pill.setAttribute("aria-hidden", "true");
+  pill.style.display = "none";
+  pill.style.right = "calc(84px * var(--tp-ui-scale))";
   const inject = () => {
     try {
       document.body.appendChild(pill);
@@ -57018,6 +61946,51 @@ function announceState(live, prev2, next) {
   }
   if (msg) live.textContent = msg;
 }
+function transcriptLabel(state8) {
+  switch (state8) {
+    case "starting":
+      return "TX STARTING";
+    case "live":
+      return "TX LIVE";
+    case "partial":
+      return "TX PARTIAL";
+    case "finalizing":
+      return "TX FINALIZING";
+    case "ready":
+      return "TX READY";
+    case "degraded":
+      return "TX DEGRADED";
+    default:
+      return "TX";
+  }
+}
+function renderTranscriptPill(pill, next, variant) {
+  const showing = next !== "idle";
+  pill.classList.remove(
+    "rec-pill--transcript-starting",
+    "rec-pill--transcript-live",
+    "rec-pill--transcript-partial",
+    "rec-pill--transcript-finalizing",
+    "rec-pill--transcript-ready",
+    "rec-pill--transcript-degraded"
+  );
+  if (variant === "display") {
+    pill.classList.add("rec-pill--display");
+  } else {
+    pill.classList.add("rec-pill--main");
+  }
+  if (!showing) {
+    pill.classList.remove("is-visible");
+    pill.setAttribute("aria-hidden", "true");
+    pill.style.display = "none";
+    return;
+  }
+  pill.textContent = transcriptLabel(next);
+  pill.classList.add(`rec-pill--transcript-${next}`);
+  pill.style.display = "inline-flex";
+  pill.setAttribute("aria-hidden", "false");
+  pill.classList.add("is-visible");
+}
 function broadcastState(state8) {
   if (isDisplayContext2()) return;
   try {
@@ -57035,6 +62008,19 @@ function broadcastState(state8) {
   } catch {
   }
 }
+function broadcastTranscriptState(state8) {
+  if (isDisplayContext2()) return;
+  try {
+    bc = bc || new BroadcastChannel("tp_rec_state");
+    bc.postMessage({ type: "transcript-state", state: state8 });
+  } catch {
+  }
+  try {
+    const send = window.sendToDisplay;
+    if (typeof send === "function") send({ type: "transcript-state", state: state8 });
+  } catch {
+  }
+}
 function setMainState(next) {
   if (mainState === next) return;
   const ctx = ensureMainHost();
@@ -57044,6 +62030,14 @@ function setMainState(next) {
   mainState = next;
   broadcastState(next);
 }
+function setMainTranscriptState(next) {
+  if (mainTranscriptState === next) return;
+  const ctx = ensureMainHost();
+  if (!ctx) return;
+  renderTranscriptPill(ctx.transcriptPill, next, "main");
+  mainTranscriptState = next;
+  broadcastTranscriptState(next);
+}
 function setDisplayState(next) {
   const pill = ensureDisplayPill();
   if (!pill || displayState === next) {
@@ -57052,6 +62046,15 @@ function setDisplayState(next) {
   }
   renderPill(pill, next, displayState, "display");
   displayState = next;
+}
+function setDisplayTranscriptState(next) {
+  const pill = ensureDisplayTranscriptPill();
+  if (!pill || displayTranscriptState === next) {
+    displayTranscriptState = next;
+    return;
+  }
+  renderTranscriptPill(pill, next, "display");
+  displayTranscriptState = next;
 }
 function initRecPillsDisplay() {
   if (displayWired) return;
@@ -57066,6 +62069,9 @@ function initRecPillsDisplay() {
         if (data && data.type === "rec-state" && data.state) {
           setDisplayState(data.state);
         }
+        if (data && data.type === "transcript-state" && data.state) {
+          setDisplayTranscriptState(data.state);
+        }
       });
     } catch {
     }
@@ -57074,6 +62080,9 @@ function initRecPillsDisplay() {
         const data = ev && ev.data || {};
         if (data && data.type === "rec-state" && data.state) {
           setDisplayState(data.state);
+        }
+        if (data && data.type === "transcript-state" && data.state) {
+          setDisplayTranscriptState(data.state);
         }
       });
     } catch {
@@ -57149,12 +62158,23 @@ function initRecPillsMain(store3) {
   } catch {
   }
   try {
-    window.addEventListener("tp:display:opened", () => broadcastState(mainState));
+    window.addEventListener("tp:recording:transcript-state", (ev) => {
+      const detail = ev?.detail || {};
+      const status2 = String(detail.status || "idle");
+      setMainTranscriptState(status2);
+    });
+  } catch {
+  }
+  try {
+    window.addEventListener("tp:display:opened", () => {
+      broadcastState(mainState);
+      broadcastTranscriptState(mainTranscriptState);
+    });
   } catch {
   }
   recompute();
 }
-var mainState, displayState, mainWired, displayWired, bc, DISPLAY_STYLE_ID, REC_PILL_BASE_CSS;
+var mainState, displayState, mainTranscriptState, displayTranscriptState, mainWired, displayWired, bc, DISPLAY_STYLE_ID, REC_PILL_BASE_CSS;
 var init_rec_pills = __esm({
   "src/features/rec-pills.ts"() {
     "use strict";
@@ -57164,6 +62184,8 @@ var init_rec_pills = __esm({
     init_display_sync();
     mainState = "off";
     displayState = "off";
+    mainTranscriptState = "idle";
+    displayTranscriptState = "idle";
     mainWired = false;
     displayWired = false;
     bc = null;
@@ -57173,12 +62195,18 @@ var init_rec_pills = __esm({
 .rec-pill.is-visible{opacity:1;transform:scale(1)}
 .rec-pill.rec-pill--armed{background:#ffd54f;color:#1a1f27}
 .rec-pill.rec-pill--recording{background:#ef5350;color:#fff;animation:recPulse 2.5s ease-in-out infinite}
+.rec-pill.rec-pill--transcript-starting{background:#7c8aa5;color:#fff}
+.rec-pill.rec-pill--transcript-live{background:#2e7d32;color:#fff}
+.rec-pill.rec-pill--transcript-partial{background:#00838f;color:#fff}
+.rec-pill.rec-pill--transcript-finalizing{background:#ef6c00;color:#fff}
+.rec-pill.rec-pill--transcript-ready{background:#5e35b1;color:#fff}
+.rec-pill.rec-pill--transcript-degraded{background:#546e7a;color:#fff}
 .rec-pill--main{height:calc(24px * var(--tp-ui-scale));padding:0 calc(12px * var(--tp-ui-scale));font-size:var(--tp-ui-font-sm)}
 .rec-pill--display{position:fixed;top:calc(10px * var(--tp-ui-scale));right:calc(14px * var(--tp-ui-scale));height:calc(18px * var(--tp-ui-scale));padding:0 calc(10px * var(--tp-ui-scale));font-size:var(--tp-ui-font-xs);z-index:1200;opacity:0.75}
 .rec-pill--display.is-visible{opacity:0.75}
 .rec-pill--display.rec-pill--recording.is-visible{opacity:0.85}
 .rec-pill--display.rec-pill--recording{opacity:0.85}
-.rec-pill-host{display:inline-flex;align-items:center;margin-left:calc(10px * var(--tp-ui-scale));margin-right:calc(8px * var(--tp-ui-scale))}
+.rec-pill-host{display:inline-flex;align-items:center;gap:calc(6px * var(--tp-ui-scale));margin-left:calc(10px * var(--tp-ui-scale));margin-right:calc(8px * var(--tp-ui-scale))}
 .rec-pill-live{min-width:1px;min-height:1px}
 @keyframes recPulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.03);opacity:.95}100%{transform:scale(1);opacity:1}}
 `;
@@ -57233,6 +62261,70 @@ function getQueryParam2(...keys) {
   }
   return null;
 }
+function toPositiveNumber(raw) {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+function readNumericConfig(key) {
+  const fromQuery = toPositiveNumber(getQueryParam2(key, key.toLowerCase()));
+  if (fromQuery != null) return fromQuery;
+  try {
+    const fromWindow = toPositiveNumber(window?.[key]);
+    if (fromWindow != null) return fromWindow;
+  } catch {
+  }
+  const fromStorage = toPositiveNumber(readLocalStorage2(key) ?? readLocalStorage2(key.toLowerCase()));
+  if (fromStorage != null) return fromStorage;
+  return null;
+}
+function mbToBytes(mb) {
+  return Math.max(1, Math.floor(mb * 1024 * 1024));
+}
+function resolveUploadStrategyConfig() {
+  const largeUploadWarnMb = readNumericConfig(LARGE_UPLOAD_WARN_MB_KEY) ?? DEFAULT_LARGE_UPLOAD_WARN_MB;
+  const chunkUploadThresholdMb = readNumericConfig(CHUNK_UPLOAD_THRESHOLD_MB_KEY) ?? DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB;
+  const chunkSizeMbRaw = readNumericConfig(CHUNK_SIZE_MB_KEY) ?? DEFAULT_CHUNK_SIZE_MB;
+  const chunkSizeMb = chunkSizeMbRaw > 0 ? Math.min(chunkSizeMbRaw, chunkUploadThresholdMb) : DEFAULT_CHUNK_SIZE_MB;
+  return {
+    largeUploadWarnMb,
+    chunkUploadThresholdMb,
+    chunkSizeMb
+  };
+}
+function selectUploadStrategyForBytes(byteLength, config) {
+  const cfg = {
+    ...resolveUploadStrategyConfig(),
+    ...config
+  };
+  const thresholdBytes = mbToBytes(cfg.chunkUploadThresholdMb > 0 ? cfg.chunkUploadThresholdMb : DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB);
+  return byteLength > thresholdBytes ? "chunked" : "single";
+}
+function buildRecordingChunks(totalBytes, chunkSizeBytes) {
+  const normalizedTotal = Math.max(0, Math.floor(totalBytes));
+  const normalizedChunkSize = Math.max(1, Math.floor(chunkSizeBytes));
+  const totalChunks = Math.max(1, Math.ceil(normalizedTotal / normalizedChunkSize));
+  const chunks = [];
+  for (let index = 0; index < totalChunks; index += 1) {
+    const startByte = index * normalizedChunkSize;
+    const endByte = Math.min(normalizedTotal, startByte + normalizedChunkSize);
+    chunks.push({
+      index,
+      startByte,
+      endByte,
+      size: Math.max(0, endByte - startByte),
+      totalChunks
+    });
+  }
+  return chunks;
+}
+function deriveRecordingTitleFromName(name) {
+  const normalized = String(name || "").trim();
+  if (!normalized) return "Untitled";
+  const noPath = normalized.split(/[\\/]/).pop() || normalized;
+  const noExt = noPath.replace(/\.[^.]+$/, "").trim();
+  return noExt || noPath || "Untitled";
+}
 function resolveLane() {
   const w3 = window;
   const fromQuery = readString7(getQueryParam2("forge_lane", "lane"));
@@ -57256,17 +62348,24 @@ function getApiToken() {
   if (fromQuery) return fromQuery;
   const fromWindow = readString7(window.__forgeTongsApiToken ?? window.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
-  try {
-    const meta3 = import.meta;
-    const fromEnv = readString7(meta3.env?.VITE_TONGS_API_TOKEN);
-    if (fromEnv) return fromEnv;
-  } catch {
-  }
   return readLocalStorage2("forge_tongs_api_token_v1") ?? void 0;
 }
 function getOrCreateCaptureSessionId() {
   const existing = readSessionStorage(CAPTURE_SESSION_KEY);
   if (existing) return existing;
+  let next = "";
+  try {
+    const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
+    next = readString7(randomUuid) || "";
+  } catch {
+  }
+  if (!next) {
+    next = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+  writeSessionStorage(CAPTURE_SESSION_KEY, next);
+  return next;
+}
+function beginRecordingCaptureSession() {
   let next = "";
   try {
     const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
@@ -57433,7 +62532,94 @@ async function commitFileToWorkpiece(workpieceId, payload, apiToken) {
   const body = await readBodyAsJson(response);
   return { status: response.status, body, ok: response.ok && isCommitAck(body) };
 }
-async function commitRecordingBytesToTongs(input) {
+async function beginChunkedRecordingUpload(workpieceId, payload, apiToken) {
+  const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/begin`, {
+    method: "POST",
+    headers: await buildHeaders(apiToken),
+    body: JSON.stringify(payload)
+  });
+  const body = await readBodyAsJson(response);
+  const data = body?.data ?? null;
+  return { status: response.status, body, ok: response.ok && isCommitAck(body), data };
+}
+async function uploadChunkToSession(workpieceId, uploadId, payload, apiToken) {
+  const response = await fetch(
+    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/${encodeURIComponent(uploadId)}/chunk`,
+    {
+      method: "POST",
+      headers: await buildHeaders(apiToken),
+      body: JSON.stringify(payload)
+    }
+  );
+  const body = await readBodyAsJson(response);
+  return { status: response.status, body, ok: response.ok && isCommitAck(body) };
+}
+async function finalizeChunkedRecordingUpload(workpieceId, uploadId, payload, apiToken) {
+  const response = await fetch(
+    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/${encodeURIComponent(uploadId)}/finalize`,
+    {
+      method: "POST",
+      headers: await buildHeaders(apiToken),
+      body: JSON.stringify(payload)
+    }
+  );
+  const body = await readBodyAsJson(response);
+  const data = body?.data ?? null;
+  return { status: response.status, body, ok: response.ok && isCommitAck(body), data };
+}
+function readScriptHash() {
+  try {
+    const raw = window.__TP_LAST_APPLIED_HASH;
+    return readString7(raw);
+  } catch {
+    return null;
+  }
+}
+function readSessionRunKey(captureSessionId) {
+  try {
+    return readString7(window.__tpAsrRunKey) || captureSessionId;
+  } catch {
+    return captureSessionId;
+  }
+}
+function emitLargeUploadWarning(detail) {
+  try {
+    console.warn("[recording/upload] large-upload-warning", detail);
+  } catch {
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:recording:upload-warning", { detail }));
+  } catch {
+  }
+  try {
+    window.HUD?.log?.("recording:upload:large-warning", detail);
+  } catch {
+  }
+}
+function emitRecordingUploadStatus(detail) {
+  try {
+    console.info("[recording/upload] status", detail);
+  } catch {
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:recording:upload-status", { detail }));
+  } catch {
+  }
+  try {
+    document.dispatchEvent(new CustomEvent("tp:recording:upload-status", { detail }));
+  } catch {
+  }
+  try {
+    window.HUD?.log?.("recording:upload:status", detail);
+  } catch {
+  }
+}
+function sleep2(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+async function resolveRecordingCaptureTarget() {
   const writtenBy = getWrittenBy();
   const apiToken = getApiToken();
   const workspaceId = resolveWorkspaceId2();
@@ -57464,16 +62650,341 @@ async function commitRecordingBytesToTongs(input) {
     createdCradle = true;
   }
   persistWorkpiece2(workspaceId, workpieceId);
+  return {
+    ok: true,
+    workspaceId,
+    workpieceId,
+    createdCradle,
+    plannerRecordingSessionId,
+    captureSessionId: getOrCreateCaptureSessionId()
+  };
+}
+async function ensureRecordingCaptureTarget() {
+  return resolveRecordingCaptureTarget();
+}
+async function commitRecordingJsonArtifactToTongs(input) {
+  const apiToken = getApiToken();
+  const writtenBy = getWrittenBy();
+  const commit = await commitFileToWorkpiece(
+    input.workpieceId,
+    {
+      path: input.path,
+      content_type: "application/json",
+      written_by: writtenBy,
+      bytes_base64: encodeBase64(new TextEncoder().encode(JSON.stringify(input.data))),
+      event_name: input.eventName,
+      event_payload: input.eventPayload ?? null,
+      correlation_id: nextCorrelationId(`anvil-${input.eventName}`)
+    },
+    apiToken
+  );
+  if (!commit.ok) {
+    const apiError = extractApiError(commit.body);
+    return {
+      ok: false,
+      reason: "commit_json_artifact_failed",
+      status: commit.status,
+      details: commit.body,
+      ...apiError.code ? { errorCode: apiError.code } : {},
+      ...apiError.message ? { errorMessage: apiError.message } : {},
+      workpieceId: input.workpieceId,
+      path: input.path
+    };
+  }
+  return {
+    ok: true,
+    status: commit.status,
+    workpieceId: input.workpieceId,
+    path: input.path
+  };
+}
+async function promoteRecordingTranscriptForHammer(input) {
+  return commitRecordingJsonArtifactToTongs({
+    workpieceId: input.workpieceId,
+    path: HAMMER_STRUCTURED_TRANSCRIPT_PATH,
+    data: input.transcript,
+    eventName: "take_transcript_promoted",
+    eventPayload: {
+      source: "anvil.local-auto",
+      transcript_path: HAMMER_STRUCTURED_TRANSCRIPT_PATH,
+      transcript_source_path: input.sourceTranscriptPath ?? null,
+      transcript_status: "ready",
+      anvil_capture_session_id: input.captureSessionId ?? getOrCreateCaptureSessionId(),
+      recording_session_id: input.plannerRecordingSessionId ?? resolvePlannerRecordingSessionId()
+    }
+  });
+}
+async function uploadRecordingWithStrategy(args) {
+  if (args.strategy === "single") {
+    args.onStatus?.({
+      phase: "uploading",
+      chunkIndex: 1,
+      totalChunks: 1,
+      chunkBytes: args.bytes.byteLength,
+      progressPct: 0
+    });
+    return commitFileToWorkpiece(
+      args.workpieceId,
+      {
+        ...args.commitPayloadBase,
+        bytes_base64: encodeBase64(args.bytes)
+      },
+      args.apiToken
+    );
+  }
+  const chunkSizeBytes = mbToBytes(args.chunkSizeMb);
+  const chunks = buildRecordingChunks(args.bytes.byteLength, chunkSizeBytes);
+  const begin = await beginChunkedRecordingUpload(
+    args.workpieceId,
+    {
+      ...args.commitPayloadBase,
+      total_bytes: args.bytes.byteLength,
+      total_chunks: chunks.length,
+      chunk_size_bytes: chunkSizeBytes,
+      strategy: "chunked"
+    },
+    args.apiToken
+  );
+  if (!begin.ok || !begin.data?.upload_id) {
+    return {
+      status: begin.status,
+      body: begin.body,
+      ok: false
+    };
+  }
+  const uploadId = begin.data.upload_id;
+  const uploadedChunks = new Set(
+    (begin.data.uploaded_chunks || []).filter((value) => Number.isInteger(value) && value >= 0)
+  );
+  const progressPctFor = (uploadedCount, totalChunks) => Math.max(0, Math.min(100, Math.round(uploadedCount / Math.max(1, totalChunks) * 100)));
+  args.onStatus?.({
+    phase: "uploading",
+    chunkIndex: uploadedChunks.size > 0 ? uploadedChunks.size : 1,
+    totalChunks: chunks.length,
+    chunkBytes: chunks[0]?.size ?? null,
+    progressPct: progressPctFor(uploadedChunks.size, chunks.length)
+  });
+  for (const chunk of chunks) {
+    if (uploadedChunks.has(chunk.index)) {
+      try {
+        console.info("[recording/upload] chunk-complete", {
+          index: chunk.index + 1,
+          total: chunk.totalChunks,
+          bytes: chunk.size,
+          skipped: true
+        });
+      } catch {
+      }
+      args.onStatus?.({
+        phase: "uploading",
+        chunkIndex: chunk.index + 1,
+        totalChunks: chunk.totalChunks,
+        chunkBytes: chunk.size,
+        progressPct: progressPctFor(uploadedChunks.size, chunk.totalChunks)
+      });
+      continue;
+    }
+    try {
+      console.info("[recording/upload] chunk-start", {
+        index: chunk.index + 1,
+        total: chunk.totalChunks,
+        bytes: chunk.size
+      });
+    } catch {
+    }
+    let completed = false;
+    let lastFailure = null;
+    for (let attempt = 1; attempt <= CHUNK_UPLOAD_RETRY_ATTEMPTS; attempt += 1) {
+      const payload = {
+        index: chunk.index,
+        total_chunks: chunk.totalChunks,
+        bytes_base64: encodeBase64(args.bytes.subarray(chunk.startByte, chunk.endByte))
+      };
+      const chunkResult = await uploadChunkToSession(args.workpieceId, uploadId, payload, args.apiToken);
+      if (chunkResult.ok) {
+        completed = true;
+        uploadedChunks.add(chunk.index);
+        try {
+          console.info("[recording/upload] chunk-complete", {
+            index: chunk.index + 1,
+            total: chunk.totalChunks,
+            bytes: chunk.size
+          });
+        } catch {
+        }
+        args.onStatus?.({
+          phase: "uploading",
+          chunkIndex: chunk.index + 1,
+          totalChunks: chunk.totalChunks,
+          chunkBytes: chunk.size,
+          progressPct: progressPctFor(uploadedChunks.size, chunk.totalChunks)
+        });
+        break;
+      }
+      lastFailure = { status: chunkResult.status, body: chunkResult.body };
+      try {
+        console.warn("[recording/upload] chunk-failed", {
+          index: chunk.index + 1,
+          total: chunk.totalChunks,
+          attempt,
+          status: chunkResult.status,
+          error: chunkResult.body
+        });
+      } catch {
+      }
+      if (attempt < CHUNK_UPLOAD_RETRY_ATTEMPTS) {
+        await sleep2(CHUNK_UPLOAD_RETRY_BACKOFF_MS * attempt);
+      }
+    }
+    if (!completed) {
+      const apiError = extractApiError(lastFailure?.body ?? null);
+      args.onStatus?.({
+        phase: "failed",
+        chunkIndex: chunk.index + 1,
+        totalChunks: chunk.totalChunks,
+        chunkBytes: chunk.size,
+        progressPct: progressPctFor(uploadedChunks.size, chunk.totalChunks),
+        errorCode: apiError.code ?? "chunk_upload_failed",
+        errorMessage: apiError.message ?? "Failed uploading chunk"
+      });
+      return {
+        status: lastFailure?.status ?? 500,
+        body: {
+          ok: false,
+          error: {
+            code: "chunk_upload_failed",
+            message: "Failed uploading chunk",
+            index: chunk.index,
+            total_chunks: chunk.totalChunks,
+            details: lastFailure?.body ?? null
+          }
+        },
+        ok: false
+      };
+    }
+  }
+  try {
+    console.info("[recording/upload] finalize-start", {
+      totalChunks: chunks.length,
+      totalBytes: args.bytes.byteLength
+    });
+  } catch {
+  }
+  args.onStatus?.({
+    phase: "finalizing",
+    chunkIndex: chunks.length,
+    totalChunks: chunks.length,
+    chunkBytes: null,
+    progressPct: 100
+  });
+  const finalize = await finalizeChunkedRecordingUpload(
+    args.workpieceId,
+    uploadId,
+    {
+      correlation_id: nextCorrelationId("anvil-recording-finalize")
+    },
+    args.apiToken
+  );
+  if (finalize.ok) {
+    try {
+      console.info("[recording/upload] finalize-complete", {
+        objectId: finalize.data?.path ?? null,
+        totalChunks: chunks.length,
+        totalBytes: args.bytes.byteLength
+      });
+    } catch {
+    }
+  }
+  return {
+    status: finalize.status,
+    body: finalize.body,
+    ok: finalize.ok
+  };
+}
+async function commitRecordingBytesToTongs(input) {
+  const apiToken = getApiToken();
+  const writtenBy = getWrittenBy();
+  const target = await resolveRecordingCaptureTarget();
+  if (!target.ok) {
+    return {
+      ok: false,
+      reason: target.reason,
+      status: target.status,
+      details: target.details,
+      workspaceId: target.workspaceId,
+      workpieceId: target.workpieceId
+    };
+  }
+  const workspaceId = target.workspaceId;
+  let workpieceId = target.workpieceId;
+  let createdCradle = target.createdCradle;
+  const plannerRecordingSessionId = target.plannerRecordingSessionId;
   const name = sanitizeFilename(input.originalName);
   const path = `recordings/${name}`;
   const contentType = inferContentType(input.contentType, name);
-  const bytesBase64 = encodeBase64(input.bytes);
-  const captureSessionId = getOrCreateCaptureSessionId();
-  const commitPayload = {
+  const captureSessionId = target.captureSessionId;
+  const uploadConfig = resolveUploadStrategyConfig();
+  const strategy = selectUploadStrategyForBytes(input.bytes.byteLength, uploadConfig);
+  const bytesMb = Number((input.bytes.byteLength / (1024 * 1024)).toFixed(2));
+  const thresholdExceeded = input.bytes.byteLength > mbToBytes(uploadConfig.largeUploadWarnMb);
+  const sessionRunKey = readSessionRunKey(captureSessionId);
+  const title = deriveRecordingTitleFromName(input.originalName);
+  const scriptHash = readScriptHash();
+  const commitPathMode = strategy === "chunked" ? "recording-upload.chunked" : "commit-file.single";
+  const emitUploadStatus = (phase, patch = {}) => {
+    emitRecordingUploadStatus({
+      phase,
+      strategy,
+      bytes: input.bytes.byteLength,
+      mb: bytesMb,
+      sessionRunKey,
+      workpieceId,
+      workspaceId,
+      title,
+      scriptHash,
+      destinationPath: path,
+      commitPathMode,
+      warningThresholdMb: uploadConfig.largeUploadWarnMb,
+      warningThresholdExceeded: thresholdExceeded,
+      ...patch
+    });
+  };
+  try {
+    console.info("[recording/upload] blob-summary", {
+      bytes: input.bytes.byteLength,
+      mb: bytesMb,
+      sessionRunKey,
+      workpieceId,
+      workspaceId,
+      title,
+      scriptHash,
+      strategy,
+      destinationPath: path,
+      commitPathMode,
+      warningThresholdMb: uploadConfig.largeUploadWarnMb,
+      warningThresholdExceeded: thresholdExceeded
+    });
+  } catch {
+  }
+  if (thresholdExceeded) {
+    emitLargeUploadWarning({
+      bytes: input.bytes.byteLength,
+      mb: bytesMb,
+      thresholdMb: uploadConfig.largeUploadWarnMb,
+      strategy,
+      path
+    });
+  }
+  emitUploadStatus("preflight", {
+    progressPct: 0,
+    safeToLeave: false,
+    chunkIndex: 0,
+    totalChunks: strategy === "chunked" ? null : 1
+  });
+  const commitPayloadBase = {
     path,
     content_type: contentType,
     written_by: writtenBy,
-    bytes_base64: bytesBase64,
     event_name: "take_completed",
     event_payload: {
       source: "anvil.local-auto",
@@ -57483,12 +62994,35 @@ async function commitRecordingBytesToTongs(input) {
       content_type: contentType,
       created_cradle: createdCradle,
       recording_session_id: plannerRecordingSessionId,
-      anvil_capture_session_id: captureSessionId
+      anvil_capture_session_id: captureSessionId,
+      transcript_path: input.transcriptPath ?? null,
+      transcript_status: input.transcriptStatus ?? null,
+      recording_medium: input.recordingMedium ?? null,
+      requires_post_normalization: input.requiresPostNormalization === true,
+      upload_strategy: strategy
     },
     correlation_id: nextCorrelationId("anvil-recording")
   };
   let didRetry404 = false;
-  let commit = await commitFileToWorkpiece(workpieceId, commitPayload, apiToken);
+  let commit = await uploadRecordingWithStrategy({
+    strategy,
+    workpieceId,
+    bytes: input.bytes,
+    chunkSizeMb: uploadConfig.chunkSizeMb,
+    commitPayloadBase,
+    apiToken,
+    onStatus: (status2) => {
+      emitUploadStatus(status2.phase, {
+        chunkIndex: status2.chunkIndex ?? null,
+        totalChunks: status2.totalChunks ?? null,
+        chunkBytes: status2.chunkBytes ?? null,
+        progressPct: status2.progressPct ?? null,
+        safeToLeave: false,
+        errorCode: status2.errorCode ?? null,
+        errorMessage: status2.errorMessage ?? null
+      });
+    }
+  });
   if (!commit.ok && commit.status === 404 && workspaceId) {
     didRetry404 = true;
     const replacement = await createCradle(workspaceId, writtenBy, apiToken);
@@ -57496,11 +63030,36 @@ async function commitRecordingBytesToTongs(input) {
       workpieceId = replacement.workpieceId;
       createdCradle = true;
       persistWorkpiece2(workspaceId, workpieceId);
-      commit = await commitFileToWorkpiece(workpieceId, commitPayload, apiToken);
+      commitPayloadBase.event_payload.created_cradle = true;
+      commit = await uploadRecordingWithStrategy({
+        strategy,
+        workpieceId,
+        bytes: input.bytes,
+        chunkSizeMb: uploadConfig.chunkSizeMb,
+        commitPayloadBase,
+        apiToken,
+        onStatus: (status2) => {
+          emitUploadStatus(status2.phase, {
+            chunkIndex: status2.chunkIndex ?? null,
+            totalChunks: status2.totalChunks ?? null,
+            chunkBytes: status2.chunkBytes ?? null,
+            progressPct: status2.progressPct ?? null,
+            safeToLeave: false,
+            errorCode: status2.errorCode ?? null,
+            errorMessage: status2.errorMessage ?? null
+          });
+        }
+      });
     }
   }
   if (!commit.ok) {
     const apiError = extractApiError(commit.body);
+    emitUploadStatus("failed", {
+      safeToLeave: false,
+      progressPct: null,
+      errorCode: apiError.code ?? null,
+      errorMessage: apiError.message ?? "Canonical upload failed"
+    });
     return {
       ok: false,
       reason: didRetry404 ? "commit_failed_after_retry" : "commit_failed",
@@ -57512,6 +63071,14 @@ async function commitRecordingBytesToTongs(input) {
       workpieceId
     };
   }
+  emitUploadStatus("done", {
+    safeToLeave: true,
+    progressPct: 100,
+    chunkIndex: strategy === "chunked" ? null : 1,
+    totalChunks: strategy === "chunked" ? null : 1,
+    chunkBytes: strategy === "chunked" ? null : input.bytes.byteLength,
+    finalStorageKey: path
+  });
   return {
     ok: true,
     workpieceId,
@@ -57541,7 +63108,12 @@ async function appendRecordingDecisionToTongs(input) {
         duration_ms: typeof input.durationMs === "number" && Number.isFinite(input.durationMs) ? Math.max(0, Math.round(input.durationMs)) : null,
         created_cradle: input.createdCradle === true,
         recording_session_id: input.plannerRecordingSessionId ?? null,
-        anvil_capture_session_id: captureSessionId
+        anvil_capture_session_id: captureSessionId,
+        transcript_path: input.transcriptPath ?? null,
+        transcript_status: input.transcriptStatus ?? null,
+        transcript_source_path: input.transcriptSourcePath ?? null,
+        recording_medium: input.recordingMedium ?? null,
+        requires_post_normalization: input.requiresPostNormalization === true
       },
       correlation_id: nextCorrelationId(`anvil-${input.eventName}`)
     })
@@ -57563,7 +63135,7 @@ async function appendRecordingDecisionToTongs(input) {
     status: response.status
   };
 }
-var UUID_RE2, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS2, WORKPIECE_STORAGE_KEYS2, ACTIVE_WORKPIECE_KEY2, WORKSPACE_WORKPIECE_PREFIX2, CAPTURE_SESSION_KEY, PLANNER_RECORDING_SESSION_KEY, correlationSeq;
+var UUID_RE2, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS2, WORKPIECE_STORAGE_KEYS2, ACTIVE_WORKPIECE_KEY2, WORKSPACE_WORKPIECE_PREFIX2, CAPTURE_SESSION_KEY, PLANNER_RECORDING_SESSION_KEY, LARGE_UPLOAD_WARN_MB_KEY, CHUNK_UPLOAD_THRESHOLD_MB_KEY, CHUNK_SIZE_MB_KEY, DEFAULT_LARGE_UPLOAD_WARN_MB, DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB, DEFAULT_CHUNK_SIZE_MB, CHUNK_UPLOAD_RETRY_ATTEMPTS, CHUNK_UPLOAD_RETRY_BACKOFF_MS, HAMMER_STRUCTURED_TRANSCRIPT_PATH, correlationSeq;
 var init_workpiece_commit = __esm({
   "src/forge/workpiece-commit.ts"() {
     "use strict";
@@ -57581,7 +63153,680 @@ var init_workpiece_commit = __esm({
     WORKSPACE_WORKPIECE_PREFIX2 = "forge_anvil_recording_workpiece_v1:";
     CAPTURE_SESSION_KEY = "forge_anvil_capture_session_v1";
     PLANNER_RECORDING_SESSION_KEY = "forge_anvil_recording_session_v1";
+    LARGE_UPLOAD_WARN_MB_KEY = "ANVIL_LARGE_UPLOAD_WARN_MB";
+    CHUNK_UPLOAD_THRESHOLD_MB_KEY = "ANVIL_CHUNK_UPLOAD_THRESHOLD_MB";
+    CHUNK_SIZE_MB_KEY = "ANVIL_CHUNK_SIZE_MB";
+    DEFAULT_LARGE_UPLOAD_WARN_MB = 100;
+    DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB = 32;
+    DEFAULT_CHUNK_SIZE_MB = 8;
+    CHUNK_UPLOAD_RETRY_ATTEMPTS = 3;
+    CHUNK_UPLOAD_RETRY_BACKOFF_MS = 250;
+    HAMMER_STRUCTURED_TRANSCRIPT_PATH = "hammer/transcript/structured.v1.json";
     correlationSeq = 0;
+  }
+});
+
+// src/forge/ready-scripts.ts
+function readString8(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+function normalizeUuid3(value) {
+  const str = readString8(value);
+  if (!str) return null;
+  return UUID_RE3.test(str) ? str.toLowerCase() : null;
+}
+function readLocalStorage3(key) {
+  try {
+    return readString8(window.localStorage.getItem(key));
+  } catch {
+    return null;
+  }
+}
+function getQueryParam3(...keys) {
+  try {
+    const q3 = new URLSearchParams(window.location.search || "");
+    for (const key of keys) {
+      const value = readString8(q3.get(key));
+      if (value) return value;
+    }
+  } catch {
+  }
+  return null;
+}
+function resolveWorkspaceId3() {
+  const fromQuery = normalizeUuid3(getQueryParam3("workspace_id", "workspaceId", "workspace"));
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = normalizeUuid3(
+    w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
+  );
+  if (fromWindow) return fromWindow;
+  for (const key of WORKSPACE_STORAGE_KEYS3) {
+    const value = normalizeUuid3(readLocalStorage3(key));
+    if (value) return value;
+  }
+  return null;
+}
+function resolveTongsApiToken2() {
+  const fromQuery = readString8(getQueryParam3("tongs_api_token", "tongsApiToken"));
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = readString8(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  if (fromWindow) return fromWindow;
+  try {
+    const meta2 = import.meta;
+    const fromEnv = readString8(meta2.env?.VITE_TONGS_API_TOKEN);
+    if (fromEnv) return fromEnv;
+  } catch {
+  }
+  return readLocalStorage3("forge_tongs_api_token_v1") ?? void 0;
+}
+async function withAuthHeaders() {
+  const headers = new Headers();
+  const token = resolveTongsApiToken2();
+  if (token) {
+    headers.set("authorization", `Bearer ${token}`);
+  }
+  return appendForgeUserAuthorization(headers);
+}
+function normalizeScriptPath(value) {
+  const path = readString8(value);
+  if (!path) return null;
+  if (path.startsWith("/") || path.includes("..")) return null;
+  return path;
+}
+function normalizeIso(value) {
+  const iso = readString8(value);
+  if (!iso) return void 0;
+  const timestamp = Date.parse(iso);
+  if (!Number.isFinite(timestamp)) return void 0;
+  return new Date(timestamp).toISOString();
+}
+function normalizeScriptPaths(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (const entry of value) {
+    const path = normalizeScriptPath(entry);
+    if (!path || out.includes(path)) continue;
+    out.push(path);
+  }
+  return out;
+}
+function toReadyScriptId(workpieceId, path) {
+  return `ready:${workpieceId}:${path}`;
+}
+function parseReadyScriptsPayload(payload, workspaceId) {
+  if (!payload || typeof payload !== "object") return [];
+  const root = payload;
+  if (root.ok !== true) return [];
+  const data = root.data;
+  const rowsMaybe = Array.isArray(data) ? data : data && typeof data === "object" && Array.isArray(data.scripts) ? data.scripts : [];
+  if (!rowsMaybe.length) return [];
+  const scripts = [];
+  for (const row of rowsMaybe) {
+    if (!row || typeof row !== "object") continue;
+    const item = row;
+    const rowWorkspace = normalizeUuid3(item.workspace_id) ?? workspaceId;
+    const workpieceId = normalizeUuid3(item.workpiece_id);
+    const primaryPath = normalizeScriptPath(item.primary_script_path) ?? normalizeScriptPath(item.path);
+    const scriptPaths = normalizeScriptPaths(item.script_paths);
+    const path = primaryPath ?? scriptPaths[0] ?? null;
+    if (!rowWorkspace || !workpieceId || !path) continue;
+    const normalizedScriptPaths = scriptPaths.length ? scriptPaths.includes(path) ? scriptPaths : [path, ...scriptPaths] : [path];
+    const title = readString8(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
+    scripts.push({
+      id: toReadyScriptId(workpieceId, path),
+      workspaceId: rowWorkspace,
+      workpieceId,
+      path,
+      primaryPath: path,
+      scriptPaths: normalizedScriptPaths,
+      title,
+      updatedAt: normalizeIso(item.updated_at),
+      markedReadyBy: normalizeUuid3(item.marked_ready_by) ?? void 0,
+      markedReadyAt: normalizeIso(item.marked_ready_at)
+    });
+  }
+  scripts.sort((a, b) => {
+    const aTs = a.updatedAt ?? "";
+    const bTs = b.updatedAt ?? "";
+    const byUpdated = bTs.localeCompare(aTs);
+    if (byUpdated !== 0) return byUpdated;
+    return a.title.localeCompare(b.title);
+  });
+  return scripts;
+}
+function parseRecordingSessionsPayload(payload, workspaceId) {
+  if (!payload || typeof payload !== "object") return [];
+  const root = payload;
+  if (root.ok !== true) return [];
+  const data = root.data;
+  const rowsMaybe = Array.isArray(data) ? data : data && typeof data === "object" && Array.isArray(data.sessions) ? data.sessions : [];
+  const out = [];
+  for (const row of rowsMaybe) {
+    if (!row || typeof row !== "object") continue;
+    const item = row;
+    const id = normalizeUuid3(item.id);
+    const rowWorkspace = normalizeUuid3(item.workspace_id) ?? workspaceId;
+    if (!id || !rowWorkspace) continue;
+    const title = readString8(item.title) ?? "Recording Session";
+    out.push({
+      id,
+      workspaceId: rowWorkspace,
+      title,
+      createdAt: normalizeIso(item.created_at),
+      updatedAt: normalizeIso(item.updated_at),
+      calendarEventId: normalizeUuid3(item.calendar_event_id)
+    });
+  }
+  out.sort((a, b) => {
+    const aUpdated = a.updatedAt ?? a.createdAt ?? "";
+    const bUpdated = b.updatedAt ?? b.createdAt ?? "";
+    const byUpdated = bUpdated.localeCompare(aUpdated);
+    if (byUpdated !== 0) return byUpdated;
+    return a.title.localeCompare(b.title);
+  });
+  return out;
+}
+function parseRecordingSessionDetailPayload(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const root = payload;
+  if (root.ok !== true) return null;
+  if (!root.data || typeof root.data !== "object") return null;
+  return root.data;
+}
+function toScriptReferenceFromSessionItem(args) {
+  const workpieceId = normalizeUuid3(args.item.episode_id);
+  const path = normalizeScriptPath(args.item.script_path);
+  if (!workpieceId || !path) return null;
+  const key = `${workpieceId}::${path}`;
+  const matchedReady = args.readyByKey.get(key) ?? null;
+  const title = args.titleByKey.get(key) ?? args.fallbackTitle;
+  const scriptPaths = matchedReady ? Array.from(new Set([path, matchedReady.primaryPath, ...matchedReady.scriptPaths].filter(Boolean))) : [path];
+  return {
+    id: toReadyScriptId(workpieceId, path),
+    workspaceId: args.workspaceId,
+    workpieceId,
+    path,
+    primaryPath: matchedReady?.primaryPath ?? path,
+    scriptPaths,
+    title,
+    updatedAt: matchedReady?.updatedAt
+  };
+}
+async function listWorkspaceReadyScripts() {
+  const workspaceId = resolveWorkspaceId3();
+  if (!workspaceId) return [];
+  const response = await fetch(`/tongs/workspaces/${encodeURIComponent(workspaceId)}/ready-scripts?unrecorded=1`, {
+    method: "GET",
+    headers: await withAuthHeaders()
+  });
+  if (!response.ok) return [];
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    return [];
+  }
+  return parseReadyScriptsPayload(body, workspaceId);
+}
+async function listRecordingSessionsForWorkspace() {
+  const workspaceId = resolveWorkspaceId3();
+  if (!workspaceId) return [];
+  const response = await fetch(
+    `/tongs/recording-sessions?workspace_id=${encodeURIComponent(workspaceId)}&limit=100`,
+    {
+      method: "GET",
+      headers: await withAuthHeaders()
+    }
+  );
+  if (!response.ok) return [];
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    return [];
+  }
+  return parseRecordingSessionsPayload(body, workspaceId);
+}
+async function readRecordingSessionScripts(sessionId) {
+  const safeSessionId = normalizeUuid3(sessionId);
+  if (!safeSessionId) return null;
+  const response = await fetch(`/tongs/recording-sessions/${encodeURIComponent(safeSessionId)}`, {
+    method: "GET",
+    headers: await withAuthHeaders()
+  });
+  if (!response.ok) return null;
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    return null;
+  }
+  const detail = parseRecordingSessionDetailPayload(body);
+  if (!detail) return null;
+  const workspaceId = normalizeUuid3(detail.workspace_id);
+  const parsedSessionId = normalizeUuid3(detail.id);
+  if (!workspaceId || !parsedSessionId) return null;
+  const sessionTitle = readString8(detail.title) ?? "Recording Session";
+  const workspaceReady = await listWorkspaceReadyScripts().catch(() => []);
+  const titleByKey = /* @__PURE__ */ new Map();
+  const readyByKey = /* @__PURE__ */ new Map();
+  const readyMetaByKey = /* @__PURE__ */ new Map();
+  for (const script of workspaceReady) {
+    titleByKey.set(`${script.workpieceId}::${script.path}`, script.title);
+    readyByKey.set(`${script.workpieceId}::${script.path}`, script);
+    readyMetaByKey.set(`${script.workpieceId}::${script.path}`, {
+      markedReadyBy: script.markedReadyBy,
+      markedReadyAt: script.markedReadyAt
+    });
+    for (const scriptPath of script.scriptPaths) {
+      titleByKey.set(`${script.workpieceId}::${scriptPath}`, script.title);
+      readyByKey.set(`${script.workpieceId}::${scriptPath}`, script);
+      readyMetaByKey.set(`${script.workpieceId}::${scriptPath}`, {
+        markedReadyBy: script.markedReadyBy,
+        markedReadyAt: script.markedReadyAt
+      });
+    }
+  }
+  const rawItems = Array.isArray(detail.items) ? detail.items : [];
+  const parsedItems = rawItems.filter((entry) => !!entry && typeof entry === "object").sort((a, b) => {
+    const aPos = Number.isFinite(Number(a.position)) ? Number(a.position) : 0;
+    const bPos = Number.isFinite(Number(b.position)) ? Number(b.position) : 0;
+    return aPos - bPos;
+  });
+  const scripts = [];
+  for (const item of parsedItems) {
+    const fallbackTitle = `Episode ${String(item.episode_id ?? "").slice(0, 8) || "unknown"}`;
+    const ref = toScriptReferenceFromSessionItem({
+      item,
+      workspaceId,
+      fallbackTitle,
+      titleByKey,
+      readyByKey
+    });
+    if (ref) {
+      const key = `${ref.workpieceId}::${ref.path}`;
+      const readyMeta = readyMetaByKey.get(key);
+      scripts.push({
+        ...ref,
+        markedReadyBy: readyMeta?.markedReadyBy,
+        markedReadyAt: readyMeta?.markedReadyAt
+      });
+    }
+  }
+  return {
+    session: {
+      id: parsedSessionId,
+      workspaceId,
+      title: sessionTitle,
+      calendarEventId: normalizeUuid3(detail.calendar_event_id)
+    },
+    scripts
+  };
+}
+async function readReadyScriptText(workpieceId, path) {
+  const safeWorkpieceId = normalizeUuid3(workpieceId);
+  const safePath = normalizeScriptPath(path);
+  if (!safeWorkpieceId || !safePath) return null;
+  const response = await fetch(
+    `/tongs/workpieces/${encodeURIComponent(safeWorkpieceId)}/read-file?path=${encodeURIComponent(safePath)}`,
+    {
+      method: "GET",
+      headers: await withAuthHeaders()
+    }
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) return null;
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    return null;
+  }
+  if (!body || typeof body !== "object" || body.ok !== true) {
+    return null;
+  }
+  const data = body.data;
+  return typeof data === "string" ? data : null;
+}
+var UUID_RE3, WORKSPACE_STORAGE_KEYS3;
+var init_ready_scripts = __esm({
+  "src/forge/ready-scripts.ts"() {
+    "use strict";
+    init_tongs_user_auth();
+    UUID_RE3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    WORKSPACE_STORAGE_KEYS3 = ["forge_workspace_id_v1", "barstock_workspace_id"];
+  }
+});
+
+// src/features/ready-script-loading.ts
+function hasUsableReadyScriptContent(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+function buildReadyScriptPathCandidates(entry) {
+  const candidates = [entry.path, entry.primaryPath, ...entry.scriptPaths];
+  const out = [];
+  for (const candidate of candidates) {
+    const path = String(candidate || "").trim();
+    if (!path || out.includes(path)) continue;
+    out.push(path);
+  }
+  return out;
+}
+async function readReadyScriptRecordContent(entry, readText2) {
+  for (const path of buildReadyScriptPathCandidates(entry)) {
+    const text = await readText2(entry.workpieceId, path);
+    if (hasUsableReadyScriptContent(text)) {
+      return text;
+    }
+  }
+  return null;
+}
+var init_ready_script_loading = __esm({
+  "src/features/ready-script-loading.ts"() {
+    "use strict";
+  }
+});
+
+// src/features/scripts-store.ts
+function shortUserId(value) {
+  const userId = String(value ?? "").trim();
+  if (!userId) return "Unknown";
+  if (userId.length <= 12) return userId;
+  return `${userId.slice(0, 8)}...`;
+}
+function formatRelativeTime(iso) {
+  if (!iso) return "unknown";
+  const timestamp = Date.parse(iso);
+  if (!Number.isFinite(timestamp)) return "unknown";
+  const diffMs = Date.now() - timestamp;
+  const absMs = Math.abs(diffMs);
+  const minuteMs = 60 * 1e3;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+  const weekMs = 7 * dayMs;
+  const formatUnit = (unit, amount) => {
+    try {
+      return new Intl.RelativeTimeFormat(void 0, { numeric: "auto" }).format(amount, unit);
+    } catch {
+      const abs = Math.abs(amount);
+      const suffix = amount <= 0 ? "ago" : "from now";
+      return `${abs} ${unit}${abs === 1 ? "" : "s"} ${suffix}`;
+    }
+  };
+  if (absMs < hourMs) return formatUnit("minute", -Math.max(1, Math.round(absMs / minuteMs)));
+  if (absMs < dayMs) return formatUnit("hour", -Math.round(absMs / hourMs));
+  if (absMs < weekMs) return formatUnit("day", -Math.round(absMs / dayMs));
+  return formatUnit("week", -Math.round(absMs / weekMs));
+}
+function formatReadyAttribution(entry) {
+  const by = shortUserId(entry.markedReadyBy);
+  const at = entry.markedReadyAt ?? entry.updatedAt ?? null;
+  return at ? `Ready by ${by} (${formatRelativeTime(at)})` : `Ready by ${by}`;
+}
+async function ensureReadPermission(handle) {
+  try {
+    const h = handle;
+    const hasQuery = typeof h?.queryPermission === "function";
+    const hasRequest = typeof h?.requestPermission === "function";
+    if (!hasQuery && !hasRequest) return true;
+    const state8 = hasQuery ? await h.queryPermission({ mode: "read" }) : null;
+    if (state8 === "granted") return true;
+    if (!hasRequest) return true;
+    const req = await h.requestPermission({ mode: "read" });
+    return req === "granted";
+  } catch {
+    return false;
+  }
+}
+function emitScriptsUpdated() {
+  try {
+    window.dispatchEvent(new CustomEvent("tp:scripts-updated"));
+  } catch {
+  }
+}
+async function readMappedFile(file) {
+  try {
+    const name = file?.name || "";
+    const lower = name.toLowerCase();
+    if (/\.docx$/i.test(lower)) {
+      const buf = await file.arrayBuffer();
+      const docText = await extractDocxText(buf);
+      if (docText) return docText;
+    }
+    return await file.text();
+  } catch (err) {
+    try {
+      console.warn("[scripts-store] readMappedFile failed", err);
+    } catch {
+    }
+    return "";
+  }
+}
+async function extractDocxText(buf) {
+  try {
+    const ensure = window.ensureMammoth;
+    const mod = ensure ? await ensure() : null;
+    const mammoth = mod && (mod.mammoth || mod.default) || window.mammoth || null;
+    if (!mammoth) throw new Error("mammoth not available");
+    const res = await mammoth.extractRawText({ arrayBuffer: buf });
+    const raw = res && (res.value || res.text || "") || "";
+    return String(raw).replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  } catch (err) {
+    try {
+      console.warn("[scripts-store] docx parse failed", err);
+    } catch {
+    }
+    return "";
+  }
+}
+var scriptsById, mappedHandles, readyRefsById, lastMappedFingerprint, lastReadyFingerprint, computeFingerprint, computeReadyFingerprint, ScriptStore;
+var init_scripts_store = __esm({
+  "src/features/scripts-store.ts"() {
+    "use strict";
+    init_logging();
+    init_ready_scripts();
+    init_ready_script_loading();
+    scriptsById = /* @__PURE__ */ new Map();
+    mappedHandles = /* @__PURE__ */ new Map();
+    readyRefsById = /* @__PURE__ */ new Map();
+    lastMappedFingerprint = "";
+    lastReadyFingerprint = "";
+    computeFingerprint = (entries) => entries.map((e) => String(e.id || "")).sort().join("|");
+    computeReadyFingerprint = (entries) => entries.map((e) => `${String(e.id || "")}:${String(e.updatedAt || "")}:${String(e.path || "")}`).sort().join("|");
+    ScriptStore = {
+      list() {
+        const all2 = Array.from(scriptsById.values());
+        debugLog("[SCRIPT-STORE] list size", all2.length, all2.map((r) => r.id));
+        return all2.map((rec2) => ({
+          id: rec2.id,
+          title: rec2.title,
+          updated: rec2.updated
+        }));
+      },
+      async get(id) {
+        const existing = scriptsById.get(id);
+        if (existing && hasUsableReadyScriptContent(existing.content)) return existing;
+        const mapped = mappedHandles.get(id);
+        if (!mapped) {
+          const ready = readyRefsById.get(id);
+          if (!ready) return hasUsableReadyScriptContent(existing?.content) ? existing : null;
+          try {
+            const text = await readReadyScriptRecordContent(ready, readReadyScriptText);
+            if (!hasUsableReadyScriptContent(text)) {
+              return hasUsableReadyScriptContent(existing?.content) ? existing : null;
+            }
+            const rec2 = {
+              id: ready.id,
+              title: ready.title,
+              content: text,
+              source: "ready",
+              created: existing?.created || ready.updatedAt || (/* @__PURE__ */ new Date()).toISOString(),
+              updated: ready.updatedAt || (/* @__PURE__ */ new Date()).toISOString()
+            };
+            scriptsById.set(id, rec2);
+            return rec2;
+          } catch (err) {
+            try {
+              console.warn("[scripts-store] failed to load ready script", err);
+            } catch {
+            }
+            return hasUsableReadyScriptContent(existing?.content) ? existing : null;
+          }
+        }
+        try {
+          const ok = await ensureReadPermission(mapped.handle);
+          if (!ok) {
+            hudLog("script:permission:denied", { id });
+            try {
+              window.toast?.("Allow folder access to load scripts, then try Refresh.", { type: "warning" });
+            } catch {
+            }
+            return hasUsableReadyScriptContent(existing?.content) ? existing : null;
+          }
+          const file = await mapped.handle.getFile();
+          const text = await readMappedFile(file);
+          const rec2 = {
+            id: mapped.id,
+            title: mapped.title,
+            content: text,
+            source: "mapped",
+            created: existing?.created,
+            updated: (/* @__PURE__ */ new Date()).toISOString()
+          };
+          scriptsById.set(id, rec2);
+          return rec2;
+        } catch (err) {
+          try {
+            console.warn("[scripts-store] failed to load mapped script", err);
+          } catch {
+          }
+          return hasUsableReadyScriptContent(existing?.content) ? existing : null;
+        }
+      },
+      save(data) {
+        const fallbackId = data.title?.trim() || `script-${Date.now()}`;
+        const id = (data.id || "").trim() || fallbackId;
+        const existing = scriptsById.get(id);
+        const now3 = (/* @__PURE__ */ new Date()).toISOString();
+        const rec2 = {
+          id,
+          title: data.title || existing?.title || id,
+          content: data.content,
+          source: existing?.source || "local",
+          created: existing?.created || now3,
+          updated: now3
+        };
+        scriptsById.set(id, rec2);
+        emitScriptsUpdated();
+        return id;
+      },
+      rename(id, title) {
+        const rec2 = scriptsById.get(id);
+        if (!rec2) return;
+        rec2.title = title;
+        rec2.updated = (/* @__PURE__ */ new Date()).toISOString();
+        scriptsById.set(id, rec2);
+        emitScriptsUpdated();
+      },
+      remove(id) {
+        scriptsById.delete(id);
+        mappedHandles.delete(id);
+        emitScriptsUpdated();
+      },
+      getMappedEntries() {
+        return Array.from(mappedHandles.values()).map((m) => ({
+          id: m.id,
+          title: m.title,
+          handle: m.handle
+        }));
+      },
+      getSelectableEntries() {
+        const mapped = Array.from(mappedHandles.values()).map((m) => ({
+          id: m.id,
+          title: m.title,
+          handle: m.handle,
+          source: "mapped"
+        }));
+        const ready = Array.from(readyRefsById.values()).map((r) => ({
+          id: r.id,
+          title: r.title,
+          subtitle: formatReadyAttribution(r),
+          source: "ready"
+        }));
+        return [...ready, ...mapped];
+      },
+      syncMapped(entries) {
+        const fingerprint = computeFingerprint(entries);
+        if (fingerprint && fingerprint === lastMappedFingerprint) {
+          debugLog("[SCRIPT-STORE] syncMapped skipped (unchanged)", { fingerprint, count: entries.length });
+          return;
+        }
+        lastMappedFingerprint = fingerprint;
+        debugLog("[SCRIPT-STORE] syncMapped entries", entries);
+        for (const [id, rec2] of scriptsById.entries()) {
+          if (rec2.source === "mapped" && !entries.some((entry) => entry.id === id)) {
+            scriptsById.delete(id);
+          }
+        }
+        mappedHandles.clear();
+        for (const e of entries) {
+          mappedHandles.set(e.id, { id: e.id, title: e.title, handle: e.handle });
+          const existing = scriptsById.get(e.id);
+          scriptsById.set(e.id, {
+            id: e.id,
+            title: e.title,
+            content: existing?.content || "",
+            created: existing?.created || (/* @__PURE__ */ new Date()).toISOString(),
+            updated: existing?.updated,
+            source: existing?.source ?? "mapped"
+          });
+        }
+        const ids = Array.from(scriptsById.keys());
+        debugLog("[SCRIPT-STORE] scriptsById size after sync", scriptsById.size, ids);
+        hudLog("script-store:syncMapped", { size: scriptsById.size, ids });
+        emitScriptsUpdated();
+      },
+      syncReady(entries) {
+        const fingerprint = computeReadyFingerprint(entries);
+        if (fingerprint && fingerprint === lastReadyFingerprint) {
+          debugLog("[SCRIPT-STORE] syncReady skipped (unchanged)", { fingerprint, count: entries.length });
+          return;
+        }
+        lastReadyFingerprint = fingerprint;
+        debugLog("[SCRIPT-STORE] syncReady entries", entries);
+        for (const [id, rec2] of scriptsById.entries()) {
+          if (rec2.source === "ready" && !entries.some((entry) => entry.id === id)) {
+            scriptsById.delete(id);
+          }
+        }
+        readyRefsById.clear();
+        for (const entry of entries) {
+          readyRefsById.set(entry.id, entry);
+          const existing = scriptsById.get(entry.id);
+          scriptsById.set(entry.id, {
+            id: entry.id,
+            title: entry.title,
+            content: existing?.content || "",
+            source: "ready",
+            created: existing?.created || entry.updatedAt || (/* @__PURE__ */ new Date()).toISOString(),
+            updated: entry.updatedAt || existing?.updated
+          });
+        }
+        const ids = Array.from(scriptsById.keys());
+        debugLog("[SCRIPT-STORE] scriptsById size after ready sync", scriptsById.size, ids);
+        hudLog("script-store:syncReady", { size: scriptsById.size, ids });
+        emitScriptsUpdated();
+      }
+    };
+    try {
+      window.Scripts = ScriptStore;
+      window.getScriptsApi = () => ScriptStore;
+    } catch {
+    }
   }
 });
 
@@ -57879,7 +64124,7 @@ var init_recording_decision_dialog = __esm({
 });
 
 // src/recording/recording-name.ts
-function readString8(value) {
+function readString9(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -57891,7 +64136,7 @@ function sanitizeRecordingTitle(title) {
   return sliced || "Script";
 }
 function pickRecordingBaseTitle(args) {
-  return readString8(args.inputTitle) ?? readString8(args.routeEpisodeTitle) ?? readString8(args.storedTitle) ?? "Script";
+  return readString9(args.inputTitle) ?? readString9(args.routeEpisodeTitle) ?? readString9(args.storedTitle) ?? "Script";
 }
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -57915,6 +64160,645 @@ function buildRecordingFilename(args) {
 var init_recording_name = __esm({
   "src/recording/recording-name.ts"() {
     "use strict";
+  }
+});
+
+// src/forge/workpiece-context.ts
+function readString10(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+function normalizeUuid4(value) {
+  const str = readString10(value);
+  if (!str) return null;
+  return UUID_RE4.test(str) ? str.toLowerCase() : null;
+}
+function readLocalStorage4(key) {
+  try {
+    return readString10(window.localStorage.getItem(key));
+  } catch {
+    return null;
+  }
+}
+function writeLocalStorage3(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+  }
+}
+function getQueryParam4(...keys) {
+  try {
+    const q3 = new URLSearchParams(window.location.search || "");
+    for (const key of keys) {
+      const value = readString10(q3.get(key));
+      if (value) return value;
+    }
+  } catch {
+  }
+  return null;
+}
+function resolveWorkspaceId4() {
+  const fromQuery = normalizeUuid4(getQueryParam4("workspace_id", "workspaceId", "workspace"));
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = normalizeUuid4(
+    w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
+  );
+  if (fromWindow) return fromWindow;
+  for (const key of WORKSPACE_STORAGE_KEYS4) {
+    const value = normalizeUuid4(readLocalStorage4(key));
+    if (value) return value;
+  }
+  return null;
+}
+function resolveDirectWorkpieceId2() {
+  const fromQuery = normalizeUuid4(
+    getQueryParam4("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
+  );
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = normalizeUuid4(
+    w3.__forgeWorkpieceId ?? w3.__tpWorkpieceId ?? w3.__forgeCradleId ?? w3.__tpCradleId
+  );
+  if (fromWindow) return fromWindow;
+  for (const key of WORKPIECE_STORAGE_KEYS3) {
+    const value = normalizeUuid4(readLocalStorage4(key));
+    if (value) return value;
+  }
+  return null;
+}
+function loadCachedWorkpiece2(workspaceId) {
+  if (!workspaceId) return null;
+  return normalizeUuid4(readLocalStorage4(`${WORKSPACE_WORKPIECE_PREFIX3}${workspaceId}`));
+}
+function parseReadyScriptWorkpieceId(scriptId) {
+  const id = readString10(scriptId);
+  if (!id) return null;
+  if (!id.toLowerCase().startsWith("ready:")) return null;
+  const rest = id.slice("ready:".length);
+  const separator = rest.indexOf(":");
+  if (separator <= 0) return null;
+  return normalizeUuid4(rest.slice(0, separator));
+}
+function persistActiveWorkpieceFromScriptId(scriptId) {
+  const workpieceId = parseReadyScriptWorkpieceId(scriptId);
+  if (!workpieceId) return null;
+  writeLocalStorage3(ACTIVE_WORKPIECE_KEY3, workpieceId);
+  const workspaceId = resolveWorkspaceId4();
+  if (workspaceId) {
+    writeLocalStorage3(`${WORKSPACE_WORKPIECE_PREFIX3}${workspaceId}`, workpieceId);
+  }
+  return workpieceId;
+}
+function resolveActiveWorkpieceId() {
+  const direct = resolveDirectWorkpieceId2();
+  if (direct) return direct;
+  return loadCachedWorkpiece2(resolveWorkspaceId4());
+}
+var UUID_RE4, WORKSPACE_STORAGE_KEYS4, WORKPIECE_STORAGE_KEYS3, ACTIVE_WORKPIECE_KEY3, WORKSPACE_WORKPIECE_PREFIX3;
+var init_workpiece_context = __esm({
+  "src/forge/workpiece-context.ts"() {
+    "use strict";
+    UUID_RE4 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    WORKSPACE_STORAGE_KEYS4 = ["forge_workspace_id_v1", "barstock_workspace_id"];
+    WORKPIECE_STORAGE_KEYS3 = [
+      "forge_active_workpiece_id_v1",
+      "forge_workpiece_id_v1",
+      "tp_workpiece_id"
+    ];
+    ACTIVE_WORKPIECE_KEY3 = "forge_active_workpiece_id_v1";
+    WORKSPACE_WORKPIECE_PREFIX3 = "forge_anvil_recording_workpiece_v1:";
+  }
+});
+
+// src/recording/recordingTranscriptController.ts
+function readText(value) {
+  if (typeof value !== "string") return null;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 0 ? normalized : null;
+}
+function readBoolean(value) {
+  return value === true;
+}
+function buildLocalSnapshotKey(captureSessionId) {
+  return `${LOCAL_SNAPSHOT_KEY_PREFIX}${captureSessionId}`;
+}
+function safeNow() {
+  return Date.now();
+}
+function safeTimestampMs(recordingStartedAtMs) {
+  return Math.max(0, safeNow() - recordingStartedAtMs);
+}
+function toSeconds(valueMs) {
+  return Number((Math.max(0, valueMs) / 1e3).toFixed(3));
+}
+function estimateSegmentStartSec(text, endSec, previousEndSec) {
+  const wordCount = Math.max(1, text.split(/\s+/).length);
+  const estimatedDurationSec = Math.min(6, Math.max(0.35, wordCount / 2.75));
+  return Number(Math.max(previousEndSec, endSec - estimatedDurationSec).toFixed(3));
+}
+function pushFinalSegment(session, text, endSec) {
+  const previousSegment = session.segments[session.segments.length - 1] ?? null;
+  if (previousSegment && previousSegment.text === text) {
+    previousSegment.end_sec = Math.max(previousSegment.end_sec, endSec);
+    return;
+  }
+  const previousEndSec = previousSegment?.end_sec ?? 0;
+  const startSec = session.partialStartSec != null ? Math.max(previousEndSec, Number(session.partialStartSec.toFixed(3))) : estimateSegmentStartSec(text, endSec, previousEndSec);
+  const segmentIndex = session.segments.length + 1;
+  session.segments.push({
+    segment_id: `seg-${segmentIndex}`,
+    start_sec: startSec,
+    end_sec: Math.max(startSec, Number(endSec.toFixed(3))),
+    speaker: DEFAULT_SPEAKER,
+    text
+  });
+}
+function buildCanonicalTranscriptText(session) {
+  return session.segments.map((segment) => readText(segment.text)).filter((segment) => !!segment).join(" ");
+}
+function splitWords2(value) {
+  return String(value || "").split(/\s+/).map((word) => word.trim()).filter(Boolean);
+}
+function trimCommittedPrefix(candidateText, committedText) {
+  const candidate = readText(candidateText) ?? "";
+  const committed = readText(committedText) ?? "";
+  if (!candidate) return "";
+  if (!committed) return candidate;
+  if (candidate === committed) return "";
+  if (candidate.startsWith(`${committed} `)) {
+    return readText(candidate.slice(committed.length)) ?? "";
+  }
+  if (candidate.startsWith(committed)) {
+    return readText(candidate.slice(committed.length)) ?? "";
+  }
+  const committedWords = splitWords2(committed);
+  const candidateWords = splitWords2(candidate);
+  const maxOverlap = Math.min(committedWords.length, candidateWords.length, 24);
+  for (let overlap = maxOverlap; overlap >= 1; overlap -= 1) {
+    const committedTail = committedWords.slice(committedWords.length - overlap).join(" ");
+    const candidateHead = candidateWords.slice(0, overlap).join(" ");
+    if (committedTail && committedTail === candidateHead) {
+      return readText(candidateWords.slice(overlap).join(" ")) ?? "";
+    }
+  }
+  return candidate;
+}
+function commitPendingFinal(session, endSec) {
+  const pendingText = readText(session.pendingFinalText);
+  const pendingStartSec = session.pendingFinalStartSec;
+  if (!pendingText) {
+    session.pendingFinalText = null;
+    session.pendingFinalStartSec = null;
+    return false;
+  }
+  const appendableText = trimCommittedPrefix(pendingText, buildCanonicalTranscriptText(session));
+  session.pendingFinalText = null;
+  session.pendingFinalStartSec = null;
+  if (!appendableText) {
+    session.partialText = null;
+    session.partialStartSec = null;
+    return false;
+  }
+  if (pendingStartSec != null) {
+    session.partialStartSec = pendingStartSec;
+  }
+  pushFinalSegment(session, appendableText, endSec);
+  session.partialText = null;
+  session.partialStartSec = null;
+  return true;
+}
+function absorbFinalHypothesis(session, text, endSec) {
+  const finalText = readText(text);
+  if (!finalText) return false;
+  const now3 = safeNow();
+  const pendingText = readText(session.pendingFinalText);
+  if (!pendingText) {
+    session.pendingFinalText = finalText;
+    session.pendingFinalStartSec = session.partialStartSec;
+    session.partialText = finalText;
+    session.lastFinalHypothesisAtMs = now3;
+    return false;
+  }
+  const boundaryElapsedMs = Math.max(0, now3 - session.lastFinalHypothesisAtMs);
+  session.lastFinalHypothesisAtMs = now3;
+  if (finalText === pendingText) {
+    return commitPendingFinal(session, endSec);
+  }
+  const pendingAsPrefix = finalText.startsWith(`${pendingText} `) || finalText.startsWith(pendingText);
+  if (pendingAsPrefix && boundaryElapsedMs <= FINAL_HYPOTHESIS_BOUNDARY_WINDOW_MS) {
+    session.pendingFinalText = finalText;
+    session.partialText = finalText;
+    return false;
+  }
+  const committed = commitPendingFinal(session, endSec);
+  session.pendingFinalText = finalText;
+  session.pendingFinalStartSec = session.partialStartSec;
+  session.partialText = finalText;
+  return committed;
+}
+function buildSnapshot(session) {
+  return {
+    schema_version: 1,
+    capture_session_id: session.captureSessionId,
+    workpiece_id: session.target?.ok ? session.target.workpieceId : null,
+    started_at: session.startedAtIso,
+    updated_at: (/* @__PURE__ */ new Date()).toISOString(),
+    status: session.status,
+    degraded_reason: session.degradedReason,
+    live_path: session.livePath,
+    final_path: session.finalized ? session.finalPath : null,
+    partial_text: session.partialText,
+    segment_count: session.segments.length,
+    segments: session.segments,
+    recording_medium: session.strategy.recordingMedium
+  };
+}
+function buildFinalArtifact(args) {
+  return {
+    schema_version: 1,
+    transcript_id: args.session.captureSessionId,
+    media_id: `capture-session:${args.session.captureSessionId}`,
+    media_signature: null,
+    prepared_at: (/* @__PURE__ */ new Date()).toISOString(),
+    structure: "speaker_turns",
+    source_media_ref: args.mediaPath ? {
+      kind: "workpiece",
+      path: args.mediaPath,
+      content_type: args.contentType
+    } : null,
+    diarization: {
+      label_scheme: "forge-neutral-speakers.v1",
+      labels: [DEFAULT_SPEAKER],
+      raw_labels: [DEFAULT_SPEAKER],
+      version: "anvil-live-transcript.v1",
+      provider: "anvil-live-asr",
+      provider_request_id: null,
+      model: null
+    },
+    confidence_flags: [],
+    segments: args.session.segments
+  };
+}
+var LIVE_SNAPSHOT_PREFIX, FINAL_TRANSCRIPT_PREFIX, LOCAL_SNAPSHOT_KEY_PREFIX, SNAPSHOT_PERSIST_INTERVAL_MS, DEFAULT_SPEAKER, FINAL_HYPOTHESIS_BOUNDARY_WINDOW_MS, RecordingTranscriptController;
+var init_recordingTranscriptController = __esm({
+  "src/recording/recordingTranscriptController.ts"() {
+    "use strict";
+    LIVE_SNAPSHOT_PREFIX = "anvil/transcript/live";
+    FINAL_TRANSCRIPT_PREFIX = "anvil/transcript/final";
+    LOCAL_SNAPSHOT_KEY_PREFIX = "forge_anvil_live_transcript_v1:";
+    SNAPSHOT_PERSIST_INTERVAL_MS = 1500;
+    DEFAULT_SPEAKER = "unknown";
+    FINAL_HYPOTHESIS_BOUNDARY_WINDOW_MS = 1200;
+    RecordingTranscriptController = class {
+      deps;
+      session = null;
+      persistChain = Promise.resolve();
+      transcriptListener = (event) => {
+        const detail = event.detail;
+        const session = this.session;
+        if (!session || session.finalized) return;
+        if (readBoolean(detail?.meta)) return;
+        const text = readText(detail?.text);
+        if (!text) return;
+        session.eventCount += 1;
+        const isFinal = readBoolean(detail?.final) || readBoolean(detail?.isFinal);
+        const endSec = toSeconds(safeTimestampMs(session.recordingStartedAtMs));
+        if (isFinal) {
+          absorbFinalHypothesis(session, text, endSec);
+          session.status = "live";
+          session.degradedReason = null;
+          this.emitState();
+          void this.persistSnapshot(true);
+          return;
+        }
+        session.partialText = text;
+        if (session.partialStartSec == null) {
+          session.partialStartSec = session.segments[session.segments.length - 1]?.end_sec ?? Math.max(0, endSec - 0.35);
+        }
+        session.status = "partial";
+        this.emitState();
+        void this.persistSnapshot(false);
+      };
+      constructor(deps) {
+        this.deps = deps;
+      }
+      async startSession(args) {
+        await this.disposeSession();
+        const target = await this.deps.ensureCaptureTarget();
+        const livePath = `${LIVE_SNAPSHOT_PREFIX}/${args.captureSessionId}.snapshot.v1.json`;
+        const finalPath = `${FINAL_TRANSCRIPT_PREFIX}/${args.captureSessionId}.structured.v1.json`;
+        this.session = {
+          captureSessionId: args.captureSessionId,
+          recordingStartedAtMs: args.recordingStartedAtMs,
+          strategy: args.strategy,
+          startedAtIso: new Date(args.recordingStartedAtMs).toISOString(),
+          livePath,
+          finalPath,
+          status: "starting",
+          degradedReason: null,
+          target,
+          segments: [],
+          partialText: null,
+          partialStartSec: null,
+          pendingFinalText: null,
+          pendingFinalStartSec: null,
+          lastFinalHypothesisAtMs: 0,
+          eventCount: 0,
+          lastPersistedAtMs: 0,
+          finalized: false
+        };
+        this.emitState();
+        window.addEventListener("tp:speech:transcript", this.transcriptListener);
+        void this.persistSnapshot(true);
+        const started = await this.deps.startSpeech({
+          reason: "recording-transcript",
+          mode: "asr"
+        }).catch(() => false);
+        const session = this.session;
+        if (!session) {
+          return {
+            captureSessionId: args.captureSessionId,
+            workpieceId: null,
+            status: "degraded",
+            degradedReason: "transcript-session-released",
+            livePath
+          };
+        }
+        if (!started) {
+          session.status = "degraded";
+          session.degradedReason = "speech-backend-unavailable";
+          this.emitState();
+          void this.persistSnapshot(true);
+        } else {
+          session.status = "live";
+          session.degradedReason = null;
+          this.emitState();
+          void this.persistSnapshot(true);
+        }
+        return {
+          captureSessionId: args.captureSessionId,
+          workpieceId: session.target?.ok ? session.target.workpieceId : null,
+          status: session.status,
+          degradedReason: session.degradedReason,
+          livePath
+        };
+      }
+      async stopSession(args) {
+        const session = this.session;
+        if (!session) {
+          return {
+            captureSessionId: "",
+            workpieceId: null,
+            status: "idle",
+            degradedReason: null,
+            livePath: null,
+            finalPath: null,
+            finalArtifact: null,
+            segmentCount: 0
+          };
+        }
+        session.status = "finalizing";
+        this.emitState();
+        try {
+          this.deps.stopSpeech("recording-stop");
+        } catch {
+        }
+        window.removeEventListener("tp:speech:transcript", this.transcriptListener);
+        const stopEndSec = toSeconds(args.mediaDurationMs ?? safeTimestampMs(session.recordingStartedAtMs));
+        commitPendingFinal(session, stopEndSec);
+        if (session.partialText) {
+          const durationMs = args.mediaDurationMs ?? safeTimestampMs(session.recordingStartedAtMs);
+          pushFinalSegment(session, session.partialText, toSeconds(durationMs));
+          session.partialText = null;
+          session.partialStartSec = null;
+        }
+        const finalArtifact = session.segments.length > 0 ? buildFinalArtifact({
+          session,
+          mediaPath: args.mediaPath ?? null,
+          contentType: args.contentType ?? null
+        }) : null;
+        let finalCommitFailed = false;
+        const captureTarget = session.target;
+        if (finalArtifact && captureTarget?.ok) {
+          const commitResult = await this.deps.commitJsonArtifact({
+            workpieceId: captureTarget.workpieceId,
+            path: session.finalPath,
+            data: finalArtifact,
+            eventName: "take_transcript_finalized",
+            eventPayload: {
+              source: "anvil.recording-transcript",
+              transcript_path: session.finalPath,
+              anvil_capture_session_id: session.captureSessionId,
+              recording_session_id: captureTarget.plannerRecordingSessionId,
+              segment_count: session.segments.length,
+              transcript_status: "ready"
+            }
+          });
+          if (!commitResult.ok) {
+            finalCommitFailed = true;
+          }
+        }
+        session.finalized = true;
+        session.status = finalArtifact && !finalCommitFailed ? "ready" : "degraded";
+        session.degradedReason = finalArtifact ? finalCommitFailed ? "transcript-final-commit-failed" : null : "no-transcript-captured";
+        await this.persistSnapshot(true);
+        this.emitState();
+        return {
+          captureSessionId: session.captureSessionId,
+          workpieceId: session.target?.ok ? session.target.workpieceId : null,
+          status: session.status,
+          degradedReason: session.degradedReason,
+          livePath: session.livePath,
+          finalPath: finalArtifact ? session.finalPath : null,
+          finalArtifact,
+          segmentCount: session.segments.length
+        };
+      }
+      async disposeSession() {
+        window.removeEventListener("tp:speech:transcript", this.transcriptListener);
+        await this.persistChain.catch(() => void 0);
+        this.session = null;
+      }
+      emitState() {
+        const session = this.session;
+        const detail = {
+          captureSessionId: session?.captureSessionId ?? null,
+          workpieceId: session?.target?.ok ? session.target.workpieceId : null,
+          status: session?.status ?? "idle",
+          degradedReason: session?.degradedReason ?? null,
+          livePath: session?.livePath ?? null,
+          finalPath: session?.finalized ? session.finalPath : null,
+          segmentCount: session?.segments.length ?? 0,
+          partialText: session?.partialText ?? null
+        };
+        try {
+          window.dispatchEvent(new CustomEvent("tp:recording:transcript-state", { detail }));
+        } catch {
+        }
+        try {
+          window.__tpBus?.emit?.("tp:recording:transcript-state", detail);
+        } catch {
+        }
+      }
+      async persistSnapshot(force) {
+        const session = this.session;
+        if (!session) return;
+        const now3 = safeNow();
+        if (!force && now3 - session.lastPersistedAtMs < SNAPSHOT_PERSIST_INTERVAL_MS) {
+          return;
+        }
+        session.lastPersistedAtMs = now3;
+        const snapshot = buildSnapshot(session);
+        try {
+          this.deps.localStorage.setItem(buildLocalSnapshotKey(session.captureSessionId), JSON.stringify(snapshot));
+        } catch {
+        }
+        const captureTarget = session.target;
+        if (!captureTarget?.ok) return;
+        this.persistChain = this.persistChain.catch(() => void 0).then(async () => {
+          await this.deps.commitJsonArtifact({
+            workpieceId: captureTarget.workpieceId,
+            path: session.livePath,
+            data: snapshot,
+            eventName: "take_transcript_snapshot",
+            eventPayload: {
+              source: "anvil.recording-transcript",
+              transcript_path: session.livePath,
+              transcript_status: session.status,
+              anvil_capture_session_id: session.captureSessionId,
+              recording_session_id: captureTarget.plannerRecordingSessionId,
+              segment_count: session.segments.length
+            }
+          });
+        });
+        await this.persistChain;
+      }
+    };
+  }
+});
+
+// src/recording/selectBestRecordingStrategy.ts
+function supportsMimeType(mediaRecorderCtor, mimeType) {
+  if (!mediaRecorderCtor || typeof mediaRecorderCtor.isTypeSupported !== "function") {
+    return false;
+  }
+  try {
+    return mediaRecorderCtor.isTypeSupported(mimeType);
+  } catch {
+    return false;
+  }
+}
+function selectBestRecordingStrategy(args) {
+  const diagnostics = [];
+  const mediaRecorderCtor = args.mediaRecorderCtor ?? globalThis.MediaRecorder;
+  if (args.mode === "av") {
+    const candidates = [
+      {
+        mimeType: "video/webm;codecs=vp9,opus",
+        fileExtension: "webm",
+        recordingMedium: "browser-mediarecorder:video/webm;codecs=vp9,opus"
+      },
+      {
+        mimeType: "video/webm;codecs=vp8,opus",
+        fileExtension: "webm",
+        recordingMedium: "browser-mediarecorder:video/webm;codecs=vp8,opus"
+      },
+      {
+        mimeType: "video/webm;codecs=h264,opus",
+        fileExtension: "webm",
+        recordingMedium: "browser-mediarecorder:video/webm;codecs=h264,opus"
+      },
+      {
+        mimeType: "video/webm",
+        fileExtension: "webm",
+        recordingMedium: "browser-mediarecorder:video/webm"
+      }
+    ];
+    for (const candidate of candidates) {
+      if (supportsMimeType(mediaRecorderCtor, candidate.mimeType)) {
+        diagnostics.push(`selected:${candidate.mimeType}`);
+        return {
+          mode: "av",
+          mechanism: "media-recorder",
+          mimeType: candidate.mimeType,
+          fileExtension: candidate.fileExtension,
+          recordingMedium: candidate.recordingMedium,
+          requiresPostNormalization: false,
+          videoBitsPerSecond: DEFAULT_VIDEO_BITS_PER_SECOND,
+          audioBitsPerSecond: DEFAULT_AUDIO_BITS_PER_SECOND,
+          diagnostics
+        };
+      }
+      diagnostics.push(`unsupported:${candidate.mimeType}`);
+    }
+    diagnostics.push("fallback:video/webm");
+    return {
+      mode: "av",
+      mechanism: "media-recorder",
+      mimeType: "video/webm",
+      fileExtension: "webm",
+      recordingMedium: "browser-mediarecorder:video/webm",
+      requiresPostNormalization: false,
+      videoBitsPerSecond: DEFAULT_VIDEO_BITS_PER_SECOND,
+      audioBitsPerSecond: DEFAULT_AUDIO_BITS_PER_SECOND,
+      diagnostics
+    };
+  }
+  const audioCandidates = [
+    {
+      mimeType: "audio/webm;codecs=opus",
+      fileExtension: "webm",
+      recordingMedium: "browser-mediarecorder:audio/webm;codecs=opus"
+    },
+    {
+      mimeType: "audio/ogg;codecs=opus",
+      fileExtension: "ogg",
+      recordingMedium: "browser-mediarecorder:audio/ogg;codecs=opus"
+    },
+    {
+      mimeType: "audio/webm",
+      fileExtension: "webm",
+      recordingMedium: "browser-mediarecorder:audio/webm"
+    }
+  ];
+  for (const candidate of audioCandidates) {
+    if (supportsMimeType(mediaRecorderCtor, candidate.mimeType)) {
+      diagnostics.push(`selected:${candidate.mimeType}`);
+      return {
+        mode: "audio",
+        mechanism: "media-recorder",
+        mimeType: candidate.mimeType,
+        fileExtension: candidate.fileExtension,
+        recordingMedium: candidate.recordingMedium,
+        requiresPostNormalization: false,
+        videoBitsPerSecond: null,
+        audioBitsPerSecond: DEFAULT_AUDIO_BITS_PER_SECOND,
+        diagnostics
+      };
+    }
+    diagnostics.push(`unsupported:${candidate.mimeType}`);
+  }
+  diagnostics.push("fallback:audio/wav");
+  return {
+    mode: "audio",
+    mechanism: "pcm-wav-fallback",
+    mimeType: "audio/wav",
+    fileExtension: "wav",
+    recordingMedium: "browser-pcm-wav-fallback",
+    requiresPostNormalization: false,
+    videoBitsPerSecond: null,
+    audioBitsPerSecond: null,
+    diagnostics
+  };
+}
+var DEFAULT_VIDEO_BITS_PER_SECOND, DEFAULT_AUDIO_BITS_PER_SECOND;
+var init_selectBestRecordingStrategy = __esm({
+  "src/recording/selectBestRecordingStrategy.ts"() {
+    "use strict";
+    DEFAULT_VIDEO_BITS_PER_SECOND = 12e5;
+    DEFAULT_AUDIO_BITS_PER_SECOND = 96e3;
   }
 });
 
@@ -58090,12 +64974,15 @@ var init_local_auto = __esm({
     "use strict";
     init_recording_settings();
     init_workpiece_commit();
+    init_speech_loader();
+    init_scripts_store();
     init_recording_decision_dialog();
     init_recording_name();
+    init_workpiece_context();
+    init_recordingTranscriptController();
+    init_selectBestRecordingStrategy();
     (() => {
       const RECORDING_STORAGE_LIMIT_HINT_KEY = "forge_anvil_recording_storage_limit_hint_bytes_v1";
-      const DEFAULT_VIDEO_BITS_PER_SECOND = 12e5;
-      const DEFAULT_AUDIO_BITS_PER_SECOND = 96e3;
       let mediaRecorder = null;
       let chunks = [];
       let active = false;
@@ -58108,7 +64995,48 @@ var init_local_auto = __esm({
       let audioChunks = [];
       let audioSampleRate = 48e3;
       let recordingStartedAtMs = null;
+      let activeStrategy = null;
+      let activeSaveIdentity = null;
+      const transcriptController = new RecordingTranscriptController({
+        ensureCaptureTarget: ensureRecordingCaptureTarget,
+        commitJsonArtifact: commitRecordingJsonArtifactToTongs,
+        startSpeech: startSpeechBackendForSession,
+        stopSpeech: stopSpeechBackendForSession,
+        localStorage
+      });
       const pad = (n) => String(n).padStart(2, "0");
+      const READY_SCRIPT_PREFIX = "ready:";
+      const UUID_RE5 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      function parseReadyScriptWorkpieceId2(scriptId) {
+        const raw = String(scriptId || "").trim();
+        if (!raw.toLowerCase().startsWith(READY_SCRIPT_PREFIX)) return null;
+        const rest = raw.slice(READY_SCRIPT_PREFIX.length);
+        const separator = rest.indexOf(":");
+        if (separator <= 0) return null;
+        const candidate = rest.slice(0, separator).trim().toLowerCase();
+        return UUID_RE5.test(candidate) ? candidate : null;
+      }
+      function buildWorkpieceFallbackTitle(workpieceId) {
+        return `Episode_${workpieceId.slice(0, 8)}`;
+      }
+      function getCurrentInputTitle() {
+        try {
+          const value = document.getElementById("scriptTitle")?.value ?? null;
+          const trimmed = String(value || "").trim();
+          return trimmed.length > 0 ? trimmed : null;
+        } catch {
+          return null;
+        }
+      }
+      function getStoredTitle() {
+        try {
+          const value = localStorage.getItem("tp_last_script_title") || localStorage.getItem("tp_last_script_name");
+          const trimmed = String(value || "").trim();
+          return trimmed.length > 0 ? trimmed : null;
+        } catch {
+          return null;
+        }
+      }
       function readStorageLimitHintBytes() {
         try {
           const raw = sessionStorage.getItem(RECORDING_STORAGE_LIMIT_HINT_KEY);
@@ -58129,10 +65057,59 @@ var init_local_auto = __esm({
       }
       function showRecorderToast(message, type = "warning") {
         try {
-          const toast5 = window.toast;
-          if (typeof toast5 === "function") {
-            toast5(message, { type });
+          const toast6 = window.toast;
+          if (typeof toast6 === "function") {
+            toast6(message, { type });
           }
+        } catch {
+        }
+      }
+      function readCaptureSessionRunKey() {
+        try {
+          const fromAsr = String(window.__tpAsrRunKey || "").trim();
+          if (fromAsr) return fromAsr;
+        } catch {
+        }
+        try {
+          const fromSession = sessionStorage.getItem("forge_anvil_capture_session_v1");
+          const trimmed = String(fromSession || "").trim();
+          if (trimmed) return trimmed;
+        } catch {
+        }
+        return null;
+      }
+      function readWorkspaceIdForAudit() {
+        try {
+          const value = localStorage.getItem("forge_workspace_id_v1") || localStorage.getItem("barstock_workspace_id");
+          const trimmed = String(value || "").trim();
+          return trimmed || null;
+        } catch {
+          return null;
+        }
+      }
+      function emitUploadFallbackAudit(detail) {
+        const cleanTitle = String(detail.saveIdentity?.baseTitle || "").trim();
+        const fallbackTitle = cleanTitle || String(detail.originalName || "").replace(/\.[^.]+$/, "").trim() || null;
+        const payload = {
+          sessionRunKey: readCaptureSessionRunKey(),
+          workpieceId: detail.saveIdentity?.workpieceId || null,
+          workspaceId: readWorkspaceIdForAudit(),
+          title: fallbackTitle,
+          scriptHash: String(window.__TP_LAST_APPLIED_HASH || "").trim() || null,
+          strategy: "single",
+          phase: "failed",
+          safeToLeave: detail.safeToLeave,
+          blobBytes: detail.bytes,
+          blobMb: Number((detail.bytes / (1024 * 1024)).toFixed(2)),
+          canonicalAttempted: detail.canonicalAttempted,
+          canonicalSucceeded: detail.canonicalSucceeded,
+          fallbackUsed: detail.fallbackUsed,
+          errorCode: detail.errorCode || null,
+          errorMessage: detail.errorMessage || null,
+          finalStorageKey: detail.finalStorageKey || null
+        };
+        try {
+          window.dispatchEvent(new CustomEvent("tp:recording:upload-fallback", { detail: payload }));
         } catch {
         }
       }
@@ -58145,11 +65122,37 @@ var init_local_auto = __esm({
         const message = typeof row.errorMessage === "string" ? row.errorMessage : typeof row.details?.error?.message === "string" ? row.details.error.message : "";
         return message.toLowerCase().includes("object size limit");
       }
+      function extractCommitErrorSummary(result) {
+        if (!result || typeof result !== "object") return { code: null, message: null };
+        const row = result;
+        const code = typeof row.errorCode === "string" ? row.errorCode : typeof row.details?.error?.code === "string" ? row.details.error.code : null;
+        const message = typeof row.errorMessage === "string" ? row.errorMessage : typeof row.details?.error?.message === "string" ? row.details.error.message : null;
+        return { code, message };
+      }
       function readCommitResultSuccess(result) {
         return result.ok ? result : null;
       }
       async function promptForTakeDecision(args) {
         const persistDecision = async (eventName) => {
+          let transcriptPath = args.transcriptFinalize?.finalPath ?? null;
+          let transcriptStatus = args.transcriptFinalize?.status ?? null;
+          let transcriptSourcePath = args.transcriptFinalize?.finalPath ?? null;
+          if (eventName === "take_kept" && args.transcriptFinalize?.finalArtifact && args.transcriptFinalize.workpieceId === args.commitResult.workpieceId) {
+            const promoteResult = await promoteRecordingTranscriptForHammer({
+              workpieceId: args.commitResult.workpieceId,
+              transcript: args.transcriptFinalize.finalArtifact,
+              captureSessionId: args.commitResult.captureSessionId,
+              plannerRecordingSessionId: args.commitResult.plannerRecordingSessionId,
+              sourceTranscriptPath: args.transcriptFinalize.finalPath
+            });
+            if (promoteResult.ok) {
+              transcriptPath = HAMMER_STRUCTURED_TRANSCRIPT_PATH;
+              transcriptStatus = "ready";
+            } else {
+              transcriptStatus = "degraded";
+              showRecorderToast("Transcript could not be promoted into Hammer readiness path. Media was still kept.", "warning");
+            }
+          }
           const result = await appendRecordingDecisionToTongs({
             workpieceId: args.commitResult.workpieceId,
             eventName,
@@ -58160,7 +65163,12 @@ var init_local_auto = __esm({
             durationMs: args.durationMs,
             createdCradle: args.commitResult.createdCradle,
             plannerRecordingSessionId: args.commitResult.plannerRecordingSessionId,
-            captureSessionId: args.commitResult.captureSessionId
+            captureSessionId: args.commitResult.captureSessionId,
+            transcriptPath,
+            transcriptStatus,
+            transcriptSourcePath,
+            recordingMedium: args.strategy?.recordingMedium ?? null,
+            requiresPostNormalization: args.strategy?.requiresPostNormalization === true
           });
           if (!result.ok) {
             const summary = eventName === "take_kept" ? "Could not mark this take as kept in Tongs." : "Could not mark this take as discarded in Tongs.";
@@ -58189,30 +65197,68 @@ var init_local_auto = __esm({
           return null;
         }
       }
-      const nowName = (mode) => {
+      function getReadyScriptTitleForWorkpiece(workpieceId) {
+        if (!workpieceId) return null;
         try {
-          const titleInput = (() => {
-            try {
-              return document.getElementById("scriptTitle")?.value ?? null;
-            } catch {
-              return null;
-            }
-          })();
-          const storedTitle = (() => {
-            try {
-              return localStorage.getItem("tp_last_script_title") || localStorage.getItem("tp_last_script_name");
-            } catch {
-              return null;
-            }
-          })();
-          return buildRecordingFilename({
-            mode,
-            baseTitle: pickRecordingBaseTitle({
-              inputTitle: titleInput,
-              routeEpisodeTitle: getRouteEpisodeTitle(),
-              storedTitle
-            })
+          const entries = ScriptStore.list();
+          const selectedIds2 = [
+            document.getElementById("scriptSelectSidebar")?.value || "",
+            document.getElementById("scriptSelect")?.value || ""
+          ].map((value) => String(value || "").trim()).filter(Boolean);
+          for (const selectedId of selectedIds2) {
+            if (parseReadyScriptWorkpieceId2(selectedId) !== workpieceId) continue;
+            const match = entries.find((entry) => entry.id === selectedId);
+            const title = String(match?.title || "").trim();
+            if (title) return title;
+          }
+          const firstMatch = entries.find((entry) => parseReadyScriptWorkpieceId2(entry.id) === workpieceId);
+          const fallbackTitle = String(firstMatch?.title || "").trim();
+          return fallbackTitle || null;
+        } catch {
+          return null;
+        }
+      }
+      function captureRecordingSaveIdentity() {
+        const workpieceId = resolveActiveWorkpieceId();
+        const routeEpisodeTitle = getRouteEpisodeTitle();
+        const readyTitle = getReadyScriptTitleForWorkpiece(workpieceId);
+        const inputTitle = getCurrentInputTitle();
+        const storedTitle = getStoredTitle();
+        const trustedWorkpieceTitle = routeEpisodeTitle || readyTitle;
+        const baseTitle = trustedWorkpieceTitle || (workpieceId ? buildWorkpieceFallbackTitle(workpieceId) : null) || pickRecordingBaseTitle({
+          inputTitle,
+          routeEpisodeTitle,
+          storedTitle
+        });
+        try {
+          console.log("[core-recorder] save identity snapshot", {
+            workpieceId,
+            baseTitle,
+            trustedWorkpieceTitle: trustedWorkpieceTitle || null
           });
+        } catch {
+        }
+        return {
+          workpieceId,
+          baseTitle
+        };
+      }
+      const applyFileExtension = (name, extension) => {
+        const cleanExtension = String(extension || "").trim().replace(/^\./, "");
+        if (!cleanExtension) return name;
+        const stem = name.replace(/\.[^.]+$/, "");
+        return `${stem}.${cleanExtension}`;
+      };
+      const nowName = (mode, extensionOverride, identity) => {
+        try {
+          return applyFileExtension(buildRecordingFilename({
+            mode,
+            baseTitle: identity?.baseTitle || pickRecordingBaseTitle({
+              inputTitle: getCurrentInputTitle(),
+              routeEpisodeTitle: getRouteEpisodeTitle(),
+              storedTitle: getStoredTitle()
+            })
+          }), extensionOverride ?? (mode === "audio" ? "wav" : "webm"));
         } catch {
           const date = /* @__PURE__ */ new Date();
           const year = date.getFullYear();
@@ -58222,18 +65268,11 @@ var init_local_auto = __esm({
           const minute = pad(date.getMinutes());
           const second = pad(date.getSeconds());
           const fallback = `${year}-${month}-${day}_${hour}-${minute}-${second}`;
-          return mode === "audio" ? `Script_${fallback}_audio.wav` : `Script_${fallback}.webm`;
+          return applyFileExtension(
+            mode === "audio" ? `Script_${fallback}_audio.wav` : `Script_${fallback}.webm`,
+            extensionOverride ?? (mode === "audio" ? "wav" : "webm")
+          );
         }
-      };
-      const pickMime = () => {
-        try {
-          const cand = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
-          for (const t of cand) {
-            if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) return t;
-          }
-        } catch {
-        }
-        return "video/webm";
       };
       const encodeWav = (buffers, sampleRate) => {
         const numChannels = 1;
@@ -58385,7 +65424,7 @@ var init_local_auto = __esm({
         audioProcessor.connect(audioGain);
         audioGain.connect(ctx.destination);
       };
-      const stopAudioOnly = async (durationMs) => {
+      const stopAudioOnly = async (durationMs, transcriptFinalize, strategy, identity) => {
         try {
           if (audioProcessor) audioProcessor.disconnect();
         } catch {
@@ -58410,10 +65449,51 @@ var init_local_auto = __esm({
         audioChunks = [];
         const blob = new Blob([wavBuffer], { type: "audio/wav" });
         try {
-          await saveBlob(blob, nowName("audio"), { durationMs });
+          await saveBlob(blob, nowName("audio", strategy?.fileExtension ?? "wav", identity), {
+            durationMs,
+            transcriptFinalize,
+            strategy,
+            saveIdentity: identity
+          });
         } finally {
           recordingStartedAtMs = null;
         }
+      };
+      const startMediaRecorderWithStrategy = async (strategy) => {
+        const mix = new MediaStream();
+        if (strategy.mode === "audio") {
+          const audioStream2 = await getAudioStream();
+          try {
+            audioStream2.getAudioTracks().forEach((track) => mix.addTrack(track));
+          } catch {
+          }
+        } else {
+          const videoStream = await getVideoStream();
+          const audioStream2 = await getAudioStream();
+          try {
+            audioStream2.getAudioTracks().forEach((track) => mix.addTrack(track));
+          } catch {
+          }
+          try {
+            videoStream.getVideoTracks().forEach((track) => mix.addTrack(track));
+          } catch {
+          }
+        }
+        currentStream = mix;
+        const recorderOptions = {};
+        if (strategy.mimeType) recorderOptions.mimeType = strategy.mimeType;
+        if (strategy.videoBitsPerSecond != null) recorderOptions.videoBitsPerSecond = strategy.videoBitsPerSecond;
+        if (strategy.audioBitsPerSecond != null) recorderOptions.audioBitsPerSecond = strategy.audioBitsPerSecond;
+        mediaRecorder = new MediaRecorder(mix, recorderOptions);
+        chunks = [];
+        mediaRecorder.ondataavailable = (e) => {
+          try {
+            if (e && e.data && e.data.size) chunks.push(e.data);
+            else console.log("[core-recorder] dataavailable empty chunk");
+          } catch {
+          }
+        };
+        mediaRecorder.start();
       };
       async function start2() {
         if (active) return;
@@ -58433,7 +65513,11 @@ var init_local_auto = __esm({
             });
           } catch {
           }
-          if (recordingMode === "audio") {
+          const strategy = selectBestRecordingStrategy({ mode: recordingMode });
+          const captureSessionId = beginRecordingCaptureSession();
+          activeSaveIdentity = captureRecordingSaveIdentity();
+          activeStrategy = strategy;
+          if (recordingMode === "audio" && strategy.mechanism === "pcm-wav-fallback") {
             await startAudioOnly();
             active = true;
             activeMode = "audio";
@@ -58442,47 +65526,43 @@ var init_local_auto = __esm({
               window.dispatchEvent(new CustomEvent("rec:state", { detail: { state: "recording", adapter: "local-auto" } }));
             } catch {
             }
+            void transcriptController.startSession({
+              captureSessionId,
+              recordingStartedAtMs,
+              strategy
+            }).catch((error) => {
+              try {
+                console.warn("[auto-rec] transcript start failed", error);
+              } catch {
+              }
+            });
             return;
           }
-          const v = await getVideoStream();
-          const a = await getAudioStream();
-          const mix = new MediaStream();
-          try {
-            a.getAudioTracks().forEach((t) => mix.addTrack(t));
-          } catch {
-          }
-          try {
-            v.getVideoTracks().forEach((t) => mix.addTrack(t));
-          } catch {
-          }
-          currentStream = mix;
-          const mime = pickMime();
-          mediaRecorder = new MediaRecorder(mix, {
-            mimeType: mime,
-            videoBitsPerSecond: DEFAULT_VIDEO_BITS_PER_SECOND,
-            audioBitsPerSecond: DEFAULT_AUDIO_BITS_PER_SECOND
-          });
-          chunks = [];
-          mediaRecorder.ondataavailable = (e) => {
-            try {
-              if (e && e.data && e.data.size) chunks.push(e.data);
-              else console.log("[core-recorder] dataavailable empty chunk");
-            } catch {
-            }
-          };
-          mediaRecorder.start();
+          await startMediaRecorderWithStrategy(strategy);
           active = true;
-          activeMode = "av";
+          activeMode = strategy.mode;
           recordingStartedAtMs = Date.now();
           try {
             window.dispatchEvent(new CustomEvent("rec:state", { detail: { state: "recording", adapter: "local-auto" } }));
           } catch {
           }
+          void transcriptController.startSession({
+            captureSessionId,
+            recordingStartedAtMs,
+            strategy
+          }).catch((error) => {
+            try {
+              console.warn("[auto-rec] transcript start failed", error);
+            } catch {
+            }
+          });
         } catch (e) {
           try {
             console.warn("[auto-rec] start failed", e);
           } catch {
           }
+          activeSaveIdentity = null;
+          activeStrategy = null;
         }
       }
       async function stop3() {
@@ -58491,24 +65571,40 @@ var init_local_auto = __esm({
         } catch {
         }
         if (!active) return;
+        const durationMs = recordingStartedAtMs != null ? Math.max(0, Date.now() - recordingStartedAtMs) : null;
+        const strategyAtStop = activeStrategy;
+        const saveIdentityAtStop = activeSaveIdentity;
+        const transcriptFinalize = await transcriptController.stopSession({
+          mediaDurationMs: durationMs
+        }).catch((error) => {
+          try {
+            console.warn("[auto-rec] transcript finalize failed", error);
+          } catch {
+          }
+          return null;
+        });
         try {
-          if (activeMode === "audio") {
-            const durationMs = recordingStartedAtMs != null ? Math.max(0, Date.now() - recordingStartedAtMs) : null;
-            await stopAudioOnly(durationMs);
+          if (activeMode === "audio" && strategyAtStop?.mechanism === "pcm-wav-fallback") {
+            await stopAudioOnly(durationMs, transcriptFinalize, strategyAtStop, saveIdentityAtStop);
           } else if (mediaRecorder && mediaRecorder.state !== "inactive") {
-            const durationMs = recordingStartedAtMs != null ? Math.max(0, Date.now() - recordingStartedAtMs) : null;
             const recorder2 = mediaRecorder;
+            const stopName = nowName(strategyAtStop?.mode ?? "av", strategyAtStop?.fileExtension, saveIdentityAtStop);
             recorder2.onstop = async () => {
               try {
                 console.log("[core-recorder] mediaRecorder.onstop fired", { chunks: chunks.length });
                 console.log("[core-recorder] mediaRecorder.onstop fired");
-                const blob = new Blob(chunks, { type: recorder2.mimeType || "video/webm" });
+                const blob = new Blob(chunks, { type: recorder2.mimeType || strategyAtStop?.mimeType || "video/webm" });
                 chunks = [];
                 try {
                   console.log("[core-recorder] about to save blob", { size: blob.size, type: blob.type });
                 } catch {
                 }
-                await saveBlob(blob, nowName("av"), { durationMs });
+                await saveBlob(blob, stopName, {
+                  durationMs,
+                  transcriptFinalize,
+                  strategy: strategyAtStop,
+                  saveIdentity: saveIdentityAtStop
+                });
               } catch (e) {
                 try {
                   console.warn("[auto-rec] save failed", e);
@@ -58537,6 +65633,8 @@ var init_local_auto = __esm({
         mediaRecorder = null;
         active = false;
         activeMode = null;
+        activeStrategy = null;
+        activeSaveIdentity = null;
         try {
           window.dispatchEvent(new CustomEvent("rec:state", { detail: { state: "idle", adapter: "local-auto" } }));
         } catch {
@@ -58549,6 +65647,9 @@ var init_local_auto = __esm({
         showRecordingFinalizeIndicator({ takeName: name });
         let committed = false;
         let commitResultOk = null;
+        let canonicalAttempted = false;
+        let canonicalErrorCode = null;
+        let canonicalErrorMessage = null;
         try {
           const storageLimitHintBytes = readStorageLimitHintBytes();
           const skipCanonicalCommit = storageLimitHintBytes != null && bytes.length >= storageLimitHintBytes;
@@ -58565,17 +65666,50 @@ var init_local_auto = __esm({
               "Cloud save skipped for this take after a prior Storage size-limit failure. Recording will be mirrored locally.",
               "warning"
             );
+            canonicalAttempted = false;
+            canonicalErrorCode = "canonical_commit_skipped_size_hint";
+            canonicalErrorMessage = "Canonical upload skipped after prior storage size-limit failure";
           } else {
+            canonicalAttempted = true;
             try {
               const commitResult = await commitRecordingBytesToTongs({
                 bytes,
                 originalName: name,
-                contentType
+                contentType,
+                transcriptPath: opts.transcriptFinalize?.finalPath ?? null,
+                transcriptStatus: opts.transcriptFinalize?.status ?? null,
+                recordingMedium: opts.strategy?.recordingMedium ?? null,
+                requiresPostNormalization: opts.strategy?.requiresPostNormalization === true
               });
               const commitResultSuccess = readCommitResultSuccess(commitResult);
               if (commitResultSuccess) {
                 committed = true;
                 commitResultOk = commitResultSuccess;
+                if (opts.transcriptFinalize?.finalArtifact && opts.transcriptFinalize.finalPath) {
+                  const artifact = {
+                    ...opts.transcriptFinalize.finalArtifact,
+                    source_media_ref: {
+                      kind: "workpiece",
+                      path: commitResultSuccess.path,
+                      content_type: contentType
+                    }
+                  };
+                  await commitRecordingJsonArtifactToTongs({
+                    workpieceId: commitResultSuccess.workpieceId,
+                    path: opts.transcriptFinalize.finalPath,
+                    data: artifact,
+                    eventName: "take_transcript_linked_media",
+                    eventPayload: {
+                      source: "anvil.local-auto",
+                      transcript_path: opts.transcriptFinalize.finalPath,
+                      file_path: commitResultSuccess.path,
+                      transcript_status: opts.transcriptFinalize.status,
+                      anvil_capture_session_id: commitResultSuccess.captureSessionId,
+                      recording_session_id: commitResultSuccess.plannerRecordingSessionId
+                    }
+                  }).catch(() => void 0);
+                  opts.transcriptFinalize.finalArtifact = artifact;
+                }
                 try {
                   console.log("[core-recorder] canonical commit ok", {
                     workpieceId: commitResultSuccess.workpieceId,
@@ -58585,6 +65719,9 @@ var init_local_auto = __esm({
                 } catch {
                 }
               } else {
+                const commitError = extractCommitErrorSummary(commitResult);
+                canonicalErrorCode = commitError.code;
+                canonicalErrorMessage = commitError.message;
                 if (isStorageTooLargeCommitResult(commitResult)) {
                   writeStorageLimitHintBytes(bytes.length);
                   showRecorderToast(
@@ -58598,6 +65735,8 @@ var init_local_auto = __esm({
                 }
               }
             } catch (commitErr) {
+              canonicalErrorCode = "canonical_commit_exception";
+              canonicalErrorMessage = String(commitErr?.message || commitErr || "Canonical commit failed");
               try {
                 console.warn("[core-recorder] canonical commit failed; using local fallback", commitErr);
               } catch {
@@ -58649,7 +65788,23 @@ var init_local_auto = __esm({
                       name,
                       contentType,
                       bytes: bytes.length,
-                      durationMs: typeof opts.durationMs === "number" && Number.isFinite(opts.durationMs) ? opts.durationMs : null
+                      durationMs: typeof opts.durationMs === "number" && Number.isFinite(opts.durationMs) ? opts.durationMs : null,
+                      transcriptFinalize: opts.transcriptFinalize ?? null,
+                      strategy: opts.strategy ?? null
+                    });
+                  }
+                  if (!committed) {
+                    emitUploadFallbackAudit({
+                      saveIdentity: opts.saveIdentity ?? null,
+                      originalName: name,
+                      bytes: bytes.length,
+                      canonicalAttempted,
+                      canonicalSucceeded: false,
+                      fallbackUsed: true,
+                      safeToLeave: true,
+                      errorCode: canonicalErrorCode,
+                      errorMessage: canonicalErrorMessage,
+                      finalStorageKey: `local:directory:${name}`
                     });
                   }
                   return true;
@@ -58684,7 +65839,9 @@ var init_local_auto = __esm({
                   name,
                   contentType,
                   bytes: bytes.length,
-                  durationMs: typeof opts.durationMs === "number" && Number.isFinite(opts.durationMs) ? opts.durationMs : null
+                  durationMs: typeof opts.durationMs === "number" && Number.isFinite(opts.durationMs) ? opts.durationMs : null,
+                  transcriptFinalize: opts.transcriptFinalize ?? null,
+                  strategy: opts.strategy ?? null
                 });
               }
               return true;
@@ -58711,6 +65868,18 @@ var init_local_auto = __esm({
               }, 2e3);
             } catch {
             }
+            emitUploadFallbackAudit({
+              saveIdentity: opts.saveIdentity ?? null,
+              originalName: name,
+              bytes: bytes.length,
+              canonicalAttempted,
+              canonicalSucceeded: false,
+              fallbackUsed: true,
+              safeToLeave: true,
+              errorCode: canonicalErrorCode,
+              errorMessage: canonicalErrorMessage,
+              finalStorageKey: `local:download:${name}`
+            });
             return false;
           } finally {
             hideRecordingFinalizeIndicator();
@@ -59987,10 +67156,10 @@ function initAsrStatsHud(opts = {}) {
     span.id = TEXT_ID;
     span.textContent = "\u2026";
     panel.appendChild(span);
-    const meta3 = document.createElement("div");
-    meta3.id = META_ID;
-    meta3.style.cssText = "margin-top:4px;color:#c9d7e6;font-size:11px;";
-    panel.appendChild(meta3);
+    const meta2 = document.createElement("div");
+    meta2.id = META_ID;
+    meta2.style.cssText = "margin-top:4px;color:#c9d7e6;font-size:11px;";
+    panel.appendChild(meta2);
     const btn = document.createElement("button");
     btn.type = "button";
     btn.textContent = "dB:on";
@@ -60227,18 +67396,26 @@ function initRecStatsHud(opts = {}) {
   if (!panel) {
     panel = document.createElement("div");
     panel.id = HUD_ID3;
-    panel.style.cssText = "font:12px/1.3 system-ui,Segoe UI,Roboto,Arial,sans-serif;color:#9fb4c9;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:6px 8px;margin:4px 0;max-width:360px;";
+    panel.style.cssText = "font:12px/1.3 system-ui,Segoe UI,Roboto,Arial,sans-serif;color:#9fb4c9;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:6px 8px;margin:4px 0;max-width:420px;";
+    const topRow = document.createElement("div");
+    topRow.style.cssText = "display:flex;align-items:center;gap:6px;";
     const strong = document.createElement("strong");
     strong.textContent = "REC";
-    strong.style.marginRight = "6px";
-    panel.appendChild(strong);
     const span = document.createElement("span");
     span.id = TEXT_ID2;
     span.textContent = "\u2026";
-    panel.appendChild(span);
+    topRow.appendChild(strong);
+    topRow.appendChild(span);
+    panel.appendChild(topRow);
+    const upload = document.createElement("div");
+    upload.id = UPLOAD_TEXT_ID;
+    upload.textContent = "upload idle";
+    upload.style.cssText = "margin-top:4px;color:#b8cbe0;opacity:.92;";
+    panel.appendChild(upload);
     root.appendChild(panel);
   }
   const textEl = document.getElementById(TEXT_ID2);
+  const uploadEl = document.getElementById(UPLOAD_TEXT_ID);
   const fmt = (x) => {
     try {
       return x == null || !isFinite(Number(x)) ? "\u2026" : String(Math.round(Number(x)));
@@ -60256,16 +67433,63 @@ function initRecStatsHud(opts = {}) {
     } catch {
     }
   };
+  const setUploadText = (value) => {
+    try {
+      if (uploadEl) uploadEl.textContent = value;
+    } catch {
+    }
+  };
+  const handleUploadStatus = (payload) => {
+    try {
+      const detail = payload?.detail ?? payload ?? {};
+      const phase = String(detail.phase || "").toLowerCase();
+      const strategy = String(detail.strategy || "").toLowerCase();
+      const chunkIndex = Number(detail.chunkIndex);
+      const totalChunks = Number(detail.totalChunks);
+      const pctRaw = Number(detail.progressPct);
+      const pct = Number.isFinite(pctRaw) ? Math.max(0, Math.min(100, Math.round(pctRaw))) : null;
+      if (phase === "preflight") {
+        setUploadText(`upload preflight \u2022 ${strategy || "single"}`);
+        return;
+      }
+      if (phase === "uploading") {
+        if (strategy === "chunked" && Number.isFinite(chunkIndex) && Number.isFinite(totalChunks) && totalChunks > 0) {
+          const pctText = pct == null ? "" : ` \u2022 ${pct}%`;
+          setUploadText(`upload chunk ${chunkIndex}/${totalChunks}${pctText}`);
+        } else {
+          setUploadText("uploading single commit");
+        }
+        return;
+      }
+      if (phase === "finalizing") {
+        setUploadText("upload finalizing canonical commit");
+        return;
+      }
+      if (phase === "done") {
+        setUploadText(detail.safeToLeave ? "upload complete \u2022 safe to leave" : "upload complete");
+        return;
+      }
+      if (phase === "failed") {
+        setUploadText("upload failed \u2022 fallback path engaged");
+      }
+    } catch {
+    }
+  };
   const onWindowStats = (e) => handleStats(e?.detail ?? {});
+  const onWindowUpload = (e) => handleUploadStatus(e?.detail ?? {});
   window.addEventListener("rec:stats", onWindowStats, { passive: true });
+  window.addEventListener("tp:recording:upload-status", onWindowUpload, { passive: true });
   try {
     bus?.on("rec:stats", handleStats);
+    bus?.on("recording:upload:status", handleUploadStatus);
   } catch {
   }
   const destroy = () => {
     window.removeEventListener("rec:stats", onWindowStats);
+    window.removeEventListener("tp:recording:upload-status", onWindowUpload);
     try {
       bus?.off?.("rec:stats", handleStats);
+      bus?.off?.("recording:upload:status", handleUploadStatus);
     } catch {
     }
     try {
@@ -60280,12 +67504,13 @@ function initRecStatsHud(opts = {}) {
   }
   return { destroy };
 }
-var HUD_ID3, TEXT_ID2;
+var HUD_ID3, TEXT_ID2, UPLOAD_TEXT_ID;
 var init_rec_stats = __esm({
   "src/hud/rec-stats.ts"() {
     "use strict";
     HUD_ID3 = "recStatsHud";
     TEXT_ID2 = "recStatsText";
+    UPLOAD_TEXT_ID = "recUploadText";
   }
 });
 
@@ -61713,684 +68938,20 @@ var init_mic_gate = __esm({
   }
 });
 
-// src/forge/ready-scripts.ts
-function readString9(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : null;
-}
-function normalizeUuid3(value) {
-  const str = readString9(value);
-  if (!str) return null;
-  return UUID_RE3.test(str) ? str.toLowerCase() : null;
-}
-function readLocalStorage3(key) {
-  try {
-    return readString9(window.localStorage.getItem(key));
-  } catch {
-    return null;
-  }
-}
-function getQueryParam3(...keys) {
-  try {
-    const q3 = new URLSearchParams(window.location.search || "");
-    for (const key of keys) {
-      const value = readString9(q3.get(key));
-      if (value) return value;
-    }
-  } catch {
-  }
-  return null;
-}
-function resolveWorkspaceId3() {
-  const fromQuery = normalizeUuid3(getQueryParam3("workspace_id", "workspaceId", "workspace"));
-  if (fromQuery) return fromQuery;
-  const w3 = window;
-  const fromWindow = normalizeUuid3(
-    w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
-  );
-  if (fromWindow) return fromWindow;
-  for (const key of WORKSPACE_STORAGE_KEYS3) {
-    const value = normalizeUuid3(readLocalStorage3(key));
-    if (value) return value;
-  }
-  return null;
-}
-function resolveTongsApiToken2() {
-  const fromQuery = readString9(getQueryParam3("tongs_api_token", "tongsApiToken"));
-  if (fromQuery) return fromQuery;
-  const w3 = window;
-  const fromWindow = readString9(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
-  if (fromWindow) return fromWindow;
-  try {
-    const meta3 = import.meta;
-    const fromEnv = readString9(meta3.env?.VITE_TONGS_API_TOKEN);
-    if (fromEnv) return fromEnv;
-  } catch {
-  }
-  return readLocalStorage3("forge_tongs_api_token_v1") ?? void 0;
-}
-async function withAuthHeaders() {
-  const headers = new Headers();
-  const token = resolveTongsApiToken2();
-  if (token) {
-    headers.set("authorization", `Bearer ${token}`);
-  }
-  return appendForgeUserAuthorization(headers);
-}
-function normalizeScriptPath(value) {
-  const path = readString9(value);
-  if (!path) return null;
-  if (path.startsWith("/") || path.includes("..")) return null;
-  return path;
-}
-function normalizeIso(value) {
-  const iso = readString9(value);
-  if (!iso) return void 0;
-  const timestamp = Date.parse(iso);
-  if (!Number.isFinite(timestamp)) return void 0;
-  return new Date(timestamp).toISOString();
-}
-function normalizeScriptPaths(value) {
-  if (!Array.isArray(value)) return [];
-  const out = [];
-  for (const entry of value) {
-    const path = normalizeScriptPath(entry);
-    if (!path || out.includes(path)) continue;
-    out.push(path);
-  }
-  return out;
-}
-function toReadyScriptId(workpieceId, path) {
-  return `ready:${workpieceId}:${path}`;
-}
-function parseReadyScriptsPayload(payload, workspaceId) {
-  if (!payload || typeof payload !== "object") return [];
-  const root = payload;
-  if (root.ok !== true) return [];
-  const data = root.data;
-  const rowsMaybe = Array.isArray(data) ? data : data && typeof data === "object" && Array.isArray(data.scripts) ? data.scripts : [];
-  if (!rowsMaybe.length) return [];
-  const scripts = [];
-  for (const row of rowsMaybe) {
-    if (!row || typeof row !== "object") continue;
-    const item = row;
-    const rowWorkspace = normalizeUuid3(item.workspace_id) ?? workspaceId;
-    const workpieceId = normalizeUuid3(item.workpiece_id);
-    const primaryPath = normalizeScriptPath(item.primary_script_path) ?? normalizeScriptPath(item.path);
-    const scriptPaths = normalizeScriptPaths(item.script_paths);
-    const path = primaryPath ?? scriptPaths[0] ?? null;
-    if (!rowWorkspace || !workpieceId || !path) continue;
-    const normalizedScriptPaths = scriptPaths.length ? scriptPaths.includes(path) ? scriptPaths : [path, ...scriptPaths] : [path];
-    const title = readString9(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
-    scripts.push({
-      id: toReadyScriptId(workpieceId, path),
-      workspaceId: rowWorkspace,
-      workpieceId,
-      path,
-      primaryPath: path,
-      scriptPaths: normalizedScriptPaths,
-      title,
-      updatedAt: normalizeIso(item.updated_at),
-      markedReadyBy: normalizeUuid3(item.marked_ready_by) ?? void 0,
-      markedReadyAt: normalizeIso(item.marked_ready_at)
-    });
-  }
-  scripts.sort((a, b) => {
-    const aTs = a.updatedAt ?? "";
-    const bTs = b.updatedAt ?? "";
-    const byUpdated = bTs.localeCompare(aTs);
-    if (byUpdated !== 0) return byUpdated;
-    return a.title.localeCompare(b.title);
-  });
-  return scripts;
-}
-function parseRecordingSessionsPayload(payload, workspaceId) {
-  if (!payload || typeof payload !== "object") return [];
-  const root = payload;
-  if (root.ok !== true) return [];
-  const data = root.data;
-  const rowsMaybe = Array.isArray(data) ? data : data && typeof data === "object" && Array.isArray(data.sessions) ? data.sessions : [];
-  const out = [];
-  for (const row of rowsMaybe) {
-    if (!row || typeof row !== "object") continue;
-    const item = row;
-    const id = normalizeUuid3(item.id);
-    const rowWorkspace = normalizeUuid3(item.workspace_id) ?? workspaceId;
-    if (!id || !rowWorkspace) continue;
-    const title = readString9(item.title) ?? "Recording Session";
-    out.push({
-      id,
-      workspaceId: rowWorkspace,
-      title,
-      createdAt: normalizeIso(item.created_at),
-      updatedAt: normalizeIso(item.updated_at),
-      calendarEventId: normalizeUuid3(item.calendar_event_id)
-    });
-  }
-  out.sort((a, b) => {
-    const aUpdated = a.updatedAt ?? a.createdAt ?? "";
-    const bUpdated = b.updatedAt ?? b.createdAt ?? "";
-    const byUpdated = bUpdated.localeCompare(aUpdated);
-    if (byUpdated !== 0) return byUpdated;
-    return a.title.localeCompare(b.title);
-  });
-  return out;
-}
-function parseRecordingSessionDetailPayload(payload) {
-  if (!payload || typeof payload !== "object") return null;
-  const root = payload;
-  if (root.ok !== true) return null;
-  if (!root.data || typeof root.data !== "object") return null;
-  return root.data;
-}
-function toScriptReferenceFromSessionItem(args) {
-  const workpieceId = normalizeUuid3(args.item.episode_id);
-  const path = normalizeScriptPath(args.item.script_path);
-  if (!workpieceId || !path) return null;
-  const key = `${workpieceId}::${path}`;
-  const matchedReady = args.readyByKey.get(key) ?? null;
-  const title = args.titleByKey.get(key) ?? args.fallbackTitle;
-  const scriptPaths = matchedReady ? Array.from(new Set([path, matchedReady.primaryPath, ...matchedReady.scriptPaths].filter(Boolean))) : [path];
-  return {
-    id: toReadyScriptId(workpieceId, path),
-    workspaceId: args.workspaceId,
-    workpieceId,
-    path,
-    primaryPath: matchedReady?.primaryPath ?? path,
-    scriptPaths,
-    title,
-    updatedAt: matchedReady?.updatedAt
-  };
-}
-async function listWorkspaceReadyScripts() {
-  const workspaceId = resolveWorkspaceId3();
-  if (!workspaceId) return [];
-  const response = await fetch(`/tongs/workspaces/${encodeURIComponent(workspaceId)}/ready-scripts?unrecorded=1`, {
-    method: "GET",
-    headers: await withAuthHeaders()
-  });
-  if (!response.ok) return [];
-  let body = null;
-  try {
-    body = await response.json();
-  } catch {
-    return [];
-  }
-  return parseReadyScriptsPayload(body, workspaceId);
-}
-async function listRecordingSessionsForWorkspace() {
-  const workspaceId = resolveWorkspaceId3();
-  if (!workspaceId) return [];
-  const response = await fetch(
-    `/tongs/recording-sessions?workspace_id=${encodeURIComponent(workspaceId)}&limit=100`,
-    {
-      method: "GET",
-      headers: await withAuthHeaders()
-    }
-  );
-  if (!response.ok) return [];
-  let body = null;
-  try {
-    body = await response.json();
-  } catch {
-    return [];
-  }
-  return parseRecordingSessionsPayload(body, workspaceId);
-}
-async function readRecordingSessionScripts(sessionId) {
-  const safeSessionId = normalizeUuid3(sessionId);
-  if (!safeSessionId) return null;
-  const response = await fetch(`/tongs/recording-sessions/${encodeURIComponent(safeSessionId)}`, {
-    method: "GET",
-    headers: await withAuthHeaders()
-  });
-  if (!response.ok) return null;
-  let body = null;
-  try {
-    body = await response.json();
-  } catch {
-    return null;
-  }
-  const detail = parseRecordingSessionDetailPayload(body);
-  if (!detail) return null;
-  const workspaceId = normalizeUuid3(detail.workspace_id);
-  const parsedSessionId = normalizeUuid3(detail.id);
-  if (!workspaceId || !parsedSessionId) return null;
-  const sessionTitle = readString9(detail.title) ?? "Recording Session";
-  const workspaceReady = await listWorkspaceReadyScripts().catch(() => []);
-  const titleByKey = /* @__PURE__ */ new Map();
-  const readyByKey = /* @__PURE__ */ new Map();
-  const readyMetaByKey = /* @__PURE__ */ new Map();
-  for (const script of workspaceReady) {
-    titleByKey.set(`${script.workpieceId}::${script.path}`, script.title);
-    readyByKey.set(`${script.workpieceId}::${script.path}`, script);
-    readyMetaByKey.set(`${script.workpieceId}::${script.path}`, {
-      markedReadyBy: script.markedReadyBy,
-      markedReadyAt: script.markedReadyAt
-    });
-    for (const scriptPath of script.scriptPaths) {
-      titleByKey.set(`${script.workpieceId}::${scriptPath}`, script.title);
-      readyByKey.set(`${script.workpieceId}::${scriptPath}`, script);
-      readyMetaByKey.set(`${script.workpieceId}::${scriptPath}`, {
-        markedReadyBy: script.markedReadyBy,
-        markedReadyAt: script.markedReadyAt
-      });
-    }
-  }
-  const rawItems = Array.isArray(detail.items) ? detail.items : [];
-  const parsedItems = rawItems.filter((entry) => !!entry && typeof entry === "object").sort((a, b) => {
-    const aPos = Number.isFinite(Number(a.position)) ? Number(a.position) : 0;
-    const bPos = Number.isFinite(Number(b.position)) ? Number(b.position) : 0;
-    return aPos - bPos;
-  });
-  const scripts = [];
-  for (const item of parsedItems) {
-    const fallbackTitle = `Episode ${String(item.episode_id ?? "").slice(0, 8) || "unknown"}`;
-    const ref = toScriptReferenceFromSessionItem({
-      item,
-      workspaceId,
-      fallbackTitle,
-      titleByKey,
-      readyByKey
-    });
-    if (ref) {
-      const key = `${ref.workpieceId}::${ref.path}`;
-      const readyMeta = readyMetaByKey.get(key);
-      scripts.push({
-        ...ref,
-        markedReadyBy: readyMeta?.markedReadyBy,
-        markedReadyAt: readyMeta?.markedReadyAt
-      });
-    }
-  }
-  return {
-    session: {
-      id: parsedSessionId,
-      workspaceId,
-      title: sessionTitle,
-      calendarEventId: normalizeUuid3(detail.calendar_event_id)
-    },
-    scripts
-  };
-}
-async function readReadyScriptText(workpieceId, path) {
-  const safeWorkpieceId = normalizeUuid3(workpieceId);
-  const safePath = normalizeScriptPath(path);
-  if (!safeWorkpieceId || !safePath) return null;
-  const response = await fetch(
-    `/tongs/workpieces/${encodeURIComponent(safeWorkpieceId)}/read-file?path=${encodeURIComponent(safePath)}`,
-    {
-      method: "GET",
-      headers: await withAuthHeaders()
-    }
-  );
-  if (response.status === 404) return null;
-  if (!response.ok) return null;
-  let body = null;
-  try {
-    body = await response.json();
-  } catch {
-    return null;
-  }
-  if (!body || typeof body !== "object" || body.ok !== true) {
-    return null;
-  }
-  const data = body.data;
-  return typeof data === "string" ? data : null;
-}
-var UUID_RE3, WORKSPACE_STORAGE_KEYS3;
-var init_ready_scripts = __esm({
-  "src/forge/ready-scripts.ts"() {
-    "use strict";
-    init_tongs_user_auth();
-    UUID_RE3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    WORKSPACE_STORAGE_KEYS3 = ["forge_workspace_id_v1", "barstock_workspace_id"];
-  }
-});
-
-// src/features/ready-script-loading.ts
-function hasUsableReadyScriptContent(value) {
-  return typeof value === "string" && value.trim().length > 0;
-}
-function buildReadyScriptPathCandidates(entry) {
-  const candidates = [entry.path, entry.primaryPath, ...entry.scriptPaths];
-  const out = [];
-  for (const candidate of candidates) {
-    const path = String(candidate || "").trim();
-    if (!path || out.includes(path)) continue;
-    out.push(path);
-  }
-  return out;
-}
-async function readReadyScriptRecordContent(entry, readText) {
-  for (const path of buildReadyScriptPathCandidates(entry)) {
-    const text = await readText(entry.workpieceId, path);
-    if (hasUsableReadyScriptContent(text)) {
-      return text;
-    }
-  }
-  return null;
-}
-var init_ready_script_loading = __esm({
-  "src/features/ready-script-loading.ts"() {
-    "use strict";
-  }
-});
-
-// src/features/scripts-store.ts
-function shortUserId(value) {
-  const userId = String(value ?? "").trim();
-  if (!userId) return "Unknown";
-  if (userId.length <= 12) return userId;
-  return `${userId.slice(0, 8)}...`;
-}
-function formatRelativeTime(iso) {
-  if (!iso) return "unknown";
-  const timestamp = Date.parse(iso);
-  if (!Number.isFinite(timestamp)) return "unknown";
-  const diffMs = Date.now() - timestamp;
-  const absMs = Math.abs(diffMs);
-  const minuteMs = 60 * 1e3;
-  const hourMs = 60 * minuteMs;
-  const dayMs = 24 * hourMs;
-  const weekMs = 7 * dayMs;
-  const formatUnit = (unit, amount) => {
-    try {
-      return new Intl.RelativeTimeFormat(void 0, { numeric: "auto" }).format(amount, unit);
-    } catch {
-      const abs = Math.abs(amount);
-      const suffix = amount <= 0 ? "ago" : "from now";
-      return `${abs} ${unit}${abs === 1 ? "" : "s"} ${suffix}`;
-    }
-  };
-  if (absMs < hourMs) return formatUnit("minute", -Math.max(1, Math.round(absMs / minuteMs)));
-  if (absMs < dayMs) return formatUnit("hour", -Math.round(absMs / hourMs));
-  if (absMs < weekMs) return formatUnit("day", -Math.round(absMs / dayMs));
-  return formatUnit("week", -Math.round(absMs / weekMs));
-}
-function formatReadyAttribution(entry) {
-  const by = shortUserId(entry.markedReadyBy);
-  const at = entry.markedReadyAt ?? entry.updatedAt ?? null;
-  return at ? `Ready by ${by} (${formatRelativeTime(at)})` : `Ready by ${by}`;
-}
-async function ensureReadPermission(handle) {
-  try {
-    const h = handle;
-    const hasQuery = typeof h?.queryPermission === "function";
-    const hasRequest = typeof h?.requestPermission === "function";
-    if (!hasQuery && !hasRequest) return true;
-    const state8 = hasQuery ? await h.queryPermission({ mode: "read" }) : null;
-    if (state8 === "granted") return true;
-    if (!hasRequest) return true;
-    const req = await h.requestPermission({ mode: "read" });
-    return req === "granted";
-  } catch {
-    return false;
-  }
-}
-function emitScriptsUpdated() {
-  try {
-    window.dispatchEvent(new CustomEvent("tp:scripts-updated"));
-  } catch {
-  }
-}
-async function readMappedFile(file) {
-  try {
-    const name = file?.name || "";
-    const lower = name.toLowerCase();
-    if (/\.docx$/i.test(lower)) {
-      const buf = await file.arrayBuffer();
-      const docText = await extractDocxText(buf);
-      if (docText) return docText;
-    }
-    return await file.text();
-  } catch (err) {
-    try {
-      console.warn("[scripts-store] readMappedFile failed", err);
-    } catch {
-    }
-    return "";
-  }
-}
-async function extractDocxText(buf) {
-  try {
-    const ensure = window.ensureMammoth;
-    const mod = ensure ? await ensure() : null;
-    const mammoth = mod && (mod.mammoth || mod.default) || window.mammoth || null;
-    if (!mammoth) throw new Error("mammoth not available");
-    const res = await mammoth.extractRawText({ arrayBuffer: buf });
-    const raw = res && (res.value || res.text || "") || "";
-    return String(raw).replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-  } catch (err) {
-    try {
-      console.warn("[scripts-store] docx parse failed", err);
-    } catch {
-    }
-    return "";
-  }
-}
-var scriptsById, mappedHandles, readyRefsById, lastMappedFingerprint, lastReadyFingerprint, computeFingerprint, computeReadyFingerprint, ScriptStore;
-var init_scripts_store = __esm({
-  "src/features/scripts-store.ts"() {
-    "use strict";
-    init_logging();
-    init_ready_scripts();
-    init_ready_script_loading();
-    scriptsById = /* @__PURE__ */ new Map();
-    mappedHandles = /* @__PURE__ */ new Map();
-    readyRefsById = /* @__PURE__ */ new Map();
-    lastMappedFingerprint = "";
-    lastReadyFingerprint = "";
-    computeFingerprint = (entries) => entries.map((e) => String(e.id || "")).sort().join("|");
-    computeReadyFingerprint = (entries) => entries.map((e) => `${String(e.id || "")}:${String(e.updatedAt || "")}:${String(e.path || "")}`).sort().join("|");
-    ScriptStore = {
-      list() {
-        const all2 = Array.from(scriptsById.values());
-        debugLog("[SCRIPT-STORE] list size", all2.length, all2.map((r) => r.id));
-        return all2.map((rec2) => ({
-          id: rec2.id,
-          title: rec2.title,
-          updated: rec2.updated
-        }));
-      },
-      async get(id) {
-        const existing = scriptsById.get(id);
-        if (existing && hasUsableReadyScriptContent(existing.content)) return existing;
-        const mapped = mappedHandles.get(id);
-        if (!mapped) {
-          const ready = readyRefsById.get(id);
-          if (!ready) return hasUsableReadyScriptContent(existing?.content) ? existing : null;
-          try {
-            const text = await readReadyScriptRecordContent(ready, readReadyScriptText);
-            if (!hasUsableReadyScriptContent(text)) {
-              return hasUsableReadyScriptContent(existing?.content) ? existing : null;
-            }
-            const rec2 = {
-              id: ready.id,
-              title: ready.title,
-              content: text,
-              source: "ready",
-              created: existing?.created || ready.updatedAt || (/* @__PURE__ */ new Date()).toISOString(),
-              updated: ready.updatedAt || (/* @__PURE__ */ new Date()).toISOString()
-            };
-            scriptsById.set(id, rec2);
-            return rec2;
-          } catch (err) {
-            try {
-              console.warn("[scripts-store] failed to load ready script", err);
-            } catch {
-            }
-            return hasUsableReadyScriptContent(existing?.content) ? existing : null;
-          }
-        }
-        try {
-          const ok = await ensureReadPermission(mapped.handle);
-          if (!ok) {
-            hudLog("script:permission:denied", { id });
-            try {
-              window.toast?.("Allow folder access to load scripts, then try Refresh.", { type: "warning" });
-            } catch {
-            }
-            return hasUsableReadyScriptContent(existing?.content) ? existing : null;
-          }
-          const file = await mapped.handle.getFile();
-          const text = await readMappedFile(file);
-          const rec2 = {
-            id: mapped.id,
-            title: mapped.title,
-            content: text,
-            source: "mapped",
-            created: existing?.created,
-            updated: (/* @__PURE__ */ new Date()).toISOString()
-          };
-          scriptsById.set(id, rec2);
-          return rec2;
-        } catch (err) {
-          try {
-            console.warn("[scripts-store] failed to load mapped script", err);
-          } catch {
-          }
-          return hasUsableReadyScriptContent(existing?.content) ? existing : null;
-        }
-      },
-      save(data) {
-        const fallbackId = data.title?.trim() || `script-${Date.now()}`;
-        const id = (data.id || "").trim() || fallbackId;
-        const existing = scriptsById.get(id);
-        const now3 = (/* @__PURE__ */ new Date()).toISOString();
-        const rec2 = {
-          id,
-          title: data.title || existing?.title || id,
-          content: data.content,
-          source: existing?.source || "local",
-          created: existing?.created || now3,
-          updated: now3
-        };
-        scriptsById.set(id, rec2);
-        emitScriptsUpdated();
-        return id;
-      },
-      rename(id, title) {
-        const rec2 = scriptsById.get(id);
-        if (!rec2) return;
-        rec2.title = title;
-        rec2.updated = (/* @__PURE__ */ new Date()).toISOString();
-        scriptsById.set(id, rec2);
-        emitScriptsUpdated();
-      },
-      remove(id) {
-        scriptsById.delete(id);
-        mappedHandles.delete(id);
-        emitScriptsUpdated();
-      },
-      getMappedEntries() {
-        return Array.from(mappedHandles.values()).map((m) => ({
-          id: m.id,
-          title: m.title,
-          handle: m.handle
-        }));
-      },
-      getSelectableEntries() {
-        const mapped = Array.from(mappedHandles.values()).map((m) => ({
-          id: m.id,
-          title: m.title,
-          handle: m.handle,
-          source: "mapped"
-        }));
-        const ready = Array.from(readyRefsById.values()).map((r) => ({
-          id: r.id,
-          title: r.title,
-          subtitle: formatReadyAttribution(r),
-          source: "ready"
-        }));
-        return [...ready, ...mapped];
-      },
-      syncMapped(entries) {
-        const fingerprint = computeFingerprint(entries);
-        if (fingerprint && fingerprint === lastMappedFingerprint) {
-          debugLog("[SCRIPT-STORE] syncMapped skipped (unchanged)", { fingerprint, count: entries.length });
-          return;
-        }
-        lastMappedFingerprint = fingerprint;
-        debugLog("[SCRIPT-STORE] syncMapped entries", entries);
-        for (const [id, rec2] of scriptsById.entries()) {
-          if (rec2.source === "mapped" && !entries.some((entry) => entry.id === id)) {
-            scriptsById.delete(id);
-          }
-        }
-        mappedHandles.clear();
-        for (const e of entries) {
-          mappedHandles.set(e.id, { id: e.id, title: e.title, handle: e.handle });
-          const existing = scriptsById.get(e.id);
-          scriptsById.set(e.id, {
-            id: e.id,
-            title: e.title,
-            content: existing?.content || "",
-            created: existing?.created || (/* @__PURE__ */ new Date()).toISOString(),
-            updated: existing?.updated,
-            source: existing?.source ?? "mapped"
-          });
-        }
-        const ids = Array.from(scriptsById.keys());
-        debugLog("[SCRIPT-STORE] scriptsById size after sync", scriptsById.size, ids);
-        hudLog("script-store:syncMapped", { size: scriptsById.size, ids });
-        emitScriptsUpdated();
-      },
-      syncReady(entries) {
-        const fingerprint = computeReadyFingerprint(entries);
-        if (fingerprint && fingerprint === lastReadyFingerprint) {
-          debugLog("[SCRIPT-STORE] syncReady skipped (unchanged)", { fingerprint, count: entries.length });
-          return;
-        }
-        lastReadyFingerprint = fingerprint;
-        debugLog("[SCRIPT-STORE] syncReady entries", entries);
-        for (const [id, rec2] of scriptsById.entries()) {
-          if (rec2.source === "ready" && !entries.some((entry) => entry.id === id)) {
-            scriptsById.delete(id);
-          }
-        }
-        readyRefsById.clear();
-        for (const entry of entries) {
-          readyRefsById.set(entry.id, entry);
-          const existing = scriptsById.get(entry.id);
-          scriptsById.set(entry.id, {
-            id: entry.id,
-            title: entry.title,
-            content: existing?.content || "",
-            source: "ready",
-            created: existing?.created || entry.updatedAt || (/* @__PURE__ */ new Date()).toISOString(),
-            updated: entry.updatedAt || existing?.updated
-          });
-        }
-        const ids = Array.from(scriptsById.keys());
-        debugLog("[SCRIPT-STORE] scriptsById size after ready sync", scriptsById.size, ids);
-        hudLog("script-store:syncReady", { size: scriptsById.size, ids });
-        emitScriptsUpdated();
-      }
-    };
-    try {
-      window.Scripts = ScriptStore;
-      window.getScriptsApi = () => ScriptStore;
-    } catch {
-    }
-  }
-});
-
 // src/forge/script-source.ts
-function readString10(value) {
+function readString11(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
-function readLocalStorage4(key) {
+function readLocalStorage5(key) {
   try {
-    return readString10(window.localStorage.getItem(key));
+    return readString11(window.localStorage.getItem(key));
   } catch {
     return null;
   }
 }
-function writeLocalStorage3(key, value) {
+function writeLocalStorage4(key, value) {
   try {
     window.localStorage.setItem(key, value);
   } catch {
@@ -62409,18 +68970,18 @@ function emitRecordingSessionChange() {
   }
 }
 function getScriptSourceMode() {
-  const stored = readLocalStorage4(SOURCE_KEY);
+  const stored = readLocalStorage5(SOURCE_KEY);
   if (stored === "library") return "library";
   return "session";
 }
 function setScriptSourceMode(mode) {
   const prev2 = getScriptSourceMode();
   if (prev2 === mode) return;
-  writeLocalStorage3(SOURCE_KEY, mode);
+  writeLocalStorage4(SOURCE_KEY, mode);
   emitScriptSourceChange();
 }
 function getSelectedRecordingSessionId() {
-  return readLocalStorage4(RECORDING_SESSION_KEY);
+  return readLocalStorage5(RECORDING_SESSION_KEY);
 }
 function setSelectedRecordingSessionId(sessionId) {
   const normalized = sessionId ? sessionId.trim() : "";
@@ -62428,7 +68989,7 @@ function setSelectedRecordingSessionId(sessionId) {
   const prev2 = getSelectedRecordingSessionId();
   if (prev2 === next) return;
   if (next) {
-    writeLocalStorage3(RECORDING_SESSION_KEY, next);
+    writeLocalStorage4(RECORDING_SESSION_KEY, next);
   } else {
     try {
       window.localStorage.removeItem(RECORDING_SESSION_KEY);
@@ -64171,6 +70732,12 @@ function buildSettingsContent(rootEl2) {
           <button id="stopRecBtn" class="btn" type="button">Stop recording</button>
         </div>
         <small class="muted">These buttons call the recorder registry so Bridge + OBS stay in sync.</small>
+      </div>
+
+      <div class="settings-card anim-in" id="recordingUploadAuditCard">
+        <h4>Upload History</h4>
+        <div id="recordingUploadAuditLatest" class="settings-small">No recording uploads yet.</div>
+        <div id="recordingUploadAuditList"></div>
       </div>
 
       <div class="settings-card anim-in">
@@ -66103,15 +72670,407 @@ var init_telemetry = __esm({
 });
 
 // src/features/toasts.ts
-function initToasts() {
+function isDevMode10() {
   try {
+    if (window.__TP_DEV || window.__TP_DEV1) return true;
+    const qs = new URLSearchParams(String(window.location.search || ""));
+    if (qs.has("dev") || qs.has("debug") || qs.has("hud") || qs.has("scrollDebug")) return true;
+    return localStorage.getItem("tp_dev_mode") === "1";
+  } catch {
+    return false;
+  }
+}
+function toast3(message, type = "info", timeoutMs = 2600) {
+  try {
+    showToast(message, { type, timeoutMs });
+  } catch {
+  }
+}
+function normalizePct(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+function shouldEmitProgressToast(now3) {
+  const MIN_INTERVAL_MS = 1500;
+  if (now3 - lastProgressToastAt < MIN_INTERVAL_MS) return false;
+  lastProgressToastAt = now3;
+  return true;
+}
+function onUploadWarning(ev) {
+  const detail = ev.detail ?? {};
+  const mb = Number.isFinite(Number(detail.mb)) ? Number(detail.mb).toFixed(1) : "unknown";
+  const threshold = Number.isFinite(Number(detail.thresholdMb)) ? Number(detail.thresholdMb).toFixed(0) : "unknown";
+  toast3(`Large upload (${mb} MB) exceeds ${threshold} MB warning threshold`, "warning", 3200);
+}
+function onUploadStatus(ev) {
+  const detail = ev.detail ?? {};
+  const phase = String(detail.phase || "").toLowerCase();
+  const strategy = String(detail.strategy || "").toLowerCase();
+  const chunkIndex = Number(detail.chunkIndex);
+  const totalChunks = Number(detail.totalChunks);
+  const pct = normalizePct(detail.progressPct);
+  if (phase === "preflight") {
+    chunkedNoticeShown = false;
+    safeToLeaveShown = false;
+    failedShown = false;
+    lastProgressToastAt = 0;
+    return;
+  }
+  if (phase === "uploading" && strategy === "chunked" && isDevMode10() && !chunkedNoticeShown) {
+    const mb = Number.isFinite(Number(detail.mb)) ? Number(detail.mb).toFixed(1) : "?";
+    const chunkLabel = Number.isFinite(totalChunks) && totalChunks > 0 ? ` in ${totalChunks} chunks` : "";
+    toast3(`Chunked upload active (${mb} MB${chunkLabel})`, "info", 2800);
+    chunkedNoticeShown = true;
+    return;
+  }
+  if (phase === "uploading" && strategy === "chunked" && isDevMode10() && Number.isFinite(chunkIndex) && Number.isFinite(totalChunks) && totalChunks > 1 && shouldEmitProgressToast(Date.now())) {
+    const progressText = pct == null ? "" : ` (${pct}%)`;
+    toast3(`Uploading chunk ${chunkIndex}/${totalChunks}${progressText}`, "info", 1800);
+    return;
+  }
+  if (phase === "done" && detail.safeToLeave && !safeToLeaveShown) {
+    toast3("Recording upload complete. Safe to leave.", "success", 3200);
+    safeToLeaveShown = true;
+    return;
+  }
+  if (phase === "failed" && !failedShown) {
+    const msg = detail.errorMessage ? ` (${detail.errorMessage})` : "";
+    toast3(`Canonical upload failed${msg}. Falling back to local save.`, "warning", 4200);
+    failedShown = true;
+  }
+}
+function initToasts() {
+  if (installed) return;
+  installed = true;
+  try {
+    window.addEventListener("tp:recording:upload-warning", onUploadWarning);
+    window.addEventListener("tp:recording:upload-status", onUploadStatus);
     console.log("[src/features/toasts] initToasts");
   } catch {
   }
 }
+var installed, chunkedNoticeShown, safeToLeaveShown, failedShown, lastProgressToastAt;
 var init_toasts2 = __esm({
   "src/features/toasts.ts"() {
     "use strict";
+    init_toasts();
+    installed = false;
+    chunkedNoticeShown = false;
+    safeToLeaveShown = false;
+    failedShown = false;
+    lastProgressToastAt = 0;
+  }
+});
+
+// src/features/recording-upload-audit.ts
+function nowIso() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function toStringOrNull(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+function toBoolean2(value, fallback = false) {
+  return typeof value === "boolean" ? value : fallback;
+}
+function toNumberOrNull(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return n;
+}
+function toPhase(value) {
+  const candidate = String(value || "").toLowerCase();
+  if (candidate === "preflight") return "preflight";
+  if (candidate === "uploading") return "uploading";
+  if (candidate === "finalizing") return "finalizing";
+  if (candidate === "done") return "done";
+  return "failed";
+}
+function toStrategy(value) {
+  return String(value || "").toLowerCase() === "chunked" ? "chunked" : "single";
+}
+function sanitizeEntry(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw;
+  const id = toStringOrNull(row.id);
+  if (!id) return null;
+  return {
+    id,
+    createdAtIso: toStringOrNull(row.createdAtIso) || nowIso(),
+    updatedAtIso: toStringOrNull(row.updatedAtIso) || nowIso(),
+    sessionRunKey: toStringOrNull(row.sessionRunKey),
+    workpieceId: toStringOrNull(row.workpieceId),
+    workspaceId: toStringOrNull(row.workspaceId),
+    title: toStringOrNull(row.title),
+    scriptHash: toStringOrNull(row.scriptHash),
+    strategy: toStrategy(row.strategy),
+    phase: toPhase(row.phase),
+    safeToLeave: toBoolean2(row.safeToLeave),
+    blobBytes: toNumberOrNull(row.blobBytes),
+    blobMb: toNumberOrNull(row.blobMb),
+    chunkIndex: toNumberOrNull(row.chunkIndex),
+    chunkTotal: toNumberOrNull(row.chunkTotal),
+    progressPct: toNumberOrNull(row.progressPct),
+    canonicalAttempted: toBoolean2(row.canonicalAttempted),
+    canonicalSucceeded: toBoolean2(row.canonicalSucceeded),
+    fallbackUsed: toBoolean2(row.fallbackUsed),
+    errorCode: toStringOrNull(row.errorCode),
+    errorMessage: toStringOrNull(row.errorMessage),
+    finalStorageKey: toStringOrNull(row.finalStorageKey)
+  };
+}
+function makeAuditId(seed) {
+  const safeSeed = toStringOrNull(seed) || "upload";
+  return `audit:${safeSeed}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 9)}`;
+}
+function chooseTitle(existing, incoming) {
+  if (existing) return existing;
+  return incoming;
+}
+function clampProgress(value) {
+  if (!Number.isFinite(Number(value))) return null;
+  const n = Math.round(Number(value));
+  return Math.max(0, Math.min(100, n));
+}
+function toEntryArray(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => sanitizeEntry(item)).filter((item) => !!item);
+}
+function trimRecordingUploadAuditHistory(entries, maxEntries = RECORDING_UPLOAD_AUDIT_MAX_ENTRIES) {
+  const limit = Math.max(1, Math.floor(maxEntries));
+  return entries.slice(0, limit);
+}
+function loadRecordingUploadAuditHistory(storage = typeof localStorage === "undefined" ? null : localStorage) {
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(RECORDING_UPLOAD_AUDIT_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return trimRecordingUploadAuditHistory(toEntryArray(parsed));
+  } catch {
+    return [];
+  }
+}
+function saveRecordingUploadAuditHistory(entries, storage = typeof localStorage === "undefined" ? null : localStorage) {
+  if (!storage) return;
+  try {
+    const trimmed = trimRecordingUploadAuditHistory(entries);
+    storage.setItem(RECORDING_UPLOAD_AUDIT_STORAGE_KEY, JSON.stringify(trimmed));
+  } catch {
+  }
+}
+function resolveEntryIndex(entries, sessionRunKey, id) {
+  if (sessionRunKey) {
+    return entries.findIndex((entry) => entry.sessionRunKey === sessionRunKey);
+  }
+  if (id) return entries.findIndex((entry) => entry.id === id);
+  return -1;
+}
+function upsertEntry(entries, next) {
+  const sessionRunKey = toStringOrNull(next.sessionRunKey);
+  const now3 = nowIso();
+  const idx = resolveEntryIndex(entries, sessionRunKey, toStringOrNull(next.id));
+  const existing = idx >= 0 ? entries[idx] : null;
+  const id = toStringOrNull(next.id) || existing?.id || makeAuditId(sessionRunKey);
+  const createdAtIso = existing?.createdAtIso || now3;
+  const merged = {
+    id,
+    createdAtIso,
+    updatedAtIso: now3,
+    sessionRunKey: sessionRunKey ?? existing?.sessionRunKey ?? null,
+    workpieceId: toStringOrNull(next.workpieceId) ?? existing?.workpieceId ?? null,
+    workspaceId: toStringOrNull(next.workspaceId) ?? existing?.workspaceId ?? null,
+    title: chooseTitle(existing?.title ?? null, toStringOrNull(next.title)),
+    scriptHash: toStringOrNull(next.scriptHash) ?? existing?.scriptHash ?? null,
+    strategy: toStrategy(next.strategy ?? existing?.strategy ?? "single"),
+    phase: toPhase(next.phase ?? existing?.phase ?? "preflight"),
+    safeToLeave: toBoolean2(next.safeToLeave, existing?.safeToLeave ?? false),
+    blobBytes: toNumberOrNull(next.blobBytes) ?? existing?.blobBytes ?? null,
+    blobMb: toNumberOrNull(next.blobMb) ?? existing?.blobMb ?? null,
+    chunkIndex: toNumberOrNull(next.chunkIndex) ?? existing?.chunkIndex ?? null,
+    chunkTotal: toNumberOrNull(next.chunkTotal) ?? existing?.chunkTotal ?? null,
+    progressPct: clampProgress(toNumberOrNull(next.progressPct) ?? existing?.progressPct ?? null),
+    canonicalAttempted: toBoolean2(next.canonicalAttempted, existing?.canonicalAttempted ?? false),
+    canonicalSucceeded: toBoolean2(next.canonicalSucceeded, existing?.canonicalSucceeded ?? false),
+    fallbackUsed: toBoolean2(next.fallbackUsed, existing?.fallbackUsed ?? false),
+    errorCode: toStringOrNull(next.errorCode) ?? existing?.errorCode ?? null,
+    errorMessage: toStringOrNull(next.errorMessage) ?? existing?.errorMessage ?? null,
+    finalStorageKey: toStringOrNull(next.finalStorageKey) ?? existing?.finalStorageKey ?? null
+  };
+  const output = entries.slice();
+  if (idx >= 0) output.splice(idx, 1);
+  output.unshift(merged);
+  return trimRecordingUploadAuditHistory(output);
+}
+function applyUploadStatusToAuditEntries(entries, detail) {
+  const phase = toPhase(detail.phase);
+  const canonicalAttempted = true;
+  const canonicalSucceeded = phase === "done";
+  const fallbackUsed = phase === "done" ? false : entries.find((entry) => entry.sessionRunKey === toStringOrNull(detail.sessionRunKey))?.fallbackUsed ?? false;
+  return upsertEntry(entries, {
+    sessionRunKey: toStringOrNull(detail.sessionRunKey),
+    workpieceId: toStringOrNull(detail.workpieceId),
+    workspaceId: toStringOrNull(detail.workspaceId),
+    title: toStringOrNull(detail.title),
+    scriptHash: toStringOrNull(detail.scriptHash),
+    strategy: toStrategy(detail.strategy),
+    phase,
+    safeToLeave: toBoolean2(detail.safeToLeave, phase === "done"),
+    blobBytes: toNumberOrNull(detail.bytes),
+    blobMb: toNumberOrNull(detail.mb),
+    chunkIndex: toNumberOrNull(detail.chunkIndex),
+    chunkTotal: toNumberOrNull(detail.totalChunks),
+    progressPct: clampProgress(toNumberOrNull(detail.progressPct)),
+    canonicalAttempted,
+    canonicalSucceeded,
+    fallbackUsed,
+    errorCode: toStringOrNull(detail.errorCode),
+    errorMessage: toStringOrNull(detail.errorMessage),
+    finalStorageKey: toStringOrNull(detail.finalStorageKey)
+  });
+}
+function applyUploadFallbackToAuditEntries(entries, detail) {
+  const canonicalAttempted = toBoolean2(detail.canonicalAttempted, false);
+  const canonicalSucceeded = toBoolean2(detail.canonicalSucceeded, false);
+  return upsertEntry(entries, {
+    sessionRunKey: toStringOrNull(detail.sessionRunKey),
+    workpieceId: toStringOrNull(detail.workpieceId),
+    workspaceId: toStringOrNull(detail.workspaceId),
+    title: toStringOrNull(detail.title),
+    scriptHash: toStringOrNull(detail.scriptHash),
+    strategy: toStrategy(detail.strategy ?? "single"),
+    phase: toPhase(detail.phase ?? "failed"),
+    safeToLeave: toBoolean2(detail.safeToLeave, true),
+    blobBytes: toNumberOrNull(detail.blobBytes),
+    blobMb: toNumberOrNull(detail.blobMb),
+    canonicalAttempted,
+    canonicalSucceeded,
+    fallbackUsed: toBoolean2(detail.fallbackUsed, true),
+    errorCode: toStringOrNull(detail.errorCode),
+    errorMessage: toStringOrNull(detail.errorMessage),
+    finalStorageKey: toStringOrNull(detail.finalStorageKey)
+  });
+}
+function escapeHtml4(value) {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+function formatLocalTime(iso) {
+  if (!iso) return "unknown";
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
+}
+function deriveStatusBadge(entry) {
+  if (entry.fallbackUsed && !entry.canonicalSucceeded) return "Fallback saved locally";
+  if (entry.phase === "preflight") return "Preparing upload";
+  if (entry.phase === "uploading") return "Uploading";
+  if (entry.phase === "finalizing") return "Finalizing";
+  if (entry.phase === "done") return "Upload complete";
+  return "Upload failed";
+}
+function deriveCanonicalSummary(entry) {
+  if (entry.canonicalSucceeded) return "Canonical: succeeded";
+  if (entry.canonicalAttempted) return "Canonical: failed";
+  return "Canonical: skipped";
+}
+function deriveFallbackSummary(entry) {
+  return entry.fallbackUsed ? "Fallback: saved locally" : "Fallback: not used";
+}
+function formatSize(entry) {
+  if (entry.blobMb != null) return `${entry.blobMb.toFixed(2)} MB`;
+  if (entry.blobBytes != null) return `${entry.blobBytes} bytes`;
+  return "unknown size";
+}
+function renderLatestEntry(entry) {
+  const safe = entry.safeToLeave ? "Yes" : "No";
+  const progress = entry.strategy === "chunked" && entry.chunkTotal && entry.chunkTotal > 0 ? `Chunk ${entry.chunkIndex ?? 0}/${entry.chunkTotal}${entry.progressPct != null ? ` (${entry.progressPct}%)` : ""}` : entry.progressPct != null ? `Progress ${entry.progressPct}%` : "Progress n/a";
+  const title = escapeHtml4(entry.title || "Untitled recording");
+  return [
+    `<div class="settings-small"><strong>${title}</strong></div>`,
+    `<div class="settings-small"><span class="badge">${escapeHtml4(deriveStatusBadge(entry))}</span> \xB7 ${escapeHtml4(entry.strategy.toUpperCase())} \xB7 ${escapeHtml4(formatSize(entry))}</div>`,
+    `<div class="settings-small">${escapeHtml4(progress)} \xB7 Safe to leave: <strong>${escapeHtml4(safe)}</strong></div>`,
+    `<div class="settings-small">${escapeHtml4(deriveCanonicalSummary(entry))} \xB7 ${escapeHtml4(deriveFallbackSummary(entry))}</div>`,
+    entry.errorMessage ? `<div class="settings-small" style="color:#ffb3b3">Error: ${escapeHtml4(entry.errorMessage)}</div>` : ""
+  ].join("");
+}
+function renderHistoryRow(entry) {
+  const title = escapeHtml4(entry.title || "Untitled recording");
+  const updated = escapeHtml4(formatLocalTime(entry.updatedAtIso));
+  const progress = entry.strategy === "chunked" && entry.chunkTotal && entry.chunkTotal > 0 ? `chunk ${entry.chunkIndex ?? 0}/${entry.chunkTotal}${entry.progressPct != null ? ` (${entry.progressPct}%)` : ""}` : entry.progressPct != null ? `${entry.progressPct}%` : "n/a";
+  const error = entry.errorMessage ? ` \xB7 ${escapeHtml4(entry.errorMessage)}` : "";
+  return `<li><strong>${title}</strong> \xB7 ${escapeHtml4(deriveStatusBadge(entry))} \xB7 ${escapeHtml4(entry.strategy)} \xB7 ${escapeHtml4(formatSize(entry))} \xB7 ${escapeHtml4(progress)} \xB7 ${updated}${error}</li>`;
+}
+function renderAuditPanel(entries) {
+  const latestEl = document.getElementById("recordingUploadAuditLatest");
+  const listEl = document.getElementById("recordingUploadAuditList");
+  if (!latestEl || !listEl) return;
+  if (!entries.length) {
+    latestEl.innerHTML = `<div class="settings-small">No recording uploads yet.</div>`;
+    listEl.innerHTML = "";
+    return;
+  }
+  const latest = entries[0];
+  latestEl.innerHTML = renderLatestEntry(latest);
+  const rows = entries.slice(0, 10).map((entry) => renderHistoryRow(entry)).join("");
+  listEl.innerHTML = `<ul class="settings-small" style="margin:8px 0 0 16px;display:grid;gap:4px;">${rows}</ul>`;
+}
+function emitAuditUpdated(entries) {
+  try {
+    window.dispatchEvent(new CustomEvent("tp:recording:upload-audit-updated", { detail: { entries } }));
+  } catch {
+  }
+}
+function commitHistory(next) {
+  historyCache = trimRecordingUploadAuditHistory(next);
+  saveRecordingUploadAuditHistory(historyCache);
+  renderAuditPanel(historyCache);
+  emitAuditUpdated(historyCache);
+}
+function ensureHistoryLoaded() {
+  if (historyCache) return historyCache;
+  historyCache = loadRecordingUploadAuditHistory();
+  return historyCache;
+}
+function onUploadStatus2(event) {
+  const detail = event.detail || {};
+  const next = applyUploadStatusToAuditEntries(ensureHistoryLoaded(), detail);
+  commitHistory(next);
+}
+function onUploadFallback(event) {
+  const detail = event.detail || {};
+  const next = applyUploadFallbackToAuditEntries(ensureHistoryLoaded(), detail);
+  commitHistory(next);
+}
+function onSettingsRendered() {
+  renderAuditPanel(ensureHistoryLoaded());
+}
+function initRecordingUploadAudit() {
+  if (listenersWired) {
+    renderAuditPanel(ensureHistoryLoaded());
+    return;
+  }
+  listenersWired = true;
+  ensureHistoryLoaded();
+  try {
+    window.addEventListener("tp:recording:upload-status", onUploadStatus2);
+    window.addEventListener("tp:recording:upload-fallback", onUploadFallback);
+    document.addEventListener("tp:settings:rendered", onSettingsRendered);
+    renderAuditPanel(ensureHistoryLoaded());
+  } catch {
+  }
+}
+var RECORDING_UPLOAD_AUDIT_STORAGE_KEY, RECORDING_UPLOAD_AUDIT_MAX_ENTRIES, historyCache, listenersWired;
+var init_recording_upload_audit = __esm({
+  "src/features/recording-upload-audit.ts"() {
+    "use strict";
+    RECORDING_UPLOAD_AUDIT_STORAGE_KEY = "forge_anvil_recording_upload_audit_v1";
+    RECORDING_UPLOAD_AUDIT_MAX_ENTRIES = 25;
+    historyCache = null;
+    listenersWired = false;
   }
 });
 
@@ -66192,6 +73151,7 @@ async function loadScriptById(id) {
       window.__tpCurrentName = rec2.title;
     } catch {
     }
+    persistActiveWorkpieceFromScriptId(id);
     persistLastScriptId(id);
     return true;
   } catch (err) {
@@ -66208,6 +73168,7 @@ var init_script_selection = __esm({
     "use strict";
     init_apply_script();
     init_scripts_store();
+    init_workpiece_context();
     LAST_SCRIPT_KEY = "tp:last_script_id";
     restoreAttempted = false;
     restoreDeadlineAt = 0;
@@ -66397,14 +73358,7 @@ async function handleLoadClick() {
   } catch {
   }
   try {
-    const rec2 = await ScriptStore.get(id);
-    if (!rec2 || typeof rec2.content !== "string") return;
-    const raw = rec2.content ?? "";
-    applyScript(raw, "load", { updateEditor: true });
-    try {
-      window.dispatchEvent(new CustomEvent("tp:script-load", { detail: { name: rec2.title, text: raw } }));
-    } catch {
-    }
+    await loadScriptById(id);
   } catch {
   } finally {
     loadInFlight = false;
@@ -66456,7 +73410,6 @@ var init_script_editor = __esm({
     "use strict";
     init_logging();
     init_scripts_store();
-    init_apply_script();
     init_script_selection();
     init_mapped_folder();
     init_nursery_mounts();
@@ -67020,7 +73973,7 @@ function writeAutoRecordPref(next) {
   } catch {
   }
 }
-function toast3(msg) {
+function toast4(msg) {
   try {
     window.toasts?.show?.(msg);
   } catch {
@@ -67102,11 +74055,11 @@ function keyGuard(e) {
     e.stopImmediatePropagation();
     e.stopPropagation();
     if (k === " ") {
-      toast3("Auto-scroll disabled in Rehearsal Mode");
+      toast4("Auto-scroll disabled in Rehearsal Mode");
     } else if (nav.includes(k)) {
-      toast3("Keyboard scroll is disabled in Rehearsal Mode");
+      toast4("Keyboard scroll is disabled in Rehearsal Mode");
     } else {
-      toast3("Recording/automation is disabled in Rehearsal Mode");
+      toast4("Recording/automation is disabled in Rehearsal Mode");
     }
   }
 }
@@ -67235,7 +74188,7 @@ function enable() {
     keyListenerInstalled = true;
   }
   wireSelectObserversOnce();
-  toast3("Rehearsal Mode enabled");
+  toast4("Rehearsal Mode enabled");
   try {
     broadcastRehearsal(true);
   } catch {
@@ -67247,7 +74200,7 @@ function disable() {
   setState(false);
   markUiDisabled(false);
   restorePrev();
-  toast3("Exited Rehearsal Mode");
+  toast4("Exited Rehearsal Mode");
   try {
     broadcastRehearsal(false);
   } catch {
@@ -67531,7 +74484,7 @@ function updateRouterDiag(extra = {}) {
   } catch {
   }
 }
-function isDevMode10() {
+function isDevMode11() {
   try {
     const w3 = window;
     if (w3.__TP_DEV || w3.__TP_DEV1) return true;
@@ -67543,7 +74496,7 @@ function isDevMode10() {
   return false;
 }
 function shouldDisableAutoMotors() {
-  return isDevMode10();
+  return isDevMode11();
 }
 function shouldAutoRun(mode, sess) {
   if (shouldDisableAutoMotors()) return false;
@@ -68509,10 +75462,10 @@ function bindCameraUI() {
       setButtons(false, false);
       updateChip("CamRTC: error");
       try {
-        const toast5 = window.toast;
-        if (typeof toast5 === "function") {
+        const toast6 = window.toast;
+        if (typeof toast6 === "function") {
           const msg = busy ? 'Camera is in use by another app. Close it or pick "OBS Virtual Camera" in Settings \u2192 Recording.' : "Camera failed to start. Check permissions or pick another device.";
-          toast5(msg, { type: "warn" });
+          toast6(msg, { type: "warn" });
         }
       } catch {
       }
@@ -70951,7 +77904,7 @@ Need a deeper dive? Open Help > How it Works for the full guide.
 });
 
 // src/features/welcome-intro.ts
-function isDevMode11() {
+function isDevMode12() {
   try {
     const w3 = window;
     if (w3?.__TP_DEV_MODE === true) return true;
@@ -71173,7 +78126,7 @@ async function loadWelcomeGuide(opts) {
 }
 async function devResetWelcomeSeen() {
   if (typeof window === "undefined") return;
-  if (!isDevMode11()) {
+  if (!isDevMode12()) {
     console.warn("[welcome-intro] devResetWelcomeSeen blocked (not in dev mode)");
     return;
   }
@@ -71216,7 +78169,7 @@ var init_welcome_intro = __esm({
     welcomeCheckInFlight = false;
     welcomeCheckDone = false;
     try {
-      if (typeof window !== "undefined" && isDevMode11()) {
+      if (typeof window !== "undefined" && isDevMode12()) {
         window.__tpDevResetWelcome = devResetWelcomeSeen;
       }
     } catch {
@@ -73818,7 +80771,7 @@ var init_dom = __esm({
 });
 
 // src/pairing/pairing-api.ts
-function readString11(value) {
+function readString12(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -73893,9 +80846,9 @@ var init_pairing_api = __esm({
     w2 = typeof window !== "undefined" ? window : {};
     metaEnv2 = typeof import.meta !== "undefined" ? import.meta.env || {} : {};
     DEFAULT_PAIR_QR_URL = "https://wtvdjndyxegudufrompx.functions.supabase.co/pair-qr";
-    PAIR_QR_URL = readString11(w2.__TP_PAIR_QR_URL) || readString11(metaEnv2.VITE_PAIR_QR_URL) || DEFAULT_PAIR_QR_URL;
-    SUPABASE_ANON_KEY2 = readString11(w2.__forgeSupabaseAnonKey) || readString11(metaEnv2.VITE_SUPABASE_ANON_KEY) || "";
-    PAIR_BASE_URL_OVERRIDE = readString11(w2.__TP_PAIR_BASE_URL) || readString11(metaEnv2.VITE_PAIR_BASE_URL) || null;
+    PAIR_QR_URL = readString12(w2.__TP_PAIR_QR_URL) || readString12(metaEnv2.VITE_PAIR_QR_URL) || DEFAULT_PAIR_QR_URL;
+    SUPABASE_ANON_KEY2 = readString12(w2.__forgeSupabaseAnonKey) || readString12(metaEnv2.VITE_SUPABASE_ANON_KEY) || "";
+    PAIR_BASE_URL_OVERRIDE = readString12(w2.__TP_PAIR_BASE_URL) || readString12(metaEnv2.VITE_PAIR_BASE_URL) || null;
     DEFAULT_PAIR_PATH = "/display.html";
     DEFAULT_TTL_MINUTES = Number(w2.__TP_PAIR_QR_TTL_MINUTES ?? metaEnv2.VITE_PAIR_QR_TTL_MINUTES ?? 10);
     DEFAULT_METADATA = typeof w2.__TP_PAIR_QR_METADATA === "object" && w2.__TP_PAIR_QR_METADATA !== null ? { ...w2.__TP_PAIR_QR_METADATA } : { role: "display", app: "anvil" };
@@ -77606,7 +84559,7 @@ async function bindMappedFolderUI(opts) {
           hudLog("folder:permission:denied", { id: sel.id });
         } catch {
         }
-        toast4(
+        toast5(
           isMappedFolderManagedByNursery() ? `Allow folder access, then re-link scripts mount in The Forge Storage (${getNurseryStorageSettingsUrl()}).` : "Allow folder access to load scripts, or re-pick the folder in Settings."
         );
         return;
@@ -77685,7 +84638,7 @@ async function bindMappedFolderUI(opts) {
       } catch {
       }
       try {
-        toast4(
+        toast5(
           isMappedFolderManagedByNursery() ? `Could not load script from The Forge-managed folder. Recheck The Forge Storage link (${getNurseryStorageSettingsUrl()}).` : "Could not load script from the mapped folder. Recheck permissions or pick the folder again."
         );
       } catch {
@@ -78176,18 +85129,18 @@ async function docxToTextViaMammoth(file) {
 async function recheckMappedFolderPermissions() {
   try {
     if (isMappedFolderManagedByNursery()) {
-      toast4(`Scripts folder is managed by The Forge. Configure it in The Forge > Settings > Storage (${getNurseryStorageSettingsUrl()}).`);
+      toast5(`Scripts folder is managed by The Forge. Configure it in The Forge > Settings > Storage (${getNurseryStorageSettingsUrl()}).`);
       return false;
     }
     const dir = window.__tpFolder?.get?.();
     if (!dir) {
-      toast4("No folder mapped");
+      toast5("No folder mapped");
       return false;
     }
     const res = await dir.requestPermission?.({ mode: "read" });
     const granted = res === "granted";
     hudLog("folder:permission", { granted });
-    toast4(granted ? "Folder access granted" : "Folder access denied");
+    toast5(granted ? "Folder access granted" : "Folder access denied");
     if (!granted) {
       try {
         await window.__tpFolder?.clear?.();
@@ -78199,7 +85152,7 @@ async function recheckMappedFolderPermissions() {
     return false;
   }
 }
-function toast4(msg) {
+function toast5(msg) {
   hudLog("toast", { msg });
   try {
     window.dispatchEvent(new CustomEvent("tp:toast", { detail: { msg, ts: Date.now() } }));
@@ -78444,7 +85397,7 @@ var init_importSettings = __esm({
 });
 
 // src/dev/scroll-write-guard.ts
-function isDevMode12() {
+function isDevMode13() {
   if (shouldLogLevel(1)) return true;
   try {
     const qs = new URLSearchParams(String(location.search || ""));
@@ -78532,7 +85485,7 @@ function findScrollTopDescriptor(el) {
 }
 function installScrollWriteGuard(scroller) {
   if (!scroller) return;
-  if (!isDevMode12()) return;
+  if (!isDevMode13()) return;
   try {
     window.__tpScrollGuardDevOverride = true;
     window.__tpScrollWriteActive = true;
@@ -78855,9 +85808,9 @@ async function computeAuth(pass, salt, challenge) {
 }
 function notifyObsConnectionError(reason) {
   try {
-    const toast5 = window.toast;
-    if (typeof toast5 === "function") {
-      toast5("Could not connect to OBS. Make sure OBS is running and check Settings \u2192 Recording.");
+    const toast6 = window.toast;
+    if (typeof toast6 === "function") {
+      toast6("Could not connect to OBS. Make sure OBS is running and check Settings \u2192 Recording.");
     }
   } catch {
   }
@@ -79597,7 +86550,7 @@ function isAsrEngineEngaged() {
 function isAsrOverlayActive() {
   return selectPrefersAsr || isAsrEngineEngaged();
 }
-function isDevMode13() {
+function isDevMode14() {
   try {
     const params = new URLSearchParams(location.search || "");
     if (params.has("dev")) return true;
@@ -79609,7 +86562,7 @@ function isDevMode13() {
   }
 }
 function attachKickDevGlobalOnce() {
-  if (!isDevMode13()) return;
+  if (!isDevMode14()) return;
   try {
     const w3 = window;
     if (typeof w3.__tpKick === "function") return;
@@ -79624,7 +86577,7 @@ function attachKickDevGlobalOnce() {
   }
 }
 function devLog(...args) {
-  if (!isDevMode13()) return;
+  if (!isDevMode14()) return;
   try {
     console.debug("[settings]", ...args);
   } catch {
@@ -80831,6 +87784,10 @@ async function boot() {
         } catch {
         }
         try {
+          startUploadAudit();
+        } catch {
+        }
+        try {
           const ready = Object.assign({}, window.__tpInit || {});
           console.log("[TP-READY]", ready);
         } catch {
@@ -81269,7 +88226,7 @@ async function boot() {
     }
   }
 }
-var TS_BOOT_OWNER, IS_CI_MODE, SCROLL_MODE_SELECT_ID, ALLOWED_SCROLL_MODES, lastStableUiMode, selectPrefersAsr, lastScrollModeSource, SETTINGS_KEYS, settingsSync, asrRejectionToastShown, lastAsrReadyState, asrGatePending, ENABLE_HUD, startPersistence, startTelemetry, startScroll, startHotkeys, startToasts, __docCh2, __isDisplay;
+var TS_BOOT_OWNER, IS_CI_MODE, SCROLL_MODE_SELECT_ID, ALLOWED_SCROLL_MODES, lastStableUiMode, selectPrefersAsr, lastScrollModeSource, SETTINGS_KEYS, settingsSync, asrRejectionToastShown, lastAsrReadyState, asrGatePending, ENABLE_HUD, startPersistence, startTelemetry, startScroll, startHotkeys, startToasts, startUploadAudit, __docCh2, __isDisplay;
 var init_index_app = __esm({
   "src/index-app.ts"() {
     "use strict";
@@ -81344,6 +88301,7 @@ var init_index_app = __esm({
     init_persistence();
     init_telemetry();
     init_toasts2();
+    init_recording_upload_audit();
     init_script_editor();
     init_asr_bridge();
     init_brain_access();
@@ -81410,6 +88368,22 @@ var init_index_app = __esm({
       const stamp = `asr-scroll-${(/* @__PURE__ */ new Date()).toISOString()}`;
       window.__TP_BUILD_STAMP = stamp;
       console.log("[build]", stamp);
+      const applyBuildLabel = () => {
+        try {
+          const label = document.getElementById("anvil-build-label");
+          if (!label) return false;
+          label.textContent = `ANVIL build ${stamp}`;
+          label.setAttribute("data-build-stamp", stamp);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      if (!applyBuildLabel()) {
+        document.addEventListener("DOMContentLoaded", () => {
+          applyBuildLabel();
+        }, { once: true });
+      }
     } catch {
     }
     try {
@@ -81610,6 +88584,7 @@ var init_index_app = __esm({
     });
     startHotkeys = initOnce("hotkeys", initHotkeys);
     startToasts = initOnce("toasts", initToasts);
+    startUploadAudit = initOnce("upload-audit", initRecordingUploadAudit);
     bootTrace("index-app.ts:dom-ready-hook:install:start");
     try {
       onDomReady2(() => {

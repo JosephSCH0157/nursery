@@ -44,6 +44,7 @@ export interface HammerWorkspaceSnapshot {
     canonicalWorkpieceLabel: string | null;
     legacyCaptureLabel: string | null;
     mediaLabelMismatchWarning: string | null;
+    actualRecordingMismatchWarning: string | null;
   };
   selectedMacroRecipeRef: string | null;
   lastMacroRunRef: string | null;

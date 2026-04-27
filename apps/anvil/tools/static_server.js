@@ -5,6 +5,12 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const FALLBACK_HTML = path.join(ROOT, 'teleprompter_pro.html');
+const SERVER_ID = 'anvil-static-server';
+
+// IMPORTANT:
+// Do NOT serve HTML fallback for asset requests (.js, .css, .map, etc).
+// This previously caused "Unexpected token '<'" in smoke runs.
+// See smoke harness contract in tools/smoke_test.js.
 
 // Choose host/port (allow overrides via env or argv)
 const DEFAULT_HOST = process.env.CI_HOST || '0.0.0.0';
@@ -106,6 +112,18 @@ function shouldUseFallback(req, basePath) {
   if (!req || req.method !== 'GET') return false;
   if (!basePath) basePath = (req.url || '/').split('?')[0];
   const clean = (basePath || '').toLowerCase();
+  const fetchDest = String((req.headers && req.headers['sec-fetch-dest']) || '').toLowerCase();
+  const accept = String((req.headers && req.headers.accept) || '').toLowerCase();
+  const ext = path.posix.extname(clean);
+  const isLikelyAssetRequest = !!ext;
+
+  // Only treat navigation-style requests as eligible for SPA fallback.
+  if (fetchDest && fetchDest !== 'document' && fetchDest !== 'iframe') return false;
+  if (accept && !accept.includes('text/html')) return false;
+
+  // Never serve HTML fallback for asset-like paths (.js/.css/.map/.json/images/etc).
+  if (isLikelyAssetRequest) return false;
+
   if (clean === '/login' || clean === '/login.html') return false;
   if (clean.startsWith('/display/')) return false;
   if (clean.startsWith('/ws/')) return false;
@@ -171,6 +189,10 @@ const server = http.createServer((req, res) => {
   try {
     const rawPath = (req.url || '/').split('?')[0];
     const basePath = BOT_PATH_ALIASES.get(String(rawPath || '').toLowerCase()) || rawPath;
+    if (basePath === '/__smoke-health') {
+      sendJson(res, 200, { ok: true, server: SERVER_ID, pid: process.pid });
+      return;
+    }
     if (basePath === '/display/host') {
       sendJson(res, 200, { host: getLanHostCandidate() });
       return;

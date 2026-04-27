@@ -334,7 +334,7 @@ async function runOpenAiTranscription(args: {
   form.set("model", args.model);
   form.set("response_format", "diarized_json");
   form.set("chunking_strategy", "auto");
-  form.set("file", new Blob([args.bytes], { type: args.contentType }), args.filename);
+  form.set("file", new Blob([new Uint8Array(args.bytes)], { type: args.contentType }), args.filename);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), args.timeoutMs);

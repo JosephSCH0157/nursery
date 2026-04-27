@@ -13,6 +13,10 @@ import type {
   WorkspaceMediaMapping,
 } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
+import type { HammerPersistedTranscriptVersionRegistry } from "../../../../packages/contracts/hammer/transcript-versions.contract";
+
+export type { HammerPersistedTranscriptVersionRegistry };
+export type { HammerTranscriptVersionEntry, HammerTranscriptVersionSource } from "../../../../packages/contracts/hammer/transcript-versions.contract";
 import type {
   HammerAudioEditOperation,
   HammerAudioEditCutOperation,
@@ -359,6 +363,7 @@ export interface HammerPersistedStateRecord {
   pass_status: HammerPassStatusMap;
   editor_session_path: string | null;
   transcript_artifact_path: string | null;
+  transcript_versions_artifact_path: string | null;
   speaker_map_artifact_path: string | null;
   visual_placement_artifact_path: string | null;
   visual_timeline_artifact_path?: string | null;
@@ -380,6 +385,7 @@ export interface HammerPersistenceSnapshot {
   state: HammerPersistedStateRecord | null;
   editor_session: HammerPersistedArtifact<HammerPersistedEditorSession>;
   structured_transcript: HammerPersistedArtifact<HammerPersistedStructuredTranscript>;
+  transcript_version_registry: HammerPersistedArtifact<HammerPersistedTranscriptVersionRegistry>;
   speaker_map: HammerPersistedArtifact<HammerPersistedSpeakerMap>;
   visual_placements: HammerPersistedArtifact<HammerPersistedVisualPlacements>;
   visual_timeline: HammerPersistedArtifact<HammerVisualTimelineState>;
@@ -413,12 +419,13 @@ export interface HammerPersistenceSaveRequest {
   last_macro_run_ref?: string | null;
   editor_session?: HammerArtifactWriteRequest<HammerPersistedEditorSession>;
   structured_transcript?: HammerArtifactWriteRequest<HammerPersistedStructuredTranscript>;
+  transcript_version_registry?: HammerArtifactWriteRequest<HammerPersistedTranscriptVersionRegistry>;
   speaker_map?: HammerArtifactWriteRequest<HammerPersistedSpeakerMap>;
   visual_placements?: HammerArtifactWriteRequest<HammerPersistedVisualPlacements>;
   visual_timeline?: HammerArtifactWriteRequest<HammerVisualTimelineState>;
   audio_polish?: HammerArtifactWriteRequest<HammerPersistedAudioPolish>;
   edit_plan?: HammerArtifactWriteRequest<HammerEditPlan>;
-  editorial_authority: HammerArtifactWriteRequest<HammerEditorialAuthorityGraph>;
+  editorial_authority?: HammerArtifactWriteRequest<HammerEditorialAuthorityGraph>;
 }
 
 export interface HammerPresenceRow {

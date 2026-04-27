@@ -18,6 +18,80 @@ export const HAMMER_FILLER_CUT_SEAM_FADE_SEC = 0.006;
 
 const MIN_CUT_SEC = 0.0001;
 const MERGE_EPSILON_SEC = 0.001;
+const FILLER_BOUNDARY_MIN_SLACK_SEC = 0.04;
+const FILLER_BOUNDARY_MAX_SLACK_SEC = 0.12;
+const FILLER_BOUNDARY_INITIAL_MAX_SLACK_SEC = 0.18;
+const FILLER_BOUNDARY_INITIAL_EXTRA_POST_MAX_SEC = 0.12;
+const FILLER_BOUNDARY_INITIAL_EXTRA_PRE_MAX_SEC = 0.04;
+
+export type HammerFillerBoundaryHints = {
+  baseRange: HammerAudioCutSelection;
+  previousProtectedBoundarySec: number;
+  nextProtectedBoundarySec: number;
+  isPhraseInitial: boolean;
+};
+
+export function resolveFillerBoundaryHints(args: {
+  baseRange: HammerAudioCutSelection;
+  segmentStartSec: number;
+  segmentEndSec: number;
+  audioDurationSec: number;
+  seedStartSec: number;
+  seedEndSec: number;
+  totalTokenCount: number;
+  deleteStartTokenIndex: number;
+  deleteEndTokenIndexExclusive: number;
+}): HammerFillerBoundaryHints {
+  const segmentStartSec = clampToDuration(Number(args.segmentStartSec), Number(args.audioDurationSec));
+  const segmentEndSec = clampToDuration(Number(args.segmentEndSec), Number(args.audioDurationSec));
+  const normalizedSegmentStartSec = Math.min(segmentStartSec, segmentEndSec);
+  const normalizedSegmentEndSec = Math.max(segmentStartSec, segmentEndSec);
+
+  const totalTokenCount = Math.max(1, Math.trunc(args.totalTokenCount));
+  const avgTokenSec = clampNonNegative((normalizedSegmentEndSec - normalizedSegmentStartSec) / totalTokenCount);
+  const isPhraseInitial = Math.max(0, Math.trunc(args.deleteStartTokenIndex)) === 0;
+
+  const baseNeighborSlackSec = Math.min(
+    FILLER_BOUNDARY_MAX_SLACK_SEC,
+    Math.max(FILLER_BOUNDARY_MIN_SLACK_SEC, avgTokenSec * (isPhraseInitial ? 0.9 : 0.45)),
+  );
+  const phraseInitialExtraPreSec = isPhraseInitial
+    ? Math.min(FILLER_BOUNDARY_INITIAL_EXTRA_PRE_MAX_SEC, Math.max(0.01, avgTokenSec * 0.35))
+    : 0;
+  const phraseInitialExtraPostSec = isPhraseInitial
+    ? Math.min(FILLER_BOUNDARY_INITIAL_EXTRA_POST_MAX_SEC, Math.max(0.03, avgTokenSec * 0.9))
+    : 0;
+  const expandedNeighborSlackSec = isPhraseInitial
+    ? Math.min(FILLER_BOUNDARY_INITIAL_MAX_SLACK_SEC, baseNeighborSlackSec + (avgTokenSec * 0.25))
+    : baseNeighborSlackSec;
+
+  const expandedBaseRange = {
+    startSec: clampToDuration(
+      Math.max(normalizedSegmentStartSec, Number(args.baseRange.startSec) - phraseInitialExtraPreSec),
+      Number(args.audioDurationSec),
+    ),
+    endSec: clampToDuration(
+      Math.min(normalizedSegmentEndSec, Number(args.baseRange.endSec) + phraseInitialExtraPostSec),
+      Number(args.audioDurationSec),
+    ),
+  };
+
+  return {
+    baseRange: {
+      startSec: Math.min(expandedBaseRange.startSec, expandedBaseRange.endSec),
+      endSec: Math.max(expandedBaseRange.startSec, expandedBaseRange.endSec),
+    },
+    previousProtectedBoundarySec: clampToDuration(
+      Math.max(normalizedSegmentStartSec, Number(args.seedStartSec) - expandedNeighborSlackSec),
+      Number(args.audioDurationSec),
+    ),
+    nextProtectedBoundarySec: clampToDuration(
+      Math.min(normalizedSegmentEndSec, Number(args.seedEndSec) + expandedNeighborSlackSec),
+      Number(args.audioDurationSec),
+    ),
+    isPhraseInitial,
+  };
+}
 
 export function computeRemovalTrimRange(args: {
   wordStartSec: number;
@@ -254,6 +328,13 @@ export function deriveAudioCutsForSubtractiveTextEdits(args: {
   waveformProxy?: HammerAudioPolishAnalysisWaveformProxy | null;
 }): HammerAudioCutSelection[] {
   if (!Number.isFinite(args.durationSec) || args.durationSec <= 0) return [];
+  const hasWaveformProxy = Boolean(
+    args.waveformProxy
+    && Array.isArray(args.waveformProxy.peaks)
+    && args.waveformProxy.peaks.length > 0
+    && Number.isFinite(args.waveformProxy.bucket_duration_sec)
+    && Number(args.waveformProxy.bucket_duration_sec) > 0,
+  );
 
   const afterById = new Map<string, HammerTranscriptSegment>();
   for (const segment of args.afterSegments) {
@@ -297,16 +378,31 @@ export function deriveAudioCutsForSubtractiveTextEdits(args: {
       });
       if (baseRange) {
         const editKind = resolveCleanupEditKindFromDeletedWords(op.words);
-        const resolved = resolveSmartCutRange({
+        const boundaryHints = (
+          editKind === "filler" && hasWaveformProxy
+        ) ? resolveFillerBoundaryHints({
           baseRange,
+          segmentStartSec: Number(before.start_sec),
+          segmentEndSec: Number(before.end_sec),
+          audioDurationSec: args.durationSec,
+          seedStartSec: wordStartSec,
+          seedEndSec: wordEndSec,
+          totalTokenCount: beforeWordCount,
+          deleteStartTokenIndex: beforeWordCursor,
+          deleteEndTokenIndexExclusive: beforeWordCursor + op.words.length,
+        }) : null;
+        const resolved = resolveSmartCutRange({
+          baseRange: boundaryHints?.baseRange ?? baseRange,
           editKind,
           waveformProxy: args.waveformProxy ?? null,
-          previousProtectedBoundarySec: wordStartSec,
-          nextProtectedBoundarySec: wordEndSec,
+          previousProtectedBoundarySec: boundaryHints?.previousProtectedBoundarySec ?? wordStartSec,
+          nextProtectedBoundarySec: boundaryHints?.nextProtectedBoundarySec ?? wordEndSec,
         });
         maybeLogSmartCutDebug({
           source: "deriveAudioCutsForSubtractiveTextEdits",
           segmentId: before.segment_id,
+          boundaryPolicy: boundaryHints ? "filler_slack" : "default",
+          phraseInitial: boundaryHints?.isPhraseInitial ?? false,
           ...resolved.debug,
         });
         selections.push(resolved.range);
