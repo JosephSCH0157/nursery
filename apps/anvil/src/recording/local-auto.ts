@@ -232,6 +232,63 @@ import {
     return result.ok ? result : null;
   }
 
+  // --- Pending recording decision persistence ---
+  // Written to localStorage before showing the keep/discard dialog so that a page
+  // reload or browser crash can recover and re-surface the decision prompt.
+  const PENDING_DECISION_KEY = 'anvil_pending_recording_decision_v1';
+  const PENDING_DECISION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+  type PendingRecordingDecisionState = {
+    v: 1;
+    savedAt: string;
+    takeName: string;
+    workpieceId: string;
+    filePath: string;
+    contentType: string;
+    bytes: number;
+    durationMs: number | null;
+    captureSessionId: string | null;
+    plannerRecordingSessionId: string | null;
+    createdCradle: boolean;
+    transcriptPath: string | null;
+    transcriptStatus: string | null;
+    transcriptSourcePath: string | null;
+    recordingMedium: string | null;
+    requiresPostNormalization: boolean;
+  };
+
+  function writePendingDecisionState(
+    state: Omit<PendingRecordingDecisionState, 'v' | 'savedAt'>,
+  ): void {
+    try {
+      const entry: PendingRecordingDecisionState = { v: 1, savedAt: new Date().toISOString(), ...state };
+      localStorage.setItem(PENDING_DECISION_KEY, JSON.stringify(entry));
+    } catch {}
+  }
+
+  function readPendingDecisionState(): PendingRecordingDecisionState | null {
+    try {
+      const raw = localStorage.getItem(PENDING_DECISION_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Partial<PendingRecordingDecisionState>;
+      if (parsed?.v !== 1) return null;
+      if (parsed.savedAt) {
+        const age = Date.now() - new Date(parsed.savedAt).getTime();
+        if (!Number.isFinite(age) || age > PENDING_DECISION_TTL_MS) {
+          try { localStorage.removeItem(PENDING_DECISION_KEY); } catch {}
+          return null;
+        }
+      }
+      return parsed as PendingRecordingDecisionState;
+    } catch {
+      return null;
+    }
+  }
+
+  function clearPendingDecisionState(): void {
+    try { localStorage.removeItem(PENDING_DECISION_KEY); } catch {}
+  }
+
   async function promptForTakeDecision(args: {
     commitResult: Extract<RecordingCommitResult, { ok: true }>;
     name: string;
@@ -293,6 +350,7 @@ import {
           : '';
         throw new Error(`${summary}${detail}`);
       }
+      clearPendingDecisionState();
       showRecorderToast(
         eventName === 'take_kept'
           ? 'Take kept. Hammer can use it now.'
@@ -301,11 +359,31 @@ import {
       );
     };
 
+    writePendingDecisionState({
+      takeName: args.name,
+      workpieceId: args.commitResult.workpieceId,
+      filePath: args.commitResult.path,
+      contentType: args.contentType,
+      bytes: args.bytes,
+      durationMs: args.durationMs ?? null,
+      captureSessionId: args.commitResult.captureSessionId ?? null,
+      plannerRecordingSessionId: args.commitResult.plannerRecordingSessionId ?? null,
+      createdCradle: args.commitResult.createdCradle === true,
+      transcriptPath: args.transcriptFinalize?.finalPath ?? null,
+      transcriptStatus: args.transcriptFinalize?.status ?? null,
+      transcriptSourcePath: args.transcriptFinalize?.finalPath ?? null,
+      recordingMedium: args.strategy?.recordingMedium ?? null,
+      requiresPostNormalization: args.strategy?.requiresPostNormalization === true,
+    });
+
     await showRecordingDecisionDialog({
       takeName: args.name,
       onKeep: async () => persistDecision('take_kept'),
       onDiscard: async () => persistDecision('take_discarded'),
     });
+    // Safety net: if the dialog resolved without going through persistDecision (should not
+    // happen in practice), ensure the pending state is not left behind.
+    clearPendingDecisionState();
   }
 
   function getRouteEpisodeTitle(): string | null {
@@ -1072,6 +1150,62 @@ import {
     (window as any).__tpRecording = coreSurface; // override to ensure we hit the real recorder
     try { console.log('[core-recorder] bridged to __tpRecording'); } catch {}
   } catch {}
+
+  // --- Pending recording decision recovery ---
+  // If a previous page session wrote a pending decision state (the keep/discard dialog was
+  // showing when the page reloaded or crashed), re-surface the decision prompt so the user
+  // can still choose. Transcript promotion is skipped on recovery; the recording is still
+  // marked kept and Hammer can process the transcript independently.
+  function recoverPendingDecision(): void {
+    const state = readPendingDecisionState();
+    if (!state) return;
+    try { console.log('[core-recorder] found pending recording decision; showing recovery prompt', { workpieceId: state.workpieceId }); } catch {}
+
+    const makeRecoveryDecision = async (eventName: 'take_kept' | 'take_discarded'): Promise<void> => {
+      const result = await appendRecordingDecisionToTongs({
+        workpieceId: state.workpieceId,
+        eventName,
+        filePath: state.filePath,
+        originalName: state.takeName,
+        contentType: state.contentType,
+        bytes: state.bytes,
+        durationMs: state.durationMs,
+        createdCradle: state.createdCradle,
+        plannerRecordingSessionId: state.plannerRecordingSessionId,
+        captureSessionId: state.captureSessionId,
+        transcriptPath: state.transcriptPath,
+        transcriptStatus: state.transcriptStatus,
+        transcriptSourcePath: state.transcriptSourcePath,
+        recordingMedium: state.recordingMedium,
+        requiresPostNormalization: state.requiresPostNormalization,
+      });
+      if (!result.ok) {
+        const summary = eventName === 'take_kept'
+          ? 'Could not mark this take as kept in Tongs.'
+          : 'Could not mark this take as discarded in Tongs.';
+        const detail = typeof result.errorMessage === 'string' && result.errorMessage.trim()
+          ? ` ${result.errorMessage.trim()}`
+          : '';
+        throw new Error(`${summary}${detail}`);
+      }
+      clearPendingDecisionState();
+      showRecorderToast(
+        eventName === 'take_kept' ? 'Take kept. Hammer can use it now.' : 'Take discarded. It will stay out of Hammer.',
+        'info',
+      );
+    };
+
+    void showRecordingDecisionDialog({
+      takeName: state.takeName,
+      isRecovery: true,
+      onKeep: () => makeRecoveryDecision('take_kept'),
+      onDiscard: () => makeRecoveryDecision('take_discarded'),
+    }).catch((err) => {
+      try { console.warn('[core-recorder] recovery dialog failed', err); } catch {}
+    });
+  }
+
+  try { recoverPendingDecision(); } catch {}
 })();
 
 export {};
