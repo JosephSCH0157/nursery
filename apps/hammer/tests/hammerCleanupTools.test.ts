@@ -17,6 +17,32 @@ function s(id: string, start: number, end: number, speaker: string, text: string
   return { segment_id: id, start_sec: start, end_sec: end, speaker, text };
 }
 
+function buildRetakeProductionFixtures() {
+  return {
+    markerOnly: [
+      s("prod_marker_a", 0, 0.8, "Host", "Let me start that again."),
+      s("prod_marker_b", 0.85, 3.2, "Host", "Florida oranges didn't start small. Commercial production took off fast."),
+    ],
+    abortMarkerRedo: [
+      s("prod_chain_a", 0, 2.2, "Host", "At first, the board had stated that it would not attempt to avoid responsi—"),
+      s("prod_chain_b", 2.25, 2.9, "Host", "let me start that again"),
+      s("prod_chain_c", 2.95, 6.6, "Host", "At first, the board had stated that it would not attempt to avoid responsibility."),
+    ],
+    backwardExplicitCue: [
+      s("prod_back_a", 0, 2.6, "Host", "In the years that followed, changes started to be made."),
+      s("prod_back_b", 2.65, 6.0, "Host", "Let me start that again. In the years that followed, changes started to be made."),
+    ],
+    shortLeadIn: [
+      s("prod_leadin_a", 0, 0.7, "Host", "Today, Aberfan..."),
+      s("prod_leadin_b", 0.75, 3.8, "Host", "Today, Aberfan is quiet. Pantglas Junior School is gone."),
+    ],
+    cueTrimOnly: [
+      s("prod_trim_a", 0, 3.3, "Host", "Let me start that again. Not little shelters with a cash box."),
+      s("prod_trim_b", 3.35, 5.0, "Host", "Florida oranges didn't start small."),
+    ],
+  } as const;
+}
+
 async function testShortenGapsDeterministic() {
   const segments = [
     s("a", 0, 1, "Host", "hello"),
@@ -252,6 +278,76 @@ async function testRetakeRemovalCatchesShortAbortedLeadInReread() {
   assert.equal(preview.summary.removedSegments, 1);
   assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "a"), false);
   assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "b"), true);
+}
+
+async function testRetakeRemovalProductionMarkerOnlyFixture() {
+  const fixture = buildRetakeProductionFixtures().markerOnly;
+  const preview = previewRemoveRetakes(fixture, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 1);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "prod_marker_a"), false);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "prod_marker_b"), true);
+  assert.match(preview.suggestions[0]?.description ?? "", /restart marker/i);
+}
+
+async function testRetakeRemovalProductionAbortMarkerRedoFixture() {
+  const fixture = buildRetakeProductionFixtures().abortMarkerRedo;
+  const preview = previewRemoveRetakes(fixture, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 2);
+  assert.equal(preview.resultSegments.length, 1);
+  assert.equal(preview.resultSegments[0]?.segment_id, "prod_chain_c");
+  assert.match(preview.suggestions[0]?.description ?? "", /restart marker \+ reread/i);
+}
+
+async function testRetakeRemovalProductionBackwardExplicitCueFixture() {
+  const fixture = buildRetakeProductionFixtures().backwardExplicitCue;
+  const preview = previewRemoveRetakes(fixture, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 1);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "prod_back_a"), false);
+  const kept = preview.resultSegments.find((segment) => segment.segment_id === "prod_back_b");
+  assert.equal(kept?.text, "In the years that followed, changes started to be made.");
+  assert.match(preview.suggestions.some((sugg) => /explicit restart cue/i.test(sugg.description)), true);
+}
+
+async function testRetakeRemovalProductionShortLeadInFixture() {
+  const fixture = buildRetakeProductionFixtures().shortLeadIn;
+  const preview = previewRemoveRetakes(fixture, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 1);
+  assert.equal(preview.resultSegments.length, 1);
+  assert.equal(preview.resultSegments[0]?.segment_id, "prod_leadin_b");
+}
+
+async function testRetakeRemovalProductionCueTrimFixture() {
+  const fixture = buildRetakeProductionFixtures().cueTrimOnly;
+  const preview = previewRemoveRetakes(fixture, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 0);
+  const trimmed = preview.resultSegments.find((segment) => segment.segment_id === "prod_trim_a");
+  assert.equal(trimmed?.text, "Not little shelters with a cash box.");
+  assert.equal(preview.suggestions.some((sugg) => sugg.type === "restart_trim"), true);
 }
 
 async function testQuickCleanOrderDeterministic() {
@@ -519,7 +615,13 @@ async function run() {
   await testRetakeRemovalHandlesInlineTriggerRestartInSingleSegment();
   await testRetakeRemovalRiskySimilarityDoesNotLeakIntoNormal();
   await testRetakeRemovalAllowsMarkerOnlyAcrossSpeakerMismatch();
+  await testRetakeRemovalDoesNotDropSubstantiveSegmentJustBecauseItContainsRetakeCue();
   await testRetakeRemovalCatchesShortAbortedLeadInReread();
+  await testRetakeRemovalProductionMarkerOnlyFixture();
+  await testRetakeRemovalProductionAbortMarkerRedoFixture();
+  await testRetakeRemovalProductionBackwardExplicitCueFixture();
+  await testRetakeRemovalProductionShortLeadInFixture();
+  await testRetakeRemovalProductionCueTrimFixture();
   await testQuickCleanOrderDeterministic();
   await testTightenSelectionPreservesUnselectedSegments();
   await testTightenSelectionRejectsInlineSpeakerTagAsTextMutationRisk();
