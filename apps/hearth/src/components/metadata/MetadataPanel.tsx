@@ -371,10 +371,14 @@ export default function MetadataPanel({
             onChange={(event) => onPreviewModeChange(event.target.value as MetadataPreviewMode)}
             disabled={disabled}
           >
-            <option value="youtube">YT-ish</option>
-            <option value="rss">RSS-ish</option>
+            <option value="youtube" title="YouTube-style description (optimized for YouTube discovery)">YT-ish</option>
+            <option value="rss" title="Podcast-style description (optimized for RSS feeds and players)">RSS-ish</option>
             <option value="plain">Plain</option>
           </select>
+        </div>
+        <div className="hs-meta-preview-mode-hint">
+          {previewMode === "youtube" && "YouTube-style description — optimized for YouTube discovery."}
+          {previewMode === "rss" && "Podcast-style description — optimized for RSS feeds and players."}
         </div>
         <pre className="hs-meta-preview">{previewText}</pre>
       </section>
