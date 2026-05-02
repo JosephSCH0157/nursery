@@ -46,6 +46,14 @@ function descriptionCountClass(length: number, softLimit: number): string {
   return "hs-meta-count is-alert";
 }
 
+function tagCountGuidance(count: number): string {
+  if (count === 0) return "Pick the most relevant 5–10 tags. Avoid over-tagging.";
+  if (count <= 4) return "Too few to be discoverable — aim for 5–10.";
+  if (count <= 10) return "Good range. Add or remove tags to fine-tune.";
+  if (count <= 15) return "Getting broad — consider trimming to the strongest tags.";
+  return "Too many — trim down for better discoverability.";
+}
+
 function renderPreview(args: {
   mode: MetadataPreviewMode;
   titles: EpisodeSeoTitle[];
@@ -112,6 +120,7 @@ export default function MetadataPanel({
   onPreviewModeChange,
 }: MetadataPanelProps) {
   const [assignmentStatus, setAssignmentStatus] = useState<string | null>(null);
+  const [recentlyAddedTag, setRecentlyAddedTag] = useState<string | null>(null);
   const shortCount = descriptionShort.length;
   const longCount = descriptionLong.length;
   const { slotTitles, generatedSuggestions } = useMemo(
@@ -235,9 +244,16 @@ export default function MetadataPanel({
       </section>
 
       <section className="hs-meta-section" aria-label="Tags">
-        <div className="hs-meta-section-title">Tags</div>
+        <div className="hs-meta-section-title">
+          Tags
+          {tags.length > 0 && (
+            <span className="hs-meta-tag-count">
+              {tags.length} / 10 recommended
+            </span>
+          )}
+        </div>
         <div className="hs-field-label-muted">
-          Generate tags, then add or remove anything that does not fit the episode.
+          {tagCountGuidance(tags.length)}
         </div>
         <div className="hs-meta-tags-wrap">
           {tags.length === 0 ? (
@@ -279,18 +295,41 @@ export default function MetadataPanel({
             Add
           </button>
         </div>
-        <div className="hs-meta-tag-suggestions">
-          {tagSuggestions.map((tag) => (
-            <button
-              key={tag}
-              type="button"
-              onClick={() => onAddTagSuggestion(tag)}
-              disabled={disabled}
-            >
-              + {tag}
-            </button>
-          ))}
-        </div>
+        {tagSuggestions.length > 0 && (
+          <>
+            <div className="hs-field-label-muted hs-meta-tag-suggestions-hint">
+              Click tags to add them. Remove any that don't fit.
+            </div>
+            <div className="hs-meta-tag-suggestions">
+              {tagSuggestions.map((tag) => {
+                const isSelected = tags.includes(tag);
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    className={isSelected ? "hs-meta-tag-suggestion is-selected" : "hs-meta-tag-suggestion"}
+                    onClick={() => {
+                      if (isSelected) return;
+                      onAddTagSuggestion(tag);
+                      setRecentlyAddedTag(tag);
+                      setTimeout(() => setRecentlyAddedTag((prev) => (prev === tag ? null : prev)), 1500);
+                    }}
+                    disabled={disabled}
+                    aria-label={isSelected ? `${tag} — already added` : `Add tag: ${tag}`}
+                    aria-pressed={isSelected}
+                  >
+                    {isSelected ? "✓ " : "+ "}{tag}
+                  </button>
+                );
+              })}
+            </div>
+            {recentlyAddedTag ? (
+              <div className="hs-meta-tag-added-notice" role="status" aria-live="polite">
+                Added: {recentlyAddedTag}
+              </div>
+            ) : null}
+          </>
+        )}
       </section>
 
       <section className="hs-meta-section" aria-label="Descriptions">

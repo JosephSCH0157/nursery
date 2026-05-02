@@ -269,6 +269,7 @@ import {
   resolveRestoredWorkpieceWorkspaceTab,
   type WorkpieceWorkspaceTab,
 } from "../lib/hearth-workpiece-tab-shell";
+import { sortTagsByRelevance } from "../lib/hearth-tag-relevance";
 import {
   loadWorkspaceThumbnailBrandLogoPreview,
   listWorkspaceThumbnailBrandTemplates,
@@ -1374,6 +1375,8 @@ function parseMetadataTagInput(input: string): string[] {
 function buildMetadataTagSuggestions(args: {
   currentTags: string[];
   contentCategory: string | null;
+  bodyText: string;
+  titleTexts: string[];
 }): string[] {
   const normalizedExisting = normalizeSeoTags(args.currentTags);
   const existingSet = new Set(normalizedExisting);
@@ -1397,7 +1400,8 @@ function buildMetadataTagSuggestions(args: {
     if (normalized) suggestions.add(normalized);
   }
 
-  return [...suggestions].filter((tag) => !existingSet.has(tag)).slice(0, 10);
+  const candidates = [...suggestions].filter((tag) => !existingSet.has(tag)).slice(0, 12);
+  return sortTagsByRelevance(candidates, { body: args.bodyText, titleTexts: args.titleTexts });
 }
 
 function deriveReadyUrgency(entry: HearthReadyScript, nowMs = Date.now()): ReadyUrgencyLevel | null {
@@ -4063,8 +4067,10 @@ export default function HearthShell({
     () => buildMetadataTagSuggestions({
       currentTags: metadataTagsDraft,
       contentCategory: activeReadyScript?.contentCategory ?? null,
+      bodyText: activeDraft?.body ?? "",
+      titleTexts: metadataTitlesDraft.map((t) => t.text),
     }),
-    [activeReadyScript?.contentCategory, metadataTagsDraft],
+    [activeReadyScript?.contentCategory, metadataTagsDraft, activeDraft?.body, metadataTitlesDraft],
   );
   const diffLines = useMemo(() => {
     if (!selectedRevision || !activeDraft) return [];
