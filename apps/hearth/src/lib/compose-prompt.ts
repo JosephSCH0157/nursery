@@ -1,4 +1,5 @@
 import type { CanonicalSpeakerId, ComposeScriptRequest, ComposeSetup } from "../domain/compose";
+import { HEARTH_RECORDING_READY_SCRIPT_INSTRUCTION } from "./hearth-recording-ready-script";
 
 function formatSpeakerBlockShape(speaker: CanonicalSpeakerId, mode: ComposeSetup["mode"], targetSpeaker: CanonicalSpeakerId | null): string {
   if (mode === "outline_by_speaker") {
@@ -31,6 +32,7 @@ export function buildComposePrompt(request: ComposeScriptRequest): string {
     "- Speaker tags must be on their own lines.",
     "- Keep all spoken text inside speaker blocks.",
     "- Do not invent unsupported tags.",
+    `- ${HEARTH_RECORDING_READY_SCRIPT_INSTRUCTION}`,
     "",
     "Required output structure:",
     requiredShape,

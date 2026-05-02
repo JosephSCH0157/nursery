@@ -223,7 +223,11 @@ function normalizeAudioPolishRequest(body: unknown): NormalizedHammerAudioPolish
   const localRootAbs = readTrimmed(row.local_root_abs);
   const localRelpath = readTrimmed(row.local_relpath);
   const canonicalWorkpiecePath = readTrimmed(row.canonical_workpiece_path) ?? localRelpath;
-  const input = readAudioPolishInput(row.input);
+  const explicitInput = readAudioPolishInput(row.input);
+  const derivedLocalInput = !explicitInput && localRootAbs && localRelpath && path.isAbsolute(localRootAbs)
+    ? resolveMediaFileAbs(localRootAbs, localRelpath)
+    : null;
+  const input = explicitInput ?? (derivedLocalInput ? { type: "local_path" as const, value: derivedLocalInput } : null);
   const tongsOrigin = readUrlOrigin(row.tongs_origin);
   const mediaKind = readTrimmed(row.media_kind);
   if (!workspaceId || !workpieceId || !mediaKind) {

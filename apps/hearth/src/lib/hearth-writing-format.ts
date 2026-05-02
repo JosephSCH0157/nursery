@@ -1,3 +1,5 @@
+import { HEARTH_RECORDING_READY_SCRIPT_INSTRUCTION } from "./hearth-recording-ready-script";
+
 export type HearthWritingFormat = "explore_expand" | "full_script" | "bullet_outline";
 export type HearthPreferredReadMode = "flow" | "step";
 export type HearthShortcutIntent = "outline" | "script" | null;
@@ -144,6 +146,15 @@ function appendInstruction(requestContent: string, instruction: string): string 
   return `${requestContent}\n\n${instruction}`;
 }
 
+function appendRecordingReadyInstructionForScriptRequests(
+  requestContent: string,
+  appliedFormat: HearthWritingFormat,
+): string {
+  return appliedFormat === "full_script"
+    ? appendInstruction(requestContent, HEARTH_RECORDING_READY_SCRIPT_INSTRUCTION)
+    : requestContent;
+}
+
 export function resolveHearthWritingFormatRequest(args: {
   requestContent: string;
   selectedFormat: HearthWritingFormat;
@@ -153,7 +164,10 @@ export function resolveHearthWritingFormatRequest(args: {
   if (explicitFormat) {
     return {
       appliedFormat: explicitFormat,
-      requestContent: appendInstruction(args.requestContent, HEARTH_CHAT_TONE_INSTRUCTION),
+      requestContent: appendRecordingReadyInstructionForScriptRequests(
+        appendInstruction(args.requestContent, HEARTH_CHAT_TONE_INSTRUCTION),
+        explicitFormat,
+      ),
       source: "message",
     };
   }
@@ -162,7 +176,10 @@ export function resolveHearthWritingFormatRequest(args: {
   if (shortcutFormat) {
     return {
       appliedFormat: shortcutFormat,
-      requestContent: appendInstruction(args.requestContent, HEARTH_CHAT_TONE_INSTRUCTION),
+      requestContent: appendRecordingReadyInstructionForScriptRequests(
+        appendInstruction(args.requestContent, HEARTH_CHAT_TONE_INSTRUCTION),
+        shortcutFormat,
+      ),
       source: "shortcut",
     };
   }
@@ -172,7 +189,9 @@ export function resolveHearthWritingFormatRequest(args: {
     appliedFormat: args.selectedFormat,
     requestContent: appendInstruction(
       appendInstruction(args.requestContent, HEARTH_CHAT_TONE_INSTRUCTION),
-      profile.defaultRequestInstruction,
+      profile.id === "full_script"
+        ? `${profile.defaultRequestInstruction} ${HEARTH_RECORDING_READY_SCRIPT_INSTRUCTION}`
+        : profile.defaultRequestInstruction,
     ),
     source: "default",
   };

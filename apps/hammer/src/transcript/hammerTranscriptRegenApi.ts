@@ -28,6 +28,17 @@ import {
   HAMMER_TRANSCRIPT_VERSIONS_ARTIFACT_PATH,
 } from "./hammerTranscriptVersionRegistry";
 
+function inferHammerMediaMimeTypeFromPath(pathValue: string | null | undefined): string | null {
+  const normalized = pathValue?.trim().toLowerCase() ?? "";
+  if (normalized.endsWith(".wav")) return "audio/wav";
+  if (normalized.endsWith(".mp3")) return "audio/mpeg";
+  if (normalized.endsWith(".m4a")) return "audio/mp4";
+  if (normalized.endsWith(".webm")) return "video/webm";
+  if (normalized.endsWith(".mp4")) return "video/mp4";
+  if (normalized.endsWith(".mov")) return "video/quicktime";
+  return null;
+}
+
 // ── Public types ─────────────────────────────────────────────────────────────
 
 export type HammerTranscriptRegenStatus =
@@ -113,7 +124,8 @@ export async function runHammerTranscriptRegen(args: {
     local_root_abs: prepSource.local_root_abs ?? null,
     local_relpath: prepSource.local_relpath,
     canonical_workpiece_path: prepSource.canonical_workpiece_path,
-    mime_type: prepSource.mediaRef.kind.startsWith("recording_audio") ? "audio/mpeg" : null,
+    mime_type: inferHammerMediaMimeTypeFromPath(prepSource.canonical_workpiece_path)
+      ?? inferHammerMediaMimeTypeFromPath(prepSource.local_relpath),
   });
 
   if (!prepResult.ok) {

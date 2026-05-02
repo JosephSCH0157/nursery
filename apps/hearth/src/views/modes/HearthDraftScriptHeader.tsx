@@ -26,7 +26,7 @@ type HearthDraftScriptHeaderProps = {
   onDeleteDraft: (draft: Draft) => void | Promise<void>;
   openRevisionModal: () => void;
   openRevisionPanel: () => void;
-  onApproveScript: () => void | Promise<void>;
+  onApproveScript: () => void | Promise<unknown>;
   hasScript: boolean;
   isAiProcessing: boolean;
   isApprovingScript: boolean;
@@ -178,7 +178,7 @@ export default function HearthDraftScriptHeader({
           onClick={() => void onApproveScript()}
           disabled={!activeDraft || !hasScript || isSaving || isAiProcessing || isApprovingScript || approvalBlocked}
         >
-          {isApprovingScript ? "Approving..." : "Approve Script"}
+          {isApprovingScript ? "Approving..." : "Approve & Replace Script"}
         </button>
         <label className="hs-tone-control">
           <span>Tone</span>

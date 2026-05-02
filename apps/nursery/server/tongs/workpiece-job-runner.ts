@@ -1,5 +1,8 @@
 import crypto from "node:crypto";
 import path from "node:path";
+import fsPromises from "node:fs/promises";
+import os from "node:os";
+import { spawn } from "node:child_process";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@forge/tongs";
 import type { HammerTranscriptPrepSegment } from "../../../hammer/src/prep/hammerPrepApi";
@@ -18,6 +21,11 @@ import {
   buildUnavailableHammerVisualPlacements,
   deriveHammerVisualPlacements,
 } from "../../../hammer/src/lib/hammerVisualPlacements";
+import { detectHammerMediaRuntime } from "../../scripts/hammer-media-runtime";
+import {
+  readHammerForgeFfmpegClientConfig,
+  transcodeToWorkingWavWithForgeFfmpeg,
+} from "../../scripts/hammer-forge-ffmpeg-client";
 
 type WorkpieceJobRow = Database["tongs"]["Tables"]["workpiece_jobs"]["Row"];
 
@@ -30,6 +38,11 @@ type RunnerState = {
   intervalId: NodeJS.Timeout | null;
   inFlight: boolean;
 };
+
+const VIDEO_MEDIA_EXTENSIONS = new Set([".mp4", ".webm", ".mov"]);
+const MAX_TRANSCRIPT_SOURCE_BYTES = 256 * 1024 * 1024;
+const MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES = 25 * 1024 * 1024;
+const FFMPEG_TRANSCRIPT_AUDIO_TIMEOUT_MS = 3 * 60 * 1000;
 
 function readTrimmed(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -322,6 +335,202 @@ function normalizeSegments(payload: unknown): HammerTranscriptPrepSegment[] {
   }));
 }
 
+async function renderTranscriptAudioWavWithFfmpeg(args: {
+  sourceBytes: Buffer;
+  sourceExtension: string;
+  sourceLabel: string;
+  ffmpegBin: string;
+}): Promise<Buffer> {
+  const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-job-transcript-audio-"));
+  const inputPath = path.join(tempRoot, `input${args.sourceExtension || ".bin"}`);
+  const outputPath = path.join(tempRoot, "transcript-audio.wav");
+  try {
+    await fsPromises.writeFile(inputPath, args.sourceBytes);
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(
+        args.ffmpegBin,
+        [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-y",
+          "-i",
+          inputPath,
+          "-vn",
+          "-acodec",
+          "pcm_s16le",
+          "-ar",
+          "16000",
+          "-ac",
+          "1",
+          outputPath,
+        ],
+        {
+          windowsHide: true,
+          stdio: ["ignore", "ignore", "pipe"],
+        },
+      );
+
+      let stderr = "";
+      let timedOut = false;
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        child.kill();
+      }, FFMPEG_TRANSCRIPT_AUDIO_TIMEOUT_MS);
+
+      child.stderr.on("data", (chunk: Buffer) => {
+        const next = chunk.toString("utf8");
+        if (stderr.length < 16_384) {
+          stderr += next.slice(0, 16_384 - stderr.length);
+        }
+      });
+      child.on("error", (error: unknown) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+      child.on("close", (code: number | null) => {
+        clearTimeout(timeoutId);
+        if (timedOut) {
+          reject(new Error("Hammer job FFmpeg transcript-audio extraction timed out."));
+          return;
+        }
+        if (code === 0) {
+          resolve();
+          return;
+        }
+        reject(new Error(stderr.trim() || `Hammer job FFmpeg transcript-audio extraction failed for ${args.sourceLabel}.`));
+      });
+    });
+    return await fsPromises.readFile(outputPath);
+  } finally {
+    await fsPromises.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+function buildTranscriptAudioFilename(sourcePath: string): string {
+  const parsed = path.parse(sourcePath);
+  return `${parsed.name || "transcript-audio"}.wav`;
+}
+
+function shouldPreferForgeTranscriptTranscode(): boolean {
+  return readTrimmed(process.env.HAMMER_TRANSCRIPT_AUDIO_TRANSCODE_BACKEND)?.toLowerCase() === "forge";
+}
+
+async function prepareTranscriptJobUploadMedia(args: {
+  bytes: Uint8Array;
+  contentType: string;
+  sourcePath: string;
+}): Promise<{
+  bytes: Uint8Array;
+  contentType: string;
+  filename: string;
+  transcodeBackend: "direct_source" | "local_ffmpeg" | "forge_ffmpeg_service";
+  ffmpegRequestId: string | null;
+  outputFormat: string | null;
+  outputSampleRate: number | null;
+  outputChannels: number | null;
+}> {
+  if (args.bytes.byteLength > MAX_TRANSCRIPT_SOURCE_BYTES) {
+    throw new Error(`Hammer transcript job source media is too large (${args.bytes.byteLength} bytes).`);
+  }
+
+  const extension = path.extname(args.sourcePath).toLowerCase();
+  const shouldTranscode = VIDEO_MEDIA_EXTENSIONS.has(extension)
+    || args.bytes.byteLength > MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES;
+  if (!shouldTranscode) {
+    return {
+      bytes: args.bytes,
+      contentType: args.contentType,
+      filename: path.basename(args.sourcePath) || "source-media",
+      transcodeBackend: "direct_source",
+      ffmpegRequestId: null,
+      outputFormat: null,
+      outputSampleRate: null,
+      outputChannels: null,
+    };
+  }
+
+  const sourceBytes = Buffer.from(args.bytes);
+  const transcodeWithForge = async () => {
+    const forgeClient = readHammerForgeFfmpegClientConfig();
+    if (!forgeClient) {
+      throw new Error("Forge FFmpeg is not configured for transcript audio extraction.");
+    }
+    try {
+      const transcoded = await transcodeToWorkingWavWithForgeFfmpeg({
+        client: forgeClient,
+        sourceBytes,
+        sourceFilename: path.basename(args.sourcePath) || `source${extension || ""}`,
+        contentType: args.contentType,
+      });
+      if (transcoded.audioBytes.byteLength > MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES) {
+        throw new Error(`Transcoded transcript audio is too large (${transcoded.audioBytes.byteLength} bytes).`);
+      }
+      return {
+        bytes: new Uint8Array(transcoded.audioBytes),
+        contentType: "audio/wav",
+        filename: buildTranscriptAudioFilename(args.sourcePath),
+        transcodeBackend: "forge_ffmpeg_service",
+        ffmpegRequestId: transcoded.requestId,
+        outputFormat: transcoded.outputFormat,
+        outputSampleRate: transcoded.outputSampleRate,
+        outputChannels: transcoded.outputChannels,
+      };
+    } catch (error) {
+      throw error instanceof Error ? error : new Error("Forge FFmpeg transcript-audio extraction failed.");
+    }
+  };
+
+  const transcodeWithLocalFfmpeg = async () => {
+    const mediaRuntime = detectHammerMediaRuntime();
+    const ffmpegBin = readTrimmed(mediaRuntime.ffmpeg.ffmpeg_bin);
+    if (!ffmpegBin) {
+      throw new Error("Hammer transcript jobs need FFmpeg to extract audio before transcription for this media.");
+    }
+    const wavBytes = await renderTranscriptAudioWavWithFfmpeg({
+      sourceBytes,
+      sourceExtension: extension,
+      sourceLabel: args.sourcePath,
+      ffmpegBin,
+    });
+    if (wavBytes.byteLength > MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES) {
+      throw new Error(`Transcoded transcript audio is too large (${wavBytes.byteLength} bytes).`);
+    }
+    return {
+      bytes: new Uint8Array(wavBytes),
+      contentType: "audio/wav",
+      filename: buildTranscriptAudioFilename(args.sourcePath),
+      transcodeBackend: "local_ffmpeg" as const,
+      ffmpegRequestId: null,
+      outputFormat: "wav_pcm_s16le",
+      outputSampleRate: 16000,
+      outputChannels: 1,
+    };
+  };
+
+  if (shouldPreferForgeTranscriptTranscode()) {
+    try {
+      return await transcodeWithForge();
+    } catch (forgeError) {
+      try {
+        return await transcodeWithLocalFfmpeg();
+      } catch {
+        throw forgeError;
+      }
+    }
+  }
+
+  try {
+    return await transcodeWithLocalFfmpeg();
+  } catch (localError) {
+    try {
+      return await transcodeWithForge();
+    } catch {
+      throw localError;
+    }
+  }
+}
+
 async function runOpenAiTranscription(args: {
   apiKey: string;
   model: string;
@@ -440,7 +649,11 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
   }
 
   const { bytes, contentType } = await downloadWorkpieceBytes(deps.service.supabase, deps.service.bucket, job.workpiece_id, sourcePath);
-  const filename = path.basename(sourcePath) || "source-media";
+  const uploadMedia = await prepareTranscriptJobUploadMedia({
+    bytes,
+    contentType: inferContentType(sourcePath, mimeTypeHint ?? contentType),
+    sourcePath,
+  });
 
   const beforeSnapshot = await deps.service.supabase
     .schema("tongs")
@@ -477,9 +690,9 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
   const openAiResult = await runOpenAiTranscription({
     apiKey: textApiKey,
     model,
-    bytes,
-    contentType: inferContentType(sourcePath, mimeTypeHint ?? contentType),
-    filename,
+    bytes: uploadMedia.bytes,
+    contentType: uploadMedia.contentType,
+    filename: uploadMedia.filename,
     timeoutMs,
   });
 
@@ -596,6 +809,9 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
     uncertain_count_after: uncertainCountAfter,
     transcript_id: prepared.transcriptId,
     provider_request_id: openAiResult.provider_request_id,
+    transcode_backend: uploadMedia.transcodeBackend,
+    ffmpeg_request_id: uploadMedia.ffmpegRequestId,
+    transcript_upload_bytes: uploadMedia.bytes.byteLength,
   };
 
   await writeIngestDiagnostics(deps.service, job, {
@@ -608,6 +824,12 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
       provider_request_id: openAiResult.provider_request_id,
       model,
       provider: "openai",
+      transcode_backend: uploadMedia.transcodeBackend,
+      ffmpeg_request_id: uploadMedia.ffmpegRequestId,
+      upload_bytes: uploadMedia.bytes.byteLength,
+      output_format: uploadMedia.outputFormat,
+      output_sample_rate: uploadMedia.outputSampleRate,
+      output_channels: uploadMedia.outputChannels,
     },
     seal_outcome: canonical.sealed_at ? "skipped_already_sealed" : "attempted",
     placements_refreshed: placementsRefreshed,
@@ -680,6 +902,12 @@ async function tickRunner(deps: RunnerDeps, state: RunnerState): Promise<void> {
           throw new Error(`Unsupported job_type: ${job.job_type}`);
         })();
 
+      console.info("[workpiece-job-runner] job completed", {
+        job_id: job.id,
+        job_type: job.job_type,
+        workspace_id: job.workspace_id,
+        workpiece_id: job.workpiece_id,
+      });
       await finalizeJob(deps.service, job.id, {
         status: "completed",
         completed_at: new Date().toISOString(),
@@ -692,6 +920,24 @@ async function tickRunner(deps: RunnerDeps, state: RunnerState): Promise<void> {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      console.error("[workpiece-job-runner] job failed", {
+        job_id: job.id,
+        job_type: job.job_type,
+        workspace_id: job.workspace_id,
+        workpiece_id: job.workpiece_id,
+        message,
+      });
+      await writeIngestDiagnostics(deps.service, job, {
+        timestamp: new Date().toISOString(),
+        selected_source: job.job_type === "hammer_transcript_regeneration" ? "ai_regeneration" : "prepared_transcript",
+        final_status: "blocked",
+        prep: {
+          client_request_id: readJsonObject(job.payload_json)?.client_request_id ?? null,
+          provider: "openai",
+          status: "failed",
+          error_message: message,
+        },
+      }).catch(() => undefined);
       await finalizeJob(deps.service, job.id, {
         status: "failed",
         completed_at: new Date().toISOString(),
@@ -720,7 +966,9 @@ export function ensureWorkpieceJobRunnerStarted(deps: RunnerDeps): void {
   };
   globalAny.__forge_workpiece_job_runner__ = runnerState;
 
+  console.info("[workpiece-job-runner] started", { runner_id: runnerState.runnerId });
   runnerState.intervalId = setInterval(() => {
     void tickRunner(deps, runnerState);
   }, 1500);
+  void tickRunner(deps, runnerState);
 }

@@ -70,6 +70,22 @@ function mapIngestFinalStatusLabel(value: string | null): string {
       return value ? value : "—";
   }
 }
+
+function inferHammerMediaMimeTypeFromPath(pathValue: string | null | undefined): string | null {
+  const normalized = pathValue?.trim().toLowerCase() ?? "";
+  if (normalized.endsWith(".wav")) return "audio/wav";
+  if (normalized.endsWith(".mp3")) return "audio/mpeg";
+  if (normalized.endsWith(".m4a")) return "audio/mp4";
+  if (normalized.endsWith(".webm")) return "video/webm";
+  if (normalized.endsWith(".mp4")) return "video/mp4";
+  if (normalized.endsWith(".mov")) return "video/quicktime";
+  return null;
+}
+
+function inferHammerPrepSourceMimeType(prepSource: HammerPrepSource): string | null {
+  return inferHammerMediaMimeTypeFromPath(prepSource.canonical_workpiece_path)
+    ?? inferHammerMediaMimeTypeFromPath(prepSource.local_relpath);
+}
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
 import {
   buildHammerPersistenceSaveRequest,
@@ -106,6 +122,7 @@ import {
   resolveHammerPrepOpenDecision,
   resolveHammerPrepSource,
   type HammerPrepState,
+  type HammerPrepSource,
 } from "../prep/hammerPrep";
 import { decideHammerTranscriptHydrationSource } from "./hammerTranscriptSelection";
 import {
@@ -608,9 +625,9 @@ export default function HammerWorkspaceEditor(
     // eslint-disable-next-line no-console
     console.log("[HammerPrep] mount", { instance_id: hammerRuntimeInstanceIdRef.current });
     // eslint-disable-next-line no-console
-    console.info("[HammerTranscriptPrep] instrumentation:active", {
+    console.info("[HammerTranscriptPrep:instrumentation:active]", {
       instance_id: hammerRuntimeInstanceIdRef.current,
-      note: "If you do not see subsequent [HammerTranscriptPrep] stage logs, the client is not running the latest bundle or prep isn't reaching the transcript request.",
+      note: "Stage logs now include the stage in the console label, e.g. [HammerTranscriptPrep:job:create:ok].",
     });
     return () => {
       // eslint-disable-next-line no-console
@@ -1186,7 +1203,7 @@ export default function HammerWorkspaceEditor(
         local_root_abs: prepSource.local_root_abs,
         local_relpath: prepSource.local_relpath,
         canonical_workpiece_path: prepSource.canonical_workpiece_path,
-        mime_type: prepSource.mediaRef.kind === "recording_audio" ? "audio/wav" : null,
+        mime_type: inferHammerPrepSourceMimeType(prepSource),
       });
       requestSpan?.end({
         status: response.status,
@@ -1998,6 +2015,7 @@ export default function HammerWorkspaceEditor(
 
     let active = true;
     let timer: number | null = null;
+    let lastLoggedStatus: string | null = null;
 
     const poll = async (): Promise<void> => {
       const result = await fetchWorkpieceJob({
@@ -2007,12 +2025,40 @@ export default function HammerWorkspaceEditor(
       });
       if (!active) return;
       if (!result.ok) {
+        // eslint-disable-next-line no-console
+        console.warn("[HammerTranscriptJob:regen:poll:error]", {
+          workspace_id: persistenceTarget.workspaceId,
+          workpiece_id: persistenceTarget.workpieceId,
+          job_id: regenAiTranscriptJobId,
+          status: result.status,
+          error: result.error,
+        });
         setRegenAiTranscriptError(result.error);
         setRegenAiTranscriptInFlight(false);
         return;
       }
 
       const job: HammerWorkpieceJob = result.data.job;
+      if (job.status !== lastLoggedStatus || job.status === "completed" || job.status === "failed" || job.status === "canceled") {
+        lastLoggedStatus = job.status;
+        // eslint-disable-next-line no-console
+        (job.status === "failed" || job.status === "canceled" ? console.error : console.info)(
+          `[HammerTranscriptJob:regen:${job.status}]`,
+          {
+            job_id: job.id,
+            job_type: job.job_type,
+            workspace_id: job.workspace_id,
+            workpiece_id: job.workpiece_id,
+            status: job.status,
+            error_code: job.error_code,
+            error_message: job.error_message,
+            result_json: job.result_json,
+            progress_percent: job.progress_percent,
+            attempt_count: job.attempt_count,
+            runner_id: job.runner_id,
+          },
+        );
+      }
       if (job.status === "completed") {
         const payload = job.result_json ?? {};
         const finishedAt = typeof payload.finished_at === "string" ? payload.finished_at : new Date().toISOString();
@@ -2161,6 +2207,7 @@ export default function HammerWorkspaceEditor(
     if (prepJobHydrationProbeTargetRef.current === targetKey) return;
     let active = true;
     let timer: number | null = null;
+    let lastLoggedStatus: string | null = null;
 
     prepJobHydrationProbeTargetRef.current = targetKey;
 
@@ -2174,6 +2221,15 @@ export default function HammerWorkspaceEditor(
       if (!active) return;
 
       if (!result.ok) {
+        if (ingestLog.enabled) {
+          // eslint-disable-next-line no-console
+          console.warn("[HammerTranscriptJob:hydrate:list:error]", {
+            workspace_id: persistenceTarget.workspaceId,
+            workpiece_id: persistenceTarget.workpieceId,
+            status: result.status,
+            error: result.error,
+          });
+        }
         setJobsStatusUnavailable({ status: result.status, message: result.error });
         if (typeof result.retryAfterMs === "number" && Number.isFinite(result.retryAfterMs)) {
           const delay = Math.max(500, Math.min(30_000, Math.trunc(result.retryAfterMs)));
@@ -2192,6 +2248,20 @@ export default function HammerWorkspaceEditor(
         job.job_type === "hammer_transcript_prep"
         && (job.status === "queued" || job.status === "running")
       ));
+      if (activePrep && activePrep.status !== lastLoggedStatus && ingestLog.enabled) {
+        lastLoggedStatus = activePrep.status;
+        // eslint-disable-next-line no-console
+        console.info("[HammerTranscriptJob:hydrate:active_prep]", {
+          job_id: activePrep.id,
+          job_type: activePrep.job_type,
+          workspace_id: activePrep.workspace_id,
+          workpiece_id: activePrep.workpiece_id,
+          status: activePrep.status,
+          created_at: activePrep.created_at,
+          updated_at: activePrep.updated_at,
+          runner_id: activePrep.runner_id,
+        });
+      }
       const currentLaunchContext = effectiveLaunchContextRef.current ?? effectiveLaunchContext;
       const currentSnapshot = loadedPersistenceSnapshotRef.current ?? loadedPersistenceSnapshot;
       const launchHasTranscript = Boolean(
@@ -2264,6 +2334,7 @@ export default function HammerWorkspaceEditor(
 
     let active = true;
     let timer: number | null = null;
+    let lastLoggedStatus: string | null = null;
 
     const poll = async (): Promise<void> => {
       const result = await fetchWorkpieceJob({
@@ -2273,6 +2344,14 @@ export default function HammerWorkspaceEditor(
       });
       if (!active) return;
       if (!result.ok) {
+        // eslint-disable-next-line no-console
+        console.warn("[HammerTranscriptJob:prep:poll:error]", {
+          workspace_id: persistenceTarget.workspaceId,
+          workpiece_id: persistenceTarget.workpieceId,
+          job_id: prepTranscriptJobId,
+          status: result.status,
+          error: result.error,
+        });
         setPrepState(createHammerPrepState("prep_failed", null, result.error));
         setPrepFailureKind("ai_failed");
         setPrepTranscriptJobId(null);
@@ -2280,6 +2359,27 @@ export default function HammerWorkspaceEditor(
       }
 
       const job = result.data.job;
+      if (job.status !== lastLoggedStatus || job.status === "completed" || job.status === "failed" || job.status === "canceled") {
+        lastLoggedStatus = job.status;
+        // eslint-disable-next-line no-console
+        (job.status === "failed" || job.status === "canceled" ? console.error : console.info)(
+          `[HammerTranscriptJob:prep:${job.status}]`,
+          {
+            job_id: job.id,
+            job_type: job.job_type,
+            workspace_id: job.workspace_id,
+            workpiece_id: job.workpiece_id,
+            status: job.status,
+            error_code: job.error_code,
+            error_message: job.error_message,
+            result_json: job.result_json,
+            progress_percent: job.progress_percent,
+            attempt_count: job.attempt_count,
+            runner_id: job.runner_id,
+            payload_json: job.payload_json,
+          },
+        );
+      }
       if (job.status === "completed") {
         setPrepTranscriptJobId(null);
         setReloadRequestNonce((current) => current + 1);
@@ -2290,7 +2390,10 @@ export default function HammerWorkspaceEditor(
       }
 
       if (job.status === "failed" || job.status === "canceled") {
-        setPrepState(createHammerPrepState("prep_failed", null, job.error_message ?? "Transcript job failed."));
+        const message = job.error_message
+          ? `Transcript job ${job.id} failed: ${job.error_message}`
+          : `Transcript job ${job.id} ${job.status}.`;
+        setPrepState(createHammerPrepState("prep_failed", null, message));
         setPrepFailureKind("ai_failed");
         setPrepTranscriptJobId(null);
         return;
@@ -2362,18 +2465,42 @@ export default function HammerWorkspaceEditor(
       )
         ? currentLaunchContext
         : null;
+      const snapshotTranscript = currentSnapshot?.structured_transcript.data ?? null;
+      const snapshotReuseLaunchContext = (
+        !stubReuseLaunchContext
+        && currentLaunchContext
+        && snapshotTranscript
+        && Array.isArray(snapshotTranscript.segments)
+        && snapshotTranscript.segments.length > 0
+      )
+        ? applyPreparedTranscriptToLaunchContext(currentLaunchContext, {
+          transcriptId: snapshotTranscript.transcript_id,
+          preparedAt: snapshotTranscript.prepared_at,
+          turns: snapshotTranscript.segments,
+          structuredTranscript: snapshotTranscript,
+          speakerMap: currentSnapshot?.speaker_map.data ?? {
+            schema_version: 1,
+            default_labels: ["S1", "S2", "S3", "G1", "G2"],
+            mappings: [],
+          },
+        })
+        : null;
+      const reuseLaunchContext = stubReuseLaunchContext ?? snapshotReuseLaunchContext;
 
-      if (!stubReuseLaunchContext) {
+      if (!reuseLaunchContext) {
         setPrepState(effectiveOpenDecision.state);
         setShowPreparedHandoff(true);
         return;
       }
-      if (stubReuseLaunchContext.transcript.kind !== "tongs-stub") {
+      if (reuseLaunchContext.transcript.kind !== "tongs-stub") {
         setPrepState(effectiveOpenDecision.state);
         setShowPreparedHandoff(true);
         return;
       }
-      const reusableTranscript = stubReuseLaunchContext.transcript;
+      const reusableTranscript = reuseLaunchContext.transcript;
+      const reusableTranscriptSegments = snapshotTranscript?.transcript_id === reusableTranscript.transcript_id
+        ? snapshotTranscript.segments
+        : reusableTranscript.segments;
 
       const reuseRunKey = `${targetKey ?? "hammer"}:reuse:${reusableTranscript.transcript_id}:${prepAttemptNonce}`;
       if (prepRunKeyRef.current === reuseRunKey) {
@@ -2386,7 +2513,7 @@ export default function HammerWorkspaceEditor(
 
       if (ingestLog.enabled) {
         const launchHasStubTranscript = Boolean(
-          stubReuseLaunchContext.transcript.segments.length > 0,
+          reusableTranscript.segments.length > 0,
         );
         const prepStatusWasOverridden = prepState.status === "prep_failed";
         const prepStatusForLog = prepStatusWasOverridden ? "preparing" : prepState.status;
@@ -2410,8 +2537,8 @@ export default function HammerWorkspaceEditor(
           prep_status_overridden: prepStatusWasOverridden,
           prep_attempt_nonce: prepAttemptNonce,
           ai_fallback_requested: prepAiFallbackRequested,
-          workspace_id: stubReuseLaunchContext.workspace_id,
-          workpiece_id: stubReuseLaunchContext.workpiece_id,
+          workspace_id: reuseLaunchContext.workspace_id,
+          workpiece_id: reuseLaunchContext.workpiece_id,
           target_key: targetKey,
           snapshot_has_transcript: Boolean(loadedPersistenceSnapshot?.structured_transcript.data?.segments.length) || launchHasStubTranscript,
           snapshot_audio_polish_status: loadedPersistenceSnapshot?.audio_polish.data?.status ?? null,
@@ -2436,8 +2563,8 @@ export default function HammerWorkspaceEditor(
       const run = ingestLog.run("reuse_stub_transcript", {
         run_key: reuseRunKey,
         execution_id: executionId,
-        workspace_id: stubReuseLaunchContext.workspace_id,
-        workpiece_id: stubReuseLaunchContext.workpiece_id,
+        workspace_id: reuseLaunchContext.workspace_id,
+        workpiece_id: reuseLaunchContext.workpiece_id,
         transcript_id: reusableTranscript.transcript_id,
       });
 
@@ -2453,10 +2580,9 @@ export default function HammerWorkspaceEditor(
         try {
           const visualsSpan = run.span("visual_placements:ensure");
           let nextSnapshot = await ensureVisualPlacements({
-            launchContext: stubReuseLaunchContext,
+            launchContext: reuseLaunchContext,
             transcriptSourceId: reusableTranscript.transcript_id,
-            transcriptSegments: loadedPersistenceSnapshot?.structured_transcript.data?.segments
-              ?? reusableTranscript.segments,
+            transcriptSegments: reusableTranscriptSegments,
             currentSnapshot: loadedPersistenceSnapshot,
             logRun: run,
           });
@@ -2469,7 +2595,7 @@ export default function HammerWorkspaceEditor(
           try {
             const audioSpan = run.span("audio_polish:ensure");
             nextSnapshot = await ensureAudioPolish({
-              launchContext: stubReuseLaunchContext,
+              launchContext: reuseLaunchContext,
               currentSnapshot: nextSnapshot,
               onPhaseChange: (phase) => {
                 if (!isPrepExecutionActive(executionId)) return;
@@ -2581,7 +2707,7 @@ export default function HammerWorkspaceEditor(
 
     if (prepAiFallbackRequested && prepAiNoticeResolutionState === "loading") {
       // eslint-disable-next-line no-console
-      console.info("[HammerTranscriptPrep] gate:policy_resolution_loading", {
+      console.info("[HammerTranscriptPrep:gate:policy_resolution_loading]", {
         instance_id: hammerRuntimeInstanceIdRef.current,
         run_key: prepRunKey,
         workspace_id: currentLaunchContext.workspace_id,
@@ -2593,7 +2719,7 @@ export default function HammerWorkspaceEditor(
 
     if (prepAiFallbackRequested && prepAiNoticeResolutionState === "error") {
       // eslint-disable-next-line no-console
-      console.warn("[HammerTranscriptPrep] gate:policy_resolution_error", {
+      console.warn("[HammerTranscriptPrep:gate:policy_resolution_error]", {
         instance_id: hammerRuntimeInstanceIdRef.current,
         run_key: prepRunKey,
         workspace_id: currentLaunchContext.workspace_id,
@@ -2614,7 +2740,7 @@ export default function HammerWorkspaceEditor(
     if (prepAiFallbackRequested && shouldPromptPrepAiNotice && prepAiNoticeApprovedRunKeyRef.current !== prepRunKey) {
       prepAiNoticePendingRunKeyRef.current = prepRunKey;
       // eslint-disable-next-line no-console
-      console.info("[HammerTranscriptPrep] gate:ai_notice_required", {
+      console.info("[HammerTranscriptPrep:gate:ai_notice_required]", {
         instance_id: hammerRuntimeInstanceIdRef.current,
         run_key: prepRunKey,
         workspace_id: currentLaunchContext.workspace_id,
@@ -2705,7 +2831,7 @@ export default function HammerWorkspaceEditor(
       ): void => {
         // eslint-disable-next-line no-console
         (level === "error" ? console.error : level === "warn" ? console.warn : console.info)(
-          "[HammerTranscriptPrep]",
+          `[HammerTranscriptPrep:${stage}]`,
           {
             elapsed_ms: transcriptElapsedMs(),
             run_key: prepRunKey,
@@ -3011,7 +3137,7 @@ export default function HammerWorkspaceEditor(
             canonical_workpiece_path: prepSource.canonical_workpiece_path,
             refresh_visual_placements: true,
             client_request_id: transcriptClientRequestId,
-            mime_type: prepSource.mediaRef.kind === "recording_audio" ? "audio/wav" : null,
+            mime_type: inferHammerPrepSourceMimeType(prepSource),
           },
         });
         if (!jobCreate.ok) {
@@ -3022,6 +3148,8 @@ export default function HammerWorkspaceEditor(
         setPrepTranscriptJobId(jobCreate.data.job.id);
         logTranscriptStage("job:create:ok", {
           job_id: jobCreate.data.job.id,
+          job_status: jobCreate.data.job.status,
+          job_created_at: jobCreate.data.job.created_at,
         });
         run.log("transcript_job:queued", {
           job_id: jobCreate.data.job.id,
@@ -3912,7 +4040,7 @@ export default function HammerWorkspaceEditor(
         canonical_workpiece_path: prepSource.canonical_workpiece_path ?? activeCanonicalRecording.media_path ?? null,
         refresh_visual_placements: regenAiTranscriptRefreshPlacements,
         client_request_id: transcriptClientRequestId,
-        mime_type: prepSource.mediaRef.kind === "recording_audio" ? "audio/wav" : null,
+        mime_type: inferHammerPrepSourceMimeType(prepSource),
       },
     });
 

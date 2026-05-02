@@ -3,6 +3,7 @@ import type { Draft } from "../domain/draft";
 import type { Revision } from "../domain/revision";
 import type { ScriptValidationResult } from "@forge/shared/script-tags";
 import type { MirrorApprovedScriptResult } from "../lib/hearth-script-mirror";
+import { buildHearthApprovedScriptReplacement } from "../lib/hearth-script-approval";
 
 type ScriptApprovalStateLike = {
   hasApprovedScript: boolean;
@@ -79,31 +80,37 @@ function mirrorStatusLine(result: MirrorApprovedScriptResult): string {
 
 export function useApprovalFlow(args: UseApprovalFlowArgs): {
   isApprovingScript: boolean;
-  onApproveScript: () => Promise<void>;
+  onApproveScript: (options?: { draftOverride?: Draft }) => Promise<boolean>;
 } {
   const [isApprovingScript, setIsApprovingScript] = useState(false);
 
-  const onApproveScript = useCallback(async () => {
-    if (isApprovingScript || args.isSaving || args.isAiProcessing) return;
-    if (!args.activeDraft) return;
+  const onApproveScript = useCallback(async (options?: { draftOverride?: Draft }) => {
+    if (isApprovingScript || args.isSaving || args.isAiProcessing) return false;
+    const approvalDraft = options?.draftOverride ?? args.activeDraft;
+    if (!approvalDraft) return false;
     const episodeId = args.workpieceId?.trim();
     if (!episodeId) {
       args.setChatError("Select an Episode or Spark to start.");
-      return;
+      return false;
     }
-    if (!args.activeDraft.body.trim()) {
+    if (!approvalDraft.body.trim()) {
       args.setError("Script body is empty. Add script content before approval.");
-      return;
+      return false;
     }
 
-    const { normalizedText, validation } = args.evaluateScriptValidation(args.activeDraft.body);
+    const approvedReplacement = buildHearthApprovedScriptReplacement({
+      draft: approvalDraft,
+      evaluateScriptValidation: args.evaluateScriptValidation,
+      buildPersistedValidationMeta: args.buildPersistedValidationMeta,
+    });
+    const { scriptText: normalizedText, validation } = approvedReplacement;
     if (!validation.ok) {
       args.setScriptValidationGateResult(validation);
       args.setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${args.buildValidationReport(validation)}`);
-      return;
+      return false;
     }
 
-    const scopedRevisions = args.revisions.filter((revision) => revision.draftId === args.activeDraft?.id);
+    const scopedRevisions = args.revisions.filter((revision) => revision.draftId === approvalDraft.id);
     const nextVersion = args.nextApprovedScriptVersion(scopedRevisions);
     const approvalNote = `script_version_approved:v${nextVersion}`;
     args.clearScriptValidation();
@@ -114,17 +121,12 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
     setIsApprovingScript(true);
     try {
       const now = Date.now();
-      const normalizedDraft: Draft = {
-        ...args.activeDraft,
-        body: normalizedText,
-        scriptValidationMeta: args.buildPersistedValidationMeta(validation),
-      };
       const saved = await args.persistApprovedDraft({
-        draft: normalizedDraft,
+        draft: approvedReplacement.draft,
         updatedAt: now,
         approvalNote,
       });
-      if (!saved) return;
+      if (!saved) return false;
 
       const published = await args.publishApprovedScript({
         episodeId,
@@ -132,7 +134,7 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
       });
       if (!published) {
         args.setError("Failed to publish approved script to Tongs. Try approving again.");
-        return;
+        return false;
       }
 
       const mirror = await args.mirrorApprovedScript({
@@ -221,10 +223,11 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
         "Production Mode available",
       ];
       args.appendApprovalMarker({
-        draftId: args.activeDraft.id,
+        draftId: approvalDraft.id,
         content: markerLines.join("\n"),
       });
       void args.refreshReadyScripts();
+      return true;
     } finally {
       setIsApprovingScript(false);
     }

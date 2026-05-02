@@ -5996,57 +5996,54 @@ export class TongsCommitService {
     }
     if (existingResult.data) {
       const existing = existingResult.data as CanonicalRecordingRecord;
-      // If the existing canonical recording is archived, return it as-is — archived is terminal.
-      if (existing.status !== "archived") {
-        // Check whether the latest accepted take introduced a new media_path that
-        // the canonical recording hasn't yet been reconciled against.
-        const truth = await this.getWorkpieceRecordingTruth(workpieceId);
-        const latestTake = truth.latest_kept_take;
-        const latestPath = latestTake?.file_path?.trim() ?? "";
-        const existingPath = existing.media_path?.trim() ?? "";
-        if (latestPath && latestPath !== existingPath) {
-          // The canonical recording is stale relative to the latest accepted take.
-          // Reconcile: update media_path (and take metadata) so Hammer doesn't raise a
-          // false "actual recording mismatch" after the user accepts a new Anvil take.
-          const nowIso = new Date().toISOString();
-          const mediaId = this.buildCanonicalRecordingMediaId(workpieceId, latestTake!);
-          const isSealed = existing.status === "sealed";
-          const updateFields: Record<string, unknown> = {
-            media_path: latestPath,
-            kept_take_event_id: latestTake!.event_id ?? null,
-            media_content_type: latestTake!.content_type ?? null,
-            media_bytes: latestTake!.bytes ?? null,
-            media_duration_ms: latestTake!.duration_ms ?? null,
-            recording_session_id: latestTake!.recording_session_id ?? null,
-            anvil_capture_session_id: latestTake!.anvil_capture_session_id ?? null,
-            media_id: mediaId,
-            media_signature: null,
-            updated_at: nowIso,
-            updated_by: auth.userId,
-          };
-          if (isSealed) {
-            // Accepting a new take after sealing voids the sealed baseline transcript.
-            // Reset to draft so Hammer knows to re-run prep for the new recording.
-            updateFields.status = "draft";
-            updateFields.sealed_at = null;
-            updateFields.baseline_transcript_path = null;
-            updateFields.baseline_speaker_map_path = null;
-            updateFields.baseline_timing_path = null;
-          }
-          const reconcileResult = await tongsUntyped
-            .from("canonical_recordings")
-            .update(updateFields)
-            .eq("workspace_id", workspaceId)
-            .eq("workpiece_id", workpieceId)
-            .eq("id", existing.id)
-            .select("*")
-            .single();
-          if (!reconcileResult.error && reconcileResult.data) {
-            return reconcileResult.data as CanonicalRecordingRecord;
-          }
-          // Reconcile write failed (e.g. concurrent update). Fall through and return the
-          // best-effort existing record; Hammer can retry on the next open.
+      // Check whether the latest accepted take introduced a new media_path that
+      // the canonical recording hasn't yet been reconciled against.
+      const truth = await this.getWorkpieceRecordingTruth(workpieceId);
+      const latestTake = truth.latest_kept_take;
+      const latestPath = latestTake?.file_path?.trim() ?? "";
+      const existingPath = existing.media_path?.trim() ?? "";
+      if (latestPath && latestPath !== existingPath) {
+        // The canonical recording is stale relative to the latest accepted take.
+        // Reconcile: update media_path (and take metadata) so Hammer doesn't raise a
+        // false "actual recording mismatch" after the user accepts a new Anvil take.
+        const nowIso = new Date().toISOString();
+        const mediaId = this.buildCanonicalRecordingMediaId(workpieceId, latestTake!);
+        const isSealed = existing.status === "sealed";
+        const updateFields: Record<string, unknown> = {
+          media_path: latestPath,
+          kept_take_event_id: latestTake!.event_id ?? null,
+          media_content_type: latestTake!.content_type ?? null,
+          media_bytes: latestTake!.bytes ?? null,
+          media_duration_ms: latestTake!.duration_ms ?? null,
+          recording_session_id: latestTake!.recording_session_id ?? null,
+          anvil_capture_session_id: latestTake!.anvil_capture_session_id ?? null,
+          media_id: mediaId,
+          media_signature: null,
+          updated_at: nowIso,
+          updated_by: auth.userId,
+        };
+        if (isSealed) {
+          // Accepting a new take after sealing voids the sealed baseline transcript.
+          // Reset to draft so Hammer knows to re-run prep for the new recording.
+          updateFields.status = "draft";
+          updateFields.sealed_at = null;
+          updateFields.baseline_transcript_path = null;
+          updateFields.baseline_speaker_map_path = null;
+          updateFields.baseline_timing_path = null;
         }
+        const reconcileResult = await tongsUntyped
+          .from("canonical_recordings")
+          .update(updateFields)
+          .eq("workspace_id", workspaceId)
+          .eq("workpiece_id", workpieceId)
+          .eq("id", existing.id)
+          .select("*")
+          .single();
+        if (!reconcileResult.error && reconcileResult.data) {
+          return reconcileResult.data as CanonicalRecordingRecord;
+        }
+        // Reconcile write failed (e.g. concurrent update). Fall through and return the
+        // best-effort existing record; Hammer can retry on the next open.
       }
       return existing;
     }

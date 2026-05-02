@@ -9,6 +9,7 @@ import {
 } from "@forge/shared/script-tags";
 import type { ComposeSetup } from "../domain/compose";
 import { validateComposeContent, type ComposeContentValidationResult } from "./compose-content-validation";
+import { shapeHearthScriptForRecording } from "./hearth-recording-ready-script";
 
 export type HearthScriptTagMode = "absent" | "present";
 
@@ -64,10 +65,10 @@ export function normalizeHearthAiScriptIngress(rawText: string): {
   validation: ScriptValidationResult;
   fallbackApplied: boolean;
 } {
-  const normalized = normalizeScriptTags(rawText);
+  const normalized = shapeHearthScriptForRecording(normalizeScriptTags(rawText));
   const repaired = repairScriptTags(normalized);
   const repairedResult = evaluateHearthScriptValidation(repaired.text);
-  if (repairedResult.validation.ok || repairedResult.tagMode === "absent") {
+  if (repairedResult.validation.ok && repairedResult.tagMode === "present") {
     return {
       text: repaired.text,
       validation: repairedResult.validation,

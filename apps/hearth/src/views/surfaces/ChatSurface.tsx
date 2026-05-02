@@ -40,6 +40,7 @@ export type ChatSurfaceProps = {
   onResetAiProposalBody: (index: number) => void;
   onApplyAiProposalAll: () => void;
   onApplyAiProposalSelected: () => void;
+  onApproveAiProposalAsScript: () => void;
   onDiscardAiProposal: () => void;
   writingFormat: HearthWritingFormat;
   writingFormatOptions: Array<{
@@ -206,6 +207,18 @@ export default function ChatSurface(props: ChatSurfaceProps) {
               >
                 Apply selected
               </button>
+              {props.pendingAiProposal.ops.some((op: any, index: number) => (
+                op.op === "set_body" && props.pendingAiProposal.selected[index]
+              )) ? (
+                <button
+                  type="button"
+                  onClick={props.onApproveAiProposalAsScript}
+                  disabled={props.isApplyingAiOps}
+                  title="Replace the script panel with this proposed draft, then publish it as the canonical Anvil handoff script."
+                >
+                  Approve &amp; Replace Script
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={props.onDiscardAiProposal}

@@ -50,12 +50,51 @@ async function listenServer(handler: http.RequestListener): Promise<{
   };
 }
 
+async function startForgeFfmpegStub(args: {
+  responseBody: Buffer;
+}): Promise<{
+  baseUrl: string;
+  close: () => Promise<void>;
+  calls: () => number;
+}> {
+  let callCount = 0;
+  const server = http.createServer((req, res) => {
+    if (req.method === "POST" && req.url === "/transcode/wav") {
+      callCount += 1;
+      req.resume();
+      res.statusCode = 200;
+      res.setHeader("content-type", "audio/wav");
+      res.setHeader("x-forge-request-id", "ffmpeg_req_hammer_transcript");
+      res.setHeader("x-forge-output-format", "wav_pcm_s16le");
+      res.setHeader("x-forge-output-sample-rate", "16000");
+      res.setHeader("x-forge-output-channels", "1");
+      res.end(args.responseBody);
+      return;
+    }
+    res.statusCode = 404;
+    res.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to bind Forge FFmpeg test server.");
+  }
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: async () => {
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    },
+    calls: () => callCount,
+  };
+}
+
 function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
 async function main(): Promise<void> {
   const originalFetch = globalThis.fetch;
+  const originalTranscriptBackend = process.env.HAMMER_TRANSCRIPT_AUDIO_TRANSCODE_BACKEND;
   const calls: FetchCall[] = [];
 
   process.env.OPENAI_API_KEY = "test-openai-key";
@@ -64,6 +103,11 @@ async function main(): Promise<void> {
   delete process.env.HAMMER_OPENAI_TRANSCRIBE_TIMEOUT_MS;
 
   const middleware = createHammerPrepMiddleware();
+  const ffmpegServer = await startForgeFfmpegStub({
+    responseBody: Buffer.from("RIFFfake-transcript-wave", "utf8"),
+  });
+  process.env.HAMMER_FORGE_FFMPEG_BASE_URL = ffmpegServer.baseUrl;
+  process.env.HAMMER_TRANSCRIPT_AUDIO_TRANSCODE_BACKEND = "forge";
   const server = await listenServer((req, res) => {
     middleware(req, res, (error) => {
       if (error) {
@@ -81,10 +125,11 @@ async function main(): Promise<void> {
   try {
     const mediaName = "source.wav";
     await fsPromises.writeFile(path.join(tempRoot, mediaName), Buffer.from("fake-audio-bytes"));
+    await fsPromises.writeFile(path.join(tempRoot, "source.webm"), Buffer.from("fake-video-bytes"));
 
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = toUrl(input);
-      if (url.startsWith(server.origin)) {
+      if (url.startsWith(server.origin) || url.startsWith(ffmpegServer.baseUrl)) {
         return originalFetch(input, init);
       }
 
@@ -110,6 +155,13 @@ async function main(): Promise<void> {
         return jsonResponse(200, [{ decision_type: "ALLOW", reason_code: null }]);
       }
       if (url === "https://api.openai.com/v1/audio/transcriptions") {
+        const body = init?.body;
+        assert(body instanceof FormData, "expected OpenAI request body to be FormData");
+        const file = body.get("file");
+        assert(file instanceof Blob, "expected OpenAI request to include a file blob");
+        if (calls.filter((call) => call.url === "https://api.openai.com/v1/audio/transcriptions").length === 2) {
+          assert.equal(file.type, "audio/wav", "expected video source to be transcoded before OpenAI");
+        }
         const longText = [
           "Here is the weird part.",
           "This is a longer sentence designed to force deterministic splitting because it contains a lot of words without stopping for a while.",
@@ -167,11 +219,37 @@ async function main(): Promise<void> {
     const openAiCalls = calls.filter((call) => call.url === "https://api.openai.com/v1/audio/transcriptions");
     assert.equal(openAiCalls.length > 0, true, "expected OpenAI transcription to be called");
 
+    const videoResponse = await fetch(`${server.origin}/api/hammer/prep/transcript`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer test-user-access-token",
+      },
+      body: JSON.stringify({
+        workspace_id: TEST_WORKSPACE_ID,
+        workpiece_id: TEST_WORKPIECE_ID,
+        media_kind: "recording_video",
+        local_root_abs: tempRoot,
+        local_relpath: "source.webm",
+        mime_type: "video/webm",
+      }),
+    });
+    const videoPayload = await videoResponse.json();
+    assert.equal(videoResponse.status, 200, "expected transcoded video prep response");
+    assert.equal(Boolean(videoPayload?.ok), true, "expected transcoded video ok flag");
+    assert.equal(ffmpegServer.calls(), 1, "expected video source to use Forge FFmpeg once");
+
     console.log("Hammer transcript normalization tests passed.");
   } finally {
     globalThis.fetch = originalFetch;
+    if (typeof originalTranscriptBackend === "undefined") {
+      delete process.env.HAMMER_TRANSCRIPT_AUDIO_TRANSCODE_BACKEND;
+    } else {
+      process.env.HAMMER_TRANSCRIPT_AUDIO_TRANSCODE_BACKEND = originalTranscriptBackend;
+    }
     await fsPromises.rm(tempRoot, { recursive: true, force: true });
     await server.close();
+    await ffmpegServer.close();
   }
 }
 

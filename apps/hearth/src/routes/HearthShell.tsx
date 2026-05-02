@@ -2149,6 +2149,7 @@ export default function HearthShell({
   const draftEditVersionRef = useRef(0);
   const workpieceIdRef = useRef<string | null>(workpieceId);
   const activeDraftRef = useRef<Draft | null>(null);
+  const approveScriptActionRef = useRef<(options?: { draftOverride?: Draft }) => Promise<boolean>>(async () => false);
   const draftSnapshotRef = useRef<DraftSnapshot | null>(null);
   const draftsRef = useRef<Draft[]>(drafts);
   const workpieceSummariesRef = useRef<HearthWorkpieceSummary[]>(workpieceSummaries);
@@ -3747,6 +3748,56 @@ export default function HearthShell({
     resetProposalBodyOps: (ops, originalOps, index) => resetHearthProposalBodyOp(ops, originalOps, index),
     isProposalBodyDirty: (ops, originalOps, index) => isHearthProposalBodyOpDirty(ops, originalOps, index),
   });
+  const onApproveAiProposalAsScript = useCallback(async () => {
+    if (!pendingAiProposal || isApplyingAiOps) return;
+    if (!activeDraft) {
+      setChatError("Select an Episode or Spark to start.");
+      return;
+    }
+    const selectedOps = pendingAiProposal.ops.filter((_, index) => pendingAiProposal.selected[index]);
+    const bodyOps = selectedOps.filter((op) => op.op === "set_body");
+    if (bodyOps.length === 0) {
+      setChatError("Select a proposed draft body before approving.");
+      return;
+    }
+
+    const normalizedBodyOps = normalizeAiProposalOpsForScriptIngress(bodyOps);
+    const nextBody = findNextBodyFromOps(activeDraft.body, normalizedBodyOps);
+    const nextScriptAuthoringMeta = pendingAiProposal.autosaveReasonCode === "ai_outline"
+      ? deriveOutlineScriptAuthoringMeta({
+        scriptText: nextBody,
+        currentMeta: activeDraft.scriptAuthoringMeta,
+      })
+      : pendingAiProposal.autosaveReasonCode === "ai_script"
+        ? deriveFullScriptAuthoringMeta({
+          scriptText: nextBody,
+          currentMeta: activeDraft.scriptAuthoringMeta,
+        })
+        : activeDraft.scriptAuthoringMeta;
+    const approved = await approveScriptActionRef.current({
+      draftOverride: {
+        ...activeDraft,
+        body: nextBody,
+        scriptAuthoringMeta: nextScriptAuthoringMeta,
+      },
+    });
+    if (!approved) return;
+    setPendingAiProposal(null);
+    publishForgeNotice({
+      job: "script-completed",
+      title: "Script approved",
+      message: "Approved draft replaced the script panel and canonical Anvil handoff.",
+      severity: "success",
+    });
+  }, [
+    activeDraft,
+    approveScriptActionRef,
+    isApplyingAiOps,
+    pendingAiProposal,
+    publishForgeNotice,
+    setChatError,
+    setPendingAiProposal,
+  ]);
   const chatWorkspace = useChatWorkspace({
     chatSurfaceProps: {
       visible: activeWorkpieceTab === "script",
@@ -3785,6 +3836,7 @@ export default function HearthShell({
       onResetAiProposalBody,
       onApplyAiProposalAll: () => void onApplyAiProposal("all"),
       onApplyAiProposalSelected: () => void onApplyAiProposal("selected"),
+      onApproveAiProposalAsScript: () => void onApproveAiProposalAsScript(),
       onDiscardAiProposal,
       writingFormat: selectedWritingFormat,
       writingFormatOptions,
@@ -4337,6 +4389,7 @@ export default function HearthShell({
     appendApprovalMarker,
     refreshReadyScripts,
   });
+  approveScriptActionRef.current = onApproveScript;
   const {
     onGenerateBrollPlan,
     onSaveBrollBeat,

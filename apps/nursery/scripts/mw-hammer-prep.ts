@@ -2,7 +2,9 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@forge/tongs";
 import {
@@ -46,16 +48,24 @@ import {
   type AiReasonCode,
 } from "@forge/tongs/ai-policy";
 import { QUENCH_METADATA_ASSIST_ROUTE } from "../../quench/src/core/quenchMetadataAssist.contract";
+import { detectHammerMediaRuntime } from "./hammer-media-runtime";
+import {
+  readHammerForgeFfmpegClientConfig,
+  transcodeToWorkingWavWithForgeFfmpeg,
+} from "./hammer-forge-ffmpeg-client";
 
 type Next = (err?: unknown) => void;
 
 const DEFAULT_TRANSCRIBE_MODEL = "gpt-4o-transcribe-diarize";
 const DEFAULT_CHAT_FALLBACK_MODEL = "gpt-4o-mini";
 const ALLOWED_MEDIA_EXTENSIONS = new Set([".mp4", ".webm", ".mov", ".wav", ".mp3", ".m4a"]);
-const MAX_TRANSCRIBE_SOURCE_BYTES = 96 * 1024 * 1024;
+const VIDEO_MEDIA_EXTENSIONS = new Set([".mp4", ".webm", ".mov"]);
+const MAX_TRANSCRIBE_SOURCE_BYTES = 256 * 1024 * 1024;
+const MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES = 25 * 1024 * 1024;
 const CANONICAL_MEDIA_FETCH_TIMEOUT_MS = 60_000;
 const DEFAULT_OPENAI_TRANSCRIBE_TIMEOUT_MS = 15 * 60 * 1000;
 const OPENAI_CLEANUP_TIMEOUT_MS = 90_000;
+const FFMPEG_TRANSCRIPT_AUDIO_TIMEOUT_MS = 3 * 60 * 1000;
 const MEDIA_CONTENT_TYPES: Partial<Record<string, string>> = {
   ".mp4": "video/mp4",
   ".webm": "video/webm",
@@ -118,7 +128,7 @@ function createHammerTranscriptStageTimer(args: {
       ...(detail ?? {}),
     };
     (level === "error" ? console.error : level === "warn" ? console.warn : console.info)(
-      "[HammerTranscriptPrep]",
+      `[HammerTranscriptPrep:server:${stage}]`,
       payload,
     );
   };
@@ -259,6 +269,286 @@ function formatBytesAsMiB(bytes: number): string {
 
 function buildSourceTooLargeMessage(byteCount: number): string {
   return `Hammer transcript prep currently supports source media up to ${formatBytesAsMiB(MAX_TRANSCRIBE_SOURCE_BYTES)} in this runtime. Received ${formatBytesAsMiB(byteCount)}, which exceeds that limit.`;
+}
+
+function buildUploadTooLargeMessage(byteCount: number): string {
+  return `Hammer transcript prep prepared ${formatBytesAsMiB(byteCount)} for transcription, which exceeds the OpenAI upload limit of ${formatBytesAsMiB(MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES)}.`;
+}
+
+function shouldPreferForgeTranscriptTranscode(): boolean {
+  return readTrimmed(process.env.HAMMER_TRANSCRIPT_AUDIO_TRANSCODE_BACKEND)?.toLowerCase() === "forge";
+}
+
+async function renderTranscriptAudioWavWithFfmpeg(args: {
+  sourceBytes: Buffer;
+  sourceExtension: string;
+  sourceLabel: string;
+  ffmpegBin: string;
+}): Promise<Buffer> {
+  const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-transcript-audio-"));
+  const safeExtension = args.sourceExtension || ".bin";
+  const inputPath = path.join(tempRoot, `input${safeExtension}`);
+  const outputPath = path.join(tempRoot, "transcript-audio.wav");
+  try {
+    await fsPromises.writeFile(inputPath, args.sourceBytes);
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(
+        args.ffmpegBin,
+        [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-y",
+          "-i",
+          inputPath,
+          "-vn",
+          "-acodec",
+          "pcm_s16le",
+          "-ar",
+          "16000",
+          "-ac",
+          "1",
+          outputPath,
+        ],
+        {
+          windowsHide: true,
+          stdio: ["ignore", "ignore", "pipe"],
+        },
+      );
+
+      let stderr = "";
+      let timedOut = false;
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        child.kill();
+      }, FFMPEG_TRANSCRIPT_AUDIO_TIMEOUT_MS);
+
+      child.stderr.on("data", (chunk: Buffer) => {
+        const next = chunk.toString("utf8");
+        if (stderr.length < 16_384) {
+          stderr += next.slice(0, 16_384 - stderr.length);
+        }
+      });
+      child.on("error", (error: unknown) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+      child.on("close", (code: number | null) => {
+        clearTimeout(timeoutId);
+        if (timedOut) {
+          reject(new Error("Hammer FFmpeg transcript-audio extraction timed out."));
+          return;
+        }
+        if (code === 0) {
+          resolve();
+          return;
+        }
+        reject(new Error(
+          stderr.trim() || `Hammer FFmpeg transcript-audio extraction failed for ${args.sourceLabel}.`,
+        ));
+      });
+    });
+    return await fsPromises.readFile(outputPath);
+  } finally {
+    await fsPromises.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+async function prepareTranscriptUploadMedia(args: {
+  fileBytes: Buffer;
+  sourceLabel: string;
+  contentType: string;
+  extension: string;
+  stageTimer: HammerTranscriptStageTimer;
+}): Promise<{
+  ok: true;
+  fileBytes: Buffer;
+  contentType: string;
+  sourceLabel: string;
+  backend: "direct_source" | "local_ffmpeg" | "forge_ffmpeg_service";
+  serviceRequestId: string | null;
+  outputFormat: string | null;
+  outputSampleRate: number | null;
+  outputChannels: number | null;
+} | {
+  ok: false;
+  message: string;
+  detail?: unknown;
+}> {
+  const shouldTranscode = VIDEO_MEDIA_EXTENSIONS.has(args.extension)
+    || args.fileBytes.byteLength > MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES;
+
+  if (!shouldTranscode) {
+    args.stageTimer.mark("media:transcode:skipped", {
+      reason: "source_upload_within_openai_limit",
+      extension: args.extension,
+      byte_count: args.fileBytes.byteLength,
+    });
+    return {
+      ok: true,
+      fileBytes: args.fileBytes,
+      contentType: args.contentType,
+      sourceLabel: args.sourceLabel,
+      backend: "direct_source",
+      serviceRequestId: null,
+      outputFormat: null,
+      outputSampleRate: null,
+      outputChannels: null,
+    };
+  }
+
+  const transcodeWithForge = async (): Promise<{
+    ok: true;
+    fileBytes: Buffer;
+    contentType: string;
+    sourceLabel: string;
+    backend: "forge_ffmpeg_service";
+    serviceRequestId: string | null;
+    outputFormat: string | null;
+    outputSampleRate: number | null;
+    outputChannels: number | null;
+  } | { ok: false; message: string; detail?: unknown }> => {
+    const forgeClient = readHammerForgeFfmpegClientConfig();
+    if (!forgeClient) {
+      return {
+        ok: false,
+        message: "Forge FFmpeg is not configured for transcript audio extraction.",
+        detail: { forge_ffmpeg_configured: false },
+      };
+    }
+    args.stageTimer.mark("media:transcode:forge:start", {
+      extension: args.extension,
+      byte_count: args.fileBytes.byteLength,
+      service_base_url: forgeClient.baseUrl,
+    });
+    try {
+      const transcoded = await transcodeToWorkingWavWithForgeFfmpeg({
+        client: forgeClient,
+        sourceBytes: args.fileBytes,
+        sourceFilename: path.basename(args.sourceLabel || `source${args.extension || ""}`),
+        contentType: args.contentType,
+      });
+      args.stageTimer.mark("media:transcode:forge:ok", {
+        byte_count: transcoded.audioBytes.byteLength,
+        request_id: transcoded.requestId,
+        output_format: transcoded.outputFormat,
+        output_sample_rate: transcoded.outputSampleRate,
+        output_channels: transcoded.outputChannels,
+      });
+      return {
+        ok: true,
+        fileBytes: transcoded.audioBytes,
+        contentType: "audio/wav",
+        sourceLabel: replaceExtensionForTranscriptAudio(args.sourceLabel),
+        backend: "forge_ffmpeg_service",
+        serviceRequestId: transcoded.requestId,
+        outputFormat: transcoded.outputFormat,
+        outputSampleRate: transcoded.outputSampleRate,
+        outputChannels: transcoded.outputChannels,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      args.stageTimer.mark("media:transcode:forge:failed", { message }, "warn");
+      return {
+        ok: false,
+        message,
+        detail: {
+          source_bytes: args.fileBytes.byteLength,
+          openai_upload_limit_bytes: MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES,
+          extension: args.extension,
+          forge_ffmpeg_base_url: forgeClient.baseUrl,
+        },
+      };
+    }
+  };
+
+  const transcodeWithLocalFfmpeg = async (): Promise<{
+    ok: true;
+    fileBytes: Buffer;
+    contentType: string;
+    sourceLabel: string;
+    backend: "local_ffmpeg";
+    serviceRequestId: null;
+    outputFormat: string;
+    outputSampleRate: number;
+    outputChannels: number;
+  } | { ok: false; message: string; detail?: unknown }> => {
+    const mediaRuntime = detectHammerMediaRuntime();
+    const ffmpegBin = readTrimmed(mediaRuntime.ffmpeg.ffmpeg_bin);
+    if (!ffmpegBin) {
+      return {
+        ok: false,
+        message: "Hammer transcript prep needs FFmpeg to extract audio before transcription for this media.",
+        detail: {
+          source_bytes: args.fileBytes.byteLength,
+          openai_upload_limit_bytes: MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES,
+          extension: args.extension,
+          ffmpeg_available: false,
+        },
+      };
+    }
+
+    args.stageTimer.mark("media:transcode:local:start", {
+      extension: args.extension,
+      byte_count: args.fileBytes.byteLength,
+      ffmpeg_bin: ffmpegBin,
+    });
+    try {
+      const wavBytes = await renderTranscriptAudioWavWithFfmpeg({
+        sourceBytes: args.fileBytes,
+        sourceExtension: args.extension,
+        sourceLabel: args.sourceLabel,
+        ffmpegBin,
+      });
+      args.stageTimer.mark("media:transcode:local:ok", {
+        byte_count: wavBytes.byteLength,
+        output_sample_rate: 16000,
+        output_channels: 1,
+      });
+      return {
+        ok: true,
+        fileBytes: wavBytes,
+        contentType: "audio/wav",
+        sourceLabel: replaceExtensionForTranscriptAudio(args.sourceLabel),
+        backend: "local_ffmpeg",
+        serviceRequestId: null,
+        outputFormat: "wav_pcm_s16le",
+        outputSampleRate: 16000,
+        outputChannels: 1,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "Hammer FFmpeg transcript-audio extraction failed.",
+        detail: {
+          source_bytes: args.fileBytes.byteLength,
+          openai_upload_limit_bytes: MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES,
+          extension: args.extension,
+          ffmpeg_bin: ffmpegBin,
+        },
+      };
+    }
+  };
+
+  if (shouldPreferForgeTranscriptTranscode()) {
+    const forgeResult = await transcodeWithForge();
+    if (forgeResult.ok) return forgeResult;
+    const localResult = await transcodeWithLocalFfmpeg();
+    return localResult.ok ? localResult : forgeResult;
+  }
+
+  const localResult = await transcodeWithLocalFfmpeg();
+  if (localResult.ok) return localResult;
+  const forgeResult = await transcodeWithForge();
+  return forgeResult.ok ? forgeResult : localResult;
+}
+
+function replaceExtensionForTranscriptAudio(sourceLabel: string): string {
+  const parsed = path.parse(sourceLabel);
+  if (parsed.dir) {
+    return path.join(parsed.dir, `${parsed.name}.wav`);
+  }
+  return `${parsed.name || "transcript-audio"}.wav`;
 }
 
 function readHeaderNumber(headers: Headers, name: string): number | null {
@@ -1947,13 +2237,60 @@ export function createHammerPrepMiddleware() {
         });
         return;
       }
-      const isVideo = extension === ".mp4" || extension === ".webm" || extension === ".mov";
-      stageTimer.mark("media:transcode:skipped", {
-        reason: "sending_source_bytes_directly",
+      const uploadMedia = await prepareTranscriptUploadMedia({
+        fileBytes,
+        sourceLabel,
+        contentType,
         extension,
-        is_video: isVideo,
-        note: "Nursery currently sends the original media bytes to OpenAI transcription without extracting audio.",
+        stageTimer,
       });
+      if (!uploadMedia.ok) {
+        stageTimer.mark("media:transcode:failed", {
+          message: uploadMedia.message,
+          detail: uploadMedia.detail,
+        }, "warn");
+        sendTranscriptPrepError(res, {
+          status: 422,
+          code: "MEDIA_READ_FAILED",
+          message: uploadMedia.message,
+          retryable: false,
+          detail: uploadMedia.detail,
+          meta: {
+            workspace_id: request.workspace_id,
+            workpiece_id: request.workpiece_id,
+            client_request_id: request.client_request_id ?? null,
+          },
+        });
+        return;
+      }
+      fileBytes = uploadMedia.fileBytes;
+      contentType = uploadMedia.contentType;
+      sourceLabel = uploadMedia.sourceLabel;
+      if (fileBytes.byteLength > MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES) {
+        stageTimer.mark("media:transcode:failed", {
+          reason: "transcript_upload_too_large",
+          byte_count: fileBytes.byteLength,
+          backend: uploadMedia.backend,
+        }, "warn");
+        sendTranscriptPrepError(res, {
+          status: 413,
+          code: "SOURCE_TOO_LARGE",
+          message: buildUploadTooLargeMessage(fileBytes.byteLength),
+          retryable: false,
+          detail: {
+            max_upload_bytes: MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES,
+            observed_bytes: fileBytes.byteLength,
+            transcode_backend: uploadMedia.backend,
+          },
+          meta: {
+            workspace_id: request.workspace_id,
+            workpiece_id: request.workpiece_id,
+            client_request_id: request.client_request_id ?? null,
+          },
+        });
+        return;
+      }
+
       const form = new FormData();
       form.set("model", model);
       form.set("response_format", "diarized_json");
@@ -1974,6 +2311,11 @@ export function createHammerPrepMiddleware() {
           content_type: contentType,
           file_name: path.basename(sourceLabel),
           byte_count: fileBytes.byteLength,
+          transcode_backend: uploadMedia.backend,
+          ffmpeg_request_id: uploadMedia.serviceRequestId,
+          output_format: uploadMedia.outputFormat,
+          output_sample_rate: uploadMedia.outputSampleRate,
+          output_channels: uploadMedia.outputChannels,
         });
         upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
           method: "POST",
