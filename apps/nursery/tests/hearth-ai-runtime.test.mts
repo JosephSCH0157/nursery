@@ -33,6 +33,34 @@ function buildConfig(overrides: Partial<HearthRuntimeConfig> = {}): HearthRuntim
   };
 }
 
+const RESEARCH_ENV_KEYS = [
+  "HEARTH_RESEARCH_API_KEY",
+  "HEARTH_RESEARCH_BRAVE_API_KEY",
+  "BRAVE_SEARCH_API_KEY",
+  "BRAVE_API_KEY",
+] as const;
+
+function snapshotResearchEnv(): Partial<Record<(typeof RESEARCH_ENV_KEYS)[number], string>> {
+  const snapshot: Partial<Record<(typeof RESEARCH_ENV_KEYS)[number], string>> = {};
+  for (const key of RESEARCH_ENV_KEYS) {
+    if (process.env[key] != null) snapshot[key] = process.env[key];
+  }
+  return snapshot;
+}
+
+function clearResearchEnv(): void {
+  for (const key of RESEARCH_ENV_KEYS) {
+    delete process.env[key];
+  }
+}
+
+function restoreResearchEnv(snapshot: Partial<Record<(typeof RESEARCH_ENV_KEYS)[number], string>>): void {
+  clearResearchEnv();
+  for (const key of RESEARCH_ENV_KEYS) {
+    if (snapshot[key] != null) process.env[key] = snapshot[key];
+  }
+}
+
 function buildEpisodeContext() {
   return {
     episodeId: "episode-1",
@@ -425,6 +453,8 @@ test("createHearthAiHandler adds explicit scope bridge note for cross-project re
 });
 
 test("createHearthAiHandler bypasses clarify gate for short research asks and enables research-first prompt behavior", async () => {
+  const priorResearchEnv = snapshotResearchEnv();
+  clearResearchEnv();
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
   const originalFetch = globalThis.fetch;
   let openAiCalled = false;
@@ -486,6 +516,7 @@ test("createHearthAiHandler bypasses clarify gate for short research asks and en
     assert.match(String(payload.assistant_text ?? ""), /knowledge-first fallback/i);
   } finally {
     globalThis.fetch = originalFetch;
+    restoreResearchEnv(priorResearchEnv);
   }
 });
 
@@ -589,6 +620,91 @@ test("createHearthAiHandler returns retrieval-backed canonical research results 
     assert.match(String(payload.assistant_text ?? ""), /Retrieved findings:/i);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler accepts BRAVE_API_KEY as a research provider alias", async () => {
+  const priorResearchEnv = snapshotResearchEnv();
+  clearResearchEnv();
+  process.env.BRAVE_API_KEY = "brave-alias-test-key";
+  const handler = createHearthAiHandler(buildConfig({
+    textApiKey: "test-key",
+    researchApiKey: null,
+  }));
+  const originalFetch = globalThis.fetch;
+  let braveToken: string | undefined;
+
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
+      const headers = init?.headers as Record<string, string> | undefined;
+      braveToken = headers?.["X-Subscription-Token"];
+      return new Response(JSON.stringify({
+        web: {
+          results: [
+            {
+              title: "Alias source",
+              url: "https://example.com/alias",
+              description: "Alias source summary.",
+              page_age: "2026-03-15",
+            },
+          ],
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://example.com/alias") {
+      return new Response("Alias extraction body.", {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+      });
+    }
+    if (url === "https://api.openai.com/v1/chat/completions") {
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                assistantText: "Alias-backed retrieval worked.",
+                ops: [],
+                script_text: null,
+                tag_audit: null,
+              }),
+            },
+          },
+        ],
+        usage: { total_tokens: 41 },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Find one live source." }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(braveToken, "brave-alias-test-key");
+    assert.equal(payload.research_result?.mode, "retrieval_first");
+    assert.equal(payload.research_result?.runtimeStatus, "ok");
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreResearchEnv(priorResearchEnv);
   }
 });
 

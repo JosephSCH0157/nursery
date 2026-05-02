@@ -1791,6 +1791,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     || process.env.HEARTH_RESEARCH_API_KEY
     || process.env.HEARTH_RESEARCH_BRAVE_API_KEY
     || process.env.BRAVE_SEARCH_API_KEY
+    || process.env.BRAVE_API_KEY
     || null
   );
   const researchRuntime = createHearthResearchRuntime({ braveApiKey: researchApiKey });

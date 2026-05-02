@@ -1065,7 +1065,7 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
             summary: "No retrieval provider key was configured, so this run stayed in knowledge-first mode.",
             keyPoints: [
               `Query accepted: ${args.request.query}`,
-              "Set HEARTH_RESEARCH_API_KEY or BRAVE_SEARCH_API_KEY to enable live source retrieval.",
+              "Set HEARTH_RESEARCH_API_KEY, BRAVE_SEARCH_API_KEY, or BRAVE_API_KEY to enable live source retrieval.",
             ],
             uncertainties: [
               "No live source retrieval was executed in this pass.",
