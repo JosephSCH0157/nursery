@@ -1,4 +1,11 @@
+import { useEffect, useMemo, useState } from "react";
 import type { EpisodeSeoTitle } from "../../lib/episode-package-v2";
+import {
+  partitionMetadataTitles,
+  resolveTitleSlotByLabel,
+  shouldConfirmTitleSlotReplacement,
+  type TitleSlotLabel,
+} from "../../lib/hearth-metadata-titles";
 
 type MetadataSaveState = "saved" | "editing" | "saving" | "offline" | "error";
 type MetadataPreviewMode = "youtube" | "rss" | "plain";
@@ -104,8 +111,13 @@ export default function MetadataPanel({
   onDescriptionLongChange,
   onPreviewModeChange,
 }: MetadataPanelProps) {
+  const [assignmentStatus, setAssignmentStatus] = useState<string | null>(null);
   const shortCount = descriptionShort.length;
   const longCount = descriptionLong.length;
+  const { slotTitles, generatedSuggestions } = useMemo(
+    () => partitionMetadataTitles(titles),
+    [titles],
+  );
   const previewText = renderPreview({
     mode: previewMode,
     titles,
@@ -113,6 +125,30 @@ export default function MetadataPanel({
     descriptionShort,
     descriptionLong,
   });
+
+  useEffect(() => {
+    if (!assignmentStatus) return;
+    const timer = window.setTimeout(() => setAssignmentStatus(null), 1800);
+    return () => window.clearTimeout(timer);
+  }, [assignmentStatus]);
+
+  function onAssignSuggestionToSlot(suggestionId: string, slotLabel: TitleSlotLabel): void {
+    const suggestion = generatedSuggestions.find((title) => title.id === suggestionId);
+    if (!suggestion) return;
+    const slot = resolveTitleSlotByLabel(slotTitles, slotLabel);
+    if (!slot) return;
+
+    const nextText = suggestion.text.trim();
+    if (!nextText) return;
+
+    if (shouldConfirmTitleSlotReplacement(slot.text, nextText)) {
+      const confirmed = window.confirm(`Replace Title ${slotLabel} with this generated suggestion?`);
+      if (!confirmed) return;
+    }
+
+    onTitleChange(slot.id, nextText);
+    setAssignmentStatus(`Set as Title ${slotLabel}.`);
+  }
 
   return (
     <section className="hs-meta-panel" aria-label="Framing panel">
@@ -122,11 +158,17 @@ export default function MetadataPanel({
       </header>
 
       <section className="hs-meta-section" aria-label="Title variants">
-        <div className="hs-meta-section-title">Titles</div>
+        <div className="hs-meta-section-title">Episode Titles</div>
+        <div className="hs-field-label-muted">
+          Assign up to three title candidates, then pick one Primary title.
+        </div>
+        <div className="hs-field-label-muted">
+          These are the title slots that can move forward to release tools.
+        </div>
         <div className="hs-meta-title-list">
-          {titles.map((title) => (
+          {slotTitles.map((title) => (
             <label key={title.id} className="hs-meta-title-row">
-              <span className="hs-meta-title-label">{title.label}</span>
+              <span className="hs-meta-title-label">Title {title.label}</span>
               <input
                 type="text"
                 value={title.text}
@@ -144,10 +186,59 @@ export default function MetadataPanel({
             </label>
           ))}
         </div>
+        <div className="hs-meta-suggestions-head">
+          <div className="hs-meta-section-title">Generated Title Suggestions</div>
+          <div className="hs-field-label-muted">
+            Use these as starting points. Assign your favorites into Title A, B, or C.
+          </div>
+        </div>
+        <div className="hs-meta-suggestion-list" role="list" aria-label="Generated title suggestions">
+          {generatedSuggestions.length === 0 ? (
+            <span className="hs-meta-empty">No generated title suggestions yet.</span>
+          ) : (
+            generatedSuggestions.map((suggestion) => (
+              <article key={suggestion.id} className="hs-meta-suggestion-row" role="listitem">
+                <p>{suggestion.text}</p>
+                <div className="hs-meta-suggestion-actions" role="group" aria-label="Assign generated title">
+                  <button
+                    type="button"
+                    onClick={() => onAssignSuggestionToSlot(suggestion.id, "A")}
+                    disabled={disabled}
+                    aria-label="Set suggestion as Title A"
+                  >
+                    Set as A
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onAssignSuggestionToSlot(suggestion.id, "B")}
+                    disabled={disabled}
+                    aria-label="Set suggestion as Title B"
+                  >
+                    Set as B
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onAssignSuggestionToSlot(suggestion.id, "C")}
+                    disabled={disabled}
+                    aria-label="Set suggestion as Title C"
+                  >
+                    Set as C
+                  </button>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+        {assignmentStatus ? (
+          <div className="hs-field-label-muted" role="status" aria-live="polite">{assignmentStatus}</div>
+        ) : null}
       </section>
 
       <section className="hs-meta-section" aria-label="Tags">
         <div className="hs-meta-section-title">Tags</div>
+        <div className="hs-field-label-muted">
+          Generate tags, then add or remove anything that does not fit the episode.
+        </div>
         <div className="hs-meta-tags-wrap">
           {tags.length === 0 ? (
             <span className="hs-meta-empty">No tags yet.</span>

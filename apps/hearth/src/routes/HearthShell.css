@@ -1126,6 +1126,39 @@
   padding: 4px 8px;
 }
 
+.hs-framing-actions-strip {
+  border: 1px solid rgba(37, 99, 235, 0.35);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(37, 99, 235, 0.07);
+  display: grid;
+  gap: 8px;
+}
+
+.hs-framing-actions-strip header {
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+.hs-production-action-row.is-primary {
+  gap: 10px;
+}
+
+.hs-production-action-primary {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(37, 99, 235, 0.45);
+  background: rgba(37, 99, 235, 0.14);
+}
+
+.hs-production-action-secondary {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
 .hs-release-prep-viewer {
   border: 1px solid var(--forge-border, #ddd);
   border-radius: 10px;
@@ -1147,6 +1180,11 @@
 .hs-release-prep-viewer__head span {
   font-size: 11px;
   opacity: 0.72;
+}
+
+.hs-release-prep-viewer__workflow-hint {
+  font-size: 11px;
+  opacity: 0.86;
 }
 
 .hs-release-prep-viewer__meta {
@@ -4119,6 +4157,41 @@ details[open] > .hs-imap-collapsible-title::before {
   gap: 8px;
 }
 
+.hs-meta-suggestions-head {
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.hs-meta-suggestion-list {
+  display: grid;
+  gap: 8px;
+}
+
+.hs-meta-suggestion-row {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(15, 23, 42, 0.03);
+  display: grid;
+  gap: 8px;
+}
+
+.hs-meta-suggestion-row p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.hs-meta-suggestion-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hs-meta-suggestion-actions button {
+  font-size: 12px;
+}
+
 .hs-meta-title-row {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) auto;
@@ -4461,6 +4534,16 @@ details[open] > .hs-imap-collapsible-title::before {
   .hs-meta-title-row button {
     grid-column: 1 / -1;
     justify-self: start;
+  }
+
+  .hs-production-action-row.is-primary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hs-meta-suggestion-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
