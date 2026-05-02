@@ -309,6 +309,35 @@ function resolvePromptVariantLabel(style: ThumbnailPromptPackVariant["style"]): 
   }
 }
 
+function resolveThumbnailTitleSlotLabel(index: number): string {
+  const alphabet = ["A", "B", "C"];
+  return alphabet[index] ?? String(index + 1);
+}
+
+function normalizeThumbnailToneLabel(label: string): string {
+  return label
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function resolveThumbnailTitleChipLabel(title: EpisodeSeoTitle, index: number): string {
+  const slotLabel = resolveThumbnailTitleSlotLabel(index);
+  return title.is_primary ? `PRIMARY (Title ${slotLabel})` : `Title ${slotLabel}`;
+}
+
+function resolveThumbnailTitleChipMeta(title: EpisodeSeoTitle, index: number): string | null {
+  const slotLabel = resolveThumbnailTitleSlotLabel(index);
+  const normalizedLabel = title.label.trim().toUpperCase();
+  if (normalizedLabel === slotLabel) {
+    return title.is_primary ? "Currently selected as the framing primary." : null;
+  }
+  return title.is_primary
+    ? `${normalizeThumbnailToneLabel(title.label)} · currently selected as the framing primary.`
+    : normalizeThumbnailToneLabel(title.label);
+}
+
 function measureRenderedTextBox(
   previewEl: HTMLDivElement,
   textEl: HTMLDivElement,
@@ -535,6 +564,10 @@ export default function ThumbnailPanel({
     );
   }, [selectedConceptId]);
   const promptPackButtonLabel = promptVariants ? "Generate Prompt Pack Again" : "Generate Prompt Pack";
+  const effectiveSelectedTitleId = selectedTitleId
+    ?? titleOptions.find((title) => title.is_primary)?.id
+    ?? titleOptions[0]?.id
+    ?? null;
 
   useEffect(() => {
     setPromptVariants(null);
@@ -1184,25 +1217,28 @@ export default function ThumbnailPanel({
                 </div>
               ) : (
                 <div className="hs-thumb-title-list">
-                  {titleOptions.map((title) => (
+                  {titleOptions.map((title, index) => (
                     <button
                       key={title.id}
                       type="button"
-                      className={`hs-thumb-title-chip${title.id === selectedTitleId ? " is-selected" : ""}`}
+                      className={`hs-thumb-title-chip${title.id === effectiveSelectedTitleId ? " is-selected" : ""}${title.is_primary ? " is-primary" : ""}`}
                       onClick={() => onSelectTitle(title.id)}
                       disabled={isGenerating || isUploading}
                       title={resolveHearthThumbnailOverlayText(title) === title.text
                         ? title.text
                         : `Overlay: ${resolveHearthThumbnailOverlayText(title)}\nSEO title: ${title.text}`}
                     >
-                      <span className="hs-thumb-title-chip-label">{title.label}</span>
+                      <span className="hs-thumb-title-chip-label">{resolveThumbnailTitleChipLabel(title, index)}</span>
+                      {resolveThumbnailTitleChipMeta(title, index) ? (
+                        <span className="hs-thumb-title-chip-meta">{resolveThumbnailTitleChipMeta(title, index)}</span>
+                      ) : null}
                       <span className="hs-thumb-title-chip-text">{resolveHearthThumbnailOverlayText(title)}</span>
                     </button>
                   ))}
                 </div>
               )}
               <div className="hs-thumb-title-help">
-                Hearth derives a thumbnail-safe overlay hook from the selected title, so you can carry the same line into your outside image tool.
+                Thumbnail text stays tied to your Framing titles, so you can see Primary, Title B, and Title C without leaving this workspace.
               </div>
               <details className="hs-thumb-advanced-options">
                 <summary>Branding Options</summary>
