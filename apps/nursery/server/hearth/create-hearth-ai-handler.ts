@@ -510,6 +510,24 @@ function removeUrls(input: string): string {
   return condenseWhitespace(String(input ?? "").replace(URL_RE, " "));
 }
 
+function stripHearthInternalRequestInstructions(input: string): string {
+  const text = String(input ?? "");
+  const markerPatterns = [
+    /\bResponse tone:/i,
+    /\bRecording-ready script rules:/i,
+    /\bThe user prefers\b/i,
+    /\bFor full scripts:/i,
+  ];
+  const markerIndexes = markerPatterns
+    .map((pattern) => {
+      const match = pattern.exec(text);
+      return match?.index ?? -1;
+    })
+    .filter((index) => index >= 0);
+  const end = markerIndexes.length ? Math.min(...markerIndexes) : text.length;
+  return condenseWhitespace(text.slice(0, end));
+}
+
 function buildLinkOnlyResearchResult(args: {
   sources: HearthResearchSource[];
 }): HearthResearchResult {
@@ -3205,8 +3223,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         : messages;
       const urlsInRequest = extractUrls(requestText);
       const textWithoutUrls = removeUrls(requestText);
+      const researchIntentText = stripHearthInternalRequestInstructions(textWithoutUrls || requestText);
       const linkModeRequested = urlsInRequest.length > 0;
-      const researchModeRequested = linkModeRequested || isResearchIntentRequest(textWithoutUrls || requestText);
+      const researchModeRequested = linkModeRequested || isResearchIntentRequest(researchIntentText || requestText);
       const estimatedInputTokens = Math.max(
         1,
         Math.ceil(
@@ -3248,7 +3267,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
-      const researchQuery = textWithoutUrls.trim() || urlsInRequest.join(" ");
+      const researchQuery = researchIntentText || urlsInRequest.join(" ");
       const researchRequest = researchModeRequested && researchQuery
         ? buildHearthResearchRequest({ query: researchQuery })
         : null;
@@ -3296,7 +3315,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         });
       }
 
-      if (linkModeRequested && researchResult && shouldShortCircuitLinkIngest(textWithoutUrls)) {
+      if (linkModeRequested && researchResult && shouldShortCircuitLinkIngest(researchIntentText || textWithoutUrls)) {
         const assistantText = buildLinkIngestOnlyReply({ sources: researchResult.sources });
         return jsonResponse(200, {
           ok: true,

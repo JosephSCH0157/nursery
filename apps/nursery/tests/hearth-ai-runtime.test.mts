@@ -708,6 +708,93 @@ test("createHearthAiHandler accepts BRAVE_API_KEY as a research provider alias",
   }
 });
 
+test("createHearthAiHandler strips Hearth tone instructions from live research queries", async () => {
+  const handler = createHearthAiHandler(buildConfig({
+    textApiKey: "test-key",
+    researchApiKey: "brave-test-key",
+  }));
+  const originalFetch = globalThis.fetch;
+  let capturedQuery: string | null = null;
+
+  globalThis.fetch = async (input) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
+      capturedQuery = new URL(url).searchParams.get("q");
+      return new Response(JSON.stringify({
+        web: {
+          results: [
+            {
+              title: "Clean query source",
+              url: "https://example.com/clean-query",
+              description: "Clean query source summary.",
+              page_age: "2026-03-15",
+            },
+          ],
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://example.com/clean-query") {
+      return new Response("Clean query extraction body.", {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+      });
+    }
+    if (url === "https://api.openai.com/v1/chat/completions") {
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                assistantText: "Clean query retrieval worked.",
+                ops: [],
+                script_text: null,
+                tag_audit: null,
+              }),
+            },
+          },
+        ],
+        usage: { total_tokens: 43 },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{
+          role: "user",
+          content: [
+            "Find strong sources I should cite for this Episode.",
+            "Response tone: Sound like a capable creative operations partner.",
+            "Help the user explore and expand the content before drafting.",
+          ].join(" "),
+        }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    assert.equal(capturedQuery, "Find strong sources I should cite for this Episode.");
+    const payload = await response.json();
+    assert.equal(payload.research_result?.mode, "retrieval_first");
+    assert.doesNotMatch(String(payload.research_result?.request?.query ?? ""), /Response tone:/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("createHearthAiHandler marks partial retrieval honestly when some sources fail extraction", async () => {
   const handler = createHearthAiHandler(buildConfig({
     textApiKey: "test-key",
