@@ -465,6 +465,84 @@ test("createHearthAiHandler adds explicit scope bridge note for cross-project re
   }
 });
 
+test("createHearthAiHandler sanitizes framing pack replies to remove internal scope/system leakage", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (_input, _init) => {
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              assistantText: [
+                "Scope note: I found multiple workspace artifact matches via Tongs.",
+                "I can anchor this once you pick one.",
+                "YOUTUBE_OPTIMIZED_CUT:",
+                "- Lead with the listener pain point, then promise the practical fix.",
+                "TITLE_OPTIONS:",
+                "- Why This Breach Pattern Keeps Repeating",
+              ].join("\n"),
+              ops: [],
+              script_text: null,
+              tag_audit: null,
+            }),
+          },
+        },
+      ],
+      usage: { total_tokens: 81 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: "user",
+            content: [
+              "Production mode request for approved Script Version 3.",
+              "APPROVED_SCRIPT_TEXT: This is the approved script body.",
+              "Generate a Framing Pack from this approved script.",
+              "YOUTUBE_OPTIMIZED_CUT:",
+              "TITLE_OPTIONS:",
+              "SHORT_FORM_HOOK_20S:",
+              "TONE_VARIANT_CREATOR:",
+              "AUDIENCE_VARIANT:",
+              "MONETIZATION_ANGLE:",
+            ].join("\n"),
+          },
+        ],
+        episode_context: buildEpisodeContext({
+          title: "Cyber Incident Playbook",
+          body: "Current episode script body for framing output.",
+          sparks: [{ id: "spark-1", text: "Operator-first response sequencing" }],
+        }),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    const assistantText = String(payload.assistant_text ?? "");
+    assert.equal(payload.ok, true);
+    assert.ok(assistantText.trim().length > 0);
+    assert.ok(/[A-Za-z]{8,}/.test(assistantText));
+    assert.doesNotMatch(assistantText, /\bTongs\b/i);
+    assert.doesNotMatch(assistantText, /\bartifact\b/i);
+    assert.doesNotMatch(assistantText, /\bI found\b/i);
+    assert.doesNotMatch(assistantText, /\bI can\b/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("createHearthAiHandler bypasses clarify gate for short research asks and enables research-first prompt behavior", async () => {
   const priorResearchEnv = snapshotResearchEnv();
   clearResearchEnv();

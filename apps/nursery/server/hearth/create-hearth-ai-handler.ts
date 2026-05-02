@@ -917,6 +917,14 @@ function isProductionSupportRequest(text: string): boolean {
     || normalized.includes("image_01");
 }
 
+function isFramingPackProductionRequest(text: string): boolean {
+  const normalized = compactSpaces(text);
+  return normalized.includes("generate a framing pack")
+    || normalized.includes("release prep pack")
+    || normalized.includes("release_prep_pack")
+    || (normalized.includes("youtube_optimized_cut:") && normalized.includes("monetization_angle:"));
+}
+
 function hasBroadAboutTopic(text: string): boolean {
   const normalized = compactSpaces(text);
   if (!/\babout\b/.test(normalized)) return false;
@@ -1836,6 +1844,41 @@ function enforceCrossProjectScopeReply(args: {
   const normalizedBody = body.toLowerCase();
   if (normalizedBody.startsWith(normalizedLead)) return body;
   return `${lead}\n\n${body}`;
+}
+
+const FRAMING_PACK_INTERNAL_MARKERS: RegExp[] = [
+  /\bi found\b/i,
+  /\bi can anchor\b/i,
+  /\bvia\s+tongs\b/i,
+  /\btongs\b/i,
+  /\bworkspace artifact\b/i,
+  /\bscope note\b/i,
+  /\bresolve it through tongs\b/i,
+  /\binternal\/debug\b/i,
+];
+
+function sanitizeFramingPackReply(input: string): string {
+  const raw = String(input ?? "").trim();
+  if (!raw) return "Framing Pack generated from the current episode context.";
+
+  const filteredLines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+      return !FRAMING_PACK_INTERNAL_MARKERS.some((pattern) => pattern.test(trimmed));
+    });
+
+  const cleaned = filteredLines
+    .join("\n")
+    .replace(/\bScope note:\s*/gi, "")
+    .replace(/\bvia\s+Tongs\b/gi, "")
+    .replace(/\bworkspace artifact(s)?\b/gi, "episode context")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  return cleaned || "Framing Pack generated from the current episode context.";
 }
 
 export function createHearthAiHandler(config: HearthRuntimeConfig) {
@@ -3373,6 +3416,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       }
       const readinessCheckRequested = isReadinessCheckRequest(requestText);
       const allowRepeatedReadinessNudge = requestedDeepReadinessReview(requestText);
+      const framingPackRequested = isFramingPackProductionRequest(requestText);
       const priorAssistantMessage = [...priorMessages]
         .reverse()
         .find((entry) => entry.role === "assistant")
@@ -3413,27 +3457,44 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         });
       }
 
-      const styleGuidanceSections = [
-        buildProfileStyleSnippet(
-          creatorProfile,
-          writingProfile,
-          requestText,
-          episodeContext.tonePreset,
-        ),
-      ];
+      const styleGuidanceSections = framingPackRequested
+        ? []
+        : [
+          buildProfileStyleSnippet(
+            creatorProfile,
+            writingProfile,
+            requestText,
+            episodeContext.tonePreset,
+          ),
+        ];
 
-      const styleSamples = await loadStyleSamplesForToken(bearerToken, episodeContext.workspaceId);
-      const recentScriptRefs = await loadRecentScriptReferencesForToken(bearerToken, episodeContext.workspaceId);
-      const recentScriptExcerpts = await loadRecentScriptExcerpts(recentScriptRefs);
-      const crossProjectReference = resolveCrossProjectReference({
-        requestText,
-        currentWorkpieceId: episodeContext.episodeId,
-        references: recentScriptRefs,
-      });
-      const styleCorpusSnippet = buildStyleCorpusSnippet({
-        styleSamples,
-        recentScriptExcerpts,
-      });
+      const styleSamples = framingPackRequested
+        ? []
+        : await loadStyleSamplesForToken(bearerToken, episodeContext.workspaceId);
+      const recentScriptRefs = framingPackRequested
+        ? []
+        : await loadRecentScriptReferencesForToken(bearerToken, episodeContext.workspaceId);
+      const recentScriptExcerpts = framingPackRequested
+        ? []
+        : await loadRecentScriptExcerpts(recentScriptRefs);
+      const crossProjectReference = framingPackRequested
+        ? {
+          detected: false,
+          level: "unanchored" as const,
+          resolvedTitle: null,
+          candidateTitles: [],
+        }
+        : resolveCrossProjectReference({
+          requestText,
+          currentWorkpieceId: episodeContext.episodeId,
+          references: recentScriptRefs,
+        });
+      const styleCorpusSnippet = framingPackRequested
+        ? null
+        : buildStyleCorpusSnippet({
+          styleSamples,
+          recentScriptExcerpts,
+        });
       if (styleCorpusSnippet) {
         styleGuidanceSections.push(styleCorpusSnippet);
       }
@@ -3657,6 +3718,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             assistantText: structured.assistantText,
             resolution: crossProjectReference,
           });
+        }
+
+        if (framingPackRequested) {
+          structured.assistantText = sanitizeFramingPackReply(structured.assistantText);
         }
 
         if (!structured.assistantText && structured.ops.length === 0) {
