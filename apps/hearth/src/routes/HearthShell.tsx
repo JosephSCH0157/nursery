@@ -260,6 +260,7 @@ import {
   normalizeHearthVisualStyle,
 } from "../lib/hearth-visual-styles";
 import {
+  buildScriptTabSummary,
   normalizeWorkpieceWorkspaceTab,
   resolveHistoryMilestoneMarker,
   resolveMediaPlanCoverageLevel,
@@ -3314,7 +3315,12 @@ export default function HearthShell({
   };
   const hasAnyUnsavedTab = Object.values(tabDirtyById).some(Boolean);
   const tabSummaryById: Record<WorkpieceWorkspaceTab, string> = {
-    script: `${hasApprovedScript ? "Approved" : "Draft"} · ${wordCount} words · ${formatUpdatedAt(activeDraft?.updatedAt)}`,
+    script: buildScriptTabSummary({
+      hasApprovedScript,
+      wordCount,
+      updatedAt: activeDraft?.updatedAt,
+      formatUpdatedAt,
+    }),
     visuals: `${mediaMapEntries.length} visuals · ${String(mediaMap?.status ?? "draft").toUpperCase()} · ${mediaMapCoverageLevel}`,
     metadata: `${framingTitleCount} title${framingTitleCount === 1 ? "" : "s"} · ${metadataTagsDraft.length} tags · ${metadataComplete ? "Complete" : "Needs work"}`,
     release: `${releaseReadiness.completeCount}/${releaseReadiness.totalCount} ready · ${releaseReadiness.completeCount >= releaseReadiness.totalCount ? "Shippable" : "Pending"}`,

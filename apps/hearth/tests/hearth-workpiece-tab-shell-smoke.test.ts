@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import {
+  buildScriptTabSummary,
+  getEstimatedRecordedLength,
   normalizeWorkpieceWorkspaceTab,
   resolveHistoryMilestoneMarker,
   resolveMediaPlanCoverageLevel,
@@ -75,4 +77,35 @@ run("updates history marker when milestone revision exists", () => {
     { id: "a", draftId: "d", createdAt: 100, titleSnapshot: "", bodySnapshot: "", kind: "manual" },
     { id: "b", draftId: "d", createdAt: 200, titleSnapshot: "", bodySnapshot: "", kind: "milestone" },
   ] as any), "Milestone 200");
+});
+
+run("builds deterministic estimated recorded length from word count", () => {
+  assert.equal(getEstimatedRecordedLength(2011), "~11–15 min");
+  assert.equal(getEstimatedRecordedLength(0), "");
+  assert.equal(getEstimatedRecordedLength(Number.NaN), "");
+});
+
+run("script tab summary keeps words and timestamp while adding estimate", () => {
+  const timestampLabel = "5/2/2026, 6:25:32 PM";
+  const summary = buildScriptTabSummary({
+    hasApprovedScript: true,
+    wordCount: 2011,
+    updatedAt: 123,
+    formatUpdatedAt: () => timestampLabel,
+  });
+
+  assert.match(summary, /^Approved · 2011 words · ~\d+–\d+ min · /);
+  assert.ok(summary.includes(timestampLabel));
+  assert.ok(summary.includes("2011 words"));
+});
+
+run("script tab summary omits estimate when word count is invalid", () => {
+  const summary = buildScriptTabSummary({
+    hasApprovedScript: false,
+    wordCount: 0,
+    updatedAt: 456,
+    formatUpdatedAt: () => "later",
+  });
+
+  assert.equal(summary, "Draft · 0 words · later");
 });
