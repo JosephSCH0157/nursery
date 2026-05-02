@@ -4109,6 +4109,12 @@ details[open] > .hs-imap-collapsible-title::before {
   gap: 8px;
 }
 
+.hs-meta-header-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .hs-meta-title {
   font-weight: 700;
 }
@@ -4139,6 +4145,12 @@ details[open] > .hs-imap-collapsible-title::before {
 .hs-meta-save-state.is-offline {
   border-color: rgba(176, 0, 32, 0.55);
   background: rgba(176, 0, 32, 0.08);
+}
+
+.hs-meta-save-button,
+.hs-meta-retry-button {
+  font-size: 12px;
+  padding: 2px 8px;
 }
 
 .hs-meta-section {

@@ -10,7 +10,10 @@ import {
 import { saveEpisodePackageForWorkpiece } from "../../lib/hearth-thumbnail-api";
 
 type MetadataPreviewMode = "youtube" | "rss" | "plain";
-type MetadataSaveState = "saved" | "editing" | "saving" | "offline" | "error";
+type MetadataSaveState = "saved" | "editing" | "saving" | "error";
+
+const METADATA_AUTOSAVE_DELAY_MS = 450;
+const METADATA_SAVE_TIMEOUT_MS = 10000;
 
 type UseMetadataWorkspaceArgs = {
   workpieceId: string | null;
@@ -103,6 +106,17 @@ export function useMetadataWorkspace(args: UseMetadataWorkspaceArgs) {
 
   useEffect(() => {
     if (metadataSaveState !== "editing") return;
+    const timer = window.setTimeout(() => {
+      setMetadataSaveState("saving");
+      setMetadataSaveError(null);
+    }, METADATA_AUTOSAVE_DELAY_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [metadataSaveState]);
+
+  useEffect(() => {
+    if (metadataSaveState !== "saving") return;
     if (!episodePackage) return;
 
     const current = ensureSeoV2(episodePackage);
@@ -134,56 +148,57 @@ export function useMetadataWorkspace(args: UseMetadataWorkspaceArgs) {
     }
 
     let cancelled = false;
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        setMetadataSaveState("saving");
-        setMetadataSaveError(null);
+    let timedOut = false;
+    const timeout = window.setTimeout(() => {
+      timedOut = true;
+      setMetadataSaveState("error");
+      setMetadataSaveError("Save timed out. Retry.");
+    }, METADATA_SAVE_TIMEOUT_MS);
 
-        const workspace = workspaceId?.trim() ?? "";
-        const workpiece = workpieceId?.trim() ?? "";
-        if (!workspace || !workpiece) {
-          if (cancelled) return;
-          setMetadataSaveState("error");
-          setMetadataSaveError("Workspace or workpiece is missing.");
-          return;
-        }
+    void (async () => {
+      const workspace = workspaceId?.trim() ?? "";
+      const workpiece = workpieceId?.trim() ?? "";
+      if (!workspace || !workpiece) {
+        if (cancelled || timedOut) return;
+        window.clearTimeout(timeout);
+        setMetadataSaveState("error");
+        setMetadataSaveError("Workspace or workpiece is missing.");
+        return;
+      }
 
-        const nextEpisodePackage: EpisodePackageV2 = {
-          ...current,
-          seo: nextSeo,
-        };
+      const nextEpisodePackage: EpisodePackageV2 = {
+        ...current,
+        seo: nextSeo,
+      };
 
-        const saved = await saveEpisodePackageForWorkpiece({
-          workpieceId: workpiece,
-          workspaceId: workspace,
-          episodePackage: nextEpisodePackage,
-          eventName: "hearth.metadata.autosave.v1",
-          eventPayload: {
-            section: "seo",
-          },
-        });
-        if (cancelled) return;
-        if (!saved.ok) {
-          const online = typeof navigator === "undefined" ? true : navigator.onLine;
-          if (!online) {
-            setMetadataSaveState("offline");
-            setMetadataSaveError("Offline. Metadata edits are waiting to sync.");
-          } else {
-            setMetadataSaveState("error");
-            setMetadataSaveError(saved.error);
-          }
-          return;
-        }
-        setEpisodePackage(saved.episodePackage);
-        setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
-        setMetadataSaveState("saved");
-        setMetadataSaveError(null);
-      })();
-    }, 450);
+      const saved = await saveEpisodePackageForWorkpiece({
+        workpieceId: workpiece,
+        workspaceId: workspace,
+        episodePackage: nextEpisodePackage,
+        eventName: "hearth.metadata.autosave.v1",
+        eventPayload: {
+          section: "seo",
+        },
+      });
+
+      if (cancelled || timedOut) return;
+      window.clearTimeout(timeout);
+
+      if (!saved.ok) {
+        setMetadataSaveState("error");
+        setMetadataSaveError(saved.error || "Save failed. Retry.");
+        return;
+      }
+
+      setEpisodePackage(saved.episodePackage);
+      setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
+      setMetadataSaveState("saved");
+      setMetadataSaveError(null);
+    })();
 
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      window.clearTimeout(timeout);
     };
   }, [
     deriveThumbnailOverlayText,
@@ -261,6 +276,21 @@ export function useMetadataWorkspace(args: UseMetadataWorkspaceArgs) {
     setMetadataPreviewMode(mode);
   }
 
+  function onMetadataSaveNow(): void {
+    if (metadataSaveState === "saving") return;
+    setMetadataSaveError(null);
+    setMetadataSaveState("saving");
+  }
+
+  function onMetadataRetrySave(): void {
+    setMetadataSaveError(null);
+    setMetadataSaveState("saving");
+  }
+
+  const hasUnsavedMetadataChanges = metadataSaveState === "editing"
+    || metadataSaveState === "saving"
+    || metadataSaveState === "error";
+
   return {
     metadataTitlesDraft,
     metadataTagsDraft,
@@ -283,5 +313,8 @@ export function useMetadataWorkspace(args: UseMetadataWorkspaceArgs) {
     onMetadataDescriptionShortChange,
     onMetadataDescriptionLongChange,
     onMetadataPreviewModeChange,
+    onMetadataSaveNow,
+    onMetadataRetrySave,
+    hasUnsavedMetadataChanges,
   };
 }

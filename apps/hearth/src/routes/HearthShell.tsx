@@ -2434,6 +2434,9 @@ export default function HearthShell({
     onMetadataDescriptionShortChange,
     onMetadataDescriptionLongChange,
     onMetadataPreviewModeChange,
+    onMetadataSaveNow,
+    onMetadataRetrySave,
+    hasUnsavedMetadataChanges,
   } = useMetadataWorkspace({
     workpieceId,
     workspaceId,
@@ -3313,7 +3316,7 @@ export default function HearthShell({
       || isThumbnailConceptSaving
       || isThumbnailUploading
     ),
-    metadata: metadataSaveState === "editing" || metadataSaveState === "saving",
+    metadata: hasUnsavedMetadataChanges,
     release: false,
     history: false,
   };
@@ -7016,6 +7019,7 @@ export default function HearthShell({
       previewMode: metadataPreviewMode,
       saveState: metadataSaveState,
       saveError: metadataSaveError,
+      hasUnsavedChanges: hasUnsavedMetadataChanges,
       disabled: isApprovingScript || !episodePackage,
       onTitleChange: onMetadataTitleChange,
       onSetPrimaryTitle: onMetadataSetPrimaryTitle,
@@ -7026,6 +7030,8 @@ export default function HearthShell({
       onDescriptionShortChange: onMetadataDescriptionShortChange,
       onDescriptionLongChange: onMetadataDescriptionLongChange,
       onPreviewModeChange: onMetadataPreviewModeChange,
+      onSaveNow: onMetadataSaveNow,
+      onRetrySave: onMetadataRetrySave,
     };
     const visualsPanelContracts = hearthVisualsWorkspace.composePanels({
       thumbnailPanelMeta,

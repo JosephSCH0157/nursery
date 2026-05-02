@@ -20,6 +20,7 @@ type MetadataPanelProps = {
   previewMode: MetadataPreviewMode;
   saveState: MetadataSaveState;
   saveError: string | null;
+  hasUnsavedChanges: boolean;
   disabled?: boolean;
   onTitleChange: (titleId: string, nextText: string) => void;
   onSetPrimaryTitle: (titleId: string) => void;
@@ -30,14 +31,15 @@ type MetadataPanelProps = {
   onDescriptionShortChange: (value: string) => void;
   onDescriptionLongChange: (value: string) => void;
   onPreviewModeChange: (mode: MetadataPreviewMode) => void;
+  onSaveNow: () => void;
+  onRetrySave: () => void;
 };
 
-function formatSaveState(state: MetadataSaveState): string {
-  if (state === "saved") return "Saved";
-  if (state === "editing") return "Editing";
-  if (state === "saving") return "Saving...";
-  if (state === "offline") return "Offline";
-  return "Save failed";
+function formatSaveState(state: MetadataSaveState, isStillSaving: boolean): string {
+  if (state === "saved") return "Saved ✓";
+  if (state === "editing") return "Unsaved changes";
+  if (state === "saving") return isStillSaving ? "Still saving..." : "Saving...";
+  return "Save failed - Retry";
 }
 
 function descriptionCountClass(length: number, softLimit: number): string {
@@ -108,6 +110,7 @@ export default function MetadataPanel({
   previewMode,
   saveState,
   saveError,
+  hasUnsavedChanges,
   disabled = false,
   onTitleChange,
   onSetPrimaryTitle,
@@ -118,9 +121,12 @@ export default function MetadataPanel({
   onDescriptionShortChange,
   onDescriptionLongChange,
   onPreviewModeChange,
+  onSaveNow,
+  onRetrySave,
 }: MetadataPanelProps) {
   const [assignmentStatus, setAssignmentStatus] = useState<string | null>(null);
   const [recentlyAddedTag, setRecentlyAddedTag] = useState<string | null>(null);
+  const [isStillSaving, setIsStillSaving] = useState(false);
   const shortCount = descriptionShort.length;
   const longCount = descriptionLong.length;
   const { slotTitles, generatedSuggestions } = useMemo(
@@ -140,6 +146,15 @@ export default function MetadataPanel({
     const timer = window.setTimeout(() => setAssignmentStatus(null), 1800);
     return () => window.clearTimeout(timer);
   }, [assignmentStatus]);
+
+  useEffect(() => {
+    if (saveState !== "saving") {
+      setIsStillSaving(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setIsStillSaving(true), 3000);
+    return () => window.clearTimeout(timer);
+  }, [saveState]);
 
   function onAssignSuggestionToSlot(suggestionId: string, slotLabel: TitleSlotLabel): void {
     const suggestion = generatedSuggestions.find((title) => title.id === suggestionId);
@@ -163,7 +178,27 @@ export default function MetadataPanel({
     <section className="hs-meta-panel" aria-label="Framing panel">
       <header className="hs-meta-header">
         <div className="hs-meta-title">Framing</div>
-        <div className={`hs-meta-save-state is-${saveState}`}>{formatSaveState(saveState)}</div>
+        <div className="hs-meta-header-controls">
+          <div className={`hs-meta-save-state is-${saveState}`}>{formatSaveState(saveState, isStillSaving)}</div>
+          <button
+            type="button"
+            className="hs-meta-save-button"
+            onClick={onSaveNow}
+            disabled={disabled || !hasUnsavedChanges || saveState === "saving"}
+          >
+            Save
+          </button>
+          {saveState === "error" ? (
+            <button
+              type="button"
+              className="hs-meta-retry-button"
+              onClick={onRetrySave}
+              disabled={disabled}
+            >
+              Retry
+            </button>
+          ) : null}
+        </div>
       </header>
 
       <section className="hs-meta-section" aria-label="Title variants">
