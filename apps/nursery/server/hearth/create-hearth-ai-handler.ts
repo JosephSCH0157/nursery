@@ -170,7 +170,8 @@ const SOURCING_NUDGE_RE = /\b(source|sources|sourcing|citation|citations|cite|ev
 const RISK_NUDGE_RE = /\b(risk|risky|legal|defamation|liability|compliance|sensitive claim|hot take)\b/i;
 const RECORD_ANYWAY_RE = /\b(record anyway|record now anyway|ok to record anyway|okay to record anyway|go ahead and record)\b/i;
 const CDC_REQUEST_RE = /\b(cdc|contextual data composite|chart|graph|plot|dataset|bar chart|line chart|pie chart)\b/i;
-const RESEARCH_INTENT_RE = /\b(browse|look up|lookup|find(?: me)?|search|news|reports?|reporting|examples?|case studies?|incidents?|breach(?:es)?|source|sources|citations?|evidence)\b/i;
+const RESEARCH_INTENT_RE = /\b(browse|look up|lookup|find(?: me)?|search|research|retrieval|web research|live research|live web research|news|reports?|reporting|examples?|case studies?|incidents?|breach(?:es)?|source|sources|citations?|evidence)\b/i;
+const GENERIC_EPISODE_SOURCE_RE = /\b(source|sources|citation|citations|cite|cites|evidence|receipts)\b[\s\S]{0,80}\b(this episode|the episode|episode|show|script|draft)\b|\b(this episode|the episode|episode|show|script|draft)\b[\s\S]{0,80}\b(source|sources|citation|citations|cite|cites|evidence|receipts)\b/i;
 const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;
 const CROSS_PROJECT_REFERENCE_RE = /\b(use|pull in|bring in|remember|recall|like|from)\b[\s\S]{0,120}\b(script|episode|project|conversation|workspace|last week|other chat|that)\b/i;
 const ALLOWED_CHAT_MODELS = new Set<string>(FORGE_ALLOWED_CHAT_MODELS);
@@ -526,6 +527,40 @@ function stripHearthInternalRequestInstructions(input: string): string {
     .filter((index) => index >= 0);
   const end = markerIndexes.length ? Math.min(...markerIndexes) : text.length;
   return condenseWhitespace(text.slice(0, end));
+}
+
+function stripResearchContextMarkup(input: string): string {
+  return condenseWhitespace(String(input ?? "")
+    .replace(/\[\/?(?:s1|s2|g1|g2|note)\]/gi, " ")
+    .replace(/\[(?:pause|beat|reflective pause)\]/gi, " ")
+    .replace(/\[[^\]]{1,48}\]/g, " ")
+    .replace(URL_RE, " "));
+}
+
+function buildEpisodeContextResearchQuery(args: {
+  requestText: string;
+  episodeContext: EpisodeContext;
+}): string | null {
+  const requestText = stripHearthInternalRequestInstructions(args.requestText);
+  if (!GENERIC_EPISODE_SOURCE_RE.test(requestText)) return null;
+
+  const titleVariants = args.episodeContext.titleVariants ?? { A: "", B: "", C: "" };
+  const contextParts = [
+    args.episodeContext.title,
+    titleVariants.A,
+    titleVariants.B,
+    titleVariants.C,
+    args.episodeContext.outline,
+    args.episodeContext.body,
+    ...args.episodeContext.sparks.map((spark) => spark.text),
+  ];
+  const contextText = stripResearchContextMarkup(contextParts.filter(Boolean).join(" "));
+  if (!contextText || /^test episode$/i.test(contextText)) return null;
+
+  const contextSnippet = contextText.length > 360
+    ? `${contextText.slice(0, 360).replace(/\s+\S*$/, "")}`
+    : contextText;
+  return condenseWhitespace(`${contextSnippet} primary sources official reports CRS GAO data`);
 }
 
 function buildLinkOnlyResearchResult(args: {
@@ -3267,7 +3302,11 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
-      const researchQuery = researchIntentText || urlsInRequest.join(" ");
+      const contextualResearchQuery = buildEpisodeContextResearchQuery({
+        requestText: researchIntentText,
+        episodeContext,
+      });
+      const researchQuery = contextualResearchQuery || researchIntentText || urlsInRequest.join(" ");
       const researchRequest = researchModeRequested && researchQuery
         ? buildHearthResearchRequest({ query: researchQuery })
         : null;

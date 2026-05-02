@@ -3,7 +3,10 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
-import { HEARTH_AI_ROUTES } from "../../hearth/src/lib/hearth-ai-runtime-contract";
+import {
+  HEARTH_AI_ROUTES,
+  type EpisodeContext,
+} from "../../hearth/src/lib/hearth-ai-runtime-contract";
 import hearthChatStatusFunction from "../netlify/functions/hearth-chat-status";
 import { createHearthAiHandler } from "../server/hearth/create-hearth-ai-handler";
 import type { HearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
@@ -61,8 +64,8 @@ function restoreResearchEnv(snapshot: Partial<Record<(typeof RESEARCH_ENV_KEYS)[
   }
 }
 
-function buildEpisodeContext() {
-  return {
+function buildEpisodeContext(overrides: Partial<EpisodeContext> = {}): EpisodeContext {
+  const defaults: EpisodeContext = {
     episodeId: "episode-1",
     workspaceId: null,
     title: "Test Episode",
@@ -72,6 +75,16 @@ function buildEpisodeContext() {
     tonePreset: null,
     sources: [],
     sparks: [],
+  };
+  return {
+    ...defaults,
+    ...overrides,
+    titleVariants: {
+      ...defaults.titleVariants,
+      ...(overrides.titleVariants ?? {}),
+    },
+    sources: overrides.sources ?? defaults.sources,
+    sparks: overrides.sparks ?? defaults.sparks,
   };
 }
 
@@ -790,6 +803,182 @@ test("createHearthAiHandler strips Hearth tone instructions from live research q
     const payload = await response.json();
     assert.equal(payload.research_result?.mode, "retrieval_first");
     assert.doesNotMatch(String(payload.research_result?.request?.query ?? ""), /Response tone:/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler expands generic episode source requests with episode context", async () => {
+  const handler = createHearthAiHandler(buildConfig({
+    textApiKey: "test-key",
+    researchApiKey: "brave-test-key",
+  }));
+  const originalFetch = globalThis.fetch;
+  let capturedQuery: string | null = null;
+
+  globalThis.fetch = async (input) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
+      capturedQuery = new URL(url).searchParams.get("q");
+      return new Response(JSON.stringify({
+        web: {
+          results: [
+            {
+              title: "Lobbying Disclosure Act guidance",
+              url: "https://example.com/lobbying-guidance",
+              description: "Lobbying disclosure source summary.",
+              page_age: "2026-03-15",
+            },
+          ],
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://example.com/lobbying-guidance") {
+      return new Response("Lobbying disclosure extraction body.", {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+      });
+    }
+    if (url === "https://api.openai.com/v1/chat/completions") {
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                assistantText: "Context-aware source retrieval worked.",
+                ops: [],
+                script_text: null,
+                tag_audit: null,
+              }),
+            },
+          },
+        ],
+        usage: { total_tokens: 47 },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Find strong sources I should cite for this Episode." }],
+        episode_context: buildEpisodeContext({
+          title: "Lobbying Is Not Bribery",
+          outline: "Explain the Lobbying Disclosure Act, HLOGA, FEC campaign finance rules, federal bribery law, CRS, GAO, and ACA testimony.",
+          body: [
+            "[s1]",
+            "Lobbying is legal influence, not cartoon bribery.",
+            "[beat]",
+            "The episode separates disclosure, campaign finance, and quid pro quo bribery.",
+            "[/s1]",
+          ].join("\n"),
+        }),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    assert.match(String(capturedQuery), /Lobbying Is Not Bribery/i);
+    assert.match(String(capturedQuery), /Lobbying Disclosure Act/i);
+    assert.match(String(capturedQuery), /\bCRS\b/);
+    assert.match(String(capturedQuery), /\bGAO\b/);
+    assert.match(String(capturedQuery), /primary sources official reports/i);
+    assert.doesNotMatch(String(capturedQuery), /^\s*Find strong sources I should cite for this Episode\.\s*$/i);
+    assert.doesNotMatch(String(capturedQuery), /\[s1\]|\[beat\]|Response tone:/i);
+    const payload = await response.json();
+    assert.equal(payload.research_result?.mode, "retrieval_first");
+    assert.equal(payload.research_result?.runtimeStatus, "ok");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler treats retry live research phrasing as research intent", async () => {
+  const handler = createHearthAiHandler(buildConfig({
+    textApiKey: "test-key",
+    researchApiKey: "brave-test-key",
+  }));
+  const originalFetch = globalThis.fetch;
+  let braveCalled = false;
+
+  globalThis.fetch = async (input) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
+      braveCalled = true;
+      return new Response(JSON.stringify({
+        web: {
+          results: [
+            {
+              title: "Live research source",
+              url: "https://example.com/live-research",
+              description: "Live research source summary.",
+              page_age: "2026-03-15",
+            },
+          ],
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://example.com/live-research") {
+      return new Response("Live research extraction body.", {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+      });
+    }
+    if (url === "https://api.openai.com/v1/chat/completions") {
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                assistantText: "Live research retry worked.",
+                ops: [],
+                script_text: null,
+                tag_audit: null,
+              }),
+            },
+          },
+        ],
+        usage: { total_tokens: 38 },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "please try live research one more time" }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(braveCalled, true);
+    assert.equal(payload.research_result?.mode, "retrieval_first");
+    assert.equal(payload.research_result?.runtimeStatus, "ok");
   } finally {
     globalThis.fetch = originalFetch;
   }
