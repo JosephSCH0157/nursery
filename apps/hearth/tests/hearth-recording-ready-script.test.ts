@@ -42,6 +42,40 @@ function assertMaxSpeakerContentLines(script: string, maxLines: number): void {
   }
 }
 
+function assertNoCueOnlySpeakerBlocks(script: string): void {
+  let block: string[] = [];
+  for (const rawLine of script.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (/^\[(?:s1|s2|g1|g2)\]$/i.test(line)) {
+      block = [line];
+      continue;
+    }
+    if (block.length > 0) {
+      block.push(line);
+      if (/^\[\/(?:s1|s2|g1|g2)\]$/i.test(line)) {
+        const hasSpoken = block.some((entry) => (
+          entry
+          && !/^\[\/?(?:s1|s2|g1|g2)\]$/i.test(entry)
+          && !/^\[(?:beat|pause|reflective pause)\]$/i.test(entry)
+        ));
+        assert.equal(hasSpoken, true, `cue-only speaker block found:\n${block.join("\n")}`);
+        block = [];
+      }
+    }
+  }
+}
+
+function assertNoConsecutivePacingCues(script: string): void {
+  let previousWasCue = false;
+  for (const rawLine of script.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const isCue = /^\[(?:beat|pause|reflective pause)\]$/i.test(line);
+    assert.equal(previousWasCue && isCue, false, `consecutive pacing cues found near ${line}`);
+    previousWasCue = isCue;
+  }
+}
+
 test("shapeHearthScriptForRecording turns paragraph walls into Anvil-friendly performance lines", () => {
   const shaped = shapeHearthScriptForRecording("[s1]\nThis is the first big idea that needs to land clearly for the audience. Here is the second point, and it should not hide inside a paragraph wall.\n[/s1]");
 
@@ -67,6 +101,59 @@ test("shapeHearthScriptForRecording breaks long speaker blobs into short repeat 
   assert.ok((shaped.match(/^\[s1\]$/gm) ?? []).length >= 2);
   assert.ok((shaped.match(/^\[\/s1\]$/gm) ?? []).length >= 2);
   assert.ok(shaped.split(/\r?\n/).some((line) => line.trim() === ""));
+});
+
+test("shapeHearthScriptForRecording is idempotent for already paced scripts", () => {
+  const input = [
+    "[s1]",
+    "Alright.",
+    "[beat]",
+    "",
+    "[beat]",
+    "[/s1]",
+    "",
+    "[s1]",
+    "[beat]",
+    "[/s1]",
+    "",
+    "[s1]",
+    "Today we’re talking voting rights.",
+    "[beat]",
+    "[beat]",
+    "[/s1]",
+    "",
+    "[s1]",
+    "Validation check: All speaker tags are standalone lines with proper closes.",
+    "[beat]",
+    "[/s1]",
+  ].join("\n");
+
+  const shaped = shapeHearthScriptForRecording(input);
+  const shapedAgain = shapeHearthScriptForRecording(shaped);
+
+  assert.equal(validateScriptTags(shaped).ok, true);
+  assert.equal(shapedAgain, shaped);
+  assertNoCueOnlySpeakerBlocks(shaped);
+  assertNoConsecutivePacingCues(shaped);
+  assert.doesNotMatch(shaped, /Validation check/i);
+  assert.doesNotMatch(shaped, /No block exceeds/i);
+});
+
+test("shapeHearthScriptForRecording keeps abbreviations and decimals intact", () => {
+  const shaped = shapeHearthScriptForRecording([
+    "[s1]",
+    "The Voting Rights Act is one of the most important laws in U.S. history. The framework comes from Thornburg v. Gingles. Racism 2.0 is not the goal.",
+    "[/s1]",
+  ].join("\n"));
+
+  assert.equal(validateScriptTags(shaped).ok, true);
+  assert.match(shaped, /U\.S\. history/);
+  assert.match(shaped, /Thornburg v\. Gingles/);
+  assert.match(shaped, /Racism 2\.0/);
+  assert.doesNotMatch(shaped, /^U\.$/m);
+  assert.doesNotMatch(shaped, /^S\.$/m);
+  assert.doesNotMatch(shaped, /^v\.$/m);
+  assert.doesNotMatch(shaped, /^0\.$/m);
 });
 
 test("shapeHearthScriptForRecording preserves notes and canonical speaker tags", () => {
