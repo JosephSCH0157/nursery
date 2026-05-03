@@ -38,6 +38,29 @@ function assertNoHearthInternalLeakage(text: string): void {
   }
 }
 
+function assertMaxSpeakerContentLines(script: string, maxLines: number): void {
+  let activeSpeaker: string | null = null;
+  let contentLineCount = 0;
+  for (const rawLine of script.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const open = line.match(/^\[(s1|s2|g1|g2)\]$/i)?.[1]?.toLowerCase() ?? null;
+    const close = line.match(/^\[\/(s1|s2|g1|g2)\]$/i)?.[1]?.toLowerCase() ?? null;
+    if (open) {
+      activeSpeaker = open;
+      contentLineCount = 0;
+      continue;
+    }
+    if (close) {
+      assert.equal(close, activeSpeaker);
+      assert.ok(contentLineCount <= maxLines, `speaker block exceeded ${maxLines} content lines: ${contentLineCount}`);
+      activeSpeaker = null;
+      contentLineCount = 0;
+      continue;
+    }
+    if (activeSpeaker && line) contentLineCount += 1;
+  }
+}
+
 function buildConfig(overrides: Partial<HearthRuntimeConfig> = {}): HearthRuntimeConfig {
   return {
     textApiKey: null,
@@ -410,6 +433,8 @@ test("createHearthAiHandler shapes returned script blobs into Anvil output contr
     assert.match(scriptText, /\[(?:pause|beat|reflective pause)\]/);
     assert.ok(scriptText.split(/\r?\n/).some((line) => line.trim() === ""));
     assert.ok(scriptText.split(/\r?\n/).filter((line) => line.length > 90).length === 0);
+    assertMaxSpeakerContentLines(scriptText, 3);
+    assert.ok((scriptText.match(/^\[s1\]$/gm) ?? []).length >= 2);
   } finally {
     globalThis.fetch = originalFetch;
   }

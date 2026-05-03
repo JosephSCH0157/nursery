@@ -12,12 +12,14 @@ const PACING_RE = /^\[(pause|beat|reflective pause)\]$/i;
 const PAREN_PACING_RE = /^\((pause|beat|reflective pause)\)$/i;
 const TAG_TOKEN_RE = /^\[[^\]\n]+\]$/;
 const TARGET_LINE_LENGTH = 76;
+const MAX_SPEAKER_CONTENT_LINES = 3;
 
 export const HEARTH_RECORDING_READY_SCRIPT_INSTRUCTION = [
   "Recording-ready script rules:",
   "Write scripts as performance scores for Anvil, not essays.",
   "Use short readable spoken lines, intentional blank lines, and visible pacing cues.",
   "After each landed point, add [pause], [beat], or [reflective pause] on its own line.",
+  "Keep speaker blocks short: maximum 3 content lines per [s1]/[s2]/[g1]/[g2] block, then close and reopen the speaker.",
   "Keep [s1], [s2], [g1], [g2] and their closing tags on their own lines.",
   "Use [s1] for Joe and [s2] for Brad.",
   "Keep [note]...[/note] hidden notes valid; pacing cues remain visible inside speaker blocks.",
@@ -119,6 +121,39 @@ export function shapeHearthScriptForRecording(input: string): string {
   const out: string[] = [];
   let insideSpeaker = false;
   let insideNote = false;
+  let activeSpeaker: "s1" | "s2" | "g1" | "g2" | null = null;
+  let speakerContentLineCount = 0;
+
+  function closeActiveSpeakerBlock(): void {
+    if (!activeSpeaker || !insideSpeaker) return;
+    pushIntentionalBlank(out);
+    out.push(`[/${activeSpeaker}]`);
+    insideSpeaker = false;
+    speakerContentLineCount = 0;
+  }
+
+  function reopenActiveSpeakerBlock(): void {
+    if (!activeSpeaker) return;
+    pushIntentionalBlank(out);
+    out.push(`[${activeSpeaker}]`);
+    insideSpeaker = true;
+    speakerContentLineCount = 0;
+  }
+
+  function rotateSpeakerBlockIfNeeded(requiredContentLines: number): void {
+    if (!insideSpeaker || !activeSpeaker || speakerContentLineCount === 0) return;
+    if (speakerContentLineCount + requiredContentLines <= MAX_SPEAKER_CONTENT_LINES) return;
+    closeActiveSpeakerBlock();
+    reopenActiveSpeakerBlock();
+  }
+
+  function pushSpeakerContentLine(line: string, requiredContentLines = 1): void {
+    rotateSpeakerBlockIfNeeded(requiredContentLines);
+    out.push(line);
+    if (insideSpeaker && activeSpeaker && !insideNote) {
+      speakerContentLineCount += 1;
+    }
+  }
 
   for (const rawLine of lines) {
     const trimmed = rawLine.trim();
@@ -129,32 +164,43 @@ export function shapeHearthScriptForRecording(input: string): string {
 
     const tagLine = canonicalizeTagLine(trimmed);
     if (SPEAKER_OPEN_RE.test(tagLine)) {
+      if (activeSpeaker && insideSpeaker) {
+        closeActiveSpeakerBlock();
+      }
       pushIntentionalBlank(out);
-      out.push(tagLine.toLowerCase());
+      const speaker = tagLine.slice(1, -1).toLowerCase() as "s1" | "s2" | "g1" | "g2";
+      out.push(`[${speaker}]`);
       insideSpeaker = true;
+      activeSpeaker = speaker;
+      speakerContentLineCount = 0;
       continue;
     }
     if (SPEAKER_CLOSE_RE.test(tagLine)) {
       pushIntentionalBlank(out);
       out.push(tagLine.toLowerCase());
       insideSpeaker = false;
+      activeSpeaker = null;
+      speakerContentLineCount = 0;
       continue;
     }
     if (NOTE_OPEN_RE.test(tagLine)) {
+      rotateSpeakerBlockIfNeeded(1);
       pushIntentionalBlank(out);
       out.push("[note]");
       insideNote = true;
+      if (insideSpeaker && activeSpeaker) speakerContentLineCount += 1;
       continue;
     }
     if (NOTE_CLOSE_RE.test(tagLine)) {
       out.push("[/note]");
       insideNote = false;
+      if (insideSpeaker && activeSpeaker) speakerContentLineCount += 1;
       pushIntentionalBlank(out);
       continue;
     }
     if (PACING_RE.test(tagLine)) {
       if (insideSpeaker) {
-        out.push(tagLine.toLowerCase());
+        pushSpeakerContentLine(tagLine.toLowerCase());
         pushIntentionalBlank(out);
       }
       continue;
@@ -169,9 +215,10 @@ export function shapeHearthScriptForRecording(input: string): string {
     }
 
     for (const spokenLine of splitSpokenLine(trimmed)) {
-      out.push(spokenLine);
-      if (insideSpeaker && isLandedPoint(spokenLine)) {
-        out.push(choosePacingCue(spokenLine));
+      const shouldAddPacingCue = insideSpeaker && isLandedPoint(spokenLine);
+      pushSpeakerContentLine(spokenLine, shouldAddPacingCue ? 2 : 1);
+      if (shouldAddPacingCue) {
+        pushSpeakerContentLine(choosePacingCue(spokenLine));
         pushIntentionalBlank(out);
       }
     }

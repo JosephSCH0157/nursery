@@ -2,6 +2,26 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { evaluateHearthScriptValidation, normalizeHearthAiScriptIngress } from "../src/lib/hearth-script-tag-policy";
 
+function assertMaxSpeakerContentLines(script: string, maxLines: number): void {
+  let insideSpeaker = false;
+  let count = 0;
+  for (const line of script.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (/^\[(?:s1|s2|g1|g2)\]$/i.test(trimmed)) {
+      insideSpeaker = true;
+      count = 0;
+      continue;
+    }
+    if (/^\[\/(?:s1|s2|g1|g2)\]$/i.test(trimmed)) {
+      assert.ok(count <= maxLines, `speaker block had ${count} content lines:\n${script}`);
+      insideSpeaker = false;
+      count = 0;
+      continue;
+    }
+    if (insideSpeaker && trimmed) count += 1;
+  }
+}
+
 test("hearthScriptTagPolicy: plain text without tags is acceptable", () => {
   const result = evaluateHearthScriptValidation("Narration without any speaker tags.");
 
@@ -45,4 +65,18 @@ test("hearthScriptTagPolicy: AI ingress fallback wraps unrepairable speaker stru
   assert.equal(ingress.fallbackApplied, true);
   assert.equal(ingress.text.includes("[s1]"), true);
   assert.equal(ingress.text.includes("[/s1]"), true);
+});
+
+test("hearthScriptTagPolicy: AI ingress shapes blob scripts into Anvil-ready speaker blocks", () => {
+  const ingress = normalizeHearthAiScriptIngress([
+    "[s1]",
+    "Alright. I want to talk about voting rights. And I want to talk about racism. Here is the thesis. If we actually want to end racism, we have to stop governing through race. Not stop noticing reality. Not stop enforcing fairness. But stop using race as the steering wheel for public policy.",
+    "[/s1]",
+  ].join("\n"));
+
+  assert.equal(ingress.validation.ok, true);
+  assert.match(ingress.text, /\[(?:pause|beat|reflective pause)\]/);
+  assert.ok((ingress.text.match(/\[s1\]/g) ?? []).length > 1);
+  assert.equal(ingress.text.split(/\r?\n/).some((line) => line.trim() === ""), true);
+  assertMaxSpeakerContentLines(ingress.text, 3);
 });
