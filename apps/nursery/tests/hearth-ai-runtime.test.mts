@@ -7,6 +7,7 @@ import {
   HEARTH_AI_ROUTES,
   type EpisodeContext,
 } from "../../hearth/src/lib/hearth-ai-runtime-contract";
+import { validateScriptTags } from "@forge/shared/script-tags";
 import hearthChatStatusFunction from "../netlify/functions/hearth-chat-status";
 import {
   createHearthAiHandler,
@@ -345,6 +346,70 @@ test("createHearthAiHandler sends collaborator-style system prompt to upstream m
     assert.match(capturedSystemPrompt, /Anti-restart rule/i);
     assert.match(capturedSystemPrompt, /Do not behave as if each message is a new conversation/i);
     assert.match(capturedSystemPrompt, /Occasionally acknowledge progress or effort when meaningful/i);
+    assert.match(capturedSystemPrompt, /HEARTH OUTPUT CONTRACT FOR ANVIL SCRIPT GENERATION/i);
+    assert.match(capturedSystemPrompt, /Formatting is NOT optional/i);
+    assert.match(capturedSystemPrompt, /If you produce a blob, the output is invalid and must be regenerated/i);
+    assert.match(capturedSystemPrompt, /Maximum 3 lines per speaker block/i);
+    assert.match(capturedSystemPrompt, /No paragraph-style writing/i);
+    assert.match(capturedSystemPrompt, /If ANY of these fail, you must regenerate the output/i);
+    assert.match(capturedSystemPrompt, /Rebuild the script\. Do NOT preserve paragraph structure/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler shapes returned script blobs into Anvil output contract format", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  const blobScript = "[s1]\nThis paragraph is too long for the teleprompter and it keeps going as if Hearth were writing an article. It has a second point buried in the same wall of text, and that point needs to land clearly for Anvil instead of hiding in a blob.\n[/s1]";
+
+  globalThis.fetch = async (_input, _init) => {
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              assistantText: "I rebuilt it for Anvil.",
+              ops: [{ op: "set_body", value: blobScript }],
+              script_text: blobScript,
+              tag_audit: null,
+            }),
+          },
+        },
+      ],
+      usage: { total_tokens: 91 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Fix this script for recording." }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    const scriptText = String(payload.script_text ?? "");
+    const setBody = payload.ops?.find((op: { op?: string }) => op.op === "set_body")?.value;
+
+    assert.equal(payload.ok, true);
+    assert.equal(scriptText, setBody);
+    assert.notEqual(scriptText, blobScript);
+    assert.equal(validateScriptTags(scriptText).ok, true);
+    assert.match(scriptText, /^\[s1\]$/m);
+    assert.match(scriptText, /^\[\/s1\]$/m);
+    assert.match(scriptText, /\[(?:pause|beat|reflective pause)\]/);
+    assert.ok(scriptText.split(/\r?\n/).some((line) => line.trim() === ""));
+    assert.ok(scriptText.split(/\r?\n/).filter((line) => line.length > 90).length === 0);
   } finally {
     globalThis.fetch = originalFetch;
   }

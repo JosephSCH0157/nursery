@@ -38,6 +38,7 @@ import {
   type HearthResearchRequest,
   type HearthResearchSource,
 } from "../../../hearth/src/lib/hearth-research-contract";
+import { shapeHearthScriptForRecording } from "../../../hearth/src/lib/hearth-recording-ready-script";
 import { createHearthResearchRuntime, extractUrlToResearchSource } from "./hearth-research-runtime";
 import {
   FORGE_ALLOWED_CHAT_MODELS,
@@ -1205,6 +1206,34 @@ function buildSystemPrompt(
     "- Allowed hidden notes: [note]...[/note], and [note] tags must be on their own lines.",
     "- Forbid random markup: Host 1:, Host 2:, **Host 2:**, <speaker>, Markdown headings.",
     "- Canonical speaker mapping: S1 = Host 1, S2 = Host 2.",
+    "HEARTH OUTPUT CONTRACT FOR ANVIL SCRIPT GENERATION:",
+    "You are generating a script for Anvil. Formatting is NOT optional.",
+    "If you produce a blob, the output is invalid and must be regenerated.",
+    "Hard requirements:",
+    "1. Speaker Separation",
+    "- Every block must begin with [s1] or [s2] on its own line",
+    "- Only ONE speaker per block",
+    "- NEVER mix speakers in the same block",
+    "2. Line Length Rules",
+    "- Maximum 2 sentences per line",
+    "- Maximum 3 lines per speaker block",
+    "- After 2-3 lines, you MUST break into a new block",
+    "3. Teleprompter Readability",
+    "- Use short lines",
+    "- Use whitespace generously",
+    "- Insert [pause], [beat], or [reflective pause] where natural",
+    "4. Structure Enforcement",
+    "- No paragraph-style writing",
+    "- No continuous text longer than 3 lines",
+    "- Output must look like a performance script, not an article",
+    "5. Validation Step (MANDATORY)",
+    "Before finalizing, you MUST check:",
+    "- Are there any blocks longer than 3 lines? If yes, fix them",
+    "- Are any speakers mixed in a block? If yes, fix them",
+    "- Does any section read like a paragraph? If yes, break it up",
+    "If ANY of these fail, you must regenerate the output.",
+    "Do not explain. Do not apologize. Just fix it.",
+    "When asked to rewrite or rebuild a script: Rebuild the script. Do NOT preserve paragraph structure. Enforce the Anvil Output Contract above.",
     "Rules:",
     "- assistantText must be concise plain text (no markdown).",
     "- Write like a human collaborator, not customer support.",
@@ -1637,17 +1666,24 @@ function normalizeStructuredReply(raw: string): StructuredReply | null {
   const inferredScriptText = scriptText
     ?? (ops.find((op) => op.op === "set_body") as { op: "set_body"; value: string } | undefined)?.value
     ?? null;
-  const normalizedOps = inferredScriptText && !ops.some((op) => op.op === "set_body")
-    ? [...ops, { op: "set_body", value: inferredScriptText } satisfies HearthOp]
+  const shapedScriptText = inferredScriptText
+    ? shapeHearthScriptForRecording(inferredScriptText)
+    : null;
+  const normalizedOps = shapedScriptText
+    ? (
+        ops.some((op) => op.op === "set_body")
+          ? ops.map((op) => (op.op === "set_body" ? { ...op, value: shapedScriptText } satisfies HearthOp : op))
+          : [...ops, { op: "set_body", value: shapedScriptText } satisfies HearthOp]
+      )
     : ops;
   if (!assistantText && normalizedOps.length === 0) return null;
   const tagAudit = isRecord(parsed.tag_audit)
     ? parsed.tag_audit
-    : buildTagAuditFromScript(inferredScriptText);
+    : buildTagAuditFromScript(shapedScriptText);
   return {
     assistantText,
     ops: normalizedOps,
-    scriptText: inferredScriptText,
+    scriptText: shapedScriptText,
     tagAudit,
   };
 }
