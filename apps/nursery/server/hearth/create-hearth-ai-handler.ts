@@ -174,6 +174,10 @@ const RESEARCH_INTENT_RE = /\b(browse|look up|lookup|find(?: me)?|search|researc
 const GENERIC_EPISODE_SOURCE_RE = /\b(source|sources|citation|citations|cite|cites|evidence|receipts)\b[\s\S]{0,80}\b(this episode|the episode|episode|show|script|draft)\b|\b(this episode|the episode|episode|show|script|draft)\b[\s\S]{0,80}\b(source|sources|citation|citations|cite|cites|evidence|receipts)\b/i;
 const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;
 const CROSS_PROJECT_REFERENCE_RE = /\b(use|pull in|bring in|remember|recall|like|from)\b[\s\S]{0,120}\b(script|episode|project|conversation|workspace|last week|other chat|that)\b/i;
+const OPINION_DISCUSSION_RE = /\b(my interpretation is|i think this means|i think\b|what do you think|am i reading this right|does this argument work|does this framing work|help me pressure[- ]?test|pressure[- ]?test this|i disagree|here is my opinion|my opinion is)\b/i;
+const WORKSPACE_CONTEXT_EXPLICIT_RE = /\b(use|pull|pull in|bring in|load|open|find|continue|compare|reference|grab|look at|work from|base this on|tighten|revise|rewrite)\b[\s\S]{0,120}\b(current|saved|previous|prior|earlier|last|other|workspace|project|episode|draft|script|version|notes?|bar stock|hearth|tongs|media map|framing pack|titles?|tags?)\b|\b(current|saved|previous|prior|earlier|last|other|workspace|project|episode|draft|script|version|notes?|bar stock|hearth|tongs|media map|framing pack|titles?|tags?)\b[\s\S]{0,120}\b(use|pull|pull in|bring in|load|open|find|continue|compare|reference|grab|look at|work from|base this on|tighten|revise|rewrite)\b/i;
+const WORKSPACE_OWNED_MATERIAL_RE = /\b(the episode we were working on|the project we were working on|the script we were working on|the draft i saved|saved draft|previous version|prior version|earlier draft|current episode draft|current script|current draft|current workspace|current project|current episode|bar stock|media map|framing pack)\b/i;
+const INTERNAL_LEAK_REWRITE_FALLBACK = "I may be missing the exact context. Paste the case name, link, or a line from the draft and I'll anchor it cleanly.";
 const ALLOWED_CHAT_MODELS = new Set<string>(FORGE_ALLOWED_CHAT_MODELS);
 const DEFAULT_CREATOR_PROFILE: CreatorProfile = {
   userId: null,
@@ -727,9 +731,27 @@ function isResearchIntentRequest(text: string): boolean {
   return /\breach\b/.test(normalized) && /\breport(?:ing|s)?\b/.test(normalized);
 }
 
+export function shouldUseWorkspaceContext(requestText: string): boolean {
+  const normalized = compactSpaces(requestText);
+  if (!normalized) return false;
+
+  const explicitWorkspaceRequest = WORKSPACE_CONTEXT_EXPLICIT_RE.test(normalized)
+    || WORKSPACE_OWNED_MATERIAL_RE.test(normalized);
+  if (!explicitWorkspaceRequest) return false;
+
+  // Opinion and pressure-test turns should stay conversational unless the user also
+  // clearly asks Hearth to use saved/current project material.
+  if (OPINION_DISCUSSION_RE.test(normalized) && !WORKSPACE_OWNED_MATERIAL_RE.test(normalized)) {
+    return false;
+  }
+
+  return true;
+}
+
 function isCrossProjectReferenceRequest(text: string): boolean {
   const normalized = compactSpaces(text);
   if (!normalized) return false;
+  if (!shouldUseWorkspaceContext(normalized)) return false;
   if (!CROSS_PROJECT_REFERENCE_RE.test(normalized)) return false;
   if (/\bthis script\b/.test(normalized) || /\bthis episode\b/.test(normalized) || /\bthis project\b/.test(normalized)) {
     return false;
@@ -1823,13 +1845,13 @@ function enforceResearchOutcomeReply(args: {
 function buildCrossProjectScopeLead(resolution: CrossProjectReferenceResolution): string | null {
   if (!resolution.detected) return null;
   if (resolution.level === "clear" && resolution.resolvedTitle) {
-    return `Scope note: I resolved this to the workspace artifact "${resolution.resolvedTitle}" via Tongs. I am using it as a reference while keeping the current episode as the active working fire.`;
+    return `I found the referenced draft "${resolution.resolvedTitle}" and can use it as background while keeping this episode as the active working fire.`;
   }
   if (resolution.level === "ambiguous" && resolution.candidateTitles.length >= 2) {
     const [first, second] = resolution.candidateTitles;
-    return `Scope note: I found multiple workspace artifact matches via Tongs. I can anchor this to "${first}" or "${second}" once you pick one.`;
+    return `I found more than one possible draft match: "${first}" or "${second}". Pick one and I will anchor to it cleanly.`;
   }
-  return "Scope note: This sounds like a reference to another workspace artifact, but I do not have a reliable anchor yet. Name the episode/project (or paste one line) and I will resolve it through Tongs.";
+  return INTERNAL_LEAK_REWRITE_FALLBACK;
 }
 
 function enforceCrossProjectScopeReply(args: {
@@ -1879,6 +1901,55 @@ function sanitizeFramingPackReply(input: string): string {
     .trim();
 
   return cleaned || "Framing Pack generated from the current episode context.";
+}
+
+const USER_FACING_INTERNAL_LEAK_MARKERS: RegExp[] = [
+  /\btongs\b/i,
+  /\bworkspace artifact(s)?\b/i,
+  /\bartifact matches\b/i,
+  /\bscope note\b/i,
+  /\breliable anchor\b/i,
+  /\bresolve it through\b/i,
+  /\bcross-project\b/i,
+  /\binternal reference\b/i,
+  /\bstyle corpus\b/i,
+  /\benrichment\b/i,
+];
+
+function containsInternalLeak(text: string): boolean {
+  return USER_FACING_INTERNAL_LEAK_MARKERS.some((pattern) => pattern.test(text));
+}
+
+export function sanitizeHearthUserFacingOutput(input: string): string {
+  const raw = String(input ?? "").trim();
+  if (!raw) return raw;
+
+  const filtered = raw
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+      return !containsInternalLeak(trimmed);
+    })
+    .join("\n")
+    .replace(/\bTongs\b/gi, "the project context")
+    .replace(/\bworkspace artifact(s)?\b/gi, "draft context")
+    .replace(/\bartifact matches\b/gi, "possible draft matches")
+    .replace(/\bscope note:?\s*/gi, "")
+    .replace(/\breliable anchor\b/gi, "exact context")
+    .replace(/\bresolve it through\b/gi, "anchor it with")
+    .replace(/\bcross-project\b/gi, "between drafts")
+    .replace(/\binternal reference\b/gi, "reference")
+    .replace(/\bstyle corpus\b/gi, "style examples")
+    .replace(/\benrichment\b/gi, "context")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  if (!filtered) return INTERNAL_LEAK_REWRITE_FALLBACK;
+  if (containsInternalLeak(filtered)) return INTERNAL_LEAK_REWRITE_FALLBACK;
+  return filtered;
 }
 
 export function createHearthAiHandler(config: HearthRuntimeConfig) {
@@ -3457,6 +3528,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         });
       }
 
+      const workspaceContextRequested = shouldUseWorkspaceContext(requestText);
+
       const styleGuidanceSections = framingPackRequested
         ? []
         : [
@@ -3470,14 +3543,20 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
 
       const styleSamples = framingPackRequested
         ? []
-        : await loadStyleSamplesForToken(bearerToken, episodeContext.workspaceId);
+        : workspaceContextRequested
+          ? await loadStyleSamplesForToken(bearerToken, episodeContext.workspaceId)
+          : [];
       const recentScriptRefs = framingPackRequested
         ? []
-        : await loadRecentScriptReferencesForToken(bearerToken, episodeContext.workspaceId);
+        : workspaceContextRequested
+          ? await loadRecentScriptReferencesForToken(bearerToken, episodeContext.workspaceId)
+          : [];
       const recentScriptExcerpts = framingPackRequested
         ? []
-        : await loadRecentScriptExcerpts(recentScriptRefs);
-      const crossProjectReference = framingPackRequested
+        : workspaceContextRequested
+          ? await loadRecentScriptExcerpts(recentScriptRefs)
+          : [];
+      const crossProjectReference = framingPackRequested || !workspaceContextRequested
         ? {
           detected: false,
           level: "unanchored" as const,
@@ -3723,6 +3802,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         if (framingPackRequested) {
           structured.assistantText = sanitizeFramingPackReply(structured.assistantText);
         }
+
+        structured.assistantText = sanitizeHearthUserFacingOutput(structured.assistantText);
 
         if (!structured.assistantText && structured.ops.length === 0) {
           return jsonResponse(502, {

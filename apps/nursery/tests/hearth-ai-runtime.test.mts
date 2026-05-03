@@ -8,11 +8,34 @@ import {
   type EpisodeContext,
 } from "../../hearth/src/lib/hearth-ai-runtime-contract";
 import hearthChatStatusFunction from "../netlify/functions/hearth-chat-status";
-import { createHearthAiHandler } from "../server/hearth/create-hearth-ai-handler";
+import {
+  createHearthAiHandler,
+  sanitizeHearthUserFacingOutput,
+  shouldUseWorkspaceContext,
+} from "../server/hearth/create-hearth-ai-handler";
 import type { HearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
 import { resolveHearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
 import { mwHearthChatApi } from "../scripts/mw-hearth-chat-api";
 import "./hearth-youtube-source-ingest.test.mts";
+
+const HEARTH_FORBIDDEN_USER_FACING_TERMS = [
+  /\bTongs\b/i,
+  /\bworkspace artifact\b/i,
+  /\bartifact matches\b/i,
+  /\bscope note\b/i,
+  /\breliable anchor\b/i,
+  /\bresolve it through\b/i,
+  /\bcross-project\b/i,
+  /\binternal reference\b/i,
+  /\bstyle corpus\b/i,
+  /\benrichment\b/i,
+];
+
+function assertNoHearthInternalLeakage(text: string): void {
+  for (const pattern of HEARTH_FORBIDDEN_USER_FACING_TERMS) {
+    assert.doesNotMatch(text, pattern);
+  }
+}
 
 function buildConfig(overrides: Partial<HearthRuntimeConfig> = {}): HearthRuntimeConfig {
   return {
@@ -414,7 +437,7 @@ test("createHearthAiHandler keeps clarify gate for very short ambiguous asks", a
   }
 });
 
-test("createHearthAiHandler adds explicit scope bridge note for cross-project references", async () => {
+test("createHearthAiHandler keeps opinion interpretation conversational without workspace resolver language", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
   const originalFetch = globalThis.fetch;
   let openAiCalled = false;
@@ -426,7 +449,7 @@ test("createHearthAiHandler adds explicit scope bridge note for cross-project re
         {
           message: {
             content: JSON.stringify({
-              assistantText: "We can keep the current draft and tune the tone.",
+              assistantText: "That interpretation is pointed, and it can work as an opinion spine. I would sharpen the distinction: the stronger claim is not that courts think any mention of race is racist, but that they are getting more suspicious of race as the organizing explanation for district lines.",
               ops: [],
               script_text: null,
               tag_audit: null,
@@ -442,11 +465,15 @@ test("createHearthAiHandler adds explicit scope bridge note for cross-project re
   };
 
   try {
+    assert.equal(shouldUseWorkspaceContext("My interpretation is that courts are moving toward the idea that any use of race in districting is racist."), false);
     const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        messages: [{ role: "user", content: "Use the tone from that Whig Party script." }],
+        messages: [{
+          role: "user",
+          content: "My interpretation is that courts are moving toward the idea that any use of race in districting is racist.",
+        }],
         episode_context: buildEpisodeContext(),
         lane: "byo",
         behavior: "careful",
@@ -458,11 +485,130 @@ test("createHearthAiHandler adds explicit scope bridge note for cross-project re
     assert.equal(payload.ok, true);
     assert.equal(payload.gate, undefined);
     assert.equal(openAiCalled, true);
-    assert.match(String(payload.assistant_text ?? ""), /Scope note: This sounds like a reference to another workspace artifact/i);
-    assert.match(String(payload.assistant_text ?? ""), /resolve it through Tongs/i);
+    const assistantText = String(payload.assistant_text ?? "");
+    assertNoHearthInternalLeakage(assistantText);
+    assert.match(assistantText, /interpretation|courts|race|district/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("createHearthAiHandler pressure-tests episode framing without workspace lookup language", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  let openAiCalled = false;
+
+  globalThis.fetch = async (_input, _init) => {
+    openAiCalled = true;
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              assistantText: "The framing works, but I would make the verb sharper: the vote is the visible ceremony, while the real fight is the earlier sorting of incentives, maps, and legal definitions.",
+              ops: [],
+              script_text: null,
+              tag_audit: null,
+            }),
+          },
+        },
+      ],
+      usage: { total_tokens: 67 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    assert.equal(shouldUseWorkspaceContext("Does this framing work for the episode? The argument is that the vote is often the ceremony, not the decision."), false);
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{
+          role: "user",
+          content: "Does this framing work for the episode? The argument is that the vote is often the ceremony, not the decision.",
+        }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(openAiCalled, true);
+    const assistantText = String(payload.assistant_text ?? "");
+    assertNoHearthInternalLeakage(assistantText);
+    assert.match(assistantText, /framing works|vote|ceremony|decision/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler still allows explicit current draft requests", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  let openAiCalled = false;
+
+  globalThis.fetch = async (_input, _init) => {
+    openAiCalled = true;
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              assistantText: "Using the current draft, I would tighten the title toward the central tension: The Vote Was Never the Fight.",
+              ops: [{ op: "set_title", value: "The Vote Was Never the Fight" }],
+              script_text: null,
+              tag_audit: null,
+            }),
+          },
+        },
+      ],
+      usage: { total_tokens: 72 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    assert.equal(shouldUseWorkspaceContext("Use the current episode draft and help me tighten the title."), true);
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Use the current episode draft and help me tighten the title." }],
+        episode_context: buildEpisodeContext({
+          title: "Districting and the Vote",
+          body: "The vote is often the ceremony, not the decision.",
+        }),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(openAiCalled, true);
+    assertNoHearthInternalLeakage(String(payload.assistant_text ?? ""));
+    assert.equal(payload.ops?.[0]?.op, "set_title");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("sanitizeHearthUserFacingOutput removes internal workspace/tool leakage", () => {
+  const sanitized = sanitizeHearthUserFacingOutput(
+    "Scope note: This sounds like a reference to another workspace artifact, but I do not have a reliable anchor yet. I will resolve it through Tongs.",
+  );
+
+  assertNoHearthInternalLeakage(sanitized);
+  assert.match(sanitized, /missing the exact context|paste the case name|line from the draft/i);
 });
 
 test("createHearthAiHandler sanitizes framing pack replies to remove internal scope/system leakage", async () => {
