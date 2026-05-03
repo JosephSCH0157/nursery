@@ -139,6 +139,7 @@ import {
 import {
   cloneHearthProposalOps,
   isHearthProposalBodyOpDirty,
+  normalizeHearthProposalOpsForScriptIngress,
   resetHearthProposalBodyOp,
   updateHearthProposalBodyOp,
 } from "../lib/hearth-ai-proposal";
@@ -158,7 +159,7 @@ import {
   type ScriptValidationResult,
   type ScriptValidationIssue,
 } from "@forge/shared/script-tags";
-import { evaluateHearthScriptValidation, normalizeHearthAiScriptIngress } from "../lib/hearth-script-tag-policy";
+import { evaluateHearthScriptValidation } from "../lib/hearth-script-tag-policy";
 import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import type {
   ComposeSetup,
@@ -6245,14 +6246,7 @@ export default function HearthShell({
   }
 
   function normalizeAiProposalOpsForScriptIngress(ops: HearthOp[]): HearthOp[] {
-    return ops.map((op) => {
-      if (op.op !== "set_body") return op;
-      const normalized = normalizeHearthAiScriptIngress(op.value);
-      return {
-        ...op,
-        value: normalized.text,
-      };
-    });
+    return normalizeHearthProposalOpsForScriptIngress(ops);
   }
 
   function graduateLinkedSpark(episodeId: string): string | null {
