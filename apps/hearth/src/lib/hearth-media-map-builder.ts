@@ -8,6 +8,39 @@ import {
 } from "./episode-package-v2";
 import type { MediaMapGenerationScope } from "./hearth-media-map-conversation";
 
+const MAX_MEDIA_MAP_VISUALS = 18;
+
+function hasReferenceClipEvidenceSource(entry: { source?: string | null }): boolean {
+  return typeof entry.source === "string" && entry.source.trim().length > 0;
+}
+
+function scoreMediaMapEntry(entry: EpisodeMediaMapEntry, index: number): number {
+  let score = 0;
+  if (entry.critical) score += 8;
+  if (entry.purpose === "emphasis") score += 7;
+  if (entry.purpose === "explanation") score += 6;
+  if (entry.final_media_kind === "contextual_data_composite") score += 5;
+  if (entry.final_media_kind === "b_roll") score += 3;
+  if (entry.source.status === "selected" || entry.source.status === "attached") score += 4;
+  if (entry.fulfillment_path) score += 3;
+  if (entry.beat_anchor?.beat_index === 1 || index === 0) score += 2;
+  if (entry.optional) score -= 4;
+  return score;
+}
+
+function selectMediaMapVisualBeats(entries: EpisodeMediaMapEntry[]): EpisodeMediaMapEntry[] {
+  if (entries.length <= MAX_MEDIA_MAP_VISUALS) return entries;
+  return entries
+    .map((entry, index) => ({ entry, index, score: scoreMediaMapEntry(entry, index) }))
+    .sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      return left.index - right.index;
+    })
+    .slice(0, MAX_MEDIA_MAP_VISUALS)
+    .sort((left, right) => left.index - right.index)
+    .map((candidate) => candidate.entry);
+}
+
 export function mapImageEntriesToMediaMapEntries(
   entries: EpisodeImageMapEntry[],
   nowIso: string,
@@ -100,7 +133,7 @@ export function buildMediaMapFromExistingPlans(
   const fromImageMap = mapImageEntriesToMediaMapEntries(current.image_map.entries, nowIso, "mm_imap_");
   const fromBroll: EpisodeMediaMapEntry[] = current.broll_plan.beats.map((beat) => ({
     id: `mm_broll_${beat.id}`,
-    final_media_kind: beat.purpose === "explanation" ? "contextual_data_composite" : "b_roll",
+    final_media_kind: "b_roll",
     purpose: beat.purpose,
     anchor: {
       mode: beat.placement_hint === "exact_timestamp" ? "absolute_time" : "phrase_match",
@@ -120,16 +153,14 @@ export function buildMediaMapFromExistingPlans(
     },
     confidence: "medium",
     fulfillment_status: beat.selected_asset_id ? "resolved" : "planned",
-    fulfillment_path: beat.selected_asset_id
-      ? (beat.purpose === "explanation" ? "reference_clip" : "motion_broll")
-      : null,
+    fulfillment_path: beat.selected_asset_id ? "motion_broll" : null,
     optional: beat.priority === "background",
     critical: beat.priority === "primary",
     stale: false,
     created_at: beat.created_at,
     updated_at: beat.updated_at,
   }));
-  const fromReferenceClips: EpisodeMediaMapEntry[] = current.cdc_plan.entries.map((entry) => ({
+  const fromReferenceClips: EpisodeMediaMapEntry[] = current.cdc_plan.entries.filter(hasReferenceClipEvidenceSource).map((entry) => ({
     id: `mm_reference_clip_${entry.id}`,
     final_media_kind: "contextual_data_composite",
     purpose: entry.purpose,
@@ -144,7 +175,12 @@ export function buildMediaMapFromExistingPlans(
       duration_sec: 6,
     },
     description: entry.description,
-    intent: entry.data_type,
+    intent: [
+      entry.subtype ?? entry.data_type,
+      entry.source ? `source:${entry.source}` : null,
+      entry.context ? `context:${entry.context}` : null,
+      entry.highlight ? `highlight:${entry.highlight}` : null,
+    ].filter(Boolean).join(" | "),
     source: {
       status: entry.selected_asset_id ? "selected" : "unresolved",
       asset_id: entry.selected_asset_id ?? null,
@@ -167,13 +203,14 @@ export function buildMediaMapFromExistingPlans(
     ...(includeBroll ? fromBroll : []),
     ...(includeReferenceClips ? fromReferenceClips : []),
   ];
+  const selected = selectMediaMapVisualBeats(merged);
   return {
     id: current.media_map.id || "media-map-v1",
     workpiece_id: current.media_map.workpiece_id,
     script_version_id: scriptVersionId,
     status: "review",
     version: Math.max(1, current.media_map.version + 1),
-    entries: merged,
+    entries: selected,
     generated_at: nowIso,
   };
 }

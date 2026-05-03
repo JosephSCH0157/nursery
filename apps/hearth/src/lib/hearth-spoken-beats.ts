@@ -10,6 +10,7 @@ import { classifyVisualBeatPurpose } from "./hearth-visual-purpose";
 
 const SPEAKER_TAG_RE = /^\[(\/)?(s1|s2|g1|g2|note)\]$/i;
 const BULLET_LINE_RE = /^[-*]\s+(.+)$/;
+const MAX_BULLET_VISUAL_BEATS = 18;
 
 type ParsedBulletBeat = {
   speaker: EpisodeSpokenBeatSpeaker;
@@ -43,6 +44,19 @@ function extractCuePhrase(text: string): string | null {
   const words = firstClause.split(/\s+/).slice(0, 10);
   const cue = words.join(" ").trim();
   return cue || null;
+}
+
+function scoreBulletVisualBeat(text: string, order: number): number {
+  const purpose = classifyVisualBeatPurpose(text);
+  let score = 0;
+  if (purpose === "explanation") score += 7;
+  if (purpose === "emphasis") score += 6;
+  if (/\d/.test(text)) score += 5;
+  if (/\b(vs\.?|versus|compare|trend|timeline|map|document|source|according to|report|filing|testimony|data|chart|graph)\b/i.test(text)) score += 4;
+  if (/\b(open|cold open|close|turning point|key|important|land|beat|shift|example)\b/i.test(text)) score += 3;
+  if (order === 1) score += 2;
+  if (text.split(/\s+/).length >= 10) score += 1;
+  return score;
 }
 
 function buildStableBeatSlug(text: string): string {
@@ -194,7 +208,21 @@ export function generateImageMapEntriesFromBulletScript(args: {
   entries: EpisodeImageMapEntry[];
 } {
   const spokenBeats = deriveSpokenBeatsFromBulletScript(args.scriptText, args.existingBeats ?? []);
-  const entries = spokenBeats.map((beat) => {
+  const selectedBeats = spokenBeats
+    .map((beat, index) => ({
+      beat,
+      index,
+      score: scoreBulletVisualBeat(beat.text, beat.order),
+    }))
+    .sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      return left.index - right.index;
+    })
+    .slice(0, MAX_BULLET_VISUAL_BEATS)
+    .sort((left, right) => left.index - right.index)
+    .map((candidate) => candidate.beat);
+
+  const entries = selectedBeats.map((beat, selectedIndex) => {
     const purpose = classifyVisualBeatPurpose(beat.text);
     const visualPriority: EpisodeImageMapEntry["visual_priority"] = purpose === "emphasis" ? "primary" : "supporting";
     const visualType: EpisodeImageMapEntry["visual_type"] = purpose === "explanation" ? "diagram" : "still_image";
@@ -211,7 +239,7 @@ export function generateImageMapEntriesFromBulletScript(args: {
       purpose,
     };
     return {
-      id: `image-map-${String(beat.order).padStart(2, "0")}`,
+      id: `image-map-${String(selectedIndex + 1).padStart(2, "0")}`,
       anchor: buildBulletBeatAnchorLabel(beatAnchor),
       script_anchor: null,
       beat_anchor: beatAnchor,
@@ -226,7 +254,7 @@ export function generateImageMapEntriesFromBulletScript(args: {
       visual_priority: visualPriority,
       visual_type: visualType,
       section_intent_note: null,
-      beat_order: beat.order,
+      beat_order: selectedIndex + 1,
       paragraph_beat_order: beat.speaker_order,
       candidate_assets: [],
       selected_asset_id: null,

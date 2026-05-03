@@ -7,6 +7,7 @@ import type {
   EpisodeReferenceClipDataType,
   EpisodeReferenceClipFormat,
   EpisodeReferenceClipMotionLevel,
+  EpisodeReferenceClipSubtype,
   EpisodeReferenceClipTone,
 } from "./episode-package-v2";
 import { resolveImageMapDisplayAnchor } from "./episode-package-v2";
@@ -60,6 +61,12 @@ function computeTokenOverlap(left: string | null | undefined, right: string | nu
 }
 
 function buildReferenceClipChartInstruction(entry: EpisodeContextualDataCompositePlan): string {
+  if (entry.subtype === "document") {
+    return "document-style editorial reference with a visibly sourced artifact, a highlighted passage area, and no invented readable text";
+  }
+  if (entry.subtype === "timeline") {
+    return "timeline-style sourced reference visual with a clear before-to-after progression";
+  }
   switch (entry.chart_type ?? "line") {
     case "map":
       return "map-style editorial explainer with highlighted geography and no embedded labels";
@@ -172,6 +179,11 @@ export function createReferenceClipPlan(args: {
   anchorText: string;
   description?: string;
   format?: EpisodeReferenceClipFormat;
+  subtype?: EpisodeReferenceClipSubtype | null;
+  source?: string | null;
+  context?: string | null;
+  highlight?: string | null;
+  visualSpec?: string | null;
 }): EpisodeContextualDataCompositePlan {
   const generatedAt = nowIso();
   const description = (args.description ?? args.anchorText).trim();
@@ -179,6 +191,10 @@ export function createReferenceClipPlan(args: {
   const dataType = inferDataType(signals);
   const chartType = inferChartType(dataType);
   const format = args.format ?? "still";
+  const source = cleanText(args.source);
+  const context = cleanText(args.context);
+  const highlight = cleanText(args.highlight);
+  const visualSpec = cleanText(args.visualSpec);
   return {
     id: createClientId("cdc"),
     workpiece_id: args.workpieceId,
@@ -197,6 +213,11 @@ export function createReferenceClipPlan(args: {
     foreground_data_description: "",
     visual_style: null,
     chart_type: chartType,
+    subtype: args.subtype ?? null,
+    source,
+    context,
+    highlight,
+    visual_spec: visualSpec,
     title: null,
     labels: [],
     values: [],
@@ -222,7 +243,11 @@ export function buildReferenceClipGenerationGuidance(entry: EpisodeContextualDat
   const background = cleanText(entry.background_context_description);
   const foreground = cleanText(entry.foreground_data_description);
   const title = cleanText(entry.title);
+  const source = cleanText(entry.source);
+  const evidenceContext = cleanText(entry.context);
   const emphasis = cleanText(entry.emphasis_key);
+  const highlight = cleanText(entry.highlight);
+  const visualSpec = cleanText(entry.visual_spec);
   const labels = (entry.labels ?? [])
     .map((label) => cleanText(label))
     .filter((label): label is string => Boolean(label))
@@ -234,17 +259,22 @@ export function buildReferenceClipGenerationGuidance(entry: EpisodeContextualDat
   return {
     visualIntent: [
       toSentence(description, "Create an editorial reference visual."),
+      source ? `Source: ${source}.` : null,
+      evidenceContext ? `Context: ${evidenceContext}.` : null,
       `Use a ${chartInstruction}.`,
-      emphasis ? `Make ${emphasis} the visual takeaway.` : null,
+      highlight ? `Make ${highlight} the visual takeaway.` : emphasis ? `Make ${emphasis} the visual takeaway.` : null,
     ].filter(Boolean).join(" "),
     promptBasis: [
       toSentence(description, "Create an editorial reference visual."),
+      source ? `Required source: ${source}.` : null,
+      evidenceContext ? `Evidence context: ${evidenceContext}.` : null,
       background ? `Background context: ${background}.` : null,
       foreground ? `Foreground data layer: ${foreground}.` : null,
       `Data treatment: ${chartInstruction}.`,
       title ? `Title cue: ${title}.` : null,
       labels.length ? `Key labels or entities: ${labels.join(", ")}.` : null,
-      emphasis ? `Emphasis: ${emphasis}.` : null,
+      highlight ? `Highlight: ${highlight}.` : emphasis ? `Emphasis: ${emphasis}.` : null,
+      visualSpec ? `Visual spec: ${visualSpec}.` : null,
       style ? `Visual style: ${style}.` : null,
       `Tone: ${tone}.`,
       "Keep it grounded, readable, and useful as an editorial explainer with no readable text, labels, or numbers embedded in the image.",

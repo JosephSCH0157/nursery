@@ -25,6 +25,14 @@ type ScriptParagraphSpan = {
   sentences: ScriptSentenceSpan[];
 };
 
+type RankedVisualBeatCandidate = {
+  paragraph: ScriptParagraphSpan;
+  sentence: ScriptSentenceSpan;
+  paragraphBeatOrder: number;
+  score: number;
+  originalOrder: number;
+};
+
 export type ImageMapAnchorStatus = "attached" | "weak_match" | "orphaned" | "global";
 
 export type ImageMapAnchorAssessment = {
@@ -58,6 +66,9 @@ export type ImageMapAnchorPickerParagraph = {
 
 const SENTENCE_BOUNDARY_SET = new Set([".", "?", "!", ";"]);
 const SCRIPT_BLOCK_TAG_LINE_RE = /^\[(\/)?(s1|s2|g1|g2|note)\]$/i;
+const TARGET_VISUAL_BEAT_COUNT = 16;
+export const MAX_SCRIPT_VISUAL_BEATS = 18;
+const MIN_VISUAL_BEAT_SCORE = 4;
 const VISUAL_SIGNAL_RE =
   /\b(\d[\d,]*|vs\.?|versus|compare(?:d|s|ison)?|more|less|before|after|during|strategic|route|river|port|city|country|state|battle|army|troops?|deployed?|redeploy(?:ed|ment)?|captured?|launched?|built|map|market|election)\b/i;
 
@@ -209,6 +220,35 @@ function isVisualBeatCandidate(sentenceText: string): boolean {
   return /\d/.test(sentenceText) || VISUAL_SIGNAL_RE.test(sentenceText) || hasInternalProperNoun(sentenceText);
 }
 
+function scoreVisualBeatCandidate(sentenceText: string, paragraph: ScriptParagraphSpan, sentenceIndex: number): number {
+  const purpose = classifyVisualBeatPurpose(sentenceText);
+  let score = 0;
+  if (purpose === "explanation") score += 7;
+  if (purpose === "emphasis") score += 6;
+  if (/\d/.test(sentenceText)) score += 5;
+  if (VISUAL_SIGNAL_RE.test(sentenceText)) score += 4;
+  if (hasInternalProperNoun(sentenceText)) score += 4;
+  if (/\b(this matters|the point|key|important|turning point|lands|because|therefore)\b/i.test(sentenceText)) score += 3;
+  if (/\b(for example|for instance|case study|document|filing|report|source|according to)\b/i.test(sentenceText)) score += 3;
+  if (sentenceIndex === 0) score += 1;
+  if (paragraph.sentences.length > 1 && sentenceIndex === paragraph.sentences.length - 1) score += 1;
+  if (countWords(sentenceText) >= 14) score += 1;
+  return score;
+}
+
+function selectTopVisualBeatCandidates(candidates: RankedVisualBeatCandidate[]): RankedVisualBeatCandidate[] {
+  const strongCandidates = candidates.filter((candidate) => candidate.score >= MIN_VISUAL_BEAT_SCORE);
+  const source = strongCandidates.length > 0 ? strongCandidates : candidates;
+  const ranked = [...source].sort((left, right) => {
+    if (right.score !== left.score) return right.score - left.score;
+    return left.originalOrder - right.originalOrder;
+  });
+  const target = Math.min(MAX_SCRIPT_VISUAL_BEATS, Math.max(1, TARGET_VISUAL_BEAT_COUNT));
+  return ranked
+    .slice(0, Math.min(target, ranked.length))
+    .sort((left, right) => left.originalOrder - right.originalOrder);
+}
+
 function buildAnchor(args: {
   paragraph: ScriptParagraphSpan;
   sentenceStart: number;
@@ -334,8 +374,8 @@ function buildEntry(args: {
 
 export function generateImageMapEntriesFromScript(scriptText: string): EpisodeImageMapEntry[] {
   const paragraphs = extractParagraphs(scriptText);
-  const entries: EpisodeImageMapEntry[] = [];
-  let beatOrder = 0;
+  const candidates: RankedVisualBeatCandidate[] = [];
+  let originalOrder = 0;
 
   for (const paragraph of paragraphs) {
     const candidateSentences = paragraph.sentences.filter((sentence) => isVisualBeatCandidate(sentence.text));
@@ -352,30 +392,39 @@ export function generateImageMapEntriesFromScript(scriptText: string): EpisodeIm
 
     if (selectedSentences.length === 0) continue;
 
-    selectedSentences.forEach((sentence, index) => {
-      beatOrder += 1;
-      const sentenceStart = sentence.sentenceIndex;
-      const sentenceEnd = sentence.text === paragraph.text
-        ? (paragraph.sentences.at(-1)?.sentenceIndex ?? sentence.sentenceIndex)
-        : sentence.sentenceIndex;
-      const anchor = buildAnchor({
+    selectedSentences.forEach((sentence, paragraphIndex) => {
+      originalOrder += 1;
+      candidates.push({
         paragraph,
-        sentenceStart,
-        sentenceEnd,
-        charStart: sentence.charStart,
-        charEnd: sentence.charEnd,
-        spanText: sentence.text,
+        sentence,
+        paragraphBeatOrder: paragraphIndex + 1,
+        score: scoreVisualBeatCandidate(sentence.text, paragraph, paragraphIndex),
+        originalOrder,
       });
-      entries.push(buildEntry({
-        id: `image-map-${String(beatOrder).padStart(2, "0")}`,
-        paragraphBeatOrder: index + 1,
-        beatOrder,
-        anchor,
-      }));
     });
   }
 
-  return entries;
+  return selectTopVisualBeatCandidates(candidates).map((candidate, index) => {
+    const beatOrder = index + 1;
+    const sentenceStart = candidate.sentence.sentenceIndex;
+    const sentenceEnd = candidate.sentence.text === candidate.paragraph.text
+      ? (candidate.paragraph.sentences.at(-1)?.sentenceIndex ?? candidate.sentence.sentenceIndex)
+      : candidate.sentence.sentenceIndex;
+    const anchor = buildAnchor({
+      paragraph: candidate.paragraph,
+      sentenceStart,
+      sentenceEnd,
+      charStart: candidate.sentence.charStart,
+      charEnd: candidate.sentence.charEnd,
+      spanText: candidate.sentence.text,
+    });
+    return buildEntry({
+      id: `image-map-${String(beatOrder).padStart(2, "0")}`,
+      paragraphBeatOrder: candidate.paragraphBeatOrder,
+      beatOrder,
+      anchor,
+    });
+  });
 }
 
 export function resolveImageMapScriptAnchorFromText(

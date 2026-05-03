@@ -6,7 +6,7 @@ import type {
   EpisodeImageMapEntry,
 } from "../src/lib/episode-package-v2";
 
-test("hearthReferenceClipBootstrap: seeds reference clips from explanatory timeline image beats", () => {
+test("hearthReferenceClipBootstrap: rejects explanatory image beats without an evidence source", () => {
   const imageMapEntries: EpisodeImageMapEntry[] = [
     {
       id: "image-map-1",
@@ -47,14 +47,63 @@ test("hearthReferenceClipBootstrap: seeds reference clips from explanatory timel
     imageMapEntries,
   });
 
+  assert.equal(result.seededFromImageMap, false);
+  assert.equal(result.entries.length, 0);
+});
+
+test("hearthReferenceClipBootstrap: seeds structured reference clips only from sourced evidence beats", () => {
+  const imageMapEntries: EpisodeImageMapEntry[] = [
+    {
+      id: "image-map-1",
+      anchor: "Lobbying spend over time",
+      anchor_scope: "attached",
+      script_anchor: null,
+      beat_anchor: {
+        mode: "bullet_beat",
+        beat_id: "beat-1",
+        speaker: "s1",
+        beat_index: 2,
+        beat_label: "lobbying spend over time",
+        cue_phrase: null,
+        purpose: "explanation",
+      },
+      purpose: "explanation",
+      description: "Source: OpenSecrets. Show lobbying spend over time from 2000-2024.",
+      visual_intent: "OpenSecrets lobbying spend trend graph",
+      prompt_basis: "OpenSecrets lobbying spending trend 2000-2024",
+      style_preset: "documentary_cinematic",
+      intent: "graphic",
+      source_type: "stock",
+      visual_priority: "primary",
+      visual_type: "diagram",
+      section_intent_note: "Highlight the post-2010 growth spike.",
+      beat_order: 2,
+      paragraph_beat_order: 1,
+      candidate_assets: [],
+      selected_asset_id: null,
+      status: "mapped",
+      placement_hint: "exact_timestamp",
+    },
+  ];
+
+  const result = resolveReferenceClipPlanForMediaMapBootstrap({
+    workpieceId: "workpiece-1",
+    currentEntries: [],
+    imageMapEntries,
+  });
+
   assert.equal(result.seededFromImageMap, true);
   assert.equal(result.entries.length, 1);
-  assert.equal(result.entries[0]?.anchor_text, "Permit timeline gap");
-  assert.equal(result.entries[0]?.description, "Show the permit timeline the headline skipped.");
+  assert.equal(result.entries[0]?.anchor_text, "Lobbying spend over time");
+  assert.equal(result.entries[0]?.description, "Source: OpenSecrets. Show lobbying spend over time from 2000-2024.");
   assert.equal(result.entries[0]?.placement_hint, "exact_timestamp");
   assert.equal(result.entries[0]?.purpose, "explanation");
   assert.equal(result.entries[0]?.visual_style, "documentary_cinematic");
-  assert.match(result.entries[0]?.background_context_description ?? "", /permit timeline gap/i);
+  assert.equal(result.entries[0]?.source, "OpenSecrets");
+  assert.equal(result.entries[0]?.subtype, "timeline");
+  assert.match(result.entries[0]?.context ?? "", /2000-2024/i);
+  assert.match(result.entries[0]?.highlight ?? "", /post-2010/i);
+  assert.match(result.entries[0]?.visual_spec ?? "", /OpenSecrets/i);
 });
 
 test("hearthReferenceClipBootstrap: preserves existing reference clips", () => {
