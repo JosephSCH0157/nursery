@@ -240,6 +240,11 @@ export function formatVisualBriefAsText(brief: BrollBeatBrief | ReferenceClipBri
 
   if (brief.asset_class === "broll") {
     lines.push(
+      "",
+      "B-roll Prompt Model:",
+      `What is happening visually: ${brief.shot_intent}`,
+      `Why it supports the line / viewer feeling: ${brief.environment ?? "(none specified)"}`,
+      "Prompt guardrail: do not render abstract narration as literal keywords; use the visual action, metaphor, or process pattern.",
       `Motion Level: ${brief.motion_level ?? "(none specified)"}`,
       `Mood: ${brief.mood ?? "(none specified)"}`,
       `Framing: ${brief.framing ?? "(none specified)"}`,

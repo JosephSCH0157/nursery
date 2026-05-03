@@ -105,6 +105,251 @@ function inferKeywords(text: string): string[] {
   ).slice(0, 8);
 }
 
+export type BrollVisualIntentTranslation = {
+  intent: string;
+  pattern: string;
+  is_abstract: boolean;
+  visual_happening: string;
+  support_reason: string;
+  viewer_feeling: string;
+  scene_description: string;
+  camera_framing: string;
+  motion: string;
+  tone: string;
+  keywords: string[];
+  shot_type: EpisodeBrollShotType;
+  mood: string | null;
+  motion_suggestion: string;
+};
+
+const ABSTRACT_BROLL_SIGNALS = [
+  "access",
+  "accountability",
+  "argument",
+  "decision",
+  "democracy",
+  "influence",
+  "law",
+  "laws",
+  "leverage",
+  "outcome",
+  "policy",
+  "power",
+  "process",
+  "rules",
+  "system",
+  "vote",
+];
+
+const CONCRETE_BROLL_SIGNALS = [
+  "bridge",
+  "building",
+  "camera",
+  "car",
+  "chamber",
+  "city",
+  "crowd",
+  "desk",
+  "document",
+  "door",
+  "folder",
+  "hand",
+  "hallway",
+  "map",
+  "office",
+  "paper",
+  "person",
+  "room",
+  "screen",
+  "street",
+  "table",
+  "train",
+  "wall",
+  "window",
+];
+
+function hasWord(text: string, word: string): boolean {
+  return new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text);
+}
+
+function isAbstractBrollLine(text: string): boolean {
+  const lower = text.toLowerCase();
+  const abstractHits = ABSTRACT_BROLL_SIGNALS.filter((signal) => hasWord(lower, signal)).length;
+  const concreteHits = CONCRETE_BROLL_SIGNALS.filter((signal) => hasWord(lower, signal)).length;
+  return abstractHits >= 2 && concreteHits <= 1;
+}
+
+function formatMotionSuggestion(args: {
+  visualHappening: string;
+  supportReason: string;
+  viewerFeeling: string;
+  cameraFraming: string;
+  motion: string;
+  tone: string;
+}): string {
+  return [
+    `What is happening visually: ${args.visualHappening}`,
+    `Why it supports the line: ${args.supportReason}`,
+    `What the viewer should feel: ${args.viewerFeeling}`,
+    `Camera framing: ${args.cameraFraming}`,
+    `Motion: ${args.motion}`,
+    `Tone: ${args.tone}`,
+    "Do not render the narration as literal keywords; use the visual intent and scene pattern.",
+  ].join(" ");
+}
+
+function createBrollVisualTranslation(args: {
+  intent: string;
+  pattern: string;
+  isAbstract: boolean;
+  visualHappening: string;
+  supportReason: string;
+  viewerFeeling: string;
+  sceneDescription: string;
+  cameraFraming: string;
+  motion: string;
+  tone: string;
+  keywords: string[];
+  shotType?: EpisodeBrollShotType;
+  mood?: string | null;
+}): BrollVisualIntentTranslation {
+  return {
+    intent: args.intent,
+    pattern: args.pattern,
+    is_abstract: args.isAbstract,
+    visual_happening: args.visualHappening,
+    support_reason: args.supportReason,
+    viewer_feeling: args.viewerFeeling,
+    scene_description: args.sceneDescription,
+    camera_framing: args.cameraFraming,
+    motion: args.motion,
+    tone: args.tone,
+    keywords: args.keywords.slice(0, 8),
+    shot_type: args.shotType ?? "mixed",
+    mood: args.mood ?? null,
+    motion_suggestion: formatMotionSuggestion({
+      visualHappening: args.visualHappening,
+      supportReason: args.supportReason,
+      viewerFeeling: args.viewerFeeling,
+      cameraFraming: args.cameraFraming,
+      motion: args.motion,
+      tone: args.tone,
+    }),
+  };
+}
+
+export function translateBrollVisualIntent(anchorText: string): BrollVisualIntentTranslation {
+  const text = cleanSentenceText(anchorText);
+  const lower = text.toLowerCase();
+  const isAbstract = isAbstractBrollLine(text);
+
+  if (/\bdon'?t lose laws?\b.*\bvote\b|\blaws?\b.*\bvote\b/.test(lower)) {
+    return createBrollVisualTranslation({
+      intent: "predetermined outcome",
+      pattern: "paperwork finalized before formal action",
+      isAbstract: true,
+      visualHappening: "Already-signed folders sit on a committee table while an empty voting chamber waits in the background.",
+      supportReason: "It turns the spoken idea into a process visual: the outcome appears settled before the visible vote happens.",
+      viewerFeeling: "quiet inevitability, like the public ceremony is arriving after the real decision.",
+      sceneDescription: "A cinematic editorial shot of already-signed folders and stamped paperwork on a committee table, with an empty voting chamber softly out of focus behind it.",
+      cameraFraming: "Start in a close foreground detail on the paperwork, then reveal the empty chamber as context.",
+      motion: "Slow push-in or subtle rack focus from finished paperwork to vacant seats.",
+      tone: "restrained, procedural, slightly uneasy",
+      keywords: ["signed documents", "committee table", "empty chamber", "paperwork", "vacant seats", "procedural vote"],
+      shotType: "mixed",
+      mood: "serious",
+    });
+  }
+
+  if (/\b(access|influence|pressure|lobby|leverage|power)\b/.test(lower)) {
+    return createBrollVisualTranslation({
+      intent: "hidden influence",
+      pattern: "quiet access before public explanation",
+      isAbstract,
+      visualHappening: "A closed office door, a hallway exchange, and a folder changing hands suggest decisions forming offstage.",
+      supportReason: "It shows influence as access and proximity rather than literal money or slogans.",
+      viewerFeeling: "curious unease, as if something important is happening just out of public view.",
+      sceneDescription: "A documentary hallway outside government offices, with a quiet folder handoff near a closed door and staff moving in soft background blur.",
+      cameraFraming: "Medium telephoto framing through the hallway, keeping faces non-identifying and the folder as the focal subject.",
+      motion: "Slow lateral drift or handheld observational movement.",
+      tone: "observational, controlled, lightly tense",
+      keywords: ["closed office door", "hallway exchange", "folder handoff", "government office", "staffers"],
+      shotType: "medium",
+      mood: "serious",
+    });
+  }
+
+  if (/\b(process|rules|policy|system|bureaucracy|procedure)\b/.test(lower)) {
+    return createBrollVisualTranslation({
+      intent: "bureaucratic process",
+      pattern: "documents moving through a system",
+      isAbstract,
+      visualHappening: "Forms move from inbox to stamp to file tray, turning an invisible process into visible workflow.",
+      supportReason: "It makes the abstract machinery of policy feel concrete without literalizing the spoken words.",
+      viewerFeeling: "the weight of a slow, procedural machine.",
+      sceneDescription: "A close editorial sequence of forms being stamped, sorted into trays, and filed under fluorescent office light.",
+      cameraFraming: "Macro and close detail shots of hands, stamps, folders, and trays.",
+      motion: "Rhythmic cuts or a slow overhead slide across the paper trail.",
+      tone: "methodical, institutional, grounded",
+      keywords: ["forms", "file trays", "rubber stamp", "paperwork", "office workflow"],
+      shotType: "close",
+      mood: "serious",
+    });
+  }
+
+  if (/\b(public|voter|democracy|accountability|trust)\b/.test(lower)) {
+    return createBrollVisualTranslation({
+      intent: "institutional distance",
+      pattern: "public separated from decision space",
+      isAbstract,
+      visualHappening: "A public gallery or waiting area sits separated from the room where officials work.",
+      supportReason: "It visualizes the gap between public stakes and institutional decision-making.",
+      viewerFeeling: "distance, exclusion, and the need to look closer.",
+      sceneDescription: "A wide editorial shot through glass or railing, showing a quiet public gallery separated from a formal meeting room.",
+      cameraFraming: "Wide frame with foreground barrier and decision space in the distance.",
+      motion: "Very slow push toward the barrier without crossing it.",
+      tone: "quiet, reflective, civic",
+      keywords: ["public gallery", "glass barrier", "meeting room", "empty seats", "institutional distance"],
+      shotType: "wide",
+      mood: "serious",
+    });
+  }
+
+  if (isAbstract) {
+    return createBrollVisualTranslation({
+      intent: "abstract process visual",
+      pattern: "metaphor for an invisible decision path",
+      isAbstract: true,
+      visualHappening: "A marked folder travels across desks and disappears into a final tray.",
+      supportReason: "It converts the abstract point into a visible chain of action instead of copying the narration literally.",
+      viewerFeeling: "a sense of systems moving beneath the surface.",
+      sceneDescription: "A grounded editorial process visual: a marked folder moving across desks, signatures, stamps, and a final tray under muted office light.",
+      cameraFraming: "Close and medium inserts that emphasize hands, documents, and spatial progression.",
+      motion: "Measured tracking movement following the folder from step to step.",
+      tone: "subtle, procedural, thoughtful",
+      keywords: ["marked folder", "paper trail", "office process", "signed form", "file tray"],
+      shotType: "mixed",
+      mood: "serious",
+    });
+  }
+
+  return createBrollVisualTranslation({
+    intent: "literal coverage",
+    pattern: "concrete supporting scene",
+    isAbstract: false,
+    visualHappening: text,
+    supportReason: "It gives the editor a direct visual anchor for the spoken beat.",
+    viewerFeeling: inferMood(text) ?? "clear context",
+    sceneDescription: text,
+    cameraFraming: "Use clear editorial framing with one readable focal subject.",
+    motion: "Use gentle documentary movement that supports the beat without distracting from narration.",
+    tone: inferMood(text) ?? "neutral editorial",
+    keywords: inferKeywords(text),
+    shotType: inferShotType(inferMotionIntent(text)),
+    mood: inferMood(text),
+  });
+}
+
 function inferMotionSuggestion(intent: EpisodeBrollMotionIntent): string {
   if (intent === "data_visual") return "Use an animated data visual that highlights the key comparison.";
   if (intent === "map") return "Use a map animation to orient the audience geographically.";
@@ -168,10 +413,22 @@ export function buildBrollPlanFromScript(args: {
   const beats: EpisodeBrollPlanBeat[] = selected.map((sentence, index) => {
     const motionIntent = inferMotionIntent(sentence);
     const previous = args.previousPlan?.beats.find((beat) => beat.anchor_text === sentence) ?? null;
+    const visualTranslation = translateBrollVisualIntent(sentence);
+    const previousDescription = readString(previous?.description);
+    const hasManualPreviousDescription = Boolean(previousDescription && previousDescription !== sentence);
+    const resolvedDescription = hasManualPreviousDescription ? previousDescription : visualTranslation.scene_description;
+    const resolvedKeywords = previous?.keywords?.length && hasManualPreviousDescription
+      ? previous.keywords
+      : visualTranslation.keywords;
+    const resolvedMood = previous?.mood ?? visualTranslation.mood ?? inferMood(sentence);
+    const resolvedShotType = previous?.shot_type ?? visualTranslation.shot_type ?? inferShotType(motionIntent);
+    const resolvedMotionSuggestion = previous?.motion_suggestion && hasManualPreviousDescription
+      ? previous.motion_suggestion
+      : visualTranslation.motion_suggestion;
     const purpose = deriveBrollPurpose({
       rawPurpose: previous?.purpose ?? null,
       motionIntent,
-      description: previous?.description ?? sentence,
+      description: resolvedDescription,
       anchorText: sentence,
     });
     return {
@@ -181,19 +438,19 @@ export function buildBrollPlanFromScript(args: {
       placement_hint: "first_occurrence",
       timestamp_ms: previous?.timestamp_ms ?? null,
       purpose,
-      description: previous?.description ?? sentence,
+      description: resolvedDescription,
       motion_intent: motionIntent,
       visual_style: previous?.visual_style ?? null,
       priority: previous?.priority ?? inferPriority(index),
-      keywords: previous?.keywords?.length ? previous.keywords : inferKeywords(sentence),
-      mood: previous?.mood ?? inferMood(sentence),
-      shot_type: previous?.shot_type ?? inferShotType(motionIntent),
-      motion_suggestion: previous?.motion_suggestion ?? inferMotionSuggestion(motionIntent),
+      keywords: resolvedKeywords,
+      mood: resolvedMood,
+      shot_type: resolvedShotType,
+      motion_suggestion: resolvedMotionSuggestion,
       suggested_duration_ms: previous?.suggested_duration_ms ?? inferSuggestedDurationMs(motionIntent),
       source_type: previous?.source_type ?? "planned",
       asset_category: previous?.asset_category ?? inferAssetCategory(motionIntent),
       data_visual_spec: inferDataVisualSpec({
-        description: previous?.description ?? sentence,
+        description: resolvedDescription,
         motionIntent,
         previous: previous?.data_visual_spec ?? null,
       }),
@@ -227,23 +484,27 @@ export function buildBrollPlanFromScript(args: {
 export function regenerateBrollBeatFromDescription(beat: EpisodeBrollPlanBeat): EpisodeBrollPlanBeat {
   const description = readString(beat.description) || beat.anchor_text;
   const motionIntent = inferMotionIntent(description);
+  const visualTranslation = translateBrollVisualIntent(description);
+  const isTranslated = visualTranslation.is_abstract || description === beat.anchor_text;
+  const resolvedDescription = isTranslated ? visualTranslation.scene_description : description;
   const next = {
     ...beat,
     purpose: deriveBrollPurpose({
       rawPurpose: beat.purpose,
       motionIntent,
-      description,
+      description: resolvedDescription,
       anchorText: beat.anchor_text,
     }),
     motion_intent: motionIntent,
     asset_category: inferAssetCategory(motionIntent),
-    keywords: inferKeywords(description),
-    mood: inferMood(description),
-    shot_type: inferShotType(motionIntent),
-    motion_suggestion: inferMotionSuggestion(motionIntent),
+    description: resolvedDescription,
+    keywords: isTranslated ? visualTranslation.keywords : inferKeywords(description),
+    mood: visualTranslation.mood ?? inferMood(description),
+    shot_type: visualTranslation.shot_type ?? inferShotType(motionIntent),
+    motion_suggestion: isTranslated ? visualTranslation.motion_suggestion : inferMotionSuggestion(motionIntent),
     suggested_duration_ms: inferSuggestedDurationMs(motionIntent),
     data_visual_spec: inferDataVisualSpec({
-      description,
+      description: resolvedDescription,
       motionIntent,
       previous: beat.data_visual_spec ?? null,
     }),

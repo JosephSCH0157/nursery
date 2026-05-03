@@ -7,6 +7,7 @@ import {
   formatVisualBriefAsText,
   listExternalGenerationProviders,
 } from "../src/lib/hearth-visual-actionability";
+import { buildBrollPlanFromScript } from "../src/lib/hearth-broll-plan";
 import {
   createEmptyEpisodePackageV2,
   ensureBrollPlanV2,
@@ -56,6 +57,29 @@ test("brief generation includes required fields for broll and reference clips", 
   assert.equal(referenceText.includes("Data Type"), true);
   assert.equal(referenceText.includes("Context Type"), true);
   assert.equal(referenceText.includes("Chart Labels"), true);
+});
+
+test("broll brief separates narration anchor from translated visual action", () => {
+  const plan = buildBrollPlanFromScript({
+    workpieceId: "wp-abstract",
+    scriptText: "You don't lose laws at the vote.",
+  });
+  const beat = plan.beats[0];
+  assert.ok(beat);
+
+  const brief = buildBrollBeatBrief({
+    beat,
+    workpieceId: "wp-abstract",
+    workpieceTitle: "Lobbying Episode",
+  });
+  const text = formatVisualBriefAsText(brief);
+
+  assert.equal(brief.anchor_text, "You don't lose laws at the vote.");
+  assert.notEqual(brief.shot_intent, brief.anchor_text);
+  assert.match(text, /Anchor Text: You don't lose laws at the vote\./);
+  assert.match(text, /What is happening visually: .*signed|What is happening visually: .*paperwork/i);
+  assert.match(text, /Prompt guardrail: do not render abstract narration as literal keywords/i);
+  assert.doesNotMatch(text, /Shot Intent \/ Editorial Purpose: You don't lose laws at the vote\./);
 });
 
 test("provider registry filters by asset class", () => {

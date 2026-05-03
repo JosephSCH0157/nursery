@@ -4,6 +4,7 @@ import {
   buildBrollPlanFromScript,
   buildStockCandidatesForBrollBeat,
   regenerateBrollBeatFromDescription,
+  translateBrollVisualIntent,
 } from "../src/lib/hearth-broll-plan";
 import type { EpisodeBrollPlanBeat } from "../src/lib/episode-package-v2";
 
@@ -44,6 +45,37 @@ test("buildBrollPlanFromScript creates episode-wide beats with canonical default
     ].includes(beat.asset_category ?? "stock_video"));
     assert.ok(["unresolved", "candidate_assets_available", "resolved", "stale"].includes(beat.fulfillment_state));
   }
+});
+
+test("translateBrollVisualIntent turns abstract narration into concrete process visuals", () => {
+  const translation = translateBrollVisualIntent("You don't lose laws at the vote.");
+
+  assert.equal(translation.intent, "predetermined outcome");
+  assert.equal(translation.is_abstract, true);
+  assert.match(translation.pattern, /paperwork finalized/i);
+  assert.match(translation.scene_description, /signed|paperwork|committee table|empty voting chamber/i);
+  assert.match(translation.motion_suggestion, /What is happening visually:/);
+  assert.match(translation.motion_suggestion, /Why it supports the line:/);
+  assert.match(translation.motion_suggestion, /What the viewer should feel:/);
+  assert.doesNotMatch(translation.scene_description, /You don't lose laws/i);
+  assert.ok(translation.keywords.includes("signed documents"));
+  assert.ok(!translation.keywords.includes("laws"));
+});
+
+test("buildBrollPlanFromScript stores translated B-roll prompts instead of literal abstract lines", () => {
+  const plan = buildBrollPlanFromScript({
+    workpieceId: "workpiece-abstract",
+    scriptText: "You don't lose laws at the vote. The public moment is often the last step, not the first decision.",
+  });
+  const beat = plan.beats[0];
+
+  assert.ok(beat);
+  assert.equal(beat.anchor_text, "You don't lose laws at the vote.");
+  assert.notEqual(beat.description, beat.anchor_text);
+  assert.match(beat.description, /signed|paperwork|committee table|empty voting chamber/i);
+  assert.match(beat.motion_suggestion ?? "", /Do not render the narration as literal keywords/i);
+  assert.ok(beat.keywords.includes("empty chamber"));
+  assert.ok(!beat.keywords.includes("laws"));
 });
 
 test("buildBrollPlanFromScript preserves prior beat identity and selected assets", () => {
