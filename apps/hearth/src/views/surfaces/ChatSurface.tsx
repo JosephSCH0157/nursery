@@ -1,4 +1,4 @@
-import type { ReactNode, RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import CollapsibleFocusPanel from "../../components/focus/CollapsibleFocusPanel";
 import type { HearthWritingFormat } from "../../lib/hearth-writing-format";
 
@@ -66,8 +66,68 @@ export type ChatSurfaceProps = {
 };
 
 export default function ChatSurface(props: ChatSurfaceProps) {
+  const chatTopRef = useRef<HTMLDivElement | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement | null>(null);
+  const [isChatTopVisible, setIsChatTopVisible] = useState(true);
+  const [isChatBottomVisible, setIsChatBottomVisible] = useState(true);
+
+  const refreshScrollTargets = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const topRect = chatTopRef.current?.getBoundingClientRect();
+    const bottomRect = chatBottomRef.current?.getBoundingClientRect();
+    if (topRect) {
+      setIsChatTopVisible(topRect.top >= 0 && topRect.top <= viewportHeight);
+    }
+    if (bottomRect) {
+      setIsChatBottomVisible(bottomRect.top >= 0 && bottomRect.top <= viewportHeight);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!props.visible || typeof window === "undefined") return undefined;
+    const topTarget = chatTopRef.current;
+    const bottomTarget = chatBottomRef.current;
+    if (!topTarget || !bottomTarget) return undefined;
+
+    if (typeof IntersectionObserver === "undefined") {
+      refreshScrollTargets();
+      window.addEventListener("scroll", refreshScrollTargets, { passive: true });
+      window.addEventListener("resize", refreshScrollTargets);
+      return () => {
+        window.removeEventListener("scroll", refreshScrollTargets);
+        window.removeEventListener("resize", refreshScrollTargets);
+      };
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.target === topTarget) setIsChatTopVisible(entry.isIntersecting);
+        if (entry.target === bottomTarget) setIsChatBottomVisible(entry.isIntersecting);
+      }
+    }, {
+      root: null,
+      threshold: 0.12,
+    });
+
+    observer.observe(topTarget);
+    observer.observe(bottomTarget);
+    refreshScrollTargets();
+    return () => observer.disconnect();
+  }, [props.visible, props.chatMessages.length, refreshScrollTargets]);
+
+  const onJumpChatScroll = useCallback(() => {
+    const target = isChatBottomVisible ? chatTopRef.current : chatBottomRef.current;
+    target?.scrollIntoView({ behavior: "smooth", block: isChatBottomVisible ? "start" : "end" });
+    if (!isChatBottomVisible) {
+      window.setTimeout(() => props.chatInputRef.current?.focus(), 220);
+    }
+  }, [isChatBottomVisible, props.chatInputRef]);
+
   if (!props.visible) return null;
   const isChatVoiceActive = props.sttTarget === "chat" && props.sttState !== "idle";
+  const showScrollJump = props.chatMessages.length > 0 && (!isChatTopVisible || !isChatBottomVisible);
+  const scrollJumpLabel = isChatBottomVisible ? "Back to top" : "Jump to bottom";
 
   return (
     <CollapsibleFocusPanel
@@ -79,6 +139,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
       collapsible={false}
     >
       <section className="hs-ai-chat" aria-label="Hearth AI chat">
+        <div ref={chatTopRef} className="hs-ai-chat-scroll-sentinel" aria-hidden="true" />
         <div className="hs-ai-chat-header">
           <div className="hs-ai-chat-title">Talk it through</div>
           <button
@@ -381,6 +442,19 @@ export default function ChatSurface(props: ChatSurfaceProps) {
         ) : null}
         {props.sttTarget === "chat" && props.sttError ? (
           <div className="hs-error-text-small">{props.sttError}</div>
+        ) : null}
+        <div ref={chatBottomRef} className="hs-ai-chat-scroll-sentinel" aria-hidden="true" />
+        {showScrollJump ? (
+          <button
+            type="button"
+            className={`hs-ai-chat-scroll-jump ${isChatBottomVisible ? "is-at-bottom" : "is-away-from-bottom"}`}
+            onClick={onJumpChatScroll}
+            aria-label={scrollJumpLabel}
+            title={scrollJumpLabel}
+          >
+            <span aria-hidden="true">{isChatBottomVisible ? "↑" : "↓"}</span>
+            <span>{scrollJumpLabel}</span>
+          </button>
         ) : null}
       </section>
     </CollapsibleFocusPanel>
