@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import CollapsibleFocusPanel from "../../components/focus/CollapsibleFocusPanel";
+import { resolveHearthChatScrollAffordance } from "../../lib/hearth-chat-scroll-affordance";
 import type { HearthWritingFormat } from "../../lib/hearth-writing-format";
 
 export type ChatSurfaceProps = {
@@ -66,68 +67,94 @@ export type ChatSurfaceProps = {
 };
 
 export default function ChatSurface(props: ChatSurfaceProps) {
+  const chatSurfaceRef = useRef<HTMLElement | null>(null);
+  const chatLogRef = useRef<HTMLDivElement | null>(null);
   const chatTopRef = useRef<HTMLDivElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
-  const [isChatTopVisible, setIsChatTopVisible] = useState(true);
-  const [isChatBottomVisible, setIsChatBottomVisible] = useState(true);
+  const [scrollAffordance, setScrollAffordance] = useState({
+    canScrollTop: false,
+    canScrollBottom: false,
+  });
 
   const refreshScrollTargets = useCallback(() => {
     if (typeof window === "undefined") return;
-    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const surface = chatSurfaceRef.current;
+    const scrollParent = surface ? findScrollParent(surface) : null;
+    const viewportRect = scrollParent
+      ? scrollParent.getBoundingClientRect()
+      : {
+          top: 0,
+          bottom: window.innerHeight || document.documentElement.clientHeight || 0,
+        };
     const topRect = chatTopRef.current?.getBoundingClientRect();
     const bottomRect = chatBottomRef.current?.getBoundingClientRect();
-    if (topRect) {
-      setIsChatTopVisible(topRect.top >= 0 && topRect.top <= viewportHeight);
-    }
-    if (bottomRect) {
-      setIsChatBottomVisible(bottomRect.top >= 0 && bottomRect.top <= viewportHeight);
-    }
+    const chatLog = chatLogRef.current;
+    const next = resolveHearthChatScrollAffordance({
+      topSentinelTop: topRect?.top ?? null,
+      bottomSentinelBottom: bottomRect?.bottom ?? null,
+      viewportTop: viewportRect.top,
+      viewportBottom: viewportRect.bottom,
+      logScrollTop: chatLog?.scrollTop ?? 0,
+      logScrollHeight: chatLog?.scrollHeight ?? 0,
+      logClientHeight: chatLog?.clientHeight ?? 0,
+    });
+    setScrollAffordance((prev) => (
+      prev.canScrollTop === next.canScrollTop && prev.canScrollBottom === next.canScrollBottom
+        ? prev
+        : next
+    ));
   }, []);
 
   useEffect(() => {
     if (!props.visible || typeof window === "undefined") return undefined;
-    const topTarget = chatTopRef.current;
-    const bottomTarget = chatBottomRef.current;
-    if (!topTarget || !bottomTarget) return undefined;
-
-    if (typeof IntersectionObserver === "undefined") {
-      refreshScrollTargets();
-      window.addEventListener("scroll", refreshScrollTargets, { passive: true });
-      window.addEventListener("resize", refreshScrollTargets);
-      return () => {
-        window.removeEventListener("scroll", refreshScrollTargets);
-        window.removeEventListener("resize", refreshScrollTargets);
-      };
-    }
-
-    const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.target === topTarget) setIsChatTopVisible(entry.isIntersecting);
-        if (entry.target === bottomTarget) setIsChatBottomVisible(entry.isIntersecting);
-      }
-    }, {
-      root: null,
-      threshold: 0.12,
-    });
-
-    observer.observe(topTarget);
-    observer.observe(bottomTarget);
+    const surface = chatSurfaceRef.current;
+    const scrollParent = surface ? findScrollParent(surface) : null;
+    const chatLog = chatLogRef.current;
+    const scrollTarget: HTMLElement | Window = scrollParent ?? window;
+    const onScroll = () => refreshScrollTargets();
+    scrollTarget.addEventListener("scroll", onScroll, { passive: true });
+    chatLog?.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
     refreshScrollTargets();
-    return () => observer.disconnect();
-  }, [props.visible, props.chatMessages.length, refreshScrollTargets]);
-
-  const onJumpChatScroll = useCallback(() => {
-    const target = isChatBottomVisible ? chatTopRef.current : chatBottomRef.current;
-    target?.scrollIntoView({ behavior: "smooth", block: isChatBottomVisible ? "start" : "end" });
-    if (!isChatBottomVisible) {
-      window.setTimeout(() => props.chatInputRef.current?.focus(), 220);
+    const refreshTimer = window.setTimeout(refreshScrollTargets, 80);
+    const resizeObserver = typeof ResizeObserver !== "undefined" && surface
+      ? new ResizeObserver(refreshScrollTargets)
+      : null;
+    if (resizeObserver && surface) {
+      resizeObserver.observe(surface);
+      if (chatLog) resizeObserver.observe(chatLog);
     }
-  }, [isChatBottomVisible, props.chatInputRef]);
+    return () => {
+      scrollTarget.removeEventListener("scroll", onScroll);
+      chatLog?.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      window.clearTimeout(refreshTimer);
+      resizeObserver?.disconnect();
+    };
+  }, [props.visible, props.chatMessages.length, props.pendingAiProposal, refreshScrollTargets]);
+
+  const onJumpChatTop = useCallback(() => {
+    chatLogRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    chatTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.setTimeout(refreshScrollTargets, 240);
+  }, [refreshScrollTargets]);
+
+  const onJumpChatBottom = useCallback(() => {
+    const chatLog = chatLogRef.current;
+    if (chatLog) {
+      chatLog.scrollTo({ top: chatLog.scrollHeight, behavior: "smooth" });
+    }
+    chatBottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    window.setTimeout(() => {
+      props.chatInputRef.current?.focus();
+      refreshScrollTargets();
+    }, 240);
+  }, [props.chatInputRef, refreshScrollTargets]);
 
   if (!props.visible) return null;
   const isChatVoiceActive = props.sttTarget === "chat" && props.sttState !== "idle";
-  const showScrollJump = props.chatMessages.length > 0 && (!isChatTopVisible || !isChatBottomVisible);
-  const scrollJumpLabel = isChatBottomVisible ? "Back to top" : "Jump to bottom";
+  const showScrollControls = props.chatMessages.length > 0
+    && (scrollAffordance.canScrollTop || scrollAffordance.canScrollBottom);
 
   return (
     <CollapsibleFocusPanel
@@ -138,7 +165,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
       onToggle={() => {}}
       collapsible={false}
     >
-      <section className="hs-ai-chat" aria-label="Hearth AI chat">
+      <section ref={chatSurfaceRef} className="hs-ai-chat" aria-label="Hearth AI chat">
         <div ref={chatTopRef} className="hs-ai-chat-scroll-sentinel" aria-hidden="true" />
         <div className="hs-ai-chat-header">
           <div className="hs-ai-chat-title">Talk it through</div>
@@ -151,7 +178,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
           </button>
         </div>
 
-        <div className="hs-ai-chat-log" role="log" aria-live="polite">
+        <div ref={chatLogRef} className="hs-ai-chat-log" role="log" aria-live="polite">
           {props.chatMessages.length === 0 ? (
             <div className="hs-ai-chat-empty">
               Tell Hearth what you want to shape. It already has the episode context with it.
@@ -444,19 +471,48 @@ export default function ChatSurface(props: ChatSurfaceProps) {
           <div className="hs-error-text-small">{props.sttError}</div>
         ) : null}
         <div ref={chatBottomRef} className="hs-ai-chat-scroll-sentinel" aria-hidden="true" />
-        {showScrollJump ? (
-          <button
-            type="button"
-            className={`hs-ai-chat-scroll-jump ${isChatBottomVisible ? "is-at-bottom" : "is-away-from-bottom"}`}
-            onClick={onJumpChatScroll}
-            aria-label={scrollJumpLabel}
-            title={scrollJumpLabel}
-          >
-            <span aria-hidden="true">{isChatBottomVisible ? "↑" : "↓"}</span>
-            <span>{scrollJumpLabel}</span>
-          </button>
+        {showScrollControls ? (
+          <div className="hs-ai-chat-scroll-controls" aria-label="Chat scroll controls">
+            {scrollAffordance.canScrollTop ? (
+              <button
+                type="button"
+                className="hs-ai-chat-scroll-jump is-top"
+                onClick={onJumpChatTop}
+                aria-label="Back to top"
+                title="Back to top"
+              >
+                <span aria-hidden="true">↑</span>
+                <span>Back to top</span>
+              </button>
+            ) : null}
+            {scrollAffordance.canScrollBottom ? (
+              <button
+                type="button"
+                className="hs-ai-chat-scroll-jump is-bottom"
+                onClick={onJumpChatBottom}
+                aria-label="Jump to bottom"
+                title="Jump to bottom"
+              >
+                <span aria-hidden="true">↓</span>
+                <span>Jump to bottom</span>
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </section>
     </CollapsibleFocusPanel>
   );
+}
+
+function findScrollParent(element: HTMLElement): HTMLElement | null {
+  let parent = element.parentElement;
+  while (parent && parent !== document.body && parent !== document.documentElement) {
+    const style = window.getComputedStyle(parent);
+    const overflowY = style.overflowY;
+    const canScroll = /(auto|scroll|overlay)/.test(overflowY)
+      && parent.scrollHeight > parent.clientHeight + 1;
+    if (canScroll) return parent;
+    parent = parent.parentElement;
+  }
+  return null;
 }

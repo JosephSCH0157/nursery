@@ -1035,16 +1035,23 @@
   pointer-events: none;
 }
 
+.hs-ai-chat-scroll-controls {
+  position: fixed;
+  z-index: 80;
+  right: 32px;
+  bottom: 88px;
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  width: fit-content;
+  pointer-events: none;
+}
+
 .hs-ai-chat-scroll-jump {
-  position: sticky;
-  z-index: 8;
-  bottom: 18px;
-  align-self: flex-end;
   display: inline-flex;
   align-items: center;
   gap: 7px;
   width: fit-content;
-  margin-top: -2px;
   border: 1px solid rgba(15, 23, 42, 0.18);
   border-radius: 999px;
   padding: 8px 12px;
@@ -1055,6 +1062,7 @@
   font-weight: 700;
   cursor: pointer;
   backdrop-filter: blur(12px);
+  pointer-events: auto;
 }
 
 .hs-ai-chat-scroll-jump:hover {
@@ -4662,6 +4670,11 @@ details[open] > .hs-imap-collapsible-title::before {
   .hs-meta-suggestion-actions {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .hs-ai-chat-scroll-controls {
+    right: 16px;
+    bottom: 72px;
   }
 }
 
