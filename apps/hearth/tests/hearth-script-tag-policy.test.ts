@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { evaluateHearthScriptValidation, normalizeHearthAiScriptIngress } from "../src/lib/hearth-script-tag-policy";
 
-function assertMaxSpeakerContentLines(script: string, maxLines: number): void {
+function assertMaxSpeakerSpokenLines(script: string, maxLines: number): void {
   let insideSpeaker = false;
   let count = 0;
   for (const line of script.split(/\r?\n/)) {
@@ -13,12 +13,12 @@ function assertMaxSpeakerContentLines(script: string, maxLines: number): void {
       continue;
     }
     if (/^\[\/(?:s1|s2|g1|g2)\]$/i.test(trimmed)) {
-      assert.ok(count <= maxLines, `speaker block had ${count} content lines:\n${script}`);
+      assert.ok(count <= maxLines, `speaker block had ${count} spoken lines:\n${script}`);
       insideSpeaker = false;
       count = 0;
       continue;
     }
-    if (insideSpeaker && trimmed) count += 1;
+    if (insideSpeaker && trimmed && !/^\[(?:beat|pause|reflective pause)\]$/i.test(trimmed)) count += 1;
   }
 }
 
@@ -78,5 +78,5 @@ test("hearthScriptTagPolicy: AI ingress shapes blob scripts into Anvil-ready spe
   assert.match(ingress.text, /\[(?:pause|beat|reflective pause)\]/);
   assert.ok((ingress.text.match(/\[s1\]/g) ?? []).length > 1);
   assert.equal(ingress.text.split(/\r?\n/).some((line) => line.trim() === ""), true);
-  assertMaxSpeakerContentLines(ingress.text, 3);
+  assertMaxSpeakerSpokenLines(ingress.text, 3);
 });

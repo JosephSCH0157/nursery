@@ -19,26 +19,26 @@ function makeDraft(body: string): Draft {
   };
 }
 
-function assertMaxSpeakerContentLines(script: string, maxLines: number): void {
+function assertMaxSpeakerSpokenLines(script: string, maxLines: number): void {
   let activeSpeaker: string | null = null;
-  let contentLineCount = 0;
+  let spokenLineCount = 0;
   for (const rawLine of script.split(/\r?\n/)) {
     const line = rawLine.trim();
     const open = line.match(/^\[(s1|s2|g1|g2)\]$/i)?.[1]?.toLowerCase() ?? null;
     const close = line.match(/^\[\/(s1|s2|g1|g2)\]$/i)?.[1]?.toLowerCase() ?? null;
     if (open) {
       activeSpeaker = open;
-      contentLineCount = 0;
+      spokenLineCount = 0;
       continue;
     }
     if (close) {
       assert.equal(close, activeSpeaker);
-      assert.ok(contentLineCount <= maxLines, `speaker block exceeded ${maxLines} content lines: ${contentLineCount}`);
+      assert.ok(spokenLineCount <= maxLines, `speaker block exceeded ${maxLines} spoken lines: ${spokenLineCount}`);
       activeSpeaker = null;
-      contentLineCount = 0;
+      spokenLineCount = 0;
       continue;
     }
-    if (activeSpeaker && line) contentLineCount += 1;
+    if (activeSpeaker && line && !/^\[(?:beat|pause|reflective pause)\]$/i.test(line)) spokenLineCount += 1;
   }
 }
 
@@ -86,7 +86,7 @@ test("shapeHearthScriptForRecording turns paragraph walls into Anvil-friendly pe
   assert.ok(lines.filter((line) => line.length > 90).length === 0);
   assert.match(shaped, /^\[s1\]$/m);
   assert.match(shaped, /^\[\/s1\]$/m);
-  assertMaxSpeakerContentLines(shaped, 3);
+  assertMaxSpeakerSpokenLines(shaped, 3);
 });
 
 test("shapeHearthScriptForRecording breaks long speaker blobs into short repeat speaker blocks", () => {
@@ -97,10 +97,25 @@ test("shapeHearthScriptForRecording breaks long speaker blobs into short repeat 
   ].join("\n"));
 
   assert.equal(validateScriptTags(shaped).ok, true);
-  assertMaxSpeakerContentLines(shaped, 3);
+  assertMaxSpeakerSpokenLines(shaped, 3);
   assert.ok((shaped.match(/^\[s1\]$/gm) ?? []).length >= 2);
   assert.ok((shaped.match(/^\[\/s1\]$/gm) ?? []).length >= 2);
   assert.ok(shaped.split(/\r?\n/).some((line) => line.trim() === ""));
+});
+
+test("shapeHearthScriptForRecording groups rapid-fire short lines for Anvil tracking", () => {
+  const shaped = shapeHearthScriptForRecording([
+    "[s1]",
+    "Alright. Today we’re talking voting rights. And racism. I want to do this without turning it into a two-hour group project. Where everyone leaves mad. And nobody learns anything.",
+    "[/s1]",
+  ].join("\n"));
+
+  assert.equal(validateScriptTags(shaped).ok, true);
+  assertNoCueOnlySpeakerBlocks(shaped);
+  assertNoConsecutivePacingCues(shaped);
+  assertMaxSpeakerSpokenLines(shaped, 3);
+  assert.match(shaped, /Alright\.\nToday we’re talking voting rights\.\nAnd racism\.\n\[beat\]/);
+  assert.ok((shaped.match(/^\[s1\]$/gm) ?? []).length <= 3);
 });
 
 test("shapeHearthScriptForRecording is idempotent for already paced scripts", () => {
@@ -154,6 +169,19 @@ test("shapeHearthScriptForRecording keeps abbreviations and decimals intact", ()
   assert.doesNotMatch(shaped, /^S\.$/m);
   assert.doesNotMatch(shaped, /^v\.$/m);
   assert.doesNotMatch(shaped, /^0\.$/m);
+});
+
+test("shapeHearthScriptForRecording does not strand abbreviations during line wrapping", () => {
+  const shaped = shapeHearthScriptForRecording([
+    "[s1]",
+    "Quick backdrop. The Voting Rights Act of 1965 is one of the most important laws in U.S. history. It worked fast.",
+    "[/s1]",
+  ].join("\n"));
+
+  assert.equal(validateScriptTags(shaped).ok, true);
+  assert.match(shaped, /U\.S\. history/);
+  assert.doesNotMatch(shaped, /U\.S\.\n\[beat\]\n\nhistory\./);
+  assert.doesNotMatch(shaped, /^history\.$/m);
 });
 
 test("shapeHearthScriptForRecording preserves notes and canonical speaker tags", () => {

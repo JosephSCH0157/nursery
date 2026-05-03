@@ -12,7 +12,7 @@ const PACING_RE = /^\[(pause|beat|reflective pause)\]$/i;
 const PAREN_PACING_RE = /^\((pause|beat|reflective pause)\)$/i;
 const TAG_TOKEN_RE = /^\[[^\]\n]+\]$/;
 const TARGET_LINE_LENGTH = 76;
-const MAX_SPEAKER_CONTENT_LINES = 3;
+const MAX_SPEAKER_SPOKEN_LINES = 3;
 const DOT_PLACEHOLDER = "__HEARTH_DOT__";
 const VALIDATION_LEAK_RE = /^(?:validation check:|all speaker tags\b|no block exceeds\b|no mixed speakers\b|pacing tokens used\b|no markdown\b|tag contract\b|self-check\b)/i;
 
@@ -21,7 +21,7 @@ export const HEARTH_RECORDING_READY_SCRIPT_INSTRUCTION = [
   "Write scripts as performance scores for Anvil, not essays.",
   "Use short readable spoken lines, intentional blank lines, and visible pacing cues.",
   "After each landed point, add [pause], [beat], or [reflective pause] on its own line.",
-  "Keep speaker blocks short: maximum 3 content lines per [s1]/[s2]/[g1]/[g2] block, then close and reopen the speaker.",
+  "Keep speaker blocks stable for Anvil/ASR: up to 3 spoken lines plus one optional pacing cue per [s1]/[s2]/[g1]/[g2] block, then close and reopen the speaker.",
   "Keep [s1], [s2], [g1], [g2] and their closing tags on their own lines.",
   "Use [s1] for Joe and [s2] for Brad.",
   "Keep [note]...[/note] hidden notes valid; pacing cues remain visible inside speaker blocks.",
@@ -50,8 +50,8 @@ function wrapPlainScriptForJoe(text: string): string {
 }
 
 function splitLongClause(text: string): string[] {
-  const trimmed = text.trim();
-  if (trimmed.length <= TARGET_LINE_LENGTH) return [trimmed];
+  const trimmed = protectSentenceDots(text.trim());
+  if (trimmed.length <= TARGET_LINE_LENGTH) return [restoreSentenceDots(trimmed)];
 
   const chunks: string[] = [];
   let remaining = trimmed;
@@ -69,7 +69,7 @@ function splitLongClause(text: string): string[] {
     remaining = remaining.slice(cutAt).trim();
   }
   if (remaining) chunks.push(remaining);
-  return chunks.length ? chunks : [trimmed];
+  return (chunks.length ? chunks : [trimmed]).map(restoreSentenceDots);
 }
 
 function splitSpokenLine(line: string): string[] {
@@ -84,8 +84,7 @@ function splitSpokenLine(line: string): string[] {
   const protectedText = protectSentenceDots(normalized);
   const sentences = protectedText.match(/[^.!?]+[.!?]+(?:["'”’]+)?|[^.!?]+$/g) ?? [protectedText];
   return sentences
-    .map((sentence) => restoreSentenceDots(sentence.trim()))
-    .flatMap((sentence) => splitLongClause(sentence))
+    .flatMap((sentence) => splitLongClause(restoreSentenceDots(sentence.trim())))
     .filter(Boolean);
 }
 
@@ -109,8 +108,21 @@ function pushIntentionalBlank(out: string[]): void {
   if (out[out.length - 1] !== "") out.push("");
 }
 
+function mergePacingCue(
+  current: "[pause]" | "[beat]" | "[reflective pause]" | null,
+  next: "[pause]" | "[beat]" | "[reflective pause]",
+): "[pause]" | "[beat]" | "[reflective pause]" {
+  if (!current) return next;
+  const rank = {
+    "[beat]": 1,
+    "[pause]": 2,
+    "[reflective pause]": 3,
+  } as const;
+  return rank[next] > rank[current] ? next : current;
+}
+
 function protectSentenceDots(text: string): string {
-  return text
+  return restoreSentenceDots(text)
     .replace(/\bU\.S\./g, `U${DOT_PLACEHOLDER}S${DOT_PLACEHOLDER}`)
     .replace(/\b([A-Z])\.([A-Z])\./g, (_match, a: string, b: string) => `${a}${DOT_PLACEHOLDER}${b}${DOT_PLACEHOLDER}`)
     .replace(/\b(vs?|mr|mrs|ms|dr|prof|sen|rep|gov|st|jr|sr)\./gi, (_match, abbr: string) => `${abbr}${DOT_PLACEHOLDER}`)
@@ -200,16 +212,29 @@ export function shapeHearthScriptForRecording(input: string): string {
   let insideSpeaker = false;
   let insideNote = false;
   let activeSpeaker: "s1" | "s2" | "g1" | "g2" | null = null;
-  let speakerContentLineCount = 0;
   let speakerSpokenLineCount = 0;
+  let pendingPacingCue: "[pause]" | "[beat]" | "[reflective pause]" | null = null;
+
+  function flushPendingPacingCue(addBlank = true): void {
+    if (!insideSpeaker || !activeSpeaker || speakerSpokenLineCount === 0 || !pendingPacingCue) {
+      pendingPacingCue = null;
+      return;
+    }
+    if (!isPacingLine(previousSignificantLine(out) ?? "")) {
+      out.push(pendingPacingCue);
+    }
+    pendingPacingCue = null;
+    if (addBlank) pushIntentionalBlank(out);
+  }
 
   function closeActiveSpeakerBlock(): void {
     if (!activeSpeaker || !insideSpeaker) return;
+    flushPendingPacingCue();
     pushIntentionalBlank(out);
     out.push(`[/${activeSpeaker}]`);
     insideSpeaker = false;
-    speakerContentLineCount = 0;
     speakerSpokenLineCount = 0;
+    pendingPacingCue = null;
   }
 
   function reopenActiveSpeakerBlock(): void {
@@ -217,27 +242,30 @@ export function shapeHearthScriptForRecording(input: string): string {
     pushIntentionalBlank(out);
     out.push(`[${activeSpeaker}]`);
     insideSpeaker = true;
-    speakerContentLineCount = 0;
     speakerSpokenLineCount = 0;
+    pendingPacingCue = null;
   }
 
-  function rotateSpeakerBlockIfNeeded(requiredContentLines: number): void {
-    if (!insideSpeaker || !activeSpeaker || speakerContentLineCount === 0) return;
-    if (speakerContentLineCount + requiredContentLines <= MAX_SPEAKER_CONTENT_LINES) return;
+  function rotateSpeakerBlockIfNeeded(requiredSpokenLines = 1): void {
+    if (!insideSpeaker || !activeSpeaker || speakerSpokenLineCount === 0) return;
+    if (speakerSpokenLineCount + requiredSpokenLines <= MAX_SPEAKER_SPOKEN_LINES) return;
     closeActiveSpeakerBlock();
     reopenActiveSpeakerBlock();
   }
 
-  function pushSpeakerContentLine(line: string, requiredContentLines = 1): boolean {
+  function pushSpeakerContentLine(line: string): boolean {
     if (shouldDropSpokenLine(line)) return false;
-    rotateSpeakerBlockIfNeeded(requiredContentLines);
     if (isPacingLine(line) && (speakerSpokenLineCount === 0 || isPacingLine(previousSignificantLine(out) ?? ""))) {
       return false;
     }
+    if (isPacingLine(line)) {
+      pendingPacingCue = mergePacingCue(pendingPacingCue, line.toLowerCase() as "[pause]" | "[beat]" | "[reflective pause]");
+      return true;
+    }
+    rotateSpeakerBlockIfNeeded(1);
     out.push(line);
     if (insideSpeaker && activeSpeaker && !insideNote) {
-      speakerContentLineCount += 1;
-      if (!isPacingLine(line)) speakerSpokenLineCount += 1;
+      speakerSpokenLineCount += 1;
     }
     return true;
   }
@@ -245,6 +273,7 @@ export function shapeHearthScriptForRecording(input: string): string {
   for (const rawLine of lines) {
     const trimmed = rawLine.trim();
     if (!trimmed) {
+      flushPendingPacingCue();
       pushIntentionalBlank(out);
       continue;
     }
@@ -259,25 +288,25 @@ export function shapeHearthScriptForRecording(input: string): string {
       out.push(`[${speaker}]`);
       insideSpeaker = true;
       activeSpeaker = speaker;
-      speakerContentLineCount = 0;
       speakerSpokenLineCount = 0;
+      pendingPacingCue = null;
       continue;
     }
     if (SPEAKER_CLOSE_RE.test(tagLine)) {
+      flushPendingPacingCue();
       pushIntentionalBlank(out);
       out.push(tagLine.toLowerCase());
       insideSpeaker = false;
       activeSpeaker = null;
-      speakerContentLineCount = 0;
       speakerSpokenLineCount = 0;
+      pendingPacingCue = null;
       continue;
     }
     if (NOTE_OPEN_RE.test(tagLine)) {
-      rotateSpeakerBlockIfNeeded(1);
+      flushPendingPacingCue();
       pushIntentionalBlank(out);
       out.push("[note]");
       insideNote = true;
-      if (insideSpeaker && activeSpeaker) speakerContentLineCount += 1;
       if (insideSpeaker && activeSpeaker) speakerSpokenLineCount += 1;
       continue;
     }
@@ -285,7 +314,6 @@ export function shapeHearthScriptForRecording(input: string): string {
       out.push("[/note]");
       insideNote = false;
       if (insideSpeaker && activeSpeaker) {
-        speakerContentLineCount += 1;
         speakerSpokenLineCount += 1;
       }
       pushIntentionalBlank(out);
@@ -294,7 +322,7 @@ export function shapeHearthScriptForRecording(input: string): string {
     if (PACING_RE.test(tagLine)) {
       if (insideSpeaker) {
         pushSpeakerContentLine(tagLine.toLowerCase());
-        pushIntentionalBlank(out);
+        flushPendingPacingCue();
       }
       continue;
     }
@@ -312,13 +340,14 @@ export function shapeHearthScriptForRecording(input: string): string {
 
     for (const spokenLine of splitSpokenLine(trimmed)) {
       const shouldAddPacingCue = insideSpeaker && isLandedPoint(spokenLine);
-      const pushedSpoken = pushSpeakerContentLine(spokenLine, shouldAddPacingCue ? 2 : 1);
+      const pushedSpoken = pushSpeakerContentLine(spokenLine);
       if (pushedSpoken && shouldAddPacingCue) {
         pushSpeakerContentLine(choosePacingCue(spokenLine));
-        pushIntentionalBlank(out);
       }
     }
   }
+
+  flushPendingPacingCue();
 
   const shaped = normalizeScriptTags(pruneCueOnlySpeakerBlocks(compactRecordingReadyLines(out)).join("\n"));
   const shapedValidation = validateScriptTags(shaped);

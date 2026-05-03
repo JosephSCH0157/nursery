@@ -4,7 +4,7 @@ import { validateScriptTags } from "@forge/shared/script-tags";
 import { coalesceScriptTextIntoOps, resolveScriptTextFromChatPayload } from "../src/lib/hearth-chat-api";
 import type { HearthOp } from "../src/lib/hearth-ai-runtime-contract";
 
-function assertMaxSpeakerContentLines(script: string, maxLines: number): void {
+function assertMaxSpeakerSpokenLines(script: string, maxLines: number): void {
   let insideSpeaker = false;
   let count = 0;
   for (const line of script.split(/\r?\n/)) {
@@ -15,12 +15,12 @@ function assertMaxSpeakerContentLines(script: string, maxLines: number): void {
       continue;
     }
     if (/^\[\/(?:s1|s2|g1|g2)\]$/i.test(trimmed)) {
-      assert.ok(count <= maxLines, `speaker block had ${count} content lines:\n${script}`);
+      assert.ok(count <= maxLines, `speaker block had ${count} spoken lines:\n${script}`);
       insideSpeaker = false;
       count = 0;
       continue;
     }
-    if (insideSpeaker && trimmed) count += 1;
+    if (insideSpeaker && trimmed && !/^\[(?:beat|pause|reflective pause)\]$/i.test(trimmed)) count += 1;
   }
 }
 
@@ -103,7 +103,7 @@ test("coalesceScriptTextIntoOps shapes set_body proposals before review display"
   assert.equal(validateScriptTags(body).ok, true);
   assert.match(body, /\[(?:pause|beat|reflective pause)\]/);
   assert.ok((body.match(/\[s1\]/g) ?? []).length > 1);
-  assertMaxSpeakerContentLines(body, 3);
+  assertMaxSpeakerSpokenLines(body, 3);
   assert.equal(body.split(/\r?\n/).some((line) => line.trim() === ""), true);
 });
 
@@ -120,5 +120,5 @@ test("coalesceScriptTextIntoOps shapes script_text before adding a body proposal
   assert.notEqual(body, blobScript);
   assert.equal(validateScriptTags(body).ok, true);
   assert.match(body, /\[(?:pause|beat|reflective pause)\]/);
-  assertMaxSpeakerContentLines(body, 3);
+  assertMaxSpeakerSpokenLines(body, 3);
 });
