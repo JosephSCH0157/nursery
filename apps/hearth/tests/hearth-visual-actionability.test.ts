@@ -91,6 +91,22 @@ test("provider registry filters by asset class", () => {
   assert.ok(referenceProviders.every((provider) => provider.supportedAssetClasses.includes("reference_clip")));
 });
 
+test("openart is available for broll prompt-pack/manual bridge flows", () => {
+  const brollPromptPackProviders = listExternalGenerationProviders("broll", undefined, { capability: "prompt_pack" });
+  const brollManualBridgeProviders = listExternalGenerationProviders("broll", undefined, { capability: "manual_bridge" });
+
+  assert.ok(brollPromptPackProviders.some((provider) => provider.id === "openart"));
+  assert.ok(brollManualBridgeProviders.some((provider) => provider.id === "openart"));
+});
+
+test("openart is excluded from stock-source-only broll provider filtering", () => {
+  const stockSourceProviders = listExternalGenerationProviders("broll", undefined, { capability: "stock_source" });
+  assert.ok(stockSourceProviders.length > 0);
+  assert.ok(stockSourceProviders.some((provider) => provider.id === "pexels-stock"));
+  assert.ok(stockSourceProviders.some((provider) => provider.id === "pixabay-stock"));
+  assert.equal(stockSourceProviders.some((provider) => provider.id === "openart"), false);
+});
+
 test("manual returned asset candidate preserves beat linkage and class identity", () => {
   const candidate = createManualResultCandidate({
     assetClass: "reference_clip",
