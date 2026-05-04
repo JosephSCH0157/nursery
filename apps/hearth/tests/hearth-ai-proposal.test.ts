@@ -97,3 +97,19 @@ test("normalizeHearthProposalOpsForScriptIngress makes approval display body mat
   assert.match(displayedBody, /^\[s1\]$/m);
   assert.doesNotMatch(displayedBody, /Validation check/i);
 });
+
+test("normalizeHearthProposalOpsForScriptIngress keeps only the final set_body proposal", () => {
+  const ops: HearthOp[] = [
+    { op: "set_title", value: "Lobbying" },
+    { op: "set_body", value: "[s1]\nOld body\n[/s1]" },
+    { op: "add_source", source: { title: "Source" } },
+    { op: "set_body", value: "[s1]\nNew body\n[/s1]" },
+  ];
+
+  const normalized = normalizeHearthProposalOpsForScriptIngress(ops);
+  const bodyOps = normalized.filter((op) => op.op === "set_body");
+
+  assert.equal(bodyOps.length, 1);
+  assert.equal(bodyOps[0]?.value.includes("New body"), true);
+  assert.equal(bodyOps[0]?.value.includes("Old body"), false);
+});

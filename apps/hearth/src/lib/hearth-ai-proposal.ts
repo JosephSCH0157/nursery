@@ -22,14 +22,28 @@ export function cloneHearthProposalOps(ops: HearthOp[]): HearthOp[] {
 }
 
 export function normalizeHearthProposalOpsForScriptIngress(ops: HearthOp[]): HearthOp[] {
-  return ops.map((op) => {
-    if (op.op !== "set_body") return op;
+  let lastBodyIndex = -1;
+  for (let index = 0; index < ops.length; index += 1) {
+    if (ops[index]?.op === "set_body") {
+      lastBodyIndex = index;
+    }
+  }
+
+  const normalizedOps: HearthOp[] = [];
+  for (let index = 0; index < ops.length; index += 1) {
+    const op = ops[index];
+    if (op.op !== "set_body") {
+      normalizedOps.push(op);
+      continue;
+    }
+    if (index !== lastBodyIndex) continue;
     const normalized = normalizeHearthAiScriptIngress(op.value);
-    return {
+    normalizedOps.push({
       ...op,
       value: normalized.text,
-    };
-  });
+    });
+  }
+  return normalizedOps;
 }
 
 export function updateHearthProposalBodyOp(

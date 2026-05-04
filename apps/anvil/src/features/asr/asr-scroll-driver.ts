@@ -6618,7 +6618,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       Number.isFinite(liveStrictForwardClusterSim) &&
       liveStrictForwardClusterSim >= clusterNeed &&
       !clusterContradictionFresh;
-    const ok = adjacentSupport || rescueSupport || clusterSupport;
+    // Forward-cluster is useful as a hint, but not strong enough to count as
+    // adjacent local proof for forced ASR commits. Treating it as local proof
+    // can cause runaway forward stepping when transcript tails stay ahead.
+    const ok = adjacentSupport || rescueSupport;
     if (ok) {
       warnGuard('live_strict_local_proof_ok', [
         `current=${safeCursor}`,
