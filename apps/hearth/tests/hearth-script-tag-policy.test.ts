@@ -76,7 +76,7 @@ test("hearthScriptTagPolicy: AI ingress shapes blob scripts into Anvil-ready spe
 
   assert.equal(ingress.validation.ok, true);
   assert.match(ingress.text, /\[(?:pause|beat|reflective pause)\]/);
-  assert.ok((ingress.text.match(/\[s1\]/g) ?? []).length > 1);
+  assert.ok((ingress.text.match(/\[s1\]/g) ?? []).length >= 1);
   assert.equal(ingress.text.split(/\r?\n/).some((line) => line.trim() === ""), true);
-  assertMaxSpeakerSpokenLines(ingress.text, 3);
+  assertMaxSpeakerSpokenLines(ingress.text, 5);
 });

@@ -12,16 +12,25 @@ const PACING_RE = /^\[(pause|beat|reflective pause)\]$/i;
 const PAREN_PACING_RE = /^\((pause|beat|reflective pause)\)$/i;
 const TAG_TOKEN_RE = /^\[[^\]\n]+\]$/;
 const TARGET_LINE_LENGTH = 76;
-const MAX_SPEAKER_SPOKEN_LINES = 3;
+const MAX_SPEAKER_SPOKEN_LINES = 5;
+const TARGET_SPEAKER_SPOKEN_LINES = 3;
+const MIN_WORDS_PER_BLOCK = 12;
+const MAX_WORDS_PER_BLOCK = 45;
 const DOT_PLACEHOLDER = "__HEARTH_DOT__";
 const VALIDATION_LEAK_RE = /^(?:validation check:|all speaker tags\b|no block exceeds\b|no mixed speakers\b|pacing tokens used\b|no markdown\b|tag contract\b|self-check\b)/i;
 
 export const HEARTH_RECORDING_READY_SCRIPT_INSTRUCTION = [
   "Recording-ready script rules:",
+  "When the user asks for a single-person script, perform a true narrative rewrite into one host voice.",
+  "Do not preserve fake two-person banter or call-and-response structure; collapse it into one narrator flow while preserving tone, jokes, and argument.",
   "Write scripts as performance scores for Anvil, not essays.",
   "Use short readable spoken lines, intentional blank lines, and visible pacing cues.",
-  "After each landed point, add [pause], [beat], or [reflective pause] on its own line.",
-  "Keep speaker blocks stable for Anvil/ASR: up to 3 spoken lines plus one optional pacing cue per [s1]/[s2]/[g1]/[g2] block, then close and reopen the speaker.",
+  "Use [s1] blocks around meaningful sections, not every sentence.",
+  "Target roughly 1-3 sentences and about 12-45 spoken words per [s1] block, with short punchline exceptions.",
+  "Use blank lines for breathing room before pacing tags.",
+  "Use [beat] sparingly for intentional emphasis and [pause] only for larger turns or section breaks.",
+  "Do not place [beat] after nearly every sentence.",
+  "Keep speaker blocks stable for Anvil/ASR and avoid closing/reopening tags after every line.",
   "Keep [s1], [s2], [g1], [g2] and their closing tags on their own lines.",
   "Use [s1] for Joe and [s2] for Brad.",
   "Keep [note]...[/note] hidden notes valid; pacing cues remain visible inside speaker blocks.",
@@ -90,6 +99,11 @@ function splitSpokenLine(line: string): string[] {
 
 function isLandedPoint(line: string): boolean {
   return /[.!?]["']?$/.test(line.trim());
+}
+
+function countWords(line: string): number {
+  const tokens = line.trim().match(/\b[\w']+\b/g);
+  return tokens ? tokens.length : 0;
 }
 
 function choosePacingCue(line: string): "[pause]" | "[beat]" | "[reflective pause]" {
@@ -203,6 +217,92 @@ function compactRecordingReadyLines(lines: string[]): string[] {
   return out;
 }
 
+function mergeAndThinSpeakerBlocks(lines: string[]): string[] {
+  const out: string[] = [];
+  const sections: Array<{
+    speaker: "s1" | "s2" | "g1" | "g2";
+    spoken: string[];
+    cues: Array<"[beat]" | "[pause]" | "[reflective pause]">;
+  }> = [];
+
+  let activeSpeaker: "s1" | "s2" | "g1" | "g2" | null = null;
+  let activeSpoken: string[] = [];
+  let activeCues: Array<"[beat]" | "[pause]" | "[reflective pause]"> = [];
+
+  const flush = (): void => {
+    if (!activeSpeaker) return;
+    if (activeSpoken.length === 0) {
+      activeSpeaker = null;
+      activeSpoken = [];
+      activeCues = [];
+      return;
+    }
+    const previous = sections[sections.length - 1];
+    if (previous && previous.speaker === activeSpeaker) {
+      previous.spoken.push(...activeSpoken);
+      previous.cues.push(...activeCues);
+    } else {
+      sections.push({
+        speaker: activeSpeaker,
+        spoken: [...activeSpoken],
+        cues: [...activeCues],
+      });
+    }
+    activeSpeaker = null;
+    activeSpoken = [];
+    activeCues = [];
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    const open = line.match(/^\[(s1|s2|g1|g2)\]$/i)?.[1]?.toLowerCase() as "s1" | "s2" | "g1" | "g2" | undefined;
+    if (open) {
+      flush();
+      activeSpeaker = open;
+      continue;
+    }
+    if (/^\[\/(?:s1|s2|g1|g2)\]$/i.test(line)) {
+      flush();
+      continue;
+    }
+    if (!activeSpeaker) continue;
+    if (!line) continue;
+    if (isPacingLine(line)) {
+      activeCues.push(line.toLowerCase() as "[beat]" | "[pause]" | "[reflective pause]");
+      continue;
+    }
+    activeSpoken.push(rawLine.trimEnd());
+  }
+  flush();
+
+  for (const section of sections) {
+    const words = section.spoken.reduce((sum, line) => sum + countWords(line), 0);
+    const spokenCount = section.spoken.length;
+    const shouldKeepCue = (
+      section.cues.includes("[pause]")
+      || section.cues.includes("[reflective pause]")
+      || (section.cues.includes("[beat]") && words >= 18 && spokenCount >= 2)
+    );
+    const chosenCue: "[pause]" | "[beat]" | "[reflective pause]" | null = section.cues.includes("[reflective pause]")
+      ? "[reflective pause]"
+      : section.cues.includes("[pause]")
+        ? "[pause]"
+        : section.cues.includes("[beat]")
+          ? "[beat]"
+          : null;
+
+    out.push(`[${section.speaker}]`);
+    out.push(...section.spoken);
+    if (shouldKeepCue && chosenCue) {
+      out.push(chosenCue);
+    }
+    out.push(`[/${section.speaker}]`);
+    out.push("");
+  }
+
+  return compactRecordingReadyLines(out);
+}
+
 function pruneCueOnlySpeakerBlocks(lines: string[]): string[] {
   const out: string[] = [];
   let block: string[] | null = null;
@@ -250,6 +350,7 @@ export function shapeHearthScriptForRecording(input: string): string {
   let insideNote = false;
   let activeSpeaker: "s1" | "s2" | "g1" | "g2" | null = null;
   let speakerSpokenLineCount = 0;
+  let speakerSpokenWordCount = 0;
   let pendingPacingCue: "[pause]" | "[beat]" | "[reflective pause]" | null = null;
 
   function flushPendingPacingCue(addBlank = true): void {
@@ -271,6 +372,7 @@ export function shapeHearthScriptForRecording(input: string): string {
     out.push(`[/${activeSpeaker}]`);
     insideSpeaker = false;
     speakerSpokenLineCount = 0;
+    speakerSpokenWordCount = 0;
     pendingPacingCue = null;
   }
 
@@ -280,12 +382,17 @@ export function shapeHearthScriptForRecording(input: string): string {
     out.push(`[${activeSpeaker}]`);
     insideSpeaker = true;
     speakerSpokenLineCount = 0;
+    speakerSpokenWordCount = 0;
     pendingPacingCue = null;
   }
 
   function rotateSpeakerBlockIfNeeded(requiredSpokenLines = 1): void {
     if (!insideSpeaker || !activeSpeaker || speakerSpokenLineCount === 0) return;
-    if (speakerSpokenLineCount + requiredSpokenLines <= MAX_SPEAKER_SPOKEN_LINES) return;
+    if (speakerSpokenLineCount < TARGET_SPEAKER_SPOKEN_LINES) return;
+    if (speakerSpokenWordCount < MIN_WORDS_PER_BLOCK) return;
+    if (speakerSpokenLineCount + requiredSpokenLines <= MAX_SPEAKER_SPOKEN_LINES && speakerSpokenWordCount <= MAX_WORDS_PER_BLOCK) {
+      return;
+    }
     closeActiveSpeakerBlock();
     reopenActiveSpeakerBlock();
   }
@@ -303,8 +410,17 @@ export function shapeHearthScriptForRecording(input: string): string {
     out.push(line);
     if (insideSpeaker && activeSpeaker && !insideNote) {
       speakerSpokenLineCount += 1;
+      speakerSpokenWordCount += countWords(line);
     }
     return true;
+  }
+
+  function shouldAutoAddPacingCue(spokenLine: string): boolean {
+    if (!insideSpeaker) return false;
+    if (!isLandedPoint(spokenLine)) return false;
+    if (speakerSpokenLineCount < 2) return false;
+    if (speakerSpokenWordCount < 18) return false;
+    return /\?|!|\b(but|because|so|the point|what matters|here's the thing)\b/i.test(spokenLine);
   }
 
   for (const rawLine of lines) {
@@ -376,7 +492,7 @@ export function shapeHearthScriptForRecording(input: string): string {
     }
 
     for (const spokenLine of splitSpokenLine(trimmed)) {
-      const shouldAddPacingCue = insideSpeaker && isLandedPoint(spokenLine);
+      const shouldAddPacingCue = shouldAutoAddPacingCue(spokenLine);
       const pushedSpoken = pushSpeakerContentLine(spokenLine);
       if (pushedSpoken && shouldAddPacingCue) {
         pushSpeakerContentLine(choosePacingCue(spokenLine));
@@ -386,7 +502,9 @@ export function shapeHearthScriptForRecording(input: string): string {
 
   flushPendingPacingCue();
 
-  const shaped = normalizeScriptTags(pruneCueOnlySpeakerBlocks(compactRecordingReadyLines(out)).join("\n"));
+  const shaped = normalizeScriptTags(
+    mergeAndThinSpeakerBlocks(pruneCueOnlySpeakerBlocks(compactRecordingReadyLines(out))).join("\n"),
+  );
   const shapedValidation = validateScriptTags(shaped);
   if (shapedValidation.ok) return shapedValidation.normalizedText.trim();
 

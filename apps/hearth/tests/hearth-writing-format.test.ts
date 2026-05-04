@@ -129,3 +129,16 @@ test("hearthWritingFormat: explicit script detection requires a real drafting as
   assert.equal(isExplicitHearthFullScriptRequest("I already have a draft script to review."), false);
   assert.equal(isExplicitHearthFullScriptRequest("The script feels too stiff."), false);
 });
+
+test("hearthWritingFormat: single-person requests inject true narrative rewrite guidance", () => {
+  const resolved = resolveHearthWritingFormatRequest({
+    requestContent: "Make this a single-person Anvil-readable script.",
+    selectedFormat: "full_script",
+    pendingShortcutIntent: null,
+  });
+
+  assert.equal(resolved.appliedFormat, "full_script");
+  assert.match(resolved.requestContent, /single-person rewrite requirement/i);
+  assert.match(resolved.requestContent, /one host voice/i);
+  assert.match(resolved.requestContent, /do not satisfy this by only changing speaker tags/i);
+});

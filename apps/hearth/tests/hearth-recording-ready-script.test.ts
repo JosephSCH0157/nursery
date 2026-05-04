@@ -94,6 +94,14 @@ function stripSpeakerTags(script: string): string[] {
     .filter((line) => !/^\[\/?(?:s1|s2|g1|g2)\]$/i.test(line.trim()));
 }
 
+function countPacingTags(script: string): number {
+  return (script.match(/\[(?:beat|pause|reflective pause)\]/gi) ?? []).length;
+}
+
+function countSpeakerBlocks(script: string, speaker: "s1" | "s2" | "g1" | "g2" = "s1"): number {
+  return (script.match(new RegExp(`\\[${speaker}\\]`, "g")) ?? []).length;
+}
+
 test("shapeHearthScriptForRecording turns paragraph walls into Anvil-friendly performance lines", () => {
   const shaped = shapeHearthScriptForRecording("[s1]\nThis is the first big idea that needs to land clearly for the audience. Here is the second point, and it should not hide inside a paragraph wall.\n[/s1]");
 
@@ -104,7 +112,7 @@ test("shapeHearthScriptForRecording turns paragraph walls into Anvil-friendly pe
   assert.ok(lines.filter((line) => line.length > 90).length === 0);
   assert.match(shaped, /^\[s1\]$/m);
   assert.match(shaped, /^\[\/s1\]$/m);
-  assertMaxSpeakerSpokenLines(shaped, 3);
+  assertMaxSpeakerSpokenLines(shaped, 5);
 });
 
 test("shapeHearthScriptForRecording breaks long speaker blobs into short repeat speaker blocks", () => {
@@ -115,7 +123,7 @@ test("shapeHearthScriptForRecording breaks long speaker blobs into short repeat 
   ].join("\n"));
 
   assert.equal(validateScriptTags(shaped).ok, true);
-  assertMaxSpeakerSpokenLines(shaped, 3);
+  assertMaxSpeakerSpokenLines(shaped, 5);
   assert.ok((shaped.match(/^\[s1\]$/gm) ?? []).length >= 2);
   assert.ok((shaped.match(/^\[\/s1\]$/gm) ?? []).length >= 2);
   assert.ok(shaped.split(/\r?\n/).some((line) => line.trim() === ""));
@@ -148,6 +156,41 @@ test("shapeHearthScriptForRecording keeps pause gaps tight for Anvil scroll", ()
   assert.notEqual(displayLines[firstPause + 2]?.trim(), "");
 });
 
+test("shapeHearthScriptForRecording merges tiny blocks and reduces beat overuse", () => {
+  const noisy = [
+    "[s1]",
+    "Exactly.",
+    "[beat]",
+    "[/s1]",
+    "",
+    "[s1]",
+    "That's a bar.",
+    "[beat]",
+    "[/s1]",
+    "",
+    "[s1]",
+    "Define equity.",
+    "[beat]",
+    "[/s1]",
+    "",
+    "[s1]",
+    "Not vibes.",
+    "[beat]",
+    "[/s1]",
+    "",
+    "[s1]",
+    "The actual argument is that policy should focus on outcomes and incentives.",
+    "[beat]",
+    "[/s1]",
+  ].join("\n");
+
+  const shaped = shapeHearthScriptForRecording(noisy);
+  assert.equal(validateScriptTags(shaped).ok, true);
+  assert.ok(countSpeakerBlocks(shaped, "s1") < countSpeakerBlocks(noisy, "s1"));
+  assert.ok(countPacingTags(shaped) <= 2);
+  assertMaxBlankRun(shaped, 1);
+});
+
 test("shapeHearthScriptForRecording groups rapid-fire short lines for Anvil tracking", () => {
   const shaped = shapeHearthScriptForRecording([
     "[s1]",
@@ -158,7 +201,7 @@ test("shapeHearthScriptForRecording groups rapid-fire short lines for Anvil trac
   assert.equal(validateScriptTags(shaped).ok, true);
   assertNoCueOnlySpeakerBlocks(shaped);
   assertNoConsecutivePacingCues(shaped);
-  assertMaxSpeakerSpokenLines(shaped, 3);
+  assertMaxSpeakerSpokenLines(shaped, 5);
   assert.match(shaped, /Alright\.\nToday we’re talking voting rights\.\nAnd racism\.\n\[beat\]/);
   assert.ok((shaped.match(/^\[s1\]$/gm) ?? []).length <= 3);
 });
