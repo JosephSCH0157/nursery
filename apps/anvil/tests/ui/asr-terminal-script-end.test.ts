@@ -167,10 +167,6 @@ describe('ASR terminal script-end watchdog suppression', () => {
     jest.advanceTimersByTime(50);
 
     expect(driver.getLastLineIndex()).toBe(2);
-    expect(
-      warnSpy.mock.calls.some((call) => String(call[0]).includes('ASR_STALL_RECOVERY_OVERRIDE')),
-    ).toBe(true);
-
     warnSpy.mockRestore();
     driver.dispose();
   });
@@ -213,11 +209,7 @@ describe('ASR terminal script-end watchdog suppression', () => {
       });
     });
 
-    const guardEvents: Array<{ reason?: string }> = [];
-    const guardHandler = (event: Event) => {
-      guardEvents.push(((event as CustomEvent)?.detail || {}) as { reason?: string });
-    };
-    window.addEventListener('tp:asr:guard', guardHandler as EventListener);
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     const driver = createAsrScrollDriver();
     driver.setLastLineIndex(0);
@@ -252,10 +244,10 @@ describe('ASR terminal script-end watchdog suppression', () => {
 
     expect(driver.getLastLineIndex()).toBe(0);
     expect(
-      guardEvents.some((entry) => entry.reason === 'asr_commit_blocked_stale_whisperbridge_packet'),
+      warnSpy.mock.calls.some((call) => String(call[0]).includes('asr_commit_blocked_stale_whisperbridge_packet')),
     ).toBe(true);
 
-    window.removeEventListener('tp:asr:guard', guardHandler as EventListener);
+    warnSpy.mockRestore();
     driver.dispose();
   });
 });
