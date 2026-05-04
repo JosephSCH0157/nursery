@@ -141,6 +141,12 @@ export function HenryPanel(props: HenryPanelProps) {
                 type="text"
                 value={chatDraft}
                 onChange={(event) => onChangeChatDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return;
+                  if (event.shiftKey) return;
+                  event.preventDefault();
+                  onSendChat();
+                }}
                 placeholder="Ask Henry"
               />
               <button type="button" onClick={onSendChat} disabled={!chatDraft.trim()}>Send</button>
