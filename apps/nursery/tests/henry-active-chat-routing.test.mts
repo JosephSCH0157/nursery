@@ -82,6 +82,15 @@ test("where does an episode get recorded gets Anvil workflow answer", () => {
   assert.match(reply.text, /Hearth shapes the script, Anvil captures/i);
 });
 
+test("known Hearth context does not fall back to missing-context prompt", () => {
+  const reply = buildHenryChatReply("can you sanity check this tool setup", baseContext(), {
+    hearthSignal: baseSignal(),
+  });
+  assert.equal(reply.lane, "free_help");
+  assert.doesNotMatch(reply.text, /I may be missing the exact context/i);
+  assert.match(reply.text, /You are in Hearth|handoff to Anvil|next step/i);
+});
+
 test("passive ambient suggestion still works separately", () => {
   const suggestion = getHenryDeterministicSuggestion({
     context: baseContext(),

@@ -26,6 +26,25 @@ export type HenryChatReply = {
   text: string;
 };
 
+function buildHenryContextAwareFallback(
+  context: HenryContext,
+  options?: HenryBehaviorOptions,
+): string {
+  if (context.surface === "hearth") {
+    const hearthNextStep = getHenryNextStep(context, options?.hearthSignal ?? null);
+    if (hearthNextStep) {
+      return `You are in Hearth. ${hearthNextStep}`;
+    }
+    return "You are in Hearth. I can help with script shape, pacing, read-aloud flow, and the next handoff to Anvil.";
+  }
+
+  if (context.surface !== "unknown") {
+    return `You are in ${context.surface}. I can explain what this surface owns and the next safe step.`;
+  }
+
+  return "I may be missing the exact context. Tell me which surface you are in, and I will point to the owning tool and the next safe step.";
+}
+
 function buildHenryOptionalHereAnswer(context: HenryContext): string {
   if (context.surface === "hearth") {
     const phaseNote = context.phase === "script"
@@ -228,6 +247,6 @@ export function buildHenryChatReply(
 
   return {
     lane,
-    text: normalizeHenryVoice("I may be missing the exact context. Tell me which surface you are in, and I will point to the owning tool and the next safe step."),
+    text: normalizeHenryVoice(buildHenryContextAwareFallback(context, options)),
   };
 }
