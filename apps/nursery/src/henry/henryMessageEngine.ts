@@ -12,6 +12,7 @@ import { resolveNextEpisodeAction } from "../workspace/resolveNextEpisodeAction"
 import { buildHenryUserMeteredBoundaryReply, classifyHenryAiLane } from "./henry-ai-cost-policy";
 import { resolveStagePurpose } from "./henryContext";
 import { buildHenryHearthChatAnswer } from "./henry-deterministic-suggestions";
+import { getHenryNextStep } from "./henry-next-step";
 import { normalizeHenryVoice } from "./henry-voice";
 
 type HenryBehaviorOptions = {
@@ -169,8 +170,9 @@ export function buildHenryActionAnswer(
     return "Unfinished work stays valid. You can continue from the current phase without losing prior progress.";
   }
   if (actionId === "what-next") {
-    if (context.surface === "hearth" && options?.mode && options?.suggestion && options?.hearthSignal) {
-      return normalizeHenryVoice(options.suggestion.text);
+    if (context.surface === "hearth") {
+      const hearthNextStep = getHenryNextStep(context, options?.hearthSignal ?? null);
+      if (hearthNextStep) return normalizeHenryVoice(hearthNextStep);
     }
     const rec = resolveHenryRecommendation(context);
     return [

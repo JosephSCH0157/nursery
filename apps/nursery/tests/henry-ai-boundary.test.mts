@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { HearthHenrySignal, HenryContext, HenryMode, HenrySuggestion } from "@forge/shared/henry";
+import type { HearthHenrySignal, HenryContext, HenryMode } from "@forge/shared/henry";
 import { buildHenryActionAnswer, buildHenryChatAnswer, buildHenryChatReply } from "../src/henry/henryMessageEngine.ts";
 
 function baseContext(): HenryContext {
@@ -33,17 +33,17 @@ function baseSignal(overrides: Partial<HearthHenrySignal> = {}): HearthHenrySign
 }
 
 test("what-next stays advisory and does not claim control actions", () => {
-  const suggestion: HenrySuggestion = {
-    kind: "anvil_readiness",
-    text: "Ready means recordable, not perfect. Want one light cadence pass before recording?",
-  };
   const answer = buildHenryActionAnswer("what-next", baseContext(), {
     mode: "reviewing",
-    suggestion,
+    suggestion: {
+      kind: "anvil_readiness",
+      text: "Ready means recordable, not perfect. Want one light cadence pass before recording?",
+    },
     hearthSignal: baseSignal(),
   });
 
-  assert.equal(answer, suggestion.text);
+  assert.doesNotMatch(answer, /Ready means recordable, not perfect/i);
+  assert.match(answer, /approve and replace|move this script to anvil|hand off to anvil/i);
   assert.doesNotMatch(answer, /I scheduled|I recorded|I edited|I published|I stored/i);
 });
 
@@ -66,7 +66,7 @@ test("buildHenryChatAnswer remains backward-compatible and string-only", () => {
     hearthSignal: baseSignal(),
   });
   assert.equal(typeof answer, "string");
-  assert.match(answer, /recordable|Best next step:/i);
+  assert.match(answer, /approve and replace|hand off to anvil|Best next step:/i);
 });
 
 test("legacy format remains intact when no hearth signal is present", () => {
