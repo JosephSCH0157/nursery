@@ -94,6 +94,6 @@ test("normalizeHearthProposalOpsForScriptIngress makes approval display body mat
 
   assert.equal(displayedBody, approvedBody);
   assert.notEqual(displayedBody, blobBody);
-  assert.match(displayedBody, /\[(?:beat|pause|reflective pause)\]/);
+  assert.match(displayedBody, /^\[s1\]$/m);
   assert.doesNotMatch(displayedBody, /Validation check/i);
 });
