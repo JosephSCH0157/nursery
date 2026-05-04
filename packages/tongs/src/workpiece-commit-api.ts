@@ -4411,10 +4411,49 @@ function extractScriptTitleFromText(scriptText: string): string | null {
       .replace(/^>\s+/, "")
       .trim();
     if (!cleaned) continue;
+    if (/^\[(?:\/)?(?:s\d+|g\d+|beat|pause|reflective pause)\]\s*$/i.test(cleaned)) continue;
     if (!sanitizeReadyDisplayTitle(cleaned)) continue;
     return cleaned.length > 160 ? `${cleaned.slice(0, 157)}...` : cleaned;
   }
   return null;
+}
+
+function compareReadyRowFreshness(
+  left: Pick<WorkspaceReadyScript, "marked_ready_at" | "updated_at" | "primary_script_path">,
+  right: Pick<WorkspaceReadyScript, "marked_ready_at" | "updated_at" | "primary_script_path">,
+): number {
+  const leftMarked = left.marked_ready_at ?? "";
+  const rightMarked = right.marked_ready_at ?? "";
+  if (leftMarked !== rightMarked) return leftMarked.localeCompare(rightMarked);
+
+  const leftUpdated = left.updated_at ?? "";
+  const rightUpdated = right.updated_at ?? "";
+  if (leftUpdated !== rightUpdated) return leftUpdated.localeCompare(rightUpdated);
+
+  const leftPriority = readyScriptPathPriority(left.primary_script_path);
+  const rightPriority = readyScriptPathPriority(right.primary_script_path);
+  if (leftPriority !== rightPriority) return rightPriority - leftPriority;
+
+  return right.primary_script_path.localeCompare(left.primary_script_path);
+}
+
+function selectPreferredReadyRow(left: WorkspaceReadyScript, right: WorkspaceReadyScript): WorkspaceReadyScript {
+  const preferred = compareReadyRowFreshness(left, right) >= 0 ? left : right;
+  const alternate = preferred === left ? right : left;
+  const mergedScriptPaths = Array.from(new Set([
+    ...preferred.script_paths,
+    ...alternate.script_paths,
+  ])).sort((a, b) => {
+    const byPriority = readyScriptPathPriority(a) - readyScriptPathPriority(b);
+    if (byPriority !== 0) return byPriority;
+    return a.localeCompare(b);
+  });
+  return {
+    ...preferred,
+    script_paths: mergedScriptPaths.includes(preferred.primary_script_path)
+      ? mergedScriptPaths
+      : [preferred.primary_script_path, ...mergedScriptPaths],
+  };
 }
 
 function readyScriptPathPriority(path: string): number {
@@ -10841,8 +10880,8 @@ export class TongsCommitService {
       const episode = episodeById.get(workpieceId);
       const episodeLabel = episode?.label?.trim() ?? "";
       const title = sanitizeReadyDisplayTitle(episodeLabel)
-        ?? sanitizeReadyDisplayTitle(scriptTitleFallbackByWorkpiece.get(workpieceId));
-      if (!title) continue;
+        ?? sanitizeReadyDisplayTitle(scriptTitleFallbackByWorkpiece.get(workpieceId))
+        ?? "Untitled Episode";
       const primaryScriptPath = readyPointer.script_path;
       const knownPaths = readyPathsByWorkpiece.get(workpieceId) ?? [primaryScriptPath];
       const scriptPaths = knownPaths.includes(primaryScriptPath)
@@ -10873,9 +10912,19 @@ export class TongsCommitService {
       readyScripts.push(next);
     }
 
-    readyScripts.sort(compareWorkspaceReadyScripts);
+    const canonicalByWorkpiece = new Map<string, WorkspaceReadyScript>();
+    for (const row of readyScripts) {
+      const existing = canonicalByWorkpiece.get(row.workpiece_id);
+      if (!existing) {
+        canonicalByWorkpiece.set(row.workpiece_id, row);
+        continue;
+      }
+      canonicalByWorkpiece.set(row.workpiece_id, selectPreferredReadyRow(existing, row));
+    }
 
-    return readyScripts;
+    const canonicalReadyScripts = [...canonicalByWorkpiece.values()];
+    canonicalReadyScripts.sort(compareWorkspaceReadyScripts);
+    return canonicalReadyScripts;
   }
 
   async appendEvent(workpieceId: string, input: AppendEventRequest): Promise<WorkpieceEventRow> {

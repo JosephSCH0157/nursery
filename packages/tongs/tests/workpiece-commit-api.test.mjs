@@ -6783,6 +6783,191 @@ test("TongsCommitService.listWorkspaceReadyScripts keeps take_kept episodes in t
   assert.equal(result.some((row) => row.workpiece_id === workpieceC), true);
 });
 
+test("TongsCommitService.listWorkspaceReadyScripts emits one canonical row per workpiece across duplicate ready metadata and file revisions", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const workpieceA = "11111111-1111-4111-8111-111111111111";
+
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: workpieceA,
+        workspace_id: workspaceId,
+        label: "Canonical Episode",
+        updated_at: "2026-03-09T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+      },
+    ],
+    files: [
+      {
+        workpiece_id: workpieceA,
+        path: "script/script.md",
+        updated_at: "2026-03-09T10:30:00.000Z",
+        created_at: "2026-03-09T10:00:00.000Z",
+      },
+      {
+        workpiece_id: workpieceA,
+        path: "script/script.md",
+        updated_at: "2026-03-09T11:30:00.000Z",
+        created_at: "2026-03-09T11:00:00.000Z",
+      },
+      {
+        workpiece_id: workpieceA,
+        path: "script/script.published.md",
+        updated_at: "2026-03-09T11:35:00.000Z",
+        created_at: "2026-03-09T11:10:00.000Z",
+      },
+    ],
+    readyMeta: [
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceA,
+        script_path: "script/script.md",
+        marked_ready_by: viewerId,
+        marked_ready_at: "2026-03-09T11:30:00.000Z",
+      },
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceA,
+        script_path: "script/script.published.md",
+        marked_ready_by: viewerId,
+        marked_ready_at: "2026-03-09T11:30:00.000Z",
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: viewerId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+
+  const result = await service.listWorkspaceReadyScripts(workspaceId, {
+    userAccessToken: "viewer_token",
+  });
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0]?.workpiece_id, workpieceA);
+  assert.equal(result[0]?.primary_script_path, "script/script.published.md");
+  assert.deepEqual(result[0]?.script_paths, ["script/script.published.md", "script/script.md"]);
+});
+
+test("TongsCommitService.listWorkspaceReadyScripts keeps distinct workpieces even when titles match", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const workpieceA = "11111111-1111-4111-8111-111111111111";
+  const workpieceB = "22222222-2222-4222-8222-222222222222";
+
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: workpieceA,
+        workspace_id: workspaceId,
+        label: "Same Title",
+        updated_at: "2026-03-09T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+      },
+      {
+        id: workpieceB,
+        workspace_id: workspaceId,
+        label: "Same Title",
+        updated_at: "2026-03-08T10:00:00.000Z",
+        created_at: "2026-03-01T09:00:00.000Z",
+      },
+    ],
+    files: [
+      {
+        workpiece_id: workpieceA,
+        path: "script/script.md",
+        updated_at: "2026-03-09T10:30:00.000Z",
+        created_at: "2026-03-09T10:00:00.000Z",
+      },
+      {
+        workpiece_id: workpieceB,
+        path: "script/script.md",
+        updated_at: "2026-03-08T10:30:00.000Z",
+        created_at: "2026-03-08T10:00:00.000Z",
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: viewerId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+
+  const result = await service.listWorkspaceReadyScripts(workspaceId, {
+    userAccessToken: "viewer_token",
+  });
+
+  assert.equal(result.length, 2);
+  assert.deepEqual(new Set(result.map((row) => row.workpiece_id)), new Set([workpieceA, workpieceB]));
+});
+
+test("TongsCommitService.listWorkspaceReadyScripts falls back to Untitled Episode instead of script tags", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const workpieceA = "11111111-1111-4111-8111-111111111111";
+
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: workpieceA,
+        workspace_id: workspaceId,
+        label: "Untitled Episode",
+        updated_at: "2026-03-09T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+      },
+    ],
+    files: [
+      {
+        workpiece_id: workpieceA,
+        path: "script/script.md",
+        updated_at: "2026-03-09T10:30:00.000Z",
+        created_at: "2026-03-09T10:00:00.000Z",
+      },
+    ],
+    readyMeta: [
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceA,
+        script_path: "script/script.md",
+        marked_ready_by: viewerId,
+        marked_ready_at: "2026-03-09T10:30:00.000Z",
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: viewerId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+
+  const result = await service.listWorkspaceReadyScripts(workspaceId, {
+    userAccessToken: "viewer_token",
+  });
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0]?.title, "Untitled Episode");
+});
+
 test("TongsCommitService.updateWorkspaceReadyQueueState upserts rank and hide state while clearing empty rows", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const otherWorkspaceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
