@@ -129,6 +129,12 @@ describe('ASR terminal script-end watchdog suppression', () => {
     const driver = createAsrScrollDriver();
     driver.setLastLineIndex(0);
 
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: false } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
     // Prime a forward commit so starvation detection has a commit anchor.
     driver.ingest('Beta bridge line', true, {
       currentIdx: 0,
@@ -166,6 +172,90 @@ describe('ASR terminal script-end watchdog suppression', () => {
     ).toBe(true);
 
     warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('blocks delayed WhisperBridge final packets from moving scroll after speech ends', () => {
+    document.body.innerHTML = `
+      <main id="viewer" class="viewer" style="overflow-y:auto">
+        <div id="script">
+          <div class="line" data-line="0">Alpha opening line</div>
+          <div class="line" data-line="1">Beta follow line</div>
+          <div class="line" data-line="2">Gamma tail line</div>
+        </div>
+      </main>
+    `;
+
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 500 });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 1600 });
+    Object.defineProperty(scroller, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 0, left: 0, right: 400, bottom: 500, width: 400, height: 500 }),
+    });
+    scroller.scrollTop = 0;
+
+    const lineEls = Array.from(document.querySelectorAll<HTMLElement>('.line'));
+    lineEls.forEach((lineEl, idx) => {
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: idx * 180 });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: 120 });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: 120 });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: idx * 180,
+          left: 0,
+          right: 400,
+          bottom: idx * 180 + 120,
+          width: 400,
+          height: 120,
+        }),
+      });
+    });
+
+    const guardEvents: Array<{ reason?: string }> = [];
+    const guardHandler = (event: Event) => {
+      guardEvents.push(((event as CustomEvent)?.detail || {}) as { reason?: string });
+    };
+    window.addEventListener('tp:asr:guard', guardHandler as EventListener);
+
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(0);
+
+    // Simulate live speech first, then speech ending before a delayed final packet arrives.
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: false } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    jest.advanceTimersByTime(1000);
+
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: false } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: true } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: false },
+    }));
+
+    driver.ingest('Beta follow line', true, {
+      source: 'openai-whisper-bridge',
+      currentIdx: 0,
+      matchId: 'delayed-whisper-final-after-stop',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.97,
+        topScores: [{ idx: 1, score: 0.97 }],
+      },
+    });
+
+    jest.advanceTimersByTime(50);
+
+    expect(driver.getLastLineIndex()).toBe(0);
+    expect(
+      guardEvents.some((entry) => entry.reason === 'asr_commit_blocked_stale_whisperbridge_packet'),
+    ).toBe(true);
+
+    window.removeEventListener('tp:asr:guard', guardHandler as EventListener);
     driver.dispose();
   });
 });

@@ -92,6 +92,7 @@ type PendingMatch = {
   proofSource?: string;
   starvationMs?: number;
   provenSpeakablePath?: boolean;
+  transcriptSource?: string;
 };
 
 type AsrEventSnapshot = {
@@ -4913,10 +4914,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     );
   };
 
+  const isWhisperBridgeTranscriptSource = (source?: unknown): boolean => {
+    const normalized = String(source || '').trim().toLowerCase();
+    if (!normalized) return false;
+    return normalized.includes('whisper-bridge');
+  };
+
   const canApplyAsrMovement = (
     source: string,
     now: number,
-    detail?: { final?: boolean; clue?: string },
+    detail?: {
+      final?: boolean;
+      clue?: string;
+      transcriptSource?: string;
+      forceReason?: string;
+      sourceBranch?: string;
+    },
   ): boolean => {
     const commitLikeAsrSource = isLiveAsrCommitSource(source);
     if (getScrollMode() === 'asr' && commitLikeAsrSource) {
@@ -4945,6 +4958,61 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           resolveDriverRunKey() ? `driverRunKey=${resolveDriverRunKey()}` : '',
           `activeRunKey=${resolveActiveRunKey() || 'none'}`,
         ]);
+        return false;
+      }
+      const runtimeSpeechFresh = hasRecentActualSpeech(now);
+      const vadSpeechFresh = hasRecentVadSpeechNow(now);
+      const speechFresh =
+        !asrSilenceActive &&
+        runtimeSpeechFresh &&
+        vadSpeechFresh &&
+        asrRuntimeSpeechRunningActual;
+      if (!speechFresh) {
+        const normalizedSource = String(source || '').trim().toLowerCase();
+        const normalizedForceReason = String(detail?.forceReason || '').trim().toLowerCase();
+        const normalizedSourceBranch = String(detail?.sourceBranch || '').trim().toLowerCase();
+        const pendingCommitPath =
+          normalizedSource.startsWith('pending-commit:')
+            ? normalizedSource.slice('pending-commit:'.length)
+            : normalizedSource;
+        const whisperBridgePacket = isWhisperBridgeTranscriptSource(detail?.transcriptSource);
+        const stalePath = [
+          pendingCommitPath,
+          normalizedForceReason,
+          normalizedSourceBranch,
+        ]
+          .some((value) =>
+            value.includes('movement_authority_commit') ||
+            value.includes('proof_owned_primary_commit') ||
+            value.includes('starvation_future_speech_reconcile') ||
+            value.includes('stall_recovery_override') ||
+            value.includes('rescue'),
+          );
+        if (whisperBridgePacket || stalePath) {
+          warnGuard('asr_commit_blocked_stale_whisperbridge_packet', [
+            `source=${source}`,
+            pendingCommitPath ? `path=${pendingCommitPath}` : '',
+            detail?.forceReason ? `forceReason=${detail.forceReason}` : '',
+            detail?.sourceBranch ? `sourceBranch=${detail.sourceBranch}` : '',
+            `speechFresh=${speechFresh ? 1 : 0}`,
+            `runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0}`,
+            `vadSpeechFresh=${vadSpeechFresh ? 1 : 0}`,
+            `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+            `asrSilenceActive=${asrSilenceActive ? 1 : 0}`,
+            whisperBridgePacket ? 'packetSource=openai-whisper-bridge' : '',
+            detail?.final ? 'final=1' : 'final=0',
+            detail?.clue ? `clue="${formatLogSnippet(String(detail.clue || ''), 72)}"` : '',
+          ]);
+        } else {
+          warnGuard('asr_live_no_input_hold', [
+            `source=${source}`,
+            `runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0}`,
+            `vadSpeechFresh=${vadSpeechFresh ? 1 : 0}`,
+            `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+            `asrSilenceActive=${asrSilenceActive ? 1 : 0}`,
+          ]);
+        }
+        emitHudStatus('asr_live_no_input_hold', 'Hold: waiting for live speech before advancing');
         return false;
       }
     }
@@ -9295,11 +9363,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         starvationMs: pendingStarvationMs,
         provenSpeakablePath: pendingProvenSpeakablePath,
       } = pending;
+      const pendingTranscriptSource = String(pending.transcriptSource || '').trim().toLowerCase();
       let forceReason = pendingForceReason;
       const pendingCommitSource = forceReason
         ? `pending-commit:${forceReason}`
         : 'pending-commit';
-      if (!canApplyAsrMovement(pendingCommitSource, now, { final: isFinal, clue: snippet })) {
+      if (!canApplyAsrMovement(pendingCommitSource, now, {
+        final: isFinal,
+        clue: snippet,
+        transcriptSource: pendingTranscriptSource,
+        forceReason,
+        sourceBranch: pendingSourceBranch,
+      })) {
         clearPendingSpeakableBridge('movement_not_allowed');
         return;
       }
@@ -13837,6 +13912,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (!normalized) return;
     const compacted = normalized.replace(/\s+/g, ' ').trim();
     const now = Date.now();
+    const transcriptSource = String((detail as { source?: unknown } | null | undefined)?.source || '').trim().toLowerCase();
     const liveAsrSessionActive =
       getScrollMode() === 'asr' &&
       isSessionLivePhase() &&
@@ -13896,6 +13972,28 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         `activeRunKey=${resolveActiveRunKey() || 'none'}`,
       ]);
       return;
+    }
+    const staleWhisperBridgeFinalPacket =
+      liveAsrSessionActive &&
+      isFinal &&
+      isWhisperBridgeTranscriptSource(transcriptSource) &&
+      (
+        asrSilenceActive ||
+        !hasRecentActualSpeech(now) ||
+        !hasRecentVadSpeechNow(now) ||
+        !asrRuntimeSpeechRunningActual
+      );
+    if (staleWhisperBridgeFinalPacket) {
+      warnGuard('asr_commit_blocked_stale_whisperbridge_packet', [
+        'source=ingest',
+        `transcriptSource=${transcriptSource || 'unknown'}`,
+        `speechFresh=0`,
+        `runtimeSpeechFresh=${hasRecentActualSpeech(now) ? 1 : 0}`,
+        `vadSpeechFresh=${hasRecentVadSpeechNow(now) ? 1 : 0}`,
+        `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+        `asrSilenceActive=${asrSilenceActive ? 1 : 0}`,
+        compacted ? `clue="${formatLogSnippet(compacted, 72)}"` : '',
+      ]);
     }
     if (!allowMovementForIngest(isFinal, now, compacted)) {
       return;
@@ -18475,6 +18573,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       liveForwardGuardActive: liveForwardGuardActive || undefined,
       runKey: transcriptRunKey || undefined,
       runGeneration: transcriptRunGeneration ?? undefined,
+      transcriptSource,
     });
     schedulePending();
   };
