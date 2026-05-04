@@ -9,9 +9,126 @@ import {
 import type { MediaMapGenerationScope } from "./hearth-media-map-conversation";
 
 const MAX_MEDIA_MAP_VISUALS = 18;
+const MOTION_OR_PROCESS_SIGNAL_RE = /\b(motion|move|moving|camera|pan|zoom|tracking|walk|run|drive|flow|process|workflow|sequence|timeline|action|transition)\b/i;
+const STATIC_OR_EXPLAINER_SIGNAL_RE = /\b(static|still|diagram|explainer|explain|emphasis|concept|graphic|chart|map|label|text)\b/i;
 
 function hasReferenceClipEvidenceSource(entry: { source?: string | null }): boolean {
   return typeof entry.source === "string" && entry.source.trim().length > 0;
+}
+
+type PrimaryVisualAssetType = "broll" | "image" | "thumbnail" | "none";
+
+type VisualDedupeOptions = {
+  preserveEntryIds?: ReadonlySet<string>;
+  preserveBothAnchorKeys?: ReadonlySet<string>;
+  existingAttachedTypeByAnchor?: ReadonlyMap<string, PrimaryVisualAssetType>;
+};
+
+function normalizeAnchorKey(entry: EpisodeMediaMapEntry): string {
+  const mode = entry.anchor.mode;
+  const normalizedTarget = entry.anchor.target
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  return `${mode}::${normalizedTarget}`;
+}
+
+function resolvePrimaryVisualAssetType(entry: EpisodeMediaMapEntry): PrimaryVisualAssetType {
+  const intent = entry.intent.trim().toLowerCase();
+  const target = entry.anchor.target.trim().toLowerCase();
+  if (intent.includes("thumbnail") || target.startsWith("thumbnail:")) return "thumbnail";
+  if (entry.final_media_kind === "b_roll") return "broll";
+  if (entry.final_media_kind === "image") return "image";
+  return "none";
+}
+
+function resolvePreferredVisualType(entries: EpisodeMediaMapEntry[]): PrimaryVisualAssetType | null {
+  if (entries.some((entry) => resolvePrimaryVisualAssetType(entry) === "thumbnail")) {
+    return "thumbnail";
+  }
+
+  let brollScore = 0;
+  let imageScore = 0;
+  for (const entry of entries) {
+    const signature = [entry.intent, entry.description, entry.anchor.target, entry.purpose].join(" ");
+    if (MOTION_OR_PROCESS_SIGNAL_RE.test(signature)) brollScore += 2;
+    if (STATIC_OR_EXPLAINER_SIGNAL_RE.test(signature)) imageScore += 2;
+    if (entry.final_media_kind === "b_roll") brollScore += 1;
+    if (entry.final_media_kind === "image") imageScore += 1;
+    if (entry.purpose === "explanation" || entry.purpose === "emphasis") imageScore += 1;
+  }
+
+  if (brollScore > imageScore) return "broll";
+  if (imageScore > brollScore) return "image";
+  return null;
+}
+
+function resolveExistingAttachedTypeByAnchor(entries: readonly EpisodeMediaMapEntry[]): Map<string, PrimaryVisualAssetType> {
+  const map = new Map<string, PrimaryVisualAssetType>();
+  for (const entry of entries) {
+    if (entry.source.status !== "selected" && entry.source.status !== "attached") continue;
+    const type = resolvePrimaryVisualAssetType(entry);
+    if (type === "none") continue;
+    const anchorKey = normalizeAnchorKey(entry);
+    if (!map.has(anchorKey)) map.set(anchorKey, type);
+  }
+  return map;
+}
+
+export function dedupeVisualAssetsByAnchor(
+  items: EpisodeMediaMapEntry[],
+  options: VisualDedupeOptions = {},
+): EpisodeMediaMapEntry[] {
+  const preserveEntryIds = options.preserveEntryIds ?? new Set<string>();
+  const preserveBothAnchorKeys = options.preserveBothAnchorKeys ?? new Set<string>();
+  const existingAttachedTypeByAnchor = options.existingAttachedTypeByAnchor ?? new Map<string, PrimaryVisualAssetType>();
+  const grouped = new Map<string, EpisodeMediaMapEntry[]>();
+
+  for (const item of items) {
+    const type = resolvePrimaryVisualAssetType(item);
+    if (type === "none") continue;
+    const key = normalizeAnchorKey(item);
+    const bucket = grouped.get(key);
+    if (bucket) {
+      bucket.push(item);
+    } else {
+      grouped.set(key, [item]);
+    }
+  }
+
+  const seen = new Set<string>();
+  const retained = new Set<string>();
+
+  for (const [anchorKey, group] of grouped) {
+    group.forEach((entry) => seen.add(entry.id));
+    const kinds = new Set(group.map((entry) => resolvePrimaryVisualAssetType(entry)));
+    const hasImage = kinds.has("image");
+    const hasBroll = kinds.has("broll");
+    if (!hasImage || !hasBroll || preserveBothAnchorKeys.has(anchorKey)) {
+      group.forEach((entry) => retained.add(entry.id));
+      continue;
+    }
+
+    const preserveEntries = group.filter((entry) => preserveEntryIds.has(entry.id));
+    if (preserveEntries.length > 0) {
+      group.forEach((entry) => retained.add(entry.id));
+      continue;
+    }
+
+    const preferredFromPurpose = resolvePreferredVisualType(group);
+    const existingType = existingAttachedTypeByAnchor.get(anchorKey) ?? null;
+    const preferredType = preferredFromPurpose ?? existingType ?? resolvePrimaryVisualAssetType(group[0]!);
+
+    for (const entry of group) {
+      if (resolvePrimaryVisualAssetType(entry) === preferredType) {
+        retained.add(entry.id);
+      }
+    }
+  }
+
+  const untouched = items.filter((entry) => !seen.has(entry.id));
+  const deduped = items.filter((entry) => retained.has(entry.id));
+  return [...untouched, ...deduped];
 }
 
 function scoreMediaMapEntry(entry: EpisodeMediaMapEntry, index: number): number {
@@ -203,7 +320,57 @@ export function buildMediaMapFromExistingPlans(
     ...(includeBroll ? fromBroll : []),
     ...(includeReferenceClips ? fromReferenceClips : []),
   ];
-  const selected = selectMediaMapVisualBeats(merged);
+  const preserveEntryIds = new Set<string>();
+  for (const imageEntry of current.image_map.entries) {
+    const sourceType = imageEntry.source_type.trim().toLowerCase();
+    const origin = imageEntry.origin?.trim().toLowerCase() ?? "";
+    const isManualImage = sourceType === "custom"
+      || sourceType === "upload"
+      || sourceType === "external"
+      || sourceType === "hammer_upload"
+      || origin === "hammer"
+      || origin === "mixed"
+      || Boolean(imageEntry.selected_asset_id);
+    if (isManualImage) preserveEntryIds.add(`mm_imap_${imageEntry.id}`);
+  }
+  for (const beat of current.broll_plan.beats) {
+    const sourceType = beat.source_type.trim().toLowerCase();
+    const origin = beat.origin.trim().toLowerCase();
+    const isManualBroll = beat.placement_hint === "manual"
+      || sourceType === "upload"
+      || sourceType === "external"
+      || sourceType === "hammer_upload"
+      || origin === "hammer"
+      || origin === "mixed"
+      || Boolean(beat.selected_asset_id);
+    if (isManualBroll) preserveEntryIds.add(`mm_broll_${beat.id}`);
+  }
+
+  const preserveBothAnchorKeys = new Set<string>();
+  const groupedForPreserve = new Map<string, EpisodeMediaMapEntry[]>();
+  for (const entry of merged) {
+    const key = normalizeAnchorKey(entry);
+    const bucket = groupedForPreserve.get(key);
+    if (bucket) bucket.push(entry);
+    else groupedForPreserve.set(key, [entry]);
+  }
+  for (const [anchorKey, group] of groupedForPreserve) {
+    const hasPreservedImage = group.some((entry) => preserveEntryIds.has(entry.id) && resolvePrimaryVisualAssetType(entry) === "image");
+    const hasPreservedBroll = group.some((entry) => preserveEntryIds.has(entry.id) && resolvePrimaryVisualAssetType(entry) === "broll");
+    if (hasPreservedImage && hasPreservedBroll) {
+      preserveBothAnchorKeys.add(anchorKey);
+    }
+  }
+
+  // When purpose preference ties, keep continuity with attached assets already present on this anchor.
+  const existingAttachedTypeByAnchor = resolveExistingAttachedTypeByAnchor(current.media_map.entries);
+
+  const deduped = dedupeVisualAssetsByAnchor(merged, {
+    preserveEntryIds,
+    preserveBothAnchorKeys,
+    existingAttachedTypeByAnchor,
+  });
+  const selected = selectMediaMapVisualBeats(deduped);
   return {
     id: current.media_map.id || "media-map-v1",
     workpiece_id: current.media_map.workpiece_id,
