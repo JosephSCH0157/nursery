@@ -159,6 +159,7 @@ import {
   type ScriptValidationResult,
   type ScriptValidationIssue,
 } from "@forge/shared/script-tags";
+import { HENRY_HEARTH_SIGNAL_EVENT, type HearthHenrySignal } from "@forge/shared/henry";
 import { evaluateHearthScriptValidation } from "../lib/hearth-script-tag-policy";
 import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import type {
@@ -3994,6 +3995,32 @@ export default function HearthShell({
     () => readyScriptsForDisplay.find((entry) => entry.workpieceId === (workpieceId ?? "")) ?? null,
     [readyScriptsForDisplay, workpieceId],
   );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const scriptText = activeDraft?.body ?? "";
+    const detail: HearthHenrySignal = {
+      surface: "hearth",
+      workspaceId,
+      workpieceId,
+      hasActiveSpark: activeEpisodeSparks.length > 0,
+      hasDraft: scriptText.trim().length > 0,
+      tagValidationOk: hearthScriptState?.validation.ok ?? null,
+      hasPacingCues: scriptText.trim().length
+        ? /\[(?:beat|pause|reflective pause)\]/i.test(scriptText)
+        : null,
+      isApprovedOrReady: Boolean(hasApprovedScript || activeReadyScript),
+      updatedAtIso: new Date().toISOString(),
+    };
+    window.dispatchEvent(new CustomEvent<HearthHenrySignal>(HENRY_HEARTH_SIGNAL_EVENT, { detail }));
+  }, [
+    activeDraft?.body,
+    activeEpisodeSparks.length,
+    activeReadyScript,
+    hasApprovedScript,
+    hearthScriptState?.validation.ok,
+    workpieceId,
+    workspaceId,
+  ]);
   const activeEpisodeReadyStatus = useMemo(() => {
     if (activeWorkpieceIsArchived) {
       return {

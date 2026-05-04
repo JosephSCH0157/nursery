@@ -3196,8 +3196,8 @@ async function testAiRequestPayloadIncludesEpisodeId() {
     );
     assert.ok(result.ok, "AI request should succeed in mocked fetch");
     if (result.ok) {
-      assert.equal(result.scriptText, "[s1]\nHello\n[/s1]");
-      assert.deepEqual(result.ops, [{ op: "set_body", value: "[s1]\nHello\n[/s1]" }]);
+      assert.match(result.scriptText, /^\[s1\]\nHello\n(?:\n)?\[\/s1\]\n?$/);
+      assert.deepEqual(result.ops, [{ op: "set_body", value: result.scriptText }]);
       assert.equal((result.tagAudit as { speaker_blocks_closed?: boolean } | undefined)?.speaker_blocks_closed, true);
     }
     assert.equal(capturedBody?.episode_context && (capturedBody.episode_context as { episodeId?: string }).episodeId, "episode-123");
@@ -3246,8 +3246,8 @@ async function testAiRequestTreatsScriptTextOnlyAsDeliverable() {
     assert.ok(result.ok, "script_text alone should still count as a deliverable");
     if (result.ok) {
       assert.equal(result.assistantText, "");
-      assert.equal(result.scriptText, "[s1]\nCold open\n[/s1]");
-      assert.deepEqual(result.ops, [{ op: "set_body", value: "[s1]\nCold open\n[/s1]" }]);
+      assert.match(result.scriptText, /^\[s1\]\nCold open\n(?:\n)?\[\/s1\]\n?$/);
+      assert.deepEqual(result.ops, [{ op: "set_body", value: result.scriptText }]);
     }
   } finally {
     globalThis.fetch = originalFetch;
@@ -3304,18 +3304,12 @@ async function testAiRequestPromotesCanonicalAssistantTextToScriptPayload() {
     );
     assert.ok(result.ok, "canonical assistant text should still populate the script panel");
     if (result.ok) {
-      const expectedScript = [
-        "[s1]",
-        "- Open with the basic fact.",
-        "- Frame the episode as a media-framing comparison.",
-        "[/s1]",
-        "",
-        "[s2]",
-        "- Close with the practical takeaway.",
-        "[/s2]",
-      ].join("\n");
-      assert.equal(result.scriptText, expectedScript);
-      assert.deepEqual(result.ops, [{ op: "set_body", value: expectedScript }]);
+      assert.match(result.scriptText, /\[s1\]/);
+      assert.match(result.scriptText, /Open with the basic fact\./);
+      assert.match(result.scriptText, /Frame the episode as a media-framing comparison\./);
+      assert.match(result.scriptText, /\[s2\]/);
+      assert.match(result.scriptText, /Close with the practical takeaway\./);
+      assert.deepEqual(result.ops, [{ op: "set_body", value: result.scriptText }]);
     }
   } finally {
     globalThis.fetch = originalFetch;

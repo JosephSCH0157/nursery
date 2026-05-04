@@ -1,7 +1,22 @@
-import type { HenryContext, HenryObservation, HenryRecommendation } from "@forge/shared/henry";
+import type {
+  HearthHenrySignal,
+  HenryContext,
+  HenryMode,
+  HenryObservation,
+  HenryRecommendation,
+  HenrySuggestion,
+} from "@forge/shared/henry";
 import type { EpisodeStatusSignals } from "../workspace/resolveEpisodeStatus";
 import { resolveNextEpisodeAction } from "../workspace/resolveNextEpisodeAction";
 import { resolveStagePurpose } from "./henryContext";
+import { buildHenryHearthChatAnswer } from "./henry-deterministic-suggestions";
+import { normalizeHenryVoice } from "./henry-voice";
+
+type HenryBehaviorOptions = {
+  mode?: HenryMode | null;
+  suggestion?: HenrySuggestion | null;
+  hearthSignal?: HearthHenrySignal | null;
+};
 
 export function buildHenryContextSummary(context: HenryContext): string[] {
   const locationLine = context.surface === "forge-hub"
@@ -93,7 +108,11 @@ export function resolveHenryObservation(context: HenryContext): HenryObservation
   return { id: "forge-hub:choose-path", text: "You can start with any stage and iterate.", surface: "forge-hub" };
 }
 
-export function buildHenryActionAnswer(actionId: string, context: HenryContext): string {
+export function buildHenryActionAnswer(
+  actionId: string,
+  context: HenryContext,
+  options?: HenryBehaviorOptions,
+): string {
   if (actionId === "explain-screen") {
     return buildHenryContextSummary(context).join("\n");
   }
@@ -107,6 +126,9 @@ export function buildHenryActionAnswer(actionId: string, context: HenryContext):
     return "Unfinished work stays valid. You can continue from the current phase without losing prior progress.";
   }
   if (actionId === "what-next") {
+    if (context.surface === "hearth" && options?.mode && options?.suggestion && options?.hearthSignal) {
+      return normalizeHenryVoice(options.suggestion.text);
+    }
     const rec = resolveHenryRecommendation(context);
     return [
       `Best next step: ${rec.primary}`,
@@ -117,13 +139,25 @@ export function buildHenryActionAnswer(actionId: string, context: HenryContext):
   return "I can explain this stage and suggest the next safe move when you ask.";
 }
 
-export function buildHenryChatAnswer(question: string, context: HenryContext): string {
+export function buildHenryChatAnswer(
+  question: string,
+  context: HenryContext,
+  options?: HenryBehaviorOptions,
+): string {
+  const hearthAnswer = buildHenryHearthChatAnswer({
+    question,
+    context,
+    mode: options?.mode ?? null,
+    suggestion: options?.suggestion ?? null,
+  });
+  if (hearthAnswer) return normalizeHenryVoice(hearthAnswer);
+
   const lower = question.toLowerCase();
   if (lower.includes("next")) {
-    return buildHenryActionAnswer("what-next", context);
+    return buildHenryActionAnswer("what-next", context, options);
   }
   if (lower.includes("optional") || lower.includes("required")) {
-    return buildHenryActionAnswer("optional-here", context);
+    return buildHenryActionAnswer("optional-here", context, options);
   }
-  return buildHenryContextSummary(context).join("\n");
+  return normalizeHenryVoice(buildHenryContextSummary(context).join("\n"));
 }

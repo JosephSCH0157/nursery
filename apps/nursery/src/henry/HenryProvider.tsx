@@ -1,4 +1,10 @@
-import type { HenryConversationTurn, HenryObservation, HenryPreferenceState } from "@forge/shared/henry";
+import type {
+  HearthHenrySignal,
+  HenryConversationTurn,
+  HenryObservation,
+  HenryPreferenceState,
+} from "@forge/shared/henry";
+import { HENRY_HEARTH_SIGNAL_EVENT } from "@forge/shared/henry";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { useLayoutMode } from "@forge/ui-mobile";
@@ -13,6 +19,9 @@ import {
   resolveHenryObservation,
   resolveHenryRecommendation,
 } from "./henryMessageEngine";
+import { getHenryDeterministicSuggestion } from "./henry-deterministic-suggestions";
+import { matchesHearthSignalRoute, readHearthHenrySignal } from "./henry-hearth-signal";
+import { deriveHenryMode } from "./henry-mode";
 import { canRenderHenrySurface } from "./henryRenderPolicy";
 import { resolveHenryQuickActions } from "./henryQuickActions";
 import { readCachedHenryPreferences, writeCachedHenryPreferences } from "./henryStorage";
@@ -26,6 +35,7 @@ import {
 } from "./henryService";
 import { resolveHenrySuppressionState } from "./henrySuppression";
 import { HenryLauncher, HenryObservationSlot, HenryPanel } from "./HenryUI";
+import { resolveHenryStatusLabel } from "./henry-voice";
 import "./Henry.css";
 
 const OBSERVATION_COOLDOWN_MS = 15 * 60 * 1000;
@@ -88,6 +98,7 @@ export function HenryProvider({ children }: { children: ReactNode }) {
   const [chatDraft, setChatDraft] = useState("");
   const [conversation, setConversation] = useState<HenryConversationTurn[]>([]);
   const [observation, setObservation] = useState<HenryObservation | null>(null);
+  const [latestHearthSignal, setLatestHearthSignal] = useState<HearthHenrySignal | null>(null);
   const [storedMessageState, setStoredMessageState] = useState<{
     userId: string | null;
     workspaceId: string | null;
@@ -119,6 +130,31 @@ export function HenryProvider({ children }: { children: ReactNode }) {
   );
 
   const muted = isMuted(preferences);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onSignal = (event: Event) => {
+      const signal = readHearthHenrySignal(event);
+      if (!signal) return;
+      setLatestHearthSignal(signal);
+    };
+    window.addEventListener(HENRY_HEARTH_SIGNAL_EVENT, onSignal);
+    return () => window.removeEventListener(HENRY_HEARTH_SIGNAL_EVENT, onSignal);
+  }, []);
+
+  const hearthSignal = useMemo(
+    () => (matchesHearthSignalRoute(latestHearthSignal, routeContext) ? latestHearthSignal : null),
+    [latestHearthSignal, routeContext],
+  );
+  const henryMode = useMemo(
+    () => deriveHenryMode({ context: henryContext, hearthSignal }),
+    [hearthSignal, henryContext],
+  );
+  const deterministicSuggestion = useMemo(
+    () => getHenryDeterministicSuggestion({ context: henryContext, mode: henryMode, hearthSignal }),
+    [hearthSignal, henryContext, henryMode],
+  );
+  const launcherStatusLabel = useMemo(() => resolveHenryStatusLabel(henryMode), [henryMode]);
+
   const suppression = useMemo(
     () => resolveHenrySuppressionState({ pathname: location.pathname, panelOpen, mutedUntil: preferences.mutedUntil }),
     [location.pathname, panelOpen, preferences.mutedUntil],
@@ -297,7 +333,11 @@ export function HenryProvider({ children }: { children: ReactNode }) {
       setShowChat(true);
       setActionAnswer("Ask a question and I will answer with concise orientation.");
     } else {
-      setActionAnswer(buildHenryActionAnswer(actionId, henryContext));
+      setActionAnswer(buildHenryActionAnswer(actionId, henryContext, {
+        mode: henryMode,
+        suggestion: deterministicSuggestion,
+        hearthSignal,
+      }));
     }
 
     const eventName = actionId === "what-next" ? "next_step_shown" : "quick_action";
@@ -370,7 +410,11 @@ export function HenryProvider({ children }: { children: ReactNode }) {
     const prompt = chatDraft.trim();
     if (!prompt) return;
     const nowIso = new Date().toISOString();
-    const answer = buildHenryChatAnswer(prompt, henryContext);
+    const answer = buildHenryChatAnswer(prompt, henryContext, {
+      mode: henryMode,
+      suggestion: deterministicSuggestion,
+      hearthSignal,
+    });
     const userTurn: HenryConversationTurn = { role: "user", text: prompt, timestampIso: nowIso };
     const assistantTurn: HenryConversationTurn = {
       role: "assistant",
@@ -452,6 +496,7 @@ export function HenryProvider({ children }: { children: ReactNode }) {
           />
           <HenryLauncher
             muted={muted}
+            statusLabel={launcherStatusLabel}
             onClick={() => {
               void trackHenryEvent({
                 workspaceId: routeContext.workspaceId,
@@ -463,6 +508,11 @@ export function HenryProvider({ children }: { children: ReactNode }) {
               });
               setActionAnswer(
                 actionAnswer
+                ?? buildHenryActionAnswer("what-next", henryContext, {
+                  mode: henryMode,
+                  suggestion: deterministicSuggestion,
+                  hearthSignal,
+                })
                 ?? `Best next step: ${recommendation.primary}\nWhy: ${recommendation.why}\nYou could also: ${recommendation.alternatives.join(" or ")}`,
               );
               handleOpenPanel();
