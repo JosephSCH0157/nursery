@@ -76,6 +76,24 @@ function assertNoConsecutivePacingCues(script: string): void {
   }
 }
 
+function assertMaxBlankRun(script: string, maxBlankLines: number): void {
+  let run = 0;
+  for (const line of script.split(/\r?\n/)) {
+    if (!line.trim()) {
+      run += 1;
+      assert.ok(run <= maxBlankLines, `blank-line run exceeded ${maxBlankLines}`);
+      continue;
+    }
+    run = 0;
+  }
+}
+
+function stripSpeakerTags(script: string): string[] {
+  return script
+    .split(/\r?\n/)
+    .filter((line) => !/^\[\/?(?:s1|s2|g1|g2)\]$/i.test(line.trim()));
+}
+
 test("shapeHearthScriptForRecording turns paragraph walls into Anvil-friendly performance lines", () => {
   const shaped = shapeHearthScriptForRecording("[s1]\nThis is the first big idea that needs to land clearly for the audience. Here is the second point, and it should not hide inside a paragraph wall.\n[/s1]");
 
@@ -101,6 +119,33 @@ test("shapeHearthScriptForRecording breaks long speaker blobs into short repeat 
   assert.ok((shaped.match(/^\[s1\]$/gm) ?? []).length >= 2);
   assert.ok((shaped.match(/^\[\/s1\]$/gm) ?? []).length >= 2);
   assert.ok(shaped.split(/\r?\n/).some((line) => line.trim() === ""));
+});
+
+test("shapeHearthScriptForRecording keeps pause gaps tight for Anvil scroll", () => {
+  const shaped = shapeHearthScriptForRecording([
+    "[s1]",
+    "First line lands.",
+    "[pause]",
+    "",
+    "",
+    "",
+    "",
+    "Second line lands.",
+    "[beat]",
+    "",
+    "",
+    "Third line lands.",
+    "[/s1]",
+  ].join("\n"));
+
+  assert.equal(validateScriptTags(shaped).ok, true);
+  assertMaxBlankRun(shaped, 1);
+
+  const displayLines = stripSpeakerTags(shaped);
+  const firstPause = displayLines.findIndex((line) => line.trim().toLowerCase() === "[pause]");
+  assert.ok(firstPause >= 0);
+  assert.equal(displayLines[firstPause + 1]?.trim(), "");
+  assert.notEqual(displayLines[firstPause + 2]?.trim(), "");
 });
 
 test("shapeHearthScriptForRecording groups rapid-fire short lines for Anvil tracking", () => {

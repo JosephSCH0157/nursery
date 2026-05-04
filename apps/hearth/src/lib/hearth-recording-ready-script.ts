@@ -149,18 +149,55 @@ function previousSignificantLine(lines: string[]): string | null {
   return null;
 }
 
+function isSpeakerTagLine(line: string): boolean {
+  const trimmed = line.trim();
+  return SPEAKER_OPEN_RE.test(trimmed) || SPEAKER_CLOSE_RE.test(trimmed);
+}
+
 function compactRecordingReadyLines(lines: string[]): string[] {
-  const out: string[] = [];
+  const collapsed: string[] = [];
+  let pendingBlank = false;
   for (const line of lines) {
     if (!line.trim()) {
-      pushIntentionalBlank(out);
+      pendingBlank = true;
       continue;
     }
-    if (isPacingLine(line) && isPacingLine(previousSignificantLine(out) ?? "")) {
+    if (pendingBlank && collapsed.length > 0) {
+      collapsed.push("");
+    }
+    pendingBlank = false;
+
+    if (isPacingLine(line) && isPacingLine(previousSignificantLine(collapsed) ?? "")) {
       continue;
     }
-    out.push(line);
+    collapsed.push(line);
   }
+
+  const out: string[] = [];
+  for (let index = 0; index < collapsed.length; index += 1) {
+    const line = collapsed[index]!;
+    if (line !== "") {
+      out.push(line);
+      continue;
+    }
+
+    const previous = previousSignificantLine(out);
+    let next: string | null = null;
+    for (let scan = index + 1; scan < collapsed.length; scan += 1) {
+      const candidate = collapsed[scan]!;
+      if (candidate.trim()) {
+        next = candidate;
+        break;
+      }
+    }
+
+    const previousIsCue = isPacingLine(previous ?? "");
+    const adjacentSpeakerTag = isSpeakerTagLine(previous ?? "") || isSpeakerTagLine(next ?? "");
+    if (adjacentSpeakerTag && !previousIsCue) continue;
+
+    pushIntentionalBlank(out);
+  }
+
   while (out[0] === "") out.shift();
   while (out[out.length - 1] === "") out.pop();
   return out;
