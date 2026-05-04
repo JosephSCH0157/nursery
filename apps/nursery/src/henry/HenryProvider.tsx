@@ -15,7 +15,7 @@ import { useOptionalEpisodeWorkspace } from "../workspace/EpisodeWorkspaceContex
 import { buildHenryContext } from "./henryContext";
 import {
   buildHenryActionAnswer,
-  buildHenryChatAnswer,
+  buildHenryChatReply,
   buildHenryContextSummary,
   resolveHenryObservation,
   resolveHenryRecommendation,
@@ -471,7 +471,7 @@ export function HenryProvider({ children }: { children: ReactNode }) {
     const prompt = chatDraft.trim();
     if (!prompt) return;
     const nowIso = new Date().toISOString();
-    const answer = buildHenryChatAnswer(prompt, henryContext, {
+    const reply = buildHenryChatReply(prompt, henryContext, {
       mode: henryMode,
       suggestion: deterministicSuggestion,
       hearthSignal,
@@ -479,17 +479,18 @@ export function HenryProvider({ children }: { children: ReactNode }) {
     const userTurn: HenryConversationTurn = { role: "user", text: prompt, timestampIso: nowIso };
     const assistantTurn: HenryConversationTurn = {
       role: "assistant",
-      text: answer,
+      text: reply.text,
       timestampIso: new Date().toISOString(),
     };
     setConversation((prev): HenryConversationTurn[] => [...prev, userTurn, assistantTurn].slice(-20));
     setChatDraft("");
-    setActionAnswer(answer);
+    setActionAnswer(reply.text);
     void trackHenryEvent({
       workspaceId: routeContext.workspaceId,
       workpieceId: routeContext.workpieceId,
       eventName: "freeform_asked",
       surface: henryContext.surface,
+      metadata: { ai_lane: reply.lane },
     }).catch(() => {
       // non-fatal in ambient assistant surface
     });

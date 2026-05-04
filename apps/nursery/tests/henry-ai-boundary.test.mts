@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { HearthHenrySignal, HenryContext, HenryMode, HenrySuggestion } from "@forge/shared/henry";
-import { buildHenryActionAnswer, buildHenryChatAnswer } from "../src/henry/henryMessageEngine.ts";
+import { buildHenryActionAnswer, buildHenryChatAnswer, buildHenryChatReply } from "../src/henry/henryMessageEngine.ts";
 
 function baseContext(): HenryContext {
   return {
@@ -48,14 +48,25 @@ test("what-next stays advisory and does not claim control actions", () => {
 });
 
 test("hearth chat remains deterministic and boundary-safe", () => {
-  const answer = buildHenryChatAnswer("Can you optimize this and publish it?", baseContext(), {
+  const reply = buildHenryChatReply("Write me a full script and generate 10 titles.", baseContext(), {
     mode: "recording_ready",
     suggestion: { kind: "anvil_readiness", text: "This looks recordable. Not perfect, recordable." },
     hearthSignal: baseSignal(),
   });
-  assert.match(answer, /recordable/i);
-  assert.doesNotMatch(answer, /publish|SEO|thumbnail/i);
-  assert.doesNotMatch(answer, /I generated/i);
+  assert.equal(reply.lane, "user_metered");
+  assert.doesNotMatch(reply.text, /publish|SEO|thumbnail/i);
+  assert.doesNotMatch(reply.text, /I generated/i);
+  assert.match(reply.text, /explicit hearth rewrite|generation action/i);
+});
+
+test("buildHenryChatAnswer remains backward-compatible and string-only", () => {
+  const answer = buildHenryChatAnswer("What should I do next?", baseContext(), {
+    mode: "recording_ready",
+    suggestion: { kind: "anvil_readiness", text: "This looks recordable. Not perfect, recordable." },
+    hearthSignal: baseSignal(),
+  });
+  assert.equal(typeof answer, "string");
+  assert.match(answer, /recordable|Best next step:/i);
 });
 
 test("legacy format remains intact when no hearth signal is present", () => {
@@ -68,4 +79,3 @@ test("legacy format remains intact when no hearth signal is present", () => {
   assert.match(answer, /Why:/);
   assert.match(answer, /You could also:/);
 });
-

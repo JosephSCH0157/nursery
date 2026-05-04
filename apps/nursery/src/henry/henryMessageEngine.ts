@@ -1,5 +1,6 @@
 import type {
   HearthHenrySignal,
+  HenryAILane,
   HenryContext,
   HenryMode,
   HenryObservation,
@@ -8,6 +9,7 @@ import type {
 } from "@forge/shared/henry";
 import type { EpisodeStatusSignals } from "../workspace/resolveEpisodeStatus";
 import { resolveNextEpisodeAction } from "../workspace/resolveNextEpisodeAction";
+import { buildHenryUserMeteredBoundaryReply, classifyHenryAiLane } from "./henry-ai-cost-policy";
 import { resolveStagePurpose } from "./henryContext";
 import { buildHenryHearthChatAnswer } from "./henry-deterministic-suggestions";
 import { normalizeHenryVoice } from "./henry-voice";
@@ -16,6 +18,11 @@ type HenryBehaviorOptions = {
   mode?: HenryMode | null;
   suggestion?: HenrySuggestion | null;
   hearthSignal?: HearthHenrySignal | null;
+};
+
+export type HenryChatReply = {
+  lane: HenryAILane;
+  text: string;
 };
 
 export function buildHenryContextSummary(context: HenryContext): string[] {
@@ -144,20 +151,50 @@ export function buildHenryChatAnswer(
   context: HenryContext,
   options?: HenryBehaviorOptions,
 ): string {
+  return buildHenryChatReply(question, context, options).text;
+}
+
+export function buildHenryChatReply(
+  question: string,
+  context: HenryContext,
+  options?: HenryBehaviorOptions,
+): HenryChatReply {
+  const lane = classifyHenryAiLane(question, context);
+  if (lane === "user_metered") {
+    return {
+      lane,
+      text: normalizeHenryVoice(buildHenryUserMeteredBoundaryReply()),
+    };
+  }
+
   const hearthAnswer = buildHenryHearthChatAnswer({
     question,
     context,
     mode: options?.mode ?? null,
     suggestion: options?.suggestion ?? null,
   });
-  if (hearthAnswer) return normalizeHenryVoice(hearthAnswer);
+  if (hearthAnswer) {
+    return {
+      lane,
+      text: normalizeHenryVoice(hearthAnswer),
+    };
+  }
 
   const lower = question.toLowerCase();
   if (lower.includes("next")) {
-    return buildHenryActionAnswer("what-next", context, options);
+    return {
+      lane,
+      text: buildHenryActionAnswer("what-next", context, options),
+    };
   }
   if (lower.includes("optional") || lower.includes("required")) {
-    return buildHenryActionAnswer("optional-here", context, options);
+    return {
+      lane,
+      text: buildHenryActionAnswer("optional-here", context, options),
+    };
   }
-  return normalizeHenryVoice(buildHenryContextSummary(context).join("\n"));
+  return {
+    lane,
+    text: normalizeHenryVoice(buildHenryContextSummary(context).join("\n")),
+  };
 }

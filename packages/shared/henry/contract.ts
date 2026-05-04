@@ -15,6 +15,11 @@ export type HenrySuggestionKind =
   | "research_prompt"
   | "none";
 
+export type HenryAILane =
+  | "free_help"
+  | "user_metered"
+  | "none";
+
 export const HENRY_PRINCIPLES = {
   neverPush: true,
   preserveUserVoice: true,
@@ -42,4 +47,3 @@ export interface HearthHenrySignal {
   isApprovedOrReady: boolean;
   updatedAtIso: string;
 }
-
