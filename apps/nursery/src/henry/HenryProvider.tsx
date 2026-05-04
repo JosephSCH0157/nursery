@@ -1,6 +1,7 @@
 import type {
   HearthHenrySignal,
   HenryConversationTurn,
+  HenrySuggestionKind,
   HenryObservation,
   HenryPreferenceState,
 } from "@forge/shared/henry";
@@ -22,6 +23,7 @@ import {
 import { getHenryDeterministicSuggestion } from "./henry-deterministic-suggestions";
 import { matchesHearthSignalRoute, readHearthHenrySignal } from "./henry-hearth-signal";
 import { deriveHenryMode } from "./henry-mode";
+import { buildHenrySignalFingerprint, shouldHenrySurfaceSuggestion } from "./henry-silence-policy";
 import { canRenderHenrySurface } from "./henryRenderPolicy";
 import { resolveHenryQuickActions } from "./henryQuickActions";
 import { readCachedHenryPreferences, writeCachedHenryPreferences } from "./henryStorage";
@@ -113,6 +115,19 @@ export function HenryProvider({ children }: { children: ReactNode }) {
     issuedAtMs: number;
   } | null>(null);
   const trackedObservationKeyRef = useRef<string | null>(null);
+  const lastAmbientSuggestionRef = useRef<{
+    kind: HenrySuggestionKind | null;
+    shownAtMs: number | null;
+    signalFingerprint: string | null;
+    mode: ReturnType<typeof deriveHenryMode>;
+    tagValidationOk: boolean | null;
+  }>({
+    kind: null,
+    shownAtMs: null,
+    signalFingerprint: null,
+    mode: null,
+    tagValidationOk: null,
+  });
 
   const preferences = storedPreferences.userId === userId
     && storedPreferences.workspaceId === routeContext.workspaceId
@@ -154,11 +169,41 @@ export function HenryProvider({ children }: { children: ReactNode }) {
     [hearthSignal, henryContext, henryMode],
   );
   const launcherStatusLabel = useMemo(() => resolveHenryStatusLabel(henryMode), [henryMode]);
+  const currentSignalFingerprint = useMemo(
+    () => buildHenrySignalFingerprint(hearthSignal),
+    [hearthSignal],
+  );
 
   const suppression = useMemo(
     () => resolveHenrySuppressionState({ pathname: location.pathname, panelOpen, mutedUntil: preferences.mutedUntil }),
     [location.pathname, panelOpen, preferences.mutedUntil],
   );
+  const ambientSuggestionObservation = useMemo(() => {
+    if (!deterministicSuggestion || henryContext.surface !== "hearth") return null;
+    const shouldSurface = shouldHenrySurfaceSuggestion({
+      context: henryContext,
+      signal: hearthSignal,
+      mode: henryMode,
+      suggestion: deterministicSuggestion,
+      history: {
+        nowMs: Date.now(),
+        explicitUserInvocation: false,
+        userIsTyping: suppression.reasons.includes("typing-focus"),
+        userMutedHenry: muted || suppression.reasons.includes("muted"),
+        previousMode: lastAmbientSuggestionRef.current.mode,
+        previousTagValidationOk: lastAmbientSuggestionRef.current.tagValidationOk,
+        lastSignalFingerprint: lastAmbientSuggestionRef.current.signalFingerprint,
+        lastSuggestionKind: lastAmbientSuggestionRef.current.kind,
+        lastSuggestionAtMs: lastAmbientSuggestionRef.current.shownAtMs,
+      },
+    });
+    if (!shouldSurface) return null;
+    return {
+      id: `hearth:suggestion:${deterministicSuggestion.kind}`,
+      text: deterministicSuggestion.text,
+      surface: "hearth" as const,
+    };
+  }, [deterministicSuggestion, henryContext, hearthSignal, henryMode, suppression.reasons, muted]);
   useEffect(() => {
     let alive = true;
     void supabase.auth.getSession().then(({ data }) => {
@@ -230,7 +275,9 @@ export function HenryProvider({ children }: { children: ReactNode }) {
       if (!preferences.showHenry || preferences.hideTips || panelOpen || suppression.isSuppressed) {
         return null;
       }
-      const candidate = resolveHenryObservation(henryContext);
+      const candidate = henryContext.surface === "hearth"
+        ? ambientSuggestionObservation
+        : resolveHenryObservation(henryContext);
       if (!candidate) return null;
 
       const existing = messageState.get(candidate.id);
@@ -253,6 +300,7 @@ export function HenryProvider({ children }: { children: ReactNode }) {
     };
   }, [
     henryContext,
+    ambientSuggestionObservation,
     canRenderHenry,
     location.pathname,
     messageState,
@@ -293,6 +341,19 @@ export function HenryProvider({ children }: { children: ReactNode }) {
       // non-fatal in ambient assistant surface
     });
   }, [henryContext.surface, observation, routeContext.workspaceId, routeContext.workpieceId]);
+
+  useEffect(() => {
+    if (!observation || henryContext.surface !== "hearth") return;
+    if (!observation.id.startsWith("hearth:suggestion:")) return;
+    const kind = observation.id.slice("hearth:suggestion:".length) as HenrySuggestionKind;
+    lastAmbientSuggestionRef.current = {
+      kind,
+      shownAtMs: Date.now(),
+      signalFingerprint: currentSignalFingerprint,
+      mode: henryMode,
+      tagValidationOk: hearthSignal?.tagValidationOk ?? null,
+    };
+  }, [currentSignalFingerprint, hearthSignal?.tagValidationOk, henryMode, henryContext.surface, observation]);
 
   function persistPreferences(next: HenryPreferenceState): void {
     setStoredPreferences({
