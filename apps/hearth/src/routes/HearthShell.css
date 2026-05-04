@@ -14,6 +14,27 @@
   gap: 16px;
 }
 
+@media (prefers-color-scheme: dark) {
+  .hs-shell select,
+  .hs-shell option {
+    background: #0f172a;
+    color: #f8fafc;
+  }
+
+  .hs-shell select {
+    color-scheme: dark;
+  }
+
+  .hs-shell select:disabled {
+    opacity: 0.65;
+  }
+
+  .hs-shell option:checked {
+    background: #1e293b;
+    color: #ffffff;
+  }
+}
+
 .hs-shell-grid {
   display: grid;
   grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
