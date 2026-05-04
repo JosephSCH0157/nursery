@@ -25,6 +25,42 @@ export type HenryChatReply = {
   text: string;
 };
 
+function buildHenryOptionalHereAnswer(context: HenryContext): string {
+  if (context.surface === "hearth") {
+    const phaseNote = context.phase === "script"
+      ? "In Hearth, drafting and structure choices are iterative."
+      : "In Hearth, shaping choices stay reversible while you refine.";
+    return `${phaseNote} Keep the core claim clear, then tighten pacing when you want Anvil-ready read-aloud flow.`;
+  }
+  return "Most controls here are optional unless marked required. Keep progress in place and move forward when the output is usable.";
+}
+
+function buildHenryActiveHelpAnswer(
+  question: string,
+  context: HenryContext,
+  options?: HenryBehaviorOptions,
+): string | null {
+  const lower = question.toLowerCase();
+
+  if (/how do i create images|how to create images|create images|image flow|visual flow/.test(lower)) {
+    return "Use Hearth image or visual flows to define what you want on-screen, then run explicit generation actions from those controls. Henry tips do not generate assets by themselves, and full image generation stays in the normal AI or asset lane when enabled.";
+  }
+
+  if (/where does .*episode.*record|where .*episode.*get recorded|where does recording happen|where .*recorded/.test(lower)) {
+    return "Recording happens in Anvil. Hearth shapes the script, Anvil captures the performance, Hammer handles edits, and Quench handles release.";
+  }
+
+  if (lower.includes("optional") || lower.includes("required")) {
+    return buildHenryOptionalHereAnswer(context);
+  }
+
+  if (lower.includes("next")) {
+    return buildHenryActionAnswer("what-next", context, options);
+  }
+
+  return null;
+}
+
 export function buildHenryContextSummary(context: HenryContext): string[] {
   const locationLine = context.surface === "forge-hub"
     ? "You are in the Forge hub."
@@ -167,6 +203,14 @@ export function buildHenryChatReply(
     };
   }
 
+  const activeHelpAnswer = buildHenryActiveHelpAnswer(question, context, options);
+  if (activeHelpAnswer) {
+    return {
+      lane,
+      text: normalizeHenryVoice(activeHelpAnswer),
+    };
+  }
+
   const hearthAnswer = buildHenryHearthChatAnswer({
     question,
     context,
@@ -180,21 +224,8 @@ export function buildHenryChatReply(
     };
   }
 
-  const lower = question.toLowerCase();
-  if (lower.includes("next")) {
-    return {
-      lane,
-      text: buildHenryActionAnswer("what-next", context, options),
-    };
-  }
-  if (lower.includes("optional") || lower.includes("required")) {
-    return {
-      lane,
-      text: buildHenryActionAnswer("optional-here", context, options),
-    };
-  }
   return {
     lane,
-    text: normalizeHenryVoice(buildHenryContextSummary(context).join("\n")),
+    text: normalizeHenryVoice("I may be missing the exact context. Tell me which surface you are in, and I will point to the owning tool and the next safe step."),
   };
 }

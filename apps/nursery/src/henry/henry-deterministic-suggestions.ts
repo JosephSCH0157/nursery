@@ -73,7 +73,7 @@ export function buildHenryHearthChatAnswer(args: {
 }): string | null {
   if (args.context.surface !== "hearth") return null;
   const question = args.question.trim();
-  if (!question) return args.suggestion?.text ?? null;
+  if (!question) return null;
 
   if (/rewrite|reword|tighten|edit/i.test(question)) {
     return "I can do that. Paste the section you want to revise, and I will keep your voice while tightening read-aloud flow.";
@@ -87,7 +87,5 @@ export function buildHenryHearthChatAnswer(args: {
     return "I see the angle. What is the one claim you want the listener to remember at the end?";
   }
 
-  if (args.suggestion) return args.suggestion.text;
-  return "I can help shape this into record-ready lines while preserving your phrasing. What part feels least clear out loud?";
+  return null;
 }
-

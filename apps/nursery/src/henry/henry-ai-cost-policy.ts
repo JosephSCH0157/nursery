@@ -30,6 +30,9 @@ export function classifyHenryAiLane(question: string, context: HenryContext): He
   const text = question.trim();
   if (!text) return "none";
 
+  const startsAsHelpQuestion = /^(how do i|how to|what does|why|where)\b/i.test(text);
+  if (startsAsHelpQuestion) return "free_help";
+
   for (const pattern of USER_METERED_PATTERNS) {
     if (pattern.test(text)) return "user_metered";
   }
