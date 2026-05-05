@@ -3,7 +3,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { TextEncoder } from "node:util";
-import { TongsCommitService, createTongsCommitApiHandlerWithService } from "../dist/workpiece-commit-api.js";
+import { TongsCommitService, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain } from "../dist/workpiece-commit-api.js";
+import { deflateSync } from "node:zlib";
 
 function mockService() {
   const calls = {
@@ -11,6 +12,7 @@ function mockService() {
     commitFile: [],
     createHearthAttachment: [],
     listHearthAttachments: [],
+    updateHearthAttachmentExtractedText: [],
     generateEpisodeThumbnail: [],
     generateImageMapCandidates: [],
     createRecordingSessionRecord: [],
@@ -159,6 +161,7 @@ function mockService() {
         extracted_text: "hello",
         parse_status: "attached",
         parse_error: null,
+        text_source: null,
         created_by: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         created_at: "2026-05-05T00:00:00.000Z",
         updated_at: "2026-05-05T00:00:00.000Z",
@@ -180,11 +183,34 @@ function mockService() {
           extracted_text: "hello",
           parse_status: "attached",
           parse_error: null,
+          text_source: null,
           created_by: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
           created_at: "2026-05-05T00:00:00.000Z",
           updated_at: "2026-05-05T00:00:00.000Z",
         },
       ];
+    },
+    async updateHearthAttachmentExtractedText(input, options) {
+      calls.updateHearthAttachmentExtractedText = calls.updateHearthAttachmentExtractedText ?? [];
+      calls.updateHearthAttachmentExtractedText.push({ input, options: options ?? null });
+      return {
+        id: input.attachment_id,
+        workspace_id: input.workspace_id,
+        episode_id: "22222222-2222-4222-8222-222222222222",
+        filename: "doc.pdf",
+        mime_type: "application/pdf",
+        size_bytes: 1024,
+        storage_bucket: "forge-workpieces",
+        storage_path: "hearth/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/doc.pdf",
+        storage_key: "hearth/attachments/workspace/episode/id/doc.pdf",
+        extracted_text: input.extracted_text,
+        parse_status: "attached",
+        parse_error: null,
+        text_source: "manual",
+        created_by: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        created_at: "2026-05-05T00:00:00.000Z",
+        updated_at: "2026-05-05T00:00:00.000Z",
+      };
     },
     async generateEpisodeThumbnail(workpieceId, input) {
       calls.generateEpisodeThumbnail.push({ workpieceId, input });
@@ -3137,6 +3163,115 @@ test("POST /tongs/hearth/attachments returns 413 when file exceeds size limit", 
   assert.equal(body.ok, false);
   assert.equal(body.error?.code, "attachment_too_large");
   assert.equal(calls.createHearthAttachment.length, 0, "service should not be called for oversized file");
+});
+
+// ─── PDF V1.5 Fallback Chain – Acceptance Criteria Tests ────────────────────
+
+// AC1: Parser A extracts text from uncompressed PDFs with literal Tj strings.
+test("AC1: extractPdfTextParserA extracts text from uncompressed PDF with literal Tj strings", () => {
+  const pdfContent = [
+    "%PDF-1.4",
+    "1 0 obj << /Type /Catalog >> endobj",
+    "BT",
+    "(Section 14: Appropriations) Tj",
+    "(The Committee shall allocate funding.) Tj",
+    "ET",
+  ].join("\n");
+  const bytes = new TextEncoder().encode(pdfContent);
+  const text = extractPdfTextParserA(bytes);
+  assert.ok(text.includes("Section 14"), "should extract first literal Tj string");
+  assert.ok(text.includes("Committee shall allocate"), "should extract second literal Tj string");
+});
+
+// AC2: Parser A returns empty for FlateDecode PDFs (doesn't crash, just yields nothing).
+test("AC2: extractPdfTextParserA returns empty string when PDF uses FlateDecode", () => {
+  const pdfContent = "%PDF-1.6\n/Filter /FlateDecode\nstream\nskip-compressed\nendstream";
+  const bytes = new TextEncoder().encode(pdfContent);
+  const text = extractPdfTextParserA(bytes);
+  assert.equal(text, "", "parser A should return empty for FlateDecode PDF");
+});
+
+// AC3: Parser B decompresses FlateDecode streams and extracts text.
+test("AC3: extractPdfTextParserB extracts text from FlateDecode-compressed content stream", () => {
+  // Build a minimal PDF with a real FlateDecode content stream.
+  const contentStream = "BT (Annual Budget Report 2025) Tj (Total: $4.2 billion) Tj ET";
+  const compressedStream = deflateSync(Buffer.from(contentStream, "latin1"));
+
+  // Build the stream dictionary and body manually.
+  const dictLine = "<< /Filter /FlateDecode /Length " + compressedStream.length + " >>";
+  const enc = new TextEncoder();
+  const parts = [
+    enc.encode("%PDF-1.5\n1 0 obj\n"),
+    enc.encode(dictLine + "\nstream\n"),
+    compressedStream,
+    enc.encode("\nendstream\nendobj"),
+  ];
+  const totalLen = parts.reduce((s, p) => s + p.length, 0);
+  const fileBytes = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const part of parts) {
+    fileBytes.set(part, offset);
+    offset += part.length;
+  }
+
+  const text = extractPdfTextParserB(fileBytes);
+  assert.ok(text.includes("Annual Budget Report"), "should extract text from decompressed stream");
+  assert.ok(text.includes("4.2 billion"), "should extract second text token");
+});
+
+// AC4: Both parsers fail → fallback chain throws pdf_needs_text_extraction.
+test("AC4: extractPdfTextFallbackChain throws pdf_needs_text_extraction when both parsers yield no text", () => {
+  // A PDF that claims to be FlateDecode but has corrupted/unrecoverable content.
+  const fakePdf = "%PDF-1.5\n<< /Filter /FlateDecode >>\nstream\n\xDE\xAD\xBE\xEF\nendstream";
+  const bytes = new TextEncoder().encode(fakePdf);
+  let threw = false;
+  let code = null;
+  try {
+    extractPdfTextFallbackChain(bytes);
+  } catch (err) {
+    threw = true;
+    code = err?.code ?? null;
+  }
+  assert.ok(threw, "should throw when no text can be extracted");
+  assert.equal(code, "pdf_needs_text_extraction", "error code should be pdf_needs_text_extraction");
+});
+
+// AC5: PATCH /tongs/hearth/attachments/:id/extracted-text calls updateHearthAttachmentExtractedText
+//      and returns 200 with parse_status "attached".
+test("AC5: PATCH /tongs/hearth/attachments/:id/extracted-text dispatches updateHearthAttachmentExtractedText", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/hearth/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/extracted-text",
+    {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+      body: JSON.stringify({
+        workspace_id: "11111111-1111-4111-8111-111111111111",
+        extracted_text: "Section 1. All appropriations shall be subject to annual review by the Committee.",
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.attachment?.parse_status, "attached");
+  assert.equal(body.data?.attachment?.text_source, "manual");
+  assert.equal(calls.updateHearthAttachmentExtractedText.length, 1);
+  assert.equal(calls.updateHearthAttachmentExtractedText[0].input.attachment_id, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+  assert.equal(calls.updateHearthAttachmentExtractedText[0].input.workspace_id, "11111111-1111-4111-8111-111111111111");
+  assert.ok(
+    calls.updateHearthAttachmentExtractedText[0].input.extracted_text.includes("appropriations"),
+    "should pass through the extracted_text",
+  );
+  assert.equal(calls.updateHearthAttachmentExtractedText[0].options.userAccessToken, "user_token_abc");
 });
 
 test("POST /tongs/workpieces/:id/commit-file dispatches commitFile", async () => {
