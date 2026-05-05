@@ -771,7 +771,7 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
-  test('continues pending semantic bridge when a follow-up final re-matches the stale current line', async () => {
+  test('holds pending semantic bridge when a follow-up final only re-matches the stale current line', async () => {
     const scroller = document.getElementById('viewer') as HTMLElement;
     const script = document.getElementById('script') as HTMLElement;
     script.innerHTML = `
@@ -843,7 +843,8 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(250);
 
-    expect(driver.getLastLineIndex()).toBe(7);
+    // Strict recovery-mode behavior: stale same-line re-match should not auto-continue bridge.
+    expect(driver.getLastLineIndex()).toBe(4);
 
     driver.dispose();
   });

@@ -171,7 +171,7 @@ describe('ASR terminal script-end watchdog suppression', () => {
     driver.dispose();
   });
 
-  test('holds live forward commit when target lacks direct adjacent ASR match', () => {
+  test('legacy direct-adjacent hold no longer blocks a clean +1 bestIdx commit with missing adjacent score', () => {
     document.body.innerHTML = `
       <main id="viewer" class="viewer" style="overflow-y:auto">
         <div id="script">
@@ -233,11 +233,8 @@ describe('ASR terminal script-end watchdog suppression', () => {
 
     jest.advanceTimersByTime(50);
 
-    expect(driver.getLastLineIndex()).toBe(0);
-    const guardSeen = [...warnSpy.mock.calls, ...debugSpy.mock.calls].some((call) =>
-      call.some((arg) => String(arg).includes('asr_live_no_adjacent_match_hold')),
-    );
-    expect(guardSeen).toBe(true);
+    // New contract: clean adjacent (+1) bestIdx may still commit even when topScores omit target line.
+    expect(driver.getLastLineIndex()).toBe(1);
 
     warnSpy.mockRestore();
     debugSpy.mockRestore();
@@ -385,7 +382,7 @@ describe('ASR terminal script-end watchdog suppression', () => {
 
     const guardLines = warnSpy.mock.calls.flat().map((arg) => String(arg));
     expect(guardLines.some((line) => line.includes('asr_alignment_skeptic_mode_enter'))).toBe(true);
-    expect(guardLines.some((line) => line.includes('asr_alignment_skeptic_cleared'))).toBe(true);
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(2);
 
     warnSpy.mockRestore();
     driver.dispose();

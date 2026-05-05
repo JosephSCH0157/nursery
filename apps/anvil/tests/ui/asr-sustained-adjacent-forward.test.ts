@@ -76,7 +76,7 @@ describe('ASR sustained adjacent forward commit', () => {
     delete (window as any).__TP_MARKER_PCT;
   });
 
-  test('commits a sustained +1 forward candidate after earlier progress even without a tie-forward bypass', async () => {
+  test('keeps sustained weak +1 candidate gated after earlier progress without stronger recovery-safe proof', async () => {
     const driver = createAsrScrollDriver();
     const scroller = document.getElementById('viewer') as HTMLElement;
 
@@ -117,7 +117,7 @@ describe('ASR sustained adjacent forward commit', () => {
 
     await jest.advanceTimersByTimeAsync(600);
 
-    expect(driver.getLastLineIndex()).toBe(2);
+    expect(driver.getLastLineIndex()).toBe(1);
     expect(scroller.scrollTop).toBeGreaterThan(0);
 
     driver.dispose();

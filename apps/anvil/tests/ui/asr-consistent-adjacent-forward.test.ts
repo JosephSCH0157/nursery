@@ -76,7 +76,7 @@ describe('ASR consistent adjacent forward commit', () => {
     delete (window as any).__TP_MARKER_PCT;
   });
 
-  test('commits a repeated +1 candidate before starvation even when the tie gap stays narrow', async () => {
+test('holds repeated weak +1 candidate instead of nudging forward without stronger restabilizing proof', async () => {
     const driver = createAsrScrollDriver();
     const scroller = document.getElementById('viewer') as HTMLElement;
 
@@ -100,8 +100,8 @@ describe('ASR consistent adjacent forward commit', () => {
 
     await jest.advanceTimersByTimeAsync(500);
 
-    expect(driver.getLastLineIndex()).toBe(1);
-    expect(scroller.scrollTop).toBeGreaterThan(0);
+    expect(driver.getLastLineIndex()).toBe(0);
+    expect(scroller.scrollTop).toBe(0);
 
     driver.dispose();
   });
