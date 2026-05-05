@@ -3309,6 +3309,79 @@ test("POST /tongs/workpieces/:id/commit-file dispatches commitFile", async () =>
   assert.equal(body.ok, true);
 });
 
+test("POST /tongs/workpieces/:id/commit-file returns controlled error payload for upstream db/storage failures", async () => {
+  const { service } = mockService();
+  service.commitFile = async () => {
+    throw new Error("db_write_failed: insert denied by policy");
+  };
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/commit-file", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-forge-user-authorization": "Bearer user_token_abc",
+    },
+    body: JSON.stringify({
+      path: "recordings/audio.webm",
+      content_type: "audio/webm",
+      bytes_base64: "SGVsbG8=",
+      written_by: {
+        tool: "hammer",
+        tool_version: "1.8.5",
+        lane: "forge-managed",
+      },
+    }),
+  });
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 502);
+  assert.equal(body.ok, false);
+  assert.equal(body.code, "tongs_commit_file_failed");
+  assert.equal(body.error?.code, "tongs_commit_file_failed");
+  assert.equal(typeof body.details?.route, "string");
+  assert.equal(body.details?.workpiece_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(body.details?.requested_path, "recordings/audio.webm");
+});
+
+test("POST /tongs/workpieces/:id/commit-file preserves 404/403 style upstream failures with controlled payload", async () => {
+  const { service } = mockService();
+  service.commitFile = async () => {
+    throw {
+      status: 404,
+      code: "workpiece_not_found",
+      message: "Workpiece was not found",
+      details: { workpiece_id: "11111111-1111-4111-8111-111111111111" },
+    };
+  };
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/commit-file", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      path: "recordings/audio.webm",
+      content_type: "audio/webm",
+      bytes_base64: "SGVsbG8=",
+      written_by: {
+        tool: "hammer",
+        tool_version: "1.8.5",
+        lane: "forge-managed",
+      },
+    }),
+  });
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 404);
+  assert.equal(body.ok, false);
+  assert.equal(body.code, "tongs_commit_file_failed");
+  assert.equal(body.details?.error_code, "workpiece_not_found");
+});
+
 test("POST /tongs/workpieces/:id/append-event dispatches appendEvent", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);

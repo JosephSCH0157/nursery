@@ -189,6 +189,7 @@ import {
   createHammerDevConsoleLogger,
   type HammerDevConsoleRun,
 } from "../lib/hammerDevConsole";
+import { findRecoveredAnvilSnapshotByWorkpieceId } from "../transcript/hammerAnvilSnapshotRecovery";
 import {
   createHammerVoicePicker,
   resolveHammerVoicePhase,
@@ -2676,6 +2677,13 @@ export default function HammerWorkspaceEditor(
 
     const prepSource = resolveHammerPrepSource(currentLaunchContext);
     if (!prepSource) {
+      try {
+        console.warn("[hammer:transcript:canonical_missing]", {
+          workspace_id: currentLaunchContext.workspace_id,
+          workpiece_id: currentLaunchContext.workpiece_id,
+          reason: "missing_prep_media",
+        });
+      } catch {}
       setPrepState(createHammerPrepState("prep_failed", null, "Hammer could not resolve prep media."));
       ingestLog.error("prep_source_missing", {
         workspace_id: currentLaunchContext.workspace_id,
@@ -2852,6 +2860,14 @@ export default function HammerWorkspaceEditor(
         manual_regenerate_ai_transcript: Boolean(regenAiTranscriptRequestRef.current),
         refresh_visual_placements: regenAiTranscriptRequestRef.current?.refreshPlacements ?? null,
       });
+      try {
+        console.info("[hammer:transcript:media_available]", {
+          workspace_id: currentLaunchContext.workspace_id,
+          workpiece_id: currentLaunchContext.workpiece_id,
+          media_kind: prepSource.mediaRef.kind,
+          canonical_workpiece_path: prepSource.canonical_workpiece_path,
+        });
+      } catch {}
 
       let outcome: "prepared" | "failed" | "non_ai_missing" | "error" | "job_submitted" = "error";
       let audioPolishStatus: string | null = null;
@@ -3056,23 +3072,45 @@ export default function HammerWorkspaceEditor(
             }
           }
 
-          // Legacy transcript not available: stop here and offer AI fallback explicitly.
+          // Legacy transcript not available: request AI fallback immediately when media exists.
           logTranscriptStage("legacy:missing", {}, "warn");
+          const recoveredAnvilSnapshot = findRecoveredAnvilSnapshotByWorkpieceId(currentLaunchContext.workpiece_id);
+          try {
+            console.warn("[hammer:transcript:canonical_missing]", {
+              workspace_id: currentLaunchContext.workspace_id,
+              workpiece_id: currentLaunchContext.workpiece_id,
+              reason: "legacy_transcript_not_found",
+              recovered_anvil_snapshot_key: recoveredAnvilSnapshot?.key ?? null,
+              recovered_anvil_snapshot_segment_count: recoveredAnvilSnapshot?.segment_count ?? 0,
+            });
+          } catch {}
+          if (recoveredAnvilSnapshot) {
+            try {
+              console.info("[hammer:transcript:recovered_anvil_live_snapshot]", {
+                workspace_id: currentLaunchContext.workspace_id,
+                workpiece_id: currentLaunchContext.workpiece_id,
+                key: recoveredAnvilSnapshot.key,
+                capture_session_id: recoveredAnvilSnapshot.capture_session_id,
+                segment_count: recoveredAnvilSnapshot.segment_count,
+                warning: "Recovered snapshot is rolling live ASR and may need cleanup.",
+              });
+            } catch {}
+          }
           run.log("legacy_transcript:missing", {
             ai_fallback_requested: prepAiFallbackRequested,
             canonical_recording_id: currentCanonicalRecording?.id ?? null,
             sealed_at: currentCanonicalRecording?.sealed_at ?? null,
-            note: "No legacy transcript artifacts were found to seal. Offer AI fallback.",
+            note: "No legacy transcript artifacts were found to seal. AI fallback will be requested automatically.",
+            recovered_anvil_snapshot_key: recoveredAnvilSnapshot?.key ?? null,
+            recovered_anvil_snapshot_segment_count: recoveredAnvilSnapshot?.segment_count ?? 0,
           });
-          setPrepState(createHammerPrepState(
-            "prep_failed",
-            null,
-            "No reusable transcript was found yet. Retry without AI, or choose AI fallback to generate one.",
-          ));
-          setPrepFailureKind("non_ai_missing");
-          outcome = "non_ai_missing";
-          logTranscriptStage("pipeline:done", { outcome }, "warn");
-          return;
+          try {
+            console.info("[hammer:transcript:ai_fallback_requested]", {
+              workspace_id: currentLaunchContext.workspace_id,
+              workpiece_id: currentLaunchContext.workpiece_id,
+              reason: "legacy_transcript_missing",
+            });
+          } catch {}
         }
 
         const preparingRequest = buildHammerPrepPersistenceSaveRequest({
@@ -3093,22 +3131,13 @@ export default function HammerWorkspaceEditor(
         }
 
         if (!prepAiFallbackRequested) {
-          logTranscriptStage("legacy:missing", {}, "warn");
-          run.log("legacy_transcript:missing", {
-            ai_fallback_requested: prepAiFallbackRequested,
-            canonical_recording_id: currentCanonicalRecording?.id ?? null,
-            sealed_at: currentCanonicalRecording?.sealed_at ?? null,
-            note: "No legacy transcript artifacts were found; AI fallback not requested.",
-          });
-          setPrepState(createHammerPrepState(
-            "prep_failed",
-            null,
-            "No reusable transcript was found yet. Retry without AI, or choose AI fallback to generate one.",
-          ));
-          setPrepFailureKind("non_ai_missing");
-          outcome = "non_ai_missing";
-          logTranscriptStage("pipeline:done", { outcome }, "warn");
-          return;
+          try {
+            console.info("[hammer:transcript:ai_fallback_requested]", {
+              workspace_id: currentLaunchContext.workspace_id,
+              workpiece_id: currentLaunchContext.workpiece_id,
+              reason: "auto_on_missing_transcript",
+            });
+          } catch {}
         }
 
         setPrepState(createHammerPrepState("preparing", "transcribing_audio"));
@@ -3141,11 +3170,27 @@ export default function HammerWorkspaceEditor(
           },
         });
         if (!jobCreate.ok) {
+          try {
+            console.warn("[hammer:transcript:ai_fallback_blocked_reason]", {
+              workspace_id: currentLaunchContext.workspace_id,
+              workpiece_id: currentLaunchContext.workpiece_id,
+              reason: `job_create_failed_${jobCreate.status}`,
+              message: jobCreate.error,
+            });
+          } catch {}
           throw new Error(jobCreate.error);
         }
 
+        usedAiPrep = true;
         submittedTranscriptJob = true;
         setPrepTranscriptJobId(jobCreate.data.job.id);
+        try {
+          console.info("[hammer:transcript:ai_fallback_job_created]", {
+            workspace_id: currentLaunchContext.workspace_id,
+            workpiece_id: currentLaunchContext.workpiece_id,
+            job_id: jobCreate.data.job.id,
+          });
+        } catch {}
         logTranscriptStage("job:create:ok", {
           job_id: jobCreate.data.job.id,
           job_status: jobCreate.data.job.status,

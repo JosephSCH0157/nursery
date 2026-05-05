@@ -1555,6 +1555,77 @@ function createRequestId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function isDevDiagnosticsEnabled(): boolean {
+  try {
+    if (typeof process !== "undefined" && process?.env) {
+      const nodeEnv = String(process.env.NODE_ENV || "").trim().toLowerCase();
+      if (!nodeEnv || nodeEnv === "development" || nodeEnv === "test") return true;
+      if (String(process.env.TONGS_DEV_DIAGNOSTICS || "").trim() === "1") return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+function tryDecodeJwtSubFromAuthHeader(rawHeader: string | null | undefined): string | null {
+  const header = String(rawHeader || "").trim();
+  if (!header) return null;
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  const token = (match ? match[1] : header).trim();
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  try {
+    const payload = parts[1]
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .padEnd(Math.ceil(parts[1].length / 4) * 4, "=");
+    let decoded = "";
+    if (typeof atob === "function") {
+      decoded = atob(payload);
+    } else if (typeof Buffer !== "undefined") {
+      decoded = Buffer.from(payload, "base64").toString("utf8");
+    }
+    if (!decoded) return null;
+    const parsed = JSON.parse(decoded) as Record<string, unknown>;
+    const sub = typeof parsed.sub === "string" ? parsed.sub.trim() : "";
+    return sub || null;
+  } catch {
+    return null;
+  }
+}
+
+function toHttpLikeError(error: unknown): {
+  status: number;
+  code: string;
+  message: string;
+  details?: unknown;
+} | null {
+  if (error instanceof HttpError) {
+    return {
+      status: error.status,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+    };
+  }
+  if (!error || typeof error !== "object") return null;
+  const candidate = error as Record<string, unknown>;
+  const status = Number(candidate.status);
+  const code = typeof candidate.code === "string" ? candidate.code.trim() : "";
+  const message = typeof candidate.message === "string" ? candidate.message.trim() : "";
+  if (!Number.isFinite(status) || status < 400 || status >= 600 || !code || !message) {
+    return null;
+  }
+  return {
+    status: Math.floor(status),
+    code,
+    message,
+    details: candidate.details,
+  };
+}
+
 function errorResponse(error: unknown, requestId?: string): Response {
   if (error instanceof HttpError) {
     return jsonResponse(error.status, {
@@ -2324,6 +2395,15 @@ async function uploadStorageObject(
 
   if (error) {
     logStorageError("upload", bucket, key, error);
+    try {
+      console.error("[tongs][storage:upload] failed", {
+        bucket,
+        key,
+        message: error instanceof Error ? error.message : String(error),
+        statusCode: (error as { statusCode?: unknown }).statusCode ?? null,
+        status: (error as { status?: unknown }).status ?? null,
+      });
+    } catch { /* ignore */ }
     if (isStorageObjectTooLargeError(error)) {
       throw new HttpError(413, "storage_object_too_large", "File exceeds the configured Storage object size limit", {
         bucket,
@@ -8053,6 +8133,14 @@ export class TongsCommitService {
       .upsert(rows, { onConflict: "workpiece_id,path" });
 
     if (error) {
+      try {
+        console.error("[tongs][db] workpiece_files upsert failed", {
+          workpiece_ids: rows.map((r) => r.workpiece_id),
+          paths: rows.map((r) => r.path),
+          reason: error.message,
+          pg_code: (error as { code?: unknown }).code ?? null,
+        });
+      } catch { /* ignore */ }
       throw new HttpError(502, "db_write_failed", "Failed to upsert workpiece_files", {
         reason: error.message,
       });
@@ -8132,6 +8220,17 @@ export class TongsCommitService {
     const storageKey = buildStorageKey(workpieceId, args.path);
 
     assertApprovedScriptTagContract(args.path, args.eventName, args.bytes);
+
+    try {
+      console.info("[tongs][commit_file] start", {
+        workpiece_id: workpieceId,
+        path: args.path,
+        storage_key: storageKey,
+        bytes: args.bytes.length,
+        content_type: args.contentType,
+        commit_mode: args.commitMode,
+      });
+    } catch { /* ignore */ }
 
     const hash = await sha256Hex(args.bytes);
     await uploadStorageObject(this.supabase, this.bucket, storageKey, args.bytes, args.contentType);
@@ -8223,6 +8322,24 @@ export class TongsCommitService {
       writtenBy: args.writtenBy,
       correlationId: normalizeCorrelationId(args.correlationId),
     });
+    if (
+      args.path === HAMMER_ARTIFACT_PATHS.structured_transcript
+      || args.path.startsWith("anvil/transcript/final/")
+    ) {
+      try {
+        console.info("[tongs:transcript:artifact_registered]", {
+          workpiece_id: workpieceId,
+          path: args.path,
+          event_name: eventName,
+          bytes: args.bytes.length,
+          content_type: args.contentType,
+          commit_mode: args.commitMode,
+          correlation_id: normalizeCorrelationId(args.correlationId),
+        });
+      } catch {
+        // ignore
+      }
+    }
 
     const { data: fileRow, error: fileRowError } = await this.supabase
       .schema("tongs")
@@ -8774,6 +8891,15 @@ export class TongsCommitService {
     uploadId: string,
   ): Promise<FinalizeRecordingUploadResponse> {
     const state = await this.loadRecordingUploadSessionState(workpieceId, uploadId);
+    try {
+      console.info("[tongs][finalize] start", {
+        workpiece_id: workpieceId,
+        upload_id: uploadId,
+        path: state.path,
+        total_chunks: state.total_chunks,
+        total_bytes: state.total_bytes,
+      });
+    } catch { /* ignore */ }
     if (state.finalized_at) {
       throw new HttpError(409, "upload_session_finalized", "Recording upload session is already finalized");
     }
@@ -11849,8 +11975,67 @@ export function createTongsCommitApiHandlerWithService(
             "Missing x-forge-user-authorization (or x-forge-user-token) header",
           );
         }
-        const result = await service.commitFile(workpieceId, payload);
-        return jsonResponse(200, { ok: true, data: result });
+        try {
+          const result = await service.commitFile(workpieceId, payload);
+          return jsonResponse(200, { ok: true, data: result });
+        } catch (error) {
+          const authHeader = request.headers.get("x-forge-user-authorization")
+            || request.headers.get("x-forge-user-token")
+            || request.headers.get("authorization");
+          const payloadRecord = body && typeof body === "object"
+            ? body as Record<string, unknown>
+            : {};
+          const diagnosticDetails: Record<string, unknown> = {
+            route: "POST /tongs/workpieces/:workpiece_id/commit-file",
+            workpiece_id: workpieceId,
+            authenticated_user_id: tryDecodeJwtSubFromAuthHeader(authHeader),
+            payload_keys: Object.keys(payloadRecord),
+            artifact_kind: typeof payloadRecord.file_type === "string" ? payloadRecord.file_type : null,
+            artifact_type: typeof payloadRecord.content_type === "string" ? payloadRecord.content_type : null,
+            requested_path: typeof payloadRecord.path === "string" ? payloadRecord.path : null,
+          };
+          const httpLikeError = toHttpLikeError(error);
+          if (httpLikeError) {
+            diagnosticDetails.error_code = httpLikeError.code;
+            diagnosticDetails.error_status = httpLikeError.status;
+            diagnosticDetails.error_details = typeof httpLikeError.details === "undefined" ? null : httpLikeError.details;
+          } else if (error instanceof Error) {
+            diagnosticDetails.error_code = "internal_error";
+            diagnosticDetails.stack = error.stack || null;
+          } else {
+            diagnosticDetails.error_code = "unknown_error";
+            diagnosticDetails.error_value = String(error);
+          }
+
+          if (isDevDiagnosticsEnabled()) {
+            try {
+              console.error("[tongs-commit-file-failed]", diagnosticDetails);
+            } catch {
+              // ignore logging failures
+            }
+          }
+
+          const status = httpLikeError
+            ? httpLikeError.status
+            : 502;
+          const message = httpLikeError
+            ? httpLikeError.message
+            : (error instanceof Error ? error.message : "commit-file failed");
+          const responsePayload = {
+            ok: false,
+            code: "tongs_commit_file_failed",
+            message,
+            details: diagnosticDetails,
+            error: {
+              code: "tongs_commit_file_failed",
+              message,
+              details: diagnosticDetails,
+              ...(requestId ? { request_id: requestId } : {}),
+            },
+            ...(requestId ? { request_id: requestId } : {}),
+          };
+          return jsonResponse(status, responsePayload, requestId);
+        }
       }
 
       if (
@@ -11895,8 +12080,56 @@ export function createTongsCommitApiHandlerWithService(
         requireMethod(request, "POST");
         const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
         const uploadId = normalizeRecordingUploadSessionId(decodeURIComponent(parts[4]), "upload_id");
-        const result = await service.finalizeRecordingUpload(workpieceId, uploadId);
-        return jsonResponse(200, { ok: true, data: result });
+        try {
+          const result = await service.finalizeRecordingUpload(workpieceId, uploadId);
+          return jsonResponse(200, { ok: true, data: result });
+        } catch (error) {
+          const diagnosticDetails: Record<string, unknown> = {
+            route: "POST /tongs/workpieces/:workpiece_id/recording-upload/:upload_id/finalize",
+            workpiece_id: workpieceId,
+            upload_id: uploadId,
+          };
+          const httpLikeError = toHttpLikeError(error);
+          if (httpLikeError) {
+            diagnosticDetails.error_code = httpLikeError.code;
+            diagnosticDetails.error_status = httpLikeError.status;
+            diagnosticDetails.error_details =
+              typeof httpLikeError.details === "undefined" ? null : httpLikeError.details;
+          } else if (error instanceof Error) {
+            diagnosticDetails.error_code = "internal_error";
+            diagnosticDetails.stack = error.stack ?? null;
+          } else {
+            diagnosticDetails.error_code = "unknown_error";
+            diagnosticDetails.error_value = String(error);
+          }
+          if (isDevDiagnosticsEnabled()) {
+            try {
+              console.error("[tongs-finalize-failed]", diagnosticDetails);
+            } catch {
+              // ignore logging failures
+            }
+          }
+          const status = httpLikeError ? httpLikeError.status : 502;
+          const message = httpLikeError
+            ? httpLikeError.message
+            : error instanceof Error
+            ? error.message
+            : "recording-upload finalize failed";
+          const responsePayload = {
+            ok: false,
+            code: "tongs_finalize_failed",
+            message,
+            details: diagnosticDetails,
+            error: {
+              code: "tongs_finalize_failed",
+              message,
+              details: diagnosticDetails,
+              ...(requestId ? { request_id: requestId } : {}),
+            },
+            ...(requestId ? { request_id: requestId } : {}),
+          };
+          return jsonResponse(status, responsePayload, requestId);
+        }
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "commit-file") {
@@ -12846,6 +13079,23 @@ export function createTongsCommitApiHandlerWithService(
             details: error.details ?? null,
             path: request.url,
             method: request.method,
+          });
+        } catch {
+          // ignore logging failures
+        }
+      }
+      const uncaughtStatus = error instanceof HttpError ? error.status : 500;
+      if (uncaughtStatus >= 500) {
+        try {
+          console.error("[tongs-api-5xx]", {
+            request_id: requestId,
+            status: uncaughtStatus,
+            code: error instanceof HttpError ? error.code : "internal_error",
+            message: error instanceof Error ? error.message : String(error),
+            details: error instanceof HttpError ? (error.details ?? null) : null,
+            path: request.url,
+            method: request.method,
+            stack: isDevDiagnosticsEnabled() && error instanceof Error ? (error.stack ?? null) : null,
           });
         } catch {
           // ignore logging failures

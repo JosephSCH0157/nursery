@@ -257,4 +257,55 @@ describe('RecordingTranscriptController', () => {
     expect(secondStop.finalArtifact?.segments).toHaveLength(1);
     expect(secondStop.finalArtifact?.segments[0]?.text).toBe('pending interim phrase');
   });
+
+  test('normalizes rolling overlap in finalized transcript artifact', async () => {
+    const controller = new RecordingTranscriptController({
+      ensureCaptureTarget: async () => ({
+        ok: true as const,
+        workspaceId: 'workspace-1',
+        workpieceId: 'workpiece-1',
+        createdCradle: false,
+        plannerRecordingSessionId: 'planner-1',
+        captureSessionId: 'capture-5',
+      }),
+      commitJsonArtifact: async () => ({
+        ok: true as const,
+        status: 200,
+        workpieceId: 'workpiece-1',
+        path: 'ok',
+      }),
+      startSpeech: async () => true,
+      stopSpeech: jest.fn(),
+      localStorage: { setItem: jest.fn() },
+    });
+
+    const strategy = selectBestRecordingStrategy({
+      mode: 'audio',
+      mediaRecorderCtor: { isTypeSupported: () => true },
+    });
+
+    await controller.startSession({
+      captureSessionId: 'capture-5',
+      recordingStartedAtMs: Date.now() - 2_500,
+      strategy,
+    });
+
+    // First final phrase lands as the first committed segment.
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', { detail: { text: 'city council lobbyists', final: true, isFinal: true } }));
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', { detail: { text: 'city council lobbyists', final: true, isFinal: true } }));
+    // Follow-up phrase starts with overlapping tail; finalize should trim overlap.
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', { detail: { text: 'lobbyists influence zoning votes', final: true, isFinal: true } }));
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', { detail: { text: 'lobbyists influence zoning votes', final: true, isFinal: true } }));
+
+    const finalResult = await controller.stopSession({
+      mediaDurationMs: 5_500,
+      mediaPath: 'recordings/example.webm',
+      contentType: 'audio/webm',
+    });
+
+    expect(finalResult.status).toBe('ready');
+    expect(finalResult.finalArtifact?.segments).toHaveLength(2);
+    expect(finalResult.finalArtifact?.segments[0]?.text).toBe('city council lobbyists');
+    expect(finalResult.finalArtifact?.segments[1]?.text).toBe('influence zoning votes');
+  });
 });
