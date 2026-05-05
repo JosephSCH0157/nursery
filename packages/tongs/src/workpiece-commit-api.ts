@@ -4784,62 +4784,6 @@ function extractPdfTextV1(fileBytes: Uint8Array): string {
 
   return lines.join("\n").slice(0, 120000);
 }
-function extensionOfAttachmentFile(filename: string): string {
-  const trimmed = filename.trim().toLowerCase();
-  const lastDot = trimmed.lastIndexOf(".");
-  if (lastDot < 0) return "";
-  return trimmed.slice(lastDot);
-}
-
-function sanitizeAttachmentFilename(filename: string): string {
-  const trimmed = filename.replace(/[\r\n]/g, " ").trim();
-  const cleaned = trimmed
-    .replace(/[\\/]+/g, "-")
-    .replace(/\s+/g, " ")
-    .replace(/[^a-zA-Z0-9._ -]/g, "_")
-    .slice(0, 160)
-    .trim();
-  return cleaned || "attachment";
-}
-
-function normalizeAttachmentMimeType(value: string): string {
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) return "application/octet-stream";
-  const semicolon = normalized.indexOf(";");
-  return semicolon >= 0 ? normalized.slice(0, semicolon).trim() : normalized;
-}
-
-function isSupportedAttachmentType(filename: string, mimeType: string): boolean {
-  const ext = extensionOfAttachmentFile(filename);
-  const normalizedMime = normalizeAttachmentMimeType(mimeType);
-  return HEARTH_ATTACHMENT_ALLOWED_EXTENSIONS.has(ext) || HEARTH_ATTACHMENT_ALLOWED_MIME_TYPES.has(normalizedMime);
-}
-
-function decodePdfLiteralString(raw: string): string {
-  return raw
-    .replace(/\\\(/g, "(")
-    .replace(/\\\)/g, ")")
-    .replace(/\\n/g, "\n")
-    .replace(/\\r/g, "\n")
-    .replace(/\\t/g, "\t")
-    .replace(/\\\\/g, "\\")
-    .replace(/\\\d{3}/g, (token) => {
-      const value = Number.parseInt(token.slice(1), 8);
-      return Number.isFinite(value) ? String.fromCharCode(value) : "";
-    });
-}
-
-function extractPdfTextV1(fileBytes: Uint8Array): string {
-  const pdfText = textDecoder.decode(fileBytes);
-  if (!pdfText.includes("%PDF")) {
-    throw new HttpError(422, "attachment_parse_failed", "PDF parse failed for this file.", {
-      parse_error: "pdf_not_detected",
-    });
-  }
-
-  if (/\/Filter\s*\/FlateDecode/i.test(pdfText)) {
-    throw new HttpError(422, "attachment_parse_failed", "PDF parsing failed for this file format.
-
 export class TongsCommitService {
   readonly supabase: SupabaseClient<Database>;
   readonly bucket: string;
