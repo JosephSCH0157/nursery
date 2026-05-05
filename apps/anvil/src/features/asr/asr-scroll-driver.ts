@@ -698,6 +698,16 @@ const DEFAULT_BEHIND_CANDIDATE_MIN_SIM = 0.9;
 const DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS = 3;
 const DEFAULT_BEHIND_CANDIDATE_MIN_CHARS = 24;
 const DEFAULT_CURRENT_OVERRIDE_MIN_SIM = 0.22;
+const CURSOR_BACKJUMP_ALLOWED_REASONS = new Set([
+  'manualReset',
+  'scriptChanged',
+  'manualAdopt',
+  'behind-recovery',
+  'grace-rollback',
+  'behind-reanchor',
+  'anchor-sync',
+  'block-anchor-sync',
+]);
 const CUE_LINE_BRACKET_RE = /^\s*[\[(\{][^\]\)\}]{0,120}[\]\)\}]\s*$/;
 const CUE_LINE_WORD_RE = /\b(pause|beat|silence|breath|breathe|hold|wait|reflective)\b/i;
 const STRUCTURAL_EMPTY_LINE_RE = /^\s*empty\s*[.!?]?\s*$/i;
@@ -4472,7 +4482,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const scriptHash = readScriptHash();
     const scriptHashChanged = !!scriptHash && scriptHash !== lastScriptHash;
     const isBackJump = next < prev - DEFAULT_BACKJUMP_BLOCK_LINES;
-    const allowBackJump = reason === 'manualReset' || reason === 'scriptChanged';
+    const allowBackJump = CURSOR_BACKJUMP_ALLOWED_REASONS.has(String(reason || ''));
     if (isBackJump) {
       try {
         console.warn('[ASR_BACKJUMP]', {
