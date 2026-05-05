@@ -312,6 +312,12 @@ const _LIVE_ASR_STRONG_SNAP_GLIDE_MIN_MS = 260;
 const _LIVE_ASR_STRONG_SNAP_GLIDE_MAX_MS = 760;
 const _LIVE_ASR_STRONG_SNAP_GLIDE_PX_PER_SEC = 560;
 const LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES = 1;
+const ALIGNMENT_SKEPTIC_WINDOW_MS = 7000;
+const ALIGNMENT_SKEPTIC_FORWARD_CONF_BONUS = 0.08;
+const ALIGNMENT_SKEPTIC_MIN_FORWARD_TOKENS = 6;
+const ALIGNMENT_SKEPTIC_MIN_SUSTAINED_SPEECH_MS = 500;
+const ALIGNMENT_SKEPTIC_STABLE_SAME_LINE_HITS = 2;
+const ALIGNMENT_SKEPTIC_ADJACENT_COMMIT_HITS = 2;
 const DEFAULT_PURSUE_KP = 3.2;
 const DEFAULT_PURSUE_MANUAL_CANCEL_PX = 48;
 const DEFAULT_NO_TARGET_RETRY_SIM = 0.9;
@@ -3338,6 +3344,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let recoveryLandingHoldFromLine = -1;
   let recoveryLandingHoldToLine = -1;
   let recoveryLandingHoldSource = '';
+  let alignmentSkepticModeActive = false;
+  let alignmentSkepticEnteredAt = 0;
+  let alignmentSkepticSource = '';
+  let alignmentSkepticStableSameLineHits = 0;
+  let alignmentSkepticAdjacentCommitHits = 0;
 
   const normalizeRunGeneration = (value: unknown): number | null => {
     if (value == null || value === '') return null;
@@ -3377,6 +3388,44 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const runtimeKey = normalizeRunKey(asrRuntimeRunKey);
     if (runtimeKey) return runtimeKey;
     return readWindowRunKey();
+  };
+
+  const emitAlignmentSkepticTelemetry = (
+    eventName:
+      | 'asr_alignment_skeptic_mode_enter'
+      | 'asr_alignment_skeptic_forward_rejected'
+      | 'asr_alignment_skeptic_cleared',
+    detail?: Record<string, unknown>,
+  ): void => {
+    warnGuard(eventName, [
+      detail?.current != null ? `current=${detail.current}` : '',
+      detail?.target != null ? `target=${detail.target}` : '',
+      detail?.source ? `source=${String(detail.source)}` : '',
+      detail?.reason ? `reason=${String(detail.reason)}` : '',
+    ]);
+    try {
+      window.dispatchEvent(new CustomEvent('tp:asr:alignment-skeptic', {
+        detail: {
+          event: eventName,
+          ts: Date.now(),
+          ...(detail || {}),
+        },
+      }));
+    } catch {}
+  };
+
+  const clearAlignmentSkepticMode = (reason: string, now: number) => {
+    if (!alignmentSkepticModeActive) return;
+    emitAlignmentSkepticTelemetry('asr_alignment_skeptic_cleared', {
+      reason,
+      source: alignmentSkepticSource || undefined,
+      holdMs: alignmentSkepticEnteredAt > 0 ? Math.max(0, now - alignmentSkepticEnteredAt) : 0,
+    });
+    alignmentSkepticModeActive = false;
+    alignmentSkepticEnteredAt = 0;
+    alignmentSkepticSource = '';
+    alignmentSkepticStableSameLineHits = 0;
+    alignmentSkepticAdjacentCommitHits = 0;
   };
   const resolveDriverRunGeneration = (): number | null => normalizeRunGeneration(driverRunGeneration);
   const resolveDriverRunKey = (): string => normalizeRunKey(driverRunKey);
@@ -13427,6 +13476,59 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
 
       const forwardDelta = targetLine - lastLineIndex;
+      if (alignmentSkepticModeActive) {
+        const skepticAgeMs =
+          alignmentSkepticEnteredAt > 0 ? Math.max(0, now - alignmentSkepticEnteredAt) : 0;
+        if (skepticAgeMs > ALIGNMENT_SKEPTIC_WINDOW_MS) {
+          clearAlignmentSkepticMode('timeout', now);
+        }
+      }
+      if (alignmentSkepticModeActive && targetLine === lastLineIndex) {
+        if (conf >= baselineRequired && hasRecentVadSpeech && runtimeSpeechFresh) {
+          alignmentSkepticStableSameLineHits += 1;
+        } else {
+          alignmentSkepticStableSameLineHits = 0;
+        }
+        if (alignmentSkepticStableSameLineHits >= ALIGNMENT_SKEPTIC_STABLE_SAME_LINE_HITS) {
+          clearAlignmentSkepticMode('stable_same_line_confirmation', now);
+        }
+      }
+      if (alignmentSkepticModeActive && forwardDelta > 0) {
+        const skepticalTokenCount = normTokens(String(snippet || '')).length;
+        const targetAhead = targetLine > lastLineIndex + 1;
+        const sustainedSpeechMs = asrRuntimeSpeechRunningActual && lastSpeechRunningActualAtMs > 0
+          ? Math.max(0, now - lastSpeechRunningActualAtMs)
+          : 0;
+        const skepticForwardNeed = clamp(
+          baselineRequired + ALIGNMENT_SKEPTIC_FORWARD_CONF_BONUS,
+          DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM,
+          1,
+        );
+        const forwardConfirmOk =
+          skepticalTokenCount >= ALIGNMENT_SKEPTIC_MIN_FORWARD_TOKENS ||
+          sustainedSpeechMs >= ALIGNMENT_SKEPTIC_MIN_SUSTAINED_SPEECH_MS;
+        const rejectReason = targetAhead
+          ? 'target_ahead_blocked'
+          : conf < skepticForwardNeed
+            ? 'confidence_too_low'
+            : !forwardConfirmOk
+              ? 'needs_tokens_or_sustained_speech'
+              : '';
+        if (rejectReason) {
+          emitAlignmentSkepticTelemetry('asr_alignment_skeptic_forward_rejected', {
+            reason: rejectReason,
+            current: lastLineIndex,
+            target: targetLine,
+            sim: Number.isFinite(conf) ? Number(conf.toFixed(3)) : conf,
+            need: Number.isFinite(skepticForwardNeed) ? Number(skepticForwardNeed.toFixed(3)) : skepticForwardNeed,
+            tokens: skepticalTokenCount,
+            sustainedSpeechMs,
+            source: alignmentSkepticSource || undefined,
+          });
+          emitHudStatus('asr_alignment_skeptic_forward_rejected', 'Hold: re-aligning after recovery');
+          return;
+        }
+      }
       const directAdjacentCandidate = rankedTopScores.find((entry) => entry.idx === targetLine) || null;
       const directAdjacentSim = Number(directAdjacentCandidate?.score);
       const directAdjacentNeed = Math.max(
@@ -13841,6 +13943,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         recoveryLandingHoldToLine = targetLine;
         recoveryLandingHoldSource = String(pendingSourceBranch || forceReason || '').trim();
       }
+      if (
+        targetLine > prevLineIndex &&
+        isAsrRecoverySource(pendingSourceBranch, forceReason, matchId)
+      ) {
+        alignmentSkepticModeActive = true;
+        alignmentSkepticEnteredAt = now;
+        alignmentSkepticSource = String(pendingSourceBranch || forceReason || matchId || '').trim();
+        alignmentSkepticStableSameLineHits = 0;
+        alignmentSkepticAdjacentCommitHits = 0;
+        emitAlignmentSkepticTelemetry('asr_alignment_skeptic_mode_enter', {
+          source: alignmentSkepticSource || undefined,
+          current: prevLineIndex,
+          target: targetLine,
+        });
+      }
       if (pendingSpeakableBridgeState) {
         if (targetLine >= pendingSpeakableBridgeState.semanticTarget) {
           clearPendingSpeakableBridge('semantic_target_committed', [
@@ -13874,6 +13991,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             'latch=reset',
           ]);
         }
+      }
+      if (
+        alignmentSkepticModeActive &&
+        targetLine === prevLineIndex + 1 &&
+        strictLocalAdjacentProofForCommit
+      ) {
+        alignmentSkepticAdjacentCommitHits += 1;
+        if (alignmentSkepticAdjacentCommitHits >= ALIGNMENT_SKEPTIC_ADJACENT_COMMIT_HITS) {
+          clearAlignmentSkepticMode('adjacent_local_proof_commits', now);
+        }
+      } else if (alignmentSkepticModeActive && targetLine > prevLineIndex) {
+        alignmentSkepticAdjacentCommitHits = 0;
       }
       closeAmbiguityHold(now, 'commit', prevLineIndex, targetLine, conf);
       if (forwardDelta >= OVERSHOOT_RISK_DELTA_LINES) {
