@@ -233,6 +233,14 @@ const HAMMER_ARTIFACT_EVENT_NAMES = {
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+const HEARTH_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+const HEARTH_ATTACHMENT_ALLOWED_EXTENSIONS = new Set([".txt", ".md", ".pdf", ".docx"]);
+const HEARTH_ATTACHMENT_ALLOWED_MIME_TYPES = new Set([
+  "text/plain",
+  "text/markdown",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
 
 type AssetRow = Database["tongs"]["Tables"]["assets"]["Row"];
 type EpisodeRow = Database["tongs"]["Tables"]["episodes"]["Row"];
@@ -247,6 +255,39 @@ type WorkpieceFileRow = Database["tongs"]["Tables"]["workpiece_files"]["Row"];
 type WorkpieceEventRow = Database["tongs"]["Tables"]["workpiece_events"]["Row"];
 type WorkspaceRow = Database["tongs"]["Tables"]["workspaces"]["Row"];
 type WorkspaceReadyQueueStateRow = Database["tongs"]["Tables"]["workspace_ready_queue_state"]["Row"];
+type HearthAttachmentParseStatus = "pending" | "attached" | "failed";
+
+export type HearthAttachmentRecord = {
+  id: string;
+  workspace_id: string;
+  episode_id: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  storage_bucket: string;
+  storage_path: string;
+  storage_key: string;
+  extracted_text: string | null;
+  parse_status: HearthAttachmentParseStatus;
+  parse_error: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateHearthAttachmentInput = {
+  workspace_id: string;
+  episode_id: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  file_bytes: Uint8Array;
+};
+
+export type ListHearthAttachmentsInput = {
+  workspace_id: string;
+  episode_id: string;
+};
 
 type RecordingUploadSessionState = {
   schema: typeof RECORDING_UPLOAD_SESSION_SCHEMA;
@@ -1272,6 +1313,14 @@ export type TongsCommitApiService = {
     workpieceId: string,
     options?: { userAccessToken?: string | null },
   ): Promise<HearthWorkpiecePresenceRow[]>;
+  createHearthAttachment(
+    input: CreateHearthAttachmentInput,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthAttachmentRecord>;
+  listHearthAttachments(
+    input: ListHearthAttachmentsInput,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthAttachmentRecord[]>;
   upsertHearthWorkpiecePresence(
     workspaceId: string,
     workpieceId: string,
@@ -4655,6 +4704,141 @@ function toRecordingSessionDTO(session: RecordingSessionRow, items: RecordingSes
     items: items.map(toRecordingSessionItemDTO),
   };
 }
+
+
+function extensionOfAttachmentFile(filename: string): string {
+  const trimmed = filename.trim().toLowerCase();
+  const lastDot = trimmed.lastIndexOf(".");
+  if (lastDot < 0) return "";
+  return trimmed.slice(lastDot);
+}
+
+function sanitizeAttachmentFilename(filename: string): string {
+  const trimmed = filename.replace(/[\r\n]/g, " ").trim();
+  const cleaned = trimmed
+    .replace(/[\\/]+/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/[^a-zA-Z0-9._ -]/g, "_")
+    .slice(0, 160)
+    .trim();
+  return cleaned || "attachment";
+}
+
+function normalizeAttachmentMimeType(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return "application/octet-stream";
+  const semicolon = normalized.indexOf(";");
+  return semicolon >= 0 ? normalized.slice(0, semicolon).trim() : normalized;
+}
+
+function isSupportedAttachmentType(filename: string, mimeType: string): boolean {
+  const ext = extensionOfAttachmentFile(filename);
+  const normalizedMime = normalizeAttachmentMimeType(mimeType);
+  return HEARTH_ATTACHMENT_ALLOWED_EXTENSIONS.has(ext) || HEARTH_ATTACHMENT_ALLOWED_MIME_TYPES.has(normalizedMime);
+}
+
+function decodePdfLiteralString(raw: string): string {
+  return raw
+    .replace(/\\\(/g, "(")
+    .replace(/\\\)/g, ")")
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\\\/g, "\\")
+    .replace(/\\\d{3}/g, (token) => {
+      const value = Number.parseInt(token.slice(1), 8);
+      return Number.isFinite(value) ? String.fromCharCode(value) : "";
+    });
+}
+
+function extractPdfTextV1(fileBytes: Uint8Array): string {
+  const pdfText = textDecoder.decode(fileBytes);
+  if (!pdfText.includes("%PDF")) {
+    throw new HttpError(422, "attachment_parse_failed", "PDF parse failed for this file.", {
+      parse_error: "pdf_not_detected",
+    });
+  }
+
+  if (/\/Filter\s*\/FlateDecode/i.test(pdfText)) {
+    throw new HttpError(422, "attachment_parse_failed", "PDF parsing failed for this file format.", {
+      parse_error: "pdf_parse_unsupported_encoding_for_v1",
+    });
+  }
+
+  const lines: string[] = [];
+  const literalMatches = pdfText.match(/\((?:\\.|[^\\)])*\)\s*Tj/g) ?? [];
+  for (const token of literalMatches) {
+    const literal = token.replace(/\s*Tj$/, "").trim();
+    const inner = literal.slice(1, -1);
+    const decoded = decodePdfLiteralString(inner).trim();
+    if (decoded) {
+      lines.push(decoded);
+    }
+  }
+
+  if (!lines.length) {
+    throw new HttpError(422, "attachment_parse_failed", "PDF parse produced no text for this file.", {
+      parse_error: "pdf_no_text_extracted",
+    });
+  }
+
+  return lines.join("\n").slice(0, 120000);
+}
+function extensionOfAttachmentFile(filename: string): string {
+  const trimmed = filename.trim().toLowerCase();
+  const lastDot = trimmed.lastIndexOf(".");
+  if (lastDot < 0) return "";
+  return trimmed.slice(lastDot);
+}
+
+function sanitizeAttachmentFilename(filename: string): string {
+  const trimmed = filename.replace(/[\r\n]/g, " ").trim();
+  const cleaned = trimmed
+    .replace(/[\\/]+/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/[^a-zA-Z0-9._ -]/g, "_")
+    .slice(0, 160)
+    .trim();
+  return cleaned || "attachment";
+}
+
+function normalizeAttachmentMimeType(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return "application/octet-stream";
+  const semicolon = normalized.indexOf(";");
+  return semicolon >= 0 ? normalized.slice(0, semicolon).trim() : normalized;
+}
+
+function isSupportedAttachmentType(filename: string, mimeType: string): boolean {
+  const ext = extensionOfAttachmentFile(filename);
+  const normalizedMime = normalizeAttachmentMimeType(mimeType);
+  return HEARTH_ATTACHMENT_ALLOWED_EXTENSIONS.has(ext) || HEARTH_ATTACHMENT_ALLOWED_MIME_TYPES.has(normalizedMime);
+}
+
+function decodePdfLiteralString(raw: string): string {
+  return raw
+    .replace(/\\\(/g, "(")
+    .replace(/\\\)/g, ")")
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\\\/g, "\\")
+    .replace(/\\\d{3}/g, (token) => {
+      const value = Number.parseInt(token.slice(1), 8);
+      return Number.isFinite(value) ? String.fromCharCode(value) : "";
+    });
+}
+
+function extractPdfTextV1(fileBytes: Uint8Array): string {
+  const pdfText = textDecoder.decode(fileBytes);
+  if (!pdfText.includes("%PDF")) {
+    throw new HttpError(422, "attachment_parse_failed", "PDF parse failed for this file.", {
+      parse_error: "pdf_not_detected",
+    });
+  }
+
+  if (/\/Filter\s*\/FlateDecode/i.test(pdfText)) {
+    throw new HttpError(422, "attachment_parse_failed", "PDF parsing failed for this file format.
 
 export class TongsCommitService {
   readonly supabase: SupabaseClient<Database>;

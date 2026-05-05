@@ -351,18 +351,26 @@ describe('ASR terminal script-end watchdog suppression', () => {
     jest.advanceTimersByTime(30);
 
     // Resume normal adjacent movement.
-    driver.ingest('Delta follow line', true, {
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+    driver.ingest('Delta follow line with enough confirming spoken tokens now', true, {
       currentIdx: 2,
       matchId: 'skeptic-adjacent-1',
-      match: { bestIdx: 3, bestSim: 0.95, topScores: [{ idx: 3, score: 0.95 }] },
+      match: { bestIdx: 3, bestSim: 1, topScores: [{ idx: 3, score: 1 }] },
     });
     jest.advanceTimersByTime(50);
     expect(driver.getLastLineIndex()).toBe(3);
 
-    driver.ingest('Epsilon close line', true, {
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+    driver.ingest('Epsilon close line with enough confirming spoken tokens now', true, {
       currentIdx: 3,
       matchId: 'skeptic-adjacent-2',
-      match: { bestIdx: 4, bestSim: 0.95, topScores: [{ idx: 4, score: 0.95 }] },
+      match: { bestIdx: 4, bestSim: 1, topScores: [{ idx: 4, score: 1 }] },
     });
     jest.advanceTimersByTime(50);
     expect(driver.getLastLineIndex()).toBe(4);
