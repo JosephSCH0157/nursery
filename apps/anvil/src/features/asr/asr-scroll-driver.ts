@@ -414,6 +414,8 @@ const DEFAULT_ASR_SOFT_RUNTIME_REBASE_FINAL_MAX_AGE_MS = 5000;
 const DEFAULT_ASR_SOFT_RUNTIME_REBASE_SKIP_LOG_COOLDOWN_MS = 1200;
 const DEFAULT_ASR_VAD_SPEECH_GRACE_MS = 900;
 const DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS = 900;
+const DEFAULT_LIVE_ASR_MIN_FORWARD_COMMIT_GAP_MS = 420;
+const DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM = 0.55;
 const DEFAULT_ASR_AUTHORITY_SPEECH_STOP_BRAKE_MS = 1800;
 const DEFAULT_ASR_AUTHORITY_FINAL_AFTER_SPEECH_STOP_MAX_AGE_MS = 1500;
 const DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS = 1;
@@ -13341,6 +13343,59 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
 
       const forwardDelta = targetLine - lastLineIndex;
+      const directAdjacentCandidate = rankedTopScores.find((entry) => entry.idx === targetLine) || null;
+      const directAdjacentSim = Number(directAdjacentCandidate?.score);
+      const directAdjacentNeed = Math.max(
+        DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM,
+        baselineRequired,
+      );
+      const directAdjacentMatch =
+        Number.isFinite(directAdjacentSim) &&
+        directAdjacentSim >= directAdjacentNeed;
+      const speechStopCleanupCommitForGates =
+        movementAuthorityReason === 'speech_stop_cleanup_commit';
+      if (
+        liveStrictFollow &&
+        forwardDelta > 0 &&
+        lastCommitIndex != null &&
+        !speechStopCleanupCommitForGates
+      ) {
+        const sinceForwardCommitMs = Math.max(0, now - lastForwardCommitAt);
+        if (sinceForwardCommitMs < DEFAULT_LIVE_ASR_MIN_FORWARD_COMMIT_GAP_MS) {
+          warnGuard('asr_live_readability_pace_hold', [
+            `current=${lastLineIndex}`,
+            `target=${targetLine}`,
+            `sinceForwardCommitMs=${sinceForwardCommitMs}`,
+            `minGapMs=${DEFAULT_LIVE_ASR_MIN_FORWARD_COMMIT_GAP_MS}`,
+            `authority=${movementAuthority}`,
+            `sourceBranch=${movementAuthoritySourceBranch}`,
+            snippet ? `clue="${snippet}"` : '',
+          ]);
+          emitHudStatus('asr_live_readability_pace_hold', 'Hold: pacing forward commits for readability');
+          return;
+        }
+      }
+      if (
+        liveStrictFollow &&
+        forwardDelta > 0 &&
+        !speechStopCleanupCommitForGates &&
+        !directAdjacentMatch
+      ) {
+        warnGuard('asr_live_no_adjacent_match_hold', [
+          `current=${lastLineIndex}`,
+          `target=${targetLine}`,
+          Number.isFinite(directAdjacentSim)
+            ? `adjacentSim=${formatLogScore(directAdjacentSim)}`
+            : 'adjacentSim=na',
+          `adjacentNeed=${formatLogScore(directAdjacentNeed)}`,
+          `authority=${movementAuthority}`,
+          `sourceBranch=${movementAuthoritySourceBranch}`,
+          forceReason ? `forceReason=${forceReason}` : '',
+          snippet ? `clue="${snippet}"` : '',
+        ]);
+        emitHudStatus('asr_live_no_adjacent_match_hold', 'Hold: waiting for direct adjacent ASR match');
+        return;
+      }
       if (forwardDelta < minLineAdvance) {
         warnGuard('forward_progress', [
           `lastLineIndex=${lastLineIndex}`,

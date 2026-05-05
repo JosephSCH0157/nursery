@@ -171,6 +171,79 @@ describe('ASR terminal script-end watchdog suppression', () => {
     driver.dispose();
   });
 
+  test('holds live forward commit when target lacks direct adjacent ASR match', () => {
+    document.body.innerHTML = `
+      <main id="viewer" class="viewer" style="overflow-y:auto">
+        <div id="script">
+          <div class="line" data-line="0">Alpha opening line</div>
+          <div class="line" data-line="1">Beta bridge line</div>
+          <div class="line" data-line="2">Gamma follow line</div>
+        </div>
+      </main>
+    `;
+
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 500 });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 1600 });
+    Object.defineProperty(scroller, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 0, left: 0, right: 400, bottom: 500, width: 400, height: 500 }),
+    });
+    scroller.scrollTop = 0;
+
+    const lineEls = Array.from(document.querySelectorAll<HTMLElement>('.line'));
+    lineEls.forEach((lineEl, idx) => {
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: idx * 180 });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: 120 });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: 120 });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: idx * 180,
+          left: 0,
+          right: 400,
+          bottom: idx * 180 + 120,
+          width: 400,
+          height: 120,
+        }),
+      });
+    });
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
+
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(0);
+
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: false } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    driver.ingest('Gamma follow line', true, {
+      currentIdx: 0,
+      matchId: 'missing-adjacent-direct-score',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.96,
+        topScores: [{ idx: 2, score: 0.96 }],
+      },
+    });
+
+    jest.advanceTimersByTime(50);
+
+    expect(driver.getLastLineIndex()).toBe(0);
+    const guardSeen = [...warnSpy.mock.calls, ...debugSpy.mock.calls].some((call) =>
+      call.some((arg) => String(arg).includes('asr_live_no_adjacent_match_hold')),
+    );
+    expect(guardSeen).toBe(true);
+
+    warnSpy.mockRestore();
+    debugSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('blocks delayed WhisperBridge final packets from moving scroll after speech ends', () => {
     document.body.innerHTML = `
       <main id="viewer" class="viewer" style="overflow-y:auto">
