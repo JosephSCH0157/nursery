@@ -57,7 +57,7 @@ async function writeFetchResponse(res: ServerResponse, response: Response): Prom
 }
 
 export function createNurseryTongsMiddleware(opts?: { routePrefix?: string }) {
-  const routePrefix = opts?.routePrefix ?? "/tongs";
+  const routePrefix = (opts?.routePrefix ?? "/tongs").replace(/\/+$/, "") || "/tongs";
   const config = resolveTongsRuntimeConfig();
   const service = config.missing.length ? null : createTongsCommitService(config.options);
   const handler = service ? createTongsCommitApiHandlerWithService(service, config.options.apiToken) : null;
@@ -75,8 +75,11 @@ export function createNurseryTongsMiddleware(opts?: { routePrefix?: string }) {
   return async function nurseryTongsMiddleware(req: IncomingMessage, res: ServerResponse, next: Next) {
     try {
       const rawUrl = req.url || "";
+      const origin = `http://${req.headers.host || "localhost"}`;
+      const parsedUrl = new URL(rawUrl, origin);
+      const pathname = parsedUrl.pathname;
       const isTarget =
-        rawUrl === routePrefix || rawUrl.startsWith(`${routePrefix}/`) || rawUrl.startsWith(`${routePrefix}?`);
+        pathname === routePrefix || pathname.startsWith(`${routePrefix}/`);
       if (!isTarget) return next();
 
       if (!handler) {
@@ -95,8 +98,7 @@ export function createNurseryTongsMiddleware(opts?: { routePrefix?: string }) {
         return;
       }
 
-      const origin = `http://${req.headers.host || "localhost"}`;
-      const fullUrl = new URL(rawUrl, origin).toString();
+      const fullUrl = parsedUrl.toString();
       const body = await readBody(req);
       const requestBody = body ? new Uint8Array(body) : undefined;
       const request = new Request(fullUrl, {
