@@ -34,6 +34,9 @@ function toErrorMessage(error: unknown, fallback: string): string {
 function isMissingFileResponse(status: number, payload: unknown): boolean {
   if (status !== 404) return false;
   const root = readJsonObject(payload);
+  // Some environments return a plain 404 payload for absent optional artifacts.
+  // For history reads, any 404 should be treated as "missing" instead of "error".
+  if (root == null) return true;
   return root?.ok === true && root?.exists === false;
 }
 

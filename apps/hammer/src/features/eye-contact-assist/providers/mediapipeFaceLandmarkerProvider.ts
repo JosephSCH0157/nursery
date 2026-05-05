@@ -165,6 +165,7 @@ export class MediapipeFaceLandmarkerProvider implements FaceLandmarkProvider {
   private readiness: FaceLandmarkProviderReadiness = { status: "idle" };
   private modulePromise: Promise<FaceLandmarkerModule> | null = null;
   private engine: MediapipeFaceLandmarker | null = null;
+  private lastTimestampMs: number | null = null;
   private readonly options: { wasmBaseUrl?: string; modelAssetPath?: string } | undefined;
 
   public constructor(options?: { wasmBaseUrl?: string; modelAssetPath?: string }) {
@@ -224,6 +225,7 @@ export class MediapipeFaceLandmarkerProvider implements FaceLandmarkProvider {
       // ignore
     }
     this.engine = null;
+    this.lastTimestampMs = null;
     this.readiness = { status: "idle" };
     this.modulePromise = null;
   }
@@ -237,7 +239,11 @@ export class MediapipeFaceLandmarkerProvider implements FaceLandmarkProvider {
     }
 
     const started = nowMs();
-    const timestampMs = Math.max(0, Math.round(args.timestampSec * 1000));
+    const requestedTimestampMs = Math.max(0, Math.round(args.timestampSec * 1000));
+    const timestampMs = this.lastTimestampMs == null
+      ? requestedTimestampMs
+      : Math.max(requestedTimestampMs, this.lastTimestampMs + 1);
+    this.lastTimestampMs = timestampMs;
     const result = this.engine.detectForVideo(args.video, timestampMs);
     const finished = nowMs();
     const processingMs = Math.max(0, Math.round((finished - started) * 10) / 10);

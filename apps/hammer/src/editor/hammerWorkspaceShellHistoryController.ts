@@ -43,6 +43,7 @@ export type UseHammerWorkspaceShellHistoryControllerArgs = {
   launchContext: HammerLaunchContext;
   actualRecordingMismatchWarning: string | null;
   recordingRevisionId: string | null;
+  recordingRevisionHistoryPath: string | null;
   editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
   structuredTranscriptResetKey: string;
   visualTimelineResetKey: string;
@@ -199,10 +200,12 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
     void (async () => {
       const revisionId = args.recordingRevisionId ?? null;
       const historyResult = revisionId
-        ? await loadHammerRevisionHistoryDocument({
-          workpieceId: args.launchContext.workpiece_id,
-          revisionId,
-        })
+        ? args.recordingRevisionHistoryPath
+          ? await loadHammerRevisionHistoryDocument({
+            workpieceId: args.launchContext.workpiece_id,
+            revisionId,
+          })
+          : { ok: true as const, status: 200, exists: false, data: null as null }
         : await loadHammerHistoryDocument(args.launchContext.workpiece_id);
       const snapshotManifestResult = revisionId
         ? { ok: true as const, status: 200, exists: false, data: null as HammerSnapshotManifestV1 | null }
@@ -359,6 +362,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
     args.actualRecordingMismatchWarning,
     args.launchContext.workpiece_id,
     args.recordingRevisionId,
+    args.recordingRevisionHistoryPath,
     args.structuredTranscriptResetKey,
     args.transcriptSourceId,
     args.visualTimelineResetKey,

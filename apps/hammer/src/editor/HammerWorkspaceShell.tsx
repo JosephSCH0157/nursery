@@ -429,6 +429,7 @@ type HammerWorkspaceShellProps = {
   launchContext?: HammerLaunchContext;
   canonicalMediaPath?: string | null;
   recordingRevisionId?: string | null;
+  recordingRevisionHistoryPath?: string | null;
   structuredTranscript?: HammerPersistedStructuredTranscript | null;
   editorialAuthorityGraph?: HammerEditorialAuthorityGraph | null;
   visualPlacements?: HammerPersistedVisualPlacements | null;
@@ -3709,6 +3710,7 @@ function HammerWorkspaceShellWithContext(
     launchContext,
     actualRecordingMismatchWarning,
     recordingRevisionId: props.recordingRevisionId ?? null,
+    recordingRevisionHistoryPath: props.recordingRevisionHistoryPath ?? null,
     editorialAuthorityGraph: props.editorialAuthorityGraph ?? null,
     structuredTranscriptResetKey,
     visualTimelineResetKey,

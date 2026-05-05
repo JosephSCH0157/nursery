@@ -4985,6 +4985,7 @@ export default function HammerWorkspaceEditor(
             launchContext={effectiveLaunchContext}
             canonicalMediaPath={activeCanonicalRecording?.media_path ?? null}
             recordingRevisionId={activeRevision?.id ?? null}
+            recordingRevisionHistoryPath={activeRevision?.history_path ?? null}
             structuredTranscript={loadedPersistenceSnapshot?.structured_transcript.data ?? null}
             editorialAuthorityGraph={loadedPersistenceSnapshot?.editorial_authority.data ?? null}
             visualPlacements={visualPlacementData}
