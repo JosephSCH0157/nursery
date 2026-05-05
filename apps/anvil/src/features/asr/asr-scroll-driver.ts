@@ -4955,6 +4955,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         return false;
       }
       if (asrRuntimeSpeechSeen && !asrRuntimeSpeechRunningActual) {
+        const vadSpeechFreshEarly = hasRecentVadSpeechNow(now);
+        if (vadSpeechFreshEarly) {
+          // Runtime status can lag local ASR evidence; do not hard-block commits on that lag.
+        } else {
         warnGuard('asr_live_speech_stopped_hold', [
           `source=${source}`,
           'speechRunning=0',
@@ -4962,6 +4966,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           resolveDriverRunKey() ? `runKey=${resolveDriverRunKey()}` : '',
         ]);
         return false;
+        }
       }
       if (isRunIdentityStale()) {
         warnGuard('asr_live_stale_generation_hold', [
@@ -4975,11 +4980,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       const runtimeSpeechFresh = hasRecentActualSpeech(now);
       const vadSpeechFresh = hasRecentVadSpeechNow(now);
-      const speechFresh =
-        !asrSilenceActive &&
-        runtimeSpeechFresh &&
-        vadSpeechFresh &&
-        asrRuntimeSpeechRunningActual;
+      const localSpeechFresh = !asrSilenceActive && vadSpeechFresh;
+      const speechFresh = localSpeechFresh;
       if (!speechFresh) {
         const normalizedSource = String(source || '').trim().toLowerCase();
         const normalizedForceReason = String(detail?.forceReason || '').trim().toLowerCase();
@@ -5008,6 +5010,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             detail?.forceReason ? `forceReason=${detail.forceReason}` : '',
             detail?.sourceBranch ? `sourceBranch=${detail.sourceBranch}` : '',
             `speechFresh=${speechFresh ? 1 : 0}`,
+            `localSpeechFresh=${localSpeechFresh ? 1 : 0}`,
             `runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0}`,
             `vadSpeechFresh=${vadSpeechFresh ? 1 : 0}`,
             `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
@@ -6651,9 +6654,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const safeCursor = Math.max(0, Math.floor(cursorLine));
     const safeTarget = Math.max(0, Math.floor(targetLine));
     if (safeTarget !== safeCursor + 1) return false;
-    const runtimeSpeechFresh = hasRecentActualSpeech(now);
     const vadSpeechFresh = hasRecentVadSpeechNow(now);
-    if (!runtimeSpeechFresh || !vadSpeechFresh) return false;
+    if (!vadSpeechFresh || asrSilenceActive) return false;
     const adjacentNeed = clamp(
       Number.isFinite(requiredThreshold)
         ? Number(requiredThreshold) - 0.08
