@@ -374,7 +374,13 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp>
   requestHearthChatReply: (
     messages: HearthChatMessage[],
     episodeContext: TEpisodeContext,
-    options: { signal: AbortSignal },
+    options: {
+      signal: AbortSignal;
+      attachmentContext?: {
+        includeEpisodeAttachments?: boolean;
+        attachmentIds?: string[];
+      };
+    },
   ) => Promise<{
     ok: boolean;
     cancelled?: boolean;
@@ -408,6 +414,10 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp>
     severity: any;
   }) => void;
   onResearchResult?: (result: HearthResearchResult | null) => void;
+  getAttachmentContext?: () => {
+    includeEpisodeAttachments?: boolean;
+    attachmentIds?: string[];
+  } | null;
 };
 
 export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THearthOp>(
@@ -502,7 +512,11 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
     args.setIsAiProcessing(true);
 
     try {
-      const result = await args.requestHearthChatReply(requestMessages, episodeContext, { signal: controller.signal });
+      const attachmentContext = args.getAttachmentContext?.() ?? undefined;
+      const result = await args.requestHearthChatReply(requestMessages, episodeContext, {
+        signal: controller.signal,
+        attachmentContext,
+      });
       args.setAiBillingMode(result.runtime.billingMode);
       if (result.runtime.billingMode === "byo") {
         args.setAiTokenBalance(null);

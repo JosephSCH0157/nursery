@@ -374,6 +374,15 @@ describe('ASR terminal script-end watchdog suppression', () => {
     jest.advanceTimersByTime(50);
     expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(2);
 
+    // Allow skepticism timeout path to clear deterministically in test mode.
+    jest.advanceTimersByTime(7500);
+    driver.ingest('Gamma settle line', true, {
+      currentIdx: 2,
+      matchId: 'skeptic-timeout-clear',
+      match: { bestIdx: 2, bestSim: 0.95, topScores: [{ idx: 2, score: 0.95 }] },
+    });
+    jest.advanceTimersByTime(30);
+
     const guardLines = warnSpy.mock.calls.flat().map((arg) => String(arg));
     expect(guardLines.some((line) => line.includes('asr_alignment_skeptic_mode_enter'))).toBe(true);
     expect(guardLines.some((line) => line.includes('asr_alignment_skeptic_cleared'))).toBe(true);

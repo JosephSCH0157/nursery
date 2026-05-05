@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validateScriptTags } from "@forge/shared/script-tags";
-import { coalesceScriptTextIntoOps, resolveScriptTextFromChatPayload } from "../src/lib/hearth-chat-api";
+import { coalesceScriptTextIntoOps, requestHearthChatReply, resolveScriptTextFromChatPayload } from "../src/lib/hearth-chat-api";
 import type { HearthOp } from "../src/lib/hearth-ai-runtime-contract";
+import { resolveHearthAttachmentStatusLabel } from "../src/views/surfaces/ChatSurface";
 
 function assertMaxSpeakerSpokenLines(script: string, maxLines: number): void {
   let insideSpeaker = false;
@@ -89,6 +90,13 @@ test("resolveScriptTextFromChatPayload respects an existing body op", () => {
   assert.equal(result, undefined);
 });
 
+test("ChatSurface attachment chip status labels are stable", () => {
+  assert.equal(resolveHearthAttachmentStatusLabel("uploading"), "Uploading...");
+  assert.equal(resolveHearthAttachmentStatusLabel("reading"), "Reading file...");
+  assert.equal(resolveHearthAttachmentStatusLabel("attached"), "Attached");
+  assert.equal(resolveHearthAttachmentStatusLabel("failed"), "Failed");
+});
+
 test("coalesceScriptTextIntoOps shapes set_body proposals before review display", () => {
   const blobScript = [
     "[s1]",
@@ -103,6 +111,79 @@ test("coalesceScriptTextIntoOps shapes set_body proposals before review display"
   assert.equal(validateScriptTags(body).ok, true);
   assert.ok((body.match(/\[s1\]/g) ?? []).length >= 1);
   assertMaxSpeakerSpokenLines(body, 8);
+});
+
+test("requestHearthChatReply includes attachment context metadata in payload", async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedBody: Record<string, unknown> | null = null;
+
+  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/api/ai-keys/status")) {
+      return new Response(JSON.stringify({
+        ok: true,
+        provider: "openai",
+        connected: false,
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (url.includes("/api/hearth/chat")) {
+      capturedBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      return new Response(JSON.stringify({
+        ok: true,
+        assistant_text: "Ready.",
+        ops: [],
+        script_text: null,
+        tag_audit: null,
+        billing_mode: "forge",
+        token_balance: 42,
+        total_tokens: 10,
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const result = await requestHearthChatReply(
+      [{ role: "user", content: "Use my attachments" }],
+      {
+        episodeId: "11111111-1111-4111-8111-111111111111",
+        workspaceId: "22222222-2222-4222-8222-222222222222",
+        title: "Episode",
+        titleVariants: { A: "", B: "", C: "" },
+        outline: "",
+        body: "",
+        tonePreset: null,
+        sources: [],
+        sparks: [],
+      },
+      {
+        attachmentContext: {
+          includeEpisodeAttachments: true,
+          attachmentIds: ["33333333-3333-4333-8333-333333333333"],
+        },
+      },
+    );
+
+    assert.equal(result.ok, true);
+    assert.ok(capturedBody);
+    const attachmentContext = capturedBody?.attachment_context as Record<string, unknown> | undefined;
+    assert.ok(attachmentContext);
+    assert.equal(attachmentContext?.include_episode_attachments, true);
+    assert.deepEqual(attachmentContext?.attachment_ids, ["33333333-3333-4333-8333-333333333333"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("coalesceScriptTextIntoOps shapes script_text before adding a body proposal", () => {

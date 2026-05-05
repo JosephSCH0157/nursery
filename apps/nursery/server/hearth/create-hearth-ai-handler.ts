@@ -133,6 +133,12 @@ type ReqBody = {
   behavior?: unknown;
   lane?: unknown;
   action_id?: unknown;
+  attachment_context?: unknown;
+};
+
+type AttachmentContextRequest = {
+  includeEpisodeAttachments: boolean;
+  attachmentIds: string[];
 };
 
 type SttReqBody = {
@@ -165,6 +171,9 @@ const RECENT_SCRIPT_RPC_LIMIT = 4;
 const RECENT_SCRIPT_EXCERPT_MAX_CHARS = 520;
 const RECENT_SCRIPT_EXCERPT_TOTAL_MAX_CHARS = 1_800;
 const STYLE_CORPUS_SNIPPET_MAX_CHARS = 5_600;
+const HEARTH_ATTACHMENT_PROMPT_MAX_CHARS = 12_000;
+const HEARTH_ATTACHMENT_PER_FILE_MAX_CHARS = 3_000;
+const HEARTH_ATTACHMENT_PROMPT_MAX_FILES = 8;
 const READINESS_CHECK_RE = /\b(are we ready|ready to record|record now|can i record|good to record|ready for anvil|ship this|go live)\b/i;
 const READINESS_DEEP_REVIEW_RE = /\b(again|recheck|double check|deeper|strict|hard mode|harsh|be tough|second pass)\b/i;
 const SOURCING_NUDGE_RE = /\b(source|sources|sourcing|citation|citations|cite|evidence|verify|fact[- ]?check|corroborat)\b/i;
@@ -1129,6 +1138,81 @@ function canonicalizeToken(raw: string): string {
   return `[${inner}]`;
 }
 
+function normalizeAttachmentContextRequest(value: unknown): AttachmentContextRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      includeEpisodeAttachments: true,
+      attachmentIds: [],
+    };
+  }
+
+  const row = value as Record<string, unknown>;
+  const includeEpisodeAttachments = typeof row.include_episode_attachments === "boolean"
+    ? row.include_episode_attachments
+    : true;
+  const rawIds = Array.isArray(row.attachment_ids) ? row.attachment_ids : [];
+  const attachmentIds = rawIds
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter((entry) => UUID_RE.test(entry))
+    .slice(0, 64);
+
+  return {
+    includeEpisodeAttachments,
+    attachmentIds,
+  };
+}
+
+function buildAttachmentContextSnippet(attachments: Array<{
+  id: string;
+  filename: string;
+  parse_status: string;
+  parse_error: string | null;
+  extracted_text: string | null;
+}>): string | null {
+  if (attachments.length === 0) return null;
+
+  const lines: string[] = [
+    "hearth_attachment_context:",
+  ];
+  let totalChars = 0;
+
+  for (const attachment of attachments.slice(0, HEARTH_ATTACHMENT_PROMPT_MAX_FILES)) {
+    const extracted = (attachment.extracted_text ?? "").trim();
+    const parseStatus = attachment.parse_status === "attached" || attachment.parse_status === "failed"
+      ? attachment.parse_status
+      : "pending";
+
+    lines.push(`- file: ${attachment.filename}`);
+    lines.push(`  attachment_id: ${attachment.id}`);
+    lines.push(`  parse_status: ${parseStatus}`);
+    if (attachment.parse_error) {
+      lines.push(`  parse_error: ${attachment.parse_error}`);
+    }
+
+    if (!extracted) {
+      lines.push("  extracted_text: (unavailable)");
+      continue;
+    }
+
+    const remaining = HEARTH_ATTACHMENT_PROMPT_MAX_CHARS - totalChars;
+    if (remaining <= 0) {
+      lines.push("  extracted_text: (omitted: prompt cap reached)");
+      continue;
+    }
+
+    const clipCap = Math.min(HEARTH_ATTACHMENT_PER_FILE_MAX_CHARS, remaining);
+    const clipped = extracted.slice(0, clipCap);
+    lines.push("  extracted_text:");
+    lines.push(clipped);
+    if (extracted.length > clipped.length) {
+      lines.push("  note: excerpt truncated for prompt cap; full retrieval is deferred to a future slice.");
+    }
+    totalChars += clipped.length;
+  }
+
+  return lines.join("\n");
+}
+
 function buildSystemPrompt(
   context: EpisodeContext,
   creatorStyleSnippet?: string,
@@ -1139,6 +1223,7 @@ function buildSystemPrompt(
     researchMode?: boolean;
     researchRequest?: HearthResearchRequest | null;
     researchResult?: HearthResearchResult | null;
+    attachmentContextSnippet?: string | null;
   },
 ): string {
   const baseLines = [
@@ -1442,6 +1527,9 @@ function buildSystemPrompt(
 
   if (creatorStyleSnippet?.trim()) {
     baseLines.push(creatorStyleSnippet.trim());
+  }
+  if (options?.attachmentContextSnippet?.trim()) {
+    baseLines.push(options.attachmentContextSnippet.trim());
   }
   baseLines.push(
     "episode_context:",
@@ -3171,6 +3259,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
+      const attachmentContext = normalizeAttachmentContextRequest(bodyRaw.attachment_context);
 
       const latestUserMessageIndex = [...messages]
         .map((message, index) => ({ message, index }))
@@ -3614,6 +3703,49 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         styleGuidanceSections.push(styleCorpusSnippet);
       }
 
+      let attachmentContextSnippet: string | null = null;
+      if (attachmentContext.includeEpisodeAttachments && episodeContext.workspaceId) {
+        const tongsUntyped = supabaseService.schema("tongs") as unknown as {
+          from: (table: string) => {
+            select: (columns: string) => {
+              eq: (column: string, value: unknown) => {
+                eq: (nextColumn: string, nextValue: unknown) => {
+                  order: (field: string, options: { ascending: boolean }) => Promise<{
+                    data: Array<Record<string, unknown>> | null;
+                    error: { message: string } | null;
+                  }>;
+                };
+              };
+            };
+          };
+        };
+
+        const { data: rawAttachmentRows, error: attachmentReadError } = await tongsUntyped
+          .from("hearth_attachments")
+          .select("id,filename,parse_status,parse_error,extracted_text,created_at")
+          .eq("workspace_id", episodeContext.workspaceId)
+          .eq("episode_id", episodeContext.episodeId)
+          .order("created_at", { ascending: false });
+        if (!attachmentReadError) {
+          const requestedIds = new Set(attachmentContext.attachmentIds);
+          const filteredRows = (rawAttachmentRows ?? [])
+            .filter((row) => {
+              if (requestedIds.size === 0) return true;
+              const id = typeof row.id === "string" ? row.id : "";
+              return requestedIds.has(id);
+            })
+            .map((row) => ({
+              id: typeof row.id === "string" ? row.id : "",
+              filename: typeof row.filename === "string" ? row.filename : "attachment",
+              parse_status: typeof row.parse_status === "string" ? row.parse_status : "pending",
+              parse_error: typeof row.parse_error === "string" ? row.parse_error : null,
+              extracted_text: typeof row.extracted_text === "string" ? row.extracted_text : null,
+            }))
+            .filter((row) => row.id);
+          attachmentContextSnippet = buildAttachmentContextSnippet(filteredRows);
+        }
+      }
+
       const system: ChatMessage = {
         role: "system",
         content: buildSystemPrompt(
@@ -3626,6 +3758,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             researchMode: researchModeRequested,
             researchRequest,
             researchResult,
+            attachmentContextSnippet,
           },
         ),
       };

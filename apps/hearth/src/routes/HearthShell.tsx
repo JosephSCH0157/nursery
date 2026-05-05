@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  listHearthAttachments,
+  uploadHearthAttachment,
+} from "../lib/hearth-attachments-api";
 import { type Draft } from "../domain/draft";
 import type { HearthPlanningSession, HearthSessionDecision, HearthSessionOrigin } from "../domain/hearth-session";
 import { HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
@@ -1726,6 +1730,14 @@ type PendingAiProposal = {
   autosaveReasonCode: AiAutosaveReasonCode;
 };
 
+type ChatAttachmentUi = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  status: "uploading" | "reading" | "attached" | "failed";
+  error?: string | null;
+};
+
 const READY_URGENCY_APPLICABLE_CATEGORY_SET = new Set<HearthContentCategory>([
   "hot_topic",
   "viral_reaction",
@@ -2117,6 +2129,9 @@ export default function HearthShell({
     pendingChatHydrationKeyRef,
     chatHydrationSeqRef,
   } = useChatWorkspaceState<PendingAiProposal>();
+  const [chatAttachments, setChatAttachments] = useState<ChatAttachmentUi[]>([]);
+  const [isAttachmentsLoading, setIsAttachmentsLoading] = useState(false);
+  const [chatAttachmentError, setChatAttachmentError] = useState<string | null>(null);
   const [showManualDraft, setShowManualDraft] = useState(false);
   const [showScriptPanel, setShowScriptPanel] = useState(false);
   const [isVisualScriptMode, setIsVisualScriptMode] = useState(false);
@@ -3356,6 +3371,112 @@ export default function HearthShell({
       sparks: episodeSparks,
     });
   }, [activeDraft, planningSession, sourceIndexById, sparks, workpieceId, workpieceSources, workspaceId]);
+  const refreshChatAttachments = useCallback(async () => {
+    const episodeId = workpieceId?.trim();
+    const activeWorkspaceId = workspaceId?.trim();
+    if (!episodeId || !activeWorkspaceId) {
+      setChatAttachments([]);
+      setChatAttachmentError(null);
+      return;
+    }
+
+    setIsAttachmentsLoading(true);
+    const result = await listHearthAttachments({
+      workspaceId: activeWorkspaceId,
+      episodeId,
+    });
+    if (!result.ok) {
+      setChatAttachmentError(result.error);
+      setIsAttachmentsLoading(false);
+      return;
+    }
+
+    setChatAttachments(result.attachments.map((attachment) => ({
+      id: attachment.id,
+      filename: attachment.filename,
+      mimeType: attachment.mime_type,
+      status: attachment.parse_status === "failed"
+        ? "failed"
+        : attachment.parse_status === "pending"
+          ? "reading"
+          : "attached",
+      error: attachment.parse_error,
+    })));
+    setChatAttachmentError(null);
+    setIsAttachmentsLoading(false);
+  }, [workpieceId, workspaceId]);
+
+  useEffect(() => {
+    void refreshChatAttachments();
+  }, [refreshChatAttachments]);
+
+  const onUploadChatAttachments = useCallback(async (files: FileList | null) => {
+    const episodeId = workpieceId?.trim();
+    const activeWorkspaceId = workspaceId?.trim();
+    if (!episodeId || !activeWorkspaceId || !files || files.length === 0) return;
+
+    const uploadItems = Array.from(files);
+    for (const file of uploadItems) {
+      const tempId = `temp-${crypto.randomUUID()}`;
+      setChatAttachments((prev) => ([
+        {
+          id: tempId,
+          filename: file.name,
+          mimeType: file.type || "application/octet-stream",
+          status: "uploading",
+          error: null,
+        },
+        ...prev,
+      ]));
+
+      setChatAttachments((prev) => prev.map((entry) => (
+        entry.id === tempId
+          ? { ...entry, status: "reading" }
+          : entry
+      )));
+
+      const upload = await uploadHearthAttachment({
+        workspaceId: activeWorkspaceId,
+        episodeId,
+        file,
+      });
+
+      if (!upload.ok) {
+        setChatAttachments((prev) => prev.map((entry) => (
+          entry.id === tempId
+            ? {
+              ...entry,
+              status: "failed",
+              error: upload.error,
+            }
+            : entry
+        )));
+        continue;
+      }
+
+      const uploadedAttachment = upload.attachment;
+      setChatAttachments((prev) => prev.map((entry) => (
+        entry.id === tempId
+          ? {
+            id: uploadedAttachment.id,
+            filename: uploadedAttachment.filename,
+            mimeType: uploadedAttachment.mime_type,
+            status: uploadedAttachment.parse_status === "failed"
+              ? "failed"
+              : uploadedAttachment.parse_status === "pending"
+                ? "reading"
+                : "attached",
+            error: uploadedAttachment.parse_error,
+          }
+          : entry
+      )));
+    }
+  }, [workpieceId, workspaceId]);
+
+  const onRemoveChatAttachment = useCallback((id: string) => {
+    setChatAttachments((prev) => prev.filter((entry) => entry.id !== id));
+  }, []);
+
   const {
     onFixScriptFormattingNoAi,
     onAskAiRepairScript,
@@ -3470,6 +3591,16 @@ export default function HearthShell({
     recordInteractionEvent,
     publishForgeNotice,
     onResearchResult: setLatestResearchResult,
+    getAttachmentContext: () => {
+      const attachmentIds = chatAttachments
+        .filter((entry) => entry.status === "attached" || entry.status === "reading")
+        .map((entry) => entry.id)
+        .filter((id) => !id.startsWith("temp-"));
+      return {
+        includeEpisodeAttachments: true,
+        attachmentIds,
+      };
+    },
   });
   const { onToggleMic } = useChatWorkspaceStt({
     workpieceId,
@@ -3819,7 +3950,7 @@ export default function HearthShell({
       chatPanelMeta,
       chatMessages,
       chatDraft,
-      chatError,
+      chatError: chatAttachmentError ?? chatError,
       aiRuntimeWarning,
       aiCreditsDepleted,
       hasApprovedScript,
@@ -3865,6 +3996,10 @@ export default function HearthShell({
       onChatDraftChange: setChatDraft,
       onSendChat: () => void onSendChat(),
       onCancelAiRequest,
+      chatAttachments,
+      onPickAttachments: (files) => void onUploadChatAttachments(files),
+      onDropAttachments: (files) => void onUploadChatAttachments(files),
+      onRemoveAttachment: onRemoveChatAttachment,
       describeProposalOp: describeHearthOp,
       getProposalDiff: buildProposalDiff,
       validateProposalBody: (value) => evaluateHearthScriptValidation(value).validation,

@@ -9,6 +9,8 @@ function mockService() {
   const calls = {
     createCradle: [],
     commitFile: [],
+    createHearthAttachment: [],
+    listHearthAttachments: [],
     generateEpisodeThumbnail: [],
     generateImageMapCandidates: [],
     createRecordingSessionRecord: [],
@@ -138,6 +140,51 @@ function mockService() {
           created_at: "2026-02-21T00:00:00.000Z",
         },
       };
+    },
+    async createHearthAttachment(input, options) {
+      calls.createHearthAttachment.push({ input, options: options ?? null });
+      if ((input.mime_type ?? "").includes("javascript")) {
+        throw new Error("unsupported_attachment_type");
+      }
+      return {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        workspace_id: input.workspace_id,
+        episode_id: input.episode_id,
+        filename: input.filename,
+        mime_type: input.mime_type,
+        size_bytes: input.size_bytes,
+        storage_bucket: "forge-workpieces",
+        storage_path: "hearth/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/file.txt",
+        storage_key: "hearth/attachments/workspace/episode/id/file.txt",
+        extracted_text: "hello",
+        parse_status: "attached",
+        parse_error: null,
+        created_by: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        created_at: "2026-05-05T00:00:00.000Z",
+        updated_at: "2026-05-05T00:00:00.000Z",
+      };
+    },
+    async listHearthAttachments(input, options) {
+      calls.listHearthAttachments.push({ input, options: options ?? null });
+      return [
+        {
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          workspace_id: input.workspace_id,
+          episode_id: input.episode_id,
+          filename: "notes.txt",
+          mime_type: "text/plain",
+          size_bytes: 22,
+          storage_bucket: "forge-workpieces",
+          storage_path: "hearth/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/notes.txt",
+          storage_key: "hearth/attachments/workspace/episode/id/notes.txt",
+          extracted_text: "hello",
+          parse_status: "attached",
+          parse_error: null,
+          created_by: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          created_at: "2026-05-05T00:00:00.000Z",
+          updated_at: "2026-05-05T00:00:00.000Z",
+        },
+      ];
     },
     async generateEpisodeThumbnail(workpieceId, input) {
       calls.generateEpisodeThumbnail.push({ workpieceId, input });
@@ -2973,6 +3020,65 @@ test("POST /tongs/cradles dispatches createCradle", async () => {
   assert.equal(calls.createCradle.length, 1);
   assert.equal(calls.createCradle[0].workspace_id, "11111111-1111-4111-8111-111111111111");
   assert.equal(body.ok, true);
+});
+
+test("GET /tongs/hearth/attachments dispatches listHearthAttachments", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/hearth/attachments?workspace_id=11111111-1111-4111-8111-111111111111&episode_id=22222222-2222-4222-8222-222222222222",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.listHearthAttachments.length, 1);
+  assert.equal(calls.listHearthAttachments[0].input.workspace_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.listHearthAttachments[0].input.episode_id, "22222222-2222-4222-8222-222222222222");
+  assert.equal(calls.listHearthAttachments[0].options.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(Array.isArray(body.data?.attachments), true);
+});
+
+test("POST /tongs/hearth/attachments dispatches createHearthAttachment", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const formData = new FormData();
+  formData.set("workspace_id", "11111111-1111-4111-8111-111111111111");
+  formData.set("episode_id", "22222222-2222-4222-8222-222222222222");
+  formData.set("original_filename", "notes.txt");
+  formData.set("mime_type", "text/plain");
+  formData.set("file", new Blob(["hello world"], { type: "text/plain" }), "notes.txt");
+
+  const request = new Request("http://localhost/tongs/hearth/attachments", {
+    method: "POST",
+    headers: {
+      "x-forge-user-authorization": "Bearer user_token_abc",
+    },
+    body: formData,
+  });
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 201);
+  assert.equal(calls.createHearthAttachment.length, 1);
+  assert.equal(calls.createHearthAttachment[0].input.workspace_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.createHearthAttachment[0].input.episode_id, "22222222-2222-4222-8222-222222222222");
+  assert.equal(calls.createHearthAttachment[0].input.filename, "notes.txt");
+  assert.equal(calls.createHearthAttachment[0].input.mime_type, "text/plain");
+  assert.equal(calls.createHearthAttachment[0].options.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.attachment?.filename, "notes.txt");
 });
 
 test("POST /tongs/workpieces/:id/commit-file dispatches commitFile", async () => {

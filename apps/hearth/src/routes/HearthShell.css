@@ -1108,6 +1108,62 @@
   align-items: flex-end;
 }
 
+.hs-ai-chat-attachment-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hs-ai-chat-attachments {
+  display: grid;
+  gap: 8px;
+}
+
+.hs-ai-chat-attachment {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 10px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.hs-ai-chat-attachment.is-uploading,
+.hs-ai-chat-attachment.is-reading {
+  border-color: rgba(59, 130, 246, 0.45);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.hs-ai-chat-attachment.is-failed {
+  border-color: rgba(220, 38, 38, 0.45);
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.hs-ai-chat-attachment-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.hs-ai-chat-attachment-name {
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.hs-ai-chat-attachment-status {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.hs-ai-chat-attachment-error {
+  font-size: 12px;
+  color: #991b1b;
+}
+
 .mic-button {
   border: none;
   background: transparent;

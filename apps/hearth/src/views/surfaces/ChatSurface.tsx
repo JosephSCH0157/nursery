@@ -1,7 +1,29 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode, type RefObject } from "react";
 import CollapsibleFocusPanel from "../../components/focus/CollapsibleFocusPanel";
 import { resolveHearthChatScrollAffordance } from "../../lib/hearth-chat-scroll-affordance";
 import type { HearthWritingFormat } from "../../lib/hearth-writing-format";
+
+type ChatAttachmentView = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  status: "uploading" | "reading" | "attached" | "failed";
+  error?: string | null;
+};
+
+export function resolveHearthAttachmentStatusLabel(status: ChatAttachmentView["status"]): string {
+  switch (status) {
+    case "uploading":
+      return "Uploading...";
+    case "reading":
+      return "Reading file...";
+    case "failed":
+      return "Failed";
+    case "attached":
+    default:
+      return "Attached";
+  }
+}
 
 export type ChatSurfaceProps = {
   visible: boolean;
@@ -59,6 +81,10 @@ export type ChatSurfaceProps = {
   onChatDraftChange: (value: string) => void;
   onSendChat: () => void;
   onCancelAiRequest: () => void;
+  chatAttachments: ChatAttachmentView[];
+  onPickAttachments: (files: FileList | null) => void;
+  onDropAttachments: (files: FileList | null) => void;
+  onRemoveAttachment: (id: string) => void;
   describeProposalOp: (op: any) => string;
   getProposalDiff: (op: any) => { before: string; after: string } | null;
   validateProposalBody: (value: string) => any;
@@ -75,6 +101,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
     canScrollTop: false,
     canScrollBottom: false,
   });
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
 
   const refreshScrollTargets = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -151,6 +178,20 @@ export default function ChatSurface(props: ChatSurfaceProps) {
     }, 240);
   }, [props.chatInputRef, refreshScrollTargets]);
 
+  const onAttachmentInputChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    props.onPickAttachments(event.target.files);
+    event.target.value = "";
+  }, [props]);
+
+  const onAttachmentDrop = useCallback((event: DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    props.onDropAttachments(event.dataTransfer?.files ?? null);
+  }, [props]);
+
+  const onAttachmentDragOver = useCallback((event: DragEvent<HTMLElement>) => {
+    event.preventDefault();
+  }, []);
+
   if (!props.visible) return null;
   const isChatVoiceActive = props.sttTarget === "chat" && props.sttState !== "idle";
   const showScrollControls = props.chatMessages.length > 0
@@ -165,7 +206,13 @@ export default function ChatSurface(props: ChatSurfaceProps) {
       onToggle={() => {}}
       collapsible={false}
     >
-      <section ref={chatSurfaceRef} className="hs-ai-chat" aria-label="Hearth AI chat">
+      <section
+        ref={chatSurfaceRef}
+        className="hs-ai-chat"
+        aria-label="Hearth AI chat"
+        onDragOver={onAttachmentDragOver}
+        onDrop={onAttachmentDrop}
+      >
         <div ref={chatTopRef} className="hs-ai-chat-scroll-sentinel" aria-hidden="true" />
         <div className="hs-ai-chat-header">
           <div className="hs-ai-chat-title">Talk it through</div>
@@ -378,6 +425,24 @@ export default function ChatSurface(props: ChatSurfaceProps) {
         </div>
 
         <div className="hs-ai-chat-compose">
+          <input
+            ref={attachmentInputRef}
+            type="file"
+            multiple
+            onChange={onAttachmentInputChange}
+            className="hs-ai-chat-attachment-input"
+            aria-label="Attach files"
+            title="Attach files"
+            accept=".txt,.md,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          />
+          <button
+            type="button"
+            onClick={() => attachmentInputRef.current?.click()}
+            disabled={props.isAiProcessing || !props.aiEpisodeReady}
+            title="Attach files"
+          >
+            Attach
+          </button>
           <select
             aria-label="Voice lane"
             value={props.sttLane}
@@ -461,6 +526,29 @@ export default function ChatSurface(props: ChatSurfaceProps) {
             {props.isAiProcessing ? "Sending..." : "Send"}
           </button>
         </div>
+        {props.chatAttachments.length > 0 ? (
+          <div className="hs-ai-chat-attachments" aria-label="Attached files">
+            {props.chatAttachments.map((attachment) => (
+              <div key={attachment.id} className={`hs-ai-chat-attachment is-${attachment.status}`}>
+                <div className="hs-ai-chat-attachment-main">
+                  <span className="hs-ai-chat-attachment-name">{attachment.filename}</span>
+                  <span className="hs-ai-chat-attachment-status">{resolveHearthAttachmentStatusLabel(attachment.status)}</span>
+                </div>
+                {attachment.error ? (
+                  <div className="hs-ai-chat-attachment-error">{attachment.error}</div>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => props.onRemoveAttachment(attachment.id)}
+                  disabled={props.isAiProcessing || attachment.status === "uploading" || attachment.status === "reading"}
+                  title="Remove attachment"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {props.devMode && props.sttTarget === "chat" && props.sttPreview ? (
           <div className="hs-field-label-muted">{props.sttPreview}</div>
         ) : null}
