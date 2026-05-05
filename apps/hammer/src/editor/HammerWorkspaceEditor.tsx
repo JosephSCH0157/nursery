@@ -51,6 +51,8 @@ function mapTranscriptSourceLabel(value: string | null): string {
       return "Canonical baseline";
     case "prepared_transcript":
       return "AI-prepared transcript";
+    case "local_anvil":
+      return "Recovered Anvil live transcript";
     default:
       return value ? value : "Unknown";
   }
@@ -125,6 +127,11 @@ import {
   type HammerPrepSource,
 } from "../prep/hammerPrep";
 import { decideHammerTranscriptHydrationSource } from "./hammerTranscriptSelection";
+import {
+  convertAnvilSnapshotToHammerTranscript,
+  findRecoveredAnvilSnapshotByWorkpieceId,
+  promoteAnvilLocalTranscriptToTongs,
+} from "../transcript/hammerAnvilSnapshotRecovery";
 import {
   buildHammerPrepAiNoticeModel,
   shouldShowHammerPrepAiNotice,
@@ -1724,6 +1731,103 @@ export default function HammerWorkspaceEditor(
             hydratedTranscript = canonicalTranscript;
           } else {
             rejectionReason = "No valid transcript found in any source (registered, revision, baseline)";
+
+            // --- Local Anvil live transcript recovery ---
+            console.info("[hammer:transcript:canonical_missing]", {
+              workpiece_id: persistenceTarget.workpieceId,
+              timestamp: new Date().toISOString(),
+            });
+            console.info("[hammer:transcript:local_anvil_scan_start]", {
+              workpiece_id: persistenceTarget.workpieceId,
+              timestamp: new Date().toISOString(),
+            });
+
+            let localAnvilRecoveryResult: {
+              scan_attempted: boolean;
+              match_found: boolean;
+              capture_session_id: string | null;
+              segment_count: number | null;
+              promote_ok: boolean | null;
+              promote_error: string | null;
+            } = {
+              scan_attempted: true,
+              match_found: false,
+              capture_session_id: null,
+              segment_count: null,
+              promote_ok: null,
+              promote_error: null,
+            };
+
+            try {
+              const recovered = findRecoveredAnvilSnapshotByWorkpieceId(persistenceTarget.workpieceId);
+              if (recovered && recovered.segments.length > 0) {
+                console.info("[hammer:transcript:local_anvil_match_found]", {
+                  workpiece_id: persistenceTarget.workpieceId,
+                  capture_session_id: recovered.capture_session_id,
+                  segment_count: recovered.segment_count,
+                  timestamp: new Date().toISOString(),
+                });
+                localAnvilRecoveryResult.match_found = true;
+                localAnvilRecoveryResult.capture_session_id = recovered.capture_session_id;
+                localAnvilRecoveryResult.segment_count = recovered.segment_count;
+
+                const convertedTranscript = convertAnvilSnapshotToHammerTranscript(recovered);
+                const promoteResult = await promoteAnvilLocalTranscriptToTongs(persistenceTarget, convertedTranscript);
+                localAnvilRecoveryResult.promote_ok = promoteResult.ok;
+                if (promoteResult.ok) {
+                  hydratedTranscript = convertedTranscript;
+                  transcriptSource = "local_anvil";
+                  rejectionReason = null;
+                  console.info("[hammer:transcript:local_anvil_recovery_imported]", {
+                    workpiece_id: persistenceTarget.workpieceId,
+                    capture_session_id: recovered.capture_session_id,
+                    segment_count: recovered.segment_count,
+                    timestamp: new Date().toISOString(),
+                  });
+                  transcriptEvaluations.push({
+                    source: "local_anvil",
+                    path: recovered.live_path ?? recovered.final_path,
+                    segment_count: recovered.segment_count,
+                    load_ok: true,
+                    rejection_reason: null,
+                  });
+                } else {
+                  localAnvilRecoveryResult.promote_error = promoteResult.error;
+                  console.warn("[hammer:transcript:local_anvil_recovery_promote_failed]", {
+                    workpiece_id: persistenceTarget.workpieceId,
+                    capture_session_id: recovered.capture_session_id,
+                    error: promoteResult.error,
+                    timestamp: new Date().toISOString(),
+                  });
+                }
+              }
+            } catch (localRecoveryError) {
+              localAnvilRecoveryResult.promote_error = localRecoveryError instanceof Error
+                ? localRecoveryError.message
+                : String(localRecoveryError);
+            }
+
+            if (ingestDiagnosticRef.current) {
+              ingestDiagnosticRef.current.local_anvil_recovery = localAnvilRecoveryResult;
+            }
+
+            if (!hydratedTranscript) {
+              const hasMedia = Boolean(
+                sessionResult.data.canonical_recording.media_path
+                || sessionResult.data.canonical_recording.baseline_recording_path,
+              );
+              if (hasMedia) {
+                console.info("[hammer:transcript:ai_fallback_requested]", {
+                  workpiece_id: persistenceTarget.workpieceId,
+                  timestamp: new Date().toISOString(),
+                });
+              } else {
+                console.warn("[hammer:transcript:blocked_no_media]", {
+                  workpiece_id: persistenceTarget.workpieceId,
+                  timestamp: new Date().toISOString(),
+                });
+              }
+            }
           }
 
           if (ingestDiagnosticRef.current) {
