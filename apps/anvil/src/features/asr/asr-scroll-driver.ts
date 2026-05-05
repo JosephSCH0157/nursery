@@ -562,6 +562,7 @@ const LIVE_STRICT_BEHIND_RECOVERY_MIN_LINES = 1;
 const LIVE_STRICT_BEHIND_RECOVERY_MAX_LINES = 2;
 const LIVE_STRICT_BEHIND_RECOVERY_ADJACENT_SLACK = 0.04;
 const ASR_READER_LEASH_MAX_READABLE_AHEAD = 1;
+const ASR_READER_LEASH_MAX_UNPROVEN_AHEAD = 0;
 const LIVE_STRICT_MAX_CUE_BRIDGE_SPAN = DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES;
 const DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS = 1;
 const DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS = 2200;
@@ -6407,18 +6408,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const proofBase = lastFreshProofLine >= 0
       ? lastFreshProofLine
       : (lastCommittedLine >= 0 ? lastCommittedLine : safeCurrent);
+    const readableAheadAllowance = targetHasFreshProof
+      ? ASR_READER_LEASH_MAX_READABLE_AHEAD
+      : ASR_READER_LEASH_MAX_UNPROVEN_AHEAD;
     const totalLines = getTotalLines();
     const physicalLimit =
       totalLines > 0
         ? clamp(
-          proofBase + ASR_READER_LEASH_MAX_READABLE_AHEAD,
+          proofBase + readableAheadAllowance,
           0,
           Math.max(0, totalLines - 1),
         )
-        : proofBase + ASR_READER_LEASH_MAX_READABLE_AHEAD;
+        : proofBase + readableAheadAllowance;
     const leashLimitResolved = resolveNthReaderLeashSpeakableLine(
       proofBase,
-      ASR_READER_LEASH_MAX_READABLE_AHEAD,
+      readableAheadAllowance,
     );
     const leashLimit = leashLimitResolved != null ? leashLimitResolved : proofBase;
     const normalizedForceReason = String(forceReason || '').trim().toLowerCase();
@@ -6623,6 +6627,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       `freshProof=${proofBase}`,
       `leashLimit=${leashLimit}`,
       `maxReadableAhead=${ASR_READER_LEASH_MAX_READABLE_AHEAD}`,
+      `allowedAhead=${readableAheadAllowance}`,
       `targetFreshProof=${targetHasFreshProof ? 1 : 0}`,
       source ? `source=${source}` : '',
       clue ? `clue="${formatLogSnippet(String(clue || ''), 72)}"` : '',
