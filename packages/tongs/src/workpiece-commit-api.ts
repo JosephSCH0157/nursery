@@ -5856,6 +5856,284 @@ export class TongsCommitService {
     return data ?? [];
   }
 
+  async listHearthAttachments(
+    input: ListHearthAttachmentsInput,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthAttachmentRecord[]> {
+    await this.getWorkspaceOrThrow(input.workspace_id);
+    await this.assertWorkpieceInWorkspace(input.episode_id, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "viewer", options?.userAccessToken);
+
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
+      from: (table: string) => {
+        select: (columns: string) => {
+          eq: (column: string, value: unknown) => {
+            eq: (nextColumn: string, nextValue: unknown) => {
+              order: (field: string, options: { ascending: boolean }) => Promise<{
+                data: Array<Record<string, unknown>> | null;
+                error: { message: string } | null;
+              }>;
+            };
+          };
+        };
+      };
+    };
+
+    const { data, error } = await tongsUntyped
+      .from("hearth_attachments")
+      .select("id,workspace_id,episode_id,filename,mime_type,size_bytes,storage_bucket,storage_path,storage_key,extracted_text,parse_status,parse_error,created_by,created_at,updated_at")
+      .eq("workspace_id", input.workspace_id)
+      .eq("episode_id", input.episode_id)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to list Hearth attachments", {
+        reason: error.message,
+      });
+    }
+
+    return (data ?? []).map((row) => ({
+      id: String(row.id ?? ""),
+      workspace_id: String(row.workspace_id ?? ""),
+      episode_id: String(row.episode_id ?? ""),
+      filename: String(row.filename ?? "attachment"),
+      mime_type: String(row.mime_type ?? "application/octet-stream"),
+      size_bytes: typeof row.size_bytes === "number" && Number.isFinite(row.size_bytes)
+        ? row.size_bytes
+        : Number.parseInt(String(row.size_bytes ?? "0"), 10) || 0,
+      storage_bucket: String(row.storage_bucket ?? this.bucket),
+      storage_path: String(row.storage_path ?? ""),
+      storage_key: String(row.storage_key ?? ""),
+      extracted_text: typeof row.extracted_text === "string" ? row.extracted_text : null,
+      parse_status: row.parse_status === "attached" || row.parse_status === "failed" ? row.parse_status : "pending",
+      parse_error: typeof row.parse_error === "string" ? row.parse_error : null,
+      created_by: typeof row.created_by === "string" ? row.created_by : null,
+      created_at: String(row.created_at ?? new Date().toISOString()),
+      updated_at: String(row.updated_at ?? new Date().toISOString()),
+    }));
+  }
+
+  async createHearthAttachment(
+    input: CreateHearthAttachmentInput,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthAttachmentRecord> {
+    if (!Number.isFinite(input.size_bytes) || input.size_bytes <= 0) {
+      throw new HttpError(400, "invalid_attachment_size", "Attachment size must be greater than zero.");
+    }
+    if (input.size_bytes > HEARTH_ATTACHMENT_MAX_BYTES) {
+      throw new HttpError(413, "attachment_too_large", "Attachment exceeds the 10MB V1 limit.", {
+        max_bytes: HEARTH_ATTACHMENT_MAX_BYTES,
+      });
+    }
+
+    const filename = sanitizeAttachmentFilename(input.filename);
+    const mimeType = normalizeAttachmentMimeType(input.mime_type);
+    if (!isSupportedAttachmentType(filename, mimeType)) {
+      throw new HttpError(415, "unsupported_attachment_type", "Unsupported file type for Hearth attachment V1.", {
+        allowed_extensions: Array.from(HEARTH_ATTACHMENT_ALLOWED_EXTENSIONS),
+      });
+    }
+
+    await this.getWorkspaceOrThrow(input.workspace_id);
+    await this.assertWorkpieceInWorkspace(input.episode_id, input.workspace_id);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+
+    const attachmentId = randomUuid();
+    const extension = extensionOfAttachmentFile(filename);
+    const finalName = extension ? filename : `${filename}.txt`;
+    const storageKey = `hearth/attachments/${input.workspace_id}/${input.episode_id}/${attachmentId}/${encodeURIComponent(finalName)}`;
+    const storagePath = `hearth/attachments/${attachmentId}/${finalName}`;
+
+    console.info("[tongs][telemetry] hearth_attachment_upload_start", {
+      workspace_id: input.workspace_id,
+      episode_id: input.episode_id,
+      attachment_id: attachmentId,
+      filename: finalName,
+      size_bytes: input.size_bytes,
+      mime_type: mimeType,
+    });
+
+    const upload = await this.supabase
+      .storage
+      .from(this.bucket)
+      .upload(storageKey, input.file_bytes, {
+        contentType: mimeType,
+        upsert: false,
+      });
+    if (upload.error) {
+      throw new HttpError(502, "storage_upload_failed", "Failed to upload Hearth attachment file.", {
+        reason: upload.error.message,
+      });
+    }
+
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
+      from: (table: string) => {
+        insert: (value: Record<string, unknown>) => {
+          select: (columns: string) => {
+            single: () => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>;
+          };
+        };
+        update: (value: Record<string, unknown>) => {
+          eq: (column: string, value: unknown) => {
+            select: (columns: string) => {
+              single: () => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>;
+            };
+          };
+        };
+      };
+    };
+
+    const inserted = await tongsUntyped
+      .from("hearth_attachments")
+      .insert({
+        id: attachmentId,
+        workspace_id: input.workspace_id,
+        episode_id: input.episode_id,
+        filename: finalName,
+        mime_type: mimeType,
+        size_bytes: input.size_bytes,
+        storage_bucket: this.bucket,
+        storage_path: storagePath,
+        storage_key: storageKey,
+        parse_status: "pending",
+        created_by: auth.userId,
+      })
+      .select("id,workspace_id,episode_id,filename,mime_type,size_bytes,storage_bucket,storage_path,storage_key,extracted_text,parse_status,parse_error,created_by,created_at,updated_at")
+      .single();
+
+    if (inserted.error || !inserted.data) {
+      throw new HttpError(502, "db_write_failed", "Failed to create Hearth attachment row.", {
+        reason: inserted.error?.message ?? "missing_row",
+      });
+    }
+
+    console.info("[tongs][telemetry] hearth_attachment_upload_success", {
+      workspace_id: input.workspace_id,
+      episode_id: input.episode_id,
+      attachment_id: attachmentId,
+      storage_key: storageKey,
+    });
+
+    console.info("[tongs][telemetry] hearth_attachment_parse_start", {
+      workspace_id: input.workspace_id,
+      episode_id: input.episode_id,
+      attachment_id: attachmentId,
+      mime_type: mimeType,
+      filename: finalName,
+    });
+
+    let parseStatus: HearthAttachmentParseStatus = "attached";
+    let extractedText: string | null = null;
+    let parseError: string | null = null;
+    try {
+      extractedText = this.extractTextFromHearthAttachment(finalName, mimeType, input.file_bytes);
+      if (!extractedText?.trim()) {
+        parseStatus = "failed";
+        parseError = "empty_extracted_text";
+      }
+    } catch (error) {
+      parseStatus = "failed";
+      if (
+        error instanceof HttpError
+        && error.details
+        && typeof error.details === "object"
+        && "parse_error" in (error.details as Record<string, unknown>)
+        && typeof (error.details as Record<string, unknown>).parse_error === "string"
+      ) {
+        parseError = (error.details as Record<string, unknown>).parse_error as string;
+      } else if (error instanceof HttpError) {
+        parseError = error.code;
+      } else {
+        parseError = "attachment_parse_failed";
+      }
+    }
+
+    const updated = await tongsUntyped
+      .from("hearth_attachments")
+      .update({
+        extracted_text: extractedText,
+        parse_status: parseStatus,
+        parse_error: parseError,
+      })
+      .eq("id", attachmentId)
+      .select("id,workspace_id,episode_id,filename,mime_type,size_bytes,storage_bucket,storage_path,storage_key,extracted_text,parse_status,parse_error,created_by,created_at,updated_at")
+      .single();
+
+    if (updated.error || !updated.data) {
+      throw new HttpError(502, "db_write_failed", "Failed to finalize Hearth attachment parse state.", {
+        reason: updated.error?.message ?? "missing_row",
+      });
+    }
+
+    if (parseStatus === "attached") {
+      console.info("[tongs][telemetry] hearth_attachment_parse_success", {
+        workspace_id: input.workspace_id,
+        episode_id: input.episode_id,
+        attachment_id: attachmentId,
+        extracted_chars: extractedText?.length ?? 0,
+      });
+    } else {
+      console.warn("[tongs][telemetry] hearth_attachment_parse_failed", {
+        workspace_id: input.workspace_id,
+        episode_id: input.episode_id,
+        attachment_id: attachmentId,
+        parse_error: parseError,
+      });
+    }
+
+    return {
+      id: String(updated.data.id ?? attachmentId),
+      workspace_id: String(updated.data.workspace_id ?? input.workspace_id),
+      episode_id: String(updated.data.episode_id ?? input.episode_id),
+      filename: String(updated.data.filename ?? finalName),
+      mime_type: String(updated.data.mime_type ?? mimeType),
+      size_bytes: typeof updated.data.size_bytes === "number"
+        ? updated.data.size_bytes
+        : Number.parseInt(String(updated.data.size_bytes ?? input.size_bytes), 10) || input.size_bytes,
+      storage_bucket: String(updated.data.storage_bucket ?? this.bucket),
+      storage_path: String(updated.data.storage_path ?? storagePath),
+      storage_key: String(updated.data.storage_key ?? storageKey),
+      extracted_text: typeof updated.data.extracted_text === "string" ? updated.data.extracted_text : null,
+      parse_status: updated.data.parse_status === "attached" || updated.data.parse_status === "failed"
+        ? updated.data.parse_status
+        : "pending",
+      parse_error: typeof updated.data.parse_error === "string" ? updated.data.parse_error : null,
+      created_by: typeof updated.data.created_by === "string" ? updated.data.created_by : auth.userId,
+      created_at: String(updated.data.created_at ?? new Date().toISOString()),
+      updated_at: String(updated.data.updated_at ?? new Date().toISOString()),
+    };
+  }
+
+  private extractTextFromHearthAttachment(filename: string, mimeType: string, fileBytes: Uint8Array): string {
+    const extension = extensionOfAttachmentFile(filename);
+    if (
+      extension === ".txt"
+      || extension === ".md"
+      || mimeType === "text/plain"
+      || mimeType === "text/markdown"
+      || mimeType.startsWith("text/")
+    ) {
+      return textDecoder.decode(fileBytes).slice(0, 120000);
+    }
+
+    if (extension === ".pdf" || mimeType === "application/pdf") {
+      return extractPdfTextV1(fileBytes);
+    }
+
+    if (
+      extension === ".docx"
+      || mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ) {
+      throw new HttpError(422, "attachment_parse_failed", "DOCX parsing is not available in this V1 slice.", {
+        parse_error: "unsupported_docx_for_v1",
+      });
+    }
+
+    throw new HttpError(415, "unsupported_attachment_type", "Unsupported attachment type for parsing.", {
+      parse_error: "unsupported_attachment_type",
+    });
+  }
+
   async upsertHearthWorkpiecePresence(
     workspaceId: string,
     workpieceId: string,
@@ -11256,6 +11534,61 @@ export function createTongsCommitApiHandlerWithService(
         const payload = normalizeCreateCradleRequest(body);
         const result = await service.createCradle(payload);
         return jsonResponse(201, { ok: true, data: result });
+      }
+
+      if (parts.length === 3 && parts[0] === "tongs" && parts[1] === "hearth" && parts[2] === "attachments") {
+        const userAccessToken = requireUserAccessTokenHeader(request);
+
+        if (request.method === "GET") {
+          const workspaceId = normalizeUuid(url.searchParams.get("workspace_id"), "workspace_id");
+          const episodeId = normalizeUuid(url.searchParams.get("episode_id"), "episode_id");
+          const result = await service.listHearthAttachments(
+            {
+              workspace_id: workspaceId,
+              episode_id: episodeId,
+            },
+            { userAccessToken },
+          );
+          return jsonResponse(200, { ok: true, data: { attachments: result } });
+        }
+
+        if (request.method === "POST") {
+          const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
+          if (!contentType.includes("multipart/form-data")) {
+            throw new HttpError(400, "invalid_content_type", "Expected multipart/form-data upload.");
+          }
+
+          const formData = await request.formData();
+          const workspaceId = normalizeUuid(formData.get("workspace_id"), "workspace_id");
+          const episodeId = normalizeUuid(formData.get("episode_id"), "episode_id");
+          const fileField = formData.get("file");
+          if (!(fileField instanceof File)) {
+            throw new HttpError(400, "missing_file", "Missing upload file.");
+          }
+
+          const originalFilenameValue = typeof formData.get("original_filename") === "string"
+            ? String(formData.get("original_filename"))
+            : fileField.name;
+          const declaredMimeType = typeof formData.get("mime_type") === "string"
+            ? String(formData.get("mime_type"))
+            : fileField.type;
+          const fileBytes = new Uint8Array(await fileField.arrayBuffer());
+
+          const result = await service.createHearthAttachment(
+            {
+              workspace_id: workspaceId,
+              episode_id: episodeId,
+              filename: originalFilenameValue,
+              mime_type: declaredMimeType,
+              size_bytes: fileField.size,
+              file_bytes: fileBytes,
+            },
+            { userAccessToken },
+          );
+          return jsonResponse(201, { ok: true, data: { attachment: result } });
+        }
+
+        throw new HttpError(405, "method_not_allowed", "Expected GET or POST for this endpoint");
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "commit-file") {

@@ -13945,7 +13945,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       if (
         targetLine > prevLineIndex &&
-        isAsrRecoverySource(pendingSourceBranch, forceReason, matchId)
+        (
+          isAsrRecoverySource(pendingSourceBranch, forceReason, matchId) ||
+          String(forceReason || '').trim().toLowerCase() === 'live_strict_proof_owned_commit'
+        )
       ) {
         alignmentSkepticModeActive = true;
         alignmentSkepticEnteredAt = now;

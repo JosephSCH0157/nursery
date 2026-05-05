@@ -25,11 +25,17 @@ export type HearthChatMessage = {
   content: string;
 };
 
+export type HearthAttachmentContextRequest = {
+  include_episode_attachments?: boolean;
+  attachment_ids?: string[];
+};
+
 export type HearthChatRequest = {
   messages: HearthChatMessage[];
   episode_context: EpisodeContext;
   behavior?: HearthAiBehavior;
   lane?: HearthAiLane;
+  attachment_context?: HearthAttachmentContextRequest;
 };
 
 export type HearthSttRequest = {

@@ -14,6 +14,7 @@ import {
   type HearthAiRuntimeSnapshot,
   type HearthChatMessage,
   type HearthOp,
+  type HearthChatRequest,
 } from "./hearth-ai-runtime-contract";
 import type { HearthResearchResult } from "./hearth-research-contract";
 import {
@@ -1176,7 +1177,13 @@ export async function requestHearthSttTranscript(args: {
 export async function requestHearthChatReply(
   messages: HearthChatMessage[],
   episodeContext: EpisodeContext,
-  options?: { signal?: AbortSignal },
+  options?: {
+    signal?: AbortSignal;
+    attachmentContext?: {
+      includeEpisodeAttachments?: boolean;
+      attachmentIds?: string[];
+    };
+  },
 ): Promise<HearthChatResult> {
   const normalized = normalizeMessages(messages);
   const settings = resolveAiSettingsFromStorage();
@@ -1214,17 +1221,23 @@ export async function requestHearthChatReply(
     };
   }
 
+  const requestPayload: HearthChatRequest = {
+    messages: normalized,
+    episode_context: episodeContext,
+    behavior: settings.behavior,
+    lane,
+    attachment_context: {
+      include_episode_attachments: options?.attachmentContext?.includeEpisodeAttachments ?? true,
+      attachment_ids: options?.attachmentContext?.attachmentIds,
+    },
+  };
+
   let response: Response;
   try {
     response = await fetch(HEARTH_AI_ROUTES.chat, {
       method: "POST",
       headers: await buildAuthHeaders({ includeJson: true }),
-      body: JSON.stringify({
-        messages: normalized,
-        episode_context: episodeContext,
-        behavior: settings.behavior,
-        lane,
-      }),
+      body: JSON.stringify(requestPayload),
       signal: options?.signal,
     });
   } catch (error) {
