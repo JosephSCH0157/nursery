@@ -196,7 +196,6 @@ import {
   createHammerDevConsoleLogger,
   type HammerDevConsoleRun,
 } from "../lib/hammerDevConsole";
-import { findRecoveredAnvilSnapshotByWorkpieceId } from "../transcript/hammerAnvilSnapshotRecovery";
 import {
   createHammerVoicePicker,
   resolveHammerVoicePhase,
