@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "./db.types.js";
-import { inflateSync, inflateRawSync } from "node:zlib";
+import { inflateSync as fflateInflateSync, inflateRawSync as fflateInflateRawSync } from "fflate";
 
 type UntypedPostgrestResult = {
   data: unknown;
@@ -4908,14 +4908,14 @@ export function extractPdfTextParserB(fileBytes: Uint8Array): string {
     const streamData = buf.slice(dataStart, dataEnd);
     if (streamData.length === 0) { pos = endIdx + 9; continue; }
 
-    let decompressed: Buffer | null = null;
-    try { decompressed = inflateSync(streamData); }
+    let decompressed: Uint8Array | null = null;
+    try { decompressed = fflateInflateSync(streamData); }
     catch {
-      try { decompressed = inflateRawSync(streamData); }
+      try { decompressed = fflateInflateRawSync(streamData); }
       catch { pos = endIdx + 9; continue; }
     }
 
-    const streamText = decompressed.toString("latin1");
+    const streamText = new TextDecoder("latin1").decode(decompressed);
     const extracted = extractTextFromPdfContentStream(streamText);
     if (extracted.trim()) lines.push(extracted);
     pos = endIdx + 9;
