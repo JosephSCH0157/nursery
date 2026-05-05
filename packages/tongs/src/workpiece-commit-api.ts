@@ -11572,6 +11572,15 @@ export function createTongsCommitApiHandlerWithService(
           const declaredMimeType = typeof formData.get("mime_type") === "string"
             ? String(formData.get("mime_type"))
             : fileField.type;
+
+          if (!isSupportedAttachmentType(originalFilenameValue, declaredMimeType)) {
+            throw new HttpError(415, "unsupported_attachment_type", "Unsupported file type for Hearth attachment V1.");
+          }
+
+          if (fileField.size > HEARTH_ATTACHMENT_MAX_BYTES) {
+            throw new HttpError(413, "attachment_too_large", `Attachment must be ${HEARTH_ATTACHMENT_MAX_BYTES / 1024 / 1024}MB or smaller.`);
+          }
+
           const fileBytes = new Uint8Array(await fileField.arrayBuffer());
 
           const result = await service.createHearthAttachment(

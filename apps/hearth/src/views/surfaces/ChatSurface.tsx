@@ -82,6 +82,7 @@ export type ChatSurfaceProps = {
   onSendChat: () => void;
   onCancelAiRequest: () => void;
   chatAttachments: ChatAttachmentView[];
+  isAttachmentsLoading: boolean;
   onPickAttachments: (files: FileList | null) => void;
   onDropAttachments: (files: FileList | null) => void;
   onRemoveAttachment: (id: string) => void;
@@ -438,8 +439,8 @@ export default function ChatSurface(props: ChatSurfaceProps) {
           <button
             type="button"
             onClick={() => attachmentInputRef.current?.click()}
-            disabled={props.isAiProcessing || !props.aiEpisodeReady}
-            title="Attach files"
+            disabled={props.isAiProcessing || !props.aiEpisodeReady || props.isAttachmentsLoading}
+            title={props.isAttachmentsLoading ? "Loading attachments…" : "Attach files"}
           >
             Attach
           </button>

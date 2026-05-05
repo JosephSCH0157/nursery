@@ -3997,6 +3997,7 @@ export default function HearthShell({
       onSendChat: () => void onSendChat(),
       onCancelAiRequest,
       chatAttachments,
+      isAttachmentsLoading,
       onPickAttachments: (files) => void onUploadChatAttachments(files),
       onDropAttachments: (files) => void onUploadChatAttachments(files),
       onRemoveAttachment: onRemoveChatAttachment,

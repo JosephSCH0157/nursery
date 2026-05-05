@@ -75,6 +75,10 @@ function readApiError(payload: unknown, fallback: string): string {
   return fallback;
 }
 
+function isUnauthorizedStatus(status: number): boolean {
+  return status === 401 || status === 403;
+}
+
 export async function listHearthAttachments(args: {
   workspaceId: string;
   episodeId: string;
@@ -95,11 +99,22 @@ export async function listHearthAttachments(args: {
     payload = null;
   }
 
+  if (response.status === 404) {
+    return {
+      ok: true,
+      status: response.status,
+      attachments: [],
+    };
+  }
+
   if (!response.ok) {
+    const fallback = isUnauthorizedStatus(response.status)
+      ? "Sign in to load attachments."
+      : `Attachment list failed (${response.status}).`;
     return {
       ok: false,
       status: response.status,
-      error: readApiError(payload, `Attachment list failed (${response.status}).`),
+      error: readApiError(payload, fallback),
     };
   }
 
@@ -140,10 +155,15 @@ export async function uploadHearthAttachment(args: {
   }
 
   if (!response.ok) {
+    const fallback = response.status === 404
+      ? "Attachments are unavailable in this environment."
+      : isUnauthorizedStatus(response.status)
+        ? "Sign in to upload attachments."
+        : `Attachment upload failed (${response.status}).`;
     return {
       ok: false,
       status: response.status,
-      error: readApiError(payload, `Attachment upload failed (${response.status}).`),
+      error: readApiError(payload, fallback),
     };
   }
 

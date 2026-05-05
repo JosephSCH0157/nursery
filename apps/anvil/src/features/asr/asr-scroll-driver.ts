@@ -3349,6 +3349,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let alignmentSkepticSource = '';
   let alignmentSkepticStableSameLineHits = 0;
   let alignmentSkepticAdjacentCommitHits = 0;
+  const isRecoveryModeActive = (): boolean => (
+    recoveryLandingHoldActive || alignmentSkepticModeActive
+  );
 
   const normalizeRunGeneration = (value: unknown): number | null => {
     if (value == null || value === '') return null;
@@ -5035,7 +5038,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const runtimeSpeechFresh = hasRecentActualSpeech(now);
       const vadSpeechFresh = hasRecentVadSpeechNow(now);
       const localSpeechFresh = !asrSilenceActive && vadSpeechFresh;
-      const speechFresh = localSpeechFresh;
+      const speechFresh =
+        localSpeechFresh ||
+        (!asrRuntimeSpeechSeen && !asrVadSeen);
       if (!speechFresh) {
         const normalizedSource = String(source || '').trim().toLowerCase();
         const normalizedForceReason = String(detail?.forceReason || '').trim().toLowerCase();
@@ -12871,7 +12876,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const liveSpeechGuardActive =
         !hasRecentVadSpeech ||
         !runtimeSpeechFresh ||
-        !!pending.liveForwardGuardActive;
+        (asrRuntimeSpeechSeen && !!pending.liveForwardGuardActive);
       const speechStopCleanupCommit = movementAuthorityReason === 'speech_stop_cleanup_commit';
       if (
         asrMode &&
@@ -13476,14 +13481,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
 
       const forwardDelta = targetLine - lastLineIndex;
-      if (alignmentSkepticModeActive) {
+      if (isRecoveryModeActive() && alignmentSkepticModeActive) {
         const skepticAgeMs =
           alignmentSkepticEnteredAt > 0 ? Math.max(0, now - alignmentSkepticEnteredAt) : 0;
         if (skepticAgeMs > ALIGNMENT_SKEPTIC_WINDOW_MS) {
           clearAlignmentSkepticMode('timeout', now);
         }
       }
-      if (alignmentSkepticModeActive && targetLine === lastLineIndex) {
+      if (isRecoveryModeActive() && alignmentSkepticModeActive && targetLine === lastLineIndex) {
         if (conf >= baselineRequired && hasRecentVadSpeech && runtimeSpeechFresh) {
           alignmentSkepticStableSameLineHits += 1;
         } else {
@@ -13493,7 +13498,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           clearAlignmentSkepticMode('stable_same_line_confirmation', now);
         }
       }
-      if (alignmentSkepticModeActive && forwardDelta > 0) {
+      if (isRecoveryModeActive() && alignmentSkepticModeActive && forwardDelta > 0) {
         const skepticalTokenCount = normTokens(String(snippet || '')).length;
         const targetAhead = targetLine > lastLineIndex + 1;
         const sustainedSpeechMs = asrRuntimeSpeechRunningActual && lastSpeechRunningActualAtMs > 0
@@ -13947,8 +13952,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         targetLine > prevLineIndex &&
         (
           isAsrRecoverySource(pendingSourceBranch, forceReason, matchId) ||
-          String(forceReason || '').trim().toLowerCase() === 'live_strict_proof_owned_commit'
-        )
+          (
+            isRecoveryModeActive() &&
+            String(forceReason || '').trim().toLowerCase() === 'live_strict_proof_owned_commit'
+          )
+        ) &&
+        asrRuntimeSpeechRunningActual &&
+        hasRecentVadSpeech &&
+        runtimeSpeechFresh
       ) {
         alignmentSkepticModeActive = true;
         alignmentSkepticEnteredAt = now;
@@ -13996,6 +14007,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
       }
       if (
+        isRecoveryModeActive() &&
         alignmentSkepticModeActive &&
         targetLine === prevLineIndex + 1 &&
         strictLocalAdjacentProofForCommit
@@ -14004,7 +14016,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (alignmentSkepticAdjacentCommitHits >= ALIGNMENT_SKEPTIC_ADJACENT_COMMIT_HITS) {
           clearAlignmentSkepticMode('adjacent_local_proof_commits', now);
         }
-      } else if (alignmentSkepticModeActive && targetLine > prevLineIndex) {
+      } else if (isRecoveryModeActive() && alignmentSkepticModeActive && targetLine > prevLineIndex) {
         alignmentSkepticAdjacentCommitHits = 0;
       }
       closeAmbiguityHold(now, 'commit', prevLineIndex, targetLine, conf);

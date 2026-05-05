@@ -3081,6 +3081,64 @@ test("POST /tongs/hearth/attachments dispatches createHearthAttachment", async (
   assert.equal(body.data?.attachment?.filename, "notes.txt");
 });
 
+test("POST /tongs/hearth/attachments returns 415 for unsupported MIME type", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const formData = new FormData();
+  formData.set("workspace_id", "11111111-1111-4111-8111-111111111111");
+  formData.set("episode_id", "22222222-2222-4222-8222-222222222222");
+  formData.set("original_filename", "malware.js");
+  formData.set("mime_type", "application/javascript");
+  formData.set("file", new Blob(["alert(1)"], { type: "application/javascript" }), "malware.js");
+
+  const request = new Request("http://localhost/tongs/hearth/attachments", {
+    method: "POST",
+    headers: {
+      "x-forge-user-authorization": "Bearer user_token_abc",
+    },
+    body: formData,
+  });
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 415);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "unsupported_attachment_type");
+  assert.equal(calls.createHearthAttachment.length, 0, "service should not be called for unsupported type");
+});
+
+test("POST /tongs/hearth/attachments returns 413 when file exceeds size limit", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  // Create a blob that reports a size > 10MB via the File API
+  const oversizedBlob = new Blob([new Uint8Array(10 * 1024 * 1024 + 1)], { type: "text/plain" });
+  const formData = new FormData();
+  formData.set("workspace_id", "11111111-1111-4111-8111-111111111111");
+  formData.set("episode_id", "22222222-2222-4222-8222-222222222222");
+  formData.set("original_filename", "big.txt");
+  formData.set("mime_type", "text/plain");
+  formData.set("file", oversizedBlob, "big.txt");
+
+  const request = new Request("http://localhost/tongs/hearth/attachments", {
+    method: "POST",
+    headers: {
+      "x-forge-user-authorization": "Bearer user_token_abc",
+    },
+    body: formData,
+  });
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 413);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "attachment_too_large");
+  assert.equal(calls.createHearthAttachment.length, 0, "service should not be called for oversized file");
+});
+
 test("POST /tongs/workpieces/:id/commit-file dispatches commitFile", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);
