@@ -305,12 +305,12 @@ const DEFAULT_MAX_TARGET_JUMP_HYBRID_PX = 80;
 const LIVE_ASR_COMMIT_MIN_PX = 96;
 const LIVE_ASR_COMMIT_MAX_LINES = 4;
 const LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO = 0.5;
-const LIVE_ASR_GLIDE_MIN_MS = 180;
-const LIVE_ASR_GLIDE_MAX_MS = 520;
-const LIVE_ASR_GLIDE_PX_PER_SEC = 900;
-const LIVE_ASR_STRONG_SNAP_GLIDE_MIN_MS = 260;
-const LIVE_ASR_STRONG_SNAP_GLIDE_MAX_MS = 760;
-const LIVE_ASR_STRONG_SNAP_GLIDE_PX_PER_SEC = 560;
+const _LIVE_ASR_GLIDE_MIN_MS = 180;
+const _LIVE_ASR_GLIDE_MAX_MS = 520;
+const _LIVE_ASR_GLIDE_PX_PER_SEC = 900;
+const _LIVE_ASR_STRONG_SNAP_GLIDE_MIN_MS = 260;
+const _LIVE_ASR_STRONG_SNAP_GLIDE_MAX_MS = 760;
+const _LIVE_ASR_STRONG_SNAP_GLIDE_PX_PER_SEC = 560;
 const LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES = 1;
 const DEFAULT_PURSUE_KP = 3.2;
 const DEFAULT_PURSUE_MANUAL_CANCEL_PX = 48;
@@ -1182,7 +1182,7 @@ export function evaluateStallCueRescuePolicy(opts: {
   cursorLineSkippable?: boolean;
 }): StallCueRescuePolicy {
   const reasonTag = String(opts.reasonTag || '').trim().toLowerCase();
-  const skippedReasons = Array.isArray(opts.skippedReasons) ? opts.skippedReasons : [];
+  const _skippedReasons = Array.isArray(opts.skippedReasons) ? opts.skippedReasons : [];
   const cursorLineSkippable = opts.cursorLineSkippable === true;
   if (reasonTag === 'auto-stall') {
     if (!cursorLineSkippable) {
@@ -3559,7 +3559,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     stallMs = LIVE_STRICT_STALL_AFTER_MS,
   ): boolean => nowMs - heuristics.lastAdvanceAtMs >= stallMs;
 
-  const isForwardishSignal = (
+  const _isForwardishSignal = (
     candidateIndex: number,
     currentIndex: number,
     maxLeap = 3,
@@ -5975,7 +5975,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     };
   };
 
-  const resolveNthNextSpeakableLine = (
+  const _resolveNthNextSpeakableLine = (
     fromLine: number,
     steps: number,
   ): number | null => {
@@ -9779,7 +9779,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (liveSpeechForwardPushRunStale) return null;
         const initialStep = strictSpeakableStep;
         if (!initialStep || initialStep.targetLine <= lastLineIndex) return null;
-        const bestRequestedTarget = Math.max(lastLineIndex + 1, Math.floor(line));
+        const _bestRequestedTarget = Math.max(lastLineIndex + 1, Math.floor(line));
         const stepProof = (
           fromLine: number,
           toLine: number,
@@ -9916,7 +9916,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           snippet ? `clue="${snippet}"` : '',
         ]);
       };
-      const starvationFutureSpeechReconcileCandidateActive =
+      const _starvationFutureSpeechReconcileCandidateActive =
         liveStrictFollow &&
         isFinal &&
         hasEvidence &&
@@ -11258,7 +11258,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ? Math.max(0, lastLineIndex - movementAuthorityMarkerState.markerIdx)
         : 0;
       const movementAuthorityReaderVisualBand = resolveReaderVisualBand(scroller, lastLineIndex);
-      const movementAuthorityPendingBridgeAgeMs = pendingSpeakableBridgeState
+      const _movementAuthorityPendingBridgeAgeMs = pendingSpeakableBridgeState
         ? Math.max(0, now - pendingSpeakableBridgeState.createdAtMs)
         : Number.POSITIVE_INFINITY;
       const movementAuthorityLiveForwardGuardHeld =

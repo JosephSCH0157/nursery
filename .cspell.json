@@ -5,6 +5,19 @@
     "quicktime",
     "extensionless",
     "Coeff",
-    "Millis"
+    "Millis",
+    "relock",
+    "deadband",
+    "lookback",
+    "backjump",
+    "pxps",
+    "ambig",
+    "runnerup",
+    "reseek",
+    "backstep",
+    "stopwords",
+    "desync",
+    "retarget",
+    "forwardish"
   ]
 }
