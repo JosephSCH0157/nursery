@@ -1,6 +1,6 @@
 import { tongsFetch } from "./tongs-fetch";
 
-export type HearthAttachmentParseStatus = "pending" | "attached" | "failed";
+export type HearthAttachmentParseStatus = "pending" | "attached" | "failed" | "needs_text_extraction";
 
 export type HearthAttachmentRecord = {
   id: string;
@@ -14,11 +14,16 @@ export type HearthAttachmentRecord = {
   extracted_text: string | null;
   parse_status: HearthAttachmentParseStatus;
   parse_error: string | null;
+  text_source: "parser_a" | "parser_b" | "manual" | null;
   created_at: string;
   updated_at: string;
 };
 
 export type HearthUploadAttachmentResult =
+  | { ok: true; status: number; attachment: HearthAttachmentRecord }
+  | { ok: false; status: number; error: string };
+
+export type HearthUpdateExtractedTextResult =
   | { ok: true; status: number; attachment: HearthAttachmentRecord }
   | { ok: false; status: number; error: string };
 
@@ -43,7 +48,9 @@ function normalizeAttachment(value: unknown): HearthAttachmentRecord | null {
   const episodeId = readTrimmed(value.episode_id);
   if (!id || !workspaceId || !episodeId) return null;
 
-  const parseStatus = value.parse_status === "attached" || value.parse_status === "failed"
+  const parseStatus = value.parse_status === "attached"
+    || value.parse_status === "failed"
+    || value.parse_status === "needs_text_extraction"
     ? value.parse_status
     : "pending";
 
@@ -63,6 +70,9 @@ function normalizeAttachment(value: unknown): HearthAttachmentRecord | null {
     extracted_text: typeof value.extracted_text === "string" ? value.extracted_text : null,
     parse_status: parseStatus,
     parse_error: typeof value.parse_error === "string" ? value.parse_error : null,
+    text_source: value.text_source === "parser_a" || value.text_source === "parser_b" || value.text_source === "manual"
+      ? value.text_source
+      : null,
     created_at: readTrimmed(value.created_at) ?? new Date().toISOString(),
     updated_at: readTrimmed(value.updated_at) ?? new Date().toISOString(),
   };
@@ -176,6 +186,60 @@ export async function uploadHearthAttachment(args: {
       ok: false,
       status: response.status,
       error: "Attachment upload succeeded but response payload was invalid.",
+    };
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    attachment,
+  };
+}
+
+export async function updateHearthAttachmentExtractedText(args: {
+  attachmentId: string;
+  workspaceId: string;
+  extractedText: string;
+}): Promise<HearthUpdateExtractedTextResult> {
+  const response = await tongsFetch(
+    `/tongs/hearth/attachments/${encodeURIComponent(args.attachmentId)}/extracted-text`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspace_id: args.workspaceId,
+        extracted_text: args.extractedText,
+      }),
+    },
+  );
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    const fallback = isUnauthorizedStatus(response.status)
+      ? "Sign in to update attachment text."
+      : `Failed to save text (${response.status}).`;
+    return {
+      ok: false,
+      status: response.status,
+      error: readApiError(payload, fallback),
+    };
+  }
+
+  const attachment = isRecord(payload) && isRecord(payload.data)
+    ? normalizeAttachment(payload.data.attachment)
+    : null;
+
+  if (!attachment) {
+    return {
+      ok: false,
+      status: response.status,
+      error: "Save succeeded but response payload was invalid.",
     };
   }
 

@@ -1141,6 +1141,52 @@
   background: rgba(220, 38, 38, 0.08);
 }
 
+.hs-ai-chat-attachment.is-needs_text_extraction {
+  border-color: rgba(234, 179, 8, 0.55);
+  background: rgba(234, 179, 8, 0.07);
+}
+
+.hs-ai-chat-attachment-paste-area {
+  display: grid;
+  gap: 6px;
+  padding: 6px 0 2px;
+  border-top: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.hs-ai-chat-attachment-paste-hint {
+  font-size: 12px;
+  opacity: 0.75;
+  margin: 0;
+}
+
+.hs-ai-chat-attachment-paste-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 6px;
+  resize: vertical;
+  font-family: inherit;
+  background: var(--forge-surface, #fff);
+  color: inherit;
+}
+
+.hs-ai-chat-attachment-paste-submit {
+  justify-self: start;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(234, 179, 8, 0.6);
+  background: rgba(234, 179, 8, 0.1);
+  cursor: pointer;
+}
+
+.hs-ai-chat-attachment-paste-submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .hs-ai-chat-attachment-main {
   display: flex;
   justify-content: space-between;

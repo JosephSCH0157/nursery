@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "./db.types.js";
+import { inflateSync, inflateRawSync } from "node:zlib";
 
 type UntypedPostgrestResult = {
   data: unknown;
@@ -255,7 +256,7 @@ type WorkpieceFileRow = Database["tongs"]["Tables"]["workpiece_files"]["Row"];
 type WorkpieceEventRow = Database["tongs"]["Tables"]["workpiece_events"]["Row"];
 type WorkspaceRow = Database["tongs"]["Tables"]["workspaces"]["Row"];
 type WorkspaceReadyQueueStateRow = Database["tongs"]["Tables"]["workspace_ready_queue_state"]["Row"];
-type HearthAttachmentParseStatus = "pending" | "attached" | "failed";
+type HearthAttachmentParseStatus = "pending" | "attached" | "failed" | "needs_text_extraction";
 
 export type HearthAttachmentRecord = {
   id: string;
@@ -270,6 +271,7 @@ export type HearthAttachmentRecord = {
   extracted_text: string | null;
   parse_status: HearthAttachmentParseStatus;
   parse_error: string | null;
+  text_source: "parser_a" | "parser_b" | "manual" | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -287,6 +289,12 @@ export type CreateHearthAttachmentInput = {
 export type ListHearthAttachmentsInput = {
   workspace_id: string;
   episode_id: string;
+};
+
+export type UpdateHearthAttachmentExtractedTextInput = {
+  attachment_id: string;
+  workspace_id: string;
+  extracted_text: string;
 };
 
 type RecordingUploadSessionState = {
@@ -1321,6 +1329,10 @@ export type TongsCommitApiService = {
     input: ListHearthAttachmentsInput,
     options?: { userAccessToken?: string | null },
   ): Promise<HearthAttachmentRecord[]>;
+  updateHearthAttachmentExtractedText(
+    input: UpdateHearthAttachmentExtractedTextInput,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthAttachmentRecord>;
   upsertHearthWorkpiecePresence(
     workspaceId: string,
     workpieceId: string,
@@ -4751,19 +4763,14 @@ function decodePdfLiteralString(raw: string): string {
     });
 }
 
-function extractPdfTextV1(fileBytes: Uint8Array): string {
+// Parser A: uncompressed literal-string PDF text extraction.
+// Returns empty string when FlateDecode is detected (falls through to B).
+export function extractPdfTextParserA(fileBytes: Uint8Array): string {
   const pdfText = textDecoder.decode(fileBytes);
-  if (!pdfText.includes("%PDF")) {
-    throw new HttpError(422, "attachment_parse_failed", "PDF parse failed for this file.", {
-      parse_error: "pdf_not_detected",
-    });
-  }
+  if (!pdfText.includes("%PDF")) return "";
 
-  if (/\/Filter\s*\/FlateDecode/i.test(pdfText)) {
-    throw new HttpError(422, "attachment_parse_failed", "PDF parsing failed for this file format.", {
-      parse_error: "pdf_parse_unsupported_encoding_for_v1",
-    });
-  }
+  // If FlateDecode is present, skip — let parser B handle it.
+  if (/\/Filter\s*\/FlateDecode/i.test(pdfText)) return "";
 
   const lines: string[] = [];
   const literalMatches = pdfText.match(/\((?:\\.|[^\\)])*\)\s*Tj/g) ?? [];
@@ -4771,19 +4778,162 @@ function extractPdfTextV1(fileBytes: Uint8Array): string {
     const literal = token.replace(/\s*Tj$/, "").trim();
     const inner = literal.slice(1, -1);
     const decoded = decodePdfLiteralString(inner).trim();
-    if (decoded) {
-      lines.push(decoded);
-    }
+    if (decoded) lines.push(decoded);
   }
+  // Also handle TJ arrays (used in many uncompressed PDFs)
+  const tjArrayMatches = pdfText.match(/\[[^\]]*\]\s*TJ/g) ?? [];
+  for (const token of tjArrayMatches) {
+    const parts = extractStringsFromPdfArray(token.replace(/\s*TJ$/, "").slice(1, -1));
+    const joined = parts.join("").trim();
+    if (joined) lines.push(joined);
+  }
+  return lines.join("\n").slice(0, 120000);
+}
 
-  if (!lines.length) {
-    throw new HttpError(422, "attachment_parse_failed", "PDF parse produced no text for this file.", {
-      parse_error: "pdf_no_text_extracted",
-    });
+// Parser B: FlateDecode-aware PDF text extraction using Node's built-in zlib.
+// Finds compressed content streams, decompresses, then extracts BT/ET text blocks.
+export function extractPdfTextParserB(fileBytes: Uint8Array): string {
+  const buf = Buffer.isBuffer(fileBytes)
+    ? fileBytes
+    : Buffer.from(fileBytes.buffer, fileBytes.byteOffset, fileBytes.byteLength);
+
+  if (buf.indexOf(Buffer.from("%PDF")) < 0) return "";
+
+  const streamMarker = Buffer.from("stream");
+  const endStreamMarker = Buffer.from("endstream");
+  const lines: string[] = [];
+  let pos = 0;
+
+  while (pos < buf.length) {
+    const streamIdx = buf.indexOf(streamMarker, pos);
+    if (streamIdx < 0) break;
+
+    // Must be followed by \r\n or \n
+    let dataStart = streamIdx + 6;
+    if (dataStart < buf.length && buf[dataStart] === 0x0D) dataStart++;
+    if (dataStart < buf.length && buf[dataStart] === 0x0A) dataStart++;
+    else { pos = streamIdx + 1; continue; }
+
+    const endIdx = buf.indexOf(endStreamMarker, dataStart);
+    if (endIdx < 0) break;
+
+    // Look back to see if the containing dict uses FlateDecode
+    const lookback = buf.slice(Math.max(0, streamIdx - 2000), streamIdx).toString("binary");
+    if (!lookback.includes("FlateDecode")) { pos = endIdx + 9; continue; }
+
+    // Trim trailing \r\n before endstream marker
+    let dataEnd = endIdx;
+    if (dataEnd > 0 && buf[dataEnd - 1] === 0x0A) dataEnd--;
+    if (dataEnd > 0 && buf[dataEnd - 1] === 0x0D) dataEnd--;
+    const streamData = buf.slice(dataStart, dataEnd);
+    if (streamData.length === 0) { pos = endIdx + 9; continue; }
+
+    let decompressed: Buffer | null = null;
+    try { decompressed = inflateSync(streamData); }
+    catch {
+      try { decompressed = inflateRawSync(streamData); }
+      catch { pos = endIdx + 9; continue; }
+    }
+
+    const streamText = decompressed.toString("latin1");
+    const extracted = extractTextFromPdfContentStream(streamText);
+    if (extracted.trim()) lines.push(extracted);
+    pos = endIdx + 9;
   }
 
   return lines.join("\n").slice(0, 120000);
 }
+
+function extractTextFromPdfContentStream(content: string): string {
+  const tokens: { pos: number; text: string }[] = [];
+  const btPattern = /BT([\s\S]*?)ET/g;
+  let btMatch: RegExpExecArray | null;
+  while ((btMatch = btPattern.exec(content)) !== null) {
+    const block = btMatch[1];
+    // Tj — show literal string
+    const tjLit = /\((?:\\.|[^\\()])*\)\s*Tj\b/g;
+    let m: RegExpExecArray | null;
+    while ((m = tjLit.exec(block)) !== null) {
+      const raw = m[0].replace(/\s*Tj$/, "").slice(1, -1);
+      const decoded = decodePdfLiteralString(raw).trim();
+      if (decoded) tokens.push({ pos: btMatch.index + m.index, text: decoded });
+    }
+    // TJ — array of strings and kerns
+    const tjArr = /\[([\s\S]*?)\]\s*TJ\b/g;
+    while ((m = tjArr.exec(block)) !== null) {
+      const pieces = extractStringsFromPdfArray(m[1]);
+      const joined = pieces.join("");
+      if (joined.trim()) tokens.push({ pos: btMatch.index + m.index, text: joined });
+    }
+    // ' — newline + show literal
+    const quote = /\((?:\\.|[^\\()])*\)\s*'/g;
+    while ((m = quote.exec(block)) !== null) {
+      const raw = m[0].replace(/\s*'$/, "").slice(1, -1);
+      const decoded = decodePdfLiteralString(raw).trim();
+      if (decoded) tokens.push({ pos: btMatch.index + m.index, text: "\n" + decoded });
+    }
+  }
+  tokens.sort((a, b) => a.pos - b.pos);
+  return tokens.map(t => t.text).join(" ").replace(/[ \t]+/g, " ").trim();
+}
+
+function extractStringsFromPdfArray(arrayContent: string): string[] {
+  const results: string[] = [];
+  // Literal strings
+  const litPat = /\((?:\\.|[^\\()])*\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = litPat.exec(arrayContent)) !== null) {
+    const decoded = decodePdfLiteralString(m[0].slice(1, -1));
+    if (decoded) results.push(decoded);
+  }
+  // Hex strings
+  const hexPat = /<([0-9a-fA-F\s]*)>/g;
+  while ((m = hexPat.exec(arrayContent)) !== null) {
+    const decoded = decodePdfHexString(m[1]);
+    if (decoded.trim()) results.push(decoded);
+  }
+  return results;
+}
+
+function decodePdfHexString(hex: string): string {
+  const cleaned = hex.replace(/\s/g, "");
+  if (!cleaned) return "";
+  // UTF-16BE BOM (FEFF)
+  if (/^[Ff][Ee][Ff][Ff]/.test(cleaned)) {
+    const chars: string[] = [];
+    for (let i = 4; i + 3 < cleaned.length; i += 4) {
+      const cp = parseInt(cleaned.slice(i, i + 4), 16);
+      if (!Number.isNaN(cp) && cp > 0x1F) chars.push(String.fromCodePoint(cp));
+    }
+    return chars.join("");
+  }
+  // Latin-1
+  const chars: string[] = [];
+  for (let i = 0; i + 1 < cleaned.length; i += 2) {
+    const b = parseInt(cleaned.slice(i, i + 2), 16);
+    if (!Number.isNaN(b) && b > 0x1F && b < 0xFF) chars.push(String.fromCharCode(b));
+  }
+  return chars.join("");
+}
+
+// Fallback chain: try parser A first (uncompressed), then parser B (FlateDecode).
+// If both fail to produce text, throw with code that maps to needs_text_extraction status.
+export function extractPdfTextFallbackChain(fileBytes: Uint8Array): string {
+  let textA = "";
+  try { textA = extractPdfTextParserA(fileBytes); } catch { /* skip */ }
+  if (textA.trim()) return textA;
+
+  let textB = "";
+  try { textB = extractPdfTextParserB(fileBytes); } catch { /* skip */ }
+  if (textB.trim()) return textB;
+
+  // Both parsers produced no text — signal that manual extraction is needed.
+  throw new HttpError(422, "pdf_needs_text_extraction",
+    "PDF text could not be extracted automatically. Paste the text manually to use this file.",
+    { parse_error: "pdf_both_parsers_failed" },
+  );
+}
+
 export class TongsCommitService {
   readonly supabase: SupabaseClient<Database>;
   readonly bucket: string;
@@ -5849,12 +5999,99 @@ export class TongsCommitService {
       storage_path: String(row.storage_path ?? ""),
       storage_key: String(row.storage_key ?? ""),
       extracted_text: typeof row.extracted_text === "string" ? row.extracted_text : null,
-      parse_status: row.parse_status === "attached" || row.parse_status === "failed" ? row.parse_status : "pending",
+      parse_status: row.parse_status === "attached"
+        || row.parse_status === "failed"
+        || row.parse_status === "needs_text_extraction"
+        ? row.parse_status
+        : "pending",
       parse_error: typeof row.parse_error === "string" ? row.parse_error : null,
+      text_source: row.text_source === "parser_a" || row.text_source === "parser_b" || row.text_source === "manual"
+        ? row.text_source
+        : null,
       created_by: typeof row.created_by === "string" ? row.created_by : null,
       created_at: String(row.created_at ?? new Date().toISOString()),
       updated_at: String(row.updated_at ?? new Date().toISOString()),
     }));
+  }
+
+  async updateHearthAttachmentExtractedText(
+    input: UpdateHearthAttachmentExtractedTextInput,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthAttachmentRecord> {
+    if (!input.attachment_id?.trim()) {
+      throw new HttpError(400, "invalid_attachment_id", "attachment_id is required.");
+    }
+    if (typeof input.extracted_text !== "string" || !input.extracted_text.trim()) {
+      throw new HttpError(400, "invalid_extracted_text", "extracted_text must be a non-empty string.");
+    }
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "viewer", options?.userAccessToken);
+
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
+      from: (table: string) => {
+        update: (value: Record<string, unknown>) => {
+          eq: (column: string, value: unknown) => {
+            eq: (column: string, value: unknown) => {
+              select: (columns: string) => {
+                single: () => Promise<{
+                  data: Record<string, unknown> | null;
+                  error: { message: string } | null;
+                }>;
+              };
+            };
+          };
+        };
+      };
+    };
+
+    const updated = await tongsUntyped
+      .from("hearth_attachments")
+      .update({
+        extracted_text: input.extracted_text.slice(0, 120000),
+        parse_status: "attached",
+        parse_error: null,
+        text_source: "manual",
+      })
+      .eq("id", input.attachment_id)
+      .eq("workspace_id", input.workspace_id)
+      .select("id,workspace_id,episode_id,filename,mime_type,size_bytes,storage_bucket,storage_path,storage_key,extracted_text,parse_status,parse_error,text_source,created_by,created_at,updated_at")
+      .single();
+
+    if (updated.error || !updated.data) {
+      if (!updated.error && !updated.data) {
+        throw new HttpError(404, "attachment_not_found", "Attachment not found or access denied.");
+      }
+      throw new HttpError(502, "db_write_failed", "Failed to update attachment extracted text.", {
+        reason: updated.error?.message ?? "missing_row",
+      });
+    }
+
+    const row = updated.data;
+    return {
+      id: String(row.id ?? input.attachment_id),
+      workspace_id: String(row.workspace_id ?? input.workspace_id),
+      episode_id: String(row.episode_id ?? ""),
+      filename: String(row.filename ?? "attachment"),
+      mime_type: String(row.mime_type ?? "application/octet-stream"),
+      size_bytes: typeof row.size_bytes === "number" && Number.isFinite(row.size_bytes)
+        ? row.size_bytes
+        : Number.parseInt(String(row.size_bytes ?? "0"), 10) || 0,
+      storage_bucket: String(row.storage_bucket ?? this.bucket),
+      storage_path: String(row.storage_path ?? ""),
+      storage_key: String(row.storage_key ?? ""),
+      extracted_text: typeof row.extracted_text === "string" ? row.extracted_text : null,
+      parse_status: row.parse_status === "attached"
+        || row.parse_status === "failed"
+        || row.parse_status === "needs_text_extraction"
+        ? row.parse_status
+        : "pending",
+      parse_error: typeof row.parse_error === "string" ? row.parse_error : null,
+      text_source: row.text_source === "parser_a" || row.text_source === "parser_b" || row.text_source === "manual"
+        ? row.text_source
+        : null,
+      created_by: typeof row.created_by === "string" ? row.created_by : null,
+      created_at: String(row.created_at ?? new Date().toISOString()),
+      updated_at: String(row.updated_at ?? new Date().toISOString()),
+    };
   }
 
   async createHearthAttachment(
@@ -5969,26 +6206,34 @@ export class TongsCommitService {
     let parseStatus: HearthAttachmentParseStatus = "attached";
     let extractedText: string | null = null;
     let parseError: string | null = null;
+    let textSource: "parser_a" | "parser_b" | "manual" | null = null;
     try {
-      extractedText = this.extractTextFromHearthAttachment(finalName, mimeType, input.file_bytes);
+      const result = this.extractTextFromHearthAttachment(finalName, mimeType, input.file_bytes);
+      extractedText = result.text;
+      textSource = result.source;
       if (!extractedText?.trim()) {
         parseStatus = "failed";
         parseError = "empty_extracted_text";
       }
     } catch (error) {
-      parseStatus = "failed";
-      if (
-        error instanceof HttpError
-        && error.details
-        && typeof error.details === "object"
-        && "parse_error" in (error.details as Record<string, unknown>)
-        && typeof (error.details as Record<string, unknown>).parse_error === "string"
-      ) {
-        parseError = (error.details as Record<string, unknown>).parse_error as string;
-      } else if (error instanceof HttpError) {
-        parseError = error.code;
+      if (error instanceof HttpError && error.code === "pdf_needs_text_extraction") {
+        parseStatus = "needs_text_extraction";
+        parseError = "pdf_both_parsers_failed";
       } else {
-        parseError = "attachment_parse_failed";
+        parseStatus = "failed";
+        if (
+          error instanceof HttpError
+          && error.details
+          && typeof error.details === "object"
+          && "parse_error" in (error.details as Record<string, unknown>)
+          && typeof (error.details as Record<string, unknown>).parse_error === "string"
+        ) {
+          parseError = (error.details as Record<string, unknown>).parse_error as string;
+        } else if (error instanceof HttpError) {
+          parseError = error.code;
+        } else {
+          parseError = "attachment_parse_failed";
+        }
       }
     }
 
@@ -5998,6 +6243,7 @@ export class TongsCommitService {
         extracted_text: extractedText,
         parse_status: parseStatus,
         parse_error: parseError,
+        text_source: textSource,
       })
       .eq("id", attachmentId)
       .select("id,workspace_id,episode_id,filename,mime_type,size_bytes,storage_bucket,storage_path,storage_key,extracted_text,parse_status,parse_error,created_by,created_at,updated_at")
@@ -6038,17 +6284,26 @@ export class TongsCommitService {
       storage_path: String(updated.data.storage_path ?? storagePath),
       storage_key: String(updated.data.storage_key ?? storageKey),
       extracted_text: typeof updated.data.extracted_text === "string" ? updated.data.extracted_text : null,
-      parse_status: updated.data.parse_status === "attached" || updated.data.parse_status === "failed"
+      parse_status: updated.data.parse_status === "attached"
+        || updated.data.parse_status === "failed"
+        || updated.data.parse_status === "needs_text_extraction"
         ? updated.data.parse_status
         : "pending",
       parse_error: typeof updated.data.parse_error === "string" ? updated.data.parse_error : null,
+      text_source: updated.data.text_source === "parser_a" || updated.data.text_source === "parser_b" || updated.data.text_source === "manual"
+        ? updated.data.text_source
+        : null,
       created_by: typeof updated.data.created_by === "string" ? updated.data.created_by : auth.userId,
       created_at: String(updated.data.created_at ?? new Date().toISOString()),
       updated_at: String(updated.data.updated_at ?? new Date().toISOString()),
     };
   }
 
-  private extractTextFromHearthAttachment(filename: string, mimeType: string, fileBytes: Uint8Array): string {
+  private extractTextFromHearthAttachment(
+    filename: string,
+    mimeType: string,
+    fileBytes: Uint8Array,
+  ): { text: string; source: "parser_a" | "parser_b" | "manual" | null } {
     const extension = extensionOfAttachmentFile(filename);
     if (
       extension === ".txt"
@@ -6057,11 +6312,13 @@ export class TongsCommitService {
       || mimeType === "text/markdown"
       || mimeType.startsWith("text/")
     ) {
-      return textDecoder.decode(fileBytes).slice(0, 120000);
+      return { text: textDecoder.decode(fileBytes).slice(0, 120000), source: null };
     }
 
     if (extension === ".pdf" || mimeType === "application/pdf") {
-      return extractPdfTextV1(fileBytes);
+      // extractPdfTextFallbackChain throws HttpError(422, "pdf_needs_text_extraction") if both parsers produce no text.
+      const text = extractPdfTextFallbackChain(fileBytes);
+      return { text, source: "parser_a" };
     }
 
     if (
@@ -11542,6 +11799,41 @@ export function createTongsCommitApiHandlerWithService(
         }
 
         throw new HttpError(405, "method_not_allowed", "Expected GET or POST for this endpoint");
+      }
+
+      // PATCH /tongs/hearth/attachments/:id/extracted-text
+      if (
+        parts.length === 5
+        && parts[0] === "tongs"
+        && parts[1] === "hearth"
+        && parts[2] === "attachments"
+        && parts[4] === "extracted-text"
+      ) {
+        requireMethod(request, "PATCH");
+        const attachmentId = parts[3];
+        if (!attachmentId?.trim()) {
+          throw new HttpError(400, "invalid_attachment_id", "attachment_id path segment is required.");
+        }
+        const userAccessToken = readUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const workspaceId = normalizeUuid(
+          typeof body === "object" && body !== null && typeof (body as Record<string, unknown>).workspace_id === "string"
+            ? (body as Record<string, unknown>).workspace_id as string
+            : "",
+          "workspace_id",
+        );
+        const extractedText =
+          typeof body === "object" && body !== null && typeof (body as Record<string, unknown>).extracted_text === "string"
+            ? ((body as Record<string, unknown>).extracted_text as string).trim()
+            : "";
+        if (!extractedText) {
+          throw new HttpError(400, "invalid_extracted_text", "extracted_text must be a non-empty string.");
+        }
+        const result = await service.updateHearthAttachmentExtractedText(
+          { attachment_id: attachmentId, workspace_id: workspaceId, extracted_text: extractedText },
+          { userAccessToken },
+        );
+        return jsonResponse(200, { ok: true, data: { attachment: result } });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "commit-file") {

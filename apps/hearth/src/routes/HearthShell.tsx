@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import {
   listHearthAttachments,
   uploadHearthAttachment,
+  updateHearthAttachmentExtractedText,
 } from "../lib/hearth-attachments-api";
 import { type Draft } from "../domain/draft";
 import type { HearthPlanningSession, HearthSessionDecision, HearthSessionOrigin } from "../domain/hearth-session";
@@ -3397,9 +3398,11 @@ export default function HearthShell({
       mimeType: attachment.mime_type,
       status: attachment.parse_status === "failed"
         ? "failed"
-        : attachment.parse_status === "pending"
-          ? "reading"
-          : "attached",
+        : attachment.parse_status === "needs_text_extraction"
+          ? "needs_text_extraction"
+          : attachment.parse_status === "pending"
+            ? "reading"
+            : "attached",
       error: attachment.parse_error,
     })));
     setChatAttachmentError(null);
@@ -3463,9 +3466,11 @@ export default function HearthShell({
             mimeType: uploadedAttachment.mime_type,
             status: uploadedAttachment.parse_status === "failed"
               ? "failed"
-              : uploadedAttachment.parse_status === "pending"
-                ? "reading"
-                : "attached",
+              : uploadedAttachment.parse_status === "needs_text_extraction"
+                ? "needs_text_extraction"
+                : uploadedAttachment.parse_status === "pending"
+                  ? "reading"
+                  : "attached",
             error: uploadedAttachment.parse_error,
           }
           : entry
@@ -3476,6 +3481,29 @@ export default function HearthShell({
   const onRemoveChatAttachment = useCallback((id: string) => {
     setChatAttachments((prev) => prev.filter((entry) => entry.id !== id));
   }, []);
+
+  const onPasteAttachmentText = useCallback(async (attachmentId: string, text: string) => {
+    const activeWorkspaceId = workspaceId?.trim();
+    if (!activeWorkspaceId) return;
+    const result = await updateHearthAttachmentExtractedText({
+      attachmentId,
+      workspaceId: activeWorkspaceId,
+      extractedText: text,
+    });
+    if (!result.ok) {
+      setChatAttachments((prev) => prev.map((entry) =>
+        entry.id === attachmentId
+          ? { ...entry, error: result.error }
+          : entry,
+      ));
+      return;
+    }
+    setChatAttachments((prev) => prev.map((entry) =>
+      entry.id === attachmentId
+        ? { ...entry, status: "attached", error: null }
+        : entry,
+    ));
+  }, [workspaceId]);
 
   const {
     onFixScriptFormattingNoAi,
@@ -4001,6 +4029,7 @@ export default function HearthShell({
       onPickAttachments: (files) => void onUploadChatAttachments(files),
       onDropAttachments: (files) => void onUploadChatAttachments(files),
       onRemoveAttachment: onRemoveChatAttachment,
+      onPasteAttachmentText: (id, text) => void onPasteAttachmentText(id, text),
       describeProposalOp: describeHearthOp,
       getProposalDiff: buildProposalDiff,
       validateProposalBody: (value) => evaluateHearthScriptValidation(value).validation,

@@ -7,7 +7,7 @@ type ChatAttachmentView = {
   id: string;
   filename: string;
   mimeType: string;
-  status: "uploading" | "reading" | "attached" | "failed";
+  status: "uploading" | "reading" | "attached" | "failed" | "needs_text_extraction";
   error?: string | null;
 };
 
@@ -19,6 +19,8 @@ export function resolveHearthAttachmentStatusLabel(status: ChatAttachmentView["s
       return "Reading file...";
     case "failed":
       return "Failed";
+    case "needs_text_extraction":
+      return "Needs text";
     case "attached":
     default:
       return "Attached";
@@ -86,6 +88,7 @@ export type ChatSurfaceProps = {
   onPickAttachments: (files: FileList | null) => void;
   onDropAttachments: (files: FileList | null) => void;
   onRemoveAttachment: (id: string) => void;
+  onPasteAttachmentText: (attachmentId: string, text: string) => void;
   describeProposalOp: (op: any) => string;
   getProposalDiff: (op: any) => { before: string; after: string } | null;
   validateProposalBody: (value: string) => any;
@@ -103,6 +106,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
     canScrollBottom: false,
   });
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const [pasteTextMap, setPasteTextMap] = useState<Record<string, string>>({});
 
   const refreshScrollTargets = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -537,6 +541,33 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                 </div>
                 {attachment.error ? (
                   <div className="hs-ai-chat-attachment-error">{attachment.error}</div>
+                ) : null}
+                {attachment.status === "needs_text_extraction" ? (
+                  <div className="hs-ai-chat-attachment-paste-area">
+                    <p className="hs-ai-chat-attachment-paste-hint">
+                      Paste the text from this file so it can be used in your script.
+                    </p>
+                    <textarea
+                      className="hs-ai-chat-attachment-paste-input"
+                      placeholder="Paste document text here..."
+                      value={pasteTextMap[attachment.id] ?? ""}
+                      onChange={(e) => setPasteTextMap((prev) => ({ ...prev, [attachment.id]: e.target.value }))}
+                      rows={5}
+                      disabled={props.isAiProcessing}
+                      aria-label={`Paste text for ${attachment.filename}`}
+                    />
+                    <button
+                      type="button"
+                      className="hs-ai-chat-attachment-paste-submit"
+                      disabled={props.isAiProcessing || !pasteTextMap[attachment.id]?.trim()}
+                      onClick={() => {
+                        const text = pasteTextMap[attachment.id]?.trim();
+                        if (text) props.onPasteAttachmentText(attachment.id, text);
+                      }}
+                    >
+                      Use this text
+                    </button>
+                  </div>
                 ) : null}
                 <button
                   type="button"
