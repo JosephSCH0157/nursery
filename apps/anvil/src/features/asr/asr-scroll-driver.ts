@@ -3333,6 +3333,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let liveStrictForwardClusterHits = 0;
   let liveStrictForwardClusterUpdatedAt = 0;
   let liveStrictForwardClusterContradictionAt = 0;
+  let recoveryLandingHoldActive = false;
+  let recoveryLandingHoldArmedAt = 0;
+  let recoveryLandingHoldFromLine = -1;
+  let recoveryLandingHoldToLine = -1;
+  let recoveryLandingHoldSource = '';
 
   const normalizeRunGeneration = (value: unknown): number | null => {
     if (value == null || value === '') return null;
@@ -6087,6 +6092,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       normalized === 'movement_authority_proof' ||
       normalized === 'movement_authority_reconcile' ||
       normalized === 'pending_speakable_bridge_complete'
+    );
+  };
+
+  const isRecoveryLandingHoldSource = (
+    sourceBranch?: unknown,
+    forceReason?: unknown,
+  ): boolean => {
+    const normalizedSource = String(sourceBranch || '').trim().toLowerCase();
+    const normalizedReason = String(forceReason || '').trim().toLowerCase();
+    if (!normalizedSource && !normalizedReason) return false;
+    const values = [normalizedSource, normalizedReason];
+    return values.some((value) =>
+      value === 'starvation_future_speech_reconcile' ||
+      value === 'movement_authority_reconcile' ||
+      value === 'stall_recovery_override' ||
+      value === 'stall-rescue' ||
+      value.includes('auto-stall'),
     );
   };
 
@@ -12564,6 +12586,51 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         targetLine > lastLineIndex;
       const strictTargetHasFreshProof =
         strictFreshProofForTarget;
+      const recoveryLandingHoldStablePacket =
+        recoveryLandingHoldActive &&
+        liveStrictFollow &&
+        (
+          strictLocalAdjacentProofForCommit ||
+          (
+            line === lastLineIndex &&
+            hasRecentVadSpeech &&
+            !asrSilenceActive &&
+            conf >= baselineRequired
+          )
+        );
+      if (recoveryLandingHoldStablePacket) {
+        recoveryLandingHoldActive = false;
+        warnGuard('asr_recovery_landing_hold_cleared', [
+          `current=${lastLineIndex}`,
+          `bestIdx=${line}`,
+          strictLocalAdjacentProofForCommit ? 'reason=direct_local_adjacent' : 'reason=same_line_stable_packet',
+          recoveryLandingHoldSource ? `holdSource=${recoveryLandingHoldSource}` : '',
+          recoveryLandingHoldFromLine >= 0 ? `holdFrom=${recoveryLandingHoldFromLine}` : '',
+          recoveryLandingHoldToLine >= 0 ? `holdTo=${recoveryLandingHoldToLine}` : '',
+          recoveryLandingHoldArmedAt > 0 ? `holdAgeMs=${Math.max(0, now - recoveryLandingHoldArmedAt)}` : '',
+        ]);
+        recoveryLandingHoldArmedAt = 0;
+        recoveryLandingHoldFromLine = -1;
+        recoveryLandingHoldToLine = -1;
+        recoveryLandingHoldSource = '';
+      }
+      const recoveryLandingHoldChainCandidate =
+        strictForwardCommit &&
+        !strictLocalAdjacentProofForCommit &&
+        isRecoveryLandingHoldSource(pendingSourceBranch, forceReason);
+      if (recoveryLandingHoldActive && recoveryLandingHoldChainCandidate) {
+        warnGuard('asr_recovery_chain_blocked', [
+          `current=${lastLineIndex}`,
+          `target=${targetLine}`,
+          forceReason ? `forceReason=${forceReason}` : '',
+          pendingSourceBranch ? `sourceBranch=${pendingSourceBranch}` : '',
+          recoveryLandingHoldSource ? `holdSource=${recoveryLandingHoldSource}` : '',
+          recoveryLandingHoldFromLine >= 0 ? `holdFrom=${recoveryLandingHoldFromLine}` : '',
+          recoveryLandingHoldToLine >= 0 ? `holdTo=${recoveryLandingHoldToLine}` : '',
+          recoveryLandingHoldArmedAt > 0 ? `holdAgeMs=${Math.max(0, now - recoveryLandingHoldArmedAt)}` : '',
+        ]);
+        return;
+      }
       if (strictForwardCommit && bypassDownstreamVeto) {
         emitMovementAuthorityVetoBypassed(
           'asr_reader_leash_hold',
@@ -13764,6 +13831,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         jumpHistory.push(now);
       }
       noteCommit(prevLineIndex, targetLine, now);
+      if (
+        targetLine > prevLineIndex &&
+        isRecoveryLandingHoldSource(pendingSourceBranch, forceReason)
+      ) {
+        recoveryLandingHoldActive = true;
+        recoveryLandingHoldArmedAt = now;
+        recoveryLandingHoldFromLine = prevLineIndex;
+        recoveryLandingHoldToLine = targetLine;
+        recoveryLandingHoldSource = String(pendingSourceBranch || forceReason || '').trim();
+      }
       if (pendingSpeakableBridgeState) {
         if (targetLine >= pendingSpeakableBridgeState.semanticTarget) {
           clearPendingSpeakableBridge('semantic_target_committed', [
