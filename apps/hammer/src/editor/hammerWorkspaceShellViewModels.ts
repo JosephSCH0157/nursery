@@ -363,7 +363,9 @@ export function buildPreviewBayVM(args: any) {
         && segmentationSourceMatchesDisplayedBase,
       settings: args.backgroundBlurSettings,
       providerId: args.visualBackgroundBlurProviderId,
-      sourceVideoRef: segmentationSourceVideoRef,
+      // Use the displayed preview surface as segmentation input so playback-visible
+      // decoded frames always satisfy blur/segmentation readiness.
+      sourceVideoRef: args.previewVideoRef,
       debugMasks: args.visualBackgroundBlurDebugMask,
       maskPreviewMode: args.visualBackgroundMaskPreviewMode,
       maskPreviewStage: args.visualBackgroundMaskPreviewStage,

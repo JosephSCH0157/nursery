@@ -94,15 +94,15 @@ function resolveRuntimeStatusMessage(args: {
   }
   switch (args.degradedReason) {
     case "missing_video_or_canvas":
-      return "Segmentation unavailable: preview video surface is not mounted.";
+      return "Segmentation unavailable: active video surface is not mounted.";
     case "video_not_ready":
-      return "Segmentation waiting for a decoded preview frame.";
+      return "Segmentation waiting for a decoded active frame.";
     case "invalid_frame_dimensions":
-      return "Segmentation unavailable: preview frame dimensions are not ready.";
+      return "Segmentation unavailable: active frame dimensions are not ready.";
     case "provider_error":
-      return "Segmentation failed while processing the preview frame.";
+      return "Segmentation failed while processing the active frame.";
     case "segmentation_unavailable":
-      return "Segmentation unavailable for the current preview frame.";
+      return "Segmentation unavailable for the current active frame.";
     default:
       return null;
   }
