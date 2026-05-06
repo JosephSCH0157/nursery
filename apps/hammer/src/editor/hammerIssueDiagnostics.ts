@@ -59,7 +59,6 @@ export function deriveHammerIssueDiagnostics(args: {
   const {
     sessionState,
     mediaPrepOutputs,
-    mediaLabelMismatchWarning,
     actualRecordingMismatchWarning,
     jobsStatusUnavailable,
   } = args;

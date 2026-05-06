@@ -1557,10 +1557,11 @@ function createRequestId(): string {
 
 function isDevDiagnosticsEnabled(): boolean {
   try {
-    if (typeof process !== "undefined" && process?.env) {
-      const nodeEnv = String(process.env.NODE_ENV || "").trim().toLowerCase();
+    const proc = (globalThis as { process?: { env?: Record<string, string> } }).process;
+    if (proc?.env) {
+      const nodeEnv = String(proc.env.NODE_ENV || "").trim().toLowerCase();
       if (!nodeEnv || nodeEnv === "development" || nodeEnv === "test") return true;
-      if (String(process.env.TONGS_DEV_DIAGNOSTICS || "").trim() === "1") return true;
+      if (String(proc.env.TONGS_DEV_DIAGNOSTICS || "").trim() === "1") return true;
     }
   } catch {
     // ignore
@@ -1584,8 +1585,10 @@ function tryDecodeJwtSubFromAuthHeader(rawHeader: string | null | undefined): st
     let decoded = "";
     if (typeof atob === "function") {
       decoded = atob(payload);
-    } else if (typeof Buffer !== "undefined") {
-      decoded = Buffer.from(payload, "base64").toString("utf8");
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const B = (globalThis as any).Buffer as { from(str: string, enc: string): { toString(enc: string): string } } | undefined;
+      if (B) decoded = B.from(payload, "base64").toString("utf8");
     }
     if (!decoded) return null;
     const parsed = JSON.parse(decoded) as Record<string, unknown>;
@@ -4873,14 +4876,20 @@ export function extractPdfTextParserA(fileBytes: Uint8Array): string {
 // Parser B: FlateDecode-aware PDF text extraction using Node's built-in zlib.
 // Finds compressed content streams, decompresses, then extracts BT/ET text blocks.
 export function extractPdfTextParserB(fileBytes: Uint8Array): string {
-  const buf = Buffer.isBuffer(fileBytes)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const B = (globalThis as any).Buffer as {
+    isBuffer(v: unknown): v is Uint8Array & { indexOf(val: Uint8Array, offset?: number): number; slice(s?: number, e?: number): Uint8Array & { toString(enc: string): string; indexOf(val: Uint8Array, offset?: number): number; }; toString(enc: string): string; };
+    from(data: ArrayBufferLike, byteOffset?: number, length?: number): Uint8Array & { indexOf(val: Uint8Array, offset?: number): number; slice(s?: number, e?: number): Uint8Array & { toString(enc: string): string; indexOf(val: Uint8Array, offset?: number): number; }; toString(enc: string): string; };
+    from(str: string): Uint8Array & { indexOf(val: Uint8Array, offset?: number): number; };
+  };
+  const buf = B.isBuffer(fileBytes)
     ? fileBytes
-    : Buffer.from(fileBytes.buffer, fileBytes.byteOffset, fileBytes.byteLength);
+    : B.from(fileBytes.buffer, fileBytes.byteOffset, fileBytes.byteLength);
 
-  if (buf.indexOf(Buffer.from("%PDF")) < 0) return "";
+  if (buf.indexOf(B.from("%PDF")) < 0) return "";
 
-  const streamMarker = Buffer.from("stream");
-  const endStreamMarker = Buffer.from("endstream");
+  const streamMarker = B.from("stream");
+  const endStreamMarker = B.from("endstream");
   const lines: string[] = [];
   let pos = 0;
 
@@ -4898,7 +4907,8 @@ export function extractPdfTextParserB(fileBytes: Uint8Array): string {
     if (endIdx < 0) break;
 
     // Look back to see if the containing dict uses FlateDecode
-    const lookback = buf.slice(Math.max(0, streamIdx - 2000), streamIdx).toString("binary");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const lookback = (buf.slice(Math.max(0, streamIdx - 2000), streamIdx) as any).toString("binary") as string;
     if (!lookback.includes("FlateDecode")) { pos = endIdx + 9; continue; }
 
     // Trim trailing \r\n before endstream marker

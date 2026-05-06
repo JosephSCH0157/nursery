@@ -1813,7 +1813,7 @@ export default function HammerWorkspaceEditor(
             if (!hydratedTranscript) {
               const hasMedia = Boolean(
                 sessionResult.data.canonical_recording.media_path
-                || sessionResult.data.canonical_recording.baseline_recording_path,
+                || sessionResult.data.canonical_recording.baseline_timing_path,
               );
               if (hasMedia) {
                 console.info("[hammer:transcript:ai_fallback_requested]", {
