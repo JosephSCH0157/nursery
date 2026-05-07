@@ -4810,7 +4810,7 @@ export default function HammerWorkspaceEditor(
                     <label
                       className={`hammer-prep-shell__checkbox ${regenAiTranscriptRefreshPlacements ? "is-active" : "is-inactive"}`}
                       role="checkbox"
-                      aria-checked={regenAiTranscriptRefreshPlacements}
+                      aria-checked={String(regenAiTranscriptRefreshPlacements)}
                     >
                       <input
                         type="checkbox"
