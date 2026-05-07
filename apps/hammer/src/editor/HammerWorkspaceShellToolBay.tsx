@@ -1522,7 +1522,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                     <label
                       className={`hammer-tool-field hammer-audio-fix ${voicePolish?.voice_cleanup_enabled ? "is-active" : ""}`}
                       role="checkbox"
-                      aria-checked={String(Boolean(voicePolish?.voice_cleanup_enabled))}
+                      aria-checked={Boolean(voicePolish?.voice_cleanup_enabled)}
                     >
                       <input
                         type="checkbox"
@@ -1543,7 +1543,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                     <label
                       className={`hammer-tool-field hammer-audio-fix ${voicePolish?.fixes?.remove_harsh_sibilance ? "is-active" : ""}`}
                       role="checkbox"
-                      aria-checked={String(Boolean(voicePolish?.fixes?.remove_harsh_sibilance))}
+                      aria-checked={Boolean(voicePolish?.fixes?.remove_harsh_sibilance)}
                     >
                       <input
                         type="checkbox"
@@ -1565,7 +1565,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                     <label
                       className={`hammer-tool-field hammer-audio-fix ${voicePolish?.fixes?.reduce_room_boxiness ? "is-active" : ""}`}
                       role="checkbox"
-                      aria-checked={String(Boolean(voicePolish?.fixes?.reduce_room_boxiness))}
+                      aria-checked={Boolean(voicePolish?.fixes?.reduce_room_boxiness)}
                     >
                       <input
                         type="checkbox"
@@ -1587,7 +1587,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                     <label
                       className={`hammer-tool-field hammer-audio-fix ${voicePolish?.fixes?.enhance_voice_clarity ? "is-active" : ""}`}
                       role="checkbox"
-                      aria-checked={String(Boolean(voicePolish?.fixes?.enhance_voice_clarity))}
+                      aria-checked={Boolean(voicePolish?.fixes?.enhance_voice_clarity)}
                     >
                       <input
                         type="checkbox"
@@ -1609,7 +1609,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                     <label
                       className={`hammer-tool-field hammer-audio-fix ${voicePolish?.fixes?.level_volume ? "is-active" : ""}`}
                       role="checkbox"
-                      aria-checked={String(Boolean(voicePolish?.fixes?.level_volume))}
+                      aria-checked={Boolean(voicePolish?.fixes?.level_volume)}
                     >
                       <input
                         type="checkbox"

@@ -41,7 +41,12 @@ import {
   calculateForgeBillingTokens,
   estimateOpenAiCost,
 } from "./ai-pricing.js";
-import { getAiReasonMessage, isAiAllowDecision, resolveAiPolicy } from "./ai-policy.js";
+import {
+  getAiReasonMessage,
+  isAiAllowDecision,
+  resolveAiPolicy,
+  type AiPolicyResolveResult,
+} from "./ai-policy.js";
 import {
   HAMMER_ALIGNMENT_STATUS_VALUES,
   HAMMER_PASS_ID_VALUES,
@@ -7691,18 +7696,26 @@ export class TongsCommitService {
     const payloadJson = isRecord(input.payload_json) ? input.payload_json : {};
     const provider = typeof payloadJson.provider === "string" ? payloadJson.provider.trim() : null;
     const model = typeof payloadJson.model === "string" ? payloadJson.model.trim() : null;
-    const policy = await resolveAiPolicy(this.supabase, {
-      orgId: null,
-      workspaceId,
-      userId: auth.userId,
-      tool: "hammer",
-      feature: "heavy_tasks",
-      action: input.job_type === "hammer_transcript_regeneration" || input.job_type === "hammer_transcript_prep"
-        ? "stt"
-        : null,
-      provider: provider || "openai",
-      model,
-    });
+    let policy: AiPolicyResolveResult;
+    try {
+      policy = await resolveAiPolicy(this.supabase, {
+        orgId: null,
+        workspaceId,
+        userId: auth.userId,
+        tool: "hammer",
+        feature: "heavy_tasks",
+        action: input.job_type === "hammer_transcript_regeneration" || input.job_type === "hammer_transcript_prep"
+          ? "stt"
+          : null,
+        provider: provider || "openai",
+        model,
+      });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new HttpError(503, "ai_policy_unavailable", "Unable to resolve AI policy for workpiece job creation", {
+        reason,
+      });
+    }
     if (!isAiAllowDecision(policy)) {
       throw new HttpError(403, "ai_policy_denied", getAiReasonMessage(policy.reasonCode ?? "NO_VALID_FUNDING_SOURCE"), {
         decision_type: policy.decisionType,

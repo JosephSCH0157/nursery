@@ -43,7 +43,7 @@ type HammerAiTranscriptRegenerationResult = {
 
 type HammerRegenJobTelemetry = {
   jobId: string | null;
-  status: "idle" | "creating" | "queued" | "running" | "completed" | "failed" | "canceled";
+  status: "idle" | "blocked" | "creating" | "queued" | "running" | "completed" | "failed" | "canceled";
   progressPercent: number | null;
   errorMessage: string | null;
 };
@@ -4153,16 +4153,37 @@ export default function HammerWorkspaceEditor(
 
   const startRegenAiTranscript = useCallback(async (): Promise<void> => {
     if (!canPersistCanonicalState || !persistenceTarget || !effectiveLaunchContext) {
-      setRegenAiTranscriptError("Hammer is not ready to regenerate a transcript yet. Wait for session hydration to finish, then retry.");
+      const message = "Hammer is not ready to regenerate a transcript yet. Wait for session hydration to finish, then retry.";
+      setRegenAiTranscriptError(message);
+      setRegenAiTranscriptJobTelemetry({
+        jobId: null,
+        status: "blocked",
+        progressPercent: null,
+        errorMessage: message,
+      });
       setRegenAiTranscriptOpen(true);
       return;
     }
     if (!activeRevision || !activeCanonicalRecording) {
-      setRegenAiTranscriptError("Hammer is not ready to regenerate a transcript yet (missing canonical recording or revision).");
+      const message = "Hammer is not ready to regenerate a transcript yet (missing canonical recording or revision).";
+      setRegenAiTranscriptError(message);
+      setRegenAiTranscriptJobTelemetry({
+        jobId: null,
+        status: "blocked",
+        progressPercent: null,
+        errorMessage: message,
+      });
       setRegenAiTranscriptOpen(true);
       return;
     }
-    if (regenAiTranscriptInFlight) return;
+    if (regenAiTranscriptInFlight) {
+      setRegenAiTranscriptJobTelemetry((current) => ({
+        ...current,
+        status: current.jobId ? "running" : "creating",
+        errorMessage: "A regeneration job is already in progress.",
+      }));
+      return;
+    }
 
     const structuredSegments = loadedPersistenceSnapshot?.structured_transcript.data?.segments ?? null;
     const stubSegments = effectiveLaunchContext.transcript.kind === "tongs-stub"
@@ -4209,7 +4230,14 @@ export default function HammerWorkspaceEditor(
 
     const prepSource = resolveHammerPrepSource(effectiveLaunchContext);
     if (!prepSource || prepSource.local_root_abs) {
-      setRegenAiTranscriptError("Regeneration requires a canonical workpiece media path (local media is not supported).");
+      const message = "Regeneration requires a canonical workpiece media path (local media is not supported).";
+      setRegenAiTranscriptError(message);
+      setRegenAiTranscriptJobTelemetry({
+        jobId: null,
+        status: "blocked",
+        progressPercent: null,
+        errorMessage: message,
+      });
       setRegenAiTranscriptInFlight(false);
       return;
     }
@@ -4233,12 +4261,15 @@ export default function HammerWorkspaceEditor(
     });
 
     if (!jobCreate.ok) {
-      setRegenAiTranscriptError(jobCreate.error);
+      const message = jobCreate.retryAfterMs
+        ? `${jobCreate.error} Retry in ~${Math.ceil(jobCreate.retryAfterMs / 1000)}s.`
+        : jobCreate.error;
+      setRegenAiTranscriptError(message);
       setRegenAiTranscriptJobTelemetry({
         jobId: null,
         status: "failed",
         progressPercent: null,
-        errorMessage: jobCreate.error,
+        errorMessage: message,
       });
       setRegenAiTranscriptInFlight(false);
       return;
@@ -4810,7 +4841,7 @@ export default function HammerWorkspaceEditor(
                     <label
                       className={`hammer-prep-shell__checkbox ${regenAiTranscriptRefreshPlacements ? "is-active" : "is-inactive"}`}
                       role="checkbox"
-                      aria-checked={String(regenAiTranscriptRefreshPlacements)}
+                      aria-checked={regenAiTranscriptRefreshPlacements}
                     >
                       <input
                         type="checkbox"
@@ -4857,8 +4888,10 @@ export default function HammerWorkspaceEditor(
                     </div>
                   ) : null}
                   <div className="hammer-prep-shell__run-state" aria-live="polite">
-                    {regenAiTranscriptInFlight
-                      ? "Running transcript regeneration…"
+                    {regenAiTranscriptJobTelemetry.status === "blocked"
+                      ? "Regeneration blocked before job creation."
+                      : regenAiTranscriptInFlight
+                        ? "Running transcript regeneration…"
                       : regenAiTranscriptResult
                         ? "Last run finished. Choose a mode and run again if needed."
                         : "No run in progress. Choose a mode, then click a Regenerate button to start."}
