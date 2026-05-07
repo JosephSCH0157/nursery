@@ -46,6 +46,7 @@
     "test:dead-air-closure": "tsx tests/hammerDeadAirClosure.test.ts",
     "test:audio-backend": "tsx tests/hammerAudioProcessingBackend.test.ts",
     "test:studio-rack-ffmpeg-plan": "tsx tests/hammerStudioRackFfmpegPlan.test.ts",
+    "test:audio-finalization-ui-state": "tsx tests/hammerAudioFinalizationUiState.test.ts",
     "test:audio-timeline-render-plan": "tsx tests/hammerAudioTimelineRenderPlan.test.ts",
     "test:quench-release-packet": "tsx tests/hammerQuenchReleasePacket.test.ts",
     "test:quench-parity": "tsx tests/hammerQuenchParity.test.ts",

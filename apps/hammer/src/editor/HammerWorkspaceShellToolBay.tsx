@@ -1519,20 +1519,32 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Audio Finalization</header>
 
-                    <label className="hammer-tool-field hammer-audio-fix">
+                    <label
+                      className={`hammer-tool-field hammer-audio-fix ${voicePolish?.voice_cleanup_enabled ? "is-active" : ""}`}
+                      role="checkbox"
+                      aria-checked={Boolean(voicePolish?.voice_cleanup_enabled)}
+                    >
                       <input
                         type="checkbox"
                         checked={Boolean(voicePolish?.voice_cleanup_enabled)}
                         onChange={(event) => setVoiceCleanupEnabled(event.target.checked)}
+                        aria-label="Voice Cleanup"
                       />
                       <span className="hammer-audio-fix__copy">
-                        <strong>Voice Cleanup</strong>
+                        <strong>
+                          Voice Cleanup
+                          {voicePolish?.voice_cleanup_enabled ? <span className="hammer-audio-fix__checkmark" aria-hidden="true">✓</span> : null}
+                        </strong>
                         <span className="hammer-audio-fix__help">Conservative spoken-audio cleanup (rumble cut, gentle harshness control, light compression, loudness leveling)</span>
                       </span>
                     </label>
 
                     <header className="hammer-tool-card__subhead">Audio Fixes</header>
-                    <label className="hammer-tool-field hammer-audio-fix">
+                    <label
+                      className={`hammer-tool-field hammer-audio-fix ${voicePolish?.fixes?.remove_harsh_sibilance ? "is-active" : ""}`}
+                      role="checkbox"
+                      aria-checked={Boolean(voicePolish?.fixes?.remove_harsh_sibilance)}
+                    >
                       <input
                         type="checkbox"
                         checked={Boolean(voicePolish?.fixes?.remove_harsh_sibilance)}
@@ -1540,13 +1552,21 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           "remove_harsh_sibilance",
                           event.target.checked,
                         )}
+                        aria-label="Remove Harsh Sibilance"
                       />
                       <span className="hammer-audio-fix__copy">
-                        <strong>Remove Harsh Sibilance</strong>
+                        <strong>
+                          Remove Harsh Sibilance
+                          {voicePolish?.fixes?.remove_harsh_sibilance ? <span className="hammer-audio-fix__checkmark" aria-hidden="true">✓</span> : null}
+                        </strong>
                         <span className="hammer-audio-fix__help">Softens sharp “S” sounds</span>
                       </span>
                     </label>
-                    <label className="hammer-tool-field hammer-audio-fix">
+                    <label
+                      className={`hammer-tool-field hammer-audio-fix ${voicePolish?.fixes?.reduce_room_boxiness ? "is-active" : ""}`}
+                      role="checkbox"
+                      aria-checked={Boolean(voicePolish?.fixes?.reduce_room_boxiness)}
+                    >
                       <input
                         type="checkbox"
                         checked={Boolean(voicePolish?.fixes?.reduce_room_boxiness)}
@@ -1554,13 +1574,21 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           "reduce_room_boxiness",
                           event.target.checked,
                         )}
+                        aria-label="Reduce Room / Boxiness"
                       />
                       <span className="hammer-audio-fix__copy">
-                        <strong>Reduce Room / Boxiness</strong>
+                        <strong>
+                          Reduce Room / Boxiness
+                          {voicePolish?.fixes?.reduce_room_boxiness ? <span className="hammer-audio-fix__checkmark" aria-hidden="true">✓</span> : null}
+                        </strong>
                         <span className="hammer-audio-fix__help">Removes echo / boxy room tone</span>
                       </span>
                     </label>
-                    <label className="hammer-tool-field hammer-audio-fix">
+                    <label
+                      className={`hammer-tool-field hammer-audio-fix ${voicePolish?.fixes?.enhance_voice_clarity ? "is-active" : ""}`}
+                      role="checkbox"
+                      aria-checked={Boolean(voicePolish?.fixes?.enhance_voice_clarity)}
+                    >
                       <input
                         type="checkbox"
                         checked={Boolean(voicePolish?.fixes?.enhance_voice_clarity)}
@@ -1568,13 +1596,21 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           "enhance_voice_clarity",
                           event.target.checked,
                         )}
+                        aria-label="Enhance Voice Clarity"
                       />
                       <span className="hammer-audio-fix__copy">
-                        <strong>Enhance Voice Clarity</strong>
+                        <strong>
+                          Enhance Voice Clarity
+                          {voicePolish?.fixes?.enhance_voice_clarity ? <span className="hammer-audio-fix__checkmark" aria-hidden="true">✓</span> : null}
+                        </strong>
                         <span className="hammer-audio-fix__help">Brings the voice forward and improves intelligibility</span>
                       </span>
                     </label>
-                    <label className="hammer-tool-field hammer-audio-fix">
+                    <label
+                      className={`hammer-tool-field hammer-audio-fix ${voicePolish?.fixes?.level_volume ? "is-active" : ""}`}
+                      role="checkbox"
+                      aria-checked={Boolean(voicePolish?.fixes?.level_volume)}
+                    >
                       <input
                         type="checkbox"
                         checked={Boolean(voicePolish?.fixes?.level_volume)}
@@ -1582,9 +1618,13 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           "level_volume",
                           event.target.checked,
                         )}
+                        aria-label="Level Volume"
                       />
                       <span className="hammer-audio-fix__copy">
-                        <strong>Level Volume</strong>
+                        <strong>
+                          Level Volume
+                          {voicePolish?.fixes?.level_volume ? <span className="hammer-audio-fix__checkmark" aria-hidden="true">✓</span> : null}
+                        </strong>
                         <span className="hammer-audio-fix__help">Evens out overall loudness</span>
                       </span>
                     </label>

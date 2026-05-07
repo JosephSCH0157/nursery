@@ -836,7 +836,7 @@ function classifyAnchorMatch(args: {
       : "unresolved";
 
   return {
-    matchType: args.deterministicCandidate ? "fuzzy" : "fuzzy",
+    matchType: "fuzzy",
     confidence,
     classification,
   };
@@ -1342,12 +1342,21 @@ export function deriveHammerVisualPlacements(args: {
           ? "uncertain"
           : "rejected"
     );
-    const persistedStatus: "placed" | "uncertain" = anchorMatch.classification === "placed" ? "placed" : "uncertain";
-    const alignmentState: "aligned" | "review_needed" | "unresolved" = anchorMatch.classification === "placed"
-      ? "aligned"
-      : anchorMatch.classification === "uncertain"
+    const fallbackUsed = timingSource === "ordered_fallback";
+    const persistedStatus: "placed" | "uncertain" = (
+      fallbackUsed
+        ? "uncertain"
+        : (anchorMatch.classification === "placed" ? "placed" : "uncertain")
+    );
+    const alignmentState: "aligned" | "review_needed" | "unresolved" = (
+      fallbackUsed
         ? "review_needed"
-        : "unresolved";
+        : anchorMatch.classification === "placed"
+          ? "aligned"
+          : anchorMatch.classification === "uncertain"
+            ? "review_needed"
+            : "unresolved"
+    );
     const alignmentMethod: "deterministic_phrase" | "fuzzy_text" | "ordered_fallback" = deterministicCandidate
       ? "deterministic_phrase"
       : candidate
