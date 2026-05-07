@@ -1273,6 +1273,37 @@ Guardrails:
   cursor: pointer;
 }
 
+.hammer-preview-diagnostics {
+  margin-top: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  padding: 6px;
+  background: rgba(2, 6, 23, 0.35);
+}
+
+.hammer-preview-diagnostics summary {
+  cursor: pointer;
+  font-size: 10px;
+  color: #e2e8f0;
+}
+
+.hammer-preview-diagnostics__actions {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hammer-preview-diagnostics__json {
+  margin: 6px 0 0;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 10px;
+  line-height: 1.35;
+  color: #cbd5e1;
+}
+
 .hammer-preview-meta__warning {
   color: #fbbf24;
 }

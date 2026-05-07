@@ -1,4 +1,5 @@
 import type { JSX, MutableRefObject, MouseEvent, RefObject } from "react";
+import { useState } from "react";
 import BackgroundBlurPreviewLayer from "../features/visual-effects/render/backgroundBlurPreviewLayer";
 import EyeContactAssistPreviewLayer from "../features/eye-contact-assist/render/eyeContactAssistPreviewLayer";
 import VisualPreviewComposer, { type VisualPreviewOverlayModel } from "../visuals/components/VisualPreviewComposer";
@@ -51,6 +52,10 @@ export type HammerWorkspaceShellPreviewBayVM = {
     onStatus: (status: any) => void;
     onCanvas: (canvas: HTMLCanvasElement | null) => void;
   };
+  diagnostics: {
+    enabled: boolean;
+    snapshot: any;
+  };
 
   eyeContactAssist: {
     enabled: boolean;
@@ -74,6 +79,23 @@ export type HammerWorkspaceShellPreviewBayVM = {
 
 export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorkspaceShellPreviewBayVM }): JSX.Element {
   const vm = props.vm;
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+
+  async function handleCopyDiagnostics(): Promise<void> {
+    const payload = JSON.stringify(vm.diagnostics.snapshot, null, 2);
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(payload);
+      } else {
+        throw new Error("Clipboard API unavailable.");
+      }
+      setCopyStatus("Diagnostics copied.");
+      window.setTimeout(() => setCopyStatus(null), 1500);
+    } catch {
+      setCopyStatus("Copy failed.");
+      window.setTimeout(() => setCopyStatus(null), 2000);
+    }
+  }
   return (
     <>
       <header className="hammer-bay-head">
@@ -90,15 +112,17 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             playsInline
             className="hammer-preview-media"
           />
-          <video
-            ref={vm.segmentationSourceVideoRef}
-            src={vm.segmentationSourceVideoSrc ?? undefined}
-            muted
-            preload="auto"
-            playsInline
-            className="hammer-preview-media hammer-preview-media--segmentation-source"
-            aria-hidden="true"
-          />
+          {vm.segmentationSourceVideoRef !== vm.previewVideoRef ? (
+            <video
+              ref={vm.segmentationSourceVideoRef}
+              src={vm.segmentationSourceVideoSrc ?? undefined}
+              muted
+              preload="auto"
+              playsInline
+              className="hammer-preview-media hammer-preview-media--segmentation-source"
+              aria-hidden="true"
+            />
+          ) : null}
           <video
             ref={vm.previewAudioRef}
             src={vm.playbackMediaSrc ?? undefined}
@@ -214,6 +238,16 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
           <button type="button" onClick={vm.togglePlayback}>
             {vm.isPlaybackActive ? "Pause (Space)" : "Play (Space)"}
           </button>
+          {vm.diagnostics.enabled ? (
+            <details className="hammer-preview-diagnostics">
+              <summary>Diagnostics</summary>
+              <div className="hammer-preview-diagnostics__actions">
+                <button type="button" onClick={() => { void handleCopyDiagnostics(); }}>Copy diagnostics</button>
+                {copyStatus ? <span>{copyStatus}</span> : null}
+              </div>
+              <pre className="hammer-preview-diagnostics__json">{JSON.stringify(vm.diagnostics.snapshot, null, 2)}</pre>
+            </details>
+          ) : null}
         </div>
       </div>
     </>

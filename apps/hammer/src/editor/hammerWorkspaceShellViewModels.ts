@@ -4,6 +4,25 @@ import {
   resolveVisualPreviewEmptyStateMessage,
 } from "./hammerPolishPreviewTarget";
 
+function isTruthyDevToggle(value: string | null): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "on" || normalized === "yes";
+}
+
+function shouldShowDiagnosticsPanel(): boolean {
+  const isDev = Boolean((import.meta as any)?.env?.DEV);
+  if (!isDev || typeof window === "undefined") return false;
+  try {
+    const params = new URLSearchParams(window.location.search ?? "");
+    if (isTruthyDevToggle(params.get("dev"))) return true;
+    if (isTruthyDevToggle(params.get("tp_dev_mode"))) return true;
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
 export function buildTimelineDockVM(args: any) {
   return {
     isScrubbing: args.isScrubbing,
@@ -315,14 +334,101 @@ export function buildPreviewBayVM(args: any) {
   const segmentationSourceVideoSrc = typeof args.segmentationSourceVideoSrc === "string"
     ? args.segmentationSourceVideoSrc
     : (typeof args.effectivePreviewVideoSrc === "string" ? args.effectivePreviewVideoSrc : null);
+  const segmentationUsesDisplayedPreviewRef = segmentationSourceVideoRef === args.previewVideoRef;
   const segmentationSourceMatchesDisplayedBase = Boolean(
-    segmentationSourceVideoSrc
-      && args.effectivePreviewVideoSrc
-      && segmentationSourceVideoSrc === args.effectivePreviewVideoSrc,
+    segmentationUsesDisplayedPreviewRef
+      || (segmentationSourceVideoSrc
+        && args.effectivePreviewVideoSrc
+        && segmentationSourceVideoSrc === args.effectivePreviewVideoSrc),
   );
   const hasBackgroundEffectRequest = Boolean(
     args.visualBackgroundBlur || args.visualBackgroundReplaceEnabled || args.visualBackgroundWashEnabled,
   );
+  const hiddenSegmentationVideoMounted = segmentationSourceVideoRef !== args.previewVideoRef;
+  const blurRuntime = args.visualBackgroundBlurRuntimeStatus ?? null;
+  const audioPolish = args.editableAudioPolish ?? null;
+  const audioAnalysis = audioPolish?.analysis ?? null;
+  const loudness = audioAnalysis?.loudness ?? null;
+  const transcriptPrep = audioAnalysis?.transcript_prep ?? null;
+  const channelCharacterization = audioAnalysis?.channel_characterization ?? null;
+  const audioPolishSettingsSummary = audioPolish?.settings_summary ?? {};
+  const filterChain = Object.entries(audioPolishSettingsSummary)
+    .filter(([, value]) => Boolean(value))
+    .map(([key]) => key);
+  const playbackPipelineMode = args.isPlaybackActive
+    ? "playback"
+    : args.isScrubbing
+    ? "scrub"
+    : "paused preview";
+  const exportPipelineActive = args.currentPass === "packaging" || args.activeTool === "export";
+  const previewPipelineActive = !args.isPlaybackActive;
+  const visualDiagnostics = {
+    blurEnabled: Boolean(args.backgroundBlurSettings?.enabled),
+    blurStrength: Number(args.backgroundBlurSettings?.blurPx ?? 0),
+    edgeFeather: Number(args.backgroundBlurSettings?.edgeFeatherPx ?? 0),
+    subjectExpansion: Number(args.backgroundBlurSettings?.subjectExpansionPx ?? 0),
+    temporalSmoothing: Number(args.backgroundBlurSettings?.temporalSmoothing ?? 0),
+    qualityMode: args.backgroundBlurSettings?.qualityMode ?? "medium",
+    maskPresent: blurRuntime?.mask?.status === "ok",
+    maskStatus: blurRuntime?.mask?.status ?? "unknown",
+    segmentationProvider: blurRuntime?.provider?.name ?? args.visualBackgroundBlurProviderId ?? "mediapipe_selfie_segmentation",
+    providerLoaded: blurRuntime?.provider?.readiness?.status === "ready",
+    maskPreviewMode: Boolean(args.visualBackgroundMaskPreviewMode),
+    maskPreviewStage: args.visualBackgroundMaskPreviewStage ?? "raw",
+    fallbackMode: args.backgroundBlurSettings?.fallbackMode ?? "disable",
+    lastSegmentationError: blurRuntime?.warnings?.[0] ?? null,
+    videoFrameSize: blurRuntime?.frameInput ? `${blurRuntime.frameInput.width}x${blurRuntime.frameInput.height}` : "unknown",
+    segmentationInputSize: blurRuntime?.frameInput ? `${blurRuntime.frameInput.width}x${blurRuntime.frameInput.height}` : "unknown",
+    providerMaskSize: blurRuntime?.mask?.resolution ? `${blurRuntime.mask.resolution.width}x${blurRuntime.mask.resolution.height}` : "unknown",
+    matteCanvasSize: blurRuntime?.mask?.resolution ? `${blurRuntime.mask.resolution.width}x${blurRuntime.mask.resolution.height}` : "unknown",
+    renderCanvasSize: args.visualBackgroundEffectCanvasRef?.current
+      ? `${args.visualBackgroundEffectCanvasRef.current.width}x${args.visualBackgroundEffectCanvasRef.current.height}`
+      : "unknown",
+    maskAgeMs: blurRuntime?.mask?.reason === "reused_recent_mask" ? "reused_recent_mask" : "live_or_unknown",
+    maskFps: blurRuntime?.effectiveSegmentationFps ?? null,
+    avgMaskGenerationMs: blurRuntime?.avgSegmentationMs ?? null,
+    maxMaskGenerationMs: blurRuntime?.maxSegmentationMs ?? null,
+    lastMaskAgeMs: blurRuntime?.lastMaskAgeMs ?? null,
+    droppedMaskFrames: blurRuntime?.droppedFrames ?? 0,
+    skippedMaskFrames: blurRuntime?.skippedSegmentationFrames ?? 0,
+  };
+  const diagnosticsSnapshot = {
+    pipeline: {
+      activePipeline: playbackPipelineMode,
+      previewPipelineActive,
+      playbackPipelineActive: Boolean(args.isPlaybackActive),
+      exportPipelineActive,
+      currentFrameSource: "previewVideoRef",
+      segmentationFrameSource: hiddenSegmentationVideoMounted ? "segmentationSourceVideoRef" : "previewVideoRef",
+      displayedVideoRef: "previewVideoRef",
+      hiddenSegmentationVideoMounted,
+      segmentationUsesDisplayedVideoRef: !hiddenSegmentationVideoMounted,
+      maskEligibleDuringPlayback: Boolean(
+        args.isPlaybackActive
+          ? (segmentationSourceMatchesDisplayedBase && hasBackgroundEffectRequest)
+          : segmentationSourceMatchesDisplayedBase,
+      ),
+    },
+    media: {
+      inputCodec: args.mediaPrepOutputs?.audio?.raw_source?.kind ?? "unknown",
+      outputCodec: args.mediaPrepOutputs?.audio?.polish?.output_mime_type ?? "unknown",
+      inputSampleRate: "unknown",
+      outputSampleRate: "unknown",
+      channels: channelCharacterization?.channel_count ?? "unknown",
+      durationSec: typeof args.playbackTransportDurationSec === "number" ? Math.max(0, args.playbackTransportDurationSec) : null,
+      transcriptPrepFormat: transcriptPrep ? `${transcriptPrep.strategy}` : "unknown",
+      exportAudioFormat: args.mediaPrepOutputs?.audio?.polish?.output_mime_type ?? "unknown",
+    },
+    audio: {
+      filterChainApplied: filterChain,
+      normalizationApplied: filterChain.some((item) => item.includes("normalization")),
+      loudnessLufs: loudness?.integrated_lufs ?? null,
+      peakDbtp: loudness?.true_peak_dbtp ?? null,
+      clippingDetected: typeof loudness?.true_peak_dbtp === "number" ? loudness.true_peak_dbtp > 0 : null,
+      transcriptPrepChunkCount: transcriptPrep?.chunk_count ?? null,
+    },
+    visualEffects: visualDiagnostics,
+  };
 
   return {
     previewModeLabel: args.previewMode,
@@ -371,6 +477,10 @@ export function buildPreviewBayVM(args: any) {
       maskPreviewStage: args.visualBackgroundMaskPreviewStage,
       onStatus: args.setVisualBackgroundBlurRuntimeStatus,
       onCanvas: args.handleBackgroundEffectCanvas,
+    },
+    diagnostics: {
+      enabled: shouldShowDiagnosticsPanel(),
+      snapshot: diagnosticsSnapshot,
     },
     eyeContactAssist: {
       enabled: polishPreviewTarget.segmentationEligible
