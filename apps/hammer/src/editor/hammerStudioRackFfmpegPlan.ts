@@ -53,12 +53,12 @@ function buildGateFilter(rackState: HammerStudioRackState): string {
   const attack = clamp(gate.attack_ms, 0.5, 120);
   const release = clamp(gate.release_ms, 10, 1200);
   return [
-    "agate",
+    "agate=",
     `threshold=${threshold.toFixed(6)}`,
     `range=${range.toFixed(6)}`,
     `attack=${attack.toFixed(1)}`,
     `release=${release.toFixed(1)}`,
-  ].join(":");
+  ].join(":").replace("=:", "=");
 }
 
 function buildCompressorFilter(rackState: HammerStudioRackState): string {
@@ -69,13 +69,13 @@ function buildCompressorFilter(rackState: HammerStudioRackState): string {
   const release = clamp(compressor.release_ms, 10, 1200);
   const makeup = toLinearFromDb(clamp(compressor.makeup_gain_db, -12, 18));
   return [
-    "acompressor",
+    "acompressor=",
     `threshold=${threshold.toFixed(6)}`,
     `ratio=${ratio.toFixed(2)}`,
     `attack=${attack.toFixed(1)}`,
     `release=${release.toFixed(1)}`,
     `makeup=${makeup.toFixed(3)}`,
-  ].join(":");
+  ].join(":").replace("=:", "=");
 }
 
 function createDecision(moduleId: HammerStudioRackModuleId, state: { is_enabled: boolean; is_bypassed: boolean }): HammerStudioRackFfmpegModuleDecision {

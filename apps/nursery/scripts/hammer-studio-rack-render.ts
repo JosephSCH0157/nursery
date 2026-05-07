@@ -288,7 +288,8 @@ async function renderWaveBufferWithFfmpeg(args: {
   sourceExtension: string;
   sourceLabel: string;
   ffmpegBin: string;
-  filterChain: string;
+  filterComplex: string;
+  outputLabel: string;
 }): Promise<Buffer> {
   const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-studio-rack-render-"));
   const safeExtension = args.sourceExtension || ".bin";
@@ -305,7 +306,8 @@ async function renderWaveBufferWithFfmpeg(args: {
       "-i",
       inputPath,
       "-vn",
-      ...(args.filterChain ? ["-af", args.filterChain] : []),
+      ...(args.filterComplex ? ["-filter_complex", args.filterComplex] : []),
+      ...(args.filterComplex ? ["-map", `[${args.outputLabel}]`] : ["-map", "0:a:0"]),
       "-acodec",
       "pcm_s16le",
       "-ar",
@@ -629,7 +631,8 @@ export async function handleHammerStudioRackRenderRequest(
       sourceExtension: sourceMedia.sourceExtension,
       sourceLabel: sourceMedia.sourceLabel,
       ffmpegBin,
-      filterChain: timelinePlan.filterComplex,
+      filterComplex: timelinePlan.filterComplex,
+      outputLabel: timelinePlan.outputLabel,
     });
     const outputWorkpiecePath = buildArtifactRelpath(request, sourceMedia.sourceLabel);
     const outputDurationMs = readWavDurationMs(renderedWaveBytes);
@@ -690,6 +693,18 @@ export async function handleHammerStudioRackRenderRequest(
             derived_output_path: outputWorkpiecePath,
             requested_backend: request.requested_backend,
             resolved_backend: shouldApplyRack ? "ffmpeg" : "native",
+            preview_audio_processing_active: false,
+            export_audio_processing_active: true,
+            preview_audio_filter_chain: null,
+            export_audio_filter_mode: "filter_complex",
+            export_audio_filter_chain: timelinePlan.filterComplex,
+            export_audio_filter_args: `-filter_complex <graph> -map [${timelinePlan.outputLabel}]`,
+            export_audio_mapped_stream: `[${timelinePlan.outputLabel}]`,
+            export_audio_source_stream: "0:a:0",
+            export_output_codec: "pcm_s16le",
+            export_output_sample_rate: 48000,
+            export_output_channels: 2,
+            export_output_mime_type: OUTPUT_MIME_TYPE,
             timeline_order_preserved: true,
             ...timelinePlan.summary,
             ...chain.summary,
