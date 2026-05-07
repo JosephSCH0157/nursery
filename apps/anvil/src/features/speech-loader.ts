@@ -2538,7 +2538,7 @@ function installAsrHudDev(): void {
     reopenBtn.textContent = 'Show ASR HUD';
     reopenBtn.title = 'Show ASR HUD';
     reopenBtn.style.cssText = [
-      'position:fixed;right:8px;bottom:8px;z-index:2147483000;',
+      'position:fixed;right:8px;top:64px;z-index:2147483000;',
       'border:1px solid rgba(255,255,255,0.25);background:rgba(0,0,0,0.65);color:#cfe8ff;',
       'border-radius:8px;padding:4px 8px;font-size:11px;cursor:pointer;display:none;',
     ].join('');
@@ -2600,7 +2600,7 @@ lastCommit: ${formatAge(snap.lastCommitTs)}
     const layoutHud = () => {
       const base = 8;
       let rightInset = base;
-      let bottomInset = base;
+      let topInset = 64;
       try {
         const drawer = document.getElementById('tp-dev-drawer') as HTMLElement | null;
         if (drawer && drawer.getAttribute('data-open') === 'true') {
@@ -2609,7 +2609,7 @@ lastCommit: ${formatAge(snap.lastCommitTs)}
           if (dock === 'right') {
             rightInset = Math.max(base, Math.round(rect.width + 16));
           } else if (dock === 'bottom') {
-            bottomInset = Math.max(base, Math.round(rect.height + 16));
+            topInset = 16;
           }
         }
       } catch {}
@@ -2619,7 +2619,7 @@ lastCommit: ${formatAge(snap.lastCommitTs)}
       } catch {}
       try {
         reopenBtn.style.right = `${rightInset}px`;
-        reopenBtn.style.bottom = `${bottomInset}px`;
+        reopenBtn.style.top = `${topInset}px`;
       } catch {}
     };
     closeBtn.addEventListener('click', dismiss);

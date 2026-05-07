@@ -187,8 +187,17 @@ function buildDrawerStructure(): void {
   drawer.appendChild(inner);
   contentHost = inner;
 
+  const quickControls = document.createElement('div');
+  quickControls.style.cssText = [
+    'position:sticky;top:0;z-index:3;',
+    'background:rgba(4,7,15,0.96);',
+    'padding-bottom:8px;margin-bottom:8px;',
+    'border-bottom:1px solid rgba(255,255,255,0.1);',
+  ].join('');
+  inner.appendChild(quickControls);
+
   const kickWrap = document.createElement('div');
-  kickWrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-bottom:12px;';
+  kickWrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-bottom:10px;';
   const kickBtn = document.createElement('button');
   kickBtn.type = 'button';
   kickBtn.textContent = 'Kick Scroll (+120px)';
@@ -201,10 +210,10 @@ function buildDrawerStructure(): void {
   kickHint.style.cssText = 'opacity:0.7;font-size:11px;';
   kickWrap.appendChild(kickBtn);
   kickWrap.appendChild(kickHint);
-  inner.appendChild(kickWrap);
+  quickControls.appendChild(kickWrap);
 
   const asrLaneWrap = document.createElement('div');
-  asrLaneWrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-bottom:12px;';
+  asrLaneWrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-bottom:4px;';
   const asrLaneLabel = document.createElement('label');
   asrLaneLabel.textContent = 'ASR Engine Lane (Experimental)';
   asrLaneLabel.style.cssText = 'font-size:12px;opacity:0.9;';
@@ -234,7 +243,7 @@ function buildDrawerStructure(): void {
   asrLaneWrap.appendChild(asrLaneLabel);
   asrLaneWrap.appendChild(asrLaneSelect);
   asrLaneWrap.appendChild(asrHint);
-  inner.appendChild(asrLaneWrap);
+  quickControls.appendChild(asrLaneWrap);
 }
 
 export function initDevDrawer(): void {
