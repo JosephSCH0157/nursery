@@ -80,6 +80,33 @@ export type HammerWorkspaceShellPreviewBayVM = {
 export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorkspaceShellPreviewBayVM }): JSX.Element {
   const vm = props.vm;
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const visualFx = vm.diagnostics?.snapshot?.visualEffects ?? null;
+  const segmentationSummary = (() => {
+    if (!visualFx) return null;
+    const avgMs = typeof visualFx.avgMaskGenerationMs === "number" ? visualFx.avgMaskGenerationMs : null;
+    const maxMs = typeof visualFx.maxMaskGenerationMs === "number" ? visualFx.maxMaskGenerationMs : null;
+    const fps = typeof visualFx.maskFps === "number" ? visualFx.maskFps : null;
+    const ageMs = typeof visualFx.lastMaskAgeMs === "number" ? visualFx.lastMaskAgeMs : null;
+    const dropped = typeof visualFx.droppedMaskFrames === "number" ? visualFx.droppedMaskFrames : 0;
+    const skipped = typeof visualFx.skippedMaskFrames === "number" ? visualFx.skippedMaskFrames : 0;
+    const hasMask = Boolean(visualFx.maskPresent);
+
+    let health: "healthy" | "busy" | "stale" = "healthy";
+    if (!hasMask || ageMs == null || ageMs > 750) {
+      health = "stale";
+    } else if ((avgMs != null && avgMs >= 8) || ageMs > 250) {
+      health = "busy";
+    }
+
+    const avgLabel = avgMs != null ? `${avgMs.toFixed(1)}ms avg` : "n/a avg";
+    const maxLabel = maxMs != null ? `${maxMs.toFixed(1)}ms max` : "n/a max";
+    const fpsLabel = fps != null ? `${fps.toFixed(1)}fps` : "n/a fps";
+    const ageLabel = ageMs != null ? `age ${Math.round(ageMs)}ms` : "age n/a";
+    return {
+      health,
+      text: `Segmentation: ${health} · ${avgLabel} / ${maxLabel} · ${fpsLabel} · ${ageLabel} · dropped ${dropped} · skipped ${skipped}`,
+    };
+  })();
 
   async function handleCopyDiagnostics(): Promise<void> {
     const payload = JSON.stringify(vm.diagnostics.snapshot, null, 2);
@@ -241,6 +268,11 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
           {vm.diagnostics.enabled ? (
             <details className="hammer-preview-diagnostics">
               <summary>Diagnostics</summary>
+              {segmentationSummary ? (
+                <div className={`hammer-preview-diagnostics__segmentation-summary is-${segmentationSummary.health}`}>
+                  {segmentationSummary.text}
+                </div>
+              ) : null}
               <div className="hammer-preview-diagnostics__actions">
                 <button type="button" onClick={() => { void handleCopyDiagnostics(); }}>Copy diagnostics</button>
                 {copyStatus ? <span>{copyStatus}</span> : null}

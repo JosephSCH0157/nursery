@@ -1294,6 +1294,32 @@ Guardrails:
   gap: 8px;
 }
 
+.hammer-preview-diagnostics__segmentation-summary {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 1.35;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.hammer-preview-diagnostics__segmentation-summary.is-healthy {
+  border-color: rgba(74, 222, 128, 0.45);
+  color: #bbf7d0;
+}
+
+.hammer-preview-diagnostics__segmentation-summary.is-busy {
+  border-color: rgba(251, 191, 36, 0.45);
+  color: #fde68a;
+}
+
+.hammer-preview-diagnostics__segmentation-summary.is-stale {
+  border-color: rgba(248, 113, 113, 0.45);
+  color: #fecaca;
+}
+
 .hammer-preview-diagnostics__json {
   margin: 6px 0 0;
   max-height: 220px;
