@@ -52,11 +52,31 @@ function readWavPcmPeak(buffer: Buffer): number {
   return peak / 32768;
 }
 
+function readWavPcmSamples(buffer: Buffer): Float32Array {
+  const data = readWavDataChunk(buffer);
+  const samples = new Float32Array(Math.floor(data.length / 2));
+  for (let index = 0; index < samples.length; index += 1) {
+    samples[index] = data.readInt16LE(index * 2) / 32768;
+  }
+  return samples;
+}
+
+function readMeanAbsDifference(a: Float32Array, b: Float32Array): number {
+  const length = Math.min(a.length, b.length);
+  if (length <= 0) return 0;
+  let sum = 0;
+  for (let index = 0; index < length; index += 1) {
+    sum += Math.abs(a[index] - b[index]);
+  }
+  return sum / length;
+}
+
 async function run() {
   if (!commandAvailable("ffmpeg")) {
     console.log("Skipping hammer studio-rack route test (ffmpeg unavailable).");
     return;
   }
+  const hasFfprobe = commandAvailable("ffprobe");
 
   const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-studio-rack-route-test-"));
   try {
@@ -81,9 +101,10 @@ async function run() {
     const rackState = createDefaultHammerStudioRackState();
     rackState.is_enabled = true;
     rackState.backend_preference = "ffmpeg";
-    rackState.modules.gate.is_enabled = true;
-    rackState.modules.gate.threshold_db = 0;
-    rackState.modules.gate.range_db = -60;
+    rackState.voice_polish = {
+      ...rackState.voice_polish!,
+      voice_cleanup_enabled: true,
+    };
 
     const commonRequest = {
       workspace_id: "ws_hammer_studio_rack_test",
@@ -130,15 +151,32 @@ async function run() {
     );
     assert.equal(ffmpegResult.payload.data?.settings_summary.export_audio_filter_mode, "filter_complex");
     assert.equal(ffmpegResult.payload.data?.settings_summary.export_audio_mapped_stream, "[outa]");
+    assert.equal(ffmpegResult.payload.data?.settings_summary.export_output_codec, "pcm_s16le");
+    assert.equal(ffmpegResult.payload.data?.settings_summary.export_output_sample_rate, 48000);
+    assert.equal(ffmpegResult.payload.data?.settings_summary.export_output_channels, 2);
+    assert.equal(ffmpegResult.payload.data?.settings_summary.export_output_mime_type, "audio/wav");
+    assert.equal(ffmpegResult.payload.data?.settings_summary.voice_cleanup_enabled, true);
+    if (hasFfprobe) {
+      assert.equal(typeof ffmpegResult.payload.data?.settings_summary.export_input_codec, "string");
+      assert.equal(typeof ffmpegResult.payload.data?.settings_summary.export_input_sample_rate, "number");
+      assert.equal(typeof ffmpegResult.payload.data?.settings_summary.export_input_channels, "number");
+      assert.equal(typeof ffmpegResult.payload.data?.settings_summary.export_input_duration, "number");
+      const bitRate = ffmpegResult.payload.data?.settings_summary.export_input_bit_rate;
+      if (bitRate != null) {
+        assert.equal(typeof bitRate, "number");
+      }
+      assert.equal(ffmpegResult.payload.data?.settings_summary.export_input_probe_error, null);
+    }
 
     const ffmpegOutRelpath = ffmpegResult.payload.data?.output_local_relpath;
     assert.equal(typeof ffmpegOutRelpath, "string");
     const ffmpegBytes = await fsPromises.readFile(path.join(tempRoot, ffmpegOutRelpath!));
     const ffmpegPeak = readWavPcmPeak(ffmpegBytes);
+    const diff = readMeanAbsDifference(readWavPcmSamples(nativeBytes), readWavPcmSamples(ffmpegBytes));
 
     assert.ok(
-      ffmpegPeak < nativePeak * 0.5,
-      `expected proof-filtered export peak to drop significantly (native=${nativePeak}, ffmpeg=${ffmpegPeak})`,
+      diff > 0.01,
+      `expected processed export to differ measurably from native/raw (mean_abs_diff=${diff}, native_peak=${nativePeak}, ffmpeg_peak=${ffmpegPeak})`,
     );
     console.log("Hammer studio-rack render route tests passed.");
   } finally {

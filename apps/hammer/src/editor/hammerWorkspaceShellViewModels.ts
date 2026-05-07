@@ -655,6 +655,7 @@ export function buildToolBayVM(args: any) {
     setVoicePolishDeEsserStrength: args.setVoicePolishDeEsserStrength,
     setVoicePolishEqProfile: args.setVoicePolishEqProfile,
     setVoicePolishFixEnabled: args.setVoicePolishFixEnabled,
+    setVoiceCleanupEnabled: args.setVoiceCleanupEnabled,
     voicePolish: args.voicePolish,
     voicePolishHasAnyFixEnabled: args.voicePolishHasAnyFixEnabled,
     backgroundBlurProviderDescriptor: args.backgroundBlurProviderDescriptor,

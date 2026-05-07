@@ -224,6 +224,7 @@ import {
 import {
   applyHammerVoicePolishPreset,
   createDefaultHammerVoicePolishState,
+  setHammerVoiceCleanupEnabled,
   setHammerVoicePolishDeEsserStrength,
   setHammerVoicePolishEqProfile,
   setHammerVoicePolishFixEnabled,
@@ -4597,6 +4598,22 @@ function HammerWorkspaceShellWithContext(
     setAudioFinalizationCompareMode("after");
   }
 
+  function setVoiceCleanupEnabled(nextEnabled: boolean): void {
+    applyStudioRackMutation(nextEnabled ? "Enable voice cleanup" : "Disable voice cleanup", (current) => ({
+      ...current,
+      is_enabled: nextEnabled ? true : current.is_enabled,
+      is_bypassed: nextEnabled ? false : current.is_bypassed,
+      voice_polish: setHammerVoiceCleanupEnabled(
+        current.voice_polish ?? createDefaultHammerVoicePolishState(),
+        nextEnabled,
+      ),
+    }));
+    if (nextEnabled) {
+      applyPodcastMasterPass();
+      setAudioFinalizationCompareMode("after");
+    }
+  }
+
   function applyTranscriptSelection(segmentId: string, extendRange: boolean): void {
     const segment = editableTranscriptSegments.find((item) => item.segment_id === segmentId) ?? null;
     if (!segment) return;
@@ -7657,6 +7674,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setVoicePolishDeEsserStrength,
     setVoicePolishEqProfile,
     setVoicePolishFixEnabled,
+    setVoiceCleanupEnabled,
     voicePolish,
     voicePolishHasAnyFixEnabled: voicePolishHasAnyFixEnabled,
     backgroundBlurProviderDescriptor,
@@ -7942,6 +7960,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setVoicePolishDeEsserStrength,
     setVoicePolishEqProfile,
     setVoicePolishFixEnabled,
+    setVoiceCleanupEnabled,
     voicePolish,
     voicePolishHasAnyFixEnabled,
     backgroundBlurProviderDescriptor,

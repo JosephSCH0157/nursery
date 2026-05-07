@@ -17,6 +17,7 @@ export type HammerVoicePolishFixState = Record<HammerVoicePolishFixId, boolean>;
 
 export interface HammerVoicePolishState {
   preset_id: HammerVoicePolishPresetId | null;
+  voice_cleanup_enabled: boolean;
   fixes: HammerVoicePolishFixState;
   advanced: {
     de_esser_strength: HammerVoicePolishDeEsserStrength;
@@ -27,6 +28,7 @@ export interface HammerVoicePolishState {
 export function createDefaultHammerVoicePolishState(): HammerVoicePolishState {
   return {
     preset_id: null,
+    voice_cleanup_enabled: false,
     fixes: {
       remove_harsh_sibilance: false,
       reduce_room_boxiness: false,
@@ -94,7 +96,36 @@ export function applyHammerVoicePolishPreset(
   return {
     ...current,
     preset_id: presetId,
+    voice_cleanup_enabled: false,
     fixes: { ...resolveHammerVoicePolishPreset(presetId) },
+  };
+}
+
+export function setHammerVoiceCleanupEnabled(
+  current: HammerVoicePolishState,
+  enabled: boolean,
+): HammerVoicePolishState {
+  if (enabled) {
+    return {
+      ...current,
+      preset_id: "podcast_voice_balanced",
+      voice_cleanup_enabled: true,
+      fixes: {
+        remove_harsh_sibilance: true,
+        reduce_room_boxiness: false,
+        enhance_voice_clarity: false,
+        level_volume: true,
+      },
+      advanced: {
+        ...current.advanced,
+        de_esser_strength: "medium",
+        eq_profile: "voice",
+      },
+    };
+  }
+  return {
+    ...current,
+    voice_cleanup_enabled: false,
   };
 }
 
@@ -171,6 +202,15 @@ function resolveDeEsserParams(
 }
 
 export function buildHammerVoicePolishTier2FfmpegFilters(state: HammerVoicePolishState): string[] {
+  if (state.voice_cleanup_enabled) {
+    return [
+      "highpass=f=80",
+      "equalizer=f=3500:t=q:w=1.2:g=-2",
+      "acompressor=threshold=0.125893:ratio=2.20:attack=12:release=120:makeup=1.258925",
+      "loudnorm=I=-16:TP=-1.5:LRA=11:linear=true:dual_mono=false:print_format=none",
+    ];
+  }
+
   const filters: string[] = [];
 
   const presetId = state.preset_id;

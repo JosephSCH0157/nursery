@@ -337,6 +337,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const setVoicePolishFixEnabled = ctx.setVoicePolishFixEnabled as (fixId: string, enabled: boolean) => void;
   const setVoicePolishDeEsserStrength = ctx.setVoicePolishDeEsserStrength as (value: string) => void;
   const setVoicePolishEqProfile = ctx.setVoicePolishEqProfile as (value: string) => void;
+  const setVoiceCleanupEnabled = ctx.setVoiceCleanupEnabled as (enabled: boolean) => void;
 
   const editableAudioPolish = ctx.editableAudioPolish as any;
   const persistedAudioCutCount = ctx.persistedAudioCutCount as number;
@@ -1512,6 +1513,18 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                 currentPass === "audio_finalization" ? (
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Audio Finalization</header>
+
+                    <label className="hammer-tool-field hammer-audio-fix">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(voicePolish?.voice_cleanup_enabled)}
+                        onChange={(event) => setVoiceCleanupEnabled(event.target.checked)}
+                      />
+                      <span className="hammer-audio-fix__copy">
+                        <strong>Voice Cleanup</strong>
+                        <span className="hammer-audio-fix__help">Conservative spoken-audio cleanup (rumble cut, gentle harshness control, light compression, loudness leveling)</span>
+                      </span>
+                    </label>
 
                     <header className="hammer-tool-card__subhead">Audio Fixes</header>
                     <label className="hammer-tool-field hammer-audio-fix">
