@@ -166,7 +166,10 @@ import {
   shouldCreateHammerSnapshot,
   upsertHammerSnapshotManifest,
 } from "./hammerSnapshotProduction";
-import { type HammerStoredMediaFile } from "../lib/hammerSourceDeskMediaApi";
+import {
+  type HammerStoredMediaFile,
+} from "../lib/hammerSourceDeskMediaApi";
+import { deriveStableHammerAssetIdFromPath } from "../lib/hammerAssetIdentity";
 import {
   buildIntroOutroCandidateItems,
   buildIntroOutroCandidateItemsById,
@@ -1121,6 +1124,11 @@ function HammerWorkspaceShellWithContext(
   const [visualBackgroundReplaceImageUrl, setVisualBackgroundReplaceImageUrl] = useState<string>(
     String(initialVisualPreviewSettings.background_replace_image_url ?? ""),
   );
+  const [visualBackgroundReplaceImageAssetPath, setVisualBackgroundReplaceImageAssetPath] = useState<string | null>(
+    typeof initialVisualPreviewSettings.background_replace_image_asset_path === "string"
+      ? initialVisualPreviewSettings.background_replace_image_asset_path
+      : null,
+  );
   const [visualBackgroundWashEnabled, setVisualBackgroundWashEnabled] = useState<boolean>(
     Boolean(initialVisualPreviewSettings.background_wash_enabled ?? false),
   );
@@ -1410,6 +1418,11 @@ function HammerWorkspaceShellWithContext(
     );
     setVisualBackgroundReplaceColor(String(nextVisualPreviewSettings.background_replace_color ?? "#2b2b2b"));
     setVisualBackgroundReplaceImageUrl(String(nextVisualPreviewSettings.background_replace_image_url ?? ""));
+    setVisualBackgroundReplaceImageAssetPath(
+      typeof nextVisualPreviewSettings.background_replace_image_asset_path === "string"
+        ? nextVisualPreviewSettings.background_replace_image_asset_path
+        : null,
+    );
     setVisualBackgroundWashEnabled(Boolean(nextVisualPreviewSettings.background_wash_enabled ?? false));
     setVisualBackgroundWashDimAmount(Number(nextVisualPreviewSettings.background_wash_dim_amount ?? 0.35));
     setVisualBackgroundWashDesaturateAmount(Number(nextVisualPreviewSettings.background_wash_desaturate_amount ?? 0.25));
@@ -2230,6 +2243,14 @@ function HammerWorkspaceShellWithContext(
     () => storedMediaFiles.filter((file) => file.kind === "image"),
     [storedMediaFiles],
   );
+  const selectedBackgroundReplacementAsset = useMemo(
+    () => sourceImageLibraryItems.find((item) => item.path === visualBackgroundReplaceImageAssetPath) ?? null,
+    [sourceImageLibraryItems, visualBackgroundReplaceImageAssetPath],
+  );
+  const selectedBackgroundReplacementAssetId = useMemo(
+    () => selectedBackgroundReplacementAsset ? deriveStableHammerAssetIdFromPath(selectedBackgroundReplacementAsset.path) : null,
+    [selectedBackgroundReplacementAsset],
+  );
   const introOutroCandidateItems = useMemo(
     () => buildIntroOutroCandidateItems(storedMediaFiles),
     [storedMediaFiles],
@@ -2935,6 +2956,16 @@ function HammerWorkspaceShellWithContext(
     applyWorkspaceIntroOutroDefaultsToWorkpiece,
     reconcileIntroOutroSelectionWithPackaging,
   });
+  useEffect(() => {
+    if (!visualBackgroundReplaceImageAssetPath || sourceDeskPreviewUrls[visualBackgroundReplaceImageAssetPath]) return;
+    requestSourceDeskPreviews([visualBackgroundReplaceImageAssetPath]);
+  }, [requestSourceDeskPreviews, sourceDeskPreviewUrls, visualBackgroundReplaceImageAssetPath]);
+  useEffect(() => {
+    if (!visualBackgroundReplaceImageAssetPath) return;
+    const previewUrl = sourceDeskPreviewUrls[visualBackgroundReplaceImageAssetPath] ?? "";
+    if (!previewUrl || previewUrl === visualBackgroundReplaceImageUrl) return;
+    setVisualBackgroundReplaceImageUrl(previewUrl);
+  }, [sourceDeskPreviewUrls, visualBackgroundReplaceImageAssetPath, visualBackgroundReplaceImageUrl]);
   const speakerOptions = useMemo(() => {
     const labels = new Set<string>();
     for (const segment of editableTranscriptSegments) {
@@ -6289,6 +6320,9 @@ function HammerWorkspaceShellWithContext(
           background_replace_mode: visualBackgroundReplaceMode,
           background_replace_color: visualBackgroundReplaceColor,
           background_replace_image_url: visualBackgroundReplaceImageUrl.trim() ? visualBackgroundReplaceImageUrl.trim() : null,
+          background_replace_image_asset_path: visualBackgroundReplaceImageAssetPath,
+          background_replace_image_asset_id: selectedBackgroundReplacementAssetId,
+          background_replace_image_asset_type: visualBackgroundReplaceImageAssetPath ? "image" : null,
           background_wash_enabled: visualBackgroundWashEnabled,
           background_wash_dim_amount: visualBackgroundWashDimAmount,
           background_wash_desaturate_amount: visualBackgroundWashDesaturateAmount,
@@ -6334,6 +6368,8 @@ function HammerWorkspaceShellWithContext(
     visualBackgroundBlurTemporalSmoothing,
     visualBackgroundReplaceColor,
     visualBackgroundReplaceEnabled,
+    visualBackgroundReplaceImageAssetPath,
+    selectedBackgroundReplacementAssetId,
     visualBackgroundReplaceImageUrl,
     visualBackgroundReplaceMode,
     visualColorAmount,
@@ -7030,6 +7066,9 @@ function HammerWorkspaceShellWithContext(
     visualBackgroundMaskPreviewMode,
     visualBackgroundBlurProviderId,
     visualBackgroundReplaceEnabled,
+    visualBackgroundReplaceMode,
+    visualBackgroundReplaceImageAssetPath,
+    selectedBackgroundReplacementAssetId,
     visualBackgroundWashEnabled,
     visualEyeContactAssistDebugOverlay,
     visualEyeContactAssistEnabled,
@@ -7624,6 +7663,9 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
       background_replace_enabled: visualBackgroundReplaceEnabled,
       background_replace_mode: visualBackgroundReplaceMode,
       background_replace_color: visualBackgroundReplaceColor,
+      background_replace_image_asset_path: visualBackgroundReplaceImageAssetPath,
+      background_replace_image_asset_id: selectedBackgroundReplacementAssetId,
+      background_replace_image_asset_type: visualBackgroundReplaceImageAssetPath ? "image" : null,
     },
     visualBackgroundReplaceImageUrl,
     visualTimelineProp: props.visualTimeline ?? null,
@@ -7743,6 +7785,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     handleMergeEditedCaptionChunk,
     handleNormalizeEditedCaptionChunkPunctuation,
     handleRebuildCaptionArtifacts,
+    handleSourceDeskUpload,
     handleSendToQuench,
     handleSplitEditedCaptionChunk,
     handleToggleEditedCaptionChunkSpeakerLabel,
@@ -7860,6 +7903,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setVisualBackgroundBlurTemporalSmoothing,
     setVisualBackgroundReplaceColor,
     setVisualBackgroundReplaceEnabled,
+    setVisualBackgroundReplaceImageAssetPath,
     setVisualBackgroundReplaceImageUrl,
     setVisualBackgroundReplaceMode,
     setVisualBackgroundWashDesaturateAmount,
@@ -7911,6 +7955,8 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     visualBackgroundBlurTemporalSmoothing,
     visualBackgroundReplaceColor,
     visualBackgroundReplaceEnabled,
+    visualBackgroundReplaceImageAssetPath,
+    selectedBackgroundReplacementAssetId,
     visualBackgroundReplaceImageUrl,
     visualBackgroundReplaceMode,
     visualBackgroundWashDesaturateAmount,
@@ -7923,6 +7969,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     visualEyeContactAssistStatusSummary,
     visualEyeContactAssistStrength,
     visualWhiteBalance,
+    uploadingCategory,
     workspaceFocusMode,
   }), [
     activeVisualTool,
@@ -8029,6 +8076,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     handleMergeEditedCaptionChunk,
     handleNormalizeEditedCaptionChunkPunctuation,
     handleRebuildCaptionArtifacts,
+    handleSourceDeskUpload,
     handleSendToQuench,
     handleSplitEditedCaptionChunk,
     handleToggleEditedCaptionChunkSpeakerLabel,
@@ -8146,6 +8194,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setVisualBackgroundBlurTemporalSmoothing,
     setVisualBackgroundReplaceColor,
     setVisualBackgroundReplaceEnabled,
+    setVisualBackgroundReplaceImageAssetPath,
     setVisualBackgroundReplaceImageUrl,
     setVisualBackgroundReplaceMode,
     setVisualBackgroundWashDesaturateAmount,
@@ -8199,6 +8248,8 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     visualBackgroundBlurTemporalSmoothing,
     visualBackgroundReplaceColor,
     visualBackgroundReplaceEnabled,
+    visualBackgroundReplaceImageAssetPath,
+    selectedBackgroundReplacementAssetId,
     visualBackgroundReplaceImageUrl,
     visualBackgroundReplaceMode,
     visualBackgroundWashDesaturateAmount,
@@ -8211,6 +8262,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     visualEyeContactAssistStatusSummary,
     visualEyeContactAssistStrength,
     visualWhiteBalance,
+    uploadingCategory,
     workspaceFocusMode,
   ]);
 

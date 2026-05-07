@@ -207,6 +207,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const setVisualBackgroundBlurTemporalSmoothing = ctx.setVisualBackgroundBlurTemporalSmoothing as any;
   const setVisualBackgroundReplaceColor = ctx.setVisualBackgroundReplaceColor as any;
   const setVisualBackgroundReplaceEnabled = ctx.setVisualBackgroundReplaceEnabled as any;
+  const setVisualBackgroundReplaceImageAssetPath = ctx.setVisualBackgroundReplaceImageAssetPath as any;
   const setVisualBackgroundReplaceImageUrl = ctx.setVisualBackgroundReplaceImageUrl as any;
   const setVisualBackgroundReplaceMode = ctx.setVisualBackgroundReplaceMode as any;
   const setVisualBackgroundWashDesaturateAmount = ctx.setVisualBackgroundWashDesaturateAmount as any;
@@ -220,6 +221,10 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const setVisualWhiteBalance = ctx.setVisualWhiteBalance as any;
   const sourceBrollItems = ctx.sourceBrollItems as any;
   const sourceImageLibraryItems = ctx.sourceImageLibraryItems as any;
+  const selectedBackgroundReplacementAssetId = ctx.selectedBackgroundReplacementAssetId as string | null;
+  const visualBackgroundReplaceImageAssetPath = ctx.visualBackgroundReplaceImageAssetPath as string | null;
+  const handleSourceDeskUpload = ctx.handleSourceDeskUpload as ((category: "images" | "broll" | "introoutro", fileList: FileList | null) => Promise<void>) | undefined;
+  const uploadingCategory = ctx.uploadingCategory as ("images" | "broll" | "introoutro" | null);
   const studioRackOpen = ctx.studioRackOpen as any;
   const toggleLogoOverlay = ctx.toggleLogoOverlay as any;
   const trimResolvedBrollBinding = ctx.trimResolvedBrollBinding as any;
@@ -2182,6 +2187,98 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           : "Blur unavailable")
                         : "Ready"}
                     </div>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={visualBackgroundReplaceEnabled}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          const enabled = event.target.checked;
+                          setVisualBackgroundReplaceEnabled(enabled);
+                          if (enabled) {
+                            setVisualBackgroundBlur(false);
+                            setVisualBackgroundWashEnabled(false);
+                            setVisualBackgroundReplaceMode("image");
+                          }
+                        }}
+                      />
+                      <span>Background Replacement</span>
+                    </label>
+                    {visualBackgroundReplaceEnabled ? (
+                      <>
+                        <label className="hammer-tool-field">
+                          <span>Selected Background</span>
+                          <select
+                            value={visualBackgroundReplaceImageAssetPath ?? ""}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              const nextPath = event.target.value.trim();
+                              setVisualBackgroundReplaceImageAssetPath(nextPath || null);
+                              if (nextPath) {
+                                setVisualBackgroundReplaceMode("image");
+                                setVisualBackgroundReplaceImageUrl("");
+                              }
+                            }}
+                          >
+                            <option value="">No background selected</option>
+                            {sourceImageLibraryItems.map((item: any) => (
+                              <option key={`bg-replace-${item.path}`} value={item.path}>
+                                {item.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <div className="hammer-source-card__actions">
+                          <label className="hammer-diagnostics-banner__button">
+                            Upload Background
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp"
+                              style={{ display: "none" }}
+                              onChange={(event) => {
+                                const files = event.currentTarget.files;
+                                if (!files || files.length === 0 || !handleSourceDeskUpload) return;
+                                setFocusOverride("tool-focus");
+                                void handleSourceDeskUpload("images", files).finally(() => {
+                                  event.currentTarget.value = "";
+                                });
+                              }}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundReplaceImageAssetPath(null);
+                              setVisualBackgroundReplaceImageUrl("");
+                            }}
+                            disabled={!visualBackgroundReplaceImageAssetPath && !visualBackgroundReplaceImageUrl.trim()}
+                          >
+                            Clear Background
+                          </button>
+                        </div>
+                        <div className="hammer-tool-hint">
+                          {visualBackgroundReplaceImageAssetPath
+                            ? `Background asset selected${selectedBackgroundReplacementAssetId ? ` · ${selectedBackgroundReplacementAssetId}` : ""}`
+                            : "No background asset selected"}
+                          {uploadingCategory === "images" ? " · Uploading..." : ""}
+                        </div>
+                        <label className="hammer-tool-field">
+                          <span>Edge feather ({Math.round(visualBackgroundBlurFeatherPx)}px)</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={24}
+                            step={1}
+                            value={visualBackgroundBlurFeatherPx}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundBlurFeatherPx(Number(event.target.value));
+                            }}
+                          />
+                        </label>
+                      </>
+                    ) : null}
                     {devBlurControlsEnabled ? (
                       <details className="hammer-tool-fieldset">
                         <summary>Advanced Blur Controls</summary>

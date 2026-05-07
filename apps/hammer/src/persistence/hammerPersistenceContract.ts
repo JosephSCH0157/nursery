@@ -90,6 +90,9 @@ export interface HammerPersistedVisualPreviewSettings {
   background_replace_mode?: "solid" | "image" | "checkerboard";
   background_replace_color?: string;
   background_replace_image_url?: string | null;
+  background_replace_image_asset_path?: string | null;
+  background_replace_image_asset_id?: string | null;
+  background_replace_image_asset_type?: "image" | "other" | null;
   background_wash_enabled?: boolean;
   background_wash_dim_amount?: number;
   background_wash_desaturate_amount?: number;
