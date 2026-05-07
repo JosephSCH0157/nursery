@@ -1468,12 +1468,13 @@ html.tp-mode-rehearsal::after{
   pointer-events: auto;
 }
 .tp-dev-drawer[data-dock='right'] {
-  top: 64px;
-  right: 16px;
-  bottom: 16px;
+  top: 72px !important;
+  right: 16px !important;
+  bottom: 16px !important;
   width: min(25vw, 360px);
-  max-height: calc(100vh - 80px);
+  max-height: calc(100vh - 88px) !important;
   transform: translateX(calc(100% + 24px));
+  z-index: 2147482500 !important;
 }
 .tp-dev-drawer[data-dock='bottom'] {
   left: 16px;
@@ -1496,13 +1497,18 @@ html.tp-mode-rehearsal::after{
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 13px;
   font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: rgba(4, 7, 15, 0.98);
 }
 .tp-dev-drawer__content {
-  padding: 12px 16px;
+  padding: 12px 16px 24px;
   overflow: auto;
   flex: 1;
   font-size: 12px;
   line-height: 1.4;
+  overscroll-behavior: contain;
 }
 .tp-dev-drawer__zen {
   background: rgba(255, 255, 255, 0.08);
