@@ -6,6 +6,8 @@ import {
   type TemporalMatteHistory,
 } from "./temporalMatteSmoothing";
 
+type AlphaMaskBuffer = Uint8ClampedArray<ArrayBufferLike>;
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -15,11 +17,11 @@ function roundToTenth(value: number): number {
 }
 
 function blurAlphaSeparable(args: {
-  alpha: Uint8ClampedArray;
+  alpha: AlphaMaskBuffer;
   width: number;
   height: number;
   radius: number;
-}): Uint8ClampedArray {
+}): AlphaMaskBuffer {
   const radius = Math.max(0, Math.floor(args.radius));
   if (radius <= 0) return new Uint8ClampedArray(args.alpha);
   const { width, height } = args;
@@ -60,11 +62,11 @@ function blurAlphaSeparable(args: {
 }
 
 function applyMorphology(args: {
-  alpha: Uint8ClampedArray;
+  alpha: AlphaMaskBuffer;
   width: number;
   height: number;
   deltaPx: number;
-}): Uint8ClampedArray {
+}): AlphaMaskBuffer {
   const delta = Math.round(args.deltaPx);
   if (delta === 0) return new Uint8ClampedArray(args.alpha);
   const steps = Math.max(1, Math.abs(delta));
@@ -101,11 +103,11 @@ function applyMorphology(args: {
 }
 
 function applyMedian3x3(args: {
-  alpha: Uint8ClampedArray;
+  alpha: AlphaMaskBuffer;
   width: number;
   height: number;
   iterations: number;
-}): Uint8ClampedArray {
+}): AlphaMaskBuffer {
   let current = new Uint8ClampedArray(args.alpha);
   const steps = Math.max(0, Math.floor(args.iterations));
   if (steps <= 0) return current;
@@ -144,13 +146,13 @@ function applyMedian3x3(args: {
 }
 
 function applyMorphologyPair(args: {
-  alpha: Uint8ClampedArray;
+  alpha: AlphaMaskBuffer;
   width: number;
   height: number;
   closeSteps: number;
   openSteps: number;
-}): Uint8ClampedArray {
-  let current = new Uint8ClampedArray(args.alpha);
+}): AlphaMaskBuffer {
+  let current: AlphaMaskBuffer = new Uint8ClampedArray(args.alpha);
   for (let i = 0; i < Math.max(0, Math.floor(args.closeSteps)); i += 1) {
     current = applyMorphology({ alpha: current, width: args.width, height: args.height, deltaPx: 1 });
     current = applyMorphology({ alpha: current, width: args.width, height: args.height, deltaPx: -1 });
@@ -163,10 +165,10 @@ function applyMorphologyPair(args: {
 }
 
 function dampLowAlphaNoise(args: {
-  alpha: Uint8ClampedArray;
+  alpha: AlphaMaskBuffer;
   floor: number;
   fadeRange: number;
-}): Uint8ClampedArray {
+}): AlphaMaskBuffer {
   const floor = clamp(Math.round(args.floor), 0, 255);
   const fadeRange = Math.max(1, Math.round(args.fadeRange));
   const out = new Uint8ClampedArray(args.alpha.length);
@@ -187,10 +189,10 @@ function dampLowAlphaNoise(args: {
 }
 
 function applyHaloClamp(args: {
-  expandedAlpha: Uint8ClampedArray;
-  featheredAlpha: Uint8ClampedArray;
+  expandedAlpha: AlphaMaskBuffer;
+  featheredAlpha: AlphaMaskBuffer;
   featherPx: number;
-}): { refinedAlpha: Uint8ClampedArray; edgeBandAlpha: Uint8ClampedArray } {
+}): { refinedAlpha: AlphaMaskBuffer; edgeBandAlpha: AlphaMaskBuffer } {
   const refined = new Uint8ClampedArray(args.featheredAlpha.length);
   const edgeBand = new Uint8ClampedArray(args.featheredAlpha.length);
   const allowance = Math.round(3 + (Math.max(0, args.featherPx) * 0.65));
@@ -217,11 +219,11 @@ function applyHaloClamp(args: {
 }
 
 function applyFeather(args: {
-  alpha: Uint8ClampedArray;
+  alpha: AlphaMaskBuffer;
   width: number;
   height: number;
   featherPx: number;
-}): Uint8ClampedArray {
+}): AlphaMaskBuffer {
   const featherPx = Math.max(0, Math.round(args.featherPx));
   if (featherPx <= 0) {
     return new Uint8ClampedArray(args.alpha);
@@ -251,7 +253,7 @@ function applyFeather(args: {
   return out;
 }
 
-function buildNeutralizedBaseMask(input: SegmentationResult): Uint8ClampedArray {
+function buildNeutralizedBaseMask(input: SegmentationResult): AlphaMaskBuffer {
   const radius = input.confidenceSummary.score < 0.4 ? 1 : 0;
   if (radius <= 0) return new Uint8ClampedArray(input.personMask);
   return blurAlphaSeparable({
@@ -273,7 +275,7 @@ function shouldIncludeDebugPlanes(): boolean {
 }
 
 export class SimpleMatteRefiner implements MatteRefiner {
-  private previousAlpha: Uint8ClampedArray | null = null;
+  private previousAlpha: AlphaMaskBuffer | null = null;
   private history: TemporalMatteHistory | null = null;
 
   public reset(): void {
