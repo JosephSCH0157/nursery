@@ -368,4 +368,49 @@ describe('RecordingTranscriptController', () => {
     expect(parsed.schema_version).toBe(1);
     expect(Array.isArray(parsed.segments)).toBe(true);
   });
+
+  test('ASR2 experimental lane transcripts are blocked from canonical/final transcript commits', async () => {
+    const commits: string[] = [];
+    const controller = new RecordingTranscriptController({
+      ensureCaptureTarget: async () => ({
+        ok: true as const,
+        workspaceId: 'workspace-asr2',
+        workpieceId: 'workpiece-asr2',
+        createdCradle: false,
+        plannerRecordingSessionId: 'planner-asr2',
+        captureSessionId: 'capture-asr2',
+      }),
+      commitJsonArtifact: async (input) => {
+        commits.push(input.eventName);
+        return { ok: true as const, status: 200, workpieceId: input.workpieceId, path: input.path };
+      },
+      startSpeech: async () => true,
+      stopSpeech: jest.fn(),
+      localStorage: { setItem: jest.fn() } as any,
+    });
+
+    const strategy = selectBestRecordingStrategy({
+      mode: 'audio',
+      mediaRecorderCtor: { isTypeSupported: () => true },
+    });
+
+    await controller.startSession({
+      captureSessionId: 'capture-asr2',
+      recordingStartedAtMs: Date.now() - 1_200,
+      strategy,
+    });
+
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', {
+      detail: {
+        text: 'experimental transcript',
+        final: true,
+        isFinal: true,
+        activeAsrLane: 'ASR2_WHISPER_LARGE_V3_EXPERIMENTAL',
+      },
+    }));
+
+    const finalResult = await controller.stopSession({ mediaDurationMs: 2_000 });
+    expect(finalResult.finalArtifact).toBeNull();
+    expect(commits.includes('take_transcript_finalized')).toBe(false);
+  });
 });

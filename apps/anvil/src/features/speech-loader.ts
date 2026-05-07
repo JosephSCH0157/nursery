@@ -40,6 +40,7 @@ import {
   setProfileAsrTweaks,
 } from '../ui/speaker-profiles-store';
 import { completePrerollSession } from './preroll-session';
+import { ASR_LANE_ASR1, ASR_LANE_ASR2 } from '../dev/dev-state';
 
 ensureSpeechGlobals();
 
@@ -95,6 +96,7 @@ type TranscriptPayload = {
   runKey?: string | null;
   runGeneration?: number | null;
   speechRunningActual?: boolean;
+  activeAsrLane?: string;
 };
 
 type HudSnapshotPayload = {
@@ -186,6 +188,7 @@ type AsrRuntimeStatusPayload = {
   state: string;
   speechRunning: boolean;
   speechRunningActual: boolean;
+  activeAsrLane?: string;
 };
 
 type PendingAsrScriptEndStop = {
@@ -313,6 +316,7 @@ let asrHeartbeatTimer: number | null = null;
 let activeRecognizer: RecognizerLike | null = null;
 let lastStartedSpeechEngine = 'webspeech';
 let lastRequestedSpeechEngine = 'whisper';
+let activeAsrLane = ASR_LANE_ASR1;
 let currentActualSpeechEngine = '';
 let currentFallbackReason = '';
 let currentAsrState = 'idle';
@@ -515,6 +519,26 @@ function getTpSpeechStoreSnapshot(): any {
   }
 }
 
+function normalizeAsrLane(value: unknown): string {
+  const normalized = String(value || '').trim().toUpperCase();
+  return normalized === ASR_LANE_ASR2 ? ASR_LANE_ASR2 : ASR_LANE_ASR1;
+}
+
+function readActiveAsrLane(): string {
+  if (typeof window === 'undefined') return ASR_LANE_ASR1;
+  try {
+    const raw = window.localStorage?.getItem('tp_asr_experimental_lane_v1');
+    return normalizeAsrLane(raw);
+  } catch {
+    return ASR_LANE_ASR1;
+  }
+}
+
+function resolveRequestedEngineForLane(baseEngine: string, lane: string): string {
+  if (lane === ASR_LANE_ASR2) return 'whisper';
+  return String(baseEngine || 'whisper').trim().toLowerCase() || 'whisper';
+}
+
 function emitAiActivity(detail: Record<string, unknown>): void {
   try { (window as any).__tpAiActivity = detail; } catch {}
   try { window.dispatchEvent(new CustomEvent('tp:ai:activity', { detail })); } catch {}
@@ -542,6 +566,7 @@ function emitAsrRuntimeStatus(reason: string): void {
     state: currentAsrState,
     speechRunning: !!running,
     speechRunningActual: !!speechRunningActual,
+    activeAsrLane,
   };
   try { window.__tpAsrRuntimeStatus = payload; } catch {}
   try { window.__tpBus?.emit?.('tp:asr:runtime-status', payload); } catch {}
@@ -2155,6 +2180,7 @@ function deriveFallbackMatch(payload: TranscriptPayload): Record<string, unknown
 
 function enrichTranscriptPayloadForAsr(payload: TranscriptPayload): TranscriptPayload {
   const next: TranscriptPayload = { ...payload };
+  next.activeAsrLane = activeAsrLane;
   const mode = String(next.mode || lastScrollMode || getScrollMode() || '').toLowerCase();
   const asrLike = mode === 'asr' || mode === 'hybrid';
   if (!asrLike) return next;
@@ -3970,9 +3996,11 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
   const allowLegacyNs = isLegacySpeechNamespaceAllowed();
   const allowLegacyOrchestrator = isLegacySpeechOrchestratorAllowed();
   const speechStoreState = getTpSpeechStoreSnapshot();
-  const selectedEngine = resolveRuntimeSpeechEngine({
+  const baseEngine = resolveRuntimeSpeechEngine({
     appStore: (window as any).__tpStore,
   });
+  activeAsrLane = readActiveAsrLane();
+  const selectedEngine = resolveRequestedEngineForLane(baseEngine, activeAsrLane);
   lastRequestedSpeechEngine = selectedEngine || 'whisper';
   currentActualSpeechEngine = '';
   currentFallbackReason = '';
@@ -3992,6 +4020,7 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
         hasRecognizerStart: allowLegacyNs && typeof speechNs?.startRecognizer === 'function',
         hasWebSpeech: !!(w?.SpeechRecognition || w?.webkitSpeechRecognition),
         selectedEngine,
+        activeAsrLane,
         speechStoreEngine: (speechStoreState as any)?.engine,
         appStoreEngine: w?.__tpStore?.get?.('asr.engine'),
         sessionPhase: (speechStoreState as any)?.sessionPhase,
@@ -4008,6 +4037,8 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
         lang: typeof (speechStoreState as any)?.lang === 'string' ? (speechStoreState as any).lang : 'en-US',
         interim: (speechStoreState as any)?.interim !== false,
         endpointingMs: Number((speechStoreState as any)?.endpointingMs || 0),
+        asrLane: activeAsrLane,
+        modelHint: activeAsrLane === ASR_LANE_ASR2 ? 'whisper-large-v3' : undefined,
       });
       await whisperRecognizer.start();
       rec = whisperRecognizer as unknown as RecognizerLike;
@@ -4389,9 +4420,22 @@ export function stopSpeechBackendForSession(reason?: string): void {
 export function installSpeech(): void {
   ensureAsrDriverLifecycleHooks();
   startAsrHeartbeat();
+  activeAsrLane = readActiveAsrLane();
   emitHudSnapshot('installSpeech:init', { force: true });
   emitAsrRuntimeStatus('install');
   installAsrHudDev();
+  try {
+    window.addEventListener('tp:asr:lane-change', (event: Event) => {
+      const detail = (event as CustomEvent)?.detail || {};
+      const nextLane = normalizeAsrLane((detail as any).lane);
+      if (nextLane === activeAsrLane) return;
+      activeAsrLane = nextLane;
+      emitAsrRuntimeStatus('lane-change');
+      if (!running) return;
+      stopSpeechBackendForSession('lane-change');
+      window.setTimeout(() => { void startSpeechBackendForSession({ reason: 'lane-change' }); }, 0);
+    });
+  } catch {}
   
   // Session-first: recBtn only starts preroll/session
   (async () => {

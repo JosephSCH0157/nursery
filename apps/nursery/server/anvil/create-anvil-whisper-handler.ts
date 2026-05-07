@@ -409,6 +409,12 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
 
       const language = readOptionalString(formData.get("language"));
       const prompt = readOptionalString(formData.get("prompt"));
+      const asrLane = readOptionalString(formData.get("asr_lane"));
+      const modelHint = readOptionalString(formData.get("model_hint"));
+      const requestSttModel =
+        (asrLane || "").toUpperCase() === "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL"
+          ? (modelHint || "whisper-large-v3")
+          : sttModel;
       const fileName = readOptionalString((fileValue as { name?: unknown }).name);
       const mimeType = readOptionalString((fileValue as { type?: unknown }).type);
       const extension = inferExtension(fileName, mimeType);
@@ -420,7 +426,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         includeLanguage: boolean,
       ): FormData {
         const upstreamForm = new FormData();
-        upstreamForm.set("model", sttModel);
+        upstreamForm.set("model", requestSttModel);
         upstreamForm.set("response_format", "json");
         upstreamForm.set("file", nextFileValue, nextFileName);
         if (includeLanguage && language) upstreamForm.set("language", language);
@@ -592,7 +598,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             sessionId: null,
             feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
             subfeature: AI_USAGE_SUBFEATURE.ANVIL_WHISPER,
-            model: sttModel,
+            model: requestSttModel,
             inputTokens: 0,
             outputTokens: 0,
             totalTokens: 0,
@@ -610,7 +616,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             text: "",
             error: resolvedUpstreamMessage,
             detail: responseDetail,
-            model: sttModel,
+            model: requestSttModel,
             provider_request_id: upstream.headers.get("x-request-id"),
             billing_mode: lane,
             ffmpeg_fallback_attempted: ffmpegFallbackAttempted || undefined,
@@ -623,7 +629,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         const text = extractTranscriptionText(payload);
         const providerRequestId = upstream.headers.get("x-request-id");
         const accounting = buildTranscriptionAccounting({
-          model: sttModel,
+          model: requestSttModel,
           payload,
           text,
           billableMode: lane === AI_USAGE_LANE.FORGE ? AI_USAGE_LANE.FORGE : "non-billable",
@@ -638,7 +644,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           sessionId: null,
           feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
           subfeature: AI_USAGE_SUBFEATURE.ANVIL_WHISPER,
-          model: sttModel,
+          model: requestSttModel,
           inputTokens: accounting.inputTokens,
           outputTokens: accounting.outputTokens,
           totalTokens: accounting.totalTokens,
@@ -667,7 +673,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
               text: "",
               error: "Failed to apply Forge credit deduction.",
               code: "forge_deduction_failed",
-              model: sttModel,
+              model: requestSttModel,
               provider_request_id: providerRequestId,
               billing_mode: lane,
             });
@@ -681,7 +687,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           ok: true,
           text,
           empty: text.length === 0,
-          model: sttModel,
+          model: requestSttModel,
           provider_request_id: providerRequestId,
           billing_mode: lane,
           actual_cost_usd: accounting.actualCostUsd,

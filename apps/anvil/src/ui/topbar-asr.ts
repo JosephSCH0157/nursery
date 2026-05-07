@@ -38,10 +38,11 @@ export class AsrTopbar {
     const renderRuntime = (detail: any) => {
       const requested = String(detail?.requestedEngine || '').trim() || 'whisper';
       const actual = String(detail?.actualEngine || requested).trim() || requested;
+      const lane = String(detail?.activeAsrLane || 'ASR1_CURRENT').trim();
       const fallbackReason = String(detail?.fallbackReason || '').trim();
       this.chip.title = fallbackReason
-        ? `Requested: ${requested}  •  Active: ${actual}  •  Fallback: ${fallbackReason}`
-        : `Engine: ${actual}`;
+        ? `Lane: ${lane}  •  Requested: ${requested}  •  Active: ${actual}  •  Fallback: ${fallbackReason}`
+        : `Lane: ${lane}  •  Engine: ${actual}`;
     };
 
     window.addEventListener('tp:asr:state', (e: any) => renderState(e?.detail?.state as string));

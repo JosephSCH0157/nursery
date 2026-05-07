@@ -59,6 +59,8 @@ type WhisperBridgeRecognizerOptions = {
   interim?: boolean;
   endpointingMs?: number;
   route?: string;
+  asrLane?: string;
+  modelHint?: string;
 };
 
 type AiActivityPhase = "off" | "ready" | "transcribing" | "error";
@@ -390,6 +392,8 @@ class WhisperBridgeRecognizer {
   private readonly lang: string;
   private readonly interim: boolean;
   private readonly segmentMs: number;
+  private readonly asrLane: string;
+  private readonly modelHint: string | null;
   private queue: Array<{ blob: Blob; seq: number; durationMs?: number }> = [];
   private queueRunning = false;
   private running = false;
@@ -424,6 +428,8 @@ class WhisperBridgeRecognizer {
     this.segmentMs = Number.isFinite(endpointingMs)
       ? Math.max(700, Math.min(1800, Math.round(endpointingMs + 500)))
       : DEFAULT_SEGMENT_MS;
+    this.asrLane = String(options.asrLane || 'ASR1_CURRENT').trim() || 'ASR1_CURRENT';
+    this.modelHint = readNonEmptyString(options.modelHint);
   }
 
   on(event: WhisperBridgeEvent, listener: WhisperBridgeListener): () => void {
@@ -1085,6 +1091,10 @@ class WhisperBridgeRecognizer {
     const prompt = buildScriptPrompt();
     if (prompt) {
       form.set("prompt", prompt);
+    }
+    form.set("asr_lane", this.asrLane);
+    if (this.modelHint) {
+      form.set("model_hint", this.modelHint);
     }
 
     if (this.requestInvalid) {

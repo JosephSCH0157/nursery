@@ -348,3 +348,57 @@ test("createAnvilWhisperHandler blocks forge requests with exhausted credits bef
     globalThis.fetch = originalFetch;
   }
 });
+
+test("createAnvilWhisperHandler routes ASR2 lane to whisper-large-v3 model hint", async () => {
+  const originalFetch = globalThis.fetch;
+  let seenModel = "";
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({ id: TEST_USER_ID }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.includes("/rest/v1/rpc/apply_ai_token_delta")) {
+      return new Response(JSON.stringify([{ token_balance: 999_999 }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://api.openai.com/v1/audio/transcriptions") {
+      const body = init?.body;
+      assert(body instanceof FormData);
+      seenModel = String(body.get("model") || "");
+      return new Response(JSON.stringify({ text: "ok" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch call in test: ${url} ${init?.method ?? "GET"}`);
+  };
+
+  try {
+    const handler = createAnvilWhisperHandler(buildConfig({
+      apiKey: "forge-key",
+      configuredBillingMode: AI_USAGE_LANE.FORGE,
+      initialTokenBalance: 999_999,
+      supabaseUrl: "https://runtime-test.supabase.co",
+      supabaseServiceRoleKey: "service-role",
+    }));
+    const form = buildChunkFormData();
+    form.set("lane", AI_USAGE_LANE.FORGE);
+    form.set("asr_lane", "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL");
+    form.set("model_hint", "whisper-large-v3");
+    const response = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-access-token" },
+      body: form,
+    }));
+    assert.equal(response.status, 200);
+    assert.equal(seenModel, "whisper-large-v3");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

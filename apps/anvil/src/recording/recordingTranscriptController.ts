@@ -7,6 +7,7 @@ const LOCAL_SNAPSHOT_KEY_PREFIX = "forge_anvil_live_transcript_v1:";
 const SNAPSHOT_PERSIST_INTERVAL_MS = 1_500;
 const DEFAULT_SPEAKER = "unknown";
 const FINAL_HYPOTHESIS_BOUNDARY_WINDOW_MS = 1_200;
+const ASR2_EXPERIMENTAL_LANE = "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL";
 
 type TranscriptPayload = {
   text?: unknown;
@@ -14,6 +15,7 @@ type TranscriptPayload = {
   isFinal?: unknown;
   timestamp?: unknown;
   meta?: unknown;
+  activeAsrLane?: unknown;
 };
 
 export type RecordingTranscriptStatus =
@@ -422,6 +424,13 @@ export class RecordingTranscriptController {
     const session = this.session;
     if (!session || session.finalized) return;
     if (readBoolean(detail?.meta)) return;
+    if (String(detail?.activeAsrLane || "").trim().toUpperCase() === ASR2_EXPERIMENTAL_LANE) {
+      emitTranscriptDiag("anvil:transcript:ignored_asr2_experimental", {
+        capture_session_id: session.captureSessionId,
+        reason: "asr2_lane_noncanonical",
+      });
+      return;
+    }
     const text = readText(detail?.text);
     if (!text) return;
 

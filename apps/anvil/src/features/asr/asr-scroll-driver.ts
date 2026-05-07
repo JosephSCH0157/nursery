@@ -8250,8 +8250,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       acc[entry.reason] = entry.count;
       return acc;
     }, {});
+    const activeAsrLane = (() => {
+      try {
+        const runtime = (window as any)?.__tpAsrRuntimeStatus;
+        const lane = String(runtime?.activeAsrLane || '').trim();
+        return lane || 'ASR1_CURRENT';
+      } catch {
+        return 'ASR1_CURRENT';
+      }
+    })();
     const summary = {
       mode: getScrollMode() || 'unknown',
+      activeAsrLane,
       durationMs,
       commitCount,
       driverInstanceId,

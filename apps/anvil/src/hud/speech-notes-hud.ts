@@ -157,6 +157,7 @@ export function initSpeechNotesHud(options: SpeechNotesHudOptions = {}): SpeechN
   const statusEl = $('snStatus') as HTMLElement | null;
 
   let notes: Note[] = [];
+  let activeAsrLane = 'ASR1_CURRENT';
   try {
     notes = JSON.parse(localStorage.getItem(LS_KEY) || '[]') as Note[];
   } catch {
@@ -261,7 +262,10 @@ export function initSpeechNotesHud(options: SpeechNotesHudOptions = {}): SpeechN
     const m = currentMode(store);
     const on = canCapture();
     const persist = savingEnabled() ? ' • save=ON' : ' • save=OFF';
-    statusEl.textContent = on ? `listening (${m})${persist}` : `idle${persist}`;
+    const laneTag = m === 'asr'
+      ? ` • ${activeAsrLane === 'ASR2_WHISPER_LARGE_V3_EXPERIMENTAL' ? 'ASR2' : 'ASR1'}`
+      : '';
+    statusEl.textContent = on ? `listening (${m})${laneTag}${persist}` : `idle${persist}`;
   };
 
   // --- Controls ---
@@ -311,6 +315,11 @@ export function initSpeechNotesHud(options: SpeechNotesHudOptions = {}): SpeechN
       }
     }
   };
+  const onRuntimeStatus = (e: Event) => {
+    const detail = (e as CustomEvent<any>)?.detail || {};
+    activeAsrLane = String(detail.activeAsrLane || activeAsrLane || 'ASR1_CURRENT');
+    updateStatus();
+  };
 
   const onPartial = (p: any) => {
     if (canCapture()) addNote(p);
@@ -322,6 +331,7 @@ export function initSpeechNotesHud(options: SpeechNotesHudOptions = {}): SpeechN
   window.addEventListener('tp:speech-state', onSpeechState, true);
   window.addEventListener('tp:scroll:mode', updateStatus, true);
   window.addEventListener('tp:speech:transcript', onTranscript, true);
+  window.addEventListener('tp:asr:runtime-status', onRuntimeStatus, true);
 
   const onSpeechToggle = (on: unknown) => {
     captureOn = !!on;
@@ -356,6 +366,7 @@ export function initSpeechNotesHud(options: SpeechNotesHudOptions = {}): SpeechN
     window.removeEventListener('tp:speech-state', onSpeechState, true);
     window.removeEventListener('tp:scroll:mode', updateStatus, true);
     window.removeEventListener('tp:speech:transcript', onTranscript, true);
+    window.removeEventListener('tp:asr:runtime-status', onRuntimeStatus, true);
     try {
       bus?.off?.('speech:toggle', onSpeechToggle);
       bus?.off?.('speech:partial', onPartial);

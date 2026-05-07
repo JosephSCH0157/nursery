@@ -85,6 +85,7 @@ export function initScrollStripHud(opts: ScrollStripHudOptions) {
   let offsetX = 0;
   let offsetY = 0;
   let guardStallText = '';
+  let activeAsrLane = 'ASR1_CURRENT';
   let lastStall: AsrStallDetail | null = null;
   let lastHeartbeat: AsrHeartbeatDetail | null = null;
   let stallOkVisibleUntil = 0;
@@ -221,7 +222,10 @@ export function initScrollStripHud(opts: ScrollStripHudOptions) {
           default: return detail.mode;
         }
       })();
-      modeEl.textContent = `Mode: ${label}`;
+      const laneTag = detail.mode === 'asr'
+        ? ` [${activeAsrLane === 'ASR2_WHISPER_LARGE_V3_EXPERIMENTAL' ? 'ASR2' : 'ASR1'}]`
+        : '';
+      modeEl.textContent = `Mode: ${label}${laneTag}`;
     }
 
     if (stateEl) {
@@ -496,12 +500,19 @@ export function initScrollStripHud(opts: ScrollStripHudOptions) {
     renderStall();
   }
 
+  function handleAsrRuntimeStatus(ev: Event) {
+    const detail = (ev as CustomEvent<any>)?.detail || {};
+    activeAsrLane = String(detail.activeAsrLane || activeAsrLane || 'ASR1_CURRENT');
+    renderStall();
+  }
+
   window.addEventListener('tp:scroll:status', handleStatus);
   window.addEventListener('tp:scroll:mode', handleModeSnapshot as EventListener);
   window.addEventListener('tp:scroll:commit', handleCommit);
   window.addEventListener('tp:asr:guard', handleGuard as EventListener);
   window.addEventListener('tp:asr:stall', handleAsrStall as EventListener);
   window.addEventListener('tp:asr:heartbeat', handleAsrHeartbeat as EventListener);
+  window.addEventListener('tp:asr:runtime-status', handleAsrRuntimeStatus as EventListener);
   window.addEventListener('asr:advance', handleAdvance as EventListener);
 
   const initialStall = readWindowStall();
@@ -534,6 +545,7 @@ export function initScrollStripHud(opts: ScrollStripHudOptions) {
     window.removeEventListener('tp:asr:guard', handleGuard as EventListener);
     window.removeEventListener('tp:asr:stall', handleAsrStall as EventListener);
     window.removeEventListener('tp:asr:heartbeat', handleAsrHeartbeat as EventListener);
+    window.removeEventListener('tp:asr:runtime-status', handleAsrRuntimeStatus as EventListener);
     window.removeEventListener('asr:advance', handleAdvance as EventListener);
     window.removeEventListener('keydown', onKeyDown);
     container.remove();

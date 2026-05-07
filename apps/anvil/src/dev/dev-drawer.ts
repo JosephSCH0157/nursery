@@ -3,6 +3,10 @@ import {
   setDevDrawerOpen,
   getDevZen,
   setDevZen,
+  getAsrExperimentalLane,
+  setAsrExperimentalLane,
+  ASR_LANE_ASR1,
+  ASR_LANE_ASR2,
 } from './dev-state';
 import { kick } from '../features/kick/kick';
 
@@ -20,6 +24,7 @@ let drawerEl: HTMLElement | null = null;
 let pillEl: HTMLButtonElement | null = null;
 let zenButtonEl: HTMLButtonElement | null = null;
 let contentHost: HTMLElement | null = null;
+let asrLaneSelectEl: HTMLSelectElement | null = null;
 let currentDock: Dock | null = null;
 let lastDockUpdate = 0;
 let listenersAttached = false;
@@ -197,6 +202,39 @@ function buildDrawerStructure(): void {
   kickWrap.appendChild(kickBtn);
   kickWrap.appendChild(kickHint);
   inner.appendChild(kickWrap);
+
+  const asrLaneWrap = document.createElement('div');
+  asrLaneWrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-bottom:12px;';
+  const asrLaneLabel = document.createElement('label');
+  asrLaneLabel.textContent = 'ASR Engine Lane (Experimental)';
+  asrLaneLabel.style.cssText = 'font-size:12px;opacity:0.9;';
+  const asrLaneSelect = document.createElement('select');
+  asrLaneSelect.style.cssText = 'border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:inherit;padding:6px 8px;font-size:12px;';
+  asrLaneSelect.innerHTML = `
+    <option value="${ASR_LANE_ASR1}">ASR1: Current ASR</option>
+    <option value="${ASR_LANE_ASR2}">ASR2: Whisper Large V3 Experimental</option>
+  `;
+  asrLaneSelect.value = getAsrExperimentalLane();
+  asrLaneSelect.addEventListener('change', () => {
+    const lane = setAsrExperimentalLane(asrLaneSelect.value);
+    asrLaneSelect.value = lane;
+    try {
+      window.dispatchEvent(new CustomEvent('tp:asr:lane-change', {
+        detail: {
+          lane,
+          source: 'dev-drawer',
+        },
+      }));
+    } catch {}
+  });
+  asrLaneSelectEl = asrLaneSelect;
+  const asrHint = document.createElement('div');
+  asrHint.textContent = 'ASR2 is isolated and non-production.';
+  asrHint.style.cssText = 'opacity:0.7;font-size:11px;';
+  asrLaneWrap.appendChild(asrLaneLabel);
+  asrLaneWrap.appendChild(asrLaneSelect);
+  asrLaneWrap.appendChild(asrHint);
+  inner.appendChild(asrLaneWrap);
 }
 
 export function initDevDrawer(): void {
