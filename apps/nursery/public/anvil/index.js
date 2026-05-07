@@ -57596,6 +57596,40 @@ function buildDrawerStructure() {
   zenButton.addEventListener("click", () => updateZenState(!zenMode));
   zenButtonEl = zenButton;
   header.appendChild(zenButton);
+  const quickBar = document.createElement("div");
+  quickBar.style.cssText = [
+    "display:flex;align-items:center;gap:8px;flex-wrap:wrap;",
+    "padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.08);",
+    "background:rgba(4,7,15,0.96);position:sticky;top:0;z-index:4;"
+  ].join("");
+  drawer.appendChild(quickBar);
+  const quickKick = document.createElement("button");
+  quickKick.type = "button";
+  quickKick.textContent = "Kick";
+  quickKick.style.cssText = "border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:inherit;padding:4px 10px;cursor:pointer;font-size:11px;font-weight:600;";
+  quickKick.addEventListener("click", () => {
+    kick({ reason: "dev-drawer:quickbar" });
+  });
+  quickBar.appendChild(quickKick);
+  const quickLane = document.createElement("select");
+  quickLane.style.cssText = "min-width:190px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:inherit;padding:4px 8px;font-size:11px;";
+  quickLane.innerHTML = `
+    <option value="${ASR_LANE_ASR1}">ASR1: Current ASR</option>
+    <option value="${ASR_LANE_ASR2}">ASR2: Whisper Large V3 Experimental</option>
+  `;
+  quickLane.value = getAsrExperimentalLane();
+  quickLane.addEventListener("change", () => {
+    const lane = setAsrExperimentalLane(quickLane.value);
+    quickLane.value = lane;
+    if (asrLaneSelectEl) asrLaneSelectEl.value = lane;
+    try {
+      window.dispatchEvent(new CustomEvent("tp:asr:lane-change", {
+        detail: { lane, source: "dev-drawer:quickbar" }
+      }));
+    } catch {
+    }
+  });
+  quickBar.appendChild(quickLane);
   const inner = document.createElement("div");
   inner.className = "tp-dev-drawer__content";
   drawer.appendChild(inner);
@@ -57638,6 +57672,7 @@ function buildDrawerStructure() {
   asrLaneSelect.addEventListener("change", () => {
     const lane = setAsrExperimentalLane(asrLaneSelect.value);
     asrLaneSelect.value = lane;
+    quickLane.value = lane;
     try {
       window.dispatchEvent(new CustomEvent("tp:asr:lane-change", {
         detail: {
