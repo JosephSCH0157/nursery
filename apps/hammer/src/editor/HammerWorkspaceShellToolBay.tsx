@@ -20,6 +20,30 @@ type HammerCaptionPunctuationMode = any;
 type HammerLogoOverlayPosition = any;
 type HammerLogoOverlaySize = any;
 
+function isTruthyDevToggle(value: string | null): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "on" || normalized === "yes";
+}
+
+function isDevBlurControlsEnabled(): boolean {
+  const isDevBuild = Boolean((import.meta as any)?.env?.DEV);
+  if (!isDevBuild || typeof window === "undefined") return false;
+  try {
+    const params = new URLSearchParams(window.location.search ?? "");
+    if (isTruthyDevToggle(params.get("dev"))) return true;
+    if (isTruthyDevToggle(params.get("tp_dev_mode"))) return true;
+  } catch {
+    // ignore
+  }
+  try {
+    if (window.localStorage.getItem("tp_dev_mode") === "1") return true;
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
 export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShellToolBayVM }): JSX.Element {
   const vm = p.vm;
 
@@ -238,6 +262,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const activeVisualTool = (ctx.activeVisualTool ?? vm.activeVisualTool ?? "polish") as "polish" | "images" | "broll";
   const onSelectVisualTool = (ctx.onSelectVisualTool ?? vm.onSelectVisualTool ?? null) as ((nextTool: "polish" | "images" | "broll") => void) | null;
   const setFocusOverride = ctx.setFocusOverride as (mode: "auto" | "source-focus" | "tool-focus" | "time-focus") => void;
+  const devBlurControlsEnabled = isDevBlurControlsEnabled();
 
   const activeReviewKind = ctx.activeReviewKind as string;
   const setActiveReviewKind = ctx.setActiveReviewKind as (next: any) => void;
@@ -2114,43 +2139,71 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           if (enabled) {
                             setVisualBackgroundReplaceEnabled(false);
                             setVisualBackgroundWashEnabled(false);
+                            if (!devBlurControlsEnabled) {
+                              setVisualBackgroundBlurQualityMode("high");
+                              setVisualBackgroundBlurPx(5);
+                              setVisualBackgroundBlurFeatherPx(9);
+                              setVisualBackgroundBlurTemporalSmoothing(0.6);
+                              setVisualBackgroundBlurSubjectExpansionPx(0);
+                              setVisualBackgroundMaskPreviewMode(false);
+                              setVisualBackgroundMaskPreviewStage("refined");
+                              setVisualBackgroundBlurFallbackMode("passthrough");
+                            }
                           }
                         }}
                       />
-                      <span>Background Blur (Segmentation Preview)</span>
+                      <span>Background Blur</span>
                     </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={visualBackgroundReplaceEnabled}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          const enabled = event.target.checked;
-                          setVisualBackgroundReplaceEnabled(enabled);
-                          if (enabled) {
-                            setVisualBackgroundBlur(false);
-                            setVisualBackgroundWashEnabled(false);
-                          }
-                        }}
-                      />
-                      <span>Background Replace (Segmentation Preview)</span>
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={visualBackgroundWashEnabled}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          const enabled = event.target.checked;
-                          setVisualBackgroundWashEnabled(enabled);
-                          if (enabled) {
-                            setVisualBackgroundBlur(false);
-                            setVisualBackgroundReplaceEnabled(false);
-                          }
-                        }}
-                      />
-                      <span>Background Wash (Segmentation Preview)</span>
-                    </label>
+                    <div className="hammer-tool-hint">
+                      {visualBackgroundBlur
+                        ? ((visualBackgroundBlurRuntimeStatus?.degradedReason === "reusing_recent_mask"
+                          || visualBackgroundBlurRuntimeStatus?.degradedReason === "replacement_degraded_under_load"
+                          || visualBackgroundBlurRuntimeStatus?.degradedReason === "replacement_downgraded_to_blur")
+                          ? "Using fallback"
+                          : visualBackgroundBlurRuntimeStatus?.statusMessage
+                          ? "Preparing blur..."
+                          : visualBackgroundBlurRuntimeStatus?.mask?.status === "ok"
+                          ? "Blur active"
+                          : visualBackgroundBlurStatusSummary?.primaryLine
+                          ? "Ready"
+                          : "Blur unavailable")
+                        : "Ready"}
+                    </div>
+                    {devBlurControlsEnabled ? (
+                      <details className="hammer-tool-fieldset">
+                        <summary>Advanced Blur Controls</summary>
+                        <label className="hammer-tool-check">
+                          <input
+                            type="checkbox"
+                            checked={visualBackgroundReplaceEnabled}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              const enabled = event.target.checked;
+                              setVisualBackgroundReplaceEnabled(enabled);
+                              if (enabled) {
+                                setVisualBackgroundBlur(false);
+                                setVisualBackgroundWashEnabled(false);
+                              }
+                            }}
+                          />
+                          <span>Background Replace (Segmentation Preview)</span>
+                        </label>
+                        <label className="hammer-tool-check">
+                          <input
+                            type="checkbox"
+                            checked={visualBackgroundWashEnabled}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              const enabled = event.target.checked;
+                              setVisualBackgroundWashEnabled(enabled);
+                              if (enabled) {
+                                setVisualBackgroundBlur(false);
+                                setVisualBackgroundReplaceEnabled(false);
+                              }
+                            }}
+                          />
+                          <span>Background Wash (Segmentation Preview)</span>
+                        </label>
                     {visualBackgroundBlur ? (
                       <>
                         <label className="hammer-tool-field">
@@ -2542,6 +2595,8 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           </div>
                         ) : null}
                       </>
+                    ) : null}
+                      </details>
                     ) : null}
                     <div className="hammer-tool-hint">
                       White balance, color, background blur, and background replacement remain preview-only in Phase 1. Look Preset and Exposure carry into the export packet.

@@ -2352,6 +2352,37 @@ function HammerWorkspaceShellWithContext(
     visualBackgroundWashDimAmount,
     visualBackgroundWashEnabled,
   ]);
+  const [previewBackgroundBlurSettings, setPreviewBackgroundBlurSettings] = useState<BackgroundBlurSettings>(backgroundBlurSettings);
+  const previewBackgroundBlurSettingsFrameRef = useRef<number | null>(null);
+  const previewBackgroundBlurSettingsTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (previewBackgroundBlurSettingsFrameRef.current != null) {
+      window.cancelAnimationFrame(previewBackgroundBlurSettingsFrameRef.current);
+      previewBackgroundBlurSettingsFrameRef.current = null;
+    }
+    if (previewBackgroundBlurSettingsTimerRef.current != null) {
+      window.clearTimeout(previewBackgroundBlurSettingsTimerRef.current);
+      previewBackgroundBlurSettingsTimerRef.current = null;
+    }
+    // Keep interaction responsive while capping heavy blur/matte recompute cadence.
+    previewBackgroundBlurSettingsFrameRef.current = window.requestAnimationFrame(() => {
+      previewBackgroundBlurSettingsFrameRef.current = null;
+      previewBackgroundBlurSettingsTimerRef.current = window.setTimeout(() => {
+        previewBackgroundBlurSettingsTimerRef.current = null;
+        setPreviewBackgroundBlurSettings(backgroundBlurSettings);
+      }, 48);
+    });
+    return () => {
+      if (previewBackgroundBlurSettingsFrameRef.current != null) {
+        window.cancelAnimationFrame(previewBackgroundBlurSettingsFrameRef.current);
+        previewBackgroundBlurSettingsFrameRef.current = null;
+      }
+      if (previewBackgroundBlurSettingsTimerRef.current != null) {
+        window.clearTimeout(previewBackgroundBlurSettingsTimerRef.current);
+        previewBackgroundBlurSettingsTimerRef.current = null;
+      }
+    };
+  }, [backgroundBlurSettings]);
 
   const backgroundBlurProviderDescriptor = useMemo(
     () => resolveSegmentationProviderDescriptor(visualBackgroundBlurProviderId) ?? resolveSegmentationProviderDescriptor("mediapipe_selfie_segmentation"),
@@ -6912,7 +6943,7 @@ function HammerWorkspaceShellWithContext(
     visualBackgroundBlur,
     visualBackgroundReplaceEnabled,
     visualBackgroundWashEnabled,
-    backgroundBlurSettings,
+    backgroundBlurSettings: previewBackgroundBlurSettings,
     visualBackgroundBlurRuntimeStatus,
     visualBackgroundBlurProviderId,
     visualBackgroundBlurDebugMask,
@@ -6939,7 +6970,7 @@ function HammerWorkspaceShellWithContext(
     activeVisualTool,
     activePreviewOverlays,
     audioFinalizationCompareMode,
-    backgroundBlurSettings,
+    previewBackgroundBlurSettings,
     beginPreviewCanvasDrag,
     currentPass,
     eyeContactUseBackgroundCanvasAsSource,

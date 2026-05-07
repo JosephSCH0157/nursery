@@ -1,5 +1,5 @@
 import type { JSX, MutableRefObject, MouseEvent, RefObject } from "react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import BackgroundBlurPreviewLayer from "../features/visual-effects/render/backgroundBlurPreviewLayer";
 import EyeContactAssistPreviewLayer from "../features/eye-contact-assist/render/eyeContactAssistPreviewLayer";
 import VisualPreviewComposer, { type VisualPreviewOverlayModel } from "../visuals/components/VisualPreviewComposer";
@@ -80,6 +80,7 @@ export type HammerWorkspaceShellPreviewBayVM = {
 export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorkspaceShellPreviewBayVM }): JSX.Element {
   const vm = props.vm;
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const visualFx = vm.diagnostics?.snapshot?.visualEffects ?? null;
   const segmentationSummary = (() => {
     if (!visualFx) return null;
@@ -107,6 +108,9 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
       text: `Segmentation: ${health} · ${avgLabel} / ${maxLabel} · ${fpsLabel} · ${ageLabel} · dropped ${dropped} · skipped ${skipped}`,
     };
   })();
+  const diagnosticsJson = useMemo(() => (
+    diagnosticsOpen ? JSON.stringify(vm.diagnostics.snapshot, null, 2) : ""
+  ), [diagnosticsOpen, vm.diagnostics.snapshot]);
 
   async function handleCopyDiagnostics(): Promise<void> {
     const payload = JSON.stringify(vm.diagnostics.snapshot, null, 2);
@@ -266,7 +270,13 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             {vm.isPlaybackActive ? "Pause (Space)" : "Play (Space)"}
           </button>
           {vm.diagnostics.enabled ? (
-            <details className="hammer-preview-diagnostics">
+            <details
+              className="hammer-preview-diagnostics"
+              onToggle={(event) => {
+                const target = event.currentTarget as HTMLDetailsElement;
+                setDiagnosticsOpen(target.open);
+              }}
+            >
               <summary>Diagnostics</summary>
               {segmentationSummary ? (
                 <div className={`hammer-preview-diagnostics__segmentation-summary is-${segmentationSummary.health}`}>
@@ -277,7 +287,9 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
                 <button type="button" onClick={() => { void handleCopyDiagnostics(); }}>Copy diagnostics</button>
                 {copyStatus ? <span>{copyStatus}</span> : null}
               </div>
-              <pre className="hammer-preview-diagnostics__json">{JSON.stringify(vm.diagnostics.snapshot, null, 2)}</pre>
+              {diagnosticsOpen ? (
+                <pre className="hammer-preview-diagnostics__json">{diagnosticsJson}</pre>
+              ) : null}
             </details>
           ) : null}
         </div>
