@@ -1468,11 +1468,11 @@ html.tp-mode-rehearsal::after{
   pointer-events: auto;
 }
 .tp-dev-drawer[data-dock='right'] {
-  top: 16px;
+  top: 64px;
   right: 16px;
   bottom: 16px;
   width: min(25vw, 360px);
-  max-height: calc(100vh - 32px);
+  max-height: calc(100vh - 80px);
   transform: translateX(calc(100% + 24px));
 }
 .tp-dev-drawer[data-dock='bottom'] {
