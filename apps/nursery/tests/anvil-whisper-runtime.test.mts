@@ -349,7 +349,7 @@ test("createAnvilWhisperHandler blocks forge requests with exhausted credits bef
   }
 });
 
-test("createAnvilWhisperHandler routes ASR2 lane to whisper-large-v3 model hint", async () => {
+test("createAnvilWhisperHandler routes ASR2 lane to configured provider model", async () => {
   const originalFetch = globalThis.fetch;
   let seenModel = "";
 
@@ -382,6 +382,7 @@ test("createAnvilWhisperHandler routes ASR2 lane to whisper-large-v3 model hint"
   try {
     const handler = createAnvilWhisperHandler(buildConfig({
       apiKey: "forge-key",
+      asr2SttModel: "whisper-1",
       configuredBillingMode: AI_USAGE_LANE.FORGE,
       initialTokenBalance: 999_999,
       supabaseUrl: "https://runtime-test.supabase.co",
@@ -397,7 +398,134 @@ test("createAnvilWhisperHandler routes ASR2 lane to whisper-large-v3 model hint"
       body: form,
     }));
     assert.equal(response.status, 200);
-    assert.equal(seenModel, "whisper-large-v3");
+    assert.equal(seenModel, "whisper-1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createAnvilWhisperHandler falls back to default model when ASR2 model is unavailable", async () => {
+  const originalFetch = globalThis.fetch;
+  const seenModels: string[] = [];
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({ id: TEST_USER_ID }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.includes("/rest/v1/rpc/apply_ai_token_delta")) {
+      return new Response(JSON.stringify([{ token_balance: 999_999 }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://api.openai.com/v1/audio/transcriptions") {
+      const body = init?.body;
+      assert(body instanceof FormData);
+      const model = String(body.get("model") || "");
+      seenModels.push(model);
+      if (model === "whisper-large-v3") {
+        return new Response(JSON.stringify({
+          error: {
+            message: "The model `whisper-large-v3` does not exist or you do not have access to it.",
+            code: "model_not_found",
+          },
+        }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ text: "fallback-ok" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch call in test: ${url} ${init?.method ?? "GET"}`);
+  };
+
+  try {
+    const handler = createAnvilWhisperHandler(buildConfig({
+      apiKey: "forge-key",
+      sttModel: "gpt-4o-mini-transcribe",
+      asr2SttModel: "whisper-large-v3",
+      configuredBillingMode: AI_USAGE_LANE.FORGE,
+      initialTokenBalance: 999_999,
+      supabaseUrl: "https://runtime-test.supabase.co",
+      supabaseServiceRoleKey: "service-role",
+    }));
+    const form = buildChunkFormData();
+    form.set("lane", AI_USAGE_LANE.FORGE);
+    form.set("asr_lane", "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL");
+    form.set("model_hint", "whisper-large-v3");
+    const response = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-access-token" },
+      body: form,
+    }));
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.text, "fallback-ok");
+    assert.equal(payload.model, "gpt-4o-mini-transcribe");
+    assert.deepEqual(seenModels, ["whisper-large-v3", "gpt-4o-mini-transcribe"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createAnvilWhisperHandler returns ASR2 provider-model unavailable message when both configured and fallback models fail", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({ id: TEST_USER_ID }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://api.openai.com/v1/audio/transcriptions") {
+      const body = init?.body;
+      assert(body instanceof FormData);
+      const model = String(body.get("model") || "");
+      return new Response(JSON.stringify({
+        error: {
+          message: `The model \`${model}\` does not exist or you do not have access to it.`,
+          code: "model_not_found",
+        },
+      }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch call in test: ${url} ${init?.method ?? "GET"}`);
+  };
+
+  try {
+    const handler = createAnvilWhisperHandler(buildConfig({
+      apiKey: "forge-key",
+      sttModel: "gpt-4o-mini-transcribe",
+      asr2SttModel: "whisper-large-v3",
+      configuredBillingMode: AI_USAGE_LANE.FORGE,
+      initialTokenBalance: 999_999,
+      supabaseUrl: "https://runtime-test.supabase.co",
+      supabaseServiceRoleKey: "service-role",
+    }));
+    const form = buildChunkFormData();
+    form.set("lane", AI_USAGE_LANE.FORGE);
+    form.set("asr_lane", "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL");
+    const response = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-access-token" },
+      body: form,
+    }));
+    assert.equal(response.status, 404);
+    const payload = await response.json();
+    assert.equal(payload.ok, false);
+    assert.equal(payload.error, "ASR2 model unavailable for selected provider");
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -4129,7 +4129,6 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
         interim: (speechStoreState as any)?.interim !== false,
         endpointingMs: Number((speechStoreState as any)?.endpointingMs || 0),
         asrLane: activeAsrLane,
-        modelHint: activeAsrLane === ASR_LANE_ASR2 ? 'whisper-large-v3' : undefined,
       });
       await whisperRecognizer.start();
       rec = whisperRecognizer as unknown as RecognizerLike;

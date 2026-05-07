@@ -39,6 +39,7 @@ const MISSING_OPENAI_API_KEY_ERROR = "Missing OPENAI_TEXT_API_KEY (or OPENAI_API
 export type AnvilWhisperRuntimeConfig = {
   apiKey: string | null;
   sttModel: string;
+  asr2SttModel?: string;
   configuredBillingMode?: BillingMode;
   initialTokenBalance?: number | null;
   supabaseUrl?: string | null;
@@ -145,6 +146,17 @@ function isUnsupportedAudioUpstreamError(detail: string): boolean {
   );
 }
 
+function isModelUnavailableUpstreamError(detail: string): boolean {
+  const text = String(detail || "").trim().toLowerCase();
+  if (!text) return false;
+  return (
+    text.includes("model_not_found")
+    || (text.includes("model") && text.includes("does not exist"))
+    || (text.includes("model") && text.includes("do not have access"))
+    || (text.includes("model") && text.includes("not available"))
+  );
+}
+
 function extractTranscriptionText(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "";
   const row = payload as Record<string, unknown>;
@@ -178,9 +190,11 @@ function replaceFileExtension(fileName: string, nextExtension: string): string {
 export function resolveAnvilWhisperRuntimeConfig(): AnvilWhisperRuntimeConfig {
   const runtime = resolveHearthRuntimeConfig();
   const modelOverride = readOptionalString(process.env.ANVIL_STT_MODEL);
+  const asr2ModelOverride = readOptionalString(process.env.ANVIL_ASR2_STT_MODEL);
   return {
     apiKey: runtime.textApiKey ?? runtime.apiKey ?? null,
     sttModel: modelOverride ?? runtime.sttModel ?? DEFAULT_MODEL,
+    asr2SttModel: asr2ModelOverride ?? "gpt-4o-transcribe",
     configuredBillingMode: runtime.configuredBillingMode,
     initialTokenBalance: runtime.initialTokenBalance,
     supabaseUrl: runtime.supabaseUrl,
@@ -214,6 +228,7 @@ export function resolveAnvilWhisperRuntimeConfig(): AnvilWhisperRuntimeConfig {
 export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
   const apiKey = readOptionalString(config.apiKey);
   const sttModel = readOptionalString(config.sttModel) ?? DEFAULT_MODEL;
+  const asr2SttModel = readOptionalString(config.asr2SttModel) ?? "gpt-4o-transcribe";
   const configuredBillingMode = normalizeBillingMode(config.configuredBillingMode, "forge");
   let tokenBalance = typeof config.initialTokenBalance === "number" && Number.isFinite(config.initialTokenBalance)
     ? Math.max(0, Math.floor(config.initialTokenBalance))
@@ -410,23 +425,24 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
       const language = readOptionalString(formData.get("language"));
       const prompt = readOptionalString(formData.get("prompt"));
       const asrLane = readOptionalString(formData.get("asr_lane"));
-      const modelHint = readOptionalString(formData.get("model_hint"));
       const requestSttModel =
         (asrLane || "").toUpperCase() === "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL"
-          ? (modelHint || "whisper-large-v3")
+          ? asr2SttModel
           : sttModel;
+      const asr2ExperimentalSelected = (asrLane || "").toUpperCase() === "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL";
       const fileName = readOptionalString((fileValue as { name?: unknown }).name);
       const mimeType = readOptionalString((fileValue as { type?: unknown }).type);
       const extension = inferExtension(fileName, mimeType);
       const uploadFileName = fileName ?? `chunk.${extension}`;
 
       function buildUpstreamForm(
+        nextModel: string,
         nextFileValue: Blob,
         nextFileName: string,
         includeLanguage: boolean,
       ): FormData {
         const upstreamForm = new FormData();
-        upstreamForm.set("model", requestSttModel);
+        upstreamForm.set("model", nextModel);
         upstreamForm.set("response_format", "json");
         upstreamForm.set("file", nextFileValue, nextFileName);
         if (includeLanguage && language) upstreamForm.set("language", language);
@@ -435,6 +451,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
       }
 
       async function sendToOpenAi(
+        nextModel: string,
         nextFileValue: Blob,
         nextFileName: string,
       ): Promise<{
@@ -452,7 +469,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             headers: {
               authorization: `Bearer ${effectiveApiKey}`,
             },
-            body: buildUpstreamForm(nextFileValue, nextFileName, usedLanguageHint),
+            body: buildUpstreamForm(nextModel, nextFileValue, nextFileName, usedLanguageHint),
             signal: upstreamAbort.signal,
           });
 
@@ -471,7 +488,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
                 headers: {
                   authorization: `Bearer ${effectiveApiKey}`,
                 },
-                body: buildUpstreamForm(nextFileValue, nextFileName, false),
+                body: buildUpstreamForm(nextModel, nextFileValue, nextFileName, false),
                 signal: upstreamAbort.signal,
               });
 
@@ -506,14 +523,29 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         let upstream: Response;
         let upstreamDetail = "";
         let upstreamMessage: string | null = null;
+        let resolvedModel = requestSttModel;
         let ffmpegFallbackAttempted = false;
         let ffmpegFallbackUsed = false;
         let ffmpegFallbackError: string | null = null;
         try {
-          const directAttempt = await sendToOpenAi(fileValue, uploadFileName);
+          const directAttempt = await sendToOpenAi(requestSttModel, fileValue, uploadFileName);
           upstream = directAttempt.upstream;
           upstreamDetail = directAttempt.detail;
           upstreamMessage = directAttempt.message;
+
+          if (
+            !upstream.ok
+            && asr2ExperimentalSelected
+            && requestSttModel !== sttModel
+            && (upstream.status === 400 || upstream.status === 403 || upstream.status === 404 || upstream.status === 422)
+            && isModelUnavailableUpstreamError(upstreamDetail)
+          ) {
+            const fallbackAttempt = await sendToOpenAi(sttModel, fileValue, uploadFileName);
+            upstream = fallbackAttempt.upstream;
+            upstreamDetail = fallbackAttempt.detail;
+            upstreamMessage = fallbackAttempt.message;
+            resolvedModel = sttModel;
+          }
 
           if (!upstream.ok && ffmpegClient && isUnsupportedAudioUpstreamError(upstreamDetail)) {
             ffmpegFallbackAttempted = true;
@@ -536,6 +568,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
               });
               const transcodedBlob = new Blob([new Uint8Array(transcoded.audioBytes)], { type: "audio/wav" });
               const transcodedAttempt = await sendToOpenAi(
+                resolvedModel,
                 transcodedBlob,
                 replaceFileExtension(uploadFileName, "wav"),
               );
@@ -583,7 +616,10 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
 
         if (!upstream.ok) {
           const detail = upstreamDetail || await upstream.text();
-          const resolvedUpstreamMessage = upstreamMessage ?? readUpstreamErrorMessage(detail) ?? "OpenAI error";
+          const isAsr2ModelUnavailable = asr2ExperimentalSelected && isModelUnavailableUpstreamError(detail);
+          const resolvedUpstreamMessage = isAsr2ModelUnavailable
+            ? "ASR2 model unavailable for selected provider"
+            : (upstreamMessage ?? readUpstreamErrorMessage(detail) ?? "OpenAI error");
           const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
           const responseDetail = ffmpegFallbackError
             ? `${detail}\n\n[forge-ffmpeg fallback] ${ffmpegFallbackError}`
@@ -598,7 +634,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             sessionId: null,
             feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
             subfeature: AI_USAGE_SUBFEATURE.ANVIL_WHISPER,
-            model: requestSttModel,
+            model: resolvedModel,
             inputTokens: 0,
             outputTokens: 0,
             totalTokens: 0,
@@ -616,7 +652,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             text: "",
             error: resolvedUpstreamMessage,
             detail: responseDetail,
-            model: requestSttModel,
+            model: resolvedModel,
             provider_request_id: upstream.headers.get("x-request-id"),
             billing_mode: lane,
             ffmpeg_fallback_attempted: ffmpegFallbackAttempted || undefined,
@@ -629,7 +665,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         const text = extractTranscriptionText(payload);
         const providerRequestId = upstream.headers.get("x-request-id");
         const accounting = buildTranscriptionAccounting({
-          model: requestSttModel,
+            model: resolvedModel,
           payload,
           text,
           billableMode: lane === AI_USAGE_LANE.FORGE ? AI_USAGE_LANE.FORGE : "non-billable",
@@ -644,7 +680,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           sessionId: null,
           feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
           subfeature: AI_USAGE_SUBFEATURE.ANVIL_WHISPER,
-          model: requestSttModel,
+          model: resolvedModel,
           inputTokens: accounting.inputTokens,
           outputTokens: accounting.outputTokens,
           totalTokens: accounting.totalTokens,
@@ -673,7 +709,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
               text: "",
               error: "Failed to apply Forge credit deduction.",
               code: "forge_deduction_failed",
-              model: requestSttModel,
+              model: resolvedModel,
               provider_request_id: providerRequestId,
               billing_mode: lane,
             });
@@ -687,7 +723,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           ok: true,
           text,
           empty: text.length === 0,
-          model: requestSttModel,
+          model: resolvedModel,
           provider_request_id: providerRequestId,
           billing_mode: lane,
           actual_cost_usd: accounting.actualCostUsd,
