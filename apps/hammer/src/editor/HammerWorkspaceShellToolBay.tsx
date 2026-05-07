@@ -9,6 +9,40 @@ export type HammerWorkspaceShellToolBayVM = {
   onSelectVisualTool?: (nextTool: "polish" | "images" | "broll") => void;
 };
 
+export type PackagingIntroStatusView = {
+  selectionStatusLine: string;
+  placementStatusLine: string;
+  applyActionLabel: string;
+  removeActionLabel: string;
+  canApply: boolean;
+  canRemove: boolean;
+};
+
+export function derivePackagingIntroStatusView(args: {
+  selectedIntroAssetId: string | null;
+  selectedIntroPath: string | null;
+  introPlaced: boolean;
+}): PackagingIntroStatusView {
+  const hasSelection = Boolean(args.selectedIntroAssetId);
+  const hasResolvedSelection = Boolean(args.selectedIntroAssetId && args.selectedIntroPath);
+  const selectedSourceLine = hasSelection
+    ? (hasResolvedSelection
+      ? `Selected intro from Source Desk: ${args.selectedIntroPath}`
+      : `Selected intro from Source Desk is unresolved (${args.selectedIntroAssetId}).`)
+    : "No intro selected in Source Desk.";
+  const placementLine = args.introPlaced
+    ? "Timeline packaging intro: placed."
+    : "Timeline packaging intro: not placed.";
+  return {
+    selectionStatusLine: selectedSourceLine,
+    placementStatusLine: placementLine,
+    applyActionLabel: "Apply Selected Intro to Timeline",
+    removeActionLabel: "Remove Intro from Timeline",
+    canApply: hasResolvedSelection,
+    canRemove: args.introPlaced,
+  };
+}
+
 type FillerCleanupOptions = any;
 type RetakeCleanupOptions = any;
 type SpeakerInterviewOptions = any;
@@ -268,6 +302,11 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const onSelectVisualTool = (ctx.onSelectVisualTool ?? vm.onSelectVisualTool ?? null) as ((nextTool: "polish" | "images" | "broll") => void) | null;
   const setFocusOverride = ctx.setFocusOverride as (mode: "auto" | "source-focus" | "tool-focus" | "time-focus") => void;
   const devBlurControlsEnabled = isDevBlurControlsEnabled();
+  const introStatusView = derivePackagingIntroStatusView({
+    selectedIntroAssetId: introOutroSelection?.intro_asset_id ?? null,
+    selectedIntroPath: introOutroSelectedIntroPath ?? null,
+    introPlaced: Boolean(packagingIntroPlacement),
+  });
 
   const activeReviewKind = ctx.activeReviewKind as string;
   const setActiveReviewKind = ctx.setActiveReviewKind as (next: any) => void;
@@ -3502,7 +3541,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Packaging</header>
                     <div className="hammer-tool-hint">
-                      One-click branding pass. Reuses your existing intro/outro assets and timeline placements.
+                      Packaging placement controls only. Choose intro/outro assets in Source Desk.
                     </div>
                     <div className="hammer-source-card__actions">
                       <button
@@ -3511,9 +3550,9 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           setFocusOverride("tool-focus");
                           applyIntroPlacement();
                         }}
-                        disabled={!introOutroSelection.intro_asset_id || !introOutroSelectedIntroPath}
+                        disabled={!introStatusView.canApply}
                       >
-                        Apply Intro
+                        {introStatusView.applyActionLabel}
                       </button>
                       <button
                         type="button"
@@ -3521,9 +3560,9 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           setFocusOverride("tool-focus");
                           removePackagingPlacement(PACKAGING_INTRO_ENTRY_ID, "Remove packaging intro");
                         }}
-                        disabled={!packagingIntroPlacement}
+                        disabled={!introStatusView.canRemove}
                       >
-                        Remove Intro
+                        {introStatusView.removeActionLabel}
                       </button>
                       <button
                         type="button"
@@ -3547,15 +3586,13 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                       </button>
                     </div>
                     <div className="hammer-tool-hint">
-                      Intro: {introOutroSelection.intro_asset_id
-                        ? (introOutroSelectedIntroPath ? "selected" : "selected (unresolved)")
-                        : "not selected"} ·
+                      {introStatusView.selectionStatusLine} ·
                       {" "}Outro: {introOutroSelection.outro_asset_id
                         ? (introOutroSelectedOutroPath ? "selected" : "selected (unresolved)")
                         : "not selected"}
                     </div>
                     <div className="hammer-tool-hint">
-                      Intro applied: {packagingIntroPlacement ? "yes" : "no"} ·
+                      {introStatusView.placementStatusLine} ·
                       {" "}Outro applied: {packagingOutroPlacement ? "yes" : "no"}
                     </div>
 

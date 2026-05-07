@@ -227,6 +227,7 @@ const SAVE_DEBOUNCE_MS = 400;
 const PREP_DUPLICATE_KICK_WINDOW_MS = 2_000;
 const CANONICAL_OPEN_DEDUPE_WINDOW_MS = 4_000;
 const AUTH_BOOT_POLL_INTERVAL_MS = 1_500;
+const LEGACY_TRANSCRIPT_MISS_CACHE_MS = 20_000;
 
 type HammerCanonicalOpenHydrationResult = {
   reloadOutcome: "success" | "failure";
@@ -745,6 +746,7 @@ export default function HammerWorkspaceEditor(
   const prepAiNoticeShownRunKeyRef = useRef<string | null>(null);
   const lastPrepRunKeyRef = useRef<string | null>(null);
   const prepInFlightRunKeyRef = useRef<string | null>(null);
+  const legacyTranscriptMissingByWorkpieceRef = useRef<Map<string, number>>(new Map());
   const prepJobHydrationProbeTargetRef = useRef<string | null>(null);
   const prepExecutionIdRef = useRef(0);
   const isMountedRef = useRef(true);
@@ -1493,6 +1495,7 @@ export default function HammerWorkspaceEditor(
     prepAiNoticePendingRunKeyRef.current = null;
     prepAiNoticeShownRunKeyRef.current = null;
     lastPrepRunKeyRef.current = null;
+    legacyTranscriptMissingByWorkpieceRef.current.clear();
 
     if (persistenceMode !== "canonical" || !persistenceTarget) {
       ingestCorrelationIdRef.current = null;
@@ -3047,17 +3050,53 @@ export default function HammerWorkspaceEditor(
       try {
         // Non-AI attempt first: reuse any existing transcript artifacts before starting AI transcription.
         if (!prepAiFallbackRequested && persistenceTarget && currentCanonicalRecording && !currentCanonicalRecording.sealed_at) {
-          logTranscriptStage("legacy:load:start", {
-            canonical_recording_id: currentCanonicalRecording.id,
-            sealed_at: currentCanonicalRecording.sealed_at ?? null,
-          });
+          const workpieceId = currentCanonicalRecording.workpiece_id;
+          const cachedMissingAt = legacyTranscriptMissingByWorkpieceRef.current.get(workpieceId) ?? null;
+          const nowMs = Date.now();
+          const useCachedMissing = cachedMissingAt != null && (nowMs - cachedMissingAt) < LEGACY_TRANSCRIPT_MISS_CACHE_MS;
+
+          if (useCachedMissing) {
+            logTranscriptStage("legacy:load:skip_cached_missing", {
+              canonical_recording_id: currentCanonicalRecording.id,
+              sealed_at: currentCanonicalRecording.sealed_at ?? null,
+              cache_age_ms: nowMs - (cachedMissingAt ?? nowMs),
+              cache_ttl_ms: LEGACY_TRANSCRIPT_MISS_CACHE_MS,
+            });
+          } else {
+            logTranscriptStage("legacy:load:start", {
+              canonical_recording_id: currentCanonicalRecording.id,
+              sealed_at: currentCanonicalRecording.sealed_at ?? null,
+            });
+          }
+
           const legacySpan = run.span("legacy_transcript:load");
-          const legacyResult = await loadLegacyHammerTranscriptArtifacts(currentCanonicalRecording.workpiece_id);
+          const legacyResult = useCachedMissing
+            ? {
+              ok: true as const,
+              status: 200,
+              data: {
+                structured_transcript: null,
+                speaker_map: null,
+              },
+            }
+            : await loadLegacyHammerTranscriptArtifacts(workpieceId);
+
+          if (legacyResult.ok) {
+            const hasStructuredTranscript = Boolean(legacyResult.data.structured_transcript);
+            const hasSpeakerMap = Boolean(legacyResult.data.speaker_map);
+            if (hasStructuredTranscript && hasSpeakerMap) {
+              legacyTranscriptMissingByWorkpieceRef.current.delete(workpieceId);
+            } else {
+              legacyTranscriptMissingByWorkpieceRef.current.set(workpieceId, nowMs);
+            }
+          }
+
           legacySpan.end({
             ok: legacyResult.ok,
             status: legacyResult.status,
             has_structured_transcript: Boolean(legacyResult.ok && legacyResult.data.structured_transcript),
             has_speaker_map: Boolean(legacyResult.ok && legacyResult.data.speaker_map),
+            cached_missing_probe: useCachedMissing,
           });
           if (legacyResult.ok && legacyResult.data.structured_transcript && legacyResult.data.speaker_map) {
             logTranscriptStage("legacy:load:ok", {
