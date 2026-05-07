@@ -1729,6 +1729,25 @@ function normalizeCreateWorkpieceJobRequest(payload: unknown): CreateWorkpieceJo
   };
 }
 
+function describeUnknownError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    try {
+      const row = error as Record<string, unknown>;
+      const message = typeof row.message === "string" ? row.message : null;
+      const code = typeof row.code === "string" ? row.code : null;
+      const details = typeof row.details === "string" ? row.details : null;
+      const hint = typeof row.hint === "string" ? row.hint : null;
+      const summary = [code, message, details, hint].filter((value) => Boolean(value)).join(" | ");
+      if (summary) return summary;
+      return JSON.stringify(row);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+}
+
 function toWorkpieceJobDTO(row: WorkpieceJobRow): WorkpieceJobDTO {
   const jobType = normalizeWorkpieceJobType(row.job_type) ?? "hammer_transcript_prep";
   const status = normalizeWorkpieceJobStatus(row.status) ?? "queued";
@@ -7711,7 +7730,7 @@ export class TongsCommitService {
         model,
       });
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
+      const reason = describeUnknownError(error);
       throw new HttpError(503, "ai_policy_unavailable", "Unable to resolve AI policy for workpiece job creation", {
         reason,
       });
