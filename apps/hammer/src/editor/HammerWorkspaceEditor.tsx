@@ -41,6 +41,13 @@ type HammerAiTranscriptRegenerationResult = {
   uncertain_count_after: number | null;
 };
 
+type HammerRegenJobTelemetry = {
+  jobId: string | null;
+  status: "idle" | "creating" | "queued" | "running" | "completed" | "failed" | "canceled";
+  progressPercent: number | null;
+  errorMessage: string | null;
+};
+
 function mapTranscriptSourceLabel(value: string | null): string {
   switch (value) {
     case "registered_transcript":
@@ -54,7 +61,7 @@ function mapTranscriptSourceLabel(value: string | null): string {
     case "live_noncanonical":
       return "Anvil live ASR (non-canonical)";
     default:
-      return value ? value : "Unknown";
+      return value ? value : "Unavailable";
   }
 }
 
@@ -668,6 +675,12 @@ export default function HammerWorkspaceEditor(
   const [regenAiTranscriptCurrentIngestLoading, setRegenAiTranscriptCurrentIngestLoading] = useState(false);
   const [regenAiTranscriptCurrentIngestError, setRegenAiTranscriptCurrentIngestError] = useState<string | null>(null);
   const [regenAiTranscriptCurrentIngestNonce, setRegenAiTranscriptCurrentIngestNonce] = useState(0);
+  const [regenAiTranscriptJobTelemetry, setRegenAiTranscriptJobTelemetry] = useState<HammerRegenJobTelemetry>({
+    jobId: null,
+    status: "idle",
+    progressPercent: null,
+    errorMessage: null,
+  });
   const regenAiTranscriptRequestRef = useRef<{
     token: number;
     refreshPlacements: boolean;
@@ -2112,11 +2125,36 @@ export default function HammerWorkspaceEditor(
           error: result.error,
         });
         setRegenAiTranscriptError(result.error);
+        setRegenAiTranscriptJobTelemetry({
+          jobId: regenAiTranscriptJobId,
+          status: "failed",
+          progressPercent: null,
+          errorMessage: result.error,
+        });
         setRegenAiTranscriptInFlight(false);
         return;
       }
 
       const job: HammerWorkpieceJob = result.data.job;
+      const normalizedStatus: HammerRegenJobTelemetry["status"] = (
+        job.status === "completed"
+          ? "completed"
+          : job.status === "failed"
+            ? "failed"
+            : job.status === "canceled"
+              ? "canceled"
+              : job.status === "queued"
+                ? "queued"
+                : "running"
+      );
+      setRegenAiTranscriptJobTelemetry({
+        jobId: job.id,
+        status: normalizedStatus,
+        progressPercent: typeof job.progress_percent === "number" && Number.isFinite(job.progress_percent)
+          ? Math.max(0, Math.min(100, Math.round(job.progress_percent)))
+          : null,
+        errorMessage: job.error_message ?? null,
+      });
       if (job.status !== lastLoggedStatus || job.status === "completed" || job.status === "failed" || job.status === "canceled") {
         lastLoggedStatus = job.status;
         // eslint-disable-next-line no-console
@@ -2167,6 +2205,10 @@ export default function HammerWorkspaceEditor(
         setRegenAiTranscriptError(null);
         setRegenAiTranscriptInFlight(false);
         setRegenAiTranscriptJobId(null);
+        setRegenAiTranscriptJobTelemetry((current) => ({
+          ...current,
+          status: "completed",
+        }));
         // Mark the pending registry boot as ready for the next snapshot reload.
         if (pendingVersionRegistryBootRef.current) {
           pendingVersionRegistryBootRef.current = {
@@ -2182,6 +2224,14 @@ export default function HammerWorkspaceEditor(
         setRegenAiTranscriptError(job.error_message ?? "Transcript job failed.");
         setRegenAiTranscriptInFlight(false);
         setRegenAiTranscriptJobId(null);
+        setRegenAiTranscriptJobTelemetry({
+          jobId: job.id,
+          status: job.status === "failed" ? "failed" : "canceled",
+          progressPercent: typeof job.progress_percent === "number" && Number.isFinite(job.progress_percent)
+            ? Math.max(0, Math.min(100, Math.round(job.progress_percent)))
+            : null,
+          errorMessage: job.error_message ?? "Transcript job failed.",
+        });
         return;
       }
 
@@ -4088,6 +4138,16 @@ export default function HammerWorkspaceEditor(
 
   const openRegenAiTranscriptModal = useCallback((): void => {
     setRegenAiTranscriptError(null);
+    setRegenAiTranscriptJobTelemetry((current) => (
+      current.status === "completed" || current.status === "failed" || current.status === "canceled"
+        ? { ...current }
+        : {
+          jobId: null,
+          status: "idle",
+          progressPercent: null,
+          errorMessage: null,
+        }
+    ));
     setRegenAiTranscriptOpen(true);
   }, []);
 
@@ -4132,6 +4192,12 @@ export default function HammerWorkspaceEditor(
     setRegenAiTranscriptResult(null);
     setRegenAiTranscriptError(null);
     setRegenAiTranscriptInFlight(true);
+    setRegenAiTranscriptJobTelemetry({
+      jobId: null,
+      status: "creating",
+      progressPercent: null,
+      errorMessage: null,
+    });
 
     // Record the current transcript path and version registry so we can bootstrap
     // the version registry after regen completes (preserving the Anvil original).
@@ -4168,10 +4234,22 @@ export default function HammerWorkspaceEditor(
 
     if (!jobCreate.ok) {
       setRegenAiTranscriptError(jobCreate.error);
+      setRegenAiTranscriptJobTelemetry({
+        jobId: null,
+        status: "failed",
+        progressPercent: null,
+        errorMessage: jobCreate.error,
+      });
       setRegenAiTranscriptInFlight(false);
       return;
     }
 
+    setRegenAiTranscriptJobTelemetry({
+      jobId: jobCreate.data.job.id,
+      status: "queued",
+      progressPercent: null,
+      errorMessage: null,
+    });
     setRegenAiTranscriptJobId(jobCreate.data.job.id);
   }, [
     activeCanonicalRecording,
@@ -4729,15 +4807,29 @@ export default function HammerWorkspaceEditor(
                   </dl>
 
                   <div className="hammer-prep-shell__note">
-                    <label className="hammer-prep-shell__checkbox">
+                    <label
+                      className={`hammer-prep-shell__checkbox ${regenAiTranscriptRefreshPlacements ? "is-active" : "is-inactive"}`}
+                      role="checkbox"
+                      aria-checked={regenAiTranscriptRefreshPlacements}
+                    >
                       <input
                         type="checkbox"
                         checked={regenAiTranscriptRefreshPlacements}
                         onChange={(event) => setRegenAiTranscriptRefreshPlacements(event.target.checked)}
                         disabled={regenAiTranscriptInFlight}
                       />
-                      <span>Refresh visual placements after transcript update</span>
+                      <span>
+                        Refresh visual placements after transcript update
+                        <strong className="hammer-prep-shell__checkbox-state">
+                          {regenAiTranscriptRefreshPlacements ? "Enabled" : "Disabled"}
+                        </strong>
+                      </span>
                     </label>
+                    <div className={`hammer-prep-shell__toggle-summary ${regenAiTranscriptRefreshPlacements ? "is-active" : "is-inactive"}`}>
+                      {regenAiTranscriptRefreshPlacements
+                        ? "Placement refresh is ON. Regeneration will update transcript and placement anchors."
+                        : "Placement refresh is OFF. Transcript regenerates only; placement anchors may remain stale."}
+                    </div>
                   </div>
 
                   {(regenAiTranscriptCurrentIngest?.final_status === "prepared_transcript"
@@ -4764,6 +4856,31 @@ export default function HammerWorkspaceEditor(
                       {regenAiTranscriptError}
                     </div>
                   ) : null}
+                  <div className="hammer-prep-shell__run-state" aria-live="polite">
+                    {regenAiTranscriptInFlight
+                      ? "Running transcript regeneration…"
+                      : regenAiTranscriptResult
+                        ? "Last run finished. Choose a mode and run again if needed."
+                        : "No run in progress. Choose a mode, then click a Regenerate button to start."}
+                    <div className="hammer-prep-shell__run-state-detail">
+                      Job: {regenAiTranscriptJobTelemetry.jobId ?? "not created"}
+                      {" · "}
+                      status: {regenAiTranscriptJobTelemetry.status}
+                      {typeof regenAiTranscriptJobTelemetry.progressPercent === "number"
+                        ? ` · progress ${regenAiTranscriptJobTelemetry.progressPercent}%`
+                        : ""}
+                    </div>
+                    {regenAiTranscriptJobTelemetry.errorMessage ? (
+                      <div className="hammer-prep-shell__run-state-detail is-error">
+                        Job error: {regenAiTranscriptJobTelemetry.errorMessage}
+                      </div>
+                    ) : null}
+                    {!regenAiTranscriptCurrentIngestLoading && !regenAiTranscriptCurrentIngest ? (
+                      <div className="hammer-prep-shell__run-state-detail is-warn">
+                        Ingest diagnostics are currently unavailable, so source/result fields may remain blank even if a run completed.
+                      </div>
+                    ) : null}
+                  </div>
 
                   {regenAiTranscriptResult ? (() => {
                     const ok = typeof regenAiTranscriptResult.segment_count_after === "number" && !regenAiTranscriptError;
@@ -4856,7 +4973,10 @@ export default function HammerWorkspaceEditor(
                       <>
                         <button
                           type="button"
-                          className="hammer-prep-shell__action-button"
+                          className={[
+                            "hammer-prep-shell__action-button",
+                            regenAiTranscriptRefreshPlacements ? "hammer-prep-shell__action-button--primary" : "",
+                          ].join(" ").trim()}
                           onClick={() => {
                             if (!regenAiTranscriptRefreshPlacements) {
                               setRegenAiTranscriptRefreshPlacements(true);
@@ -4865,11 +4985,18 @@ export default function HammerWorkspaceEditor(
                           }}
                           disabled={regenAiTranscriptInFlight}
                         >
-                          Regenerate + Refresh placements
+                          {regenAiTranscriptInFlight && regenAiTranscriptRefreshPlacements
+                            ? "Running: Regenerate + Refresh placements…"
+                            : regenAiTranscriptRefreshPlacements
+                              ? "Regenerate + Refresh placements (Selected)"
+                            : "Regenerate + Refresh placements"}
                         </button>
                         <button
                           type="button"
-                          className="hammer-prep-shell__action-button"
+                          className={[
+                            "hammer-prep-shell__action-button",
+                            !regenAiTranscriptRefreshPlacements ? "hammer-prep-shell__action-button--primary" : "",
+                          ].join(" ").trim()}
                           onClick={() => {
                             if (regenAiTranscriptRefreshPlacements) {
                               setRegenAiTranscriptRefreshPlacements(false);
@@ -4878,7 +5005,11 @@ export default function HammerWorkspaceEditor(
                           }}
                           disabled={regenAiTranscriptInFlight}
                         >
-                          Regenerate transcript only
+                          {regenAiTranscriptInFlight && !regenAiTranscriptRefreshPlacements
+                            ? "Running: Regenerate transcript only…"
+                            : !regenAiTranscriptRefreshPlacements
+                              ? "Regenerate transcript only (Selected)"
+                            : "Regenerate transcript only"}
                         </button>
                       </>
                     );
