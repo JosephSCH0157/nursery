@@ -2168,6 +2168,9 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           <span>Show gaze debug (overlay/status)</span>
                         </label>
                         <div className="hammer-tool-hint">
+                          Experimental preview-only. Uses subtle correction; review carefully.
+                        </div>
+                        <div className="hammer-tool-hint">
                           {visualEyeContactAssistStatusSummary
                             ? visualEyeContactAssistStatusSummary.primaryLine
                             : "Eye contact status unavailable."}

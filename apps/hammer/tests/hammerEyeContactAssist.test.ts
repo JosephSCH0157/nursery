@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { estimateGaze } from "../src/features/eye-contact-assist/analysis/gazeEstimator";
 import { decideEyeContactAssistApplicability } from "../src/features/eye-contact-assist/analysis/applicability";
 import { smoothGazeCorrection } from "../src/features/eye-contact-assist/analysis/temporalGazeSmoother";
+import { resolveEyeContactAssistEffectiveStrength } from "../src/features/eye-contact-assist/render/eyeContactAssistRenderer";
 import type { FaceLandmarksFrame } from "../src/features/eye-contact-assist/types";
 
 function buildFrame(partial?: Partial<FaceLandmarksFrame>): FaceLandmarksFrame {
@@ -136,6 +137,19 @@ async function main(): Promise<void> {
   }
 
   {
+    const frame = buildFrame();
+    const gaze = estimateGaze(frame);
+    const divergentGaze = {
+      ...gaze,
+      left: { ...gaze.left, correctionX: 0.2, correctionY: 0 },
+      right: { ...gaze.right, correctionX: -0.2, correctionY: 0 },
+    };
+    const { applicability } = decideEyeContactAssistApplicability({ frame, gaze: divergentGaze, history: null });
+    assert.equal(applicability.active, false);
+    if (!applicability.active) assert.equal(applicability.reason, "asymmetric_eye_divergence");
+  }
+
+  {
     const smoothing = smoothGazeCorrection({
       previous: null,
       next: {
@@ -164,6 +178,45 @@ async function main(): Promise<void> {
     });
     assert.ok(smoothing2.appliedWeight > 0);
     assert.ok(smoothing2.correctionX < 0.2 && smoothing2.correctionX > 0.1);
+  }
+
+  {
+    const smoothing = smoothGazeCorrection({
+      previous: {
+        providerName: "test",
+        lastTimestampSec: 2,
+        lastCorrectionX: 0,
+        lastCorrectionY: 0,
+        lastConfidence: 0.95,
+      },
+      next: {
+        providerName: "test",
+        timestampSec: 2.05,
+        confidence: 0.95,
+        correctionX: 0.8,
+        correctionY: -0.8,
+        disabledReason: null,
+      },
+      requestedWeight: 0.82,
+    });
+    assert.ok(Math.abs(smoothing.correctionX) <= 0.045);
+    assert.ok(Math.abs(smoothing.correctionY) <= 0.045);
+  }
+
+  {
+    const capped = resolveEyeContactAssistEffectiveStrength({
+      userStrength: 1,
+      frameConfidence: 1,
+      gazeConfidence: 1,
+    });
+    assert.equal(capped, 0.45);
+
+    const suppressed = resolveEyeContactAssistEffectiveStrength({
+      userStrength: 0.45,
+      frameConfidence: 0.6,
+      gazeConfidence: 0.6,
+    });
+    assert.equal(suppressed, 0);
   }
 
   console.log("Eye contact assist tests passed.");

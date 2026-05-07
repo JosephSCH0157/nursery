@@ -616,6 +616,23 @@ async function writeIngestDiagnostics(service: TongsCommitService, job: Workpiec
   });
 }
 
+async function updateJobProgressPercent(
+  service: TongsCommitService,
+  jobId: string,
+  progressPercent: number,
+): Promise<void> {
+  const clamped = Math.max(1, Math.min(99, Math.round(progressPercent)));
+  await service.supabase
+    .schema("tongs")
+    .from("workpiece_jobs")
+    .update({
+      progress_percent: clamped,
+      heartbeat_at: new Date().toISOString(),
+    } satisfies Partial<Database["tongs"]["Tables"]["workpiece_jobs"]["Update"]>)
+    .eq("id", jobId)
+    .eq("status", "running");
+}
+
 async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise<Record<string, unknown>> {
   const payload = readJsonObject(job.payload_json) ?? {};
   const revisionId = readTrimmed(payload.revision_id);
@@ -647,13 +664,16 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
   if (!sourcePath) {
     throw new Error("No canonical_workpiece_path available for transcript job.");
   }
+  await updateJobProgressPercent(deps.service, job.id, 5);
 
   const { bytes, contentType } = await downloadWorkpieceBytes(deps.service.supabase, deps.service.bucket, job.workpiece_id, sourcePath);
+  await updateJobProgressPercent(deps.service, job.id, 15);
   const uploadMedia = await prepareTranscriptJobUploadMedia({
     bytes,
     contentType: inferContentType(sourcePath, mimeTypeHint ?? contentType),
     sourcePath,
   });
+  await updateJobProgressPercent(deps.service, job.id, 30);
 
   const beforeSnapshot = await deps.service.supabase
     .schema("tongs")
@@ -695,6 +715,7 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
     filename: uploadMedia.filename,
     timeoutMs,
   });
+  await updateJobProgressPercent(deps.service, job.id, 70);
 
   const mediaRef: MediaRef = {
     media_id: canonical.media_id ?? `kept-take:${job.workpiece_id}`,
@@ -717,6 +738,7 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
     text: openAiResult.text,
     segments: openAiResult.segments,
   });
+  await updateJobProgressPercent(deps.service, job.id, 78);
 
   const nextLaunchContext = applyPreparedTranscriptToLaunchContext(launchContext, prepared);
 
@@ -761,6 +783,7 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
       placementsRefreshed = false;
     }
   }
+  await updateJobProgressPercent(deps.service, job.id, 86);
 
   const persistenceRequest = buildHammerPrepPersistenceSaveRequest({
     launchContext: nextLaunchContext,
@@ -782,6 +805,7 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
     },
     { userId: job.requested_by },
   );
+  await updateJobProgressPercent(deps.service, job.id, 93);
 
   // Promote prepared transcript to workpiece-level pointer.
   await deps.service.saveHammerWorkpieceState(
@@ -790,6 +814,7 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
     persistenceRequest,
     { userId: job.requested_by },
   );
+  await updateJobProgressPercent(deps.service, job.id, 97);
 
   const placementCountAfter = placementsRefreshed && placementsData?.placements && Array.isArray(placementsData.placements)
     ? placementsData.placements.length

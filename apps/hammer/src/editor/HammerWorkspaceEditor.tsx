@@ -28,6 +28,7 @@ import { deriveHammerSessionState } from "./hammerSessionState";
 import { deriveHammerIssueDiagnostics, type HammerIssueFixActionId } from "./hammerIssueDiagnostics";
 import { HammerWorkspaceDiagnosticsBanner } from "./HammerWorkspaceDiagnosticsBanner";
 import { HammerIngestDiagnosticsPanel } from "./HammerIngestDiagnosticsPanel";
+import { deriveRegenProgressLabel, resolveIngestSelectedSource } from "./hammerRegenTranscriptUiState";
 
 type HammerAiTranscriptRegenerationResult = {
   finished_at: string;
@@ -2071,12 +2072,7 @@ export default function HammerWorkspaceEditor(
         const diag = result.payload as unknown as Record<string, unknown> | null;
         const finalStatus = typeof diag?.final_status === "string" ? diag.final_status : null;
         const timestamp = typeof diag?.timestamp === "string" ? diag.timestamp : null;
-        const extra = (diag?.extra && typeof diag.extra === "object" && !Array.isArray(diag.extra))
-          ? diag.extra as Record<string, unknown>
-          : null;
-        const selectedSource = typeof extra?.selected_transcript_source === "string"
-          ? extra.selected_transcript_source
-          : null;
+        const selectedSource = resolveIngestSelectedSource(diag);
 
         let segmentCount: number | null = null;
         const evaluated = Array.isArray(diag?.transcript_sources_evaluated) ? diag.transcript_sources_evaluated as unknown[] : [];
@@ -4997,8 +4993,8 @@ export default function HammerWorkspaceEditor(
                       Job: {regenAiTranscriptJobTelemetry.jobId ?? "not created"}
                       {" · "}
                       status: {regenAiTranscriptJobTelemetry.status}
-                      {typeof regenAiTranscriptJobTelemetry.progressPercent === "number"
-                        ? ` · progress ${regenAiTranscriptJobTelemetry.progressPercent}%`
+                      {deriveRegenProgressLabel(regenAiTranscriptJobTelemetry)
+                        ? ` · ${deriveRegenProgressLabel(regenAiTranscriptJobTelemetry)}`
                         : ""}
                     </div>
                     {regenAiTranscriptJobTelemetry.errorMessage ? (

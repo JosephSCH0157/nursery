@@ -65,22 +65,10 @@ export function decideEyeContactAssistApplicability(args: {
     };
   }
 
-  const frameConfidence = clamp(args.frame.confidenceScore, 0, 1);
-  const gazeConfidence = clamp(args.gaze.confidenceScore, 0, 1);
-  const minConfidence = 0.55;
-  if (frameConfidence < minConfidence || gazeConfidence < minConfidence) {
-    reasons.push("low_confidence");
-    return {
-      applicability: decide(false, "low_confidence", `frame=${frameConfidence.toFixed(2)} gaze=${gazeConfidence.toFixed(2)}`),
-      nextHistory: null,
-      reasons,
-    };
-  }
-
   const yaw = args.frame.pose.yawDeg;
   const pitch = args.frame.pose.pitchDeg;
-  const maxYaw = 18;
-  const maxPitch = 15;
+  const maxYaw = 12;
+  const maxPitch = 10;
   if ((yaw != null && Math.abs(yaw) > maxYaw) || (pitch != null && Math.abs(pitch) > maxPitch)) {
     reasons.push("extreme_pose");
     return {
@@ -92,7 +80,7 @@ export function decideEyeContactAssistApplicability(args: {
 
   const leftEar = eyeAspectRatio(args.frame.leftEye);
   const rightEar = eyeAspectRatio(args.frame.rightEye);
-  const blinkThreshold = 0.16;
+  const blinkThreshold = 0.2;
   if (
     (leftEar != null && leftEar < blinkThreshold)
     || (rightEar != null && rightEar < blinkThreshold)
@@ -100,6 +88,52 @@ export function decideEyeContactAssistApplicability(args: {
     reasons.push("blink_or_eyelid_occlusion");
     return {
       applicability: decide(false, "blink_or_eyelid_occlusion", `earL=${leftEar?.toFixed(2) ?? "?"} earR=${rightEar?.toFixed(2) ?? "?"}`),
+      nextHistory: null,
+      reasons,
+    };
+  }
+
+  const leftIrisCount = Array.isArray(args.frame.leftEye.iris) ? args.frame.leftEye.iris.length : 0;
+  const rightIrisCount = Array.isArray(args.frame.rightEye.iris) ? args.frame.rightEye.iris.length : 0;
+  const minIrisPoints = 4;
+  if (leftIrisCount < minIrisPoints || rightIrisCount < minIrisPoints) {
+    reasons.push("partial_face_or_one_eye_uncertain");
+    return {
+      applicability: decide(
+        false,
+        "partial_face_or_one_eye_uncertain",
+        `irisL=${leftIrisCount} irisR=${rightIrisCount}`,
+      ),
+      nextHistory: null,
+      reasons,
+    };
+  }
+
+  const frameConfidence = clamp(args.frame.confidenceScore, 0, 1);
+  const gazeConfidence = clamp(args.gaze.confidenceScore, 0, 1);
+  const minConfidence = 0.7;
+  if (frameConfidence < minConfidence || gazeConfidence < minConfidence) {
+    reasons.push("low_confidence");
+    return {
+      applicability: decide(false, "low_confidence", `frame=${frameConfidence.toFixed(2)} gaze=${gazeConfidence.toFixed(2)}`),
+      nextHistory: null,
+      reasons,
+    };
+  }
+
+  const eyeDivergence = Math.max(
+    Math.abs(args.gaze.left.correctionX - args.gaze.right.correctionX),
+    Math.abs(args.gaze.left.correctionY - args.gaze.right.correctionY),
+  );
+  const maxEyeDivergence = 0.12;
+  if (eyeDivergence > maxEyeDivergence) {
+    reasons.push("asymmetric_eye_divergence");
+    return {
+      applicability: decide(
+        false,
+        "asymmetric_eye_divergence",
+        `divergence=${eyeDivergence.toFixed(2)}`,
+      ),
       nextHistory: null,
       reasons,
     };
@@ -113,7 +147,7 @@ export function decideEyeContactAssistApplicability(args: {
     const drx = Math.abs(args.gaze.right.offsetX - prev.lastRightOffsetX);
     const dry = Math.abs(args.gaze.right.offsetY - prev.lastRightOffsetY);
     const maxDelta = Math.max(dlx, dly, drx, dry);
-    if (maxDelta >= 0.35) {
+    if (maxDelta >= 0.22) {
       reasons.push("unstable_eye_region");
       return {
         applicability: decide(false, "unstable_eye_region", `max_delta=${maxDelta.toFixed(2)} dt=${dt.toFixed(2)}s`),
@@ -123,7 +157,7 @@ export function decideEyeContactAssistApplicability(args: {
     }
 
     const confDrop = prev.lastConfidence - gazeConfidence;
-    if (confDrop >= 0.3) {
+    if (confDrop >= 0.2) {
       reasons.push("unstable_eye_region");
       return {
         applicability: decide(false, "unstable_eye_region", `confidence_drop=${confDrop.toFixed(2)}`),

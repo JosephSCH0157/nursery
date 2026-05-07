@@ -304,7 +304,7 @@ export default function EyeContactAssistPreviewLayer(props: {
           correctionY: gaze?.combined.correctionY ?? 0,
           disabledReason,
         },
-        requestedWeight: 0.65,
+        requestedWeight: 0.82,
       });
       temporalRef.current = smoothing.nextState;
 
@@ -316,6 +316,10 @@ export default function EyeContactAssistPreviewLayer(props: {
           frame,
           correction: { x: smoothing.correctionX, y: smoothing.correctionY },
           settings: props.settings,
+          confidence: {
+            frame: clamp(frame.confidenceScore, 0, 1),
+            gaze: clamp(gaze.confidenceScore, 0, 1),
+          },
           mapping: useBg ? { mode: "stretch" } : { mode: "contain", videoWidth: video.videoWidth || 1, videoHeight: video.videoHeight || 1 },
           debugOverlay: Boolean(props.debugOverlay),
         })
