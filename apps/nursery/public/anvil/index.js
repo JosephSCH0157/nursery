@@ -54200,8 +54200,7 @@ async function startBackendForSession(mode, reason) {
         lang: typeof speechStoreState?.lang === "string" ? speechStoreState.lang : "en-US",
         interim: speechStoreState?.interim !== false,
         endpointingMs: Number(speechStoreState?.endpointingMs || 0),
-        asrLane: activeAsrLane,
-        modelHint: activeAsrLane === ASR_LANE_ASR2 ? "whisper-large-v3" : void 0
+        asrLane: activeAsrLane
       });
       await whisperRecognizer.start();
       rec = whisperRecognizer;

@@ -530,3 +530,70 @@ test("createAnvilWhisperHandler returns ASR2 provider-model unavailable message 
     globalThis.fetch = originalFetch;
   }
 });
+
+test("createAnvilWhisperHandler routes ASR2 lane through Hugging Face when configured", async () => {
+  const originalFetch = globalThis.fetch;
+  const seenUrls: string[] = [];
+  const seenAuth: string[] = [];
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    seenUrls.push(url);
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({ id: TEST_USER_ID }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.includes("/rest/v1/rpc/apply_ai_token_delta")) {
+      return new Response(JSON.stringify([{ token_balance: 999_999 }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://api-inference.huggingface.co/models/openai/whisper-large-v3") {
+      let auth = "";
+      if (init?.headers instanceof Headers) {
+        auth = String(init.headers.get("authorization") ?? "");
+      } else if (init?.headers && typeof init.headers === "object") {
+        auth = String((init.headers as Record<string, string>)["authorization"] ?? "");
+      }
+      seenAuth.push(auth);
+      return new Response(JSON.stringify({ text: "hf ok" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch call in test: ${url} ${init?.method ?? "GET"}`);
+  };
+
+  try {
+    const handler = createAnvilWhisperHandler(buildConfig({
+      apiKey: "forge-key",
+      asr2Provider: "huggingface",
+      asr2SttModel: "openai/whisper-large-v3",
+      huggingFaceApiToken: "hf_test_token",
+      configuredBillingMode: AI_USAGE_LANE.FORGE,
+      initialTokenBalance: 999_999,
+      supabaseUrl: "https://runtime-test.supabase.co",
+      supabaseServiceRoleKey: "service-role",
+    }));
+    const form = buildChunkFormData();
+    form.set("lane", AI_USAGE_LANE.FORGE);
+    form.set("asr_lane", "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL");
+    const response = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-access-token" },
+      body: form,
+    }));
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.text, "hf ok");
+    assert.equal(payload.model, "openai/whisper-large-v3");
+    assert.ok(seenUrls.includes("https://api-inference.huggingface.co/models/openai/whisper-large-v3"));
+    assert.ok(seenAuth.some((value) => value === "Bearer hf_test_token"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
