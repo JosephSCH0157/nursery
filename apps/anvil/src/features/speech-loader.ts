@@ -2500,6 +2500,13 @@ function installAsrHudDev(): void {
 
   const mountHud = () => {
     if (!document.body || document.getElementById('__tpAsrHud')) return;
+    const HUD_HIDDEN_KEY = 'tp_dev_asr_hud_hidden_v1';
+    const readHidden = () => {
+      try { return window.localStorage?.getItem(HUD_HIDDEN_KEY) === '1'; } catch { return false; }
+    };
+    const writeHidden = (hidden: boolean) => {
+      try { window.localStorage?.setItem(HUD_HIDDEN_KEY, hidden ? '1' : '0'); } catch {}
+    };
 
     const el = document.createElement('div');
     el.id = '__tpAsrHud';
@@ -2511,10 +2518,10 @@ function installAsrHudDev(): void {
       'max-width:420px; white-space:pre; pointer-events:auto;',
     ].join(' ');
     const textEl = document.createElement('pre');
-    textEl.style.cssText = 'margin:0;pointer-events:none;';
+    textEl.style.cssText = 'margin:0;padding-top:18px;pointer-events:none;';
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
-    closeBtn.textContent = 'Close';
+    closeBtn.textContent = 'Hide HUD';
     closeBtn.title = 'Close ASR HUD (Esc)';
     closeBtn.style.cssText = [
       'position:absolute;top:6px;right:8px;z-index:1;',
@@ -2524,7 +2531,19 @@ function installAsrHudDev(): void {
     el.style.position = 'fixed';
     el.appendChild(closeBtn);
     el.appendChild(textEl);
+
+    const reopenBtn = document.createElement('button');
+    reopenBtn.id = '__tpAsrHudReopen';
+    reopenBtn.type = 'button';
+    reopenBtn.textContent = 'Show ASR HUD';
+    reopenBtn.title = 'Show ASR HUD';
+    reopenBtn.style.cssText = [
+      'position:fixed;right:8px;bottom:8px;z-index:1000000;',
+      'border:1px solid rgba(255,255,255,0.25);background:rgba(0,0,0,0.65);color:#cfe8ff;',
+      'border-radius:8px;padding:4px 8px;font-size:11px;cursor:pointer;display:none;',
+    ].join('');
     document.body.appendChild(el);
+    document.body.appendChild(reopenBtn);
     const formatBool = (value: unknown) => (value ? 'true' : 'false');
     const formatAge = (ts: number | null | undefined) => {
       if (!Number.isFinite(Number(ts)) || Number(ts) <= 0) return '-';
@@ -2558,16 +2577,27 @@ lastCommit: ${formatAge(snap.lastCommitTs)}
     };
     const dismiss = () => {
       el.style.display = 'none';
+      reopenBtn.style.display = '';
+      writeHidden(true);
+    };
+    const showHud = () => {
+      el.style.display = '';
+      reopenBtn.style.display = 'none';
+      writeHidden(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       dismiss();
     };
     closeBtn.addEventListener('click', dismiss);
+    reopenBtn.addEventListener('click', showHud);
     window.addEventListener('keydown', onKeyDown, { capture: true });
 
     try { window.addEventListener('tp:hud:snapshot', onSnapshot, { capture: false }); } catch {}
     render(buildHudSnapshot('dev-hud:init'));
+    if (readHidden()) {
+      dismiss();
+    }
     window.setInterval(() => {
       render(buildHudSnapshot('dev-hud:poll'));
     }, 250);
