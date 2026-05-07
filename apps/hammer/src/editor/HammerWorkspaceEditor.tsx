@@ -437,6 +437,27 @@ function isMissingTongsUserAccessTokenError(error: unknown): boolean {
     && message.includes("unauthenticated Tongs request");
 }
 
+function buildTranscriptJobFailureMessage(args: {
+  status: number;
+  error: string;
+  retryAfterMs?: number;
+}): string {
+  const retryHint = typeof args.retryAfterMs === "number" && args.retryAfterMs > 0
+    ? ` Retry in about ${Math.max(1, Math.ceil(args.retryAfterMs / 1000))}s.`
+    : "";
+
+  if (args.status === 503 || args.status === 504 || args.status === 502) {
+    return `Transcript service is temporarily unavailable.${retryHint} ${args.error}`.trim();
+  }
+  if (args.status === 401 || args.status === 403) {
+    return `Transcript job is blocked by auth or policy checks. ${args.error}`.trim();
+  }
+  if (args.status === 404) {
+    return `Transcript job route is unavailable for this workspace context. ${args.error}`.trim();
+  }
+  return args.error;
+}
+
 function withSessionId(launchContext?: HammerLaunchContext): HammerLaunchContext | undefined {
   return launchContext ? ensureHammerLaunchSessionId(launchContext) : undefined;
 }
@@ -2472,15 +2493,22 @@ export default function HammerWorkspaceEditor(
       });
       if (!active) return;
       if (!result.ok) {
+        const userMessage = buildTranscriptJobFailureMessage({
+          status: result.status,
+          error: result.error,
+          retryAfterMs: result.retryAfterMs,
+        });
         // eslint-disable-next-line no-console
-        console.warn("[HammerTranscriptJob:prep:poll:error]", {
+        console.error("[HammerTranscriptJob:prep:poll:error]", {
           workspace_id: persistenceTarget.workspaceId,
           workpiece_id: persistenceTarget.workpieceId,
           job_id: prepTranscriptJobId,
           status: result.status,
           error: result.error,
+          retry_after_ms: result.retryAfterMs ?? null,
+          user_message: userMessage,
         });
-        setPrepState(createHammerPrepState("prep_failed", null, result.error));
+        setPrepState(createHammerPrepState("prep_failed", null, userMessage));
         setPrepFailureKind("ai_failed");
         setPrepTranscriptJobId(null);
         return;
@@ -3290,29 +3318,55 @@ export default function HammerWorkspaceEditor(
           ? crypto.randomUUID()
           : `prep_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
+        const transcriptJobPayload = {
+          revision_id: currentRevision.id,
+          canonical_recording_id: currentCanonicalRecording.id,
+          canonical_workpiece_path: prepSource.canonical_workpiece_path,
+          refresh_visual_placements: true,
+          client_request_id: transcriptClientRequestId,
+          mime_type: inferHammerPrepSourceMimeType(prepSource),
+        };
+
         const jobCreate = await createWorkpieceJob({
           workspaceId: persistenceTarget.workspaceId,
           workpieceId: persistenceTarget.workpieceId,
           jobType: "hammer_transcript_prep",
-          payloadJson: {
-            revision_id: currentRevision.id,
-            canonical_recording_id: currentCanonicalRecording.id,
-            canonical_workpiece_path: prepSource.canonical_workpiece_path,
-            refresh_visual_placements: true,
-            client_request_id: transcriptClientRequestId,
-            mime_type: inferHammerPrepSourceMimeType(prepSource),
-          },
+          payloadJson: transcriptJobPayload,
         });
         if (!jobCreate.ok) {
+          const userMessage = buildTranscriptJobFailureMessage({
+            status: jobCreate.status,
+            error: jobCreate.error,
+            retryAfterMs: jobCreate.retryAfterMs,
+          });
+          logTranscriptStage("job:create:failed", {
+            status: jobCreate.status,
+            error: jobCreate.error,
+            retry_after_ms: jobCreate.retryAfterMs ?? null,
+            user_message: userMessage,
+            client_request_id: transcriptClientRequestId,
+          }, "error");
+          run.error("transcript_job:create_failed", {
+            status: jobCreate.status,
+            error: jobCreate.error,
+            retry_after_ms: jobCreate.retryAfterMs ?? null,
+            user_message: userMessage,
+            payload: transcriptJobPayload,
+          });
           try {
-            console.warn("[hammer:transcript:ai_fallback_blocked_reason]", {
+            console.error("[hammer:transcript:ai_fallback_blocked_reason]", {
               workspace_id: currentLaunchContext.workspace_id,
               workpiece_id: currentLaunchContext.workpiece_id,
               reason: `job_create_failed_${jobCreate.status}`,
               message: jobCreate.error,
+              status: jobCreate.status,
+              retry_after_ms: jobCreate.retryAfterMs ?? null,
+              user_message: userMessage,
+              client_request_id: transcriptClientRequestId,
+              payload: transcriptJobPayload,
             });
           } catch {}
-          throw new Error(jobCreate.error);
+          throw new Error(userMessage);
         }
 
         usedAiPrep = true;
