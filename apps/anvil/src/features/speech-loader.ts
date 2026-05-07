@@ -2508,8 +2508,22 @@ function installAsrHudDev(): void {
       'background:rgba(0,0,0,0.75); color:#9ef; padding:10px 12px;',
       'font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;',
       'border:1px solid rgba(255,255,255,0.15); border-radius:10px;',
-      'max-width:420px; white-space:pre; pointer-events:none;',
+      'max-width:420px; white-space:pre; pointer-events:auto;',
     ].join(' ');
+    const textEl = document.createElement('pre');
+    textEl.style.cssText = 'margin:0;pointer-events:none;';
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.textContent = 'Close';
+    closeBtn.title = 'Close ASR HUD (Esc)';
+    closeBtn.style.cssText = [
+      'position:absolute;top:6px;right:8px;z-index:1;',
+      'border:1px solid rgba(255,255,255,0.25);background:rgba(0,0,0,0.4);color:#cfe8ff;',
+      'border-radius:6px;padding:2px 6px;font-size:11px;cursor:pointer;',
+    ].join('');
+    el.style.position = 'fixed';
+    el.appendChild(closeBtn);
+    el.appendChild(textEl);
     document.body.appendChild(el);
     const formatBool = (value: unknown) => (value ? 'true' : 'false');
     const formatAge = (ts: number | null | undefined) => {
@@ -2518,7 +2532,7 @@ function installAsrHudDev(): void {
       return `${Math.round(age)}ms`;
     };
     const render = (snap: HudSnapshotPayload) => {
-      el.textContent =
+      textEl.textContent =
 `ASR HUD
 href: ${location.pathname}${location.search}${location.hash}
 scrollMode: ${snap.scrollMode || 'unknown'}
@@ -2542,6 +2556,15 @@ lastCommit: ${formatAge(snap.lastCommitTs)}
       if (!detail || typeof detail !== 'object') return;
       render(detail as HudSnapshotPayload);
     };
+    const dismiss = () => {
+      el.style.display = 'none';
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      dismiss();
+    };
+    closeBtn.addEventListener('click', dismiss);
+    window.addEventListener('keydown', onKeyDown, { capture: true });
 
     try { window.addEventListener('tp:hud:snapshot', onSnapshot, { capture: false }); } catch {}
     render(buildHudSnapshot('dev-hud:init'));
