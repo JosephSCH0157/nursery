@@ -235,6 +235,9 @@ importers:
       '@forge/ui-mobile':
         specifier: workspace:*
         version: link:../../packages/ui-mobile
+      '@huggingface/inference':
+        specifier: ^4.13.15
+        version: 4.13.15
       '@supabase/supabase-js':
         specifier: ^2.98.0
         version: 2.100.1
@@ -777,6 +780,17 @@ packages:
   '@eslint/plugin-kit@0.4.1':
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+  '@huggingface/inference@4.13.15':
+    resolution: {integrity: sha512-V7B13KFDVhYkQqgx8vpMcmtEG+PoePlh65IUvpphTTItHAq6zRLcsS4torh1QavUaT+6nEwho4wFXzBQNGBwKQ==}
+    engines: {node: '>=18'}
+
+  '@huggingface/jinja@0.5.8':
+    resolution: {integrity: sha512-ZdElB7DPS7QQS8ZnFc5RPPtkg+eN11z8AmIZWAyes6pSbwXqiFB/POVevvm01begdSX1ho9Gxln/F6qlQMsuaA==}
+    engines: {node: '>=18'}
+
+  '@huggingface/tasks@0.19.90':
+    resolution: {integrity: sha512-nfV9luJbvwGQ/5oKXkKhCV9h4X7mwh1YaGG3ORd6UMLDSwr1OFSSatcBX0O9OtBtmNK19aGSjbLFqqgcIR6+IA==}
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -4679,6 +4693,15 @@ snapshots:
     dependencies:
       '@eslint/core': 0.17.0
       levn: 0.4.1
+
+  '@huggingface/inference@4.13.15':
+    dependencies:
+      '@huggingface/jinja': 0.5.8
+      '@huggingface/tasks': 0.19.90
+
+  '@huggingface/jinja@0.5.8': {}
+
+  '@huggingface/tasks@0.19.90': {}
 
   '@humanfs/core@0.19.1': {}
 

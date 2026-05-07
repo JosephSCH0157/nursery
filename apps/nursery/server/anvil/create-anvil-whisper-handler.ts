@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { Buffer } from "node:buffer";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { InferenceClient } from "@huggingface/inference";
 import type { Database } from "@forge/tongs";
 import {
   AI_USAGE_FEATURE,
@@ -199,6 +200,23 @@ function readHuggingFaceErrorMessage(detail: string): string | null {
   } catch {
     return null;
   }
+}
+
+function stringifyUpstreamBody(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string") return value.trim() || null;
+  try {
+    const text = JSON.stringify(value);
+    return text.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function truncateForDetail(value: string | null, limit = 2000): string | null {
+  if (!value) return null;
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit)}…`;
 }
 
 function inferExtension(fileName: string | null, mimeType: string | null): string {
@@ -492,7 +510,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           : sttModel;
       const asr2ExperimentalSelected = (asrLane || "").toUpperCase() === "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL";
       const requestProvider = asr2ExperimentalSelected ? asr2Provider : "openai";
-      const huggingFaceModelUrl = requestProvider === "huggingface"
+      const huggingFaceModelUrl = (requestProvider === "huggingface" || requestProvider === "auto")
         ? `https://huggingface.co/${requestSttModel}`
         : null;
       const fileName = readOptionalString((fileValue as { name?: unknown }).name);
@@ -577,63 +595,111 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
       }
 
       async function sendToHuggingFace(
+        providerMode: "huggingface" | "auto",
         nextModel: string,
         nextFileValue: Blob,
       ): Promise<{
         upstream: Response;
         detail: string;
         message: string | null;
+        upstreamUrl: string | null;
       }> {
         if (!huggingFaceApiToken) {
           return {
             upstream: new Response(JSON.stringify({ error: "Missing HUGGINGFACE_API_TOKEN in server env", code: "hf_missing_token" }), { status: 500 }),
             detail: JSON.stringify({ error: "Missing HUGGINGFACE_API_TOKEN in server env", code: "hf_missing_token" }),
             message: "Missing HUGGINGFACE_API_TOKEN in server env",
+            upstreamUrl: null,
           };
         }
         let upstream: Response;
         let detail = "";
         let message: string | null = null;
-        let timedOut = false;
+        let upstreamUrl: string | null = null;
         const hfAbort = new AbortController();
         const timeoutHandle = setTimeout(() => {
-          timedOut = true;
           hfAbort.abort();
         }, HUGGINGFACE_UPSTREAM_TIMEOUT_MS);
         const onParentAbort = () => hfAbort.abort();
         upstreamAbort.signal.addEventListener("abort", onParentAbort, { once: true });
         try {
-          const hfUpstreamUrl = `https://api-inference.huggingface.co/models/${nextModel}`;
-          upstream = await fetch(hfUpstreamUrl, {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${huggingFaceApiToken}`,
-              "content-type": mimeType ?? "application/octet-stream",
+          const inferenceClient = new InferenceClient(huggingFaceApiToken);
+          const response = await inferenceClient.automaticSpeechRecognition({
+            provider: providerMode,
+            model: nextModel,
+            data: new Uint8Array(await nextFileValue.arrayBuffer()),
+          }, {
+            fetch: async (url, init) => {
+              upstreamUrl = typeof url === "string" ? url : url.toString();
+              return fetch(url, {
+                ...init,
+                signal: hfAbort.signal,
+              });
             },
-            body: new Uint8Array(await nextFileValue.arrayBuffer()),
-            signal: hfAbort.signal,
           });
-          if (!upstream.ok) {
-            detail = await upstream.text();
-            message = readHuggingFaceErrorMessage(detail) ?? "Hugging Face error";
+          if (response instanceof Blob || response instanceof ArrayBuffer || ArrayBuffer.isView(response)) {
+            detail = JSON.stringify({
+              error: "Malformed response from Hugging Face ASR upstream",
+              code: "hf_malformed_upstream_response",
+              upstream_status: 502,
+            });
+            message = "Malformed upstream response";
+            upstream = new Response(detail, {
+              status: 502,
+              headers: { "content-type": "application/json; charset=utf-8" },
+            });
+            return { upstream, detail, message, upstreamUrl };
           }
+          upstream = new Response(JSON.stringify(response), {
+            status: 200,
+            headers: { "content-type": "application/json; charset=utf-8" },
+          });
         } catch (error) {
-          if (timedOut) {
+          if (hfAbort.signal.aborted && !clientAborted && !upstreamAbort.signal.aborted) {
             return {
               upstream: new Response(JSON.stringify({ error: "Hugging Face upstream timeout", code: "hf_upstream_timeout" }), { status: 504 }),
               detail: JSON.stringify({ error: "Hugging Face upstream timeout", code: "hf_upstream_timeout" }),
               message: "Hugging Face upstream timeout",
+              upstreamUrl,
             };
           }
           if (clientAborted || upstreamAbort.signal.aborted) {
             throw new Response(null, { status: 499 });
           }
-          throw error;
+          const row = error as {
+            message?: string;
+            cause?: {
+              message?: string;
+              httpRequest?: { url?: string };
+              httpResponse?: { status?: number; body?: unknown };
+            };
+            httpRequest?: { url?: string };
+            httpResponse?: { status?: number; body?: unknown };
+          };
+          const httpRequest = row.httpRequest ?? row.cause?.httpRequest;
+          const httpResponse = row.httpResponse ?? row.cause?.httpResponse;
+          upstreamUrl = httpRequest?.url ?? upstreamUrl;
+          const rawBody = truncateForDetail(stringifyUpstreamBody(httpResponse?.body));
+          message = (typeof row.message === "string" && row.message.trim())
+            ? row.message
+            : (typeof row.cause?.message === "string" && row.cause.message.trim())
+              ? row.cause.message
+            : "Hugging Face error";
+          detail = JSON.stringify({
+            error: message,
+            code: httpResponse?.status === 404 ? "hf_upstream_404" : "hf_upstream_error",
+            upstream_status: httpResponse?.status ?? 502,
+            upstream_body: rawBody,
+          });
+          upstream = new Response(detail, {
+            status: httpResponse?.status ?? 502,
+            headers: { "content-type": "application/json; charset=utf-8" },
+          });
         } finally {
           clearTimeout(timeoutHandle);
           upstreamAbort.signal.removeEventListener("abort", onParentAbort);
         }
-        return { upstream, detail, message };
+        return { upstream, detail, message, upstreamUrl };
       }
 
       const upstreamAbort = new AbortController();
@@ -648,17 +714,20 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         let upstream: Response;
         let upstreamDetail = "";
         let upstreamMessage: string | null = null;
+        let upstreamUrl: string | null = null;
         let resolvedModel = requestSttModel;
         let ffmpegFallbackAttempted = false;
         let ffmpegFallbackUsed = false;
         let ffmpegFallbackError: string | null = null;
         try {
           const directAttempt = requestProvider === "huggingface"
-            ? await sendToHuggingFace(requestSttModel, fileValue)
+            || requestProvider === "auto"
+            ? await sendToHuggingFace(requestProvider === "auto" ? "auto" : "huggingface", requestSttModel, fileValue)
             : await sendToOpenAi(requestSttModel, fileValue, uploadFileName);
           upstream = directAttempt.upstream;
           upstreamDetail = directAttempt.detail;
           upstreamMessage = directAttempt.message;
+          upstreamUrl = directAttempt.upstreamUrl ?? upstreamUrl;
 
           if (!upstream.ok && ffmpegClient && isUnsupportedAudioUpstreamError(upstreamDetail)) {
             ffmpegFallbackAttempted = true;
@@ -681,7 +750,8 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
               });
               const transcodedBlob = new Blob([new Uint8Array(transcoded.audioBytes)], { type: "audio/wav" });
               const transcodedAttempt = requestProvider === "huggingface"
-                ? await sendToHuggingFace(resolvedModel, transcodedBlob)
+                || requestProvider === "auto"
+                ? await sendToHuggingFace(requestProvider === "auto" ? "auto" : "huggingface", resolvedModel, transcodedBlob)
                 : await sendToOpenAi(
                   resolvedModel,
                   transcodedBlob,
@@ -690,6 +760,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
               upstream = transcodedAttempt.upstream;
               upstreamDetail = transcodedAttempt.detail;
               upstreamMessage = transcodedAttempt.message;
+              upstreamUrl = transcodedAttempt.upstreamUrl ?? upstreamUrl;
               ffmpegFallbackUsed = upstream.ok;
               try {
                 console.info("[anvil-whisper] ffmpeg fallback completed", {
@@ -731,29 +802,32 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
 
         if (!upstream.ok) {
           const detail = upstreamDetail || await upstream.text();
+          const isHfProvider = requestProvider === "huggingface" || requestProvider === "auto";
           const isAsr2ModelUnavailable = asr2ExperimentalSelected && isModelUnavailableUpstreamError(detail);
-          const hfMessage = requestProvider === "huggingface" ? readHuggingFaceErrorMessage(detail) : null;
-          const hfMissingToken = requestProvider === "huggingface" && (
+          const hfMessage = isHfProvider ? readHuggingFaceErrorMessage(detail) : null;
+          const hfMissingToken = isHfProvider && (
             hfMessage?.toLowerCase().includes("missing huggingface_api_token")
             || detail.toLowerCase().includes("hf_missing_token")
           );
-          const hfTimeout = requestProvider === "huggingface" && (
+          const hfTimeout = isHfProvider && (
             hfMessage?.toLowerCase().includes("upstream timeout")
             || detail.toLowerCase().includes("hf_upstream_timeout")
           );
+          const hfMalformed = isHfProvider && detail.toLowerCase().includes("hf_malformed_upstream_response");
           const resolvedUpstreamMessage = isAsr2ModelUnavailable
             ? "ASR2 model unavailable for selected provider"
             : (
               upstreamMessage
-              ?? (requestProvider === "huggingface"
+              ?? (isHfProvider
                 ? readHuggingFaceErrorMessage(detail)
                 : readUpstreamErrorMessage(detail))
-              ?? (requestProvider === "huggingface" ? "Hugging Face error" : "OpenAI error")
+              ?? (isHfProvider ? "Hugging Face error" : "OpenAI error")
             );
-          const resolvedCode = requestProvider === "huggingface"
+          const resolvedCode = isHfProvider
             ? (
               hfMissingToken ? "hf_missing_token"
                 : hfTimeout ? "hf_upstream_timeout"
+                  : hfMalformed ? "hf_malformed_upstream_response"
                   : isAsr2ModelUnavailable ? "hf_provider_model_unavailable"
                     : upstream.status === 404 ? "hf_upstream_404"
                       : "hf_upstream_error"
@@ -797,10 +871,10 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             asr_lane: asrLane ?? null,
             upstream_status: upstream.status,
             upstream_message: resolvedUpstreamMessage,
-            upstream_url: requestProvider === "huggingface"
-              ? `https://api-inference.huggingface.co/models/${resolvedModel}`
+            upstream_url: isHfProvider
+              ? upstreamUrl
               : "https://api.openai.com/v1/audio/transcriptions",
-            model_url: requestProvider === "huggingface" ? huggingFaceModelUrl : null,
+            model_url: isHfProvider ? huggingFaceModelUrl : null,
             model: resolvedModel,
             provider_request_id: upstream.headers.get("x-request-id"),
             billing_mode: lane,
@@ -814,19 +888,21 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         try {
           payload = (await upstream.json()) as unknown;
         } catch {
-          if (requestProvider === "huggingface") {
+          if (requestProvider === "huggingface" || requestProvider === "auto") {
             return jsonResponse(502, {
               ok: false,
               text: "",
               error: "Malformed response from Hugging Face ASR upstream",
               code: "hf_malformed_upstream_response",
               detail: "Expected JSON payload from Hugging Face inference API.",
-              provider: "huggingface",
+              provider: requestProvider,
               model_id: resolvedModel,
               asr_lane: asrLane ?? null,
               upstream_status: upstream.status,
               upstream_message: "Malformed upstream response",
-              upstream_url: `https://api-inference.huggingface.co/models/${resolvedModel}`,
+              upstream_url: requestProvider === "auto"
+                ? upstreamUrl
+                : upstreamUrl,
               model_url: huggingFaceModelUrl,
               model: resolvedModel,
               provider_request_id: upstream.headers.get("x-request-id"),
@@ -898,6 +974,17 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           ok: true,
           text,
           empty: text.length === 0,
+          provider: requestProvider,
+          model_id: resolvedModel,
+          asr_lane: asrLane ?? null,
+          upstream_status: upstream.status,
+          upstream_message: null,
+          upstream_url: requestProvider === "openai"
+            ? "https://api.openai.com/v1/audio/transcriptions"
+            : upstreamUrl,
+          model_url: (requestProvider === "huggingface" || requestProvider === "auto")
+            ? huggingFaceModelUrl
+            : null,
           model: resolvedModel,
           provider_request_id: providerRequestId,
           billing_mode: lane,

@@ -48947,8 +48947,9 @@ function buildScriptPrompt() {
   }
 }
 function readResponseError(payload, status2) {
+  const fromUpstream = typeof payload.upstream_message === "string" ? payload.upstream_message.trim() : "";
   const fromPayload = typeof payload.error === "string" ? payload.error.trim() : "";
-  return fromPayload || `Whisper bridge failed (${status2})`;
+  return fromUpstream || fromPayload || `Whisper bridge failed (${status2})`;
 }
 function createWhisperBridgeRecognizer(options = {}) {
   return new WhisperBridgeRecognizer(options);
@@ -49456,10 +49457,20 @@ var init_whisper_bridge = __esm({
                   this.stop();
                 }
               }
+              const upstreamPayload = error instanceof WhisperBridgeHttpError ? error.payload : null;
               this.emit("error", {
                 source: SOURCE,
                 message,
-                timestamp: nowTs()
+                timestamp: nowTs(),
+                code: upstreamPayload?.code ?? null,
+                provider: upstreamPayload?.provider ?? null,
+                modelId: upstreamPayload?.model_id ?? null,
+                asrLane: upstreamPayload?.asr_lane ?? null,
+                upstreamStatus: upstreamPayload?.upstream_status ?? (error instanceof WhisperBridgeHttpError ? error.status : null),
+                upstreamMessage: upstreamPayload?.upstream_message ?? null,
+                upstreamUrl: upstreamPayload?.upstream_url ?? null,
+                modelUrl: upstreamPayload?.model_url ?? null,
+                detail: upstreamPayload?.detail ?? null
               });
             } finally {
               this.requestsInFlight = Math.max(0, this.requestsInFlight - 1);
@@ -49650,6 +49661,14 @@ var init_whisper_bridge = __esm({
                 status: response.status,
                 statusText: response.statusText,
                 error: payload.error ?? null,
+                code: payload.code ?? null,
+                provider: payload.provider ?? null,
+                modelId: payload.model_id ?? null,
+                asrLane: payload.asr_lane ?? null,
+                upstreamStatus: payload.upstream_status ?? null,
+                upstreamMessage: payload.upstream_message ?? null,
+                upstreamUrl: payload.upstream_url ?? null,
+                modelUrl: payload.model_url ?? null,
                 detail: payload.detail ?? null,
                 model: payload.model ?? null,
                 providerRequestId: payload.provider_request_id ?? null,
@@ -54213,7 +54232,26 @@ async function startBackendForSession(mode, reason) {
       } catch {
       }
       try {
-        whisperRecognizer.on("error", (detail) => console.warn("[speech] whisper bridge error", detail));
+        whisperRecognizer.on("error", (detail) => {
+          const row = detail && typeof detail === "object" ? detail : {};
+          const summary = {
+            source: row.source ?? "openai-whisper-bridge",
+            message: row.message ?? null,
+            code: row.code ?? null,
+            provider: row.provider ?? null,
+            modelId: row.modelId ?? null,
+            asrLane: row.asrLane ?? null,
+            upstreamStatus: row.upstreamStatus ?? null,
+            upstreamMessage: row.upstreamMessage ?? null,
+            upstreamUrl: row.upstreamUrl ?? null,
+            modelUrl: row.modelUrl ?? null
+          };
+          try {
+            console.warn("[speech] whisper bridge error", JSON.stringify(summary));
+          } catch {
+            console.warn("[speech] whisper bridge error", summary);
+          }
+        });
       } catch {
       }
       try {
