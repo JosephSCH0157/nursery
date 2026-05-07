@@ -1654,8 +1654,9 @@ var AsrTopbar = class {
     const renderRuntime = (detail) => {
       const requested = String(detail?.requestedEngine || "").trim() || "whisper";
       const actual = String(detail?.actualEngine || requested).trim() || requested;
+      const lane = String(detail?.activeAsrLane || "ASR1_CURRENT").trim();
       const fallbackReason = String(detail?.fallbackReason || "").trim();
-      this.chip.title = fallbackReason ? `Requested: ${requested}  \u2022  Active: ${actual}  \u2022  Fallback: ${fallbackReason}` : `Engine: ${actual}`;
+      this.chip.title = fallbackReason ? `Lane: ${lane}  \u2022  Requested: ${requested}  \u2022  Active: ${actual}  \u2022  Fallback: ${fallbackReason}` : `Lane: ${lane}  \u2022  Engine: ${actual}`;
     };
     window.addEventListener("tp:asr:state", (e) => renderState(e?.detail?.state));
     window.addEventListener("asr:state", (e) => renderState(e?.detail?.state));

@@ -2538,7 +2538,7 @@ function installAsrHudDev(): void {
     reopenBtn.textContent = 'Show ASR HUD';
     reopenBtn.title = 'Show ASR HUD';
     reopenBtn.style.cssText = [
-      'position:fixed;right:8px;bottom:8px;z-index:1000000;',
+      'position:fixed;right:8px;bottom:8px;z-index:2147483000;',
       'border:1px solid rgba(255,255,255,0.25);background:rgba(0,0,0,0.65);color:#cfe8ff;',
       'border-radius:8px;padding:4px 8px;font-size:11px;cursor:pointer;display:none;',
     ].join('');
@@ -2586,15 +2586,53 @@ lastCommit: ${formatAge(snap.lastCommitTs)}
       writeHidden(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      dismiss();
+      if (event.key === 'Escape') {
+        dismiss();
+        return;
+      }
+      // Global recovery toggle: Ctrl+Shift+H
+      if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && String(event.key || '').toLowerCase() === 'h') {
+        event.preventDefault();
+        if (el.style.display === 'none') showHud();
+        else dismiss();
+      }
+    };
+    const layoutHud = () => {
+      const base = 8;
+      let rightInset = base;
+      let bottomInset = base;
+      try {
+        const drawer = document.getElementById('tp-dev-drawer') as HTMLElement | null;
+        if (drawer && drawer.getAttribute('data-open') === 'true') {
+          const dock = String(drawer.getAttribute('data-dock') || '').toLowerCase();
+          const rect = drawer.getBoundingClientRect();
+          if (dock === 'right') {
+            rightInset = Math.max(base, Math.round(rect.width + 16));
+          } else if (dock === 'bottom') {
+            bottomInset = Math.max(base, Math.round(rect.height + 16));
+          }
+        }
+      } catch {}
+      try {
+        el.style.right = `${rightInset}px`;
+        el.style.bottom = `${bottomInset}px`;
+      } catch {}
+      try {
+        reopenBtn.style.right = `${rightInset}px`;
+        reopenBtn.style.bottom = `${bottomInset}px`;
+      } catch {}
     };
     closeBtn.addEventListener('click', dismiss);
     reopenBtn.addEventListener('click', showHud);
     window.addEventListener('keydown', onKeyDown, { capture: true });
+    window.addEventListener('resize', layoutHud, { passive: true });
+    window.addEventListener('orientationchange', layoutHud);
+    window.addEventListener('tp:asr:lane-change', layoutHud as EventListener);
+    window.addEventListener('click', () => { window.setTimeout(layoutHud, 0); }, true);
 
     try { window.addEventListener('tp:hud:snapshot', onSnapshot, { capture: false }); } catch {}
     render(buildHudSnapshot('dev-hud:init'));
+    layoutHud();
     if (readHidden()) {
       dismiss();
     }
