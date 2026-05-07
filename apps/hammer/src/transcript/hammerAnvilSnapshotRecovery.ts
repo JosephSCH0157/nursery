@@ -1,8 +1,4 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
-import type { HammerPersistedStructuredTranscript } from "../persistence/hammerPersistenceContract";
-import type { HammerPersistenceTarget } from "../persistence/hammerPersistenceContract";
-import { HAMMER_RUNTIME_WRITTEN_BY } from "../prep/hammerPrep";
-import { saveHammerPersistenceSnapshot } from "../persistence/hammerPersistence";
 
 export type HammerRecoveredAnvilSnapshot = {
   key: string;
@@ -85,57 +81,5 @@ export function findRecoveredAnvilSnapshotByWorkpieceId(
     }
   }
   return best;
-}
-
-/**
- * Convert a recovered Anvil live snapshot into Hammer's structured transcript format.
- * The provider is tagged as "anvil-live-asr" to distinguish it from AI-prepared transcripts.
- */
-export function convertAnvilSnapshotToHammerTranscript(
-  snapshot: HammerRecoveredAnvilSnapshot,
-): HammerPersistedStructuredTranscript {
-  return {
-    schema_version: 1,
-    transcript_id: snapshot.capture_session_id || `recovered-${Date.now()}`,
-    media_id: `capture-session:${snapshot.capture_session_id}`,
-    media_signature: null,
-    prepared_at: new Date().toISOString(),
-    structure: "speaker_turns",
-    source_media_ref: null,
-    diarization: {
-      label_scheme: "forge-neutral-speakers.v1",
-      labels: [DEFAULT_SPEAKER],
-      raw_labels: [DEFAULT_SPEAKER],
-      version: "anvil-live-transcript.v1",
-      // Type widened in contract to accept "anvil-live-asr"; cast required for strict union.
-      provider: "anvil-live-asr" as "openai",
-      provider_request_id: null,
-      model: null,
-    },
-    confidence_flags: [],
-    segments: snapshot.segments,
-  };
-}
-
-export type AnvilLocalTranscriptPromoteResult =
-  | { ok: true; segment_count: number }
-  | { ok: false; error: string };
-
-/**
- * Write a recovered Anvil live transcript into Hammer's canonical Tongs slot so that
- * the workpiece can be opened normally on next load without repeating the recovery scan.
- */
-export async function promoteAnvilLocalTranscriptToTongs(
-  target: HammerPersistenceTarget,
-  transcript: HammerPersistedStructuredTranscript,
-): Promise<AnvilLocalTranscriptPromoteResult> {
-  const result = await saveHammerPersistenceSnapshot(target, {
-    written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
-    structured_transcript: { data: transcript },
-  });
-  if (!result.ok) {
-    return { ok: false, error: result.error };
-  }
-  return { ok: true, segment_count: transcript.segments.length };
 }
 

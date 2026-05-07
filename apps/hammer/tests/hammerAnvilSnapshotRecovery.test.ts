@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import {
   findRecoveredAnvilSnapshotByWorkpieceId,
-  convertAnvilSnapshotToHammerTranscript,
-  type HammerRecoveredAnvilSnapshot,
 } from "../src/transcript/hammerAnvilSnapshotRecovery";
 
 type MemoryStorage = Storage & {
@@ -135,33 +133,6 @@ function testIgnoresSegmentsWithEmptyText() {
   assert.equal(found.segments[0].text, "Good text");
 }
 
-function testConvertAnvilSnapshotToHammerTranscript() {
-  const snapshot: HammerRecoveredAnvilSnapshot = {
-    key: "forge_anvil_live_transcript_v1:conv-test",
-    capture_session_id: "conv-test-session",
-    workpiece_id: "workpiece-6",
-    status: "ready",
-    final_path: "anvil/transcript/final/conv-test-session.structured.v1.json",
-    live_path: "anvil/transcript/live/conv-test-session.snapshot.v1.json",
-    segment_count: 2,
-    segments: [
-      { segment_id: "seg-1", start_sec: 0, end_sec: 2.0, speaker: "unknown", text: "First segment" },
-      { segment_id: "seg-2", start_sec: 2.0, end_sec: 4.5, speaker: "unknown", text: "Second segment" },
-    ],
-  };
-
-  const transcript = convertAnvilSnapshotToHammerTranscript(snapshot);
-  assert.equal(transcript.schema_version, 1);
-  assert.equal(transcript.transcript_id, "conv-test-session");
-  assert.equal(transcript.structure, "speaker_turns");
-  assert.equal(transcript.segments.length, 2);
-  assert.equal(transcript.segments[0].text, "First segment");
-  assert.equal(transcript.segments[1].text, "Second segment");
-  assert.equal(transcript.diarization.label_scheme, "forge-neutral-speakers.v1");
-  assert.equal(transcript.diarization.version, "anvil-live-transcript.v1");
-  assert.equal(transcript.confidence_flags.length, 0);
-}
-
 function testSnapshotWorkpieceIdIsPresent() {
   // Verifies that the snapshot stored in localStorage includes workpiece_id,
   // which is required for Hammer's local recovery scan to work correctly.
@@ -191,7 +162,6 @@ try {
   testIgnoresMalformedEntries();
   testIncludesSegmentsFromSnapshot();
   testIgnoresSegmentsWithEmptyText();
-  testConvertAnvilSnapshotToHammerTranscript();
   testSnapshotWorkpieceIdIsPresent();
   console.log("Hammer Anvil snapshot recovery tests passed.");
 } catch (error) {

@@ -51,8 +51,8 @@ function mapTranscriptSourceLabel(value: string | null): string {
       return "Canonical baseline";
     case "prepared_transcript":
       return "AI-prepared transcript";
-    case "local_anvil":
-      return "Recovered Anvil live transcript";
+    case "live_noncanonical":
+      return "Anvil live ASR (non-canonical)";
     default:
       return value ? value : "Unknown";
   }
@@ -128,9 +128,7 @@ import {
 } from "../prep/hammerPrep";
 import { decideHammerTranscriptHydrationSource } from "./hammerTranscriptSelection";
 import {
-  convertAnvilSnapshotToHammerTranscript,
   findRecoveredAnvilSnapshotByWorkpieceId,
-  promoteAnvilLocalTranscriptToTongs,
 } from "../transcript/hammerAnvilSnapshotRecovery";
 import {
   buildHammerPrepAiNoticeModel,
@@ -1736,7 +1734,7 @@ export default function HammerWorkspaceEditor(
               workpiece_id: persistenceTarget.workpieceId,
               timestamp: new Date().toISOString(),
             });
-            console.info("[hammer:transcript:local_anvil_scan_start]", {
+            console.info("[hammer:transcript:live_noncanonical_scan_start]", {
               workpiece_id: persistenceTarget.workpieceId,
               timestamp: new Date().toISOString(),
             });
@@ -1746,21 +1744,19 @@ export default function HammerWorkspaceEditor(
               match_found: boolean;
               capture_session_id: string | null;
               segment_count: number | null;
-              promote_ok: boolean | null;
-              promote_error: string | null;
+              blocked_reason: string | null;
             } = {
               scan_attempted: true,
               match_found: false,
               capture_session_id: null,
               segment_count: null,
-              promote_ok: null,
-              promote_error: null,
+              blocked_reason: null,
             };
 
             try {
               const recovered = findRecoveredAnvilSnapshotByWorkpieceId(persistenceTarget.workpieceId);
               if (recovered && recovered.segments.length > 0) {
-                console.info("[hammer:transcript:local_anvil_match_found]", {
+                console.info("[hammer:transcript:live_noncanonical_match_found]", {
                   workpiece_id: persistenceTarget.workpieceId,
                   capture_session_id: recovered.capture_session_id,
                   segment_count: recovered.segment_count,
@@ -1769,45 +1765,23 @@ export default function HammerWorkspaceEditor(
                 localAnvilRecoveryResult.match_found = true;
                 localAnvilRecoveryResult.capture_session_id = recovered.capture_session_id;
                 localAnvilRecoveryResult.segment_count = recovered.segment_count;
-
-                const convertedTranscript = convertAnvilSnapshotToHammerTranscript(recovered);
-                const promoteResult = await promoteAnvilLocalTranscriptToTongs(persistenceTarget, convertedTranscript);
-                localAnvilRecoveryResult.promote_ok = promoteResult.ok;
-                if (promoteResult.ok) {
-                  hydratedTranscript = convertedTranscript;
-                  transcriptSource = "local_anvil";
-                  rejectionReason = null;
-                  console.info("[hammer:transcript:local_anvil_recovery_imported]", {
-                    workpiece_id: persistenceTarget.workpieceId,
-                    capture_session_id: recovered.capture_session_id,
-                    segment_count: recovered.segment_count,
-                    timestamp: new Date().toISOString(),
-                  });
-                  transcriptEvaluations.push({
-                    source: "local_anvil",
-                    path: recovered.live_path ?? recovered.final_path,
-                    segment_count: recovered.segment_count,
-                    load_ok: true,
-                    rejection_reason: null,
-                  });
-                } else {
-                  localAnvilRecoveryResult.promote_error = promoteResult.error;
-                  console.warn("[hammer:transcript:local_anvil_recovery_promote_failed]", {
-                    workpiece_id: persistenceTarget.workpieceId,
-                    capture_session_id: recovered.capture_session_id,
-                    error: promoteResult.error,
-                    timestamp: new Date().toISOString(),
-                  });
-                }
+                localAnvilRecoveryResult.blocked_reason = "live_noncanonical_asr_cannot_seed_canonical_transcript";
+                transcriptEvaluations.push({
+                  source: "live_noncanonical",
+                  path: recovered.live_path ?? recovered.final_path,
+                  segment_count: recovered.segment_count,
+                  load_ok: false,
+                  rejection_reason: "live_noncanonical_asr",
+                });
               }
             } catch (localRecoveryError) {
-              localAnvilRecoveryResult.promote_error = localRecoveryError instanceof Error
+              localAnvilRecoveryResult.blocked_reason = localRecoveryError instanceof Error
                 ? localRecoveryError.message
                 : String(localRecoveryError);
             }
 
             if (ingestDiagnosticRef.current) {
-              ingestDiagnosticRef.current.local_anvil_recovery = localAnvilRecoveryResult;
+              ingestDiagnosticRef.current.live_noncanonical_asr = localAnvilRecoveryResult;
             }
 
             if (!hydratedTranscript) {
