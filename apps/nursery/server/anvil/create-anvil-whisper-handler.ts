@@ -35,12 +35,13 @@ export const ANVIL_WHISPER_ROUTE = "/api/anvil/asr/whisper";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const DEFAULT_MODEL = "gpt-4o-mini-transcribe";
 const MISSING_OPENAI_API_KEY_ERROR = "Missing OPENAI_TEXT_API_KEY (or OPENAI_API_KEY) in server env";
+const HUGGINGFACE_UPSTREAM_TIMEOUT_MS = 30_000;
 
 export type AnvilWhisperRuntimeConfig = {
   apiKey: string | null;
   sttModel: string;
   asr2SttModel?: string;
-  asr2Provider?: "openai" | "huggingface";
+  asr2Provider?: "openai" | "huggingface" | "auto";
   huggingFaceApiToken?: string | null;
   configuredBillingMode?: BillingMode;
   initialTokenBalance?: number | null;
@@ -57,6 +58,13 @@ type AnvilWhisperResponse = {
   error?: string;
   code?: string;
   detail?: string;
+  provider?: "openai" | "huggingface" | "auto";
+  model_id?: string;
+  asr_lane?: string | null;
+  upstream_status?: number;
+  upstream_message?: string | null;
+  upstream_url?: string | null;
+  model_url?: string | null;
   model?: string;
   provider_request_id?: string | null;
   billing_mode?: BillingMode;
@@ -225,15 +233,19 @@ export function resolveAnvilWhisperRuntimeConfig(): AnvilWhisperRuntimeConfig {
   const huggingFaceApiToken = readOptionalString(process.env.HUGGINGFACE_API_TOKEN)
     ?? readOptionalString(process.env.HF_TOKEN)
     ?? null;
-  const asr2Provider = asr2ProviderOverride === "huggingface"
-    ? "huggingface"
-    : asr2ProviderOverride === "openai"
-      ? "openai"
-      : (huggingFaceApiToken ? "huggingface" : "openai");
+  const asr2Provider = asr2ProviderOverride === "auto"
+    ? "auto"
+    : asr2ProviderOverride === "huggingface"
+      ? "huggingface"
+      : asr2ProviderOverride === "openai"
+        ? "openai"
+        : (huggingFaceApiToken ? "auto" : "openai");
   return {
     apiKey: runtime.textApiKey ?? runtime.apiKey ?? null,
     sttModel: modelOverride ?? runtime.sttModel ?? DEFAULT_MODEL,
-    asr2SttModel: asr2ModelOverride ?? (asr2Provider === "huggingface" ? "openai/whisper-large-v3" : "gpt-4o-transcribe"),
+    asr2SttModel: asr2ModelOverride ?? ((asr2Provider === "huggingface" || asr2Provider === "auto")
+      ? "openai/whisper-large-v3-turbo:fastest"
+      : "gpt-4o-transcribe"),
     asr2Provider,
     huggingFaceApiToken,
     configuredBillingMode: runtime.configuredBillingMode,
@@ -269,8 +281,14 @@ export function resolveAnvilWhisperRuntimeConfig(): AnvilWhisperRuntimeConfig {
 export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
   const apiKey = readOptionalString(config.apiKey);
   const sttModel = readOptionalString(config.sttModel) ?? DEFAULT_MODEL;
-  const asr2Provider = config.asr2Provider === "huggingface" ? "huggingface" : "openai";
-  const asr2SttModel = readOptionalString(config.asr2SttModel) ?? (asr2Provider === "huggingface" ? "openai/whisper-large-v3" : "gpt-4o-transcribe");
+  const asr2Provider = config.asr2Provider === "huggingface"
+    ? "huggingface"
+    : config.asr2Provider === "auto"
+      ? "auto"
+      : "openai";
+  const asr2SttModel = readOptionalString(config.asr2SttModel) ?? ((asr2Provider === "huggingface" || asr2Provider === "auto")
+    ? "openai/whisper-large-v3-turbo:fastest"
+    : "gpt-4o-transcribe");
   const huggingFaceApiToken = readOptionalString(config.huggingFaceApiToken);
   const configuredBillingMode = normalizeBillingMode(config.configuredBillingMode, "forge");
   let tokenBalance = typeof config.initialTokenBalance === "number" && Number.isFinite(config.initialTokenBalance)
@@ -474,6 +492,9 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           : sttModel;
       const asr2ExperimentalSelected = (asrLane || "").toUpperCase() === "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL";
       const requestProvider = asr2ExperimentalSelected ? asr2Provider : "openai";
+      const huggingFaceModelUrl = requestProvider === "huggingface"
+        ? `https://huggingface.co/${requestSttModel}`
+        : null;
       const fileName = readOptionalString((fileValue as { name?: unknown }).name);
       const mimeType = readOptionalString((fileValue as { type?: unknown }).type);
       const extension = inferExtension(fileName, mimeType);
@@ -565,33 +586,52 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
       }> {
         if (!huggingFaceApiToken) {
           return {
-            upstream: new Response(JSON.stringify({ error: "Missing HUGGINGFACE_API_TOKEN in server env" }), { status: 500 }),
-            detail: JSON.stringify({ error: "Missing HUGGINGFACE_API_TOKEN in server env" }),
+            upstream: new Response(JSON.stringify({ error: "Missing HUGGINGFACE_API_TOKEN in server env", code: "hf_missing_token" }), { status: 500 }),
+            detail: JSON.stringify({ error: "Missing HUGGINGFACE_API_TOKEN in server env", code: "hf_missing_token" }),
             message: "Missing HUGGINGFACE_API_TOKEN in server env",
           };
         }
         let upstream: Response;
         let detail = "";
         let message: string | null = null;
+        let timedOut = false;
+        const hfAbort = new AbortController();
+        const timeoutHandle = setTimeout(() => {
+          timedOut = true;
+          hfAbort.abort();
+        }, HUGGINGFACE_UPSTREAM_TIMEOUT_MS);
+        const onParentAbort = () => hfAbort.abort();
+        upstreamAbort.signal.addEventListener("abort", onParentAbort, { once: true });
         try {
-          upstream = await fetch(`https://api-inference.huggingface.co/models/${nextModel}`, {
+          const hfUpstreamUrl = `https://api-inference.huggingface.co/models/${nextModel}`;
+          upstream = await fetch(hfUpstreamUrl, {
             method: "POST",
             headers: {
               authorization: `Bearer ${huggingFaceApiToken}`,
               "content-type": mimeType ?? "application/octet-stream",
             },
             body: new Uint8Array(await nextFileValue.arrayBuffer()),
-            signal: upstreamAbort.signal,
+            signal: hfAbort.signal,
           });
           if (!upstream.ok) {
             detail = await upstream.text();
             message = readHuggingFaceErrorMessage(detail) ?? "Hugging Face error";
           }
         } catch (error) {
+          if (timedOut) {
+            return {
+              upstream: new Response(JSON.stringify({ error: "Hugging Face upstream timeout", code: "hf_upstream_timeout" }), { status: 504 }),
+              detail: JSON.stringify({ error: "Hugging Face upstream timeout", code: "hf_upstream_timeout" }),
+              message: "Hugging Face upstream timeout",
+            };
+          }
           if (clientAborted || upstreamAbort.signal.aborted) {
             throw new Response(null, { status: 499 });
           }
           throw error;
+        } finally {
+          clearTimeout(timeoutHandle);
+          upstreamAbort.signal.removeEventListener("abort", onParentAbort);
         }
         return { upstream, detail, message };
       }
@@ -619,20 +659,6 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           upstream = directAttempt.upstream;
           upstreamDetail = directAttempt.detail;
           upstreamMessage = directAttempt.message;
-
-          if (
-            !upstream.ok
-            && asr2ExperimentalSelected
-            && requestSttModel !== sttModel
-            && (upstream.status === 400 || upstream.status === 403 || upstream.status === 404 || upstream.status === 422)
-            && isModelUnavailableUpstreamError(upstreamDetail)
-          ) {
-            const fallbackAttempt = await sendToOpenAi(sttModel, fileValue, uploadFileName);
-            upstream = fallbackAttempt.upstream;
-            upstreamDetail = fallbackAttempt.detail;
-            upstreamMessage = fallbackAttempt.message;
-            resolvedModel = sttModel;
-          }
 
           if (!upstream.ok && ffmpegClient && isUnsupportedAudioUpstreamError(upstreamDetail)) {
             ffmpegFallbackAttempted = true;
@@ -706,6 +732,15 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         if (!upstream.ok) {
           const detail = upstreamDetail || await upstream.text();
           const isAsr2ModelUnavailable = asr2ExperimentalSelected && isModelUnavailableUpstreamError(detail);
+          const hfMessage = requestProvider === "huggingface" ? readHuggingFaceErrorMessage(detail) : null;
+          const hfMissingToken = requestProvider === "huggingface" && (
+            hfMessage?.toLowerCase().includes("missing huggingface_api_token")
+            || detail.toLowerCase().includes("hf_missing_token")
+          );
+          const hfTimeout = requestProvider === "huggingface" && (
+            hfMessage?.toLowerCase().includes("upstream timeout")
+            || detail.toLowerCase().includes("hf_upstream_timeout")
+          );
           const resolvedUpstreamMessage = isAsr2ModelUnavailable
             ? "ASR2 model unavailable for selected provider"
             : (
@@ -715,6 +750,15 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
                 : readUpstreamErrorMessage(detail))
               ?? (requestProvider === "huggingface" ? "Hugging Face error" : "OpenAI error")
             );
+          const resolvedCode = requestProvider === "huggingface"
+            ? (
+              hfMissingToken ? "hf_missing_token"
+                : hfTimeout ? "hf_upstream_timeout"
+                  : isAsr2ModelUnavailable ? "hf_provider_model_unavailable"
+                    : upstream.status === 404 ? "hf_upstream_404"
+                      : "hf_upstream_error"
+            )
+            : undefined;
           const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
           const responseDetail = ffmpegFallbackError
             ? `${detail}\n\n[forge-ffmpeg fallback] ${ffmpegFallbackError}`
@@ -746,7 +790,17 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             ok: false,
             text: "",
             error: resolvedUpstreamMessage,
+            code: resolvedCode,
             detail: responseDetail,
+            provider: requestProvider,
+            model_id: resolvedModel,
+            asr_lane: asrLane ?? null,
+            upstream_status: upstream.status,
+            upstream_message: resolvedUpstreamMessage,
+            upstream_url: requestProvider === "huggingface"
+              ? `https://api-inference.huggingface.co/models/${resolvedModel}`
+              : "https://api.openai.com/v1/audio/transcriptions",
+            model_url: requestProvider === "huggingface" ? huggingFaceModelUrl : null,
             model: resolvedModel,
             provider_request_id: upstream.headers.get("x-request-id"),
             billing_mode: lane,
@@ -756,7 +810,31 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           });
         }
 
-        const payload = (await upstream.json()) as unknown;
+        let payload: unknown;
+        try {
+          payload = (await upstream.json()) as unknown;
+        } catch {
+          if (requestProvider === "huggingface") {
+            return jsonResponse(502, {
+              ok: false,
+              text: "",
+              error: "Malformed response from Hugging Face ASR upstream",
+              code: "hf_malformed_upstream_response",
+              detail: "Expected JSON payload from Hugging Face inference API.",
+              provider: "huggingface",
+              model_id: resolvedModel,
+              asr_lane: asrLane ?? null,
+              upstream_status: upstream.status,
+              upstream_message: "Malformed upstream response",
+              upstream_url: `https://api-inference.huggingface.co/models/${resolvedModel}`,
+              model_url: huggingFaceModelUrl,
+              model: resolvedModel,
+              provider_request_id: upstream.headers.get("x-request-id"),
+              billing_mode: lane,
+            });
+          }
+          throw new Error("Malformed response from OpenAI ASR upstream");
+        }
         const text = requestProvider === "huggingface"
           ? extractHuggingFaceTranscriptionText(payload)
           : extractTranscriptionText(payload);

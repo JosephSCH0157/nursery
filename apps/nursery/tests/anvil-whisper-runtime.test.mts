@@ -404,7 +404,7 @@ test("createAnvilWhisperHandler routes ASR2 lane to configured provider model", 
   }
 });
 
-test("createAnvilWhisperHandler falls back to default model when ASR2 model is unavailable", async () => {
+test("createAnvilWhisperHandler does not fallback models for ASR2 when model is unavailable", async () => {
   const originalFetch = globalThis.fetch;
   const seenModels: string[] = [];
 
@@ -427,19 +427,13 @@ test("createAnvilWhisperHandler falls back to default model when ASR2 model is u
       assert(body instanceof FormData);
       const model = String(body.get("model") || "");
       seenModels.push(model);
-      if (model === "whisper-large-v3") {
-        return new Response(JSON.stringify({
-          error: {
-            message: "The model `whisper-large-v3` does not exist or you do not have access to it.",
-            code: "model_not_found",
-          },
-        }), {
-          status: 404,
-          headers: { "content-type": "application/json" },
-        });
-      }
-      return new Response(JSON.stringify({ text: "fallback-ok" }), {
-        status: 200,
+      return new Response(JSON.stringify({
+        error: {
+          message: "The model `whisper-large-v3` does not exist or you do not have access to it.",
+          code: "model_not_found",
+        },
+      }), {
+        status: 404,
         headers: { "content-type": "application/json" },
       });
     }
@@ -465,12 +459,11 @@ test("createAnvilWhisperHandler falls back to default model when ASR2 model is u
       headers: { authorization: "Bearer test-access-token" },
       body: form,
     }));
-    assert.equal(response.status, 200);
+    assert.equal(response.status, 404);
     const payload = await response.json();
-    assert.equal(payload.ok, true);
-    assert.equal(payload.text, "fallback-ok");
-    assert.equal(payload.model, "gpt-4o-mini-transcribe");
-    assert.deepEqual(seenModels, ["whisper-large-v3", "gpt-4o-mini-transcribe"]);
+    assert.equal(payload.ok, false);
+    assert.equal(payload.error, "ASR2 model unavailable for selected provider");
+    assert.deepEqual(seenModels, ["whisper-large-v3"]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -593,6 +586,149 @@ test("createAnvilWhisperHandler routes ASR2 lane through Hugging Face when confi
     assert.equal(payload.model, "openai/whisper-large-v3");
     assert.ok(seenUrls.includes("https://api-inference.huggingface.co/models/openai/whisper-large-v3"));
     assert.ok(seenAuth.some((value) => value === "Bearer hf_test_token"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createAnvilWhisperHandler returns detailed Hugging Face diagnostics on upstream 404", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({ id: TEST_USER_ID }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://api-inference.huggingface.co/models/openai/whisper-large-v3") {
+      return new Response(JSON.stringify({
+        error: "Model openai/whisper-large-v3 not found",
+      }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch call in test: ${url} ${init?.method ?? "GET"}`);
+  };
+
+  try {
+    const handler = createAnvilWhisperHandler(buildConfig({
+      apiKey: "forge-key",
+      asr2Provider: "huggingface",
+      asr2SttModel: "openai/whisper-large-v3",
+      huggingFaceApiToken: "hf_test_token",
+      configuredBillingMode: AI_USAGE_LANE.FORGE,
+      initialTokenBalance: 999_999,
+      supabaseUrl: "https://runtime-test.supabase.co",
+      supabaseServiceRoleKey: "service-role",
+    }));
+    const form = buildChunkFormData();
+    form.set("lane", AI_USAGE_LANE.FORGE);
+    form.set("asr_lane", "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL");
+    const response = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-access-token" },
+      body: form,
+    }));
+    assert.equal(response.status, 404);
+    const payload = await response.json();
+    assert.equal(payload.ok, false);
+    assert.equal(payload.code, "hf_upstream_404");
+    assert.equal(payload.provider, "huggingface");
+    assert.equal(payload.model_id, "openai/whisper-large-v3");
+    assert.equal(payload.asr_lane, "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL");
+    assert.equal(payload.upstream_status, 404);
+    assert.equal(payload.upstream_message, "Model openai/whisper-large-v3 not found");
+    assert.equal(payload.upstream_url, "https://api-inference.huggingface.co/models/openai/whisper-large-v3");
+    assert.equal(payload.model_url, "https://huggingface.co/openai/whisper-large-v3");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createAnvilWhisperHandler distinguishes missing Hugging Face token", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({ id: TEST_USER_ID }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch call in test: ${url} ${init?.method ?? "GET"}`);
+  };
+  try {
+    const handler = createAnvilWhisperHandler(buildConfig({
+      apiKey: "forge-key",
+      asr2Provider: "huggingface",
+      asr2SttModel: "openai/whisper-large-v3",
+      huggingFaceApiToken: null,
+      configuredBillingMode: AI_USAGE_LANE.FORGE,
+      initialTokenBalance: 999_999,
+      supabaseUrl: "https://runtime-test.supabase.co",
+      supabaseServiceRoleKey: "service-role",
+    }));
+    const form = buildChunkFormData();
+    form.set("lane", AI_USAGE_LANE.FORGE);
+    form.set("asr_lane", "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL");
+    const response = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-access-token" },
+      body: form,
+    }));
+    assert.equal(response.status, 500);
+    const payload = await response.json();
+    assert.equal(payload.code, "hf_missing_token");
+    assert.equal(payload.provider, "huggingface");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createAnvilWhisperHandler distinguishes Hugging Face malformed upstream response", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({ id: TEST_USER_ID }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://api-inference.huggingface.co/models/openai/whisper-large-v3") {
+      return new Response("<html>not json</html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }
+    throw new Error(`Unexpected fetch call in test: ${url} ${init?.method ?? "GET"}`);
+  };
+  try {
+    const handler = createAnvilWhisperHandler(buildConfig({
+      apiKey: "forge-key",
+      asr2Provider: "huggingface",
+      asr2SttModel: "openai/whisper-large-v3",
+      huggingFaceApiToken: "hf_test_token",
+      configuredBillingMode: AI_USAGE_LANE.FORGE,
+      initialTokenBalance: 999_999,
+      supabaseUrl: "https://runtime-test.supabase.co",
+      supabaseServiceRoleKey: "service-role",
+    }));
+    const form = buildChunkFormData();
+    form.set("lane", AI_USAGE_LANE.FORGE);
+    form.set("asr_lane", "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL");
+    const response = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-access-token" },
+      body: form,
+    }));
+    assert.equal(response.status, 502);
+    const payload = await response.json();
+    assert.equal(payload.code, "hf_malformed_upstream_response");
+    assert.equal(payload.provider, "huggingface");
   } finally {
     globalThis.fetch = originalFetch;
   }

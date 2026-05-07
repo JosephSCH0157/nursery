@@ -20,7 +20,15 @@ type WhisperBridgeResponse = {
   ok?: boolean;
   text?: string;
   error?: string;
+  code?: string;
   detail?: string;
+  provider?: string;
+  model_id?: string;
+  asr_lane?: string | null;
+  upstream_status?: number;
+  upstream_message?: string | null;
+  upstream_url?: string | null;
+  model_url?: string | null;
   model?: string;
   provider_request_id?: string | null;
   ffmpeg_fallback_attempted?: boolean;
@@ -382,8 +390,9 @@ function buildScriptPrompt(): string {
 }
 
 function readResponseError(payload: WhisperBridgeResponse, status: number): string {
+  const fromUpstream = typeof payload.upstream_message === "string" ? payload.upstream_message.trim() : "";
   const fromPayload = typeof payload.error === "string" ? payload.error.trim() : "";
-  return fromPayload || `Whisper bridge failed (${status})`;
+  return fromUpstream || fromPayload || `Whisper bridge failed (${status})`;
 }
 
 class WhisperBridgeRecognizer {
@@ -902,10 +911,20 @@ class WhisperBridgeRecognizer {
               this.stop();
             }
           }
+          const upstreamPayload = error instanceof WhisperBridgeHttpError ? error.payload : null;
           this.emit("error", {
             source: SOURCE,
             message,
             timestamp: nowTs(),
+            code: upstreamPayload?.code ?? null,
+            provider: upstreamPayload?.provider ?? null,
+            modelId: upstreamPayload?.model_id ?? null,
+            asrLane: upstreamPayload?.asr_lane ?? null,
+            upstreamStatus: upstreamPayload?.upstream_status ?? (error instanceof WhisperBridgeHttpError ? error.status : null),
+            upstreamMessage: upstreamPayload?.upstream_message ?? null,
+            upstreamUrl: upstreamPayload?.upstream_url ?? null,
+            modelUrl: upstreamPayload?.model_url ?? null,
+            detail: upstreamPayload?.detail ?? null,
           });
         } finally {
           this.requestsInFlight = Math.max(0, this.requestsInFlight - 1);
@@ -1158,6 +1177,14 @@ class WhisperBridgeRecognizer {
             status: response.status,
             statusText: response.statusText,
             error: payload.error ?? null,
+            code: payload.code ?? null,
+            provider: payload.provider ?? null,
+            modelId: payload.model_id ?? null,
+            asrLane: payload.asr_lane ?? null,
+            upstreamStatus: payload.upstream_status ?? null,
+            upstreamMessage: payload.upstream_message ?? null,
+            upstreamUrl: payload.upstream_url ?? null,
+            modelUrl: payload.model_url ?? null,
             detail: payload.detail ?? null,
             model: payload.model ?? null,
             providerRequestId: payload.provider_request_id ?? null,

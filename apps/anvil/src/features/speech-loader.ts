@@ -4134,7 +4134,24 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
       rec = whisperRecognizer as unknown as RecognizerLike;
       try { whisperRecognizer.on('final', (t: unknown) => routeRecognizerTranscript(t, true)); } catch {}
       try { whisperRecognizer.on('partial', (t: unknown) => routeRecognizerTranscript(t, false)); } catch {}
-      try { whisperRecognizer.on('error', (detail: unknown) => console.warn('[speech] whisper bridge error', detail)); } catch {}
+      try {
+        whisperRecognizer.on('error', (detail: unknown) => {
+          const row = (detail && typeof detail === 'object') ? (detail as Record<string, unknown>) : {};
+          const summary = {
+            source: row.source ?? 'openai-whisper-bridge',
+            message: row.message ?? null,
+            code: row.code ?? null,
+            provider: row.provider ?? null,
+            modelId: row.modelId ?? null,
+            asrLane: row.asrLane ?? null,
+            upstreamStatus: row.upstreamStatus ?? null,
+            upstreamMessage: row.upstreamMessage ?? null,
+            upstreamUrl: row.upstreamUrl ?? null,
+            modelUrl: row.modelUrl ?? null,
+          };
+          try { console.warn('[speech] whisper bridge error', JSON.stringify(summary)); } catch { console.warn('[speech] whisper bridge error', summary); }
+        });
+      } catch {}
       try { window.__tpEmitSpeech = (t: unknown, final?: boolean) => routeRecognizerTranscript(t, !!final); } catch {}
       setActiveRecognizer(rec);
       if (!activeRecognizer) {
