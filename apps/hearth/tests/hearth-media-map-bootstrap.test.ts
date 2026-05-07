@@ -72,3 +72,20 @@ test("hearthMediaMapBootstrap: existing image-map entries are reused as-is", () 
   assert.equal(result.anchorMode, "script_text");
   assert.deepEqual(result.entries, existingEntries);
 });
+
+test("hearthMediaMapBootstrap: bullet script visual seeding caps selected beats", () => {
+  const bulletLines = Array.from({ length: 30 }, (_, index) => (
+    `- Beat ${index + 1}: compare the sourced claim, document, statistic, or example so the visual map has a ranked candidate.`
+  ));
+
+  const result = resolveImageMapEntriesForMediaMapBootstrap({
+    currentEntries: [],
+    currentSpokenBeats: [],
+    scriptText: ["[s1]", ...bulletLines, "[/s1]"].join("\n"),
+  });
+
+  assert.equal(result.seededFromScript, true);
+  assert.equal(result.spokenBeats.length, 30);
+  assert.equal(result.entries.length, 18);
+  assert.ok(result.entries.every((entry) => entry.beat_anchor?.mode === "bullet_beat"));
+});

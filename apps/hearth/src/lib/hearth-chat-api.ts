@@ -14,6 +14,7 @@ import {
   type HearthAiRuntimeSnapshot,
   type HearthChatMessage,
   type HearthOp,
+  type HearthChatRequest,
 } from "./hearth-ai-runtime-contract";
 import type { HearthResearchResult } from "./hearth-research-contract";
 import {
@@ -21,7 +22,7 @@ import {
   getAiReasonMessage,
   type AiReasonCode,
 } from "@forge/tongs/ai-policy";
-import { evaluateHearthScriptValidation } from "./hearth-script-tag-policy";
+import { evaluateHearthScriptValidation, normalizeHearthAiScriptIngress } from "./hearth-script-tag-policy";
 import {
   normalizeVisualProviderId,
   type VisualProviderId,
@@ -668,13 +669,36 @@ function runtimeFromResponse(payload: {
   };
 }
 
-function coalesceScriptTextIntoOps(
+function normalizeScriptTextForAnvil(scriptText: string | undefined): string | undefined {
+  if (!scriptText?.trim()) return undefined;
+  return normalizeHearthAiScriptIngress(scriptText).text;
+}
+
+function normalizeScriptBodyOpsForAnvil(ops: HearthOp[]): HearthOp[] {
+  return ops.map((op) => {
+    if (op.op !== "set_body") return op;
+    return {
+      ...op,
+      value: normalizeHearthAiScriptIngress(op.value).text,
+    };
+  });
+}
+
+export function coalesceScriptTextIntoOps(
   ops: HearthOp[],
   scriptText: string | undefined,
 ): HearthOp[] {
-  if (!scriptText?.trim()) return ops;
-  if (ops.some((op) => op.op === "set_body")) return ops;
-  return [...ops, { op: "set_body", value: scriptText }];
+  const normalizedOps = normalizeScriptBodyOpsForAnvil(ops);
+  const normalizedScriptText = normalizeScriptTextForAnvil(scriptText);
+  if (!normalizedScriptText) return normalizedOps;
+  if (normalizedOps.some((op) => op.op === "set_body")) {
+    return normalizedOps.map((op) => (
+      op.op === "set_body"
+        ? { ...op, value: normalizedScriptText }
+        : op
+    ));
+  }
+  return [...normalizedOps, { op: "set_body", value: normalizedScriptText }];
 }
 
 function resolveValidatedAssistantScriptCandidate(candidate: string): string | undefined {
@@ -1153,7 +1177,13 @@ export async function requestHearthSttTranscript(args: {
 export async function requestHearthChatReply(
   messages: HearthChatMessage[],
   episodeContext: EpisodeContext,
-  options?: { signal?: AbortSignal },
+  options?: {
+    signal?: AbortSignal;
+    attachmentContext?: {
+      includeEpisodeAttachments?: boolean;
+      attachmentIds?: string[];
+    };
+  },
 ): Promise<HearthChatResult> {
   const normalized = normalizeMessages(messages);
   const settings = resolveAiSettingsFromStorage();
@@ -1191,17 +1221,23 @@ export async function requestHearthChatReply(
     };
   }
 
+  const requestPayload: HearthChatRequest = {
+    messages: normalized,
+    episode_context: episodeContext,
+    behavior: settings.behavior,
+    lane,
+    attachment_context: {
+      include_episode_attachments: options?.attachmentContext?.includeEpisodeAttachments ?? true,
+      attachment_ids: options?.attachmentContext?.attachmentIds,
+    },
+  };
+
   let response: Response;
   try {
     response = await fetch(HEARTH_AI_ROUTES.chat, {
       method: "POST",
       headers: await buildAuthHeaders({ includeJson: true }),
-      body: JSON.stringify({
-        messages: normalized,
-        episode_context: episodeContext,
-        behavior: settings.behavior,
-        lane,
-      }),
+      body: JSON.stringify(requestPayload),
       signal: options?.signal,
     });
   } catch (error) {
@@ -1241,11 +1277,12 @@ export async function requestHearthChatReply(
 
   const assistantText = parsed?.assistant_text ?? "";
   const gate = parsed?.gate;
-  const scriptText = resolveScriptTextFromChatPayload({
+  const rawScriptText = resolveScriptTextFromChatPayload({
     assistantText,
     ops: parsed?.ops ?? [],
     scriptText: parsed?.script_text ?? undefined,
   });
+  const scriptText = normalizeScriptTextForAnvil(rawScriptText);
   const ops = coalesceScriptTextIntoOps(parsed?.ops ?? [], scriptText);
   if (!assistantText && ops.length === 0) {
     return {

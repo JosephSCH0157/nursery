@@ -42,33 +42,47 @@ export default function MetadataSurface(props: MetadataSurfaceProps) {
       <section className="hs-release-prep-viewer" aria-label="Framing workspace">
         <div className="hs-release-prep-viewer__head">
           <strong>Framing</strong>
-          <span>Shape what the episode is about before thumbnails and launch packaging.</span>
+          <span>Shape how this episode will be presented before thumbnails, descriptions, tags, and release packaging.</span>
+          <span className="hs-release-prep-viewer__workflow-hint">
+            Generate title ideas, tags, and a framing pack, then choose which title variants should ship forward.
+          </span>
         </div>
-        <div className="hs-production-action-row" role="group" aria-label="Framing actions">
-          <button
-            type="button"
-            onClick={props.onGenerateTitles}
-            disabled={props.isAiProcessing || props.aiCreditsDepleted}
-          >
-            {props.activeProductionAction === "seo" && props.isAiProcessing ? "Generating..." : "Generate Titles"}
-          </button>
-          <button
-            type="button"
-            onClick={props.onGenerateTags}
-            disabled={props.isAiProcessing || props.aiCreditsDepleted}
-          >
-            {props.activeProductionAction === "tags" && props.isAiProcessing ? "Generating..." : "Generate Tags"}
-          </button>
-          <button
-            type="button"
-            onClick={props.onGenerateFramingPack}
-            disabled={props.isAiProcessing || props.aiCreditsDepleted}
-          >
-            {props.activeProductionAction === "release_prep_pack" && props.isAiProcessing
-              ? "Generating..."
-              : "Generate Framing Pack"}
-          </button>
-        </div>
+        <section className="hs-framing-actions-strip" aria-label="Framing actions">
+          <header>
+            <strong>Framing Actions</strong>
+          </header>
+          <div className="hs-production-action-row is-primary" role="group" aria-label="Primary framing generators">
+            <button
+              type="button"
+              className="hs-production-action-primary"
+              onClick={props.onGenerateTitles}
+              disabled={props.isAiProcessing || props.aiCreditsDepleted}
+              aria-label="Generate Titles"
+            >
+              {props.activeProductionAction === "seo" && props.isAiProcessing ? "Generating..." : "Generate Titles"}
+            </button>
+            <button
+              type="button"
+              className="hs-production-action-primary"
+              onClick={props.onGenerateTags}
+              disabled={props.isAiProcessing || props.aiCreditsDepleted}
+              aria-label="Generate Tags"
+            >
+              {props.activeProductionAction === "tags" && props.isAiProcessing ? "Generating..." : "Generate Tags"}
+            </button>
+            <button
+              type="button"
+              className="hs-production-action-primary"
+              onClick={props.onGenerateFramingPack}
+              disabled={props.isAiProcessing || props.aiCreditsDepleted}
+              aria-label="Generate Framing Pack"
+            >
+              {props.activeProductionAction === "release_prep_pack" && props.isAiProcessing
+                ? "Generating..."
+                : "Generate Framing Pack"}
+            </button>
+          </div>
+        </section>
         <div className="hs-release-prep-viewer__meta">
           <span>
             {props.releasePrepScriptVersion
@@ -78,8 +92,10 @@ export default function MetadataSurface(props: MetadataSurfaceProps) {
           </span>
           <button
             type="button"
+            className="hs-production-action-secondary"
             onClick={props.onRefreshFramingPack}
             disabled={props.isAiProcessing || props.releasePrepLoadState === "loading"}
+            aria-label="Refresh Framing Pack"
           >
             {props.releasePrepLoadState === "loading" ? "Refreshing..." : "Refresh Pack"}
           </button>

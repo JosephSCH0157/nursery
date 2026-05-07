@@ -9,6 +9,18 @@ export type EyeContactAssistRenderResult = {
   warnings: string[];
 };
 
+export function resolveEyeContactAssistEffectiveStrength(args: {
+  userStrength: number;
+  frameConfidence: number;
+  gazeConfidence: number;
+}): number {
+  const userStrength = clamp01(args.userStrength);
+  const conservativeCap = 0.45;
+  const confidence = clamp01(Math.min(args.frameConfidence, args.gazeConfidence));
+  const confidenceScale = clamp((confidence - 0.7) / 0.3, 0, 1);
+  return clamp01(Math.min(userStrength, conservativeCap) * confidenceScale);
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -106,6 +118,7 @@ export class EyeContactAssistRenderer {
     frame: FaceLandmarksFrame;
     correction: { x: number; y: number };
     settings: EyeContactAssistSettings;
+    confidence: { frame: number; gaze: number };
     mapping: RenderMapping;
     debugOverlay: boolean;
   }): EyeContactAssistRenderResult {
@@ -119,6 +132,15 @@ export class EyeContactAssistRenderer {
       return { applied: false, warnings };
     }
 
+    const effectiveStrength = resolveEyeContactAssistEffectiveStrength({
+      userStrength: args.settings.strength,
+      frameConfidence: args.confidence.frame,
+      gazeConfidence: args.confidence.gaze,
+    });
+    if (effectiveStrength <= 0) {
+      return { applied: false, warnings: ["insufficient_confidence_for_render"] };
+    }
+
     const eyePatch = (eye: FaceLandmarksFrame["leftEye"], eyeSide: "left" | "right") => {
       const irisCenter = meanPoint(eye.iris) ?? {
         x: (eye.innerCorner.x + eye.outerCorner.x) / 2,
@@ -130,10 +152,9 @@ export class EyeContactAssistRenderer {
       const baseSize = clamp(eyeWidthPx * 0.48, 16, 72);
       const patchSize = Math.round(baseSize);
 
-      const strength = clamp01(args.settings.strength);
-      const maxShiftRatio = 0.18;
-      const dx = args.correction.x * eyeWidthPx * strength * maxShiftRatio;
-      const dy = args.correction.y * eyeWidthPx * strength * (maxShiftRatio * 0.6);
+      const maxShiftRatio = 0.1;
+      const dx = args.correction.x * eyeWidthPx * effectiveStrength * maxShiftRatio;
+      const dy = args.correction.y * eyeWidthPx * effectiveStrength * (maxShiftRatio * 0.5);
 
       if (!Number.isFinite(irisCanvas.x) || !Number.isFinite(irisCanvas.y) || eyeWidthPx <= 0) {
         warnings.push(`bad_eye_geometry:${eyeSide}`);

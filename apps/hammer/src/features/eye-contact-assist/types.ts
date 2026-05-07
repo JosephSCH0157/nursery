@@ -3,7 +3,9 @@ export type EyeContactAssistDisabledReason =
   | "low_confidence"
   | "extreme_pose"
   | "blink_or_eyelid_occlusion"
-  | "unstable_eye_region";
+  | "unstable_eye_region"
+  | "partial_face_or_one_eye_uncertain"
+  | "asymmetric_eye_divergence";
 
 export type FaceLandmarkProviderReadiness =
   | { status: "idle" }

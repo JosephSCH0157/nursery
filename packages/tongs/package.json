@@ -45,6 +45,7 @@
   },
   "dependencies": {
     "@forge/shared": "workspace:*",
-    "@supabase/supabase-js": "^2.98.0"
+    "@supabase/supabase-js": "^2.98.0",
+    "fflate": "^0.8.2"
   }
 }

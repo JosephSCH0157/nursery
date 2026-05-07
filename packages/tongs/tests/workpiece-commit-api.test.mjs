@@ -3,12 +3,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { TextEncoder } from "node:util";
-import { TongsCommitService, createTongsCommitApiHandlerWithService } from "../dist/workpiece-commit-api.js";
+import { TongsCommitService, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain } from "../dist/workpiece-commit-api.js";
+import { deflateSync } from "node:zlib";
 
 function mockService() {
   const calls = {
     createCradle: [],
     commitFile: [],
+    createHearthAttachment: [],
+    listHearthAttachments: [],
+    updateHearthAttachmentExtractedText: [],
     generateEpisodeThumbnail: [],
     generateImageMapCandidates: [],
     createRecordingSessionRecord: [],
@@ -137,6 +141,75 @@ function mockService() {
           written_by_lane: input.written_by.lane,
           created_at: "2026-02-21T00:00:00.000Z",
         },
+      };
+    },
+    async createHearthAttachment(input, options) {
+      calls.createHearthAttachment.push({ input, options: options ?? null });
+      if ((input.mime_type ?? "").includes("javascript")) {
+        throw new Error("unsupported_attachment_type");
+      }
+      return {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        workspace_id: input.workspace_id,
+        episode_id: input.episode_id,
+        filename: input.filename,
+        mime_type: input.mime_type,
+        size_bytes: input.size_bytes,
+        storage_bucket: "forge-workpieces",
+        storage_path: "hearth/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/file.txt",
+        storage_key: "hearth/attachments/workspace/episode/id/file.txt",
+        extracted_text: "hello",
+        parse_status: "attached",
+        parse_error: null,
+        text_source: null,
+        created_by: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        created_at: "2026-05-05T00:00:00.000Z",
+        updated_at: "2026-05-05T00:00:00.000Z",
+      };
+    },
+    async listHearthAttachments(input, options) {
+      calls.listHearthAttachments.push({ input, options: options ?? null });
+      return [
+        {
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          workspace_id: input.workspace_id,
+          episode_id: input.episode_id,
+          filename: "notes.txt",
+          mime_type: "text/plain",
+          size_bytes: 22,
+          storage_bucket: "forge-workpieces",
+          storage_path: "hearth/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/notes.txt",
+          storage_key: "hearth/attachments/workspace/episode/id/notes.txt",
+          extracted_text: "hello",
+          parse_status: "attached",
+          parse_error: null,
+          text_source: null,
+          created_by: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          created_at: "2026-05-05T00:00:00.000Z",
+          updated_at: "2026-05-05T00:00:00.000Z",
+        },
+      ];
+    },
+    async updateHearthAttachmentExtractedText(input, options) {
+      calls.updateHearthAttachmentExtractedText = calls.updateHearthAttachmentExtractedText ?? [];
+      calls.updateHearthAttachmentExtractedText.push({ input, options: options ?? null });
+      return {
+        id: input.attachment_id,
+        workspace_id: input.workspace_id,
+        episode_id: "22222222-2222-4222-8222-222222222222",
+        filename: "doc.pdf",
+        mime_type: "application/pdf",
+        size_bytes: 1024,
+        storage_bucket: "forge-workpieces",
+        storage_path: "hearth/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/doc.pdf",
+        storage_key: "hearth/attachments/workspace/episode/id/doc.pdf",
+        extracted_text: input.extracted_text,
+        parse_status: "attached",
+        parse_error: null,
+        text_source: "manual",
+        created_by: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        created_at: "2026-05-05T00:00:00.000Z",
+        updated_at: "2026-05-05T00:00:00.000Z",
       };
     },
     async generateEpisodeThumbnail(workpieceId, input) {
@@ -2975,6 +3048,232 @@ test("POST /tongs/cradles dispatches createCradle", async () => {
   assert.equal(body.ok, true);
 });
 
+test("GET /tongs/hearth/attachments dispatches listHearthAttachments", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/hearth/attachments?workspace_id=11111111-1111-4111-8111-111111111111&episode_id=22222222-2222-4222-8222-222222222222",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.listHearthAttachments.length, 1);
+  assert.equal(calls.listHearthAttachments[0].input.workspace_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.listHearthAttachments[0].input.episode_id, "22222222-2222-4222-8222-222222222222");
+  assert.equal(calls.listHearthAttachments[0].options.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(Array.isArray(body.data?.attachments), true);
+});
+
+test("POST /tongs/hearth/attachments dispatches createHearthAttachment", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const formData = new FormData();
+  formData.set("workspace_id", "11111111-1111-4111-8111-111111111111");
+  formData.set("episode_id", "22222222-2222-4222-8222-222222222222");
+  formData.set("original_filename", "notes.txt");
+  formData.set("mime_type", "text/plain");
+  formData.set("file", new Blob(["hello world"], { type: "text/plain" }), "notes.txt");
+
+  const request = new Request("http://localhost/tongs/hearth/attachments", {
+    method: "POST",
+    headers: {
+      "x-forge-user-authorization": "Bearer user_token_abc",
+    },
+    body: formData,
+  });
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 201);
+  assert.equal(calls.createHearthAttachment.length, 1);
+  assert.equal(calls.createHearthAttachment[0].input.workspace_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.createHearthAttachment[0].input.episode_id, "22222222-2222-4222-8222-222222222222");
+  assert.equal(calls.createHearthAttachment[0].input.filename, "notes.txt");
+  assert.equal(calls.createHearthAttachment[0].input.mime_type, "text/plain");
+  assert.equal(calls.createHearthAttachment[0].options.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.attachment?.filename, "notes.txt");
+});
+
+test("POST /tongs/hearth/attachments returns 415 for unsupported MIME type", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const formData = new FormData();
+  formData.set("workspace_id", "11111111-1111-4111-8111-111111111111");
+  formData.set("episode_id", "22222222-2222-4222-8222-222222222222");
+  formData.set("original_filename", "malware.js");
+  formData.set("mime_type", "application/javascript");
+  formData.set("file", new Blob(["alert(1)"], { type: "application/javascript" }), "malware.js");
+
+  const request = new Request("http://localhost/tongs/hearth/attachments", {
+    method: "POST",
+    headers: {
+      "x-forge-user-authorization": "Bearer user_token_abc",
+    },
+    body: formData,
+  });
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 415);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "unsupported_attachment_type");
+  assert.equal(calls.createHearthAttachment.length, 0, "service should not be called for unsupported type");
+});
+
+test("POST /tongs/hearth/attachments returns 413 when file exceeds size limit", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  // Create a blob that reports a size > 10MB via the File API
+  const oversizedBlob = new Blob([new Uint8Array(10 * 1024 * 1024 + 1)], { type: "text/plain" });
+  const formData = new FormData();
+  formData.set("workspace_id", "11111111-1111-4111-8111-111111111111");
+  formData.set("episode_id", "22222222-2222-4222-8222-222222222222");
+  formData.set("original_filename", "big.txt");
+  formData.set("mime_type", "text/plain");
+  formData.set("file", oversizedBlob, "big.txt");
+
+  const request = new Request("http://localhost/tongs/hearth/attachments", {
+    method: "POST",
+    headers: {
+      "x-forge-user-authorization": "Bearer user_token_abc",
+    },
+    body: formData,
+  });
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 413);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "attachment_too_large");
+  assert.equal(calls.createHearthAttachment.length, 0, "service should not be called for oversized file");
+});
+
+// ─── PDF V1.5 Fallback Chain – Acceptance Criteria Tests ────────────────────
+
+// AC1: Parser A extracts text from uncompressed PDFs with literal Tj strings.
+test("AC1: extractPdfTextParserA extracts text from uncompressed PDF with literal Tj strings", () => {
+  const pdfContent = [
+    "%PDF-1.4",
+    "1 0 obj << /Type /Catalog >> endobj",
+    "BT",
+    "(Section 14: Appropriations) Tj",
+    "(The Committee shall allocate funding.) Tj",
+    "ET",
+  ].join("\n");
+  const bytes = new TextEncoder().encode(pdfContent);
+  const text = extractPdfTextParserA(bytes);
+  assert.ok(text.includes("Section 14"), "should extract first literal Tj string");
+  assert.ok(text.includes("Committee shall allocate"), "should extract second literal Tj string");
+});
+
+// AC2: Parser A returns empty for FlateDecode PDFs (doesn't crash, just yields nothing).
+test("AC2: extractPdfTextParserA returns empty string when PDF uses FlateDecode", () => {
+  const pdfContent = "%PDF-1.6\n/Filter /FlateDecode\nstream\nskip-compressed\nendstream";
+  const bytes = new TextEncoder().encode(pdfContent);
+  const text = extractPdfTextParserA(bytes);
+  assert.equal(text, "", "parser A should return empty for FlateDecode PDF");
+});
+
+// AC3: Parser B decompresses FlateDecode streams and extracts text.
+test("AC3: extractPdfTextParserB extracts text from FlateDecode-compressed content stream", () => {
+  // Build a minimal PDF with a real FlateDecode content stream.
+  const contentStream = "BT (Annual Budget Report 2025) Tj (Total: $4.2 billion) Tj ET";
+  const compressedStream = deflateSync(Buffer.from(contentStream, "latin1"));
+
+  // Build the stream dictionary and body manually.
+  const dictLine = "<< /Filter /FlateDecode /Length " + compressedStream.length + " >>";
+  const enc = new TextEncoder();
+  const parts = [
+    enc.encode("%PDF-1.5\n1 0 obj\n"),
+    enc.encode(dictLine + "\nstream\n"),
+    compressedStream,
+    enc.encode("\nendstream\nendobj"),
+  ];
+  const totalLen = parts.reduce((s, p) => s + p.length, 0);
+  const fileBytes = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const part of parts) {
+    fileBytes.set(part, offset);
+    offset += part.length;
+  }
+
+  const text = extractPdfTextParserB(fileBytes);
+  assert.ok(text.includes("Annual Budget Report"), "should extract text from decompressed stream");
+  assert.ok(text.includes("4.2 billion"), "should extract second text token");
+});
+
+// AC4: Both parsers fail → fallback chain throws pdf_needs_text_extraction.
+test("AC4: extractPdfTextFallbackChain throws pdf_needs_text_extraction when both parsers yield no text", () => {
+  // A PDF that claims to be FlateDecode but has corrupted/unrecoverable content.
+  const fakePdf = "%PDF-1.5\n<< /Filter /FlateDecode >>\nstream\n\xDE\xAD\xBE\xEF\nendstream";
+  const bytes = new TextEncoder().encode(fakePdf);
+  let threw = false;
+  let code = null;
+  try {
+    extractPdfTextFallbackChain(bytes);
+  } catch (err) {
+    threw = true;
+    code = err?.code ?? null;
+  }
+  assert.ok(threw, "should throw when no text can be extracted");
+  assert.equal(code, "pdf_needs_text_extraction", "error code should be pdf_needs_text_extraction");
+});
+
+// AC5: PATCH /tongs/hearth/attachments/:id/extracted-text calls updateHearthAttachmentExtractedText
+//      and returns 200 with parse_status "attached".
+test("AC5: PATCH /tongs/hearth/attachments/:id/extracted-text dispatches updateHearthAttachmentExtractedText", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/hearth/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/extracted-text",
+    {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+      body: JSON.stringify({
+        workspace_id: "11111111-1111-4111-8111-111111111111",
+        extracted_text: "Section 1. All appropriations shall be subject to annual review by the Committee.",
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.attachment?.parse_status, "attached");
+  assert.equal(body.data?.attachment?.text_source, "manual");
+  assert.equal(calls.updateHearthAttachmentExtractedText.length, 1);
+  assert.equal(calls.updateHearthAttachmentExtractedText[0].input.attachment_id, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+  assert.equal(calls.updateHearthAttachmentExtractedText[0].input.workspace_id, "11111111-1111-4111-8111-111111111111");
+  assert.ok(
+    calls.updateHearthAttachmentExtractedText[0].input.extracted_text.includes("appropriations"),
+    "should pass through the extracted_text",
+  );
+  assert.equal(calls.updateHearthAttachmentExtractedText[0].options.userAccessToken, "user_token_abc");
+});
+
 test("POST /tongs/workpieces/:id/commit-file dispatches commitFile", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);
@@ -3008,6 +3307,79 @@ test("POST /tongs/workpieces/:id/commit-file dispatches commitFile", async () =>
   assert.equal(calls.commitFile[0].input.user_access_token, "user_token_abc");
   assert.equal(calls.commitFile[0].input.expected_previous_updated_at, "2026-03-01T00:00:00.000Z");
   assert.equal(body.ok, true);
+});
+
+test("POST /tongs/workpieces/:id/commit-file returns controlled error payload for upstream db/storage failures", async () => {
+  const { service } = mockService();
+  service.commitFile = async () => {
+    throw new Error("db_write_failed: insert denied by policy");
+  };
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/commit-file", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-forge-user-authorization": "Bearer user_token_abc",
+    },
+    body: JSON.stringify({
+      path: "recordings/audio.webm",
+      content_type: "audio/webm",
+      bytes_base64: "SGVsbG8=",
+      written_by: {
+        tool: "hammer",
+        tool_version: "1.8.5",
+        lane: "forge-managed",
+      },
+    }),
+  });
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 502);
+  assert.equal(body.ok, false);
+  assert.equal(body.code, "tongs_commit_file_failed");
+  assert.equal(body.error?.code, "tongs_commit_file_failed");
+  assert.equal(typeof body.details?.route, "string");
+  assert.equal(body.details?.workpiece_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(body.details?.requested_path, "recordings/audio.webm");
+});
+
+test("POST /tongs/workpieces/:id/commit-file preserves 404/403 style upstream failures with controlled payload", async () => {
+  const { service } = mockService();
+  service.commitFile = async () => {
+    throw {
+      status: 404,
+      code: "workpiece_not_found",
+      message: "Workpiece was not found",
+      details: { workpiece_id: "11111111-1111-4111-8111-111111111111" },
+    };
+  };
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/commit-file", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      path: "recordings/audio.webm",
+      content_type: "audio/webm",
+      bytes_base64: "SGVsbG8=",
+      written_by: {
+        tool: "hammer",
+        tool_version: "1.8.5",
+        lane: "forge-managed",
+      },
+    }),
+  });
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 404);
+  assert.equal(body.ok, false);
+  assert.equal(body.code, "tongs_commit_file_failed");
+  assert.equal(body.details?.error_code, "workpiece_not_found");
 });
 
 test("POST /tongs/workpieces/:id/append-event dispatches appendEvent", async () => {
@@ -6781,6 +7153,191 @@ test("TongsCommitService.listWorkspaceReadyScripts keeps take_kept episodes in t
     [workpieceA, workpieceB, workpieceC],
   );
   assert.equal(result.some((row) => row.workpiece_id === workpieceC), true);
+});
+
+test("TongsCommitService.listWorkspaceReadyScripts emits one canonical row per workpiece across duplicate ready metadata and file revisions", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const workpieceA = "11111111-1111-4111-8111-111111111111";
+
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: workpieceA,
+        workspace_id: workspaceId,
+        label: "Canonical Episode",
+        updated_at: "2026-03-09T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+      },
+    ],
+    files: [
+      {
+        workpiece_id: workpieceA,
+        path: "script/script.md",
+        updated_at: "2026-03-09T10:30:00.000Z",
+        created_at: "2026-03-09T10:00:00.000Z",
+      },
+      {
+        workpiece_id: workpieceA,
+        path: "script/script.md",
+        updated_at: "2026-03-09T11:30:00.000Z",
+        created_at: "2026-03-09T11:00:00.000Z",
+      },
+      {
+        workpiece_id: workpieceA,
+        path: "script/script.published.md",
+        updated_at: "2026-03-09T11:35:00.000Z",
+        created_at: "2026-03-09T11:10:00.000Z",
+      },
+    ],
+    readyMeta: [
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceA,
+        script_path: "script/script.md",
+        marked_ready_by: viewerId,
+        marked_ready_at: "2026-03-09T11:30:00.000Z",
+      },
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceA,
+        script_path: "script/script.published.md",
+        marked_ready_by: viewerId,
+        marked_ready_at: "2026-03-09T11:30:00.000Z",
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: viewerId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+
+  const result = await service.listWorkspaceReadyScripts(workspaceId, {
+    userAccessToken: "viewer_token",
+  });
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0]?.workpiece_id, workpieceA);
+  assert.equal(result[0]?.primary_script_path, "script/script.published.md");
+  assert.deepEqual(result[0]?.script_paths, ["script/script.published.md", "script/script.md"]);
+});
+
+test("TongsCommitService.listWorkspaceReadyScripts keeps distinct workpieces even when titles match", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const workpieceA = "11111111-1111-4111-8111-111111111111";
+  const workpieceB = "22222222-2222-4222-8222-222222222222";
+
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: workpieceA,
+        workspace_id: workspaceId,
+        label: "Same Title",
+        updated_at: "2026-03-09T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+      },
+      {
+        id: workpieceB,
+        workspace_id: workspaceId,
+        label: "Same Title",
+        updated_at: "2026-03-08T10:00:00.000Z",
+        created_at: "2026-03-01T09:00:00.000Z",
+      },
+    ],
+    files: [
+      {
+        workpiece_id: workpieceA,
+        path: "script/script.md",
+        updated_at: "2026-03-09T10:30:00.000Z",
+        created_at: "2026-03-09T10:00:00.000Z",
+      },
+      {
+        workpiece_id: workpieceB,
+        path: "script/script.md",
+        updated_at: "2026-03-08T10:30:00.000Z",
+        created_at: "2026-03-08T10:00:00.000Z",
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: viewerId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+
+  const result = await service.listWorkspaceReadyScripts(workspaceId, {
+    userAccessToken: "viewer_token",
+  });
+
+  assert.equal(result.length, 2);
+  assert.deepEqual(new Set(result.map((row) => row.workpiece_id)), new Set([workpieceA, workpieceB]));
+});
+
+test("TongsCommitService.listWorkspaceReadyScripts falls back to Untitled Episode instead of script tags", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const workpieceA = "11111111-1111-4111-8111-111111111111";
+
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: workpieceA,
+        workspace_id: workspaceId,
+        label: "Untitled Episode",
+        updated_at: "2026-03-09T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+      },
+    ],
+    files: [
+      {
+        workpiece_id: workpieceA,
+        path: "script/script.md",
+        updated_at: "2026-03-09T10:30:00.000Z",
+        created_at: "2026-03-09T10:00:00.000Z",
+      },
+    ],
+    readyMeta: [
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceA,
+        script_path: "script/script.md",
+        marked_ready_by: viewerId,
+        marked_ready_at: "2026-03-09T10:30:00.000Z",
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: viewerId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+
+  const result = await service.listWorkspaceReadyScripts(workspaceId, {
+    userAccessToken: "viewer_token",
+  });
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0]?.title, "Untitled Episode");
 });
 
 test("TongsCommitService.updateWorkspaceReadyQueueState upserts rank and hide state while clearing empty rows", async () => {

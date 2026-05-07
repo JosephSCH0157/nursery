@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "./db.types.js";
+import { unzlibSync as fflateUnzlibSync, inflateSync as fflateInflateRawSync } from "fflate";
 
 type UntypedPostgrestResult = {
   data: unknown;
@@ -40,7 +41,12 @@ import {
   calculateForgeBillingTokens,
   estimateOpenAiCost,
 } from "./ai-pricing.js";
-import { getAiReasonMessage, isAiAllowDecision, resolveAiPolicy } from "./ai-policy.js";
+import {
+  getAiReasonMessage,
+  isAiAllowDecision,
+  resolveAiPolicy,
+  type AiPolicyResolveResult,
+} from "./ai-policy.js";
 import {
   HAMMER_ALIGNMENT_STATUS_VALUES,
   HAMMER_PASS_ID_VALUES,
@@ -233,6 +239,14 @@ const HAMMER_ARTIFACT_EVENT_NAMES = {
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+const HEARTH_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+const HEARTH_ATTACHMENT_ALLOWED_EXTENSIONS = new Set([".txt", ".md", ".pdf", ".docx"]);
+const HEARTH_ATTACHMENT_ALLOWED_MIME_TYPES = new Set([
+  "text/plain",
+  "text/markdown",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
 
 type AssetRow = Database["tongs"]["Tables"]["assets"]["Row"];
 type EpisodeRow = Database["tongs"]["Tables"]["episodes"]["Row"];
@@ -247,6 +261,46 @@ type WorkpieceFileRow = Database["tongs"]["Tables"]["workpiece_files"]["Row"];
 type WorkpieceEventRow = Database["tongs"]["Tables"]["workpiece_events"]["Row"];
 type WorkspaceRow = Database["tongs"]["Tables"]["workspaces"]["Row"];
 type WorkspaceReadyQueueStateRow = Database["tongs"]["Tables"]["workspace_ready_queue_state"]["Row"];
+type HearthAttachmentParseStatus = "pending" | "attached" | "failed" | "needs_text_extraction";
+
+export type HearthAttachmentRecord = {
+  id: string;
+  workspace_id: string;
+  episode_id: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  storage_bucket: string;
+  storage_path: string;
+  storage_key: string;
+  extracted_text: string | null;
+  parse_status: HearthAttachmentParseStatus;
+  parse_error: string | null;
+  text_source: "parser_a" | "parser_b" | "manual" | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateHearthAttachmentInput = {
+  workspace_id: string;
+  episode_id: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  file_bytes: Uint8Array;
+};
+
+export type ListHearthAttachmentsInput = {
+  workspace_id: string;
+  episode_id: string;
+};
+
+export type UpdateHearthAttachmentExtractedTextInput = {
+  attachment_id: string;
+  workspace_id: string;
+  extracted_text: string;
+};
 
 type RecordingUploadSessionState = {
   schema: typeof RECORDING_UPLOAD_SESSION_SCHEMA;
@@ -1272,6 +1326,18 @@ export type TongsCommitApiService = {
     workpieceId: string,
     options?: { userAccessToken?: string | null },
   ): Promise<HearthWorkpiecePresenceRow[]>;
+  createHearthAttachment(
+    input: CreateHearthAttachmentInput,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthAttachmentRecord>;
+  listHearthAttachments(
+    input: ListHearthAttachmentsInput,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthAttachmentRecord[]>;
+  updateHearthAttachmentExtractedText(
+    input: UpdateHearthAttachmentExtractedTextInput,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthAttachmentRecord>;
   upsertHearthWorkpiecePresence(
     workspaceId: string,
     workpieceId: string,
@@ -1494,6 +1560,80 @@ function createRequestId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function isDevDiagnosticsEnabled(): boolean {
+  try {
+    const proc = (globalThis as { process?: { env?: Record<string, string> } }).process;
+    if (proc?.env) {
+      const nodeEnv = String(proc.env.NODE_ENV || "").trim().toLowerCase();
+      if (!nodeEnv || nodeEnv === "development" || nodeEnv === "test") return true;
+      if (String(proc.env.TONGS_DEV_DIAGNOSTICS || "").trim() === "1") return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+function tryDecodeJwtSubFromAuthHeader(rawHeader: string | null | undefined): string | null {
+  const header = String(rawHeader || "").trim();
+  if (!header) return null;
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  const token = (match ? match[1] : header).trim();
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  try {
+    const payload = parts[1]
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .padEnd(Math.ceil(parts[1].length / 4) * 4, "=");
+    let decoded = "";
+    if (typeof atob === "function") {
+      decoded = atob(payload);
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const B = (globalThis as any).Buffer as { from(str: string, enc: string): { toString(enc: string): string } } | undefined;
+      if (B) decoded = B.from(payload, "base64").toString("utf8");
+    }
+    if (!decoded) return null;
+    const parsed = JSON.parse(decoded) as Record<string, unknown>;
+    const sub = typeof parsed.sub === "string" ? parsed.sub.trim() : "";
+    return sub || null;
+  } catch {
+    return null;
+  }
+}
+
+function toHttpLikeError(error: unknown): {
+  status: number;
+  code: string;
+  message: string;
+  details?: unknown;
+} | null {
+  if (error instanceof HttpError) {
+    return {
+      status: error.status,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+    };
+  }
+  if (!error || typeof error !== "object") return null;
+  const candidate = error as Record<string, unknown>;
+  const status = Number(candidate.status);
+  const code = typeof candidate.code === "string" ? candidate.code.trim() : "";
+  const message = typeof candidate.message === "string" ? candidate.message.trim() : "";
+  if (!Number.isFinite(status) || status < 400 || status >= 600 || !code || !message) {
+    return null;
+  }
+  return {
+    status: Math.floor(status),
+    code,
+    message,
+    details: candidate.details,
+  };
+}
+
 function errorResponse(error: unknown, requestId?: string): Response {
   if (error instanceof HttpError) {
     return jsonResponse(error.status, {
@@ -1587,6 +1727,25 @@ function normalizeCreateWorkpieceJobRequest(payload: unknown): CreateWorkpieceJo
     job_type: jobType,
     payload_json: typeof payload.payload_json === "undefined" ? undefined : payload.payload_json,
   };
+}
+
+function describeUnknownError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    try {
+      const row = error as Record<string, unknown>;
+      const message = typeof row.message === "string" ? row.message : null;
+      const code = typeof row.code === "string" ? row.code : null;
+      const details = typeof row.details === "string" ? row.details : null;
+      const hint = typeof row.hint === "string" ? row.hint : null;
+      const summary = [code, message, details, hint].filter((value) => Boolean(value)).join(" | ");
+      if (summary) return summary;
+      return JSON.stringify(row);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
 }
 
 function toWorkpieceJobDTO(row: WorkpieceJobRow): WorkpieceJobDTO {
@@ -2263,6 +2422,15 @@ async function uploadStorageObject(
 
   if (error) {
     logStorageError("upload", bucket, key, error);
+    try {
+      console.error("[tongs][storage:upload] failed", {
+        bucket,
+        key,
+        message: error instanceof Error ? error.message : String(error),
+        statusCode: (error as { statusCode?: unknown }).statusCode ?? null,
+        status: (error as { status?: unknown }).status ?? null,
+      });
+    } catch { /* ignore */ }
     if (isStorageObjectTooLargeError(error)) {
       throw new HttpError(413, "storage_object_too_large", "File exceeds the configured Storage object size limit", {
         bucket,
@@ -4411,10 +4579,49 @@ function extractScriptTitleFromText(scriptText: string): string | null {
       .replace(/^>\s+/, "")
       .trim();
     if (!cleaned) continue;
+    if (/^\[(?:\/)?(?:s\d+|g\d+|beat|pause|reflective pause)\]\s*$/i.test(cleaned)) continue;
     if (!sanitizeReadyDisplayTitle(cleaned)) continue;
     return cleaned.length > 160 ? `${cleaned.slice(0, 157)}...` : cleaned;
   }
   return null;
+}
+
+function compareReadyRowFreshness(
+  left: Pick<WorkspaceReadyScript, "marked_ready_at" | "updated_at" | "primary_script_path">,
+  right: Pick<WorkspaceReadyScript, "marked_ready_at" | "updated_at" | "primary_script_path">,
+): number {
+  const leftMarked = left.marked_ready_at ?? "";
+  const rightMarked = right.marked_ready_at ?? "";
+  if (leftMarked !== rightMarked) return leftMarked.localeCompare(rightMarked);
+
+  const leftUpdated = left.updated_at ?? "";
+  const rightUpdated = right.updated_at ?? "";
+  if (leftUpdated !== rightUpdated) return leftUpdated.localeCompare(rightUpdated);
+
+  const leftPriority = readyScriptPathPriority(left.primary_script_path);
+  const rightPriority = readyScriptPathPriority(right.primary_script_path);
+  if (leftPriority !== rightPriority) return rightPriority - leftPriority;
+
+  return right.primary_script_path.localeCompare(left.primary_script_path);
+}
+
+function selectPreferredReadyRow(left: WorkspaceReadyScript, right: WorkspaceReadyScript): WorkspaceReadyScript {
+  const preferred = compareReadyRowFreshness(left, right) >= 0 ? left : right;
+  const alternate = preferred === left ? right : left;
+  const mergedScriptPaths = Array.from(new Set([
+    ...preferred.script_paths,
+    ...alternate.script_paths,
+  ])).sort((a, b) => {
+    const byPriority = readyScriptPathPriority(a) - readyScriptPathPriority(b);
+    if (byPriority !== 0) return byPriority;
+    return a.localeCompare(b);
+  });
+  return {
+    ...preferred,
+    script_paths: mergedScriptPaths.includes(preferred.primary_script_path)
+      ? mergedScriptPaths
+      : [preferred.primary_script_path, ...mergedScriptPaths],
+  };
 }
 
 function readyScriptPathPriority(path: string): number {
@@ -4615,6 +4822,230 @@ function toRecordingSessionDTO(session: RecordingSessionRow, items: RecordingSes
     calendar_event_id: session.calendar_event_id,
     items: items.map(toRecordingSessionItemDTO),
   };
+}
+
+
+function extensionOfAttachmentFile(filename: string): string {
+  const trimmed = filename.trim().toLowerCase();
+  const lastDot = trimmed.lastIndexOf(".");
+  if (lastDot < 0) return "";
+  return trimmed.slice(lastDot);
+}
+
+function sanitizeAttachmentFilename(filename: string): string {
+  const trimmed = filename.replace(/[\r\n]/g, " ").trim();
+  const cleaned = trimmed
+    .replace(/[\\/]+/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/[^a-zA-Z0-9._ -]/g, "_")
+    .slice(0, 160)
+    .trim();
+  return cleaned || "attachment";
+}
+
+function normalizeAttachmentMimeType(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return "application/octet-stream";
+  const semicolon = normalized.indexOf(";");
+  return semicolon >= 0 ? normalized.slice(0, semicolon).trim() : normalized;
+}
+
+function isSupportedAttachmentType(filename: string, mimeType: string): boolean {
+  const ext = extensionOfAttachmentFile(filename);
+  const normalizedMime = normalizeAttachmentMimeType(mimeType);
+  return HEARTH_ATTACHMENT_ALLOWED_EXTENSIONS.has(ext) || HEARTH_ATTACHMENT_ALLOWED_MIME_TYPES.has(normalizedMime);
+}
+
+function decodePdfLiteralString(raw: string): string {
+  return raw
+    .replace(/\\\(/g, "(")
+    .replace(/\\\)/g, ")")
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\\\/g, "\\")
+    .replace(/\\\d{3}/g, (token) => {
+      const value = Number.parseInt(token.slice(1), 8);
+      return Number.isFinite(value) ? String.fromCharCode(value) : "";
+    });
+}
+
+// Parser A: uncompressed literal-string PDF text extraction.
+// Returns empty string when FlateDecode is detected (falls through to B).
+export function extractPdfTextParserA(fileBytes: Uint8Array): string {
+  const pdfText = textDecoder.decode(fileBytes);
+  if (!pdfText.includes("%PDF")) return "";
+
+  // If FlateDecode is present, skip — let parser B handle it.
+  if (/\/Filter\s*\/FlateDecode/i.test(pdfText)) return "";
+
+  const lines: string[] = [];
+  const literalMatches = pdfText.match(/\((?:\\.|[^\\)])*\)\s*Tj/g) ?? [];
+  for (const token of literalMatches) {
+    const literal = token.replace(/\s*Tj$/, "").trim();
+    const inner = literal.slice(1, -1);
+    const decoded = decodePdfLiteralString(inner).trim();
+    if (decoded) lines.push(decoded);
+  }
+  // Also handle TJ arrays (used in many uncompressed PDFs)
+  const tjArrayMatches = pdfText.match(/\[[^\]]*\]\s*TJ/g) ?? [];
+  for (const token of tjArrayMatches) {
+    const parts = extractStringsFromPdfArray(token.replace(/\s*TJ$/, "").slice(1, -1));
+    const joined = parts.join("").trim();
+    if (joined) lines.push(joined);
+  }
+  return lines.join("\n").slice(0, 120000);
+}
+
+// Parser B: FlateDecode-aware PDF text extraction using Node's built-in zlib.
+// Finds compressed content streams, decompresses, then extracts BT/ET text blocks.
+export function extractPdfTextParserB(fileBytes: Uint8Array): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const B = (globalThis as any).Buffer as {
+    isBuffer(v: unknown): v is Uint8Array & { indexOf(val: Uint8Array, offset?: number): number; slice(s?: number, e?: number): Uint8Array & { toString(enc: string): string; indexOf(val: Uint8Array, offset?: number): number; }; toString(enc: string): string; };
+    from(data: ArrayBufferLike, byteOffset?: number, length?: number): Uint8Array & { indexOf(val: Uint8Array, offset?: number): number; slice(s?: number, e?: number): Uint8Array & { toString(enc: string): string; indexOf(val: Uint8Array, offset?: number): number; }; toString(enc: string): string; };
+    from(str: string): Uint8Array & { indexOf(val: Uint8Array, offset?: number): number; };
+  };
+  const buf = B.isBuffer(fileBytes)
+    ? fileBytes
+    : B.from(fileBytes.buffer, fileBytes.byteOffset, fileBytes.byteLength);
+
+  if (buf.indexOf(B.from("%PDF")) < 0) return "";
+
+  const streamMarker = B.from("stream");
+  const endStreamMarker = B.from("endstream");
+  const lines: string[] = [];
+  let pos = 0;
+
+  while (pos < buf.length) {
+    const streamIdx = buf.indexOf(streamMarker, pos);
+    if (streamIdx < 0) break;
+
+    // Must be followed by \r\n or \n
+    let dataStart = streamIdx + 6;
+    if (dataStart < buf.length && buf[dataStart] === 0x0D) dataStart++;
+    if (dataStart < buf.length && buf[dataStart] === 0x0A) dataStart++;
+    else { pos = streamIdx + 1; continue; }
+
+    const endIdx = buf.indexOf(endStreamMarker, dataStart);
+    if (endIdx < 0) break;
+
+    // Look back to see if the containing dict uses FlateDecode
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const lookback = (buf.slice(Math.max(0, streamIdx - 2000), streamIdx) as any).toString("binary") as string;
+    if (!lookback.includes("FlateDecode")) { pos = endIdx + 9; continue; }
+
+    // Trim trailing \r\n before endstream marker
+    let dataEnd = endIdx;
+    if (dataEnd > 0 && buf[dataEnd - 1] === 0x0A) dataEnd--;
+    if (dataEnd > 0 && buf[dataEnd - 1] === 0x0D) dataEnd--;
+    const streamData = buf.slice(dataStart, dataEnd);
+    if (streamData.length === 0) { pos = endIdx + 9; continue; }
+
+    let decompressed: Uint8Array;
+    try { decompressed = fflateUnzlibSync(streamData); }
+    catch {
+      try { decompressed = fflateInflateRawSync(streamData); }
+      catch { pos = endIdx + 9; continue; }
+    }
+
+    const streamText = new TextDecoder("latin1").decode(decompressed);
+    const extracted = extractTextFromPdfContentStream(streamText);
+    if (extracted.trim()) lines.push(extracted);
+    pos = endIdx + 9;
+  }
+
+  return lines.join("\n").slice(0, 120000);
+}
+
+function extractTextFromPdfContentStream(content: string): string {
+  const tokens: { pos: number; text: string }[] = [];
+  const btPattern = /BT([\s\S]*?)ET/g;
+  let btMatch: RegExpExecArray | null;
+  while ((btMatch = btPattern.exec(content)) !== null) {
+    const block = btMatch[1];
+    // Tj — show literal string
+    const tjLit = /\((?:\\.|[^\\()])*\)\s*Tj\b/g;
+    let m: RegExpExecArray | null;
+    while ((m = tjLit.exec(block)) !== null) {
+      const raw = m[0].replace(/\s*Tj$/, "").slice(1, -1);
+      const decoded = decodePdfLiteralString(raw).trim();
+      if (decoded) tokens.push({ pos: btMatch.index + m.index, text: decoded });
+    }
+    // TJ — array of strings and kerns
+    const tjArr = /\[([\s\S]*?)\]\s*TJ\b/g;
+    while ((m = tjArr.exec(block)) !== null) {
+      const pieces = extractStringsFromPdfArray(m[1]);
+      const joined = pieces.join("");
+      if (joined.trim()) tokens.push({ pos: btMatch.index + m.index, text: joined });
+    }
+    // ' — newline + show literal
+    const quote = /\((?:\\.|[^\\()])*\)\s*'/g;
+    while ((m = quote.exec(block)) !== null) {
+      const raw = m[0].replace(/\s*'$/, "").slice(1, -1);
+      const decoded = decodePdfLiteralString(raw).trim();
+      if (decoded) tokens.push({ pos: btMatch.index + m.index, text: "\n" + decoded });
+    }
+  }
+  tokens.sort((a, b) => a.pos - b.pos);
+  return tokens.map(t => t.text).join(" ").replace(/[ \t]+/g, " ").trim();
+}
+
+function extractStringsFromPdfArray(arrayContent: string): string[] {
+  const results: string[] = [];
+  // Literal strings
+  const litPat = /\((?:\\.|[^\\()])*\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = litPat.exec(arrayContent)) !== null) {
+    const decoded = decodePdfLiteralString(m[0].slice(1, -1));
+    if (decoded) results.push(decoded);
+  }
+  // Hex strings
+  const hexPat = /<([0-9a-fA-F\s]*)>/g;
+  while ((m = hexPat.exec(arrayContent)) !== null) {
+    const decoded = decodePdfHexString(m[1]);
+    if (decoded.trim()) results.push(decoded);
+  }
+  return results;
+}
+
+function decodePdfHexString(hex: string): string {
+  const cleaned = hex.replace(/\s/g, "");
+  if (!cleaned) return "";
+  // UTF-16BE BOM (FEFF)
+  if (/^[Ff][Ee][Ff][Ff]/.test(cleaned)) {
+    const chars: string[] = [];
+    for (let i = 4; i + 3 < cleaned.length; i += 4) {
+      const cp = parseInt(cleaned.slice(i, i + 4), 16);
+      if (!Number.isNaN(cp) && cp > 0x1F) chars.push(String.fromCodePoint(cp));
+    }
+    return chars.join("");
+  }
+  // Latin-1
+  const chars: string[] = [];
+  for (let i = 0; i + 1 < cleaned.length; i += 2) {
+    const b = parseInt(cleaned.slice(i, i + 2), 16);
+    if (!Number.isNaN(b) && b > 0x1F && b < 0xFF) chars.push(String.fromCharCode(b));
+  }
+  return chars.join("");
+}
+
+// Fallback chain: try parser A first (uncompressed), then parser B (FlateDecode).
+// If both fail to produce text, throw with code that maps to needs_text_extraction status.
+export function extractPdfTextFallbackChain(fileBytes: Uint8Array): string {
+  let textA = "";
+  try { textA = extractPdfTextParserA(fileBytes); } catch { /* skip */ }
+  if (textA.trim()) return textA;
+
+  let textB = "";
+  try { textB = extractPdfTextParserB(fileBytes); } catch { /* skip */ }
+  if (textB.trim()) return textB;
+
+  // Both parsers produced no text — signal that manual extraction is needed.
+  throw new HttpError(422, "pdf_needs_text_extraction",
+    "PDF text could not be extracted automatically. Paste the text manually to use this file.",
+    { parse_error: "pdf_both_parsers_failed" },
+  );
 }
 
 export class TongsCommitService {
@@ -5631,6 +6062,391 @@ export class TongsCommitService {
     }
 
     return data ?? [];
+  }
+
+  async listHearthAttachments(
+    input: ListHearthAttachmentsInput,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthAttachmentRecord[]> {
+    await this.getWorkspaceOrThrow(input.workspace_id);
+    await this.assertWorkpieceInWorkspace(input.episode_id, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "viewer", options?.userAccessToken);
+
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
+      from: (table: string) => {
+        select: (columns: string) => {
+          eq: (column: string, value: unknown) => {
+            eq: (nextColumn: string, nextValue: unknown) => {
+              order: (field: string, options: { ascending: boolean }) => Promise<{
+                data: Array<Record<string, unknown>> | null;
+                error: { message: string } | null;
+              }>;
+            };
+          };
+        };
+      };
+    };
+
+    const { data, error } = await tongsUntyped
+      .from("hearth_attachments")
+      .select("id,workspace_id,episode_id,filename,mime_type,size_bytes,storage_bucket,storage_path,storage_key,extracted_text,parse_status,parse_error,created_by,created_at,updated_at")
+      .eq("workspace_id", input.workspace_id)
+      .eq("episode_id", input.episode_id)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to list Hearth attachments", {
+        reason: error.message,
+      });
+    }
+
+    return (data ?? []).map((row) => ({
+      id: String(row.id ?? ""),
+      workspace_id: String(row.workspace_id ?? ""),
+      episode_id: String(row.episode_id ?? ""),
+      filename: String(row.filename ?? "attachment"),
+      mime_type: String(row.mime_type ?? "application/octet-stream"),
+      size_bytes: typeof row.size_bytes === "number" && Number.isFinite(row.size_bytes)
+        ? row.size_bytes
+        : Number.parseInt(String(row.size_bytes ?? "0"), 10) || 0,
+      storage_bucket: String(row.storage_bucket ?? this.bucket),
+      storage_path: String(row.storage_path ?? ""),
+      storage_key: String(row.storage_key ?? ""),
+      extracted_text: typeof row.extracted_text === "string" ? row.extracted_text : null,
+      parse_status: row.parse_status === "attached"
+        || row.parse_status === "failed"
+        || row.parse_status === "needs_text_extraction"
+        ? row.parse_status
+        : "pending",
+      parse_error: typeof row.parse_error === "string" ? row.parse_error : null,
+      text_source: row.text_source === "parser_a" || row.text_source === "parser_b" || row.text_source === "manual"
+        ? row.text_source
+        : null,
+      created_by: typeof row.created_by === "string" ? row.created_by : null,
+      created_at: String(row.created_at ?? new Date().toISOString()),
+      updated_at: String(row.updated_at ?? new Date().toISOString()),
+    }));
+  }
+
+  async updateHearthAttachmentExtractedText(
+    input: UpdateHearthAttachmentExtractedTextInput,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthAttachmentRecord> {
+    if (!input.attachment_id?.trim()) {
+      throw new HttpError(400, "invalid_attachment_id", "attachment_id is required.");
+    }
+    if (typeof input.extracted_text !== "string" || !input.extracted_text.trim()) {
+      throw new HttpError(400, "invalid_extracted_text", "extracted_text must be a non-empty string.");
+    }
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "viewer", options?.userAccessToken);
+
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
+      from: (table: string) => {
+        update: (value: Record<string, unknown>) => {
+          eq: (column: string, value: unknown) => {
+            eq: (column: string, value: unknown) => {
+              select: (columns: string) => {
+                single: () => Promise<{
+                  data: Record<string, unknown> | null;
+                  error: { message: string } | null;
+                }>;
+              };
+            };
+          };
+        };
+      };
+    };
+
+    const updated = await tongsUntyped
+      .from("hearth_attachments")
+      .update({
+        extracted_text: input.extracted_text.slice(0, 120000),
+        parse_status: "attached",
+        parse_error: null,
+        text_source: "manual",
+      })
+      .eq("id", input.attachment_id)
+      .eq("workspace_id", input.workspace_id)
+      .select("id,workspace_id,episode_id,filename,mime_type,size_bytes,storage_bucket,storage_path,storage_key,extracted_text,parse_status,parse_error,text_source,created_by,created_at,updated_at")
+      .single();
+
+    if (updated.error || !updated.data) {
+      if (!updated.error && !updated.data) {
+        throw new HttpError(404, "attachment_not_found", "Attachment not found or access denied.");
+      }
+      throw new HttpError(502, "db_write_failed", "Failed to update attachment extracted text.", {
+        reason: updated.error?.message ?? "missing_row",
+      });
+    }
+
+    const row = updated.data;
+    return {
+      id: String(row.id ?? input.attachment_id),
+      workspace_id: String(row.workspace_id ?? input.workspace_id),
+      episode_id: String(row.episode_id ?? ""),
+      filename: String(row.filename ?? "attachment"),
+      mime_type: String(row.mime_type ?? "application/octet-stream"),
+      size_bytes: typeof row.size_bytes === "number" && Number.isFinite(row.size_bytes)
+        ? row.size_bytes
+        : Number.parseInt(String(row.size_bytes ?? "0"), 10) || 0,
+      storage_bucket: String(row.storage_bucket ?? this.bucket),
+      storage_path: String(row.storage_path ?? ""),
+      storage_key: String(row.storage_key ?? ""),
+      extracted_text: typeof row.extracted_text === "string" ? row.extracted_text : null,
+      parse_status: row.parse_status === "attached"
+        || row.parse_status === "failed"
+        || row.parse_status === "needs_text_extraction"
+        ? row.parse_status
+        : "pending",
+      parse_error: typeof row.parse_error === "string" ? row.parse_error : null,
+      text_source: row.text_source === "parser_a" || row.text_source === "parser_b" || row.text_source === "manual"
+        ? row.text_source
+        : null,
+      created_by: typeof row.created_by === "string" ? row.created_by : null,
+      created_at: String(row.created_at ?? new Date().toISOString()),
+      updated_at: String(row.updated_at ?? new Date().toISOString()),
+    };
+  }
+
+  async createHearthAttachment(
+    input: CreateHearthAttachmentInput,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthAttachmentRecord> {
+    if (!Number.isFinite(input.size_bytes) || input.size_bytes <= 0) {
+      throw new HttpError(400, "invalid_attachment_size", "Attachment size must be greater than zero.");
+    }
+    if (input.size_bytes > HEARTH_ATTACHMENT_MAX_BYTES) {
+      throw new HttpError(413, "attachment_too_large", "Attachment exceeds the 10MB V1 limit.", {
+        max_bytes: HEARTH_ATTACHMENT_MAX_BYTES,
+      });
+    }
+
+    const filename = sanitizeAttachmentFilename(input.filename);
+    const mimeType = normalizeAttachmentMimeType(input.mime_type);
+    if (!isSupportedAttachmentType(filename, mimeType)) {
+      throw new HttpError(415, "unsupported_attachment_type", "Unsupported file type for Hearth attachment V1.", {
+        allowed_extensions: Array.from(HEARTH_ATTACHMENT_ALLOWED_EXTENSIONS),
+      });
+    }
+
+    await this.getWorkspaceOrThrow(input.workspace_id);
+    await this.assertWorkpieceInWorkspace(input.episode_id, input.workspace_id);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+
+    const attachmentId = randomUuid();
+    const extension = extensionOfAttachmentFile(filename);
+    const finalName = extension ? filename : `${filename}.txt`;
+    const storageKey = `hearth/attachments/${input.workspace_id}/${input.episode_id}/${attachmentId}/${encodeURIComponent(finalName)}`;
+    const storagePath = `hearth/attachments/${attachmentId}/${finalName}`;
+
+    console.info("[tongs][telemetry] hearth_attachment_upload_start", {
+      workspace_id: input.workspace_id,
+      episode_id: input.episode_id,
+      attachment_id: attachmentId,
+      filename: finalName,
+      size_bytes: input.size_bytes,
+      mime_type: mimeType,
+    });
+
+    const upload = await this.supabase
+      .storage
+      .from(this.bucket)
+      .upload(storageKey, input.file_bytes, {
+        contentType: mimeType,
+        upsert: false,
+      });
+    if (upload.error) {
+      throw new HttpError(502, "storage_upload_failed", "Failed to upload Hearth attachment file.", {
+        reason: upload.error.message,
+      });
+    }
+
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
+      from: (table: string) => {
+        insert: (value: Record<string, unknown>) => {
+          select: (columns: string) => {
+            single: () => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>;
+          };
+        };
+        update: (value: Record<string, unknown>) => {
+          eq: (column: string, value: unknown) => {
+            select: (columns: string) => {
+              single: () => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>;
+            };
+          };
+        };
+      };
+    };
+
+    const inserted = await tongsUntyped
+      .from("hearth_attachments")
+      .insert({
+        id: attachmentId,
+        workspace_id: input.workspace_id,
+        episode_id: input.episode_id,
+        filename: finalName,
+        mime_type: mimeType,
+        size_bytes: input.size_bytes,
+        storage_bucket: this.bucket,
+        storage_path: storagePath,
+        storage_key: storageKey,
+        parse_status: "pending",
+        created_by: auth.userId,
+      })
+      .select("id,workspace_id,episode_id,filename,mime_type,size_bytes,storage_bucket,storage_path,storage_key,extracted_text,parse_status,parse_error,created_by,created_at,updated_at")
+      .single();
+
+    if (inserted.error || !inserted.data) {
+      throw new HttpError(502, "db_write_failed", "Failed to create Hearth attachment row.", {
+        reason: inserted.error?.message ?? "missing_row",
+      });
+    }
+
+    console.info("[tongs][telemetry] hearth_attachment_upload_success", {
+      workspace_id: input.workspace_id,
+      episode_id: input.episode_id,
+      attachment_id: attachmentId,
+      storage_key: storageKey,
+    });
+
+    console.info("[tongs][telemetry] hearth_attachment_parse_start", {
+      workspace_id: input.workspace_id,
+      episode_id: input.episode_id,
+      attachment_id: attachmentId,
+      mime_type: mimeType,
+      filename: finalName,
+    });
+
+    let parseStatus: HearthAttachmentParseStatus = "attached";
+    let extractedText: string | null = null;
+    let parseError: string | null = null;
+    let textSource: "parser_a" | "parser_b" | "manual" | null = null;
+    try {
+      const result = this.extractTextFromHearthAttachment(finalName, mimeType, input.file_bytes);
+      extractedText = result.text;
+      textSource = result.source;
+      if (!extractedText?.trim()) {
+        parseStatus = "failed";
+        parseError = "empty_extracted_text";
+      }
+    } catch (error) {
+      if (error instanceof HttpError && error.code === "pdf_needs_text_extraction") {
+        parseStatus = "needs_text_extraction";
+        parseError = "pdf_both_parsers_failed";
+      } else {
+        parseStatus = "failed";
+        if (
+          error instanceof HttpError
+          && error.details
+          && typeof error.details === "object"
+          && "parse_error" in (error.details as Record<string, unknown>)
+          && typeof (error.details as Record<string, unknown>).parse_error === "string"
+        ) {
+          parseError = (error.details as Record<string, unknown>).parse_error as string;
+        } else if (error instanceof HttpError) {
+          parseError = error.code;
+        } else {
+          parseError = "attachment_parse_failed";
+        }
+      }
+    }
+
+    const updated = await tongsUntyped
+      .from("hearth_attachments")
+      .update({
+        extracted_text: extractedText,
+        parse_status: parseStatus,
+        parse_error: parseError,
+        text_source: textSource,
+      })
+      .eq("id", attachmentId)
+      .select("id,workspace_id,episode_id,filename,mime_type,size_bytes,storage_bucket,storage_path,storage_key,extracted_text,parse_status,parse_error,created_by,created_at,updated_at")
+      .single();
+
+    if (updated.error || !updated.data) {
+      throw new HttpError(502, "db_write_failed", "Failed to finalize Hearth attachment parse state.", {
+        reason: updated.error?.message ?? "missing_row",
+      });
+    }
+
+    if (parseStatus === "attached") {
+      console.info("[tongs][telemetry] hearth_attachment_parse_success", {
+        workspace_id: input.workspace_id,
+        episode_id: input.episode_id,
+        attachment_id: attachmentId,
+        extracted_chars: extractedText?.length ?? 0,
+      });
+    } else {
+      console.warn("[tongs][telemetry] hearth_attachment_parse_failed", {
+        workspace_id: input.workspace_id,
+        episode_id: input.episode_id,
+        attachment_id: attachmentId,
+        parse_error: parseError,
+      });
+    }
+
+    return {
+      id: String(updated.data.id ?? attachmentId),
+      workspace_id: String(updated.data.workspace_id ?? input.workspace_id),
+      episode_id: String(updated.data.episode_id ?? input.episode_id),
+      filename: String(updated.data.filename ?? finalName),
+      mime_type: String(updated.data.mime_type ?? mimeType),
+      size_bytes: typeof updated.data.size_bytes === "number"
+        ? updated.data.size_bytes
+        : Number.parseInt(String(updated.data.size_bytes ?? input.size_bytes), 10) || input.size_bytes,
+      storage_bucket: String(updated.data.storage_bucket ?? this.bucket),
+      storage_path: String(updated.data.storage_path ?? storagePath),
+      storage_key: String(updated.data.storage_key ?? storageKey),
+      extracted_text: typeof updated.data.extracted_text === "string" ? updated.data.extracted_text : null,
+      parse_status: updated.data.parse_status === "attached"
+        || updated.data.parse_status === "failed"
+        || updated.data.parse_status === "needs_text_extraction"
+        ? updated.data.parse_status
+        : "pending",
+      parse_error: typeof updated.data.parse_error === "string" ? updated.data.parse_error : null,
+      text_source: updated.data.text_source === "parser_a" || updated.data.text_source === "parser_b" || updated.data.text_source === "manual"
+        ? updated.data.text_source
+        : null,
+      created_by: typeof updated.data.created_by === "string" ? updated.data.created_by : auth.userId,
+      created_at: String(updated.data.created_at ?? new Date().toISOString()),
+      updated_at: String(updated.data.updated_at ?? new Date().toISOString()),
+    };
+  }
+
+  private extractTextFromHearthAttachment(
+    filename: string,
+    mimeType: string,
+    fileBytes: Uint8Array,
+  ): { text: string; source: "parser_a" | "parser_b" | "manual" | null } {
+    const extension = extensionOfAttachmentFile(filename);
+    if (
+      extension === ".txt"
+      || extension === ".md"
+      || mimeType === "text/plain"
+      || mimeType === "text/markdown"
+      || mimeType.startsWith("text/")
+    ) {
+      return { text: textDecoder.decode(fileBytes).slice(0, 120000), source: null };
+    }
+
+    if (extension === ".pdf" || mimeType === "application/pdf") {
+      // extractPdfTextFallbackChain throws HttpError(422, "pdf_needs_text_extraction") if both parsers produce no text.
+      const text = extractPdfTextFallbackChain(fileBytes);
+      return { text, source: "parser_a" };
+    }
+
+    if (
+      extension === ".docx"
+      || mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ) {
+      throw new HttpError(422, "attachment_parse_failed", "DOCX parsing is not available in this V1 slice.", {
+        parse_error: "unsupported_docx_for_v1",
+      });
+    }
+
+    throw new HttpError(415, "unsupported_attachment_type", "Unsupported attachment type for parsing.", {
+      parse_error: "unsupported_attachment_type",
+    });
   }
 
   async upsertHearthWorkpiecePresence(
@@ -6899,18 +7715,26 @@ export class TongsCommitService {
     const payloadJson = isRecord(input.payload_json) ? input.payload_json : {};
     const provider = typeof payloadJson.provider === "string" ? payloadJson.provider.trim() : null;
     const model = typeof payloadJson.model === "string" ? payloadJson.model.trim() : null;
-    const policy = await resolveAiPolicy(this.supabase, {
-      orgId: null,
-      workspaceId,
-      userId: auth.userId,
-      tool: "hammer",
-      feature: "heavy_tasks",
-      action: input.job_type === "hammer_transcript_regeneration" || input.job_type === "hammer_transcript_prep"
-        ? "stt"
-        : null,
-      provider: provider || "openai",
-      model,
-    });
+    let policy: AiPolicyResolveResult;
+    try {
+      policy = await resolveAiPolicy(this.supabase, {
+        orgId: null,
+        workspaceId,
+        userId: auth.userId,
+        tool: "hammer",
+        feature: "heavy_tasks",
+        action: input.job_type === "hammer_transcript_regeneration" || input.job_type === "hammer_transcript_prep"
+          ? "stt"
+          : null,
+        provider: provider || "openai",
+        model,
+      });
+    } catch (error) {
+      const reason = describeUnknownError(error);
+      throw new HttpError(503, "ai_policy_unavailable", "Unable to resolve AI policy for workpiece job creation", {
+        reason,
+      });
+    }
     if (!isAiAllowDecision(policy)) {
       throw new HttpError(403, "ai_policy_denied", getAiReasonMessage(policy.reasonCode ?? "NO_VALID_FUNDING_SOURCE"), {
         decision_type: policy.decisionType,
@@ -7351,6 +8175,14 @@ export class TongsCommitService {
       .upsert(rows, { onConflict: "workpiece_id,path" });
 
     if (error) {
+      try {
+        console.error("[tongs][db] workpiece_files upsert failed", {
+          workpiece_ids: rows.map((r) => r.workpiece_id),
+          paths: rows.map((r) => r.path),
+          reason: error.message,
+          pg_code: (error as { code?: unknown }).code ?? null,
+        });
+      } catch { /* ignore */ }
       throw new HttpError(502, "db_write_failed", "Failed to upsert workpiece_files", {
         reason: error.message,
       });
@@ -7430,6 +8262,17 @@ export class TongsCommitService {
     const storageKey = buildStorageKey(workpieceId, args.path);
 
     assertApprovedScriptTagContract(args.path, args.eventName, args.bytes);
+
+    try {
+      console.info("[tongs][commit_file] start", {
+        workpiece_id: workpieceId,
+        path: args.path,
+        storage_key: storageKey,
+        bytes: args.bytes.length,
+        content_type: args.contentType,
+        commit_mode: args.commitMode,
+      });
+    } catch { /* ignore */ }
 
     const hash = await sha256Hex(args.bytes);
     await uploadStorageObject(this.supabase, this.bucket, storageKey, args.bytes, args.contentType);
@@ -7521,6 +8364,24 @@ export class TongsCommitService {
       writtenBy: args.writtenBy,
       correlationId: normalizeCorrelationId(args.correlationId),
     });
+    if (
+      args.path === HAMMER_ARTIFACT_PATHS.structured_transcript
+      || args.path.startsWith("anvil/transcript/final/")
+    ) {
+      try {
+        console.info("[tongs:transcript:artifact_registered]", {
+          workpiece_id: workpieceId,
+          path: args.path,
+          event_name: eventName,
+          bytes: args.bytes.length,
+          content_type: args.contentType,
+          commit_mode: args.commitMode,
+          correlation_id: normalizeCorrelationId(args.correlationId),
+        });
+      } catch {
+        // ignore
+      }
+    }
 
     const { data: fileRow, error: fileRowError } = await this.supabase
       .schema("tongs")
@@ -8072,6 +8933,15 @@ export class TongsCommitService {
     uploadId: string,
   ): Promise<FinalizeRecordingUploadResponse> {
     const state = await this.loadRecordingUploadSessionState(workpieceId, uploadId);
+    try {
+      console.info("[tongs][finalize] start", {
+        workpiece_id: workpieceId,
+        upload_id: uploadId,
+        path: state.path,
+        total_chunks: state.total_chunks,
+        total_bytes: state.total_bytes,
+      });
+    } catch { /* ignore */ }
     if (state.finalized_at) {
       throw new HttpError(409, "upload_session_finalized", "Recording upload session is already finalized");
     }
@@ -10841,8 +11711,8 @@ export class TongsCommitService {
       const episode = episodeById.get(workpieceId);
       const episodeLabel = episode?.label?.trim() ?? "";
       const title = sanitizeReadyDisplayTitle(episodeLabel)
-        ?? sanitizeReadyDisplayTitle(scriptTitleFallbackByWorkpiece.get(workpieceId));
-      if (!title) continue;
+        ?? sanitizeReadyDisplayTitle(scriptTitleFallbackByWorkpiece.get(workpieceId))
+        ?? "Untitled Episode";
       const primaryScriptPath = readyPointer.script_path;
       const knownPaths = readyPathsByWorkpiece.get(workpieceId) ?? [primaryScriptPath];
       const scriptPaths = knownPaths.includes(primaryScriptPath)
@@ -10873,9 +11743,19 @@ export class TongsCommitService {
       readyScripts.push(next);
     }
 
-    readyScripts.sort(compareWorkspaceReadyScripts);
+    const canonicalByWorkpiece = new Map<string, WorkspaceReadyScript>();
+    for (const row of readyScripts) {
+      const existing = canonicalByWorkpiece.get(row.workpiece_id);
+      if (!existing) {
+        canonicalByWorkpiece.set(row.workpiece_id, row);
+        continue;
+      }
+      canonicalByWorkpiece.set(row.workpiece_id, selectPreferredReadyRow(existing, row));
+    }
 
-    return readyScripts;
+    const canonicalReadyScripts = [...canonicalByWorkpiece.values()];
+    canonicalReadyScripts.sort(compareWorkspaceReadyScripts);
+    return canonicalReadyScripts;
   }
 
   async appendEvent(workpieceId: string, input: AppendEventRequest): Promise<WorkpieceEventRow> {
@@ -11025,6 +11905,105 @@ export function createTongsCommitApiHandlerWithService(
         return jsonResponse(201, { ok: true, data: result });
       }
 
+      if (parts.length === 3 && parts[0] === "tongs" && parts[1] === "hearth" && parts[2] === "attachments") {
+        const userAccessToken = requireUserAccessTokenHeader(request);
+
+        if (request.method === "GET") {
+          const workspaceId = normalizeUuid(url.searchParams.get("workspace_id"), "workspace_id");
+          const episodeId = normalizeUuid(url.searchParams.get("episode_id"), "episode_id");
+          const result = await service.listHearthAttachments(
+            {
+              workspace_id: workspaceId,
+              episode_id: episodeId,
+            },
+            { userAccessToken },
+          );
+          return jsonResponse(200, { ok: true, data: { attachments: result } });
+        }
+
+        if (request.method === "POST") {
+          const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
+          if (!contentType.includes("multipart/form-data")) {
+            throw new HttpError(400, "invalid_content_type", "Expected multipart/form-data upload.");
+          }
+
+          const formData = await request.formData();
+          const workspaceId = normalizeUuid(formData.get("workspace_id"), "workspace_id");
+          const episodeId = normalizeUuid(formData.get("episode_id"), "episode_id");
+          const fileField = formData.get("file");
+          if (!(fileField instanceof File)) {
+            throw new HttpError(400, "missing_file", "Missing upload file.");
+          }
+
+          const originalFilenameValue = typeof formData.get("original_filename") === "string"
+            ? String(formData.get("original_filename"))
+            : fileField.name;
+          const declaredMimeType = typeof formData.get("mime_type") === "string"
+            ? String(formData.get("mime_type"))
+            : fileField.type;
+
+          if (!isSupportedAttachmentType(originalFilenameValue, declaredMimeType)) {
+            throw new HttpError(415, "unsupported_attachment_type", "Unsupported file type for Hearth attachment V1.");
+          }
+
+          if (fileField.size > HEARTH_ATTACHMENT_MAX_BYTES) {
+            throw new HttpError(413, "attachment_too_large", `Attachment must be ${HEARTH_ATTACHMENT_MAX_BYTES / 1024 / 1024}MB or smaller.`);
+          }
+
+          const fileBytes = new Uint8Array(await fileField.arrayBuffer());
+
+          const result = await service.createHearthAttachment(
+            {
+              workspace_id: workspaceId,
+              episode_id: episodeId,
+              filename: originalFilenameValue,
+              mime_type: declaredMimeType,
+              size_bytes: fileField.size,
+              file_bytes: fileBytes,
+            },
+            { userAccessToken },
+          );
+          return jsonResponse(201, { ok: true, data: { attachment: result } });
+        }
+
+        throw new HttpError(405, "method_not_allowed", "Expected GET or POST for this endpoint");
+      }
+
+      // PATCH /tongs/hearth/attachments/:id/extracted-text
+      if (
+        parts.length === 5
+        && parts[0] === "tongs"
+        && parts[1] === "hearth"
+        && parts[2] === "attachments"
+        && parts[4] === "extracted-text"
+      ) {
+        requireMethod(request, "PATCH");
+        const attachmentId = parts[3];
+        if (!attachmentId?.trim()) {
+          throw new HttpError(400, "invalid_attachment_id", "attachment_id path segment is required.");
+        }
+        const userAccessToken = readUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const workspaceId = normalizeUuid(
+          typeof body === "object" && body !== null && typeof (body as Record<string, unknown>).workspace_id === "string"
+            ? (body as Record<string, unknown>).workspace_id as string
+            : "",
+          "workspace_id",
+        );
+        const extractedText =
+          typeof body === "object" && body !== null && typeof (body as Record<string, unknown>).extracted_text === "string"
+            ? ((body as Record<string, unknown>).extracted_text as string).trim()
+            : "";
+        if (!extractedText) {
+          throw new HttpError(400, "invalid_extracted_text", "extracted_text must be a non-empty string.");
+        }
+        const result = await service.updateHearthAttachmentExtractedText(
+          { attachment_id: attachmentId, workspace_id: workspaceId, extracted_text: extractedText },
+          { userAccessToken },
+        );
+        return jsonResponse(200, { ok: true, data: { attachment: result } });
+      }
+
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "commit-file") {
         requireMethod(request, "POST");
         const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
@@ -11038,8 +12017,67 @@ export function createTongsCommitApiHandlerWithService(
             "Missing x-forge-user-authorization (or x-forge-user-token) header",
           );
         }
-        const result = await service.commitFile(workpieceId, payload);
-        return jsonResponse(200, { ok: true, data: result });
+        try {
+          const result = await service.commitFile(workpieceId, payload);
+          return jsonResponse(200, { ok: true, data: result });
+        } catch (error) {
+          const authHeader = request.headers.get("x-forge-user-authorization")
+            || request.headers.get("x-forge-user-token")
+            || request.headers.get("authorization");
+          const payloadRecord = body && typeof body === "object"
+            ? body as Record<string, unknown>
+            : {};
+          const diagnosticDetails: Record<string, unknown> = {
+            route: "POST /tongs/workpieces/:workpiece_id/commit-file",
+            workpiece_id: workpieceId,
+            authenticated_user_id: tryDecodeJwtSubFromAuthHeader(authHeader),
+            payload_keys: Object.keys(payloadRecord),
+            artifact_kind: typeof payloadRecord.file_type === "string" ? payloadRecord.file_type : null,
+            artifact_type: typeof payloadRecord.content_type === "string" ? payloadRecord.content_type : null,
+            requested_path: typeof payloadRecord.path === "string" ? payloadRecord.path : null,
+          };
+          const httpLikeError = toHttpLikeError(error);
+          if (httpLikeError) {
+            diagnosticDetails.error_code = httpLikeError.code;
+            diagnosticDetails.error_status = httpLikeError.status;
+            diagnosticDetails.error_details = typeof httpLikeError.details === "undefined" ? null : httpLikeError.details;
+          } else if (error instanceof Error) {
+            diagnosticDetails.error_code = "internal_error";
+            diagnosticDetails.stack = error.stack || null;
+          } else {
+            diagnosticDetails.error_code = "unknown_error";
+            diagnosticDetails.error_value = String(error);
+          }
+
+          if (isDevDiagnosticsEnabled()) {
+            try {
+              console.error("[tongs-commit-file-failed]", diagnosticDetails);
+            } catch {
+              // ignore logging failures
+            }
+          }
+
+          const status = httpLikeError
+            ? httpLikeError.status
+            : 502;
+          const message = httpLikeError
+            ? httpLikeError.message
+            : (error instanceof Error ? error.message : "commit-file failed");
+          const responsePayload = {
+            ok: false,
+            code: "tongs_commit_file_failed",
+            message,
+            details: diagnosticDetails,
+            error: {
+              code: "tongs_commit_file_failed",
+              message,
+              details: diagnosticDetails,
+              ...(requestId ? { request_id: requestId } : {}),
+            },
+            ...(requestId ? { request_id: requestId } : {}),
+          };
+          return jsonResponse(status, responsePayload, requestId);
+        }
       }
 
       if (
@@ -11084,8 +12122,56 @@ export function createTongsCommitApiHandlerWithService(
         requireMethod(request, "POST");
         const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
         const uploadId = normalizeRecordingUploadSessionId(decodeURIComponent(parts[4]), "upload_id");
-        const result = await service.finalizeRecordingUpload(workpieceId, uploadId);
-        return jsonResponse(200, { ok: true, data: result });
+        try {
+          const result = await service.finalizeRecordingUpload(workpieceId, uploadId);
+          return jsonResponse(200, { ok: true, data: result });
+        } catch (error) {
+          const diagnosticDetails: Record<string, unknown> = {
+            route: "POST /tongs/workpieces/:workpiece_id/recording-upload/:upload_id/finalize",
+            workpiece_id: workpieceId,
+            upload_id: uploadId,
+          };
+          const httpLikeError = toHttpLikeError(error);
+          if (httpLikeError) {
+            diagnosticDetails.error_code = httpLikeError.code;
+            diagnosticDetails.error_status = httpLikeError.status;
+            diagnosticDetails.error_details =
+              typeof httpLikeError.details === "undefined" ? null : httpLikeError.details;
+          } else if (error instanceof Error) {
+            diagnosticDetails.error_code = "internal_error";
+            diagnosticDetails.stack = error.stack ?? null;
+          } else {
+            diagnosticDetails.error_code = "unknown_error";
+            diagnosticDetails.error_value = String(error);
+          }
+          if (isDevDiagnosticsEnabled()) {
+            try {
+              console.error("[tongs-finalize-failed]", diagnosticDetails);
+            } catch {
+              // ignore logging failures
+            }
+          }
+          const status = httpLikeError ? httpLikeError.status : 502;
+          const message = httpLikeError
+            ? httpLikeError.message
+            : error instanceof Error
+            ? error.message
+            : "recording-upload finalize failed";
+          const responsePayload = {
+            ok: false,
+            code: "tongs_finalize_failed",
+            message,
+            details: diagnosticDetails,
+            error: {
+              code: "tongs_finalize_failed",
+              message,
+              details: diagnosticDetails,
+              ...(requestId ? { request_id: requestId } : {}),
+            },
+            ...(requestId ? { request_id: requestId } : {}),
+          };
+          return jsonResponse(status, responsePayload, requestId);
+        }
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "commit-file") {
@@ -12035,6 +13121,23 @@ export function createTongsCommitApiHandlerWithService(
             details: error.details ?? null,
             path: request.url,
             method: request.method,
+          });
+        } catch {
+          // ignore logging failures
+        }
+      }
+      const uncaughtStatus = error instanceof HttpError ? error.status : 500;
+      if (uncaughtStatus >= 500) {
+        try {
+          console.error("[tongs-api-5xx]", {
+            request_id: requestId,
+            status: uncaughtStatus,
+            code: error instanceof HttpError ? error.code : "internal_error",
+            message: error instanceof Error ? error.message : String(error),
+            details: error instanceof HttpError ? (error.details ?? null) : null,
+            path: request.url,
+            method: request.method,
+            stack: isDevDiagnosticsEnabled() && error instanceof Error ? (error.stack ?? null) : null,
           });
         } catch {
           // ignore logging failures

@@ -14,6 +14,11 @@ export type ExternalGenerationProviderKind =
   | "research_source";
 
 export type ExternalGenerationProviderPromptFormat = "plain_text" | "json" | "both";
+export type ExternalGenerationProviderCapability =
+  | "prompt_pack"
+  | "manual_bridge"
+  | "stock_source"
+  | "asset_generation";
 
 export type ExternalGenerationProvider = {
   id: string;
@@ -24,6 +29,7 @@ export type ExternalGenerationProvider = {
   supportsManualBridge: boolean;
   promptFormat: ExternalGenerationProviderPromptFormat;
   supportedAssetClasses: EpisodeVisualAssetClass[];
+  capabilities: ExternalGenerationProviderCapability[];
 };
 
 export type VisualBriefCommon = {
@@ -72,6 +78,17 @@ export type ReferenceClipBrief = VisualBriefCommon & {
 
 export const DEFAULT_EXTERNAL_GENERATION_PROVIDERS: ExternalGenerationProvider[] = [
   {
+    id: "openart",
+    name: "OpenArt",
+    kind: "image_generator",
+    launchUrl: "https://openart.ai/",
+    supportsDirectApi: false,
+    supportsManualBridge: true,
+    promptFormat: "both",
+    supportedAssetClasses: ["broll", "reference_clip"],
+    capabilities: ["prompt_pack", "manual_bridge"],
+  },
+  {
     id: "generic-image-tool",
     name: "Generic Image Tool",
     kind: "image_generator",
@@ -80,6 +97,7 @@ export const DEFAULT_EXTERNAL_GENERATION_PROVIDERS: ExternalGenerationProvider[]
     supportsManualBridge: true,
     promptFormat: "both",
     supportedAssetClasses: ["reference_clip"],
+    capabilities: ["prompt_pack", "manual_bridge"],
   },
   {
     id: "generic-video-tool",
@@ -90,6 +108,7 @@ export const DEFAULT_EXTERNAL_GENERATION_PROVIDERS: ExternalGenerationProvider[]
     supportsManualBridge: true,
     promptFormat: "both",
     supportedAssetClasses: ["broll", "reference_clip"],
+    capabilities: ["prompt_pack", "manual_bridge", "asset_generation"],
   },
   {
     id: "pexels-stock",
@@ -100,6 +119,7 @@ export const DEFAULT_EXTERNAL_GENERATION_PROVIDERS: ExternalGenerationProvider[]
     supportsManualBridge: true,
     promptFormat: "plain_text",
     supportedAssetClasses: ["broll", "reference_clip"],
+    capabilities: ["manual_bridge", "stock_source"],
   },
   {
     id: "pixabay-stock",
@@ -110,6 +130,7 @@ export const DEFAULT_EXTERNAL_GENERATION_PROVIDERS: ExternalGenerationProvider[]
     supportsManualBridge: true,
     promptFormat: "plain_text",
     supportedAssetClasses: ["broll", "reference_clip"],
+    capabilities: ["manual_bridge", "stock_source"],
   },
   {
     id: "research-wikipedia",
@@ -120,6 +141,7 @@ export const DEFAULT_EXTERNAL_GENERATION_PROVIDERS: ExternalGenerationProvider[]
     supportsManualBridge: true,
     promptFormat: "plain_text",
     supportedAssetClasses: ["reference_clip"],
+    capabilities: ["manual_bridge"],
   },
 ];
 
@@ -149,8 +171,16 @@ function resolveResultMode(format: string): "still" | "video" | "graphic_composi
 export function listExternalGenerationProviders(
   assetClass: EpisodeVisualAssetClass,
   providers: readonly ExternalGenerationProvider[] = DEFAULT_EXTERNAL_GENERATION_PROVIDERS,
+  options?: {
+    capability?: ExternalGenerationProviderCapability | null;
+  },
 ): ExternalGenerationProvider[] {
-  return providers.filter((provider) => provider.supportedAssetClasses.includes(assetClass));
+  return providers.filter((provider) => {
+    if (!provider.supportedAssetClasses.includes(assetClass)) return false;
+    const requiredCapability = options?.capability ?? null;
+    if (!requiredCapability) return true;
+    return provider.capabilities.includes(requiredCapability);
+  });
 }
 
 export function buildBrollBeatBrief(args: {
@@ -240,6 +270,11 @@ export function formatVisualBriefAsText(brief: BrollBeatBrief | ReferenceClipBri
 
   if (brief.asset_class === "broll") {
     lines.push(
+      "",
+      "B-roll Prompt Model:",
+      `What is happening visually: ${brief.shot_intent}`,
+      `Why it supports the line / viewer feeling: ${brief.environment ?? "(none specified)"}`,
+      "Prompt guardrail: do not render abstract narration as literal keywords; use the visual action, metaphor, or process pattern.",
       `Motion Level: ${brief.motion_level ?? "(none specified)"}`,
       `Mood: ${brief.mood ?? "(none specified)"}`,
       `Framing: ${brief.framing ?? "(none specified)"}`,

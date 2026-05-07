@@ -55,6 +55,7 @@ const OUTPUT_MIME_TYPE = "audio/wav";
 const MAX_SOURCE_BYTES = 256 * 1024 * 1024;
 const CANONICAL_MEDIA_FETCH_TIMEOUT_MS = 60_000;
 const FFMPEG_PROCESS_TIMEOUT_MS = 2 * 60 * 1000;
+const FFPROBE_PROCESS_TIMEOUT_MS = 30_000;
 const CUT_SEAM_FADE_SEC = 0.006;
 
 function readTrimmed(value: unknown): string | null {
@@ -70,6 +71,112 @@ function readNumber(value: unknown): number | null {
     if (Number.isFinite(parsed)) return parsed;
   }
   return null;
+}
+
+function toFiniteNumberOrNull(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function readBitRate(value: unknown): number | null {
+  const parsed = toFiniteNumberOrNull(value);
+  return parsed != null && parsed > 0 ? Math.round(parsed) : null;
+}
+
+async function probeInputAudioWithFfprobe(args: {
+  ffprobeBin: string;
+  bytes: Buffer;
+  sourceExtension: string;
+  sourceLabel: string;
+}): Promise<{
+  codec: string | null;
+  sampleRate: number | null;
+  channels: number | null;
+  durationSec: number | null;
+  bitRate: number | null;
+}> {
+  const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-studio-rack-ffprobe-"));
+  const safeExtension = args.sourceExtension || ".bin";
+  const inputPath = path.join(tempRoot, `input${safeExtension}`);
+  try {
+    await fsPromises.writeFile(inputPath, args.bytes);
+    const probeJson = await new Promise<string>((resolve, reject) => {
+      const child = spawn(
+        args.ffprobeBin,
+        [
+          "-v",
+          "error",
+          "-select_streams",
+          "a:0",
+          "-show_entries",
+          "stream=codec_name,sample_rate,channels,duration,bit_rate:format=duration,bit_rate",
+          "-of",
+          "json",
+          inputPath,
+        ],
+        {
+          windowsHide: true,
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+
+      let stdout = "";
+      let stderr = "";
+      let timedOut = false;
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        child.kill();
+      }, FFPROBE_PROCESS_TIMEOUT_MS);
+
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString("utf8");
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        const next = chunk.toString("utf8");
+        if (stderr.length < 16_384) {
+          stderr += next.slice(0, 16_384 - stderr.length);
+        }
+      });
+      child.on("error", (error: unknown) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+      child.on("close", (code: number | null) => {
+        clearTimeout(timeoutId);
+        if (timedOut) {
+          reject(new Error("Hammer Studio Rack ffprobe timed out."));
+          return;
+        }
+        if (code === 0) {
+          resolve(stdout);
+          return;
+        }
+        reject(new Error(stderr.trim() || `Hammer Studio Rack ffprobe failed for ${args.sourceLabel}.`));
+      });
+    });
+
+    const parsed = JSON.parse(probeJson) as {
+      streams?: Array<Record<string, unknown>>;
+      format?: Record<string, unknown>;
+    };
+    const stream = Array.isArray(parsed.streams) ? parsed.streams[0] ?? {} : {};
+    const format = parsed.format ?? {};
+    const streamDuration = toFiniteNumberOrNull(stream.duration);
+    const formatDuration = toFiniteNumberOrNull(format.duration);
+    return {
+      codec: readTrimmed(stream.codec_name),
+      sampleRate: toFiniteNumberOrNull(stream.sample_rate),
+      channels: toFiniteNumberOrNull(stream.channels),
+      durationSec: streamDuration ?? formatDuration,
+      bitRate: readBitRate(stream.bit_rate) ?? readBitRate(format.bit_rate),
+    };
+  } finally {
+    await fsPromises.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 function readObject(value: unknown): Record<string, unknown> | null {
@@ -288,7 +395,8 @@ async function renderWaveBufferWithFfmpeg(args: {
   sourceExtension: string;
   sourceLabel: string;
   ffmpegBin: string;
-  filterChain: string;
+  filterComplex: string;
+  outputLabel: string;
 }): Promise<Buffer> {
   const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-studio-rack-render-"));
   const safeExtension = args.sourceExtension || ".bin";
@@ -305,7 +413,8 @@ async function renderWaveBufferWithFfmpeg(args: {
       "-i",
       inputPath,
       "-vn",
-      ...(args.filterChain ? ["-af", args.filterChain] : []),
+      ...(args.filterComplex ? ["-filter_complex", args.filterComplex] : []),
+      ...(args.filterComplex ? ["-map", `[${args.outputLabel}]`] : ["-map", "0:a:0"]),
       "-acodec",
       "pcm_s16le",
       "-ar",
@@ -596,6 +705,26 @@ export async function handleHammerStudioRackRenderRequest(
   }
 
   try {
+    const ffprobeBin = readTrimmed(mediaRuntime.ffmpeg.ffprobe_bin);
+    let inputProbe: Awaited<ReturnType<typeof probeInputAudioWithFfprobe>> | null = null;
+    let inputProbeError: string | null = null;
+    if (mediaRuntime.ffmpeg.ffprobe_available && ffprobeBin) {
+      try {
+        inputProbe = await probeInputAudioWithFfprobe({
+          ffprobeBin,
+          bytes: sourceMedia.sourceBytes,
+          sourceExtension: sourceMedia.sourceExtension,
+          sourceLabel: sourceMedia.sourceLabel,
+        });
+      } catch (error) {
+        inputProbeError = error instanceof Error && error.message.trim()
+          ? error.message
+          : "Input audio probe failed.";
+      }
+    } else {
+      inputProbeError = "ffprobe unavailable";
+    }
+
     const chain = buildHammerStudioRackFfmpegPlan(request.rack_state);
     const shouldApplyRack = request.requested_backend === "ffmpeg"
       && request.rack_state.is_enabled
@@ -629,7 +758,8 @@ export async function handleHammerStudioRackRenderRequest(
       sourceExtension: sourceMedia.sourceExtension,
       sourceLabel: sourceMedia.sourceLabel,
       ffmpegBin,
-      filterChain: timelinePlan.filterComplex,
+      filterComplex: timelinePlan.filterComplex,
+      outputLabel: timelinePlan.outputLabel,
     });
     const outputWorkpiecePath = buildArtifactRelpath(request, sourceMedia.sourceLabel);
     const outputDurationMs = readWavDurationMs(renderedWaveBytes);
@@ -690,6 +820,25 @@ export async function handleHammerStudioRackRenderRequest(
             derived_output_path: outputWorkpiecePath,
             requested_backend: request.requested_backend,
             resolved_backend: shouldApplyRack ? "ffmpeg" : "native",
+            preview_audio_processing_active: false,
+            export_audio_processing_active: true,
+            preview_audio_filter_chain: null,
+            export_audio_filter_mode: "filter_complex",
+            export_audio_filter_chain: timelinePlan.filterComplex,
+            export_audio_filter_args: `-filter_complex <graph> -map [${timelinePlan.outputLabel}]`,
+            export_audio_mapped_stream: `[${timelinePlan.outputLabel}]`,
+            export_audio_source_stream: "0:a:0",
+            voice_cleanup_enabled: request.rack_state.voice_polish?.voice_cleanup_enabled === true,
+            export_input_codec: inputProbe?.codec ?? null,
+            export_input_sample_rate: inputProbe?.sampleRate ?? null,
+            export_input_channels: inputProbe?.channels ?? null,
+            export_input_duration: inputProbe?.durationSec ?? null,
+            export_input_bit_rate: inputProbe?.bitRate ?? null,
+            export_input_probe_error: inputProbeError,
+            export_output_codec: "pcm_s16le",
+            export_output_sample_rate: 48000,
+            export_output_channels: 2,
+            export_output_mime_type: OUTPUT_MIME_TYPE,
             timeline_order_preserved: true,
             ...timelinePlan.summary,
             ...chain.summary,

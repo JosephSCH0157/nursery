@@ -4,6 +4,7 @@ import type { HearthOp } from "../src/lib/hearth-ai-ops";
 import {
   cloneHearthProposalOps,
   isHearthProposalBodyOpDirty,
+  normalizeHearthProposalOpsForScriptIngress,
   resetHearthProposalBodyOp,
   updateHearthProposalBodyOp,
 } from "../src/lib/hearth-ai-proposal";
@@ -71,4 +72,44 @@ test("resetHearthProposalBodyOp restores the original AI draft body", () => {
   const reset = resetHearthProposalBodyOp(editedOps, originalOps, 0);
 
   assert.deepEqual(reset, originalOps);
+});
+
+test("normalizeHearthProposalOpsForScriptIngress makes approval display body match approved body", () => {
+  const blobBody = [
+    "[s1]",
+    "Alright. Today we are talking voting rights. This needs pacing. Validation check: All speaker tags are standalone lines with proper closes.",
+    "[/s1]",
+  ].join("\n");
+  const rawOps: HearthOp[] = [
+    { op: "set_title", value: "Voting Rights" },
+    { op: "set_body", value: blobBody },
+  ];
+
+  const proposalDisplayOps = normalizeHearthProposalOpsForScriptIngress(rawOps);
+  const approvedOps = normalizeHearthProposalOpsForScriptIngress(
+    proposalDisplayOps.filter((op) => op.op === "set_body"),
+  );
+  const displayedBody = proposalDisplayOps.find((op) => op.op === "set_body")?.value ?? "";
+  const approvedBody = approvedOps.find((op) => op.op === "set_body")?.value ?? "";
+
+  assert.equal(displayedBody, approvedBody);
+  assert.notEqual(displayedBody, blobBody);
+  assert.match(displayedBody, /^\[s1\]$/m);
+  assert.doesNotMatch(displayedBody, /Validation check/i);
+});
+
+test("normalizeHearthProposalOpsForScriptIngress keeps only the final set_body proposal", () => {
+  const ops: HearthOp[] = [
+    { op: "set_title", value: "Lobbying" },
+    { op: "set_body", value: "[s1]\nOld body\n[/s1]" },
+    { op: "add_source", source: { title: "Source" } },
+    { op: "set_body", value: "[s1]\nNew body\n[/s1]" },
+  ];
+
+  const normalized = normalizeHearthProposalOpsForScriptIngress(ops);
+  const bodyOps = normalized.filter((op) => op.op === "set_body");
+
+  assert.equal(bodyOps.length, 1);
+  assert.equal(bodyOps[0]?.value.includes("New body"), true);
+  assert.equal(bodyOps[0]?.value.includes("Old body"), false);
 });

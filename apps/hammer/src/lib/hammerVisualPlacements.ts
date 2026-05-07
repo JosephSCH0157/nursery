@@ -836,7 +836,7 @@ function classifyAnchorMatch(args: {
       : "unresolved";
 
   return {
-    matchType: args.deterministicCandidate ? "fuzzy" : "fuzzy",
+    matchType: "fuzzy",
     confidence,
     classification,
   };
@@ -1342,7 +1342,26 @@ export function deriveHammerVisualPlacements(args: {
           ? "uncertain"
           : "rejected"
     );
-    const persistedStatus: "placed" | "uncertain" = anchorMatch.classification === "placed" ? "placed" : "uncertain";
+    const fallbackUsed = timingSource === "ordered_fallback";
+    const persistedStatus: "placed" | "uncertain" = (
+      fallbackUsed
+        ? "uncertain"
+        : (anchorMatch.classification === "placed" ? "placed" : "uncertain")
+    );
+    const alignmentState: "aligned" | "review_needed" | "unresolved" = (
+      fallbackUsed
+        ? "review_needed"
+        : anchorMatch.classification === "placed"
+          ? "aligned"
+          : anchorMatch.classification === "uncertain"
+            ? "review_needed"
+            : "unresolved"
+    );
+    const alignmentMethod: "deterministic_phrase" | "fuzzy_text" | "ordered_fallback" = deterministicCandidate
+      ? "deterministic_phrase"
+      : candidate
+        ? "fuzzy_text"
+        : "ordered_fallback";
 
     logVisualPlacementDecisionDebug({
       transcriptSegments,
@@ -1398,6 +1417,17 @@ export function deriveHammerVisualPlacements(args: {
       uncertainty_flags: promotedCandidate
         ? [...placementFlags, "image_map_candidate_promoted"]
         : placementFlags,
+      script_cue_id: visual.entry_id,
+      placement_authority: "hammer_timeline_anchor",
+      alignment: {
+        script_cue_id: visual.entry_id,
+        transcript_segment_id: matchedSegments[0]?.segment_id ?? transcriptSegments[0]?.segment_id ?? visual.entry_id,
+        transcript_start_sec: startSec,
+        transcript_end_sec: endSec,
+        confidence: Number(anchorMatch.confidence.toFixed(3)),
+        match_method: alignmentMethod,
+        state: alignmentState,
+      },
     });
   }
 

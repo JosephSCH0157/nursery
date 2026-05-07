@@ -38,6 +38,7 @@ import {
   type HearthResearchRequest,
   type HearthResearchSource,
 } from "../../../hearth/src/lib/hearth-research-contract";
+import { shapeHearthScriptForRecording } from "../../../hearth/src/lib/hearth-recording-ready-script";
 import { createHearthResearchRuntime, extractUrlToResearchSource } from "./hearth-research-runtime";
 import {
   FORGE_ALLOWED_CHAT_MODELS,
@@ -132,6 +133,12 @@ type ReqBody = {
   behavior?: unknown;
   lane?: unknown;
   action_id?: unknown;
+  attachment_context?: unknown;
+};
+
+type AttachmentContextRequest = {
+  includeEpisodeAttachments: boolean;
+  attachmentIds: string[];
 };
 
 type SttReqBody = {
@@ -164,15 +171,23 @@ const RECENT_SCRIPT_RPC_LIMIT = 4;
 const RECENT_SCRIPT_EXCERPT_MAX_CHARS = 520;
 const RECENT_SCRIPT_EXCERPT_TOTAL_MAX_CHARS = 1_800;
 const STYLE_CORPUS_SNIPPET_MAX_CHARS = 5_600;
+const HEARTH_ATTACHMENT_PROMPT_MAX_CHARS = 12_000;
+const HEARTH_ATTACHMENT_PER_FILE_MAX_CHARS = 3_000;
+const HEARTH_ATTACHMENT_PROMPT_MAX_FILES = 8;
 const READINESS_CHECK_RE = /\b(are we ready|ready to record|record now|can i record|good to record|ready for anvil|ship this|go live)\b/i;
 const READINESS_DEEP_REVIEW_RE = /\b(again|recheck|double check|deeper|strict|hard mode|harsh|be tough|second pass)\b/i;
 const SOURCING_NUDGE_RE = /\b(source|sources|sourcing|citation|citations|cite|evidence|verify|fact[- ]?check|corroborat)\b/i;
 const RISK_NUDGE_RE = /\b(risk|risky|legal|defamation|liability|compliance|sensitive claim|hot take)\b/i;
 const RECORD_ANYWAY_RE = /\b(record anyway|record now anyway|ok to record anyway|okay to record anyway|go ahead and record)\b/i;
 const CDC_REQUEST_RE = /\b(cdc|contextual data composite|chart|graph|plot|dataset|bar chart|line chart|pie chart)\b/i;
-const RESEARCH_INTENT_RE = /\b(browse|look up|lookup|find(?: me)?|search|news|reports?|reporting|examples?|case studies?|incidents?|breach(?:es)?|source|sources|citations?|evidence)\b/i;
+const RESEARCH_INTENT_RE = /\b(browse|look up|lookup|find(?: me)?|search|research|retrieval|web research|live research|live web research|news|reports?|reporting|examples?|case studies?|incidents?|breach(?:es)?|source|sources|citations?|evidence)\b/i;
+const GENERIC_EPISODE_SOURCE_RE = /\b(source|sources|citation|citations|cite|cites|evidence|receipts)\b[\s\S]{0,80}\b(this episode|the episode|episode|show|script|draft)\b|\b(this episode|the episode|episode|show|script|draft)\b[\s\S]{0,80}\b(source|sources|citation|citations|cite|cites|evidence|receipts)\b/i;
 const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;
 const CROSS_PROJECT_REFERENCE_RE = /\b(use|pull in|bring in|remember|recall|like|from)\b[\s\S]{0,120}\b(script|episode|project|conversation|workspace|last week|other chat|that)\b/i;
+const OPINION_DISCUSSION_RE = /\b(my interpretation is|i think this means|i think\b|what do you think|am i reading this right|does this argument work|does this framing work|help me pressure[- ]?test|pressure[- ]?test this|i disagree|here is my opinion|my opinion is)\b/i;
+const WORKSPACE_CONTEXT_EXPLICIT_RE = /\b(use|pull|pull in|bring in|load|open|find|continue|compare|reference|grab|look at|work from|base this on|tighten|revise|rewrite)\b[\s\S]{0,120}\b(current|saved|previous|prior|earlier|last|other|workspace|project|episode|draft|script|version|notes?|bar stock|hearth|tongs|media map|framing pack|titles?|tags?)\b|\b(current|saved|previous|prior|earlier|last|other|workspace|project|episode|draft|script|version|notes?|bar stock|hearth|tongs|media map|framing pack|titles?|tags?)\b[\s\S]{0,120}\b(use|pull|pull in|bring in|load|open|find|continue|compare|reference|grab|look at|work from|base this on|tighten|revise|rewrite)\b/i;
+const WORKSPACE_OWNED_MATERIAL_RE = /\b(the episode we were working on|the project we were working on|the script we were working on|the draft i saved|saved draft|previous version|prior version|earlier draft|current episode draft|current script|current draft|current workspace|current project|current episode|bar stock|media map|framing pack)\b/i;
+const INTERNAL_LEAK_REWRITE_FALLBACK = "I may be missing the exact context. Paste the case name, link, or a line from the draft and I'll anchor it cleanly.";
 const ALLOWED_CHAT_MODELS = new Set<string>(FORGE_ALLOWED_CHAT_MODELS);
 const DEFAULT_CREATOR_PROFILE: CreatorProfile = {
   userId: null,
@@ -510,6 +525,58 @@ function removeUrls(input: string): string {
   return condenseWhitespace(String(input ?? "").replace(URL_RE, " "));
 }
 
+function stripHearthInternalRequestInstructions(input: string): string {
+  const text = String(input ?? "");
+  const markerPatterns = [
+    /\bResponse tone:/i,
+    /\bRecording-ready script rules:/i,
+    /\bThe user prefers\b/i,
+    /\bFor full scripts:/i,
+  ];
+  const markerIndexes = markerPatterns
+    .map((pattern) => {
+      const match = pattern.exec(text);
+      return match?.index ?? -1;
+    })
+    .filter((index) => index >= 0);
+  const end = markerIndexes.length ? Math.min(...markerIndexes) : text.length;
+  return condenseWhitespace(text.slice(0, end));
+}
+
+function stripResearchContextMarkup(input: string): string {
+  return condenseWhitespace(String(input ?? "")
+    .replace(/\[\/?(?:s1|s2|g1|g2|note)\]/gi, " ")
+    .replace(/\[(?:pause|beat|reflective pause)\]/gi, " ")
+    .replace(/\[[^\]]{1,48}\]/g, " ")
+    .replace(URL_RE, " "));
+}
+
+function buildEpisodeContextResearchQuery(args: {
+  requestText: string;
+  episodeContext: EpisodeContext;
+}): string | null {
+  const requestText = stripHearthInternalRequestInstructions(args.requestText);
+  if (!GENERIC_EPISODE_SOURCE_RE.test(requestText)) return null;
+
+  const titleVariants = args.episodeContext.titleVariants ?? { A: "", B: "", C: "" };
+  const contextParts = [
+    args.episodeContext.title,
+    titleVariants.A,
+    titleVariants.B,
+    titleVariants.C,
+    args.episodeContext.outline,
+    args.episodeContext.body,
+    ...args.episodeContext.sparks.map((spark) => spark.text),
+  ];
+  const contextText = stripResearchContextMarkup(contextParts.filter(Boolean).join(" "));
+  if (!contextText || /^test episode$/i.test(contextText)) return null;
+
+  const contextSnippet = contextText.length > 360
+    ? `${contextText.slice(0, 360).replace(/\s+\S*$/, "")}`
+    : contextText;
+  return condenseWhitespace(`${contextSnippet} primary sources official reports CRS GAO data`);
+}
+
 function buildLinkOnlyResearchResult(args: {
   sources: HearthResearchSource[];
 }): HearthResearchResult {
@@ -674,9 +741,27 @@ function isResearchIntentRequest(text: string): boolean {
   return /\breach\b/.test(normalized) && /\breport(?:ing|s)?\b/.test(normalized);
 }
 
+export function shouldUseWorkspaceContext(requestText: string): boolean {
+  const normalized = compactSpaces(requestText);
+  if (!normalized) return false;
+
+  const explicitWorkspaceRequest = WORKSPACE_CONTEXT_EXPLICIT_RE.test(normalized)
+    || WORKSPACE_OWNED_MATERIAL_RE.test(normalized);
+  if (!explicitWorkspaceRequest) return false;
+
+  // Opinion and pressure-test turns should stay conversational unless the user also
+  // clearly asks Hearth to use saved/current project material.
+  if (OPINION_DISCUSSION_RE.test(normalized) && !WORKSPACE_OWNED_MATERIAL_RE.test(normalized)) {
+    return false;
+  }
+
+  return true;
+}
+
 function isCrossProjectReferenceRequest(text: string): boolean {
   const normalized = compactSpaces(text);
   if (!normalized) return false;
+  if (!shouldUseWorkspaceContext(normalized)) return false;
   if (!CROSS_PROJECT_REFERENCE_RE.test(normalized)) return false;
   if (/\bthis script\b/.test(normalized) || /\bthis episode\b/.test(normalized) || /\bthis project\b/.test(normalized)) {
     return false;
@@ -864,6 +949,14 @@ function isProductionSupportRequest(text: string): boolean {
     || normalized.includes("image_01");
 }
 
+function isFramingPackProductionRequest(text: string): boolean {
+  const normalized = compactSpaces(text);
+  return normalized.includes("generate a framing pack")
+    || normalized.includes("release prep pack")
+    || normalized.includes("release_prep_pack")
+    || (normalized.includes("youtube_optimized_cut:") && normalized.includes("monetization_angle:"));
+}
+
 function hasBroadAboutTopic(text: string): boolean {
   const normalized = compactSpaces(text);
   if (!/\babout\b/.test(normalized)) return false;
@@ -1045,6 +1138,81 @@ function canonicalizeToken(raw: string): string {
   return `[${inner}]`;
 }
 
+function normalizeAttachmentContextRequest(value: unknown): AttachmentContextRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      includeEpisodeAttachments: true,
+      attachmentIds: [],
+    };
+  }
+
+  const row = value as Record<string, unknown>;
+  const includeEpisodeAttachments = typeof row.include_episode_attachments === "boolean"
+    ? row.include_episode_attachments
+    : true;
+  const rawIds = Array.isArray(row.attachment_ids) ? row.attachment_ids : [];
+  const attachmentIds = rawIds
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter((entry) => UUID_RE.test(entry))
+    .slice(0, 64);
+
+  return {
+    includeEpisodeAttachments,
+    attachmentIds,
+  };
+}
+
+function buildAttachmentContextSnippet(attachments: Array<{
+  id: string;
+  filename: string;
+  parse_status: string;
+  parse_error: string | null;
+  extracted_text: string | null;
+}>): string | null {
+  if (attachments.length === 0) return null;
+
+  const lines: string[] = [
+    "hearth_attachment_context:",
+  ];
+  let totalChars = 0;
+
+  for (const attachment of attachments.slice(0, HEARTH_ATTACHMENT_PROMPT_MAX_FILES)) {
+    const extracted = (attachment.extracted_text ?? "").trim();
+    const parseStatus = attachment.parse_status === "attached" || attachment.parse_status === "failed"
+      ? attachment.parse_status
+      : "pending";
+
+    lines.push(`- file: ${attachment.filename}`);
+    lines.push(`  attachment_id: ${attachment.id}`);
+    lines.push(`  parse_status: ${parseStatus}`);
+    if (attachment.parse_error) {
+      lines.push(`  parse_error: ${attachment.parse_error}`);
+    }
+
+    if (!extracted) {
+      lines.push("  extracted_text: (unavailable)");
+      continue;
+    }
+
+    const remaining = HEARTH_ATTACHMENT_PROMPT_MAX_CHARS - totalChars;
+    if (remaining <= 0) {
+      lines.push("  extracted_text: (omitted: prompt cap reached)");
+      continue;
+    }
+
+    const clipCap = Math.min(HEARTH_ATTACHMENT_PER_FILE_MAX_CHARS, remaining);
+    const clipped = extracted.slice(0, clipCap);
+    lines.push("  extracted_text:");
+    lines.push(clipped);
+    if (extracted.length > clipped.length) {
+      lines.push("  note: excerpt truncated for prompt cap; full retrieval is deferred to a future slice.");
+    }
+    totalChars += clipped.length;
+  }
+
+  return lines.join("\n");
+}
+
 function buildSystemPrompt(
   context: EpisodeContext,
   creatorStyleSnippet?: string,
@@ -1055,6 +1223,7 @@ function buildSystemPrompt(
     researchMode?: boolean;
     researchRequest?: HearthResearchRequest | null;
     researchResult?: HearthResearchResult | null;
+    attachmentContextSnippet?: string | null;
   },
 ): string {
   const baseLines = [
@@ -1122,6 +1291,34 @@ function buildSystemPrompt(
     "- Allowed hidden notes: [note]...[/note], and [note] tags must be on their own lines.",
     "- Forbid random markup: Host 1:, Host 2:, **Host 2:**, <speaker>, Markdown headings.",
     "- Canonical speaker mapping: S1 = Host 1, S2 = Host 2.",
+    "HEARTH OUTPUT CONTRACT FOR ANVIL SCRIPT GENERATION:",
+    "You are generating a script for Anvil. Formatting is NOT optional.",
+    "If you produce a blob, the output is invalid and must be regenerated.",
+    "Hard requirements:",
+    "1. Speaker Separation",
+    "- Every block must begin with [s1] or [s2] on its own line",
+    "- Only ONE speaker per block",
+    "- NEVER mix speakers in the same block",
+    "2. Line Length Rules",
+    "- Maximum 2 sentences per line",
+    "- Maximum 3 lines per speaker block",
+    "- After 2-3 lines, you MUST break into a new block",
+    "3. Teleprompter Readability",
+    "- Use short lines",
+    "- Use whitespace generously",
+    "- Insert [pause], [beat], or [reflective pause] where natural",
+    "4. Structure Enforcement",
+    "- No paragraph-style writing",
+    "- No continuous text longer than 3 lines",
+    "- Output must look like a performance script, not an article",
+    "5. Validation Step (MANDATORY)",
+    "Before finalizing, you MUST check:",
+    "- Are there any blocks longer than 3 lines? If yes, fix them",
+    "- Are any speakers mixed in a block? If yes, fix them",
+    "- Does any section read like a paragraph? If yes, break it up",
+    "If ANY of these fail, you must regenerate the output.",
+    "Do not explain. Do not apologize. Just fix it.",
+    "When asked to rewrite or rebuild a script: Rebuild the script. Do NOT preserve paragraph structure. Enforce the Anvil Output Contract above.",
     "Rules:",
     "- assistantText must be concise plain text (no markdown).",
     "- Write like a human collaborator, not customer support.",
@@ -1330,6 +1527,9 @@ function buildSystemPrompt(
 
   if (creatorStyleSnippet?.trim()) {
     baseLines.push(creatorStyleSnippet.trim());
+  }
+  if (options?.attachmentContextSnippet?.trim()) {
+    baseLines.push(options.attachmentContextSnippet.trim());
   }
   baseLines.push(
     "episode_context:",
@@ -1554,17 +1754,24 @@ function normalizeStructuredReply(raw: string): StructuredReply | null {
   const inferredScriptText = scriptText
     ?? (ops.find((op) => op.op === "set_body") as { op: "set_body"; value: string } | undefined)?.value
     ?? null;
-  const normalizedOps = inferredScriptText && !ops.some((op) => op.op === "set_body")
-    ? [...ops, { op: "set_body", value: inferredScriptText } satisfies HearthOp]
+  const shapedScriptText = inferredScriptText
+    ? shapeHearthScriptForRecording(inferredScriptText)
+    : null;
+  const normalizedOps = shapedScriptText
+    ? (
+        ops.some((op) => op.op === "set_body")
+          ? ops.map((op) => (op.op === "set_body" ? { ...op, value: shapedScriptText } satisfies HearthOp : op))
+          : [...ops, { op: "set_body", value: shapedScriptText } satisfies HearthOp]
+      )
     : ops;
   if (!assistantText && normalizedOps.length === 0) return null;
   const tagAudit = isRecord(parsed.tag_audit)
     ? parsed.tag_audit
-    : buildTagAuditFromScript(inferredScriptText);
+    : buildTagAuditFromScript(shapedScriptText);
   return {
     assistantText,
     ops: normalizedOps,
-    scriptText: inferredScriptText,
+    scriptText: shapedScriptText,
     tagAudit,
   };
 }
@@ -1762,13 +1969,13 @@ function enforceResearchOutcomeReply(args: {
 function buildCrossProjectScopeLead(resolution: CrossProjectReferenceResolution): string | null {
   if (!resolution.detected) return null;
   if (resolution.level === "clear" && resolution.resolvedTitle) {
-    return `Scope note: I resolved this to the workspace artifact "${resolution.resolvedTitle}" via Tongs. I am using it as a reference while keeping the current episode as the active working fire.`;
+    return `I found the referenced draft "${resolution.resolvedTitle}" and can use it as background while keeping this episode as the active working fire.`;
   }
   if (resolution.level === "ambiguous" && resolution.candidateTitles.length >= 2) {
     const [first, second] = resolution.candidateTitles;
-    return `Scope note: I found multiple workspace artifact matches via Tongs. I can anchor this to "${first}" or "${second}" once you pick one.`;
+    return `I found more than one possible draft match: "${first}" or "${second}". Pick one and I will anchor to it cleanly.`;
   }
-  return "Scope note: This sounds like a reference to another workspace artifact, but I do not have a reliable anchor yet. Name the episode/project (or paste one line) and I will resolve it through Tongs.";
+  return INTERNAL_LEAK_REWRITE_FALLBACK;
 }
 
 function enforceCrossProjectScopeReply(args: {
@@ -1785,12 +1992,97 @@ function enforceCrossProjectScopeReply(args: {
   return `${lead}\n\n${body}`;
 }
 
+const FRAMING_PACK_INTERNAL_MARKERS: RegExp[] = [
+  /\bi found\b/i,
+  /\bi can anchor\b/i,
+  /\bvia\s+tongs\b/i,
+  /\btongs\b/i,
+  /\bworkspace artifact\b/i,
+  /\bscope note\b/i,
+  /\bresolve it through tongs\b/i,
+  /\binternal\/debug\b/i,
+];
+
+function sanitizeFramingPackReply(input: string): string {
+  const raw = String(input ?? "").trim();
+  if (!raw) return "Framing Pack generated from the current episode context.";
+
+  const filteredLines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+      return !FRAMING_PACK_INTERNAL_MARKERS.some((pattern) => pattern.test(trimmed));
+    });
+
+  const cleaned = filteredLines
+    .join("\n")
+    .replace(/\bScope note:\s*/gi, "")
+    .replace(/\bvia\s+Tongs\b/gi, "")
+    .replace(/\bworkspace artifact(s)?\b/gi, "episode context")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  return cleaned || "Framing Pack generated from the current episode context.";
+}
+
+const USER_FACING_INTERNAL_LEAK_MARKERS: RegExp[] = [
+  /\btongs\b/i,
+  /\bworkspace artifact(s)?\b/i,
+  /\bartifact matches\b/i,
+  /\bscope note\b/i,
+  /\breliable anchor\b/i,
+  /\bresolve it through\b/i,
+  /\bcross-project\b/i,
+  /\binternal reference\b/i,
+  /\bstyle corpus\b/i,
+  /\benrichment\b/i,
+];
+
+function containsInternalLeak(text: string): boolean {
+  return USER_FACING_INTERNAL_LEAK_MARKERS.some((pattern) => pattern.test(text));
+}
+
+export function sanitizeHearthUserFacingOutput(input: string): string {
+  const raw = String(input ?? "").trim();
+  if (!raw) return raw;
+
+  const filtered = raw
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+      return !containsInternalLeak(trimmed);
+    })
+    .join("\n")
+    .replace(/\bTongs\b/gi, "the project context")
+    .replace(/\bworkspace artifact(s)?\b/gi, "draft context")
+    .replace(/\bartifact matches\b/gi, "possible draft matches")
+    .replace(/\bscope note:?\s*/gi, "")
+    .replace(/\breliable anchor\b/gi, "exact context")
+    .replace(/\bresolve it through\b/gi, "anchor it with")
+    .replace(/\bcross-project\b/gi, "between drafts")
+    .replace(/\binternal reference\b/gi, "reference")
+    .replace(/\bstyle corpus\b/gi, "style examples")
+    .replace(/\benrichment\b/gi, "context")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  if (!filtered) return INTERNAL_LEAK_REWRITE_FALLBACK;
+  if (containsInternalLeak(filtered)) return INTERNAL_LEAK_REWRITE_FALLBACK;
+  return filtered;
+}
+
 export function createHearthAiHandler(config: HearthRuntimeConfig) {
   const researchApiKey = (
     config.researchApiKey
     || process.env.HEARTH_RESEARCH_API_KEY
     || process.env.HEARTH_RESEARCH_BRAVE_API_KEY
     || process.env.BRAVE_SEARCH_API_KEY
+    || process.env.BRAVE_API_KEY
     || null
   );
   const researchRuntime = createHearthResearchRuntime({ braveApiKey: researchApiKey });
@@ -2967,6 +3259,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
+      const attachmentContext = normalizeAttachmentContextRequest(bodyRaw.attachment_context);
 
       const latestUserMessageIndex = [...messages]
         .map((message, index) => ({ message, index }))
@@ -3204,8 +3497,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         : messages;
       const urlsInRequest = extractUrls(requestText);
       const textWithoutUrls = removeUrls(requestText);
+      const researchIntentText = stripHearthInternalRequestInstructions(textWithoutUrls || requestText);
       const linkModeRequested = urlsInRequest.length > 0;
-      const researchModeRequested = linkModeRequested || isResearchIntentRequest(textWithoutUrls || requestText);
+      const researchModeRequested = linkModeRequested || isResearchIntentRequest(researchIntentText || requestText);
       const estimatedInputTokens = Math.max(
         1,
         Math.ceil(
@@ -3247,7 +3541,11 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
-      const researchQuery = textWithoutUrls.trim() || urlsInRequest.join(" ");
+      const contextualResearchQuery = buildEpisodeContextResearchQuery({
+        requestText: researchIntentText,
+        episodeContext,
+      });
+      const researchQuery = contextualResearchQuery || researchIntentText || urlsInRequest.join(" ");
       const researchRequest = researchModeRequested && researchQuery
         ? buildHearthResearchRequest({ query: researchQuery })
         : null;
@@ -3295,7 +3593,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         });
       }
 
-      if (linkModeRequested && researchResult && shouldShortCircuitLinkIngest(textWithoutUrls)) {
+      if (linkModeRequested && researchResult && shouldShortCircuitLinkIngest(researchIntentText || textWithoutUrls)) {
         const assistantText = buildLinkIngestOnlyReply({ sources: researchResult.sources });
         return jsonResponse(200, {
           ok: true,
@@ -3314,6 +3612,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       }
       const readinessCheckRequested = isReadinessCheckRequest(requestText);
       const allowRepeatedReadinessNudge = requestedDeepReadinessReview(requestText);
+      const framingPackRequested = isFramingPackProductionRequest(requestText);
       const priorAssistantMessage = [...priorMessages]
         .reverse()
         .find((entry) => entry.role === "assistant")
@@ -3354,29 +3653,97 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         });
       }
 
-      const styleGuidanceSections = [
-        buildProfileStyleSnippet(
-          creatorProfile,
-          writingProfile,
-          requestText,
-          episodeContext.tonePreset,
-        ),
-      ];
+      const workspaceContextRequested = shouldUseWorkspaceContext(requestText);
 
-      const styleSamples = await loadStyleSamplesForToken(bearerToken, episodeContext.workspaceId);
-      const recentScriptRefs = await loadRecentScriptReferencesForToken(bearerToken, episodeContext.workspaceId);
-      const recentScriptExcerpts = await loadRecentScriptExcerpts(recentScriptRefs);
-      const crossProjectReference = resolveCrossProjectReference({
-        requestText,
-        currentWorkpieceId: episodeContext.episodeId,
-        references: recentScriptRefs,
-      });
-      const styleCorpusSnippet = buildStyleCorpusSnippet({
-        styleSamples,
-        recentScriptExcerpts,
-      });
+      const styleGuidanceSections = framingPackRequested
+        ? []
+        : [
+          buildProfileStyleSnippet(
+            creatorProfile,
+            writingProfile,
+            requestText,
+            episodeContext.tonePreset,
+          ),
+        ];
+
+      const styleSamples = framingPackRequested
+        ? []
+        : workspaceContextRequested
+          ? await loadStyleSamplesForToken(bearerToken, episodeContext.workspaceId)
+          : [];
+      const recentScriptRefs = framingPackRequested
+        ? []
+        : workspaceContextRequested
+          ? await loadRecentScriptReferencesForToken(bearerToken, episodeContext.workspaceId)
+          : [];
+      const recentScriptExcerpts = framingPackRequested
+        ? []
+        : workspaceContextRequested
+          ? await loadRecentScriptExcerpts(recentScriptRefs)
+          : [];
+      const crossProjectReference = framingPackRequested || !workspaceContextRequested
+        ? {
+          detected: false,
+          level: "unanchored" as const,
+          resolvedTitle: null,
+          candidateTitles: [],
+        }
+        : resolveCrossProjectReference({
+          requestText,
+          currentWorkpieceId: episodeContext.episodeId,
+          references: recentScriptRefs,
+        });
+      const styleCorpusSnippet = framingPackRequested
+        ? null
+        : buildStyleCorpusSnippet({
+          styleSamples,
+          recentScriptExcerpts,
+        });
       if (styleCorpusSnippet) {
         styleGuidanceSections.push(styleCorpusSnippet);
+      }
+
+      let attachmentContextSnippet: string | null = null;
+      if (attachmentContext.includeEpisodeAttachments && episodeContext.workspaceId) {
+        const tongsUntyped = supabaseService.schema("tongs") as unknown as {
+          from: (table: string) => {
+            select: (columns: string) => {
+              eq: (column: string, value: unknown) => {
+                eq: (nextColumn: string, nextValue: unknown) => {
+                  order: (field: string, options: { ascending: boolean }) => Promise<{
+                    data: Array<Record<string, unknown>> | null;
+                    error: { message: string } | null;
+                  }>;
+                };
+              };
+            };
+          };
+        };
+
+        const { data: rawAttachmentRows, error: attachmentReadError } = await tongsUntyped
+          .from("hearth_attachments")
+          .select("id,filename,parse_status,parse_error,extracted_text,created_at")
+          .eq("workspace_id", episodeContext.workspaceId)
+          .eq("episode_id", episodeContext.episodeId)
+          .order("created_at", { ascending: false });
+        if (!attachmentReadError) {
+          const requestedIds = new Set(attachmentContext.attachmentIds);
+          const filteredRows = (rawAttachmentRows ?? [])
+            .filter((row) => {
+              if (requestedIds.size === 0) return true;
+              const id = typeof row.id === "string" ? row.id : "";
+              return requestedIds.has(id);
+            })
+            .map((row) => ({
+              id: typeof row.id === "string" ? row.id : "",
+              filename: typeof row.filename === "string" ? row.filename : "attachment",
+              parse_status: typeof row.parse_status === "string" ? row.parse_status : "pending",
+              parse_error: typeof row.parse_error === "string" ? row.parse_error : null,
+              extracted_text: typeof row.extracted_text === "string" ? row.extracted_text : null,
+            }))
+            .filter((row) => row.id);
+          attachmentContextSnippet = buildAttachmentContextSnippet(filteredRows);
+        }
       }
 
       const system: ChatMessage = {
@@ -3391,6 +3758,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             researchMode: researchModeRequested,
             researchRequest,
             researchResult,
+            attachmentContextSnippet,
           },
         ),
       };
@@ -3599,6 +3967,12 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             resolution: crossProjectReference,
           });
         }
+
+        if (framingPackRequested) {
+          structured.assistantText = sanitizeFramingPackReply(structured.assistantText);
+        }
+
+        structured.assistantText = sanitizeHearthUserFacingOutput(structured.assistantText);
 
         if (!structured.assistantText && structured.ops.length === 0) {
           return jsonResponse(502, {

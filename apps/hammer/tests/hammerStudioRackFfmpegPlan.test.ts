@@ -82,12 +82,29 @@ function testVoicePolishAdvancedSettingsChangeRenderedFilters() {
   assert.equal(plan.summary.voice_polish_eq_profile, "bright");
 }
 
+function testVoiceCleanupPresetChainUsesConservativeSpeechFilters() {
+  const rack = createDefaultHammerStudioRackState();
+  rack.is_enabled = true;
+  rack.voice_polish = {
+    ...rack.voice_polish!,
+    voice_cleanup_enabled: true,
+  };
+
+  const plan = buildHammerStudioRackFfmpegPlan(rack);
+  assert.equal(plan.appliedModules.includes("voice_polish_tier2"), true);
+  assert.equal(plan.filterChain.includes("highpass=f=80"), true);
+  assert.equal(plan.filterChain.includes("equalizer=f=3500:t=q:w=1.2:g=-2"), true);
+  assert.equal(plan.filterChain.includes("acompressor=threshold=0.125893:ratio=2.20:attack=12:release=120:makeup=1.258925"), true);
+  assert.equal(plan.filterChain.includes("loudnorm=I=-16:TP=-1.5:LRA=11"), true);
+}
+
 function run() {
   testConservativeGateCompressorDefaults();
   testGateAndCompressorAreApplied();
   testEqReverbTubeAreReservedForLater();
   testBypassedAndDisabledModulesAreNotRequested();
   testVoicePolishAdvancedSettingsChangeRenderedFilters();
+  testVoiceCleanupPresetChainUsesConservativeSpeechFilters();
   // eslint-disable-next-line no-console
   console.log("Hammer Studio Rack FFmpeg plan tests passed.");
 }

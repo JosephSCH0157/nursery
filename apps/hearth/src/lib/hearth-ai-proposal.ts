@@ -1,4 +1,5 @@
 import type { HearthOp } from "./hearth-ai-ops";
+import { normalizeHearthAiScriptIngress } from "./hearth-script-tag-policy";
 
 export function cloneHearthProposalOps(ops: HearthOp[]): HearthOp[] {
   return ops.map((op) => {
@@ -18,6 +19,31 @@ export function cloneHearthProposalOps(ops: HearthOp[]): HearthOp[] {
         return { ...op };
     }
   });
+}
+
+export function normalizeHearthProposalOpsForScriptIngress(ops: HearthOp[]): HearthOp[] {
+  let lastBodyIndex = -1;
+  for (let index = 0; index < ops.length; index += 1) {
+    if (ops[index]?.op === "set_body") {
+      lastBodyIndex = index;
+    }
+  }
+
+  const normalizedOps: HearthOp[] = [];
+  for (let index = 0; index < ops.length; index += 1) {
+    const op = ops[index];
+    if (op.op !== "set_body") {
+      normalizedOps.push(op);
+      continue;
+    }
+    if (index !== lastBodyIndex) continue;
+    const normalized = normalizeHearthAiScriptIngress(op.value);
+    normalizedOps.push({
+      ...op,
+      value: normalized.text,
+    });
+  }
+  return normalizedOps;
 }
 
 export function updateHearthProposalBodyOp(

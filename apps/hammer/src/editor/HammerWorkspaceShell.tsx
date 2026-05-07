@@ -166,7 +166,10 @@ import {
   shouldCreateHammerSnapshot,
   upsertHammerSnapshotManifest,
 } from "./hammerSnapshotProduction";
-import { type HammerStoredMediaFile } from "../lib/hammerSourceDeskMediaApi";
+import {
+  type HammerStoredMediaFile,
+} from "../lib/hammerSourceDeskMediaApi";
+import { deriveStableHammerAssetIdFromPath } from "../lib/hammerAssetIdentity";
 import {
   buildIntroOutroCandidateItems,
   buildIntroOutroCandidateItemsById,
@@ -224,6 +227,7 @@ import {
 import {
   applyHammerVoicePolishPreset,
   createDefaultHammerVoicePolishState,
+  setHammerVoiceCleanupEnabled,
   setHammerVoicePolishDeEsserStrength,
   setHammerVoicePolishEqProfile,
   setHammerVoicePolishFixEnabled,
@@ -429,6 +433,7 @@ type HammerWorkspaceShellProps = {
   launchContext?: HammerLaunchContext;
   canonicalMediaPath?: string | null;
   recordingRevisionId?: string | null;
+  recordingRevisionHistoryPath?: string | null;
   structuredTranscript?: HammerPersistedStructuredTranscript | null;
   editorialAuthorityGraph?: HammerEditorialAuthorityGraph | null;
   visualPlacements?: HammerPersistedVisualPlacements | null;
@@ -1119,6 +1124,11 @@ function HammerWorkspaceShellWithContext(
   const [visualBackgroundReplaceImageUrl, setVisualBackgroundReplaceImageUrl] = useState<string>(
     String(initialVisualPreviewSettings.background_replace_image_url ?? ""),
   );
+  const [visualBackgroundReplaceImageAssetPath, setVisualBackgroundReplaceImageAssetPath] = useState<string | null>(
+    typeof initialVisualPreviewSettings.background_replace_image_asset_path === "string"
+      ? initialVisualPreviewSettings.background_replace_image_asset_path
+      : null,
+  );
   const [visualBackgroundWashEnabled, setVisualBackgroundWashEnabled] = useState<boolean>(
     Boolean(initialVisualPreviewSettings.background_wash_enabled ?? false),
   );
@@ -1408,6 +1418,11 @@ function HammerWorkspaceShellWithContext(
     );
     setVisualBackgroundReplaceColor(String(nextVisualPreviewSettings.background_replace_color ?? "#2b2b2b"));
     setVisualBackgroundReplaceImageUrl(String(nextVisualPreviewSettings.background_replace_image_url ?? ""));
+    setVisualBackgroundReplaceImageAssetPath(
+      typeof nextVisualPreviewSettings.background_replace_image_asset_path === "string"
+        ? nextVisualPreviewSettings.background_replace_image_asset_path
+        : null,
+    );
     setVisualBackgroundWashEnabled(Boolean(nextVisualPreviewSettings.background_wash_enabled ?? false));
     setVisualBackgroundWashDimAmount(Number(nextVisualPreviewSettings.background_wash_dim_amount ?? 0.35));
     setVisualBackgroundWashDesaturateAmount(Number(nextVisualPreviewSettings.background_wash_desaturate_amount ?? 0.25));
@@ -1984,7 +1999,7 @@ function HammerWorkspaceShellWithContext(
     resolveTransportTimeForMediaTime: resolveTransportTimeForActiveMediaTime,
     playbackMediaSrc: effectivePlaybackMediaSrc,
     previewVideoSrc: effectivePreviewVideoSrc,
-    segmentationVideoSrc: previewVideoSrc,
+    segmentationVideoSrc: effectivePreviewVideoSrc,
     visualPolishPreviewActive,
     focusOverride,
     playheadSec,
@@ -1996,7 +2011,7 @@ function HammerWorkspaceShellWithContext(
     selectionOriginRef,
     previewAudioRef,
     previewVideoRef,
-    segmentationVideoRef: segmentationSourceVideoRef,
+    segmentationVideoRef: previewVideoRef,
     previewVideoHardSeekAtMsRef,
     cutSeekFadeRef,
     scrubRectRef,
@@ -2228,6 +2243,14 @@ function HammerWorkspaceShellWithContext(
     () => storedMediaFiles.filter((file) => file.kind === "image"),
     [storedMediaFiles],
   );
+  const selectedBackgroundReplacementAsset = useMemo(
+    () => sourceImageLibraryItems.find((item) => item.path === visualBackgroundReplaceImageAssetPath) ?? null,
+    [sourceImageLibraryItems, visualBackgroundReplaceImageAssetPath],
+  );
+  const selectedBackgroundReplacementAssetId = useMemo(
+    () => selectedBackgroundReplacementAsset ? deriveStableHammerAssetIdFromPath(selectedBackgroundReplacementAsset.path) : null,
+    [selectedBackgroundReplacementAsset],
+  );
   const introOutroCandidateItems = useMemo(
     () => buildIntroOutroCandidateItems(storedMediaFiles),
     [storedMediaFiles],
@@ -2351,6 +2374,37 @@ function HammerWorkspaceShellWithContext(
     visualBackgroundWashDimAmount,
     visualBackgroundWashEnabled,
   ]);
+  const [previewBackgroundBlurSettings, setPreviewBackgroundBlurSettings] = useState<BackgroundBlurSettings>(backgroundBlurSettings);
+  const previewBackgroundBlurSettingsFrameRef = useRef<number | null>(null);
+  const previewBackgroundBlurSettingsTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (previewBackgroundBlurSettingsFrameRef.current != null) {
+      window.cancelAnimationFrame(previewBackgroundBlurSettingsFrameRef.current);
+      previewBackgroundBlurSettingsFrameRef.current = null;
+    }
+    if (previewBackgroundBlurSettingsTimerRef.current != null) {
+      window.clearTimeout(previewBackgroundBlurSettingsTimerRef.current);
+      previewBackgroundBlurSettingsTimerRef.current = null;
+    }
+    // Keep interaction responsive while capping heavy blur/matte recompute cadence.
+    previewBackgroundBlurSettingsFrameRef.current = window.requestAnimationFrame(() => {
+      previewBackgroundBlurSettingsFrameRef.current = null;
+      previewBackgroundBlurSettingsTimerRef.current = window.setTimeout(() => {
+        previewBackgroundBlurSettingsTimerRef.current = null;
+        setPreviewBackgroundBlurSettings(backgroundBlurSettings);
+      }, 48);
+    });
+    return () => {
+      if (previewBackgroundBlurSettingsFrameRef.current != null) {
+        window.cancelAnimationFrame(previewBackgroundBlurSettingsFrameRef.current);
+        previewBackgroundBlurSettingsFrameRef.current = null;
+      }
+      if (previewBackgroundBlurSettingsTimerRef.current != null) {
+        window.clearTimeout(previewBackgroundBlurSettingsTimerRef.current);
+        previewBackgroundBlurSettingsTimerRef.current = null;
+      }
+    };
+  }, [backgroundBlurSettings]);
 
   const backgroundBlurProviderDescriptor = useMemo(
     () => resolveSegmentationProviderDescriptor(visualBackgroundBlurProviderId) ?? resolveSegmentationProviderDescriptor("mediapipe_selfie_segmentation"),
@@ -2902,6 +2956,16 @@ function HammerWorkspaceShellWithContext(
     applyWorkspaceIntroOutroDefaultsToWorkpiece,
     reconcileIntroOutroSelectionWithPackaging,
   });
+  useEffect(() => {
+    if (!visualBackgroundReplaceImageAssetPath || sourceDeskPreviewUrls[visualBackgroundReplaceImageAssetPath]) return;
+    requestSourceDeskPreviews([visualBackgroundReplaceImageAssetPath]);
+  }, [requestSourceDeskPreviews, sourceDeskPreviewUrls, visualBackgroundReplaceImageAssetPath]);
+  useEffect(() => {
+    if (!visualBackgroundReplaceImageAssetPath) return;
+    const previewUrl = sourceDeskPreviewUrls[visualBackgroundReplaceImageAssetPath] ?? "";
+    if (!previewUrl || previewUrl === visualBackgroundReplaceImageUrl) return;
+    setVisualBackgroundReplaceImageUrl(previewUrl);
+  }, [sourceDeskPreviewUrls, visualBackgroundReplaceImageAssetPath, visualBackgroundReplaceImageUrl]);
   const speakerOptions = useMemo(() => {
     const labels = new Set<string>();
     for (const segment of editableTranscriptSegments) {
@@ -3709,6 +3773,7 @@ function HammerWorkspaceShellWithContext(
     launchContext,
     actualRecordingMismatchWarning,
     recordingRevisionId: props.recordingRevisionId ?? null,
+    recordingRevisionHistoryPath: props.recordingRevisionHistoryPath ?? null,
     editorialAuthorityGraph: props.editorialAuthorityGraph ?? null,
     structuredTranscriptResetKey,
     visualTimelineResetKey,
@@ -4562,6 +4627,22 @@ function HammerWorkspaceShellWithContext(
     }));
     applyPodcastMasterPass();
     setAudioFinalizationCompareMode("after");
+  }
+
+  function setVoiceCleanupEnabled(nextEnabled: boolean): void {
+    applyStudioRackMutation(nextEnabled ? "Enable voice cleanup" : "Disable voice cleanup", (current) => ({
+      ...current,
+      is_enabled: nextEnabled ? true : current.is_enabled,
+      is_bypassed: nextEnabled ? false : current.is_bypassed,
+      voice_polish: setHammerVoiceCleanupEnabled(
+        current.voice_polish ?? createDefaultHammerVoicePolishState(),
+        nextEnabled,
+      ),
+    }));
+    if (nextEnabled) {
+      applyPodcastMasterPass();
+      setAudioFinalizationCompareMode("after");
+    }
   }
 
   function applyTranscriptSelection(segmentId: string, extendRange: boolean): void {
@@ -6239,6 +6320,9 @@ function HammerWorkspaceShellWithContext(
           background_replace_mode: visualBackgroundReplaceMode,
           background_replace_color: visualBackgroundReplaceColor,
           background_replace_image_url: visualBackgroundReplaceImageUrl.trim() ? visualBackgroundReplaceImageUrl.trim() : null,
+          background_replace_image_asset_path: visualBackgroundReplaceImageAssetPath,
+          background_replace_image_asset_id: selectedBackgroundReplacementAssetId,
+          background_replace_image_asset_type: visualBackgroundReplaceImageAssetPath ? "image" : null,
           background_wash_enabled: visualBackgroundWashEnabled,
           background_wash_dim_amount: visualBackgroundWashDimAmount,
           background_wash_desaturate_amount: visualBackgroundWashDesaturateAmount,
@@ -6284,6 +6368,8 @@ function HammerWorkspaceShellWithContext(
     visualBackgroundBlurTemporalSmoothing,
     visualBackgroundReplaceColor,
     visualBackgroundReplaceEnabled,
+    visualBackgroundReplaceImageAssetPath,
+    selectedBackgroundReplacementAssetId,
     visualBackgroundReplaceImageUrl,
     visualBackgroundReplaceMode,
     visualColorAmount,
@@ -6879,11 +6965,11 @@ function HammerWorkspaceShellWithContext(
     visualPolishPreviewActive,
     previewSurfaceRef,
     previewVideoRef,
-    segmentationSourceVideoRef,
+    segmentationSourceVideoRef: previewVideoRef,
     previewAudioRef,
     previewBrollVideoRefs,
     effectivePreviewVideoSrc,
-    segmentationSourceVideoSrc: previewVideoSrc,
+    segmentationSourceVideoSrc: null,
     effectivePlaybackMediaSrc,
     isPlaybackActive,
     playbackWindow,
@@ -6894,6 +6980,7 @@ function HammerWorkspaceShellWithContext(
     togglePlayback,
     playheadSec,
     playbackModeLabel,
+    playbackTransportDurationSec,
     playbackSourceLabel,
     mediaLabelMismatchWarning,
     actualRecordingMismatchWarning,
@@ -6909,7 +6996,8 @@ function HammerWorkspaceShellWithContext(
     visualBackgroundBlur,
     visualBackgroundReplaceEnabled,
     visualBackgroundWashEnabled,
-    backgroundBlurSettings,
+    backgroundBlurSettings: previewBackgroundBlurSettings,
+    visualBackgroundBlurRuntimeStatus,
     visualBackgroundBlurProviderId,
     visualBackgroundBlurDebugMask,
     visualBackgroundMaskPreviewMode,
@@ -6919,6 +7007,9 @@ function HammerWorkspaceShellWithContext(
     visualEyeContactAssistEnabled,
     visualEyeContactAssistStrength,
     visualBackgroundEffectCanvasRef,
+    editableAudioPolish,
+    mediaPrepOutputs,
+    isScrubbing,
     eyeContactUseBackgroundCanvasAsSource,
     visualEyeContactAssistDebugOverlay,
     setVisualEyeContactAssistRuntimeStatus,
@@ -6932,7 +7023,7 @@ function HammerWorkspaceShellWithContext(
     activeVisualTool,
     activePreviewOverlays,
     audioFinalizationCompareMode,
-    backgroundBlurSettings,
+    previewBackgroundBlurSettings,
     beginPreviewCanvasDrag,
     currentPass,
     eyeContactUseBackgroundCanvasAsSource,
@@ -6948,6 +7039,7 @@ function HammerWorkspaceShellWithContext(
     packagingOutroPlacement,
     playbackMediaSrc,
     playbackModeLabel,
+    playbackTransportDurationSec,
     playbackSourceLabel,
     playbackWindow,
     playheadSec,
@@ -6974,11 +7066,18 @@ function HammerWorkspaceShellWithContext(
     visualBackgroundMaskPreviewMode,
     visualBackgroundBlurProviderId,
     visualBackgroundReplaceEnabled,
+    visualBackgroundReplaceMode,
+    visualBackgroundReplaceImageAssetPath,
+    selectedBackgroundReplacementAssetId,
     visualBackgroundWashEnabled,
     visualEyeContactAssistDebugOverlay,
     visualEyeContactAssistEnabled,
     visualEyeContactAssistStrength,
     visualBackgroundEffectCanvasRef,
+    visualBackgroundBlurRuntimeStatus,
+    editableAudioPolish,
+    mediaPrepOutputs,
+    isScrubbing,
     visualPlacementEditingEnabled,
   ]);
   const toolbarVM = useMemo(() => buildToolbarVM({
@@ -7564,6 +7663,9 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
       background_replace_enabled: visualBackgroundReplaceEnabled,
       background_replace_mode: visualBackgroundReplaceMode,
       background_replace_color: visualBackgroundReplaceColor,
+      background_replace_image_asset_path: visualBackgroundReplaceImageAssetPath,
+      background_replace_image_asset_id: selectedBackgroundReplacementAssetId,
+      background_replace_image_asset_type: visualBackgroundReplaceImageAssetPath ? "image" : null,
     },
     visualBackgroundReplaceImageUrl,
     visualTimelineProp: props.visualTimeline ?? null,
@@ -7614,6 +7716,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setVoicePolishDeEsserStrength,
     setVoicePolishEqProfile,
     setVoicePolishFixEnabled,
+    setVoiceCleanupEnabled,
     voicePolish,
     voicePolishHasAnyFixEnabled: voicePolishHasAnyFixEnabled,
     backgroundBlurProviderDescriptor,
@@ -7682,6 +7785,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     handleMergeEditedCaptionChunk,
     handleNormalizeEditedCaptionChunkPunctuation,
     handleRebuildCaptionArtifacts,
+    handleSourceDeskUpload,
     handleSendToQuench,
     handleSplitEditedCaptionChunk,
     handleToggleEditedCaptionChunkSpeakerLabel,
@@ -7799,6 +7903,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setVisualBackgroundBlurTemporalSmoothing,
     setVisualBackgroundReplaceColor,
     setVisualBackgroundReplaceEnabled,
+    setVisualBackgroundReplaceImageAssetPath,
     setVisualBackgroundReplaceImageUrl,
     setVisualBackgroundReplaceMode,
     setVisualBackgroundWashDesaturateAmount,
@@ -7850,6 +7955,8 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     visualBackgroundBlurTemporalSmoothing,
     visualBackgroundReplaceColor,
     visualBackgroundReplaceEnabled,
+    visualBackgroundReplaceImageAssetPath,
+    selectedBackgroundReplacementAssetId,
     visualBackgroundReplaceImageUrl,
     visualBackgroundReplaceMode,
     visualBackgroundWashDesaturateAmount,
@@ -7862,6 +7969,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     visualEyeContactAssistStatusSummary,
     visualEyeContactAssistStrength,
     visualWhiteBalance,
+    uploadingCategory,
     workspaceFocusMode,
   }), [
     activeVisualTool,
@@ -7899,6 +8007,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setVoicePolishDeEsserStrength,
     setVoicePolishEqProfile,
     setVoicePolishFixEnabled,
+    setVoiceCleanupEnabled,
     voicePolish,
     voicePolishHasAnyFixEnabled,
     backgroundBlurProviderDescriptor,
@@ -7967,6 +8076,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     handleMergeEditedCaptionChunk,
     handleNormalizeEditedCaptionChunkPunctuation,
     handleRebuildCaptionArtifacts,
+    handleSourceDeskUpload,
     handleSendToQuench,
     handleSplitEditedCaptionChunk,
     handleToggleEditedCaptionChunkSpeakerLabel,
@@ -8084,6 +8194,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setVisualBackgroundBlurTemporalSmoothing,
     setVisualBackgroundReplaceColor,
     setVisualBackgroundReplaceEnabled,
+    setVisualBackgroundReplaceImageAssetPath,
     setVisualBackgroundReplaceImageUrl,
     setVisualBackgroundReplaceMode,
     setVisualBackgroundWashDesaturateAmount,
@@ -8137,6 +8248,8 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     visualBackgroundBlurTemporalSmoothing,
     visualBackgroundReplaceColor,
     visualBackgroundReplaceEnabled,
+    visualBackgroundReplaceImageAssetPath,
+    selectedBackgroundReplacementAssetId,
     visualBackgroundReplaceImageUrl,
     visualBackgroundReplaceMode,
     visualBackgroundWashDesaturateAmount,
@@ -8149,6 +8262,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     visualEyeContactAssistStatusSummary,
     visualEyeContactAssistStrength,
     visualWhiteBalance,
+    uploadingCategory,
     workspaceFocusMode,
   ]);
 

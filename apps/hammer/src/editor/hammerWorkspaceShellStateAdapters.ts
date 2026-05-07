@@ -55,6 +55,9 @@ export function buildDefaultVisualPreviewSettings(): HammerPersistedVisualPrevie
     background_replace_mode: "solid",
     background_replace_color: "#2b2b2b",
     background_replace_image_url: null,
+    background_replace_image_asset_path: null,
+    background_replace_image_asset_id: null,
+    background_replace_image_asset_type: null,
     background_wash_enabled: false,
     background_wash_dim_amount: 0.35,
     background_wash_desaturate_amount: 0.25,
@@ -91,6 +94,17 @@ export function normalizeVisualPreviewSettings(
       : "solid",
     background_replace_color: typeof value.background_replace_color === "string" ? value.background_replace_color : defaults.background_replace_color,
     background_replace_image_url: typeof value.background_replace_image_url === "string" ? value.background_replace_image_url : null,
+    background_replace_image_asset_path: typeof value.background_replace_image_asset_path === "string"
+      ? value.background_replace_image_asset_path
+      : null,
+    background_replace_image_asset_id: typeof value.background_replace_image_asset_id === "string"
+      ? value.background_replace_image_asset_id
+      : null,
+    background_replace_image_asset_type: value.background_replace_image_asset_type === "image"
+      ? "image"
+      : value.background_replace_image_asset_type === "other"
+      ? "other"
+      : null,
     background_wash_enabled: Boolean(value.background_wash_enabled ?? defaults.background_wash_enabled),
     background_wash_dim_amount: Math.max(0, Math.min(1, Number(value.background_wash_dim_amount ?? defaults.background_wash_dim_amount))),
     background_wash_desaturate_amount: Math.max(0, Math.min(1, Number(value.background_wash_desaturate_amount ?? defaults.background_wash_desaturate_amount))),

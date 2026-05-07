@@ -1,4 +1,11 @@
-import type { HenryConversationTurn, HenryObservation, HenryPreferenceState } from "@forge/shared/henry";
+import type {
+  HearthHenrySignal,
+  HenryConversationTurn,
+  HenrySuggestionKind,
+  HenryObservation,
+  HenryPreferenceState,
+} from "@forge/shared/henry";
+import { HENRY_HEARTH_SIGNAL_EVENT } from "@forge/shared/henry";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { useLayoutMode } from "@forge/ui-mobile";
@@ -8,11 +15,15 @@ import { useOptionalEpisodeWorkspace } from "../workspace/EpisodeWorkspaceContex
 import { buildHenryContext } from "./henryContext";
 import {
   buildHenryActionAnswer,
-  buildHenryChatAnswer,
+  buildHenryChatReply,
   buildHenryContextSummary,
   resolveHenryObservation,
   resolveHenryRecommendation,
 } from "./henryMessageEngine";
+import { getHenryDeterministicSuggestion } from "./henry-deterministic-suggestions";
+import { matchesHearthSignalRoute, readHearthHenrySignal } from "./henry-hearth-signal";
+import { deriveHenryMode } from "./henry-mode";
+import { buildHenrySignalFingerprint, shouldHenrySurfaceSuggestion } from "./henry-silence-policy";
 import { canRenderHenrySurface } from "./henryRenderPolicy";
 import { resolveHenryQuickActions } from "./henryQuickActions";
 import { readCachedHenryPreferences, writeCachedHenryPreferences } from "./henryStorage";
@@ -26,6 +37,7 @@ import {
 } from "./henryService";
 import { resolveHenrySuppressionState } from "./henrySuppression";
 import { HenryLauncher, HenryObservationSlot, HenryPanel } from "./HenryUI";
+import { resolveHenryStatusLabel } from "./henry-voice";
 import "./Henry.css";
 
 const OBSERVATION_COOLDOWN_MS = 15 * 60 * 1000;
@@ -88,6 +100,7 @@ export function HenryProvider({ children }: { children: ReactNode }) {
   const [chatDraft, setChatDraft] = useState("");
   const [conversation, setConversation] = useState<HenryConversationTurn[]>([]);
   const [observation, setObservation] = useState<HenryObservation | null>(null);
+  const [latestHearthSignal, setLatestHearthSignal] = useState<HearthHenrySignal | null>(null);
   const [storedMessageState, setStoredMessageState] = useState<{
     userId: string | null;
     workspaceId: string | null;
@@ -102,6 +115,19 @@ export function HenryProvider({ children }: { children: ReactNode }) {
     issuedAtMs: number;
   } | null>(null);
   const trackedObservationKeyRef = useRef<string | null>(null);
+  const lastAmbientSuggestionRef = useRef<{
+    kind: HenrySuggestionKind | null;
+    shownAtMs: number | null;
+    signalFingerprint: string | null;
+    mode: ReturnType<typeof deriveHenryMode>;
+    tagValidationOk: boolean | null;
+  }>({
+    kind: null,
+    shownAtMs: null,
+    signalFingerprint: null,
+    mode: null,
+    tagValidationOk: null,
+  });
 
   const preferences = storedPreferences.userId === userId
     && storedPreferences.workspaceId === routeContext.workspaceId
@@ -119,10 +145,65 @@ export function HenryProvider({ children }: { children: ReactNode }) {
   );
 
   const muted = isMuted(preferences);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onSignal = (event: Event) => {
+      const signal = readHearthHenrySignal(event);
+      if (!signal) return;
+      setLatestHearthSignal(signal);
+    };
+    window.addEventListener(HENRY_HEARTH_SIGNAL_EVENT, onSignal);
+    return () => window.removeEventListener(HENRY_HEARTH_SIGNAL_EVENT, onSignal);
+  }, []);
+
+  const hearthSignal = useMemo(
+    () => (matchesHearthSignalRoute(latestHearthSignal, routeContext) ? latestHearthSignal : null),
+    [latestHearthSignal, routeContext],
+  );
+  const henryMode = useMemo(
+    () => deriveHenryMode({ context: henryContext, hearthSignal }),
+    [hearthSignal, henryContext],
+  );
+  const deterministicSuggestion = useMemo(
+    () => getHenryDeterministicSuggestion({ context: henryContext, mode: henryMode, hearthSignal }),
+    [hearthSignal, henryContext, henryMode],
+  );
+  const launcherStatusLabel = useMemo(() => resolveHenryStatusLabel(henryMode), [henryMode]);
+  const currentSignalFingerprint = useMemo(
+    () => buildHenrySignalFingerprint(hearthSignal),
+    [hearthSignal],
+  );
+
   const suppression = useMemo(
     () => resolveHenrySuppressionState({ pathname: location.pathname, panelOpen, mutedUntil: preferences.mutedUntil }),
     [location.pathname, panelOpen, preferences.mutedUntil],
   );
+  const ambientSuggestionObservation = useMemo(() => {
+    if (!deterministicSuggestion || henryContext.surface !== "hearth") return null;
+    const shouldSurface = shouldHenrySurfaceSuggestion({
+      context: henryContext,
+      signal: hearthSignal,
+      mode: henryMode,
+      suggestion: deterministicSuggestion,
+      history: {
+        nowMs: Date.now(),
+        explicitUserInvocation: false,
+        userIsTyping: suppression.reasons.includes("typing-focus"),
+        userMutedHenry: muted || suppression.reasons.includes("muted"),
+        previousMode: lastAmbientSuggestionRef.current.mode,
+        previousTagValidationOk: lastAmbientSuggestionRef.current.tagValidationOk,
+        lastSignalFingerprint: lastAmbientSuggestionRef.current.signalFingerprint,
+        lastSuggestionKind: lastAmbientSuggestionRef.current.kind,
+        lastSuggestionAtMs: lastAmbientSuggestionRef.current.shownAtMs,
+      },
+    });
+    if (!shouldSurface) return null;
+    return {
+      id: `hearth:suggestion:${deterministicSuggestion.kind}`,
+      text: deterministicSuggestion.text,
+      surface: "hearth" as const,
+    };
+  }, [deterministicSuggestion, henryContext, hearthSignal, henryMode, suppression.reasons, muted]);
   useEffect(() => {
     let alive = true;
     void supabase.auth.getSession().then(({ data }) => {
@@ -194,7 +275,9 @@ export function HenryProvider({ children }: { children: ReactNode }) {
       if (!preferences.showHenry || preferences.hideTips || panelOpen || suppression.isSuppressed) {
         return null;
       }
-      const candidate = resolveHenryObservation(henryContext);
+      const candidate = henryContext.surface === "hearth"
+        ? ambientSuggestionObservation
+        : resolveHenryObservation(henryContext);
       if (!candidate) return null;
 
       const existing = messageState.get(candidate.id);
@@ -217,6 +300,7 @@ export function HenryProvider({ children }: { children: ReactNode }) {
     };
   }, [
     henryContext,
+    ambientSuggestionObservation,
     canRenderHenry,
     location.pathname,
     messageState,
@@ -258,6 +342,19 @@ export function HenryProvider({ children }: { children: ReactNode }) {
     });
   }, [henryContext.surface, observation, routeContext.workspaceId, routeContext.workpieceId]);
 
+  useEffect(() => {
+    if (!observation || henryContext.surface !== "hearth") return;
+    if (!observation.id.startsWith("hearth:suggestion:")) return;
+    const kind = observation.id.slice("hearth:suggestion:".length) as HenrySuggestionKind;
+    lastAmbientSuggestionRef.current = {
+      kind,
+      shownAtMs: Date.now(),
+      signalFingerprint: currentSignalFingerprint,
+      mode: henryMode,
+      tagValidationOk: hearthSignal?.tagValidationOk ?? null,
+    };
+  }, [currentSignalFingerprint, hearthSignal?.tagValidationOk, henryMode, henryContext.surface, observation]);
+
   function persistPreferences(next: HenryPreferenceState): void {
     setStoredPreferences({
       userId,
@@ -297,7 +394,11 @@ export function HenryProvider({ children }: { children: ReactNode }) {
       setShowChat(true);
       setActionAnswer("Ask a question and I will answer with concise orientation.");
     } else {
-      setActionAnswer(buildHenryActionAnswer(actionId, henryContext));
+      setActionAnswer(buildHenryActionAnswer(actionId, henryContext, {
+        mode: henryMode,
+        suggestion: deterministicSuggestion,
+        hearthSignal,
+      }));
     }
 
     const eventName = actionId === "what-next" ? "next_step_shown" : "quick_action";
@@ -370,21 +471,26 @@ export function HenryProvider({ children }: { children: ReactNode }) {
     const prompt = chatDraft.trim();
     if (!prompt) return;
     const nowIso = new Date().toISOString();
-    const answer = buildHenryChatAnswer(prompt, henryContext);
+    const reply = buildHenryChatReply(prompt, henryContext, {
+      mode: henryMode,
+      suggestion: deterministicSuggestion,
+      hearthSignal,
+    });
     const userTurn: HenryConversationTurn = { role: "user", text: prompt, timestampIso: nowIso };
     const assistantTurn: HenryConversationTurn = {
       role: "assistant",
-      text: answer,
+      text: reply.text,
       timestampIso: new Date().toISOString(),
     };
     setConversation((prev): HenryConversationTurn[] => [...prev, userTurn, assistantTurn].slice(-20));
     setChatDraft("");
-    setActionAnswer(answer);
+    setActionAnswer(reply.text);
     void trackHenryEvent({
       workspaceId: routeContext.workspaceId,
       workpieceId: routeContext.workpieceId,
       eventName: "freeform_asked",
       surface: henryContext.surface,
+      metadata: { ai_lane: reply.lane },
     }).catch(() => {
       // non-fatal in ambient assistant surface
     });
@@ -452,6 +558,7 @@ export function HenryProvider({ children }: { children: ReactNode }) {
           />
           <HenryLauncher
             muted={muted}
+            statusLabel={launcherStatusLabel}
             onClick={() => {
               void trackHenryEvent({
                 workspaceId: routeContext.workspaceId,
@@ -463,6 +570,11 @@ export function HenryProvider({ children }: { children: ReactNode }) {
               });
               setActionAnswer(
                 actionAnswer
+                ?? buildHenryActionAnswer("what-next", henryContext, {
+                  mode: henryMode,
+                  suggestion: deterministicSuggestion,
+                  hearthSignal,
+                })
                 ?? `Best next step: ${recommendation.primary}\nWhy: ${recommendation.why}\nYou could also: ${recommendation.alternatives.join(" or ")}`,
               );
               handleOpenPanel();

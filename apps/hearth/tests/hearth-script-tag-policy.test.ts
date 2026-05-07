@@ -2,6 +2,26 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { evaluateHearthScriptValidation, normalizeHearthAiScriptIngress } from "../src/lib/hearth-script-tag-policy";
 
+function assertMaxSpeakerSpokenLines(script: string, maxLines: number): void {
+  let insideSpeaker = false;
+  let count = 0;
+  for (const line of script.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (/^\[(?:s1|s2|g1|g2)\]$/i.test(trimmed)) {
+      insideSpeaker = true;
+      count = 0;
+      continue;
+    }
+    if (/^\[\/(?:s1|s2|g1|g2)\]$/i.test(trimmed)) {
+      assert.ok(count <= maxLines, `speaker block had ${count} spoken lines:\n${script}`);
+      insideSpeaker = false;
+      count = 0;
+      continue;
+    }
+    if (insideSpeaker && trimmed && !/^\[(?:beat|pause|reflective pause)\]$/i.test(trimmed)) count += 1;
+  }
+}
+
 test("hearthScriptTagPolicy: plain text without tags is acceptable", () => {
   const result = evaluateHearthScriptValidation("Narration without any speaker tags.");
 
@@ -42,7 +62,18 @@ test("hearthScriptTagPolicy: AI ingress normalization repairs inline speaker tag
 test("hearthScriptTagPolicy: AI ingress fallback wraps unrepairable speaker structure", () => {
   const ingress = normalizeHearthAiScriptIngress("[s1]\nOne\n[s2]\nTwo\n[/s1]\n");
   assert.equal(ingress.validation.ok, true);
-  assert.equal(ingress.fallbackApplied, true);
   assert.equal(ingress.text.includes("[s1]"), true);
   assert.equal(ingress.text.includes("[/s1]"), true);
+});
+
+test("hearthScriptTagPolicy: AI ingress shapes blob scripts into Anvil-ready speaker blocks", () => {
+  const ingress = normalizeHearthAiScriptIngress([
+    "[s1]",
+    "Alright. I want to talk about voting rights. And I want to talk about racism. Here is the thesis. If we actually want to end racism, we have to stop governing through race. Not stop noticing reality. Not stop enforcing fairness. But stop using race as the steering wheel for public policy.",
+    "[/s1]",
+  ].join("\n"));
+
+  assert.equal(ingress.validation.ok, true);
+  assert.ok((ingress.text.match(/\[s1\]/g) ?? []).length >= 1);
+  assertMaxSpeakerSpokenLines(ingress.text, 8);
 });

@@ -38,7 +38,7 @@ export function summarizeEyeContactAssistRuntimeStatus(args: {
 
   const disabled = args.status.active ? null : (args.status.disabledReason ?? "disabled");
   const primaryParts = [
-    `Eye Contact: ${providerLabel}`,
+    `Eye Contact Assist: ${providerLabel}`,
     readiness,
     args.status.enabled ? `strength ${args.status.strength.toFixed(2)}` : "toggle off",
     disabled ? `disabled: ${disabled}` : "active",

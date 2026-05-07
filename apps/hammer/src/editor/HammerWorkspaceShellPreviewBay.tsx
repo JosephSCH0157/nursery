@@ -1,4 +1,5 @@
 import type { JSX, MutableRefObject, MouseEvent, RefObject } from "react";
+import { useMemo, useState } from "react";
 import BackgroundBlurPreviewLayer from "../features/visual-effects/render/backgroundBlurPreviewLayer";
 import EyeContactAssistPreviewLayer from "../features/eye-contact-assist/render/eyeContactAssistPreviewLayer";
 import VisualPreviewComposer, { type VisualPreviewOverlayModel } from "../visuals/components/VisualPreviewComposer";
@@ -51,6 +52,10 @@ export type HammerWorkspaceShellPreviewBayVM = {
     onStatus: (status: any) => void;
     onCanvas: (canvas: HTMLCanvasElement | null) => void;
   };
+  diagnostics: {
+    enabled: boolean;
+    snapshot: any;
+  };
 
   eyeContactAssist: {
     enabled: boolean;
@@ -74,6 +79,54 @@ export type HammerWorkspaceShellPreviewBayVM = {
 
 export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorkspaceShellPreviewBayVM }): JSX.Element {
   const vm = props.vm;
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const visualFx = vm.diagnostics?.snapshot?.visualEffects ?? null;
+  const segmentationSummary = (() => {
+    if (!visualFx) return null;
+    const avgMs = typeof visualFx.avgMaskGenerationMs === "number" ? visualFx.avgMaskGenerationMs : null;
+    const maxMs = typeof visualFx.maxMaskGenerationMs === "number" ? visualFx.maxMaskGenerationMs : null;
+    const fps = typeof visualFx.maskFps === "number" ? visualFx.maskFps : null;
+    const ageMs = typeof visualFx.lastMaskAgeMs === "number" ? visualFx.lastMaskAgeMs : null;
+    const dropped = typeof visualFx.droppedMaskFrames === "number" ? visualFx.droppedMaskFrames : 0;
+    const skipped = typeof visualFx.skippedMaskFrames === "number" ? visualFx.skippedMaskFrames : 0;
+    const hasMask = Boolean(visualFx.maskPresent);
+
+    let health: "healthy" | "busy" | "stale" = "healthy";
+    if (!hasMask || ageMs == null || ageMs > 750) {
+      health = "stale";
+    } else if ((avgMs != null && avgMs >= 8) || ageMs > 250) {
+      health = "busy";
+    }
+
+    const avgLabel = avgMs != null ? `${avgMs.toFixed(1)}ms avg` : "n/a avg";
+    const maxLabel = maxMs != null ? `${maxMs.toFixed(1)}ms max` : "n/a max";
+    const fpsLabel = fps != null ? `${fps.toFixed(1)}fps` : "n/a fps";
+    const ageLabel = ageMs != null ? `age ${Math.round(ageMs)}ms` : "age n/a";
+    return {
+      health,
+      text: `Segmentation: ${health} · ${avgLabel} / ${maxLabel} · ${fpsLabel} · ${ageLabel} · dropped ${dropped} · skipped ${skipped}`,
+    };
+  })();
+  const diagnosticsJson = useMemo(() => (
+    diagnosticsOpen ? JSON.stringify(vm.diagnostics.snapshot, null, 2) : ""
+  ), [diagnosticsOpen, vm.diagnostics.snapshot]);
+
+  async function handleCopyDiagnostics(): Promise<void> {
+    const payload = JSON.stringify(vm.diagnostics.snapshot, null, 2);
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(payload);
+      } else {
+        throw new Error("Clipboard API unavailable.");
+      }
+      setCopyStatus("Diagnostics copied.");
+      window.setTimeout(() => setCopyStatus(null), 1500);
+    } catch {
+      setCopyStatus("Copy failed.");
+      window.setTimeout(() => setCopyStatus(null), 2000);
+    }
+  }
   return (
     <>
       <header className="hammer-bay-head">
@@ -90,15 +143,17 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             playsInline
             className="hammer-preview-media"
           />
-          <video
-            ref={vm.segmentationSourceVideoRef}
-            src={vm.segmentationSourceVideoSrc ?? undefined}
-            muted
-            preload="auto"
-            playsInline
-            className="hammer-preview-media hammer-preview-media--segmentation-source"
-            aria-hidden="true"
-          />
+          {vm.segmentationSourceVideoRef !== vm.previewVideoRef ? (
+            <video
+              ref={vm.segmentationSourceVideoRef}
+              src={vm.segmentationSourceVideoSrc ?? undefined}
+              muted
+              preload="auto"
+              playsInline
+              className="hammer-preview-media hammer-preview-media--segmentation-source"
+              aria-hidden="true"
+            />
+          ) : null}
           <video
             ref={vm.previewAudioRef}
             src={vm.playbackMediaSrc ?? undefined}
@@ -214,6 +269,29 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
           <button type="button" onClick={vm.togglePlayback}>
             {vm.isPlaybackActive ? "Pause (Space)" : "Play (Space)"}
           </button>
+          {vm.diagnostics.enabled ? (
+            <details
+              className="hammer-preview-diagnostics"
+              onToggle={(event) => {
+                const target = event.currentTarget as HTMLDetailsElement;
+                setDiagnosticsOpen(target.open);
+              }}
+            >
+              <summary>Diagnostics</summary>
+              {segmentationSummary ? (
+                <div className={`hammer-preview-diagnostics__segmentation-summary is-${segmentationSummary.health}`}>
+                  {segmentationSummary.text}
+                </div>
+              ) : null}
+              <div className="hammer-preview-diagnostics__actions">
+                <button type="button" onClick={() => { void handleCopyDiagnostics(); }}>Copy diagnostics</button>
+                {copyStatus ? <span>{copyStatus}</span> : null}
+              </div>
+              {diagnosticsOpen ? (
+                <pre className="hammer-preview-diagnostics__json">{diagnosticsJson}</pre>
+              ) : null}
+            </details>
+          ) : null}
         </div>
       </div>
     </>

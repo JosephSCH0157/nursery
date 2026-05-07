@@ -68,3 +68,5 @@ export interface HenryContext {
   episodeContextState: "none" | "loading" | "active" | "missing";
   workspaceResolutionState: "ready" | "resolving" | "missing";
 }
+
+export * from "./contract";

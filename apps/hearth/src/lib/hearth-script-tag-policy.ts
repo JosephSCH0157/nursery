@@ -66,6 +66,15 @@ export function normalizeHearthAiScriptIngress(rawText: string): {
   fallbackApplied: boolean;
 } {
   const normalized = shapeHearthScriptForRecording(normalizeScriptTags(rawText));
+  const shapedResult = evaluateHearthScriptValidation(normalized);
+  if (shapedResult.validation.ok && shapedResult.tagMode === "present") {
+    return {
+      text: shapedResult.normalizedText,
+      validation: shapedResult.validation,
+      fallbackApplied: false,
+    };
+  }
+
   const repaired = repairScriptTags(normalized);
   const repairedResult = evaluateHearthScriptValidation(repaired.text);
   if (repairedResult.validation.ok && repairedResult.tagMode === "present") {

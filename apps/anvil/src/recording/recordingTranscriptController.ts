@@ -312,6 +312,71 @@ function buildSnapshot(session: ActiveTranscriptSession): RecordingTranscriptSna
   };
 }
 
+function emitTranscriptDiag(event: string, detail: Record<string, unknown>): void {
+  const payload = {
+    event,
+    ts: new Date().toISOString(),
+    ...detail,
+  };
+  try { console.info(`[${event}]`, payload); } catch {}
+  try { window.dispatchEvent(new CustomEvent(event, { detail: payload })); } catch {}
+}
+
+function normalizeFinalSegments(segments: HammerTranscriptSegment[]): HammerTranscriptSegment[] {
+  const out: HammerTranscriptSegment[] = [];
+  const canonicalWords = (text: string): string[] =>
+    String(text || "")
+      .trim()
+      .split(/\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  const joinWords = (parts: string[]): string => parts.join(" ").trim();
+  const trimRollingOverlap = (candidate: string, committed: string): string => {
+    const next = canonicalWords(candidate);
+    const prev = canonicalWords(committed);
+    if (!next.length) return "";
+    if (!prev.length) return joinWords(next);
+    const candidateLine = joinWords(next);
+    const committedLine = joinWords(prev);
+    if (candidateLine === committedLine) return "";
+    if (candidateLine.startsWith(`${committedLine} `)) return candidateLine.slice(committedLine.length).trim();
+    const overlapLimit = Math.min(next.length, prev.length, 32);
+    for (let overlap = overlapLimit; overlap >= 1; overlap -= 1) {
+      const prevTail = prev.slice(prev.length - overlap).join(" ");
+      const nextHead = next.slice(0, overlap).join(" ");
+      if (prevTail && prevTail === nextHead) {
+        return joinWords(next.slice(overlap));
+      }
+    }
+    return candidateLine;
+  };
+
+  for (const segment of segments) {
+    const text = readText(segment.text);
+    if (!text) continue;
+    const prev = out[out.length - 1] ?? null;
+    if (!prev) {
+      out.push({ ...segment, text });
+      continue;
+    }
+    const delta = trimRollingOverlap(text, String(prev.text || ""));
+    if (!delta) {
+      prev.end_sec = Math.max(prev.end_sec, segment.end_sec);
+      continue;
+    }
+    out.push({
+      ...segment,
+      text: delta,
+      start_sec: Math.max(prev.end_sec, segment.start_sec),
+      end_sec: Math.max(Math.max(prev.end_sec, segment.start_sec), segment.end_sec),
+    });
+  }
+  return out.map((segment, index) => ({
+    ...segment,
+    segment_id: `seg-${index + 1}`,
+  }));
+}
+
 function buildFinalArtifact(args: {
   session: ActiveTranscriptSession;
   mediaPath: string | null;
@@ -341,7 +406,7 @@ function buildFinalArtifact(args: {
       model: null,
     },
     confidence_flags: [],
-    segments: args.session.segments,
+    segments: normalizeFinalSegments(args.session.segments),
   };
 }
 
@@ -476,6 +541,13 @@ export class RecordingTranscriptController {
     }
 
     session.status = "finalizing";
+    emitTranscriptDiag("anvil:transcript:finalize_start", {
+      capture_session_id: session.captureSessionId,
+      workpiece_id: session.target?.ok ? session.target.workpieceId : null,
+      live_path: session.livePath,
+      final_path: session.finalPath,
+      segment_count: session.segments.length,
+    });
     this.emitState();
 
     try {
@@ -521,7 +593,22 @@ export class RecordingTranscriptController {
       });
       if (!commitResult.ok) {
         finalCommitFailed = true;
+        emitTranscriptDiag("anvil:transcript:finalize_skipped_reason", {
+          capture_session_id: session.captureSessionId,
+          workpiece_id: captureTarget.workpieceId,
+          reason: "final_commit_failed",
+          final_path: session.finalPath,
+          segment_count: session.segments.length,
+        });
       }
+    } else {
+      emitTranscriptDiag("anvil:transcript:finalize_skipped_reason", {
+        capture_session_id: session.captureSessionId,
+        workpiece_id: captureTarget?.ok ? captureTarget.workpieceId : null,
+        reason: finalArtifact ? "missing_capture_target" : "no_transcript_captured",
+        final_path: session.finalPath,
+        segment_count: session.segments.length,
+      });
     }
 
     session.finalized = true;
@@ -532,6 +619,13 @@ export class RecordingTranscriptController {
         : null
       : "no-transcript-captured";
     await this.persistSnapshot(true);
+    emitTranscriptDiag("anvil:transcript:finalize_done", {
+      capture_session_id: session.captureSessionId,
+      workpiece_id: session.target?.ok ? session.target.workpieceId : null,
+      status: session.status,
+      final_path: finalArtifact ? session.finalPath : null,
+      segment_count: finalArtifact?.segments.length ?? 0,
+    });
     this.emitState();
 
     return {
@@ -577,10 +671,17 @@ export class RecordingTranscriptController {
     }
     session.lastPersistedAtMs = now;
     const snapshot = buildSnapshot(session);
+    const captureTarget = session.target;
     try {
       this.deps.localStorage.setItem(buildLocalSnapshotKey(session.captureSessionId), JSON.stringify(snapshot));
+      emitTranscriptDiag("anvil:transcript:live_snapshot_saved", {
+        capture_session_id: session.captureSessionId,
+        workpiece_id: captureTarget?.ok ? captureTarget.workpieceId : null,
+        live_path: session.livePath,
+        status: session.status,
+        segment_count: session.segments.length,
+      });
     } catch {}
-    const captureTarget = session.target;
     if (!captureTarget?.ok) return;
 
     this.persistChain = this.persistChain

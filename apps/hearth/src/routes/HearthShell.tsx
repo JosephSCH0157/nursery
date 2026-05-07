@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  listHearthAttachments,
+  uploadHearthAttachment,
+  updateHearthAttachmentExtractedText,
+} from "../lib/hearth-attachments-api";
 import { type Draft } from "../domain/draft";
 import type { HearthPlanningSession, HearthSessionDecision, HearthSessionOrigin } from "../domain/hearth-session";
 import { HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
@@ -139,6 +144,7 @@ import {
 import {
   cloneHearthProposalOps,
   isHearthProposalBodyOpDirty,
+  normalizeHearthProposalOpsForScriptIngress,
   resetHearthProposalBodyOp,
   updateHearthProposalBodyOp,
 } from "../lib/hearth-ai-proposal";
@@ -158,7 +164,8 @@ import {
   type ScriptValidationResult,
   type ScriptValidationIssue,
 } from "@forge/shared/script-tags";
-import { evaluateHearthScriptValidation, normalizeHearthAiScriptIngress } from "../lib/hearth-script-tag-policy";
+import { HENRY_HEARTH_SIGNAL_EVENT, type HearthHenrySignal } from "@forge/shared/henry";
+import { evaluateHearthScriptValidation } from "../lib/hearth-script-tag-policy";
 import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import type {
   ComposeSetup,
@@ -260,6 +267,7 @@ import {
   normalizeHearthVisualStyle,
 } from "../lib/hearth-visual-styles";
 import {
+  buildScriptTabSummary,
   normalizeWorkpieceWorkspaceTab,
   resolveHistoryMilestoneMarker,
   resolveMediaPlanCoverageLevel,
@@ -268,6 +276,7 @@ import {
   resolveRestoredWorkpieceWorkspaceTab,
   type WorkpieceWorkspaceTab,
 } from "../lib/hearth-workpiece-tab-shell";
+import { sortTagsByRelevance } from "../lib/hearth-tag-relevance";
 import {
   loadWorkspaceThumbnailBrandLogoPreview,
   listWorkspaceThumbnailBrandTemplates,
@@ -1373,6 +1382,8 @@ function parseMetadataTagInput(input: string): string[] {
 function buildMetadataTagSuggestions(args: {
   currentTags: string[];
   contentCategory: string | null;
+  bodyText: string;
+  titleTexts: string[];
 }): string[] {
   const normalizedExisting = normalizeSeoTags(args.currentTags);
   const existingSet = new Set(normalizedExisting);
@@ -1396,7 +1407,8 @@ function buildMetadataTagSuggestions(args: {
     if (normalized) suggestions.add(normalized);
   }
 
-  return [...suggestions].filter((tag) => !existingSet.has(tag)).slice(0, 10);
+  const candidates = [...suggestions].filter((tag) => !existingSet.has(tag)).slice(0, 12);
+  return sortTagsByRelevance(candidates, { body: args.bodyText, titleTexts: args.titleTexts });
 }
 
 function deriveReadyUrgency(entry: HearthReadyScript, nowMs = Date.now()): ReadyUrgencyLevel | null {
@@ -1717,6 +1729,14 @@ type PendingAiProposal = {
   context: EpisodeContext;
   fromGate: boolean;
   autosaveReasonCode: AiAutosaveReasonCode;
+};
+
+type ChatAttachmentUi = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  status: "uploading" | "reading" | "attached" | "failed";
+  error?: string | null;
 };
 
 const READY_URGENCY_APPLICABLE_CATEGORY_SET = new Set<HearthContentCategory>([
@@ -2110,6 +2130,9 @@ export default function HearthShell({
     pendingChatHydrationKeyRef,
     chatHydrationSeqRef,
   } = useChatWorkspaceState<PendingAiProposal>();
+  const [chatAttachments, setChatAttachments] = useState<ChatAttachmentUi[]>([]);
+  const [isAttachmentsLoading, setIsAttachmentsLoading] = useState(false);
+  const [chatAttachmentError, setChatAttachmentError] = useState<string | null>(null);
   const [showManualDraft, setShowManualDraft] = useState(false);
   const [showScriptPanel, setShowScriptPanel] = useState(false);
   const [isVisualScriptMode, setIsVisualScriptMode] = useState(false);
@@ -2429,6 +2452,9 @@ export default function HearthShell({
     onMetadataDescriptionShortChange,
     onMetadataDescriptionLongChange,
     onMetadataPreviewModeChange,
+    onMetadataSaveNow,
+    onMetadataRetrySave,
+    hasUnsavedMetadataChanges,
   } = useMetadataWorkspace({
     workpieceId,
     workspaceId,
@@ -3308,13 +3334,18 @@ export default function HearthShell({
       || isThumbnailConceptSaving
       || isThumbnailUploading
     ),
-    metadata: metadataSaveState === "editing" || metadataSaveState === "saving",
+    metadata: hasUnsavedMetadataChanges,
     release: false,
     history: false,
   };
   const hasAnyUnsavedTab = Object.values(tabDirtyById).some(Boolean);
   const tabSummaryById: Record<WorkpieceWorkspaceTab, string> = {
-    script: `${hasApprovedScript ? "Approved" : "Draft"} · ${wordCount} words · ${formatUpdatedAt(activeDraft?.updatedAt)}`,
+    script: buildScriptTabSummary({
+      hasApprovedScript,
+      wordCount,
+      updatedAt: activeDraft?.updatedAt,
+      formatUpdatedAt,
+    }),
     visuals: `${mediaMapEntries.length} visuals · ${String(mediaMap?.status ?? "draft").toUpperCase()} · ${mediaMapCoverageLevel}`,
     metadata: `${framingTitleCount} title${framingTitleCount === 1 ? "" : "s"} · ${metadataTagsDraft.length} tags · ${metadataComplete ? "Complete" : "Needs work"}`,
     release: `${releaseReadiness.completeCount}/${releaseReadiness.totalCount} ready · ${releaseReadiness.completeCount >= releaseReadiness.totalCount ? "Shippable" : "Pending"}`,
@@ -3341,6 +3372,139 @@ export default function HearthShell({
       sparks: episodeSparks,
     });
   }, [activeDraft, planningSession, sourceIndexById, sparks, workpieceId, workpieceSources, workspaceId]);
+  const refreshChatAttachments = useCallback(async () => {
+    const episodeId = workpieceId?.trim();
+    const activeWorkspaceId = workspaceId?.trim();
+    if (!episodeId || !activeWorkspaceId) {
+      setChatAttachments([]);
+      setChatAttachmentError(null);
+      return;
+    }
+
+    setIsAttachmentsLoading(true);
+    const result = await listHearthAttachments({
+      workspaceId: activeWorkspaceId,
+      episodeId,
+    });
+    if (!result.ok) {
+      setChatAttachmentError(result.error);
+      setIsAttachmentsLoading(false);
+      return;
+    }
+
+    setChatAttachments(result.attachments.map((attachment) => ({
+      id: attachment.id,
+      filename: attachment.filename,
+      mimeType: attachment.mime_type,
+      status: attachment.parse_status === "failed"
+        ? "failed"
+        : attachment.parse_status === "needs_text_extraction"
+          ? "needs_text_extraction"
+          : attachment.parse_status === "pending"
+            ? "reading"
+            : "attached",
+      error: attachment.parse_error,
+    })));
+    setChatAttachmentError(null);
+    setIsAttachmentsLoading(false);
+  }, [workpieceId, workspaceId]);
+
+  useEffect(() => {
+    void refreshChatAttachments();
+  }, [refreshChatAttachments]);
+
+  const onUploadChatAttachments = useCallback(async (files: FileList | null) => {
+    const episodeId = workpieceId?.trim();
+    const activeWorkspaceId = workspaceId?.trim();
+    if (!episodeId || !activeWorkspaceId || !files || files.length === 0) return;
+
+    const uploadItems = Array.from(files);
+    for (const file of uploadItems) {
+      const tempId = `temp-${crypto.randomUUID()}`;
+      setChatAttachments((prev) => ([
+        {
+          id: tempId,
+          filename: file.name,
+          mimeType: file.type || "application/octet-stream",
+          status: "uploading",
+          error: null,
+        },
+        ...prev,
+      ]));
+
+      setChatAttachments((prev) => prev.map((entry) => (
+        entry.id === tempId
+          ? { ...entry, status: "reading" }
+          : entry
+      )));
+
+      const upload = await uploadHearthAttachment({
+        workspaceId: activeWorkspaceId,
+        episodeId,
+        file,
+      });
+
+      if (!upload.ok) {
+        setChatAttachments((prev) => prev.map((entry) => (
+          entry.id === tempId
+            ? {
+              ...entry,
+              status: "failed",
+              error: upload.error,
+            }
+            : entry
+        )));
+        continue;
+      }
+
+      const uploadedAttachment = upload.attachment;
+      setChatAttachments((prev) => prev.map((entry) => (
+        entry.id === tempId
+          ? {
+            id: uploadedAttachment.id,
+            filename: uploadedAttachment.filename,
+            mimeType: uploadedAttachment.mime_type,
+            status: uploadedAttachment.parse_status === "failed"
+              ? "failed"
+              : uploadedAttachment.parse_status === "needs_text_extraction"
+                ? "needs_text_extraction"
+                : uploadedAttachment.parse_status === "pending"
+                  ? "reading"
+                  : "attached",
+            error: uploadedAttachment.parse_error,
+          }
+          : entry
+      )));
+    }
+  }, [workpieceId, workspaceId]);
+
+  const onRemoveChatAttachment = useCallback((id: string) => {
+    setChatAttachments((prev) => prev.filter((entry) => entry.id !== id));
+  }, []);
+
+  const onPasteAttachmentText = useCallback(async (attachmentId: string, text: string) => {
+    const activeWorkspaceId = workspaceId?.trim();
+    if (!activeWorkspaceId) return;
+    const result = await updateHearthAttachmentExtractedText({
+      attachmentId,
+      workspaceId: activeWorkspaceId,
+      extractedText: text,
+    });
+    if (!result.ok) {
+      setChatAttachments((prev) => prev.map((entry) =>
+        entry.id === attachmentId
+          ? { ...entry, error: result.error }
+          : entry,
+      ));
+      return;
+    }
+    setChatAttachments((prev) => prev.map((entry) =>
+      entry.id === attachmentId
+        ? { ...entry, status: "attached", error: null }
+        : entry,
+    ));
+  }, [workspaceId]);
+
   const {
     onFixScriptFormattingNoAi,
     onAskAiRepairScript,
@@ -3455,6 +3619,16 @@ export default function HearthShell({
     recordInteractionEvent,
     publishForgeNotice,
     onResearchResult: setLatestResearchResult,
+    getAttachmentContext: () => {
+      const attachmentIds = chatAttachments
+        .filter((entry) => entry.status === "attached" || entry.status === "reading")
+        .map((entry) => entry.id)
+        .filter((id) => !id.startsWith("temp-"));
+      return {
+        includeEpisodeAttachments: true,
+        attachmentIds,
+      };
+    },
   });
   const { onToggleMic } = useChatWorkspaceStt({
     workpieceId,
@@ -3804,7 +3978,7 @@ export default function HearthShell({
       chatPanelMeta,
       chatMessages,
       chatDraft,
-      chatError,
+      chatError: chatAttachmentError ?? chatError,
       aiRuntimeWarning,
       aiCreditsDepleted,
       hasApprovedScript,
@@ -3850,6 +4024,12 @@ export default function HearthShell({
       onChatDraftChange: setChatDraft,
       onSendChat: () => void onSendChat(),
       onCancelAiRequest,
+      chatAttachments,
+      isAttachmentsLoading,
+      onPickAttachments: (files) => void onUploadChatAttachments(files),
+      onDropAttachments: (files) => void onUploadChatAttachments(files),
+      onRemoveAttachment: onRemoveChatAttachment,
+      onPasteAttachmentText: (id, text) => void onPasteAttachmentText(id, text),
       describeProposalOp: describeHearthOp,
       getProposalDiff: buildProposalDiff,
       validateProposalBody: (value) => evaluateHearthScriptValidation(value).validation,
@@ -3980,6 +4160,32 @@ export default function HearthShell({
     () => readyScriptsForDisplay.find((entry) => entry.workpieceId === (workpieceId ?? "")) ?? null,
     [readyScriptsForDisplay, workpieceId],
   );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const scriptText = activeDraft?.body ?? "";
+    const detail: HearthHenrySignal = {
+      surface: "hearth",
+      workspaceId,
+      workpieceId,
+      hasActiveSpark: activeEpisodeSparks.length > 0,
+      hasDraft: scriptText.trim().length > 0,
+      tagValidationOk: hearthScriptState?.validation.ok ?? null,
+      hasPacingCues: scriptText.trim().length
+        ? /\[(?:beat|pause|reflective pause)\]/i.test(scriptText)
+        : null,
+      isApprovedOrReady: Boolean(hasApprovedScript || activeReadyScript),
+      updatedAtIso: new Date().toISOString(),
+    };
+    window.dispatchEvent(new CustomEvent<HearthHenrySignal>(HENRY_HEARTH_SIGNAL_EVENT, { detail }));
+  }, [
+    activeDraft?.body,
+    activeEpisodeSparks.length,
+    activeReadyScript,
+    hasApprovedScript,
+    hearthScriptState?.validation.ok,
+    workpieceId,
+    workspaceId,
+  ]);
   const activeEpisodeReadyStatus = useMemo(() => {
     if (activeWorkpieceIsArchived) {
       return {
@@ -4057,8 +4263,10 @@ export default function HearthShell({
     () => buildMetadataTagSuggestions({
       currentTags: metadataTagsDraft,
       contentCategory: activeReadyScript?.contentCategory ?? null,
+      bodyText: activeDraft?.body ?? "",
+      titleTexts: metadataTitlesDraft.map((t) => t.text),
     }),
-    [activeReadyScript?.contentCategory, metadataTagsDraft],
+    [activeReadyScript?.contentCategory, metadataTagsDraft, activeDraft?.body, metadataTitlesDraft],
   );
   const diffLines = useMemo(() => {
     if (!selectedRevision || !activeDraft) return [];
@@ -6230,14 +6438,7 @@ export default function HearthShell({
   }
 
   function normalizeAiProposalOpsForScriptIngress(ops: HearthOp[]): HearthOp[] {
-    return ops.map((op) => {
-      if (op.op !== "set_body") return op;
-      const normalized = normalizeHearthAiScriptIngress(op.value);
-      return {
-        ...op,
-        value: normalized.text,
-      };
-    });
+    return normalizeHearthProposalOpsForScriptIngress(ops);
   }
 
   function graduateLinkedSpark(episodeId: string): string | null {
@@ -7004,6 +7205,7 @@ export default function HearthShell({
       previewMode: metadataPreviewMode,
       saveState: metadataSaveState,
       saveError: metadataSaveError,
+      hasUnsavedChanges: hasUnsavedMetadataChanges,
       disabled: isApprovingScript || !episodePackage,
       onTitleChange: onMetadataTitleChange,
       onSetPrimaryTitle: onMetadataSetPrimaryTitle,
@@ -7014,6 +7216,8 @@ export default function HearthShell({
       onDescriptionShortChange: onMetadataDescriptionShortChange,
       onDescriptionLongChange: onMetadataDescriptionLongChange,
       onPreviewModeChange: onMetadataPreviewModeChange,
+      onSaveNow: onMetadataSaveNow,
+      onRetrySave: onMetadataRetrySave,
     };
     const visualsPanelContracts = hearthVisualsWorkspace.composePanels({
       thumbnailPanelMeta,

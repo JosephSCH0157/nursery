@@ -445,6 +445,7 @@ export type EpisodeReferenceClipContextType = EpisodeCdcContextType;
 export type EpisodeReferenceClipTone = EpisodeCdcTone;
 export type EpisodeReferenceClipMotionLevel = EpisodeCdcMotionLevel;
 export type EpisodeReferenceClipChartType = EpisodeCdcChartType;
+export type EpisodeReferenceClipSubtype = "graph" | "document" | "timeline";
 
 export type EpisodeContextualDataCompositePlan = {
   id: string;
@@ -464,6 +465,11 @@ export type EpisodeContextualDataCompositePlan = {
   foreground_data_description: string;
   visual_style?: HearthVisualStyleValue | null;
   chart_type?: EpisodeCdcChartType | null;
+  subtype?: EpisodeReferenceClipSubtype | null;
+  source?: string | null;
+  context?: string | null;
+  highlight?: string | null;
+  visual_spec?: string | null;
   title?: string | null;
   labels?: string[];
   values?: Array<number | string>;
@@ -1886,6 +1892,14 @@ function normalizeCdcChartType(value: unknown): EpisodeCdcChartType | null {
   return null;
 }
 
+function normalizeReferenceClipSubtype(value: unknown): EpisodeReferenceClipSubtype | null {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized === "graph" || normalized === "document" || normalized === "timeline") {
+    return normalized;
+  }
+  return null;
+}
+
 function normalizeCdcValues(value: unknown): Array<number | string> {
   if (!Array.isArray(value)) return [];
   const next: Array<number | string> = [];
@@ -1925,6 +1939,11 @@ function normalizeCdcEntry(value: unknown, fallbackId: string, fallbackWorkpiece
     foreground_data_description: readString(value.foreground_data_description) ?? "",
     visual_style: normalizeHearthVisualStyle(value.visual_style),
     chart_type: normalizeCdcChartType(value.chart_type),
+    subtype: normalizeReferenceClipSubtype(value.subtype),
+    source: readString(value.source),
+    context: readString(value.context),
+    highlight: readString(value.highlight),
+    visual_spec: readString(value.visual_spec),
     title: readString(value.title),
     labels: readStringArray(value.labels).slice(0, 32),
     values: normalizeCdcValues(value.values),

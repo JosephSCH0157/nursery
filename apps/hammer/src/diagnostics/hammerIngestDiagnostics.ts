@@ -9,7 +9,7 @@ export type HammerIngestFinalStatus =
   | "blocked"
   | "degraded";
 
-export type HammerIngestTranscriptSource = "registered" | "revision" | "baseline";
+export type HammerIngestTranscriptSource = "registered" | "revision" | "baseline" | "live_noncanonical";
 
 export type HammerIngestDiagnosticV1 = {
   schema_version: 1;
@@ -44,6 +44,13 @@ export type HammerIngestDiagnosticV1 = {
     definitive_failure: boolean;
     action: "none" | "quarantined" | "cleared";
     reason: string | null;
+  };
+  live_noncanonical_asr?: {
+    scan_attempted: boolean;
+    match_found: boolean;
+    capture_session_id: string | null;
+    segment_count: number | null;
+    blocked_reason: string | null;
   };
   seal: {
     attempted: boolean;

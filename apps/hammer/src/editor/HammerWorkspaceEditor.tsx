@@ -28,6 +28,7 @@ import { deriveHammerSessionState } from "./hammerSessionState";
 import { deriveHammerIssueDiagnostics, type HammerIssueFixActionId } from "./hammerIssueDiagnostics";
 import { HammerWorkspaceDiagnosticsBanner } from "./HammerWorkspaceDiagnosticsBanner";
 import { HammerIngestDiagnosticsPanel } from "./HammerIngestDiagnosticsPanel";
+import { deriveRegenProgressLabel, resolveIngestSelectedSource } from "./hammerRegenTranscriptUiState";
 
 type HammerAiTranscriptRegenerationResult = {
   finished_at: string;
@@ -41,6 +42,13 @@ type HammerAiTranscriptRegenerationResult = {
   uncertain_count_after: number | null;
 };
 
+type HammerRegenJobTelemetry = {
+  jobId: string | null;
+  status: "idle" | "blocked" | "creating" | "queued" | "running" | "completed" | "failed" | "canceled";
+  progressPercent: number | null;
+  errorMessage: string | null;
+};
+
 function mapTranscriptSourceLabel(value: string | null): string {
   switch (value) {
     case "registered_transcript":
@@ -51,8 +59,10 @@ function mapTranscriptSourceLabel(value: string | null): string {
       return "Canonical baseline";
     case "prepared_transcript":
       return "AI-prepared transcript";
+    case "live_noncanonical":
+      return "Anvil live ASR (non-canonical)";
     default:
-      return value ? value : "Unknown";
+      return value ? value : "Unavailable";
   }
 }
 
@@ -125,6 +135,9 @@ import {
   type HammerPrepSource,
 } from "../prep/hammerPrep";
 import { decideHammerTranscriptHydrationSource } from "./hammerTranscriptSelection";
+import {
+  findRecoveredAnvilSnapshotByWorkpieceId,
+} from "../transcript/hammerAnvilSnapshotRecovery";
 import {
   buildHammerPrepAiNoticeModel,
   shouldShowHammerPrepAiNotice,
@@ -215,6 +228,7 @@ const SAVE_DEBOUNCE_MS = 400;
 const PREP_DUPLICATE_KICK_WINDOW_MS = 2_000;
 const CANONICAL_OPEN_DEDUPE_WINDOW_MS = 4_000;
 const AUTH_BOOT_POLL_INTERVAL_MS = 1_500;
+const LEGACY_TRANSCRIPT_MISS_CACHE_MS = 20_000;
 
 type HammerCanonicalOpenHydrationResult = {
   reloadOutcome: "success" | "failure";
@@ -423,6 +437,27 @@ function isMissingTongsUserAccessTokenError(error: unknown): boolean {
   const message = toErrorMessage(error, "");
   return message.includes("[tongsFetch] BLOCKED")
     && message.includes("unauthenticated Tongs request");
+}
+
+function buildTranscriptJobFailureMessage(args: {
+  status: number;
+  error: string;
+  retryAfterMs?: number;
+}): string {
+  const retryHint = typeof args.retryAfterMs === "number" && args.retryAfterMs > 0
+    ? ` Retry in about ${Math.max(1, Math.ceil(args.retryAfterMs / 1000))}s.`
+    : "";
+
+  if (args.status === 503 || args.status === 504 || args.status === 502) {
+    return `Transcript service is temporarily unavailable.${retryHint} ${args.error}`.trim();
+  }
+  if (args.status === 401 || args.status === 403) {
+    return `Transcript job is blocked by auth or policy checks. ${args.error}`.trim();
+  }
+  if (args.status === 404) {
+    return `Transcript job route is unavailable for this workspace context. ${args.error}`.trim();
+  }
+  return args.error;
 }
 
 function withSessionId(launchContext?: HammerLaunchContext): HammerLaunchContext | undefined {
@@ -663,6 +698,12 @@ export default function HammerWorkspaceEditor(
   const [regenAiTranscriptCurrentIngestLoading, setRegenAiTranscriptCurrentIngestLoading] = useState(false);
   const [regenAiTranscriptCurrentIngestError, setRegenAiTranscriptCurrentIngestError] = useState<string | null>(null);
   const [regenAiTranscriptCurrentIngestNonce, setRegenAiTranscriptCurrentIngestNonce] = useState(0);
+  const [regenAiTranscriptJobTelemetry, setRegenAiTranscriptJobTelemetry] = useState<HammerRegenJobTelemetry>({
+    jobId: null,
+    status: "idle",
+    progressPercent: null,
+    errorMessage: null,
+  });
   const regenAiTranscriptRequestRef = useRef<{
     token: number;
     refreshPlacements: boolean;
@@ -706,6 +747,7 @@ export default function HammerWorkspaceEditor(
   const prepAiNoticeShownRunKeyRef = useRef<string | null>(null);
   const lastPrepRunKeyRef = useRef<string | null>(null);
   const prepInFlightRunKeyRef = useRef<string | null>(null);
+  const legacyTranscriptMissingByWorkpieceRef = useRef<Map<string, number>>(new Map());
   const prepJobHydrationProbeTargetRef = useRef<string | null>(null);
   const prepExecutionIdRef = useRef(0);
   const isMountedRef = useRef(true);
@@ -1454,6 +1496,7 @@ export default function HammerWorkspaceEditor(
     prepAiNoticePendingRunKeyRef.current = null;
     prepAiNoticeShownRunKeyRef.current = null;
     lastPrepRunKeyRef.current = null;
+    legacyTranscriptMissingByWorkpieceRef.current.clear();
 
     if (persistenceMode !== "canonical" || !persistenceTarget) {
       ingestCorrelationIdRef.current = null;
@@ -1723,6 +1766,79 @@ export default function HammerWorkspaceEditor(
             hydratedTranscript = canonicalTranscript;
           } else {
             rejectionReason = "No valid transcript found in any source (registered, revision, baseline)";
+
+            // --- Local Anvil live transcript recovery ---
+            console.info("[hammer:transcript:canonical_missing]", {
+              workpiece_id: persistenceTarget.workpieceId,
+              timestamp: new Date().toISOString(),
+            });
+            console.info("[hammer:transcript:live_noncanonical_scan_start]", {
+              workpiece_id: persistenceTarget.workpieceId,
+              timestamp: new Date().toISOString(),
+            });
+
+            let localAnvilRecoveryResult: {
+              scan_attempted: boolean;
+              match_found: boolean;
+              capture_session_id: string | null;
+              segment_count: number | null;
+              blocked_reason: string | null;
+            } = {
+              scan_attempted: true,
+              match_found: false,
+              capture_session_id: null,
+              segment_count: null,
+              blocked_reason: null,
+            };
+
+            try {
+              const recovered = findRecoveredAnvilSnapshotByWorkpieceId(persistenceTarget.workpieceId);
+              if (recovered && recovered.segments.length > 0) {
+                console.info("[hammer:transcript:live_noncanonical_match_found]", {
+                  workpiece_id: persistenceTarget.workpieceId,
+                  capture_session_id: recovered.capture_session_id,
+                  segment_count: recovered.segment_count,
+                  timestamp: new Date().toISOString(),
+                });
+                localAnvilRecoveryResult.match_found = true;
+                localAnvilRecoveryResult.capture_session_id = recovered.capture_session_id;
+                localAnvilRecoveryResult.segment_count = recovered.segment_count;
+                localAnvilRecoveryResult.blocked_reason = "live_noncanonical_asr_cannot_seed_canonical_transcript";
+                transcriptEvaluations.push({
+                  source: "live_noncanonical",
+                  path: recovered.live_path ?? recovered.final_path,
+                  segment_count: recovered.segment_count,
+                  load_ok: false,
+                  rejection_reason: "live_noncanonical_asr",
+                });
+              }
+            } catch (localRecoveryError) {
+              localAnvilRecoveryResult.blocked_reason = localRecoveryError instanceof Error
+                ? localRecoveryError.message
+                : String(localRecoveryError);
+            }
+
+            if (ingestDiagnosticRef.current) {
+              ingestDiagnosticRef.current.live_noncanonical_asr = localAnvilRecoveryResult;
+            }
+
+            if (!hydratedTranscript) {
+              const hasMedia = Boolean(
+                sessionResult.data.canonical_recording.media_path
+                || sessionResult.data.canonical_recording.baseline_timing_path,
+              );
+              if (hasMedia) {
+                console.info("[hammer:transcript:ai_fallback_requested]", {
+                  workpiece_id: persistenceTarget.workpieceId,
+                  timestamp: new Date().toISOString(),
+                });
+              } else {
+                console.warn("[hammer:transcript:blocked_no_media]", {
+                  workpiece_id: persistenceTarget.workpieceId,
+                  timestamp: new Date().toISOString(),
+                });
+              }
+            }
           }
 
           if (ingestDiagnosticRef.current) {
@@ -1956,12 +2072,7 @@ export default function HammerWorkspaceEditor(
         const diag = result.payload as unknown as Record<string, unknown> | null;
         const finalStatus = typeof diag?.final_status === "string" ? diag.final_status : null;
         const timestamp = typeof diag?.timestamp === "string" ? diag.timestamp : null;
-        const extra = (diag?.extra && typeof diag.extra === "object" && !Array.isArray(diag.extra))
-          ? diag.extra as Record<string, unknown>
-          : null;
-        const selectedSource = typeof extra?.selected_transcript_source === "string"
-          ? extra.selected_transcript_source
-          : null;
+        const selectedSource = resolveIngestSelectedSource(diag);
 
         let segmentCount: number | null = null;
         const evaluated = Array.isArray(diag?.transcript_sources_evaluated) ? diag.transcript_sources_evaluated as unknown[] : [];
@@ -2034,11 +2145,36 @@ export default function HammerWorkspaceEditor(
           error: result.error,
         });
         setRegenAiTranscriptError(result.error);
+        setRegenAiTranscriptJobTelemetry({
+          jobId: regenAiTranscriptJobId,
+          status: "failed",
+          progressPercent: null,
+          errorMessage: result.error,
+        });
         setRegenAiTranscriptInFlight(false);
         return;
       }
 
       const job: HammerWorkpieceJob = result.data.job;
+      const normalizedStatus: HammerRegenJobTelemetry["status"] = (
+        job.status === "completed"
+          ? "completed"
+          : job.status === "failed"
+            ? "failed"
+            : job.status === "canceled"
+              ? "canceled"
+              : job.status === "queued"
+                ? "queued"
+                : "running"
+      );
+      setRegenAiTranscriptJobTelemetry({
+        jobId: job.id,
+        status: normalizedStatus,
+        progressPercent: typeof job.progress_percent === "number" && Number.isFinite(job.progress_percent)
+          ? Math.max(0, Math.min(100, Math.round(job.progress_percent)))
+          : null,
+        errorMessage: job.error_message ?? null,
+      });
       if (job.status !== lastLoggedStatus || job.status === "completed" || job.status === "failed" || job.status === "canceled") {
         lastLoggedStatus = job.status;
         // eslint-disable-next-line no-console
@@ -2089,6 +2225,10 @@ export default function HammerWorkspaceEditor(
         setRegenAiTranscriptError(null);
         setRegenAiTranscriptInFlight(false);
         setRegenAiTranscriptJobId(null);
+        setRegenAiTranscriptJobTelemetry((current) => ({
+          ...current,
+          status: "completed",
+        }));
         // Mark the pending registry boot as ready for the next snapshot reload.
         if (pendingVersionRegistryBootRef.current) {
           pendingVersionRegistryBootRef.current = {
@@ -2104,6 +2244,14 @@ export default function HammerWorkspaceEditor(
         setRegenAiTranscriptError(job.error_message ?? "Transcript job failed.");
         setRegenAiTranscriptInFlight(false);
         setRegenAiTranscriptJobId(null);
+        setRegenAiTranscriptJobTelemetry({
+          jobId: job.id,
+          status: job.status === "failed" ? "failed" : "canceled",
+          progressPercent: typeof job.progress_percent === "number" && Number.isFinite(job.progress_percent)
+            ? Math.max(0, Math.min(100, Math.round(job.progress_percent)))
+            : null,
+          errorMessage: job.error_message ?? "Transcript job failed.",
+        });
         return;
       }
 
@@ -2344,15 +2492,22 @@ export default function HammerWorkspaceEditor(
       });
       if (!active) return;
       if (!result.ok) {
+        const userMessage = buildTranscriptJobFailureMessage({
+          status: result.status,
+          error: result.error,
+          retryAfterMs: result.retryAfterMs,
+        });
         // eslint-disable-next-line no-console
-        console.warn("[HammerTranscriptJob:prep:poll:error]", {
+        console.error("[HammerTranscriptJob:prep:poll:error]", {
           workspace_id: persistenceTarget.workspaceId,
           workpiece_id: persistenceTarget.workpieceId,
           job_id: prepTranscriptJobId,
           status: result.status,
           error: result.error,
+          retry_after_ms: result.retryAfterMs ?? null,
+          user_message: userMessage,
         });
-        setPrepState(createHammerPrepState("prep_failed", null, result.error));
+        setPrepState(createHammerPrepState("prep_failed", null, userMessage));
         setPrepFailureKind("ai_failed");
         setPrepTranscriptJobId(null);
         return;
@@ -2676,6 +2831,13 @@ export default function HammerWorkspaceEditor(
 
     const prepSource = resolveHammerPrepSource(currentLaunchContext);
     if (!prepSource) {
+      try {
+        console.warn("[hammer:transcript:canonical_missing]", {
+          workspace_id: currentLaunchContext.workspace_id,
+          workpiece_id: currentLaunchContext.workpiece_id,
+          reason: "missing_prep_media",
+        });
+      } catch {}
       setPrepState(createHammerPrepState("prep_failed", null, "Hammer could not resolve prep media."));
       ingestLog.error("prep_source_missing", {
         workspace_id: currentLaunchContext.workspace_id,
@@ -2852,6 +3014,14 @@ export default function HammerWorkspaceEditor(
         manual_regenerate_ai_transcript: Boolean(regenAiTranscriptRequestRef.current),
         refresh_visual_placements: regenAiTranscriptRequestRef.current?.refreshPlacements ?? null,
       });
+      try {
+        console.info("[hammer:transcript:media_available]", {
+          workspace_id: currentLaunchContext.workspace_id,
+          workpiece_id: currentLaunchContext.workpiece_id,
+          media_kind: prepSource.mediaRef.kind,
+          canonical_workpiece_path: prepSource.canonical_workpiece_path,
+        });
+      } catch {}
 
       let outcome: "prepared" | "failed" | "non_ai_missing" | "error" | "job_submitted" = "error";
       let audioPolishStatus: string | null = null;
@@ -2876,17 +3046,53 @@ export default function HammerWorkspaceEditor(
       try {
         // Non-AI attempt first: reuse any existing transcript artifacts before starting AI transcription.
         if (!prepAiFallbackRequested && persistenceTarget && currentCanonicalRecording && !currentCanonicalRecording.sealed_at) {
-          logTranscriptStage("legacy:load:start", {
-            canonical_recording_id: currentCanonicalRecording.id,
-            sealed_at: currentCanonicalRecording.sealed_at ?? null,
-          });
+          const workpieceId = currentCanonicalRecording.workpiece_id;
+          const cachedMissingAt = legacyTranscriptMissingByWorkpieceRef.current.get(workpieceId) ?? null;
+          const nowMs = Date.now();
+          const useCachedMissing = cachedMissingAt != null && (nowMs - cachedMissingAt) < LEGACY_TRANSCRIPT_MISS_CACHE_MS;
+
+          if (useCachedMissing) {
+            logTranscriptStage("legacy:load:skip_cached_missing", {
+              canonical_recording_id: currentCanonicalRecording.id,
+              sealed_at: currentCanonicalRecording.sealed_at ?? null,
+              cache_age_ms: nowMs - (cachedMissingAt ?? nowMs),
+              cache_ttl_ms: LEGACY_TRANSCRIPT_MISS_CACHE_MS,
+            });
+          } else {
+            logTranscriptStage("legacy:load:start", {
+              canonical_recording_id: currentCanonicalRecording.id,
+              sealed_at: currentCanonicalRecording.sealed_at ?? null,
+            });
+          }
+
           const legacySpan = run.span("legacy_transcript:load");
-          const legacyResult = await loadLegacyHammerTranscriptArtifacts(currentCanonicalRecording.workpiece_id);
+          const legacyResult = useCachedMissing
+            ? {
+              ok: true as const,
+              status: 200,
+              data: {
+                structured_transcript: null,
+                speaker_map: null,
+              },
+            }
+            : await loadLegacyHammerTranscriptArtifacts(workpieceId);
+
+          if (legacyResult.ok) {
+            const hasStructuredTranscript = Boolean(legacyResult.data.structured_transcript);
+            const hasSpeakerMap = Boolean(legacyResult.data.speaker_map);
+            if (hasStructuredTranscript && hasSpeakerMap) {
+              legacyTranscriptMissingByWorkpieceRef.current.delete(workpieceId);
+            } else {
+              legacyTranscriptMissingByWorkpieceRef.current.set(workpieceId, nowMs);
+            }
+          }
+
           legacySpan.end({
             ok: legacyResult.ok,
             status: legacyResult.status,
             has_structured_transcript: Boolean(legacyResult.ok && legacyResult.data.structured_transcript),
             has_speaker_map: Boolean(legacyResult.ok && legacyResult.data.speaker_map),
+            cached_missing_probe: useCachedMissing,
           });
           if (legacyResult.ok && legacyResult.data.structured_transcript && legacyResult.data.speaker_map) {
             logTranscriptStage("legacy:load:ok", {
@@ -3056,23 +3262,62 @@ export default function HammerWorkspaceEditor(
             }
           }
 
-          // Legacy transcript not available: stop here and offer AI fallback explicitly.
+          // Legacy transcript not available: request AI fallback immediately when media exists.
           logTranscriptStage("legacy:missing", {}, "warn");
+          const recoveredAnvilSnapshot = findRecoveredAnvilSnapshotByWorkpieceId(currentLaunchContext.workpiece_id);
+          try {
+            console.warn("[hammer:transcript:canonical_missing]", {
+              workspace_id: currentLaunchContext.workspace_id,
+              workpiece_id: currentLaunchContext.workpiece_id,
+              reason: "legacy_transcript_not_found",
+              recovered_anvil_snapshot_key: recoveredAnvilSnapshot?.key ?? null,
+              recovered_anvil_snapshot_segment_count: recoveredAnvilSnapshot?.segment_count ?? 0,
+            });
+          } catch {}
+          if (recoveredAnvilSnapshot) {
+            try {
+              console.info("[hammer:transcript:recovered_anvil_live_snapshot]", {
+                workspace_id: currentLaunchContext.workspace_id,
+                workpiece_id: currentLaunchContext.workpiece_id,
+                key: recoveredAnvilSnapshot.key,
+                capture_session_id: recoveredAnvilSnapshot.capture_session_id,
+                segment_count: recoveredAnvilSnapshot.segment_count,
+                warning: "Recovered snapshot is rolling live ASR and may need cleanup.",
+              });
+            } catch {}
+          }
           run.log("legacy_transcript:missing", {
             ai_fallback_requested: prepAiFallbackRequested,
             canonical_recording_id: currentCanonicalRecording?.id ?? null,
             sealed_at: currentCanonicalRecording?.sealed_at ?? null,
-            note: "No legacy transcript artifacts were found to seal. Offer AI fallback.",
+            note: "No legacy transcript artifacts were found to seal. AI fallback must be explicitly requested.",
+            recovered_anvil_snapshot_key: recoveredAnvilSnapshot?.key ?? null,
+            recovered_anvil_snapshot_segment_count: recoveredAnvilSnapshot?.segment_count ?? 0,
           });
-          setPrepState(createHammerPrepState(
-            "prep_failed",
-            null,
-            "No reusable transcript was found yet. Retry without AI, or choose AI fallback to generate one.",
-          ));
-          setPrepFailureKind("non_ai_missing");
-          outcome = "non_ai_missing";
-          logTranscriptStage("pipeline:done", { outcome }, "warn");
-          return;
+          if (prepAiFallbackRequested) {
+            try {
+              console.info("[hammer:transcript:ai_fallback_requested]", {
+                workspace_id: currentLaunchContext.workspace_id,
+                workpiece_id: currentLaunchContext.workpiece_id,
+                reason: "legacy_transcript_missing",
+              });
+            } catch {}
+          }
+
+          if (!prepAiFallbackRequested) {
+            const message = "No canonical transcript was found. Retry non-AI or choose AI fallback to generate a transcript.";
+            setPrepState(createHammerPrepState("prep_failed", null, message));
+            setShowPreparedHandoff(false);
+            setPrepFailureKind("non_ai_missing");
+            outcome = "non_ai_missing";
+            logTranscriptStage("pipeline:done", { outcome, message }, "warn");
+            run.warn("legacy_transcript:missing_non_ai", {
+              message,
+              recovered_anvil_snapshot_key: recoveredAnvilSnapshot?.key ?? null,
+              recovered_anvil_snapshot_segment_count: recoveredAnvilSnapshot?.segment_count ?? 0,
+            });
+            return;
+          }
         }
 
         const preparingRequest = buildHammerPrepPersistenceSaveRequest({
@@ -3092,25 +3337,6 @@ export default function HammerWorkspaceEditor(
           }
         }
 
-        if (!prepAiFallbackRequested) {
-          logTranscriptStage("legacy:missing", {}, "warn");
-          run.log("legacy_transcript:missing", {
-            ai_fallback_requested: prepAiFallbackRequested,
-            canonical_recording_id: currentCanonicalRecording?.id ?? null,
-            sealed_at: currentCanonicalRecording?.sealed_at ?? null,
-            note: "No legacy transcript artifacts were found; AI fallback not requested.",
-          });
-          setPrepState(createHammerPrepState(
-            "prep_failed",
-            null,
-            "No reusable transcript was found yet. Retry without AI, or choose AI fallback to generate one.",
-          ));
-          setPrepFailureKind("non_ai_missing");
-          outcome = "non_ai_missing";
-          logTranscriptStage("pipeline:done", { outcome }, "warn");
-          return;
-        }
-
         setPrepState(createHammerPrepState("preparing", "transcribing_audio"));
         logTranscriptStage("job:create:start");
         if (!persistenceTarget || !currentRevision || !currentCanonicalRecording) {
@@ -3127,25 +3353,67 @@ export default function HammerWorkspaceEditor(
           ? crypto.randomUUID()
           : `prep_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
+        const transcriptJobPayload = {
+          revision_id: currentRevision.id,
+          canonical_recording_id: currentCanonicalRecording.id,
+          canonical_workpiece_path: prepSource.canonical_workpiece_path,
+          refresh_visual_placements: true,
+          client_request_id: transcriptClientRequestId,
+          mime_type: inferHammerPrepSourceMimeType(prepSource),
+        };
+
         const jobCreate = await createWorkpieceJob({
           workspaceId: persistenceTarget.workspaceId,
           workpieceId: persistenceTarget.workpieceId,
           jobType: "hammer_transcript_prep",
-          payloadJson: {
-            revision_id: currentRevision.id,
-            canonical_recording_id: currentCanonicalRecording.id,
-            canonical_workpiece_path: prepSource.canonical_workpiece_path,
-            refresh_visual_placements: true,
-            client_request_id: transcriptClientRequestId,
-            mime_type: inferHammerPrepSourceMimeType(prepSource),
-          },
+          payloadJson: transcriptJobPayload,
         });
         if (!jobCreate.ok) {
-          throw new Error(jobCreate.error);
+          const userMessage = buildTranscriptJobFailureMessage({
+            status: jobCreate.status,
+            error: jobCreate.error,
+            retryAfterMs: jobCreate.retryAfterMs,
+          });
+          logTranscriptStage("job:create:failed", {
+            status: jobCreate.status,
+            error: jobCreate.error,
+            retry_after_ms: jobCreate.retryAfterMs ?? null,
+            user_message: userMessage,
+            client_request_id: transcriptClientRequestId,
+          }, "error");
+          run.error("transcript_job:create_failed", {
+            status: jobCreate.status,
+            error: jobCreate.error,
+            retry_after_ms: jobCreate.retryAfterMs ?? null,
+            user_message: userMessage,
+            payload: transcriptJobPayload,
+          });
+          try {
+            console.error("[hammer:transcript:ai_fallback_blocked_reason]", {
+              workspace_id: currentLaunchContext.workspace_id,
+              workpiece_id: currentLaunchContext.workpiece_id,
+              reason: `job_create_failed_${jobCreate.status}`,
+              message: jobCreate.error,
+              status: jobCreate.status,
+              retry_after_ms: jobCreate.retryAfterMs ?? null,
+              user_message: userMessage,
+              client_request_id: transcriptClientRequestId,
+              payload: transcriptJobPayload,
+            });
+          } catch {}
+          throw new Error(userMessage);
         }
 
+        usedAiPrep = true;
         submittedTranscriptJob = true;
         setPrepTranscriptJobId(jobCreate.data.job.id);
+        try {
+          console.info("[hammer:transcript:ai_fallback_job_created]", {
+            workspace_id: currentLaunchContext.workspace_id,
+            workpiece_id: currentLaunchContext.workpiece_id,
+            job_id: jobCreate.data.job.id,
+          });
+        } catch {}
         logTranscriptStage("job:create:ok", {
           job_id: jobCreate.data.job.id,
           job_status: jobCreate.data.job.status,
@@ -3966,21 +4234,52 @@ export default function HammerWorkspaceEditor(
 
   const openRegenAiTranscriptModal = useCallback((): void => {
     setRegenAiTranscriptError(null);
+    setRegenAiTranscriptJobTelemetry((current) => (
+      current.status === "completed" || current.status === "failed" || current.status === "canceled"
+        ? { ...current }
+        : {
+          jobId: null,
+          status: "idle",
+          progressPercent: null,
+          errorMessage: null,
+        }
+    ));
     setRegenAiTranscriptOpen(true);
   }, []);
 
   const startRegenAiTranscript = useCallback(async (): Promise<void> => {
     if (!canPersistCanonicalState || !persistenceTarget || !effectiveLaunchContext) {
-      setRegenAiTranscriptError("Hammer is not ready to regenerate a transcript yet. Wait for session hydration to finish, then retry.");
+      const message = "Hammer is not ready to regenerate a transcript yet. Wait for session hydration to finish, then retry.";
+      setRegenAiTranscriptError(message);
+      setRegenAiTranscriptJobTelemetry({
+        jobId: null,
+        status: "blocked",
+        progressPercent: null,
+        errorMessage: message,
+      });
       setRegenAiTranscriptOpen(true);
       return;
     }
     if (!activeRevision || !activeCanonicalRecording) {
-      setRegenAiTranscriptError("Hammer is not ready to regenerate a transcript yet (missing canonical recording or revision).");
+      const message = "Hammer is not ready to regenerate a transcript yet (missing canonical recording or revision).";
+      setRegenAiTranscriptError(message);
+      setRegenAiTranscriptJobTelemetry({
+        jobId: null,
+        status: "blocked",
+        progressPercent: null,
+        errorMessage: message,
+      });
       setRegenAiTranscriptOpen(true);
       return;
     }
-    if (regenAiTranscriptInFlight) return;
+    if (regenAiTranscriptInFlight) {
+      setRegenAiTranscriptJobTelemetry((current) => ({
+        ...current,
+        status: current.jobId ? "running" : "creating",
+        errorMessage: "A regeneration job is already in progress.",
+      }));
+      return;
+    }
 
     const structuredSegments = loadedPersistenceSnapshot?.structured_transcript.data?.segments ?? null;
     const stubSegments = effectiveLaunchContext.transcript.kind === "tongs-stub"
@@ -4010,6 +4309,12 @@ export default function HammerWorkspaceEditor(
     setRegenAiTranscriptResult(null);
     setRegenAiTranscriptError(null);
     setRegenAiTranscriptInFlight(true);
+    setRegenAiTranscriptJobTelemetry({
+      jobId: null,
+      status: "creating",
+      progressPercent: null,
+      errorMessage: null,
+    });
 
     // Record the current transcript path and version registry so we can bootstrap
     // the version registry after regen completes (preserving the Anvil original).
@@ -4021,7 +4326,14 @@ export default function HammerWorkspaceEditor(
 
     const prepSource = resolveHammerPrepSource(effectiveLaunchContext);
     if (!prepSource || prepSource.local_root_abs) {
-      setRegenAiTranscriptError("Regeneration requires a canonical workpiece media path (local media is not supported).");
+      const message = "Regeneration requires a canonical workpiece media path (local media is not supported).";
+      setRegenAiTranscriptError(message);
+      setRegenAiTranscriptJobTelemetry({
+        jobId: null,
+        status: "blocked",
+        progressPercent: null,
+        errorMessage: message,
+      });
       setRegenAiTranscriptInFlight(false);
       return;
     }
@@ -4045,11 +4357,26 @@ export default function HammerWorkspaceEditor(
     });
 
     if (!jobCreate.ok) {
-      setRegenAiTranscriptError(jobCreate.error);
+      const message = jobCreate.retryAfterMs
+        ? `${jobCreate.error} Retry in ~${Math.ceil(jobCreate.retryAfterMs / 1000)}s.`
+        : jobCreate.error;
+      setRegenAiTranscriptError(message);
+      setRegenAiTranscriptJobTelemetry({
+        jobId: null,
+        status: "failed",
+        progressPercent: null,
+        errorMessage: message,
+      });
       setRegenAiTranscriptInFlight(false);
       return;
     }
 
+    setRegenAiTranscriptJobTelemetry({
+      jobId: jobCreate.data.job.id,
+      status: "queued",
+      progressPercent: null,
+      errorMessage: null,
+    });
     setRegenAiTranscriptJobId(jobCreate.data.job.id);
   }, [
     activeCanonicalRecording,
@@ -4607,15 +4934,27 @@ export default function HammerWorkspaceEditor(
                   </dl>
 
                   <div className="hammer-prep-shell__note">
-                    <label className="hammer-prep-shell__checkbox">
+                    <label
+                      className={`hammer-prep-shell__checkbox ${regenAiTranscriptRefreshPlacements ? "is-active" : "is-inactive"}`}
+                    >
                       <input
                         type="checkbox"
                         checked={regenAiTranscriptRefreshPlacements}
                         onChange={(event) => setRegenAiTranscriptRefreshPlacements(event.target.checked)}
                         disabled={regenAiTranscriptInFlight}
                       />
-                      <span>Refresh visual placements after transcript update</span>
+                      <span>
+                        Refresh visual placements after transcript update
+                        <strong className="hammer-prep-shell__checkbox-state">
+                          {regenAiTranscriptRefreshPlacements ? "Enabled" : "Disabled"}
+                        </strong>
+                      </span>
                     </label>
+                    <div className={`hammer-prep-shell__toggle-summary ${regenAiTranscriptRefreshPlacements ? "is-active" : "is-inactive"}`}>
+                      {regenAiTranscriptRefreshPlacements
+                        ? "Placement refresh is ON. Regeneration will update transcript and placement anchors."
+                        : "Placement refresh is OFF. Transcript regenerates only; placement anchors may remain stale."}
+                    </div>
                   </div>
 
                   {(regenAiTranscriptCurrentIngest?.final_status === "prepared_transcript"
@@ -4642,6 +4981,33 @@ export default function HammerWorkspaceEditor(
                       {regenAiTranscriptError}
                     </div>
                   ) : null}
+                  <div className="hammer-prep-shell__run-state" aria-live="polite">
+                    {regenAiTranscriptJobTelemetry.status === "blocked"
+                      ? "Regeneration blocked before job creation."
+                      : regenAiTranscriptInFlight
+                        ? "Running transcript regeneration…"
+                      : regenAiTranscriptResult
+                        ? "Last run finished. Choose a mode and run again if needed."
+                        : "No run in progress. Choose a mode, then click a Regenerate button to start."}
+                    <div className="hammer-prep-shell__run-state-detail">
+                      Job: {regenAiTranscriptJobTelemetry.jobId ?? "not created"}
+                      {" · "}
+                      status: {regenAiTranscriptJobTelemetry.status}
+                      {deriveRegenProgressLabel(regenAiTranscriptJobTelemetry)
+                        ? ` · ${deriveRegenProgressLabel(regenAiTranscriptJobTelemetry)}`
+                        : ""}
+                    </div>
+                    {regenAiTranscriptJobTelemetry.errorMessage ? (
+                      <div className="hammer-prep-shell__run-state-detail is-error">
+                        Job error: {regenAiTranscriptJobTelemetry.errorMessage}
+                      </div>
+                    ) : null}
+                    {!regenAiTranscriptCurrentIngestLoading && !regenAiTranscriptCurrentIngest ? (
+                      <div className="hammer-prep-shell__run-state-detail is-warn">
+                        Ingest diagnostics are currently unavailable, so source/result fields may remain blank even if a run completed.
+                      </div>
+                    ) : null}
+                  </div>
 
                   {regenAiTranscriptResult ? (() => {
                     const ok = typeof regenAiTranscriptResult.segment_count_after === "number" && !regenAiTranscriptError;
@@ -4734,7 +5100,10 @@ export default function HammerWorkspaceEditor(
                       <>
                         <button
                           type="button"
-                          className="hammer-prep-shell__action-button"
+                          className={[
+                            "hammer-prep-shell__action-button",
+                            regenAiTranscriptRefreshPlacements ? "hammer-prep-shell__action-button--primary" : "",
+                          ].join(" ").trim()}
                           onClick={() => {
                             if (!regenAiTranscriptRefreshPlacements) {
                               setRegenAiTranscriptRefreshPlacements(true);
@@ -4743,11 +5112,18 @@ export default function HammerWorkspaceEditor(
                           }}
                           disabled={regenAiTranscriptInFlight}
                         >
-                          Regenerate + Refresh placements
+                          {regenAiTranscriptInFlight && regenAiTranscriptRefreshPlacements
+                            ? "Running: Regenerate + Refresh placements…"
+                            : regenAiTranscriptRefreshPlacements
+                              ? "Regenerate + Refresh placements (Selected)"
+                            : "Regenerate + Refresh placements"}
                         </button>
                         <button
                           type="button"
-                          className="hammer-prep-shell__action-button"
+                          className={[
+                            "hammer-prep-shell__action-button",
+                            !regenAiTranscriptRefreshPlacements ? "hammer-prep-shell__action-button--primary" : "",
+                          ].join(" ").trim()}
                           onClick={() => {
                             if (regenAiTranscriptRefreshPlacements) {
                               setRegenAiTranscriptRefreshPlacements(false);
@@ -4756,7 +5132,11 @@ export default function HammerWorkspaceEditor(
                           }}
                           disabled={regenAiTranscriptInFlight}
                         >
-                          Regenerate transcript only
+                          {regenAiTranscriptInFlight && !regenAiTranscriptRefreshPlacements
+                            ? "Running: Regenerate transcript only…"
+                            : !regenAiTranscriptRefreshPlacements
+                              ? "Regenerate transcript only (Selected)"
+                            : "Regenerate transcript only"}
                         </button>
                       </>
                     );
@@ -4837,6 +5217,7 @@ export default function HammerWorkspaceEditor(
             launchContext={effectiveLaunchContext}
             canonicalMediaPath={activeCanonicalRecording?.media_path ?? null}
             recordingRevisionId={activeRevision?.id ?? null}
+            recordingRevisionHistoryPath={activeRevision?.history_path ?? null}
             structuredTranscript={loadedPersistenceSnapshot?.structured_transcript.data ?? null}
             editorialAuthorityGraph={loadedPersistenceSnapshot?.editorial_authority.data ?? null}
             visualPlacements={visualPlacementData}

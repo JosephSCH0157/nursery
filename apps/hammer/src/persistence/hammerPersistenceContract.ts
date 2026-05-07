@@ -90,6 +90,9 @@ export interface HammerPersistedVisualPreviewSettings {
   background_replace_mode?: "solid" | "image" | "checkerboard";
   background_replace_color?: string;
   background_replace_image_url?: string | null;
+  background_replace_image_asset_path?: string | null;
+  background_replace_image_asset_id?: string | null;
+  background_replace_image_asset_type?: "image" | "other" | null;
   background_wash_enabled?: boolean;
   background_wash_dim_amount?: number;
   background_wash_desaturate_amount?: number;
@@ -241,6 +244,17 @@ export interface HammerVisualPlacementRecord {
     | null;
   overlay_opacity?: number | null;
   overlay_z_index?: number | null;
+  script_cue_id?: string | null;
+  placement_authority?: "hammer_timeline_anchor";
+  alignment?: {
+    script_cue_id: string;
+    transcript_segment_id: string;
+    transcript_start_sec: number;
+    transcript_end_sec: number;
+    confidence: number | null;
+    match_method: "deterministic_phrase" | "fuzzy_text" | "ordered_fallback";
+    state: "aligned" | "review_needed" | "unresolved";
+  } | null;
 }
 
 export interface HammerPersistedVisualPlacements {

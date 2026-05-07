@@ -67,3 +67,31 @@ export function resolveHistoryMilestoneMarker(revisions: Revision[]): string {
   if (!latestMilestone) return "No milestone";
   return `Milestone ${latestMilestone.createdAt}`;
 }
+
+export function getEstimatedRecordedLength(wordCount: number): string {
+  if (!Number.isFinite(wordCount) || wordCount <= 0) return "";
+  const fastWpm = 170;
+  const slowWpm = 135;
+  const minMinutes = Math.max(1, Math.floor(wordCount / fastWpm));
+  const maxMinutes = Math.max(minMinutes, Math.ceil(wordCount / slowWpm));
+  if (minMinutes === maxMinutes) return `~${minMinutes} min`;
+  return `~${minMinutes}–${maxMinutes} min`;
+}
+
+export function buildScriptTabSummary(input: {
+  hasApprovedScript: boolean;
+  wordCount: number;
+  updatedAt: number | undefined;
+  formatUpdatedAt: (value: number | undefined) => string;
+}): string {
+  const summaryParts = [
+    input.hasApprovedScript ? "Approved" : "Draft",
+    `${input.wordCount} words`,
+  ];
+  const lengthEstimate = getEstimatedRecordedLength(input.wordCount);
+  if (lengthEstimate) {
+    summaryParts.push(lengthEstimate);
+  }
+  summaryParts.push(input.formatUpdatedAt(input.updatedAt));
+  return summaryParts.join(" · ");
+}

@@ -1,7 +1,85 @@
-import type { HenryContext, HenryObservation, HenryRecommendation } from "@forge/shared/henry";
+import type {
+  HearthHenrySignal,
+  HenryAILane,
+  HenryContext,
+  HenryMode,
+  HenryObservation,
+  HenryRecommendation,
+  HenrySuggestion,
+} from "@forge/shared/henry";
 import type { EpisodeStatusSignals } from "../workspace/resolveEpisodeStatus";
 import { resolveNextEpisodeAction } from "../workspace/resolveNextEpisodeAction";
+import { buildHenryUserMeteredBoundaryReply, classifyHenryAiLane } from "./henry-ai-cost-policy";
 import { resolveStagePurpose } from "./henryContext";
+import { buildHenryHearthChatAnswer } from "./henry-deterministic-suggestions";
+import { getHenryNextStep } from "./henry-next-step";
+import { normalizeHenryVoice } from "./henry-voice";
+
+type HenryBehaviorOptions = {
+  mode?: HenryMode | null;
+  suggestion?: HenrySuggestion | null;
+  hearthSignal?: HearthHenrySignal | null;
+};
+
+export type HenryChatReply = {
+  lane: HenryAILane;
+  text: string;
+};
+
+function buildHenryContextAwareFallback(
+  context: HenryContext,
+  options?: HenryBehaviorOptions,
+): string {
+  if (context.surface === "hearth") {
+    const hearthNextStep = getHenryNextStep(context, options?.hearthSignal ?? null);
+    if (hearthNextStep) {
+      return `You are in Hearth. ${hearthNextStep}`;
+    }
+    return "You are in Hearth. I can help with script shape, pacing, read-aloud flow, and the next handoff to Anvil.";
+  }
+
+  if (context.surface !== "unknown") {
+    return `You are in ${context.surface}. I can explain what this surface owns and the next safe step.`;
+  }
+
+  return "I may be missing the exact context. Tell me which surface you are in, and I will point to the owning tool and the next safe step.";
+}
+
+function buildHenryOptionalHereAnswer(context: HenryContext): string {
+  if (context.surface === "hearth") {
+    const phaseNote = context.phase === "script"
+      ? "In Hearth, drafting and structure choices are iterative."
+      : "In Hearth, shaping choices stay reversible while you refine.";
+    return `${phaseNote} Keep the core claim clear, then tighten pacing when you want Anvil-ready read-aloud flow.`;
+  }
+  return "Most controls here are optional unless marked required. Keep progress in place and move forward when the output is usable.";
+}
+
+function buildHenryActiveHelpAnswer(
+  question: string,
+  context: HenryContext,
+  options?: HenryBehaviorOptions,
+): string | null {
+  const lower = question.toLowerCase();
+
+  if (/how do i create images|how to create images|create images|image flow|visual flow/.test(lower)) {
+    return "Use Hearth image or visual flows to define what you want on-screen, then run explicit generation actions from those controls. Henry tips do not generate assets by themselves, and full image generation stays in the normal AI or asset lane when enabled.";
+  }
+
+  if (/where does .*episode.*record|where .*episode.*get recorded|where does recording happen|where .*recorded/.test(lower)) {
+    return "Recording happens in Anvil. Hearth shapes the script, Anvil captures the performance, Hammer handles edits, and Quench handles release.";
+  }
+
+  if (lower.includes("optional") || lower.includes("required")) {
+    return buildHenryOptionalHereAnswer(context);
+  }
+
+  if (lower.includes("next")) {
+    return buildHenryActionAnswer("what-next", context, options);
+  }
+
+  return null;
+}
 
 export function buildHenryContextSummary(context: HenryContext): string[] {
   const locationLine = context.surface === "forge-hub"
@@ -93,7 +171,11 @@ export function resolveHenryObservation(context: HenryContext): HenryObservation
   return { id: "forge-hub:choose-path", text: "You can start with any stage and iterate.", surface: "forge-hub" };
 }
 
-export function buildHenryActionAnswer(actionId: string, context: HenryContext): string {
+export function buildHenryActionAnswer(
+  actionId: string,
+  context: HenryContext,
+  options?: HenryBehaviorOptions,
+): string {
   if (actionId === "explain-screen") {
     return buildHenryContextSummary(context).join("\n");
   }
@@ -107,6 +189,10 @@ export function buildHenryActionAnswer(actionId: string, context: HenryContext):
     return "Unfinished work stays valid. You can continue from the current phase without losing prior progress.";
   }
   if (actionId === "what-next") {
+    if (context.surface === "hearth") {
+      const hearthNextStep = getHenryNextStep(context, options?.hearthSignal ?? null);
+      if (hearthNextStep) return normalizeHenryVoice(hearthNextStep);
+    }
     const rec = resolveHenryRecommendation(context);
     return [
       `Best next step: ${rec.primary}`,
@@ -117,13 +203,50 @@ export function buildHenryActionAnswer(actionId: string, context: HenryContext):
   return "I can explain this stage and suggest the next safe move when you ask.";
 }
 
-export function buildHenryChatAnswer(question: string, context: HenryContext): string {
-  const lower = question.toLowerCase();
-  if (lower.includes("next")) {
-    return buildHenryActionAnswer("what-next", context);
+export function buildHenryChatAnswer(
+  question: string,
+  context: HenryContext,
+  options?: HenryBehaviorOptions,
+): string {
+  return buildHenryChatReply(question, context, options).text;
+}
+
+export function buildHenryChatReply(
+  question: string,
+  context: HenryContext,
+  options?: HenryBehaviorOptions,
+): HenryChatReply {
+  const lane = classifyHenryAiLane(question, context);
+  if (lane === "user_metered") {
+    return {
+      lane,
+      text: normalizeHenryVoice(buildHenryUserMeteredBoundaryReply()),
+    };
   }
-  if (lower.includes("optional") || lower.includes("required")) {
-    return buildHenryActionAnswer("optional-here", context);
+
+  const activeHelpAnswer = buildHenryActiveHelpAnswer(question, context, options);
+  if (activeHelpAnswer) {
+    return {
+      lane,
+      text: normalizeHenryVoice(activeHelpAnswer),
+    };
   }
-  return buildHenryContextSummary(context).join("\n");
+
+  const hearthAnswer = buildHenryHearthChatAnswer({
+    question,
+    context,
+    mode: options?.mode ?? null,
+    suggestion: options?.suggestion ?? null,
+  });
+  if (hearthAnswer) {
+    return {
+      lane,
+      text: normalizeHenryVoice(hearthAnswer),
+    };
+  }
+
+  return {
+    lane,
+    text: normalizeHenryVoice(buildHenryContextAwareFallback(context, options)),
+  };
 }

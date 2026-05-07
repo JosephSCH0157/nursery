@@ -34,10 +34,10 @@ export function shouldResetTemporalGaze(args: {
   if (prev.providerName !== args.next.providerName) reasons.push("provider_change");
 
   const dt = Math.abs(args.next.timestampSec - prev.lastTimestampSec);
-  if (dt >= 1.0) reasons.push("timestamp_jump");
+  if (dt >= 0.75) reasons.push("timestamp_jump");
 
   const confDrop = prev.lastConfidence - args.next.confidence;
-  if (confDrop >= 0.35) reasons.push("confidence_drop");
+  if (confDrop >= 0.2) reasons.push("confidence_drop");
 
   return { reset: reasons.length > 0, reasons };
 }
@@ -115,8 +115,15 @@ export function smoothGazeCorrection(args: {
 
   const wPrev = appliedWeight;
   const wNow = 1 - wPrev;
-  const correctionX = (prev.lastCorrectionX * wPrev) + (args.next.correctionX * wNow);
-  const correctionY = (prev.lastCorrectionY * wPrev) + (args.next.correctionY * wNow);
+  let correctionX = (prev.lastCorrectionX * wPrev) + (args.next.correctionX * wNow);
+  let correctionY = (prev.lastCorrectionY * wPrev) + (args.next.correctionY * wNow);
+
+  // Clamp per-frame correction velocity to avoid sudden "eye snap" artifacts.
+  const maxStep = 0.045;
+  const dx = correctionX - prev.lastCorrectionX;
+  const dy = correctionY - prev.lastCorrectionY;
+  if (Math.abs(dx) > maxStep) correctionX = prev.lastCorrectionX + Math.sign(dx) * maxStep;
+  if (Math.abs(dy) > maxStep) correctionY = prev.lastCorrectionY + Math.sign(dy) * maxStep;
 
   return {
     correctionX,

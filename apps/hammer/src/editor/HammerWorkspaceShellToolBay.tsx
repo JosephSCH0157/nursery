@@ -9,6 +9,40 @@ export type HammerWorkspaceShellToolBayVM = {
   onSelectVisualTool?: (nextTool: "polish" | "images" | "broll") => void;
 };
 
+export type PackagingIntroStatusView = {
+  selectionStatusLine: string;
+  placementStatusLine: string;
+  applyActionLabel: string;
+  removeActionLabel: string;
+  canApply: boolean;
+  canRemove: boolean;
+};
+
+export function derivePackagingIntroStatusView(args: {
+  selectedIntroAssetId: string | null;
+  selectedIntroPath: string | null;
+  introPlaced: boolean;
+}): PackagingIntroStatusView {
+  const hasSelection = Boolean(args.selectedIntroAssetId);
+  const hasResolvedSelection = Boolean(args.selectedIntroAssetId && args.selectedIntroPath);
+  const selectedSourceLine = hasSelection
+    ? (hasResolvedSelection
+      ? `Selected intro from Source Desk: ${args.selectedIntroPath}`
+      : `Selected intro from Source Desk is unresolved (${args.selectedIntroAssetId}).`)
+    : "No intro selected in Source Desk.";
+  const placementLine = args.introPlaced
+    ? "Timeline packaging intro: placed."
+    : "Timeline packaging intro: not placed.";
+  return {
+    selectionStatusLine: selectedSourceLine,
+    placementStatusLine: placementLine,
+    applyActionLabel: "Apply Selected Intro to Timeline",
+    removeActionLabel: "Remove Intro from Timeline",
+    canApply: hasResolvedSelection,
+    canRemove: args.introPlaced,
+  };
+}
+
 type FillerCleanupOptions = any;
 type RetakeCleanupOptions = any;
 type SpeakerInterviewOptions = any;
@@ -19,6 +53,30 @@ type HammerCaptionReadingSpeed = any;
 type HammerCaptionPunctuationMode = any;
 type HammerLogoOverlayPosition = any;
 type HammerLogoOverlaySize = any;
+
+function isTruthyDevToggle(value: string | null): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "on" || normalized === "yes";
+}
+
+function isDevBlurControlsEnabled(): boolean {
+  const isDevBuild = Boolean((import.meta as any)?.env?.DEV);
+  if (!isDevBuild || typeof window === "undefined") return false;
+  try {
+    const params = new URLSearchParams(window.location.search ?? "");
+    if (isTruthyDevToggle(params.get("dev"))) return true;
+    if (isTruthyDevToggle(params.get("tp_dev_mode"))) return true;
+  } catch {
+    // ignore
+  }
+  try {
+    if (window.localStorage.getItem("tp_dev_mode") === "1") return true;
+  } catch {
+    // ignore
+  }
+  return false;
+}
 
 export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShellToolBayVM }): JSX.Element {
   const vm = p.vm;
@@ -183,6 +241,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const setVisualBackgroundBlurTemporalSmoothing = ctx.setVisualBackgroundBlurTemporalSmoothing as any;
   const setVisualBackgroundReplaceColor = ctx.setVisualBackgroundReplaceColor as any;
   const setVisualBackgroundReplaceEnabled = ctx.setVisualBackgroundReplaceEnabled as any;
+  const setVisualBackgroundReplaceImageAssetPath = ctx.setVisualBackgroundReplaceImageAssetPath as any;
   const setVisualBackgroundReplaceImageUrl = ctx.setVisualBackgroundReplaceImageUrl as any;
   const setVisualBackgroundReplaceMode = ctx.setVisualBackgroundReplaceMode as any;
   const setVisualBackgroundWashDesaturateAmount = ctx.setVisualBackgroundWashDesaturateAmount as any;
@@ -196,6 +255,10 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const setVisualWhiteBalance = ctx.setVisualWhiteBalance as any;
   const sourceBrollItems = ctx.sourceBrollItems as any;
   const sourceImageLibraryItems = ctx.sourceImageLibraryItems as any;
+  const selectedBackgroundReplacementAssetId = ctx.selectedBackgroundReplacementAssetId as string | null;
+  const visualBackgroundReplaceImageAssetPath = ctx.visualBackgroundReplaceImageAssetPath as string | null;
+  const handleSourceDeskUpload = ctx.handleSourceDeskUpload as ((category: "images" | "broll" | "introoutro", fileList: FileList | null) => Promise<void>) | undefined;
+  const uploadingCategory = ctx.uploadingCategory as ("images" | "broll" | "introoutro" | null);
   const studioRackOpen = ctx.studioRackOpen as any;
   const toggleLogoOverlay = ctx.toggleLogoOverlay as any;
   const trimResolvedBrollBinding = ctx.trimResolvedBrollBinding as any;
@@ -238,6 +301,12 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const activeVisualTool = (ctx.activeVisualTool ?? vm.activeVisualTool ?? "polish") as "polish" | "images" | "broll";
   const onSelectVisualTool = (ctx.onSelectVisualTool ?? vm.onSelectVisualTool ?? null) as ((nextTool: "polish" | "images" | "broll") => void) | null;
   const setFocusOverride = ctx.setFocusOverride as (mode: "auto" | "source-focus" | "tool-focus" | "time-focus") => void;
+  const devBlurControlsEnabled = isDevBlurControlsEnabled();
+  const introStatusView = derivePackagingIntroStatusView({
+    selectedIntroAssetId: introOutroSelection?.intro_asset_id ?? null,
+    selectedIntroPath: introOutroSelectedIntroPath ?? null,
+    introPlaced: Boolean(packagingIntroPlacement),
+  });
 
   const activeReviewKind = ctx.activeReviewKind as string;
   const setActiveReviewKind = ctx.setActiveReviewKind as (next: any) => void;
@@ -312,6 +381,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const setVoicePolishFixEnabled = ctx.setVoicePolishFixEnabled as (fixId: string, enabled: boolean) => void;
   const setVoicePolishDeEsserStrength = ctx.setVoicePolishDeEsserStrength as (value: string) => void;
   const setVoicePolishEqProfile = ctx.setVoicePolishEqProfile as (value: string) => void;
+  const setVoiceCleanupEnabled = ctx.setVoiceCleanupEnabled as (enabled: boolean) => void;
 
   const editableAudioPolish = ctx.editableAudioPolish as any;
   const persistedAudioCutCount = ctx.persistedAudioCutCount as number;
@@ -1488,8 +1558,28 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Audio Finalization</header>
 
+                    <label
+                      className={`hammer-tool-field hammer-audio-fix ${voicePolish?.voice_cleanup_enabled ? "is-active" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(voicePolish?.voice_cleanup_enabled)}
+                        onChange={(event) => setVoiceCleanupEnabled(event.target.checked)}
+                        aria-label="Voice Cleanup"
+                      />
+                      <span className="hammer-audio-fix__copy">
+                        <strong>
+                          Voice Cleanup
+                          {voicePolish?.voice_cleanup_enabled ? <span className="hammer-audio-fix__checkmark" aria-hidden="true">✓</span> : null}
+                        </strong>
+                        <span className="hammer-audio-fix__help">Conservative spoken-audio cleanup (rumble cut, gentle harshness control, light compression, loudness leveling)</span>
+                      </span>
+                    </label>
+
                     <header className="hammer-tool-card__subhead">Audio Fixes</header>
-                    <label className="hammer-tool-field hammer-audio-fix">
+                    <label
+                      className={`hammer-tool-field hammer-audio-fix ${voicePolish?.fixes?.remove_harsh_sibilance ? "is-active" : ""}`}
+                    >
                       <input
                         type="checkbox"
                         checked={Boolean(voicePolish?.fixes?.remove_harsh_sibilance)}
@@ -1497,13 +1587,19 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           "remove_harsh_sibilance",
                           event.target.checked,
                         )}
+                        aria-label="Remove Harsh Sibilance"
                       />
                       <span className="hammer-audio-fix__copy">
-                        <strong>Remove Harsh Sibilance</strong>
+                        <strong>
+                          Remove Harsh Sibilance
+                          {voicePolish?.fixes?.remove_harsh_sibilance ? <span className="hammer-audio-fix__checkmark" aria-hidden="true">✓</span> : null}
+                        </strong>
                         <span className="hammer-audio-fix__help">Softens sharp “S” sounds</span>
                       </span>
                     </label>
-                    <label className="hammer-tool-field hammer-audio-fix">
+                    <label
+                      className={`hammer-tool-field hammer-audio-fix ${voicePolish?.fixes?.reduce_room_boxiness ? "is-active" : ""}`}
+                    >
                       <input
                         type="checkbox"
                         checked={Boolean(voicePolish?.fixes?.reduce_room_boxiness)}
@@ -1511,13 +1607,19 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           "reduce_room_boxiness",
                           event.target.checked,
                         )}
+                        aria-label="Reduce Room / Boxiness"
                       />
                       <span className="hammer-audio-fix__copy">
-                        <strong>Reduce Room / Boxiness</strong>
+                        <strong>
+                          Reduce Room / Boxiness
+                          {voicePolish?.fixes?.reduce_room_boxiness ? <span className="hammer-audio-fix__checkmark" aria-hidden="true">✓</span> : null}
+                        </strong>
                         <span className="hammer-audio-fix__help">Removes echo / boxy room tone</span>
                       </span>
                     </label>
-                    <label className="hammer-tool-field hammer-audio-fix">
+                    <label
+                      className={`hammer-tool-field hammer-audio-fix ${voicePolish?.fixes?.enhance_voice_clarity ? "is-active" : ""}`}
+                    >
                       <input
                         type="checkbox"
                         checked={Boolean(voicePolish?.fixes?.enhance_voice_clarity)}
@@ -1525,13 +1627,19 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           "enhance_voice_clarity",
                           event.target.checked,
                         )}
+                        aria-label="Enhance Voice Clarity"
                       />
                       <span className="hammer-audio-fix__copy">
-                        <strong>Enhance Voice Clarity</strong>
+                        <strong>
+                          Enhance Voice Clarity
+                          {voicePolish?.fixes?.enhance_voice_clarity ? <span className="hammer-audio-fix__checkmark" aria-hidden="true">✓</span> : null}
+                        </strong>
                         <span className="hammer-audio-fix__help">Brings the voice forward and improves intelligibility</span>
                       </span>
                     </label>
-                    <label className="hammer-tool-field hammer-audio-fix">
+                    <label
+                      className={`hammer-tool-field hammer-audio-fix ${voicePolish?.fixes?.level_volume ? "is-active" : ""}`}
+                    >
                       <input
                         type="checkbox"
                         checked={Boolean(voicePolish?.fixes?.level_volume)}
@@ -1539,9 +1647,13 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           "level_volume",
                           event.target.checked,
                         )}
+                        aria-label="Level Volume"
                       />
                       <span className="hammer-audio-fix__copy">
-                        <strong>Level Volume</strong>
+                        <strong>
+                          Level Volume
+                          {voicePolish?.fixes?.level_volume ? <span className="hammer-audio-fix__checkmark" aria-hidden="true">✓</span> : null}
+                        </strong>
                         <span className="hammer-audio-fix__help">Evens out overall loudness</span>
                       </span>
                     </label>
@@ -2056,6 +2168,9 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           <span>Show gaze debug (overlay/status)</span>
                         </label>
                         <div className="hammer-tool-hint">
+                          Experimental preview-only. Uses subtle correction; review carefully.
+                        </div>
+                        <div className="hammer-tool-hint">
                           {visualEyeContactAssistStatusSummary
                             ? visualEyeContactAssistStatusSummary.primaryLine
                             : "Eye contact status unavailable."}
@@ -2114,11 +2229,36 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           if (enabled) {
                             setVisualBackgroundReplaceEnabled(false);
                             setVisualBackgroundWashEnabled(false);
+                            if (!devBlurControlsEnabled) {
+                              setVisualBackgroundBlurQualityMode("high");
+                              setVisualBackgroundBlurPx(5);
+                              setVisualBackgroundBlurFeatherPx(9);
+                              setVisualBackgroundBlurTemporalSmoothing(0.6);
+                              setVisualBackgroundBlurSubjectExpansionPx(0);
+                              setVisualBackgroundMaskPreviewMode(false);
+                              setVisualBackgroundMaskPreviewStage("refined");
+                              setVisualBackgroundBlurFallbackMode("passthrough");
+                            }
                           }
                         }}
                       />
-                      <span>Background Blur (Segmentation Preview)</span>
+                      <span>Background Blur</span>
                     </label>
+                    <div className="hammer-tool-hint">
+                      {visualBackgroundBlur
+                        ? ((visualBackgroundBlurRuntimeStatus?.degradedReason === "reusing_recent_mask"
+                          || visualBackgroundBlurRuntimeStatus?.degradedReason === "replacement_degraded_under_load"
+                          || visualBackgroundBlurRuntimeStatus?.degradedReason === "replacement_downgraded_to_blur")
+                          ? "Using fallback"
+                          : visualBackgroundBlurRuntimeStatus?.statusMessage
+                          ? "Preparing blur..."
+                          : visualBackgroundBlurRuntimeStatus?.mask?.status === "ok"
+                          ? "Blur active"
+                          : visualBackgroundBlurStatusSummary?.primaryLine
+                          ? "Ready"
+                          : "Blur unavailable")
+                        : "Ready"}
+                    </div>
                     <label className="hammer-tool-check">
                       <input
                         type="checkbox"
@@ -2130,27 +2270,122 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           if (enabled) {
                             setVisualBackgroundBlur(false);
                             setVisualBackgroundWashEnabled(false);
+                            setVisualBackgroundReplaceMode("image");
                           }
                         }}
                       />
-                      <span>Background Replace (Segmentation Preview)</span>
+                      <span>Background Replacement</span>
                     </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={visualBackgroundWashEnabled}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          const enabled = event.target.checked;
-                          setVisualBackgroundWashEnabled(enabled);
-                          if (enabled) {
-                            setVisualBackgroundBlur(false);
-                            setVisualBackgroundReplaceEnabled(false);
-                          }
-                        }}
-                      />
-                      <span>Background Wash (Segmentation Preview)</span>
-                    </label>
+                    {visualBackgroundReplaceEnabled ? (
+                      <>
+                        <label className="hammer-tool-field">
+                          <span>Selected Background</span>
+                          <select
+                            value={visualBackgroundReplaceImageAssetPath ?? ""}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              const nextPath = event.target.value.trim();
+                              setVisualBackgroundReplaceImageAssetPath(nextPath || null);
+                              if (nextPath) {
+                                setVisualBackgroundReplaceMode("image");
+                                setVisualBackgroundReplaceImageUrl("");
+                              }
+                            }}
+                          >
+                            <option value="">No background selected</option>
+                            {sourceImageLibraryItems.map((item: any) => (
+                              <option key={`bg-replace-${item.path}`} value={item.path}>
+                                {item.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <div className="hammer-source-card__actions">
+                          <label className="hammer-diagnostics-banner__button">
+                            Upload Background
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp"
+                              className="sr-only"
+                              onChange={(event) => {
+                                const files = event.currentTarget.files;
+                                if (!files || files.length === 0 || !handleSourceDeskUpload) return;
+                                setFocusOverride("tool-focus");
+                                void handleSourceDeskUpload("images", files).finally(() => {
+                                  event.currentTarget.value = "";
+                                });
+                              }}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundReplaceImageAssetPath(null);
+                              setVisualBackgroundReplaceImageUrl("");
+                            }}
+                            disabled={!visualBackgroundReplaceImageAssetPath && !visualBackgroundReplaceImageUrl.trim()}
+                          >
+                            Clear Background
+                          </button>
+                        </div>
+                        <div className="hammer-tool-hint">
+                          {visualBackgroundReplaceImageAssetPath
+                            ? `Background asset selected${selectedBackgroundReplacementAssetId ? ` · ${selectedBackgroundReplacementAssetId}` : ""}`
+                            : "No background asset selected"}
+                          {uploadingCategory === "images" ? " · Uploading..." : ""}
+                        </div>
+                        <label className="hammer-tool-field">
+                          <span>Edge feather ({Math.round(visualBackgroundBlurFeatherPx)}px)</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={24}
+                            step={1}
+                            value={visualBackgroundBlurFeatherPx}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundBlurFeatherPx(Number(event.target.value));
+                            }}
+                          />
+                        </label>
+                      </>
+                    ) : null}
+                    {devBlurControlsEnabled ? (
+                      <details className="hammer-tool-fieldset">
+                        <summary>Advanced Blur Controls</summary>
+                        <label className="hammer-tool-check">
+                          <input
+                            type="checkbox"
+                            checked={visualBackgroundReplaceEnabled}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              const enabled = event.target.checked;
+                              setVisualBackgroundReplaceEnabled(enabled);
+                              if (enabled) {
+                                setVisualBackgroundBlur(false);
+                                setVisualBackgroundWashEnabled(false);
+                              }
+                            }}
+                          />
+                          <span>Background Replace (Segmentation Preview)</span>
+                        </label>
+                        <label className="hammer-tool-check">
+                          <input
+                            type="checkbox"
+                            checked={visualBackgroundWashEnabled}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              const enabled = event.target.checked;
+                              setVisualBackgroundWashEnabled(enabled);
+                              if (enabled) {
+                                setVisualBackgroundBlur(false);
+                                setVisualBackgroundReplaceEnabled(false);
+                              }
+                            }}
+                          />
+                          <span>Background Wash (Segmentation Preview)</span>
+                        </label>
                     {visualBackgroundBlur ? (
                       <>
                         <label className="hammer-tool-field">
@@ -2542,6 +2777,8 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           </div>
                         ) : null}
                       </>
+                    ) : null}
+                      </details>
                     ) : null}
                     <div className="hammer-tool-hint">
                       White balance, color, background blur, and background replacement remain preview-only in Phase 1. Look Preset and Exposure carry into the export packet.
@@ -3307,7 +3544,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Packaging</header>
                     <div className="hammer-tool-hint">
-                      One-click branding pass. Reuses your existing intro/outro assets and timeline placements.
+                      Packaging placement controls only. Choose intro/outro assets in Source Desk.
                     </div>
                     <div className="hammer-source-card__actions">
                       <button
@@ -3316,9 +3553,9 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           setFocusOverride("tool-focus");
                           applyIntroPlacement();
                         }}
-                        disabled={!introOutroSelection.intro_asset_id || !introOutroSelectedIntroPath}
+                        disabled={!introStatusView.canApply}
                       >
-                        Apply Intro
+                        {introStatusView.applyActionLabel}
                       </button>
                       <button
                         type="button"
@@ -3326,9 +3563,9 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           setFocusOverride("tool-focus");
                           removePackagingPlacement(PACKAGING_INTRO_ENTRY_ID, "Remove packaging intro");
                         }}
-                        disabled={!packagingIntroPlacement}
+                        disabled={!introStatusView.canRemove}
                       >
-                        Remove Intro
+                        {introStatusView.removeActionLabel}
                       </button>
                       <button
                         type="button"
@@ -3352,15 +3589,13 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                       </button>
                     </div>
                     <div className="hammer-tool-hint">
-                      Intro: {introOutroSelection.intro_asset_id
-                        ? (introOutroSelectedIntroPath ? "selected" : "selected (unresolved)")
-                        : "not selected"} ·
+                      {introStatusView.selectionStatusLine} ·
                       {" "}Outro: {introOutroSelection.outro_asset_id
                         ? (introOutroSelectedOutroPath ? "selected" : "selected (unresolved)")
                         : "not selected"}
                     </div>
                     <div className="hammer-tool-hint">
-                      Intro applied: {packagingIntroPlacement ? "yes" : "no"} ·
+                      {introStatusView.placementStatusLine} ·
                       {" "}Outro applied: {packagingOutroPlacement ? "yes" : "no"}
                     </div>
 

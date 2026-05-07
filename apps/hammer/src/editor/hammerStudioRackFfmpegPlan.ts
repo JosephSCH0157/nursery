@@ -53,12 +53,12 @@ function buildGateFilter(rackState: HammerStudioRackState): string {
   const attack = clamp(gate.attack_ms, 0.5, 120);
   const release = clamp(gate.release_ms, 10, 1200);
   return [
-    "agate",
+    "agate=",
     `threshold=${threshold.toFixed(6)}`,
     `range=${range.toFixed(6)}`,
     `attack=${attack.toFixed(1)}`,
     `release=${release.toFixed(1)}`,
-  ].join(":");
+  ].join(":").replace("=:", "=");
 }
 
 function buildCompressorFilter(rackState: HammerStudioRackState): string {
@@ -69,13 +69,13 @@ function buildCompressorFilter(rackState: HammerStudioRackState): string {
   const release = clamp(compressor.release_ms, 10, 1200);
   const makeup = toLinearFromDb(clamp(compressor.makeup_gain_db, -12, 18));
   return [
-    "acompressor",
+    "acompressor=",
     `threshold=${threshold.toFixed(6)}`,
     `ratio=${ratio.toFixed(2)}`,
     `attack=${attack.toFixed(1)}`,
     `release=${release.toFixed(1)}`,
     `makeup=${makeup.toFixed(3)}`,
-  ].join(":");
+  ].join(":").replace("=:", "=");
 }
 
 function createDecision(moduleId: HammerStudioRackModuleId, state: { is_enabled: boolean; is_bypassed: boolean }): HammerStudioRackFfmpegModuleDecision {
@@ -108,6 +108,7 @@ export function buildHammerStudioRackFfmpegPlan(rackState: HammerStudioRackState
       filter_count: 0,
       filter_chain: "",
       applied_modules: "",
+      voice_cleanup_enabled: rackState.voice_polish?.voice_cleanup_enabled ?? false,
     };
     return {
       filters,
@@ -144,6 +145,7 @@ export function buildHammerStudioRackFfmpegPlan(rackState: HammerStudioRackState
       voice_polish_fix_level_volume: rackState.voice_polish?.fixes.level_volume ?? null,
       voice_polish_de_esser_strength: rackState.voice_polish?.advanced.de_esser_strength ?? null,
       voice_polish_eq_profile: rackState.voice_polish?.advanced.eq_profile ?? null,
+      voice_cleanup_enabled: rackState.voice_polish?.voice_cleanup_enabled ?? false,
     };
 
     return {
@@ -203,6 +205,7 @@ export function buildHammerStudioRackFfmpegPlan(rackState: HammerStudioRackState
     filter_count: filters.length,
     filter_chain: filters.join(","),
     applied_modules: appliedModules.join(","),
+    voice_cleanup_enabled: rackState.voice_polish?.voice_cleanup_enabled ?? false,
   };
   for (const decision of decisions) {
     summary[`${decision.moduleId}_requested`] = decision.requested;

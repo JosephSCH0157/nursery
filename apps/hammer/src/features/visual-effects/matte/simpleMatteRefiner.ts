@@ -6,6 +6,8 @@ import {
   type TemporalMatteHistory,
 } from "./temporalMatteSmoothing";
 
+type AlphaMaskBuffer = Uint8ClampedArray<ArrayBufferLike>;
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -15,11 +17,11 @@ function roundToTenth(value: number): number {
 }
 
 function blurAlphaSeparable(args: {
-  alpha: Uint8ClampedArray;
+  alpha: AlphaMaskBuffer;
   width: number;
   height: number;
   radius: number;
-}): Uint8ClampedArray {
+}): AlphaMaskBuffer {
   const radius = Math.max(0, Math.floor(args.radius));
   if (radius <= 0) return new Uint8ClampedArray(args.alpha);
   const { width, height } = args;
@@ -60,11 +62,11 @@ function blurAlphaSeparable(args: {
 }
 
 function applyMorphology(args: {
-  alpha: Uint8ClampedArray;
+  alpha: AlphaMaskBuffer;
   width: number;
   height: number;
   deltaPx: number;
-}): Uint8ClampedArray {
+}): AlphaMaskBuffer {
   const delta = Math.round(args.deltaPx);
   if (delta === 0) return new Uint8ClampedArray(args.alpha);
   const steps = Math.max(1, Math.abs(delta));
@@ -100,11 +102,97 @@ function applyMorphology(args: {
   return current;
 }
 
+function applyMedian3x3(args: {
+  alpha: AlphaMaskBuffer;
+  width: number;
+  height: number;
+  iterations: number;
+}): AlphaMaskBuffer {
+  let current = new Uint8ClampedArray(args.alpha);
+  const steps = Math.max(0, Math.floor(args.iterations));
+  if (steps <= 0) return current;
+  const { width, height } = args;
+  const window = new Uint8Array(9);
+  for (let step = 0; step < steps; step += 1) {
+    const next = new Uint8ClampedArray(current.length);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        let count = 0;
+        for (let oy = -1; oy <= 1; oy += 1) {
+          const ny = y + oy;
+          if (ny < 0 || ny >= height) continue;
+          for (let ox = -1; ox <= 1; ox += 1) {
+            const nx = x + ox;
+            if (nx < 0 || nx >= width) continue;
+            window[count] = current[(ny * width) + nx] ?? 0;
+            count += 1;
+          }
+        }
+        for (let i = 1; i < count; i += 1) {
+          const key = window[i]!;
+          let j = i - 1;
+          while (j >= 0 && window[j]! > key) {
+            window[j + 1] = window[j]!;
+            j -= 1;
+          }
+          window[j + 1] = key;
+        }
+        next[(y * width) + x] = window[Math.floor(count * 0.5)] ?? 0;
+      }
+    }
+    current = next;
+  }
+  return current;
+}
+
+function applyMorphologyPair(args: {
+  alpha: AlphaMaskBuffer;
+  width: number;
+  height: number;
+  closeSteps: number;
+  openSteps: number;
+}): AlphaMaskBuffer {
+  let current: AlphaMaskBuffer = new Uint8ClampedArray(args.alpha);
+  for (let i = 0; i < Math.max(0, Math.floor(args.closeSteps)); i += 1) {
+    current = applyMorphology({ alpha: current, width: args.width, height: args.height, deltaPx: 1 });
+    current = applyMorphology({ alpha: current, width: args.width, height: args.height, deltaPx: -1 });
+  }
+  for (let i = 0; i < Math.max(0, Math.floor(args.openSteps)); i += 1) {
+    current = applyMorphology({ alpha: current, width: args.width, height: args.height, deltaPx: -1 });
+    current = applyMorphology({ alpha: current, width: args.width, height: args.height, deltaPx: 1 });
+  }
+  return current;
+}
+
+function dampLowAlphaNoise(args: {
+  alpha: AlphaMaskBuffer;
+  floor: number;
+  fadeRange: number;
+}): AlphaMaskBuffer {
+  const floor = clamp(Math.round(args.floor), 0, 255);
+  const fadeRange = Math.max(1, Math.round(args.fadeRange));
+  const out = new Uint8ClampedArray(args.alpha.length);
+  for (let i = 0; i < out.length; i += 1) {
+    const value = args.alpha[i] ?? 0;
+    if (value <= floor) {
+      out[i] = 0;
+      continue;
+    }
+    if (value < (floor + fadeRange)) {
+      const t = (value - floor) / fadeRange;
+      out[i] = Math.round(value * t);
+      continue;
+    }
+    out[i] = value;
+  }
+  return out;
+}
+
 function applyHaloClamp(args: {
-  expandedAlpha: Uint8ClampedArray;
-  featheredAlpha: Uint8ClampedArray;
+  expandedAlpha: AlphaMaskBuffer;
+  featheredAlpha: AlphaMaskBuffer;
   featherPx: number;
-}): { refinedAlpha: Uint8ClampedArray; edgeBandAlpha: Uint8ClampedArray } {
+}): { refinedAlpha: AlphaMaskBuffer; edgeBandAlpha: AlphaMaskBuffer } {
   const refined = new Uint8ClampedArray(args.featheredAlpha.length);
   const edgeBand = new Uint8ClampedArray(args.featheredAlpha.length);
   const allowance = Math.round(3 + (Math.max(0, args.featherPx) * 0.65));
@@ -131,11 +219,11 @@ function applyHaloClamp(args: {
 }
 
 function applyFeather(args: {
-  alpha: Uint8ClampedArray;
+  alpha: AlphaMaskBuffer;
   width: number;
   height: number;
   featherPx: number;
-}): Uint8ClampedArray {
+}): AlphaMaskBuffer {
   const featherPx = Math.max(0, Math.round(args.featherPx));
   if (featherPx <= 0) {
     return new Uint8ClampedArray(args.alpha);
@@ -165,7 +253,7 @@ function applyFeather(args: {
   return out;
 }
 
-function buildNeutralizedBaseMask(input: SegmentationResult): Uint8ClampedArray {
+function buildNeutralizedBaseMask(input: SegmentationResult): AlphaMaskBuffer {
   const radius = input.confidenceSummary.score < 0.4 ? 1 : 0;
   if (radius <= 0) return new Uint8ClampedArray(input.personMask);
   return blurAlphaSeparable({
@@ -187,7 +275,7 @@ function shouldIncludeDebugPlanes(): boolean {
 }
 
 export class SimpleMatteRefiner implements MatteRefiner {
-  private previousAlpha: Uint8ClampedArray | null = null;
+  private previousAlpha: AlphaMaskBuffer | null = null;
   private history: TemporalMatteHistory | null = null;
 
   public reset(): void {
@@ -203,12 +291,33 @@ export class SimpleMatteRefiner implements MatteRefiner {
     const subjectExpansionPx = quantizeExpansionPx(options.subjectExpansionPx);
     const warned: string[] = [];
 
+    const isHigh = options.quality === "high";
+    const isMedium = options.quality === "medium";
     const baseMask = buildNeutralizedBaseMask(input);
-    const expandedAlpha = applyMorphology({
+    const denoisedBase = applyMedian3x3({
       alpha: baseMask,
       width,
       height,
-      deltaPx: subjectExpansionPx,
+      iterations: isHigh ? 2 : isMedium ? 1 : 0,
+    });
+    const cleanedBase = applyMorphologyPair({
+      alpha: denoisedBase,
+      width,
+      height,
+      closeSteps: isHigh ? 2 : 1,
+      openSteps: isHigh ? 1 : 0,
+    });
+
+    // Expansion happens after cleanup so we do not amplify speckles/holes.
+    // Negative shrink is softened to avoid eating into edges too aggressively.
+    const expansionApplied = subjectExpansionPx < 0
+      ? Math.ceil(subjectExpansionPx * 0.5)
+      : subjectExpansionPx;
+    const expandedAlpha = applyMorphology({
+      alpha: cleanedBase,
+      width,
+      height,
+      deltaPx: expansionApplied,
     });
     const featheredAlpha = applyFeather({
       alpha: expandedAlpha,
@@ -221,9 +330,20 @@ export class SimpleMatteRefiner implements MatteRefiner {
       featheredAlpha,
       featherPx,
     });
+    const refinedDenoised = applyMedian3x3({
+      alpha: haloClamped.refinedAlpha,
+      width,
+      height,
+      iterations: isHigh ? 1 : 0,
+    });
+    const refinedAlpha = dampLowAlphaNoise({
+      alpha: refinedDenoised,
+      floor: isHigh ? 4 : isMedium ? 5 : 6,
+      fadeRange: isHigh ? 14 : 10,
+    });
 
     // Temporal smoothing hook: exponential blend against previous alpha.
-    let alphaMask = haloClamped.refinedAlpha;
+    let alphaMask = refinedAlpha;
     const resetDecision = shouldResetTemporalHistory({
       previous: this.history,
       next: {
@@ -273,14 +393,14 @@ export class SimpleMatteRefiner implements MatteRefiner {
       metadata: {
         providerName: input.providerName,
         confidenceScore: input.confidenceSummary.score,
-        expansionPxApplied: subjectExpansionPx,
+        expansionPxApplied: expansionApplied,
         haloClampStrength: roundToTenth(Math.max(0, Math.min(1, featherPx / 24))),
         edgeBandAlphaMask: haloClamped.edgeBandAlpha,
         debugPlanes: shouldIncludeDebugPlanes()
           ? {
             expandedAlphaMask: expandedAlpha,
             featheredAlphaMask: featheredAlpha,
-            refinedAlphaMask: haloClamped.refinedAlpha,
+            refinedAlphaMask: refinedAlpha,
           }
           : undefined,
         warnings: [...new Set([

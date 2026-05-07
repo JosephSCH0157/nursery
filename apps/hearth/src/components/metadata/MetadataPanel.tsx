@@ -1,4 +1,11 @@
+import { useEffect, useMemo, useState } from "react";
 import type { EpisodeSeoTitle } from "../../lib/episode-package-v2";
+import {
+  partitionMetadataTitles,
+  resolveTitleSlotByLabel,
+  shouldConfirmTitleSlotReplacement,
+  type TitleSlotLabel,
+} from "../../lib/hearth-metadata-titles";
 
 type MetadataSaveState = "saved" | "editing" | "saving" | "offline" | "error";
 type MetadataPreviewMode = "youtube" | "rss" | "plain";
@@ -13,6 +20,7 @@ type MetadataPanelProps = {
   previewMode: MetadataPreviewMode;
   saveState: MetadataSaveState;
   saveError: string | null;
+  hasUnsavedChanges: boolean;
   disabled?: boolean;
   onTitleChange: (titleId: string, nextText: string) => void;
   onSetPrimaryTitle: (titleId: string) => void;
@@ -23,20 +31,29 @@ type MetadataPanelProps = {
   onDescriptionShortChange: (value: string) => void;
   onDescriptionLongChange: (value: string) => void;
   onPreviewModeChange: (mode: MetadataPreviewMode) => void;
+  onSaveNow: () => void;
+  onRetrySave: () => void;
 };
 
-function formatSaveState(state: MetadataSaveState): string {
-  if (state === "saved") return "Saved";
-  if (state === "editing") return "Editing";
-  if (state === "saving") return "Saving...";
-  if (state === "offline") return "Offline";
-  return "Save failed";
+function formatSaveState(state: MetadataSaveState, isStillSaving: boolean): string {
+  if (state === "saved") return "Saved ✓";
+  if (state === "editing") return "Unsaved changes";
+  if (state === "saving") return isStillSaving ? "Still saving..." : "Saving...";
+  return "Save failed - Retry";
 }
 
 function descriptionCountClass(length: number, softLimit: number): string {
   if (length <= softLimit) return "hs-meta-count";
   if (length <= softLimit + 80) return "hs-meta-count is-warn";
   return "hs-meta-count is-alert";
+}
+
+function tagCountGuidance(count: number): string {
+  if (count === 0) return "Pick the most relevant 5–10 tags. Avoid over-tagging.";
+  if (count <= 4) return "Too few to be discoverable — aim for 5–10.";
+  if (count <= 10) return "Good range. Add or remove tags to fine-tune.";
+  if (count <= 15) return "Getting broad — consider trimming to the strongest tags.";
+  return "Too many — trim down for better discoverability.";
 }
 
 function renderPreview(args: {
@@ -93,6 +110,7 @@ export default function MetadataPanel({
   previewMode,
   saveState,
   saveError,
+  hasUnsavedChanges,
   disabled = false,
   onTitleChange,
   onSetPrimaryTitle,
@@ -103,9 +121,18 @@ export default function MetadataPanel({
   onDescriptionShortChange,
   onDescriptionLongChange,
   onPreviewModeChange,
+  onSaveNow,
+  onRetrySave,
 }: MetadataPanelProps) {
+  const [assignmentStatus, setAssignmentStatus] = useState<string | null>(null);
+  const [recentlyAddedTag, setRecentlyAddedTag] = useState<string | null>(null);
+  const [isStillSaving, setIsStillSaving] = useState(false);
   const shortCount = descriptionShort.length;
   const longCount = descriptionLong.length;
+  const { slotTitles, generatedSuggestions } = useMemo(
+    () => partitionMetadataTitles(titles),
+    [titles],
+  );
   const previewText = renderPreview({
     mode: previewMode,
     titles,
@@ -114,19 +141,78 @@ export default function MetadataPanel({
     descriptionLong,
   });
 
+  useEffect(() => {
+    if (!assignmentStatus) return;
+    const timer = window.setTimeout(() => setAssignmentStatus(null), 1800);
+    return () => window.clearTimeout(timer);
+  }, [assignmentStatus]);
+
+  useEffect(() => {
+    if (saveState !== "saving") {
+      setIsStillSaving(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setIsStillSaving(true), 3000);
+    return () => window.clearTimeout(timer);
+  }, [saveState]);
+
+  function onAssignSuggestionToSlot(suggestionId: string, slotLabel: TitleSlotLabel): void {
+    const suggestion = generatedSuggestions.find((title) => title.id === suggestionId);
+    if (!suggestion) return;
+    const slot = resolveTitleSlotByLabel(slotTitles, slotLabel);
+    if (!slot) return;
+
+    const nextText = suggestion.text.trim();
+    if (!nextText) return;
+
+    if (shouldConfirmTitleSlotReplacement(slot.text, nextText)) {
+      const confirmed = window.confirm(`Replace Title ${slotLabel} with this generated suggestion?`);
+      if (!confirmed) return;
+    }
+
+    onTitleChange(slot.id, nextText);
+    setAssignmentStatus(`Set as Title ${slotLabel}.`);
+  }
+
   return (
     <section className="hs-meta-panel" aria-label="Framing panel">
       <header className="hs-meta-header">
         <div className="hs-meta-title">Framing</div>
-        <div className={`hs-meta-save-state is-${saveState}`}>{formatSaveState(saveState)}</div>
+        <div className="hs-meta-header-controls">
+          <div className={`hs-meta-save-state is-${saveState}`}>{formatSaveState(saveState, isStillSaving)}</div>
+          <button
+            type="button"
+            className="hs-meta-save-button"
+            onClick={onSaveNow}
+            disabled={disabled || !hasUnsavedChanges || saveState === "saving"}
+          >
+            Save
+          </button>
+          {saveState === "error" ? (
+            <button
+              type="button"
+              className="hs-meta-retry-button"
+              onClick={onRetrySave}
+              disabled={disabled}
+            >
+              Retry
+            </button>
+          ) : null}
+        </div>
       </header>
 
       <section className="hs-meta-section" aria-label="Title variants">
-        <div className="hs-meta-section-title">Titles</div>
+        <div className="hs-meta-section-title">Episode Titles</div>
+        <div className="hs-field-label-muted">
+          Assign up to three title candidates, then pick one Primary title.
+        </div>
+        <div className="hs-field-label-muted">
+          These are the title slots that can move forward to release tools.
+        </div>
         <div className="hs-meta-title-list">
-          {titles.map((title) => (
+          {slotTitles.map((title) => (
             <label key={title.id} className="hs-meta-title-row">
-              <span className="hs-meta-title-label">{title.label}</span>
+              <span className="hs-meta-title-label">Title {title.label}</span>
               <input
                 type="text"
                 value={title.text}
@@ -144,10 +230,66 @@ export default function MetadataPanel({
             </label>
           ))}
         </div>
+        <div className="hs-meta-suggestions-head">
+          <div className="hs-meta-section-title">Generated Title Suggestions</div>
+          <div className="hs-field-label-muted">
+            Use these as starting points. Assign your favorites into Title A, B, or C.
+          </div>
+        </div>
+        <div className="hs-meta-suggestion-list" role="list" aria-label="Generated title suggestions">
+          {generatedSuggestions.length === 0 ? (
+            <span className="hs-meta-empty">No generated title suggestions yet.</span>
+          ) : (
+            generatedSuggestions.map((suggestion) => (
+              <article key={suggestion.id} className="hs-meta-suggestion-row" role="listitem">
+                <p>{suggestion.text}</p>
+                <div className="hs-meta-suggestion-actions" role="group" aria-label="Assign generated title">
+                  <button
+                    type="button"
+                    onClick={() => onAssignSuggestionToSlot(suggestion.id, "A")}
+                    disabled={disabled}
+                    aria-label="Set suggestion as Title A"
+                  >
+                    Set as A
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onAssignSuggestionToSlot(suggestion.id, "B")}
+                    disabled={disabled}
+                    aria-label="Set suggestion as Title B"
+                  >
+                    Set as B
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onAssignSuggestionToSlot(suggestion.id, "C")}
+                    disabled={disabled}
+                    aria-label="Set suggestion as Title C"
+                  >
+                    Set as C
+                  </button>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+        {assignmentStatus ? (
+          <div className="hs-field-label-muted" role="status" aria-live="polite">{assignmentStatus}</div>
+        ) : null}
       </section>
 
       <section className="hs-meta-section" aria-label="Tags">
-        <div className="hs-meta-section-title">Tags</div>
+        <div className="hs-meta-section-title">
+          Tags
+          {tags.length > 0 && (
+            <span className="hs-meta-tag-count">
+              {tags.length} / 10 recommended
+            </span>
+          )}
+        </div>
+        <div className="hs-field-label-muted">
+          {tagCountGuidance(tags.length)}
+        </div>
         <div className="hs-meta-tags-wrap">
           {tags.length === 0 ? (
             <span className="hs-meta-empty">No tags yet.</span>
@@ -188,18 +330,41 @@ export default function MetadataPanel({
             Add
           </button>
         </div>
-        <div className="hs-meta-tag-suggestions">
-          {tagSuggestions.map((tag) => (
-            <button
-              key={tag}
-              type="button"
-              onClick={() => onAddTagSuggestion(tag)}
-              disabled={disabled}
-            >
-              + {tag}
-            </button>
-          ))}
-        </div>
+        {tagSuggestions.length > 0 && (
+          <>
+            <div className="hs-field-label-muted hs-meta-tag-suggestions-hint">
+              Click tags to add them. Remove any that don't fit.
+            </div>
+            <div className="hs-meta-tag-suggestions">
+              {tagSuggestions.map((tag) => {
+                const isSelected = tags.includes(tag);
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    className={isSelected ? "hs-meta-tag-suggestion is-selected" : "hs-meta-tag-suggestion"}
+                    onClick={() => {
+                      if (isSelected) return;
+                      onAddTagSuggestion(tag);
+                      setRecentlyAddedTag(tag);
+                      setTimeout(() => setRecentlyAddedTag((prev) => (prev === tag ? null : prev)), 1500);
+                    }}
+                    disabled={disabled}
+                    aria-label={isSelected ? `${tag} — already added` : `Add tag: ${tag}`}
+                    aria-pressed={isSelected}
+                  >
+                    {isSelected ? "✓ " : "+ "}{tag}
+                  </button>
+                );
+              })}
+            </div>
+            {recentlyAddedTag ? (
+              <div className="hs-meta-tag-added-notice" role="status" aria-live="polite">
+                Added: {recentlyAddedTag}
+              </div>
+            ) : null}
+          </>
+        )}
       </section>
 
       <section className="hs-meta-section" aria-label="Descriptions">
@@ -241,10 +406,14 @@ export default function MetadataPanel({
             onChange={(event) => onPreviewModeChange(event.target.value as MetadataPreviewMode)}
             disabled={disabled}
           >
-            <option value="youtube">YT-ish</option>
-            <option value="rss">RSS-ish</option>
+            <option value="youtube" title="YouTube-style description (optimized for YouTube discovery)">YT-ish</option>
+            <option value="rss" title="Podcast-style description (optimized for RSS feeds and players)">RSS-ish</option>
             <option value="plain">Plain</option>
           </select>
+        </div>
+        <div className="hs-meta-preview-mode-hint">
+          {previewMode === "youtube" && "YouTube-style description — optimized for YouTube discovery."}
+          {previewMode === "rss" && "Podcast-style description — optimized for RSS feeds and players."}
         </div>
         <pre className="hs-meta-preview">{previewText}</pre>
       </section>

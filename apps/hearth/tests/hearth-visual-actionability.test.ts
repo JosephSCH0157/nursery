@@ -7,6 +7,7 @@ import {
   formatVisualBriefAsText,
   listExternalGenerationProviders,
 } from "../src/lib/hearth-visual-actionability";
+import { buildBrollPlanFromScript } from "../src/lib/hearth-broll-plan";
 import {
   createEmptyEpisodePackageV2,
   ensureBrollPlanV2,
@@ -58,6 +59,29 @@ test("brief generation includes required fields for broll and reference clips", 
   assert.equal(referenceText.includes("Chart Labels"), true);
 });
 
+test("broll brief separates narration anchor from translated visual action", () => {
+  const plan = buildBrollPlanFromScript({
+    workpieceId: "wp-abstract",
+    scriptText: "You don't lose laws at the vote.",
+  });
+  const beat = plan.beats[0];
+  assert.ok(beat);
+
+  const brief = buildBrollBeatBrief({
+    beat,
+    workpieceId: "wp-abstract",
+    workpieceTitle: "Lobbying Episode",
+  });
+  const text = formatVisualBriefAsText(brief);
+
+  assert.equal(brief.anchor_text, "You don't lose laws at the vote.");
+  assert.notEqual(brief.shot_intent, brief.anchor_text);
+  assert.match(text, /Anchor Text: You don't lose laws at the vote\./);
+  assert.match(text, /What is happening visually: .*signed|What is happening visually: .*paperwork/i);
+  assert.match(text, /Prompt guardrail: do not render abstract narration as literal keywords/i);
+  assert.doesNotMatch(text, /Shot Intent \/ Editorial Purpose: You don't lose laws at the vote\./);
+});
+
 test("provider registry filters by asset class", () => {
   const brollProviders = listExternalGenerationProviders("broll");
   const referenceProviders = listExternalGenerationProviders("reference_clip");
@@ -65,6 +89,22 @@ test("provider registry filters by asset class", () => {
   assert.ok(referenceProviders.length > 0);
   assert.ok(brollProviders.every((provider) => provider.supportedAssetClasses.includes("broll")));
   assert.ok(referenceProviders.every((provider) => provider.supportedAssetClasses.includes("reference_clip")));
+});
+
+test("openart is available for broll prompt-pack/manual bridge flows", () => {
+  const brollPromptPackProviders = listExternalGenerationProviders("broll", undefined, { capability: "prompt_pack" });
+  const brollManualBridgeProviders = listExternalGenerationProviders("broll", undefined, { capability: "manual_bridge" });
+
+  assert.ok(brollPromptPackProviders.some((provider) => provider.id === "openart"));
+  assert.ok(brollManualBridgeProviders.some((provider) => provider.id === "openart"));
+});
+
+test("openart is excluded from stock-source-only broll provider filtering", () => {
+  const stockSourceProviders = listExternalGenerationProviders("broll", undefined, { capability: "stock_source" });
+  assert.ok(stockSourceProviders.length > 0);
+  assert.ok(stockSourceProviders.some((provider) => provider.id === "pexels-stock"));
+  assert.ok(stockSourceProviders.some((provider) => provider.id === "pixabay-stock"));
+  assert.equal(stockSourceProviders.some((provider) => provider.id === "openart"), false);
 });
 
 test("manual returned asset candidate preserves beat linkage and class identity", () => {

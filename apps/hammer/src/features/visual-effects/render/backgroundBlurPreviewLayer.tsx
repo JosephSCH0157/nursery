@@ -27,6 +27,7 @@ export type HammerBackgroundBlurRuntimeStatus = {
   };
   initMs: number | null;
   avgSegmentationMs: number | null;
+  maxSegmentationMs: number | null;
   avgCompositeMs: number | null;
   lastSegmentationMs: number | null;
   lastCompositeMs: number | null;
@@ -36,6 +37,7 @@ export type HammerBackgroundBlurRuntimeStatus = {
   reusedMaskFrames: number;
   effectiveSegmentationFps: number | null;
   effectiveCompositeFps: number | null;
+  lastMaskAgeMs: number | null;
   degradedReason: string | null;
   warnings: string[];
   mask: {
@@ -68,6 +70,7 @@ const MASK_REUSE_MAX_AGE_MS = 260;
 const MASK_REUSE_MAX_DELTA_SEC = 0.12;
 const STATUS_DEBOUNCE_MS = 140;
 const DEGRADE_STICKY_MS = 360;
+const SEGMENTATION_LOG_MIN_GAP_MS = 1200;
 
 function nowMs(): number {
   return (typeof performance !== "undefined" && typeof performance.now === "function") ? performance.now() : Date.now();
@@ -94,15 +97,15 @@ function resolveRuntimeStatusMessage(args: {
   }
   switch (args.degradedReason) {
     case "missing_video_or_canvas":
-      return "Segmentation unavailable: preview video surface is not mounted.";
+      return "Segmentation unavailable: active video surface is not mounted.";
     case "video_not_ready":
-      return "Segmentation waiting for a decoded preview frame.";
+      return "Segmentation waiting for a decoded active frame.";
     case "invalid_frame_dimensions":
-      return "Segmentation unavailable: preview frame dimensions are not ready.";
+      return "Segmentation unavailable: active frame dimensions are not ready.";
     case "provider_error":
-      return "Segmentation failed while processing the preview frame.";
+      return "Segmentation failed while processing the active frame.";
     case "segmentation_unavailable":
-      return "Segmentation unavailable for the current preview frame.";
+      return "Segmentation unavailable for the current active frame.";
     default:
       return null;
   }
@@ -136,6 +139,24 @@ function logSegmentationDiagnostics(args: {
   generationMs: number | null;
   frameInput: { width: number; height: number; format: "htmlvideoelement" } | null;
 }): void {
+  if (!isSegmentationFrameLogEnabled()) return;
+  const now = nowMs();
+  const signature = [
+    args.providerName,
+    args.providerStatus,
+    args.providerSource,
+    args.maskStatus,
+    args.reason ?? "",
+    args.resolution ? `${args.resolution.width}x${args.resolution.height}` : "n/a",
+  ].join("|");
+  if (
+    lastSegmentationLogRef.signature === signature
+    && (now - lastSegmentationLogRef.atMs) < SEGMENTATION_LOG_MIN_GAP_MS
+  ) {
+    return;
+  }
+  lastSegmentationLogRef.signature = signature;
+  lastSegmentationLogRef.atMs = now;
   console.debug("[hammer][segmentation] frame", {
     provider: args.providerName,
     providerStatus: args.providerStatus,
@@ -147,6 +168,31 @@ function logSegmentationDiagnostics(args: {
     maskGenerationMs: args.generationMs,
     frameInput: args.frameInput,
   });
+}
+
+const lastSegmentationLogRef: { atMs: number; signature: string | null } = {
+  atMs: 0,
+  signature: null,
+};
+
+function isTruthyDebugToggle(value: string | null): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "on" || normalized === "yes";
+}
+
+function isSegmentationFrameLogEnabled(): boolean {
+  const isDev = Boolean((import.meta as any)?.env?.DEV);
+  if (!isDev || typeof window === "undefined") return false;
+  try {
+    const search = new URLSearchParams(window.location.search ?? "");
+    if (isTruthyDebugToggle(search.get("segmentation_frame_log"))) return true;
+    if (isTruthyDebugToggle(search.get("hammer_segmentation_debug"))) return true;
+    if (isTruthyDebugToggle(search.get("tp_dev_mode"))) return true;
+  } catch {
+    // ignore
+  }
+  return false;
 }
 
 function computeCanvasSize(args: { element: HTMLCanvasElement; dpr: number }): { width: number; height: number } {
@@ -259,6 +305,7 @@ export default function BackgroundBlurPreviewLayer(props: {
   const initStartedAtMsRef = useRef<number | null>(null);
   const initMsRef = useRef<number | null>(null);
   const avgSegMsRef = useRef<number | null>(null);
+  const maxSegMsRef = useRef<number | null>(null);
   const avgCompMsRef = useRef<number | null>(null);
   const latestRawPlaneRef = useRef<CachedAlphaPlane | null>(null);
   const latestExpandedPlaneRef = useRef<CachedAlphaPlane | null>(null);
@@ -286,6 +333,7 @@ export default function BackgroundBlurPreviewLayer(props: {
     },
     initMs: null,
     avgSegmentationMs: null,
+    maxSegmentationMs: null,
     avgCompositeMs: null,
     lastSegmentationMs: null,
     lastCompositeMs: null,
@@ -295,6 +343,7 @@ export default function BackgroundBlurPreviewLayer(props: {
     reusedMaskFrames: 0,
     effectiveSegmentationFps: null,
     effectiveCompositeFps: null,
+    lastMaskAgeMs: null,
     degradedReason: null,
     warnings: [],
     mask: {
@@ -500,6 +549,7 @@ export default function BackgroundBlurPreviewLayer(props: {
       droppedFramesRef.current = 0;
       segmentationSampleCountRef.current = 0;
       compositeSampleCountRef.current = 0;
+      maxSegMsRef.current = null;
       sampleWindowStartedAtMsRef.current = nowMs();
       consecutiveMaskFailuresRef.current = 0;
       degradedReasonSinceMsRef.current = null;
@@ -703,6 +753,7 @@ export default function BackgroundBlurPreviewLayer(props: {
               frameInput: args.frameInput,
               initMs: initMsRef.current,
               avgSegmentationMs: avgSegMsRef.current,
+              maxSegmentationMs: maxSegMsRef.current,
               avgCompositeMs: avgCompMsRef.current,
               lastSegmentationMs: seg.processingMs,
               lastCompositeMs: prev.lastCompositeMs,
@@ -712,6 +763,9 @@ export default function BackgroundBlurPreviewLayer(props: {
               reusedMaskFrames: reusedMaskFramesRef.current,
               effectiveSegmentationFps: cadence.effectiveSegmentationFps,
               effectiveCompositeFps: cadence.effectiveCompositeFps,
+              lastMaskAgeMs: latestMatteFrameRef.current
+                ? Math.max(0, Math.round(nowMs() - latestMatteFrameRef.current.generatedAtMs))
+                : null,
               degradedReason: isMaskReusable({ cached: latestMatteFrameRef.current, sourceTimeSec: args.sourceTimeSec })
                 ? "reusing_recent_mask"
                 : "segmentation_unavailable",
@@ -766,6 +820,9 @@ export default function BackgroundBlurPreviewLayer(props: {
         avgSegMsRef.current = avgSegMsRef.current == null
           ? seg.processingMs
           : roundToTenth((avgSegMsRef.current * 0.9) + (seg.processingMs * 0.1));
+        maxSegMsRef.current = maxSegMsRef.current == null
+          ? seg.processingMs
+          : Math.max(maxSegMsRef.current, seg.processingMs);
         segmentationSampleCountRef.current += 1;
 
         if (props.debugMasks) {
@@ -829,6 +886,7 @@ export default function BackgroundBlurPreviewLayer(props: {
             },
             initMs: initMsRef.current,
             avgSegmentationMs: avgSegMsRef.current,
+            maxSegmentationMs: maxSegMsRef.current,
             avgCompositeMs: avgCompMsRef.current,
             lastSegmentationMs: seg.processingMs,
             droppedFrames: droppedFramesRef.current,
@@ -836,6 +894,9 @@ export default function BackgroundBlurPreviewLayer(props: {
             reusedMaskFrames: reusedMaskFramesRef.current,
             effectiveSegmentationFps: cadence.effectiveSegmentationFps,
             effectiveCompositeFps: cadence.effectiveCompositeFps,
+            lastMaskAgeMs: latestMatteFrameRef.current
+              ? Math.max(0, Math.round(nowMs() - latestMatteFrameRef.current.generatedAtMs))
+              : null,
             lastConfidence: roundToTenth(seg.confidenceSummary.score),
             degradedReason: prev.degradedReason === "reusing_recent_mask" ? null : prev.degradedReason,
             statusMessage: null,
@@ -869,11 +930,15 @@ export default function BackgroundBlurPreviewLayer(props: {
               },
             },
             initMs: initMsRef.current,
+            maxSegmentationMs: maxSegMsRef.current,
             droppedFrames: droppedFramesRef.current,
             skippedSegmentationFrames: skippedSegmentationFramesRef.current,
             reusedMaskFrames: reusedMaskFramesRef.current,
             effectiveSegmentationFps: cadence.effectiveSegmentationFps,
             effectiveCompositeFps: cadence.effectiveCompositeFps,
+            lastMaskAgeMs: latestMatteFrameRef.current
+              ? Math.max(0, Math.round(nowMs() - latestMatteFrameRef.current.generatedAtMs))
+              : null,
             degradedReason: isMaskReusable({ cached: latestMatteFrameRef.current, sourceTimeSec: args.sourceTimeSec })
               ? "reusing_recent_mask"
               : "segmentation_unavailable",
@@ -1048,6 +1113,7 @@ export default function BackgroundBlurPreviewLayer(props: {
             reusedMaskFrames: reusedMaskFramesRef.current,
             effectiveSegmentationFps: cadence.effectiveSegmentationFps,
             effectiveCompositeFps: cadence.effectiveCompositeFps,
+            lastMaskAgeMs: null,
             degradedReason: shouldShowDegradeMessage ? "segmentation_unavailable" : prev.degradedReason,
             statusMessage: shouldShowDegradeMessage
               ? resolveRuntimeStatusMessage({
@@ -1069,6 +1135,7 @@ export default function BackgroundBlurPreviewLayer(props: {
       if (canReuseMask) {
         reusedMaskFramesRef.current += 1;
       }
+      const maskAgeMs = Math.max(0, Math.round(nowMs() - cachedMatte.generatedAtMs));
 
       const matte = cachedMatte.matte;
       let composite = props.settings.washEnabled
@@ -1158,6 +1225,7 @@ export default function BackgroundBlurPreviewLayer(props: {
           },
           initMs: initMsRef.current,
           avgSegmentationMs: avgSegMsRef.current,
+          maxSegmentationMs: maxSegMsRef.current,
           avgCompositeMs: avgCompMsRef.current,
           lastCompositeMs: composite.compositingMs,
           lastConfidence: cachedMatte.confidence,
@@ -1166,6 +1234,7 @@ export default function BackgroundBlurPreviewLayer(props: {
           reusedMaskFrames: reusedMaskFramesRef.current,
           effectiveSegmentationFps: cadence.effectiveSegmentationFps,
           effectiveCompositeFps: cadence.effectiveCompositeFps,
+          lastMaskAgeMs: maskAgeMs,
           degradedReason: composite.degradedReason,
           warnings: [...new Set([...(cachedMatte.warnings ?? []), ...composite.warnings])],
           mask: {

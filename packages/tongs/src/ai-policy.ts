@@ -225,7 +225,7 @@ export async function resolveAiPolicy(
   supabase: SupabaseClient,
   input: AiPolicyResolveInput,
 ): Promise<AiPolicyResolveResult> {
-  const { data, error } = await supabase.rpc("resolve_ai_policy", {
+  const { data, error } = await supabase.schema("tongs").rpc("resolve_ai_policy", {
     p_org_id: input.orgId,
     p_workspace_id: input.workspaceId,
     p_user_id: input.userId,

@@ -40,6 +40,17 @@ export interface HammerVisualPlacementRecordContract {
     | null;
   overlay_opacity?: number | null;
   overlay_z_index?: number | null;
+  script_cue_id?: string | null;
+  placement_authority?: "hammer_timeline_anchor";
+  alignment?: {
+    script_cue_id: string;
+    transcript_segment_id: string;
+    transcript_start_sec: number;
+    transcript_end_sec: number;
+    confidence: number | null;
+    match_method: "deterministic_phrase" | "fuzzy_text" | "ordered_fallback";
+    state: "aligned" | "review_needed" | "unresolved";
+  } | null;
 }
 
 export interface HammerPersistedVisualPlacementsContract {
@@ -130,6 +141,40 @@ function normalizePlacementRecord(
   const confidence = readNumber(row.confidence);
   const overlayOpacity = readNumber(row.overlay_opacity);
   const overlayZIndex = readNumber(row.overlay_z_index);
+  const scriptCueId = readString(row.script_cue_id);
+  const placementAuthority = row.placement_authority === "hammer_timeline_anchor"
+    ? "hammer_timeline_anchor"
+    : undefined;
+  const alignmentRow = readObject(row.alignment);
+  const alignment = alignmentRow
+    ? (() => {
+      const cueId = readString(alignmentRow.script_cue_id);
+      const segmentId = readString(alignmentRow.transcript_segment_id);
+      const startSec = readNumber(alignmentRow.transcript_start_sec);
+      const endSec = readNumber(alignmentRow.transcript_end_sec);
+      if (!cueId || !segmentId || startSec == null || endSec == null || endSec < startSec) return null;
+      const confidence = readNumber(alignmentRow.confidence);
+      const matchMethod = alignmentRow.match_method === "deterministic_phrase"
+        ? "deterministic_phrase"
+        : alignmentRow.match_method === "fuzzy_text"
+          ? "fuzzy_text"
+          : "ordered_fallback";
+      const state = alignmentRow.state === "aligned"
+        ? "aligned"
+        : alignmentRow.state === "review_needed"
+          ? "review_needed"
+          : "unresolved";
+      return {
+        script_cue_id: cueId,
+        transcript_segment_id: segmentId,
+        transcript_start_sec: startSec,
+        transcript_end_sec: endSec,
+        confidence: confidence == null ? null : confidence,
+        match_method: matchMethod,
+        state,
+      } as const;
+    })()
+    : null;
 
   return {
     placement_id: placementId,
@@ -155,6 +200,9 @@ function normalizePlacementRecord(
     animation_preset: normalizeAnimationPreset(row.animation_preset),
     overlay_opacity: overlayOpacity == null ? null : clamp(overlayOpacity, 0, 1),
     overlay_z_index: overlayZIndex == null ? null : overlayZIndex,
+    script_cue_id: scriptCueId,
+    ...(placementAuthority ? { placement_authority: placementAuthority } : {}),
+    alignment,
   };
 }
 

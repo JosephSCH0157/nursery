@@ -107,6 +107,7 @@ export function resolveHearthRuntimeConfig(): HearthRuntimeConfig {
     readEnv("HEARTH_RESEARCH_API_KEY")
     || readEnv("HEARTH_RESEARCH_BRAVE_API_KEY")
     || readEnv("BRAVE_SEARCH_API_KEY")
+    || readEnv("BRAVE_API_KEY")
     || null
   );
   const supabaseRpcKey = (

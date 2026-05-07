@@ -257,4 +257,115 @@ describe('RecordingTranscriptController', () => {
     expect(secondStop.finalArtifact?.segments).toHaveLength(1);
     expect(secondStop.finalArtifact?.segments[0]?.text).toBe('pending interim phrase');
   });
+
+  test('normalizes rolling overlap in finalized transcript artifact', async () => {
+    const controller = new RecordingTranscriptController({
+      ensureCaptureTarget: async () => ({
+        ok: true as const,
+        workspaceId: 'workspace-1',
+        workpieceId: 'workpiece-1',
+        createdCradle: false,
+        plannerRecordingSessionId: 'planner-1',
+        captureSessionId: 'capture-5',
+      }),
+      commitJsonArtifact: async () => ({
+        ok: true as const,
+        status: 200,
+        workpieceId: 'workpiece-1',
+        path: 'ok',
+      }),
+      startSpeech: async () => true,
+      stopSpeech: jest.fn(),
+      localStorage: { setItem: jest.fn() },
+    });
+
+    const strategy = selectBestRecordingStrategy({
+      mode: 'audio',
+      mediaRecorderCtor: { isTypeSupported: () => true },
+    });
+
+    await controller.startSession({
+      captureSessionId: 'capture-5',
+      recordingStartedAtMs: Date.now() - 2_500,
+      strategy,
+    });
+
+    // First final phrase lands as the first committed segment.
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', { detail: { text: 'city council lobbyists', final: true, isFinal: true } }));
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', { detail: { text: 'city council lobbyists', final: true, isFinal: true } }));
+    // Follow-up phrase starts with overlapping tail; finalize should trim overlap.
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', { detail: { text: 'lobbyists influence zoning votes', final: true, isFinal: true } }));
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', { detail: { text: 'lobbyists influence zoning votes', final: true, isFinal: true } }));
+
+    const finalResult = await controller.stopSession({
+      mediaDurationMs: 5_500,
+      mediaPath: 'recordings/example.webm',
+      contentType: 'audio/webm',
+    });
+
+    expect(finalResult.status).toBe('ready');
+    expect(finalResult.finalArtifact?.segments).toHaveLength(2);
+    expect(finalResult.finalArtifact?.segments[0]?.text).toBe('city council lobbyists');
+    expect(finalResult.finalArtifact?.segments[1]?.text).toBe('influence zoning votes');
+  });
+
+  test('local snapshot persisted to localStorage includes workpiece_id and capture_session_id for Hammer recovery', async () => {
+    const storedItems: Record<string, string> = {};
+    const storage: Storage = {
+      get length() { return Object.keys(storedItems).length; },
+      key(index: number) { return Object.keys(storedItems)[index] ?? null; },
+      getItem(key: string) { return storedItems[key] ?? null; },
+      setItem(key: string, value: string) { storedItems[key] = value; },
+      removeItem(key: string) { delete storedItems[key]; },
+      clear() { Object.keys(storedItems).forEach((k) => delete storedItems[k]); },
+    };
+
+    const controller = new RecordingTranscriptController({
+      ensureCaptureTarget: async () => ({
+        ok: true as const,
+        workspaceId: 'workspace-recovery-test',
+        workpieceId: 'workpiece-recovery-test',
+        createdCradle: false,
+        plannerRecordingSessionId: 'planner-recovery',
+        captureSessionId: 'capture-recovery',
+      }),
+      commitJsonArtifact: async (input) => ({
+        ok: true as const,
+        status: 200,
+        workpieceId: input.workpieceId,
+        path: input.path,
+      }),
+      startSpeech: async () => true,
+      stopSpeech: jest.fn(),
+      localStorage: storage,
+    });
+
+    const strategy = selectBestRecordingStrategy({
+      mode: 'audio',
+      mediaRecorderCtor: { isTypeSupported: () => true },
+    });
+
+    await controller.startSession({
+      captureSessionId: 'capture-recovery',
+      recordingStartedAtMs: Date.now() - 1_000,
+      strategy,
+    });
+
+    // Emit a transcript event to ensure there's content in the snapshot.
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', {
+      detail: { text: 'recovery test content', final: true, isFinal: true },
+    }));
+
+    await controller.stopSession({ mediaDurationMs: 2_000 });
+
+    // Verify the key format and that the JSON contains workpiece_id and capture_session_id.
+    const snapshotKey = 'forge_anvil_live_transcript_v1:capture-recovery';
+    const raw = storedItems[snapshotKey];
+    expect(raw).toBeTruthy();
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    expect(parsed.workpiece_id).toBe('workpiece-recovery-test');
+    expect(parsed.capture_session_id).toBe('capture-recovery');
+    expect(parsed.schema_version).toBe(1);
+    expect(Array.isArray(parsed.segments)).toBe(true);
+  });
 });

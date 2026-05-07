@@ -151,6 +151,7 @@ export function cloneHammerStudioRackState(state: HammerStudioRackState): Hammer
     backend_preference: state.backend_preference,
     voice_polish: state.voice_polish ? {
       preset_id: state.voice_polish.preset_id ?? null,
+      voice_cleanup_enabled: state.voice_polish.voice_cleanup_enabled === true,
       fixes: { ...state.voice_polish.fixes },
       advanced: { ...state.voice_polish.advanced },
     } : undefined,
@@ -185,6 +186,7 @@ export function normalizeHammerStudioRackState(value: unknown): HammerStudioRack
         || voicePolishRaw.preset_id === "broadcast_ready"
         ? voicePolishRaw.preset_id
         : null,
+      voice_cleanup_enabled: readBoolean(voicePolishRaw.voice_cleanup_enabled, defaults.voice_polish!.voice_cleanup_enabled),
       fixes: {
         remove_harsh_sibilance: readBoolean(readObject(voicePolishRaw.fixes)?.remove_harsh_sibilance, defaults.voice_polish!.fixes.remove_harsh_sibilance),
         reduce_room_boxiness: readBoolean(readObject(voicePolishRaw.fixes)?.reduce_room_boxiness, defaults.voice_polish!.fixes.reduce_room_boxiness),
@@ -260,6 +262,9 @@ export function normalizeHammerStudioRackState(value: unknown): HammerStudioRack
 
 export function isHammerStudioRackIdentity(state: HammerStudioRackState): boolean {
   if (!state.is_enabled || state.is_bypassed) return true;
+  if (state.voice_polish?.voice_cleanup_enabled) {
+    return false;
+  }
   if (state.voice_polish && Object.values(state.voice_polish.fixes).some(Boolean)) {
     return false;
   }

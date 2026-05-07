@@ -20,6 +20,7 @@
     "test:hammer-transcript-preflight": "tsx tests/hammer-transcript-policy-preflight.test.mts",
     "test:hammer-cleanup-preflight": "tsx tests/hammer-transcript-cleanup-preflight.test.mts",
     "test:hammer-visual-preflight": "tsx tests/hammer-visual-assist-preflight.test.mts",
+    "test:hammer-studio-rack-render-route": "tsx tests/hammer-studio-rack-render-route.test.mts",
     "test:quench-metadata-preflight": "tsx tests/quench-metadata-preflight.test.mts",
     "test:handoff": "tsx tests/forge-handoff-validation.test.mts",
     "test:henry-context": "tsx tests/henry-context-engine.test.mts",

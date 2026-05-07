@@ -72,6 +72,7 @@ const GENERATION_SCOPES = [
 ];
 const CONSTRAINT_CHIPS = [
   "Keep it simple.",
+  "Balanced density: 12-18 visuals.",
   "Only 2-3 generated clips.",
   "Heavier on B-roll than graphics.",
   "Avoid branded visuals.",
@@ -117,7 +118,7 @@ function MediaMapAdvancedEditor(props: EpisodeMediaMapPanelProps & {
           </select>
         </label>
         <button type="button" className="hs-secondary-btn" onClick={props.onGenerateFromPlans} disabled={props.disabled}>
-          Build Draft From Plans
+          Build Visual Draft
         </button>
         <button type="button" className="hs-secondary-btn" onClick={props.onActivateMap} disabled={props.disabled}>
           {props.mapStatus === "needs_attention" ? "Reapply Updated Map" : "Activate Current Map"}
@@ -305,7 +306,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
             {props.stale ? " (needs review)" : ""}
           </p>
           <p className="hs-imap-help-text">
-            Hearth reads the current script, helps you choose a visual direction, then lays out and applies the plan in one move.
+            Recommended: 12-18 visuals for a 10-minute episode. Focus on key moments, not every line.
           </p>
         </div>
         <div className={`hs-imap-save-state is-${props.saveState}`}>
@@ -314,6 +315,14 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
       </div>
 
       <div className="hs-imap-toolbar">
+        <button
+          type="button"
+          className="hs-imap-primary-action"
+          onClick={props.onGenerateFromPlans}
+          disabled={props.disabled}
+        >
+          Generate Media Map
+        </button>
         <span className="hs-pill">{props.entries.length} mapped beat{props.entries.length === 1 ? "" : "s"}</span>
         <span className="hs-pill">Map: {props.mapStatus}</span>
         <span className="hs-pill">State: {props.saveState}</span>
@@ -355,7 +364,8 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
           <div className="hs-imap-conversation-bubble is-hearth">
             <div className="hs-imap-conversation-speaker">Hearth</div>
             <p>{conversation.seed?.lead ?? "I'm reading through the episode to find the cleanest visual package."}</p>
-            <p>{conversation.seed?.ask ?? "Which direction feels closest for this visual plan?"}</p>
+            <p>{conversation.seed?.ask ?? "Generate a visual plan, then refine or apply it."}</p>
+            <p>Default density is balanced: select the strongest beats, cap the map at 18 visuals, and only use Reference Clips when they have a source, context, and a reason to exist.</p>
           </div>
 
           {conversation.error ? (
@@ -439,7 +449,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
               </div>
             </>
           ) : (
-            <div className="hs-imap-help-text">Pick the direction that feels closest. Hearth will wait for your go-ahead before applying the plan.</div>
+            <div className="hs-imap-help-text">Generate a visual plan, then refine or apply it.</div>
           )}
         </section>
       ) : null}

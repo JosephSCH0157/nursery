@@ -29634,10 +29634,10 @@ function installScrollRouter(opts) {
 }
 
 // src/scroll/asr-block-index.ts
-var ASR_MIN_SENTENCES_PER_BLOCK = 2;
-var ASR_MAX_SENTENCES_PER_BLOCK = 4;
-var ASR_MIN_CHARS_PER_BLOCK = 80;
-var ASR_MAX_CHARS_PER_BLOCK = 400;
+var ASR_MIN_SENTENCES_PER_BLOCK = 1;
+var ASR_MAX_SENTENCES_PER_BLOCK = 2;
+var ASR_MIN_CHARS_PER_BLOCK = 40;
+var ASR_MAX_CHARS_PER_BLOCK = 160;
 
 // src/boot/boot-trace.ts
 var TRACE_KEY = "__tpBootTrace";
@@ -29750,6 +29750,57 @@ try {
     if (typeof window.tpBootTraceExport !== "function") window.tpBootTraceExport = bootTraceExport;
   }
 } catch {
+}
+
+// src/asr/segment-speakable.ts
+var ASR_SEGMENT_MAX_CHARS = 120;
+var ASR_SEGMENT_MAX_WORDS = 22;
+function hasInlineMarkupRisk(line) {
+  return /\[(?:\/?(?:b|i|u|note)|color(?:=[^\]]+)?|bg(?:=[^\]]+)?)\]/i.test(line);
+}
+function splitChunkByWordCap(chunk) {
+  const words = String(chunk || "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  if (words.length <= ASR_SEGMENT_MAX_WORDS && chunk.length <= ASR_SEGMENT_MAX_CHARS) return [chunk.trim()];
+  const out = [];
+  let cursor = [];
+  for (const word of words) {
+    const next = [...cursor, word];
+    const candidate = next.join(" ");
+    if (cursor.length > 0 && (next.length > ASR_SEGMENT_MAX_WORDS || candidate.length > ASR_SEGMENT_MAX_CHARS)) {
+      out.push(cursor.join(" ").trim());
+      cursor = [word];
+    } else {
+      cursor = next;
+    }
+  }
+  if (cursor.length) out.push(cursor.join(" ").trim());
+  return out.filter(Boolean);
+}
+function splitSpeakableSpan(rawLine) {
+  const line = String(rawLine || "").replace(/\s+/g, " ").trim();
+  if (!line) return [];
+  if (hasInlineMarkupRisk(line)) return [line];
+  if (line.length <= ASR_SEGMENT_MAX_CHARS && line.split(/\s+/).length <= ASR_SEGMENT_MAX_WORDS) {
+    return [line];
+  }
+  const sentenceLike = line.match(/[^.!?]+(?:[.!?]+|$)/g)?.map((entry) => entry.trim()).filter(Boolean) ?? [line];
+  const spans = [];
+  for (const sentence of sentenceLike) {
+    if (sentence.length <= ASR_SEGMENT_MAX_CHARS && sentence.split(/\s+/).length <= ASR_SEGMENT_MAX_WORDS) {
+      spans.push(sentence);
+      continue;
+    }
+    const punctChunks = sentence.split(/(?<=[,;:])\s+|(?<=\)\.)\s+|(?<=\])\s+/g).map((entry) => entry.trim()).filter(Boolean);
+    if (!punctChunks.length) {
+      spans.push(...splitChunkByWordCap(sentence));
+      continue;
+    }
+    for (const chunk of punctChunks) {
+      spans.push(...splitChunkByWordCap(chunk));
+    }
+  }
+  return spans.filter(Boolean);
 }
 
 // src/render-script.ts
@@ -29981,7 +30032,7 @@ function renderScript(text, container) {
     }
   } catch {
   }
-  let currentSpeaker = null;
+  let currentSpeaker = "s1";
   let devLineIndexWarningLogged = false;
   let inNote = false;
   try {
@@ -29996,17 +30047,17 @@ function renderScript(text, container) {
     let rawLine = lines[i] ?? "";
     let trimmed = rawLine.trim();
     if (!trimmed) {
-      const div2 = document.createElement("div");
-      div2.className = "line line-empty";
-      div2.innerHTML = "&nbsp;";
-      const renderIdx2 = String(renderedLineIndex);
-      div2.id = `tp-line-${renderIdx2}`;
-      div2.dataset.i = renderIdx2;
-      div2.dataset.index = renderIdx2;
-      div2.dataset.line = renderIdx2;
-      div2.dataset.lineIdx = renderIdx2;
-      div2.dataset.rawLine = String(i);
-      nodeEntries.push({ el: div2, unitIdx: null });
+      const div = document.createElement("div");
+      div.className = "line line-empty";
+      div.innerHTML = "&nbsp;";
+      const renderIdx = String(renderedLineIndex);
+      div.id = `tp-line-${renderIdx}`;
+      div.dataset.i = renderIdx;
+      div.dataset.index = renderIdx;
+      div.dataset.line = renderIdx;
+      div.dataset.lineIdx = renderIdx;
+      div.dataset.rawLine = String(i);
+      nodeEntries.push({ el: div, unitIdx: null });
       renderedLineIndex += 1;
       continue;
     }
@@ -30018,7 +30069,7 @@ function renderScript(text, container) {
     }
     const closeSolo = trimmed.match(/^\[\/\s*(s1|s2|guest1|guest2|g1|g2)\s*\]$/i);
     if (closeSolo) {
-      currentSpeaker = null;
+      currentSpeaker = "s1";
       continue;
     }
     const leadingOpen = rawLine.match(/^\s*\[\s*(s1|s2|guest1|guest2|g1|g2)\s*\]\s*/i);
@@ -30046,40 +30097,44 @@ function renderScript(text, container) {
     if (inNote) {
       continue;
     }
-    const div = document.createElement("div");
-    div.className = "line";
-    const renderIdx = String(renderedLineIndex);
-    div.id = `tp-line-${renderIdx}`;
-    div.dataset.i = renderIdx;
-    div.dataset.index = renderIdx;
-    div.dataset.line = renderIdx;
-    div.dataset.lineIdx = renderIdx;
-    div.dataset.rawLine = String(i);
-    if (currentSpeaker) {
-      div.classList.add(SPEAKER_CLASS[currentSpeaker]);
-      div.dataset.speaker = currentSpeaker;
+    const spanSegments = splitSpeakableSpan(rawLine);
+    const outputSegments = spanSegments.length > 0 ? spanSegments : [rawLine];
+    for (const segment of outputSegments) {
+      const div = document.createElement("div");
+      div.className = "line";
+      const renderIdx = String(renderedLineIndex);
+      div.id = `tp-line-${renderIdx}`;
+      div.dataset.i = renderIdx;
+      div.dataset.index = renderIdx;
+      div.dataset.line = renderIdx;
+      div.dataset.lineIdx = renderIdx;
+      div.dataset.rawLine = String(i);
+      if (currentSpeaker) {
+        div.classList.add(SPEAKER_CLASS[currentSpeaker]);
+        div.dataset.speaker = currentSpeaker;
+      }
+      const html = formatInline(segment);
+      div.innerHTML = html || "&nbsp;";
+      applyInlineColors(div);
+      const textNorm = normalizeAsrText(segment);
+      const unitIdx = textNorm ? (() => {
+        const sentenceCount = countSentences(textNorm);
+        const charCount = textNorm.length;
+        const unit = {
+          textNorm,
+          sentenceCount,
+          charCount
+        };
+        const idx = asrUnits.length;
+        asrUnits.push(unit);
+        asrUnitEls.push(div);
+        return idx;
+      })() : null;
+      nodeEntries.push({ el: div, unitIdx });
+      renderedLineIndex += 1;
     }
-    const html = formatInline(rawLine);
-    div.innerHTML = html || "&nbsp;";
-    applyInlineColors(div);
-    const textNorm = normalizeAsrText(rawLine);
-    const unitIdx = textNorm ? (() => {
-      const sentenceCount = countSentences(textNorm);
-      const charCount = textNorm.length;
-      const unit = {
-        textNorm,
-        sentenceCount,
-        charCount
-      };
-      const idx = asrUnits.length;
-      asrUnits.push(unit);
-      asrUnitEls.push(div);
-      return idx;
-    })() : null;
-    nodeEntries.push({ el: div, unitIdx });
-    renderedLineIndex += 1;
     if (closeAfterLine) {
-      currentSpeaker = null;
+      currentSpeaker = "s1";
     }
   }
   const { blocks, warnings } = chunkAsrUnits(asrUnits);

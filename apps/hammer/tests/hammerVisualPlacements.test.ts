@@ -106,6 +106,11 @@ function testDerivesDeterministicPlacementFromMatchingAnchor() {
   assert.equal(placements.placements[0]?.anchor_segment_id, "turn_001");
   assert.equal(placements.placements[0]?.status, "placed");
   assert.equal(placements.placements[0]?.timing_source, "transcript_match");
+  assert.equal(placements.placements[0]?.placement_authority, "hammer_timeline_anchor");
+  assert.equal(placements.placements[0]?.script_cue_id, "image-map-01");
+  assert.equal(placements.placements[0]?.alignment?.match_method, "deterministic_phrase");
+  assert.equal(placements.placements[0]?.alignment?.state, "aligned");
+  assert.equal(placements.placements[0]?.alignment?.transcript_segment_id, "turn_001");
   assert.equal(placements.placements[0]?.asset_ref, "asset_01");
   assert.equal(placements.source_refs.includes(`transcript:${transcriptSourceId}`), true);
 }
@@ -130,6 +135,8 @@ function testFallsBackToReviewableUncertainPlacementWhenMatchIsWeak() {
   assert.equal(placements.placements.length, 1);
   assert.equal(placements.placements[0]?.status, "uncertain");
   assert.equal(placements.placements[0]?.uncertainty_flags.includes("ordered_fallback"), true);
+  assert.equal(placements.placements[0]?.alignment?.match_method, "ordered_fallback");
+  assert.equal(placements.placements[0]?.alignment?.state, "review_needed");
   assert.equal(placements.uncertainty_flags.includes("match_missing:image-map-01"), true);
 }
 

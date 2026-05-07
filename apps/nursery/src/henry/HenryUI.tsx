@@ -2,10 +2,12 @@ import type { HenryConversationTurn, HenryObservation, HenryPreferenceState, Hen
 
 type HenryLauncherProps = {
   muted: boolean;
+  statusLabel?: string;
   onClick: () => void;
 };
 
-export function HenryLauncher({ muted, onClick }: HenryLauncherProps) {
+export function HenryLauncher({ muted, statusLabel, onClick }: HenryLauncherProps) {
+  const visibleStatus = muted ? "muted" : (statusLabel?.trim() || "available");
   return (
     <button
       type="button"
@@ -15,7 +17,7 @@ export function HenryLauncher({ muted, onClick }: HenryLauncherProps) {
       title={muted ? "Henry is muted" : "Open Henry"}
     >
       <span className="henry-launcher__label">Henry</span>
-      <span className="henry-launcher__status">{muted ? "muted" : "available"}</span>
+      <span className="henry-launcher__status">{visibleStatus}</span>
     </button>
   );
 }
@@ -139,6 +141,12 @@ export function HenryPanel(props: HenryPanelProps) {
                 type="text"
                 value={chatDraft}
                 onChange={(event) => onChangeChatDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return;
+                  if (event.shiftKey) return;
+                  event.preventDefault();
+                  onSendChat();
+                }}
                 placeholder="Ask Henry"
               />
               <button type="button" onClick={onSendChat} disabled={!chatDraft.trim()}>Send</button>
