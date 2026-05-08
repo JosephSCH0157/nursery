@@ -663,6 +663,103 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('retires pending speakable bridge hold after bridge landing so adjacent proof can advance', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const script = document.getElementById('script') as HTMLElement;
+    script.innerHTML = `
+      <div class="line" data-line="0" style="line-height:24px;">Different climates.</div>
+      <div class="line" data-line="1" style="line-height:24px;">Different strengths.</div>
+      <div class="line" data-line="2" style="line-height:24px;">Not “that’s nice” amazing.</div>
+      <div class="line" data-line="3" style="line-height:24px;">Not perfume amazing.</div>
+      <div class="line" data-line="4" style="line-height:24px;">[beat]</div>
+      <div class="line" data-line="5" style="line-height:24px;"></div>
+      <div class="line" data-line="6" style="line-height:24px;">It was thick.</div>
+      <div class="line" data-line="7" style="line-height:24px;">Warm.</div>
+      <div class="line" data-line="8" style="line-height:24px;">Sweet.</div>
+    `;
+    const metrics = Array.from({ length: 9 }, (_, idx) => ({
+      top: idx * 380,
+      height: 236,
+    }));
+    Array.from(script.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+      const metric = metrics[idx];
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: metric.top,
+          left: 0,
+          right: 800,
+          bottom: metric.top + metric.height,
+          width: 800,
+          height: metric.height,
+        }),
+      });
+    });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 6200 });
+
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    driver.setLastLineIndex(2);
+    await jest.advanceTimersByTimeAsync(5200);
+
+    // 2 -> 3 short-fragment rescue step.
+    driver.ingest('Not perfume amazing.', true, {
+      currentIdx: 2,
+      matchId: 'bridge-hold-step-2-to-3',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.84,
+        topScores: [{ idx: 3, score: 0.84 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+    expect(driver.getLastLineIndex()).toBe(3);
+
+    // 3 -> 6 cue/blank bridge completion.
+    driver.ingest('It was thick.', true, {
+      currentIdx: 3,
+      matchId: 'bridge-hold-step-3-to-6',
+      match: {
+        bestIdx: 6,
+        bestSim: 0.9,
+        topScores: [{ idx: 6, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+    expect(driver.getLastLineIndex()).toBe(6);
+
+    // 6 -> 7 adjacent proof should not be blocked by stale pending bridge hold.
+    driver.ingest('Warm.', true, {
+      currentIdx: 6,
+      matchId: 'bridge-hold-step-6-to-7',
+      match: {
+        bestIdx: 7,
+        bestSim: 0.83,
+        topScores: [{ idx: 7, score: 0.83 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+    expect(driver.getLastLineIndex()).toBe(7);
+
+    const warns = warnSpy.mock.calls.map((call) => String(call[0] || ''));
+    const blockedByStalePendingBridge = warns.some(
+      (line) =>
+        line.includes('asr_recovery_chain_blocked') &&
+        line.includes('holdSource=pending_speakable_bridge_complete'),
+    );
+    expect(blockedByStalePendingBridge).toBe(false);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('allows adjacent proof commits even when marker tracking is healthy under starvation', async () => {
     const driver = createAsrScrollDriver();
 
