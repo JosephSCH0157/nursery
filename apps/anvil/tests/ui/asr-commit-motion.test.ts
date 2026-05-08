@@ -693,6 +693,70 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('allows one-step starvation progress through repeated short-fragment sections', async () => {
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const script = document.getElementById('script') as HTMLElement;
+    script.innerHTML = `
+      <div class="line" data-line="0" style="line-height:24px;">Not “that’s nice” amazing.</div>
+      <div class="line" data-line="1" style="line-height:24px;">Not perfume amazing.</div>
+      <div class="line" data-line="2" style="line-height:24px;">It was thick.</div>
+      <div class="line" data-line="3" style="line-height:24px;">Warm.</div>
+      <div class="line" data-line="4" style="line-height:24px;">Sweet.</div>
+      <div class="line" data-line="5" style="line-height:24px;">Then she laughed.</div>
+    `;
+    const metrics = Array.from({ length: 6 }, (_, idx) => ({
+      top: idx * 567,
+      height: 236,
+    }));
+    Array.from(script.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+      const metric = metrics[idx];
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: metric.top,
+          left: 0,
+          right: 800,
+          bottom: metric.top + metric.height,
+          width: 800,
+          height: metric.height,
+        }),
+      });
+    });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 4200 });
+
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    driver.setLastLineIndex(0);
+    await jest.advanceTimersByTimeAsync(5200);
+
+    driver.ingest('Not perfume amazing. It was thick. Warm. Sweet.', true, {
+      currentIdx: 0,
+      matchId: 'short-fragment-starvation-progress',
+      match: {
+        bestIdx: 4,
+        bestSim: 0.73,
+        topScores: [
+          { idx: 1, score: 0.72 },
+          { idx: 2, score: 0.69 },
+          { idx: 3, score: 0.71 },
+          { idx: 4, score: 0.73 },
+        ],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(250);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    driver.dispose();
+  });
+
   test('cancels pending speakable bridge completion when runtime speech stops', async () => {
     const scroller = document.getElementById('viewer') as HTMLElement;
     const script = document.getElementById('script') as HTMLElement;

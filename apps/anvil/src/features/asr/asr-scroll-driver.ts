@@ -9966,6 +9966,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       const starvationFutureSpeechReconcileMinMs = 3000;
       const starvationFutureSpeechReconcileMinSim = 0.8;
+      const starvationFutureSpeechReconcileShortFragmentMinSim = 0.68;
+      const starvationFutureSpeechReconcileShortFragmentMaxDelta = 8;
       const starvationFutureSpeechReconcileFinalMaxAgeMs = Math.max(
         starvationFutureSpeechReconcileMinMs,
         DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS * 2,
@@ -10006,6 +10008,31 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           snippet ? `clue="${snippet}"` : '',
         ]);
       };
+      const isShortRepeatedFragmentSection = (
+        cursorLine: number,
+        requestedBestIdx: number,
+      ): boolean => {
+        if (!Number.isFinite(cursorLine) || !Number.isFinite(requestedBestIdx)) return false;
+        const maxIdx = Math.min(
+          Math.max(cursorLine + 1, Math.floor(requestedBestIdx)),
+          cursorLine + starvationFutureSpeechReconcileShortFragmentMaxDelta,
+        );
+        let speakableShortCount = 0;
+        const leadCounts = new Map<string, number>();
+        for (let idx = cursorLine + 1; idx <= maxIdx; idx += 1) {
+          const text = getLineTextAt(idx);
+          if (!text || isIgnorableCueLineText(text)) continue;
+          const tokens = normTokens(text);
+          if (!tokens.length) continue;
+          if (tokens.length > 4) continue;
+          speakableShortCount += 1;
+          const lead = tokens.slice(0, 2).join(' ');
+          const nextCount = (leadCounts.get(lead) || 0) + 1;
+          leadCounts.set(lead, nextCount);
+        }
+        const repeatedLeadPresent = Array.from(leadCounts.values()).some((count) => count >= 2);
+        return speakableShortCount >= 3 && repeatedLeadPresent;
+      };
       const _starvationFutureSpeechReconcileCandidateActive =
         liveStrictFollow &&
         isFinal &&
@@ -10038,9 +10065,73 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } else if (liveSpeechForwardPushRunStale) {
           logStarvationFutureSpeechReconcileSkip('stale_run_identity');
         } else if (starvationFutureSpeechReconcileCandidateSim < starvationFutureSpeechReconcileMinSim) {
-          logStarvationFutureSpeechReconcileSkip('sim_below_floor', [
-            `minSim=${formatLogScore(starvationFutureSpeechReconcileMinSim)}`,
-          ]);
+          const adjacentTarget = resolveForwardSpeakableTarget(
+            lastLineIndex,
+            starvationFutureSpeechReconcileCandidateIdx,
+            1,
+          );
+          const shortFragmentEligible =
+            starvationFutureSpeechReconcileCandidateSim >= starvationFutureSpeechReconcileShortFragmentMinSim &&
+            starvationFutureSpeechReconcileCandidateIdx - lastLineIndex <= starvationFutureSpeechReconcileShortFragmentMaxDelta &&
+            adjacentTarget > lastLineIndex &&
+            isShortRepeatedFragmentSection(lastLineIndex, starvationFutureSpeechReconcileCandidateIdx);
+          if (!shortFragmentEligible) {
+            logStarvationFutureSpeechReconcileSkip('sim_below_floor', [
+              `minSim=${formatLogScore(starvationFutureSpeechReconcileMinSim)}`,
+            ]);
+          } else {
+            const shortFragmentLocalProof =
+              hasLiveStrictLocalProof(
+                lastLineIndex,
+                adjacentTarget,
+                now,
+                rankedTopScores,
+                DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+              ) ||
+              hasLiveStrictCueExitProof(
+                lastLineIndex,
+                adjacentTarget,
+                now,
+                rankedTopScores,
+                DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+              ) ||
+              hasLiveStrictSpeakableBridgeProof(
+                lastLineIndex,
+                adjacentTarget,
+                now,
+                rankedTopScores,
+                DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+              ) ||
+              !!evaluateLiveStrictAdjacentTailProgressionProof(lastLineIndex, adjacentTarget, now)?.ok;
+            if (!shortFragmentLocalProof) {
+              logStarvationFutureSpeechReconcileSkip('sim_below_floor_short_fragment_no_proof', [
+                `sim=${formatLogScore(starvationFutureSpeechReconcileCandidateSim)}`,
+                `minShortSim=${formatLogScore(starvationFutureSpeechReconcileShortFragmentMinSim)}`,
+              ]);
+            } else {
+              const skippedIgnorableLines: CueBridgeSkipReason[] = [];
+              for (let idx = lastLineIndex + 1; idx < adjacentTarget; idx += 1) {
+                const reason = classifyStrictSkippableLineForCueBridge(getLineTextAt(idx));
+                if (reason) skippedIgnorableLines.push(reason);
+              }
+              starvationFutureSpeechReconcileTargetLine = adjacentTarget;
+              forceReason = 'starvation_future_speech_reconcile';
+              warnGuard('proof_owned_primary_commit', [
+                `current=${lastLineIndex}`,
+                `target=${starvationFutureSpeechReconcileTargetLine}`,
+                `bestIdx=${starvationFutureSpeechReconcileCandidateIdx}`,
+                'proofSource=short_fragment_adjacent_progression',
+                skippedIgnorableLines.length
+                  ? `skippedIgnorableLines=[${skippedIgnorableLines.join(',')}]`
+                  : 'skippedIgnorableLines=[]',
+                `stallMs=${starvationFutureSpeechReconcileMs}`,
+                'sourceBranch=starvation_future_speech_reconcile',
+                'oldWouldHaveUsedStallOverride=true',
+                `commitTargetLine=${starvationFutureSpeechReconcileTargetLine}`,
+                snippet ? `clue="${snippet}"` : '',
+              ]);
+            }
+          }
         } else {
           const backwardContradiction = rankedTopScores.some((entry) =>
             entry.idx <= lastLineIndex &&
