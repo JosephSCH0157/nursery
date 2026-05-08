@@ -951,3 +951,124 @@ test("createAnvilWhisperHandler provider auto resolves via HF mapping (no app ha
     globalThis.fetch = originalFetch;
   }
 });
+
+test("createAnvilWhisperHandler ASR2 deduction failure is deferred without blocking transcription", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({ id: TEST_USER_ID }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.includes("huggingface.co/api/models/openai/whisper-large-v3-turbo") && url.includes("inferenceProviderMapping")) {
+      return new Response(JSON.stringify({
+        inferenceProviderMapping: [
+          {
+            provider: "hf-inference",
+            hfModelId: "openai/whisper-large-v3-turbo",
+            providerId: "openai/whisper-large-v3-turbo",
+            status: "live",
+            task: "automatic-speech-recognition",
+          },
+        ],
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/hf-inference/models/") || url.includes("router.huggingface.co")) {
+      return new Response(JSON.stringify({ text: "hf ok deferred" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.includes("/rest/v1/rpc/apply_ai_token_delta")) {
+      return new Response(JSON.stringify({ error: "db write failed" }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch call in test: ${url} ${init?.method ?? "GET"}`);
+  };
+  try {
+    const handler = createAnvilWhisperHandler(buildConfig({
+      apiKey: "forge-key",
+      asr2Provider: "auto",
+      asr2SttModel: "openai/whisper-large-v3-turbo",
+      huggingFaceApiToken: "hf_test_token",
+      configuredBillingMode: AI_USAGE_LANE.FORGE,
+      initialTokenBalance: 999_999,
+      supabaseUrl: "https://runtime-test.supabase.co",
+      supabaseServiceRoleKey: "service-role",
+    }));
+    const form = buildChunkFormData();
+    form.set("lane", AI_USAGE_LANE.FORGE);
+    form.set("asr_lane", "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL");
+    const response = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-access-token" },
+      body: form,
+    }));
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.text, "hf ok deferred");
+    assert.equal(payload.billing_mode, "forge");
+    assert.equal(payload.billing_status, "deduction_deferred");
+    assert.equal(payload.billing_error_code, "forge_deduction_failed");
+    assert.equal(payload.asr_lane, "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL");
+    assert.equal(payload.provider, "auto");
+    assert.equal(payload.model_id, "openai/whisper-large-v3-turbo");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createAnvilWhisperHandler ASR1 deduction failure still blocks with forge_deduction_failed", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({ id: TEST_USER_ID }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://api.openai.com/v1/audio/transcriptions") {
+      return new Response(JSON.stringify({ text: "asr1 ok" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.includes("/rest/v1/rpc/apply_ai_token_delta")) {
+      return new Response(JSON.stringify({ error: "db write failed" }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch call in test: ${url} ${init?.method ?? "GET"}`);
+  };
+  try {
+    const handler = createAnvilWhisperHandler(buildConfig({
+      apiKey: "forge-key",
+      sttModel: "gpt-4o-mini-transcribe",
+      configuredBillingMode: AI_USAGE_LANE.FORGE,
+      initialTokenBalance: 999_999,
+      supabaseUrl: "https://runtime-test.supabase.co",
+      supabaseServiceRoleKey: "service-role",
+    }));
+    const form = buildChunkFormData();
+    form.set("lane", AI_USAGE_LANE.FORGE);
+    const response = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-access-token" },
+      body: form,
+    }));
+    assert.equal(response.status, 502);
+    const payload = await response.json();
+    assert.equal(payload.ok, false);
+    assert.equal(payload.code, "forge_deduction_failed");
+    assert.equal(payload.billing_mode, "forge");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

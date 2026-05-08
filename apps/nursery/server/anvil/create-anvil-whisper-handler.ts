@@ -78,6 +78,8 @@ type AnvilWhisperResponse = {
   input_audio_content_type?: string | null;
   input_audio_size_bytes?: number;
   hf_request_content_type?: string | null;
+  billing_status?: "deduction_applied" | "deduction_deferred";
+  billing_error_code?: string | null;
 };
 
 function jsonResponse(status: number, obj: AnvilWhisperResponse): Response {
@@ -1024,6 +1026,50 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             reason: "speech_transcription:anvil_whisper:forge_billing_tokens",
           });
           if (!deltaResult.ok) {
+            if (asr2ExperimentalSelected) {
+              try {
+                console.warn("[anvil-whisper] ASR2 experimental billing deferred", {
+                  asrLane,
+                  billingMode: lane,
+                  billingErrorCode: "forge_deduction_failed",
+                  provider: requestProvider,
+                  model: resolvedModel,
+                  providerRequestId,
+                });
+              } catch {
+                // ignore logging failures
+              }
+              return jsonResponse(200, {
+                ok: true,
+                text,
+                empty: text.length === 0,
+                provider: requestProvider,
+                model_id: resolvedModel,
+                asr_lane: asrLane ?? null,
+                upstream_status: upstream.status,
+                upstream_message: null,
+                upstream_url: requestProvider === "openai"
+                  ? "https://api.openai.com/v1/audio/transcriptions"
+                  : upstreamUrl,
+                model_url: (requestProvider === "huggingface" || requestProvider === "auto")
+                  ? huggingFaceModelUrl
+                  : null,
+                model: resolvedModel,
+                provider_request_id: providerRequestId,
+                billing_mode: lane,
+                billing_status: "deduction_deferred",
+                billing_error_code: "forge_deduction_failed",
+                actual_cost_usd: accounting.actualCostUsd,
+                billable_tokens: accounting.billableTokens,
+                credits_warning: null,
+                ffmpeg_fallback_attempted: ffmpegFallbackAttempted || undefined,
+                ffmpeg_fallback_used: ffmpegFallbackUsed || undefined,
+                ffmpeg_fallback_error: ffmpegFallbackError ?? undefined,
+                input_audio_content_type: (requestProvider === "huggingface" || requestProvider === "auto") ? inputAudioContentType : undefined,
+                input_audio_size_bytes: (requestProvider === "huggingface" || requestProvider === "auto") ? inputAudioSizeBytes : undefined,
+                hf_request_content_type: (requestProvider === "huggingface" || requestProvider === "auto") ? hfRequestContentType : undefined,
+              });
+            }
             return jsonResponse(502, {
               ok: false,
               text: "",
@@ -1057,6 +1103,8 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           model: resolvedModel,
           provider_request_id: providerRequestId,
           billing_mode: lane,
+          billing_status: lane === AI_USAGE_LANE.FORGE && accounting.billableTokens > 0 ? "deduction_applied" : undefined,
+          billing_error_code: null,
           actual_cost_usd: accounting.actualCostUsd,
           billable_tokens: accounting.billableTokens,
           credits_warning: null,
