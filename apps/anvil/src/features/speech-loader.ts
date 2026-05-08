@@ -2618,6 +2618,7 @@ lastCommit: ${formatAge(snap.lastCommitTs)}
     const layoutHud = () => {
       const base = 8;
       let rightInset = base;
+      let bottomInset = base;
       let topInset = 64;
       try {
         const drawer = document.getElementById('tp-dev-drawer') as HTMLElement | null;
@@ -2628,6 +2629,7 @@ lastCommit: ${formatAge(snap.lastCommitTs)}
             rightInset = Math.max(base, Math.round(rect.width + 16));
           } else if (dock === 'bottom') {
             topInset = 16;
+            bottomInset = Math.max(base, Math.round(rect.height + 16));
           }
         }
       } catch {}
