@@ -1106,6 +1106,7 @@ describe('ASR live commit motion', () => {
     expect(warns.some((line) =>
       (
         line.includes('asr_live_no_adjacent_match_bypass') ||
+        line.includes('ASR_SUSTAINED_READ_STEP') ||
         line.includes('movement_authority_commit')
       ) &&
       line.includes('current=2') &&
@@ -1188,6 +1189,41 @@ describe('ASR live commit motion', () => {
     const warns = warnSpy.mock.calls.map((call) => String(call[0] || ''));
     expect(warns.some((line) => line.includes('asr_live_no_adjacent_match_hold'))).toBe(true);
 
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('sustained-read emits ASR_SUSTAINED_READ_STEP when adjacent hold repeats under continued speech', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', { detail: { speechRunningActual: true } }));
+    driver.setLastLineIndex(2);
+    await jest.advanceTimersByTimeAsync(3600);
+    driver.ingest('Driving through northern Orlando on Orange Blossom Trail.', true, {
+      currentIdx: 2,
+      matchId: 'sustained-read-adjacent-step',
+      match: { bestIdx: 3, bestSim: 0.88, topScores: [] },
+    });
+    await jest.advanceTimersByTimeAsync(220);
+    expect(driver.getLastLineIndex()).toBe(3);
+    expect(warnSpy.mock.calls.map((c) => String(c[0] || '')).some((l) => l.includes('ASR_SUSTAINED_READ_STEP'))).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('sustained-read does not commit far target without safe adjacent reduction', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', { detail: { speechRunningActual: true } }));
+    driver.setLastLineIndex(2);
+    await jest.advanceTimersByTimeAsync(3600);
+    driver.ingest('far future phrase with weak linkage', true, {
+      currentIdx: 2,
+      matchId: 'sustained-read-far-blocked',
+      match: { bestIdx: 8, bestSim: 0.6, topScores: [{ idx: 8, score: 0.6 }] },
+    });
+    await jest.advanceTimersByTimeAsync(220);
+    expect(driver.getLastLineIndex()).toBe(2);
     warnSpy.mockRestore();
     driver.dispose();
   });

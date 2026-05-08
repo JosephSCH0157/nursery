@@ -12862,7 +12862,57 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           line,
         );
       }
+      const maybeSustainedReadStep = (args: {
+        sourceHoldReason: string;
+        requestedTarget: number;
+        adjacentTarget: number;
+        authority: string;
+        sourceBranch: string;
+        tailProofUsed: boolean;
+        neighborhoodEvidence: boolean;
+        contradictionActive: boolean;
+      }): { applied: boolean; target: number } => {
+        const stallMs = Math.max(0, now - lastCommitTime);
+        const lastTranscriptAgeMs =
+          lastFinalTranscriptAt > 0 ? Math.max(0, now - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
+        const transcriptGrowing =
+          lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength ||
+          lastFinalTranscriptAt > lastCommitTranscriptTimestamp;
+        const sustainedSpeech =
+          asrRuntimeSpeechRunningActual ||
+          (Number.isFinite(lastTranscriptAgeMs) && lastTranscriptAgeMs <= 1800);
+        const proofAuthority = args.authority === 'proof' || args.authority === 'reconcile';
+        const safeAdjacent = args.adjacentTarget > lastLineIndex && args.adjacentTarget <= lastLineIndex + 1;
+        if (!liveStrictFollow || !sustainedSpeech || !proofAuthority || stallMs < 3000) {
+          return { applied: false, target: args.adjacentTarget };
+        }
+        if (!transcriptGrowing || args.contradictionActive || !safeAdjacent) {
+          try {
+            console.warn(`[ASR_SUSTAINED_READ_BLOCKED] current=${lastLineIndex} requested=${args.requestedTarget} adjacentTarget=${args.adjacentTarget} activeHoldReason=${args.sourceHoldReason} stallMs=${Math.round(stallMs)} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} lastTranscriptAgeMs=${Math.round(lastTranscriptAgeMs)} reason=${!transcriptGrowing ? 'transcript_not_growing' : (args.contradictionActive ? 'contradiction_active' : 'no_safe_adjacent')}`);
+          } catch {}
+          return { applied: false, target: args.adjacentTarget };
+        }
+        try {
+          console.warn(`[ASR_SUSTAINED_READ_STEP] current=${lastLineIndex} target=${args.adjacentTarget} originalRequestedTarget=${args.requestedTarget} sourceHoldReason=${args.sourceHoldReason} stallMs=${Math.round(stallMs)} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} transcriptGrowing=1 tailProofUsed=${args.tailProofUsed ? 1 : 0} authority=${args.authority} sourceBranch=${args.sourceBranch || 'unknown'} reducedToAdjacent=${args.requestedTarget > args.adjacentTarget ? 1 : 0} bridgeSafe=1 reason=sustained_read_adjacent_step neighborhoodEvidence=${args.neighborhoodEvidence ? 1 : 0}`);
+        } catch {}
+        return { applied: true, target: args.adjacentTarget };
+      };
       if (recoveryLandingHoldActive && recoveryLandingHoldChainCandidate) {
+        const sustainedReadStep = maybeSustainedReadStep({
+          sourceHoldReason: 'asr_recovery_chain_blocked',
+          requestedTarget: requestedTargetLine,
+          adjacentTarget: Math.max(lastLineIndex + 1, adjacentLine),
+          authority: movementAuthority,
+          sourceBranch: pendingSourceBranch || movementAuthoritySourceBranch || '',
+          tailProofUsed: !!liveSpeechForwardPushTailProofUsed,
+          neighborhoodEvidence: !!liveSpeechForwardPushAdjacentRescueProof,
+          contradictionActive: !!strictBackwardContradictionForCommit,
+        });
+        if (sustainedReadStep.applied) {
+          targetLine = sustainedReadStep.target;
+          forceReason = forceReason || 'sustained_read_step';
+          clearRecoveryLandingHold('sustained_read_step', now, lastLineIndex, line);
+        } else {
         warnGuard('asr_recovery_chain_blocked', [
           `current=${lastLineIndex}`,
           `target=${targetLine}`,
@@ -12874,6 +12924,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           recoveryLandingHoldArmedAt > 0 ? `holdAgeMs=${Math.max(0, now - recoveryLandingHoldArmedAt)}` : '',
         ]);
         return;
+        }
       }
       const recoveryModeActiveForCommit = isRecoveryModeActive();
       if (strictForwardCommit && recoveryModeActiveForCommit && bypassDownstreamVeto) {
@@ -13629,6 +13680,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             'movement_authority_terminal',
           );
         } else {
+          const sustainedStallMs = Math.max(0, now - lastCommitTime);
+          const sustainedLastTranscriptAgeMs =
+            lastFinalTranscriptAt > 0
+              ? Math.max(0, now - lastFinalTranscriptAt)
+              : Number.POSITIVE_INFINITY;
+          const sustainedAdjacentTarget = resolveForwardSpeakableTarget(lastLineIndex, line, 1);
+          if (
+            liveStrictFollow &&
+            sustainedStallMs >= 2500 &&
+            (asrRuntimeSpeechRunningActual || sustainedLastTranscriptAgeMs <= 1800)
+          ) {
+            try {
+              console.warn(
+                `[ASR_SUSTAINED_READ_BLOCKED] current=${lastLineIndex} requested=${line} adjacentTarget=${sustainedAdjacentTarget} activeHoldReason=no_evidence stallMs=${Math.round(sustainedStallMs)} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} lastTranscriptAgeMs=${Math.round(sustainedLastTranscriptAgeMs)} reason=no_forward_evidence`,
+              );
+            } catch {}
+          }
           warnGuard('no_evidence', [
             `current=${lastLineIndex}`,
             `best=${line}`,
@@ -13856,23 +13924,37 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         forwardDelta > 0 &&
         !speechStopCleanupCommitForGates &&
         directAdjacentGuardEligible &&
-        !directAdjacentMatch &&
-        !directAdjacentAnyBypassEligible
+        !directAdjacentMatch
       ) {
-        warnGuard('asr_live_no_adjacent_match_hold', [
-          `current=${lastLineIndex}`,
-          `target=${targetLine}`,
-          Number.isFinite(directAdjacentSim)
-            ? `adjacentSim=${formatLogScore(directAdjacentSim)}`
-            : 'adjacentSim=na',
-          `adjacentNeed=${formatLogScore(directAdjacentNeed)}`,
-          `authority=${movementAuthority}`,
-          `sourceBranch=${movementAuthoritySourceBranch}`,
-          forceReason ? `forceReason=${forceReason}` : '',
-          snippet ? `clue="${snippet}"` : '',
-        ]);
-        emitHudStatus('asr_live_no_adjacent_match_hold', 'Hold: waiting for direct adjacent ASR match');
-        return;
+        const sustainedReadStep = maybeSustainedReadStep({
+          sourceHoldReason: 'asr_live_no_adjacent_match_hold',
+          requestedTarget: requestedTargetLine,
+          adjacentTarget: Math.max(lastLineIndex + 1, adjacentLine),
+          authority: movementAuthority,
+          sourceBranch: movementAuthoritySourceBranch || '',
+          tailProofUsed: !!directAdjacentTailOrNeighborhoodAccepted,
+          neighborhoodEvidence: !!directAdjacentNeighborhoodEvidence,
+          contradictionActive: !!strictBackwardContradictionForCommit,
+        });
+        if (sustainedReadStep.applied) {
+          targetLine = sustainedReadStep.target;
+          forceReason = forceReason || 'sustained_read_step';
+        } else if (!directAdjacentAnyBypassEligible) {
+          warnGuard('asr_live_no_adjacent_match_hold', [
+            `current=${lastLineIndex}`,
+            `target=${targetLine}`,
+            Number.isFinite(directAdjacentSim)
+              ? `adjacentSim=${formatLogScore(directAdjacentSim)}`
+              : 'adjacentSim=na',
+            `adjacentNeed=${formatLogScore(directAdjacentNeed)}`,
+            `authority=${movementAuthority}`,
+            `sourceBranch=${movementAuthoritySourceBranch}`,
+            forceReason ? `forceReason=${forceReason}` : '',
+            snippet ? `clue="${snippet}"` : '',
+          ]);
+          emitHudStatus('asr_live_no_adjacent_match_hold', 'Hold: waiting for direct adjacent ASR match');
+          return;
+        }
       }
       if (directAdjacentFallbackProofOwned && !directAdjacentMatch) {
         warnGuard('asr_live_no_adjacent_match_bypass', [
