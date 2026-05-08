@@ -614,6 +614,34 @@ function emitAsrRuntimeStatus(reason: string): void {
       activeDspFilters: payload.calibration?.dsp?.activeFilters || [],
     });
   } catch {}
+  try {
+    const dsp = payload.calibration?.dsp || null;
+    const activeFilters = Array.isArray(dsp?.activeFilters) ? dsp!.activeFilters : [];
+    const details = dsp?.details && typeof dsp.details === 'object'
+      ? Object.entries(dsp.details)
+        .filter(([, v]) => v !== undefined && v !== null)
+        .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join('|') : String(v)}`)
+        .join(';')
+      : '';
+    const dspState = String(dsp?.state || 'inactive');
+    const dspReason =
+      dspState === 'inactive'
+        ? 'no_calibration_filters'
+        : dspState === 'unavailable'
+          ? 'no_audio_context'
+          : '';
+    console.info([
+      '[ASR_DSP_STATUS]',
+      `path=${runtimePath}`,
+      `state=${dspState}`,
+      `activeFilters=${activeFilters.length ? activeFilters.join(',') : 'none'}`,
+      `profileId=${payload.calibration?.profileId || 'none'}`,
+      dspReason ? `reason=${dspReason}` : '',
+      dsp?.error ? `error=${String(dsp.error)}` : '',
+      details ? `details=${details}` : '',
+      `source=runtime-status:${reason}`,
+    ].filter(Boolean).join(' '));
+  } catch {}
 }
 
 function resolveAsrDriverRef(): any {

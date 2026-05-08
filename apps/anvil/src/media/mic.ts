@@ -47,6 +47,48 @@ type RuntimeDspDiagnostics = {
   error?: string;
 };
 
+function emitFlatDspStatus(params: {
+  path: string;
+  state: RuntimeDspState | string;
+  profileId?: string | null;
+  source: string;
+  dsp?: RuntimeDspDiagnostics | null;
+  sampleRate?: number | null;
+}): void {
+  try {
+    const activeFilters = Array.isArray(params.dsp?.activeFilters) ? params.dsp!.activeFilters : [];
+    const details = params.dsp?.details && typeof params.dsp.details === 'object'
+      ? params.dsp.details
+      : null;
+    const reason =
+      params.state === 'inactive'
+        ? 'no_calibration_filters'
+        : params.state === 'unavailable'
+          ? 'no_audio_context'
+          : '';
+    const detailPairs = details
+      ? Object.entries(details)
+        .filter(([, v]) => v !== undefined && v !== null)
+        .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join('|') : String(v)}`)
+      : [];
+    const line = [
+      `[ASR_DSP_STATUS]`,
+      `path=${params.path || 'generic'}`,
+      `state=${String(params.state || 'inactive')}`,
+      `activeFilters=${activeFilters.length ? activeFilters.join(',') : 'none'}`,
+      params.profileId ? `profileId=${params.profileId}` : 'profileId=none',
+      Number.isFinite(Number(params.sampleRate)) ? `sampleRate=${Math.round(Number(params.sampleRate))}` : '',
+      reason ? `reason=${reason}` : '',
+      params.dsp?.error ? `error=${String(params.dsp.error)}` : '',
+      detailPairs.length ? `details=${detailPairs.join(';')}` : '',
+      `source=${params.source}`,
+    ].filter(Boolean).join(' ');
+    console.info(line);
+  } catch {
+    // best effort diagnostics only
+  }
+}
+
 type MicPermissionState = 'granted' | 'denied' | 'prompt' | 'unknown';
 type MicUiState = 'capturing' | 'granted' | 'blocked' | 'idle';
 
@@ -488,6 +530,18 @@ async function requestMic(preferredId?: string | MicRequestOptions): Promise<Med
       (window as any).__tpCalibrationRuntime = payload;
       window.dispatchEvent(new CustomEvent('tp:calibration:runtime', { detail: payload }));
       console.info('[ASR_CALIBRATION_RUNTIME]', payload);
+      const sampleRate =
+        Number((stream.getAudioTracks?.()[0] as any)?.getSettings?.()?.sampleRate)
+        || Number((rawStream.getAudioTracks?.()[0] as any)?.getSettings?.()?.sampleRate)
+        || null;
+      emitFlatDspStatus({
+        path: asrPath,
+        state: dspResult.diagnostics.state,
+        profileId: activeProfileId,
+        source: 'calibration',
+        dsp: dspResult.diagnostics,
+        sampleRate,
+      });
     } catch {}
 
     audioStream = stream;

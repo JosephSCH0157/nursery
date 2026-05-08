@@ -7,6 +7,7 @@ describe('mic calibration-aware constraints', () => {
   });
 
   test('applies active capture constraints when requestMic is called with capture profile', async () => {
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
     const stream = {
       getTracks: () => [],
       getAudioTracks: () => [{
@@ -66,9 +67,17 @@ describe('mic calibration-aware constraints', () => {
       asrPath: 'whisper-bridge',
       profileId: 'mic-42::Desk',
     }));
+    const dspLines = infoSpy.mock.calls
+      .map((call) => String(call[0] || ''))
+      .filter((line) => line.includes('[ASR_DSP_STATUS]'));
+    const dspLine = dspLines[dspLines.length - 1] || '';
+    expect(dspLine).toContain('state=inactive');
+    expect(dspLine).toContain('reason=no_calibration_filters');
+    expect(dspLine).toContain('activeFilters=none');
   });
 
   test('emits DSP diagnostics as unavailable when filters exist but AudioContext is missing', async () => {
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
     const stream = {
       getTracks: () => [],
       getAudioTracks: () => [{
@@ -130,9 +139,17 @@ describe('mic calibration-aware constraints', () => {
       state: 'unavailable',
       activeFilters: [],
     }));
+    const dspLines = infoSpy.mock.calls
+      .map((call) => String(call[0] || ''))
+      .filter((line) => line.includes('[ASR_DSP_STATUS]'));
+    const dspLine = dspLines[dspLines.length - 1] || '';
+    expect(dspLine).toContain('state=unavailable');
+    expect(dspLine).toContain('reason=no_audio_context');
+    expect(dspLine).toContain('activeFilters=none');
   });
 
   test('emits active DSP diagnostics in deterministic order and cleans up DSP/raw tracks', async () => {
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
     const rawTrackStop = jest.fn();
     const processedTrackStop = jest.fn();
     const rawTrack = {
@@ -197,6 +214,12 @@ describe('mic calibration-aware constraints', () => {
       createMediaStreamSource = jest.fn(() => new MockAudioNode());
       createBiquadFilter = jest.fn(() => new MockFilterNode());
       createDynamicsCompressor = jest.fn(() => new MockCompressorNode());
+      createAnalyser = jest.fn(() => ({
+        fftSize: 1024,
+        getByteTimeDomainData: (arr: Uint8Array) => {
+          for (let i = 0; i < arr.length; i += 1) arr[i] = 128;
+        },
+      }));
       createMediaStreamDestination = jest.fn(() => ({
         stream: processedStream,
         disconnect: jest.fn(),
@@ -257,6 +280,12 @@ describe('mic calibration-aware constraints', () => {
       bodyBoostDb: 1.5,
       limiterDbfs: -3,
     }));
+    const dspLines = infoSpy.mock.calls
+      .map((call) => String(call[0] || ''))
+      .filter((line) => line.includes('[ASR_DSP_STATUS]'));
+    const dspLine = dspLines[dspLines.length - 1] || '';
+    expect(dspLine).toContain('state=active');
+    expect(dspLine).toContain('activeFilters=highpass,notch,de-ess,presence-cut,body-boost,limiter');
 
     micApi.releaseMic();
     expect(closeSpy).toHaveBeenCalled();
