@@ -1228,6 +1228,30 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+
+  test('sustained-read does not block contradiction when stale-prefix contradiction is already overridden by tail proof', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', { detail: { speechRunningActual: true } }));
+    driver.setLastLineIndex(2);
+    await jest.advanceTimersByTimeAsync(3600);
+    driver.ingest('Driving through northern Orlando. on Orange Blossom Trail. It used to smell amazing.', true, {
+      currentIdx: 2,
+      matchId: 'sustained-contradiction-overridden',
+      match: { bestIdx: 3, bestSim: 0.88, topScores: [] },
+    });
+    await jest.advanceTimersByTimeAsync(260);
+    expect(driver.getLastLineIndex()).toBe(3);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) =>
+      l.includes('ASR_SUSTAINED_READ_STEP') &&
+      l.includes('target=3'),
+    )).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+
   test('cancels pending speakable bridge completion when runtime speech stops', async () => {
     const scroller = document.getElementById('viewer') as HTMLElement;
     const script = document.getElementById('script') as HTMLElement;

@@ -12868,9 +12868,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         adjacentTarget: number;
         authority: string;
         sourceBranch: string;
+        proofSource: string;
         tailProofUsed: boolean;
         neighborhoodEvidence: boolean;
         contradictionActive: boolean;
+        stalePrefixIgnored: boolean;
+        backwardContradictionOverriddenByTail: boolean;
       }): { applied: boolean; target: number } => {
         const stallMs = Math.max(0, now - lastCommitTime);
         const lastTranscriptAgeMs =
@@ -12882,20 +12885,59 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           asrRuntimeSpeechRunningActual ||
           (Number.isFinite(lastTranscriptAgeMs) && lastTranscriptAgeMs <= 1800);
         const proofAuthority = args.authority === 'proof' || args.authority === 'reconcile';
-        const safeAdjacent = args.adjacentTarget > lastLineIndex && args.adjacentTarget <= lastLineIndex + 1;
-        if (!liveStrictFollow || !sustainedSpeech || !proofAuthority || stallMs < 3000) {
-          return { applied: false, target: args.adjacentTarget };
+        const bridgeCandidate = resolveForwardSpeakableTarget(lastLineIndex, args.requestedTarget, 1);
+        const skippedIgnorableLines: CueBridgeSkipReason[] = [];
+        let skippedNonIgnorable = false;
+        if (bridgeCandidate > lastLineIndex) {
+          for (let idx = lastLineIndex + 1; idx < bridgeCandidate; idx += 1) {
+            const reason = classifyStrictSkippableLineForCueBridge(getLineTextAt(idx));
+            if (reason == null) {
+              skippedNonIgnorable = true;
+              break;
+            }
+            skippedIgnorableLines.push(reason);
+          }
         }
-        if (!transcriptGrowing || args.contradictionActive || !safeAdjacent) {
+        const bridgeSafe =
+          bridgeCandidate > lastLineIndex &&
+          !skippedNonIgnorable &&
+          bridgeCandidate <= Math.max(lastLineIndex + 1, args.requestedTarget);
+        const safeAdjacentReason =
+          bridgeSafe
+            ? (bridgeCandidate === lastLineIndex + 1
+              ? 'literal_adjacent'
+              : 'next_speakable_bridge')
+            : 'no_safe_adjacent';
+        const bridgeProofSource =
+          String(args.proofSource || '').includes('strict_speakable_bridge_landing') ||
+          String(args.proofSource || '').includes('adjacent_rescue_proofed') ||
+          String(args.proofSource || '').includes('bridge');
+        const forcedReconcileBridgeSafe =
+          String(args.sourceBranch || '').includes('movement_authority_forced_reconcile_single_step') &&
+          bridgeProofSource &&
+          bridgeSafe;
+        const safeAdjacent = bridgeSafe || forcedReconcileBridgeSafe;
+        const contradictionKind = args.contradictionActive ? 'backward_or_offscript' : 'none';
+        const contradictionActiveEffective =
+          args.contradictionActive &&
+          !args.stalePrefixIgnored &&
+          !args.backwardContradictionOverriddenByTail;
+        if (!liveStrictFollow || !sustainedSpeech || !proofAuthority || stallMs < 3000) {
+          return { applied: false, target: bridgeCandidate };
+        }
+        if (!transcriptGrowing || contradictionActiveEffective || !safeAdjacent) {
           try {
-            console.warn(`[ASR_SUSTAINED_READ_BLOCKED] current=${lastLineIndex} requested=${args.requestedTarget} adjacentTarget=${args.adjacentTarget} activeHoldReason=${args.sourceHoldReason} stallMs=${Math.round(stallMs)} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} lastTranscriptAgeMs=${Math.round(lastTranscriptAgeMs)} reason=${!transcriptGrowing ? 'transcript_not_growing' : (args.contradictionActive ? 'contradiction_active' : 'no_safe_adjacent')}`);
+            const blockedReason = !transcriptGrowing
+              ? 'transcript_not_growing'
+              : (contradictionActiveEffective ? 'contradiction_active' : 'no_safe_adjacent');
+            console.warn(`[ASR_SUSTAINED_READ_BLOCKED] current=${lastLineIndex} requested=${args.requestedTarget} adjacentTarget=${bridgeCandidate} activeHoldReason=${args.sourceHoldReason} stallMs=${Math.round(stallMs)} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} lastTranscriptAgeMs=${Math.round(lastTranscriptAgeMs)} reason=${blockedReason} contradictionKind=${contradictionKind} stalePrefixIgnored=${args.stalePrefixIgnored ? 1 : 0} backwardContradictionOverriddenByTail=${args.backwardContradictionOverriddenByTail ? 1 : 0} bridgeCandidate=${bridgeCandidate} skippedIgnorableLines=[${skippedIgnorableLines.join(',')}] safeAdjacentReason=${safeAdjacentReason}`);
           } catch {}
-          return { applied: false, target: args.adjacentTarget };
+          return { applied: false, target: bridgeCandidate };
         }
         try {
-          console.warn(`[ASR_SUSTAINED_READ_STEP] current=${lastLineIndex} target=${args.adjacentTarget} originalRequestedTarget=${args.requestedTarget} sourceHoldReason=${args.sourceHoldReason} stallMs=${Math.round(stallMs)} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} transcriptGrowing=1 tailProofUsed=${args.tailProofUsed ? 1 : 0} authority=${args.authority} sourceBranch=${args.sourceBranch || 'unknown'} reducedToAdjacent=${args.requestedTarget > args.adjacentTarget ? 1 : 0} bridgeSafe=1 reason=sustained_read_adjacent_step neighborhoodEvidence=${args.neighborhoodEvidence ? 1 : 0}`);
+          console.warn(`[ASR_SUSTAINED_READ_STEP] current=${lastLineIndex} target=${bridgeCandidate} originalRequestedTarget=${args.requestedTarget} sourceHoldReason=${args.sourceHoldReason} stallMs=${Math.round(stallMs)} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} transcriptGrowing=1 tailProofUsed=${args.tailProofUsed ? 1 : 0} authority=${args.authority} sourceBranch=${args.sourceBranch || 'unknown'} proofSource=${args.proofSource || 'none'} reducedToAdjacent=${args.requestedTarget > bridgeCandidate ? 1 : 0} bridgeSafe=1 skippedIgnorableLines=[${skippedIgnorableLines.join(',')}] reason=sustained_read_adjacent_step neighborhoodEvidence=${args.neighborhoodEvidence ? 1 : 0}`);
         } catch {}
-        return { applied: true, target: args.adjacentTarget };
+        return { applied: true, target: bridgeCandidate };
       };
       if (recoveryLandingHoldActive && recoveryLandingHoldChainCandidate) {
         const sustainedReadStep = maybeSustainedReadStep({
@@ -12904,9 +12946,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           adjacentTarget: Math.max(lastLineIndex + 1, adjacentLine),
           authority: movementAuthority,
           sourceBranch: pendingSourceBranch || movementAuthoritySourceBranch || '',
+          proofSource: pendingProofSource || movementAuthorityProofSource || '',
           tailProofUsed: !!liveSpeechForwardPushTailProofUsed,
           neighborhoodEvidence: !!liveSpeechForwardPushAdjacentRescueProof,
           contradictionActive: !!strictBackwardContradictionForCommit,
+          stalePrefixIgnored: !!liveSpeechForwardPushStalePrefixIgnored,
+          backwardContradictionOverriddenByTail: !!liveSpeechForwardPushBackwardContradictionOverriddenByTail,
         });
         if (sustainedReadStep.applied) {
           targetLine = sustainedReadStep.target;
@@ -13932,9 +13977,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           adjacentTarget: Math.max(lastLineIndex + 1, adjacentLine),
           authority: movementAuthority,
           sourceBranch: movementAuthoritySourceBranch || '',
+          proofSource: movementAuthorityProofSource || '',
           tailProofUsed: !!directAdjacentTailOrNeighborhoodAccepted,
           neighborhoodEvidence: !!directAdjacentNeighborhoodEvidence,
           contradictionActive: !!strictBackwardContradictionForCommit,
+          stalePrefixIgnored:
+            !!directAdjacentTailProgressionProof?.stalePrefixIgnored ||
+            !!liveSpeechForwardPushStalePrefixIgnored,
+          backwardContradictionOverriddenByTail:
+            !!liveSpeechForwardPushBackwardContradictionOverriddenByTail ||
+            (!!directAdjacentTailProgressionProof?.stalePrefixIgnored && !!strictBackwardContradictionForCommit),
         });
         if (sustainedReadStep.applied) {
           targetLine = sustainedReadStep.target;
