@@ -2,6 +2,7 @@ import { getPrimaryScroller, getScriptRoot } from "../../scroll/scroller";
 import { supabase } from "../../forge/supabaseClient";
 import { resolveForgeUserAccessToken } from "../../forge/tongs-user-auth";
 import { shouldLogLevel } from "../../env/dev-log";
+import { getActiveAsrProfile } from "../../asr/active-profile";
 
 type WhisperBridgeEvent = "start" | "end" | "error" | "partial" | "final";
 type WhisperBridgeListener = (payload?: unknown) => void;
@@ -14,6 +15,8 @@ type WhisperBridgePayload = {
   source: string;
   model?: string | null;
   providerRequestId?: string | null;
+  calibrationProfileId?: string | null;
+  calibrationVersion?: number | null;
 };
 
 type WhisperBridgeResponse = {
@@ -504,7 +507,30 @@ class WhisperBridgeRecognizer {
       throw new Error("Microphone API not available");
     }
 
-    const stream = await (window as any).__tpMic.requestMic();
+    const activeProfile = getActiveAsrProfile();
+    const runtimePath = this.asrLane === 'ASR2' ? 'whisper-large-live' : 'whisper-bridge';
+    const stream = await (window as any).__tpMic.requestMic({
+      source: "whisper-bridge",
+      asrPath: runtimePath,
+      profileId: activeProfile?.id || null,
+      capture: activeProfile?.capture || null,
+    });
+    try {
+      const runtimeDetail = (window as any).__tpCalibrationRuntime;
+      const state = String(runtimeDetail?.calibrationState || (activeProfile ? "partially_calibrated" : "bypassed"));
+      window.dispatchEvent(new CustomEvent("tp:asr:calibration-status", {
+        detail: {
+          path: "whisper-bridge",
+          runtimePath,
+          profileId: activeProfile?.id || null,
+          version: activeProfile?.version ?? null,
+          state,
+          runtime: runtimeDetail || null,
+        },
+      }));
+    } catch {
+      // diagnostics are best-effort
+    }
     const audioTracks = stream.getAudioTracks();
     if (!audioTracks.length) {
       throw new Error("No audio track available");
@@ -1228,6 +1254,8 @@ class WhisperBridgeRecognizer {
       source: SOURCE,
       model: payload.model ?? null,
       providerRequestId: payload.provider_request_id ?? null,
+      calibrationProfileId: getActiveAsrProfile()?.id || null,
+      calibrationVersion: getActiveAsrProfile()?.version ?? null,
     };
 
     if (this.interim && assembledText !== this.lastPartialText) {

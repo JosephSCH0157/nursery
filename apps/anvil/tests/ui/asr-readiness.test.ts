@@ -60,4 +60,13 @@ describe('ASR readiness gating', () => {
     expect(res.ready).toBe(true);
     if (res.ready) expect(res.warn).toBeUndefined();
   });
+
+  test('uses activeProfile.capture.deviceId when app micDevice is empty', () => {
+    setAsrProfile();
+    appStore.set('micGranted', true as any);
+    appStore.set('micDevice', '' as any);
+    const res = computeAsrReadiness();
+    expect(res.ready).toBe(true);
+    if (res.ready) expect(res.warn).toBeUndefined();
+  });
 });

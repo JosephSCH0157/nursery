@@ -23,7 +23,7 @@ export function computeAsrReadiness(): { ready: true; warn?: AsrWarnReason } | {
     } catch {
       // ignore ASR state failures
     }
-    const hasDevice = !!micDevice || !!activeProfile?.deviceId || micOpen;
+    const hasDevice = !!micDevice || !!activeProfile?.capture?.deviceId || micOpen;
     if (!hasDevice) return { ready: false, reason: 'NO_DEVICE' };
 
     if (!activeProfile) return { ready: true, warn: 'NOT_CALIBRATED' };

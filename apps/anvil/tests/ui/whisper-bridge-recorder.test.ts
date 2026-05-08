@@ -122,14 +122,43 @@ describe('whisper bridge recorder segmentation', () => {
     const recorderInstances = installMockRecorder();
 
     const inputStream = new MockMediaStream([new MockTrack()]);
-    (window as any).__tpMic = {
-      requestMic: jest.fn(async () => inputStream),
-    };
+    const requestMic = jest.fn(async () => inputStream);
+    (window as any).__tpMic = { requestMic };
+
+    const { upsertProfile, setActiveProfile } = await import('../../src/asr/store');
+    upsertProfile({
+      id: 'mic-1::Desk',
+      label: 'Desk',
+      capture: {
+        deviceId: 'mic-1',
+        sampleRateHz: 48000,
+        channelCount: 1,
+        echoCancellation: false,
+        noiseSuppression: true,
+        autoGainControl: false,
+      },
+      cal: { noiseRmsDbfs: -52, noisePeakDbfs: -44, speechRmsDbfs: -22, speechPeakDbfs: -10, snrDb: 30 },
+      vad: { tonDb: -38, toffDb: -44, attackMs: 80, releaseMs: 300 },
+      filters: {},
+      version: 2,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    } as any);
+    setActiveProfile('mic-1::Desk' as any);
 
     const { createWhisperBridgeRecognizer } = await import('../../src/speech/engines/whisper-bridge');
     const recognizer = createWhisperBridgeRecognizer({ endpointingMs: 100 });
 
     await recognizer.start();
+    expect(requestMic).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'whisper-bridge',
+      asrPath: 'whisper-bridge',
+      profileId: 'mic-1::Desk',
+      capture: expect.objectContaining({
+        deviceId: 'mic-1',
+        noiseSuppression: true,
+      }),
+    }));
 
     expect(recorderInstances).toHaveLength(1);
     expect(recorderInstances[0]?.start.mock.calls[0]).toHaveLength(0);

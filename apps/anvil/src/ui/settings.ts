@@ -1,4 +1,4 @@
-import { initAsrSettingsUI } from './settings/asrWizard';
+import { initAsrSettingsUI } from './settings/asr-wizard';
 import { addAsrWizardCard, buildSettingsContent as buildFromBuilder } from './settings/builder';
 import { bindHybridGateSetting } from './settings/hybridGate';
 import { setupSettingsTabs } from './settings/tabs';

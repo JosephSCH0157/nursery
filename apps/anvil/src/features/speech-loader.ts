@@ -23,6 +23,7 @@ import {
 } from '../scroll/scroller';
 import { ensureSpeechGlobals, isSpeechBackendAllowed } from '../speech/backend-guard';
 import { createWhisperBridgeRecognizer } from '../speech/engines/whisper-bridge';
+import { getActiveAsrProfile } from '../asr/active-profile';
 import { prepareMatcherInput } from '../speech/matcher-input';
 import { getMatcherRuntimeState } from '../speech/matcher-runtime-state';
 import { matchBatch as runMatcherBatch, normTokens } from '../speech/matcher';
@@ -189,6 +190,13 @@ type AsrRuntimeStatusPayload = {
   speechRunning: boolean;
   speechRunningActual: boolean;
   activeAsrLane?: string;
+  calibration?: {
+    profileId: string | null;
+    state: 'calibrated' | 'partially_calibrated' | 'bypassed';
+    requested?: Record<string, unknown> | null;
+    applied?: Record<string, unknown> | null;
+    ignoredOrUnsupported?: string[] | null;
+  };
 };
 
 type PendingAsrScriptEndStop = {
@@ -228,7 +236,7 @@ declare global {
     __tpScrollMode?: { getMode?: () => string };
     __tpMic?: {
       isOpen?: () => boolean;
-      requestMic?: () => Promise<MediaStream>;
+      requestMic?: (options?: unknown) => Promise<MediaStream>;
       releaseMic?: () => void;
     } & Record<string, unknown>;
     __tpRecording?: {
@@ -550,6 +558,9 @@ function emitAsrRuntimeStatus(reason: string): void {
   const appStoreEngine = String((window as any).__tpStore?.get?.('asr.engine') || '').trim().toLowerCase();
   const requestedEngine = String(lastRequestedSpeechEngine || appStoreEngine || 'whisper').trim().toLowerCase() || 'whisper';
   const actualEngine = currentActualSpeechEngine ? String(currentActualSpeechEngine).trim().toLowerCase() : null;
+  const activeProfile = getActiveAsrProfile();
+  const runtimeCalibration = (window as any).__tpCalibrationRuntime || null;
+  const calibrationState = String(runtimeCalibration?.calibrationState || (activeProfile ? 'partially_calibrated' : 'bypassed')).toLowerCase();
   const payload: AsrRuntimeStatusPayload = {
     reason,
     requestedEngine,
@@ -567,6 +578,13 @@ function emitAsrRuntimeStatus(reason: string): void {
     speechRunning: !!running,
     speechRunningActual: !!speechRunningActual,
     activeAsrLane,
+    calibration: {
+      profileId: activeProfile?.id || null,
+      state: calibrationState === 'calibrated' || calibrationState === 'partially_calibrated' ? calibrationState : 'bypassed',
+      requested: runtimeCalibration?.requested || null,
+      applied: runtimeCalibration?.applied || null,
+      ignoredOrUnsupported: Array.isArray(runtimeCalibration?.ignoredOrUnsupported) ? runtimeCalibration.ignoredOrUnsupported : null,
+    },
   };
   try { window.__tpAsrRuntimeStatus = payload; } catch {}
   try { window.__tpBus?.emit?.('tp:asr:runtime-status', payload); } catch {}
@@ -4460,7 +4478,15 @@ export async function startSpeechBackendForSession(info?: { reason?: string; mod
       }
       const startedEngine = String(lastStartedSpeechEngine || (getTpSpeechStoreSnapshot() as any)?.engine || '').toLowerCase();
       if (startedEngine !== 'whisper') {
-        try { await window.__tpMic?.requestMic?.(); } catch {}
+        try {
+          const activeProfile = getActiveAsrProfile();
+          await window.__tpMic?.requestMic?.({
+            source: 'speech-loader',
+            asrPath: startedEngine || 'webspeech',
+            profileId: activeProfile?.id || null,
+            capture: activeProfile?.capture || null,
+          });
+        } catch {}
       }
       bootTrace('speech-loader:live-path:done', { mode, ok, runKey });
       return ok;

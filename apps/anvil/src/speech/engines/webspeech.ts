@@ -3,6 +3,7 @@
 // =============================================================
 import type { AsrEngine, AsrEngineOptions, AsrEvent } from '../asr-engine';
 import { Emitter } from '../asr-engine';
+import { getActiveAsrProfile } from '../../asr/active-profile';
 
 /**
  * Web Speech API engine (Chromium/Edge). Falls back gracefully if unsupported.
@@ -19,6 +20,20 @@ export class WebSpeechEngine implements AsrEngine {
   on(cb: (_e: AsrEvent) => void): void { this.emitter.on(cb); }
 
   async start(opts: AsrEngineOptions): Promise<void> {
+    const activeProfile = getActiveAsrProfile();
+    try {
+      if ((window as any).__tpMic?.requestMic) {
+        await (window as any).__tpMic.requestMic({
+          source: 'webspeech',
+          asrPath: 'webspeech',
+          profileId: activeProfile?.id || null,
+          capture: activeProfile?.capture || null,
+        });
+      }
+    } catch {
+      // Browser-managed Web Speech can still start without explicit mic pre-acquire.
+    }
+
     const AnyWindow = window as any;
     const Ctor = AnyWindow.webkitSpeechRecognition || AnyWindow.SpeechRecognition;
     if (!Ctor) {
@@ -38,6 +53,23 @@ export class WebSpeechEngine implements AsrEngine {
     rec.continuous = true;
     rec.interimResults = !!opts.interim;
     rec.lang = opts.lang || 'en-US';
+    try {
+      const runtimeDetail = (window as any).__tpCalibrationRuntime;
+      const state = String(runtimeDetail?.calibrationState || (activeProfile ? 'partially_calibrated' : 'bypassed'));
+      window.dispatchEvent(new CustomEvent('tp:asr:calibration-status', {
+        detail: {
+          path: 'webspeech',
+          profileId: activeProfile?.id || null,
+          version: activeProfile?.version ?? null,
+          state: state === 'calibrated' ? 'partially_calibrated' : state,
+          browserManaged: true,
+          runtime: runtimeDetail || null,
+          limitation: 'Web Speech capture is browser-managed; full constraint enforcement may be unavailable.',
+        },
+      }));
+    } catch {
+      // diagnostics are best-effort
+    }
 
     rec.onstart = () => {
       this.emitter.emit({ type: 'ready' });

@@ -1,7 +1,9 @@
 // Mic + dB meter helpers extracted from monolith. Exposes window.__tpMic
 import { appStore } from '../state/app-store';
+import type { CaptureFlags } from '../asr/schema';
+import { getActiveAsrProfile } from '../asr/active-profile';
 export interface MicAPI {
-  requestMic(deviceId?: string): Promise<MediaStream>;
+  requestMic(options?: string | MicRequestOptions): Promise<MediaStream>;
   releaseMic(): void;
   populateDevices(): Promise<void> | void;
   startDbMeter(stream: MediaStream): void;
@@ -9,6 +11,14 @@ export interface MicAPI {
   isOpen(): boolean;
   __lastStream?: MediaStream | null;
 }
+
+export type MicRequestOptions = {
+  deviceId?: string;
+  capture?: Partial<CaptureFlags> | null;
+  source?: string;
+  asrPath?: string;
+  profileId?: string | null;
+};
 
 declare global {
   interface Window {
@@ -22,6 +32,8 @@ let audioStream: MediaStream | null = null;
 let analyser: AnalyserNode | null = null;
 let audioCtx: AudioContext | null = null;
 let dbAnim: number | null = null;
+
+type RuntimeCalibrationState = 'calibrated' | 'partially_calibrated' | 'bypassed';
 
 type MicPermissionState = 'granted' | 'denied' | 'prompt' | 'unknown';
 type MicUiState = 'capturing' | 'granted' | 'blocked' | 'idle';
@@ -213,12 +225,104 @@ function startDbMeter(stream: MediaStream): void {
   }
 }
 
-async function requestMic(preferredId?: string): Promise<MediaStream> {
+async function requestMic(preferredId?: string | MicRequestOptions): Promise<MediaStream> {
   try {
     const sel = document.getElementById('settingsMicSel') as HTMLSelectElement | null;
-    const chosenId = preferredId || sel?.value || undefined;
-    const constraints: MediaStreamConstraints = { audio: { deviceId: chosenId ? { exact: chosenId } : undefined } };
+    const normalizedOptions: MicRequestOptions =
+      typeof preferredId === 'object' && preferredId
+        ? (preferredId as unknown as MicRequestOptions)
+        : typeof preferredId === 'string'
+          ? { deviceId: preferredId }
+          : {};
+    const asrPath = String(normalizedOptions.asrPath || 'generic').trim() || 'generic';
+    const source = String(normalizedOptions.source || 'unknown').trim() || 'unknown';
+
+    const selectedProfile = getActiveAsrProfile();
+    const activeProfileId = normalizedOptions.profileId || selectedProfile?.id || null;
+    const activeCapture =
+      normalizedOptions.capture ||
+      selectedProfile?.capture ||
+      null;
+
+    const chosenId =
+      normalizedOptions.deviceId ||
+      activeCapture?.deviceId ||
+      sel?.value ||
+      undefined;
+
+    const audioConstraints: MediaTrackConstraints = {
+      deviceId: chosenId ? { exact: chosenId } : undefined,
+    };
+
+    if (activeCapture) {
+      if (typeof activeCapture.echoCancellation === 'boolean') {
+        audioConstraints.echoCancellation = activeCapture.echoCancellation;
+      }
+      if (typeof activeCapture.noiseSuppression === 'boolean') {
+        audioConstraints.noiseSuppression = activeCapture.noiseSuppression;
+      }
+      if (typeof activeCapture.autoGainControl === 'boolean') {
+        audioConstraints.autoGainControl = activeCapture.autoGainControl;
+      }
+      if (typeof activeCapture.sampleRateHz === 'number' && Number.isFinite(activeCapture.sampleRateHz)) {
+        audioConstraints.sampleRate = Math.max(8000, Math.round(activeCapture.sampleRateHz));
+      }
+      if (typeof activeCapture.channelCount === 'number' && Number.isFinite(activeCapture.channelCount)) {
+        audioConstraints.channelCount = Math.max(1, Math.round(activeCapture.channelCount));
+      } else {
+        audioConstraints.channelCount = 1;
+      }
+    }
+
+    const constraints: MediaStreamConstraints = { audio: audioConstraints };
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+    let runtimeCalibrationState: RuntimeCalibrationState = 'bypassed';
+    const requestedKeys = Object.keys(audioConstraints).filter((key) => (audioConstraints as any)[key] !== undefined);
+    const applied: Record<string, unknown> = {};
+    const unsupported: string[] = [];
+    try {
+      const track = stream.getAudioTracks?.()[0];
+      const settings = track?.getSettings?.() || {};
+      for (const key of requestedKeys) {
+        const rawRequested = (audioConstraints as any)[key];
+        const requested =
+          rawRequested && typeof rawRequested === 'object' && 'exact' in rawRequested
+            ? (rawRequested as any).exact
+            : rawRequested;
+        const got = (settings as any)[key];
+        const inspectable = got !== undefined && got !== null;
+        const equal =
+          inspectable
+          && (typeof got === 'number' || typeof requested === 'number'
+            ? Number(got) === Number(requested)
+            : String(got) === String(requested));
+        if (equal) applied[key] = got;
+        else unsupported.push(key);
+      }
+      if (activeCapture) {
+        runtimeCalibrationState = unsupported.length
+          ? (Object.keys(applied).length ? 'partially_calibrated' : 'bypassed')
+          : 'calibrated';
+      }
+    } catch {
+      runtimeCalibrationState = activeCapture ? 'partially_calibrated' : 'bypassed';
+    }
+
+    try {
+      const payload = {
+        asrPath,
+        source,
+        profileId: activeProfileId,
+        calibrationState: runtimeCalibrationState,
+        requested: audioConstraints,
+        applied,
+        ignoredOrUnsupported: unsupported,
+      };
+      (window as any).__tpCalibrationRuntime = payload;
+      window.dispatchEvent(new CustomEvent('tp:calibration:runtime', { detail: payload }));
+    } catch {}
+
     audioStream = stream;
     mic.__lastStream = stream;
     try {

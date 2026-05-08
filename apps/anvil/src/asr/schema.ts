@@ -29,6 +29,27 @@ export type FrontEndFilters = {
   hpfHz?: number;                  // e.g. 80
   mainsNotchHz?: 50 | 60 | null;   // add when detected
   limiterDbfs?: -3;                // soft-clip guard
+  deEssBandHz?: [number, number];
+  presenceCutDb?: number;
+  bodyBoostDb?: number;
+};
+
+export type RoomRiskLevel = 'low' | 'medium' | 'high';
+
+export type RoomAnalysis = {
+  noiseFloorDb: number;
+  snrDb: number;
+  rumbleDetected: boolean;
+  humDetected: boolean;
+  echoRisk: RoomRiskLevel;
+  clippingRisk: RoomRiskLevel;
+};
+
+export type CalibrationStatus = 'good_to_record' | 'recordable_but_noisy' | 'fix_first';
+
+export type CalibrationRecommendation = {
+  status: CalibrationStatus;
+  messages: string[];
 };
 
 export type AsrProfile = {
@@ -38,6 +59,10 @@ export type AsrProfile = {
   cal: CalMetrics;
   vad: VadThresholds;
   filters: FrontEndFilters;
+  room?: RoomAnalysis;
+  recommendation?: CalibrationRecommendation;
+  version?: number;
+  measuredAt?: number;
   createdAt: number;
   updatedAt: number;
   notes?: string;
