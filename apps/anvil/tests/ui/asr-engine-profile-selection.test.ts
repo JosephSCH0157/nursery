@@ -1,5 +1,7 @@
 /** @jest-environment jsdom */
 
+import type { normalizePersistedAsrSelection as _normalizePersistedAsrSelection } from '../../src/features/asr/engine-selection';
+
 describe('ASR engine profile selection', () => {
   beforeEach(() => {
     jest.resetModules();
@@ -8,7 +10,7 @@ describe('ASR engine profile selection', () => {
   test('migrates legacy persisted webspeech settings to whisper when not explicit', () => {
     const {
       normalizePersistedAsrSelection,
-    } = require('../../src/features/asr/engine-selection') as typeof import('../../src/features/asr/engine-selection');
+    } = require('../../src/features/asr/engine-selection');
 
     const settings = normalizePersistedAsrSelection({
       app: { 'asr.engine': 'webspeech' },
@@ -24,7 +26,7 @@ describe('ASR engine profile selection', () => {
   test('preserves browser speech when the persisted choice was explicit', () => {
     const {
       normalizePersistedAsrSelection,
-    } = require('../../src/features/asr/engine-selection') as typeof import('../../src/features/asr/engine-selection');
+    } = require('../../src/features/asr/engine-selection');
 
     const settings = normalizePersistedAsrSelection({
       app: { 'asr.engine': 'webspeech' },

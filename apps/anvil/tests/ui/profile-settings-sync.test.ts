@@ -1,5 +1,8 @@
 /** @jest-environment jsdom */
 
+import type { createProfileSettingsSync as _createProfileSettingsSync } from '../../src/forge/profile-settings-sync';
+import type { createProfile as _createProfile } from '../../src/ui/speaker-profiles-store';
+
 describe('profile settings sync', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -26,7 +29,7 @@ describe('profile settings sync', () => {
     localStorage.setItem('tp_asr_engine_explicit_v1', '1');
 
     const { appStore } = require('../../src/state/app-store') as { appStore: any };
-    const { createProfileSettingsSync } = require('../../src/forge/profile-settings-sync') as typeof import('../../src/forge/profile-settings-sync');
+    const { createProfileSettingsSync } = require('../../src/forge/profile-settings-sync');
 
     appStore.set('asr.engine', 'webspeech');
     appStore.set('asr.manualAnchorAdoptEnabled', false);
@@ -59,7 +62,7 @@ describe('profile settings sync', () => {
     const authProfile = require('../../src/forge/authProfile') as {
       saveProfileSettings: jest.Mock;
     };
-    const { createProfileSettingsSync } = require('../../src/forge/profile-settings-sync') as typeof import('../../src/forge/profile-settings-sync');
+    const { createProfileSettingsSync } = require('../../src/forge/profile-settings-sync');
 
     const sync = createProfileSettingsSync({
       store: appStore,
@@ -80,8 +83,8 @@ describe('profile settings sync', () => {
       saveProfileSettings: jest.Mock;
     };
     authProfile.saveProfileSettings.mockResolvedValue({ rev: 1 });
-    const { createProfile } = require('../../src/ui/speaker-profiles-store') as typeof import('../../src/ui/speaker-profiles-store');
-    const { createProfileSettingsSync } = require('../../src/forge/profile-settings-sync') as typeof import('../../src/forge/profile-settings-sync');
+    const { createProfile } = require('../../src/ui/speaker-profiles-store');
+    const { createProfileSettingsSync } = require('../../src/forge/profile-settings-sync');
 
     const sync = createProfileSettingsSync({
       store: appStore,

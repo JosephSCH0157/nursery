@@ -198,7 +198,7 @@ type AsrKickResult = {
   targetBlockIdx: number | null;
 };
 
-function kickAsrForward(scroller: HTMLElement, deltaPx: number, reason: string): AsrKickResult {
+function kickAsrForward(scroller: HTMLElement, deltaPx: number, _reason: string): AsrKickResult {
   const from = readScrollTop(scroller);
   const currentLine = resolveAsrKickBaseLineIndex(scroller);
   const nextLineIndex =

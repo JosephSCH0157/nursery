@@ -1,12 +1,14 @@
 /** @jest-environment jsdom */
 
+import type { prepareMatcherInput as _prepareMatcherInput } from '../../src/speech/matcher-input';
+
 describe('matcher input preparation', () => {
   beforeEach(() => {
     jest.resetModules();
   });
 
   test('strips meta phrases before tokenization', () => {
-    const { prepareMatcherInput } = require('../../src/speech/matcher-input') as typeof import('../../src/speech/matcher-input');
+    const { prepareMatcherInput } = require('../../src/speech/matcher-input');
 
     const prepared = prepareMatcherInput(
       "okay so you know I think here's one weird thing",
@@ -17,7 +19,7 @@ describe('matcher input preparation', () => {
   });
 
   test('limits matcher tokens to the tail window', () => {
-    const { prepareMatcherInput } = require('../../src/speech/matcher-input') as typeof import('../../src/speech/matcher-input');
+    const { prepareMatcherInput } = require('../../src/speech/matcher-input');
 
     const transcript = Array.from({ length: 24 }, (_, idx) => `w${idx + 1}`).join(' ');
     const prepared = prepareMatcherInput(
