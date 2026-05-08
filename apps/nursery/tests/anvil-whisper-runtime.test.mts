@@ -688,6 +688,7 @@ test("createAnvilWhisperHandler returns detailed Hugging Face diagnostics on ups
     assert.equal(payload.asr_lane, "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL");
     assert.ok(typeof payload.upstream_status === "number");
     assert.ok(String(payload.upstream_message || "").length > 0);
+    assert.ok(!String(payload.upstream_message || "").includes("reading 'accessToken'"));
     assert.ok(String(payload.upstream_url || "").includes("huggingface.co"));
     assert.equal(payload.model_url, "https://huggingface.co/openai/whisper-large-v3-turbo");
     assert.ok(!String(payload.upstream_url || "").includes(":fastest"));

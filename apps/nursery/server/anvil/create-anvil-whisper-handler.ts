@@ -633,10 +633,11 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         upstreamAbort.signal.addEventListener("abort", onParentAbort, { once: true });
         try {
           const inferenceClient = new InferenceClient(huggingFaceApiToken);
+          const audioBytes = await nextFileValue.arrayBuffer();
           const response = await inferenceClient.automaticSpeechRecognition({
             provider: providerMode,
             model: nextModel,
-            data: new Uint8Array(await nextFileValue.arrayBuffer()),
+            data: audioBytes,
           }, {
             fetch: async (url, init) => {
               upstreamUrl = typeof url === "string" ? url : url.toString();
