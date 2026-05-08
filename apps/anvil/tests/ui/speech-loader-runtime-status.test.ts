@@ -141,4 +141,79 @@ describe('speech loader runtime status', () => {
     stopSpeechBackendForSession('test-runtime-fallback');
     expect((window as any).__tpEmitSpeech).toBeUndefined();
   });
+
+  test('reports whisper-large-live runtime path in ASR2 diagnostics', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    localStorage.setItem('tp_asr_experimental_lane_v1', 'ASR2_WHISPER_LARGE_V3_EXPERIMENTAL');
+
+    const whisperStart = jest.fn(async () => {
+      throw new Error('bridge-down');
+    });
+    const whisperOn = jest.fn();
+    jest.doMock('../../src/speech/engines/whisper-bridge', () => ({
+      createWhisperBridgeRecognizer: jest.fn(() => ({
+        start: whisperStart,
+        on: whisperOn,
+      })),
+    }));
+    jest.doMock('../../src/features/asr/asr-scroll-driver', () => ({
+      createAsrScrollDriver: jest.fn(() => ({
+        getStats: () => ({
+          lastIngestAt: 0,
+          lastCommitAt: 0,
+          commitCount: 0,
+          eventsSinceCommit: 0,
+          finalsSinceCommit: 0,
+        }),
+        getLastLineIndex: () => 0,
+        setLastLineIndex: jest.fn(),
+        ingest: jest.fn(),
+        dispose: jest.fn(),
+      })),
+    }));
+
+    class MockSpeechRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = 'en-US';
+      onstart: ((ev: Event) => void) | null = null;
+      start = jest.fn(() => {
+        this.onstart?.(new Event('start'));
+      });
+      stop = jest.fn();
+      abort = jest.fn();
+    }
+    (window as any).SpeechRecognition = MockSpeechRecognition;
+
+    const statuses: Array<Record<string, unknown>> = [];
+    window.addEventListener('tp:asr:runtime-status', ((event: Event) => {
+      statuses.push(((event as CustomEvent).detail || {}) as Record<string, unknown>);
+    }) as EventListener);
+
+    const { appStore } = await import('../../src/state/app-store');
+    const { initSession } = await import('../../src/state/session');
+    initSession();
+    (window as any).__tpStore = appStore;
+    (window as any).__tpMic = {
+      requestMic: jest.fn(),
+      releaseMic: jest.fn(),
+    };
+    appStore.set('scrollMode', 'asr' as any);
+    appStore.set('asr.engine', 'whisper');
+
+    const { startSpeechBackendForSession, stopSpeechBackendForSession } = await import('../../src/features/speech-loader');
+    const ok = await startSpeechBackendForSession({ mode: 'asr', reason: 'test-asr2-runtime-path' });
+    expect(ok).toBe(true);
+
+    const runtimeStatus = (window as any).__tpAsrRuntimeStatus;
+    expect(runtimeStatus).toEqual(expect.objectContaining({
+      activeAsrLane: 'ASR2_WHISPER_LARGE_V3_EXPERIMENTAL',
+      runtimePath: 'whisper-large-live',
+      requestedEngine: 'whisper',
+      actualEngine: 'webspeech',
+    }));
+    expect(statuses.some((status) => status.runtimePath === 'whisper-large-live')).toBe(true);
+
+    stopSpeechBackendForSession('test-asr2-runtime-path');
+  });
 });

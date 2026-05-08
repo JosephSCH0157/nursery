@@ -321,6 +321,7 @@ async function requestMic(preferredId?: string | MicRequestOptions): Promise<Med
       };
       (window as any).__tpCalibrationRuntime = payload;
       window.dispatchEvent(new CustomEvent('tp:calibration:runtime', { detail: payload }));
+      console.info('[ASR_CALIBRATION_RUNTIME]', payload);
     } catch {}
 
     audioStream = stream;

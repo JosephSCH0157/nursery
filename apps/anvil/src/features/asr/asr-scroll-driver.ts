@@ -5064,6 +5064,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const localSpeechFresh = vadSpeechFresh;
       const speechFresh =
         localSpeechFresh ||
+        runtimeSpeechFresh ||
         (!asrRuntimeSpeechSeen && !asrVadSeen);
       if (!speechFresh) {
         const normalizedSource = String(source || '').trim().toLowerCase();
@@ -14508,14 +14509,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ]);
       return;
     }
+    const runtimeSpeechFreshNow = hasRecentActualSpeech(now);
+    const vadSpeechFreshNow = hasRecentVadSpeechNow(now);
+    const liveSpeechCoherent =
+      runtimeSpeechFreshNow &&
+      vadSpeechFreshNow &&
+      asrRuntimeSpeechRunningActual;
     const staleWhisperBridgeFinalPacket =
       liveAsrSessionActive &&
       isFinal &&
       isWhisperBridgeTranscriptSource(transcriptSource) &&
       (
-        asrSilenceActive ||
-        !hasRecentActualSpeech(now) ||
-        !hasRecentVadSpeechNow(now) ||
+        (!liveSpeechCoherent && asrSilenceActive) ||
+        !runtimeSpeechFreshNow ||
+        !vadSpeechFreshNow ||
         !asrRuntimeSpeechRunningActual
       );
     if (staleWhisperBridgeFinalPacket) {
@@ -14523,8 +14530,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         'source=ingest',
         `transcriptSource=${transcriptSource || 'unknown'}`,
         `speechFresh=0`,
-        `runtimeSpeechFresh=${hasRecentActualSpeech(now) ? 1 : 0}`,
-        `vadSpeechFresh=${hasRecentVadSpeechNow(now) ? 1 : 0}`,
+        `runtimeSpeechFresh=${runtimeSpeechFreshNow ? 1 : 0}`,
+        `vadSpeechFresh=${vadSpeechFreshNow ? 1 : 0}`,
         `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
         `asrSilenceActive=${asrSilenceActive ? 1 : 0}`,
         compacted ? `clue="${formatLogSnippet(compacted, 72)}"` : '',

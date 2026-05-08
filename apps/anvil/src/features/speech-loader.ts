@@ -190,6 +190,7 @@ type AsrRuntimeStatusPayload = {
   speechRunning: boolean;
   speechRunningActual: boolean;
   activeAsrLane?: string;
+  runtimePath?: string;
   calibration?: {
     profileId: string | null;
     state: 'calibrated' | 'partially_calibrated' | 'bypassed';
@@ -561,6 +562,7 @@ function emitAsrRuntimeStatus(reason: string): void {
   const activeProfile = getActiveAsrProfile();
   const runtimeCalibration = (window as any).__tpCalibrationRuntime || null;
   const calibrationState = String(runtimeCalibration?.calibrationState || (activeProfile ? 'partially_calibrated' : 'bypassed')).toLowerCase();
+  const runtimePath = activeAsrLane === ASR_LANE_ASR2 ? 'whisper-large-live' : 'whisper-bridge';
   const payload: AsrRuntimeStatusPayload = {
     reason,
     requestedEngine,
@@ -578,6 +580,7 @@ function emitAsrRuntimeStatus(reason: string): void {
     speechRunning: !!running,
     speechRunningActual: !!speechRunningActual,
     activeAsrLane,
+    runtimePath,
     calibration: {
       profileId: activeProfile?.id || null,
       state: calibrationState === 'calibrated' || calibrationState === 'partially_calibrated' ? calibrationState : 'bypassed',
@@ -590,6 +593,18 @@ function emitAsrRuntimeStatus(reason: string): void {
   try { window.__tpBus?.emit?.('tp:asr:runtime-status', payload); } catch {}
   try { window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', { detail: payload })); } catch {}
   try { document.dispatchEvent(new CustomEvent('tp:asr:runtime-status', { detail: payload })); } catch {}
+  try {
+    console.info('[ASR_RUNTIME_STATUS]', {
+      reason,
+      lane: activeAsrLane,
+      runtimePath,
+      calibrationState: payload.calibration?.state || 'bypassed',
+      calibrationProfileId: payload.calibration?.profileId || null,
+      requestedConstraints: payload.calibration?.requested || null,
+      appliedConstraints: payload.calibration?.applied || null,
+      ignoredOrUnsupportedConstraints: payload.calibration?.ignoredOrUnsupported || null,
+    });
+  } catch {}
 }
 
 function resolveAsrDriverRef(): any {

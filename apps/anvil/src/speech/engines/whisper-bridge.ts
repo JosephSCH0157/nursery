@@ -518,16 +518,16 @@ class WhisperBridgeRecognizer {
     try {
       const runtimeDetail = (window as any).__tpCalibrationRuntime;
       const state = String(runtimeDetail?.calibrationState || (activeProfile ? "partially_calibrated" : "bypassed"));
-      window.dispatchEvent(new CustomEvent("tp:asr:calibration-status", {
-        detail: {
-          path: "whisper-bridge",
-          runtimePath,
-          profileId: activeProfile?.id || null,
-          version: activeProfile?.version ?? null,
-          state,
-          runtime: runtimeDetail || null,
-        },
-      }));
+      const detail = {
+        path: "whisper-bridge",
+        runtimePath,
+        profileId: activeProfile?.id || null,
+        version: activeProfile?.version ?? null,
+        state,
+        runtime: runtimeDetail || null,
+      };
+      window.dispatchEvent(new CustomEvent("tp:asr:calibration-status", { detail }));
+      console.info('[ASR_CALIBRATION_STATUS]', detail);
     } catch {
       // diagnostics are best-effort
     }
