@@ -1080,6 +1080,118 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('bypasses adjacent hold for proof authority with final-forward-nudge force reason', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    (window as any).__tpCalibrationRuntime = { dsp: { state: 'active' } };
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+    driver.setLastLineIndex(2);
+    await jest.advanceTimersByTimeAsync(3600);
+
+    driver.ingest('Driving through northern Orlando. on Orange Blossom Trail.', true, {
+      currentIdx: 2,
+      matchId: 'adjacent-proof-final-forward-nudge',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.9,
+        topScores: [],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(260);
+
+    expect(driver.getLastLineIndex()).toBe(3);
+    const warns = warnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(warns.some((line) =>
+      (
+        line.includes('asr_live_no_adjacent_match_bypass') ||
+        line.includes('movement_authority_commit')
+      ) &&
+      line.includes('current=2') &&
+      line.includes('target=3'),
+    )).toBe(true);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('bypasses adjacent hold for proof authority with live_strict_proof_owned_commit force reason', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    (window as any).__tpCalibrationRuntime = { dsp: { state: 'active' } };
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+    driver.setLastLineIndex(2);
+    await jest.advanceTimersByTimeAsync(4200);
+
+    // Prime local proof near cursor, then forward phrase without direct adjacent score.
+    driver.ingest('Driving through northern Orlando.', true, {
+      currentIdx: 2,
+      matchId: 'adjacent-proof-owned-prime-current',
+      match: {
+        bestIdx: 2,
+        bestSim: 0.92,
+        topScores: [{ idx: 2, score: 0.92 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(120);
+
+    driver.ingest('Driving through northern Orlando. on Orange Blossom Trail. It used to smell amazing.', true, {
+      currentIdx: 2,
+      matchId: 'adjacent-proof-owned-commit',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.88,
+        topScores: [],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(260);
+
+    expect(driver.getLastLineIndex()).toBe(3);
+    const warns = warnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(warns.some((line) =>
+      (
+        line.includes('asr_live_no_adjacent_match_bypass') ||
+        line.includes('movement_authority_commit')
+      ) &&
+      line.includes('current=2') &&
+      line.includes('target=3'),
+    )).toBe(true);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('keeps hold when no proof authority is present for adjacent target', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+    driver.setLastLineIndex(2);
+    await jest.advanceTimersByTimeAsync(1200);
+
+    driver.ingest('random unrelated words', true, {
+      currentIdx: 2,
+      matchId: 'adjacent-no-proof-authority',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.31,
+        topScores: [{ idx: 3, score: 0.31 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(180);
+
+    expect(driver.getLastLineIndex()).toBe(2);
+    const warns = warnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(warns.some((line) => line.includes('asr_live_no_adjacent_match_hold'))).toBe(true);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('cancels pending speakable bridge completion when runtime speech stops', async () => {
     const scroller = document.getElementById('viewer') as HTMLElement;
     const script = document.getElementById('script') as HTMLElement;

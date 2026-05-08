@@ -6191,6 +6191,32 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     );
   };
 
+  const isAdjacentProofOwnedForceReason = (value?: unknown): boolean => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) return false;
+    return (
+      normalized === 'final-forward-nudge' ||
+      normalized === 'live_strict_proof_owned_commit' ||
+      normalized === 'proof_owned_primary_commit' ||
+      normalized === 'live_speech_forward_push_commit' ||
+      normalized === 'live_strict_local_proof_ok' ||
+      normalized.includes('proof_owned') ||
+      normalized.includes('final-forward-nudge') ||
+      normalized.includes('forward_push')
+    );
+  };
+
+  const isMovementAuthorityProofBranch = (value?: unknown): boolean => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) return false;
+    return (
+      normalized.includes('movement_authority_proof') ||
+      normalized.includes('movement_authority_reconcile') ||
+      normalized.includes('proof_owned') ||
+      normalized.includes('pending-proof-owned')
+    );
+  };
+
   const isRecoveryLandingHoldSource = (
     sourceBranch?: unknown,
     forceReason?: unknown,
@@ -13777,6 +13803,30 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         directAdjacentProofSourceEligible &&
         directAdjacentTailOrNeighborhoodAccepted &&
         directAdjacentForwardTailAccepted;
+      const directAdjacentProofOwnedForceSignal =
+        isAdjacentProofOwnedForceReason(forceReason) ||
+        isAdjacentProofOwnedForceReason(movementAuthorityProofSource) ||
+        isAdjacentProofOwnedForceReason(movementAuthoritySourceBranch);
+      const directAdjacentProofBranchSignal =
+        isMovementAuthorityProofBranch(movementAuthoritySourceBranch) ||
+        isMovementAuthorityProofBranch(forceReason);
+      const directAdjacentNoStaleVeto =
+        !asrSilenceActive &&
+        runtimeSpeechFresh &&
+        hasRecentVadSpeech &&
+        asrRuntimeSpeechRunningActual;
+      const directAdjacentProofOwnedBypassEligible =
+        liveStrictFollow &&
+        directAdjacentGuardEligible &&
+        adjacentOrReducedToAdjacentTarget &&
+        (movementAuthority === 'proof' || movementAuthority === 'reconcile') &&
+        directAdjacentProofBranchSignal &&
+        directAdjacentProofOwnedForceSignal &&
+        directAdjacentNoStaleVeto;
+      const directAdjacentAnyBypassEligible =
+        directAdjacentFallbackProofOwned ||
+        directAdjacentAuthorityBypassEligible ||
+        directAdjacentProofOwnedBypassEligible;
       const speechStopCleanupCommitForGates =
         movementAuthorityReason === 'speech_stop_cleanup_commit';
       if (
@@ -13807,8 +13857,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !speechStopCleanupCommitForGates &&
         directAdjacentGuardEligible &&
         !directAdjacentMatch &&
-        !directAdjacentFallbackProofOwned &&
-        !directAdjacentAuthorityBypassEligible
+        !directAdjacentAnyBypassEligible
       ) {
         warnGuard('asr_live_no_adjacent_match_hold', [
           `current=${lastLineIndex}`,
@@ -13843,6 +13892,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ]);
       }
       if (directAdjacentAuthorityBypassEligible && !directAdjacentMatch && !directAdjacentFallbackProofOwned) {
+        const dspState = String((window as any)?.__tpCalibrationRuntime?.dsp?.state || 'unknown');
         warnGuard('asr_live_no_adjacent_match_bypass', [
           `current=${lastLineIndex}`,
           `target=${targetLine}`,
@@ -13858,6 +13908,29 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `sourceBranch=${movementAuthoritySourceBranch}`,
           forceReason ? `forceReason=${forceReason}` : '',
           movementAuthorityProofSource ? `proofSource=${movementAuthorityProofSource}` : '',
+          `reducedToAdjacent=${adjacentOrReducedToAdjacentTarget ? 1 : 0}`,
+          `dspState=${dspState}`,
+          snippet ? `clue="${snippet}"` : '',
+        ]);
+      }
+      if (directAdjacentProofOwnedBypassEligible && !directAdjacentMatch && !directAdjacentFallbackProofOwned && !directAdjacentAuthorityBypassEligible) {
+        const dspState = String((window as any)?.__tpCalibrationRuntime?.dsp?.state || 'unknown');
+        warnGuard('asr_live_no_adjacent_match_bypass', [
+          `current=${lastLineIndex}`,
+          `target=${targetLine}`,
+          Number.isFinite(directAdjacentSim)
+            ? `adjacentSim=${formatLogScore(directAdjacentSim)}`
+            : 'adjacentSim=na',
+          `adjacentNeed=${formatLogScore(directAdjacentNeed)}`,
+          `tailProof=${directAdjacentTailProgressionProof?.ok ? 1 : 0}`,
+          `tailProofUsed=${directAdjacentTailOrNeighborhoodAccepted ? 1 : 0}`,
+          `neighborhoodEvidence=${directAdjacentNeighborhoodEvidence ? 1 : 0}`,
+          `authority=${movementAuthority}`,
+          `sourceBranch=${movementAuthoritySourceBranch}`,
+          forceReason ? `forceReason=${forceReason}` : '',
+          movementAuthorityProofSource ? `proofSource=${movementAuthorityProofSource}` : '',
+          `reducedToAdjacent=${adjacentOrReducedToAdjacentTarget ? 1 : 0}`,
+          `dspState=${dspState}`,
           snippet ? `clue="${snippet}"` : '',
         ]);
       }
