@@ -197,6 +197,12 @@ type AsrRuntimeStatusPayload = {
     requested?: Record<string, unknown> | null;
     applied?: Record<string, unknown> | null;
     ignoredOrUnsupported?: string[] | null;
+    dsp?: {
+      state?: string;
+      activeFilters?: string[];
+      details?: Record<string, unknown> | null;
+      error?: string;
+    } | null;
   };
 };
 
@@ -587,6 +593,7 @@ function emitAsrRuntimeStatus(reason: string): void {
       requested: runtimeCalibration?.requested || null,
       applied: runtimeCalibration?.applied || null,
       ignoredOrUnsupported: Array.isArray(runtimeCalibration?.ignoredOrUnsupported) ? runtimeCalibration.ignoredOrUnsupported : null,
+      dsp: runtimeCalibration?.dsp || null,
     },
   };
   try { window.__tpAsrRuntimeStatus = payload; } catch {}
@@ -603,6 +610,8 @@ function emitAsrRuntimeStatus(reason: string): void {
       requestedConstraints: payload.calibration?.requested || null,
       appliedConstraints: payload.calibration?.applied || null,
       ignoredOrUnsupportedConstraints: payload.calibration?.ignoredOrUnsupported || null,
+      dspState: payload.calibration?.dsp?.state || 'inactive',
+      activeDspFilters: payload.calibration?.dsp?.activeFilters || [],
     });
   } catch {}
 }

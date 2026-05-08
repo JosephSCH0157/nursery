@@ -2,6 +2,7 @@
 import { appStore } from '../state/app-store';
 import type { CaptureFlags } from '../asr/schema';
 import { getActiveAsrProfile } from '../asr/active-profile';
+import type { AsrProfile, FrontEndFilters } from '../asr/schema';
 export interface MicAPI {
   requestMic(options?: string | MicRequestOptions): Promise<MediaStream>;
   releaseMic(): void;
@@ -29,11 +30,22 @@ declare global {
 
 const DEVICE_KEY = 'tp_mic_device_v1';
 let audioStream: MediaStream | null = null;
+let rawAudioStream: MediaStream | null = null;
 let analyser: AnalyserNode | null = null;
 let audioCtx: AudioContext | null = null;
 let dbAnim: number | null = null;
+let dspCtx: AudioContext | null = null;
+let dspDestination: MediaStreamAudioDestinationNode | null = null;
 
 type RuntimeCalibrationState = 'calibrated' | 'partially_calibrated' | 'bypassed';
+type RuntimeDspState = 'active' | 'inactive' | 'unavailable' | 'error';
+
+type RuntimeDspDiagnostics = {
+  state: RuntimeDspState;
+  activeFilters: string[];
+  details: Record<string, unknown>;
+  error?: string;
+};
 
 type MicPermissionState = 'granted' | 'denied' | 'prompt' | 'unknown';
 type MicUiState = 'capturing' | 'granted' | 'blocked' | 'idle';
@@ -145,11 +157,6 @@ function stopDbMeter(): void {
   if (dbAnim) cancelAnimationFrame(dbAnim);
   dbAnim = null;
   try {
-    audioStream?.getTracks().forEach((t) => t.stop());
-  } catch {
-    // ignore
-  }
-  try {
     if (audioCtx && typeof audioCtx.close === 'function') audioCtx.close().catch(() => {});
   } catch {
     // ignore
@@ -157,6 +164,159 @@ function stopDbMeter(): void {
   audioStream = null;
   analyser = null;
   audioCtx = null;
+}
+
+function closeDspChain(): void {
+  try {
+    dspDestination?.disconnect?.();
+  } catch {
+    // ignore
+  }
+  try {
+    if (dspCtx && typeof dspCtx.close === 'function') {
+      dspCtx.close().catch(() => {});
+    }
+  } catch {
+    // ignore
+  }
+  dspDestination = null;
+  dspCtx = null;
+}
+
+function hasAnyFilterConfigured(filters?: FrontEndFilters | null): boolean {
+  if (!filters) return false;
+  return (
+    Number.isFinite(Number(filters.hpfHz)) ||
+    Number.isFinite(Number(filters.mainsNotchHz)) ||
+    Number.isFinite(Number(filters.presenceCutDb)) ||
+    Number.isFinite(Number(filters.bodyBoostDb)) ||
+    Array.isArray(filters.deEssBandHz)
+  );
+}
+
+function applyCalibrationDsp(
+  input: MediaStream,
+  profile: AsrProfile | null,
+): { stream: MediaStream; diagnostics: RuntimeDspDiagnostics } {
+  const filters = profile?.filters || null;
+  if (!hasAnyFilterConfigured(filters)) {
+    return {
+      stream: input,
+      diagnostics: { state: 'inactive', activeFilters: [], details: {} },
+    };
+  }
+  const AC = (window.AudioContext || window.webkitAudioContext) as typeof AudioContext | undefined;
+  if (!AC) {
+    return {
+      stream: input,
+      diagnostics: {
+        state: 'unavailable',
+        activeFilters: [],
+        details: { reason: 'audio_context_unavailable' },
+      },
+    };
+  }
+
+  try {
+    closeDspChain();
+    const ctx = new AC();
+    dspCtx = ctx;
+    const source = ctx.createMediaStreamSource(input);
+    const nodes: AudioNode[] = [];
+    const activeFilters: string[] = [];
+    const details: Record<string, unknown> = {};
+
+    if (typeof filters?.hpfHz === 'number' && Number.isFinite(filters.hpfHz)) {
+      const hpf = ctx.createBiquadFilter();
+      hpf.type = 'highpass';
+      hpf.frequency.value = Math.max(40, Math.min(220, filters.hpfHz));
+      hpf.Q.value = 0.707;
+      nodes.push(hpf);
+      activeFilters.push('highpass');
+      details.highPassHz = hpf.frequency.value;
+    }
+    if (typeof filters?.mainsNotchHz === 'number' && Number.isFinite(filters.mainsNotchHz)) {
+      const notch = ctx.createBiquadFilter();
+      notch.type = 'notch';
+      notch.frequency.value = filters.mainsNotchHz;
+      notch.Q.value = 10;
+      nodes.push(notch);
+      activeFilters.push('notch');
+      details.notchHz = notch.frequency.value;
+    }
+    if (Array.isArray(filters?.deEssBandHz) && filters.deEssBandHz.length === 2) {
+      const [loRaw, hiRaw] = filters.deEssBandHz;
+      const lo = Math.max(2000, Number(loRaw) || 5000);
+      const hi = Math.min(12000, Number(hiRaw) || 8500);
+      const center = Math.sqrt(lo * hi);
+      const q = Math.max(0.5, Math.min(8, center / Math.max(100, hi - lo)));
+      const deEss = ctx.createBiquadFilter();
+      deEss.type = 'peaking';
+      deEss.frequency.value = center;
+      deEss.Q.value = q;
+      deEss.gain.value = -1.5;
+      nodes.push(deEss);
+      activeFilters.push('de-ess');
+      details.deEssBandHz = [lo, hi];
+    }
+    if (typeof filters?.presenceCutDb === 'number' && Number.isFinite(filters.presenceCutDb) && filters.presenceCutDb > 0) {
+      const presence = ctx.createBiquadFilter();
+      presence.type = 'peaking';
+      presence.frequency.value = 3600;
+      presence.Q.value = 1.2;
+      presence.gain.value = -Math.min(4, Math.abs(filters.presenceCutDb));
+      nodes.push(presence);
+      activeFilters.push('presence-cut');
+      details.presenceCutDb = presence.gain.value;
+    }
+    if (typeof filters?.bodyBoostDb === 'number' && Number.isFinite(filters.bodyBoostDb) && filters.bodyBoostDb > 0) {
+      const body = ctx.createBiquadFilter();
+      body.type = 'lowshelf';
+      body.frequency.value = 170;
+      body.gain.value = Math.min(4, Math.abs(filters.bodyBoostDb));
+      nodes.push(body);
+      activeFilters.push('body-boost');
+      details.bodyBoostDb = body.gain.value;
+    }
+
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -3;
+    limiter.knee.value = 2;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.12;
+    nodes.push(limiter);
+    activeFilters.push('limiter');
+    details.limiterDbfs = -3;
+
+    let prev: AudioNode = source;
+    for (const node of nodes) {
+      prev.connect(node);
+      prev = node;
+    }
+    const destination = ctx.createMediaStreamDestination();
+    prev.connect(destination);
+    dspDestination = destination;
+    return {
+      stream: destination.stream,
+      diagnostics: {
+        state: activeFilters.length ? 'active' : 'inactive',
+        activeFilters,
+        details,
+      },
+    };
+  } catch (err) {
+    closeDspChain();
+    return {
+      stream: input,
+      diagnostics: {
+        state: 'error',
+        activeFilters: [],
+        details: {},
+        error: String((err as any)?.message || err || 'unknown_dsp_error'),
+      },
+    };
+  }
 }
 
 function startDbMeter(stream: MediaStream): void {
@@ -227,6 +387,7 @@ function startDbMeter(stream: MediaStream): void {
 
 async function requestMic(preferredId?: string | MicRequestOptions): Promise<MediaStream> {
   try {
+    releaseMic();
     const sel = document.getElementById('settingsMicSel') as HTMLSelectElement | null;
     const normalizedOptions: MicRequestOptions =
       typeof preferredId === 'object' && preferredId
@@ -275,7 +436,11 @@ async function requestMic(preferredId?: string | MicRequestOptions): Promise<Med
     }
 
     const constraints: MediaStreamConstraints = { audio: audioConstraints };
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    const rawStream = await navigator.mediaDevices.getUserMedia(constraints);
+    rawAudioStream = rawStream;
+    const selectedProfileForDsp = selectedProfile || null;
+    const dspResult = applyCalibrationDsp(rawStream, selectedProfileForDsp);
+    const stream = dspResult.stream;
 
     let runtimeCalibrationState: RuntimeCalibrationState = 'bypassed';
     const requestedKeys = Object.keys(audioConstraints).filter((key) => (audioConstraints as any)[key] !== undefined);
@@ -318,6 +483,7 @@ async function requestMic(preferredId?: string | MicRequestOptions): Promise<Med
         requested: audioConstraints,
         applied,
         ignoredOrUnsupported: unsupported,
+        dsp: dspResult.diagnostics,
       };
       (window as any).__tpCalibrationRuntime = payload;
       window.dispatchEvent(new CustomEvent('tp:calibration:runtime', { detail: payload }));
@@ -362,6 +528,13 @@ function releaseMic(): void {
   } catch {
     // ignore
   }
+  try {
+    rawAudioStream?.getTracks().forEach((t) => t.stop());
+  } catch {
+    // ignore
+  }
+  closeDspChain();
+  rawAudioStream = null;
   audioStream = null;
   mic.__lastStream = null;
   emitMicState();
