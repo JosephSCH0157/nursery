@@ -528,6 +528,7 @@ test("createAnvilWhisperHandler routes ASR2 lane through Hugging Face when confi
   const originalFetch = globalThis.fetch;
   const seenUrls: string[] = [];
   const seenAuth: string[] = [];
+  const seenContentTypes: string[] = [];
 
   globalThis.fetch = async (input, init) => {
     const url = String(input);
@@ -559,16 +560,24 @@ test("createAnvilWhisperHandler routes ASR2 lane through Hugging Face when confi
     }
     if (url.includes("/hf-inference/models/")) {
       let auth = "";
+      let contentType = "";
       if (init?.headers instanceof Headers) {
         auth = String(init.headers.get("authorization") ?? "");
+        contentType = String(init.headers.get("content-type") ?? "");
       } else if (init?.headers && typeof init.headers === "object") {
         auth = String(
           (init.headers as Record<string, string>)["authorization"]
           ?? (init.headers as Record<string, string>)["Authorization"]
           ?? "",
         );
+        contentType = String(
+          (init.headers as Record<string, string>)["content-type"]
+          ?? (init.headers as Record<string, string>)["Content-Type"]
+          ?? "",
+        );
       }
       seenAuth.push(auth);
+      seenContentTypes.push(contentType);
       return new Response(JSON.stringify({ text: "hf ok" }), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -607,10 +616,67 @@ test("createAnvilWhisperHandler routes ASR2 lane through Hugging Face when confi
     assert.equal(payload.ok, true);
     assert.equal(payload.text, "hf ok");
     assert.equal(payload.model, "openai/whisper-large-v3-turbo");
+    assert.equal(payload.input_audio_content_type, "audio/webm");
+    assert.equal(payload.hf_request_content_type, "audio/webm");
+    assert.ok(typeof payload.input_audio_size_bytes === "number" && payload.input_audio_size_bytes > 0);
     assert.ok(!String(payload.model || "").includes(":fastest"));
     assert.ok(seenUrls.some((url) => url.includes("huggingface.co/api/models/openai/whisper-large-v3-turbo") && url.includes("inferenceProviderMapping")));
     assert.ok(!seenUrls.some((url) => url.includes(":fastest")));
     assert.ok(seenAuth.some((value) => value === "Bearer hf_test_token"));
+    assert.ok(seenContentTypes.some((value) => value.startsWith("audio/webm")));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createAnvilWhisperHandler returns ASR2 local content-type error before Hugging Face call", async () => {
+  const originalFetch = globalThis.fetch;
+  const seenUrls: string[] = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    seenUrls.push(url);
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({ id: TEST_USER_ID }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.includes("/rest/v1/rpc/apply_ai_token_delta")) {
+      return new Response(JSON.stringify([{ token_balance: 999_999 }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch call in test: ${url} ${init?.method ?? "GET"}`);
+  };
+  try {
+    const handler = createAnvilWhisperHandler(buildConfig({
+      apiKey: "forge-key",
+      asr2Provider: "auto",
+      asr2SttModel: "openai/whisper-large-v3-turbo",
+      huggingFaceApiToken: "hf_test_token",
+      configuredBillingMode: AI_USAGE_LANE.FORGE,
+      initialTokenBalance: 999_999,
+      supabaseUrl: "https://runtime-test.supabase.co",
+      supabaseServiceRoleKey: "service-role",
+    }));
+    const form = new FormData();
+    form.set("file", new Blob(["test audio"]), "chunk");
+    form.set("asr_lane", "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL");
+    form.set("lane", AI_USAGE_LANE.FORGE);
+    const response = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-access-token" },
+      body: form,
+    }));
+    assert.equal(response.status, 400);
+    const payload = await response.json();
+    assert.equal(payload.code, "hf_audio_content_type_missing");
+    assert.equal(payload.error, "ASR2 Hugging Face audio content type missing");
+    assert.equal(payload.model_id, "openai/whisper-large-v3-turbo");
+    assert.equal(payload.input_audio_content_type, null);
+    assert.equal(payload.hf_request_content_type, null);
+    assert.ok(!seenUrls.some((url) => url.includes("huggingface.co")));
   } finally {
     globalThis.fetch = originalFetch;
   }

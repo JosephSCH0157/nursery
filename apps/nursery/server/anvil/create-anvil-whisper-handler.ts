@@ -75,6 +75,9 @@ type AnvilWhisperResponse = {
   ffmpeg_fallback_attempted?: boolean;
   ffmpeg_fallback_used?: boolean;
   ffmpeg_fallback_error?: string | null;
+  input_audio_content_type?: string | null;
+  input_audio_size_bytes?: number;
+  hf_request_content_type?: string | null;
 };
 
 function jsonResponse(status: number, obj: AnvilWhisperResponse): Response {
@@ -223,6 +226,22 @@ function normalizeHuggingFaceModelId(modelId: string): string {
   const trimmed = modelId.trim();
   const suffixIndex = trimmed.indexOf(":");
   return suffixIndex > 0 ? trimmed.slice(0, suffixIndex) : trimmed;
+}
+
+function inferHuggingFaceAudioContentType(fileName: string | null, mimeType: string | null): string | null {
+  const normalizedType = readOptionalString(mimeType)?.toLowerCase() ?? "";
+  if (normalizedType.includes("audio/webm") && normalizedType.includes("codecs=opus")) return "audio/webm;codecs=opus";
+  if (normalizedType.includes("audio/webm")) return "audio/webm";
+  if (normalizedType.includes("audio/wav") || normalizedType.includes("audio/x-wav")) return "audio/wav";
+  if (normalizedType.includes("audio/flac") || normalizedType.includes("audio/x-flac")) return "audio/flac";
+  if (normalizedType.includes("audio/m4a") || normalizedType.includes("audio/mp4")) return "audio/m4a";
+
+  const normalizedName = readOptionalString(fileName)?.toLowerCase() ?? "";
+  if (normalizedName.endsWith(".webm")) return "audio/webm";
+  if (normalizedName.endsWith(".wav")) return "audio/wav";
+  if (normalizedName.endsWith(".flac")) return "audio/flac";
+  if (normalizedName.endsWith(".m4a") || normalizedName.endsWith(".mp4")) return "audio/m4a";
+  return null;
 }
 
 function inferExtension(fileName: string | null, mimeType: string | null): string {
@@ -526,6 +545,8 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
       const mimeType = readOptionalString((fileValue as { type?: unknown }).type);
       const extension = inferExtension(fileName, mimeType);
       const uploadFileName = fileName ?? `chunk.${extension}`;
+      const inputAudioSizeBytes = fileValue.size;
+      const inputAudioContentType = inferHuggingFaceAudioContentType(fileName, mimeType);
 
       function buildUpstreamForm(
         nextModel: string,
@@ -607,6 +628,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         providerMode: "huggingface" | "auto",
         nextModel: string,
         nextFileValue: Blob,
+        nextContentType: string,
       ): Promise<{
         upstream: Response;
         detail: string;
@@ -634,15 +656,19 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         try {
           const inferenceClient = new InferenceClient(huggingFaceApiToken);
           const audioBytes = await nextFileValue.arrayBuffer();
+          const requestBlob = new Blob([audioBytes], { type: nextContentType });
           const response = await inferenceClient.automaticSpeechRecognition({
             provider: providerMode,
             model: nextModel,
-            data: audioBytes,
+            data: requestBlob,
           }, {
             fetch: async (url, init) => {
               upstreamUrl = typeof url === "string" ? url : url.toString();
+              const headers = new Headers(init?.headers);
+              if (!headers.get("content-type")) headers.set("content-type", nextContentType);
               return fetch(url, {
                 ...init,
+                headers,
                 signal: hfAbort.signal,
               });
             },
@@ -729,15 +755,39 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         let ffmpegFallbackAttempted = false;
         let ffmpegFallbackUsed = false;
         let ffmpegFallbackError: string | null = null;
+        let hfRequestContentType: string | null = null;
         try {
+          if ((requestProvider === "huggingface" || requestProvider === "auto") && !inputAudioContentType) {
+            return jsonResponse(400, {
+              ok: false,
+              text: "",
+              error: "ASR2 Hugging Face audio content type missing",
+              code: "hf_audio_content_type_missing",
+              provider: requestProvider,
+              model_id: normalizedRequestSttModel,
+              asr_lane: asrLane ?? null,
+              input_audio_content_type: null,
+              input_audio_size_bytes: inputAudioSizeBytes,
+              hf_request_content_type: null,
+              billing_mode: lane,
+            });
+          }
           const directAttempt = requestProvider === "huggingface"
             || requestProvider === "auto"
-            ? await sendToHuggingFace(requestProvider === "auto" ? "auto" : "huggingface", normalizedRequestSttModel, fileValue)
+            ? await sendToHuggingFace(
+              requestProvider === "auto" ? "auto" : "huggingface",
+              normalizedRequestSttModel,
+              fileValue,
+              inputAudioContentType ?? "audio/webm",
+            )
             : await sendToOpenAi(requestSttModel, fileValue, uploadFileName);
           upstream = directAttempt.upstream;
           upstreamDetail = directAttempt.detail;
           upstreamMessage = directAttempt.message;
           upstreamUrl = directAttempt.upstreamUrl ?? upstreamUrl;
+          hfRequestContentType = (requestProvider === "huggingface" || requestProvider === "auto")
+            ? (inputAudioContentType ?? null)
+            : null;
 
           if (!upstream.ok && ffmpegClient && isUnsupportedAudioUpstreamError(upstreamDetail)) {
             ffmpegFallbackAttempted = true;
@@ -761,7 +811,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
               const transcodedBlob = new Blob([new Uint8Array(transcoded.audioBytes)], { type: "audio/wav" });
               const transcodedAttempt = requestProvider === "huggingface"
                 || requestProvider === "auto"
-                ? await sendToHuggingFace(requestProvider === "auto" ? "auto" : "huggingface", resolvedModel, transcodedBlob)
+                ? await sendToHuggingFace(requestProvider === "auto" ? "auto" : "huggingface", resolvedModel, transcodedBlob, "audio/wav")
                 : await sendToOpenAi(
                   resolvedModel,
                   transcodedBlob,
@@ -771,6 +821,9 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
               upstreamDetail = transcodedAttempt.detail;
               upstreamMessage = transcodedAttempt.message;
               upstreamUrl = transcodedAttempt.upstreamUrl ?? upstreamUrl;
+              hfRequestContentType = (requestProvider === "huggingface" || requestProvider === "auto")
+                ? "audio/wav"
+                : hfRequestContentType;
               ffmpegFallbackUsed = upstream.ok;
               try {
                 console.info("[anvil-whisper] ffmpeg fallback completed", {
@@ -891,6 +944,9 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             ffmpeg_fallback_attempted: ffmpegFallbackAttempted || undefined,
             ffmpeg_fallback_used: ffmpegFallbackUsed || undefined,
             ffmpeg_fallback_error: ffmpegFallbackError ?? undefined,
+            input_audio_content_type: isHfProvider ? inputAudioContentType : undefined,
+            input_audio_size_bytes: isHfProvider ? inputAudioSizeBytes : undefined,
+            hf_request_content_type: isHfProvider ? hfRequestContentType : undefined,
           });
         }
 
@@ -917,6 +973,9 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
               model: resolvedModel,
               provider_request_id: upstream.headers.get("x-request-id"),
               billing_mode: lane,
+              input_audio_content_type: inputAudioContentType,
+              input_audio_size_bytes: inputAudioSizeBytes,
+              hf_request_content_type: hfRequestContentType,
             });
           }
           throw new Error("Malformed response from OpenAI ASR upstream");
@@ -1004,6 +1063,9 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           ffmpeg_fallback_attempted: ffmpegFallbackAttempted || undefined,
           ffmpeg_fallback_used: ffmpegFallbackUsed || undefined,
           ffmpeg_fallback_error: ffmpegFallbackError ?? undefined,
+          input_audio_content_type: (requestProvider === "huggingface" || requestProvider === "auto") ? inputAudioContentType : undefined,
+          input_audio_size_bytes: (requestProvider === "huggingface" || requestProvider === "auto") ? inputAudioSizeBytes : undefined,
+          hf_request_content_type: (requestProvider === "huggingface" || requestProvider === "auto") ? hfRequestContentType : undefined,
         });
       } finally {
         request.signal.removeEventListener("abort", onAborted);
