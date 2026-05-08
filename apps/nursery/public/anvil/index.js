@@ -35256,6 +35256,22 @@ function createAsrScrollDriver(options = {}) {
   let recoveryLandingHoldFromLine = -1;
   let recoveryLandingHoldToLine = -1;
   let recoveryLandingHoldSource = "";
+  const clearRecoveryLandingHold = (reason, now3, current2, bestIdx) => {
+    recoveryLandingHoldActive = false;
+    warnGuard("asr_recovery_landing_hold_cleared", [
+      `current=${current2}`,
+      `bestIdx=${bestIdx}`,
+      `reason=${reason}`,
+      recoveryLandingHoldSource ? `holdSource=${recoveryLandingHoldSource}` : "",
+      recoveryLandingHoldFromLine >= 0 ? `holdFrom=${recoveryLandingHoldFromLine}` : "",
+      recoveryLandingHoldToLine >= 0 ? `holdTo=${recoveryLandingHoldToLine}` : "",
+      recoveryLandingHoldArmedAt > 0 ? `holdAgeMs=${Math.max(0, now3 - recoveryLandingHoldArmedAt)}` : ""
+    ]);
+    recoveryLandingHoldArmedAt = 0;
+    recoveryLandingHoldFromLine = -1;
+    recoveryLandingHoldToLine = -1;
+    recoveryLandingHoldSource = "";
+  };
   let alignmentSkepticModeActive = false;
   let alignmentSkepticEnteredAt = 0;
   let alignmentSkepticSource = "";
@@ -40580,6 +40596,8 @@ function createAsrScrollDriver(options = {}) {
         }
         const starvationFutureSpeechReconcileMinMs = 3e3;
         const starvationFutureSpeechReconcileMinSim = 0.8;
+        const starvationFutureSpeechReconcileShortFragmentMinSim = 0.68;
+        const starvationFutureSpeechReconcileShortFragmentMaxDelta = 8;
         const starvationFutureSpeechReconcileFinalMaxAgeMs = Math.max(
           starvationFutureSpeechReconcileMinMs,
           DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS * 2
@@ -40608,6 +40626,28 @@ function createAsrScrollDriver(options = {}) {
             snippet ? `clue="${snippet}"` : ""
           ]);
         };
+        const isShortRepeatedFragmentSection = (cursorLine, requestedBestIdx) => {
+          if (!Number.isFinite(cursorLine) || !Number.isFinite(requestedBestIdx)) return false;
+          const maxIdx = Math.min(
+            Math.max(cursorLine + 1, Math.floor(requestedBestIdx)),
+            cursorLine + starvationFutureSpeechReconcileShortFragmentMaxDelta
+          );
+          let speakableShortCount = 0;
+          const leadCounts = /* @__PURE__ */ new Map();
+          for (let idx = cursorLine + 1; idx <= maxIdx; idx += 1) {
+            const text = getLineTextAt(idx);
+            if (!text || isIgnorableCueLineText(text)) continue;
+            const tokens = normTokens(text);
+            if (!tokens.length) continue;
+            if (tokens.length > 4) continue;
+            speakableShortCount += 1;
+            const lead = tokens.slice(0, 2).join(" ");
+            const nextCount = (leadCounts.get(lead) || 0) + 1;
+            leadCounts.set(lead, nextCount);
+          }
+          const repeatedLeadPresent = Array.from(leadCounts.values()).some((count) => count >= 2);
+          return speakableShortCount >= 3 && repeatedLeadPresent;
+        };
         const _starvationFutureSpeechReconcileCandidateActive = liveStrictFollow && isFinal && hasEvidence && asrRuntimeSpeechRunningActual && finalTranscriptFreshForReconcile && starvationFutureSpeechReconcileMs >= starvationFutureSpeechReconcileMinMs && starvationFutureSpeechReconcileNoCommitMs >= starvationFutureSpeechReconcileMinMs && starvationFutureSpeechReconcileCandidateIdx > lastLineIndex;
         if (!isProofOwnedPrimaryForceReason(forceReason) && liveStrictFollow && isFinal && hasEvidence && starvationFutureSpeechReconcileMs >= starvationFutureSpeechReconcileMinMs && starvationFutureSpeechReconcileCandidateIdx > lastLineIndex) {
           if (!asrRuntimeSpeechRunningActual) {
@@ -40625,9 +40665,63 @@ function createAsrScrollDriver(options = {}) {
           } else if (liveSpeechForwardPushRunStale) {
             logStarvationFutureSpeechReconcileSkip("stale_run_identity");
           } else if (starvationFutureSpeechReconcileCandidateSim < starvationFutureSpeechReconcileMinSim) {
-            logStarvationFutureSpeechReconcileSkip("sim_below_floor", [
-              `minSim=${formatLogScore(starvationFutureSpeechReconcileMinSim)}`
-            ]);
+            const adjacentTarget = resolveForwardSpeakableTarget(
+              lastLineIndex,
+              starvationFutureSpeechReconcileCandidateIdx,
+              1
+            );
+            const shortFragmentEligible = starvationFutureSpeechReconcileCandidateSim >= starvationFutureSpeechReconcileShortFragmentMinSim && starvationFutureSpeechReconcileCandidateIdx - lastLineIndex <= starvationFutureSpeechReconcileShortFragmentMaxDelta && adjacentTarget > lastLineIndex && isShortRepeatedFragmentSection(lastLineIndex, starvationFutureSpeechReconcileCandidateIdx);
+            if (!shortFragmentEligible) {
+              logStarvationFutureSpeechReconcileSkip("sim_below_floor", [
+                `minSim=${formatLogScore(starvationFutureSpeechReconcileMinSim)}`
+              ]);
+            } else {
+              const shortFragmentLocalProof = hasLiveStrictLocalProof(
+                lastLineIndex,
+                adjacentTarget,
+                now3,
+                rankedTopScores,
+                DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM
+              ) || hasLiveStrictCueExitProof(
+                lastLineIndex,
+                adjacentTarget,
+                now3,
+                rankedTopScores,
+                DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM
+              ) || hasLiveStrictSpeakableBridgeProof(
+                lastLineIndex,
+                adjacentTarget,
+                now3,
+                rankedTopScores,
+                DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM
+              ) || !!evaluateLiveStrictAdjacentTailProgressionProof(lastLineIndex, adjacentTarget, now3)?.ok;
+              if (!shortFragmentLocalProof) {
+                logStarvationFutureSpeechReconcileSkip("sim_below_floor_short_fragment_no_proof", [
+                  `sim=${formatLogScore(starvationFutureSpeechReconcileCandidateSim)}`,
+                  `minShortSim=${formatLogScore(starvationFutureSpeechReconcileShortFragmentMinSim)}`
+                ]);
+              } else {
+                const skippedIgnorableLines = [];
+                for (let idx = lastLineIndex + 1; idx < adjacentTarget; idx += 1) {
+                  const reason = classifyStrictSkippableLineForCueBridge(getLineTextAt(idx));
+                  if (reason) skippedIgnorableLines.push(reason);
+                }
+                starvationFutureSpeechReconcileTargetLine = adjacentTarget;
+                forceReason = "starvation_future_speech_reconcile";
+                warnGuard("proof_owned_primary_commit", [
+                  `current=${lastLineIndex}`,
+                  `target=${starvationFutureSpeechReconcileTargetLine}`,
+                  `bestIdx=${starvationFutureSpeechReconcileCandidateIdx}`,
+                  "proofSource=short_fragment_adjacent_progression",
+                  skippedIgnorableLines.length ? `skippedIgnorableLines=[${skippedIgnorableLines.join(",")}]` : "skippedIgnorableLines=[]",
+                  `stallMs=${starvationFutureSpeechReconcileMs}`,
+                  "sourceBranch=starvation_future_speech_reconcile",
+                  "oldWouldHaveUsedStallOverride=true",
+                  `commitTargetLine=${starvationFutureSpeechReconcileTargetLine}`,
+                  snippet ? `clue="${snippet}"` : ""
+                ]);
+              }
+            }
           } else {
             const backwardContradiction = rankedTopScores.some(
               (entry) => entry.idx <= lastLineIndex && entry.score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, conf - 0.06)
@@ -42429,40 +42523,34 @@ function createAsrScrollDriver(options = {}) {
         const strictTargetHasFreshProof = strictFreshProofForTarget;
         const recoveryLandingHoldStablePacket = recoveryLandingHoldActive && liveStrictFollow && (line === lastLineIndex && hasRecentVadSpeech && conf >= baselineRequired);
         if (recoveryLandingHoldStablePacket) {
-          recoveryLandingHoldActive = false;
           clearAlignmentSkepticMode("stable_same_line_confirmation", now3);
-          warnGuard("asr_recovery_landing_hold_cleared", [
-            `current=${lastLineIndex}`,
-            `bestIdx=${line}`,
-            "reason=same_line_stable_packet",
-            recoveryLandingHoldSource ? `holdSource=${recoveryLandingHoldSource}` : "",
-            recoveryLandingHoldFromLine >= 0 ? `holdFrom=${recoveryLandingHoldFromLine}` : "",
-            recoveryLandingHoldToLine >= 0 ? `holdTo=${recoveryLandingHoldToLine}` : "",
-            recoveryLandingHoldArmedAt > 0 ? `holdAgeMs=${Math.max(0, now3 - recoveryLandingHoldArmedAt)}` : ""
-          ]);
-          recoveryLandingHoldArmedAt = 0;
-          recoveryLandingHoldFromLine = -1;
-          recoveryLandingHoldToLine = -1;
-          recoveryLandingHoldSource = "";
+          clearRecoveryLandingHold(
+            "same_line_stable_packet",
+            now3,
+            lastLineIndex,
+            line
+          );
         }
         const recoveryLandingHoldChainCandidate = recoveryLandingHoldActive && strictForwardCommit;
         const recoveryLandingHighConfidenceAdjacentRelease = recoveryLandingHoldActive && strictForwardCommit && strictLocalAdjacentProofForCommit && conf >= Math.max(baselineRequired, 0.9);
         if (recoveryLandingHighConfidenceAdjacentRelease) {
-          recoveryLandingHoldActive = false;
           clearAlignmentSkepticMode("adjacent_local_proof_commits", now3);
-          warnGuard("asr_recovery_landing_hold_cleared", [
-            `current=${lastLineIndex}`,
-            `bestIdx=${line}`,
-            "reason=direct_local_adjacent_high_conf",
-            recoveryLandingHoldSource ? `holdSource=${recoveryLandingHoldSource}` : "",
-            recoveryLandingHoldFromLine >= 0 ? `holdFrom=${recoveryLandingHoldFromLine}` : "",
-            recoveryLandingHoldToLine >= 0 ? `holdTo=${recoveryLandingHoldToLine}` : "",
-            recoveryLandingHoldArmedAt > 0 ? `holdAgeMs=${Math.max(0, now3 - recoveryLandingHoldArmedAt)}` : ""
-          ]);
-          recoveryLandingHoldArmedAt = 0;
-          recoveryLandingHoldFromLine = -1;
-          recoveryLandingHoldToLine = -1;
-          recoveryLandingHoldSource = "";
+          clearRecoveryLandingHold(
+            "direct_local_adjacent_high_conf",
+            now3,
+            lastLineIndex,
+            line
+          );
+        }
+        const recoveryLandingPendingBridgeHoldResolved = recoveryLandingHoldActive && recoveryLandingHoldSource === "pending_speakable_bridge_complete" && recoveryLandingHoldToLine >= 0 && lastLineIndex >= recoveryLandingHoldToLine && strictForwardCommit && targetLine === lastLineIndex + 1 && strictLocalAdjacentProofForCommit && !strictBackwardContradictionForCommit;
+        if (recoveryLandingPendingBridgeHoldResolved) {
+          clearAlignmentSkepticMode("adjacent_local_proof_commits", now3);
+          clearRecoveryLandingHold(
+            "pending_bridge_committed_adjacent_progression",
+            now3,
+            lastLineIndex,
+            line
+          );
         }
         if (recoveryLandingHoldActive && recoveryLandingHoldChainCandidate) {
           warnGuard("asr_recovery_chain_blocked", [
@@ -43548,6 +43636,14 @@ function createAsrScrollDriver(options = {}) {
             clearPendingSpeakableBridge("semantic_target_committed", [
               `commitTarget=${targetLine}`
             ]);
+            if (recoveryLandingHoldActive && recoveryLandingHoldSource === "pending_speakable_bridge_complete" && recoveryLandingHoldToLine >= 0 && targetLine >= recoveryLandingHoldToLine) {
+              clearRecoveryLandingHold(
+                "pending_bridge_semantic_target_committed",
+                now3,
+                prevLineIndex,
+                targetLine
+              );
+            }
           } else if (targetLine !== pendingSpeakableBridgeState.semanticFrom) {
             clearPendingSpeakableBridge("commit_target_diverged", [
               `commitTarget=${targetLine}`

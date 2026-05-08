@@ -670,13 +670,13 @@ describe('ASR live commit motion', () => {
     script.innerHTML = `
       <div class="line" data-line="0" style="line-height:24px;">Different climates.</div>
       <div class="line" data-line="1" style="line-height:24px;">Different strengths.</div>
-      <div class="line" data-line="2" style="line-height:24px;">Not “that’s nice” amazing.</div>
-      <div class="line" data-line="3" style="line-height:24px;">Not perfume amazing.</div>
-      <div class="line" data-line="4" style="line-height:24px;">[beat]</div>
-      <div class="line" data-line="5" style="line-height:24px;"></div>
-      <div class="line" data-line="6" style="line-height:24px;">It was thick.</div>
-      <div class="line" data-line="7" style="line-height:24px;">Warm.</div>
-      <div class="line" data-line="8" style="line-height:24px;">Sweet.</div>
+      <div class="line" data-line="2" style="line-height:24px;">For decades, Florida wore the crown.</div>
+      <div class="line" data-line="3" style="line-height:24px;">Not because California was weak.</div>
+      <div class="line" data-line="4" style="line-height:24px;">But citrus did not die.</div>
+      <div class="line" data-line="5" style="line-height:24px;">[beat]</div>
+      <div class="line" data-line="6" style="line-height:24px;"></div>
+      <div class="line" data-line="7" style="line-height:24px;">Growers moved south.</div>
+      <div class="line" data-line="8" style="line-height:24px;">They replanted.</div>
     `;
     const metrics = Array.from({ length: 9 }, (_, idx) => ({
       top: idx * 380,
@@ -706,47 +706,48 @@ describe('ASR live commit motion', () => {
       detail: { speechRunningActual: true },
     }));
 
-    driver.setLastLineIndex(2);
+    driver.setLastLineIndex(4);
     await jest.advanceTimersByTimeAsync(5200);
 
-    // 2 -> 3 short-fragment rescue step.
-    driver.ingest('Not perfume amazing.', true, {
-      currentIdx: 2,
-      matchId: 'bridge-hold-step-2-to-3',
-      match: {
-        bestIdx: 3,
-        bestSim: 0.84,
-        topScores: [{ idx: 3, score: 0.84 }],
-      },
-    });
-    await jest.advanceTimersByTimeAsync(250);
-    expect(driver.getLastLineIndex()).toBe(3);
-
-    // 3 -> 6 cue/blank bridge completion.
-    driver.ingest('It was thick.', true, {
-      currentIdx: 3,
-      matchId: 'bridge-hold-step-3-to-6',
-      match: {
-        bestIdx: 6,
-        bestSim: 0.9,
-        topScores: [{ idx: 6, score: 0.9 }],
-      },
-    });
-    await jest.advanceTimersByTimeAsync(250);
-    expect(driver.getLastLineIndex()).toBe(6);
-
-    // 6 -> 7 adjacent proof should not be blocked by stale pending bridge hold.
-    driver.ingest('Warm.', true, {
-      currentIdx: 6,
-      matchId: 'bridge-hold-step-6-to-7',
+    // Prime pending bridge (first packet should hold at 4).
+    driver.ingest('Growers moved south.', true, {
+      currentIdx: 4,
+      matchId: 'bridge-hold-step-4-to-7',
       match: {
         bestIdx: 7,
-        bestSim: 0.83,
-        topScores: [{ idx: 7, score: 0.83 }],
+        bestSim: 0.9,
+        topScores: [{ idx: 7, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+    expect(driver.getLastLineIndex()).toBe(4);
+
+    // 4 -> 7 cue/blank bridge completion.
+    await jest.advanceTimersByTimeAsync(900);
+    driver.ingest('Growers moved south.', true, {
+      currentIdx: 4,
+      matchId: 'bridge-hold-step-4-to-7-complete',
+      match: {
+        bestIdx: 7,
+        bestSim: 0.9,
+        topScores: [{ idx: 7, score: 0.9 }],
       },
     });
     await jest.advanceTimersByTimeAsync(250);
     expect(driver.getLastLineIndex()).toBe(7);
+
+    // 7 -> 8 adjacent proof should not be blocked by stale pending bridge hold.
+    driver.ingest('They replanted.', true, {
+      currentIdx: 7,
+      matchId: 'bridge-hold-step-7-to-8',
+      match: {
+        bestIdx: 8,
+        bestSim: 0.83,
+        topScores: [{ idx: 8, score: 0.83 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+    expect(driver.getLastLineIndex()).toBe(8);
 
     const warns = warnSpy.mock.calls.map((call) => String(call[0] || ''));
     const blockedByStalePendingBridge = warns.some(
@@ -851,6 +852,175 @@ describe('ASR live commit motion', () => {
 
     expect(driver.getLastLineIndex()).toBe(1);
 
+    driver.dispose();
+  });
+
+  test('commits prompt adjacent recovery step when proof is sufficient after bridge landing', async () => {
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const script = document.getElementById('script') as HTMLElement;
+    script.innerHTML = `
+      <div class="line" data-line="0" style="line-height:24px;">Lead in.</div>
+      <div class="line" data-line="1" style="line-height:24px;">Lead in 2.</div>
+      <div class="line" data-line="2" style="line-height:24px;">Not “that’s nice” amazing.</div>
+      <div class="line" data-line="3" style="line-height:24px;">Not perfume amazing.</div>
+      <div class="line" data-line="4" style="line-height:24px;">[beat]</div>
+      <div class="line" data-line="5" style="line-height:24px;"></div>
+      <div class="line" data-line="6" style="line-height:24px;">It was thick.</div>
+      <div class="line" data-line="7" style="line-height:24px;">Warm.</div>
+      <div class="line" data-line="8" style="line-height:24px;">Sweet.</div>
+    `;
+    const metrics = Array.from({ length: 9 }, (_, idx) => ({
+      top: idx * 380,
+      height: 236,
+    }));
+    Array.from(script.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+      const metric = metrics[idx];
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: metric.top,
+          left: 0,
+          right: 800,
+          bottom: metric.top + metric.height,
+          width: 800,
+          height: metric.height,
+        }),
+      });
+    });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 6200 });
+
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    driver.setLastLineIndex(3);
+    await jest.advanceTimersByTimeAsync(5200);
+
+    driver.ingest('It was thick.', true, {
+      currentIdx: 3,
+      matchId: 'delayed-recovery-bridge_recovery-step',
+      match: {
+        bestIdx: 6,
+        bestSim: 0.9,
+        topScores: [{ idx: 6, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+    expect(driver.getLastLineIndex()).toBe(3);
+
+    await jest.advanceTimersByTimeAsync(900);
+    driver.ingest('It was thick.', true, {
+      currentIdx: 3,
+      matchId: 'delayed-recovery-bridge_recovery-step-complete',
+      match: {
+        bestIdx: 6,
+        bestSim: 0.9,
+        topScores: [{ idx: 6, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+    expect(driver.getLastLineIndex()).toBe(6);
+
+    driver.ingest('Warm.', true, {
+      currentIdx: 6,
+      matchId: 'delayed-recovery-adjacent-proof-step',
+      match: {
+        bestIdx: 7,
+        bestSim: 0.82,
+        topScores: [{ idx: 7, score: 0.82 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+    expect(driver.getLastLineIndex()).toBe(7);
+
+    driver.dispose();
+  });
+
+  test('allows one adjacent step on short-fragment transcript variation when adjacentSim is unavailable', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const script = document.getElementById('script') as HTMLElement;
+    script.innerHTML = `
+      <div class="line" data-line="0" style="line-height:24px;">Lead in.</div>
+      <div class="line" data-line="1" style="line-height:24px;">Lead in 2.</div>
+      <div class="line" data-line="2" style="line-height:24px;">Lead in 3.</div>
+      <div class="line" data-line="3" style="line-height:24px;">Not “that’s nice” amazing.</div>
+      <div class="line" data-line="4" style="line-height:24px;">Not perfume amazing.</div>
+      <div class="line" data-line="5" style="line-height:24px;">[beat]</div>
+      <div class="line" data-line="6" style="line-height:24px;">It was thick.</div>
+      <div class="line" data-line="7" style="line-height:24px;">Warm.</div>
+      <div class="line" data-line="8" style="line-height:24px;">Sweet.</div>
+    `;
+    const metrics = Array.from({ length: 9 }, (_, idx) => ({
+      top: idx * 380,
+      height: 236,
+    }));
+    Array.from(script.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+      const metric = metrics[idx];
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: metric.top,
+          left: 0,
+          right: 800,
+          bottom: metric.top + metric.height,
+          width: 800,
+          height: metric.height,
+        }),
+      });
+    });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 6200 });
+
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    driver.setLastLineIndex(6);
+    await jest.advanceTimersByTimeAsync(5200);
+
+    // Prime nearby rescue evidence at the current line.
+    driver.ingest('It was thick.', true, {
+      currentIdx: 6,
+      matchId: 'variation-prime-current-line',
+      match: {
+        bestIdx: 6,
+        bestSim: 0.92,
+        topScores: [{ idx: 6, score: 0.92 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(120);
+
+    // Adjacent target is clear in neighborhood text, but direct adjacent score is absent.
+    driver.ingest('That\'s nice amazing. not perfume amazingly. It was thick. Wa...', true, {
+      currentIdx: 6,
+      matchId: 'variation-adjacent-no-direct-score',
+      match: {
+        bestIdx: 7,
+        bestSim: 0.77,
+        topScores: [],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+    expect(driver.getLastLineIndex()).toBe(7);
+
+    const warns = warnSpy.mock.calls.map((call) => String(call[0] || ''));
+    const adjacentBypass = warns.some(
+      (line) =>
+        line.includes('asr_live_no_adjacent_match_bypass') &&
+        line.includes('current=6') &&
+        line.includes('target=7'),
+    );
+    expect(adjacentBypass).toBe(true);
+
+    warnSpy.mockRestore();
     driver.dispose();
   });
 

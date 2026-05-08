@@ -12802,7 +12802,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       const recoveryLandingPendingBridgeHoldResolved =
         recoveryLandingHoldActive &&
-        recoveryLandingHoldSource === 'pending_speakable_bridge_complete' &&
+        recoveryLandingHoldSource.includes('pending_speakable_bridge_complete') &&
         recoveryLandingHoldToLine >= 0 &&
         lastLineIndex >= recoveryLandingHoldToLine &&
         strictForwardCommit &&
@@ -13701,6 +13701,39 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         Number.isFinite(directAdjacentSim) &&
         directAdjacentSim >= directAdjacentNeed;
       const directAdjacentGuardEligible = line === targetLine;
+      const directAdjacentTailProgressionProof =
+        liveStrictFollow &&
+        forwardDelta === 1 &&
+        targetLine > lastLineIndex &&
+        asrRuntimeSpeechRunningActual
+          ? evaluateLiveStrictAdjacentTailProgressionProof(lastLineIndex, targetLine, now)
+          : null;
+      const directAdjacentNeighborhoodEvidence =
+        liveStrictFollow &&
+        forwardDelta === 1 &&
+        targetLine > lastLineIndex &&
+        (
+          hasFreshNearbyRescueMatchEvidence(
+            lastLineIndex,
+            targetLine,
+            now,
+          ) ||
+          !!directAdjacentTailProgressionProof?.ok
+        );
+      const directAdjacentFallbackProofOwned =
+        liveStrictFollow &&
+        directAdjacentGuardEligible &&
+        forwardDelta === 1 &&
+        strictForwardCommit &&
+        asrRuntimeSpeechRunningActual &&
+        runtimeSpeechFresh &&
+        !strictBackwardContradictionForCommit &&
+        (
+          strictLocalAdjacentProofForCommit ||
+          strictCueExitProofForCommit ||
+          strictBridgeProofForCommit ||
+          directAdjacentNeighborhoodEvidence
+        );
       const speechStopCleanupCommitForGates =
         movementAuthorityReason === 'speech_stop_cleanup_commit';
       if (
@@ -13730,7 +13763,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         forwardDelta > 0 &&
         !speechStopCleanupCommitForGates &&
         directAdjacentGuardEligible &&
-        !directAdjacentMatch
+        !directAdjacentMatch &&
+        !directAdjacentFallbackProofOwned
       ) {
         warnGuard('asr_live_no_adjacent_match_hold', [
           `current=${lastLineIndex}`,
@@ -13746,6 +13780,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ]);
         emitHudStatus('asr_live_no_adjacent_match_hold', 'Hold: waiting for direct adjacent ASR match');
         return;
+      }
+      if (directAdjacentFallbackProofOwned && !directAdjacentMatch) {
+        warnGuard('asr_live_no_adjacent_match_bypass', [
+          `current=${lastLineIndex}`,
+          `target=${targetLine}`,
+          Number.isFinite(directAdjacentSim)
+            ? `adjacentSim=${formatLogScore(directAdjacentSim)}`
+            : 'adjacentSim=na',
+          `adjacentNeed=${formatLogScore(directAdjacentNeed)}`,
+          `tailProof=${directAdjacentTailProgressionProof?.ok ? 1 : 0}`,
+          `tailReason=${directAdjacentTailProgressionProof?.reason || 'none'}`,
+          `neighborhoodEvidence=${directAdjacentNeighborhoodEvidence ? 1 : 0}`,
+          `authority=${movementAuthority}`,
+          `sourceBranch=${movementAuthoritySourceBranch}`,
+          forceReason ? `forceReason=${forceReason}` : '',
+          snippet ? `clue="${snippet}"` : '',
+        ]);
       }
       if (forwardDelta < minLineAdvance) {
         warnGuard('forward_progress', [
@@ -14157,7 +14208,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ]);
           if (
             recoveryLandingHoldActive &&
-            recoveryLandingHoldSource === 'pending_speakable_bridge_complete' &&
+            recoveryLandingHoldSource.includes('pending_speakable_bridge_complete') &&
             recoveryLandingHoldToLine >= 0 &&
             targetLine >= recoveryLandingHoldToLine
           ) {
