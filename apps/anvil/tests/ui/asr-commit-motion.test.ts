@@ -1024,6 +1024,62 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('keeps adjacent hold when adjacent score is low and no tail or neighborhood proof exists', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+    driver.setLastLineIndex(6);
+    await jest.advanceTimersByTimeAsync(1800);
+
+    driver.ingest('unrelated filler words', true, {
+      currentIdx: 6,
+      matchId: 'adjacent-low-sim-no-proof',
+      match: {
+        bestIdx: 7,
+        bestSim: 0.72,
+        topScores: [{ idx: 7, score: 0.72 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(180);
+
+    expect(driver.getLastLineIndex()).toBe(6);
+    const warns = warnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(warns.some((line) => line.includes('asr_live_no_adjacent_match_bypass'))).toBe(false);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('does not bypass direct-adjacent hold for non-adjacent far targets', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+    driver.setLastLineIndex(6);
+    await jest.advanceTimersByTimeAsync(1800);
+
+    driver.ingest('future section words that should not leap', true, {
+      currentIdx: 6,
+      matchId: 'far-target-no-adjacent-bypass',
+      match: {
+        bestIdx: 8,
+        bestSim: 0.88,
+        topScores: [{ idx: 8, score: 0.88 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(220);
+
+    expect(driver.getLastLineIndex()).toBe(6);
+    const warns = warnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(warns.some((line) => line.includes('asr_live_no_adjacent_match_bypass') && line.includes('target=8'))).toBe(false);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('cancels pending speakable bridge completion when runtime speech stops', async () => {
     const scroller = document.getElementById('viewer') as HTMLElement;
     const script = document.getElementById('script') as HTMLElement;

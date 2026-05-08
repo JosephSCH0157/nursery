@@ -6174,6 +6174,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     );
   };
 
+  const isAdjacentProofHoldBypassSource = (value?: unknown): boolean => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) return false;
+    return (
+      normalized === 'live_adjacent_tail_proof_override' ||
+      normalized === 'live_strict_rescue_tail_progression_proof' ||
+      normalized === 'strict_adjacent_tail_progression' ||
+      normalized === 'adjacent_rescue_proofed' ||
+      normalized === 'future_tail_lexical' ||
+      normalized === 'starvation_future_speech_reconcile' ||
+      normalized.includes('tail_progression') ||
+      normalized.includes('tail_proof') ||
+      normalized.includes('future_tail') ||
+      normalized.includes('adjacent_rescue')
+    );
+  };
+
   const isRecoveryLandingHoldSource = (
     sourceBranch?: unknown,
     forceReason?: unknown,
@@ -13735,6 +13752,31 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           strictBridgeProofForCommit ||
           directAdjacentNeighborhoodEvidence
         );
+      const adjacentOrReducedToAdjacentTarget =
+        forwardDelta === 1 &&
+        targetLine > lastLineIndex &&
+        requestedTargetLine >= targetLine;
+      const directAdjacentProofSourceEligible =
+        isAdjacentProofHoldBypassSource(movementAuthorityProofSource) ||
+        isAdjacentProofHoldBypassSource(movementAuthoritySourceBranch) ||
+        isAdjacentProofHoldBypassSource(forceReason);
+      const directAdjacentTailOrNeighborhoodAccepted =
+        !!directAdjacentTailProgressionProof?.tailProofUsed ||
+        !!liveSpeechForwardPushTailProofUsed ||
+        directAdjacentNeighborhoodEvidence;
+      const directAdjacentForwardTailAccepted =
+        !!directAdjacentTailProgressionProof?.stalePrefixIgnored ||
+        !!liveSpeechForwardPushStalePrefixIgnored ||
+        !!liveSpeechForwardPushBackwardContradictionOverriddenByTail;
+      const directAdjacentAuthorityBypassEligible =
+        liveStrictFollow &&
+        directAdjacentGuardEligible &&
+        adjacentOrReducedToAdjacentTarget &&
+        asrRuntimeSpeechRunningActual &&
+        (movementAuthority === 'proof' || movementAuthority === 'reconcile') &&
+        directAdjacentProofSourceEligible &&
+        directAdjacentTailOrNeighborhoodAccepted &&
+        directAdjacentForwardTailAccepted;
       const speechStopCleanupCommitForGates =
         movementAuthorityReason === 'speech_stop_cleanup_commit';
       if (
@@ -13765,7 +13807,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !speechStopCleanupCommitForGates &&
         directAdjacentGuardEligible &&
         !directAdjacentMatch &&
-        !directAdjacentFallbackProofOwned
+        !directAdjacentFallbackProofOwned &&
+        !directAdjacentAuthorityBypassEligible
       ) {
         warnGuard('asr_live_no_adjacent_match_hold', [
           `current=${lastLineIndex}`,
@@ -13796,6 +13839,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `authority=${movementAuthority}`,
           `sourceBranch=${movementAuthoritySourceBranch}`,
           forceReason ? `forceReason=${forceReason}` : '',
+          snippet ? `clue="${snippet}"` : '',
+        ]);
+      }
+      if (directAdjacentAuthorityBypassEligible && !directAdjacentMatch && !directAdjacentFallbackProofOwned) {
+        warnGuard('asr_live_no_adjacent_match_bypass', [
+          `current=${lastLineIndex}`,
+          `target=${targetLine}`,
+          Number.isFinite(directAdjacentSim)
+            ? `adjacentSim=${formatLogScore(directAdjacentSim)}`
+            : 'adjacentSim=na',
+          `adjacentNeed=${formatLogScore(directAdjacentNeed)}`,
+          `tailProof=${directAdjacentTailProgressionProof?.ok ? 1 : 0}`,
+          `tailProofUsed=${directAdjacentTailOrNeighborhoodAccepted ? 1 : 0}`,
+          `stalePrefixIgnored=${directAdjacentForwardTailAccepted ? 1 : 0}`,
+          `neighborhoodEvidence=${directAdjacentNeighborhoodEvidence ? 1 : 0}`,
+          `authority=${movementAuthority}`,
+          `sourceBranch=${movementAuthoritySourceBranch}`,
+          forceReason ? `forceReason=${forceReason}` : '',
+          movementAuthorityProofSource ? `proofSource=${movementAuthorityProofSource}` : '',
           snippet ? `clue="${snippet}"` : '',
         ]);
       }
