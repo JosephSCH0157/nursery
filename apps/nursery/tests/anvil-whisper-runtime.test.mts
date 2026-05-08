@@ -544,13 +544,13 @@ test("createAnvilWhisperHandler routes ASR2 lane through Hugging Face when confi
         headers: { "content-type": "application/json" },
       });
     }
-    if (url.includes("huggingface.co/api/models/openai/whisper-large-v3-turbo:fastest") && url.includes("inferenceProviderMapping")) {
+    if (url.includes("huggingface.co/api/models/openai/whisper-large-v3-turbo") && url.includes("inferenceProviderMapping")) {
       return new Response(JSON.stringify({
         inferenceProviderMapping: [
           {
             provider: "hf-inference",
-            hfModelId: "openai/whisper-large-v3-turbo:fastest",
-            providerId: "openai/whisper-large-v3-turbo:fastest",
+            hfModelId: "openai/whisper-large-v3-turbo",
+            providerId: "openai/whisper-large-v3-turbo",
             status: "live",
             task: "automatic-speech-recognition",
           },
@@ -587,7 +587,7 @@ test("createAnvilWhisperHandler routes ASR2 lane through Hugging Face when confi
     const handler = createAnvilWhisperHandler(buildConfig({
       apiKey: "forge-key",
       asr2Provider: "auto",
-      asr2SttModel: "openai/whisper-large-v3-turbo:fastest",
+      asr2SttModel: "openai/whisper-large-v3-turbo",
       huggingFaceApiToken: "hf_test_token",
       configuredBillingMode: AI_USAGE_LANE.FORGE,
       initialTokenBalance: 999_999,
@@ -606,8 +606,10 @@ test("createAnvilWhisperHandler routes ASR2 lane through Hugging Face when confi
     const payload = await response.json();
     assert.equal(payload.ok, true);
     assert.equal(payload.text, "hf ok");
-    assert.equal(payload.model, "openai/whisper-large-v3-turbo:fastest");
-    assert.ok(seenUrls.some((url) => url.includes("huggingface.co/api/models/openai/whisper-large-v3-turbo:fastest") && url.includes("inferenceProviderMapping")));
+    assert.equal(payload.model, "openai/whisper-large-v3-turbo");
+    assert.ok(!String(payload.model || "").includes(":fastest"));
+    assert.ok(seenUrls.some((url) => url.includes("huggingface.co/api/models/openai/whisper-large-v3-turbo") && url.includes("inferenceProviderMapping")));
+    assert.ok(!seenUrls.some((url) => url.includes(":fastest")));
     assert.ok(seenAuth.some((value) => value === "Bearer hf_test_token"));
   } finally {
     globalThis.fetch = originalFetch;
@@ -625,13 +627,13 @@ test("createAnvilWhisperHandler returns detailed Hugging Face diagnostics on ups
         headers: { "content-type": "application/json" },
       });
     }
-    if (url.includes("huggingface.co/api/models/openai/whisper-large-v3-turbo:fastest") && url.includes("inferenceProviderMapping")) {
+    if (url.includes("huggingface.co/api/models/openai/whisper-large-v3-turbo") && url.includes("inferenceProviderMapping")) {
       return new Response(JSON.stringify({
         inferenceProviderMapping: [
           {
             provider: "hf-inference",
-            hfModelId: "openai/whisper-large-v3-turbo:fastest",
-            providerId: "openai/whisper-large-v3-turbo:fastest",
+            hfModelId: "openai/whisper-large-v3-turbo",
+            providerId: "openai/whisper-large-v3-turbo",
             status: "live",
             task: "automatic-speech-recognition",
           },
@@ -661,7 +663,7 @@ test("createAnvilWhisperHandler returns detailed Hugging Face diagnostics on ups
     const handler = createAnvilWhisperHandler(buildConfig({
       apiKey: "forge-key",
       asr2Provider: "auto",
-      asr2SttModel: "openai/whisper-large-v3-turbo:fastest",
+      asr2SttModel: "openai/whisper-large-v3-turbo",
       huggingFaceApiToken: "hf_test_token",
       configuredBillingMode: AI_USAGE_LANE.FORGE,
       initialTokenBalance: 999_999,
@@ -681,12 +683,14 @@ test("createAnvilWhisperHandler returns detailed Hugging Face diagnostics on ups
     assert.equal(payload.ok, false);
     assert.ok(payload.code === "hf_upstream_404" || payload.code === "hf_upstream_error");
     assert.equal(payload.provider, "auto");
-    assert.equal(payload.model_id, "openai/whisper-large-v3-turbo:fastest");
+    assert.equal(payload.model_id, "openai/whisper-large-v3-turbo");
+    assert.ok(!String(payload.model_id || "").includes(":fastest"));
     assert.equal(payload.asr_lane, "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL");
     assert.ok(typeof payload.upstream_status === "number");
     assert.ok(String(payload.upstream_message || "").length > 0);
     assert.ok(String(payload.upstream_url || "").includes("huggingface.co"));
-    assert.equal(payload.model_url, "https://huggingface.co/openai/whisper-large-v3-turbo:fastest");
+    assert.equal(payload.model_url, "https://huggingface.co/openai/whisper-large-v3-turbo");
+    assert.ok(!String(payload.upstream_url || "").includes(":fastest"));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -708,7 +712,7 @@ test("createAnvilWhisperHandler distinguishes missing Hugging Face token", async
     const handler = createAnvilWhisperHandler(buildConfig({
       apiKey: "forge-key",
       asr2Provider: "auto",
-      asr2SttModel: "openai/whisper-large-v3-turbo:fastest",
+      asr2SttModel: "openai/whisper-large-v3-turbo",
       huggingFaceApiToken: null,
       configuredBillingMode: AI_USAGE_LANE.FORGE,
       initialTokenBalance: 999_999,
@@ -742,13 +746,13 @@ test("createAnvilWhisperHandler distinguishes Hugging Face malformed upstream re
         headers: { "content-type": "application/json" },
       });
     }
-    if (url.includes("huggingface.co/api/models/openai/whisper-large-v3-turbo:fastest") && url.includes("inferenceProviderMapping")) {
+    if (url.includes("huggingface.co/api/models/openai/whisper-large-v3-turbo") && url.includes("inferenceProviderMapping")) {
       return new Response(JSON.stringify({
         inferenceProviderMapping: [
           {
             provider: "hf-inference",
-            hfModelId: "openai/whisper-large-v3-turbo:fastest",
-            providerId: "openai/whisper-large-v3-turbo:fastest",
+            hfModelId: "openai/whisper-large-v3-turbo",
+            providerId: "openai/whisper-large-v3-turbo",
             status: "live",
             task: "automatic-speech-recognition",
           },
@@ -779,7 +783,7 @@ test("createAnvilWhisperHandler distinguishes Hugging Face malformed upstream re
     const handler = createAnvilWhisperHandler(buildConfig({
       apiKey: "forge-key",
       asr2Provider: "auto",
-      asr2SttModel: "openai/whisper-large-v3-turbo:fastest",
+      asr2SttModel: "openai/whisper-large-v3-turbo",
       huggingFaceApiToken: "hf_test_token",
       configuredBillingMode: AI_USAGE_LANE.FORGE,
       initialTokenBalance: 999_999,
@@ -822,13 +826,13 @@ test("createAnvilWhisperHandler provider auto resolves via HF mapping (no app ha
         headers: { "content-type": "application/json" },
       });
     }
-    if (url.includes("huggingface.co/api/models/openai/whisper-large-v3-turbo:fastest") && url.includes("inferenceProviderMapping")) {
+    if (url.includes("huggingface.co/api/models/openai/whisper-large-v3-turbo") && url.includes("inferenceProviderMapping")) {
       return new Response(JSON.stringify({
         inferenceProviderMapping: [
           {
             provider: "hf-inference",
-            hfModelId: "openai/whisper-large-v3-turbo:fastest",
-            providerId: "openai/whisper-large-v3-turbo:fastest",
+            hfModelId: "openai/whisper-large-v3-turbo",
+            providerId: "openai/whisper-large-v3-turbo",
             status: "live",
             task: "automatic-speech-recognition",
           },
@@ -854,7 +858,7 @@ test("createAnvilWhisperHandler provider auto resolves via HF mapping (no app ha
     const handler = createAnvilWhisperHandler(buildConfig({
       apiKey: "forge-key",
       asr2Provider: "auto",
-      asr2SttModel: "openai/whisper-large-v3-turbo:fastest",
+      asr2SttModel: "openai/whisper-large-v3-turbo",
       huggingFaceApiToken: "hf_test_token",
       configuredBillingMode: AI_USAGE_LANE.FORGE,
       initialTokenBalance: 999_999,
@@ -874,6 +878,7 @@ test("createAnvilWhisperHandler provider auto resolves via HF mapping (no app ha
       seenUrls.some((url) => url.includes("inferenceProviderMapping"))
       || seenUrls.some((url) => url.includes("/hf-inference/models/")),
     );
+    assert.ok(!seenUrls.some((url) => url.includes(":fastest")));
     assert.ok(!seenUrls.some((url) => url.includes("/models/openai%2Fwhisper-large-v3-turbo%3Afastest/automatic-speech-recognition?provider=auto")));
   } finally {
     globalThis.fetch = originalFetch;

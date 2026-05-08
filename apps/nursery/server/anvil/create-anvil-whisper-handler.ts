@@ -219,6 +219,12 @@ function truncateForDetail(value: string | null, limit = 2000): string | null {
   return `${value.slice(0, limit)}…`;
 }
 
+function normalizeHuggingFaceModelId(modelId: string): string {
+  const trimmed = modelId.trim();
+  const suffixIndex = trimmed.indexOf(":");
+  return suffixIndex > 0 ? trimmed.slice(0, suffixIndex) : trimmed;
+}
+
 function inferExtension(fileName: string | null, mimeType: string | null): string {
   const normalizedName = readOptionalString(fileName)?.toLowerCase() ?? "";
   if (normalizedName.endsWith(".wav")) return "wav";
@@ -262,7 +268,7 @@ export function resolveAnvilWhisperRuntimeConfig(): AnvilWhisperRuntimeConfig {
     apiKey: runtime.textApiKey ?? runtime.apiKey ?? null,
     sttModel: modelOverride ?? runtime.sttModel ?? DEFAULT_MODEL,
     asr2SttModel: asr2ModelOverride ?? ((asr2Provider === "huggingface" || asr2Provider === "auto")
-      ? "openai/whisper-large-v3-turbo:fastest"
+      ? "openai/whisper-large-v3-turbo"
       : "gpt-4o-transcribe"),
     asr2Provider,
     huggingFaceApiToken,
@@ -305,7 +311,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
       ? "auto"
       : "openai";
   const asr2SttModel = readOptionalString(config.asr2SttModel) ?? ((asr2Provider === "huggingface" || asr2Provider === "auto")
-    ? "openai/whisper-large-v3-turbo:fastest"
+    ? "openai/whisper-large-v3-turbo"
     : "gpt-4o-transcribe");
   const huggingFaceApiToken = readOptionalString(config.huggingFaceApiToken);
   const configuredBillingMode = normalizeBillingMode(config.configuredBillingMode, "forge");
@@ -510,8 +516,11 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           : sttModel;
       const asr2ExperimentalSelected = (asrLane || "").toUpperCase() === "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL";
       const requestProvider = asr2ExperimentalSelected ? asr2Provider : "openai";
+      const normalizedRequestSttModel = (requestProvider === "huggingface" || requestProvider === "auto")
+        ? normalizeHuggingFaceModelId(requestSttModel)
+        : requestSttModel;
       const huggingFaceModelUrl = (requestProvider === "huggingface" || requestProvider === "auto")
-        ? `https://huggingface.co/${requestSttModel}`
+        ? `https://huggingface.co/${normalizedRequestSttModel}`
         : null;
       const fileName = readOptionalString((fileValue as { name?: unknown }).name);
       const mimeType = readOptionalString((fileValue as { type?: unknown }).type);
@@ -715,14 +724,14 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         let upstreamDetail = "";
         let upstreamMessage: string | null = null;
         let upstreamUrl: string | null = null;
-        let resolvedModel = requestSttModel;
+        let resolvedModel = normalizedRequestSttModel;
         let ffmpegFallbackAttempted = false;
         let ffmpegFallbackUsed = false;
         let ffmpegFallbackError: string | null = null;
         try {
           const directAttempt = requestProvider === "huggingface"
             || requestProvider === "auto"
-            ? await sendToHuggingFace(requestProvider === "auto" ? "auto" : "huggingface", requestSttModel, fileValue)
+            ? await sendToHuggingFace(requestProvider === "auto" ? "auto" : "huggingface", normalizedRequestSttModel, fileValue)
             : await sendToOpenAi(requestSttModel, fileValue, uploadFileName);
           upstream = directAttempt.upstream;
           upstreamDetail = directAttempt.detail;
