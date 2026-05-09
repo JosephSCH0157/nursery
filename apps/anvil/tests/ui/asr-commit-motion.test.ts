@@ -762,6 +762,7 @@ describe('ASR live commit motion', () => {
   });
 
   test('allows adjacent proof commits even when marker tracking is healthy under starvation', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const driver = createAsrScrollDriver();
 
     window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
@@ -769,7 +770,7 @@ describe('ASR live commit motion', () => {
     }));
 
     driver.setLastLineIndex(1);
-    await jest.advanceTimersByTimeAsync(5200);
+    await jest.advanceTimersByTimeAsync(2600);
 
     driver.ingest('The seats remember every early shift. Neon ads hum above the aisle.', true, {
       currentIdx: 1,
@@ -788,6 +789,32 @@ describe('ASR live commit motion', () => {
 
     expect(driver.getLastLineIndex()).toBe(2);
 
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('keeps tracking healthy skip when forward evidence is missing', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+    driver.setLastLineIndex(1);
+    await jest.advanceTimersByTimeAsync(2600);
+    driver.ingest('weak unrelated fragment', true, {
+      currentIdx: 1,
+      matchId: 'tracking-healthy-no-forward-evidence',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.35,
+        topScores: [{ idx: 3, score: 0.35 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+    expect(driver.getLastLineIndex()).toBe(1);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_TRACKING_HEALTHY_ADJACENT_CATCHUP'))).toBe(false);
+    warnSpy.mockRestore();
     driver.dispose();
   });
 

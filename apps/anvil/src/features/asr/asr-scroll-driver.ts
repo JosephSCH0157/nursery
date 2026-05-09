@@ -15241,16 +15241,35 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           hasForwardEvidence &&
           rebaseForwardCappedIdx > currentForSoftRuntimeRebase &&
           !trackingContradictionActive;
-        if (trackingCatchupAllowed) {
+        const repeatedHoldReasons = new Set([
+          'live_strict_rescue_hold_no_local_proof',
+          'cue_stall_rescue_blocked',
+          'asr_recovery_skip_non_adjacent_target',
+          'asr_recovery_skip_tracking_healthy',
+        ]);
+        const repeatedHoldCount = guardEvents.reduce((count, entry) =>
+          count + (repeatedHoldReasons.has(String(entry?.reason || '')) ? 1 : 0), 0);
+        const liveSpeechFresh = asrRuntimeSpeechRunningActual;
+        const finalPacketFresh = hasRecentFinalTranscript;
+        const trackingCatchupThresholdMs = repeatedHoldCount > 0 ? 2200 : 2600;
+        const trackingCatchupAllowedEarly =
+          (liveSpeechFresh || finalPacketFresh) &&
+          noCommitMsForSoftRuntimeRebase >= trackingCatchupThresholdMs &&
+          starvationMsForSoftRuntimeRebase >= trackingCatchupThresholdMs &&
+          hasForwardEvidence &&
+          rebaseForwardCappedIdx > currentForSoftRuntimeRebase &&
+          !trackingContradictionActive;
+        if (trackingCatchupAllowed || trackingCatchupAllowedEarly) {
           const catchupProofSource =
             softRuntimeRebaseForwardLexicalFallback?.proofSource || 'starvation_best_sim';
           const catchupReason =
             softRuntimeRebaseForwardLexicalFallback
               ? 'tracking_healthy_adjacent_catchup_lexical'
               : 'tracking_healthy_adjacent_catchup_starvation';
+          const earlyCatchup = trackingCatchupAllowed ? 0 : 1;
           try {
             console.warn(
-              `[ASR_TRACKING_HEALTHY_ADJACENT_CATCHUP] current=${currentForSoftRuntimeRebase} bestIdx=${bestIdxForSoftRuntimeRebase} adjacentTarget=${rebaseForwardCappedIdx} target=${rebaseForwardCappedIdx} markerIdx=${markerStateForSoftRuntimeRebase.markerIdx} stallMs=${starvationMsForSoftRuntimeRebase} noCommitMs=${noCommitMsForSoftRuntimeRebase} proofSource=${catchupProofSource} sourceBranch=soft_runtime_rebase reason=${catchupReason}`,
+              `[ASR_TRACKING_HEALTHY_ADJACENT_CATCHUP] current=${currentForSoftRuntimeRebase} bestIdx=${bestIdxForSoftRuntimeRebase} adjacentTarget=${rebaseForwardCappedIdx} target=${rebaseForwardCappedIdx} markerIdx=${markerStateForSoftRuntimeRebase.markerIdx} stallMs=${starvationMsForSoftRuntimeRebase} noCommitMs=${noCommitMsForSoftRuntimeRebase} proofSource=${catchupProofSource} sourceBranch=soft_runtime_rebase reason=${catchupReason} thresholdMs=${trackingCatchupThresholdMs} repeatedHoldCount=${repeatedHoldCount} earlyCatchup=${earlyCatchup} liveSpeechFresh=${liveSpeechFresh ? 1 : 0} finalPacketFresh=${finalPacketFresh ? 1 : 0}`,
             );
           } catch {}
           const catchupMatch: MatchResult = {
