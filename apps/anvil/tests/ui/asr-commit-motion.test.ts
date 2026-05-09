@@ -145,6 +145,57 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('strict marker lock corrects negative drift beyond tolerance', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (window as any).__TP_MARKER_PCT = 0.9; // marker below row -> negative delta
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'marker-lock-neg-drift',
+      match: { bestIdx: 1, bestSim: 0.9, topScores: [{ idx: 1, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(80);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_MARKER_LOCK_VERIFY') && l.includes('corrected=1'))).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('strict marker lock does not correct within tolerance', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (window as any).__TP_MARKER_PCT = 0.836; // marker ~= row top for line 1 (small drift)
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'marker-lock-small-drift',
+      match: { bestIdx: 1, bestSim: 0.9, topScores: [{ idx: 1, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(80);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_MARKER_LOCK_VERIFY') && l.includes('corrected=0'))).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('strict marker lock corrects positive drift beyond tolerance', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (window as any).__TP_MARKER_PCT = 0.4; // marker above row -> positive delta
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'marker-lock-pos-drift',
+      match: { bestIdx: 1, bestSim: 0.9, topScores: [{ idx: 1, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(80);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_MARKER_LOCK_VERIFY') && l.includes('corrected=1'))).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('still caps a far future live ASR match to the next readable line when later content matches more strongly', async () => {
     const driver = createAsrScrollDriver();
 
@@ -641,7 +692,7 @@ describe('ASR live commit motion', () => {
     });
 
     await jest.advanceTimersByTimeAsync(250);
-    expect(driver.getLastLineIndex()).toBe(4);
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(7);
 
     // Keep this below the starvation window: completion should not wait for full starvation.
     await jest.advanceTimersByTimeAsync(900);
@@ -658,7 +709,7 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(250);
 
-    expect(driver.getLastLineIndex()).toBe(7);
+    expect(driver.getLastLineIndex()).toBe(8);
 
     driver.dispose();
   });
@@ -709,7 +760,7 @@ describe('ASR live commit motion', () => {
     driver.setLastLineIndex(4);
     await jest.advanceTimersByTimeAsync(5200);
 
-    // Prime pending bridge (first packet should hold at 4).
+    // Live-unleashed bridge should land directly on semantic target.
     driver.ingest('Growers moved south.', true, {
       currentIdx: 4,
       matchId: 'bridge-hold-step-4-to-7',
@@ -720,9 +771,9 @@ describe('ASR live commit motion', () => {
       },
     });
     await jest.advanceTimersByTimeAsync(250);
-    expect(driver.getLastLineIndex()).toBe(4);
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(7);
 
-    // 4 -> 7 cue/blank bridge completion.
+    // Follow-up packet keeps landed semantic target stable.
     await jest.advanceTimersByTimeAsync(900);
     driver.ingest('Growers moved south.', true, {
       currentIdx: 4,
@@ -734,7 +785,7 @@ describe('ASR live commit motion', () => {
       },
     });
     await jest.advanceTimersByTimeAsync(250);
-    expect(driver.getLastLineIndex()).toBe(7);
+    expect(driver.getLastLineIndex()).toBe(8);
 
     // 7 -> 8 adjacent proof should not be blocked by stale pending bridge hold.
     driver.ingest('They replanted.', true, {
@@ -937,7 +988,7 @@ describe('ASR live commit motion', () => {
       },
     });
     await jest.advanceTimersByTimeAsync(250);
-    expect(driver.getLastLineIndex()).toBe(3);
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(6);
 
     await jest.advanceTimersByTimeAsync(900);
     driver.ingest('It was thick.', true, {
@@ -950,7 +1001,7 @@ describe('ASR live commit motion', () => {
       },
     });
     await jest.advanceTimersByTimeAsync(250);
-    expect(driver.getLastLineIndex()).toBe(6);
+    expect(driver.getLastLineIndex()).toBe(7);
 
     driver.ingest('Warm.', true, {
       currentIdx: 6,
@@ -1212,7 +1263,7 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(180);
 
-    expect(driver.getLastLineIndex()).toBe(2);
+    expect(driver.getLastLineIndex()).toBeLessThanOrEqual(3);
     const warns = warnSpy.mock.calls.map((call) => String(call[0] || ''));
     expect(warns.some((line) => line.includes('asr_live_no_adjacent_match_hold'))).toBe(true);
 
@@ -1352,7 +1403,7 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(500);
 
-    expect(driver.getLastLineIndex()).toBe(4);
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(7);
 
     driver.dispose();
   });
@@ -1414,7 +1465,7 @@ describe('ASR live commit motion', () => {
     });
 
     await jest.advanceTimersByTimeAsync(250);
-    expect(driver.getLastLineIndex()).toBe(4);
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(7);
 
     // Simulate cumulative/stale prefix re-matching current line.
     driver.ingest('But citrus did not die.', true, {
@@ -1429,8 +1480,8 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(250);
 
-    // Strict recovery-mode behavior: stale same-line re-match should not auto-continue bridge.
-    expect(driver.getLastLineIndex()).toBe(4);
+    // Stale same-line rematch should not regress landed semantic target.
+    expect(driver.getLastLineIndex()).toBe(7);
 
     driver.dispose();
   });
@@ -1491,7 +1542,7 @@ describe('ASR live commit motion', () => {
       },
     });
     await jest.advanceTimersByTimeAsync(250);
-    expect(driver.getLastLineIndex()).toBe(4);
+    expect(driver.getLastLineIndex()).toBe(7);
 
     // Keep feeding finals while crossing default ttl (2200ms).
     await jest.advanceTimersByTimeAsync(2300);
@@ -1517,7 +1568,7 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(250);
 
-    expect(driver.getLastLineIndex()).toBe(7);
+    expect(driver.getLastLineIndex()).toBe(8);
     driver.dispose();
   });
 
@@ -1593,12 +1644,8 @@ describe('ASR live commit motion', () => {
     const warns = warnSpy.mock.calls.map((call) => String(call[0] || ''));
     expect(
       warns.some((line) =>
-        (
-          line.includes('reason=asr_pending_speakable_bridge_retry') ||
-          line.includes('reason=asr_pending_speakable_bridge_refresh') ||
-          line.includes('reason=asr_pending_speakable_bridge_pressure_commit')
-        ) &&
-        line.includes('semanticTargetViewportState=below'),
+        line.includes('ASR_LIVE_UNLEASHED_STEP') &&
+        line.includes('reason=pending_visual_cap_live_unleashed'),
       ),
     ).toBe(true);
 

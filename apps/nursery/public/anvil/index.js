@@ -23173,7 +23173,7 @@ function coerceProfile(input) {
     migrated
   );
   const clamp11 = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const clamp013 = (v) => clamp11(v, 0, 1);
+  const clamp014 = (v) => clamp11(v, 0, 1);
   for (const role of ["main", "display"]) {
     const t = p.ui.windows[role].typography;
     t.fontSizePx = clamp11(num(t.fontSizePx, 56), 18, 140);
@@ -23181,11 +23181,11 @@ function coerceProfile(input) {
     t.letterSpacingEm = clamp11(num(t.letterSpacingEm, 0), -0.1, 0.2);
     t.maxLineWidthPx = t.maxLineWidthPx == null ? null : clamp11(num(t.maxLineWidthPx, 600), 240, 2e3);
     const l = p.ui.windows[role].layout;
-    l.markerY = clamp013(num(l.markerY, 0.33));
+    l.markerY = clamp014(num(l.markerY, 0.33));
     l.paddingTopPx = clamp11(num(l.paddingTopPx, 16), 0, 200);
     l.paddingBottomPx = clamp11(num(l.paddingBottomPx, 16), 0, 200);
     const h = p.ui.windows[role].highlight;
-    h.intensity = clamp013(num(h.intensity, 0.35));
+    h.intensity = clamp014(num(h.intensity, 0.35));
   }
   p.scroll.wpm.min = clamp11(num(p.scroll.wpm.min, 60), 10, 600);
   p.scroll.wpm.max = clamp11(num(p.scroll.wpm.max, 260), 10, 600);
@@ -23207,8 +23207,8 @@ function coerceProfile(input) {
   p.scroll.hybrid.sensitivity = clamp11(num(p.scroll.hybrid.sensitivity, 1), 0.25, 3);
   p.scroll.hybrid.assistMax = clamp11(num(p.scroll.hybrid.assistMax, 1.25), 1, 3);
   p.scroll.hybrid.brakeMin = clamp11(num(p.scroll.hybrid.brakeMin, 0.65), 0.1, 1);
-  p.scroll.hybrid.confMin = clamp013(num(p.scroll.hybrid.confMin, 0.25));
-  p.asr.tuning.confidenceFloor = clamp013(num(p.asr.tuning.confidenceFloor, 0.25));
+  p.scroll.hybrid.confMin = clamp014(num(p.scroll.hybrid.confMin, 0.25));
+  p.asr.tuning.confidenceFloor = clamp014(num(p.asr.tuning.confidenceFloor, 0.25));
   p.asr.tuning.lagCompMs = clamp11(num(p.asr.tuning.lagCompMs, 150), 0, 2e3);
   p.asr.tuning.winBackLines = clamp11(num(p.asr.tuning.winBackLines, 3), 0, 80);
   p.asr.tuning.winAheadLines = clamp11(num(p.asr.tuning.winAheadLines, 6), 0, 120);
@@ -36703,7 +36703,7 @@ function createAsrScrollDriver(options = {}) {
       const runtimeSpeechFresh = hasRecentActualSpeech(now3);
       const vadSpeechFresh = hasRecentVadSpeechNow(now3);
       const localSpeechFresh = vadSpeechFresh;
-      const speechFresh = localSpeechFresh || !asrRuntimeSpeechSeen && !asrVadSeen;
+      const speechFresh = localSpeechFresh || runtimeSpeechFresh || !asrRuntimeSpeechSeen && !asrVadSeen;
       if (!speechFresh) {
         const normalizedSource = String(source || "").trim().toLowerCase();
         const normalizedForceReason = String(detail?.forceReason || "").trim().toLowerCase();
@@ -37624,6 +37624,21 @@ function createAsrScrollDriver(options = {}) {
     const normalized = String(reason || "").trim().toLowerCase();
     if (!normalized) return false;
     return normalized === "live_strict_proof_owned_commit" || normalized === "starvation_future_speech_reconcile" || normalized === "movement_authority_proof" || normalized === "movement_authority_reconcile" || normalized === "pending_speakable_bridge_complete";
+  };
+  const isAdjacentProofHoldBypassSource = (value) => {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (!normalized) return false;
+    return normalized === "live_adjacent_tail_proof_override" || normalized === "live_strict_rescue_tail_progression_proof" || normalized === "strict_adjacent_tail_progression" || normalized === "adjacent_rescue_proofed" || normalized === "future_tail_lexical" || normalized === "starvation_future_speech_reconcile" || normalized.includes("tail_progression") || normalized.includes("tail_proof") || normalized.includes("future_tail") || normalized.includes("adjacent_rescue");
+  };
+  const isAdjacentProofOwnedForceReason = (value) => {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (!normalized) return false;
+    return normalized === "final-forward-nudge" || normalized === "live_strict_proof_owned_commit" || normalized === "proof_owned_primary_commit" || normalized === "live_speech_forward_push_commit" || normalized === "live_strict_local_proof_ok" || normalized.includes("proof_owned") || normalized.includes("final-forward-nudge") || normalized.includes("forward_push");
+  };
+  const isMovementAuthorityProofBranch = (value) => {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (!normalized) return false;
+    return normalized.includes("movement_authority_proof") || normalized.includes("movement_authority_reconcile") || normalized.includes("proof_owned") || normalized.includes("pending-proof-owned");
   };
   const isRecoveryLandingHoldSource = (sourceBranch, forceReason) => {
     const normalizedSource = String(sourceBranch || "").trim().toLowerCase();
@@ -42542,7 +42557,7 @@ function createAsrScrollDriver(options = {}) {
             line
           );
         }
-        const recoveryLandingPendingBridgeHoldResolved = recoveryLandingHoldActive && recoveryLandingHoldSource === "pending_speakable_bridge_complete" && recoveryLandingHoldToLine >= 0 && lastLineIndex >= recoveryLandingHoldToLine && strictForwardCommit && targetLine === lastLineIndex + 1 && strictLocalAdjacentProofForCommit && !strictBackwardContradictionForCommit;
+        const recoveryLandingPendingBridgeHoldResolved = recoveryLandingHoldActive && recoveryLandingHoldSource.includes("pending_speakable_bridge_complete") && recoveryLandingHoldToLine >= 0 && lastLineIndex >= recoveryLandingHoldToLine && strictForwardCommit && targetLine === lastLineIndex + 1 && strictLocalAdjacentProofForCommit && !strictBackwardContradictionForCommit;
         if (recoveryLandingPendingBridgeHoldResolved) {
           clearAlignmentSkepticMode("adjacent_local_proof_commits", now3);
           clearRecoveryLandingHold(
@@ -42552,18 +42567,80 @@ function createAsrScrollDriver(options = {}) {
             line
           );
         }
+        const maybeSustainedReadStep = (args) => {
+          const stallMs = Math.max(0, now3 - lastCommitTime);
+          const lastTranscriptAgeMs = lastFinalTranscriptAt > 0 ? Math.max(0, now3 - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
+          const transcriptGrowing = lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength || lastFinalTranscriptAt > lastCommitTranscriptTimestamp;
+          const sustainedSpeech = asrRuntimeSpeechRunningActual || Number.isFinite(lastTranscriptAgeMs) && lastTranscriptAgeMs <= 1800;
+          const proofAuthority = args.authority === "proof" || args.authority === "reconcile";
+          const bridgeCandidate = resolveForwardSpeakableTarget(lastLineIndex, args.requestedTarget, 1);
+          const skippedIgnorableLines = [];
+          let skippedNonIgnorable = false;
+          if (bridgeCandidate > lastLineIndex) {
+            for (let idx = lastLineIndex + 1; idx < bridgeCandidate; idx += 1) {
+              const reason = classifyStrictSkippableLineForCueBridge(getLineTextAt(idx));
+              if (reason == null) {
+                skippedNonIgnorable = true;
+                break;
+              }
+              skippedIgnorableLines.push(reason);
+            }
+          }
+          const bridgeSafe = bridgeCandidate > lastLineIndex && !skippedNonIgnorable && bridgeCandidate <= Math.max(lastLineIndex + 1, args.requestedTarget);
+          const safeAdjacentReason = bridgeSafe ? bridgeCandidate === lastLineIndex + 1 ? "literal_adjacent" : "next_speakable_bridge" : "no_safe_adjacent";
+          const bridgeProofSource = String(args.proofSource || "").includes("strict_speakable_bridge_landing") || String(args.proofSource || "").includes("adjacent_rescue_proofed") || String(args.proofSource || "").includes("bridge");
+          const forcedReconcileBridgeSafe = String(args.sourceBranch || "").includes("movement_authority_forced_reconcile_single_step") && bridgeProofSource && bridgeSafe;
+          const safeAdjacent = bridgeSafe || forcedReconcileBridgeSafe;
+          const contradictionKind = args.contradictionActive ? "backward_or_offscript" : "none";
+          const contradictionActiveEffective = args.contradictionActive && !args.stalePrefixIgnored && !args.backwardContradictionOverriddenByTail;
+          if (!liveStrictFollow || !sustainedSpeech || !proofAuthority || stallMs < 3e3) {
+            return { applied: false, target: bridgeCandidate };
+          }
+          if (!transcriptGrowing || contradictionActiveEffective || !safeAdjacent) {
+            try {
+              const blockedReason = !transcriptGrowing ? "transcript_not_growing" : contradictionActiveEffective ? "contradiction_active" : "no_safe_adjacent";
+              console.warn(`[ASR_SUSTAINED_READ_BLOCKED] current=${lastLineIndex} requested=${args.requestedTarget} adjacentTarget=${bridgeCandidate} activeHoldReason=${args.sourceHoldReason} stallMs=${Math.round(stallMs)} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} lastTranscriptAgeMs=${Math.round(lastTranscriptAgeMs)} reason=${blockedReason} contradictionKind=${contradictionKind} stalePrefixIgnored=${args.stalePrefixIgnored ? 1 : 0} backwardContradictionOverriddenByTail=${args.backwardContradictionOverriddenByTail ? 1 : 0} bridgeCandidate=${bridgeCandidate} skippedIgnorableLines=[${skippedIgnorableLines.join(",")}] safeAdjacentReason=${safeAdjacentReason}`);
+            } catch {
+            }
+            return { applied: false, target: bridgeCandidate };
+          }
+          try {
+            console.warn(`[ASR_SUSTAINED_READ_STEP] current=${lastLineIndex} target=${bridgeCandidate} originalRequestedTarget=${args.requestedTarget} sourceHoldReason=${args.sourceHoldReason} stallMs=${Math.round(stallMs)} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} transcriptGrowing=1 tailProofUsed=${args.tailProofUsed ? 1 : 0} authority=${args.authority} sourceBranch=${args.sourceBranch || "unknown"} proofSource=${args.proofSource || "none"} reducedToAdjacent=${args.requestedTarget > bridgeCandidate ? 1 : 0} bridgeSafe=1 skippedIgnorableLines=[${skippedIgnorableLines.join(",")}] reason=sustained_read_adjacent_step neighborhoodEvidence=${args.neighborhoodEvidence ? 1 : 0}`);
+          } catch {
+          }
+          return { applied: true, target: bridgeCandidate };
+        };
         if (recoveryLandingHoldActive && recoveryLandingHoldChainCandidate) {
-          warnGuard("asr_recovery_chain_blocked", [
-            `current=${lastLineIndex}`,
-            `target=${targetLine}`,
-            forceReason ? `forceReason=${forceReason}` : "",
-            pendingSourceBranch ? `sourceBranch=${pendingSourceBranch}` : "",
-            recoveryLandingHoldSource ? `holdSource=${recoveryLandingHoldSource}` : "",
-            recoveryLandingHoldFromLine >= 0 ? `holdFrom=${recoveryLandingHoldFromLine}` : "",
-            recoveryLandingHoldToLine >= 0 ? `holdTo=${recoveryLandingHoldToLine}` : "",
-            recoveryLandingHoldArmedAt > 0 ? `holdAgeMs=${Math.max(0, now3 - recoveryLandingHoldArmedAt)}` : ""
-          ]);
-          return;
+          const sustainedReadStep = maybeSustainedReadStep({
+            sourceHoldReason: "asr_recovery_chain_blocked",
+            requestedTarget: requestedTargetLine,
+            adjacentTarget: Math.max(lastLineIndex + 1, adjacentLine),
+            authority: movementAuthority,
+            sourceBranch: pendingSourceBranch || movementAuthoritySourceBranch || "",
+            proofSource: pendingProofSource || movementAuthorityProofSource || "",
+            tailProofUsed: !!liveSpeechForwardPushTailProofUsed,
+            neighborhoodEvidence: !!liveSpeechForwardPushAdjacentRescueProof,
+            contradictionActive: !!strictBackwardContradictionForCommit,
+            stalePrefixIgnored: !!liveSpeechForwardPushStalePrefixIgnored,
+            backwardContradictionOverriddenByTail: !!liveSpeechForwardPushBackwardContradictionOverriddenByTail
+          });
+          if (sustainedReadStep.applied) {
+            targetLine = sustainedReadStep.target;
+            forceReason = forceReason || "sustained_read_step";
+            clearRecoveryLandingHold("sustained_read_step", now3, lastLineIndex, line);
+          } else {
+            warnGuard("asr_recovery_chain_blocked", [
+              `current=${lastLineIndex}`,
+              `target=${targetLine}`,
+              forceReason ? `forceReason=${forceReason}` : "",
+              pendingSourceBranch ? `sourceBranch=${pendingSourceBranch}` : "",
+              recoveryLandingHoldSource ? `holdSource=${recoveryLandingHoldSource}` : "",
+              recoveryLandingHoldFromLine >= 0 ? `holdFrom=${recoveryLandingHoldFromLine}` : "",
+              recoveryLandingHoldToLine >= 0 ? `holdTo=${recoveryLandingHoldToLine}` : "",
+              recoveryLandingHoldArmedAt > 0 ? `holdAgeMs=${Math.max(0, now3 - recoveryLandingHoldArmedAt)}` : ""
+            ]);
+            return;
+          }
         }
         const recoveryModeActiveForCommit = isRecoveryModeActive();
         if (strictForwardCommit && recoveryModeActiveForCommit && bypassDownstreamVeto) {
@@ -43162,6 +43239,17 @@ function createAsrScrollDriver(options = {}) {
               "movement_authority_terminal"
             );
           } else {
+            const sustainedStallMs = Math.max(0, now3 - lastCommitTime);
+            const sustainedLastTranscriptAgeMs = lastFinalTranscriptAt > 0 ? Math.max(0, now3 - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
+            const sustainedAdjacentTarget = resolveForwardSpeakableTarget(lastLineIndex, line, 1);
+            if (liveStrictFollow && sustainedStallMs >= 2500 && (asrRuntimeSpeechRunningActual || sustainedLastTranscriptAgeMs <= 1800)) {
+              try {
+                console.warn(
+                  `[ASR_SUSTAINED_READ_BLOCKED] current=${lastLineIndex} requested=${line} adjacentTarget=${sustainedAdjacentTarget} activeHoldReason=no_evidence stallMs=${Math.round(sustainedStallMs)} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} lastTranscriptAgeMs=${Math.round(sustainedLastTranscriptAgeMs)} reason=no_forward_evidence`
+                );
+              } catch {
+              }
+            }
             warnGuard("no_evidence", [
               `current=${lastLineIndex}`,
               `best=${line}`,
@@ -43264,6 +43352,23 @@ function createAsrScrollDriver(options = {}) {
         );
         const directAdjacentMatch = Number.isFinite(directAdjacentSim) && directAdjacentSim >= directAdjacentNeed;
         const directAdjacentGuardEligible = line === targetLine;
+        const directAdjacentTailProgressionProof = liveStrictFollow && forwardDelta === 1 && targetLine > lastLineIndex && asrRuntimeSpeechRunningActual ? evaluateLiveStrictAdjacentTailProgressionProof(lastLineIndex, targetLine, now3) : null;
+        const directAdjacentNeighborhoodEvidence = liveStrictFollow && forwardDelta === 1 && targetLine > lastLineIndex && (hasFreshNearbyRescueMatchEvidence(
+          lastLineIndex,
+          targetLine,
+          now3
+        ) || !!directAdjacentTailProgressionProof?.ok);
+        const directAdjacentFallbackProofOwned = liveStrictFollow && directAdjacentGuardEligible && forwardDelta === 1 && strictForwardCommit && asrRuntimeSpeechRunningActual && runtimeSpeechFresh && !strictBackwardContradictionForCommit && (strictLocalAdjacentProofForCommit || strictCueExitProofForCommit || strictBridgeProofForCommit || directAdjacentNeighborhoodEvidence);
+        const adjacentOrReducedToAdjacentTarget = forwardDelta === 1 && targetLine > lastLineIndex && requestedTargetLine >= targetLine;
+        const directAdjacentProofSourceEligible = isAdjacentProofHoldBypassSource(movementAuthorityProofSource) || isAdjacentProofHoldBypassSource(movementAuthoritySourceBranch) || isAdjacentProofHoldBypassSource(forceReason);
+        const directAdjacentTailOrNeighborhoodAccepted = !!directAdjacentTailProgressionProof?.tailProofUsed || !!liveSpeechForwardPushTailProofUsed || directAdjacentNeighborhoodEvidence;
+        const directAdjacentForwardTailAccepted = !!directAdjacentTailProgressionProof?.stalePrefixIgnored || !!liveSpeechForwardPushStalePrefixIgnored || !!liveSpeechForwardPushBackwardContradictionOverriddenByTail;
+        const directAdjacentAuthorityBypassEligible = liveStrictFollow && directAdjacentGuardEligible && adjacentOrReducedToAdjacentTarget && asrRuntimeSpeechRunningActual && (movementAuthority === "proof" || movementAuthority === "reconcile") && directAdjacentProofSourceEligible && directAdjacentTailOrNeighborhoodAccepted && directAdjacentForwardTailAccepted;
+        const directAdjacentProofOwnedForceSignal = isAdjacentProofOwnedForceReason(forceReason) || isAdjacentProofOwnedForceReason(movementAuthorityProofSource) || isAdjacentProofOwnedForceReason(movementAuthoritySourceBranch);
+        const directAdjacentProofBranchSignal = isMovementAuthorityProofBranch(movementAuthoritySourceBranch) || isMovementAuthorityProofBranch(forceReason);
+        const directAdjacentNoStaleVeto = !asrSilenceActive && runtimeSpeechFresh && hasRecentVadSpeech && asrRuntimeSpeechRunningActual;
+        const directAdjacentProofOwnedBypassEligible = liveStrictFollow && directAdjacentGuardEligible && adjacentOrReducedToAdjacentTarget && (movementAuthority === "proof" || movementAuthority === "reconcile") && directAdjacentProofBranchSignal && directAdjacentProofOwnedForceSignal && directAdjacentNoStaleVeto;
+        const directAdjacentAnyBypassEligible = directAdjacentFallbackProofOwned || directAdjacentAuthorityBypassEligible || directAdjacentProofOwnedBypassEligible;
         const speechStopCleanupCommitForGates = movementAuthorityReason === "speech_stop_cleanup_commit";
         if (liveStrictFollow && recoveryLandingHoldActive && forwardDelta > 0 && lastCommitIndex != null && !speechStopCleanupCommitForGates && !isProofOwnedPrimaryForceReason(forceReason)) {
           const sinceForwardCommitMs = Math.max(0, now3 - lastForwardCommitAt);
@@ -43282,18 +43387,90 @@ function createAsrScrollDriver(options = {}) {
           }
         }
         if (forwardDelta > 0 && !speechStopCleanupCommitForGates && directAdjacentGuardEligible && !directAdjacentMatch) {
-          warnGuard("asr_live_no_adjacent_match_hold", [
+          const sustainedReadStep = maybeSustainedReadStep({
+            sourceHoldReason: "asr_live_no_adjacent_match_hold",
+            requestedTarget: requestedTargetLine,
+            adjacentTarget: Math.max(lastLineIndex + 1, adjacentLine),
+            authority: movementAuthority,
+            sourceBranch: movementAuthoritySourceBranch || "",
+            proofSource: movementAuthorityProofSource || "",
+            tailProofUsed: !!directAdjacentTailOrNeighborhoodAccepted,
+            neighborhoodEvidence: !!directAdjacentNeighborhoodEvidence,
+            contradictionActive: !!strictBackwardContradictionForCommit,
+            stalePrefixIgnored: !!directAdjacentTailProgressionProof?.stalePrefixIgnored || !!liveSpeechForwardPushStalePrefixIgnored,
+            backwardContradictionOverriddenByTail: !!liveSpeechForwardPushBackwardContradictionOverriddenByTail || !!directAdjacentTailProgressionProof?.stalePrefixIgnored && !!strictBackwardContradictionForCommit
+          });
+          if (sustainedReadStep.applied) {
+            targetLine = sustainedReadStep.target;
+            forceReason = forceReason || "sustained_read_step";
+          } else if (!directAdjacentAnyBypassEligible) {
+            warnGuard("asr_live_no_adjacent_match_hold", [
+              `current=${lastLineIndex}`,
+              `target=${targetLine}`,
+              Number.isFinite(directAdjacentSim) ? `adjacentSim=${formatLogScore(directAdjacentSim)}` : "adjacentSim=na",
+              `adjacentNeed=${formatLogScore(directAdjacentNeed)}`,
+              `authority=${movementAuthority}`,
+              `sourceBranch=${movementAuthoritySourceBranch}`,
+              forceReason ? `forceReason=${forceReason}` : "",
+              snippet ? `clue="${snippet}"` : ""
+            ]);
+            emitHudStatus("asr_live_no_adjacent_match_hold", "Hold: waiting for direct adjacent ASR match");
+            return;
+          }
+        }
+        if (directAdjacentFallbackProofOwned && !directAdjacentMatch) {
+          warnGuard("asr_live_no_adjacent_match_bypass", [
             `current=${lastLineIndex}`,
             `target=${targetLine}`,
             Number.isFinite(directAdjacentSim) ? `adjacentSim=${formatLogScore(directAdjacentSim)}` : "adjacentSim=na",
             `adjacentNeed=${formatLogScore(directAdjacentNeed)}`,
+            `tailProof=${directAdjacentTailProgressionProof?.ok ? 1 : 0}`,
+            `tailReason=${directAdjacentTailProgressionProof?.reason || "none"}`,
+            `neighborhoodEvidence=${directAdjacentNeighborhoodEvidence ? 1 : 0}`,
             `authority=${movementAuthority}`,
             `sourceBranch=${movementAuthoritySourceBranch}`,
             forceReason ? `forceReason=${forceReason}` : "",
             snippet ? `clue="${snippet}"` : ""
           ]);
-          emitHudStatus("asr_live_no_adjacent_match_hold", "Hold: waiting for direct adjacent ASR match");
-          return;
+        }
+        if (directAdjacentAuthorityBypassEligible && !directAdjacentMatch && !directAdjacentFallbackProofOwned) {
+          const dspState = String(window?.__tpCalibrationRuntime?.dsp?.state || "unknown");
+          warnGuard("asr_live_no_adjacent_match_bypass", [
+            `current=${lastLineIndex}`,
+            `target=${targetLine}`,
+            Number.isFinite(directAdjacentSim) ? `adjacentSim=${formatLogScore(directAdjacentSim)}` : "adjacentSim=na",
+            `adjacentNeed=${formatLogScore(directAdjacentNeed)}`,
+            `tailProof=${directAdjacentTailProgressionProof?.ok ? 1 : 0}`,
+            `tailProofUsed=${directAdjacentTailOrNeighborhoodAccepted ? 1 : 0}`,
+            `stalePrefixIgnored=${directAdjacentForwardTailAccepted ? 1 : 0}`,
+            `neighborhoodEvidence=${directAdjacentNeighborhoodEvidence ? 1 : 0}`,
+            `authority=${movementAuthority}`,
+            `sourceBranch=${movementAuthoritySourceBranch}`,
+            forceReason ? `forceReason=${forceReason}` : "",
+            movementAuthorityProofSource ? `proofSource=${movementAuthorityProofSource}` : "",
+            `reducedToAdjacent=${adjacentOrReducedToAdjacentTarget ? 1 : 0}`,
+            `dspState=${dspState}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+        }
+        if (directAdjacentProofOwnedBypassEligible && !directAdjacentMatch && !directAdjacentFallbackProofOwned && !directAdjacentAuthorityBypassEligible) {
+          const dspState = String(window?.__tpCalibrationRuntime?.dsp?.state || "unknown");
+          warnGuard("asr_live_no_adjacent_match_bypass", [
+            `current=${lastLineIndex}`,
+            `target=${targetLine}`,
+            Number.isFinite(directAdjacentSim) ? `adjacentSim=${formatLogScore(directAdjacentSim)}` : "adjacentSim=na",
+            `adjacentNeed=${formatLogScore(directAdjacentNeed)}`,
+            `tailProof=${directAdjacentTailProgressionProof?.ok ? 1 : 0}`,
+            `tailProofUsed=${directAdjacentTailOrNeighborhoodAccepted ? 1 : 0}`,
+            `neighborhoodEvidence=${directAdjacentNeighborhoodEvidence ? 1 : 0}`,
+            `authority=${movementAuthority}`,
+            `sourceBranch=${movementAuthoritySourceBranch}`,
+            forceReason ? `forceReason=${forceReason}` : "",
+            movementAuthorityProofSource ? `proofSource=${movementAuthorityProofSource}` : "",
+            `reducedToAdjacent=${adjacentOrReducedToAdjacentTarget ? 1 : 0}`,
+            `dspState=${dspState}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
         }
         if (forwardDelta < minLineAdvance) {
           warnGuard("forward_progress", [
@@ -43636,7 +43813,7 @@ function createAsrScrollDriver(options = {}) {
             clearPendingSpeakableBridge("semantic_target_committed", [
               `commitTarget=${targetLine}`
             ]);
-            if (recoveryLandingHoldActive && recoveryLandingHoldSource === "pending_speakable_bridge_complete" && recoveryLandingHoldToLine >= 0 && targetLine >= recoveryLandingHoldToLine) {
+            if (recoveryLandingHoldActive && recoveryLandingHoldSource.includes("pending_speakable_bridge_complete") && recoveryLandingHoldToLine >= 0 && targetLine >= recoveryLandingHoldToLine) {
               clearRecoveryLandingHold(
                 "pending_bridge_semantic_target_committed",
                 now3,
@@ -43906,14 +44083,17 @@ function createAsrScrollDriver(options = {}) {
       ]);
       return;
     }
-    const staleWhisperBridgeFinalPacket = liveAsrSessionActive && isFinal && isWhisperBridgeTranscriptSource(transcriptSource) && (asrSilenceActive || !hasRecentActualSpeech(now3) || !hasRecentVadSpeechNow(now3) || !asrRuntimeSpeechRunningActual);
+    const runtimeSpeechFreshNow = hasRecentActualSpeech(now3);
+    const vadSpeechFreshNow = hasRecentVadSpeechNow(now3);
+    const liveSpeechCoherent = runtimeSpeechFreshNow && vadSpeechFreshNow && asrRuntimeSpeechRunningActual;
+    const staleWhisperBridgeFinalPacket = liveAsrSessionActive && isFinal && isWhisperBridgeTranscriptSource(transcriptSource) && (!liveSpeechCoherent && asrSilenceActive || !runtimeSpeechFreshNow || !vadSpeechFreshNow || !asrRuntimeSpeechRunningActual);
     if (staleWhisperBridgeFinalPacket) {
       warnGuard("asr_commit_blocked_stale_whisperbridge_packet", [
         "source=ingest",
         `transcriptSource=${transcriptSource || "unknown"}`,
         `speechFresh=0`,
-        `runtimeSpeechFresh=${hasRecentActualSpeech(now3) ? 1 : 0}`,
-        `vadSpeechFresh=${hasRecentVadSpeechNow(now3) ? 1 : 0}`,
+        `runtimeSpeechFresh=${runtimeSpeechFreshNow ? 1 : 0}`,
+        `vadSpeechFresh=${vadSpeechFreshNow ? 1 : 0}`,
         `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
         `asrSilenceActive=${asrSilenceActive ? 1 : 0}`,
         compacted ? `clue="${formatLogSnippet(compacted, 72)}"` : ""
@@ -44267,6 +44447,57 @@ function createAsrScrollDriver(options = {}) {
       if (!asrRuntimeSpeechRunningActual) {
         maybeLogSoftRuntimeRebaseSkip("speech_not_running");
       } else if (markerStateForSoftRuntimeRebase.healthy && rebaseForwardWasNonAdjacent) {
+        const trackingTopScores = Array.isArray(incomingMatch?.topScores) ? incomingMatch.topScores : [];
+        const trackingContradictionActive = trackingTopScores.some((entry) => {
+          const idx = Math.max(0, Math.floor(Number(entry?.idx) || 0));
+          const score = Number(entry?.score);
+          return Number.isFinite(score) && idx <= currentForSoftRuntimeRebase && score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, rebaseForwardEvidenceSim - 0.06);
+        });
+        const trackingCatchupAllowed = (asrRuntimeSpeechRunningActual || hasRecentFinalTranscript) && noCommitMsForSoftRuntimeRebase >= 3e3 && starvationMsForSoftRuntimeRebase >= 3e3 && hasForwardEvidence && rebaseForwardCappedIdx > currentForSoftRuntimeRebase && !trackingContradictionActive;
+        const repeatedHoldReasons = /* @__PURE__ */ new Set([
+          "live_strict_rescue_hold_no_local_proof",
+          "cue_stall_rescue_blocked",
+          "asr_recovery_skip_non_adjacent_target",
+          "asr_recovery_skip_tracking_healthy"
+        ]);
+        const repeatedHoldCount = guardEvents.reduce((count, entry) => count + (repeatedHoldReasons.has(String(entry?.reason || "")) ? 1 : 0), 0);
+        const liveSpeechFresh = asrRuntimeSpeechRunningActual;
+        const finalPacketFresh = hasRecentFinalTranscript;
+        const trackingCatchupThresholdMs = repeatedHoldCount > 0 ? 2200 : 2600;
+        const trackingCatchupAllowedEarly = (liveSpeechFresh || finalPacketFresh) && noCommitMsForSoftRuntimeRebase >= trackingCatchupThresholdMs && starvationMsForSoftRuntimeRebase >= trackingCatchupThresholdMs && hasForwardEvidence && rebaseForwardCappedIdx > currentForSoftRuntimeRebase && !trackingContradictionActive;
+        if (trackingCatchupAllowed || trackingCatchupAllowedEarly) {
+          const catchupProofSource = softRuntimeRebaseForwardLexicalFallback?.proofSource || "starvation_best_sim";
+          const catchupReason = softRuntimeRebaseForwardLexicalFallback ? "tracking_healthy_adjacent_catchup_lexical" : "tracking_healthy_adjacent_catchup_starvation";
+          const earlyCatchup = trackingCatchupAllowed ? 0 : 1;
+          try {
+            console.warn(
+              `[ASR_TRACKING_HEALTHY_ADJACENT_CATCHUP] current=${currentForSoftRuntimeRebase} bestIdx=${bestIdxForSoftRuntimeRebase} adjacentTarget=${rebaseForwardCappedIdx} target=${rebaseForwardCappedIdx} markerIdx=${markerStateForSoftRuntimeRebase.markerIdx} stallMs=${starvationMsForSoftRuntimeRebase} noCommitMs=${noCommitMsForSoftRuntimeRebase} proofSource=${catchupProofSource} sourceBranch=soft_runtime_rebase reason=${catchupReason} thresholdMs=${trackingCatchupThresholdMs} repeatedHoldCount=${repeatedHoldCount} earlyCatchup=${earlyCatchup} liveSpeechFresh=${liveSpeechFresh ? 1 : 0} finalPacketFresh=${finalPacketFresh ? 1 : 0}`
+            );
+          } catch {
+          }
+          const catchupMatch = {
+            ...incomingMatch,
+            bestIdx: rebaseForwardCappedIdx,
+            bestSim: Math.max(rebaseForwardEvidenceSim, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM),
+            topScores: [{ idx: rebaseForwardCappedIdx, score: Math.max(rebaseForwardEvidenceSim, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM) }]
+          };
+          const catchupDetail = {
+            source: "tracking_healthy_adjacent_catchup",
+            matchId: matchId ? `${matchId}:tracking-healthy-catchup` : `tracking-healthy-catchup-${now3.toString(36)}-${rebaseForwardCappedIdx}`,
+            match: catchupMatch,
+            runKey: lastFinalTranscriptRunKey || transcriptRunKey || null,
+            runGeneration: lastFinalTranscriptRunGeneration ?? transcriptRunGeneration ?? null,
+            currentIdx: currentForSoftRuntimeRebase >= 0 ? currentForSoftRuntimeRebase : null,
+            speechRunningActual: asrRuntimeSpeechRunningActual
+          };
+          softRuntimeRebaseRetryActive = true;
+          try {
+            ingest(retryText, true, catchupDetail);
+          } finally {
+            softRuntimeRebaseRetryActive = false;
+          }
+          return;
+        }
         warnGuard("asr_recovery_skip_tracking_healthy", [
           `current=${currentForSoftRuntimeRebase}`,
           `markerIdx=${markerStateForSoftRuntimeRebase.markerIdx}`,
@@ -48817,6 +49048,24 @@ var init_tongs_user_auth = __esm({
   }
 });
 
+// src/asr/active-profile.ts
+function getActiveAsrProfile() {
+  try {
+    const state8 = getAsrState();
+    const id = state8?.activeProfileId;
+    if (!id) return null;
+    return state8.profiles?.[id] || null;
+  } catch {
+    return null;
+  }
+}
+var init_active_profile = __esm({
+  "src/asr/active-profile.ts"() {
+    "use strict";
+    init_store();
+  }
+});
+
 // src/speech/engines/whisper-bridge.ts
 function isDevAuthLoggingEnabled() {
   try {
@@ -49058,6 +49307,7 @@ var init_whisper_bridge = __esm({
     init_supabaseClient();
     init_tongs_user_auth();
     init_dev_log();
+    init_active_profile();
     WhisperBridgeHttpError = class extends Error {
       status;
       payload;
@@ -49185,7 +49435,29 @@ var init_whisper_bridge = __esm({
         if (typeof window.__tpMic?.requestMic !== "function") {
           throw new Error("Microphone API not available");
         }
-        const stream = await window.__tpMic.requestMic();
+        const activeProfile = getActiveAsrProfile();
+        const runtimePath = this.asrLane === "ASR2" ? "whisper-large-live" : "whisper-bridge";
+        const stream = await window.__tpMic.requestMic({
+          source: "whisper-bridge",
+          asrPath: runtimePath,
+          profileId: activeProfile?.id || null,
+          capture: activeProfile?.capture || null
+        });
+        try {
+          const runtimeDetail = window.__tpCalibrationRuntime;
+          const state8 = String(runtimeDetail?.calibrationState || (activeProfile ? "partially_calibrated" : "bypassed"));
+          const detail = {
+            path: "whisper-bridge",
+            runtimePath,
+            profileId: activeProfile?.id || null,
+            version: activeProfile?.version ?? null,
+            state: state8,
+            runtime: runtimeDetail || null
+          };
+          window.dispatchEvent(new CustomEvent("tp:asr:calibration-status", { detail }));
+          console.info("[ASR_CALIBRATION_STATUS]", detail);
+        } catch {
+        }
         const audioTracks = stream.getAudioTracks();
         if (!audioTracks.length) {
           throw new Error("No audio track available");
@@ -49802,7 +50074,9 @@ var init_whisper_bridge = __esm({
           timestamp: now3,
           source: SOURCE,
           model: payload.model ?? null,
-          providerRequestId: payload.provider_request_id ?? null
+          providerRequestId: payload.provider_request_id ?? null,
+          calibrationProfileId: getActiveAsrProfile()?.id || null,
+          calibrationVersion: getActiveAsrProfile()?.version ?? null
         };
         if (this.interim && assembledText !== this.lastPartialText) {
           this.lastPartialText = assembledText;
@@ -50454,7 +50728,7 @@ function computeAsrReadiness() {
       activeProfile = asrState?.activeProfileId && asrState.profiles?.[asrState.activeProfileId];
     } catch {
     }
-    const hasDevice = !!micDevice || !!activeProfile?.deviceId || micOpen;
+    const hasDevice = !!micDevice || !!activeProfile?.capture?.deviceId || micOpen;
     if (!hasDevice) return { ready: false, reason: "NO_DEVICE" };
     if (!activeProfile) return { ready: true, warn: "NOT_CALIBRATED" };
     return { ready: true };
@@ -50934,6 +51208,10 @@ function emitAsrRuntimeStatus(reason) {
   const appStoreEngine = String(window.__tpStore?.get?.("asr.engine") || "").trim().toLowerCase();
   const requestedEngine = String(lastRequestedSpeechEngine || appStoreEngine || "whisper").trim().toLowerCase() || "whisper";
   const actualEngine = currentActualSpeechEngine ? String(currentActualSpeechEngine).trim().toLowerCase() : null;
+  const activeProfile = getActiveAsrProfile();
+  const runtimeCalibration = window.__tpCalibrationRuntime || null;
+  const calibrationState = String(runtimeCalibration?.calibrationState || (activeProfile ? "partially_calibrated" : "bypassed")).toLowerCase();
+  const runtimePath = activeAsrLane === ASR_LANE_ASR2 ? "whisper-large-live" : "whisper-bridge";
   const payload = {
     reason,
     requestedEngine,
@@ -50950,7 +51228,16 @@ function emitAsrRuntimeStatus(reason) {
     state: currentAsrState,
     speechRunning: !!running,
     speechRunningActual: !!speechRunningActual,
-    activeAsrLane
+    activeAsrLane,
+    runtimePath,
+    calibration: {
+      profileId: activeProfile?.id || null,
+      state: calibrationState === "calibrated" || calibrationState === "partially_calibrated" ? calibrationState : "bypassed",
+      requested: runtimeCalibration?.requested || null,
+      applied: runtimeCalibration?.applied || null,
+      ignoredOrUnsupported: Array.isArray(runtimeCalibration?.ignoredOrUnsupported) ? runtimeCalibration.ignoredOrUnsupported : null,
+      dsp: runtimeCalibration?.dsp || null
+    }
   };
   try {
     window.__tpAsrRuntimeStatus = payload;
@@ -50966,6 +51253,40 @@ function emitAsrRuntimeStatus(reason) {
   }
   try {
     document.dispatchEvent(new CustomEvent("tp:asr:runtime-status", { detail: payload }));
+  } catch {
+  }
+  try {
+    console.info("[ASR_RUNTIME_STATUS]", {
+      reason,
+      lane: activeAsrLane,
+      runtimePath,
+      calibrationState: payload.calibration?.state || "bypassed",
+      calibrationProfileId: payload.calibration?.profileId || null,
+      requestedConstraints: payload.calibration?.requested || null,
+      appliedConstraints: payload.calibration?.applied || null,
+      ignoredOrUnsupportedConstraints: payload.calibration?.ignoredOrUnsupported || null,
+      dspState: payload.calibration?.dsp?.state || "inactive",
+      activeDspFilters: payload.calibration?.dsp?.activeFilters || []
+    });
+  } catch {
+  }
+  try {
+    const dsp = payload.calibration?.dsp || null;
+    const activeFilters = Array.isArray(dsp?.activeFilters) ? dsp.activeFilters : [];
+    const details = dsp?.details && typeof dsp.details === "object" ? Object.entries(dsp.details).filter(([, v]) => v !== void 0 && v !== null).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join("|") : String(v)}`).join(";") : "";
+    const dspState = String(dsp?.state || "inactive");
+    const dspReason = dspState === "inactive" ? "no_calibration_filters" : dspState === "unavailable" ? "no_audio_context" : "";
+    console.info([
+      "[ASR_DSP_STATUS]",
+      `path=${runtimePath}`,
+      `state=${dspState}`,
+      `activeFilters=${activeFilters.length ? activeFilters.join(",") : "none"}`,
+      `profileId=${payload.calibration?.profileId || "none"}`,
+      dspReason ? `reason=${dspReason}` : "",
+      dsp?.error ? `error=${String(dsp.error)}` : "",
+      details ? `details=${details}` : "",
+      `source=runtime-status:${reason}`
+    ].filter(Boolean).join(" "));
   } catch {
   }
 }
@@ -52938,6 +53259,7 @@ lastCommit: ${formatAge(snap.lastCommitTs)}
     const layoutHud = () => {
       const base = 8;
       let rightInset = base;
+      let bottomInset = base;
       let topInset = 64;
       try {
         const drawer = document.getElementById("tp-dev-drawer");
@@ -52948,6 +53270,7 @@ lastCommit: ${formatAge(snap.lastCommitTs)}
             rightInset = Math.max(base, Math.round(rect.width + 16));
           } else if (dock === "bottom") {
             topInset = 16;
+            bottomInset = Math.max(base, Math.round(rect.height + 16));
           }
         }
       } catch {
@@ -54714,7 +55037,13 @@ async function startSpeechBackendForSession(info) {
       const startedEngine = String(lastStartedSpeechEngine || getTpSpeechStoreSnapshot()?.engine || "").toLowerCase();
       if (startedEngine !== "whisper") {
         try {
-          await window.__tpMic?.requestMic?.();
+          const activeProfile = getActiveAsrProfile();
+          await window.__tpMic?.requestMic?.({
+            source: "speech-loader",
+            asrPath: startedEngine || "webspeech",
+            profileId: activeProfile?.id || null,
+            capture: activeProfile?.capture || null
+          });
         } catch {
         }
       }
@@ -54924,6 +55253,7 @@ var init_speech_loader = __esm({
     init_scroller();
     init_backend_guard();
     init_whisper_bridge();
+    init_active_profile();
     init_matcher_input();
     init_matcher_runtime_state();
     init_matcher();
@@ -57471,7 +57801,7 @@ function resolveManualAnchorTargetIndex(scroller, fallbackIndex = null) {
   }
   return null;
 }
-function kickAsrForward(scroller, deltaPx, reason) {
+function kickAsrForward(scroller, deltaPx, _reason) {
   const from = readScrollTop2(scroller);
   const currentLine = resolveAsrKickBaseLineIndex(scroller);
   const nextLineIndex = Number.isFinite(currentLine) ? Math.max(0, Math.floor(currentLine) + 1) : null;
@@ -71013,6 +71343,70 @@ var init_inject_settings_folder2 = __esm({
 });
 
 // src/asr/calibration.ts
+function clamp013(value) {
+  if (!Number.isFinite(value)) return 0;
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
+  return value;
+}
+function deriveRoomAnalysis(cal, silence, speech) {
+  const rumbleDetected = silence.spectral.rumbleRatio > 0.42 || speech.spectral.rumbleRatio > 0.36;
+  const humDetected = Math.max(silence.spectral.hum50, silence.spectral.hum60) > 0.12;
+  const echoRisk = cal.snrDb < 10 || speech.stability > 16 ? "high" : cal.snrDb < 15 || speech.stability > 9 ? "medium" : "low";
+  const clippingRisk = cal.speechPeakDbfs > -2 ? "high" : cal.speechPeakDbfs > -6 ? "medium" : "low";
+  return {
+    noiseFloorDb: cal.noiseRmsDbfs,
+    snrDb: cal.snrDb,
+    rumbleDetected,
+    humDetected,
+    echoRisk,
+    clippingRisk
+  };
+}
+function deriveFilters(room, silence, speech) {
+  const filters = {};
+  if (room.rumbleDetected) {
+    filters.hpfHz = silence.spectral.rumbleRatio > 0.52 ? 90 : 80;
+  }
+  if (room.humDetected) {
+    filters.mainsNotchHz = silence.spectral.hum60 >= silence.spectral.hum50 ? 60 : 50;
+  }
+  if (speech.spectral.sibilanceRatio > 0.42) {
+    filters.deEssBandHz = [5e3, 8500];
+    filters.presenceCutDb = 1.5;
+  }
+  if (speech.spectral.bodyRatio < 0.18 && speech.spectral.presenceRatio > 0.35) {
+    filters.bodyBoostDb = 1.5;
+  }
+  return filters;
+}
+function deriveRecommendation(cal, room) {
+  const messages = [];
+  let status2 = "good_to_record";
+  if (cal.snrDb < 15) {
+    status2 = "recordable_but_noisy";
+    messages.push("Room noise is elevated. Consider headphones and quieter surroundings.");
+  }
+  if (room.rumbleDetected) {
+    if (status2 === "good_to_record") status2 = "recordable_but_noisy";
+    messages.push("Low-frequency rumble detected. High-pass filtering is recommended.");
+  }
+  if (room.humDetected) {
+    if (status2 === "good_to_record") status2 = "recordable_but_noisy";
+    messages.push("Mains hum signature detected. Notch filtering is recommended.");
+  }
+  if (room.clippingRisk === "high") {
+    status2 = "fix_first";
+    messages.push("Voice peaks are clipping. Lower input gain before recording.");
+  } else if (room.clippingRisk === "medium") {
+    if (status2 === "good_to_record") status2 = "recordable_but_noisy";
+    messages.push("Voice peaks are hot. Slight gain reduction may improve clarity.");
+  }
+  if (!messages.length) {
+    messages.push("Room and voice look healthy. Ready to record.");
+  }
+  return { status: status2, messages };
+}
 async function runCalibration(opts) {
   const wantedDeviceId = String(opts.deviceId || "").trim();
   const audioConstraints = {
@@ -71041,26 +71435,75 @@ async function runCalibration(opts) {
   const analyser2 = ctx.createAnalyser();
   analyser2.fftSize = 2048;
   const buf = new Float32Array(analyser2.fftSize);
+  const freq = new Float32Array(analyser2.frequencyBinCount);
   src.connect(analyser2);
+  const sampleRate = ctx.sampleRate || 48e3;
+  const binHz = sampleRate / analyser2.fftSize;
+  const bandEnergy = (fromHz, toHz) => {
+    const start2 = Math.max(0, Math.floor(fromHz / Math.max(1, binHz)));
+    const end = Math.min(freq.length - 1, Math.ceil(toHz / Math.max(1, binHz)));
+    let sum = 0;
+    for (let i = start2; i <= end; i += 1) {
+      const amp = 10 ** ((freq[i] || -160) / 20);
+      sum += amp * amp;
+    }
+    return sum;
+  };
   const measure = async (ms) => {
     const t0 = performance.now();
     const rms = [];
     let peak = -1;
+    const rumbleRatios = [];
+    const hum50Ratios = [];
+    const hum60Ratios = [];
+    const hissRatios = [];
+    const sibilanceRatios = [];
+    const bodyRatios = [];
+    const presenceRatios = [];
     while (performance.now() - t0 < ms) {
       analyser2.getFloatTimeDomainData(buf);
+      analyser2.getFloatFrequencyData(freq);
       let sum = 0, p = 0;
       for (let i = 0; i < buf.length; i++) {
         const v = buf[i];
         sum += v * v;
         p = Math.max(p, Math.abs(v));
       }
-      rms.push(Math.sqrt(sum / buf.length));
+      const frameRms = Math.sqrt(sum / buf.length);
+      rms.push(frameRms);
       peak = Math.max(peak, p);
+      const total = Math.max(1e-10, bandEnergy(20, 12e3));
+      const rumble = bandEnergy(20, 140) / total;
+      const hum50 = bandEnergy(47, 53) / total;
+      const hum60 = bandEnergy(57, 63) / total;
+      const hiss = bandEnergy(4500, 9e3) / total;
+      const sibilance = bandEnergy(5e3, 9e3) / total;
+      const body = bandEnergy(120, 320) / total;
+      const presence = bandEnergy(2e3, 5e3) / total;
+      rumbleRatios.push(clamp013(rumble));
+      hum50Ratios.push(clamp013(hum50));
+      hum60Ratios.push(clamp013(hum60));
+      hissRatios.push(clamp013(hiss));
+      sibilanceRatios.push(clamp013(sibilance));
+      bodyRatios.push(clamp013(body));
+      presenceRatios.push(clamp013(presence));
       await new Promise((r) => setTimeout(r, 20));
     }
-    rms.sort((a, b) => a - b);
-    const median = rms[Math.floor(rms.length / 2)] || 0;
-    return { rmsDbfs: toDb(median), peakDbfs: toDb(peak) };
+    const rmsMedian = median(rms);
+    return {
+      rmsDbfs: toDb(rmsMedian),
+      peakDbfs: toDb(peak),
+      spectral: {
+        rumbleRatio: median(rumbleRatios),
+        hum50: median(hum50Ratios),
+        hum60: median(hum60Ratios),
+        hissRatio: median(hissRatios),
+        sibilanceRatio: median(sibilanceRatios),
+        bodyRatio: median(bodyRatios),
+        presenceRatio: median(presenceRatios)
+      },
+      stability: variance(rms)
+    };
   };
   const silence = await measure(5e3);
   const speech = await measure(15e3);
@@ -71074,6 +71517,12 @@ async function runCalibration(opts) {
   const ton = Math.max(cal.noiseRmsDbfs + 10, Math.min(-20, cal.speechRmsDbfs - 4));
   const toff = ton - 6;
   const vad = { tonDb: ton, toffDb: toff, attackMs: 80, releaseMs: 300 };
+  const room = deriveRoomAnalysis(cal, silence, speech);
+  const recommendation = deriveRecommendation(cal, room);
+  const filters = deriveFilters(room, silence, speech);
+  const shouldUseNs = cal.snrDb < 15 || room.echoRisk !== "low";
+  const shouldUseAgc = cal.speechRmsDbfs < -33 || speech.stability > 16;
+  const shouldUseAec = opts.flags.echoCancellation || room.echoRisk === "high";
   const profile = {
     id: `${resolvedDeviceId}::${opts.label}`,
     label: opts.label,
@@ -71081,13 +71530,17 @@ async function runCalibration(opts) {
       deviceId: resolvedDeviceId,
       sampleRateHz: ctx.sampleRate,
       channelCount: 1,
-      echoCancellation: opts.flags.echoCancellation,
-      noiseSuppression: opts.flags.noiseSuppression,
-      autoGainControl: opts.flags.autoGainControl
+      echoCancellation: shouldUseAec,
+      noiseSuppression: opts.flags.noiseSuppression || shouldUseNs,
+      autoGainControl: opts.flags.autoGainControl || shouldUseAgc
     },
     cal,
     vad,
-    filters: {},
+    filters,
+    room,
+    recommendation,
+    version: 2,
+    measuredAt: Date.now(),
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
@@ -71115,14 +71568,60 @@ async function runCalibration(opts) {
       await new Promise((r) => setTimeout(r, msPerFrame));
     }
   };
-  return { profile, preview };
+  let closed = false;
+  const safeClose = async () => {
+    if (closed) return;
+    closed = true;
+    try {
+      stop3 = true;
+    } catch {
+    }
+    try {
+      src.disconnect();
+    } catch {
+    }
+    try {
+      analyser2.disconnect();
+    } catch {
+    }
+    try {
+      stream.getTracks?.().forEach((track) => track.stop());
+    } catch {
+    }
+    try {
+      await ctx.close();
+    } catch {
+    }
+  };
+  const wrappedPreview = async (_stop) => {
+    if (_stop) {
+      await safeClose();
+      return;
+    }
+    await preview();
+  };
+  setTimeout(() => {
+    void safeClose();
+  }, 3e4);
+  return { profile, preview: wrappedPreview };
 }
-var DB_EPS, toDb;
+var DB_EPS, toDb, median, variance;
 var init_calibration = __esm({
   "src/asr/calibration.ts"() {
     "use strict";
     DB_EPS = 1e-12;
     toDb = (x) => 20 * Math.log10(Math.max(x, DB_EPS));
+    median = (values) => {
+      if (!values.length) return 0;
+      const sorted = [...values].sort((a, b) => a - b);
+      return sorted[Math.floor(sorted.length / 2)] || 0;
+    };
+    variance = (values) => {
+      if (values.length < 2) return 0;
+      const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+      const sumSq = values.reduce((sum, value) => sum + (value - mean) ** 2, 0);
+      return sumSq / Math.max(1, values.length - 1);
+    };
   }
 });
 
@@ -76160,6 +76659,7 @@ var init_webspeech = __esm({
   "src/speech/engines/webspeech.ts"() {
     "use strict";
     init_asr_engine2();
+    init_active_profile();
   }
 });
 
@@ -76809,6 +77309,28 @@ var init_display_bridge = __esm({
 });
 
 // src/media/mic.ts
+function emitFlatDspStatus(params) {
+  try {
+    const activeFilters = Array.isArray(params.dsp?.activeFilters) ? params.dsp.activeFilters : [];
+    const details = params.dsp?.details && typeof params.dsp.details === "object" ? params.dsp.details : null;
+    const reason = params.state === "inactive" ? "no_calibration_filters" : params.state === "unavailable" ? "no_audio_context" : "";
+    const detailPairs = details ? Object.entries(details).filter(([, v]) => v !== void 0 && v !== null).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join("|") : String(v)}`) : [];
+    const line = [
+      `[ASR_DSP_STATUS]`,
+      `path=${params.path || "generic"}`,
+      `state=${String(params.state || "inactive")}`,
+      `activeFilters=${activeFilters.length ? activeFilters.join(",") : "none"}`,
+      params.profileId ? `profileId=${params.profileId}` : "profileId=none",
+      Number.isFinite(Number(params.sampleRate)) ? `sampleRate=${Math.round(Number(params.sampleRate))}` : "",
+      reason ? `reason=${reason}` : "",
+      params.dsp?.error ? `error=${String(params.dsp.error)}` : "",
+      detailPairs.length ? `details=${detailPairs.join(";")}` : "",
+      `source=${params.source}`
+    ].filter(Boolean).join(" ");
+    console.info(line);
+  } catch {
+  }
+}
 function getPermissionState() {
   try {
     const known = window.__tpMicPermState;
@@ -76915,10 +77437,6 @@ function stopDbMeter() {
   if (dbAnim) cancelAnimationFrame(dbAnim);
   dbAnim = null;
   try {
-    audioStream?.getTracks().forEach((t) => t.stop());
-  } catch {
-  }
-  try {
     if (audioCtx && typeof audioCtx.close === "function") audioCtx.close().catch(() => {
     });
   } catch {
@@ -76926,6 +77444,142 @@ function stopDbMeter() {
   audioStream = null;
   analyser = null;
   audioCtx = null;
+}
+function closeDspChain() {
+  try {
+    dspDestination?.disconnect?.();
+  } catch {
+  }
+  try {
+    if (dspCtx && typeof dspCtx.close === "function") {
+      dspCtx.close().catch(() => {
+      });
+    }
+  } catch {
+  }
+  dspDestination = null;
+  dspCtx = null;
+}
+function hasAnyFilterConfigured(filters) {
+  if (!filters) return false;
+  return Number.isFinite(Number(filters.hpfHz)) || Number.isFinite(Number(filters.mainsNotchHz)) || Number.isFinite(Number(filters.presenceCutDb)) || Number.isFinite(Number(filters.bodyBoostDb)) || Array.isArray(filters.deEssBandHz);
+}
+function applyCalibrationDsp(input, profile) {
+  const filters = profile?.filters || null;
+  if (!hasAnyFilterConfigured(filters)) {
+    return {
+      stream: input,
+      diagnostics: { state: "inactive", activeFilters: [], details: {} }
+    };
+  }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) {
+    return {
+      stream: input,
+      diagnostics: {
+        state: "unavailable",
+        activeFilters: [],
+        details: { reason: "audio_context_unavailable" }
+      }
+    };
+  }
+  try {
+    closeDspChain();
+    const ctx = new AC();
+    dspCtx = ctx;
+    const source = ctx.createMediaStreamSource(input);
+    const nodes = [];
+    const activeFilters = [];
+    const details = {};
+    if (typeof filters?.hpfHz === "number" && Number.isFinite(filters.hpfHz)) {
+      const hpf = ctx.createBiquadFilter();
+      hpf.type = "highpass";
+      hpf.frequency.value = Math.max(40, Math.min(220, filters.hpfHz));
+      hpf.Q.value = 0.707;
+      nodes.push(hpf);
+      activeFilters.push("highpass");
+      details.highPassHz = hpf.frequency.value;
+    }
+    if (typeof filters?.mainsNotchHz === "number" && Number.isFinite(filters.mainsNotchHz)) {
+      const notch = ctx.createBiquadFilter();
+      notch.type = "notch";
+      notch.frequency.value = filters.mainsNotchHz;
+      notch.Q.value = 10;
+      nodes.push(notch);
+      activeFilters.push("notch");
+      details.notchHz = notch.frequency.value;
+    }
+    if (Array.isArray(filters?.deEssBandHz) && filters.deEssBandHz.length === 2) {
+      const [loRaw, hiRaw] = filters.deEssBandHz;
+      const lo = Math.max(2e3, Number(loRaw) || 5e3);
+      const hi = Math.min(12e3, Number(hiRaw) || 8500);
+      const center = Math.sqrt(lo * hi);
+      const q3 = Math.max(0.5, Math.min(8, center / Math.max(100, hi - lo)));
+      const deEss = ctx.createBiquadFilter();
+      deEss.type = "peaking";
+      deEss.frequency.value = center;
+      deEss.Q.value = q3;
+      deEss.gain.value = -1.5;
+      nodes.push(deEss);
+      activeFilters.push("de-ess");
+      details.deEssBandHz = [lo, hi];
+    }
+    if (typeof filters?.presenceCutDb === "number" && Number.isFinite(filters.presenceCutDb) && filters.presenceCutDb > 0) {
+      const presence = ctx.createBiquadFilter();
+      presence.type = "peaking";
+      presence.frequency.value = 3600;
+      presence.Q.value = 1.2;
+      presence.gain.value = -Math.min(4, Math.abs(filters.presenceCutDb));
+      nodes.push(presence);
+      activeFilters.push("presence-cut");
+      details.presenceCutDb = presence.gain.value;
+    }
+    if (typeof filters?.bodyBoostDb === "number" && Number.isFinite(filters.bodyBoostDb) && filters.bodyBoostDb > 0) {
+      const body = ctx.createBiquadFilter();
+      body.type = "lowshelf";
+      body.frequency.value = 170;
+      body.gain.value = Math.min(4, Math.abs(filters.bodyBoostDb));
+      nodes.push(body);
+      activeFilters.push("body-boost");
+      details.bodyBoostDb = body.gain.value;
+    }
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -3;
+    limiter.knee.value = 2;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 3e-3;
+    limiter.release.value = 0.12;
+    nodes.push(limiter);
+    activeFilters.push("limiter");
+    details.limiterDbfs = -3;
+    let prev2 = source;
+    for (const node of nodes) {
+      prev2.connect(node);
+      prev2 = node;
+    }
+    const destination = ctx.createMediaStreamDestination();
+    prev2.connect(destination);
+    dspDestination = destination;
+    return {
+      stream: destination.stream,
+      diagnostics: {
+        state: activeFilters.length ? "active" : "inactive",
+        activeFilters,
+        details
+      }
+    };
+  } catch (err) {
+    closeDspChain();
+    return {
+      stream: input,
+      diagnostics: {
+        state: "error",
+        activeFilters: [],
+        details: {},
+        error: String(err?.message || err || "unknown_dsp_error")
+      }
+    };
+  }
 }
 function startDbMeter(stream) {
   try {
@@ -76991,10 +77645,90 @@ function startDbMeter(stream) {
 }
 async function requestMic(preferredId) {
   try {
+    releaseMic();
     const sel = document.getElementById("settingsMicSel");
-    const chosenId = preferredId || sel?.value || void 0;
-    const constraints = { audio: { deviceId: chosenId ? { exact: chosenId } : void 0 } };
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    const normalizedOptions = typeof preferredId === "object" && preferredId ? preferredId : typeof preferredId === "string" ? { deviceId: preferredId } : {};
+    const asrPath = String(normalizedOptions.asrPath || "generic").trim() || "generic";
+    const source = String(normalizedOptions.source || "unknown").trim() || "unknown";
+    const selectedProfile = getActiveAsrProfile();
+    const activeProfileId = normalizedOptions.profileId || selectedProfile?.id || null;
+    const activeCapture = normalizedOptions.capture || selectedProfile?.capture || null;
+    const chosenId = normalizedOptions.deviceId || activeCapture?.deviceId || sel?.value || void 0;
+    const audioConstraints = {
+      deviceId: chosenId ? { exact: chosenId } : void 0
+    };
+    if (activeCapture) {
+      if (typeof activeCapture.echoCancellation === "boolean") {
+        audioConstraints.echoCancellation = activeCapture.echoCancellation;
+      }
+      if (typeof activeCapture.noiseSuppression === "boolean") {
+        audioConstraints.noiseSuppression = activeCapture.noiseSuppression;
+      }
+      if (typeof activeCapture.autoGainControl === "boolean") {
+        audioConstraints.autoGainControl = activeCapture.autoGainControl;
+      }
+      if (typeof activeCapture.sampleRateHz === "number" && Number.isFinite(activeCapture.sampleRateHz)) {
+        audioConstraints.sampleRate = Math.max(8e3, Math.round(activeCapture.sampleRateHz));
+      }
+      if (typeof activeCapture.channelCount === "number" && Number.isFinite(activeCapture.channelCount)) {
+        audioConstraints.channelCount = Math.max(1, Math.round(activeCapture.channelCount));
+      } else {
+        audioConstraints.channelCount = 1;
+      }
+    }
+    const constraints = { audio: audioConstraints };
+    const rawStream = await navigator.mediaDevices.getUserMedia(constraints);
+    rawAudioStream = rawStream;
+    const selectedProfileForDsp = selectedProfile || null;
+    const dspResult = applyCalibrationDsp(rawStream, selectedProfileForDsp);
+    const stream = dspResult.stream;
+    let runtimeCalibrationState = "bypassed";
+    const requestedKeys = Object.keys(audioConstraints).filter((key) => audioConstraints[key] !== void 0);
+    const applied = {};
+    const unsupported = [];
+    try {
+      const track = stream.getAudioTracks?.()[0];
+      const settings2 = track?.getSettings?.() || {};
+      for (const key of requestedKeys) {
+        const rawRequested = audioConstraints[key];
+        const requested = rawRequested && typeof rawRequested === "object" && "exact" in rawRequested ? rawRequested.exact : rawRequested;
+        const got = settings2[key];
+        const inspectable = got !== void 0 && got !== null;
+        const equal = inspectable && (typeof got === "number" || typeof requested === "number" ? Number(got) === Number(requested) : String(got) === String(requested));
+        if (equal) applied[key] = got;
+        else unsupported.push(key);
+      }
+      if (activeCapture) {
+        runtimeCalibrationState = unsupported.length ? Object.keys(applied).length ? "partially_calibrated" : "bypassed" : "calibrated";
+      }
+    } catch {
+      runtimeCalibrationState = activeCapture ? "partially_calibrated" : "bypassed";
+    }
+    try {
+      const payload = {
+        asrPath,
+        source,
+        profileId: activeProfileId,
+        calibrationState: runtimeCalibrationState,
+        requested: audioConstraints,
+        applied,
+        ignoredOrUnsupported: unsupported,
+        dsp: dspResult.diagnostics
+      };
+      window.__tpCalibrationRuntime = payload;
+      window.dispatchEvent(new CustomEvent("tp:calibration:runtime", { detail: payload }));
+      console.info("[ASR_CALIBRATION_RUNTIME]", payload);
+      const sampleRate = Number(stream.getAudioTracks?.()[0]?.getSettings?.()?.sampleRate) || Number(rawStream.getAudioTracks?.()[0]?.getSettings?.()?.sampleRate) || null;
+      emitFlatDspStatus({
+        path: asrPath,
+        state: dspResult.diagnostics.state,
+        profileId: activeProfileId,
+        source: "calibration",
+        dsp: dspResult.diagnostics,
+        sampleRate
+      });
+    } catch {
+    }
     audioStream = stream;
     mic.__lastStream = stream;
     try {
@@ -77034,6 +77768,12 @@ function releaseMic() {
     audioStream?.getTracks().forEach((t) => t.stop());
   } catch {
   }
+  try {
+    rawAudioStream?.getTracks().forEach((t) => t.stop());
+  } catch {
+  }
+  closeDspChain();
+  rawAudioStream = null;
   audioStream = null;
   mic.__lastStream = null;
   emitMicState();
@@ -77085,16 +77825,20 @@ async function populateDevices() {
     console.warn("populateDevices failed", e);
   }
 }
-var DEVICE_KEY2, audioStream, analyser, audioCtx, dbAnim, mic;
+var DEVICE_KEY2, audioStream, rawAudioStream, analyser, audioCtx, dbAnim, dspCtx, dspDestination, mic;
 var init_mic = __esm({
   "src/media/mic.ts"() {
     "use strict";
     init_app_store();
+    init_active_profile();
     DEVICE_KEY2 = "tp_mic_device_v1";
     audioStream = null;
+    rawAudioStream = null;
     analyser = null;
     audioCtx = null;
     dbAnim = null;
+    dspCtx = null;
+    dspDestination = null;
     mic = {
       requestMic,
       releaseMic,

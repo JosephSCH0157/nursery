@@ -2,8 +2,8 @@
 function getAppStore() {
   if (typeof window === "undefined") return null;
   try {
-    const store = window.__tpStore;
-    return store || null;
+    const store2 = window.__tpStore;
+    return store2 || null;
   } catch {
     return null;
   }
@@ -50,25 +50,25 @@ function notify(snapshot) {
   }
 }
 function readStateFromStore() {
-  const store = getStore();
-  if (!store || typeof store.get !== "function") {
+  const store2 = getStore();
+  if (!store2 || typeof store2.get !== "function") {
     return { ...fallbackState };
   }
   return {
-    engine: store.get(STORE_KEYS.engine) ?? fallbackState.engine,
-    engineExplicit: !!store.get(STORE_KEYS.engineExplicit),
-    lang: store.get(STORE_KEYS.lang) ?? fallbackState.lang,
-    interim: store.get(STORE_KEYS.interim) ?? fallbackState.interim,
-    threshold: store.get(STORE_KEYS.threshold) ?? fallbackState.threshold,
-    endpointingMs: store.get(STORE_KEYS.endpointingMs) ?? fallbackState.endpointingMs,
-    fillerFilter: store.get(STORE_KEYS.fillerFilter) ?? fallbackState.fillerFilter,
-    manualAnchorAdoptEnabled: store.get(STORE_KEYS.manualAnchorAdoptEnabled) ?? fallbackState.manualAnchorAdoptEnabled,
-    calmModeEnabled: store.get(STORE_KEYS.calmModeEnabled) ?? fallbackState.calmModeEnabled
+    engine: store2.get(STORE_KEYS.engine) ?? fallbackState.engine,
+    engineExplicit: !!store2.get(STORE_KEYS.engineExplicit),
+    lang: store2.get(STORE_KEYS.lang) ?? fallbackState.lang,
+    interim: store2.get(STORE_KEYS.interim) ?? fallbackState.interim,
+    threshold: store2.get(STORE_KEYS.threshold) ?? fallbackState.threshold,
+    endpointingMs: store2.get(STORE_KEYS.endpointingMs) ?? fallbackState.endpointingMs,
+    fillerFilter: store2.get(STORE_KEYS.fillerFilter) ?? fallbackState.fillerFilter,
+    manualAnchorAdoptEnabled: store2.get(STORE_KEYS.manualAnchorAdoptEnabled) ?? fallbackState.manualAnchorAdoptEnabled,
+    calmModeEnabled: store2.get(STORE_KEYS.calmModeEnabled) ?? fallbackState.calmModeEnabled
   };
 }
 function ensureStoreSubscriptions() {
-  const store = getStore();
-  if (store === subscribedStore) return;
+  const store2 = getStore();
+  if (store2 === subscribedStore) return;
   unsubscribeStoreFns.forEach((unsub) => {
     try {
       unsub();
@@ -76,8 +76,8 @@ function ensureStoreSubscriptions() {
     }
   });
   unsubscribeStoreFns = [];
-  subscribedStore = store;
-  if (!store || typeof store.subscribe !== "function") {
+  subscribedStore = store2;
+  if (!store2 || typeof store2.subscribe !== "function") {
     fallbackState = readStateFromStore();
     return;
   }
@@ -92,7 +92,7 @@ function ensureStoreSubscriptions() {
     notify({ ...fallbackState });
   };
   unsubscribeStoreFns = watchedKeys.map((key) => {
-    const unsub = store.subscribe?.(key, handleChange);
+    const unsub = store2.subscribe?.(key, handleChange);
     return typeof unsub === "function" ? unsub : () => {
     };
   });
@@ -109,8 +109,8 @@ var speechStore = {
   },
   set(patch) {
     ensureStoreSubscriptions();
-    const store = getStore();
-    if (!store || typeof store.set !== "function") {
+    const store2 = getStore();
+    if (!store2 || typeof store2.set !== "function") {
       fallbackState = { ...fallbackState, ...patch };
       notify({ ...fallbackState });
       return;
@@ -118,31 +118,31 @@ var speechStore = {
     suppressStoreNotifications += 1;
     try {
       if (Object.prototype.hasOwnProperty.call(patch, "engine")) {
-        store.set(STORE_KEYS.engine, patch.engine);
+        store2.set(STORE_KEYS.engine, patch.engine);
       }
       if (Object.prototype.hasOwnProperty.call(patch, "engineExplicit")) {
-        store.set(STORE_KEYS.engineExplicit, !!patch.engineExplicit);
+        store2.set(STORE_KEYS.engineExplicit, !!patch.engineExplicit);
       }
       if (Object.prototype.hasOwnProperty.call(patch, "lang")) {
-        store.set(STORE_KEYS.lang, patch.lang);
+        store2.set(STORE_KEYS.lang, patch.lang);
       }
       if (Object.prototype.hasOwnProperty.call(patch, "interim")) {
-        store.set(STORE_KEYS.interim, !!patch.interim);
+        store2.set(STORE_KEYS.interim, !!patch.interim);
       }
       if (Object.prototype.hasOwnProperty.call(patch, "threshold")) {
-        store.set(STORE_KEYS.threshold, patch.threshold);
+        store2.set(STORE_KEYS.threshold, patch.threshold);
       }
       if (Object.prototype.hasOwnProperty.call(patch, "endpointingMs")) {
-        store.set(STORE_KEYS.endpointingMs, patch.endpointingMs);
+        store2.set(STORE_KEYS.endpointingMs, patch.endpointingMs);
       }
       if (Object.prototype.hasOwnProperty.call(patch, "fillerFilter")) {
-        store.set(STORE_KEYS.fillerFilter, !!patch.fillerFilter);
+        store2.set(STORE_KEYS.fillerFilter, !!patch.fillerFilter);
       }
       if (Object.prototype.hasOwnProperty.call(patch, "manualAnchorAdoptEnabled")) {
-        store.set(STORE_KEYS.manualAnchorAdoptEnabled, !!patch.manualAnchorAdoptEnabled);
+        store2.set(STORE_KEYS.manualAnchorAdoptEnabled, !!patch.manualAnchorAdoptEnabled);
       }
       if (Object.prototype.hasOwnProperty.call(patch, "calmModeEnabled")) {
-        store.set(STORE_KEYS.calmModeEnabled, !!patch.calmModeEnabled);
+        store2.set(STORE_KEYS.calmModeEnabled, !!patch.calmModeEnabled);
       }
     } finally {
       suppressStoreNotifications = Math.max(0, suppressStoreNotifications - 1);
@@ -199,9 +199,9 @@ function isAsrEngineExplicit(value) {
 }
 function readLocalAsrEngineExplicit() {
   try {
-    const store = window?.__tpStore;
-    if (store && typeof store.get === "function") {
-      return isAsrEngineExplicit(store.get("asr.engineExplicit"));
+    const store2 = window?.__tpStore;
+    if (store2 && typeof store2.get === "function") {
+      return isAsrEngineExplicit(store2.get("asr.engineExplicit"));
     }
   } catch {
   }
@@ -1015,54 +1015,54 @@ function ensureExistingState() {
   }
   return {};
 }
-function sanitizeState(state) {
-  if (!ALLOWED_PAGES.has(state.page)) {
-    state.page = "scripts";
+function sanitizeState(state2) {
+  if (!ALLOWED_PAGES.has(state2.page)) {
+    state2.page = "scripts";
   }
-  if (!ALLOWED_OVERLAYS.has(state.overlay)) {
-    state.overlay = "none";
+  if (!ALLOWED_OVERLAYS.has(state2.overlay)) {
+    state2.overlay = "none";
     try {
       localStorage.removeItem(OVERLAY_KEY);
     } catch {
     }
   }
-  if (typeof state["asr.engineExplicit"] !== "boolean") {
-    state["asr.engineExplicit"] = !!state["asr.engineExplicit"];
+  if (typeof state2["asr.engineExplicit"] !== "boolean") {
+    state2["asr.engineExplicit"] = !!state2["asr.engineExplicit"];
   }
-  if (state.scrollMode === "manual") {
-    state.scrollMode = "step";
+  if (state2.scrollMode === "manual") {
+    state2.scrollMode = "step";
   }
-  if (!state.asrProfiles || typeof state.asrProfiles !== "object") {
-    state.asrProfiles = {};
+  if (!state2.asrProfiles || typeof state2.asrProfiles !== "object") {
+    state2.asrProfiles = {};
   }
-  if (state.asrActiveProfileId && typeof state.asrActiveProfileId !== "string") {
-    state.asrActiveProfileId = null;
+  if (state2.asrActiveProfileId && typeof state2.asrActiveProfileId !== "string") {
+    state2.asrActiveProfileId = null;
   }
-  if (!state.asrTuningProfiles || typeof state.asrTuningProfiles !== "object") {
-    state.asrTuningProfiles = {};
+  if (!state2.asrTuningProfiles || typeof state2.asrTuningProfiles !== "object") {
+    state2.asrTuningProfiles = {};
   }
-  if (state.asrTuningActiveProfileId && typeof state.asrTuningActiveProfileId !== "string") {
-    state.asrTuningActiveProfileId = null;
+  if (state2.asrTuningActiveProfileId && typeof state2.asrTuningActiveProfileId !== "string") {
+    state2.asrTuningActiveProfileId = null;
   }
-  if (typeof state.asrLastAppliedAt !== "number") {
-    state.asrLastAppliedAt = 0;
+  if (typeof state2.asrLastAppliedAt !== "number") {
+    state2.asrLastAppliedAt = 0;
   }
-  if (!state.asrLastAppliedSummary || typeof state.asrLastAppliedSummary !== "object") {
-    state.asrLastAppliedSummary = {};
+  if (!state2.asrLastAppliedSummary || typeof state2.asrLastAppliedSummary !== "object") {
+    state2.asrLastAppliedSummary = {};
   }
-  if (typeof state.asrLastApplyOk !== "boolean") {
-    state.asrLastApplyOk = false;
+  if (typeof state2.asrLastApplyOk !== "boolean") {
+    state2.asrLastApplyOk = false;
   }
-  if (!state.settingsSaveStatus || typeof state.settingsSaveStatus !== "object") {
-    state.settingsSaveStatus = { state: "idle", at: 0 };
+  if (!state2.settingsSaveStatus || typeof state2.settingsSaveStatus !== "object") {
+    state2.settingsSaveStatus = { state: "idle", at: 0 };
   }
-  return state;
+  return state2;
 }
 function createAppStore(initial) {
-  const subs2 = /* @__PURE__ */ Object.create(null);
+  const subs3 = /* @__PURE__ */ Object.create(null);
   const baseState = buildInitialState();
   migrateLegacyAsrSettings(loadLegacyAsrSettings());
-  const state = sanitizeState(
+  const state2 = sanitizeState(
     Object.assign(
       {},
       baseState,
@@ -1073,7 +1073,7 @@ function createAppStore(initial) {
   function notify2(key, value) {
     try {
       const k = String(key);
-      const fns = subs2[k] || [];
+      const fns = subs3[k] || [];
       for (let i = 0; i < fns.length; i++) {
         try {
           fns[i](value);
@@ -1085,7 +1085,7 @@ function createAppStore(initial) {
   }
   function get(key) {
     try {
-      return state[key];
+      return state2[key];
     } catch {
       return void 0;
     }
@@ -1098,9 +1098,9 @@ function createAppStore(initial) {
       if (key === "overlay") {
         value = ALLOWED_OVERLAYS.has(value) ? value : "none";
       }
-      const prev = state[key];
+      const prev = state2[key];
       if (prev === value) return value;
-      state[key] = value;
+      state2[key] = value;
       if (key === "scrollMode") {
         try {
           const ctx = getScrollModeAuditContext();
@@ -1108,7 +1108,7 @@ function createAppStore(initial) {
             writer: ctx?.writer || "unknown",
             from: prev,
             to: value,
-            phase: state["session.phase"],
+            phase: state2["session.phase"],
             source: ctx?.meta?.source,
             via: ctx?.meta?.via,
             stack: !!ctx?.meta?.stack
@@ -1153,15 +1153,15 @@ function createAppStore(initial) {
     if (typeof fn !== "function") return () => {
     };
     const k = String(key);
-    subs2[k] = subs2[k] || [];
-    subs2[k].push(fn);
+    subs3[k] = subs3[k] || [];
+    subs3[k].push(fn);
     try {
-      fn(state[key]);
+      fn(state2[key]);
     } catch {
     }
     return function unsubscribe() {
       try {
-        subs2[k] = (subs2[k] || []).filter((x) => x !== fn);
+        subs3[k] = (subs3[k] || []).filter((x) => x !== fn);
       } catch {
       }
     };
@@ -1188,8 +1188,8 @@ function createAppStore(initial) {
     set,
     subscribe,
     subscribeAll,
-    state,
-    getSnapshot: () => ({ ...state })
+    state: state2,
+    getSnapshot: () => ({ ...state2 })
   };
   try {
     if (!IS_TEST) {
@@ -1327,8 +1327,8 @@ var asrSettingsObserverStarted = false;
 var asrSettingsWarned = false;
 var asrSettingsRenderEventFired = false;
 var isHydratingAsrSettings = false;
-function resolveStore(store) {
-  if (store) return store;
+function resolveStore(store2) {
+  if (store2) return store2;
   try {
     return window.__tpStore || appStoreSingleton || null;
   } catch {
@@ -1350,26 +1350,26 @@ function queryAsrInputs(card) {
     calm: q("#asrCalmMode")
   };
 }
-function applyAsrStateToInputs(inputs, state) {
+function applyAsrStateToInputs(inputs, state2) {
   const { eng, lang, interim, fillers, thresh, endms } = inputs;
-  if (eng && typeof state.engine === "string") {
+  if (eng && typeof state2.engine === "string") {
     try {
-      eng.value = state.engine;
+      eng.value = state2.engine;
     } catch {
     }
   }
-  if (lang && typeof state.lang === "string") {
-    lang.value = state.lang;
+  if (lang && typeof state2.lang === "string") {
+    lang.value = state2.lang;
   }
-  if (interim) interim.checked = !!state.interim;
-  if (fillers) fillers.checked = !!state.fillerFilter;
-  if (thresh && typeof state.threshold === "number") {
-    thresh.value = String(state.threshold);
+  if (interim) interim.checked = !!state2.interim;
+  if (fillers) fillers.checked = !!state2.fillerFilter;
+  if (thresh && typeof state2.threshold === "number") {
+    thresh.value = String(state2.threshold);
   }
-  if (endms && typeof state.endpointingMs === "number") {
-    endms.value = String(state.endpointingMs);
+  if (endms && typeof state2.endpointingMs === "number") {
+    endms.value = String(state2.endpointingMs);
   }
-  if (inputs.calm) inputs.calm.checked = !!state.calmModeEnabled;
+  if (inputs.calm) inputs.calm.checked = !!state2.calmModeEnabled;
 }
 function attachAsrInputListeners(inputs) {
   const { eng, lang, interim, fillers, thresh, endms, calm } = inputs;
@@ -1431,7 +1431,7 @@ function formatRelativeTime(timestamp) {
   if (delta < 864e5) return `${Math.round(delta / 36e5)}h ago`;
   return `${Math.round(delta / 864e5)}d ago`;
 }
-function wireAsrSettingsCard(root = document, store) {
+function wireAsrSettingsCard(root = document, store2) {
   const card = root.querySelector("#asrSettingsCard") || root.querySelector(".settings-card.asr");
   if (!card) {
     if (!asrSettingsWarned) {
@@ -1447,26 +1447,26 @@ function wireAsrSettingsCard(root = document, store) {
   card.dataset.tpAsrWired = "1";
   const inputs = queryAsrInputs(card);
   attachAsrInputListeners(inputs);
-  wireAsrStatusIndicators(card, store);
+  wireAsrStatusIndicators(card, store2);
   return card;
 }
 function hydrateAsrSettingsCard(root = document) {
   const card = findAsrCard(root);
   if (!card) return;
   const inputs = queryAsrInputs(card);
-  const state = getAsrSettings();
-  withAsrHydration(() => applyAsrStateToInputs(inputs, state));
+  const state2 = getAsrSettings();
+  withAsrHydration(() => applyAsrStateToInputs(inputs, state2));
 }
-function mountAsrSettings(root = document, store) {
-  const card = wireAsrSettingsCard(root, store);
+function mountAsrSettings(root = document, store2) {
+  const card = wireAsrSettingsCard(root, store2);
   if (!card) return;
   hydrateAsrSettingsCard(root);
 }
-function wireAsrStatusIndicators(card, store) {
+function wireAsrStatusIndicators(card, store2) {
   const saveEl = card.querySelector("#asrSaveStatus");
   const appliedEl = card.querySelector("#asrAppliedStatus");
   if (!saveEl && !appliedEl) return;
-  const resolved = resolveStore(store);
+  const resolved = resolveStore(store2);
   const SAVE_STALE_MS = 15e3;
   let saveStatusTimer = null;
   const clearSaveTimer = () => {
@@ -1575,7 +1575,7 @@ function wireAsrStatusIndicators(card, store) {
     resolved.subscribe("asrLive", renderAppliedStatus);
   }
 }
-function ensureAsrSettingsWired(root = document, store) {
+function ensureAsrSettingsWired(root = document, store2) {
   const tryMount = (warnIfMissing = false) => {
     const card = root?.querySelector?.("#asrSettingsCard") || root?.querySelector?.(".settings-card.asr");
     if (!card) {
@@ -1588,7 +1588,7 @@ function ensureAsrSettingsWired(root = document, store) {
       }
       return false;
     }
-    mountAsrSettings(root, store);
+    mountAsrSettings(root, store2);
     return true;
   };
   if (tryMount(false)) return;
@@ -1708,6 +1708,88 @@ function stripFillers(s) {
   return toks.filter((t) => !FILLERS.has(t)).join(" ");
 }
 
+// src/asr/store.ts
+var store = getAppStore();
+var stateFromStore = (() => {
+  if (!store) return null;
+  try {
+    const profiles = store.get("asrProfiles") || {};
+    const activeProfileId = store.get("asrActiveProfileId") || void 0;
+    return { profiles, activeProfileId };
+  } catch {
+    return null;
+  }
+})();
+var state = (() => {
+  if (stateFromStore) {
+    return {
+      profiles: stateFromStore.profiles || {},
+      activeProfileId: stateFromStore.activeProfileId
+    };
+  }
+  return { profiles: {} };
+})();
+var subs2 = /* @__PURE__ */ new Set();
+var storeSyncSuppressed = false;
+function syncAppStore() {
+  if (!store) return;
+  storeSyncSuppressed = true;
+  try {
+    store.set("asrProfiles", state.profiles);
+  } catch {
+  }
+  try {
+    store.set("asrActiveProfileId", state.activeProfileId ?? null);
+  } catch {
+  }
+  storeSyncSuppressed = false;
+}
+function save(opts) {
+  subs2.forEach((fn) => {
+    try {
+      fn(state);
+    } catch {
+    }
+  });
+  if (!opts?.fromStore) {
+    syncAppStore();
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:asrChanged", { detail: state }));
+  } catch {
+  }
+}
+var getAsrState = () => state;
+if (store) {
+  try {
+    store.subscribe("asrProfiles", (next) => {
+      if (storeSyncSuppressed) return;
+      const profilesObj = next && typeof next === "object" ? next : {};
+      state.profiles = { ...profilesObj };
+      save({ fromStore: true });
+    });
+    store.subscribe("asrActiveProfileId", (next) => {
+      if (storeSyncSuppressed) return;
+      state.activeProfileId = typeof next === "string" && next ? next : void 0;
+      save({ fromStore: true });
+    });
+  } catch {
+  }
+  syncAppStore();
+}
+
+// src/asr/active-profile.ts
+function getActiveAsrProfile() {
+  try {
+    const state2 = getAsrState();
+    const id = state2?.activeProfileId;
+    if (!id) return null;
+    return state2.profiles?.[id] || null;
+  } catch {
+    return null;
+  }
+}
+
 // src/speech/engines/webspeech.ts
 var WebSpeechEngine = class {
   name = "webspeech";
@@ -1721,6 +1803,18 @@ var WebSpeechEngine = class {
     this.emitter.on(cb);
   }
   async start(opts) {
+    const activeProfile = getActiveAsrProfile();
+    try {
+      if (window.__tpMic?.requestMic) {
+        await window.__tpMic.requestMic({
+          source: "webspeech",
+          asrPath: "webspeech",
+          profileId: activeProfile?.id || null,
+          capture: activeProfile?.capture || null
+        });
+      }
+    } catch {
+    }
     const AnyWindow = window;
     const Ctor = AnyWindow.webkitSpeechRecognition || AnyWindow.SpeechRecognition;
     if (!Ctor) {
@@ -1738,6 +1832,22 @@ var WebSpeechEngine = class {
     rec.continuous = true;
     rec.interimResults = !!opts.interim;
     rec.lang = opts.lang || "en-US";
+    try {
+      const runtimeDetail = window.__tpCalibrationRuntime;
+      const state2 = String(runtimeDetail?.calibrationState || (activeProfile ? "partially_calibrated" : "bypassed"));
+      window.dispatchEvent(new CustomEvent("tp:asr:calibration-status", {
+        detail: {
+          path: "webspeech",
+          profileId: activeProfile?.id || null,
+          version: activeProfile?.version ?? null,
+          state: state2 === "calibrated" ? "partially_calibrated" : state2,
+          browserManaged: true,
+          runtime: runtimeDetail || null,
+          limitation: "Web Speech capture is browser-managed; full constraint enforcement may be unavailable."
+        }
+      }));
+    } catch {
+    }
     rec.onstart = () => {
       this.emitter.emit({ type: "ready" });
       this.emitter.emit({ type: "listening" });
@@ -2120,14 +2230,14 @@ var ASR_DEBUG_NOISY_LABELS = /* @__PURE__ */ new Set([
   "[ASR threshold] (mode-side diagnostic; not driver scorer)"
 ]);
 var asrDebugLastAt = /* @__PURE__ */ new Map();
-function updateAsrDebugConfig(state) {
+function updateAsrDebugConfig(state2) {
   const snapshot = {
-    engine: state.engine,
-    lang: state.lang,
-    useInterimResults: state.interim,
-    filterFillers: state.fillerFilter,
-    threshold: state.threshold,
-    endpointingMs: state.endpointingMs,
+    engine: state2.engine,
+    lang: state2.lang,
+    useInterimResults: state2.interim,
+    filterFillers: state2.fillerFilter,
+    threshold: state2.threshold,
+    endpointingMs: state2.endpointingMs,
     timestamp: Date.now()
   };
   asrDebugState.config = snapshot;
@@ -2341,9 +2451,9 @@ var AsrMode = class {
   /**
    * Emit ASR state change event
    */
-  emitAsrState(state, reason) {
+  emitAsrState(state2, reason) {
     if (!this.shouldEmitTx()) return;
-    const payload = { state, reason, timestamp: performance.now() };
+    const payload = { state: state2, reason, timestamp: performance.now() };
     emit("tp:captions:state", payload);
     emit("tp:speech:state", payload);
   }
