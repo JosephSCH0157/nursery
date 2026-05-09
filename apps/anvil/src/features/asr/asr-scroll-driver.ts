@@ -15222,6 +15222,62 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (!asrRuntimeSpeechRunningActual) {
         maybeLogSoftRuntimeRebaseSkip('speech_not_running');
       } else if (markerStateForSoftRuntimeRebase.healthy && rebaseForwardWasNonAdjacent) {
+        const trackingTopScores = Array.isArray((incomingMatch as any)?.topScores)
+          ? (incomingMatch as any).topScores
+          : [];
+        const trackingContradictionActive = trackingTopScores.some((entry: any) => {
+          const idx = Math.max(0, Math.floor(Number(entry?.idx) || 0));
+          const score = Number(entry?.score);
+          return (
+            Number.isFinite(score) &&
+            idx <= currentForSoftRuntimeRebase &&
+            score >= Math.max(DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, rebaseForwardEvidenceSim - 0.06)
+          );
+        });
+        const trackingCatchupAllowed =
+          (asrRuntimeSpeechRunningActual || hasRecentFinalTranscript) &&
+          noCommitMsForSoftRuntimeRebase >= 3000 &&
+          starvationMsForSoftRuntimeRebase >= 3000 &&
+          hasForwardEvidence &&
+          rebaseForwardCappedIdx > currentForSoftRuntimeRebase &&
+          !trackingContradictionActive;
+        if (trackingCatchupAllowed) {
+          const catchupProofSource =
+            softRuntimeRebaseForwardLexicalFallback?.proofSource || 'starvation_best_sim';
+          const catchupReason =
+            softRuntimeRebaseForwardLexicalFallback
+              ? 'tracking_healthy_adjacent_catchup_lexical'
+              : 'tracking_healthy_adjacent_catchup_starvation';
+          try {
+            console.warn(
+              `[ASR_TRACKING_HEALTHY_ADJACENT_CATCHUP] current=${currentForSoftRuntimeRebase} bestIdx=${bestIdxForSoftRuntimeRebase} adjacentTarget=${rebaseForwardCappedIdx} target=${rebaseForwardCappedIdx} markerIdx=${markerStateForSoftRuntimeRebase.markerIdx} stallMs=${starvationMsForSoftRuntimeRebase} noCommitMs=${noCommitMsForSoftRuntimeRebase} proofSource=${catchupProofSource} sourceBranch=soft_runtime_rebase reason=${catchupReason}`,
+            );
+          } catch {}
+          const catchupMatch: MatchResult = {
+            ...(incomingMatch as any),
+            bestIdx: rebaseForwardCappedIdx,
+            bestSim: Math.max(rebaseForwardEvidenceSim, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM),
+            topScores: [{ idx: rebaseForwardCappedIdx, score: Math.max(rebaseForwardEvidenceSim, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM) }],
+          } as MatchResult;
+          const catchupDetail: TranscriptDetail = {
+            source: 'tracking_healthy_adjacent_catchup',
+            matchId: matchId
+              ? `${matchId}:tracking-healthy-catchup`
+              : `tracking-healthy-catchup-${now.toString(36)}-${rebaseForwardCappedIdx}`,
+            match: catchupMatch,
+            runKey: (lastFinalTranscriptRunKey || transcriptRunKey || null),
+            runGeneration: lastFinalTranscriptRunGeneration ?? transcriptRunGeneration ?? null,
+            currentIdx: currentForSoftRuntimeRebase >= 0 ? currentForSoftRuntimeRebase : null,
+            speechRunningActual: asrRuntimeSpeechRunningActual,
+          };
+          softRuntimeRebaseRetryActive = true;
+          try {
+            ingest(retryText, true, catchupDetail);
+          } finally {
+            softRuntimeRebaseRetryActive = false;
+          }
+          return;
+        }
         warnGuard('asr_recovery_skip_tracking_healthy', [
           `current=${currentForSoftRuntimeRebase}`,
           `markerIdx=${markerStateForSoftRuntimeRebase.markerIdx}`,
