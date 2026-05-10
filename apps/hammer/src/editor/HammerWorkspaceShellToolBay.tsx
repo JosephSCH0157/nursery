@@ -2801,6 +2801,30 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           Selected: {selectedImagePlacement.label}
                           {` (${selectedImagePlacement.startSec.toFixed(1)}s - ${selectedImagePlacement.endSec.toFixed(1)}s)`}
                         </div>
+                        {autoPlacementDebugEnabled ? (
+                          <>
+                            <div className="hammer-source-card__actions">
+                              <button
+                                type="button"
+                                onClick={() => previewAutoPosition?.()}
+                                disabled={!selectedImagePlacement}
+                              >
+                                Preview Auto Position
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => resetPreviewAutoPosition?.()}
+                                disabled={!selectedImagePlacement || !selectedAutoPreviewActive}
+                              >
+                                Reset Preview Position
+                              </button>
+                            </div>
+                            <div className="hammer-tool-hint">
+                              {selectedAutoPreviewActive ? "AUTO PREVIEW ACTIVE (unsaved)" : "Auto preview inactive"}
+                              {previewAutoPositionStatus ? ` · ${previewAutoPositionStatus}` : ""}
+                            </div>
+                          </>
+                        ) : null}
                         <label className="hammer-tool-field">
                           <span>Start (sec)</span>
                           <input
@@ -2903,30 +2927,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                             Reset to Segment
                           </button>
                         </div>
-                        {autoPlacementDebugEnabled ? (
-                          <>
-                            <div className="hammer-source-card__actions">
-                              <button
-                                type="button"
-                                onClick={() => previewAutoPosition?.()}
-                                disabled={!selectedImagePlacement}
-                              >
-                                Preview Auto Position
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => resetPreviewAutoPosition?.()}
-                                disabled={!selectedImagePlacement || !selectedAutoPreviewActive}
-                              >
-                                Reset Preview Position
-                              </button>
-                            </div>
-                            <div className="hammer-tool-hint">
-                              {selectedAutoPreviewActive ? "AUTO PREVIEW ACTIVE (unsaved)" : "Auto preview inactive"}
-                              {previewAutoPositionStatus ? ` · ${previewAutoPositionStatus}` : ""}
-                            </div>
-                          </>
-                        ) : null}
                         <label className="hammer-tool-field">
                           <span>Position X ({Math.round(selectedImagePlacementTransform.leftPct)}%)</span>
                           <input
