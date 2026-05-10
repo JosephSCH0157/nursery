@@ -64,6 +64,8 @@ export type HammerAutoPlacementDiagnosticsState =
       preferredZoneChosen: PlacementZone;
       fallbackUsed: boolean;
       fallbackReason: string | null;
+      scaleReason: string;
+      placementReason: string;
     };
     ghost: null | {
       leftPct: number;
@@ -76,6 +78,12 @@ export type HammerAutoPlacementDiagnosticsState =
       reasonsSummary: string;
     };
     paddedSpeakerBounds: Array<{
+      leftPct: number;
+      topPct: number;
+      widthPct: number;
+      heightPct: number;
+    }>;
+    faceSafeZones: Array<{
       leftPct: number;
       topPct: number;
       widthPct: number;
@@ -100,6 +108,8 @@ export type HammerAutoPlacementDiagnosticsState =
     candidateCount: number;
     rejectedCandidateCount: number;
     selectedScale: number | null;
+    faceSafeZoneCount: number;
+    bodyOverlapAllowed: boolean;
     layoutMode: PlacementLayoutMode | null;
     preferredZoneChosen: PlacementZone | null;
     fallbackUsed: boolean;
@@ -261,6 +271,7 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       overlay: null,
       ghost: null,
       paddedSpeakerBounds: [],
+      faceSafeZones: [],
       candidates: [],
       frameLabel: "frame n/a",
       maskLabel: "mask n/a",
@@ -272,6 +283,8 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       candidateCount: 0,
       rejectedCandidateCount: 0,
       selectedScale: null,
+      faceSafeZoneCount: 0,
+      bodyOverlapAllowed: true,
       layoutMode: null,
       preferredZoneChosen: null,
       fallbackUsed: false,
@@ -328,6 +341,7 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       overlay: null,
       ghost: null,
       paddedSpeakerBounds: [],
+      faceSafeZones: [],
       candidates: [],
       frameLabel,
       maskLabel,
@@ -339,6 +353,8 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       candidateCount: 0,
       rejectedCandidateCount: 0,
       selectedScale: null,
+      faceSafeZoneCount: 0,
+      bodyOverlapAllowed: true,
       layoutMode: null,
       preferredZoneChosen: null,
       fallbackUsed: false,
@@ -372,7 +388,7 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
     selectionSeed: Math.floor(args.playheadSec || 0),
     allowScaleFallback: true,
     minScale: 0.5,
-    scaleSteps: [1, 0.9, 0.8, 0.7, 0.6, 0.5],
+    scaleSteps: [1, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.6, 0.5],
   });
   const resolved = placementResolution.placement;
   const resolvedOverlaySize = resolved?.resolvedOverlaySize ?? overlaySize;
@@ -384,6 +400,12 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
     selectionSeed: Math.floor(args.playheadSec || 0),
   });
   const paddedSpeakerBounds = evaluation.paddedSpeakerBounds.map((rect) => ({
+    leftPct: (rect.x / frameW) * 100,
+    topPct: (rect.y / frameH) * 100,
+    widthPct: (rect.width / frameW) * 100,
+    heightPct: (rect.height / frameH) * 100,
+  }));
+  const faceSafeZones = evaluation.faceSafeZones.map((rect) => ({
     leftPct: (rect.x / frameW) * 100,
     topPct: (rect.y / frameH) * 100,
     widthPct: (rect.width / frameW) * 100,
@@ -423,6 +445,7 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       overlay: null,
       ghost: null,
       paddedSpeakerBounds,
+      faceSafeZones,
       candidates,
       frameLabel,
       maskLabel,
@@ -434,6 +457,8 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       candidateCount: candidates.length,
       rejectedCandidateCount,
       selectedScale: null,
+      faceSafeZoneCount: faceSafeZones.length,
+      bodyOverlapAllowed: true,
       layoutMode: null,
       preferredZoneChosen: null,
       fallbackUsed: false,
@@ -546,9 +571,16 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       preferredZoneChosen: resolved.preferredZoneChosen ?? resolved.zone,
       fallbackUsed: Boolean(resolved.fallbackUsed),
       fallbackReason: resolved.fallbackReason ?? null,
+      scaleReason: (resolved.selectedScale ?? 1) >= 0.85
+        ? "readability_preferred"
+        : (resolved.selectedScale ?? 1) >= 0.75
+        ? "acceptable_fallback"
+        : "emergency_only",
+      placementReason: resolved.whySelected ?? "editorial defaults",
     },
     ghost,
     paddedSpeakerBounds,
+    faceSafeZones,
     candidates,
     frameLabel,
     maskLabel,
@@ -560,6 +592,8 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
     candidateCount: candidates.length,
     rejectedCandidateCount,
     selectedScale: resolved.selectedScale ?? 1,
+    faceSafeZoneCount: faceSafeZones.length,
+    bodyOverlapAllowed: true,
     layoutMode: resolved.layoutMode ?? "unknown",
     preferredZoneChosen: resolved.preferredZoneChosen ?? resolved.zone,
     fallbackUsed: Boolean(resolved.fallbackUsed),

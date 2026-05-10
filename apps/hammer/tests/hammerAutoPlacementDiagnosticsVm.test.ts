@@ -26,6 +26,8 @@ function testResolvedWhenBoundsAvailable() {
     assert.equal(result.state, "resolved");
     assert.ok(result.overlay);
     assert.equal(typeof result.overlay?.zone, "string");
+    assert.equal(result.faceSafeZoneCount, 1);
+    assert.equal(result.bodyOverlapAllowed, true);
     assert.ok(result.ghost);
     assert.match(result.overlay?.reasonsSummary ?? "", /dead_space_bonus=/);
     assert.match(result.overlay?.reasonsSummary ?? "", /face_proximity_penalty=/);
@@ -58,6 +60,8 @@ function testNoMaskBoundsWhenMissing() {
     assert.equal(result.overlay?.zone, "lower_right");
     assert.equal(result.fallbackUsed, true);
     assert.equal(result.fallbackReason, "no_mask_bounds");
+    assert.equal(result.bodyOverlapAllowed, true);
+    assert.equal(result.faceSafeZoneCount, 0);
   }
 }
 

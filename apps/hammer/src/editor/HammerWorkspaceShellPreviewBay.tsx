@@ -80,9 +80,15 @@ export type HammerWorkspaceShellPreviewBayVM = {
         topPenaltyReason: string;
         scale: number;
         originalOverlaySize: { width: number; height: number };
-        resolvedOverlaySize: { width: number; height: number };
-        reasonsSummary: string;
-      };
+      resolvedOverlaySize: { width: number; height: number };
+      reasonsSummary: string;
+      layoutMode: "single_person" | "multi_person" | "unknown";
+      preferredZoneChosen: string;
+      fallbackUsed: boolean;
+      fallbackReason: string | null;
+      scaleReason: string;
+      placementReason: string;
+    };
       ghost: null | {
         leftPct: number;
         topPct: number;
@@ -94,6 +100,12 @@ export type HammerWorkspaceShellPreviewBayVM = {
         reasonsSummary: string;
       };
       paddedSpeakerBounds: Array<{
+        leftPct: number;
+        topPct: number;
+        widthPct: number;
+        heightPct: number;
+      }>;
+      faceSafeZones: Array<{
         leftPct: number;
         topPct: number;
         widthPct: number;
@@ -118,6 +130,8 @@ export type HammerWorkspaceShellPreviewBayVM = {
       candidateCount: number;
       rejectedCandidateCount: number;
       selectedScale: number | null;
+      faceSafeZoneCount: number;
+      bodyOverlapAllowed: boolean;
       scaleAttempts: Array<{
         scale: number;
         candidateCount: number;
@@ -410,6 +424,24 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
                     height={bound.heightPct}
                   />
                 ))}
+                {autoPlacementDiagnostics.faceSafeZones.map((bound, idx) => (
+                  <g key={`face-safe-${idx}`}>
+                    <rect
+                      className="hammer-preview-auto-placement-overlay__zone"
+                      x={bound.leftPct}
+                      y={bound.topPct}
+                      width={bound.widthPct}
+                      height={bound.heightPct}
+                    />
+                    <text
+                      className="hammer-preview-auto-placement-overlay__label"
+                      x={bound.leftPct}
+                      y={Math.max(3, bound.topPct - 1.2)}
+                    >
+                      FACE SAFE ZONE
+                    </text>
+                  </g>
+                ))}
                 {autoPlacementDiagnostics.overlay ? (
                   <>
                     <rect
@@ -475,6 +507,10 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
               <div>candidate count: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.candidateCount : 0}</div>
               <div>rejected candidate count: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.rejectedCandidateCount : 0}</div>
               <div>selected scale: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.selectedScale == null ? "n/a" : autoPlacementDiagnostics.selectedScale.toFixed(2)) : "n/a"}</div>
+              <div>face safe zone count: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.faceSafeZoneCount : 0}</div>
+              <div>body overlap allowed: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.bodyOverlapAllowed ? "true" : "false") : "n/a"}</div>
+              <div>scale reason: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.overlay?.scaleReason ?? "n/a") : "n/a"}</div>
+              <div>placement reason: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.overlay?.placementReason ?? "n/a") : "n/a"}</div>
               {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.scaleAttempts.map((attempt, idx) => (
                 <div key={`scale-attempt-${idx}`}>
                   scale attempt {attempt.scale.toFixed(2)}: candidates {attempt.candidateCount}, rejected {attempt.rejectedCount}, best rejection {attempt.bestRejectionReason ?? "none"}, resolved {attempt.resolved ? "yes" : "no"}

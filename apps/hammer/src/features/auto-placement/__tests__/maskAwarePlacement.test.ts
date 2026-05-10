@@ -4,7 +4,7 @@ import test from "node:test";
 import { resolveMaskAwarePlacement } from "../maskAwarePlacement";
 import type { MaskAwarePlacementInput, Rect } from "../types";
 import { intersectionArea, isRectInsideFrame } from "../reservedZones";
-import { buildPaddedSpeakerBounds, scoreCandidate } from "../placementScoring";
+import { buildPaddedSpeakerBounds, deriveFaceSafeZonesFromSpeakerBounds, scoreCandidate } from "../placementScoring";
 
 const frame = { width: 1920, height: 1080 };
 const overlay = { width: 420, height: 240 };
@@ -233,7 +233,68 @@ test("scale does not shrink below 0.7 unless necessary", () => {
   input.scaleSteps = [1, 0.9, 0.8, 0.7, 0.6, 0.5];
   const result = resolveMaskAwarePlacement(input);
   assert.ok(result);
-  assert.ok((result?.selectedScale ?? 1) >= 0.7);
+  assert.ok((result?.selectedScale ?? 1) >= 0.85);
+});
+
+test("overlay may overlap lower torso and still resolve", () => {
+  const input = baseInput();
+  input.speakerMaskBounds = [{ x: 740, y: 120, width: 420, height: 760 }];
+  const result = resolveMaskAwarePlacement(input);
+  assert.ok(result);
+  assert.ok(result?.zone === "lower_left" || result?.zone === "lower_right");
+});
+
+test("derived face zone rejects overlap while body-only overlap allowed", () => {
+  const input = baseInput();
+  input.speakerMaskBounds = [{ x: 740, y: 120, width: 420, height: 760 }];
+  const padded = buildPaddedSpeakerBounds(input);
+  const faceSafe = deriveFaceSafeZonesFromSpeakerBounds(input.speakerMaskBounds)[0]!;
+  const faceOverlap = scoreCandidate({
+    input,
+    paddedSpeakerBounds: padded,
+    reservedZones: [],
+    candidate: {
+      zone: "upper_right",
+      rect: { x: faceSafe.x, y: faceSafe.y, width: 420, height: 240 },
+    },
+  });
+  assert.equal(faceOverlap, null);
+});
+
+test("single-person lower-zone remains readable when only body overlap exists", () => {
+  const input = baseInput();
+  input.speakerMaskBounds = [{ x: 760, y: 90, width: 400, height: 820 }];
+  input.selectionSeed = 0;
+  const result = resolveMaskAwarePlacement(input);
+  assert.ok(result);
+  assert.ok(result?.zone === "lower_left" || result?.zone === "lower_right");
+  assert.ok((result?.selectedScale ?? 1) >= 0.85);
+});
+
+test("nudge into frame occurs before shrinking", () => {
+  const input = baseInput();
+  input.frame = { width: 1280, height: 720 };
+  input.overlay = { width: 1200, height: 300 };
+  input.speakerMaskBounds = [];
+  input.allowScaleFallback = true;
+  const result = resolveMaskAwarePlacement(input);
+  assert.ok(result);
+  assert.equal(isRectInsideFrame(result!.rect, input.frame), true);
+  assert.ok((result?.selectedScale ?? 1) >= 0.85);
+});
+
+test("multi-person protects each derived face/head zone", () => {
+  const input = baseInput();
+  input.speakerMaskBounds = [
+    { x: 180, y: 130, width: 460, height: 760 },
+    { x: 1260, y: 130, width: 460, height: 760 },
+  ];
+  const result = resolveMaskAwarePlacement(input);
+  assert.ok(result);
+  const faceZones = deriveFaceSafeZonesFromSpeakerBounds(input.speakerMaskBounds);
+  for (const zone of faceZones) {
+    assert.equal(intersectionArea(result!.rect, zone), 0);
+  }
 });
 
 test("larger readable scale beats tiny perfectly safe placement", () => {

@@ -1,6 +1,7 @@
 import type {
   MaskAwarePlacementInput,
   PlacementCandidate,
+  Rect,
   ScoredPlacementCandidate,
 } from "./types";
 import {
@@ -95,13 +96,33 @@ function deriveSpeakerRegionRects(speakerBounds: PlacementCandidate["rect"][]): 
   };
 }
 
-function deriveFaceHeadRect(rect: PlacementCandidate["rect"]): PlacementCandidate["rect"] {
+function clampRectToFrame(rect: Rect, frame: { width: number; height: number }): Rect {
+  const width = Math.max(1, Math.min(rect.width, frame.width));
+  const height = Math.max(1, Math.min(rect.height, frame.height));
+  const maxX = Math.max(0, frame.width - width);
+  const maxY = Math.max(0, frame.height - height);
   return {
-    x: rect.x + (rect.width * 0.2),
-    y: rect.y + (rect.height * 0.02),
-    width: rect.width * 0.6,
-    height: Math.max(24, rect.height * 0.32),
+    x: Math.max(0, Math.min(maxX, rect.x)),
+    y: Math.max(0, Math.min(maxY, rect.y)),
+    width,
+    height,
   };
+}
+
+export function deriveFaceSafeZonesFromSpeakerBounds(speakerMaskBounds: Rect[]): Rect[] {
+  const pad = 16;
+  return speakerMaskBounds.map((speaker) => {
+    const faceHeight = Math.max(24, speaker.height * 0.35);
+    const faceWidth = Math.max(24, speaker.width * 0.65);
+    const faceX = speaker.x + ((speaker.width - faceWidth) / 2);
+    const faceY = speaker.y;
+    return {
+      x: faceX - pad,
+      y: faceY - pad,
+      width: faceWidth + (pad * 2),
+      height: faceHeight + (pad * 2),
+    };
+  });
 }
 
 function repeatedPlacementPenalty(input: MaskAwarePlacementInput, candidate: PlacementCandidate): number {
@@ -245,8 +266,8 @@ function weightedSpeakerOverlapPenalty(args: {
   const upperRatio = regions.upperTorso ? overlapRatio(args.candidate, regions.upperTorso) : 0;
   const lowerRatio = regions.lowerBody ? overlapRatio(args.candidate, regions.lowerBody) : 0;
   const overlapPenaltyValue = Math.min(
-    1.2,
-    (upperRatio * 0.55) + (lowerRatio * 0.22),
+    0.45,
+    (upperRatio * 0.18) + (lowerRatio * 0.06),
   );
   return {
     faceHeadOverlapRatio: faceRatio,
@@ -262,9 +283,10 @@ export function candidateHardRejectReason(args: {
 }): string | null {
   if (!isRectInsideFrame(args.candidate.rect, args.input.frame)) return "outside_frame_or_invalid";
   if (rectIntersectsAny(args.candidate.rect, args.reservedZones)) return "intersects_reserved_zone";
-  for (const speaker of args.speakerBounds) {
-    const faceHead = deriveFaceHeadRect(speaker);
-    if (intersectionArea(args.candidate.rect, faceHead) > 0) {
+  const faceZones = deriveFaceSafeZonesFromSpeakerBounds(args.speakerBounds)
+    .map((zone) => clampRectToFrame(zone, args.input.frame));
+  for (const zone of faceZones) {
+    if (intersectionArea(args.candidate.rect, zone) > 0) {
       return "covers_face_or_head_zone";
     }
   }
