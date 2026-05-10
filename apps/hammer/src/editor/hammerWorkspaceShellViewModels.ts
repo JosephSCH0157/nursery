@@ -919,6 +919,9 @@ export function buildPreviewBayVM(args: any) {
     actualMediaPath: args.actualMediaPath == null ? null : String(args.actualMediaPath),
     sourceDeskErrorRaw: args.workspaceLoadError == null ? null : String(args.workspaceLoadError),
   });
+  const autoPlacementRuntimeEnabled = autoPlacementDiagnosticsEnabled
+    && polishPreviewTarget.hasFrame
+    && segmentationSourceMatchesDisplayedBase;
   if (trace) {
     console.debug("[hammer][auto-placement][buildPreviewBayVM] diagnostics", {
       hasDiagnosticsObject: autoPlacementDiagnostics !== undefined,
@@ -1062,16 +1065,17 @@ export function buildPreviewBayVM(args: any) {
       : null,
     previewSurfaceLabel: args.previewSurfaceLabel,
     backgroundEffect: {
-      enabled: polishPreviewTarget.segmentationEligible
-        && hasBackgroundEffectRequest
-        && segmentationSourceMatchesDisplayedBase,
+      enabled: (
+        (polishPreviewTarget.segmentationEligible && hasBackgroundEffectRequest)
+        || autoPlacementRuntimeEnabled
+      ) && segmentationSourceMatchesDisplayedBase,
       settings: args.backgroundBlurSettings,
       providerId: args.visualBackgroundBlurProviderId,
       // Use the displayed preview surface as segmentation input so playback-visible
       // decoded frames always satisfy blur/segmentation readiness.
       sourceVideoRef: args.previewVideoRef,
-      debugMasks: args.visualBackgroundBlurDebugMask,
-      maskPreviewMode: args.visualBackgroundMaskPreviewMode,
+      debugMasks: args.visualBackgroundBlurDebugMask || autoPlacementDiagnosticsEnabled,
+      maskPreviewMode: args.visualBackgroundMaskPreviewMode || autoPlacementDiagnosticsEnabled,
       maskPreviewStage: args.visualBackgroundMaskPreviewStage,
       onStatus: args.setVisualBackgroundBlurRuntimeStatus,
       onCanvas: args.handleBackgroundEffectCanvas,
