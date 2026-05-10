@@ -3044,6 +3044,13 @@ Guardrails:
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
 }
 
+.hammer-preview-auto-placement-status-badge__meta {
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(185, 247, 220, 0.86);
+}
+
 .hammer-preview-auto-placement-overlay__zone {
   fill: none;
   stroke: #19c37d;
@@ -3082,6 +3089,27 @@ Guardrails:
   stroke: rgba(15, 23, 42, 0.9);
   stroke-width: 0.8px;
   stroke-linejoin: round;
+}
+
+.hammer-preview-auto-placement-overlay__speaker-bound {
+  fill: rgba(239, 68, 68, 0.2);
+  stroke: rgba(248, 113, 113, 0.95);
+  stroke-width: 0.4;
+  stroke-dasharray: 1.2 0.9;
+  vector-effect: non-scaling-stroke;
+}
+
+.hammer-preview-auto-placement-overlay__candidate {
+  fill: rgba(250, 204, 21, 0.08);
+  stroke: rgba(250, 204, 21, 0.6);
+  stroke-width: 0.28;
+  stroke-dasharray: 0.9 1.4;
+  vector-effect: non-scaling-stroke;
+}
+
+.hammer-preview-auto-placement-overlay__candidate--rejected {
+  fill: rgba(250, 204, 21, 0.02);
+  stroke: rgba(250, 204, 21, 0.26);
 }
 
 .hammer-preview-eye-contact-canvas {

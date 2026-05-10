@@ -49,3 +49,9 @@ export type ScoredPlacementCandidate = PlacementCandidate & {
   reasons: string[];
 };
 
+export type DebugPlacementCandidate = PlacementCandidate & {
+  accepted: boolean;
+  score: number | null;
+  rejectionReason: string | null;
+  reasons: string[];
+};

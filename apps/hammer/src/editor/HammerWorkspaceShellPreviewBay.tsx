@@ -70,15 +70,32 @@ export type HammerWorkspaceShellPreviewBayVM = {
         zone: string;
         score: number;
       };
-      ghost: null | {
+    ghost: null | {
         leftPct: number;
         topPct: number;
         widthPct: number;
         heightPct: number;
         zone: string;
         score: number;
-        sourceClipId: string;
-      };
+      sourceClipId: string;
+    };
+      paddedSpeakerBounds: Array<{
+        leftPct: number;
+        topPct: number;
+        widthPct: number;
+        heightPct: number;
+      }>;
+      candidates: Array<{
+        leftPct: number;
+        topPct: number;
+        widthPct: number;
+        heightPct: number;
+        zone: string;
+        accepted: boolean;
+        rejectionReason: string | null;
+      }>;
+      frameLabel: string;
+      maskLabel: string;
     };
 
   eyeContactAssist: {
@@ -169,11 +186,15 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
         statusLabel: "auto-placement: debug enabled, preview VM state missing",
         overlay: null,
         ghost: null,
+        paddedSpeakerBounds: [],
+        candidates: [],
+        frameLabel: "n/a",
+        maskLabel: "n/a",
       }
       : { enabled: false as const });
   const showAutoPlacementStatusBadge = autoPlacementDiagnostics.enabled;
   const showAutoPlacementSvg = autoPlacementDiagnostics.enabled
-    && (Boolean(autoPlacementDiagnostics.overlay) || Boolean(autoPlacementDiagnostics.ghost));
+    && (Boolean(autoPlacementDiagnostics.overlay) || Boolean(autoPlacementDiagnostics.ghost) || autoPlacementDiagnostics.paddedSpeakerBounds.length > 0 || autoPlacementDiagnostics.candidates.length > 0);
   return (
     <>
       <header className="hammer-bay-head">
@@ -267,6 +288,28 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
           />
           {showAutoPlacementSvg ? (
               <svg className="hammer-preview-auto-placement-overlay" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none">
+                {autoPlacementDiagnostics.candidates.map((candidate) => (
+                  <rect
+                    key={`candidate-${candidate.zone}-${candidate.leftPct}-${candidate.topPct}`}
+                    className={candidate.accepted
+                      ? "hammer-preview-auto-placement-overlay__candidate"
+                      : "hammer-preview-auto-placement-overlay__candidate hammer-preview-auto-placement-overlay__candidate--rejected"}
+                    x={candidate.leftPct}
+                    y={candidate.topPct}
+                    width={candidate.widthPct}
+                    height={candidate.heightPct}
+                  />
+                ))}
+                {autoPlacementDiagnostics.paddedSpeakerBounds.map((bound, idx) => (
+                  <rect
+                    key={`speaker-${idx}`}
+                    className="hammer-preview-auto-placement-overlay__speaker-bound"
+                    x={bound.leftPct}
+                    y={bound.topPct}
+                    width={bound.widthPct}
+                    height={bound.heightPct}
+                  />
+                ))}
                 {autoPlacementDiagnostics.overlay ? (
                   <>
                     <rect
@@ -307,7 +350,10 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
           ) : null}
           {showAutoPlacementStatusBadge ? (
             <div className="hammer-preview-auto-placement-status-badge">
-              {autoPlacementDiagnostics.statusLabel}
+              <div>{autoPlacementDiagnostics.statusLabel}</div>
+              <div className="hammer-preview-auto-placement-status-badge__meta">
+                frame {autoPlacementDiagnostics.frameLabel} · mask {autoPlacementDiagnostics.maskLabel}
+              </div>
             </div>
           ) : null}
         </div>

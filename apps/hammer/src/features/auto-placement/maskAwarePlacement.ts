@@ -1,4 +1,5 @@
 import type {
+  DebugPlacementCandidate,
   MaskAwarePlacementInput,
   MaskAwarePlacementResult,
   PlacementCandidate,
@@ -102,6 +103,61 @@ function seededIndex(seed: number, size: number): number {
   return normalized % size;
 }
 
+export function evaluateMaskAwarePlacementCandidates(input: MaskAwarePlacementInput): {
+  paddedSpeakerBounds: Rect[];
+  reservedZones: Rect[];
+  candidates: DebugPlacementCandidate[];
+} {
+  const margin = Math.max(0, input.safeMarginPx ?? DEFAULT_SAFE_MARGIN_PX);
+  const paddedSpeakerBounds = buildPaddedSpeakerBounds(input);
+  const reservedZones = (input.reservedZones?.length ? input.reservedZones : deriveDefaultReservedZones());
+  const candidates: PlacementCandidate[] = generateBaseCandidates(input, margin);
+  const backgroundOpen = generateBackgroundOpenCandidate({
+    input,
+    margin,
+    paddedSpeakerBounds,
+    reservedZones,
+  });
+  if (backgroundOpen) candidates.push(backgroundOpen);
+  const debugCandidates: DebugPlacementCandidate[] = candidates.map((candidate) => {
+    const scored = scoreCandidate({
+      input,
+      candidate,
+      paddedSpeakerBounds,
+      reservedZones,
+    });
+    if (scored) {
+      return {
+        zone: candidate.zone,
+        rect: candidate.rect,
+        accepted: true,
+        score: scored.score,
+        rejectionReason: null,
+        reasons: scored.reasons,
+      };
+    }
+    const intersectsSpeaker = rectIntersectsAny(candidate.rect, paddedSpeakerBounds);
+    const intersectsReserved = rectIntersectsAny(candidate.rect, reservedZones);
+    return {
+      zone: candidate.zone,
+      rect: candidate.rect,
+      accepted: false,
+      score: null,
+      rejectionReason: intersectsSpeaker
+        ? "intersects_padded_speaker_bounds"
+        : intersectsReserved
+        ? "intersects_reserved_zone"
+        : "outside_frame_or_invalid",
+      reasons: [],
+    };
+  });
+  return {
+    paddedSpeakerBounds,
+    reservedZones,
+    candidates: debugCandidates,
+  };
+}
+
 export function resolveMaskAwarePlacement(input: MaskAwarePlacementInput): MaskAwarePlacementResult | null {
   if (!Number.isFinite(input.frame.width) || !Number.isFinite(input.frame.height)) return null;
   if (!Number.isFinite(input.overlay.width) || !Number.isFinite(input.overlay.height)) return null;
@@ -146,4 +202,3 @@ export function resolveMaskAwarePlacement(input: MaskAwarePlacementInput): MaskA
     reasons: selected.reasons,
   };
 }
-

@@ -3,7 +3,7 @@ import {
   resolveHammerPolishPreviewTarget,
   resolveVisualPreviewEmptyStateMessage,
 } from "./hammerPolishPreviewTarget";
-import { resolveMaskAwarePlacement } from "../features/auto-placement";
+import { evaluateMaskAwarePlacementCandidates, resolveMaskAwarePlacement } from "../features/auto-placement";
 import type { Rect as AutoPlacementRect } from "../features/auto-placement";
 
 function isTruthyDevToggle(value: string | null): boolean {
@@ -62,7 +62,47 @@ export type HammerAutoPlacementDiagnosticsState =
       score: number;
       sourceClipId: string;
     };
+    paddedSpeakerBounds: Array<{
+      leftPct: number;
+      topPct: number;
+      widthPct: number;
+      heightPct: number;
+    }>;
+    candidates: Array<{
+      leftPct: number;
+      topPct: number;
+      widthPct: number;
+      heightPct: number;
+      zone: string;
+      accepted: boolean;
+      rejectionReason: string | null;
+    }>;
+    frameLabel: string;
+    maskLabel: string;
   };
+
+export function normalizeSpeakerMaskBoundsToFrame(args: {
+  speakerMaskBounds: AutoPlacementRect[];
+  frameInput: { width: number; height: number } | null;
+  maskResolution: { width: number; height: number } | null;
+}): AutoPlacementRect[] {
+  const frameW = Math.max(0, Number(args.frameInput?.width) || 0);
+  const frameH = Math.max(0, Number(args.frameInput?.height) || 0);
+  const maskW = Math.max(0, Number(args.maskResolution?.width) || 0);
+  const maskH = Math.max(0, Number(args.maskResolution?.height) || 0);
+  if (frameW <= 0 || frameH <= 0) return [];
+  if (maskW <= 0 || maskH <= 0) return [];
+  const sx = frameW / maskW;
+  const sy = frameH / maskH;
+  return args.speakerMaskBounds
+    .filter((rect) => rect && Number.isFinite(rect.x) && Number.isFinite(rect.y) && Number.isFinite(rect.width) && Number.isFinite(rect.height))
+    .map((rect) => ({
+      x: Math.max(0, rect.x * sx),
+      y: Math.max(0, rect.y * sy),
+      width: Math.max(0, rect.width * sx),
+      height: Math.max(0, rect.height * sy),
+    }));
+}
 
 export function resolveAutoPlacementDiagnosticsForPreview(args: {
   debugEnabled: boolean;
@@ -75,6 +115,7 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
     widthPct: number;
     heightPct: number;
   };
+  maskResolution?: { width: number; height: number } | null;
 }): HammerAutoPlacementDiagnosticsState {
   if (!args.debugEnabled) return { enabled: false };
   if (!args.frameInput || args.frameInput.width <= 0 || args.frameInput.height <= 0) {
@@ -84,15 +125,34 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       statusLabel: "auto-placement: no frame input available",
       overlay: null,
       ghost: null,
+      paddedSpeakerBounds: [],
+      candidates: [],
+      frameLabel: "frame n/a",
+      maskLabel: "mask n/a",
     };
   }
-  if (!Array.isArray(args.speakerMaskBounds) || args.speakerMaskBounds.length === 0) {
+  const frameW = Math.max(1, args.frameInput.width);
+  const frameH = Math.max(1, args.frameInput.height);
+  const normalizedSpeakerBounds = normalizeSpeakerMaskBoundsToFrame({
+    speakerMaskBounds: Array.isArray(args.speakerMaskBounds) ? args.speakerMaskBounds : [],
+    frameInput: args.frameInput,
+    maskResolution: args.maskResolution ?? null,
+  });
+  const frameLabel = `${Math.round(frameW)}x${Math.round(frameH)}`;
+  const maskLabel = args.maskResolution
+    ? `${Math.max(0, Math.round(args.maskResolution.width))}x${Math.max(0, Math.round(args.maskResolution.height))}`
+    : "n/a";
+  if (!Array.isArray(normalizedSpeakerBounds) || normalizedSpeakerBounds.length === 0) {
     return {
       enabled: true,
       state: "no_mask_bounds",
       statusLabel: "auto-placement: no mask bounds available",
       overlay: null,
       ghost: null,
+      paddedSpeakerBounds: [],
+      candidates: [],
+      frameLabel,
+      maskLabel,
     };
   }
   const hasSelectedOverlayAsset = Boolean(args.selectedOverlayForGhost?.hasRealAsset);
@@ -103,6 +163,10 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       statusLabel: "auto-placement: debug enabled, waiting for selected overlay asset",
       overlay: null,
       ghost: null,
+      paddedSpeakerBounds: [],
+      candidates: [],
+      frameLabel,
+      maskLabel,
     };
   }
   const overlaySize = {
@@ -112,10 +176,32 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
   const resolved = resolveMaskAwarePlacement({
     frame: args.frameInput,
     overlay: overlaySize,
-    speakerMaskBounds: args.speakerMaskBounds,
+    speakerMaskBounds: normalizedSpeakerBounds,
     reservedZones: [],
     selectionSeed: Math.floor(args.playheadSec || 0),
   });
+  const evaluation = evaluateMaskAwarePlacementCandidates({
+    frame: args.frameInput,
+    overlay: overlaySize,
+    speakerMaskBounds: normalizedSpeakerBounds,
+    reservedZones: [],
+    selectionSeed: Math.floor(args.playheadSec || 0),
+  });
+  const paddedSpeakerBounds = evaluation.paddedSpeakerBounds.map((rect) => ({
+    leftPct: (rect.x / frameW) * 100,
+    topPct: (rect.y / frameH) * 100,
+    widthPct: (rect.width / frameW) * 100,
+    heightPct: (rect.height / frameH) * 100,
+  }));
+  const candidates = evaluation.candidates.map((candidate) => ({
+    leftPct: (candidate.rect.x / frameW) * 100,
+    topPct: (candidate.rect.y / frameH) * 100,
+    widthPct: (candidate.rect.width / frameW) * 100,
+    heightPct: (candidate.rect.height / frameH) * 100,
+    zone: candidate.zone,
+    accepted: candidate.accepted,
+    rejectionReason: candidate.rejectionReason,
+  }));
   if (!resolved) {
     return {
       enabled: true,
@@ -123,10 +209,12 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       statusLabel: "auto-placement: no safe placement",
       overlay: null,
       ghost: null,
+      paddedSpeakerBounds,
+      candidates,
+      frameLabel,
+      maskLabel,
     };
   }
-  const frameW = Math.max(1, args.frameInput.width);
-  const frameH = Math.max(1, args.frameInput.height);
   let ghost: {
     leftPct: number;
     topPct: number;
@@ -142,7 +230,7 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
     const ghostPlacement = resolveMaskAwarePlacement({
       frame: args.frameInput,
       overlay: { width: selectedOverlayWidthPx, height: selectedOverlayHeightPx },
-      speakerMaskBounds: args.speakerMaskBounds,
+      speakerMaskBounds: normalizedSpeakerBounds,
       reservedZones: [],
       selectionSeed: Math.floor(args.playheadSec || 0) + 17,
     });
@@ -171,6 +259,10 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       score: resolved.score,
     },
     ghost,
+    paddedSpeakerBounds,
+    candidates,
+    frameLabel,
+    maskLabel,
   };
 }
 
@@ -502,6 +594,12 @@ export function buildPreviewBayVM(args: any) {
   const speakerMaskBounds: AutoPlacementRect[] = Array.isArray(blurRuntime?.mask?.speakerMaskBounds)
     ? blurRuntime.mask.speakerMaskBounds
     : [];
+  const maskResolution = blurRuntime?.mask?.resolution
+    ? {
+      width: Number(blurRuntime.mask.resolution.width) || 0,
+      height: Number(blurRuntime.mask.resolution.height) || 0,
+    }
+    : null;
   const autoPlacementFrame = blurRuntime?.frameInput
     ? { width: Number(blurRuntime.frameInput.width) || 0, height: Number(blurRuntime.frameInput.height) || 0 }
     : null;
@@ -509,6 +607,7 @@ export function buildPreviewBayVM(args: any) {
     debugEnabled: autoPlacementDiagnosticsEnabled,
     frameInput: autoPlacementFrame,
     speakerMaskBounds,
+    maskResolution,
     playheadSec: args.playheadSec ?? 0,
     selectedOverlayForGhost: selectedOverlayForGhost
       ? {
