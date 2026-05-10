@@ -13,7 +13,7 @@ import {
   type HammerEditorialAuthorityGraph,
 } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
-import type { HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
+import type { HammerPlacementOutboundDiagnostics, HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
 import type {
   HammerPassId,
   HammerPassStatusMap,
@@ -461,7 +461,7 @@ type HammerWorkspaceShellProps = {
   onHistoryRecoveryStatusChange?: (status: string | null) => void;
   onWorkspaceSnapshotChange?: (
     snapshot: HammerWorkspaceSnapshot,
-    options?: { persistNow?: boolean },
+    options?: { persistNow?: boolean; placementDiagnostics?: HammerPlacementOutboundDiagnostics },
   ) => void;
 };
 
@@ -1168,6 +1168,14 @@ function HammerWorkspaceShellWithContext(
   const [storedMediaFiles, setStoredMediaFiles] = useState<HammerStoredMediaFile[]>([]);
   const timelineUpdateReasonRef = useRef<string>("init");
   const sourceDeskMediaUpdateReasonRef = useRef<string>("init");
+  const editableVisualTimelineRef = useRef<HammerVisualTimelineState | null>(props.visualTimeline ?? null);
+  const placementOutboundDiagnosticsRef = useRef<HammerPlacementOutboundDiagnostics>({
+    reason: "init",
+    source: "shell_boot",
+    explicitUserAction: false,
+    placementCount: props.visualTimeline?.clips.length ?? props.visualPlacements?.placements.length ?? 0,
+    anchorCount: buildVisualTimelineDiagnostics(props.visualTimeline ?? null).anchorCount,
+  });
   const [mediaMapBeats, setMediaMapBeats] = useState<HammerMediaMapBeat[]>([]);
   const [removedMediaMapSegmentIds, setRemovedMediaMapSegmentIds] = useState<string[]>([]);
   const [sourceDeskLoading, setSourceDeskLoading] = useState(false);
@@ -2121,6 +2129,30 @@ function HammerWorkspaceShellWithContext(
     applyVisualTimelineActions,
     resolveCanonicalVisualTimeline,
   });
+  const removeVisualPlacementWithDiagnostics = useCallback((placementId: string): void => {
+    const current = editableVisualTimelineRef.current;
+    const currentDiagnostics = buildVisualTimelineDiagnostics(current);
+    placementOutboundDiagnosticsRef.current = {
+      reason: "user_remove_visual_placement",
+      source: "timeline_user_action",
+      explicitUserAction: true,
+      placementCount: Math.max(0, currentDiagnostics.clipCount - 1),
+      anchorCount: Math.max(0, currentDiagnostics.anchorCount - 1),
+    };
+    removeVisualPlacement(placementId);
+  }, [removeVisualPlacement]);
+  const removePackagingPlacementWithDiagnostics = useCallback((entryId: string, label: string): void => {
+    const current = editableVisualTimelineRef.current;
+    const currentDiagnostics = buildVisualTimelineDiagnostics(current);
+    placementOutboundDiagnosticsRef.current = {
+      reason: "user_remove_packaging_placement",
+      source: "timeline_user_action",
+      explicitUserAction: true,
+      placementCount: Math.max(0, currentDiagnostics.clipCount - 1),
+      anchorCount: Math.max(0, currentDiagnostics.anchorCount - 1),
+    };
+    removePackagingPlacement(entryId, label);
+  }, [removePackagingPlacement]);
   const sourceVisualPlacementItems = useMemo<HammerSourceImageItem[]>(() => (
     (compositionVisualTimeline?.clips ?? [])
       .map((clip) => {
@@ -2268,11 +2300,20 @@ function HammerWorkspaceShellWithContext(
     console.debug("[hammer][placements] state update", {
       reason: timelineUpdateReasonRef.current,
       mediaReason: sourceDeskMediaUpdateReasonRef.current,
-      before: previous,
-      after: next,
+      beforeVisualPlacementsCount: previous.visualPlacementsCount,
+      afterVisualPlacementsCount: next.visualPlacementsCount,
+      beforeAnchorsCount: previous.anchorsCount,
+      afterAnchorsCount: next.anchorsCount,
+      beforeSourceVisualPlacementItemsCount: previous.sourceVisualPlacementItemsCount,
+      afterSourceVisualPlacementItemsCount: next.sourceVisualPlacementItemsCount,
+      beforeStoredImagesCount: previous.storedImagesCount,
+      afterStoredImagesCount: next.storedImagesCount,
     });
     shellPlacementDiagnosticsPrevRef.current = next;
   }, [shellPlacementDiagnostics]);
+  useEffect(() => {
+    editableVisualTimelineRef.current = editableVisualTimeline;
+  }, [editableVisualTimeline]);
   const selectedBackgroundReplacementAsset = useMemo(
     () => sourceImageLibraryItems.find((item) => item.path === visualBackgroundReplaceImageAssetPath) ?? null,
     [sourceImageLibraryItems, visualBackgroundReplaceImageAssetPath],
@@ -3276,8 +3317,39 @@ function HammerWorkspaceShellWithContext(
   function applyWorkspaceState(nextState: HammerEditorStateSerializable, reason = "workspace_state_apply"): void {
     timelineUpdateReasonRef.current = reason;
     const normalized = toShellState(nextState);
+    const previousTimeline = editableVisualTimelineRef.current;
+    const previousDiagnostics = buildVisualTimelineDiagnostics(previousTimeline);
+    const incomingDiagnostics = buildVisualTimelineDiagnostics(normalized.visualTimeline);
+    const isDestructiveSourceDeskRefresh = (
+      (reason === "history:baseline_init" || reason === "history:mutation_apply")
+      && sourceDeskMediaUpdateReasonRef.current === "source_desk_refresh"
+      && (previousDiagnostics.anchorCount > 0 || previousDiagnostics.clipCount > 0)
+      && incomingDiagnostics.anchorCount === 0
+      && incomingDiagnostics.clipCount === 0
+    );
+    const protectedTimeline = isDestructiveSourceDeskRefresh
+      ? previousTimeline
+      : normalized.visualTimeline;
+    if (isDestructiveSourceDeskRefresh) {
+      console.error("[hammer][placements] blocked destructive refresh update", {
+        reason,
+        mediaReason: sourceDeskMediaUpdateReasonRef.current,
+        beforeVisualPlacementsCount: previousDiagnostics.clipCount,
+        afterVisualPlacementsCount: incomingDiagnostics.clipCount,
+        beforeAnchorsCount: previousDiagnostics.anchorCount,
+        afterAnchorsCount: incomingDiagnostics.anchorCount,
+      });
+    }
+    const protectedDiagnostics = buildVisualTimelineDiagnostics(protectedTimeline);
+    placementOutboundDiagnosticsRef.current = {
+      reason,
+      source: sourceDeskMediaUpdateReasonRef.current,
+      explicitUserAction: false,
+      placementCount: protectedDiagnostics.clipCount,
+      anchorCount: protectedDiagnostics.anchorCount,
+    };
     setEditableTranscriptSegments(normalized.segments);
-    setEditableVisualTimeline(normalized.visualTimeline);
+    setEditableVisualTimeline(protectedTimeline);
     setEditableStudioRack(normalized.studioRack);
     setEditableEditorialAuthorityGraph(normalized.editorialAuthorityGraph);
     setEditableOutputSelection(normalized.outputSelection);
@@ -3285,11 +3357,11 @@ function HammerWorkspaceShellWithContext(
     setPlayheadSec(normalized.playheadSec);
     setTranscriptTimingHint(normalized.transcriptTimingHint);
     setLinkedSelection(
-      normalized.visualTimeline?.selected_clip_id
+      protectedTimeline?.selected_clip_id
         ? resolveSelectionFromVisual({
           transcriptSegments: normalized.segments,
           visualItems: linkedSelectionVisualItems,
-          visualId: normalized.visualTimeline.selected_clip_id,
+          visualId: protectedTimeline.selected_clip_id,
         })
         : resolveSelectionFromTranscript({
           transcriptSegments: normalized.segments,
@@ -6879,7 +6951,7 @@ function HammerWorkspaceShellWithContext(
     setTranscriptSelectionFocusSegmentId,
     setVisualTimelineFocusNonce,
     updateVisualPlacementTiming,
-    removeVisualPlacement,
+    removeVisualPlacement: removeVisualPlacementWithDiagnostics,
     sourceAssetItems,
     workspaceMapping,
     mediaMapBeats,
@@ -7733,6 +7805,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     },
     visualBackgroundReplaceImageUrl,
     visualTimelineProp: props.visualTimeline ?? null,
+    placementOutboundDiagnostics: placementOutboundDiagnosticsRef.current,
     createFallbackEditPlan,
   });
 
@@ -7898,8 +7971,8 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     releasePrepSaved,
     releasePrepSaving,
     releasePrepStaleReasons,
-    removePackagingPlacement,
-    removeVisualPlacement,
+    removePackagingPlacement: removePackagingPlacementWithDiagnostics,
+    removeVisualPlacement: removeVisualPlacementWithDiagnostics,
     replaceResolvedBrollBinding,
     resolvedBrollBindingItems,
     resolveHearthBrollSuggestion,
@@ -8189,8 +8262,8 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     releasePrepSaved,
     releasePrepSaving,
     releasePrepStaleReasons,
-    removePackagingPlacement,
-    removeVisualPlacement,
+    removePackagingPlacementWithDiagnostics,
+    removeVisualPlacementWithDiagnostics,
     replaceResolvedBrollBinding,
     resolvedBrollBindingItems,
     resolveHearthBrollSuggestion,

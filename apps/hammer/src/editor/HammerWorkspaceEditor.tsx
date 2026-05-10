@@ -4,7 +4,12 @@ import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/
 import { normalizeHammerOrchestrationState } from "../../../../packages/tongs/src/hammer-orchestration-contract";
 import { HAMMER_PASS_ORDER_VERSION } from "../../../../packages/tongs/src/hammer-orchestration-contract";
 import HammerWorkspaceShell from "./HammerWorkspaceShell";
-import type { HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
+import type { HammerPlacementOutboundDiagnostics, HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
+import {
+  countSnapshotAnchors,
+  countSnapshotPlacements,
+  shouldBlockTransientPlacementDrop,
+} from "./hammerPlacementPersistenceGuard";
 import "./HammerWorkspaceEditor.css";
 import {
   buildHammerPreparedHandoffModel,
@@ -3741,14 +3746,55 @@ export default function HammerWorkspaceEditor(
 
   const handleWorkspaceSnapshotChange = useCallback((
     snapshot: HammerWorkspaceSnapshot,
-    options?: { persistNow?: boolean },
+    options?: { persistNow?: boolean; placementDiagnostics?: HammerPlacementOutboundDiagnostics },
   ): void => {
+    const diagnostics = options?.placementDiagnostics;
+    const persistedPlacementCount = loadedPersistenceSnapshot?.visual_placements.data?.placements.length ?? 0;
+    const previousSnapshotPlacementCount = countSnapshotPlacements(workspaceSnapshot);
+    const previousSnapshotAnchorCount = countSnapshotAnchors(workspaceSnapshot);
+    const incomingPlacementCount = countSnapshotPlacements(snapshot);
+    const incomingAnchorCount = countSnapshotAnchors(snapshot);
+    const isTransientHydrationDrop = shouldBlockTransientPlacementDrop({
+      diagnostics,
+      persistedPlacementCount,
+      previousSnapshotPlacementCount,
+      previousSnapshotAnchorCount,
+      incomingPlacementCount,
+      incomingAnchorCount,
+    });
+
+    console.debug("[hammer][placements][outbound]", {
+      reason: diagnostics?.reason ?? "unknown",
+      source: diagnostics?.source ?? "unknown",
+      explicitUserAction: diagnostics?.explicitUserAction ?? false,
+      placementCount: incomingPlacementCount,
+      anchorCount: incomingAnchorCount,
+      persistedPlacementCount,
+      previousSnapshotPlacementCount,
+      previousSnapshotAnchorCount,
+      blocked: isTransientHydrationDrop,
+    });
+
+    if (isTransientHydrationDrop) {
+      console.error("[hammer][placements][outbound] blocked transient zero-placement persistence", {
+        reason: diagnostics?.reason ?? "unknown",
+        source: diagnostics?.source ?? "unknown",
+        explicitUserAction: diagnostics?.explicitUserAction ?? false,
+        persistedPlacementCount,
+        previousSnapshotPlacementCount,
+        previousSnapshotAnchorCount,
+        incomingPlacementCount,
+        incomingAnchorCount,
+      });
+      return;
+    }
+
     // Canonical working edits must queue the revision autosave immediately when they are
     // user-visible as "committed" in Hammer. We keep the raw baseline immutable by only
     // saving revision artifacts, never mutating ingest/baseline pointers.
     setWorkspaceSnapshot(snapshot);
     queueRevisionAutosave(snapshot, options?.persistNow === true);
-  }, [queueRevisionAutosave]);
+  }, [loadedPersistenceSnapshot?.visual_placements.data?.placements.length, queueRevisionAutosave, workspaceSnapshot]);
 
   useEffect(() => {
     return () => {

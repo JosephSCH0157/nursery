@@ -3,7 +3,7 @@ import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/
 import type { HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type { MediaRef, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
-import type { HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
+import type { HammerPlacementOutboundDiagnostics, HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
 import { HAMMER_PASS_ORDER_VERSION } from "../persistence/hammerPersistenceContract";
 import type {
   HammerPassId,
@@ -30,7 +30,7 @@ function stableHashToken(value: string): string {
 export type UseHammerWorkspaceShellSnapshotEmitterArgs = {
   onWorkspaceSnapshotChange?: (
     snapshot: HammerWorkspaceSnapshot,
-    options?: { persistNow?: boolean },
+    options?: { persistNow?: boolean; placementDiagnostics?: HammerPlacementOutboundDiagnostics },
   ) => void;
   persistNowRequestNonce: number;
   launchContext: HammerLaunchContext;
@@ -62,6 +62,7 @@ export type UseHammerWorkspaceShellSnapshotEmitterArgs = {
   visualBackgroundReplaceImageUrl: string;
 
   visualTimelineProp: HammerVisualTimelineState | null;
+  placementOutboundDiagnostics: HammerPlacementOutboundDiagnostics;
 
   createFallbackEditPlan: (
     launchContext: HammerLaunchContext,
@@ -238,7 +239,10 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
       audioPolish: args.editableAudioPolish,
     };
 
-    args.onWorkspaceSnapshotChange(snapshot, persistNowRequested ? { persistNow: true } : undefined);
+    args.onWorkspaceSnapshotChange(snapshot, {
+      ...(persistNowRequested ? { persistNow: true } : {}),
+      placementDiagnostics: args.placementOutboundDiagnostics,
+    });
   }, [
     args.launchContext,
     args.mediaRef,
@@ -267,5 +271,6 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
     args.workspaceMapping,
     args.visualTimelineProp,
     args.persistNowRequestNonce,
+    args.placementOutboundDiagnostics,
   ]);
 }

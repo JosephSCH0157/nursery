@@ -20,6 +20,13 @@ import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTyp
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 
 export type HammerWorkspaceEditPlanStatus = "clean" | "dirty" | "reloaded";
+export type HammerPlacementOutboundDiagnostics = {
+  reason: string;
+  source: string;
+  explicitUserAction: boolean;
+  placementCount: number;
+  anchorCount: number;
+};
 
 export interface HammerWorkspaceSnapshot {
   workspaceId: string;
