@@ -3,6 +3,8 @@ import {
   resolveHammerPolishPreviewTarget,
   resolveVisualPreviewEmptyStateMessage,
 } from "./hammerPolishPreviewTarget";
+import { resolveMaskAwarePlacement } from "../features/auto-placement";
+import type { Rect as AutoPlacementRect } from "../features/auto-placement";
 
 function isTruthyDevToggle(value: string | null): boolean {
   if (!value) return false;
@@ -21,6 +23,95 @@ function shouldShowDiagnosticsPanel(): boolean {
     // ignore
   }
   return false;
+}
+
+function shouldShowAutoPlacementDiagnostics(): boolean {
+  const isDev = Boolean((import.meta as any)?.env?.DEV);
+  if (!isDev || typeof window === "undefined") return false;
+  try {
+    const params = new URLSearchParams(window.location.search ?? "");
+    if (isTruthyDevToggle(params.get("hammer_auto_placement_debug"))) return true;
+    if (isTruthyDevToggle(params.get("tp_auto_placement_debug"))) return true;
+    if (isTruthyDevToggle(params.get("tp_dev_mode"))) return true;
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+export type HammerAutoPlacementDiagnosticsState =
+  | { enabled: false }
+  | {
+    enabled: true;
+    state: "resolved" | "no_mask_bounds" | "no_safe_placement" | "no_frame_input";
+    statusLabel: string;
+    overlay: null | {
+      leftPct: number;
+      topPct: number;
+      widthPct: number;
+      heightPct: number;
+      zone: string;
+      score: number;
+    };
+  };
+
+export function resolveAutoPlacementDiagnosticsForPreview(args: {
+  debugEnabled: boolean;
+  frameInput: { width: number; height: number } | null;
+  speakerMaskBounds: AutoPlacementRect[];
+  playheadSec: number;
+}): HammerAutoPlacementDiagnosticsState {
+  if (!args.debugEnabled) return { enabled: false };
+  if (!args.frameInput || args.frameInput.width <= 0 || args.frameInput.height <= 0) {
+    return {
+      enabled: true,
+      state: "no_frame_input",
+      statusLabel: "auto-placement: no frame input available",
+      overlay: null,
+    };
+  }
+  if (!Array.isArray(args.speakerMaskBounds) || args.speakerMaskBounds.length === 0) {
+    return {
+      enabled: true,
+      state: "no_mask_bounds",
+      statusLabel: "auto-placement: no mask bounds available",
+      overlay: null,
+    };
+  }
+  const overlaySize = {
+    width: Math.max(140, Math.round(args.frameInput.width * 0.22)),
+    height: Math.max(90, Math.round(args.frameInput.height * 0.16)),
+  };
+  const resolved = resolveMaskAwarePlacement({
+    frame: args.frameInput,
+    overlay: overlaySize,
+    speakerMaskBounds: args.speakerMaskBounds,
+    reservedZones: [],
+    selectionSeed: Math.floor(args.playheadSec || 0),
+  });
+  if (!resolved) {
+    return {
+      enabled: true,
+      state: "no_safe_placement",
+      statusLabel: "auto-placement: no safe placement",
+      overlay: null,
+    };
+  }
+  const frameW = Math.max(1, args.frameInput.width);
+  const frameH = Math.max(1, args.frameInput.height);
+  return {
+    enabled: true,
+    state: "resolved",
+    statusLabel: `auto-placement: ${resolved.zone} (${resolved.score.toFixed(2)})`,
+    overlay: {
+      leftPct: (resolved.rect.x / frameW) * 100,
+      topPct: (resolved.rect.y / frameH) * 100,
+      widthPct: (resolved.rect.width / frameW) * 100,
+      heightPct: (resolved.rect.height / frameH) * 100,
+      zone: resolved.zone,
+      score: resolved.score,
+    },
+  };
 }
 
 export function buildTimelineDockVM(args: any) {
@@ -346,6 +437,19 @@ export function buildPreviewBayVM(args: any) {
   );
   const hiddenSegmentationVideoMounted = segmentationSourceVideoRef !== args.previewVideoRef;
   const blurRuntime = args.visualBackgroundBlurRuntimeStatus ?? null;
+  const autoPlacementDiagnosticsEnabled = shouldShowAutoPlacementDiagnostics();
+  const speakerMaskBounds: AutoPlacementRect[] = Array.isArray(blurRuntime?.mask?.speakerMaskBounds)
+    ? blurRuntime.mask.speakerMaskBounds
+    : [];
+  const autoPlacementFrame = blurRuntime?.frameInput
+    ? { width: Number(blurRuntime.frameInput.width) || 0, height: Number(blurRuntime.frameInput.height) || 0 }
+    : null;
+  const autoPlacementDiagnostics = resolveAutoPlacementDiagnosticsForPreview({
+    debugEnabled: autoPlacementDiagnosticsEnabled,
+    frameInput: autoPlacementFrame,
+    speakerMaskBounds,
+    playheadSec: args.playheadSec ?? 0,
+  });
   const audioPolish = args.editableAudioPolish ?? null;
   const audioAnalysis = audioPolish?.analysis ?? null;
   const loudness = audioAnalysis?.loudness ?? null;
@@ -436,6 +540,16 @@ export function buildPreviewBayVM(args: any) {
       transcriptPrepChunkCount: transcriptPrep?.chunk_count ?? null,
     },
     visualEffects: visualDiagnostics,
+    autoPlacement: autoPlacementDiagnosticsEnabled
+      ? {
+        state: autoPlacementDiagnostics.state ?? "disabled",
+        status: autoPlacementDiagnostics.statusLabel ?? "auto-placement: disabled",
+        speakerMaskBoundsCount: speakerMaskBounds.length,
+        resolvedZone: autoPlacementDiagnostics.enabled && autoPlacementDiagnostics.overlay
+          ? autoPlacementDiagnostics.overlay.zone
+          : null,
+      }
+      : undefined,
   };
 
   return {
@@ -490,6 +604,7 @@ export function buildPreviewBayVM(args: any) {
       enabled: shouldShowDiagnosticsPanel(),
       snapshot: diagnosticsSnapshot,
     },
+    autoPlacementDiagnostics,
     eyeContactAssist: {
       enabled: polishPreviewTarget.segmentationEligible
         && segmentationSourceMatchesDisplayedBase

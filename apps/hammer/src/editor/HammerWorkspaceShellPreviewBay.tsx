@@ -56,6 +56,21 @@ export type HammerWorkspaceShellPreviewBayVM = {
     enabled: boolean;
     snapshot: any;
   };
+  autoPlacementDiagnostics:
+    | { enabled: false }
+    | {
+      enabled: true;
+      state: "resolved" | "no_mask_bounds" | "no_safe_placement" | "no_frame_input";
+      statusLabel: string;
+      overlay: null | {
+        leftPct: number;
+        topPct: number;
+        widthPct: number;
+        heightPct: number;
+        zone: string;
+        score: number;
+      };
+    };
 
   eyeContactAssist: {
     enabled: boolean;
@@ -218,6 +233,48 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
               }
             }}
           />
+          {vm.autoPlacementDiagnostics.enabled ? (
+            vm.autoPlacementDiagnostics.overlay ? (
+              <div
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  left: `${vm.autoPlacementDiagnostics.overlay.leftPct}%`,
+                  top: `${vm.autoPlacementDiagnostics.overlay.topPct}%`,
+                  width: `${vm.autoPlacementDiagnostics.overlay.widthPct}%`,
+                  height: `${vm.autoPlacementDiagnostics.overlay.heightPct}%`,
+                  border: "2px dashed #19c37d",
+                  boxSizing: "border-box",
+                  pointerEvents: "none",
+                  zIndex: 9000,
+                }}
+              >
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "-20px",
+                    left: "0",
+                    fontSize: "11px",
+                    lineHeight: "16px",
+                    padding: "1px 6px",
+                    color: "#062b1b",
+                    background: "#19c37d",
+                    borderRadius: "4px",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  auto {vm.autoPlacementDiagnostics.overlay.zone} · {vm.autoPlacementDiagnostics.overlay.score.toFixed(2)}
+                </div>
+              </div>
+            ) : (
+              <div
+                className="hammer-preview-matte-overlay"
+                style={{ top: "54px", background: "rgba(15, 23, 42, 0.74)" }}
+              >
+                {vm.autoPlacementDiagnostics.statusLabel}
+              </div>
+            )
+          ) : null}
         </div>
         <div className="hammer-preview-meta">
           <span>Playhead {vm.playheadSec.toFixed(1)}s</span>

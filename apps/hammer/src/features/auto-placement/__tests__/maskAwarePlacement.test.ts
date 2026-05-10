@@ -1,3 +1,4 @@
+// @ts-nocheck
 import assert from "node:assert/strict";
 import test from "node:test";
 import { resolveMaskAwarePlacement } from "../maskAwarePlacement";
@@ -95,4 +96,3 @@ test("top-k seeded variation is deterministic and seed-sensitive", () => {
   assert.equal(a1.zone, a2.zone);
   assert.ok(a1.zone !== b1.zone || a1.rect.x !== b1.rect.x || a1.rect.y !== b1.rect.y);
 });
-
