@@ -53,7 +53,8 @@
     "test:open-hydration": "tsx tests/hammerOpenHydration.test.ts",
     "test:legacy-retirement-gate": "tsx tests/hammerLegacyRetirementGate.test.ts",
     "test:cleanup-execution": "tsx tests/hammerCleanupExecution.test.ts",
-    "test:waveform-cut-refinement": "tsx tests/hammerWaveformCutRefinement.test.ts"
+    "test:waveform-cut-refinement": "tsx tests/hammerWaveformCutRefinement.test.ts",
+    "test:auto-placement": "tsx src/features/auto-placement/__tests__/maskAwarePlacement.test.ts"
   },
   "dependencies": {
     "@mediapipe/selfie_segmentation": "^0.1.1675465747",

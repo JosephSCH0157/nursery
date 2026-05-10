@@ -10,6 +10,7 @@ import { BackgroundReplacementRenderer } from "../effects/backgroundReplacementR
 import { BackgroundWashRenderer } from "../effects/backgroundWashRenderer";
 import { drawSourceContained } from "../effects/mediaFrameGeometry";
 import { resolveVisualPreviewQualityPolicy } from "./previewQualityPolicy";
+import type { Rect as AutoPlacementRect } from "../../auto-placement/types";
 
 export type HammerBackgroundBlurRuntimeStatus = {
   provider: {
@@ -48,6 +49,7 @@ export type HammerBackgroundBlurRuntimeStatus = {
     resolution: { width: number; height: number } | null;
     confidence: number | null;
     generationMs: number | null;
+    speakerMaskBounds?: AutoPlacementRect[];
   };
   frameInput: {
     width: number;
@@ -239,6 +241,87 @@ function isMaskReusable(args: {
   if (ageMs > MASK_REUSE_MAX_AGE_MS) return false;
   const sourceDelta = Math.abs(args.sourceTimeSec - args.cached.sourceTimeSec);
   return sourceDelta <= MASK_REUSE_MAX_DELTA_SEC;
+}
+
+function extractSpeakerMaskBoundsFromMatte(args: {
+  matte: ForegroundMatte;
+  alphaThreshold?: number;
+  maxComponents?: number;
+}): AutoPlacementRect[] {
+  const threshold = Number.isFinite(args.alphaThreshold) ? Number(args.alphaThreshold) : 132;
+  const maxComponents = Math.max(1, Math.floor(args.maxComponents ?? 2));
+  const width = args.matte.width;
+  const height = args.matte.height;
+  const alpha = args.matte.alphaMask;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return [];
+  if (!alpha || alpha.length !== width * height) return [];
+  const minPixels = Math.max(24, Math.floor((width * height) * 0.0025));
+  const visited = new Uint8Array(width * height);
+  const queue = new Int32Array(width * height);
+  const components: Array<{ x: number; y: number; width: number; height: number; pixels: number }> = [];
+
+  for (let start = 0; start < alpha.length; start += 1) {
+    if (visited[start]) continue;
+    visited[start] = 1;
+    if (alpha[start] < threshold) continue;
+    let head = 0;
+    let tail = 0;
+    queue[tail++] = start;
+    let minX = width;
+    let minY = height;
+    let maxX = 0;
+    let maxY = 0;
+    let pixels = 0;
+
+    while (head < tail) {
+      const idx = queue[head++];
+      const x = idx % width;
+      const y = Math.floor(idx / width);
+      pixels += 1;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+
+      const neighbors = [
+        idx - 1,
+        idx + 1,
+        idx - width,
+        idx + width,
+      ];
+      for (const neighbor of neighbors) {
+        if (neighbor < 0 || neighbor >= alpha.length) continue;
+        if (visited[neighbor]) continue;
+        const nx = neighbor % width;
+        const ny = Math.floor(neighbor / width);
+        if (Math.abs(nx - x) + Math.abs(ny - y) !== 1) continue;
+        visited[neighbor] = 1;
+        if (alpha[neighbor] >= threshold) {
+          queue[tail++] = neighbor;
+        }
+      }
+    }
+
+    if (pixels >= minPixels) {
+      components.push({
+        x: minX,
+        y: minY,
+        width: Math.max(1, (maxX - minX) + 1),
+        height: Math.max(1, (maxY - minY) + 1),
+        pixels,
+      });
+    }
+  }
+
+  return components
+    .sort((a, b) => b.pixels - a.pixels)
+    .slice(0, maxComponents)
+    .map((component) => ({
+      x: component.x,
+      y: component.y,
+      width: component.width,
+      height: component.height,
+    }));
 }
 
 function useDefaultSegmentationProvider(enabled: boolean, providerId: SegmentationProviderId): SegmentationProvider {
@@ -1245,6 +1328,10 @@ export default function BackgroundBlurPreviewLayer(props: {
             resolution: cachedMatte.resolution,
             confidence: cachedMatte.confidence,
             generationMs: cachedMatte.segmentationMs,
+            speakerMaskBounds: extractSpeakerMaskBoundsFromMatte({
+              matte: cachedMatte.matte,
+              maxComponents: 2,
+            }),
           },
           frameInput,
           statusMessage: null,
