@@ -201,6 +201,22 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const selectedVisualAnchorSegment = ctx.selectedVisualAnchorSegment as any;
   const selectedVisualAnchorSegmentId = ctx.selectedVisualAnchorSegmentId as any;
   const selectedVisualClip = ctx.selectedVisualClip as any;
+  const selectedPlacementId = (selectedImagePlacement?.id ?? null) as string | null;
+  const selectedOverlayAssetPresent = Boolean(selectedImagePlacement?.assetPath);
+  const selectedVisualAssetPresent = Boolean(selectedVisualClip?.asset_id);
+  const selectedClipPresent = Boolean(selectedVisualClip?.clip_id);
+  const previewAutoPositionDisabledReason = !selectedImagePlacement
+    ? "No selected image placement."
+    : !previewAutoPosition
+    ? "Preview action unavailable."
+    : null;
+  const resetPreviewPositionDisabledReason = !selectedImagePlacement
+    ? "No selected image placement."
+    : !selectedAutoPreviewActive
+    ? "No active auto preview override."
+    : !resetPreviewAutoPosition
+    ? "Reset action unavailable."
+    : null;
   const sendToQuenchButtonLabel = ctx.sendToQuenchButtonLabel as any;
   const setActiveCaptionArtifactMode = ctx.setActiveCaptionArtifactMode as any;
   const setAnchorLabelDraft = ctx.setAnchorLabelDraft as any;
@@ -2792,6 +2808,41 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                 ) : activeVisualTool === "images" ? (
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Image Placement</header>
+                    {autoPlacementDebugEnabled ? (
+                      <div className="hammer-dev-auto-preview-controls">
+                        <div className="hammer-dev-auto-preview-controls__title">DEV AUTO PREVIEW CONTROLS</div>
+                        <div>selected placement id: {selectedPlacementId ?? "none"}</div>
+                        <div>selected overlay asset: {selectedOverlayAssetPresent ? "yes" : "no"}</div>
+                        <div>selected visual asset: {selectedVisualAssetPresent ? "yes" : "no"}</div>
+                        <div>selected clip: {selectedClipPresent ? "yes" : "no"}</div>
+                        <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => previewAutoPosition?.()}
+                            disabled={Boolean(previewAutoPositionDisabledReason)}
+                          >
+                            Preview Auto Position
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => resetPreviewAutoPosition?.()}
+                            disabled={Boolean(resetPreviewPositionDisabledReason)}
+                          >
+                            Reset Preview Position
+                          </button>
+                        </div>
+                        <div>
+                          Preview button: {previewAutoPositionDisabledReason ? `disabled - ${previewAutoPositionDisabledReason}` : "enabled"}
+                        </div>
+                        <div>
+                          Reset button: {resetPreviewPositionDisabledReason ? `disabled - ${resetPreviewPositionDisabledReason}` : "enabled"}
+                        </div>
+                        <div>
+                          {selectedAutoPreviewActive ? "AUTO PREVIEW ACTIVE (unsaved)" : "Auto preview inactive"}
+                          {previewAutoPositionStatus ? ` · ${previewAutoPositionStatus}` : ""}
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="hammer-tool-hint">
                       Direct manipulation mode. Drag and resize image clips in timeline or preview. Hold Shift while dragging to snap to 0.1s steps.
                     </div>
@@ -2801,30 +2852,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           Selected: {selectedImagePlacement.label}
                           {` (${selectedImagePlacement.startSec.toFixed(1)}s - ${selectedImagePlacement.endSec.toFixed(1)}s)`}
                         </div>
-                        {autoPlacementDebugEnabled ? (
-                          <>
-                            <div className="hammer-source-card__actions">
-                              <button
-                                type="button"
-                                onClick={() => previewAutoPosition?.()}
-                                disabled={!selectedImagePlacement}
-                              >
-                                Preview Auto Position
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => resetPreviewAutoPosition?.()}
-                                disabled={!selectedImagePlacement || !selectedAutoPreviewActive}
-                              >
-                                Reset Preview Position
-                              </button>
-                            </div>
-                            <div className="hammer-tool-hint">
-                              {selectedAutoPreviewActive ? "AUTO PREVIEW ACTIVE (unsaved)" : "Auto preview inactive"}
-                              {previewAutoPositionStatus ? ` · ${previewAutoPositionStatus}` : ""}
-                            </div>
-                          </>
-                        ) : null}
                         <label className="hammer-tool-field">
                           <span>Start (sec)</span>
                           <input
