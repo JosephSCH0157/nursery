@@ -96,3 +96,54 @@ test("top-k seeded variation is deterministic and seed-sensitive", () => {
   assert.equal(a1.zone, a2.zone);
   assert.ok(a1.zone !== b1.zone || a1.rect.x !== b1.rect.x || a1.rect.y !== b1.rect.y);
 });
+
+test("fixed-size no-safe-placement resolves when scale fallback allowed", () => {
+  const input = baseInput();
+  input.overlay = { width: 2200, height: 1280 };
+  input.speakerMaskBounds = [];
+  input.allowScaleFallback = true;
+  input.minScale = 0.5;
+  input.scaleSteps = [1, 0.9, 0.8, 0.7, 0.6, 0.5];
+  const result = resolveMaskAwarePlacement(input);
+  assert.ok(result);
+  assert.equal(result?.resolvedWithScaleFallback, true);
+  assert.ok((result?.selectedScale ?? 1) < 1);
+});
+
+test("does not scale when normal size fits", () => {
+  const input = baseInput();
+  input.allowScaleFallback = true;
+  input.minScale = 0.5;
+  input.scaleSteps = [1, 0.9, 0.8];
+  const result = resolveMaskAwarePlacement(input);
+  assert.ok(result);
+  assert.equal(result?.selectedScale, 1);
+  assert.equal(result?.resolvedWithScaleFallback, false);
+});
+
+test("returns null when even minScale cannot fit", () => {
+  const input = baseInput();
+  input.overlay = { width: 1400, height: 840 };
+  input.speakerMaskBounds = [{ x: 0, y: 0, width: 1920, height: 1080 }];
+  input.reservedZones = [{ x: 0, y: 0, width: 1920, height: 1080 }];
+  input.allowScaleFallback = true;
+  input.minScale = 0.5;
+  input.scaleSteps = [1, 0.9, 0.8, 0.7, 0.6, 0.5];
+  const result = resolveMaskAwarePlacement(input);
+  assert.equal(result, null);
+});
+
+test("scale fallback remains deterministic with same seed", () => {
+  const input = baseInput();
+  input.overlay = { width: 2200, height: 1280 };
+  input.speakerMaskBounds = [];
+  input.allowScaleFallback = true;
+  input.selectionSeed = 5;
+  const first = resolveMaskAwarePlacement(input);
+  const second = resolveMaskAwarePlacement(input);
+  assert.ok(first && second);
+  assert.equal(first.zone, second.zone);
+  assert.equal(first.rect.x, second.rect.x);
+  assert.equal(first.rect.y, second.rect.y);
+  assert.equal(first.selectedScale, second.selectedScale);
+});

@@ -7283,6 +7283,8 @@ function HammerWorkspaceShellWithContext(
       resolverReason: diagnostics?.enabled
         ? (diagnostics.firstBlockingReason ?? diagnostics.statusLabel)
         : "diagnostics disabled",
+      selectedScale: diagnostics?.enabled ? diagnostics.selectedScale : null,
+      scaleAttempts: diagnostics?.enabled ? diagnostics.scaleAttempts : [],
     };
   }, [previewBayVM.autoPlacementDiagnostics]);
   const episodeHealthSnapshot = useMemo(() => {
@@ -7304,6 +7306,7 @@ function HammerWorkspaceShellWithContext(
       frameInputAvailable: previewDiagnosticsSummary.currentFrameAvailable,
       maskBoundsCount: previewDiagnosticsSummary.maskBoundsCount,
       candidateCount: previewDiagnosticsSummary.candidateCount,
+      selectedScale: previewDiagnosticsSummary.selectedScale,
       resolvedPlacement: previewDiagnosticsSummary.resolvedPlacementExists,
       resolverStatus: previewDiagnosticsSummary.resolverStatus,
       resolverReason: previewDiagnosticsSummary.resolverReason,

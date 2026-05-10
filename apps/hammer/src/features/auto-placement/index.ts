@@ -1,4 +1,4 @@
-export { evaluateMaskAwarePlacementCandidates, resolveMaskAwarePlacement } from "./maskAwarePlacement";
+export { evaluateMaskAwarePlacementCandidates, resolveMaskAwarePlacement, resolveMaskAwarePlacementWithScaleFallback } from "./maskAwarePlacement";
 export type {
   DebugPlacementCandidate,
   MaskAwarePlacementInput,

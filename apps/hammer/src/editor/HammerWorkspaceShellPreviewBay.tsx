@@ -61,7 +61,7 @@ export type HammerWorkspaceShellPreviewBayVM = {
     | { enabled: false }
     | {
       enabled: true;
-      state: "resolved" | "no_mask_bounds" | "no_safe_placement" | "no_frame_input" | "waiting_for_selected_overlay_asset";
+      state: "resolved" | "resolved_with_scale_fallback" | "no_mask_bounds" | "no_safe_placement" | "no_frame_input" | "waiting_for_selected_overlay_asset";
       statusLabel: string;
       overlay: null | {
         leftPct: number;
@@ -70,6 +70,9 @@ export type HammerWorkspaceShellPreviewBayVM = {
         heightPct: number;
         zone: string;
         score: number;
+        scale: number;
+        originalOverlaySize: { width: number; height: number };
+        resolvedOverlaySize: { width: number; height: number };
         reasonsSummary: string;
       };
       ghost: null | {
@@ -106,6 +109,14 @@ export type HammerWorkspaceShellPreviewBayVM = {
       resolvedPlacementPresent: boolean;
       candidateCount: number;
       rejectedCandidateCount: number;
+      selectedScale: number | null;
+      scaleAttempts: Array<{
+        scale: number;
+        candidateCount: number;
+        rejectedCount: number;
+        bestRejectionReason: string | null;
+        resolved: boolean;
+      }>;
       gates: Array<{
         id: string;
         label: string;
@@ -230,6 +241,8 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
         resolvedPlacementPresent: false,
         candidateCount: 0,
         rejectedCandidateCount: 0,
+        selectedScale: null,
+        scaleAttempts: [],
         gates: [
           { id: "workspace_loaded", label: "workspace loaded", status: "FAIL", reason: "preview VM state missing" },
           { id: "playback_media_ready", label: "playback media ready", status: "BLOCKED", reason: "blocked by missing VM state" },
@@ -403,7 +416,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
                       x={autoPlacementDiagnostics.overlay.leftPct}
                       y={Math.max(3, autoPlacementDiagnostics.overlay.topPct - 1.2)}
                     >
-                      auto {autoPlacementDiagnostics.overlay.zone} · {autoPlacementDiagnostics.overlay.score.toFixed(2)}
+                      auto {autoPlacementDiagnostics.overlay.zone} · {autoPlacementDiagnostics.overlay.score.toFixed(2)} · scale {autoPlacementDiagnostics.overlay.scale.toFixed(2)}
                     </text>
                     <text
                       className="hammer-preview-auto-placement-overlay__reason-label"
@@ -453,6 +466,12 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
               <div>resolved placement: {autoPlacementDiagnostics.enabled && autoPlacementDiagnostics.resolvedPlacementPresent ? "yes" : "no"}</div>
               <div>candidate count: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.candidateCount : 0}</div>
               <div>rejected candidate count: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.rejectedCandidateCount : 0}</div>
+              <div>selected scale: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.selectedScale == null ? "n/a" : autoPlacementDiagnostics.selectedScale.toFixed(2)) : "n/a"}</div>
+              {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.scaleAttempts.map((attempt, idx) => (
+                <div key={`scale-attempt-${idx}`}>
+                  scale attempt {attempt.scale.toFixed(2)}: candidates {attempt.candidateCount}, rejected {attempt.rejectedCount}, best rejection {attempt.bestRejectionReason ?? "none"}, resolved {attempt.resolved ? "yes" : "no"}
+                </div>
+              )) : null}
               {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.gates.map((gate) => (
                 <div key={`gate-${gate.id}`}>
                   {gate.label}: {gate.status} ({gate.reason})

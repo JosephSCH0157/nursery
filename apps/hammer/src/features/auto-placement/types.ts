@@ -29,6 +29,9 @@ export type MaskAwarePlacementInput = {
     usedAtMs?: number;
     count?: number;
   }>;
+  allowScaleFallback?: boolean;
+  minScale?: number;
+  scaleSteps?: number[];
 };
 
 export type MaskAwarePlacementResult = {
@@ -37,6 +40,18 @@ export type MaskAwarePlacementResult = {
   score: number;
   candidateCountConsidered: number;
   reasons: string[];
+  scale?: number;
+  originalOverlaySize?: { width: number; height: number };
+  resolvedOverlaySize?: { width: number; height: number };
+  scaleAttempts?: Array<{
+    scale: number;
+    candidateCount: number;
+    rejectedCount: number;
+    bestRejectionReason: string | null;
+    resolved: boolean;
+  }>;
+  selectedScale?: number;
+  resolvedWithScaleFallback?: boolean;
 };
 
 export type PlacementCandidate = {

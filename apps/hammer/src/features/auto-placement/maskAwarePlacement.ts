@@ -11,6 +11,15 @@ import { buildPaddedSpeakerBounds, scoreCandidate } from "./placementScoring";
 
 const DEFAULT_SAFE_MARGIN_PX = 24;
 const DEFAULT_TOP_K = 3;
+const DEFAULT_SCALE_STEPS = [1, 0.9, 0.8, 0.7, 0.6, 0.5];
+
+export type ScaleAttemptDiagnostic = {
+  scale: number;
+  candidateCount: number;
+  rejectedCount: number;
+  bestRejectionReason: string | null;
+  resolved: boolean;
+};
 
 function resolveZoneRect(
   zone: PlacementZone,
@@ -158,47 +167,119 @@ export function evaluateMaskAwarePlacementCandidates(input: MaskAwarePlacementIn
   };
 }
 
+export function resolveMaskAwarePlacementWithScaleFallback(input: MaskAwarePlacementInput): {
+  placement: MaskAwarePlacementResult | null;
+  scaleAttempts: ScaleAttemptDiagnostic[];
+} {
+  const originalOverlaySize = { width: input.overlay.width, height: input.overlay.height };
+  const allowScaleFallback = Boolean(input.allowScaleFallback);
+  const minScaleRaw = Number.isFinite(input.minScale as number) ? Number(input.minScale) : 0.5;
+  const minScale = Math.max(0.1, Math.min(1, minScaleRaw));
+  const baseSteps = Array.isArray(input.scaleSteps) && input.scaleSteps.length > 0
+    ? input.scaleSteps
+    : DEFAULT_SCALE_STEPS;
+  const normalizedScales = Array.from(new Set(baseSteps
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .map((value) => Math.max(minScale, Math.min(1, value)))
+    .filter((value) => value >= minScale)
+    .sort((a, b) => b - a)));
+  const scaleLadder = normalizedScales.length > 0 ? normalizedScales : [1];
+  const activeScales = allowScaleFallback ? scaleLadder : [1];
+  const scaleAttempts: ScaleAttemptDiagnostic[] = [];
+
+  for (const scale of activeScales) {
+    const scaledOverlay = {
+      width: Math.max(1, Math.round(originalOverlaySize.width * scale)),
+      height: Math.max(1, Math.round(originalOverlaySize.height * scale)),
+    };
+    if (scaledOverlay.width > input.frame.width || scaledOverlay.height > input.frame.height) {
+      scaleAttempts.push({
+        scale,
+        candidateCount: 0,
+        rejectedCount: 0,
+        bestRejectionReason: "overlay_larger_than_frame",
+        resolved: false,
+      });
+      continue;
+    }
+    const scaledInput: MaskAwarePlacementInput = {
+      ...input,
+      overlay: scaledOverlay,
+      allowScaleFallback: false,
+    };
+    const evaluation = evaluateMaskAwarePlacementCandidates(scaledInput);
+    const candidates = evaluation.candidates;
+    const accepted = candidates.filter((candidate) => candidate.accepted);
+    const rejected = candidates.filter((candidate) => !candidate.accepted);
+    const scored = accepted
+      .map((candidate) => ({
+        zone: candidate.zone,
+        rect: candidate.rect,
+        score: candidate.score as number,
+        reasons: candidate.reasons,
+      }))
+      .sort((a, b) => b.score - a.score);
+    const rejectionCounts = new Map<string, number>();
+    for (const candidate of rejected) {
+      const key = candidate.rejectionReason ?? "unknown_rejection";
+      rejectionCounts.set(key, (rejectionCounts.get(key) ?? 0) + 1);
+    }
+    const bestRejectionReason = rejectionCounts.size > 0
+      ? [...rejectionCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+      : null;
+    if (scored.length === 0) {
+      scaleAttempts.push({
+        scale,
+        candidateCount: candidates.length,
+        rejectedCount: rejected.length,
+        bestRejectionReason,
+        resolved: false,
+      });
+      continue;
+    }
+    const topK = Math.max(1, Math.floor(input.topK ?? DEFAULT_TOP_K));
+    const pool = scored.slice(0, topK);
+    const idx = seededIndex(input.selectionSeed ?? 0, pool.length);
+    const selected = pool[idx] ?? pool[0];
+    scaleAttempts.push({
+      scale,
+      candidateCount: candidates.length,
+      rejectedCount: rejected.length,
+      bestRejectionReason,
+      resolved: true,
+    });
+    return {
+      placement: {
+        rect: selected.rect,
+        zone: selected.zone,
+        score: selected.score,
+        candidateCountConsidered: scored.length,
+        reasons: selected.reasons,
+        scale,
+        originalOverlaySize,
+        resolvedOverlaySize: scaledOverlay,
+        scaleAttempts,
+        selectedScale: scale,
+        resolvedWithScaleFallback: allowScaleFallback && scale < 0.999,
+      },
+      scaleAttempts,
+    };
+  }
+  return {
+    placement: null,
+    scaleAttempts,
+  };
+}
+
 export function resolveMaskAwarePlacement(input: MaskAwarePlacementInput): MaskAwarePlacementResult | null {
   if (!Number.isFinite(input.frame.width) || !Number.isFinite(input.frame.height)) return null;
   if (!Number.isFinite(input.overlay.width) || !Number.isFinite(input.overlay.height)) return null;
   if (input.overlay.width <= 0 || input.overlay.height <= 0) return null;
-  if (input.overlay.width > input.frame.width || input.overlay.height > input.frame.height) return null;
+  if (
+    (input.overlay.width > input.frame.width || input.overlay.height > input.frame.height)
+    && !input.allowScaleFallback
+  ) return null;
 
-  const margin = Math.max(0, input.safeMarginPx ?? DEFAULT_SAFE_MARGIN_PX);
-  const paddedSpeakerBounds = buildPaddedSpeakerBounds(input);
-  const reservedZones = (input.reservedZones?.length ? input.reservedZones : deriveDefaultReservedZones());
-
-  const candidates: PlacementCandidate[] = generateBaseCandidates(input, margin);
-  const backgroundOpen = generateBackgroundOpenCandidate({
-    input,
-    margin,
-    paddedSpeakerBounds,
-    reservedZones,
-  });
-  if (backgroundOpen) candidates.push(backgroundOpen);
-
-  const scored = candidates
-    .map((candidate) => scoreCandidate({
-      input,
-      candidate,
-      paddedSpeakerBounds,
-      reservedZones,
-    }))
-    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-    .sort((a, b) => b.score - a.score);
-
-  if (scored.length === 0) return null;
-
-  const topK = Math.max(1, Math.floor(input.topK ?? DEFAULT_TOP_K));
-  const pool = scored.slice(0, topK);
-  const idx = seededIndex(input.selectionSeed ?? 0, pool.length);
-  const selected = pool[idx] ?? pool[0];
-
-  return {
-    rect: selected.rect,
-    zone: selected.zone,
-    score: selected.score,
-    candidateCountConsidered: scored.length,
-    reasons: selected.reasons,
-  };
+  return resolveMaskAwarePlacementWithScaleFallback(input).placement;
 }

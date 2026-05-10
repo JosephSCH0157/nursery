@@ -39,10 +39,20 @@ function testPreviewOverrideStateIsLocalAndSnapshotAgnostic() {
   assert.equal("visualTimeline" in (overrides as unknown as Record<string, unknown>), false);
 }
 
+function testPreviewOverrideAppliesResolvedRectAndScaledSize() {
+  const persisted = { leftPct: 10, topPct: 12, widthPct: 34, heightPct: 34 };
+  const overlay = { leftPct: 42, topPct: 8, widthPct: 22, heightPct: 22 };
+  const previewTransform = toPreviewTransformFromAutoPlacementOverlay(overlay);
+  const overrides = applyPreviewOverride({}, "clip-2", previewTransform);
+  assert.deepEqual(overrides["clip-2"], previewTransform);
+  assert.deepEqual(persisted, { leftPct: 10, topPct: 12, widthPct: 34, heightPct: 34 });
+}
+
 try {
   testPreviewOverrideDoesNotMutatePersistedPlacementObject();
   testResetPreviewPositionClearsOverride();
   testPreviewOverrideStateIsLocalAndSnapshotAgnostic();
+  testPreviewOverrideAppliesResolvedRectAndScaledSize();
   console.log("Hammer auto preview position tests passed.");
 } catch (error) {
   console.error("Hammer auto preview position tests failed:", error);

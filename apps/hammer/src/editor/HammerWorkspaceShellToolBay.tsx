@@ -208,6 +208,14 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
     segmentationMaskAvailable: boolean;
     resolverStatus: string;
     resolverReason: string;
+    selectedScale: number | null;
+    scaleAttempts: Array<{
+      scale: number;
+      candidateCount: number;
+      rejectedCount: number;
+      bestRejectionReason: string | null;
+      resolved: boolean;
+    }>;
   } | undefined;
   const episodeHealthSnapshot = ctx.episodeHealthSnapshot as Record<string, unknown> | undefined;
   const selectedTransitionBoundObject = ctx.selectedTransitionBoundObject as any;
@@ -2844,6 +2852,12 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                       <div>segmentation mask available: {previewDiagnosticsSummary?.segmentationMaskAvailable ? "yes" : "no"}</div>
                       <div>resolver status: {previewDiagnosticsSummary?.resolverStatus ?? "unknown"}</div>
                       <div>resolver reason: {previewDiagnosticsSummary?.resolverReason ?? "unknown"}</div>
+                      <div>selectedScale: {previewDiagnosticsSummary?.selectedScale == null ? "n/a" : previewDiagnosticsSummary.selectedScale.toFixed(2)}</div>
+                      {(previewDiagnosticsSummary?.scaleAttempts ?? []).map((attempt, idx) => (
+                        <div key={`dev-scale-attempt-${idx}`}>
+                          scale {attempt.scale.toFixed(2)} {"->"} candidates {attempt.candidateCount}, rejected {attempt.rejectedCount}, best rejection {attempt.bestRejectionReason ?? "none"}, resolved {attempt.resolved ? "yes" : "no"}
+                        </div>
+                      ))}
                       <div className="hammer-tool-hint">
                         Episode health snapshot:
                         <pre>{JSON.stringify(episodeHealthSnapshot ?? { missing: true }, null, 2)}</pre>

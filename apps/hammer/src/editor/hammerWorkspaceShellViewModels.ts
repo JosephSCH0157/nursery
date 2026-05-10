@@ -3,7 +3,7 @@ import {
   resolveHammerPolishPreviewTarget,
   resolveVisualPreviewEmptyStateMessage,
 } from "./hammerPolishPreviewTarget";
-import { evaluateMaskAwarePlacementCandidates, resolveMaskAwarePlacement } from "../features/auto-placement";
+import { evaluateMaskAwarePlacementCandidates, resolveMaskAwarePlacement, resolveMaskAwarePlacementWithScaleFallback } from "../features/auto-placement";
 import type { Rect as AutoPlacementRect } from "../features/auto-placement";
 import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
 
@@ -38,7 +38,7 @@ export type HammerAutoPlacementDiagnosticsState =
   | { enabled: false }
   | {
     enabled: true;
-    state: "resolved" | "no_mask_bounds" | "no_safe_placement" | "no_frame_input" | "waiting_for_selected_overlay_asset";
+    state: "resolved" | "resolved_with_scale_fallback" | "no_mask_bounds" | "no_safe_placement" | "no_frame_input" | "waiting_for_selected_overlay_asset";
     statusLabel: string;
     overlay: null | {
       leftPct: number;
@@ -47,6 +47,9 @@ export type HammerAutoPlacementDiagnosticsState =
       heightPct: number;
       zone: string;
       score: number;
+      scale: number;
+      originalOverlaySize: { width: number; height: number };
+      resolvedOverlaySize: { width: number; height: number };
       reasonsSummary: string;
     };
     ghost: null | {
@@ -83,6 +86,14 @@ export type HammerAutoPlacementDiagnosticsState =
     resolvedPlacementPresent: boolean;
     candidateCount: number;
     rejectedCandidateCount: number;
+    selectedScale: number | null;
+    scaleAttempts: Array<{
+      scale: number;
+      candidateCount: number;
+      rejectedCount: number;
+      bestRejectionReason: string | null;
+      resolved: boolean;
+    }>;
     gates: Array<{
       id: string;
       label: string;
@@ -243,6 +254,8 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       resolvedPlacementPresent: false,
       candidateCount: 0,
       rejectedCandidateCount: 0,
+      selectedScale: null,
+      scaleAttempts: [],
       gates: gateSummary.gates,
       firstBlockingReason: gateSummary.firstBlockingReason,
       dependencyChain: gateSummary.dependencyChain,
@@ -304,6 +317,8 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       resolvedPlacementPresent: false,
       candidateCount: 0,
       rejectedCandidateCount: 0,
+      selectedScale: null,
+      scaleAttempts: [],
       gates: gateSummary.gates,
       firstBlockingReason: gateSummary.firstBlockingReason,
       dependencyChain: gateSummary.dependencyChain,
@@ -354,6 +369,8 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       resolvedPlacementPresent: false,
       candidateCount: 0,
       rejectedCandidateCount: 0,
+      selectedScale: null,
+      scaleAttempts: [],
       gates: gateSummary.gates,
       firstBlockingReason: gateSummary.firstBlockingReason,
       dependencyChain: gateSummary.dependencyChain,
@@ -374,16 +391,21 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
     width: Math.max(140, Math.round(args.frameInput.width * 0.22)),
     height: Math.max(90, Math.round(args.frameInput.height * 0.16)),
   };
-  const resolved = resolveMaskAwarePlacement({
+  const placementResolution = resolveMaskAwarePlacementWithScaleFallback({
     frame: args.frameInput,
     overlay: overlaySize,
     speakerMaskBounds: normalizedSpeakerBounds,
     reservedZones: [],
     selectionSeed: Math.floor(args.playheadSec || 0),
+    allowScaleFallback: true,
+    minScale: 0.5,
+    scaleSteps: [1, 0.9, 0.8, 0.7, 0.6, 0.5],
   });
+  const resolved = placementResolution.placement;
+  const resolvedOverlaySize = resolved?.resolvedOverlaySize ?? overlaySize;
   const evaluation = evaluateMaskAwarePlacementCandidates({
     frame: args.frameInput,
-    overlay: overlaySize,
+    overlay: resolvedOverlaySize,
     speakerMaskBounds: normalizedSpeakerBounds,
     reservedZones: [],
     selectionSeed: Math.floor(args.playheadSec || 0),
@@ -438,6 +460,8 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       resolvedPlacementPresent: false,
       candidateCount: candidates.length,
       rejectedCandidateCount,
+      selectedScale: null,
+      scaleAttempts: placementResolution.scaleAttempts,
       gates: gateSummary.gates,
       firstBlockingReason: gateSummary.firstBlockingReason,
       dependencyChain: gateSummary.dependencyChain,
@@ -505,8 +529,10 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
   });
   const result: HammerAutoPlacementDiagnosticsState = {
     enabled: true,
-    state: "resolved",
-    statusLabel: `auto-placement: ${resolved.zone} (${resolved.score.toFixed(2)})`,
+    state: resolved.resolvedWithScaleFallback ? "resolved_with_scale_fallback" : "resolved",
+    statusLabel: resolved.resolvedWithScaleFallback
+      ? `auto-placement: resolved_with_scale_fallback · ${resolved.zone} (${resolved.score.toFixed(2)}) · selectedScale:${(resolved.selectedScale ?? 1).toFixed(2)}`
+      : `auto-placement: ${resolved.zone} (${resolved.score.toFixed(2)})`,
     overlay: {
       leftPct: (resolved.rect.x / frameW) * 100,
       topPct: (resolved.rect.y / frameH) * 100,
@@ -514,6 +540,9 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       heightPct: (resolved.rect.height / frameH) * 100,
       zone: resolved.zone,
       score: resolved.score,
+      scale: resolved.selectedScale ?? 1,
+      originalOverlaySize: resolved.originalOverlaySize ?? overlaySize,
+      resolvedOverlaySize: resolved.resolvedOverlaySize ?? overlaySize,
       reasonsSummary: resolved.reasons.slice(0, 8).join(" · "),
     },
     ghost,
@@ -528,6 +557,8 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
     resolvedPlacementPresent: true,
     candidateCount: candidates.length,
     rejectedCandidateCount,
+    selectedScale: resolved.selectedScale ?? 1,
+    scaleAttempts: resolved.scaleAttempts ?? placementResolution.scaleAttempts,
     gates: gateSummary.gates,
     firstBlockingReason: gateSummary.firstBlockingReason,
     dependencyChain: gateSummary.dependencyChain,
