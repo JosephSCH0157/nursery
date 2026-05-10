@@ -465,21 +465,22 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
                 <div key={`gate-${gate.id}`}>
                   {gate.label}: {gate.status} ({gate.reason})
                 </div>
-              )) : (
-                <div>workspace loaded: FAIL (preview VM state missing)</div>
+              )) : null}
+              {autoPlacementDiagnostics.enabled ? (
+                <>
+                  <div>first blocking reason: {autoPlacementDiagnostics.firstBlockingReason ?? "none"}</div>
+                  <div>dependency chain: {autoPlacementDiagnostics.dependencyChain}</div>
+                  <div>workspaceId: {autoPlacementDiagnostics.upstream.workspaceId}</div>
+                  <div>workpieceId: {autoPlacementDiagnostics.upstream.workpieceId}</div>
+                  <div>episodeId: {autoPlacementDiagnostics.upstream.episodeId ?? "n/a"}</div>
+                  <div>expected media path: {autoPlacementDiagnostics.upstream.expectedMediaPath ?? "n/a"}</div>
+                  <div>actual media path: {autoPlacementDiagnostics.upstream.actualMediaPath ?? "n/a"}</div>
+                  <div>sourceDeskError raw: {autoPlacementDiagnostics.upstream.sourceDeskErrorRaw ?? "none"}</div>
+                  <div>playback readiness reason: {autoPlacementDiagnostics.upstream.playbackReadinessReason}</div>
+                </>
+              ) : (
+                <div>diagnostics disabled: no gate chain available.</div>
               )}
-              <div>first blocking reason: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.firstBlockingReason ?? "none") : "preview VM state missing"}</div>
-              {!autoPlacementDiagnostics.enabled && vmAutoPlacementMissingReason ? (
-                <div>VM missing reason: {vmAutoPlacementMissingReason}</div>
-              ) : null}
-              <div>dependency chain: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.dependencyChain : "preview_vm:missing"}</div>
-              <div>workspaceId: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.upstream.workspaceId : "n/a"}</div>
-              <div>workpieceId: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.upstream.workpieceId : "n/a"}</div>
-              <div>episodeId: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.upstream.episodeId ?? "n/a") : "n/a"}</div>
-              <div>expected media path: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.upstream.expectedMediaPath ?? "n/a") : "n/a"}</div>
-              <div>actual media path: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.upstream.actualMediaPath ?? "n/a") : "n/a"}</div>
-              <div>sourceDeskError raw: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.upstream.sourceDeskErrorRaw ?? "none") : "preview VM state missing"}</div>
-              <div>playback readiness reason: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.upstream.playbackReadinessReason : "preview VM state missing"}</div>
               <div className="hammer-preview-auto-placement-status-badge__meta">
                 {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.statusLabel : "auto-placement: debug enabled, preview VM state missing"}
               </div>

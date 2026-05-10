@@ -192,6 +192,11 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const selectedCaptionArtifactFormat = ctx.selectedCaptionArtifactFormat as any;
   const selectedImagePlacement = ctx.selectedImagePlacement as any;
   const selectedImagePlacementTransform = ctx.selectedImagePlacementTransform as any;
+  const autoPlacementDebugEnabled = ctx.autoPlacementDebugEnabled as boolean;
+  const selectedAutoPreviewActive = ctx.selectedAutoPreviewActive as boolean;
+  const previewAutoPositionStatus = ctx.previewAutoPositionStatus as string | null;
+  const previewAutoPosition = ctx.previewAutoPosition as (() => void) | undefined;
+  const resetPreviewAutoPosition = ctx.resetPreviewAutoPosition as (() => void) | undefined;
   const selectedTransitionBoundObject = ctx.selectedTransitionBoundObject as any;
   const selectedVisualAnchorSegment = ctx.selectedVisualAnchorSegment as any;
   const selectedVisualAnchorSegmentId = ctx.selectedVisualAnchorSegmentId as any;
@@ -2898,6 +2903,30 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                             Reset to Segment
                           </button>
                         </div>
+                        {autoPlacementDebugEnabled ? (
+                          <>
+                            <div className="hammer-source-card__actions">
+                              <button
+                                type="button"
+                                onClick={() => previewAutoPosition?.()}
+                                disabled={!selectedImagePlacement}
+                              >
+                                Preview Auto Position
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => resetPreviewAutoPosition?.()}
+                                disabled={!selectedImagePlacement || !selectedAutoPreviewActive}
+                              >
+                                Reset Preview Position
+                              </button>
+                            </div>
+                            <div className="hammer-tool-hint">
+                              {selectedAutoPreviewActive ? "AUTO PREVIEW ACTIVE (unsaved)" : "Auto preview inactive"}
+                              {previewAutoPositionStatus ? ` · ${previewAutoPositionStatus}` : ""}
+                            </div>
+                          </>
+                        ) : null}
                         <label className="hammer-tool-field">
                           <span>Position X ({Math.round(selectedImagePlacementTransform.leftPct)}%)</span>
                           <input

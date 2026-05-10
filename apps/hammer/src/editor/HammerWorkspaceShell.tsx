@@ -328,6 +328,12 @@ import HammerWorkspaceShellSourceBay from "./HammerWorkspaceShellSourceBay";
 import HammerWorkspaceShellToolBay from "./HammerWorkspaceShellToolBay";
 import { useHammerWorkspaceShellHistoryController } from "./hammerWorkspaceShellHistoryController";
 import { buildVisualTimelineDiagnostics } from "./hammerVisualTimelineHydrationGuard";
+import {
+  applyPreviewOverride,
+  clearPreviewOverride,
+  toPreviewTransformFromAutoPlacementOverlay,
+  type PreviewPlacementTransform,
+} from "./hammerAutoPreviewPosition";
 import { useHammerWorkspaceShellSnapshotEmitter } from "./hammerWorkspaceShellSnapshotEmitter";
 import {
   buildCaptionBasisFingerprint,
@@ -1169,6 +1175,8 @@ function HammerWorkspaceShellWithContext(
   const timelineUpdateReasonRef = useRef<string>("init");
   const sourceDeskMediaUpdateReasonRef = useRef<string>("init");
   const editableVisualTimelineRef = useRef<HammerVisualTimelineState | null>(props.visualTimeline ?? null);
+  const [previewAutoPositionOverrides, setPreviewAutoPositionOverrides] = useState<Record<string, PreviewPlacementTransform>>({});
+  const [previewAutoPositionStatus, setPreviewAutoPositionStatus] = useState<string | null>(null);
   const placementOutboundDiagnosticsRef = useRef<HammerPlacementOutboundDiagnostics>({
     reason: "init",
     source: "shell_boot",
@@ -2361,13 +2369,27 @@ function HammerWorkspaceShellWithContext(
   const selectedImagePlacementTransform = useMemo(() => {
     if (!(linkedPrimaryVisualId ?? effectiveSelectedClipId)) return DEFAULT_IMAGE_PLACEMENT_TRANSFORM;
     const selectedPlacementId = (linkedPrimaryVisualId ?? effectiveSelectedClipId) as string;
+    const previewOverride = previewAutoPositionOverrides[selectedPlacementId];
+    if (previewOverride) return previewOverride;
     const draft = imagePlacementTransforms[selectedPlacementId];
     if (draft) return draft;
     if (selectedVisualClip) {
       return geometryToTransform(selectedVisualClip.geometry);
     }
     return geometryToTransform(resolvePlacementGeometry(selectedPlacementRecord));
-  }, [imagePlacementTransforms, effectiveSelectedClipId, linkedPrimaryVisualId, selectedPlacementRecord, selectedVisualClip]);
+  }, [imagePlacementTransforms, effectiveSelectedClipId, linkedPrimaryVisualId, previewAutoPositionOverrides, selectedPlacementRecord, selectedVisualClip]);
+  const autoPlacementDebugEnabled = useMemo(() => {
+    if (!import.meta.env.DEV || typeof window === "undefined") return false;
+    const normalized = (value: string | null): boolean => {
+      if (!value) return false;
+      const trimmed = value.trim().toLowerCase();
+      return trimmed === "1" || trimmed === "true" || trimmed === "on" || trimmed === "yes";
+    };
+    const params = new URLSearchParams(window.location.search ?? "");
+    return normalized(params.get("hammer_auto_placement_debug"));
+  }, []);
+  const selectedAutoPreviewClipId = (linkedPrimaryVisualId ?? effectiveSelectedClipId) as string | null;
+  const selectedAutoPreviewActive = Boolean(selectedAutoPreviewClipId && previewAutoPositionOverrides[selectedAutoPreviewClipId]);
   const selectedImageAnimationPreset = selectedVisualClip?.animation.preset ?? resolvePlacementAnimationPreset(selectedPlacementRecord);
   const selectedImageAnimationLabel = IMAGE_ANIMATION_PRESET_OPTIONS.find(
     (option) => option.id === selectedImageAnimationPreset,
@@ -2499,7 +2521,9 @@ function HammerWorkspaceShellWithContext(
           assetPath: asset?.path ?? null,
         });
         if (kind !== "image" && kind !== "broll" && kind !== "reference_clip") return null;
-        const transform = imagePlacementTransforms[clip.clip_id] ?? geometryToTransform(clip.geometry);
+        const transform = previewAutoPositionOverrides[clip.clip_id]
+          ?? imagePlacementTransforms[clip.clip_id]
+          ?? geometryToTransform(clip.geometry);
         return {
           clip_id: clip.clip_id,
           label: clip.label ?? asset?.label ?? asset?.asset_ref ?? clip.entry_id ?? clip.clip_id,
@@ -2523,6 +2547,7 @@ function HammerWorkspaceShellWithContext(
     compositionPlayheadSec,
     compositionVisualTimeline,
     imagePlacementTransforms,
+    previewAutoPositionOverrides,
     isPlaybackActive,
     isScrubbing,
     packagingTransport.phase,
@@ -7200,6 +7225,31 @@ function HammerWorkspaceShellWithContext(
     preferredPlayback.workpiece_path,
     visualPlacementEditingEnabled,
   ]);
+  const previewAutoPosition = useCallback((): void => {
+    if (!autoPlacementDebugEnabled) {
+      setPreviewAutoPositionStatus("Auto preview is dev-only and requires ?hammer_auto_placement_debug=1.");
+      return;
+    }
+    if (!selectedImagePlacement) {
+      setPreviewAutoPositionStatus("Auto preview unavailable: select an image clip first.");
+      return;
+    }
+    const diagnostics = previewBayVM.autoPlacementDiagnostics;
+    if (!diagnostics?.enabled || diagnostics.state !== "resolved" || !diagnostics.overlay) {
+      setPreviewAutoPositionStatus(
+        `Auto preview unavailable: ${diagnostics?.enabled ? diagnostics.statusLabel : "resolver diagnostics unavailable."}`,
+      );
+      return;
+    }
+    const transform = toPreviewTransformFromAutoPlacementOverlay(diagnostics.overlay);
+    setPreviewAutoPositionOverrides((current) => applyPreviewOverride(current, selectedImagePlacement.id, transform));
+    setPreviewAutoPositionStatus("AUTO PREVIEW ACTIVE (unsaved)");
+  }, [autoPlacementDebugEnabled, previewBayVM.autoPlacementDiagnostics, selectedImagePlacement]);
+  const resetPreviewAutoPosition = useCallback((): void => {
+    if (!selectedImagePlacement) return;
+    setPreviewAutoPositionOverrides((current) => clearPreviewOverride(current, selectedImagePlacement.id));
+    setPreviewAutoPositionStatus("Auto preview reset to persisted placement.");
+  }, [selectedImagePlacement]);
   useEffect(() => {
     if (!((import.meta as any)?.env?.DEV) || typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search ?? "");
@@ -7989,6 +8039,11 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     selectedImageAnimationLabel,
     selectedImagePlacement,
     selectedImagePlacementTransform,
+    autoPlacementDebugEnabled,
+    selectedAutoPreviewActive,
+    previewAutoPositionStatus,
+    previewAutoPosition,
+    resetPreviewAutoPosition,
     selectedTransitionBoundObject,
     selectedVisualAnchorSegment,
     selectedVisualAnchorSegmentId,
@@ -8280,6 +8335,11 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     selectedImageAnimationLabel,
     selectedImagePlacement,
     selectedImagePlacementTransform,
+    autoPlacementDebugEnabled,
+    selectedAutoPreviewActive,
+    previewAutoPositionStatus,
+    previewAutoPosition,
+    resetPreviewAutoPosition,
     selectedTransitionBoundObject,
     selectedVisualAnchorSegment,
     selectedVisualAnchorSegmentId,

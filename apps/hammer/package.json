@@ -54,7 +54,7 @@
     "test:legacy-retirement-gate": "tsx tests/hammerLegacyRetirementGate.test.ts",
     "test:cleanup-execution": "tsx tests/hammerCleanupExecution.test.ts",
     "test:waveform-cut-refinement": "tsx tests/hammerWaveformCutRefinement.test.ts",
-    "test:auto-placement": "tsx src/features/auto-placement/__tests__/maskAwarePlacement.test.ts && tsx tests/hammerAutoPlacementDiagnosticsVm.test.ts && tsx tests/hammerPlacementPersistenceGuard.test.ts"
+    "test:auto-placement": "tsx src/features/auto-placement/__tests__/maskAwarePlacement.test.ts && tsx tests/hammerAutoPlacementDiagnosticsVm.test.ts && tsx tests/hammerPlacementPersistenceGuard.test.ts && tsx tests/hammerAutoPreviewPosition.test.ts"
   },
   "dependencies": {
     "@mediapipe/selfie_segmentation": "^0.1.1675465747",

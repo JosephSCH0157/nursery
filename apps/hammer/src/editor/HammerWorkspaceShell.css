@@ -3026,20 +3026,20 @@ Guardrails:
 
 .hammer-preview-auto-placement-status-badge {
   position: absolute;
-  top: 8px;
-  left: 8px;
+  top: 6px;
+  right: 6px;
   z-index: 2147483001;
   pointer-events: none;
-  max-width: min(94%, 620px);
-  padding: 12px 14px;
-  border: 3px solid rgba(16, 185, 129, 1);
+  max-width: min(52%, 360px);
+  padding: 8px 10px;
+  border: 2px solid rgba(16, 185, 129, 1);
   border-radius: 10px;
   background: rgba(4, 20, 14, 0.94);
   color: #dcfce7;
   font-family: "IBM Plex Sans", sans-serif;
-  font-size: 14px;
+  font-size: 11px;
   font-weight: 700;
-  line-height: 1.3;
+  line-height: 1.2;
   letter-spacing: 0.01em;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.65);
   box-shadow:
@@ -3048,11 +3048,11 @@ Guardrails:
 }
 
 .hammer-preview-auto-placement-status-badge__title {
-  font-size: 20px;
+  font-size: 13px;
   line-height: 1.1;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.03em;
   color: #86efac;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .hammer-preview-auto-placement-status-badge__meta {
