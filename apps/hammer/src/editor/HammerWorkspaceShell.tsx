@@ -662,6 +662,7 @@ function deriveAssetKind(args: {
     return "reference_clip";
   }
   if (mode.includes("broll") || path.includes("broll")) return "broll";
+  if (mode.includes("image")) return "image";
   if (path.endsWith(".jpg") || path.endsWith(".jpeg") || path.endsWith(".png") || path.endsWith(".webp") || path.endsWith(".gif")) {
     return "image";
   }

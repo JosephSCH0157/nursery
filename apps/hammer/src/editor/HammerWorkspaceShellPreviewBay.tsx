@@ -267,7 +267,9 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
     if (!showAutoPlacementStatusBadge) return;
     console.debug("[hammer][auto-placement][debug-overlay]", {
       debugFlagDetected: autoPlacementDebugEnabledFromQuery,
-      vmDiagnosticState: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.vmDiagnosticState : "missing",
+      vmDiagnosticState: vm.autoPlacementDiagnostics === undefined
+        ? "missing"
+        : (autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.vmDiagnosticState : "present_disabled"),
       maskBoundsCount: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.maskBoundsCount : 0,
       frameSize: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.frameLabel : "n/a",
       maskSize: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.maskLabel : "n/a",
@@ -451,7 +453,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             <div className="hammer-preview-auto-placement-status-badge" aria-live="polite">
               <div className="hammer-preview-auto-placement-status-badge__title">AUTO-PLACEMENT DEBUG ACTIVE</div>
               <div>debug flag detected: {autoPlacementDebugEnabledFromQuery ? "yes" : "no"}</div>
-              <div>VM diagnostic state: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.vmDiagnosticState : "missing"}</div>
+              <div>VM diagnostic state: {vm.autoPlacementDiagnostics === undefined ? "missing" : (autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.vmDiagnosticState : "present (disabled)")}</div>
               <div>mask bounds count: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.maskBoundsCount : 0}</div>
               <div>frame size: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.frameLabel : "n/a"}</div>
               <div>mask size: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.maskLabel : "n/a"}</div>
