@@ -573,6 +573,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         upstream: Response;
         detail: string;
         message: string | null;
+        upstreamUrl: string | null;
       }> {
         let upstream: Response;
         let usedLanguageHint = Boolean(language);
@@ -623,11 +624,11 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           throw error;
         }
 
-        return { upstream, detail, message };
+        return { upstream, detail, message, upstreamUrl: null };
       }
 
       async function sendToHuggingFace(
-        providerMode: "huggingface" | "auto",
+        _providerMode: "huggingface" | "auto",
         nextModel: string,
         nextFileValue: Blob,
         nextContentType: string,
@@ -660,7 +661,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           const audioBytes = await nextFileValue.arrayBuffer();
           const requestBlob = new Blob([audioBytes], { type: nextContentType });
           const response = await inferenceClient.automaticSpeechRecognition({
-            provider: providerMode,
+            provider: "hf-inference",
             model: nextModel,
             data: requestBlob,
           }, {

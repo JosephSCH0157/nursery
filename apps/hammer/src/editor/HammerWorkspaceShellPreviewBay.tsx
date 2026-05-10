@@ -70,6 +70,15 @@ export type HammerWorkspaceShellPreviewBayVM = {
         zone: string;
         score: number;
       };
+      ghost: null | {
+        leftPct: number;
+        topPct: number;
+        widthPct: number;
+        heightPct: number;
+        zone: string;
+        score: number;
+        sourceClipId: string;
+      };
     };
 
   eyeContactAssist: {
@@ -250,6 +259,24 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
                 >
                   auto {vm.autoPlacementDiagnostics.overlay.zone} · {vm.autoPlacementDiagnostics.overlay.score.toFixed(2)}
                 </text>
+                {vm.autoPlacementDiagnostics.ghost ? (
+                  <>
+                    <rect
+                      className="hammer-preview-auto-placement-overlay__ghost"
+                      x={vm.autoPlacementDiagnostics.ghost.leftPct}
+                      y={vm.autoPlacementDiagnostics.ghost.topPct}
+                      width={vm.autoPlacementDiagnostics.ghost.widthPct}
+                      height={vm.autoPlacementDiagnostics.ghost.heightPct}
+                    />
+                    <text
+                      className="hammer-preview-auto-placement-overlay__ghost-label"
+                      x={vm.autoPlacementDiagnostics.ghost.leftPct}
+                      y={Math.max(3, vm.autoPlacementDiagnostics.ghost.topPct - 1.2)}
+                    >
+                      ghost {vm.autoPlacementDiagnostics.ghost.zone} · {vm.autoPlacementDiagnostics.ghost.score.toFixed(2)}
+                    </text>
+                  </>
+                ) : null}
               </svg>
             ) : (
               <div

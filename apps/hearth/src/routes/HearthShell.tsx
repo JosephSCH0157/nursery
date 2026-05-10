@@ -1735,7 +1735,7 @@ type ChatAttachmentUi = {
   id: string;
   filename: string;
   mimeType: string;
-  status: "uploading" | "reading" | "attached" | "failed";
+  status: "uploading" | "reading" | "attached" | "failed" | "needs_text_extraction";
   error?: string | null;
 };
 

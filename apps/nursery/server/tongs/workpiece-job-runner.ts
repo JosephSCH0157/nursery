@@ -470,7 +470,7 @@ async function prepareTranscriptJobUploadMedia(args: {
         bytes: new Uint8Array(transcoded.audioBytes),
         contentType: "audio/wav",
         filename: buildTranscriptAudioFilename(args.sourcePath),
-        transcodeBackend: "forge_ffmpeg_service",
+        transcodeBackend: "forge_ffmpeg_service" as const,
         ffmpegRequestId: transcoded.requestId,
         outputFormat: transcoded.outputFormat,
         outputSampleRate: transcoded.outputSampleRate,

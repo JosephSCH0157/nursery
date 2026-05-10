@@ -53,6 +53,15 @@ export type HammerAutoPlacementDiagnosticsState =
       zone: string;
       score: number;
     };
+    ghost: null | {
+      leftPct: number;
+      topPct: number;
+      widthPct: number;
+      heightPct: number;
+      zone: string;
+      score: number;
+      sourceClipId: string;
+    };
   };
 
 export function resolveAutoPlacementDiagnosticsForPreview(args: {
@@ -60,6 +69,12 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
   frameInput: { width: number; height: number } | null;
   speakerMaskBounds: AutoPlacementRect[];
   playheadSec: number;
+  selectedOverlayForGhost?: null | {
+    clipId: string;
+    hasRealAsset: boolean;
+    widthPct: number;
+    heightPct: number;
+  };
 }): HammerAutoPlacementDiagnosticsState {
   if (!args.debugEnabled) return { enabled: false };
   if (!args.frameInput || args.frameInput.width <= 0 || args.frameInput.height <= 0) {
@@ -68,6 +83,7 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       state: "no_frame_input",
       statusLabel: "auto-placement: no frame input available",
       overlay: null,
+      ghost: null,
     };
   }
   if (!Array.isArray(args.speakerMaskBounds) || args.speakerMaskBounds.length === 0) {
@@ -76,6 +92,7 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       state: "no_mask_bounds",
       statusLabel: "auto-placement: no mask bounds available",
       overlay: null,
+      ghost: null,
     };
   }
   const overlaySize = {
@@ -95,10 +112,42 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       state: "no_safe_placement",
       statusLabel: "auto-placement: no safe placement",
       overlay: null,
+      ghost: null,
     };
   }
   const frameW = Math.max(1, args.frameInput.width);
   const frameH = Math.max(1, args.frameInput.height);
+  let ghost: {
+    leftPct: number;
+    topPct: number;
+    widthPct: number;
+    heightPct: number;
+    zone: string;
+    score: number;
+    sourceClipId: string;
+  } | null = null;
+  if (args.selectedOverlayForGhost?.hasRealAsset) {
+    const selectedOverlayWidthPx = Math.max(120, Math.round((args.selectedOverlayForGhost.widthPct / 100) * frameW));
+    const selectedOverlayHeightPx = Math.max(80, Math.round((args.selectedOverlayForGhost.heightPct / 100) * frameH));
+    const ghostPlacement = resolveMaskAwarePlacement({
+      frame: args.frameInput,
+      overlay: { width: selectedOverlayWidthPx, height: selectedOverlayHeightPx },
+      speakerMaskBounds: args.speakerMaskBounds,
+      reservedZones: [],
+      selectionSeed: Math.floor(args.playheadSec || 0) + 17,
+    });
+    if (ghostPlacement) {
+      ghost = {
+        leftPct: (ghostPlacement.rect.x / frameW) * 100,
+        topPct: (ghostPlacement.rect.y / frameH) * 100,
+        widthPct: (ghostPlacement.rect.width / frameW) * 100,
+        heightPct: (ghostPlacement.rect.height / frameH) * 100,
+        zone: ghostPlacement.zone,
+        score: ghostPlacement.score,
+        sourceClipId: args.selectedOverlayForGhost.clipId,
+      };
+    }
+  }
   return {
     enabled: true,
     state: "resolved",
@@ -111,6 +160,7 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       zone: resolved.zone,
       score: resolved.score,
     },
+    ghost,
   };
 }
 
@@ -438,6 +488,7 @@ export function buildPreviewBayVM(args: any) {
   const hiddenSegmentationVideoMounted = segmentationSourceVideoRef !== args.previewVideoRef;
   const blurRuntime = args.visualBackgroundBlurRuntimeStatus ?? null;
   const autoPlacementDiagnosticsEnabled = shouldShowAutoPlacementDiagnostics();
+  const selectedOverlayForGhost = (args.activePreviewOverlays ?? []).find((overlay: any) => overlay?.selected && !!overlay?.src);
   const speakerMaskBounds: AutoPlacementRect[] = Array.isArray(blurRuntime?.mask?.speakerMaskBounds)
     ? blurRuntime.mask.speakerMaskBounds
     : [];
@@ -449,6 +500,14 @@ export function buildPreviewBayVM(args: any) {
     frameInput: autoPlacementFrame,
     speakerMaskBounds,
     playheadSec: args.playheadSec ?? 0,
+    selectedOverlayForGhost: selectedOverlayForGhost
+      ? {
+        clipId: String(selectedOverlayForGhost.clip_id ?? ""),
+        hasRealAsset: Boolean(selectedOverlayForGhost.src),
+        widthPct: Number(selectedOverlayForGhost.width_pct ?? 0),
+        heightPct: Number(selectedOverlayForGhost.height_pct ?? 0),
+      }
+      : null,
   });
   const audioPolish = args.editableAudioPolish ?? null;
   const audioAnalysis = audioPolish?.analysis ?? null;

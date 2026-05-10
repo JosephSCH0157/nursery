@@ -3705,6 +3705,18 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
 
       let attachmentContextSnippet: string | null = null;
       if (attachmentContext.includeEpisodeAttachments && episodeContext.workspaceId) {
+        if (!supabaseService) {
+          return new Response(
+            JSON.stringify({
+              error: "Server storage not configured.",
+              code: "storage_unavailable",
+            }),
+            {
+              status: 503,
+              headers: { "content-type": "application/json; charset=utf-8" },
+            },
+          );
+        }
         const tongsUntyped = supabaseService.schema("tongs") as unknown as {
           from: (table: string) => {
             select: (columns: string) => {
