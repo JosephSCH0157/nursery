@@ -196,7 +196,19 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const selectedAutoPreviewActive = ctx.selectedAutoPreviewActive as boolean;
   const previewAutoPositionStatus = ctx.previewAutoPositionStatus as string | null;
   const previewAutoPosition = ctx.previewAutoPosition as (() => void) | undefined;
+  const forcePreviewAutoPosition = ctx.forcePreviewAutoPosition as (() => void) | undefined;
   const resetPreviewAutoPosition = ctx.resetPreviewAutoPosition as (() => void) | undefined;
+  const previewDiagnosticsSummary = ctx.previewDiagnosticsSummary as {
+    diagnosticsEnabled: boolean;
+    resolvedPlacementExists: boolean;
+    diagnosticsResolvedPlacement: boolean;
+    candidateCount: number;
+    maskBoundsCount: number;
+    currentFrameAvailable: boolean;
+    segmentationMaskAvailable: boolean;
+    resolverStatus: string;
+    resolverReason: string;
+  } | undefined;
   const selectedTransitionBoundObject = ctx.selectedTransitionBoundObject as any;
   const selectedVisualAnchorSegment = ctx.selectedVisualAnchorSegment as any;
   const selectedVisualAnchorSegmentId = ctx.selectedVisualAnchorSegmentId as any;
@@ -207,8 +219,12 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const selectedClipPresent = Boolean(selectedVisualClip?.clip_id);
   const previewAutoPositionDisabledReason = !selectedImagePlacement
     ? "No selected image placement."
+    : !previewDiagnosticsSummary?.diagnosticsEnabled
+    ? "Diagnostics disabled."
+    : !previewDiagnosticsSummary.resolvedPlacementExists
+    ? `No resolved placement: ${previewDiagnosticsSummary.resolverReason}`
     : !previewAutoPosition
-    ? "Preview action unavailable."
+    ? "Preview action unavailable (not wired)."
     : null;
   const resetPreviewPositionDisabledReason = !selectedImagePlacement
     ? "No selected image placement."
@@ -2810,41 +2826,62 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Image Placement</header>
                     <div className="hammer-toolbay-live-marker hammer-toolbay-live-marker--inline">TOOLBAY FILE IS LIVE</div>
-                    {autoPlacementDebugEnabled ? (
-                      <div className="hammer-dev-auto-preview-controls">
-                        <div className="hammer-dev-auto-preview-controls__title">DEV AUTO PREVIEW CONTROLS</div>
-                        <div>selected placement id: {selectedPlacementId ?? "none"}</div>
-                        <div>selected overlay asset: {selectedOverlayAssetPresent ? "yes" : "no"}</div>
-                        <div>selected visual asset: {selectedVisualAssetPresent ? "yes" : "no"}</div>
-                        <div>selected clip: {selectedClipPresent ? "yes" : "no"}</div>
-                        <div className="hammer-source-card__actions">
-                          <button
-                            type="button"
-                            onClick={() => previewAutoPosition?.()}
-                            disabled={Boolean(previewAutoPositionDisabledReason)}
-                          >
-                            Preview Auto Position
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => resetPreviewAutoPosition?.()}
-                            disabled={Boolean(resetPreviewPositionDisabledReason)}
-                          >
-                            Reset Preview Position
-                          </button>
-                        </div>
-                        <div>
-                          Preview button: {previewAutoPositionDisabledReason ? `disabled - ${previewAutoPositionDisabledReason}` : "enabled"}
-                        </div>
-                        <div>
-                          Reset button: {resetPreviewPositionDisabledReason ? `disabled - ${resetPreviewPositionDisabledReason}` : "enabled"}
-                        </div>
-                        <div>
-                          {selectedAutoPreviewActive ? "AUTO PREVIEW ACTIVE (unsaved)" : "Auto preview inactive"}
-                          {previewAutoPositionStatus ? ` · ${previewAutoPositionStatus}` : ""}
-                        </div>
+                    <div className="hammer-dev-auto-preview-controls">
+                      <div className="hammer-dev-auto-preview-controls__title">DEV AUTO PREVIEW CONTROLS</div>
+                      <div>debug flag enabled: {autoPlacementDebugEnabled ? "yes" : "no"}</div>
+                      <div>selected placement id: {selectedPlacementId ?? "none"}</div>
+                      <div>selected overlay asset: {selectedOverlayAssetPresent ? "yes" : "no"}</div>
+                      <div>selected visual asset: {selectedVisualAssetPresent ? "yes" : "no"}</div>
+                      <div>selected clip: {selectedClipPresent ? "yes" : "no"}</div>
+                      <div>selected auto preview active: {selectedAutoPreviewActive ? "yes" : "no"}</div>
+                      <div>resolved placement exists: {previewDiagnosticsSummary?.resolvedPlacementExists ? "yes" : "no"}</div>
+                      <div>diagnostics enabled: {previewDiagnosticsSummary?.diagnosticsEnabled ? "yes" : "no"}</div>
+                      <div>diagnostics resolvedPlacement: {previewDiagnosticsSummary?.diagnosticsResolvedPlacement ? "yes" : "no"}</div>
+                      <div>candidateCount: {previewDiagnosticsSummary?.candidateCount ?? 0}</div>
+                      <div>maskBoundsCount: {previewDiagnosticsSummary?.maskBoundsCount ?? 0}</div>
+                      <div>current frame available: {previewDiagnosticsSummary?.currentFrameAvailable ? "yes" : "no"}</div>
+                      <div>segmentation mask available: {previewDiagnosticsSummary?.segmentationMaskAvailable ? "yes" : "no"}</div>
+                      <div>resolver status: {previewDiagnosticsSummary?.resolverStatus ?? "unknown"}</div>
+                      <div>resolver reason: {previewDiagnosticsSummary?.resolverReason ?? "unknown"}</div>
+                      <div className="hammer-source-card__actions">
+                        <button
+                          type="button"
+                          onClick={() => previewAutoPosition?.()}
+                          disabled={Boolean(previewAutoPositionDisabledReason)}
+                        >
+                          Preview Auto Position
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => resetPreviewAutoPosition?.()}
+                          disabled={Boolean(resetPreviewPositionDisabledReason)}
+                        >
+                          Reset Preview Position
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => forcePreviewAutoPosition?.()}
+                          disabled={!selectedImagePlacement || !forcePreviewAutoPosition}
+                        >
+                          FORCE PREVIEW
+                        </button>
                       </div>
-                    ) : null}
+                      <div>
+                        Preview button: {previewAutoPositionDisabledReason ? `disabled - ${previewAutoPositionDisabledReason}` : "enabled"}
+                      </div>
+                      <div>
+                        Reset button: {resetPreviewPositionDisabledReason ? `disabled - ${resetPreviewPositionDisabledReason}` : "enabled"}
+                      </div>
+                      {previewDiagnosticsSummary && !previewDiagnosticsSummary.resolvedPlacementExists ? (
+                        <div>
+                          Plain English: No usable resolver placement yet because {previewDiagnosticsSummary.resolverReason}.
+                        </div>
+                      ) : null}
+                      <div>
+                        {selectedAutoPreviewActive ? "AUTO PREVIEW ACTIVE (unsaved)" : "Auto preview inactive"}
+                        {previewAutoPositionStatus ? ` · ${previewAutoPositionStatus}` : ""}
+                      </div>
+                    </div>
                     <div className="hammer-tool-hint">
                       Direct manipulation mode. Drag and resize image clips in timeline or preview. Hold Shift while dragging to snap to 0.1s steps.
                     </div>

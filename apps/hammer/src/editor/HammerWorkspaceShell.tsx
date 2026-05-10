@@ -7245,6 +7245,46 @@ function HammerWorkspaceShellWithContext(
     setPreviewAutoPositionOverrides((current) => applyPreviewOverride(current, selectedImagePlacement.id, transform));
     setPreviewAutoPositionStatus("AUTO PREVIEW ACTIVE (unsaved)");
   }, [autoPlacementDebugEnabled, previewBayVM.autoPlacementDiagnostics, selectedImagePlacement]);
+  const forcePreviewAutoPosition = useCallback((): void => {
+    if (!selectedImagePlacement) {
+      setPreviewAutoPositionStatus("Force preview unavailable: select an image clip first.");
+      return;
+    }
+    const diagnostics = previewBayVM.autoPlacementDiagnostics;
+    if (!diagnostics?.enabled) {
+      setPreviewAutoPositionStatus("Force preview unavailable: resolver diagnostics are disabled.");
+      return;
+    }
+    if (!diagnostics.overlay) {
+      const why = diagnostics.firstBlockingReason
+        ?? diagnostics.statusLabel
+        ?? "resolver did not return a placement.";
+      setPreviewAutoPositionStatus(`Force preview unavailable: ${why}`);
+      return;
+    }
+    const transform = toPreviewTransformFromAutoPlacementOverlay(diagnostics.overlay);
+    setPreviewAutoPositionOverrides((current) => applyPreviewOverride(current, selectedImagePlacement.id, transform));
+    setPreviewAutoPositionStatus("AUTO PREVIEW ACTIVE (unsaved) · force applied.");
+  }, [previewBayVM.autoPlacementDiagnostics, selectedImagePlacement]);
+  const previewDiagnosticsSummary = useMemo(() => {
+    const diagnostics = previewBayVM.autoPlacementDiagnostics;
+    const gateById = new Map((diagnostics?.enabled ? diagnostics.gates : []).map((gate) => [gate.id, gate]));
+    const frameGate = gateById.get("current_frame_available");
+    const maskGate = gateById.get("segmentation_mask_available");
+    return {
+      diagnosticsEnabled: Boolean(diagnostics?.enabled),
+      resolvedPlacementExists: Boolean(diagnostics?.enabled && diagnostics.overlay),
+      diagnosticsResolvedPlacement: diagnostics?.enabled ? diagnostics.resolvedPlacementPresent : false,
+      candidateCount: diagnostics?.enabled ? diagnostics.candidateCount : 0,
+      maskBoundsCount: diagnostics?.enabled ? diagnostics.maskBoundsCount : 0,
+      currentFrameAvailable: frameGate ? frameGate.status === "PASS" : false,
+      segmentationMaskAvailable: maskGate ? maskGate.status === "PASS" : false,
+      resolverStatus: diagnostics?.enabled ? diagnostics.state : "disabled",
+      resolverReason: diagnostics?.enabled
+        ? (diagnostics.firstBlockingReason ?? diagnostics.statusLabel)
+        : "diagnostics disabled",
+    };
+  }, [previewBayVM.autoPlacementDiagnostics]);
   const resetPreviewAutoPosition = useCallback((): void => {
     if (!selectedImagePlacement) return;
     setPreviewAutoPositionOverrides((current) => clearPreviewOverride(current, selectedImagePlacement.id));
@@ -8043,7 +8083,9 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     selectedAutoPreviewActive,
     previewAutoPositionStatus,
     previewAutoPosition,
+    forcePreviewAutoPosition,
     resetPreviewAutoPosition,
+    previewDiagnosticsSummary,
     selectedTransitionBoundObject,
     selectedVisualAnchorSegment,
     selectedVisualAnchorSegmentId,
