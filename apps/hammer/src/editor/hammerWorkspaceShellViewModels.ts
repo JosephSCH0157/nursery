@@ -47,6 +47,14 @@ export type HammerAutoPlacementDiagnosticsState =
       heightPct: number;
       zone: string;
       score: number;
+      compositionScore: number;
+      overlapPenalty: number;
+      facePenalty: number;
+      scalePenalty: number;
+      edgePenalty: number;
+      finalScore: number;
+      whySelected: string;
+      topPenaltyReason: string;
       scale: number;
       originalOverlaySize: { width: number; height: number };
       resolvedOverlaySize: { width: number; height: number };
@@ -540,6 +548,27 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       heightPct: (resolved.rect.height / frameH) * 100,
       zone: resolved.zone,
       score: resolved.score,
+      compositionScore: resolved.compositionScore ?? 0,
+      overlapPenalty: resolved.overlapPenalty ?? 0,
+      facePenalty: resolved.facePenalty ?? 0,
+      scalePenalty: resolved.scalePenalty ?? 0,
+      edgePenalty: resolved.edgePenalty ?? 0,
+      finalScore: resolved.finalScore ?? resolved.score,
+      whySelected: resolved.whySelected ?? "editorial balance",
+      topPenaltyReason: (() => {
+        const penaltyEntries = (resolved.reasons ?? [])
+          .map((reason) => {
+            const [key, value] = reason.split("=");
+            if (!key?.includes("penalty")) return null;
+            const numeric = Number(value ?? "0");
+            if (!Number.isFinite(numeric)) return null;
+            return { key, value: numeric };
+          })
+          .filter((entry): entry is { key: string; value: number } => Boolean(entry));
+        if (penaltyEntries.length === 0) return "none";
+        const top = penaltyEntries.sort((a, b) => b.value - a.value)[0]!;
+        return `${top.key}:${top.value.toFixed(2)}`;
+      })(),
       scale: resolved.selectedScale ?? 1,
       originalOverlaySize: resolved.originalOverlaySize ?? overlaySize,
       resolvedOverlaySize: resolved.resolvedOverlaySize ?? overlaySize,

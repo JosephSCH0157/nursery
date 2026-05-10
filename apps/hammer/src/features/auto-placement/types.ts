@@ -38,6 +38,13 @@ export type MaskAwarePlacementResult = {
   rect: Rect;
   zone: PlacementZone;
   score: number;
+  compositionScore?: number;
+  overlapPenalty?: number;
+  facePenalty?: number;
+  scalePenalty?: number;
+  edgePenalty?: number;
+  finalScore?: number;
+  whySelected?: string;
   candidateCountConsidered: number;
   reasons: string[];
   scale?: number;
@@ -61,12 +68,24 @@ export type PlacementCandidate = {
 
 export type ScoredPlacementCandidate = PlacementCandidate & {
   score: number;
+  compositionScore: number;
+  overlapPenalty: number;
+  facePenalty: number;
+  edgePenalty: number;
+  finalScore: number;
+  whySelected: string;
   reasons: string[];
 };
 
 export type DebugPlacementCandidate = PlacementCandidate & {
   accepted: boolean;
   score: number | null;
+  finalScore?: number | null;
+  whySelected?: string | null;
+  compositionScore?: number | null;
+  overlapPenalty?: number | null;
+  facePenalty?: number | null;
+  edgePenalty?: number | null;
   rejectionReason: string | null;
   reasons: string[];
 };

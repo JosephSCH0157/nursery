@@ -70,6 +70,14 @@ export type HammerWorkspaceShellPreviewBayVM = {
         heightPct: number;
         zone: string;
         score: number;
+        compositionScore: number;
+        overlapPenalty: number;
+        facePenalty: number;
+        scalePenalty: number;
+        edgePenalty: number;
+        finalScore: number;
+        whySelected: string;
+        topPenaltyReason: string;
         scale: number;
         originalOverlaySize: { width: number; height: number };
         resolvedOverlaySize: { width: number; height: number };
@@ -423,7 +431,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
                       x={autoPlacementDiagnostics.overlay.leftPct}
                       y={Math.min(98, autoPlacementDiagnostics.overlay.topPct + autoPlacementDiagnostics.overlay.heightPct + 2.2)}
                     >
-                      {autoPlacementDiagnostics.overlay.reasonsSummary}
+                      {autoPlacementDiagnostics.overlay.topPenaltyReason} · {autoPlacementDiagnostics.overlay.whySelected}
                     </text>
                   </>
                 ) : null}

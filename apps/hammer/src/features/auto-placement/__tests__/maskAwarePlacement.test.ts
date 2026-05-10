@@ -4,6 +4,7 @@ import test from "node:test";
 import { resolveMaskAwarePlacement } from "../maskAwarePlacement";
 import type { MaskAwarePlacementInput, Rect } from "../types";
 import { intersectionArea, isRectInsideFrame } from "../reservedZones";
+import { buildPaddedSpeakerBounds, scoreCandidate } from "../placementScoring";
 
 const frame = { width: 1920, height: 1080 };
 const overlay = { width: 420, height: 240 };
@@ -146,4 +147,72 @@ test("scale fallback remains deterministic with same seed", () => {
   assert.equal(first.rect.x, second.rect.x);
   assert.equal(first.rect.y, second.rect.y);
   assert.equal(first.selectedScale, second.selectedScale);
+});
+
+test("shoulder overlap can beat extreme corner hugging", () => {
+  const input = baseInput();
+  input.overlay = { width: 420, height: 240 };
+  input.speakerMaskBounds = [{ x: 740, y: 120, width: 420, height: 760 }];
+  const padded = buildPaddedSpeakerBounds(input);
+  const reserved: Rect[] = [];
+  const shoulderOverlapCandidate = scoreCandidate({
+    input,
+    paddedSpeakerBounds: padded,
+    reservedZones: reserved,
+    candidate: { zone: "left_gutter", rect: { x: 220, y: 470, width: 420, height: 240 } },
+  });
+  const cornerCandidate = scoreCandidate({
+    input,
+    paddedSpeakerBounds: padded,
+    reservedZones: reserved,
+    candidate: { zone: "upper_left", rect: { x: 24, y: 24, width: 420, height: 240 } },
+  });
+  assert.ok(shoulderOverlapCandidate && cornerCandidate);
+  assert.ok(shoulderOverlapCandidate.finalScore > cornerCandidate.finalScore);
+});
+
+test("face or head overlap is hard rejected", () => {
+  const input = baseInput();
+  input.overlay = { width: 420, height: 240 };
+  input.speakerMaskBounds = [{ x: 740, y: 120, width: 420, height: 760 }];
+  const padded = buildPaddedSpeakerBounds(input);
+  const faceOverlap = scoreCandidate({
+    input,
+    paddedSpeakerBounds: padded,
+    reservedZones: [],
+    candidate: { zone: "upper_right", rect: { x: 780, y: 120, width: 420, height: 240 } },
+  });
+  assert.equal(faceOverlap, null);
+});
+
+test("larger readable scale beats tiny perfectly safe placement", () => {
+  const input = baseInput();
+  input.allowScaleFallback = true;
+  input.minScale = 0.5;
+  input.scaleSteps = [1, 0.8, 0.6, 0.5];
+  input.speakerMaskBounds = [{ x: 860, y: 220, width: 260, height: 520 }];
+  const result = resolveMaskAwarePlacement(input);
+  assert.ok(result);
+  assert.equal(result?.selectedScale, 1);
+});
+
+test("balanced placement beats extreme corner when otherwise close", () => {
+  const input = baseInput();
+  input.overlay = { width: 420, height: 240 };
+  input.speakerMaskBounds = [];
+  const padded = buildPaddedSpeakerBounds(input);
+  const balanced = scoreCandidate({
+    input,
+    paddedSpeakerBounds: padded,
+    reservedZones: [],
+    candidate: { zone: "right_gutter", rect: { x: 1180, y: 360, width: 420, height: 240 } },
+  });
+  const extremeCorner = scoreCandidate({
+    input,
+    paddedSpeakerBounds: padded,
+    reservedZones: [],
+    candidate: { zone: "upper_left", rect: { x: 24, y: 24, width: 420, height: 240 } },
+  });
+  assert.ok(balanced && extremeCorner);
+  assert.ok(balanced.finalScore > extremeCorner.finalScore);
 });

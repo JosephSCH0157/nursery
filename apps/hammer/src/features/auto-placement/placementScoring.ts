@@ -5,7 +5,9 @@ import type {
 } from "./types";
 import {
   inflateRect,
+  intersectionArea,
   isRectInsideFrame,
+  overlapRatio,
   rectDistance,
   rectIntersectsAny,
 } from "./reservedZones";
@@ -46,6 +48,52 @@ function overlapPenalty(a: PlacementCandidate["rect"], b: PlacementCandidate["re
   return Math.min(1, intersection / base);
 }
 
+function derivePrimarySpeaker(speakerBounds: PlacementCandidate["rect"][]): PlacementCandidate["rect"] | null {
+  if (speakerBounds.length === 0) return null;
+  let best = speakerBounds[0]!;
+  let bestArea = best.width * best.height;
+  for (let i = 1; i < speakerBounds.length; i += 1) {
+    const candidate = speakerBounds[i]!;
+    const area = candidate.width * candidate.height;
+    if (area > bestArea) {
+      best = candidate;
+      bestArea = area;
+    }
+  }
+  return best;
+}
+
+function deriveSpeakerRegionRects(speakerBounds: PlacementCandidate["rect"][]): {
+  faceHead: PlacementCandidate["rect"] | null;
+  upperTorso: PlacementCandidate["rect"] | null;
+  lowerBody: PlacementCandidate["rect"] | null;
+} {
+  const primary = derivePrimarySpeaker(speakerBounds);
+  if (!primary) {
+    return { faceHead: null, upperTorso: null, lowerBody: null };
+  }
+  return {
+    faceHead: {
+      x: primary.x + (primary.width * 0.2),
+      y: primary.y + (primary.height * 0.02),
+      width: primary.width * 0.6,
+      height: Math.max(24, primary.height * 0.32),
+    },
+    upperTorso: {
+      x: primary.x + (primary.width * 0.08),
+      y: primary.y + (primary.height * 0.28),
+      width: primary.width * 0.84,
+      height: Math.max(24, primary.height * 0.36),
+    },
+    lowerBody: {
+      x: primary.x,
+      y: primary.y + (primary.height * 0.58),
+      width: primary.width,
+      height: Math.max(24, primary.height * 0.42),
+    },
+  };
+}
+
 function repeatedPlacementPenalty(input: MaskAwarePlacementInput, candidate: PlacementCandidate): number {
   const recent = input.recentPlacements ?? [];
   let penalty = 0;
@@ -66,24 +114,7 @@ function rectCenter(rect: PlacementCandidate["rect"]): { x: number; y: number } 
 }
 
 function estimatePrimaryFaceBounds(speakerBounds: PlacementCandidate["rect"][]): PlacementCandidate["rect"] | null {
-  if (speakerBounds.length === 0) return null;
-  let best = speakerBounds[0]!;
-  let bestArea = best.width * best.height;
-  for (let i = 1; i < speakerBounds.length; i += 1) {
-    const candidate = speakerBounds[i]!;
-    const area = candidate.width * candidate.height;
-    if (area > bestArea) {
-      best = candidate;
-      bestArea = area;
-    }
-  }
-  // Approximate face/head as upper portion of largest foreground component.
-  return {
-    x: best.x + (best.width * 0.22),
-    y: best.y + (best.height * 0.02),
-    width: best.width * 0.56,
-    height: Math.max(24, best.height * 0.34),
-  };
+  return deriveSpeakerRegionRects(speakerBounds).faceHead;
 }
 
 function proximityToFacePenalty(args: {
@@ -146,6 +177,88 @@ function deadSpacePreferenceBonus(args: {
   return Math.min(0.2, (distance / 420) * 0.2);
 }
 
+function compositionBalanceScore(args: {
+  candidate: PlacementCandidate["rect"];
+  frame: { width: number; height: number };
+}): number {
+  const c = rectCenter(args.candidate);
+  const thirds = [
+    { x: args.frame.width / 3, y: args.frame.height / 3 },
+    { x: (args.frame.width * 2) / 3, y: args.frame.height / 3 },
+    { x: args.frame.width / 3, y: (args.frame.height * 2) / 3 },
+    { x: (args.frame.width * 2) / 3, y: (args.frame.height * 2) / 3 },
+  ];
+  let best = Number.POSITIVE_INFINITY;
+  for (const anchor of thirds) {
+    best = Math.min(best, Math.hypot(c.x - anchor.x, c.y - anchor.y));
+  }
+  const maxD = Math.hypot(args.frame.width, args.frame.height) * 0.42;
+  return Math.max(0, 1 - (best / Math.max(1, maxD)));
+}
+
+function edgePenalty(args: {
+  candidate: PlacementCandidate["rect"];
+  frame: { width: number; height: number };
+}): number {
+  const rect = args.candidate;
+  const left = rect.x;
+  const top = rect.y;
+  const right = Math.max(0, args.frame.width - (rect.x + rect.width));
+  const bottom = Math.max(0, args.frame.height - (rect.y + rect.height));
+  const minEdgeGap = Math.max(0, Math.min(left, top, right, bottom));
+  const edgeHug = Math.max(0, 1 - Math.min(1, minEdgeGap / 72));
+  const cx = rect.x + (rect.width / 2);
+  const cy = rect.y + (rect.height / 2);
+  const cornerTargets = [
+    { x: 0, y: 0 },
+    { x: args.frame.width, y: 0 },
+    { x: 0, y: args.frame.height },
+    { x: args.frame.width, y: args.frame.height },
+  ];
+  let cornerMin = Number.POSITIVE_INFINITY;
+  for (const corner of cornerTargets) {
+    cornerMin = Math.min(cornerMin, Math.hypot(cx - corner.x, cy - corner.y));
+  }
+  const cornerPenalty = Math.max(0, 1 - Math.min(1, cornerMin / Math.max(1, args.frame.width * 0.32)));
+  return Math.min(0.36, (edgeHug * 0.22) + (cornerPenalty * 0.14));
+}
+
+function weightedSpeakerOverlapPenalty(args: {
+  candidate: PlacementCandidate["rect"];
+  speakerBounds: PlacementCandidate["rect"][];
+}): {
+  faceHeadOverlapRatio: number;
+  overlapPenalty: number;
+} {
+  const regions = deriveSpeakerRegionRects(args.speakerBounds);
+  const faceRatio = regions.faceHead ? overlapRatio(args.candidate, regions.faceHead) : 0;
+  const upperRatio = regions.upperTorso ? overlapRatio(args.candidate, regions.upperTorso) : 0;
+  const lowerRatio = regions.lowerBody ? overlapRatio(args.candidate, regions.lowerBody) : 0;
+  const overlapPenaltyValue = Math.min(
+    1.2,
+    (upperRatio * 0.55) + (lowerRatio * 0.22),
+  );
+  return {
+    faceHeadOverlapRatio: faceRatio,
+    overlapPenalty: overlapPenaltyValue,
+  };
+}
+
+export function candidateHardRejectReason(args: {
+  input: MaskAwarePlacementInput;
+  candidate: PlacementCandidate;
+  reservedZones: PlacementCandidate["rect"][];
+  speakerBounds: PlacementCandidate["rect"][];
+}): string | null {
+  if (!isRectInsideFrame(args.candidate.rect, args.input.frame)) return "outside_frame_or_invalid";
+  if (rectIntersectsAny(args.candidate.rect, args.reservedZones)) return "intersects_reserved_zone";
+  const regions = deriveSpeakerRegionRects(args.speakerBounds);
+  if (regions.faceHead && intersectionArea(args.candidate.rect, regions.faceHead) > 0) {
+    return "covers_face_or_head_zone";
+  }
+  return null;
+}
+
 export function scoreCandidate(args: {
   input: MaskAwarePlacementInput;
   candidate: PlacementCandidate;
@@ -153,9 +266,13 @@ export function scoreCandidate(args: {
   reservedZones: PlacementCandidate["rect"][];
 }): ScoredPlacementCandidate | null {
   const { input, candidate, paddedSpeakerBounds, reservedZones } = args;
-  if (!isRectInsideFrame(candidate.rect, input.frame)) return null;
-  if (rectIntersectsAny(candidate.rect, paddedSpeakerBounds)) return null;
-  if (rectIntersectsAny(candidate.rect, reservedZones)) return null;
+  const hardReject = candidateHardRejectReason({
+    input,
+    candidate,
+    reservedZones,
+    speakerBounds: input.speakerMaskBounds,
+  });
+  if (hardReject) return null;
 
   const speakerDistance = minDistance(candidate.rect, paddedSpeakerBounds);
   const reservedDistance = minDistance(candidate.rect, reservedZones);
@@ -177,33 +294,67 @@ export function scoreCandidate(args: {
     candidate: candidate.rect,
     paddedSpeakerBounds,
   });
+  const overlapSignals = weightedSpeakerOverlapPenalty({
+    candidate: candidate.rect,
+    speakerBounds: input.speakerMaskBounds,
+  });
+  const edgePenaltyValue = edgePenalty({
+    candidate: candidate.rect,
+    frame: input.frame,
+  });
+  const compositionScore = compositionBalanceScore({
+    candidate: candidate.rect,
+    frame: input.frame,
+  });
   const deadSpaceBonus = deadSpacePreferenceBonus({
     candidate: candidate.rect,
     paddedSpeakerBounds,
     reservedZones,
   });
 
-  const score = (
-    (speakerDistanceScore * 0.45) +
-    (reservedDistanceScore * 0.25) +
-    (comfortScore * 0.2) +
+  const baseScore = (
+    (speakerDistanceScore * 0.34) +
+    (reservedDistanceScore * 0.24) +
+    (comfortScore * 0.16) +
+    (compositionScore * 0.26) +
     zonePrior +
     deadSpaceBonus
-  ) - repeatPenalty - faceProximityPenalty - upperCenterPenalty - eyeLinePenalty;
+  );
+  const facePenalty = Math.min(1.2, faceProximityPenalty + upperCenterPenalty + eyeLinePenalty + (overlapSignals.faceHeadOverlapRatio * 2));
+  const overlapPenaltyValue = overlapSignals.overlapPenalty;
+  const finalScore = baseScore - repeatPenalty - facePenalty - overlapPenaltyValue - edgePenaltyValue;
+  const whySelected = [
+    `composition=${compositionScore.toFixed(2)}`,
+    `speaker_distance=${speakerDistance.toFixed(1)}`,
+    `overlap_penalty=${overlapPenaltyValue.toFixed(2)}`,
+    `face_penalty=${facePenalty.toFixed(2)}`,
+    `edge_penalty=${edgePenaltyValue.toFixed(2)}`,
+  ].join(" · ");
 
   return {
     ...candidate,
-    score,
+    score: finalScore,
+    compositionScore,
+    overlapPenalty: overlapPenaltyValue,
+    facePenalty,
+    edgePenalty: edgePenaltyValue,
+    finalScore,
+    whySelected,
     reasons: [
       `speaker_distance=${speakerDistance.toFixed(1)}`,
       `reserved_distance=${reservedDistance.toFixed(1)}`,
       `comfort=${comfortScore.toFixed(2)}`,
+      `composition_score=${compositionScore.toFixed(2)}`,
       `zone_prior=${zonePrior.toFixed(2)}`,
       `dead_space_bonus=${deadSpaceBonus.toFixed(2)}`,
+      `overlap_penalty=${overlapPenaltyValue.toFixed(2)}`,
       `face_proximity_penalty=${faceProximityPenalty.toFixed(2)}`,
       `upper_center_penalty=${upperCenterPenalty.toFixed(2)}`,
       `eye_line_penalty=${eyeLinePenalty.toFixed(2)}`,
+      `face_overlap_ratio=${overlapSignals.faceHeadOverlapRatio.toFixed(2)}`,
+      `edge_penalty=${edgePenaltyValue.toFixed(2)}`,
       `repeat_penalty=${repeatPenalty.toFixed(2)}`,
+      `final_score=${finalScore.toFixed(3)}`,
     ],
   };
 }

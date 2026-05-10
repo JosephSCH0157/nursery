@@ -7,7 +7,7 @@ import type {
   Rect,
 } from "./types";
 import { deriveDefaultReservedZones, rectIntersectsAny } from "./reservedZones";
-import { buildPaddedSpeakerBounds, scoreCandidate } from "./placementScoring";
+import { buildPaddedSpeakerBounds, candidateHardRejectReason, scoreCandidate } from "./placementScoring";
 
 const DEFAULT_SAFE_MARGIN_PX = 24;
 const DEFAULT_TOP_K = 3;
@@ -20,6 +20,15 @@ export type ScaleAttemptDiagnostic = {
   bestRejectionReason: string | null;
   resolved: boolean;
 };
+
+function scalePenaltyFor(scale: number): number {
+  if (scale >= 0.999) return 0;
+  if (scale >= 0.9) return 0.06;
+  if (scale >= 0.8) return 0.14;
+  if (scale >= 0.7) return 0.3;
+  if (scale >= 0.6) return 0.55;
+  return 0.9;
+}
 
 function resolveZoneRect(
   zone: PlacementZone,
@@ -81,7 +90,6 @@ function generateBackgroundOpenCandidate(args: {
   for (let y = margin; y <= maxY; y += stepY) {
     for (let x = margin; x <= maxX; x += stepX) {
       const rect = { x, y, width: input.overlay.width, height: input.overlay.height };
-      if (rectIntersectsAny(rect, paddedSpeakerBounds)) continue;
       if (rectIntersectsAny(rect, reservedZones)) continue;
       let nearest = Number.POSITIVE_INFINITY;
       for (const obstacle of [...paddedSpeakerBounds, ...reservedZones]) {
@@ -129,6 +137,28 @@ export function evaluateMaskAwarePlacementCandidates(input: MaskAwarePlacementIn
   });
   if (backgroundOpen) candidates.push(backgroundOpen);
   const debugCandidates: DebugPlacementCandidate[] = candidates.map((candidate) => {
+    const hardRejectReason = candidateHardRejectReason({
+      input,
+      candidate,
+      reservedZones,
+      speakerBounds: input.speakerMaskBounds,
+    });
+    if (hardRejectReason) {
+      return {
+        zone: candidate.zone,
+        rect: candidate.rect,
+        accepted: false,
+        score: null,
+        finalScore: null,
+        whySelected: null,
+        compositionScore: null,
+        overlapPenalty: null,
+        facePenalty: null,
+        edgePenalty: null,
+        rejectionReason: hardRejectReason,
+        reasons: [],
+      };
+    }
     const scored = scoreCandidate({
       input,
       candidate,
@@ -141,22 +171,28 @@ export function evaluateMaskAwarePlacementCandidates(input: MaskAwarePlacementIn
         rect: candidate.rect,
         accepted: true,
         score: scored.score,
+        finalScore: scored.finalScore,
+        whySelected: scored.whySelected,
+        compositionScore: scored.compositionScore,
+        overlapPenalty: scored.overlapPenalty,
+        facePenalty: scored.facePenalty,
+        edgePenalty: scored.edgePenalty,
         rejectionReason: null,
         reasons: scored.reasons,
       };
     }
-    const intersectsSpeaker = rectIntersectsAny(candidate.rect, paddedSpeakerBounds);
-    const intersectsReserved = rectIntersectsAny(candidate.rect, reservedZones);
     return {
       zone: candidate.zone,
       rect: candidate.rect,
       accepted: false,
       score: null,
-      rejectionReason: intersectsSpeaker
-        ? "intersects_padded_speaker_bounds"
-        : intersectsReserved
-        ? "intersects_reserved_zone"
-        : "outside_frame_or_invalid",
+      finalScore: null,
+      whySelected: null,
+      compositionScore: null,
+      overlapPenalty: null,
+      facePenalty: null,
+      edgePenalty: null,
+      rejectionReason: "score_below_threshold_or_invalid",
       reasons: [],
     };
   });
@@ -218,8 +254,23 @@ export function resolveMaskAwarePlacementWithScaleFallback(input: MaskAwarePlace
         rect: candidate.rect,
         score: candidate.score as number,
         reasons: candidate.reasons,
+        compositionScore: candidate.compositionScore ?? 0,
+        overlapPenalty: candidate.overlapPenalty ?? 0,
+        facePenalty: candidate.facePenalty ?? 0,
+        edgePenalty: candidate.edgePenalty ?? 0,
+        whySelected: candidate.whySelected ?? "editorial balance",
+        finalScore: 0,
       }))
-      .sort((a, b) => b.score - a.score);
+      .map((candidate) => {
+        const scalePenalty = scalePenaltyFor(scale);
+        const finalScore = candidate.score - scalePenalty;
+        return {
+          ...candidate,
+          finalScore,
+          scalePenalty,
+        };
+      })
+      .sort((a, b) => b.finalScore - a.finalScore);
     const rejectionCounts = new Map<string, number>();
     for (const candidate of rejected) {
       const key = candidate.rejectionReason ?? "unknown_rejection";
@@ -253,9 +304,21 @@ export function resolveMaskAwarePlacementWithScaleFallback(input: MaskAwarePlace
       placement: {
         rect: selected.rect,
         zone: selected.zone,
-        score: selected.score,
+        score: selected.finalScore,
+        compositionScore: selected.compositionScore,
+        overlapPenalty: selected.overlapPenalty,
+        facePenalty: selected.facePenalty,
+        scalePenalty: selected.scalePenalty,
+        edgePenalty: selected.edgePenalty,
+        finalScore: selected.finalScore,
+        whySelected: selected.whySelected,
         candidateCountConsidered: scored.length,
-        reasons: selected.reasons,
+        reasons: [
+          ...selected.reasons,
+          `scale_penalty=${selected.scalePenalty.toFixed(2)}`,
+          `final_score=${selected.finalScore.toFixed(3)}`,
+          `why_selected=${selected.whySelected}`,
+        ],
         scale,
         originalOverlaySize,
         resolvedOverlaySize: scaledOverlay,
