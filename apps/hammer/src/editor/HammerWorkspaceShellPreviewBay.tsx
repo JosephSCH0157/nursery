@@ -105,6 +105,23 @@ export type HammerWorkspaceShellPreviewBayVM = {
       resolvedPlacementPresent: boolean;
       candidateCount: number;
       rejectedCandidateCount: number;
+      gates: Array<{
+        id: string;
+        label: string;
+        status: "PASS" | "FAIL" | "BLOCKED";
+        reason: string;
+      }>;
+      firstBlockingReason: string | null;
+      dependencyChain: string;
+      upstream: {
+        workspaceId: string;
+        workpieceId: string;
+        episodeId: string | null;
+        expectedMediaPath: string | null;
+        actualMediaPath: string | null;
+        sourceDeskErrorRaw: string | null;
+        playbackReadinessReason: string;
+      };
     };
 
   eyeContactAssist: {
@@ -187,6 +204,21 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
     };
     return normalized(params.get("hammer_auto_placement_debug")) || normalized(params.get("tp_auto_placement_debug")) || normalized(params.get("tp_dev_mode"));
   })();
+  const vmAutoPlacementMissingReason = useMemo(() => {
+    if (vm.autoPlacementDiagnostics !== undefined) return null;
+    const vmKeys = Object.keys(vm ?? {}).sort();
+    return `diagnostic object absent on preview VM props (keys: ${vmKeys.join(", ")})`;
+  }, [vm]);
+  useEffect(() => {
+    if (!autoPlacementDebugEnabledFromQuery) return;
+    if (vm.autoPlacementDiagnostics !== undefined) return;
+    console.error("[hammer][auto-placement] diagnostic VM unexpectedly undefined", {
+      reason: vmAutoPlacementMissingReason,
+      previewModeLabel: vm.previewModeLabel,
+      playbackMediaSrcPresent: Boolean(vm.playbackMediaSrc),
+      previewVideoSrcPresent: Boolean(vm.previewVideoSrc),
+    });
+  }, [autoPlacementDebugEnabledFromQuery, vm.autoPlacementDiagnostics, vm.playbackMediaSrc, vm.previewModeLabel, vm.previewVideoSrc, vmAutoPlacementMissingReason]);
   const autoPlacementDiagnostics = vm.autoPlacementDiagnostics
     ?? (autoPlacementDebugEnabledFromQuery
       ? {
@@ -206,6 +238,26 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
         resolvedPlacementPresent: false,
         candidateCount: 0,
         rejectedCandidateCount: 0,
+        gates: [
+          { id: "workspace_loaded", label: "workspace loaded", status: "FAIL", reason: "preview VM state missing" },
+          { id: "playback_media_ready", label: "playback media ready", status: "BLOCKED", reason: "blocked by missing VM state" },
+          { id: "current_frame_available", label: "current frame available", status: "BLOCKED", reason: "blocked by missing VM state" },
+          { id: "segmentation_mask_available", label: "segmentation mask available", status: "BLOCKED", reason: "blocked by missing VM state" },
+          { id: "selected_visual_asset_available", label: "selected visual asset available", status: "BLOCKED", reason: "blocked by missing VM state" },
+          { id: "placement_evaluation_executed", label: "placement evaluation executed", status: "BLOCKED", reason: "blocked by missing VM state" },
+          { id: "candidate_generation_executed", label: "candidate generation executed", status: "BLOCKED", reason: "blocked by missing VM state" },
+        ],
+        firstBlockingReason: "workspace loaded: preview VM state missing",
+        dependencyChain: "preview_vm:missing",
+        upstream: {
+          workspaceId: "n/a",
+          workpieceId: "n/a",
+          episodeId: null,
+          expectedMediaPath: null,
+          actualMediaPath: null,
+          sourceDeskErrorRaw: "preview VM state missing",
+          playbackReadinessReason: "preview VM state missing",
+        },
       }
       : { enabled: false as const });
   const showAutoPlacementStatusBadge = autoPlacementDebugEnabledFromQuery || autoPlacementDiagnostics.enabled;
@@ -223,6 +275,9 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
       resolvedPlacement: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.resolvedPlacementPresent : false,
       candidateCount: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.candidateCount : 0,
       rejectedCandidateCount: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.rejectedCandidateCount : 0,
+      gates: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.gates : [],
+      firstBlockingReason: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.firstBlockingReason : "preview VM state missing",
+      dependencyChain: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.dependencyChain : "preview_vm:missing",
     });
   }, [autoPlacementDebugEnabledFromQuery, autoPlacementDiagnostics, showAutoPlacementStatusBadge]);
   return (
@@ -404,6 +459,25 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
               <div>resolved placement: {autoPlacementDiagnostics.enabled && autoPlacementDiagnostics.resolvedPlacementPresent ? "yes" : "no"}</div>
               <div>candidate count: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.candidateCount : 0}</div>
               <div>rejected candidate count: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.rejectedCandidateCount : 0}</div>
+              {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.gates.map((gate) => (
+                <div key={`gate-${gate.id}`}>
+                  {gate.label}: {gate.status} ({gate.reason})
+                </div>
+              )) : (
+                <div>workspace loaded: FAIL (preview VM state missing)</div>
+              )}
+              <div>first blocking reason: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.firstBlockingReason ?? "none") : "preview VM state missing"}</div>
+              {!autoPlacementDiagnostics.enabled && vmAutoPlacementMissingReason ? (
+                <div>VM missing reason: {vmAutoPlacementMissingReason}</div>
+              ) : null}
+              <div>dependency chain: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.dependencyChain : "preview_vm:missing"}</div>
+              <div>workspaceId: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.upstream.workspaceId : "n/a"}</div>
+              <div>workpieceId: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.upstream.workpieceId : "n/a"}</div>
+              <div>episodeId: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.upstream.episodeId ?? "n/a") : "n/a"}</div>
+              <div>expected media path: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.upstream.expectedMediaPath ?? "n/a") : "n/a"}</div>
+              <div>actual media path: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.upstream.actualMediaPath ?? "n/a") : "n/a"}</div>
+              <div>sourceDeskError raw: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.upstream.sourceDeskErrorRaw ?? "none") : "preview VM state missing"}</div>
+              <div>playback readiness reason: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.upstream.playbackReadinessReason : "preview VM state missing"}</div>
               <div className="hammer-preview-auto-placement-status-badge__meta">
                 {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.statusLabel : "auto-placement: debug enabled, preview VM state missing"}
               </div>

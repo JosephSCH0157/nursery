@@ -39,6 +39,19 @@ function shouldShowAutoPlacementDiagnostics(): boolean {
   return false;
 }
 
+function shouldTraceAutoPlacementDiagnostics(): boolean {
+  const isDev = Boolean((import.meta as any)?.env?.DEV);
+  if (!isDev || typeof window === "undefined") return false;
+  try {
+    const params = new URLSearchParams(window.location.search ?? "");
+    return isTruthyDevToggle(params.get("hammer_auto_placement_debug"))
+      || isTruthyDevToggle(params.get("tp_auto_placement_debug"))
+      || isTruthyDevToggle(params.get("tp_dev_mode"));
+  } catch {
+    return false;
+  }
+}
+
 export type HammerAutoPlacementDiagnosticsState =
   | { enabled: false }
   | {
@@ -88,7 +101,64 @@ export type HammerAutoPlacementDiagnosticsState =
     resolvedPlacementPresent: boolean;
     candidateCount: number;
     rejectedCandidateCount: number;
+    gates: Array<{
+      id: string;
+      label: string;
+      status: "PASS" | "FAIL" | "BLOCKED";
+      reason: string;
+    }>;
+    firstBlockingReason: string | null;
+    dependencyChain: string;
+    upstream: {
+      workspaceId: string;
+      workpieceId: string;
+      episodeId: string | null;
+      expectedMediaPath: string | null;
+      actualMediaPath: string | null;
+      sourceDeskErrorRaw: string | null;
+      playbackReadinessReason: string;
+    };
   };
+
+function buildAutoPlacementGates(args: {
+  workspaceLoaded: boolean;
+  workspaceReason: string;
+  playbackMediaReady: boolean;
+  playbackMediaReason: string;
+  currentFrameAvailable: boolean;
+  currentFrameReason: string;
+  segmentationMaskAvailable: boolean;
+  segmentationMaskReason: string;
+  selectedVisualAssetAvailable: boolean;
+  selectedVisualAssetReason: string;
+  placementEvaluationExecuted: boolean;
+  placementEvaluationReason: string;
+  candidateGenerationExecuted: boolean;
+  candidateGenerationReason: string;
+}) {
+  const raw = [
+    { id: "workspace_loaded", label: "workspace loaded", pass: args.workspaceLoaded, reason: args.workspaceReason },
+    { id: "playback_media_ready", label: "playback media ready", pass: args.playbackMediaReady, reason: args.playbackMediaReason },
+    { id: "current_frame_available", label: "current frame available", pass: args.currentFrameAvailable, reason: args.currentFrameReason },
+    { id: "segmentation_mask_available", label: "segmentation mask available", pass: args.segmentationMaskAvailable, reason: args.segmentationMaskReason },
+    { id: "selected_visual_asset_available", label: "selected visual asset available", pass: args.selectedVisualAssetAvailable, reason: args.selectedVisualAssetReason },
+    { id: "placement_evaluation_executed", label: "placement evaluation executed", pass: args.placementEvaluationExecuted, reason: args.placementEvaluationReason },
+    { id: "candidate_generation_executed", label: "candidate generation executed", pass: args.candidateGenerationExecuted, reason: args.candidateGenerationReason },
+  ] as const;
+  let blocked = false;
+  let firstBlockingReason: string | null = null;
+  const gates = raw.map((gate) => {
+    const status: "PASS" | "FAIL" | "BLOCKED" = blocked ? "BLOCKED" : gate.pass ? "PASS" : "FAIL";
+    if (status === "FAIL" && !firstBlockingReason) firstBlockingReason = `${gate.label}: ${gate.reason}`;
+    if (status !== "PASS") blocked = true;
+    return { id: gate.id, label: gate.label, status, reason: gate.reason };
+  });
+  return {
+    gates,
+    firstBlockingReason,
+    dependencyChain: gates.map((gate) => `${gate.id}:${gate.status}`).join(" -> "),
+  };
+}
 
 export function normalizeSpeakerMaskBoundsToFrame(args: {
   speakerMaskBounds: AutoPlacementRect[];
@@ -125,10 +195,56 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
     heightPct: number;
   };
   maskResolution?: { width: number; height: number } | null;
+  workspaceLoaded: boolean;
+  workspaceReason: string;
+  playbackMediaReady: boolean;
+  playbackMediaReason: string;
+  workspaceId: string;
+  workpieceId: string;
+  episodeId: string | null;
+  expectedMediaPath: string | null;
+  actualMediaPath: string | null;
+  sourceDeskErrorRaw: string | null;
 }): HammerAutoPlacementDiagnosticsState {
-  if (!args.debugEnabled) return { enabled: false };
+  const trace = shouldTraceAutoPlacementDiagnostics();
+  if (trace) {
+    console.debug("[hammer][auto-placement][resolver] enter", {
+      debugEnabled: args.debugEnabled,
+      workspaceId: args.workspaceId,
+      workpieceId: args.workpieceId,
+      episodeId: args.episodeId,
+      frameInput: args.frameInput,
+      maskResolution: args.maskResolution ?? null,
+      speakerMaskBoundsCount: Array.isArray(args.speakerMaskBounds) ? args.speakerMaskBounds.length : -1,
+      selectedOverlayPresent: Boolean(args.selectedOverlayForGhost),
+      selectedOverlayHasAsset: Boolean(args.selectedOverlayForGhost?.hasRealAsset),
+      workspaceLoaded: args.workspaceLoaded,
+      playbackMediaReady: args.playbackMediaReady,
+    });
+  }
+  const hasSelectedOverlayAsset = Boolean(args.selectedOverlayForGhost?.hasRealAsset);
+  if (!args.debugEnabled) {
+    if (trace) console.debug("[hammer][auto-placement][resolver] early-return", { reason: "debug disabled" });
+    return { enabled: false };
+  }
   if (!args.frameInput || args.frameInput.width <= 0 || args.frameInput.height <= 0) {
-    return {
+    const gateSummary = buildAutoPlacementGates({
+      workspaceLoaded: args.workspaceLoaded,
+      workspaceReason: args.workspaceReason,
+      playbackMediaReady: args.playbackMediaReady,
+      playbackMediaReason: args.playbackMediaReason,
+      currentFrameAvailable: false,
+      currentFrameReason: "frame input missing",
+      segmentationMaskAvailable: false,
+      segmentationMaskReason: "blocked by current frame gate",
+      selectedVisualAssetAvailable: hasSelectedOverlayAsset,
+      selectedVisualAssetReason: hasSelectedOverlayAsset ? "selected overlay asset present" : "selected overlay asset missing",
+      placementEvaluationExecuted: false,
+      placementEvaluationReason: "blocked before evaluator",
+      candidateGenerationExecuted: false,
+      candidateGenerationReason: "blocked before candidate generation",
+    });
+    const result: HammerAutoPlacementDiagnosticsState = {
       enabled: true,
       state: "no_frame_input",
       statusLabel: "auto-placement: no frame input available",
@@ -145,7 +261,21 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       resolvedPlacementPresent: false,
       candidateCount: 0,
       rejectedCandidateCount: 0,
+      gates: gateSummary.gates,
+      firstBlockingReason: gateSummary.firstBlockingReason,
+      dependencyChain: gateSummary.dependencyChain,
+      upstream: {
+        workspaceId: args.workspaceId,
+        workpieceId: args.workpieceId,
+        episodeId: args.episodeId,
+        expectedMediaPath: args.expectedMediaPath,
+        actualMediaPath: args.actualMediaPath,
+        sourceDeskErrorRaw: args.sourceDeskErrorRaw,
+        playbackReadinessReason: args.playbackMediaReason,
+      },
     };
+    if (trace) console.debug("[hammer][auto-placement][resolver] return", { reason: "no_frame_input", result });
+    return result;
   }
   const frameW = Math.max(1, args.frameInput.width);
   const frameH = Math.max(1, args.frameInput.height);
@@ -159,7 +289,23 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
     ? `${Math.max(0, Math.round(args.maskResolution.width))}x${Math.max(0, Math.round(args.maskResolution.height))}`
     : "n/a";
   if (!Array.isArray(normalizedSpeakerBounds) || normalizedSpeakerBounds.length === 0) {
-    return {
+    const gateSummary = buildAutoPlacementGates({
+      workspaceLoaded: args.workspaceLoaded,
+      workspaceReason: args.workspaceReason,
+      playbackMediaReady: args.playbackMediaReady,
+      playbackMediaReason: args.playbackMediaReason,
+      currentFrameAvailable: true,
+      currentFrameReason: "frame input resolved",
+      segmentationMaskAvailable: false,
+      segmentationMaskReason: "mask bounds unavailable",
+      selectedVisualAssetAvailable: hasSelectedOverlayAsset,
+      selectedVisualAssetReason: hasSelectedOverlayAsset ? "selected overlay asset present" : "selected overlay asset missing",
+      placementEvaluationExecuted: false,
+      placementEvaluationReason: "blocked by missing mask bounds",
+      candidateGenerationExecuted: false,
+      candidateGenerationReason: "blocked by missing mask bounds",
+    });
+    const result: HammerAutoPlacementDiagnosticsState = {
       enabled: true,
       state: "no_mask_bounds",
       statusLabel: "auto-placement: no mask bounds available",
@@ -176,11 +322,40 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       resolvedPlacementPresent: false,
       candidateCount: 0,
       rejectedCandidateCount: 0,
+      gates: gateSummary.gates,
+      firstBlockingReason: gateSummary.firstBlockingReason,
+      dependencyChain: gateSummary.dependencyChain,
+      upstream: {
+        workspaceId: args.workspaceId,
+        workpieceId: args.workpieceId,
+        episodeId: args.episodeId,
+        expectedMediaPath: args.expectedMediaPath,
+        actualMediaPath: args.actualMediaPath,
+        sourceDeskErrorRaw: args.sourceDeskErrorRaw,
+        playbackReadinessReason: args.playbackMediaReason,
+      },
     };
+    if (trace) console.debug("[hammer][auto-placement][resolver] return", { reason: "no_mask_bounds", result });
+    return result;
   }
-  const hasSelectedOverlayAsset = Boolean(args.selectedOverlayForGhost?.hasRealAsset);
   if (!hasSelectedOverlayAsset) {
-    return {
+    const gateSummary = buildAutoPlacementGates({
+      workspaceLoaded: args.workspaceLoaded,
+      workspaceReason: args.workspaceReason,
+      playbackMediaReady: args.playbackMediaReady,
+      playbackMediaReason: args.playbackMediaReason,
+      currentFrameAvailable: true,
+      currentFrameReason: "frame input resolved",
+      segmentationMaskAvailable: true,
+      segmentationMaskReason: "mask bounds available",
+      selectedVisualAssetAvailable: false,
+      selectedVisualAssetReason: "selected overlay asset missing",
+      placementEvaluationExecuted: false,
+      placementEvaluationReason: "blocked by selected visual asset gate",
+      candidateGenerationExecuted: false,
+      candidateGenerationReason: "blocked by selected visual asset gate",
+    });
+    const result: HammerAutoPlacementDiagnosticsState = {
       enabled: true,
       state: "waiting_for_selected_overlay_asset",
       statusLabel: "auto-placement: debug enabled, waiting for selected overlay asset",
@@ -197,7 +372,21 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       resolvedPlacementPresent: false,
       candidateCount: 0,
       rejectedCandidateCount: 0,
+      gates: gateSummary.gates,
+      firstBlockingReason: gateSummary.firstBlockingReason,
+      dependencyChain: gateSummary.dependencyChain,
+      upstream: {
+        workspaceId: args.workspaceId,
+        workpieceId: args.workpieceId,
+        episodeId: args.episodeId,
+        expectedMediaPath: args.expectedMediaPath,
+        actualMediaPath: args.actualMediaPath,
+        sourceDeskErrorRaw: args.sourceDeskErrorRaw,
+        playbackReadinessReason: args.playbackMediaReason,
+      },
     };
+    if (trace) console.debug("[hammer][auto-placement][resolver] return", { reason: "waiting_for_selected_overlay_asset", result });
+    return result;
   }
   const overlaySize = {
     width: Math.max(140, Math.round(args.frameInput.width * 0.22)),
@@ -234,7 +423,23 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
   }));
   const rejectedCandidateCount = candidates.reduce((count, candidate) => count + (candidate.accepted ? 0 : 1), 0);
   if (!resolved) {
-    return {
+    const gateSummary = buildAutoPlacementGates({
+      workspaceLoaded: args.workspaceLoaded,
+      workspaceReason: args.workspaceReason,
+      playbackMediaReady: args.playbackMediaReady,
+      playbackMediaReason: args.playbackMediaReason,
+      currentFrameAvailable: true,
+      currentFrameReason: "frame input resolved",
+      segmentationMaskAvailable: true,
+      segmentationMaskReason: "mask bounds available",
+      selectedVisualAssetAvailable: true,
+      selectedVisualAssetReason: "selected overlay asset present",
+      placementEvaluationExecuted: true,
+      placementEvaluationReason: "evaluator executed but no safe placement",
+      candidateGenerationExecuted: candidates.length > 0,
+      candidateGenerationReason: candidates.length > 0 ? "candidates generated" : "no candidates generated",
+    });
+    const result: HammerAutoPlacementDiagnosticsState = {
       enabled: true,
       state: "no_safe_placement",
       statusLabel: "auto-placement: no safe placement",
@@ -251,7 +456,21 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       resolvedPlacementPresent: false,
       candidateCount: candidates.length,
       rejectedCandidateCount,
+      gates: gateSummary.gates,
+      firstBlockingReason: gateSummary.firstBlockingReason,
+      dependencyChain: gateSummary.dependencyChain,
+      upstream: {
+        workspaceId: args.workspaceId,
+        workpieceId: args.workpieceId,
+        episodeId: args.episodeId,
+        expectedMediaPath: args.expectedMediaPath,
+        actualMediaPath: args.actualMediaPath,
+        sourceDeskErrorRaw: args.sourceDeskErrorRaw,
+        playbackReadinessReason: args.playbackMediaReason,
+      },
     };
+    if (trace) console.debug("[hammer][auto-placement][resolver] return", { reason: "no_safe_placement", result });
+    return result;
   }
   let ghost: {
     leftPct: number;
@@ -286,7 +505,23 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       };
     }
   }
-  return {
+  const gateSummary = buildAutoPlacementGates({
+    workspaceLoaded: args.workspaceLoaded,
+    workspaceReason: args.workspaceReason,
+    playbackMediaReady: args.playbackMediaReady,
+    playbackMediaReason: args.playbackMediaReason,
+    currentFrameAvailable: true,
+    currentFrameReason: "frame input resolved",
+    segmentationMaskAvailable: true,
+    segmentationMaskReason: "mask bounds available",
+    selectedVisualAssetAvailable: true,
+    selectedVisualAssetReason: "selected overlay asset present",
+    placementEvaluationExecuted: true,
+    placementEvaluationReason: "evaluator executed",
+    candidateGenerationExecuted: candidates.length > 0,
+    candidateGenerationReason: candidates.length > 0 ? "candidates generated" : "no candidates generated",
+  });
+  const result: HammerAutoPlacementDiagnosticsState = {
     enabled: true,
     state: "resolved",
     statusLabel: `auto-placement: ${resolved.zone} (${resolved.score.toFixed(2)})`,
@@ -311,7 +546,21 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
     resolvedPlacementPresent: true,
     candidateCount: candidates.length,
     rejectedCandidateCount,
+    gates: gateSummary.gates,
+    firstBlockingReason: gateSummary.firstBlockingReason,
+    dependencyChain: gateSummary.dependencyChain,
+    upstream: {
+      workspaceId: args.workspaceId,
+      workpieceId: args.workpieceId,
+      episodeId: args.episodeId,
+      expectedMediaPath: args.expectedMediaPath,
+      actualMediaPath: args.actualMediaPath,
+      sourceDeskErrorRaw: args.sourceDeskErrorRaw,
+      playbackReadinessReason: args.playbackMediaReason,
+    },
   };
+  if (trace) console.debug("[hammer][auto-placement][resolver] return", { reason: "resolved", result });
+  return result;
 }
 
 export function buildTimelineDockVM(args: any) {
@@ -616,6 +865,18 @@ export function buildSourceBayVM(args: any) {
 }
 
 export function buildPreviewBayVM(args: any) {
+  const trace = shouldTraceAutoPlacementDiagnostics();
+  if (trace) {
+    console.debug("[hammer][auto-placement][buildPreviewBayVM] enter", {
+      workspaceId: args.workspaceId,
+      workpieceId: args.workpieceId,
+      episodeId: args.episodeId ?? null,
+      workspaceLoaded: args.workspaceLoaded,
+      workspaceLoadError: args.workspaceLoadError ?? null,
+      effectivePlaybackMediaSrcPresent: Boolean(args.effectivePlaybackMediaSrc),
+      effectivePreviewVideoSrcPresent: Boolean(args.effectivePreviewVideoSrc),
+    });
+  }
   const polishPreviewTarget = resolveHammerPolishPreviewTarget({
     visualPolishPreviewActive: args.visualPolishPreviewActive,
     previewVideoSrc: args.effectivePreviewVideoSrc,
@@ -665,7 +926,24 @@ export function buildPreviewBayVM(args: any) {
         heightPct: Number(selectedOverlayForGhost.height_pct ?? 0),
       }
       : null,
+    workspaceLoaded: Boolean(args.workspaceLoaded),
+    workspaceReason: args.workspaceLoaded ? "workspace context available" : (args.workspaceLoadError ?? "workspace context missing"),
+    playbackMediaReady: Boolean(args.effectivePlaybackMediaSrc),
+    playbackMediaReason: args.effectivePlaybackMediaSrc ? "playback media source resolved" : "playback media unavailable",
+    workspaceId: String(args.workspaceId ?? ""),
+    workpieceId: String(args.workpieceId ?? ""),
+    episodeId: args.episodeId == null ? null : String(args.episodeId),
+    expectedMediaPath: args.expectedMediaPath == null ? null : String(args.expectedMediaPath),
+    actualMediaPath: args.actualMediaPath == null ? null : String(args.actualMediaPath),
+    sourceDeskErrorRaw: args.workspaceLoadError == null ? null : String(args.workspaceLoadError),
   });
+  if (trace) {
+    console.debug("[hammer][auto-placement][buildPreviewBayVM] diagnostics", {
+      hasDiagnosticsObject: autoPlacementDiagnostics !== undefined,
+      enabled: autoPlacementDiagnostics.enabled,
+      state: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.state : "disabled",
+    });
+  }
   const audioPolish = args.editableAudioPolish ?? null;
   const audioAnalysis = audioPolish?.analysis ?? null;
   const loudness = audioAnalysis?.loudness ?? null;

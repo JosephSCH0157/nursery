@@ -286,11 +286,26 @@ export function useHammerWorkspaceShellSourceDeskController(
     latestArgs.setSourceDeskLoading(true);
     latestArgs.setSourceDeskError(null);
     try {
-      const [mediaFiles, selection, defaults] = await Promise.all([
+      const [mediaFilesResult, selectionResult, defaultsResult] = await Promise.allSettled([
         listWorkpieceStoredMedia(workpieceId),
         loadIntroOutroSelection(workpieceId),
         loadWorkspaceIntroOutroDefaults(workspaceId),
       ]);
+      if (mediaFilesResult.status === "rejected") {
+        const reason = mediaFilesResult.reason instanceof Error ? mediaFilesResult.reason.message : String(mediaFilesResult.reason ?? "unknown");
+        throw new Error(`[SourceDesk:listWorkpieceStoredMedia] workspaceId=${workspaceId} workpieceId=${workpieceId} reason=${reason}`);
+      }
+      if (selectionResult.status === "rejected") {
+        const reason = selectionResult.reason instanceof Error ? selectionResult.reason.message : String(selectionResult.reason ?? "unknown");
+        throw new Error(`[SourceDesk:loadIntroOutroSelection] workspaceId=${workspaceId} workpieceId=${workpieceId} reason=${reason}`);
+      }
+      if (defaultsResult.status === "rejected") {
+        const reason = defaultsResult.reason instanceof Error ? defaultsResult.reason.message : String(defaultsResult.reason ?? "unknown");
+        throw new Error(`[SourceDesk:loadWorkspaceIntroOutroDefaults] workspaceId=${workspaceId} workpieceId=${workpieceId} reason=${reason}`);
+      }
+      const mediaFiles = mediaFilesResult.value;
+      const selection = selectionResult.value;
+      const defaults = defaultsResult.value;
       if (refreshRunId !== refreshRunIdRef.current) return;
       latestArgs.setWorkspaceIntroOutroDefaults(defaults);
 

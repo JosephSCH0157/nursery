@@ -7018,6 +7018,13 @@ function HammerWorkspaceShellWithContext(
     visualPlacementEditingEnabled,
     selectVisualClip,
     beginPreviewCanvasDrag,
+    workspaceLoaded: !sourceDeskError,
+    workspaceLoadError: sourceDeskError,
+    workspaceId: launchContext.workspace_id,
+    workpieceId: launchContext.workpiece_id,
+    episodeId: (launchContext as any)?.episode_id ?? null,
+    expectedMediaPath: preferredPlayback.workpiece_path ?? preferredPlayback.local_relpath ?? mediaRef?.local_relpath ?? null,
+    actualMediaPath: effectivePlaybackMediaSrc ?? null,
   }), [
     activeTool,
     activeVisualTool,
@@ -7051,6 +7058,7 @@ function HammerWorkspaceShellWithContext(
     previewMode,
     previewSurfaceLabel,
     previewSurfaceRef,
+    sourceDeskError,
     selectVisualClip,
     selectedImageAnimationLabel,
     setIsPlaybackActive,
@@ -7077,9 +7085,31 @@ function HammerWorkspaceShellWithContext(
     visualBackgroundBlurRuntimeStatus,
     editableAudioPolish,
     mediaPrepOutputs,
+    mediaRef?.local_relpath,
     isScrubbing,
+    launchContext.workspace_id,
+    launchContext.workpiece_id,
+    (launchContext as any)?.episode_id,
+    preferredPlayback.local_relpath,
+    preferredPlayback.workpiece_path,
     visualPlacementEditingEnabled,
   ]);
+  useEffect(() => {
+    if (!((import.meta as any)?.env?.DEV) || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search ?? "");
+    const toggle = (value: string | null) => {
+      if (!value) return false;
+      const normalized = value.trim().toLowerCase();
+      return normalized === "1" || normalized === "true" || normalized === "on" || normalized === "yes";
+    };
+    const debugOn = toggle(params.get("hammer_auto_placement_debug")) || toggle(params.get("tp_auto_placement_debug")) || toggle(params.get("tp_dev_mode"));
+    if (!debugOn) return;
+    console.debug("[hammer][auto-placement][HammerWorkspaceShell] previewBayVM", {
+      hasPreviewBayVM: Boolean(previewBayVM),
+      hasAutoPlacementDiagnostics: typeof (previewBayVM as any)?.autoPlacementDiagnostics !== "undefined",
+      previewMode: previewBayVM?.previewModeLabel,
+    });
+  }, [previewBayVM]);
   const toolbarVM = useMemo(() => buildToolbarVM({
     editableTranscriptSegments,
     editableVisualPlacements,

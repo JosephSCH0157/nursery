@@ -15,6 +15,10 @@ function testResolvedWhenBoundsAvailable() {
       heightPct: 24,
     },
     maskResolution: { width: 1920, height: 1080 },
+    workspaceLoaded: true,
+    workspaceReason: "workspace context available",
+    playbackMediaReady: true,
+    playbackMediaReason: "playback media source resolved",
   });
   assert.equal(result.enabled, true);
   if (result.enabled) {
@@ -34,6 +38,10 @@ function testNoMaskBoundsWhenMissing() {
     speakerMaskBounds: [],
     playheadSec: 12,
     maskResolution: { width: 1920, height: 1080 },
+    workspaceLoaded: true,
+    workspaceReason: "workspace context available",
+    playbackMediaReady: true,
+    playbackMediaReason: "playback media source resolved",
   });
   assert.equal(result.enabled, true);
   if (result.enabled) {
@@ -50,6 +58,10 @@ function testDisabledWhenDebugOff() {
     speakerMaskBounds: [{ x: 700, y: 220, width: 500, height: 700 }],
     playheadSec: 12,
     maskResolution: { width: 1920, height: 1080 },
+    workspaceLoaded: true,
+    workspaceReason: "workspace context available",
+    playbackMediaReady: true,
+    playbackMediaReason: "playback media source resolved",
   });
   assert.deepEqual(result, { enabled: false });
 }
@@ -62,6 +74,10 @@ function testWaitingWhenMaskBoundsPresentButSelectedOverlayMissing() {
     playheadSec: 12,
     selectedOverlayForGhost: null,
     maskResolution: { width: 1920, height: 1080 },
+    workspaceLoaded: true,
+    workspaceReason: "workspace context available",
+    playbackMediaReady: true,
+    playbackMediaReason: "playback media source resolved",
   });
   assert.equal(result.enabled, true);
   if (result.enabled) {
@@ -98,6 +114,10 @@ function testCenteredSpeakerMaskRejectsCenterRegionAfterScalingTransform() {
       widthPct: 26,
       heightPct: 20,
     },
+    workspaceLoaded: true,
+    workspaceReason: "workspace context available",
+    playbackMediaReady: true,
+    playbackMediaReason: "playback media source resolved",
   });
   assert.equal(result.enabled, true);
   if (!result.enabled) return;
