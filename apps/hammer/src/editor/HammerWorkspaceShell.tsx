@@ -327,6 +327,7 @@ import HammerWorkspaceShellTimelineDock from "./HammerWorkspaceShellTimelineDock
 import HammerWorkspaceShellSourceBay from "./HammerWorkspaceShellSourceBay";
 import HammerWorkspaceShellToolBay from "./HammerWorkspaceShellToolBay";
 import { useHammerWorkspaceShellHistoryController } from "./hammerWorkspaceShellHistoryController";
+import { buildVisualTimelineDiagnostics } from "./hammerVisualTimelineHydrationGuard";
 import { useHammerWorkspaceShellSnapshotEmitter } from "./hammerWorkspaceShellSnapshotEmitter";
 import {
   buildCaptionBasisFingerprint,
@@ -1165,6 +1166,8 @@ function HammerWorkspaceShellWithContext(
     audioReviewed: false,
   });
   const [storedMediaFiles, setStoredMediaFiles] = useState<HammerStoredMediaFile[]>([]);
+  const timelineUpdateReasonRef = useRef<string>("init");
+  const sourceDeskMediaUpdateReasonRef = useRef<string>("init");
   const [mediaMapBeats, setMediaMapBeats] = useState<HammerMediaMapBeat[]>([]);
   const [removedMediaMapSegmentIds, setRemovedMediaMapSegmentIds] = useState<string[]>([]);
   const [sourceDeskLoading, setSourceDeskLoading] = useState(false);
@@ -2244,6 +2247,32 @@ function HammerWorkspaceShellWithContext(
     () => storedMediaFiles.filter((file) => file.kind === "image"),
     [storedMediaFiles],
   );
+  const shellPlacementDiagnostics = useMemo(() => ({
+    visualPlacementsCount: editableVisualPlacements?.placements.length ?? 0,
+    anchorsCount: buildVisualTimelineDiagnostics(editableVisualTimeline).anchorCount,
+    sourceVisualPlacementItemsCount: sourceVisualPlacementItems.length,
+    storedImagesCount: sourceImageLibraryItems.length,
+  }), [editableVisualPlacements?.placements.length, editableVisualTimeline, sourceImageLibraryItems.length, sourceVisualPlacementItems.length]);
+  const shellPlacementDiagnosticsPrevRef = useRef(shellPlacementDiagnostics);
+  useEffect(() => {
+    const previous = shellPlacementDiagnosticsPrevRef.current;
+    const next = shellPlacementDiagnostics;
+    if (
+      previous.visualPlacementsCount === next.visualPlacementsCount
+      && previous.anchorsCount === next.anchorsCount
+      && previous.sourceVisualPlacementItemsCount === next.sourceVisualPlacementItemsCount
+      && previous.storedImagesCount === next.storedImagesCount
+    ) {
+      return;
+    }
+    console.debug("[hammer][placements] state update", {
+      reason: timelineUpdateReasonRef.current,
+      mediaReason: sourceDeskMediaUpdateReasonRef.current,
+      before: previous,
+      after: next,
+    });
+    shellPlacementDiagnosticsPrevRef.current = next;
+  }, [shellPlacementDiagnostics]);
   const selectedBackgroundReplacementAsset = useMemo(
     () => sourceImageLibraryItems.find((item) => item.path === visualBackgroundReplaceImageAssetPath) ?? null,
     [sourceImageLibraryItems, visualBackgroundReplaceImageAssetPath],
@@ -2935,7 +2964,10 @@ function HammerWorkspaceShellWithContext(
     packagingIntroAssetPath,
     packagingOutroAssetPath,
     storedMediaFiles,
-    setStoredMediaFiles,
+    setStoredMediaFiles: (nextState) => {
+      sourceDeskMediaUpdateReasonRef.current = "source_desk_refresh";
+      setStoredMediaFiles(nextState);
+    },
     sourceDeskLoading,
     setSourceDeskLoading,
     sourceDeskError,
@@ -3241,7 +3273,8 @@ function HammerWorkspaceShellWithContext(
     };
   }
 
-  function applyWorkspaceState(nextState: HammerEditorStateSerializable): void {
+  function applyWorkspaceState(nextState: HammerEditorStateSerializable, reason = "workspace_state_apply"): void {
+    timelineUpdateReasonRef.current = reason;
     const normalized = toShellState(nextState);
     setEditableTranscriptSegments(normalized.segments);
     setEditableVisualTimeline(normalized.visualTimeline);
@@ -3642,7 +3675,7 @@ function HammerWorkspaceShellWithContext(
     });
     if (!entry) return null;
 
-    applyWorkspaceState(controller.getState());
+    applyWorkspaceState(controller.getState(), "history:mutation_apply");
     scheduleHistoryPersist(args.immediatePersist === true);
     return entry;
   }
@@ -3656,7 +3689,7 @@ function HammerWorkspaceShellWithContext(
     if (derivedTransition) {
       setEditableDerivedTextLayers(cloneHammerDerivedTextLayers(derivedTransition.before));
     }
-    applyWorkspaceState(controller.getState());
+    applyWorkspaceState(controller.getState(), "history:undo");
     selectionOriginRef.current = "system";
     setFocusOverride("source-focus");
     scheduleHistoryPersist();
@@ -3671,7 +3704,7 @@ function HammerWorkspaceShellWithContext(
     if (derivedTransition) {
       setEditableDerivedTextLayers(cloneHammerDerivedTextLayers(derivedTransition.after));
     }
-    applyWorkspaceState(controller.getState());
+    applyWorkspaceState(controller.getState(), "history:redo");
     selectionOriginRef.current = "system";
     setFocusOverride("source-focus");
     scheduleHistoryPersist();
@@ -6077,7 +6110,7 @@ function HammerWorkspaceShellWithContext(
     controller.document.updatedAt = new Date().toISOString();
     controller.replaceState(replayed);
 
-    applyWorkspaceState(replayed);
+    applyWorkspaceState(replayed, "history:jump");
     setEditableDerivedTextLayers(resolveDerivedLayersForUndoStack(targetPath));
     setHistoryStatus(nextRedo.length > 0 ? "History jump mode: reviewing a past state." : null);
     selectionOriginRef.current = "system";

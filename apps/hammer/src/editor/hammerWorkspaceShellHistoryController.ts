@@ -36,6 +36,10 @@ import {
   loadHammerSnapshotPayload,
   type HammerSnapshotManifestV1,
 } from "../lib/hammerSnapshotArtifactApi";
+import {
+  buildVisualTimelineDiagnostics,
+  preservePlacementRichTimelineDuringHydration,
+} from "./hammerVisualTimelineHydrationGuard";
 
 type DerivedLayersState = HammerPersistedStructuredTranscript["derived_text_layers"];
 
@@ -67,7 +71,7 @@ export type UseHammerWorkspaceShellHistoryControllerArgs = {
   historyControllerRef: { current: HammerHistoryController | null };
   derivedLayerHistoryRef: { current: Map<string, { before: DerivedLayersState; after: DerivedLayersState }> };
 
-  applyWorkspaceState: (state: HammerEditorStateSerializable) => void;
+  applyWorkspaceState: (state: HammerEditorStateSerializable, reason?: string) => void;
   setHistoryStatus: (status: string | null) => void;
   toErrorMessage: (error: unknown, fallback: string) => string;
 
@@ -144,10 +148,15 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       persistedEditorialAuthorityGraph: args.editorialAuthorityGraph,
       projectedAuthorityGraph: projectedBaselineAuthorityGraph,
     });
+    const previousTimeline = args.historyControllerRef.current?.getState().visualTimeline ?? null;
+    const protectedTimeline = preservePlacementRichTimelineDuringHydration({
+      previous: previousTimeline,
+      incoming: args.visualTimeline ?? null,
+    });
     const baselineState = args.toEditorState({
       segments: synced.segments,
       visualPlacements: args.visualPlacements ?? null,
-      visualTimeline: args.visualTimeline ?? null,
+      visualTimeline: protectedTimeline.timeline,
       audioEdit: args.audioEdit ?? null,
       studioRack: createDefaultHammerStudioRackState(),
       editorialAuthorityGraph: baselineAuthorityGraph,
@@ -170,7 +179,15 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       maxUndoSteps: args.maxUndoSteps,
     });
 
-    args.applyWorkspaceState(baselineState);
+    if (protectedTimeline.reason === "preserved_anchor_rich_timeline") {
+      console.debug("[hammer][hydration] preserved placement-rich timeline during baseline init", {
+        workpieceId: args.launchContext.workpiece_id,
+        previous: buildVisualTimelineDiagnostics(previousTimeline),
+        incoming: buildVisualTimelineDiagnostics(args.visualTimeline ?? null),
+        applied: buildVisualTimelineDiagnostics(protectedTimeline.timeline),
+      });
+    }
+    args.applyWorkspaceState(baselineState, "history:baseline_init");
     args.setTimelineMarkers([]);
     args.setSelectedClipId(null);
     args.setImagePlacementDraftWindows({});
@@ -271,7 +288,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
           const legacyBaselineState = args.toEditorState({
             segments: synced.segments,
             visualPlacements: args.visualPlacements ?? null,
-            visualTimeline: args.visualTimeline ?? null,
+            visualTimeline: protectedTimeline.timeline,
             audioEdit: args.audioEdit ?? null,
             studioRack: createDefaultHammerStudioRackState(),
             editorialAuthorityGraph: legacyAuthorityGraph,
@@ -342,7 +359,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
 
       controller.replaceState(replayed);
       args.historyControllerRef.current = controller;
-      args.applyWorkspaceState(replayed);
+      args.applyWorkspaceState(replayed, "history:replay_apply");
       args.setHistoryStatus(resolveHammerHistoryStatus({
         historyExists: true,
         snapshotManifestExists,

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { normalizeSpeakerMaskBoundsToFrame, resolveAutoPlacementDiagnosticsForPreview } from "../src/editor/hammerWorkspaceShellViewModels";
+import { preservePlacementRichTimelineDuringHydration } from "../src/editor/hammerVisualTimelineHydrationGuard";
 import { intersectionArea } from "../src/features/auto-placement/reservedZones";
 
 function testResolvedWhenBoundsAvailable() {
@@ -140,12 +141,78 @@ function testCenteredSpeakerMaskRejectsCenterRegionAfterScalingTransform() {
   assert.notEqual(result.overlay.zone, "background_open");
 }
 
+function buildTimeline(anchorSegmentId: string | null, assetPath: string | null) {
+  return {
+    version: 1 as const,
+    revision: 1,
+    updated_at: "2026-05-10T12:00:00.000Z",
+    source_mode: "packaging" as const,
+    selected_clip_id: "clip-1",
+    assets: [{
+      asset_id: "asset-1",
+      asset_ref: "asset-ref",
+      kind: "image" as const,
+      label: "Image A",
+      path: assetPath,
+      storage_key: null,
+      mime_type: "image/png",
+      source_mode: "manual" as const,
+      updated_at: "2026-05-10T12:00:00.000Z",
+    }],
+    lanes: [{ lane_id: "images", label: "Images", clip_ids: ["clip-1"] }],
+    clips: [{
+      clip_id: "clip-1",
+      asset_id: "asset-1",
+      lane_id: "images",
+      entry_id: "entry-1",
+      label: "Image A",
+      visual_mode: "image",
+      confidence: 0.9,
+      placement_status: "placed" as const,
+      ingest_state: "approved" as const,
+      uncertainty_flags: [],
+      start_sec: 1,
+      end_sec: 3,
+      geometry: { x: 10, y: 10, width: 30, height: 30, anchor: "top_left" as const },
+      animation: { preset: "none" as const },
+      opacity: 1,
+      z_index: 1,
+      enabled: true,
+      locked: false,
+      source_mode: "manual" as const,
+      anchor_hint: {
+        anchor_segment_id: anchorSegmentId,
+        matched_segment_ids: anchorSegmentId ? [anchorSegmentId] : [],
+        anchor_text: anchorSegmentId ? "anchor text" : null,
+        anchor_label: null,
+        detached: false,
+      },
+      updated_at: "2026-05-10T12:00:00.000Z",
+    }],
+  };
+}
+
+function testHydrationPreservesPlacementRichTimeline() {
+  const initialPlacementRich = buildTimeline("segment-1", null);
+  const laterAssetOnly = buildTimeline(null, "media/image.png");
+  const result = preservePlacementRichTimelineDuringHydration({
+    previous: initialPlacementRich,
+    incoming: laterAssetOnly,
+  });
+  assert.equal(result.reason, "preserved_anchor_rich_timeline");
+  assert.ok(result.timeline);
+  assert.equal(result.timeline?.clips[0]?.anchor_hint.anchor_segment_id, "segment-1");
+  assert.deepEqual(result.timeline?.clips[0]?.anchor_hint.matched_segment_ids, ["segment-1"]);
+  assert.equal(result.timeline?.assets[0]?.path, "media/image.png");
+}
+
 try {
   testResolvedWhenBoundsAvailable();
   testNoMaskBoundsWhenMissing();
   testDisabledWhenDebugOff();
   testWaitingWhenMaskBoundsPresentButSelectedOverlayMissing();
   testCenteredSpeakerMaskRejectsCenterRegionAfterScalingTransform();
+  testHydrationPreservesPlacementRichTimeline();
   console.log("Hammer auto-placement diagnostics VM tests passed.");
 } catch (error) {
   console.error("Hammer auto-placement diagnostics VM tests failed:", error);
