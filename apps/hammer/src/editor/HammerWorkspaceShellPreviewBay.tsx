@@ -235,41 +235,25 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
           />
           {vm.autoPlacementDiagnostics.enabled ? (
             vm.autoPlacementDiagnostics.overlay ? (
-              <div
-                aria-hidden="true"
-                style={{
-                  position: "absolute",
-                  left: `${vm.autoPlacementDiagnostics.overlay.leftPct}%`,
-                  top: `${vm.autoPlacementDiagnostics.overlay.topPct}%`,
-                  width: `${vm.autoPlacementDiagnostics.overlay.widthPct}%`,
-                  height: `${vm.autoPlacementDiagnostics.overlay.heightPct}%`,
-                  border: "2px dashed #19c37d",
-                  boxSizing: "border-box",
-                  pointerEvents: "none",
-                  zIndex: 9000,
-                }}
-              >
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "-20px",
-                    left: "0",
-                    fontSize: "11px",
-                    lineHeight: "16px",
-                    padding: "1px 6px",
-                    color: "#062b1b",
-                    background: "#19c37d",
-                    borderRadius: "4px",
-                    whiteSpace: "nowrap",
-                  }}
+              <svg className="hammer-preview-auto-placement-overlay" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <rect
+                  className="hammer-preview-auto-placement-overlay__zone"
+                  x={vm.autoPlacementDiagnostics.overlay.leftPct}
+                  y={vm.autoPlacementDiagnostics.overlay.topPct}
+                  width={vm.autoPlacementDiagnostics.overlay.widthPct}
+                  height={vm.autoPlacementDiagnostics.overlay.heightPct}
+                />
+                <text
+                  className="hammer-preview-auto-placement-overlay__label"
+                  x={vm.autoPlacementDiagnostics.overlay.leftPct}
+                  y={Math.max(3, vm.autoPlacementDiagnostics.overlay.topPct - 1.2)}
                 >
                   auto {vm.autoPlacementDiagnostics.overlay.zone} · {vm.autoPlacementDiagnostics.overlay.score.toFixed(2)}
-                </div>
-              </div>
+                </text>
+              </svg>
             ) : (
               <div
-                className="hammer-preview-matte-overlay"
-                style={{ top: "54px", background: "rgba(15, 23, 42, 0.74)" }}
+                className="hammer-preview-matte-overlay hammer-preview-matte-overlay--auto-placement-status"
               >
                 {vm.autoPlacementDiagnostics.statusLabel}
               </div>

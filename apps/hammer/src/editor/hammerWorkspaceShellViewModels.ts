@@ -542,8 +542,8 @@ export function buildPreviewBayVM(args: any) {
     visualEffects: visualDiagnostics,
     autoPlacement: autoPlacementDiagnosticsEnabled
       ? {
-        state: autoPlacementDiagnostics.state ?? "disabled",
-        status: autoPlacementDiagnostics.statusLabel ?? "auto-placement: disabled",
+        state: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.state : "disabled",
+        status: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.statusLabel : "auto-placement: disabled",
         speakerMaskBoundsCount: speakerMaskBounds.length,
         resolvedZone: autoPlacementDiagnostics.enabled && autoPlacementDiagnostics.overlay
           ? autoPlacementDiagnostics.overlay.zone

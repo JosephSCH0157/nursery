@@ -3012,6 +3012,38 @@ Guardrails:
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
 }
 
+.hammer-preview-matte-overlay--auto-placement-status {
+  top: 54px;
+  background: rgba(15, 23, 42, 0.74);
+}
+
+.hammer-preview-auto-placement-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 9000;
+  pointer-events: none;
+}
+
+.hammer-preview-auto-placement-overlay__zone {
+  fill: none;
+  stroke: #19c37d;
+  stroke-width: 0.55;
+  stroke-dasharray: 1.8 1.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.hammer-preview-auto-placement-overlay__label {
+  fill: #19c37d;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 3.2px;
+  font-weight: 700;
+  letter-spacing: 0.12px;
+  paint-order: stroke;
+  stroke: rgba(6, 43, 27, 0.92);
+  stroke-width: 0.9px;
+  stroke-linejoin: round;
+}
+
 .hammer-preview-eye-contact-canvas {
   position: absolute;
   inset: 0;
