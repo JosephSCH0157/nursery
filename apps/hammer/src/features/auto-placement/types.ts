@@ -8,11 +8,14 @@ export type Rect = {
 export type PlacementZone =
   | "upper_left"
   | "upper_right"
+  | "lower_center"
   | "lower_left"
   | "lower_right"
   | "left_gutter"
   | "right_gutter"
   | "background_open";
+
+export type PlacementLayoutMode = "single_person" | "multi_person" | "unknown";
 
 export type MaskAwarePlacementInput = {
   frame: { width: number; height: number };
@@ -59,6 +62,10 @@ export type MaskAwarePlacementResult = {
   }>;
   selectedScale?: number;
   resolvedWithScaleFallback?: boolean;
+  layoutMode?: PlacementLayoutMode;
+  preferredZoneChosen?: PlacementZone;
+  fallbackUsed?: boolean;
+  fallbackReason?: string | null;
 };
 
 export type PlacementCandidate = {

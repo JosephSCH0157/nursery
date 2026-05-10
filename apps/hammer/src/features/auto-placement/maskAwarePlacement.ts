@@ -1,5 +1,6 @@
 import type {
   DebugPlacementCandidate,
+  PlacementLayoutMode,
   MaskAwarePlacementInput,
   MaskAwarePlacementResult,
   PlacementCandidate,
@@ -10,8 +11,8 @@ import { deriveDefaultReservedZones, rectIntersectsAny } from "./reservedZones";
 import { buildPaddedSpeakerBounds, candidateHardRejectReason, scoreCandidate } from "./placementScoring";
 
 const DEFAULT_SAFE_MARGIN_PX = 24;
-const DEFAULT_TOP_K = 3;
-const DEFAULT_SCALE_STEPS = [1, 0.9, 0.8, 0.7, 0.6, 0.5];
+const DEFAULT_SCALE_STEPS = [1, 0.9, 0.8, 0.7];
+const EMERGENCY_SCALE_STEPS = [0.6, 0.5];
 
 export type ScaleAttemptDiagnostic = {
   scale: number;
@@ -20,15 +21,6 @@ export type ScaleAttemptDiagnostic = {
   bestRejectionReason: string | null;
   resolved: boolean;
 };
-
-function scalePenaltyFor(scale: number): number {
-  if (scale >= 0.999) return 0;
-  if (scale >= 0.9) return 0.06;
-  if (scale >= 0.8) return 0.14;
-  if (scale >= 0.7) return 0.3;
-  if (scale >= 0.6) return 0.55;
-  return 0.9;
-}
 
 function resolveZoneRect(
   zone: PlacementZone,
@@ -45,6 +37,13 @@ function resolveZoneRect(
       return { x: margin, y: margin, width: overlay.width, height: overlay.height };
     case "upper_right":
       return { x: maxX, y: margin, width: overlay.width, height: overlay.height };
+    case "lower_center":
+      return {
+        x: Math.max(margin, Math.round((frame.width - overlay.width) / 2)),
+        y: maxY,
+        width: overlay.width,
+        height: overlay.height,
+      };
     case "lower_left":
       return { x: margin, y: maxY, width: overlay.width, height: overlay.height };
     case "lower_right":
@@ -62,6 +61,7 @@ function generateBaseCandidates(input: MaskAwarePlacementInput, margin: number):
   const zones: PlacementZone[] = [
     "upper_left",
     "upper_right",
+    "lower_center",
     "lower_left",
     "lower_right",
     "left_gutter",
@@ -118,6 +118,76 @@ function seededIndex(seed: number, size: number): number {
   state ^= state << 5;
   const normalized = Math.abs(state);
   return normalized % size;
+}
+
+function resolveLayoutMode(input: MaskAwarePlacementInput): PlacementLayoutMode {
+  const count = input.speakerMaskBounds.length;
+  if (count <= 0) return "unknown";
+  if (count === 1) return "single_person";
+  return "multi_person";
+}
+
+function resolveSinglePersonPrimaryZones(input: MaskAwarePlacementInput): PlacementZone[] {
+  const recent = input.recentPlacements ?? [];
+  const latestPreferred = recent.find((entry) => entry.zone === "lower_left" || entry.zone === "lower_right")?.zone;
+  if (latestPreferred === "lower_right") return ["lower_left", "lower_right"];
+  if (latestPreferred === "lower_left") return ["lower_right", "lower_left"];
+  return seededIndex(input.selectionSeed ?? 0, 2) === 0
+    ? ["lower_right", "lower_left"]
+    : ["lower_left", "lower_right"];
+}
+
+function zonePriorityFor(input: MaskAwarePlacementInput, mode: PlacementLayoutMode): PlacementZone[] {
+  if (mode === "single_person") {
+    const lower = resolveSinglePersonPrimaryZones(input);
+    return [...lower, "lower_center", "left_gutter", "right_gutter", "upper_left", "upper_right", "background_open"];
+  }
+  if (mode === "multi_person") {
+    return ["lower_center", "lower_left", "lower_right", "left_gutter", "right_gutter", "upper_left", "upper_right", "background_open"];
+  }
+  return ["lower_right", "lower_left", "lower_center", "left_gutter", "right_gutter", "upper_left", "upper_right", "background_open"];
+}
+
+function selectPlacementByEditorialOrder(args: {
+  input: MaskAwarePlacementInput;
+  candidates: DebugPlacementCandidate[];
+  mode: PlacementLayoutMode;
+}) {
+  const grouped = new Map<PlacementZone, DebugPlacementCandidate[]>();
+  for (const candidate of args.candidates) {
+    if (!candidate.accepted) continue;
+    const current = grouped.get(candidate.zone) ?? [];
+    current.push(candidate);
+    grouped.set(candidate.zone, current);
+  }
+  const order = zonePriorityFor(args.input, args.mode);
+  const primaryZones = new Set<PlacementZone>(
+    args.mode === "single_person"
+      ? resolveSinglePersonPrimaryZones(args.input)
+      : args.mode === "multi_person"
+      ? ["lower_center", "lower_left", "lower_right"]
+      : ["lower_right", "lower_left", "lower_center"],
+  );
+  for (const zone of order) {
+    const entries = grouped.get(zone) ?? [];
+    if (entries.length === 0) continue;
+    const selected = entries
+      .map((entry) => ({ ...entry, scoreValue: entry.score ?? Number.NEGATIVE_INFINITY }))
+      .sort((a, b) => b.scoreValue - a.scoreValue)[0]!;
+    const fallbackUsed = !primaryZones.has(zone) || args.mode === "unknown";
+    const fallbackReason = args.mode === "unknown"
+      ? "no_mask_bounds"
+      : primaryZones.has(zone)
+      ? null
+      : "preferred_zones_failed";
+    return {
+      selected,
+      fallbackUsed,
+      fallbackReason,
+      preferredZoneChosen: zone,
+    };
+  }
+  return null;
 }
 
 export function evaluateMaskAwarePlacementCandidates(input: MaskAwarePlacementInput): {
@@ -207,24 +277,29 @@ export function resolveMaskAwarePlacementWithScaleFallback(input: MaskAwarePlace
   placement: MaskAwarePlacementResult | null;
   scaleAttempts: ScaleAttemptDiagnostic[];
 } {
+  const layoutMode = resolveLayoutMode(input);
   const originalOverlaySize = { width: input.overlay.width, height: input.overlay.height };
   const allowScaleFallback = Boolean(input.allowScaleFallback);
   const minScaleRaw = Number.isFinite(input.minScale as number) ? Number(input.minScale) : 0.5;
-  const minScale = Math.max(0.1, Math.min(1, minScaleRaw));
+  const minScale = Math.max(0.5, Math.min(1, minScaleRaw));
   const baseSteps = Array.isArray(input.scaleSteps) && input.scaleSteps.length > 0
     ? input.scaleSteps
     : DEFAULT_SCALE_STEPS;
-  const normalizedScales = Array.from(new Set(baseSteps
+  const normalizedScales = Array.from(new Set([...baseSteps, ...EMERGENCY_SCALE_STEPS]
     .map((value) => Number(value))
     .filter((value) => Number.isFinite(value) && value > 0)
     .map((value) => Math.max(minScale, Math.min(1, value)))
     .filter((value) => value >= minScale)
     .sort((a, b) => b - a)));
-  const scaleLadder = normalizedScales.length > 0 ? normalizedScales : [1];
+  const preferredScales = normalizedScales.filter((scale) => scale >= 0.7);
+  const emergencyScales = normalizedScales.filter((scale) => scale < 0.7);
+  const scaleLadder = preferredScales.length > 0 ? preferredScales : normalizedScales.length > 0 ? normalizedScales : [1];
   const activeScales = allowScaleFallback ? scaleLadder : [1];
   const scaleAttempts: ScaleAttemptDiagnostic[] = [];
+  let emergencyAttempted = false;
+  const allScales = [...activeScales, ...(allowScaleFallback ? emergencyScales : [])];
 
-  for (const scale of activeScales) {
+  for (const scale of allScales) {
     const scaledOverlay = {
       width: Math.max(1, Math.round(originalOverlaySize.width * scale)),
       height: Math.max(1, Math.round(originalOverlaySize.height * scale)),
@@ -248,29 +323,6 @@ export function resolveMaskAwarePlacementWithScaleFallback(input: MaskAwarePlace
     const candidates = evaluation.candidates;
     const accepted = candidates.filter((candidate) => candidate.accepted);
     const rejected = candidates.filter((candidate) => !candidate.accepted);
-    const scored = accepted
-      .map((candidate) => ({
-        zone: candidate.zone,
-        rect: candidate.rect,
-        score: candidate.score as number,
-        reasons: candidate.reasons,
-        compositionScore: candidate.compositionScore ?? 0,
-        overlapPenalty: candidate.overlapPenalty ?? 0,
-        facePenalty: candidate.facePenalty ?? 0,
-        edgePenalty: candidate.edgePenalty ?? 0,
-        whySelected: candidate.whySelected ?? "editorial balance",
-        finalScore: 0,
-      }))
-      .map((candidate) => {
-        const scalePenalty = scalePenaltyFor(scale);
-        const finalScore = candidate.score - scalePenalty;
-        return {
-          ...candidate,
-          finalScore,
-          scalePenalty,
-        };
-      })
-      .sort((a, b) => b.finalScore - a.finalScore);
     const rejectionCounts = new Map<string, number>();
     for (const candidate of rejected) {
       const key = candidate.rejectionReason ?? "unknown_rejection";
@@ -279,7 +331,10 @@ export function resolveMaskAwarePlacementWithScaleFallback(input: MaskAwarePlace
     const bestRejectionReason = rejectionCounts.size > 0
       ? [...rejectionCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
       : null;
-    if (scored.length === 0) {
+    const selectedWithPolicy = accepted.length > 0
+      ? selectPlacementByEditorialOrder({ input: scaledInput, candidates, mode: layoutMode })
+      : null;
+    if (!selectedWithPolicy) {
       scaleAttempts.push({
         scale,
         candidateCount: candidates.length,
@@ -289,10 +344,11 @@ export function resolveMaskAwarePlacementWithScaleFallback(input: MaskAwarePlace
       });
       continue;
     }
-    const topK = Math.max(1, Math.floor(input.topK ?? DEFAULT_TOP_K));
-    const pool = scored.slice(0, topK);
-    const idx = seededIndex(input.selectionSeed ?? 0, pool.length);
-    const selected = pool[idx] ?? pool[0];
+    if (scale < 0.7) emergencyAttempted = true;
+    const selected = selectedWithPolicy.selected;
+    const rawScore = selected.score ?? 0;
+    const scalePenalty = scale >= 0.999 ? 0 : scale >= 0.9 ? 0.06 : scale >= 0.8 ? 0.14 : scale >= 0.7 ? 0.3 : scale >= 0.6 ? 0.55 : 0.9;
+    const finalScore = rawScore - scalePenalty;
     scaleAttempts.push({
       scale,
       candidateCount: candidates.length,
@@ -304,20 +360,24 @@ export function resolveMaskAwarePlacementWithScaleFallback(input: MaskAwarePlace
       placement: {
         rect: selected.rect,
         zone: selected.zone,
-        score: selected.finalScore,
-        compositionScore: selected.compositionScore,
-        overlapPenalty: selected.overlapPenalty,
-        facePenalty: selected.facePenalty,
-        scalePenalty: selected.scalePenalty,
-        edgePenalty: selected.edgePenalty,
-        finalScore: selected.finalScore,
-        whySelected: selected.whySelected,
-        candidateCountConsidered: scored.length,
+        score: finalScore,
+        compositionScore: selected.compositionScore ?? 0,
+        overlapPenalty: selected.overlapPenalty ?? 0,
+        facePenalty: selected.facePenalty ?? 0,
+        scalePenalty,
+        edgePenalty: selected.edgePenalty ?? 0,
+        finalScore,
+        whySelected: selected.whySelected ?? "editorial defaults",
+        candidateCountConsidered: accepted.length,
         reasons: [
-          ...selected.reasons,
-          `scale_penalty=${selected.scalePenalty.toFixed(2)}`,
-          `final_score=${selected.finalScore.toFixed(3)}`,
-          `why_selected=${selected.whySelected}`,
+          ...(selected.reasons ?? []),
+          `layout_mode=${layoutMode}`,
+          `preferred_zone_chosen=${selectedWithPolicy.preferredZoneChosen}`,
+          `fallback_used=${selectedWithPolicy.fallbackUsed ? "true" : "false"}`,
+          `fallback_reason=${selectedWithPolicy.fallbackReason ?? "none"}`,
+          `scale_penalty=${scalePenalty.toFixed(2)}`,
+          `final_score=${finalScore.toFixed(3)}`,
+          `why_selected=${selected.whySelected ?? "editorial defaults"}`,
         ],
         scale,
         originalOverlaySize,
@@ -325,6 +385,10 @@ export function resolveMaskAwarePlacementWithScaleFallback(input: MaskAwarePlace
         scaleAttempts,
         selectedScale: scale,
         resolvedWithScaleFallback: allowScaleFallback && scale < 0.999,
+        layoutMode,
+        preferredZoneChosen: selectedWithPolicy.preferredZoneChosen,
+        fallbackUsed: selectedWithPolicy.fallbackUsed || emergencyAttempted,
+        fallbackReason: scale < 0.7 ? "scale_emergency" : selectedWithPolicy.fallbackReason,
       },
       scaleAttempts,
     };

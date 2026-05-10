@@ -5,6 +5,7 @@ import {
 } from "./hammerPolishPreviewTarget";
 import { evaluateMaskAwarePlacementCandidates, resolveMaskAwarePlacement, resolveMaskAwarePlacementWithScaleFallback } from "../features/auto-placement";
 import type { Rect as AutoPlacementRect } from "../features/auto-placement";
+import type { PlacementLayoutMode, PlacementZone } from "../features/auto-placement";
 import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
 
 function isTruthyDevToggle(value: string | null): boolean {
@@ -59,6 +60,10 @@ export type HammerAutoPlacementDiagnosticsState =
       originalOverlaySize: { width: number; height: number };
       resolvedOverlaySize: { width: number; height: number };
       reasonsSummary: string;
+      layoutMode: PlacementLayoutMode;
+      preferredZoneChosen: PlacementZone;
+      fallbackUsed: boolean;
+      fallbackReason: string | null;
     };
     ghost: null | {
       leftPct: number;
@@ -95,6 +100,10 @@ export type HammerAutoPlacementDiagnosticsState =
     candidateCount: number;
     rejectedCandidateCount: number;
     selectedScale: number | null;
+    layoutMode: PlacementLayoutMode | null;
+    preferredZoneChosen: PlacementZone | null;
+    fallbackUsed: boolean;
+    fallbackReason: string | null;
     scaleAttempts: Array<{
       scale: number;
       candidateCount: number;
@@ -263,6 +272,10 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       candidateCount: 0,
       rejectedCandidateCount: 0,
       selectedScale: null,
+      layoutMode: null,
+      preferredZoneChosen: null,
+      fallbackUsed: false,
+      fallbackReason: null,
       scaleAttempts: [],
       gates: gateSummary.gates,
       firstBlockingReason: gateSummary.firstBlockingReason,
@@ -291,58 +304,6 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
   const maskLabel = args.maskResolution
     ? `${Math.max(0, Math.round(args.maskResolution.width))}x${Math.max(0, Math.round(args.maskResolution.height))}`
     : "n/a";
-  if (!Array.isArray(normalizedSpeakerBounds) || normalizedSpeakerBounds.length === 0) {
-    const gateSummary = buildAutoPlacementGates({
-      workspaceLoaded: args.workspaceLoaded,
-      workspaceReason: args.workspaceReason,
-      playbackMediaReady: args.playbackMediaReady,
-      playbackMediaReason: args.playbackMediaReason,
-      currentFrameAvailable: true,
-      currentFrameReason: "frame input resolved",
-      segmentationMaskAvailable: false,
-      segmentationMaskReason: "mask bounds unavailable",
-      selectedVisualAssetAvailable: hasSelectedOverlayAsset,
-      selectedVisualAssetReason: hasSelectedOverlayAsset ? "selected overlay asset present" : "selected overlay asset missing",
-      placementEvaluationExecuted: false,
-      placementEvaluationReason: "blocked by missing mask bounds",
-      candidateGenerationExecuted: false,
-      candidateGenerationReason: "blocked by missing mask bounds",
-    });
-    const result: HammerAutoPlacementDiagnosticsState = {
-      enabled: true,
-      state: "no_mask_bounds",
-      statusLabel: "auto-placement: no mask bounds available",
-      overlay: null,
-      ghost: null,
-      paddedSpeakerBounds: [],
-      candidates: [],
-      frameLabel,
-      maskLabel,
-      debugFlagDetected: args.debugEnabled,
-      vmDiagnosticState: "present",
-      maskBoundsCount: 0,
-      selectedOverlayAssetPresent: Boolean(args.selectedOverlayForGhost?.hasRealAsset),
-      resolvedPlacementPresent: false,
-      candidateCount: 0,
-      rejectedCandidateCount: 0,
-      selectedScale: null,
-      scaleAttempts: [],
-      gates: gateSummary.gates,
-      firstBlockingReason: gateSummary.firstBlockingReason,
-      dependencyChain: gateSummary.dependencyChain,
-      upstream: {
-        workspaceId: args.workspaceId,
-        workpieceId: args.workpieceId,
-        episodeId: args.episodeId,
-        expectedMediaPath: args.expectedMediaPath,
-        actualMediaPath: args.actualMediaPath,
-        sourceDeskErrorRaw: args.sourceDeskErrorRaw,
-        playbackReadinessReason: args.playbackMediaReason,
-      },
-    };
-    if (trace) console.debug("[hammer][auto-placement][resolver] return", { reason: "no_mask_bounds", result });
-    return result;
-  }
   if (!hasSelectedOverlayAsset) {
     const gateSummary = buildAutoPlacementGates({
       workspaceLoaded: args.workspaceLoaded,
@@ -378,6 +339,10 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       candidateCount: 0,
       rejectedCandidateCount: 0,
       selectedScale: null,
+      layoutMode: null,
+      preferredZoneChosen: null,
+      fallbackUsed: false,
+      fallbackReason: null,
       scaleAttempts: [],
       gates: gateSummary.gates,
       firstBlockingReason: gateSummary.firstBlockingReason,
@@ -469,6 +434,10 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       candidateCount: candidates.length,
       rejectedCandidateCount,
       selectedScale: null,
+      layoutMode: null,
+      preferredZoneChosen: null,
+      fallbackUsed: false,
+      fallbackReason: null,
       scaleAttempts: placementResolution.scaleAttempts,
       gates: gateSummary.gates,
       firstBlockingReason: gateSummary.firstBlockingReason,
@@ -539,8 +508,8 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
     enabled: true,
     state: resolved.resolvedWithScaleFallback ? "resolved_with_scale_fallback" : "resolved",
     statusLabel: resolved.resolvedWithScaleFallback
-      ? `auto-placement: resolved_with_scale_fallback · ${resolved.zone} (${resolved.score.toFixed(2)}) · selectedScale:${(resolved.selectedScale ?? 1).toFixed(2)}`
-      : `auto-placement: ${resolved.zone} (${resolved.score.toFixed(2)})`,
+      ? `auto-placement: resolved_with_scale_fallback · ${resolved.layoutMode ?? "unknown"} · ${resolved.zone} (${resolved.score.toFixed(2)}) · selectedScale:${(resolved.selectedScale ?? 1).toFixed(2)}`
+      : `auto-placement: ${resolved.layoutMode ?? "unknown"} · ${resolved.zone} (${resolved.score.toFixed(2)})`,
     overlay: {
       leftPct: (resolved.rect.x / frameW) * 100,
       topPct: (resolved.rect.y / frameH) * 100,
@@ -573,6 +542,10 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       originalOverlaySize: resolved.originalOverlaySize ?? overlaySize,
       resolvedOverlaySize: resolved.resolvedOverlaySize ?? overlaySize,
       reasonsSummary: resolved.reasons.slice(0, 8).join(" · "),
+      layoutMode: resolved.layoutMode ?? "unknown",
+      preferredZoneChosen: resolved.preferredZoneChosen ?? resolved.zone,
+      fallbackUsed: Boolean(resolved.fallbackUsed),
+      fallbackReason: resolved.fallbackReason ?? null,
     },
     ghost,
     paddedSpeakerBounds,
@@ -587,6 +560,10 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
     candidateCount: candidates.length,
     rejectedCandidateCount,
     selectedScale: resolved.selectedScale ?? 1,
+    layoutMode: resolved.layoutMode ?? "unknown",
+    preferredZoneChosen: resolved.preferredZoneChosen ?? resolved.zone,
+    fallbackUsed: Boolean(resolved.fallbackUsed),
+    fallbackReason: resolved.fallbackReason ?? null,
     scaleAttempts: resolved.scaleAttempts ?? placementResolution.scaleAttempts,
     gates: gateSummary.gates,
     firstBlockingReason: gateSummary.firstBlockingReason,

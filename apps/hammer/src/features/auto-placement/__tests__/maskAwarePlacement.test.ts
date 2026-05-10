@@ -58,8 +58,21 @@ test("two-speaker avoidance", () => {
   }
 });
 
-test("repeated placement penalty shifts zone", () => {
+test("multi speaker prefers bottom-center", () => {
   const input = baseInput();
+  input.speakerMaskBounds = [
+    { x: 160, y: 180, width: 560, height: 740 },
+    { x: 1200, y: 180, width: 560, height: 740 },
+  ];
+  const result = resolveMaskAwarePlacement(input);
+  assert.ok(result);
+  assert.equal(result?.layoutMode, "multi_person");
+  assert.equal(result?.zone, "lower_center");
+});
+
+test("single-person recent history alternates side", () => {
+  const input = baseInput();
+  input.speakerMaskBounds = [{ x: 740, y: 120, width: 420, height: 760 }];
   input.selectionSeed = 0;
   const first = resolveMaskAwarePlacement(input);
   assert.ok(first);
@@ -85,17 +98,14 @@ test("no-safe-placement null return", () => {
   assert.equal(result, null);
 });
 
-test("top-k seeded variation is deterministic and seed-sensitive", () => {
+test("editorial selection remains deterministic for same seed", () => {
   const inputA = baseInput();
   inputA.selectionSeed = 1;
-  const inputB = baseInput();
-  inputB.selectionSeed = 2;
+  inputA.speakerMaskBounds = [{ x: 740, y: 120, width: 420, height: 760 }];
   const a1 = resolveMaskAwarePlacement(inputA);
   const a2 = resolveMaskAwarePlacement(inputA);
-  const b1 = resolveMaskAwarePlacement(inputB);
-  assert.ok(a1 && a2 && b1);
+  assert.ok(a1 && a2);
   assert.equal(a1.zone, a2.zone);
-  assert.ok(a1.zone !== b1.zone || a1.rect.x !== b1.rect.x || a1.rect.y !== b1.rect.y);
 });
 
 test("fixed-size no-safe-placement resolves when scale fallback allowed", () => {
@@ -109,6 +119,17 @@ test("fixed-size no-safe-placement resolves when scale fallback allowed", () => 
   assert.ok(result);
   assert.equal(result?.resolvedWithScaleFallback, true);
   assert.ok((result?.selectedScale ?? 1) < 1);
+});
+
+test("unknown mask falls back to bottom-right", () => {
+  const input = baseInput();
+  input.speakerMaskBounds = [];
+  const result = resolveMaskAwarePlacement(input);
+  assert.ok(result);
+  assert.equal(result?.layoutMode, "unknown");
+  assert.equal(result?.zone, "lower_right");
+  assert.equal(result?.fallbackUsed, true);
+  assert.equal(result?.fallbackReason, "no_mask_bounds");
 });
 
 test("does not scale when normal size fits", () => {
@@ -183,6 +204,36 @@ test("face or head overlap is hard rejected", () => {
     candidate: { zone: "upper_right", rect: { x: 780, y: 120, width: 420, height: 240 } },
   });
   assert.equal(faceOverlap, null);
+});
+
+test("single speaker prefers lower zones over upper corners", () => {
+  const input = baseInput();
+  input.speakerMaskBounds = [{ x: 740, y: 120, width: 420, height: 760 }];
+  input.selectionSeed = 1;
+  const result = resolveMaskAwarePlacement(input);
+  assert.ok(result);
+  assert.ok(result?.zone === "lower_left" || result?.zone === "lower_right");
+});
+
+test("single speaker alternates lower zones using recent placement history first", () => {
+  const input = baseInput();
+  input.speakerMaskBounds = [{ x: 740, y: 120, width: 420, height: 760 }];
+  input.recentPlacements = [{ zone: "lower_right", rect: { x: 0, y: 0, width: 420, height: 240 }, count: 1 }];
+  const result = resolveMaskAwarePlacement(input);
+  assert.ok(result);
+  assert.equal(result?.zone, "lower_left");
+});
+
+test("scale does not shrink below 0.7 unless necessary", () => {
+  const input = baseInput();
+  input.overlay = { width: 2050, height: 1200 };
+  input.speakerMaskBounds = [];
+  input.allowScaleFallback = true;
+  input.minScale = 0.5;
+  input.scaleSteps = [1, 0.9, 0.8, 0.7, 0.6, 0.5];
+  const result = resolveMaskAwarePlacement(input);
+  assert.ok(result);
+  assert.ok((result?.selectedScale ?? 1) >= 0.7);
 });
 
 test("larger readable scale beats tiny perfectly safe placement", () => {

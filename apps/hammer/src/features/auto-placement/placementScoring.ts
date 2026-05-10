@@ -15,6 +15,7 @@ import {
 const ZONE_PRIOR: Record<PlacementCandidate["zone"], number> = {
   upper_left: 0.16,
   upper_right: 0.16,
+  lower_center: 0.06,
   lower_left: 0.08,
   lower_right: 0.08,
   left_gutter: 0.12,
@@ -91,6 +92,15 @@ function deriveSpeakerRegionRects(speakerBounds: PlacementCandidate["rect"][]): 
       width: primary.width,
       height: Math.max(24, primary.height * 0.42),
     },
+  };
+}
+
+function deriveFaceHeadRect(rect: PlacementCandidate["rect"]): PlacementCandidate["rect"] {
+  return {
+    x: rect.x + (rect.width * 0.2),
+    y: rect.y + (rect.height * 0.02),
+    width: rect.width * 0.6,
+    height: Math.max(24, rect.height * 0.32),
   };
 }
 
@@ -252,9 +262,11 @@ export function candidateHardRejectReason(args: {
 }): string | null {
   if (!isRectInsideFrame(args.candidate.rect, args.input.frame)) return "outside_frame_or_invalid";
   if (rectIntersectsAny(args.candidate.rect, args.reservedZones)) return "intersects_reserved_zone";
-  const regions = deriveSpeakerRegionRects(args.speakerBounds);
-  if (regions.faceHead && intersectionArea(args.candidate.rect, regions.faceHead) > 0) {
-    return "covers_face_or_head_zone";
+  for (const speaker of args.speakerBounds) {
+    const faceHead = deriveFaceHeadRect(speaker);
+    if (intersectionArea(args.candidate.rect, faceHead) > 0) {
+      return "covers_face_or_head_zone";
+    }
   }
   return null;
 }

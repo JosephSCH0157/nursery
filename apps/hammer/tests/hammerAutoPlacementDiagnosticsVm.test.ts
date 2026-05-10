@@ -38,6 +38,12 @@ function testNoMaskBoundsWhenMissing() {
     frameInput: { width: 1920, height: 1080 },
     speakerMaskBounds: [],
     playheadSec: 12,
+    selectedOverlayForGhost: {
+      clipId: "clip-unknown",
+      hasRealAsset: true,
+      widthPct: 28,
+      heightPct: 24,
+    },
     maskResolution: { width: 1920, height: 1080 },
     workspaceLoaded: true,
     workspaceReason: "workspace context available",
@@ -46,9 +52,12 @@ function testNoMaskBoundsWhenMissing() {
   });
   assert.equal(result.enabled, true);
   if (result.enabled) {
-    assert.equal(result.state, "no_mask_bounds");
-    assert.equal(result.overlay, null);
-    assert.equal(result.statusLabel, "auto-placement: no mask bounds available");
+    assert.equal(result.state, "resolved");
+    assert.ok(result.overlay);
+    assert.equal(result.layoutMode, "unknown");
+    assert.equal(result.overlay?.zone, "lower_right");
+    assert.equal(result.fallbackUsed, true);
+    assert.equal(result.fallbackReason, "no_mask_bounds");
   }
 }
 
