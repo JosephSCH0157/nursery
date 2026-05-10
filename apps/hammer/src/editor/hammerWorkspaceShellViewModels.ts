@@ -43,7 +43,7 @@ export type HammerAutoPlacementDiagnosticsState =
   | { enabled: false }
   | {
     enabled: true;
-    state: "resolved" | "no_mask_bounds" | "no_safe_placement" | "no_frame_input";
+    state: "resolved" | "no_mask_bounds" | "no_safe_placement" | "no_frame_input" | "waiting_for_selected_overlay_asset";
     statusLabel: string;
     overlay: null | {
       leftPct: number;
@@ -95,6 +95,16 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       ghost: null,
     };
   }
+  const hasSelectedOverlayAsset = Boolean(args.selectedOverlayForGhost?.hasRealAsset);
+  if (!hasSelectedOverlayAsset) {
+    return {
+      enabled: true,
+      state: "waiting_for_selected_overlay_asset",
+      statusLabel: "auto-placement: debug enabled, waiting for selected overlay asset",
+      overlay: null,
+      ghost: null,
+    };
+  }
   const overlaySize = {
     width: Math.max(140, Math.round(args.frameInput.width * 0.22)),
     height: Math.max(90, Math.round(args.frameInput.height * 0.16)),
@@ -126,7 +136,7 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
     score: number;
     sourceClipId: string;
   } | null = null;
-  if (args.selectedOverlayForGhost?.hasRealAsset) {
+  if (hasSelectedOverlayAsset && args.selectedOverlayForGhost) {
     const selectedOverlayWidthPx = Math.max(120, Math.round((args.selectedOverlayForGhost.widthPct / 100) * frameW));
     const selectedOverlayHeightPx = Math.max(80, Math.round((args.selectedOverlayForGhost.heightPct / 100) * frameH));
     const ghostPlacement = resolveMaskAwarePlacement({
@@ -488,7 +498,7 @@ export function buildPreviewBayVM(args: any) {
   const hiddenSegmentationVideoMounted = segmentationSourceVideoRef !== args.previewVideoRef;
   const blurRuntime = args.visualBackgroundBlurRuntimeStatus ?? null;
   const autoPlacementDiagnosticsEnabled = shouldShowAutoPlacementDiagnostics();
-  const selectedOverlayForGhost = (args.activePreviewOverlays ?? []).find((overlay: any) => overlay?.selected && !!overlay?.src);
+  const selectedOverlayForGhost = (args.activePreviewOverlays ?? []).find((overlay: any) => overlay?.selected);
   const speakerMaskBounds: AutoPlacementRect[] = Array.isArray(blurRuntime?.mask?.speakerMaskBounds)
     ? blurRuntime.mask.speakerMaskBounds
     : [];

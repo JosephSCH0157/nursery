@@ -60,7 +60,7 @@ export type HammerWorkspaceShellPreviewBayVM = {
     | { enabled: false }
     | {
       enabled: true;
-      state: "resolved" | "no_mask_bounds" | "no_safe_placement" | "no_frame_input";
+      state: "resolved" | "no_mask_bounds" | "no_safe_placement" | "no_frame_input" | "waiting_for_selected_overlay_asset";
       statusLabel: string;
       overlay: null | {
         leftPct: number;
@@ -151,6 +151,29 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
       window.setTimeout(() => setCopyStatus(null), 2000);
     }
   }
+  const autoPlacementDebugEnabledFromQuery = (() => {
+    if (typeof window === "undefined") return false;
+    const params = new URLSearchParams(window.location.search ?? "");
+    const normalized = (value: string | null): boolean => {
+      if (!value) return false;
+      const trimmed = value.trim().toLowerCase();
+      return trimmed === "1" || trimmed === "true" || trimmed === "on" || trimmed === "yes";
+    };
+    return normalized(params.get("hammer_auto_placement_debug")) || normalized(params.get("tp_auto_placement_debug")) || normalized(params.get("tp_dev_mode"));
+  })();
+  const autoPlacementDiagnostics = vm.autoPlacementDiagnostics
+    ?? (autoPlacementDebugEnabledFromQuery
+      ? {
+        enabled: true as const,
+        state: "no_frame_input" as const,
+        statusLabel: "auto-placement: debug enabled, preview VM state missing",
+        overlay: null,
+        ghost: null,
+      }
+      : { enabled: false as const });
+  const showAutoPlacementStatusBadge = autoPlacementDiagnostics.enabled;
+  const showAutoPlacementSvg = autoPlacementDiagnostics.enabled
+    && (Boolean(autoPlacementDiagnostics.overlay) || Boolean(autoPlacementDiagnostics.ghost));
   return (
     <>
       <header className="hammer-bay-head">
@@ -242,49 +265,50 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
               }
             }}
           />
-          {vm.autoPlacementDiagnostics.enabled ? (
-            vm.autoPlacementDiagnostics.overlay ? (
+          {showAutoPlacementSvg ? (
               <svg className="hammer-preview-auto-placement-overlay" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none">
-                <rect
-                  className="hammer-preview-auto-placement-overlay__zone"
-                  x={vm.autoPlacementDiagnostics.overlay.leftPct}
-                  y={vm.autoPlacementDiagnostics.overlay.topPct}
-                  width={vm.autoPlacementDiagnostics.overlay.widthPct}
-                  height={vm.autoPlacementDiagnostics.overlay.heightPct}
-                />
-                <text
-                  className="hammer-preview-auto-placement-overlay__label"
-                  x={vm.autoPlacementDiagnostics.overlay.leftPct}
-                  y={Math.max(3, vm.autoPlacementDiagnostics.overlay.topPct - 1.2)}
-                >
-                  auto {vm.autoPlacementDiagnostics.overlay.zone} · {vm.autoPlacementDiagnostics.overlay.score.toFixed(2)}
-                </text>
-                {vm.autoPlacementDiagnostics.ghost ? (
+                {autoPlacementDiagnostics.overlay ? (
+                  <>
+                    <rect
+                      className="hammer-preview-auto-placement-overlay__zone"
+                      x={autoPlacementDiagnostics.overlay.leftPct}
+                      y={autoPlacementDiagnostics.overlay.topPct}
+                      width={autoPlacementDiagnostics.overlay.widthPct}
+                      height={autoPlacementDiagnostics.overlay.heightPct}
+                    />
+                    <text
+                      className="hammer-preview-auto-placement-overlay__label"
+                      x={autoPlacementDiagnostics.overlay.leftPct}
+                      y={Math.max(3, autoPlacementDiagnostics.overlay.topPct - 1.2)}
+                    >
+                      auto {autoPlacementDiagnostics.overlay.zone} · {autoPlacementDiagnostics.overlay.score.toFixed(2)}
+                    </text>
+                  </>
+                ) : null}
+                {autoPlacementDiagnostics.ghost ? (
                   <>
                     <rect
                       className="hammer-preview-auto-placement-overlay__ghost"
-                      x={vm.autoPlacementDiagnostics.ghost.leftPct}
-                      y={vm.autoPlacementDiagnostics.ghost.topPct}
-                      width={vm.autoPlacementDiagnostics.ghost.widthPct}
-                      height={vm.autoPlacementDiagnostics.ghost.heightPct}
+                      x={autoPlacementDiagnostics.ghost.leftPct}
+                      y={autoPlacementDiagnostics.ghost.topPct}
+                      width={autoPlacementDiagnostics.ghost.widthPct}
+                      height={autoPlacementDiagnostics.ghost.heightPct}
                     />
                     <text
                       className="hammer-preview-auto-placement-overlay__ghost-label"
-                      x={vm.autoPlacementDiagnostics.ghost.leftPct}
-                      y={Math.max(3, vm.autoPlacementDiagnostics.ghost.topPct - 1.2)}
+                      x={autoPlacementDiagnostics.ghost.leftPct}
+                      y={Math.max(3, autoPlacementDiagnostics.ghost.topPct - 1.2)}
                     >
-                      ghost {vm.autoPlacementDiagnostics.ghost.zone} · {vm.autoPlacementDiagnostics.ghost.score.toFixed(2)}
+                      ghost {autoPlacementDiagnostics.ghost.zone} · {autoPlacementDiagnostics.ghost.score.toFixed(2)}
                     </text>
                   </>
                 ) : null}
               </svg>
-            ) : (
-              <div
-                className="hammer-preview-matte-overlay hammer-preview-matte-overlay--auto-placement-status"
-              >
-                {vm.autoPlacementDiagnostics.statusLabel}
-              </div>
-            )
+          ) : null}
+          {showAutoPlacementStatusBadge ? (
+            <div className="hammer-preview-auto-placement-status-badge">
+              {autoPlacementDiagnostics.statusLabel}
+            </div>
           ) : null}
         </div>
         <div className="hammer-preview-meta">
