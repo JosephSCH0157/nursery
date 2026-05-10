@@ -1699,11 +1699,21 @@ function emitSafeTargetHeld(args: {
   semanticTarget?: number;
   visualTarget?: number;
 }) {
+  const elapsedMs = Math.max(0, Math.round(Number(args.elapsedMs || 0)));
+  const thresholdMs = Math.max(0, Math.round(Number(args.thresholdMs || 0)));
+  const hardContradiction = !!args.hardContradiction;
   try {
     console.warn(
-      `[ASR_SAFE_TARGET_HELD] current=${args.current} target=${args.target} authority=${args.authority || 'unknown'} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} elapsedMs=${Math.max(0, Math.round(Number(args.elapsedMs || 0)))} thresholdMs=${Math.max(0, Math.round(Number(args.thresholdMs || 0)))} blocker=${args.blocker} blockerReason=${args.blockerReason} hardContradiction=${args.hardContradiction ? 1 : 0} visualTarget=${Number.isFinite(args.visualTarget as number) ? args.visualTarget : args.target} semanticTarget=${Number.isFinite(args.semanticTarget as number) ? args.semanticTarget : args.target}`,
+      `[ASR_SAFE_TARGET_HELD] current=${args.current} target=${args.target} authority=${args.authority || 'unknown'} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} elapsedMs=${elapsedMs} thresholdMs=${thresholdMs} blocker=${args.blocker} blockerReason=${args.blockerReason} hardContradiction=${hardContradiction ? 1 : 0} visualTarget=${Number.isFinite(args.visualTarget as number) ? args.visualTarget : args.target} semanticTarget=${Number.isFinite(args.semanticTarget as number) ? args.semanticTarget : args.target}`,
     );
   } catch {}
+  if (!hardContradiction && thresholdMs > 0 && elapsedMs > thresholdMs) {
+    try {
+      console.warn(
+        `[ASR_SAFE_TARGET_OVERDUE] current=${args.current} target=${args.target} authority=${args.authority || 'unknown'} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} elapsedMs=${elapsedMs} thresholdMs=${thresholdMs} blocker=${args.blocker} blockerReason=${args.blockerReason} visualTarget=${Number.isFinite(args.visualTarget as number) ? args.visualTarget : args.target} semanticTarget=${Number.isFinite(args.semanticTarget as number) ? args.semanticTarget : args.target}`,
+      );
+    } catch {}
+  }
 }
 
 function warnAsrNanGuard(
@@ -6556,6 +6566,88 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     };
   };
 
+  const commitLiveAsrSafeStep = (args: {
+    current: number;
+    requestedTarget: number;
+    semanticTarget: number;
+    visualTarget?: number;
+    authority?: string;
+    proofSource?: string;
+    sourceBranch?: string;
+    hardContradiction?: boolean;
+    speechRunningActual?: boolean;
+    finalPacketFresh?: boolean;
+    stallMs?: number;
+    noCommitMs?: number;
+    bypassedBlockers?: string;
+    reason: string;
+    emitSameLineReleased?: boolean;
+    emitVisibleBridgeBypass?: boolean;
+  }): { accepted: boolean; target: number; thresholdMs: number; actualDelayMs: number; commitTs: number } => {
+    const commitTs = Date.now();
+    const current = Math.max(0, Math.floor(Number(args.current) || 0));
+    const requestedTarget = Math.max(current, Math.floor(Number(args.requestedTarget) || current));
+    const semanticTargetRaw = Math.max(current, Math.floor(Number(args.semanticTarget) || current));
+    const visualTarget = Math.max(current, Math.floor(Number(args.visualTarget ?? semanticTargetRaw) || semanticTargetRaw));
+    const hardContradiction = !!args.hardContradiction;
+    const repeatedHoldReasons = new Set([
+      'same_line_noop',
+      'live_strict_rescue_hold_no_local_proof',
+      'cue_stall_rescue_blocked',
+      'asr_recovery_skip_non_adjacent_target',
+      'asr_recovery_skip_tracking_healthy',
+      'asr_live_no_adjacent_match_hold',
+      'asr_recovery_chain_blocked',
+      'asr_live_visible_bridge_step_cap',
+      'asr_forward_drift_clamp_hold',
+      'asr_alignment_skeptic_forward_rejected',
+    ]);
+    const repeatedHoldCount = guardEvents.reduce(
+      (count, entry) => count + (repeatedHoldReasons.has(String(entry?.reason || '')) ? 1 : 0),
+      0,
+    );
+    const thresholdMs = repeatedHoldCount > 2 ? 600 : 900;
+    const actualDelayMs = Math.max(0, Math.round(Number(args.noCommitMs ?? args.stallMs ?? 0)));
+    const speechFresh = !!args.speechRunningActual || !!args.finalPacketFresh;
+    const hasAuthority = args.authority === 'proof' || args.authority === 'reconcile';
+    const reducedTarget = resolveForwardSpeakableTarget(current, semanticTargetRaw, 1);
+    const nextSpeakable = resolveLiveStrictNextSpeakableStep(current, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN)?.targetLine ?? null;
+    const safeAdjacentOrBridge =
+      reducedTarget > current &&
+      reducedTarget <= requestedTarget &&
+      (reducedTarget === current + 1 || (nextSpeakable != null && reducedTarget === nextSpeakable));
+    const accepted =
+      getScrollMode() === 'asr' &&
+      isSessionLivePhase() &&
+      isSessionAsrArmed() &&
+      speechFresh &&
+      hasAuthority &&
+      safeAdjacentOrBridge &&
+      !hardContradiction &&
+      actualDelayMs >= thresholdMs;
+    if (!accepted) {
+      return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
+    }
+    const eligibleAtMs = Math.max(0, commitTs - thresholdMs);
+    const waitAfterEligibilityMs = Math.max(0, actualDelayMs - thresholdMs);
+    try {
+      if (args.emitSameLineReleased) {
+        console.warn(
+          `[ASR_SAME_LINE_TRAP_RELEASED] current=${current} target=${reducedTarget} bestIdx=${current} fallbackTarget=${reducedTarget} tailProofUsed=0 transcriptGrowing=1 heldMs=${actualDelayMs} thresholdMs=${thresholdMs} reason=same_line_noop_live_release`,
+        );
+      }
+      if (args.emitVisibleBridgeBypass) {
+        console.warn(
+          `[ASR_VISIBLE_BRIDGE_CAP_BYPASSED_TERMINAL] current=${current} target=${reducedTarget} semanticTarget=${semanticTargetRaw} visualTarget=${visualTarget} skippedIgnorableLines=[] reason=live_safe_terminal`,
+        );
+      }
+      console.warn(
+        `[ASR_LIVE_FINAL_COMMIT] current=${current} target=${reducedTarget} semanticTarget=${semanticTargetRaw} visualTarget=${visualTarget} authority=${args.authority || 'unknown'} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} eligibleAtMs=${eligibleAtMs} committedAtMs=${commitTs} waitAfterEligibilityMs=${waitAfterEligibilityMs} thresholdMs=${thresholdMs} bypassedBlockers=${args.bypassedBlockers || 'none'} finalAuthority=1 hardContradiction=0 reason=${args.reason}`,
+      );
+    } catch {}
+    return { accepted: true, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
+  };
+
   const allowAsrReaderLeashAdvance = (args: {
     currentLine: number;
     targetLine: number;
@@ -6770,6 +6862,32 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       speakableDistanceAhead > ASR_READER_LEASH_MAX_READABLE_AHEAD &&
       !targetHasFreshProof
     ) {
+      const driftClampTerminal = commitLiveAsrSafeStep({
+        current: safeCurrent,
+        requestedTarget: safeTarget,
+        semanticTarget: safeTarget,
+        visualTarget: safeTarget,
+        authority: 'proof',
+        proofSource: proofSource || 'none',
+        sourceBranch: sourceBranch || source || 'unknown',
+        hardContradiction: false,
+        speechRunningActual: speechRunning === true,
+        finalPacketFresh: false,
+        stallMs: resolvedStarvationMs >= 0 ? resolvedStarvationMs : 0,
+        noCommitMs: resolvedStarvationMs >= 0 ? resolvedStarvationMs : 0,
+        bypassedBlockers: 'forward_drift_clamp',
+        reason: 'final_live_safe_step',
+      });
+      if (driftClampTerminal.accepted) {
+        warnGuard('asr_forward_drift_clamp_live_unleashed', [
+          `current=${safeCurrent}`,
+          `requestedTarget=${safeTarget}`,
+          `terminalTarget=${driftClampTerminal.target}`,
+          `thresholdMs=${driftClampTerminal.thresholdMs}`,
+          `actualDelayMs=${driftClampTerminal.actualDelayMs}`,
+        ]);
+        return true;
+      }
       warnGuard('asr_forward_drift_clamp_hold', [
         `current=${safeCurrent}`,
         `requestedTarget=${safeTarget}`,
@@ -6830,11 +6948,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         `sourceBranch=${sourceBranch || 'unknown'}`,
         `proofSource=${proofSource || 'unknown'}`,
       ]);
+      const actualDelayMs = resolvedStarvationMs >= 0 ? resolvedStarvationMs : 0;
+      const terminal = commitLiveAsrSafeStep({
+        current: safeCurrent,
+        requestedTarget: safeTarget,
+        semanticTarget: safeTarget,
+        visualTarget: safeTarget,
+        authority: 'proof',
+        proofSource: proofSource || 'none',
+        sourceBranch: sourceBranch || 'unknown',
+        hardContradiction: false,
+        speechRunningActual: speechRunning === true,
+        finalPacketFresh: false,
+        stallMs: actualDelayMs,
+        noCommitMs: actualDelayMs,
+        bypassedBlockers: 'reader_leash',
+        reason: 'final_live_safe_step',
+      });
       try {
-        const actualDelayMs = resolvedStarvationMs >= 0 ? resolvedStarvationMs : 0;
-        const thresholdMs = 900;
-        console.warn(`[ASR_LIVE_UNLEASHED_STEP] current=${safeCurrent} target=${safeTarget} semanticTarget=${safeTarget} visualTarget=${safeTarget} authority=proof sourceBranch=${sourceBranch || 'unknown'} proofSource=${proofSource || 'none'} skippedIgnorableLines=[] bridgeSafe=${strictNextSpeakable != null && safeTarget === strictNextSpeakable ? 1 : 0} bypassedLeash=1 bypassedCooldown=0 bypassedPendingVisualCap=0 stallMs=${actualDelayMs} noCommitMs=${actualDelayMs} thresholdMs=${thresholdMs} actualDelayMs=${actualDelayMs} reason=reader_leash_live_unleashed`);
-        console.warn(`[ASR_LIVE_FINAL_COMMIT] current=${safeCurrent} target=${safeTarget} semanticTarget=${safeTarget} visualTarget=${safeTarget} authority=proof proofSource=${proofSource || 'none'} sourceBranch=${sourceBranch || 'unknown'} thresholdMs=${thresholdMs} actualDelayMs=${actualDelayMs} bypassedBlockers=reader_leash hardContradiction=0 reason=final_live_safe_step`);
+        console.warn(`[ASR_LIVE_UNLEASHED_STEP] current=${safeCurrent} target=${safeTarget} semanticTarget=${safeTarget} visualTarget=${safeTarget} authority=proof sourceBranch=${sourceBranch || 'unknown'} proofSource=${proofSource || 'none'} skippedIgnorableLines=[] bridgeSafe=${strictNextSpeakable != null && safeTarget === strictNextSpeakable ? 1 : 0} bypassedLeash=1 bypassedCooldown=0 bypassedPendingVisualCap=0 stallMs=${actualDelayMs} noCommitMs=${actualDelayMs} thresholdMs=${terminal.thresholdMs} actualDelayMs=${actualDelayMs} reason=reader_leash_live_unleashed`);
       } catch {}
       return true;
     }
@@ -13410,6 +13542,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         strictBacklogDrainAppliedSteps > 0 &&
         targetLine > adjacentLine;
       if (liveStrictFollow && multiJumpDelta > 1 && !pendingSpeakableBridgeCompletion) {
+        let bypassedPendingVisualCapTerminal = false;
         const visibleStepTarget = resolveLiveVisibleForwardTarget(
           lastLineIndex,
           targetLine,
@@ -13436,20 +13569,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 'reason=live_asr_bypass_non_speakable_visual_cap',
               ]);
               const noCommitDelayMs = Math.max(0, now - lastCommitTime);
-              const repeatedHoldReasons = new Set([
-                'live_strict_rescue_hold_no_local_proof',
-                'cue_stall_rescue_blocked',
-                'asr_recovery_skip_non_adjacent_target',
-                'asr_recovery_skip_tracking_healthy',
-                'asr_live_no_adjacent_match_hold',
-              ]);
-              const repeatedHoldCount = guardEvents.reduce((count, entry) =>
-                count + (repeatedHoldReasons.has(String(entry?.reason || '')) ? 1 : 0), 0);
-              const thresholdMs = repeatedHoldCount > 2 ? 600 : 900;
+              const terminal = commitLiveAsrSafeStep({
+                current: lastLineIndex,
+                requestedTarget: targetLine,
+                semanticTarget: targetLine,
+                visualTarget: targetLine,
+                authority: movementAuthority,
+                proofSource: pendingProofSource || movementAuthorityProofSource || 'none',
+                sourceBranch: pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown',
+                hardContradiction: !!strictBackwardContradictionForCommit && !liveSpeechForwardPushBackwardContradictionOverriddenByTail,
+                speechRunningActual: asrRuntimeSpeechRunningActual,
+                finalPacketFresh: runtimeSpeechFresh,
+                stallMs: Math.max(0, now - lastForwardCommitAt),
+                noCommitMs: noCommitDelayMs,
+                bypassedBlockers: 'pending_visual_cap',
+                reason: 'final_live_safe_step',
+                emitVisibleBridgeBypass: true,
+              });
               try {
-                console.warn(`[ASR_LIVE_UNLEASHED_STEP] current=${lastLineIndex} target=${targetLine} semanticTarget=${targetLine} visualTarget=${targetLine} authority=${movementAuthority} proofSource=${pendingProofSource || movementAuthorityProofSource || 'none'} sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown'} skippedIgnorableLines=[] bridgeSafe=1 bypassedLeash=0 bypassedCooldown=0 bypassedPendingVisualCap=1 stallMs=${Math.max(0, now - lastForwardCommitAt)} noCommitMs=${noCommitDelayMs} thresholdMs=${thresholdMs} actualDelayMs=${noCommitDelayMs} reason=pending_visual_cap_live_unleashed`);
-                console.warn(`[ASR_LIVE_FINAL_COMMIT] current=${lastLineIndex} target=${targetLine} semanticTarget=${targetLine} visualTarget=${targetLine} authority=${movementAuthority} proofSource=${pendingProofSource || movementAuthorityProofSource || 'none'} sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown'} thresholdMs=${thresholdMs} actualDelayMs=${noCommitDelayMs} bypassedBlockers=pending_visual_cap hardContradiction=0 reason=final_live_safe_step`);
+                console.warn(`[ASR_LIVE_UNLEASHED_STEP] current=${lastLineIndex} target=${targetLine} semanticTarget=${targetLine} visualTarget=${targetLine} authority=${movementAuthority} proofSource=${pendingProofSource || movementAuthorityProofSource || 'none'} sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown'} skippedIgnorableLines=[] bridgeSafe=1 bypassedLeash=0 bypassedCooldown=0 bypassedPendingVisualCap=1 stallMs=${Math.max(0, now - lastForwardCommitAt)} noCommitMs=${noCommitDelayMs} thresholdMs=${terminal.thresholdMs} actualDelayMs=${noCommitDelayMs} reason=pending_visual_cap_live_unleashed`);
               } catch {}
+              bypassedPendingVisualCapTerminal = true;
             } else {
             const reducedLineEl = getLineElementByIndex(scroller, visibleStepTarget);
             const reducedLineTopRaw = computeLineTargetTop(scroller, reducedLineEl);
@@ -13513,6 +13653,29 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             }
             }
           }
+          if (bypassedPendingVisualCapTerminal) {
+            // Terminal live-safe path: do not let visible bridge cap re-hold this commit.
+          } else {
+          const visibleCapTerminal = commitLiveAsrSafeStep({
+            current: lastLineIndex,
+            requestedTarget: targetLine,
+            semanticTarget: targetLine,
+            visualTarget: targetLine,
+            authority: movementAuthority,
+            proofSource: pendingProofSource || movementAuthorityProofSource || 'none',
+            sourceBranch: pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown',
+            hardContradiction: !!strictBackwardContradictionForCommit && !liveSpeechForwardPushBackwardContradictionOverriddenByTail,
+            speechRunningActual: asrRuntimeSpeechRunningActual,
+            finalPacketFresh: runtimeSpeechFresh,
+            stallMs: Math.max(0, now - lastForwardCommitAt),
+            noCommitMs: Math.max(0, now - lastCommitTime),
+            bypassedBlockers: 'visible_bridge_step_cap',
+            reason: 'final_live_safe_step',
+            emitVisibleBridgeBypass: true,
+          });
+          if (visibleCapTerminal.accepted) {
+            bypassedPendingVisualCapTerminal = true;
+          } else {
           warnGuard('asr_live_visible_bridge_step_cap', [
             `current=${lastLineIndex}`,
             `requested=${targetLine}`,
@@ -13541,6 +13704,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           if (reducedLineSpeakable) {
             targetLine = visibleStepTarget;
             multiJumpDelta = targetLine - lastLineIndex;
+          }
+          }
           }
         }
       }
@@ -14084,6 +14249,30 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               ? 'needs_tokens_or_sustained_speech'
               : '';
         if (rejectReason) {
+          const skepticTerminal = commitLiveAsrSafeStep({
+            current: lastLineIndex,
+            requestedTarget: targetLine,
+            semanticTarget: targetLine,
+            visualTarget: targetLine,
+            authority: movementAuthority,
+            proofSource: movementAuthorityProofSource || 'none',
+            sourceBranch: movementAuthoritySourceBranch || 'unknown',
+            hardContradiction: !!strictBackwardContradictionForCommit && !liveSpeechForwardPushBackwardContradictionOverriddenByTail,
+            speechRunningActual: asrRuntimeSpeechRunningActual,
+            finalPacketFresh: runtimeSpeechFresh,
+            stallMs: Math.max(0, now - lastForwardCommitAt),
+            noCommitMs: Math.max(0, now - lastCommitTime),
+            bypassedBlockers: 'alignment_skeptic',
+            reason: 'final_live_safe_step',
+          });
+          if (skepticTerminal.accepted) {
+            warnGuard('asr_alignment_skeptic_live_unleashed', [
+              `current=${lastLineIndex}`,
+              `target=${skepticTerminal.target}`,
+              `thresholdMs=${skepticTerminal.thresholdMs}`,
+              `actualDelayMs=${skepticTerminal.actualDelayMs}`,
+            ]);
+          } else {
           if (recoveryLandingHoldActive) {
             warnGuard('asr_recovery_chain_blocked', [
               `current=${lastLineIndex}`,
@@ -14120,6 +14309,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           });
           emitHudStatus('asr_alignment_skeptic_forward_rejected', 'Hold: re-aligning after recovery');
           return;
+          }
         }
       }
       const directAdjacentCandidate = rankedTopScores.find((entry) => entry.idx === targetLine) || null;
@@ -15610,20 +15800,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           hasForwardEvidence &&
           rebaseForwardCappedIdx > currentForSoftRuntimeRebase;
         if (cooldownLiveUnleashAllowed && retryText) {
+          const terminal = commitLiveAsrSafeStep({
+            current: currentForSoftRuntimeRebase,
+            requestedTarget: rebaseForwardCappedIdx,
+            semanticTarget: rebaseForwardCappedIdx,
+            visualTarget: rebaseForwardCappedIdx,
+            authority: 'proof',
+            proofSource: softRuntimeRebaseForwardLexicalFallback?.proofSource || 'starvation_best_sim',
+            sourceBranch: 'soft_runtime_rebase',
+            hardContradiction: false,
+            speechRunningActual: asrRuntimeSpeechRunningActual,
+            finalPacketFresh: hasRecentFinalTranscript,
+            stallMs: starvationMsForSoftRuntimeRebase,
+            noCommitMs: noCommitMsForSoftRuntimeRebase,
+            bypassedBlockers: 'cooldown',
+            reason: 'final_live_safe_step',
+          });
           try {
-            const repeatedHoldReasons = new Set([
-              'live_strict_rescue_hold_no_local_proof',
-              'cue_stall_rescue_blocked',
-              'asr_recovery_skip_non_adjacent_target',
-              'asr_recovery_skip_tracking_healthy',
-              'asr_live_no_adjacent_match_hold',
-            ]);
-            const repeatedHoldCount = guardEvents.reduce((count, entry) =>
-              count + (repeatedHoldReasons.has(String(entry?.reason || '')) ? 1 : 0), 0);
-            const thresholdMs = repeatedHoldCount > 2 ? 600 : 900;
             console.warn(`[ASR_COOLDOWN_LIVE_UNLEASHED] current=${currentForSoftRuntimeRebase} target=${rebaseForwardCappedIdx} cooldownMs=${cooldownRemainingMs} noCommitMs=${noCommitMsForSoftRuntimeRebase} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`);
-            console.warn(`[ASR_LIVE_UNLEASHED_STEP] current=${currentForSoftRuntimeRebase} target=${rebaseForwardCappedIdx} semanticTarget=${rebaseForwardCappedIdx} visualTarget=${rebaseForwardCappedIdx} authority=proof proofSource=${softRuntimeRebaseForwardLexicalFallback?.proofSource || 'starvation_best_sim'} sourceBranch=soft_runtime_rebase skippedIgnorableLines=[] bridgeSafe=${rebaseForwardCappedIdx > currentForSoftRuntimeRebase + 1 ? 1 : 0} bypassedLeash=0 bypassedCooldown=1 bypassedPendingVisualCap=0 stallMs=${starvationMsForSoftRuntimeRebase} noCommitMs=${noCommitMsForSoftRuntimeRebase} thresholdMs=${thresholdMs} actualDelayMs=${noCommitMsForSoftRuntimeRebase} reason=cooldown_live_unleashed`);
-            console.warn(`[ASR_LIVE_FINAL_COMMIT] current=${currentForSoftRuntimeRebase} target=${rebaseForwardCappedIdx} semanticTarget=${rebaseForwardCappedIdx} visualTarget=${rebaseForwardCappedIdx} authority=proof proofSource=${softRuntimeRebaseForwardLexicalFallback?.proofSource || 'starvation_best_sim'} sourceBranch=soft_runtime_rebase thresholdMs=${thresholdMs} actualDelayMs=${noCommitMsForSoftRuntimeRebase} bypassedBlockers=cooldown hardContradiction=0 reason=final_live_safe_step`);
+            console.warn(`[ASR_LIVE_UNLEASHED_STEP] current=${currentForSoftRuntimeRebase} target=${rebaseForwardCappedIdx} semanticTarget=${rebaseForwardCappedIdx} visualTarget=${rebaseForwardCappedIdx} authority=proof proofSource=${softRuntimeRebaseForwardLexicalFallback?.proofSource || 'starvation_best_sim'} sourceBranch=soft_runtime_rebase skippedIgnorableLines=[] bridgeSafe=${rebaseForwardCappedIdx > currentForSoftRuntimeRebase + 1 ? 1 : 0} bypassedLeash=0 bypassedCooldown=1 bypassedPendingVisualCap=0 stallMs=${starvationMsForSoftRuntimeRebase} noCommitMs=${noCommitMsForSoftRuntimeRebase} thresholdMs=${terminal.thresholdMs} actualDelayMs=${noCommitMsForSoftRuntimeRebase} reason=cooldown_live_unleashed`);
           } catch {}
           const catchupMatch: MatchResult = {
             ...(incomingMatch as any),
@@ -17224,6 +17419,58 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             maybeSkipCueLine(cursorLine, now, guardReason, snippet, topScoresSpeakable, requiredThreshold)
           ) {
             return;
+          }
+          if (guardReason === 'same_line_noop') {
+            const nextSpeakableTarget = resolveForwardSpeakableTarget(
+              cursorLine,
+              cursorLine + DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES,
+              1,
+            );
+            const finalPacketFresh =
+              lastFinalTranscriptAt > 0 &&
+              now - lastFinalTranscriptAt <= 1800;
+            const transcriptGrowing =
+              lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength ||
+              lastFinalTranscriptAt > lastCommitTranscriptTimestamp;
+            const repeatedHoldReasons = new Set([
+              'same_line_noop',
+              'live_strict_rescue_hold_no_local_proof',
+              'cue_stall_rescue_blocked',
+              'asr_recovery_skip_non_adjacent_target',
+              'asr_recovery_skip_tracking_healthy',
+            ]);
+            const repeatedHoldCount = guardEvents.reduce((count, entry) =>
+              count + (repeatedHoldReasons.has(String(entry?.reason || '')) ? 1 : 0), 0);
+            const thresholdMs = repeatedHoldCount > 2 ? 600 : 900;
+            const heldMs = Math.max(0, now - lastCommitTime);
+            const localProofReady =
+              nextSpeakableTarget > cursorLine &&
+              (asrRuntimeSpeechRunningActual || finalPacketFresh) &&
+              transcriptGrowing &&
+              heldMs >= thresholdMs;
+            if (localProofReady) {
+              const terminal = commitLiveAsrSafeStep({
+                current: cursorLine,
+                requestedTarget: nextSpeakableTarget,
+                semanticTarget: nextSpeakableTarget,
+                visualTarget: nextSpeakableTarget,
+                authority: 'proof',
+                proofSource: 'same_line_noop_fallback',
+                sourceBranch: 'same_line_noop',
+                hardContradiction: false,
+                speechRunningActual: asrRuntimeSpeechRunningActual,
+                finalPacketFresh,
+                stallMs: heldMs,
+                noCommitMs: heldMs,
+                bypassedBlockers: 'same_line_noop',
+                reason: 'final_live_safe_step',
+                emitSameLineReleased: true,
+              });
+              if (terminal.accepted) {
+                rawIdx = terminal.target;
+                conf = Math.max(conf, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM);
+              }
+            }
           }
           warnGuard(guardReason, [
             `current=${cursorLine}`,
