@@ -3163,6 +3163,23 @@ Guardrails:
   margin-bottom: 8px;
 }
 
+.hammer-toolbay-live-marker {
+  margin-left: 10px;
+  padding: 2px 8px;
+  border: 2px solid #bef264;
+  border-radius: 999px;
+  background: rgba(190, 242, 100, 0.2);
+  color: #bef264;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.hammer-toolbay-live-marker--inline {
+  display: inline-block;
+  margin: 6px 0 10px;
+}
+
 .hammer-preview-eye-contact-canvas {
   position: absolute;
   inset: 0;

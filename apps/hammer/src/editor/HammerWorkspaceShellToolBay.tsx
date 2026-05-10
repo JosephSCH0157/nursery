@@ -438,6 +438,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
     <>
       <header className="hammer-bay-head">
         <strong>Tool Rack</strong>
+        <span className="hammer-toolbay-live-marker">TOOLBAY FILE IS LIVE</span>
         <div className="hammer-pass-head">
           <span>{vm.passLabel}</span>
           <span className={`hammer-pass-badge hammer-pass-badge--${vm.passStatus}`}>
@@ -2808,6 +2809,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                 ) : activeVisualTool === "images" ? (
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Image Placement</header>
+                    <div className="hammer-toolbay-live-marker hammer-toolbay-live-marker--inline">TOOLBAY FILE IS LIVE</div>
                     {autoPlacementDebugEnabled ? (
                       <div className="hammer-dev-auto-preview-controls">
                         <div className="hammer-dev-auto-preview-controls__title">DEV AUTO PREVIEW CONTROLS</div>
