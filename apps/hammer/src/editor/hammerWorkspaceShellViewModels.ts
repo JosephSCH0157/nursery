@@ -881,7 +881,18 @@ export function buildPreviewBayVM(args: any) {
   const hiddenSegmentationVideoMounted = segmentationSourceVideoRef !== args.previewVideoRef;
   const blurRuntime = args.visualBackgroundBlurRuntimeStatus ?? null;
   const autoPlacementDiagnosticsEnabled = shouldShowAutoPlacementDiagnostics();
-  const selectedOverlayForGhost = (args.activePreviewOverlays ?? []).find((overlay: any) => overlay?.selected);
+  const selectedOverlayForGhostFromPreview = (args.activePreviewOverlays ?? []).find((overlay: any) => overlay?.selected);
+  const selectedOverlayForGhostFromPlacement = args.selectedImagePlacement
+    ? {
+      clip_id: String(args.selectedImagePlacement.id ?? ""),
+      src: null,
+      asset_path: args.selectedImagePlacement.assetPath ?? null,
+      asset_id: args.selectedImagePlacement.asset_id ?? null,
+      width_pct: Number(args.selectedImagePlacementTransform?.widthPct ?? 22),
+      height_pct: Number(args.selectedImagePlacementTransform?.heightPct ?? 16),
+    }
+    : null;
+  const selectedOverlayForGhost = selectedOverlayForGhostFromPreview ?? selectedOverlayForGhostFromPlacement;
   const speakerMaskBounds: AutoPlacementRect[] = Array.isArray(blurRuntime?.mask?.speakerMaskBounds)
     ? blurRuntime.mask.speakerMaskBounds
     : [];
@@ -903,7 +914,11 @@ export function buildPreviewBayVM(args: any) {
     selectedOverlayForGhost: selectedOverlayForGhost
       ? {
         clipId: String(selectedOverlayForGhost.clip_id ?? ""),
-        hasRealAsset: Boolean(selectedOverlayForGhost.src),
+        hasRealAsset: Boolean(
+          selectedOverlayForGhost.src
+          || selectedOverlayForGhost.asset_path
+          || selectedOverlayForGhost.asset_id,
+        ),
         widthPct: Number(selectedOverlayForGhost.width_pct ?? 0),
         heightPct: Number(selectedOverlayForGhost.height_pct ?? 0),
       }

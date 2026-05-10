@@ -6,6 +6,8 @@ export interface VisualPreviewOverlayModel {
   label: string;
   kind: "image" | "broll";
   src: string | null;
+  asset_path?: string | null;
+  asset_id?: string | null;
   left_pct: number;
   top_pct: number;
   width_pct: number;
