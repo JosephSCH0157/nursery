@@ -209,6 +209,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
     resolverStatus: string;
     resolverReason: string;
   } | undefined;
+  const episodeHealthSnapshot = ctx.episodeHealthSnapshot as Record<string, unknown> | undefined;
   const selectedTransitionBoundObject = ctx.selectedTransitionBoundObject as any;
   const selectedVisualAnchorSegment = ctx.selectedVisualAnchorSegment as any;
   const selectedVisualAnchorSegmentId = ctx.selectedVisualAnchorSegmentId as any;
@@ -2843,6 +2844,10 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                       <div>segmentation mask available: {previewDiagnosticsSummary?.segmentationMaskAvailable ? "yes" : "no"}</div>
                       <div>resolver status: {previewDiagnosticsSummary?.resolverStatus ?? "unknown"}</div>
                       <div>resolver reason: {previewDiagnosticsSummary?.resolverReason ?? "unknown"}</div>
+                      <div className="hammer-tool-hint">
+                        Episode health snapshot:
+                        <pre>{JSON.stringify(episodeHealthSnapshot ?? { missing: true }, null, 2)}</pre>
+                      </div>
                       <div className="hammer-source-card__actions">
                         <button
                           type="button"

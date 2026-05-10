@@ -1372,6 +1372,7 @@ export function buildToolBayVM(args: any) {
     selectedAutoPreviewActive: args.selectedAutoPreviewActive,
     previewAutoPositionStatus: args.previewAutoPositionStatus,
     previewDiagnosticsSummary: args.previewDiagnosticsSummary,
+    episodeHealthSnapshot: args.episodeHealthSnapshot,
     props: args.props,
     quenchHandoffStatus: args.quenchHandoffStatus,
     readinessStatusLabel: args.readinessStatusLabel,

@@ -7279,6 +7279,43 @@ function HammerWorkspaceShellWithContext(
         : "diagnostics disabled",
     };
   }, [previewBayVM.autoPlacementDiagnostics]);
+  const episodeHealthSnapshot = useMemo(() => {
+    const diagnostics = previewBayVM.autoPlacementDiagnostics;
+    const selectedOverlayAssetId = selectedImagePlacement?.assetPath ?? null;
+    return {
+      workspaceId: launchContext.workspace_id ?? null,
+      workpieceId: launchContext.workpiece_id ?? null,
+      episodeId: (launchContext as any)?.episode_id ?? null,
+      recordingPath: mediaRef?.local_relpath ?? null,
+      playbackMediaPath: preferredPlayback.local_relpath ?? null,
+      playbackMediaReady: Boolean(previewBayVM.playbackMediaSrc),
+      visualPlacementsCount: editableVisualPlacements?.placements.length ?? 0,
+      anchorCount: buildVisualTimelineDiagnostics(editableVisualTimeline).anchorCount,
+      selectedPlacementId: selectedImagePlacement?.id ?? null,
+      selectedClipId: selectedVisualClip?.clip_id ?? null,
+      selectedAssetId: selectedVisualClip?.asset_id ?? null,
+      selectedOverlayAssetId,
+      frameInputAvailable: previewDiagnosticsSummary.currentFrameAvailable,
+      maskBoundsCount: previewDiagnosticsSummary.maskBoundsCount,
+      candidateCount: previewDiagnosticsSummary.candidateCount,
+      resolvedPlacement: previewDiagnosticsSummary.resolvedPlacementExists,
+      resolverStatus: previewDiagnosticsSummary.resolverStatus,
+      resolverReason: previewDiagnosticsSummary.resolverReason,
+      diagnosticsEnabled: previewDiagnosticsSummary.diagnosticsEnabled,
+      diagnosticsState: diagnostics?.enabled ? diagnostics.state : "disabled",
+    };
+  }, [
+    editableVisualPlacements?.placements.length,
+    editableVisualTimeline,
+    launchContext,
+    mediaRef?.local_relpath,
+    preferredPlayback.local_relpath,
+    previewBayVM.autoPlacementDiagnostics,
+    previewBayVM.playbackMediaSrc,
+    previewDiagnosticsSummary,
+    selectedImagePlacement,
+    selectedVisualClip,
+  ]);
   const resetPreviewAutoPosition = useCallback((): void => {
     if (!selectedImagePlacement) return;
     setPreviewAutoPositionOverrides((current) => clearPreviewOverride(current, selectedImagePlacement.id));
@@ -8074,6 +8111,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     forcePreviewAutoPosition,
     resetPreviewAutoPosition,
     previewDiagnosticsSummary,
+    episodeHealthSnapshot,
     selectedTransitionBoundObject,
     selectedVisualAnchorSegment,
     selectedVisualAnchorSegmentId,
