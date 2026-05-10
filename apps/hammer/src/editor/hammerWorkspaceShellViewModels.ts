@@ -52,6 +52,7 @@ export type HammerAutoPlacementDiagnosticsState =
       heightPct: number;
       zone: string;
       score: number;
+      reasonsSummary: string;
     };
     ghost: null | {
       leftPct: number;
@@ -61,6 +62,7 @@ export type HammerAutoPlacementDiagnosticsState =
       zone: string;
       score: number;
       sourceClipId: string;
+      reasonsSummary: string;
     };
     paddedSpeakerBounds: Array<{
       leftPct: number;
@@ -79,6 +81,13 @@ export type HammerAutoPlacementDiagnosticsState =
     }>;
     frameLabel: string;
     maskLabel: string;
+    debugFlagDetected: boolean;
+    vmDiagnosticState: "present" | "missing";
+    maskBoundsCount: number;
+    selectedOverlayAssetPresent: boolean;
+    resolvedPlacementPresent: boolean;
+    candidateCount: number;
+    rejectedCandidateCount: number;
   };
 
 export function normalizeSpeakerMaskBoundsToFrame(args: {
@@ -129,6 +138,13 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       candidates: [],
       frameLabel: "frame n/a",
       maskLabel: "mask n/a",
+      debugFlagDetected: args.debugEnabled,
+      vmDiagnosticState: "present",
+      maskBoundsCount: 0,
+      selectedOverlayAssetPresent: Boolean(args.selectedOverlayForGhost?.hasRealAsset),
+      resolvedPlacementPresent: false,
+      candidateCount: 0,
+      rejectedCandidateCount: 0,
     };
   }
   const frameW = Math.max(1, args.frameInput.width);
@@ -153,6 +169,13 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       candidates: [],
       frameLabel,
       maskLabel,
+      debugFlagDetected: args.debugEnabled,
+      vmDiagnosticState: "present",
+      maskBoundsCount: 0,
+      selectedOverlayAssetPresent: Boolean(args.selectedOverlayForGhost?.hasRealAsset),
+      resolvedPlacementPresent: false,
+      candidateCount: 0,
+      rejectedCandidateCount: 0,
     };
   }
   const hasSelectedOverlayAsset = Boolean(args.selectedOverlayForGhost?.hasRealAsset);
@@ -167,6 +190,13 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       candidates: [],
       frameLabel,
       maskLabel,
+      debugFlagDetected: args.debugEnabled,
+      vmDiagnosticState: "present",
+      maskBoundsCount: normalizedSpeakerBounds.length,
+      selectedOverlayAssetPresent: false,
+      resolvedPlacementPresent: false,
+      candidateCount: 0,
+      rejectedCandidateCount: 0,
     };
   }
   const overlaySize = {
@@ -202,6 +232,7 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
     accepted: candidate.accepted,
     rejectionReason: candidate.rejectionReason,
   }));
+  const rejectedCandidateCount = candidates.reduce((count, candidate) => count + (candidate.accepted ? 0 : 1), 0);
   if (!resolved) {
     return {
       enabled: true,
@@ -213,6 +244,13 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       candidates,
       frameLabel,
       maskLabel,
+      debugFlagDetected: args.debugEnabled,
+      vmDiagnosticState: "present",
+      maskBoundsCount: normalizedSpeakerBounds.length,
+      selectedOverlayAssetPresent: hasSelectedOverlayAsset,
+      resolvedPlacementPresent: false,
+      candidateCount: candidates.length,
+      rejectedCandidateCount,
     };
   }
   let ghost: {
@@ -223,6 +261,7 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
     zone: string;
     score: number;
     sourceClipId: string;
+    reasonsSummary: string;
   } | null = null;
   if (hasSelectedOverlayAsset && args.selectedOverlayForGhost) {
     const selectedOverlayWidthPx = Math.max(120, Math.round((args.selectedOverlayForGhost.widthPct / 100) * frameW));
@@ -243,6 +282,7 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
         zone: ghostPlacement.zone,
         score: ghostPlacement.score,
         sourceClipId: args.selectedOverlayForGhost.clipId,
+        reasonsSummary: ghostPlacement.reasons.slice(0, 8).join(" · "),
       };
     }
   }
@@ -257,12 +297,20 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
       heightPct: (resolved.rect.height / frameH) * 100,
       zone: resolved.zone,
       score: resolved.score,
+      reasonsSummary: resolved.reasons.slice(0, 8).join(" · "),
     },
     ghost,
     paddedSpeakerBounds,
     candidates,
     frameLabel,
     maskLabel,
+    debugFlagDetected: args.debugEnabled,
+    vmDiagnosticState: "present",
+    maskBoundsCount: normalizedSpeakerBounds.length,
+    selectedOverlayAssetPresent: hasSelectedOverlayAsset,
+    resolvedPlacementPresent: true,
+    candidateCount: candidates.length,
+    rejectedCandidateCount,
   };
 }
 

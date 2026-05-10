@@ -1,5 +1,5 @@
 import type { JSX, MutableRefObject, MouseEvent, RefObject } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import BackgroundBlurPreviewLayer from "../features/visual-effects/render/backgroundBlurPreviewLayer";
 import EyeContactAssistPreviewLayer from "../features/eye-contact-assist/render/eyeContactAssistPreviewLayer";
 import VisualPreviewComposer, { type VisualPreviewOverlayModel } from "../visuals/components/VisualPreviewComposer";
@@ -69,16 +69,18 @@ export type HammerWorkspaceShellPreviewBayVM = {
         heightPct: number;
         zone: string;
         score: number;
+        reasonsSummary: string;
       };
-    ghost: null | {
+      ghost: null | {
         leftPct: number;
         topPct: number;
         widthPct: number;
         heightPct: number;
         zone: string;
         score: number;
-      sourceClipId: string;
-    };
+        sourceClipId: string;
+        reasonsSummary: string;
+      };
       paddedSpeakerBounds: Array<{
         leftPct: number;
         topPct: number;
@@ -96,6 +98,13 @@ export type HammerWorkspaceShellPreviewBayVM = {
       }>;
       frameLabel: string;
       maskLabel: string;
+      debugFlagDetected: boolean;
+      vmDiagnosticState: "present" | "missing";
+      maskBoundsCount: number;
+      selectedOverlayAssetPresent: boolean;
+      resolvedPlacementPresent: boolean;
+      candidateCount: number;
+      rejectedCandidateCount: number;
     };
 
   eyeContactAssist: {
@@ -190,11 +199,32 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
         candidates: [],
         frameLabel: "n/a",
         maskLabel: "n/a",
+        debugFlagDetected: true,
+        vmDiagnosticState: "missing" as const,
+        maskBoundsCount: 0,
+        selectedOverlayAssetPresent: false,
+        resolvedPlacementPresent: false,
+        candidateCount: 0,
+        rejectedCandidateCount: 0,
       }
       : { enabled: false as const });
-  const showAutoPlacementStatusBadge = autoPlacementDiagnostics.enabled;
+  const showAutoPlacementStatusBadge = autoPlacementDebugEnabledFromQuery || autoPlacementDiagnostics.enabled;
   const showAutoPlacementSvg = autoPlacementDiagnostics.enabled
     && (Boolean(autoPlacementDiagnostics.overlay) || Boolean(autoPlacementDiagnostics.ghost) || autoPlacementDiagnostics.paddedSpeakerBounds.length > 0 || autoPlacementDiagnostics.candidates.length > 0);
+  useEffect(() => {
+    if (!showAutoPlacementStatusBadge) return;
+    console.debug("[hammer][auto-placement][debug-overlay]", {
+      debugFlagDetected: autoPlacementDebugEnabledFromQuery,
+      vmDiagnosticState: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.vmDiagnosticState : "missing",
+      maskBoundsCount: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.maskBoundsCount : 0,
+      frameSize: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.frameLabel : "n/a",
+      maskSize: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.maskLabel : "n/a",
+      selectedOverlayAsset: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.selectedOverlayAssetPresent : false,
+      resolvedPlacement: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.resolvedPlacementPresent : false,
+      candidateCount: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.candidateCount : 0,
+      rejectedCandidateCount: autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.rejectedCandidateCount : 0,
+    });
+  }, [autoPlacementDebugEnabledFromQuery, autoPlacementDiagnostics, showAutoPlacementStatusBadge]);
   return (
     <>
       <header className="hammer-bay-head">
@@ -326,6 +356,13 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
                     >
                       auto {autoPlacementDiagnostics.overlay.zone} · {autoPlacementDiagnostics.overlay.score.toFixed(2)}
                     </text>
+                    <text
+                      className="hammer-preview-auto-placement-overlay__reason-label"
+                      x={autoPlacementDiagnostics.overlay.leftPct}
+                      y={Math.min(98, autoPlacementDiagnostics.overlay.topPct + autoPlacementDiagnostics.overlay.heightPct + 2.2)}
+                    >
+                      {autoPlacementDiagnostics.overlay.reasonsSummary}
+                    </text>
                   </>
                 ) : null}
                 {autoPlacementDiagnostics.ghost ? (
@@ -344,15 +381,31 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
                     >
                       ghost {autoPlacementDiagnostics.ghost.zone} · {autoPlacementDiagnostics.ghost.score.toFixed(2)}
                     </text>
+                    <text
+                      className="hammer-preview-auto-placement-overlay__ghost-reason-label"
+                      x={autoPlacementDiagnostics.ghost.leftPct}
+                      y={Math.min(98, autoPlacementDiagnostics.ghost.topPct + autoPlacementDiagnostics.ghost.heightPct + 2.2)}
+                    >
+                      {autoPlacementDiagnostics.ghost.reasonsSummary}
+                    </text>
                   </>
                 ) : null}
               </svg>
           ) : null}
           {showAutoPlacementStatusBadge ? (
-            <div className="hammer-preview-auto-placement-status-badge">
-              <div>{autoPlacementDiagnostics.statusLabel}</div>
+            <div className="hammer-preview-auto-placement-status-badge" aria-live="polite">
+              <div className="hammer-preview-auto-placement-status-badge__title">AUTO-PLACEMENT DEBUG ACTIVE</div>
+              <div>debug flag detected: {autoPlacementDebugEnabledFromQuery ? "yes" : "no"}</div>
+              <div>VM diagnostic state: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.vmDiagnosticState : "missing"}</div>
+              <div>mask bounds count: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.maskBoundsCount : 0}</div>
+              <div>frame size: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.frameLabel : "n/a"}</div>
+              <div>mask size: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.maskLabel : "n/a"}</div>
+              <div>selected overlay asset: {autoPlacementDiagnostics.enabled && autoPlacementDiagnostics.selectedOverlayAssetPresent ? "yes" : "no"}</div>
+              <div>resolved placement: {autoPlacementDiagnostics.enabled && autoPlacementDiagnostics.resolvedPlacementPresent ? "yes" : "no"}</div>
+              <div>candidate count: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.candidateCount : 0}</div>
+              <div>rejected candidate count: {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.rejectedCandidateCount : 0}</div>
               <div className="hammer-preview-auto-placement-status-badge__meta">
-                frame {autoPlacementDiagnostics.frameLabel} · mask {autoPlacementDiagnostics.maskLabel}
+                {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.statusLabel : "auto-placement: debug enabled, preview VM state missing"}
               </div>
             </div>
           ) : null}

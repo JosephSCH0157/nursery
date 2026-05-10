@@ -22,6 +22,8 @@ function testResolvedWhenBoundsAvailable() {
     assert.ok(result.overlay);
     assert.equal(typeof result.overlay?.zone, "string");
     assert.ok(result.ghost);
+    assert.match(result.overlay?.reasonsSummary ?? "", /dead_space_bonus=/);
+    assert.match(result.overlay?.reasonsSummary ?? "", /face_proximity_penalty=/);
   }
 }
 

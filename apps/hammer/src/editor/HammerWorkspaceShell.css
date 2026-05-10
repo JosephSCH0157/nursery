@@ -3020,42 +3020,53 @@ Guardrails:
 .hammer-preview-auto-placement-overlay {
   position: absolute;
   inset: 0;
-  z-index: 10010;
+  z-index: 2147483000;
   pointer-events: none;
 }
 
 .hammer-preview-auto-placement-status-badge {
   position: absolute;
-  top: 10px;
-  left: 10px;
-  z-index: 10011;
+  top: 8px;
+  left: 8px;
+  z-index: 2147483001;
   pointer-events: none;
-  max-width: calc(100% - 20px);
-  padding: 6px 10px;
-  border: 1px solid rgba(25, 195, 125, 0.75);
-  border-radius: 8px;
-  background: rgba(12, 22, 16, 0.84);
-  color: #b9f7dc;
+  max-width: min(94%, 620px);
+  padding: 12px 14px;
+  border: 3px solid rgba(16, 185, 129, 1);
+  border-radius: 10px;
+  background: rgba(4, 20, 14, 0.94);
+  color: #dcfce7;
   font-family: "IBM Plex Sans", sans-serif;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 1.3;
   letter-spacing: 0.01em;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.65);
+  box-shadow:
+    0 0 0 2px rgba(15, 23, 42, 0.9),
+    0 8px 20px rgba(0, 0, 0, 0.45);
+}
+
+.hammer-preview-auto-placement-status-badge__title {
+  font-size: 20px;
+  line-height: 1.1;
+  letter-spacing: 0.05em;
+  color: #86efac;
+  margin-bottom: 8px;
 }
 
 .hammer-preview-auto-placement-status-badge__meta {
-  margin-top: 4px;
-  font-size: 10px;
+  margin-top: 8px;
+  font-size: 12px;
   font-weight: 600;
-  color: rgba(185, 247, 220, 0.86);
+  color: rgba(209, 250, 229, 0.96);
 }
 
 .hammer-preview-auto-placement-overlay__zone {
-  fill: none;
-  stroke: #19c37d;
-  stroke-width: 0.55;
-  stroke-dasharray: 1.8 1.2;
+  fill: rgba(16, 185, 129, 0.1);
+  stroke: #22c55e;
+  stroke-width: 1.2;
+  stroke-dasharray: 2.8 1.8;
   vector-effect: non-scaling-stroke;
 }
 
@@ -3072,10 +3083,10 @@ Guardrails:
 }
 
 .hammer-preview-auto-placement-overlay__ghost {
-  fill: rgba(96, 165, 250, 0.14);
-  stroke: #60a5fa;
-  stroke-width: 0.5;
-  stroke-dasharray: 1.3 1.1;
+  fill: rgba(59, 130, 246, 0.2);
+  stroke: #3b82f6;
+  stroke-width: 0.9;
+  stroke-dasharray: 2 1.2;
   vector-effect: non-scaling-stroke;
 }
 
@@ -3091,19 +3102,40 @@ Guardrails:
   stroke-linejoin: round;
 }
 
+.hammer-preview-auto-placement-overlay__reason-label,
+.hammer-preview-auto-placement-overlay__ghost-reason-label {
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 2.2px;
+  font-weight: 600;
+  letter-spacing: 0.06px;
+  paint-order: stroke;
+  stroke-width: 0.7px;
+  stroke-linejoin: round;
+}
+
+.hammer-preview-auto-placement-overlay__reason-label {
+  fill: rgba(187, 247, 208, 0.98);
+  stroke: rgba(6, 43, 27, 0.88);
+}
+
+.hammer-preview-auto-placement-overlay__ghost-reason-label {
+  fill: rgba(191, 219, 254, 0.98);
+  stroke: rgba(15, 23, 42, 0.88);
+}
+
 .hammer-preview-auto-placement-overlay__speaker-bound {
-  fill: rgba(239, 68, 68, 0.2);
-  stroke: rgba(248, 113, 113, 0.95);
-  stroke-width: 0.4;
-  stroke-dasharray: 1.2 0.9;
+  fill: rgba(239, 68, 68, 0.28);
+  stroke: rgba(239, 68, 68, 1);
+  stroke-width: 1.1;
+  stroke-dasharray: none;
   vector-effect: non-scaling-stroke;
 }
 
 .hammer-preview-auto-placement-overlay__candidate {
-  fill: rgba(250, 204, 21, 0.08);
-  stroke: rgba(250, 204, 21, 0.6);
-  stroke-width: 0.28;
-  stroke-dasharray: 0.9 1.4;
+  fill: rgba(250, 204, 21, 0.1);
+  stroke: rgba(250, 204, 21, 0.9);
+  stroke-width: 0.55;
+  stroke-dasharray: none;
   vector-effect: non-scaling-stroke;
 }
 
