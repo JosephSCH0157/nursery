@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import BackgroundBlurPreviewLayer from "../features/visual-effects/render/backgroundBlurPreviewLayer";
 import EyeContactAssistPreviewLayer from "../features/eye-contact-assist/render/eyeContactAssistPreviewLayer";
 import VisualPreviewComposer, { type VisualPreviewOverlayModel } from "../visuals/components/VisualPreviewComposer";
+import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
 
 export type HammerWorkspaceShellPreviewBayVM = {
   previewModeLabel: string;
@@ -194,16 +195,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
       window.setTimeout(() => setCopyStatus(null), 2000);
     }
   }
-  const autoPlacementDebugEnabledFromQuery = (() => {
-    if (typeof window === "undefined") return false;
-    const params = new URLSearchParams(window.location.search ?? "");
-    const normalized = (value: string | null): boolean => {
-      if (!value) return false;
-      const trimmed = value.trim().toLowerCase();
-      return trimmed === "1" || trimmed === "true" || trimmed === "on" || trimmed === "yes";
-    };
-    return normalized(params.get("hammer_auto_placement_debug")) || normalized(params.get("tp_auto_placement_debug")) || normalized(params.get("tp_dev_mode"));
-  })();
+  const autoPlacementDebugEnabledFromQuery = isAutoPlacementDebugFlagEnabled();
   const vmAutoPlacementMissingReason = useMemo(() => {
     if (vm.autoPlacementDiagnostics !== undefined) return null;
     const vmKeys = Object.keys(vm ?? {}).sort();

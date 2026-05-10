@@ -328,6 +328,7 @@ import HammerWorkspaceShellSourceBay from "./HammerWorkspaceShellSourceBay";
 import HammerWorkspaceShellToolBay from "./HammerWorkspaceShellToolBay";
 import { useHammerWorkspaceShellHistoryController } from "./hammerWorkspaceShellHistoryController";
 import { buildVisualTimelineDiagnostics } from "./hammerVisualTimelineHydrationGuard";
+import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
 import {
   applyPreviewOverride,
   clearPreviewOverride,
@@ -2379,14 +2380,7 @@ function HammerWorkspaceShellWithContext(
     return geometryToTransform(resolvePlacementGeometry(selectedPlacementRecord));
   }, [imagePlacementTransforms, effectiveSelectedClipId, linkedPrimaryVisualId, previewAutoPositionOverrides, selectedPlacementRecord, selectedVisualClip]);
   const autoPlacementDebugEnabled = useMemo(() => {
-    if (!import.meta.env.DEV || typeof window === "undefined") return false;
-    const normalized = (value: string | null): boolean => {
-      if (!value) return false;
-      const trimmed = value.trim().toLowerCase();
-      return trimmed === "1" || trimmed === "true" || trimmed === "on" || trimmed === "yes";
-    };
-    const params = new URLSearchParams(window.location.search ?? "");
-    return normalized(params.get("hammer_auto_placement_debug"));
+    return isAutoPlacementDebugFlagEnabled();
   }, []);
   const selectedAutoPreviewClipId = (linkedPrimaryVisualId ?? effectiveSelectedClipId) as string | null;
   const selectedAutoPreviewActive = Boolean(selectedAutoPreviewClipId && previewAutoPositionOverrides[selectedAutoPreviewClipId]);
@@ -7292,13 +7286,7 @@ function HammerWorkspaceShellWithContext(
   }, [selectedImagePlacement]);
   useEffect(() => {
     if (!((import.meta as any)?.env?.DEV) || typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search ?? "");
-    const toggle = (value: string | null) => {
-      if (!value) return false;
-      const normalized = value.trim().toLowerCase();
-      return normalized === "1" || normalized === "true" || normalized === "on" || normalized === "yes";
-    };
-    const debugOn = toggle(params.get("hammer_auto_placement_debug")) || toggle(params.get("tp_auto_placement_debug")) || toggle(params.get("tp_dev_mode"));
+    const debugOn = isAutoPlacementDebugFlagEnabled();
     if (!debugOn) return;
     console.debug("[hammer][auto-placement][HammerWorkspaceShell] previewBayVM", {
       hasPreviewBayVM: Boolean(previewBayVM),

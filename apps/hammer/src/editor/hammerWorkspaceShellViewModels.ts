@@ -5,6 +5,7 @@ import {
 } from "./hammerPolishPreviewTarget";
 import { evaluateMaskAwarePlacementCandidates, resolveMaskAwarePlacement } from "../features/auto-placement";
 import type { Rect as AutoPlacementRect } from "../features/auto-placement";
+import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
 
 function isTruthyDevToggle(value: string | null): boolean {
   if (!value) return false;
@@ -26,30 +27,11 @@ function shouldShowDiagnosticsPanel(): boolean {
 }
 
 function shouldShowAutoPlacementDiagnostics(): boolean {
-  const isDev = Boolean((import.meta as any)?.env?.DEV);
-  if (!isDev || typeof window === "undefined") return false;
-  try {
-    const params = new URLSearchParams(window.location.search ?? "");
-    if (isTruthyDevToggle(params.get("hammer_auto_placement_debug"))) return true;
-    if (isTruthyDevToggle(params.get("tp_auto_placement_debug"))) return true;
-    if (isTruthyDevToggle(params.get("tp_dev_mode"))) return true;
-  } catch {
-    // ignore
-  }
-  return false;
+  return isAutoPlacementDebugFlagEnabled();
 }
 
 function shouldTraceAutoPlacementDiagnostics(): boolean {
-  const isDev = Boolean((import.meta as any)?.env?.DEV);
-  if (!isDev || typeof window === "undefined") return false;
-  try {
-    const params = new URLSearchParams(window.location.search ?? "");
-    return isTruthyDevToggle(params.get("hammer_auto_placement_debug"))
-      || isTruthyDevToggle(params.get("tp_auto_placement_debug"))
-      || isTruthyDevToggle(params.get("tp_dev_mode"));
-  } catch {
-    return false;
-  }
+  return isAutoPlacementDebugFlagEnabled();
 }
 
 export type HammerAutoPlacementDiagnosticsState =
