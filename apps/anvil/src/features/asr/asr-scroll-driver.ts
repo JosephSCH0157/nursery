@@ -312,11 +312,17 @@ const _LIVE_ASR_STRONG_SNAP_GLIDE_MIN_MS = 260;
 const _LIVE_ASR_STRONG_SNAP_GLIDE_MAX_MS = 760;
 const _LIVE_ASR_STRONG_SNAP_GLIDE_PX_PER_SEC = 560;
 const LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES = 1;
-const ASR_FORWARD_GOVERNOR_MAX_COMFORT_LEAD_SPEAKABLE = 2;
-const ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE = 3;
-const ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES = 6;
-const ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_AHEAD_MS = 700;
-const ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_COMFORTABLE_MS = 250;
+const ASR_FORWARD_GOVERNOR_MAX_COMFORT_LEAD_SPEAKABLE = 1;
+const ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE = 2;
+const ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES = 4;
+const ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_AHEAD_MS = 900;
+const ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_COMFORTABLE_MS = 350;
+const ASR_VISUAL_FOLLOW_MAX_PXPS = 80;
+const ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS = 35;
+const ASR_VISUAL_FOLLOW_MIN_PXPS = 8;
+const ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX = 8;
+const ASR_VISUAL_FOLLOW_SLOW_ZONE_PX = 80;
+const ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX = 220;
 const ALIGNMENT_SKEPTIC_WINDOW_MS = 7000;
 const ALIGNMENT_SKEPTIC_FORWARD_CONF_BONUS = 0.08;
 const ALIGNMENT_SKEPTIC_MIN_FORWARD_TOKENS = 6;
@@ -6668,8 +6674,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const stageLiveSafeTerminalCommit = (args: {
     current: number;
     target: number;
+    semanticTarget?: number;
+    visualTarget?: number;
     proofSource?: string;
     sourceBranch?: string;
+    bypassedBlockers?: string;
+    bestIdx?: number;
+    bestSim?: number;
+    skippedIgnorableLines?: string[];
     forceReason?: string;
     clue?: string;
     minSim?: number;
@@ -6687,6 +6699,52 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     );
     const forcedReason = String(args.forceReason || 'live_safe_terminal_commit');
     const sourceBranch = String(args.sourceBranch || 'live_safe_terminal_commit');
+    const semanticTarget = Math.max(safeCurrent, Math.floor(Number(args.semanticTarget ?? safeTarget) || safeTarget));
+    const visualTarget = Math.max(safeCurrent, Math.floor(Number(args.visualTarget ?? semanticTarget) || semanticTarget));
+    const confirmedSpoken = Math.max(
+      0,
+      Math.min(
+        safeCurrent,
+        Math.max(
+          lastStrongConfirmedSpokenLine,
+          Number.isFinite(lastFreshProofLine) ? Math.max(0, lastFreshProofLine) : 0,
+        ),
+      ),
+    );
+    const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, safeTarget));
+    const renderedLead = Math.max(0, Math.max(safeTarget, semanticTarget, visualTarget) - confirmedSpoken);
+    const msSinceLastCommit = Math.max(0, Date.now() - lastCommitAt);
+    const ahead = speakableLead > 0 || renderedLead > 0;
+    const thresholdMs = ahead
+      ? ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_AHEAD_MS
+      : ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_COMFORTABLE_MS;
+    const proofSource = String(args.proofSource || 'none');
+    const bridgeLike =
+      semanticTarget > safeCurrent + 1 ||
+      String(args.bypassedBlockers || '').includes('bridge') ||
+      String(args.bypassedBlockers || '').includes('visual_cap') ||
+      sourceBranch.includes('bridge');
+    const holdReason =
+      (safeCurrent >= confirmedSpoken && speakableLead > ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE)
+        ? 'beyond_hard_lead'
+        : ((safeCurrent >= confirmedSpoken && renderedLead > ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES)
+          ? 'beyond_rendered_lead'
+          : ((safeCurrent >= confirmedSpoken && msSinceLastCommit < thresholdMs)
+            ? 'rate_limited'
+            : ''));
+    if (holdReason) {
+      try {
+        console.warn(
+          `[ASR_FORWARD_GOVERNOR_HELD] current=${safeCurrent} target=${safeTarget} semanticTarget=${semanticTarget} visualTarget=${visualTarget} bestIdx=${Math.max(safeCurrent, Math.floor(Number(args.bestIdx ?? safeTarget) || safeTarget))} bestSim=${formatLogScore(Number.isFinite(Number(args.bestSim)) ? Number(args.bestSim) : Number.NaN)} speakableLead=${speakableLead} renderedLead=${renderedLead} maxComfortLeadSpeakable=${ASR_FORWARD_GOVERNOR_MAX_COMFORT_LEAD_SPEAKABLE} maxHardLeadSpeakable=${ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE} maxRenderedLeadLines=${ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES} proofSource=${proofSource} sourceBranch=${sourceBranch} bypassedBlockers=${args.bypassedBlockers || 'none'} reason=${holdReason}`,
+        );
+        if (bridgeLike) {
+          console.warn(
+            `[ASR_FORWARD_GOVERNOR_BRIDGE_HELD] current=${safeCurrent} target=${safeTarget} semanticTarget=${semanticTarget} visualTarget=${visualTarget} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(',')}] speakableLead=${speakableLead} renderedLead=${renderedLead} lastStrongConfirmedSpokenLine=${confirmedSpoken} msSinceLastCommit=${msSinceLastCommit} proofSource=${proofSource} sourceBranch=${sourceBranch} reason=${holdReason}`,
+          );
+        }
+      } catch {}
+      return false;
+    }
     adoptPendingMatch({
       line: safeTarget,
       conf: commitSim,
@@ -9365,7 +9423,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
   const tickController = () => {
     if (!pursuitActive || disposed) return;
-    if (getScrollMode() === 'asr') {
+    const liveAsrFollowMode =
+      getScrollMode() === 'asr' &&
+      isSessionLivePhase() &&
+      isSessionAsrArmed();
+    if (getScrollMode() === 'asr' && !liveAsrFollowMode) {
       pursuitActive = false;
       pursuitTargetTop = null;
       pursuitVel = 0;
@@ -9408,7 +9470,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const err = pursuitTargetTop - current;
     const microActive = microPursuitUntil > now;
     const allowCreep = microActive || motionTuning.minPursuitPxPerSec > 0;
-    if (err <= 0.5) {
+    if (err <= (liveAsrFollowMode ? ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX : 0.5)) {
       const target = pursuitTargetTop;
       pursuitVel = 0;
       pursuitActive = false;
@@ -9426,6 +9488,43 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
 
     let maxVelForErr = resolveMaxVel(err);
+    if (liveAsrFollowMode) {
+      const confirmedSpoken = Math.max(
+        0,
+        Math.max(
+          lastStrongConfirmedSpokenLine,
+          Number.isFinite(lastFreshProofLine) ? Math.max(0, lastFreshProofLine) : 0,
+        ),
+      );
+      const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, lastLineIndex));
+      const renderedLead = Math.max(0, lastLineIndex - confirmedSpoken);
+      const ahead = speakableLead > 0 || renderedLead > 0;
+      const leadState =
+        speakableLead > ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE || renderedLead > ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES
+          ? 'far_ahead'
+          : (ahead ? 'ahead' : 'aligned_or_behind');
+      if (leadState === 'far_ahead') {
+        maxVelForErr = 0;
+      } else if (ahead) {
+        maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS);
+      } else if (err >= ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX) {
+        maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_FOLLOW_MAX_PXPS);
+      } else if (err >= ASR_VISUAL_FOLLOW_SLOW_ZONE_PX) {
+        maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS);
+      } else {
+        maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_FOLLOW_MIN_PXPS);
+      }
+      try {
+        const approxLinePx = 24;
+        const deltaLinesApprox = err / approxLinePx;
+        console.warn(
+          `[ASR_VISUAL_FOLLOW_TARGET] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} desiredMarkerLineIdx=${lastLineIndex} targetScrollTop=${Math.round(pursuitTargetTop || current)} currentScrollTop=${Math.round(current)} deltaPx=${Math.round(err)} deltaLines=${deltaLinesApprox.toFixed(2)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=live_follow_tick`,
+        );
+        console.warn(
+          `[ASR_VISUAL_FOLLOW_VELOCITY] pxps=${Math.round(maxVelForErr)} deltaPx=${Math.round(err)} deltaLines=${deltaLinesApprox.toFixed(2)} capped=${maxVelForErr < resolveMaxVel(err) ? 1 : 0} capReason=${leadState === 'far_ahead' ? 'governor_hold' : 'follow_cap'} leadState=${leadState} speechFresh=${hasRecentActualSpeech(Date.now()) ? 1 : 0} proofSource=live_follow_tick`,
+        );
+      } catch {}
+    }
     if (microActive) {
       maxVelForErr = Math.min(maxVelForErr, microPursuitCapPxPerSec);
     }
@@ -9463,7 +9562,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
 
   const ensurePursuitActive = () => {
-    if (getScrollMode() === 'asr') {
+    const liveAsrFollowMode =
+      getScrollMode() === 'asr' &&
+      isSessionLivePhase() &&
+      isSessionAsrArmed();
+    if (getScrollMode() === 'asr' && !liveAsrFollowMode) {
       pursuitActive = false;
       pursuitTargetTop = null;
       pursuitVel = 0;
@@ -9581,6 +9684,43 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           Number.isFinite(Number(committedLineEl?.clientHeight)) ? Number(committedLineEl?.clientHeight) : 24,
         );
         const deltaLines = deltaPx / lineHeightApprox;
+        const liveFollowSuppressSnap =
+          liveAsrMode &&
+          Math.abs(deltaPx) > ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX &&
+          Math.abs(deltaLines) > 2;
+        if (liveFollowSuppressSnap) {
+          const confirmedSpoken = Math.max(
+            0,
+            Math.min(
+              committedLineIdx,
+              Math.max(
+                lastStrongConfirmedSpokenLine,
+                Number.isFinite(lastFreshProofLine) ? Math.max(0, lastFreshProofLine) : 0,
+              ),
+            ),
+          );
+          const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, committedLineIdx));
+          const renderedLead = Math.max(0, committedLineIdx - confirmedSpoken);
+          try {
+            console.warn(
+              `[ASR_VISUAL_SNAP_SUPPRESSED] commitLineIdx=${committedLineIdx} targetScrollTop=${Math.round(afterTopValue)} currentScrollTop=${Math.round(currentScrollTop)} reason=live_target_follow_motor`,
+            );
+            console.warn(
+              `[ASR_VISUAL_FOLLOW_TARGET] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${committedLineIdx} desiredMarkerLineIdx=${committedLineIdx} targetScrollTop=${Math.round(afterTopValue)} currentScrollTop=${Math.round(currentScrollTop)} deltaPx=${deltaPx} deltaLines=${deltaLines.toFixed(2)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=snap_suppressed`,
+            );
+            const absDelta = Math.abs(deltaPx);
+            const leadState = speakableLead > ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE
+              ? 'far_ahead'
+              : (speakableLead > ASR_FORWARD_GOVERNOR_MAX_COMFORT_LEAD_SPEAKABLE ? 'ahead' : 'aligned');
+            const pxps = absDelta >= ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX
+              ? ASR_VISUAL_FOLLOW_MAX_PXPS
+              : (absDelta >= ASR_VISUAL_FOLLOW_SLOW_ZONE_PX ? ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS : ASR_VISUAL_FOLLOW_MIN_PXPS);
+            console.warn(
+              `[ASR_VISUAL_FOLLOW_VELOCITY] pxps=${pxps} deltaPx=${deltaPx} deltaLines=${deltaLines.toFixed(2)} capped=1 capReason=snap_suppressed leadState=${leadState} speechFresh=${liveAsrMode ? 1 : 0} proofSource=marker_lock`,
+            );
+          } catch {}
+          return afterTopValue;
+        }
         let corrected = 0;
         let resolvedAfterTop = afterTopValue;
         const needsCorrection = Math.abs(deltaPx) > tolerancePx;
@@ -9671,6 +9811,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ? Math.max(0, Math.floor(markerLockLineIdxRaw))
         : Math.max(0, Math.floor(commit.lineIdx));
     if (commit.markerLockRequired) {
+      if (liveAsrGlideActive) {
+        pursuitTargetTop = targetTop;
+        ensurePursuitActive();
+        try {
+          console.warn(
+            `[ASR_VISUAL_SNAP_SUPPRESSED] commitLineIdx=${commit.lineIdx} targetScrollTop=${Math.round(targetTop)} currentScrollTop=${Math.round(beforeTop)} reason=live_asr_marker_lock_suppressed`,
+          );
+        } catch {}
+      } else {
       stopCommitPursuit('asr-marker-lock-commit');
       const markerLockLineEl = getLineElementByIndex(deps.scroller, markerLockLineIdx);
       const markerLockTopRaw = computeLineTargetTop(deps.scroller, markerLockLineEl);
@@ -9716,6 +9865,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         afterTop: verifiedTop,
         movedPx: Math.round(verifiedTop - beforeTop),
       };
+      }
     }
     if (deps.writerAvailable && commit.blockId >= 0) {
       stopCommitPursuit('writer-commit');
@@ -9803,7 +9953,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       };
     }
     if (liveAsrGlideActive) {
-      stopCommitPursuit('live-asr-commit');
+      pursuitTargetTop = targetTop;
+      ensurePursuitActive();
+      return {
+        method: 'pixel',
+        writerCommitted: false,
+        beforeTop,
+        afterTop: beforeTop,
+        movedPx: 0,
+      };
     }
     const appliedTop = applyCanonicalScrollTop(targetTop, {
       scroller: deps.scroller,

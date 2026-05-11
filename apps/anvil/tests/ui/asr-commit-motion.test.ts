@@ -77,7 +77,7 @@ describe('ASR live commit motion', () => {
     delete (window as any).__TP_MARKER_PCT;
   });
 
-  test('caps a forward commit below the wrapped block jump distance without continuing to glide afterward', async () => {
+  test('live ASR commit sets semantic target and then follows it with motion over time', async () => {
     const driver = createAsrScrollDriver();
     const scroller = document.getElementById('viewer') as HTMLElement;
 
@@ -93,14 +93,13 @@ describe('ASR live commit motion', () => {
     });
 
     await jest.advanceTimersByTimeAsync(32);
-
-    const settledTop = scroller.scrollTop;
+    const earlyTop = scroller.scrollTop;
 
     await jest.advanceTimersByTimeAsync(800);
 
     expect(driver.getLastLineIndex()).toBe(1);
     expect(scroller.scrollTop).toBeGreaterThan(0);
-    expect(scroller.scrollTop).toBe(settledTop);
+    expect(scroller.scrollTop).toBeGreaterThan(earlyTop);
 
     driver.dispose();
   });
@@ -145,7 +144,7 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
-  test('strict marker lock corrects negative drift beyond tolerance', async () => {
+  test('live ASR suppresses hard marker-lock snap for negative drift and uses follow diagnostics', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     (window as any).__TP_MARKER_PCT = 0.9; // marker below row -> negative delta
     const driver = createAsrScrollDriver();
@@ -157,12 +156,12 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(80);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(lines.some((l) => l.includes('ASR_MARKER_LOCK_VERIFY') && l.includes('corrected=1'))).toBe(true);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_SNAP_SUPPRESSED'))).toBe(true);
     warnSpy.mockRestore();
     driver.dispose();
   });
 
-  test('strict marker lock does not correct within tolerance', async () => {
+  test('live ASR emits follow diagnostics instead of marker-lock correction at small drift', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     (window as any).__TP_MARKER_PCT = 0.836; // marker ~= row top for line 1 (small drift)
     const driver = createAsrScrollDriver();
@@ -174,12 +173,12 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(80);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(lines.some((l) => l.includes('ASR_MARKER_LOCK_VERIFY') && l.includes('corrected=0'))).toBe(true);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_FOLLOW_TARGET'))).toBe(true);
     warnSpy.mockRestore();
     driver.dispose();
   });
 
-  test('strict marker lock corrects positive drift beyond tolerance', async () => {
+  test('live ASR suppresses hard marker-lock snap for positive drift and uses follow diagnostics', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     (window as any).__TP_MARKER_PCT = 0.4; // marker above row -> positive delta
     const driver = createAsrScrollDriver();
@@ -191,7 +190,7 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(80);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(lines.some((l) => l.includes('ASR_MARKER_LOCK_VERIFY') && l.includes('corrected=1'))).toBe(true);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_SNAP_SUPPRESSED'))).toBe(true);
     warnSpy.mockRestore();
     driver.dispose();
   });
