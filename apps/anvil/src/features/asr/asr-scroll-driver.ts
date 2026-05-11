@@ -2599,7 +2599,18 @@ function scheduleCommitTruthProbe(
       commitLineIdx > previousLineIdx
     ) {
       try {
-        console.log('[ASR_TERMINAL_SCROLL_CLAMP]', { line: commitLineIdx });
+        const liveAsr =
+          getScrollMode() === 'asr' &&
+          isSessionLivePhase() &&
+          isSessionAsrArmed();
+        const globalGovernorHold = !!((window as any)?.__tpLiveAsrGovernorHold);
+        if (liveAsr && globalGovernorHold) {
+          console.warn(
+            `[ASR_TERMINAL_SCROLL_CLAMP_SUPPRESSED] currentScrollTop=${typeof postRafTop === 'number' ? postRafTop : 'na'} targetScrollTop=${after} reason=governor_hold liveAsr=1 governorHold=1`,
+          );
+        } else {
+          console.log('[ASR_TERMINAL_SCROLL_CLAMP]', { line: commitLineIdx });
+        }
       } catch {
         // ignore
       }
@@ -2979,6 +2990,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         source,
         applied: false,
       });
+      return currentTop;
+    }
+    const liveAsrMode =
+      mode === 'asr' &&
+      isSessionLivePhase() &&
+      isSessionAsrArmed();
+    if (liveAsrMode && liveAsrVisualGovernorHardHold) {
+      try {
+        console.warn(
+          `[ASR_VISUAL_FOLLOW_HARD_HELD] currentScrollTop=${Math.round(currentTop)} targetScrollTop=${Math.round(targetTop)} deltaPx=${Math.round(targetTop - currentTop)} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), Math.max(0, lastLineIndex)))} renderedLead=${Math.max(0, Math.max(0, lastLineIndex) - Math.max(0, lastStrongConfirmedSpokenLine))} reason=governor_hold source=applyScrollWithHybridGuard`,
+        );
+      } catch {}
       return currentTop;
     }
     const payload = { ...opts, scroller };
@@ -3377,6 +3400,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastCommitTargetLine = -1;
   let lastCommitTranscriptNormSnapshot = '';
   let lastStrongConfirmedSpokenLine = 0;
+  let liveAsrVisualGovernorHardHold = false;
   let lastLiveSafeTerminalShieldAt = 0;
   let lastLiveSafeTerminalShieldLine = -1;
   let lastLiveSafeTerminalShieldSource = '';
@@ -6733,6 +6757,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             ? 'rate_limited'
             : ''));
     if (holdReason) {
+      const nowTs = Date.now();
+      const runtimeSpeechFresh = asrRuntimeSpeechRunningActual || hasRecentActualSpeech(nowTs);
+      const finalPacketFresh = lastFinalTranscriptAt > 0 && nowTs - lastFinalTranscriptAt <= 1800;
+      const vadFresh = hasRecentVadSpeechNow(nowTs);
+      if (!runtimeSpeechFresh && finalPacketFresh) {
+        try {
+          console.warn(
+            `[ASR_STALE_TAIL_ADVANCE_BLOCKED] current=${safeCurrent} target=${safeTarget} bestIdx=${Math.max(safeCurrent, Math.floor(Number(args.bestIdx ?? safeTarget) || safeTarget))} speechFresh=0 runtimeSpeechFresh=0 finalPacketFresh=1 vadFresh=${vadFresh ? 1 : 0} transcriptAgeMs=${lastFinalTranscriptAt > 0 ? Math.max(0, nowTs - lastFinalTranscriptAt) : -1} proofSource=${proofSource} reason=stale_whisper_tail`,
+          );
+        } catch {}
+      }
       try {
         console.warn(
           `[ASR_FORWARD_GOVERNOR_HELD] current=${safeCurrent} target=${safeTarget} semanticTarget=${semanticTarget} visualTarget=${visualTarget} bestIdx=${Math.max(safeCurrent, Math.floor(Number(args.bestIdx ?? safeTarget) || safeTarget))} bestSim=${formatLogScore(Number.isFinite(Number(args.bestSim)) ? Number(args.bestSim) : Number.NaN)} speakableLead=${speakableLead} renderedLead=${renderedLead} maxComfortLeadSpeakable=${ASR_FORWARD_GOVERNOR_MAX_COMFORT_LEAD_SPEAKABLE} maxHardLeadSpeakable=${ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE} maxRenderedLeadLines=${ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES} proofSource=${proofSource} sourceBranch=${sourceBranch} bypassedBlockers=${args.bypassedBlockers || 'none'} reason=${holdReason}`,
@@ -6836,6 +6871,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       liveEligibilityFirstSeenByKey.delete(eligibilityKey);
     }
     const accepted = gatePassCore && actualDelayMs >= thresholdMs;
+    if (accepted && liveAsrVisualGovernorHardHold) {
+      try {
+        console.warn(
+          `[ASR_SEMANTIC_COMMIT_HELD_BY_VISUAL_GOVERNOR] current=${current} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} lastStrongConfirmedSpokenLine=${Math.max(0, lastStrongConfirmedSpokenLine)} speechFresh=${hasRecentActualSpeech(Date.now()) ? 1 : 0} transcriptGrowing=${lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength ? 1 : 0} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=visual_governor_hard_hold`,
+        );
+      } catch {}
+      return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
+    }
     if (!accepted) {
       return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
     }
@@ -9488,6 +9531,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
 
     let maxVelForErr = resolveMaxVel(err);
+    let liveHardHold = false;
     if (liveAsrFollowMode) {
       const confirmedSpoken = Math.max(
         0,
@@ -9505,6 +9549,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           : (ahead ? 'ahead' : 'aligned_or_behind');
       if (leadState === 'far_ahead') {
         maxVelForErr = 0;
+        liveHardHold = true;
       } else if (ahead) {
         maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS);
       } else if (err >= ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX) {
@@ -9523,8 +9568,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         console.warn(
           `[ASR_VISUAL_FOLLOW_VELOCITY] pxps=${Math.round(maxVelForErr)} deltaPx=${Math.round(err)} deltaLines=${deltaLinesApprox.toFixed(2)} capped=${maxVelForErr < resolveMaxVel(err) ? 1 : 0} capReason=${leadState === 'far_ahead' ? 'governor_hold' : 'follow_cap'} leadState=${leadState} speechFresh=${hasRecentActualSpeech(Date.now()) ? 1 : 0} proofSource=live_follow_tick`,
         );
+        if (liveHardHold) {
+          console.warn(
+            `[ASR_VISUAL_FOLLOW_HARD_HELD] currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(pursuitTargetTop || current)} deltaPx=${Math.round(err)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=governor_hold source=tick_controller`,
+          );
+        }
       } catch {}
     }
+    liveAsrVisualGovernorHardHold = liveHardHold;
+    try { (window as any).__tpLiveAsrGovernorHold = liveHardHold; } catch {}
     if (microActive) {
       maxVelForErr = Math.min(maxVelForErr, microPursuitCapPxPerSec);
     }
@@ -9538,7 +9590,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
     let move = pursuitVel * dt;
     move = Math.min(move, maxStepPx);
-    if (move < minStepPx) move = Math.min(err, minStepPx);
+    if (!liveHardHold && move < minStepPx) move = Math.min(err, minStepPx);
     move = Math.min(err, move);
 
     if (move > 0) {
@@ -9912,6 +9964,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     stopCommitPursuit('pixel-commit');
     if (liveAsrStrongMarkerSnap) {
+      if (liveAsrGlideActive) {
+        pursuitTargetTop = targetTop;
+        ensurePursuitActive();
+        try {
+          console.warn(
+            `[ASR_VISUAL_SNAP_SUPPRESSED] commitLineIdx=${commit.lineIdx} targetScrollTop=${Math.round(targetTop)} currentScrollTop=${Math.round(beforeTop)} reason=live_asr_strong_marker_snap_suppressed source=strong-marker-snap`,
+          );
+        } catch {}
+        return {
+          method: 'pixel',
+          writerCommitted: false,
+          beforeTop,
+          afterTop: beforeTop,
+          movedPx: 0,
+        };
+      }
       stopCommitPursuit('strong-marker-snap');
       const appliedTop = applyCanonicalScrollTop(targetTop, {
         scroller: deps.scroller,
