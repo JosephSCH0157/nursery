@@ -6698,6 +6698,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (getScrollMode() !== 'asr' || !isSessionLivePhase() || !isSessionAsrArmed()) return true;
     const safeCurrent = Math.max(0, Math.floor(currentLine));
     const safeTarget = Math.max(0, Math.floor(targetLine));
+    const nowTs = Date.now();
     const tryEarlyHoldTerminalCommit = (holdReason: string): boolean => {
       const strictNextSpeakable = resolveLiveStrictNextSpeakableStep(
         safeCurrent,
@@ -6713,7 +6714,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         (strictNextSpeakable != null && safeCandidate === strictNextSpeakable);
       const finalPacketFresh =
         lastFinalTranscriptAt > 0 &&
-        now - lastFinalTranscriptAt <= 1800;
+        nowTs - lastFinalTranscriptAt <= 1800;
       const transcriptGrowing =
         lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength ||
         lastFinalTranscriptAt > lastCommitTranscriptTimestamp;
@@ -6721,7 +6722,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         strictNextSpeakable != null &&
         strictNextSpeakable > safeCurrent &&
         strictNextSpeakable <= safeCurrent + LIVE_STRICT_MAX_CUE_BRIDGE_SPAN;
-      const freshSpeech = speechRunning === true || hasRecentActualSpeech(now) || finalPacketFresh;
+      const freshSpeech = speechRunning === true || hasRecentActualSpeech(nowTs) || finalPacketFresh;
       if (!adjacentOrBridgeSafe || !freshSpeech || (!transcriptGrowing && !tailProofUsed)) return false;
       const terminal = commitLiveAsrSafeStep({
         current: safeCurrent,
@@ -9505,23 +9506,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ? Math.max(0, Math.floor(markerLockLineIdxRaw))
         : Math.max(0, Math.floor(commit.lineIdx));
     if (commit.markerLockRequired) {
-      try {
-        if (getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed()) {
-          const desiredBottomPaddingPx = Math.max(96, Math.round(deps.scroller.clientHeight * 0.22));
-          const currentBottomPaddingPx = (() => {
-            try {
-              const style = window.getComputedStyle(deps.scroller);
-              const raw = Number.parseFloat(style.paddingBottom || '0');
-              return Number.isFinite(raw) ? Math.max(0, Math.round(raw)) : 0;
-            } catch {
-              return 0;
-            }
-          })();
-          if (desiredBottomPaddingPx > currentBottomPaddingPx) {
-            deps.scroller.style.paddingBottom = `${desiredBottomPaddingPx}px`;
-          }
-        }
-      } catch {}
       stopCommitPursuit('asr-marker-lock-commit');
       const markerLockLineEl = getLineElementByIndex(deps.scroller, markerLockLineIdx);
       const markerLockTopRaw = computeLineTargetTop(deps.scroller, markerLockLineEl);
