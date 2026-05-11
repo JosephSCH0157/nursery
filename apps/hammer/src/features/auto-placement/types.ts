@@ -33,6 +33,7 @@ export type MaskAwarePlacementInput = {
     count?: number;
   }>;
   allowScaleFallback?: boolean;
+  emergencyScaleAllowed?: boolean;
   minScale?: number;
   scaleSteps?: number[];
 };
@@ -94,5 +95,8 @@ export type DebugPlacementCandidate = PlacementCandidate & {
   facePenalty?: number | null;
   edgePenalty?: number | null;
   rejectionReason: string | null;
+  faceOverlap?: boolean;
+  bodyOverlap?: boolean;
+  rejectedByBodyMask?: boolean;
   reasons: string[];
 };

@@ -1,7 +1,7 @@
 // @ts-nocheck
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveMaskAwarePlacement } from "../maskAwarePlacement";
+import { evaluateMaskAwarePlacementCandidates, resolveMaskAwarePlacement } from "../maskAwarePlacement";
 import type { MaskAwarePlacementInput, Rect } from "../types";
 import { intersectionArea, isRectInsideFrame } from "../reservedZones";
 import { buildPaddedSpeakerBounds, deriveFaceSafeZonesFromSpeakerBounds, scoreCandidate } from "../placementScoring";
@@ -113,6 +113,7 @@ test("fixed-size no-safe-placement resolves when scale fallback allowed", () => 
   input.overlay = { width: 2200, height: 1280 };
   input.speakerMaskBounds = [];
   input.allowScaleFallback = true;
+  input.emergencyScaleAllowed = true;
   input.minScale = 0.5;
   input.scaleSteps = [1, 0.9, 0.8, 0.7, 0.6, 0.5];
   const result = resolveMaskAwarePlacement(input);
@@ -149,6 +150,7 @@ test("returns null when even minScale cannot fit", () => {
   input.speakerMaskBounds = [{ x: 0, y: 0, width: 1920, height: 1080 }];
   input.reservedZones = [{ x: 0, y: 0, width: 1920, height: 1080 }];
   input.allowScaleFallback = true;
+  input.emergencyScaleAllowed = true;
   input.minScale = 0.5;
   input.scaleSteps = [1, 0.9, 0.8, 0.7, 0.6, 0.5];
   const result = resolveMaskAwarePlacement(input);
@@ -160,6 +162,7 @@ test("scale fallback remains deterministic with same seed", () => {
   input.overlay = { width: 2200, height: 1280 };
   input.speakerMaskBounds = [];
   input.allowScaleFallback = true;
+  input.emergencyScaleAllowed = true;
   input.selectionSeed = 5;
   const first = resolveMaskAwarePlacement(input);
   const second = resolveMaskAwarePlacement(input);
@@ -237,11 +240,31 @@ test("scale remains >= 0.85 when face is clear and containment is possible", () 
   input.overlay = { width: 2050, height: 1200 };
   input.speakerMaskBounds = [];
   input.allowScaleFallback = true;
+  input.emergencyScaleAllowed = false;
   input.minScale = 0.5;
   input.scaleSteps = [1, 0.9, 0.8, 0.7, 0.6, 0.5];
   const result = resolveMaskAwarePlacement(input);
   assert.ok(result);
   assert.ok((result?.selectedScale ?? 1) >= 0.85);
+});
+
+test("default resolver does not return below 0.85", () => {
+  const input = baseInput();
+  input.overlay = { width: 2200, height: 1280 };
+  input.allowScaleFallback = true;
+  input.emergencyScaleAllowed = false;
+  const result = resolveMaskAwarePlacement(input);
+  assert.equal(result, null);
+});
+
+test("emergency scale below 0.85 requires emergencyScaleAllowed", () => {
+  const input = baseInput();
+  input.overlay = { width: 2200, height: 1280 };
+  input.allowScaleFallback = true;
+  input.emergencyScaleAllowed = true;
+  const result = resolveMaskAwarePlacement(input);
+  assert.ok(result);
+  assert.ok((result?.selectedScale ?? 1) < 0.85);
 });
 
 test("overlay may overlap lower torso and still resolve", () => {
@@ -303,6 +326,13 @@ test("multi-person protects each derived face/head zone", () => {
   for (const zone of faceZones) {
     assert.equal(intersectionArea(result!.rect, zone), 0);
   }
+});
+
+test("intersects_padded_speaker_bounds is never a hard reject reason", () => {
+  const input = baseInput();
+  input.speakerMaskBounds = [{ x: 740, y: 120, width: 420, height: 760 }];
+  const evaluation = evaluateMaskAwarePlacementCandidates(input);
+  assert.equal(evaluation.candidates.some((c) => c.rejectionReason === "intersects_padded_speaker_bounds"), false);
 });
 
 test("larger readable scale beats tiny perfectly safe placement", () => {

@@ -116,10 +116,13 @@ export type HammerWorkspaceShellPreviewBayVM = {
         topPct: number;
         widthPct: number;
         heightPct: number;
-        zone: string;
-        accepted: boolean;
-        rejectionReason: string | null;
-      }>;
+      zone: string;
+      accepted: boolean;
+      rejectionReason: string | null;
+      faceOverlap: boolean;
+      bodyOverlap: boolean;
+      rejectedByBodyMask: boolean;
+    }>;
       frameLabel: string;
       maskLabel: string;
       debugFlagDetected: boolean;
@@ -415,14 +418,22 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
                   />
                 ))}
                 {autoPlacementDiagnostics.paddedSpeakerBounds.map((bound, idx) => (
-                  <rect
-                    key={`speaker-${idx}`}
-                    className="hammer-preview-auto-placement-overlay__speaker-bound"
-                    x={bound.leftPct}
-                    y={bound.topPct}
-                    width={bound.widthPct}
-                    height={bound.heightPct}
-                  />
+                  <g key={`speaker-${idx}`}>
+                    <rect
+                      className="hammer-preview-auto-placement-overlay__speaker-bound"
+                      x={bound.leftPct}
+                      y={bound.topPct}
+                      width={bound.widthPct}
+                      height={bound.heightPct}
+                    />
+                    <text
+                      className="hammer-preview-auto-placement-overlay__label"
+                      x={bound.leftPct}
+                      y={Math.max(3, bound.topPct - 1.2)}
+                    >
+                      BODY MASK / overlap allowed
+                    </text>
+                  </g>
                 ))}
                 {autoPlacementDiagnostics.faceSafeZones.map((bound, idx) => (
                   <g key={`face-safe-${idx}`}>
@@ -511,6 +522,11 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
               <div>body overlap allowed: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.bodyOverlapAllowed ? "true" : "false") : "n/a"}</div>
               <div>scale reason: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.overlay?.scaleReason ?? "n/a") : "n/a"}</div>
               <div>placement reason: {autoPlacementDiagnostics.enabled ? (autoPlacementDiagnostics.overlay?.placementReason ?? "n/a") : "n/a"}</div>
+              {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.candidates.slice(0, 8).map((candidate, idx) => (
+                <div key={`cand-meta-${idx}`}>
+                  candidate {candidate.zone}: faceOverlap {candidate.faceOverlap ? "yes" : "no"} · bodyOverlap {candidate.bodyOverlap ? "yes" : "no"} · rejectedByBodyMask {candidate.rejectedByBodyMask ? "true" : "false"}
+                </div>
+              )) : null}
               {autoPlacementDiagnostics.enabled ? autoPlacementDiagnostics.scaleAttempts.map((attempt, idx) => (
                 <div key={`scale-attempt-${idx}`}>
                   scale attempt {attempt.scale.toFixed(2)}: candidates {attempt.candidateCount}, rejected {attempt.rejectedCount}, best rejection {attempt.bestRejectionReason ?? "none"}, resolved {attempt.resolved ? "yes" : "no"}

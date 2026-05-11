@@ -195,10 +195,9 @@ function eyeLineAdjacencyPenalty(args: {
 
 function deadSpacePreferenceBonus(args: {
   candidate: PlacementCandidate["rect"];
-  paddedSpeakerBounds: PlacementCandidate["rect"][];
   reservedZones: PlacementCandidate["rect"][];
 }): number {
-  const obstacles = [...args.paddedSpeakerBounds, ...args.reservedZones];
+  const obstacles = [...args.reservedZones];
   if (obstacles.length === 0) return 0.08;
   const distance = minDistance(args.candidate, obstacles);
   return Math.min(0.2, (distance / 420) * 0.2);
@@ -262,8 +261,8 @@ function weightedSpeakerOverlapPenalty(args: {
   const upperRatio = regions.upperTorso ? overlapRatio(args.candidate, regions.upperTorso) : 0;
   const lowerRatio = regions.lowerBody ? overlapRatio(args.candidate, regions.lowerBody) : 0;
   const overlapPenaltyValue = Math.min(
-    0.45,
-    (upperRatio * 0.18) + (lowerRatio * 0.06),
+    0.08,
+    (upperRatio * 0.03) + (lowerRatio * 0.01),
   );
   return {
     faceHeadOverlapRatio: faceRatio,
@@ -295,7 +294,7 @@ export function scoreCandidate(args: {
   paddedSpeakerBounds: PlacementCandidate["rect"][];
   reservedZones: PlacementCandidate["rect"][];
 }): ScoredPlacementCandidate | null {
-  const { input, candidate, paddedSpeakerBounds, reservedZones } = args;
+  const { input, candidate, reservedZones } = args;
   const hardReject = candidateHardRejectReason({
     input,
     candidate,
@@ -304,9 +303,7 @@ export function scoreCandidate(args: {
   });
   if (hardReject) return null;
 
-  const speakerDistance = minDistance(candidate.rect, paddedSpeakerBounds);
   const reservedDistance = minDistance(candidate.rect, reservedZones);
-  const speakerDistanceScore = Math.min(1, speakerDistance / 300);
   const reservedDistanceScore = Math.min(1, reservedDistance / 300);
   const comfortScore = edgeComfort(candidate.rect, input.frame);
   const zonePrior = ZONE_PRIOR[candidate.zone];
@@ -338,12 +335,10 @@ export function scoreCandidate(args: {
   });
   const deadSpaceBonus = deadSpacePreferenceBonus({
     candidate: candidate.rect,
-    paddedSpeakerBounds,
     reservedZones,
   });
 
   const baseScore = (
-    (speakerDistanceScore * 0.08) +
     (reservedDistanceScore * 0.28) +
     (comfortScore * 0.24) +
     (compositionScore * 0.28) +
@@ -355,7 +350,6 @@ export function scoreCandidate(args: {
   const finalScore = baseScore - repeatPenalty - facePenalty - overlapPenaltyValue - edgePenaltyValue;
   const whySelected = [
     `composition=${compositionScore.toFixed(2)}`,
-    `speaker_distance=${speakerDistance.toFixed(1)}`,
     `overlap_penalty=${overlapPenaltyValue.toFixed(2)}`,
     `face_penalty=${facePenalty.toFixed(2)}`,
     `edge_penalty=${edgePenaltyValue.toFixed(2)}`,
@@ -371,7 +365,6 @@ export function scoreCandidate(args: {
     finalScore,
     whySelected,
     reasons: [
-      `speaker_distance=${speakerDistance.toFixed(1)}`,
       `reserved_distance=${reservedDistance.toFixed(1)}`,
       `comfort=${comfortScore.toFixed(2)}`,
       `composition_score=${compositionScore.toFixed(2)}`,

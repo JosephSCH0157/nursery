@@ -97,6 +97,9 @@ export type HammerAutoPlacementDiagnosticsState =
       zone: string;
       accepted: boolean;
       rejectionReason: string | null;
+      faceOverlap: boolean;
+      bodyOverlap: boolean;
+      rejectedByBodyMask: boolean;
     }>;
     frameLabel: string;
     maskLabel: string;
@@ -387,6 +390,7 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
     reservedZones: [],
     selectionSeed: Math.floor(args.playheadSec || 0),
     allowScaleFallback: true,
+    emergencyScaleAllowed: false,
     minScale: 0.5,
     scaleSteps: [1, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.6, 0.5],
   });
@@ -419,6 +423,9 @@ export function resolveAutoPlacementDiagnosticsForPreview(args: {
     zone: candidate.zone,
     accepted: candidate.accepted,
     rejectionReason: candidate.rejectionReason,
+    faceOverlap: Boolean(candidate.faceOverlap),
+    bodyOverlap: Boolean(candidate.bodyOverlap),
+    rejectedByBodyMask: false,
   }));
   const rejectedCandidateCount = candidates.reduce((count, candidate) => count + (candidate.accepted ? 0 : 1), 0);
   if (!resolved) {
