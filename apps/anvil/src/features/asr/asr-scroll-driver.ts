@@ -3910,6 +3910,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let asrFocusMovementHoldActive = false;
     let asrFocusSignalSeen = false;
     let postFocusFreshProofRequired = false;
+    let focusTranscriptQuarantineActive = false;
     let lastMatchId: string | undefined;
     let syntheticMatchIdSeq = 0;
     let lastScriptHash = '';
@@ -5043,12 +5044,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       return;
     }
     const shouldHold = !isDocumentVisible() || !isDocumentFocused();
-    if (shouldHold) {
-      if (!asrFocusMovementHoldActive) {
+      if (shouldHold) {
+        if (!asrFocusMovementHoldActive) {
         asrFocusMovementHoldActive = true;
         asrFocusGeneration += 1;
         lastFocusLostAt = now;
-        postFocusFreshProofRequired = true;
+          postFocusFreshProofRequired = true;
+          focusTranscriptQuarantineActive = true;
         freezeAsrMovementForFocusHold('lost');
         warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
           `state=lost`,
@@ -5068,6 +5070,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       asrFocusGeneration += 1;
       lastFocusRegainedAt = now;
       postFocusFreshProofRequired = true;
+      focusTranscriptQuarantineActive = true;
       freezeAsrMovementForFocusHold('regain');
       warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
         `state=regained`,
@@ -5255,6 +5258,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     syncAsrFocusMovementGate('ingest', now);
     if (!isAsrLiveMovementSession()) return true;
     if (asrFocusMovementHoldActive) {
+      try {
+        console.warn(
+          `[ASR_FOCUS_LOSS_TRANSCRIPT_QUARANTINED] final=${isFinal ? 1 : 0} focusState=lost generation=${asrFocusGeneration} clue="${formatLogSnippet(clue, 64)}"`,
+        );
+      } catch {}
       warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
         `state=lost`,
         `source=ingest`,
@@ -5273,6 +5281,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       now >= lastFocusRegainedAt;
     const hasFreshSpeechProof = hasRecentActualSpeech(now) && hasRecentVadSpeechNow(now);
     if (!isFinalAfterRegain || !hasFreshSpeechProof) {
+      try {
+        console.warn(
+          `[ASR_POST_FOCUS_BACKLOG_PACKET_DROPPED] final=${isFinal ? 1 : 0} focusState=regained awaitingFreshProof=1 generation=${asrFocusGeneration} isFinalAfterRegain=${isFinalAfterRegain ? 1 : 0} hasFreshSpeechProof=${hasFreshSpeechProof ? 1 : 0} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+        );
+      } catch {}
       warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
         `state=awaiting_post_focus_final`,
         `source=ingest`,
@@ -5286,7 +5299,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       return false;
     }
     postFocusFreshProofRequired = false;
+    focusTranscriptQuarantineActive = false;
     clearEvidenceBuffer('post-focus-fresh-proof');
+    try {
+      console.warn(
+        `[ASR_POST_FOCUS_FRESH_FINAL_ACCEPTED] generation=${asrFocusGeneration} final=1 speechFresh=1 focusState=regained clue="${formatLogSnippet(clue, 64)}"`,
+      );
+    } catch {}
     warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
       `state=fresh_post_focus_final_ok`,
       `source=ingest`,
@@ -6764,9 +6783,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const finalPacketFresh = lastFinalTranscriptAt > 0 && nowTs - lastFinalTranscriptAt <= 1800;
       const vadFresh = hasRecentVadSpeechNow(nowTs);
       if (!runtimeSpeechFresh && finalPacketFresh) {
+        const recentFocusRegain = lastFocusRegainedAt > 0 && nowTs - lastFocusRegainedAt <= 3500;
+        const focusState = asrFocusMovementHoldActive
+          ? 'lost'
+          : (postFocusFreshProofRequired || focusTranscriptQuarantineActive ? 'regained_quarantine' : 'normal');
         try {
           console.warn(
-            `[ASR_STALE_TAIL_ADVANCE_BLOCKED] current=${safeCurrent} target=${safeTarget} bestIdx=${Math.max(safeCurrent, Math.floor(Number(args.bestIdx ?? safeTarget) || safeTarget))} speechFresh=0 runtimeSpeechFresh=0 finalPacketFresh=1 vadFresh=${vadFresh ? 1 : 0} transcriptAgeMs=${lastFinalTranscriptAt > 0 ? Math.max(0, nowTs - lastFinalTranscriptAt) : -1} proofSource=${proofSource} reason=stale_whisper_tail`,
+            `[ASR_STALE_TAIL_ADVANCE_BLOCKED] current=${safeCurrent} target=${safeTarget} bestIdx=${Math.max(safeCurrent, Math.floor(Number(args.bestIdx ?? safeTarget) || safeTarget))} speechFresh=0 runtimeSpeechFresh=0 finalPacketFresh=1 vadFresh=${vadFresh ? 1 : 0} transcriptAgeMs=${lastFinalTranscriptAt > 0 ? Math.max(0, nowTs - lastFinalTranscriptAt) : -1} proofSource=${proofSource} focusState=${focusState} recentFocusRegain=${recentFocusRegain ? 1 : 0} reason=stale_whisper_tail`,
           );
         } catch {}
       }
@@ -15294,6 +15317,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
       const prevLineIndex = lastLineIndex;
       const modeNow = getScrollMode();
+      if (
+        modeNow === 'asr' &&
+        isSessionLivePhase() &&
+        isSessionAsrArmed() &&
+        targetLine > prevLineIndex &&
+        liveAsrVisualGovernorHardHold
+      ) {
+        const confirmedSpoken = Math.max(0, lastStrongConfirmedSpokenLine);
+        const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, targetLine));
+        const renderedLead = Math.max(0, targetLine - confirmedSpoken);
+        try {
+          console.warn(
+            `[ASR_TERMINAL_COMMIT_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${prevLineIndex} target=${targetLine} bestIdx=${Math.max(prevLineIndex, Math.floor(Number(line) || targetLine))} speakableLead=${speakableLead} renderedLead=${renderedLead} proofSource=${movementAuthorityProofSource || 'none'} sourceBranch=${movementAuthoritySourceBranch || 'unknown'} reason=visual_governor_hard_hold`,
+          );
+        } catch {}
+        return;
+      }
       const asrDeterministicMarkerLockCommit = modeNow === 'asr';
       const liveAsrCommitCapActive =
         modeNow === 'asr' &&
@@ -20907,6 +20947,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     resetAmbiguityHoldState();
     updateManualAnchorGlobalState();
     asrFocusMovementHoldActive = false;
+    focusTranscriptQuarantineActive = false;
     publishAsrFocusGateState();
     if (activeGuardCounts === guardCounts) {
       activeGuardCounts = null;

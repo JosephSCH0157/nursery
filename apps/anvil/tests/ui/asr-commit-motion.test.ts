@@ -1798,6 +1798,7 @@ describe('ASR live commit motion', () => {
   });
 
   test('requires a fresh post-focus final proof before movement resumes', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const driver = createAsrScrollDriver();
     const visibilityDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
     const hiddenDescriptor = Object.getOwnPropertyDescriptor(document, 'hidden');
@@ -1840,6 +1841,7 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(200);
     expect(driver.getLastLineIndex()).toBe(1);
+    let lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
 
     driver.ingest('The seats remember every early shift.', true, {
       currentIdx: 1,
@@ -1852,11 +1854,40 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(200);
     expect(driver.getLastLineIndex()).toBe(2);
+    lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_POST_FOCUS_FRESH_FINAL_ACCEPTED'))).toBe(true);
 
     if (visibilityDescriptor) Object.defineProperty(document, 'visibilityState', visibilityDescriptor);
     else delete (document as any).visibilityState;
     if (hiddenDescriptor) Object.defineProperty(document, 'hidden', hiddenDescriptor);
     else delete (document as any).hidden;
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('quarantines transcript packets during focus loss', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    let focusActive = true;
+    const hasFocusSpy = jest.spyOn(document, 'hasFocus').mockImplementation(() => focusActive);
+
+    driver.setLastLineIndex(1);
+    focusActive = false;
+    window.dispatchEvent(new Event('blur'));
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'focus-quarantine',
+      source: 'openai-whisper-bridge',
+      match: { bestIdx: 2, bestSim: 0.92, topScores: [{ idx: 2, score: 0.92 }] },
+    });
+    await jest.advanceTimersByTimeAsync(200);
+
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_FOCUS_LOSS_TRANSCRIPT_QUARANTINED'))).toBe(true);
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    hasFocusSpy.mockRestore();
+    warnSpy.mockRestore();
     driver.dispose();
   });
 });
