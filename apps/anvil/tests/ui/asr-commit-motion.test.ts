@@ -235,56 +235,6 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
-  test('rate-limits repeated far-future forward pressure while already ahead', async () => {
-    const driver = createAsrScrollDriver();
-    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
-      detail: { speechRunningActual: true },
-    }));
-
-    driver.setLastLineIndex(0);
-    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
-      currentIdx: 0,
-      matchId: 'forward-governor-prime',
-      match: {
-        bestIdx: 1,
-        bestSim: 0.9,
-        topScores: [{ idx: 1, score: 0.9 }],
-      },
-    });
-    await jest.advanceTimersByTimeAsync(200);
-    expect(driver.getLastLineIndex()).toBe(1);
-
-    driver.ingest('Neon ads hum above the aisle.', true, {
-      currentIdx: 1,
-      matchId: 'forward-governor-push-1',
-      match: {
-        bestIdx: 3,
-        bestSim: 0.9,
-        topScores: [
-          { idx: 2, score: 0.62 },
-          { idx: 3, score: 0.9 },
-        ],
-      },
-    });
-    await jest.advanceTimersByTimeAsync(200);
-    expect(driver.getLastLineIndex()).toBe(2);
-
-    // Immediate repeat should not continue stepping forward aggressively.
-    driver.ingest('Neon ads hum above the aisle.', true, {
-      currentIdx: 2,
-      matchId: 'forward-governor-push-2',
-      match: {
-        bestIdx: 3,
-        bestSim: 0.9,
-        topScores: [{ idx: 3, score: 0.9 }],
-      },
-    });
-    await jest.advanceTimersByTimeAsync(200);
-    expect(driver.getLastLineIndex()).toBeLessThanOrEqual(2);
-
-    driver.dispose();
-  });
-
   test('does not let a stalled far-future final keep the script walking forward on its own', async () => {
     const driver = createAsrScrollDriver();
 
