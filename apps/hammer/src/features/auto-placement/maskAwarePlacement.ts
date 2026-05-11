@@ -7,7 +7,7 @@ import type {
   PlacementZone,
   Rect,
 } from "./types";
-import { deriveDefaultReservedZones, rectIntersectsAny } from "./reservedZones";
+import { deriveDefaultReservedZones, intersectionArea, rectIntersectsAny } from "./reservedZones";
 import { buildPaddedSpeakerBounds, candidateHardRejectReason, deriveFaceSafeZonesFromSpeakerBounds, scoreCandidate } from "./placementScoring";
 
 const DEFAULT_SAFE_MARGIN_PX = 24;
@@ -70,7 +70,44 @@ function nudgeRectIntoFrame(rect: Rect, frame: { width: number; height: number }
   };
 }
 
-function generateBaseCandidates(input: MaskAwarePlacementInput, margin: number): PlacementCandidate[] {
+function rectIntersectsAnyFaceSafeZone(rect: Rect, faceSafeZones: Rect[]): boolean {
+  return faceSafeZones.some((zone) => intersectionArea(rect, zone) > 0);
+}
+
+function nudgeRectAvoidingFaceSafeZones(args: {
+  zone: PlacementZone;
+  rect: Rect;
+  frame: { width: number; height: number };
+  faceSafeZones: Rect[];
+}): Rect {
+  let current = nudgeRectIntoFrame(args.rect, args.frame);
+  if (!rectIntersectsAnyFaceSafeZone(current, args.faceSafeZones)) return current;
+  const verticalSteps = [16, 28, 40, 56, 72, 96, 128, 160, 192, 224];
+  const horizontalSteps = [18, 32, 52, 72, 96, 128, 160];
+  const tries: Rect[] = [];
+  for (const dy of verticalSteps) {
+    tries.push({ ...current, y: current.y - dy });
+  }
+  for (const dx of horizontalSteps) {
+    tries.push({ ...current, x: current.x + dx });
+    tries.push({ ...current, x: current.x - dx });
+  }
+  for (const dy of verticalSteps) {
+    for (const dx of horizontalSteps) {
+      tries.push({ ...current, y: current.y - dy, x: current.x + dx });
+      tries.push({ ...current, y: current.y - dy, x: current.x - dx });
+    }
+  }
+  for (const trial of tries) {
+    const nudged = nudgeRectIntoFrame(trial, args.frame);
+    if (!rectIntersectsAnyFaceSafeZone(nudged, args.faceSafeZones)) {
+      return nudged;
+    }
+  }
+  return current;
+}
+
+function generateBaseCandidates(input: MaskAwarePlacementInput, margin: number, faceSafeZones: Rect[]): PlacementCandidate[] {
   const zones: PlacementZone[] = [
     "upper_left",
     "upper_right",
@@ -82,7 +119,12 @@ function generateBaseCandidates(input: MaskAwarePlacementInput, margin: number):
   ];
   return zones.map((zone) => ({
     zone,
-    rect: nudgeRectIntoFrame(resolveZoneRect(zone, input.frame, input.overlay, margin), input.frame),
+    rect: nudgeRectAvoidingFaceSafeZones({
+      zone,
+      rect: nudgeRectIntoFrame(resolveZoneRect(zone, input.frame, input.overlay, margin), input.frame),
+      frame: input.frame,
+      faceSafeZones,
+    }),
   }));
 }
 
@@ -214,7 +256,7 @@ export function evaluateMaskAwarePlacementCandidates(input: MaskAwarePlacementIn
   const faceSafeZones = deriveFaceSafeZonesFromSpeakerBounds(input.speakerMaskBounds)
     .map((rect) => nudgeRectIntoFrame(rect, input.frame));
   const reservedZones = (input.reservedZones?.length ? input.reservedZones : deriveDefaultReservedZones());
-  const candidates: PlacementCandidate[] = generateBaseCandidates(input, margin);
+  const candidates: PlacementCandidate[] = generateBaseCandidates(input, margin, faceSafeZones);
   const backgroundOpen = generateBackgroundOpenCandidate({
     input,
     margin,

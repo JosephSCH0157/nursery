@@ -215,6 +215,14 @@ test("single speaker prefers lower zones over upper corners", () => {
   assert.ok(result?.zone === "lower_left" || result?.zone === "lower_right");
 });
 
+test("single speaker does not choose lower-center while lower sides are valid", () => {
+  const input = baseInput();
+  input.speakerMaskBounds = [{ x: 740, y: 120, width: 420, height: 760 }];
+  const result = resolveMaskAwarePlacement(input);
+  assert.ok(result);
+  assert.notEqual(result?.zone, "lower_center");
+});
+
 test("single speaker alternates lower zones using recent placement history first", () => {
   const input = baseInput();
   input.speakerMaskBounds = [{ x: 740, y: 120, width: 420, height: 760 }];
@@ -224,7 +232,7 @@ test("single speaker alternates lower zones using recent placement history first
   assert.equal(result?.zone, "lower_left");
 });
 
-test("scale does not shrink below 0.7 unless necessary", () => {
+test("scale remains >= 0.85 when face is clear and containment is possible", () => {
   const input = baseInput();
   input.overlay = { width: 2050, height: 1200 };
   input.speakerMaskBounds = [];

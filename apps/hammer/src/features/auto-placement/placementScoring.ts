@@ -14,14 +14,14 @@ import {
 } from "./reservedZones";
 
 const ZONE_PRIOR: Record<PlacementCandidate["zone"], number> = {
-  upper_left: 0.16,
-  upper_right: 0.16,
-  lower_center: 0.06,
-  lower_left: 0.08,
-  lower_right: 0.08,
-  left_gutter: 0.12,
-  right_gutter: 0.12,
-  background_open: 0.1,
+  upper_left: 0.01,
+  upper_right: 0.01,
+  lower_center: 0.14,
+  lower_left: 0.16,
+  lower_right: 0.16,
+  left_gutter: 0.04,
+  right_gutter: 0.04,
+  background_open: 0.03,
 };
 
 function minDistance(rect: PlacementCandidate["rect"], obstacles: PlacementCandidate["rect"][]): number {
@@ -110,10 +110,10 @@ function clampRectToFrame(rect: Rect, frame: { width: number; height: number }):
 }
 
 export function deriveFaceSafeZonesFromSpeakerBounds(speakerMaskBounds: Rect[]): Rect[] {
-  const pad = 16;
+  const pad = 10;
   return speakerMaskBounds.map((speaker) => {
-    const faceHeight = Math.max(24, speaker.height * 0.35);
-    const faceWidth = Math.max(24, speaker.width * 0.65);
+    const faceHeight = Math.max(24, speaker.height * 0.25);
+    const faceWidth = Math.max(24, speaker.width * 0.5);
     const faceX = speaker.x + ((speaker.width - faceWidth) / 2);
     const faceY = speaker.y;
     return {
@@ -144,16 +144,12 @@ function rectCenter(rect: PlacementCandidate["rect"]): { x: number; y: number } 
   };
 }
 
-function estimatePrimaryFaceBounds(speakerBounds: PlacementCandidate["rect"][]): PlacementCandidate["rect"] | null {
-  return deriveSpeakerRegionRects(speakerBounds).faceHead;
-}
-
 function proximityToFacePenalty(args: {
   candidate: PlacementCandidate["rect"];
-  paddedSpeakerBounds: PlacementCandidate["rect"][];
+  speakerBounds: PlacementCandidate["rect"][];
   frame: { width: number; height: number };
 }): number {
-  const face = estimatePrimaryFaceBounds(args.paddedSpeakerBounds);
+  const face = deriveFaceSafeZonesFromSpeakerBounds(args.speakerBounds)[0] ?? null;
   if (!face) return 0;
   const c = rectCenter(args.candidate);
   const f = rectCenter(face);
@@ -181,9 +177,9 @@ function upperCenterFocalCompetitionPenalty(args: {
 
 function eyeLineAdjacencyPenalty(args: {
   candidate: PlacementCandidate["rect"];
-  paddedSpeakerBounds: PlacementCandidate["rect"][];
+  speakerBounds: PlacementCandidate["rect"][];
 }): number {
-  const face = estimatePrimaryFaceBounds(args.paddedSpeakerBounds);
+  const face = deriveFaceSafeZonesFromSpeakerBounds(args.speakerBounds)[0] ?? null;
   if (!face) return 0;
   const c = rectCenter(args.candidate);
   const faceEyeLineY = face.y + (face.height * 0.38);
@@ -317,7 +313,7 @@ export function scoreCandidate(args: {
   const repeatPenalty = repeatedPlacementPenalty(input, candidate);
   const faceProximityPenalty = proximityToFacePenalty({
     candidate: candidate.rect,
-    paddedSpeakerBounds,
+    speakerBounds: input.speakerMaskBounds,
     frame: input.frame,
   });
   const upperCenterPenalty = upperCenterFocalCompetitionPenalty({
@@ -326,7 +322,7 @@ export function scoreCandidate(args: {
   });
   const eyeLinePenalty = eyeLineAdjacencyPenalty({
     candidate: candidate.rect,
-    paddedSpeakerBounds,
+    speakerBounds: input.speakerMaskBounds,
   });
   const overlapSignals = weightedSpeakerOverlapPenalty({
     candidate: candidate.rect,
@@ -347,10 +343,10 @@ export function scoreCandidate(args: {
   });
 
   const baseScore = (
-    (speakerDistanceScore * 0.34) +
-    (reservedDistanceScore * 0.24) +
-    (comfortScore * 0.16) +
-    (compositionScore * 0.26) +
+    (speakerDistanceScore * 0.08) +
+    (reservedDistanceScore * 0.28) +
+    (comfortScore * 0.24) +
+    (compositionScore * 0.28) +
     zonePrior +
     deadSpaceBonus
   );

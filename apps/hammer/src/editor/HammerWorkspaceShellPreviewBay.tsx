@@ -438,7 +438,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
                       x={bound.leftPct}
                       y={Math.max(3, bound.topPct - 1.2)}
                     >
-                      FACE SAFE ZONE
+                      FACE SAFE ZONE {bound.widthPct.toFixed(1)}x{bound.heightPct.toFixed(1)}
                     </text>
                   </g>
                 ))}
