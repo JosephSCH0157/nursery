@@ -1571,6 +1571,69 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('holds early bridge when landing proof is stale-prefix/tail-heavy and commit count is low', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const script = document.getElementById('script') as HTMLElement;
+    script.innerHTML = `
+      <div class="line" data-line="0" style="line-height:24px;">Driving through northern Orlando.</div>
+      <div class="line" data-line="1" style="line-height:24px;">Not perfume amazing.</div>
+      <div class="line" data-line="2" style="line-height:24px;">It was thick.</div>
+      <div class="line" data-line="3" style="line-height:24px;">You felt it at stoplights.</div>
+      <div class="line" data-line="4" style="line-height:24px;">[beat]</div>
+      <div class="line" data-line="5" style="line-height:24px;"></div>
+      <div class="line" data-line="6" style="line-height:24px;">Then the rain broke.</div>
+    `;
+    const metrics = Array.from({ length: 7 }, (_, idx) => ({
+      top: idx * 360,
+      height: 236,
+    }));
+    Array.from(script.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+      const metric = metrics[idx];
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: metric.top,
+          left: 0,
+          right: 800,
+          bottom: metric.top + metric.height,
+          width: 800,
+          height: metric.height,
+        }),
+      });
+    });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 4600 });
+    scroller.scrollTop = 0;
+
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+    driver.setLastLineIndex(3);
+    await jest.advanceTimersByTimeAsync(3600);
+
+    driver.ingest('Driving through northern Orlando. Not perfume amazing. It was thick.', true, {
+      currentIdx: 3,
+      matchId: 'early-bridge-stale-prefix',
+      match: {
+        bestIdx: 6,
+        bestSim: 0.9,
+        topScores: [{ idx: 6, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(350);
+
+    expect(driver.getLastLineIndex()).toBeLessThan(6);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_EARLY_BRIDGE_GOVERNOR_HELD'))).toBe(true);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('emits visual lag telemetry when semantic target sits below viewport during pending bridge', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;

@@ -317,6 +317,8 @@ const ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE = 2;
 const ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES = 4;
 const ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_AHEAD_MS = 900;
 const ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_COMFORTABLE_MS = 350;
+const ASR_EARLY_BRIDGE_GOVERNOR_MAX_COMMITS = 4;
+const ASR_EARLY_BRIDGE_GOVERNOR_MAX_RENDERED_DELTA = 2;
 const ASR_VISUAL_FOLLOW_MAX_PXPS = 80;
 const ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS = 35;
 const ASR_VISUAL_FOLLOW_MIN_PXPS = 8;
@@ -6818,6 +6820,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     stallMs?: number;
     noCommitMs?: number;
     bypassedBlockers?: string;
+    skippedIgnorableLines?: string[];
+    stalePrefixIgnored?: boolean;
+    tailProofUsed?: boolean;
+    clue?: string;
     reason: string;
     emitSameLineReleased?: boolean;
     emitVisibleBridgeBypass?: boolean;
@@ -6862,6 +6868,67 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       hasAuthority &&
       safeAdjacentOrBridge &&
       !hardContradiction;
+    const renderedDelta = Math.max(
+      0,
+      Math.max(requestedTarget, semanticTargetRaw, visualTarget) - current,
+    );
+    const runAgeMs = Math.max(0, commitTs - sessionStartAt);
+    const proofSource = String(args.proofSource || 'none');
+    const transcriptNorm = String(lastFinalTranscriptNorm || '').trim();
+    const commitSnapshotNorm = String(lastCommitTranscriptNormSnapshot || '').trim();
+    const transcriptTailNorm = (
+      commitSnapshotNorm &&
+      transcriptNorm &&
+      transcriptNorm.startsWith(commitSnapshotNorm)
+    )
+      ? transcriptNorm.slice(commitSnapshotNorm.length).trim()
+      : transcriptNorm;
+    const targetNorm = normalizeComparableText(getLineTextAt(requestedTarget));
+    const clueNorm = normalizeComparableText(String(args.clue || ''));
+    const targetContentSet = getContentTokenSet(normTokens(targetNorm));
+    const tailContentTokens = normTokens(normalizeComparableText(transcriptTailNorm));
+    const tailContentHits = countSharedContentTokenHits(targetContentSet, tailContentTokens);
+    const tailHitRatio = targetContentSet.size > 0 ? tailContentHits / targetContentSet.size : 0;
+    const clueContentHits = countSharedContentTokenHits(targetContentSet, normTokens(clueNorm));
+    const clueHitRatio = targetContentSet.size > 0 ? clueContentHits / targetContentSet.size : 0;
+    const lexicalLandingFresh = targetContentSet.size > 0 && tailHitRatio >= 0.5;
+    const clueLandingFresh = targetContentSet.size > 0 && clueHitRatio >= 0.5;
+    const stalePrefixIgnored =
+      !!args.stalePrefixIgnored ||
+      (!!commitSnapshotNorm && transcriptTailNorm !== transcriptNorm) ||
+      (targetContentSet.size > 0 && !lexicalLandingFresh);
+    const tailProofUsed =
+      !!args.tailProofUsed ||
+      proofSource.includes('tail') ||
+      tailContentHits > 0;
+    const landingProofDirect =
+      proofSource.includes('strict_speakable_bridge_landing') ||
+      proofSource.includes('landing_lexical') ||
+      proofSource.includes('live_strict_local_proof_ok') ||
+      proofSource.includes('adjacent_rescue_proofed') ||
+      proofSource.includes('bridge_support') ||
+      lexicalLandingFresh ||
+      clueLandingFresh;
+    const runtimeFreshSpeech = !!args.speechRunningActual || hasRecentActualSpeech(commitTs);
+    const finalPacketFresh = !!args.finalPacketFresh || (
+      lastFinalTranscriptAt > 0 && commitTs - lastFinalTranscriptAt <= 1800
+    );
+    const speechEvidenceFresh = runtimeFreshSpeech || finalPacketFresh;
+    const earlyBridgeHold =
+      gatePassCore &&
+      current <= 3 &&
+      requestedTarget > current + 1 &&
+      commitCount < ASR_EARLY_BRIDGE_GOVERNOR_MAX_COMMITS &&
+      renderedDelta > ASR_EARLY_BRIDGE_GOVERNOR_MAX_RENDERED_DELTA &&
+      (!landingProofDirect || !speechEvidenceFresh || stalePrefixIgnored);
+    if (earlyBridgeHold) {
+      try {
+        console.warn(
+          `[ASR_EARLY_BRIDGE_GOVERNOR_HELD] current=${current} target=${requestedTarget} renderedDelta=${renderedDelta} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(',')}] commitCount=${commitCount} runAgeMs=${runAgeMs} proofSource=${proofSource} speechFresh=${runtimeFreshSpeech ? 1 : 0} finalPacketFresh=${finalPacketFresh ? 1 : 0} stalePrefixIgnored=${stalePrefixIgnored ? 1 : 0} tailProofUsed=${tailProofUsed ? 1 : 0} reason=early_bridge_requires_direct_fresh_landing_proof`,
+        );
+      } catch {}
+      return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
+    }
     const eligibilityKey = `${current}->${reducedTarget}:${args.sourceBranch || 'unknown'}:${args.reason}`;
     if (gatePassCore) {
       if (!liveEligibilityFirstSeenByKey.has(eligibilityKey)) {
@@ -14319,6 +14386,52 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           targetLine = lastLineIndex + 1;
           multiJumpDelta = targetLine - lastLineIndex;
         } else {
+          const earlyBridgeRenderedDelta = Math.max(0, targetLine - lastLineIndex);
+          const earlyBridgeRunAgeMs = Math.max(0, now - sessionStartAt);
+          const earlyBridgeLandingProof = evaluateLiveStrictBridgeLandingLexicalProof(lastLineIndex, targetLine);
+          const earlyBridgeFinalPacketFresh =
+            lastFinalTranscriptAt > 0 && now - lastFinalTranscriptAt <= 1800;
+          const earlyBridgeTargetContent = getContentTokenSet(
+            normTokens(normalizeComparableText(getLineTextAt(targetLine))),
+          );
+          const earlyBridgeSnippetHits = countSharedContentTokenHits(
+            earlyBridgeTargetContent,
+            normTokens(normalizeComparableText(snippet || '')),
+          );
+          const earlyBridgeSnippetFresh =
+            earlyBridgeTargetContent.size > 0 &&
+            (earlyBridgeSnippetHits / earlyBridgeTargetContent.size) >= 0.5;
+          const earlyBridgeSpeechEvidenceFresh = runtimeSpeechFresh || earlyBridgeFinalPacketFresh;
+          const earlyBridgeHold =
+            lastLineIndex <= 3 &&
+            commitCount < ASR_EARLY_BRIDGE_GOVERNOR_MAX_COMMITS &&
+            earlyBridgeRenderedDelta > ASR_EARLY_BRIDGE_GOVERNOR_MAX_RENDERED_DELTA &&
+            (
+              !earlyBridgeSpeechEvidenceFresh ||
+              (!earlyBridgeLandingProof.ok && !earlyBridgeSnippetFresh) ||
+              earlyBridgeLandingProof.stalePrefixIgnored
+            );
+          if (earlyBridgeHold) {
+            const skippedReasons = strictBacklogDrainStep
+              ? ['backlog-drain']
+              : (strictSpeakableStep?.skippedReasons || []);
+            try {
+              console.warn(
+                `[ASR_EARLY_BRIDGE_GOVERNOR_HELD] current=${lastLineIndex} target=${targetLine} renderedDelta=${earlyBridgeRenderedDelta} skippedIgnorableLines=[${skippedReasons.join(',')}] commitCount=${commitCount} runAgeMs=${earlyBridgeRunAgeMs} proofSource=${pendingProofSource || movementAuthorityProofSource || 'none'} speechFresh=${runtimeSpeechFresh ? 1 : 0} finalPacketFresh=${earlyBridgeFinalPacketFresh ? 1 : 0} stalePrefixIgnored=${earlyBridgeLandingProof.stalePrefixIgnored ? 1 : 0} tailProofUsed=${earlyBridgeLandingProof.tailChars > 0 ? 1 : 0} reason=early_bridge_requires_direct_fresh_landing_proof`,
+              );
+            } catch {}
+            warnGuard('asr_early_bridge_governor_hold', [
+              `current=${lastLineIndex}`,
+              `target=${targetLine}`,
+              `renderedDelta=${earlyBridgeRenderedDelta}`,
+              `commitCount=${commitCount}`,
+              `runAgeMs=${earlyBridgeRunAgeMs}`,
+              `landingProof=${earlyBridgeLandingProof.reason}`,
+              `stalePrefixIgnored=${earlyBridgeLandingProof.stalePrefixIgnored ? 1 : 0}`,
+            ]);
+            emitHudStatus('asr_early_bridge_governor_hold', 'Hold: waiting for direct fresh landing proof');
+            return;
+          }
           warnGuard('strict_live_adjacent_speakable_bridge', [
             `current=${lastLineIndex}`,
             `target=${targetLine}`,
