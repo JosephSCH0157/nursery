@@ -6888,8 +6888,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const equivalentBridgeTarget = Math.max(requestedTarget, semanticTargetRaw);
     const bridgeBlockKey = `${current}->${equivalentBridgeTarget}:${lastFinalTranscriptRunGeneration ?? -1}`;
     const bridgeBlockRecord = liveBridgeDownstreamBlockUntilByKey.get(bridgeBlockKey);
+    const bridgeCompletionPath =
+      String(args.sourceBranch || '').toLowerCase().includes('pending_speakable_bridge_complete') ||
+      String(args.reason || '').toLowerCase().includes('bridge_completion_accepted');
     const bridgeBlockUntil = bridgeBlockRecord?.until || 0;
-    if (bridgeBlockUntil > commitTs && equivalentBridgeTarget > current + 1) {
+    if (bridgeBlockUntil > commitTs && equivalentBridgeTarget > current + 1 && !bridgeCompletionPath) {
       try {
         console.warn(
           `[ASR_LIVE_BRIDGE_DOWNSTREAM_COMMIT_BLOCKED] current=${current} requestedTarget=${requestedTarget} sourceBranch=${args.sourceBranch || 'unknown'} proofSource=${args.proofSource || 'none'} reason=bridge_block_token`,
@@ -11488,6 +11491,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ]);
         forceReason = 'live_strict_proof_owned_commit';
       }
+      const startupAdjacentPreRebaseCommitEligible =
+        liveStrictFollow &&
+        lastLineIndex <= 1 &&
+        line === lastLineIndex + 1 &&
+        (asrRuntimeSpeechRunningActual || runtimeSpeechFresh || strictFinalEvidenceArriving) &&
+        Number.isFinite(adjacentCandidateSim) &&
+        adjacentCandidateSim >= 0.52 &&
+        Math.max(0, now - lastCommitTime) >= 700;
+      if (startupAdjacentPreRebaseCommitEligible) {
+        forceReason = 'startup_adjacent_pre_rebase_commit';
+        warnGuard('ASR_STARTUP_ADJACENT_PRE_REBASE_COMMIT', [
+          `current=${lastLineIndex}`,
+          `target=${line}`,
+          `adjacentSim=${formatLogScore(adjacentCandidateSim)}`,
+          `stallMs=${Math.max(0, now - lastCommitTime)}`,
+          `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+          `finalPacketFresh=${runtimeSpeechFresh ? 1 : 0}`,
+        ]);
+      }
       const starvationFutureSpeechReconcileMinMs = 3000;
       const starvationFutureSpeechReconcileMinSim = 0.8;
       const starvationFutureSpeechReconcileShortFragmentMinSim = 0.68;
@@ -12878,43 +12900,86 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `current=${lastLineIndex}`,
           ]);
         } else {
-          const bridgeSemanticTarget = Math.max(
+          const bridgeLandingProof = evaluateLiveStrictBridgeLandingLexicalProof(
             pendingBridgeState.semanticTarget,
-            targetLine,
+            now,
           );
-          targetLine = bridgeSemanticTarget;
-          pendingSpeakableBridgeCompletion = true;
-          proofOwnedForceBypass = true;
-          forceReason = 'pending_speakable_bridge_complete';
-          warnGuard('asr_pending_speakable_bridge_retry', [
-            `semanticFrom=${pendingBridgeState.semanticFrom}`,
-            `semanticTarget=${pendingBridgeState.semanticTarget}`,
-            `visualCurrent=${pendingBridgeState.visualCurrent}`,
-            `visualReducedTarget=${pendingBridgeState.visualReducedTarget}`,
-            `skippedVisibleRows=${pendingBridgeState.skippedVisibleRows}`,
-            `markerLagLines=${pendingBridgeMarkerLagLines}`,
-            `readerVisualBand=${pendingBridgeReaderVisualBand}`,
-            `readerViewportState=${pendingBridgeCurrentVisual.viewportState}`,
-            Number.isFinite(pendingBridgeCurrentVisual.distanceToBottomPx)
-              ? `readerDistanceToBottomPx=${Math.round(pendingBridgeCurrentVisual.distanceToBottomPx)}`
-              : '',
-            Number.isFinite(pendingBridgeCurrentVisual.distanceToMarkerPx)
-              ? `readerDistanceToMarkerPx=${Math.round(pendingBridgeCurrentVisual.distanceToMarkerPx)}`
-              : '',
-            `semanticTargetBand=${pendingBridgeTargetVisual.band}`,
-            `semanticTargetViewportState=${pendingBridgeTargetVisual.viewportState}`,
-            Number.isFinite(pendingBridgeTargetVisual.distanceToBottomPx)
-              ? `semanticTargetDistanceToBottomPx=${Math.round(pendingBridgeTargetVisual.distanceToBottomPx)}`
-              : '',
-            Number.isFinite(pendingBridgeTargetVisual.distanceToMarkerPx)
-              ? `semanticTargetDistanceToMarkerPx=${Math.round(pendingBridgeTargetVisual.distanceToMarkerPx)}`
-              : '',
-            `pendingBridgeAgeMs=${pendingBridgeAgeMs}`,
-            `noCommitMs=${pendingBridgeNoCommitMs}`,
-            `proofSource=${pendingBridgeState.proofSource || 'unknown'}`,
-            `sourceBranch=${pendingBridgeState.sourceBranch || 'unknown'}`,
-            `ageMs=${pendingBridgeAgeMs}`,
-          ]);
+          const bridgeFinalFresh =
+            runtimeSpeechFresh ||
+            (lastFinalTranscriptAt > 0 && now - lastFinalTranscriptAt <= 1800);
+          const bridgeDirectFreshProof =
+            !!bridgeLandingProof?.ok && !bridgeLandingProof?.fromStaleTranscriptOnly;
+          const bridgeCompletionReady =
+            bridgeFinalFresh &&
+            (
+              bridgeDirectFreshProof ||
+              pendingBridgeAgeMs >= 900
+            );
+          if (bridgeCompletionReady) {
+            const bridgeSemanticTarget = Math.max(
+              pendingBridgeState.semanticTarget,
+              targetLine,
+            );
+            targetLine = bridgeSemanticTarget;
+            pendingSpeakableBridgeCompletion = true;
+            proofOwnedForceBypass = true;
+            forceReason = 'pending_speakable_bridge_complete';
+            try {
+              console.warn(
+                `[ASR_LIVE_BRIDGE_COMPLETION_ACCEPTED] semanticFrom=${pendingBridgeState.semanticFrom} semanticTarget=${pendingBridgeState.semanticTarget} visualReducedTarget=${pendingBridgeState.visualReducedTarget} pendingBridgeAgeMs=${pendingBridgeAgeMs} proofSource=${pendingBridgeState.proofSource || 'unknown'} sourceBranch=${pendingBridgeState.sourceBranch || 'unknown'} landingProof=direct_fresh`,
+              );
+            } catch {}
+            warnGuard('asr_pending_speakable_bridge_retry', [
+              `semanticFrom=${pendingBridgeState.semanticFrom}`,
+              `semanticTarget=${pendingBridgeState.semanticTarget}`,
+              `visualCurrent=${pendingBridgeState.visualCurrent}`,
+              `visualReducedTarget=${pendingBridgeState.visualReducedTarget}`,
+              `skippedVisibleRows=${pendingBridgeState.skippedVisibleRows}`,
+              `markerLagLines=${pendingBridgeMarkerLagLines}`,
+              `readerVisualBand=${pendingBridgeReaderVisualBand}`,
+              `readerViewportState=${pendingBridgeCurrentVisual.viewportState}`,
+              Number.isFinite(pendingBridgeCurrentVisual.distanceToBottomPx)
+                ? `readerDistanceToBottomPx=${Math.round(pendingBridgeCurrentVisual.distanceToBottomPx)}`
+                : '',
+              Number.isFinite(pendingBridgeCurrentVisual.distanceToMarkerPx)
+                ? `readerDistanceToMarkerPx=${Math.round(pendingBridgeCurrentVisual.distanceToMarkerPx)}`
+                : '',
+              `semanticTargetBand=${pendingBridgeTargetVisual.band}`,
+              `semanticTargetViewportState=${pendingBridgeTargetVisual.viewportState}`,
+              Number.isFinite(pendingBridgeTargetVisual.distanceToBottomPx)
+                ? `semanticTargetDistanceToBottomPx=${Math.round(pendingBridgeTargetVisual.distanceToBottomPx)}`
+                : '',
+              Number.isFinite(pendingBridgeTargetVisual.distanceToMarkerPx)
+                ? `semanticTargetDistanceToMarkerPx=${Math.round(pendingBridgeTargetVisual.distanceToMarkerPx)}`
+                : '',
+              `pendingBridgeAgeMs=${pendingBridgeAgeMs}`,
+              `noCommitMs=${pendingBridgeNoCommitMs}`,
+              `proofSource=${pendingBridgeState.proofSource || 'unknown'}`,
+              `sourceBranch=${pendingBridgeState.sourceBranch || 'unknown'}`,
+              `ageMs=${pendingBridgeAgeMs}`,
+            ]);
+          } else {
+            try {
+              console.warn(
+                `[ASR_LIVE_BRIDGE_COMPLETION_HELD] semanticFrom=${pendingBridgeState.semanticFrom} semanticTarget=${pendingBridgeState.semanticTarget} visualReducedTarget=${pendingBridgeState.visualReducedTarget} pendingBridgeAgeMs=${pendingBridgeAgeMs} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} finalPacketFresh=${bridgeFinalFresh ? 1 : 0} landingProof=${bridgeDirectFreshProof ? 'direct' : 'stale_or_missing'} reason=await_fresh_direct_landing_proof`,
+              );
+            } catch {}
+            if (pendingBridgeAgeMs >= 2500 && bridgeFinalFresh && asrRuntimeSpeechRunningActual) {
+              const visualStepTarget = Math.max(lastLineIndex + 1, pendingBridgeState.visualReducedTarget);
+              pendingSpeakableBridgeState = {
+                ...pendingBridgeState,
+                visualCurrent: visualStepTarget,
+                visualReducedTarget: visualStepTarget,
+                skippedVisibleRows: Math.max(0, pendingBridgeState.semanticTarget - visualStepTarget),
+                createdAtMs: now,
+              };
+              try {
+                console.warn(
+                  `[ASR_LIVE_BRIDGE_WALK_RECOVERY] semanticFrom=${pendingBridgeState.semanticFrom} semanticTarget=${pendingBridgeState.semanticTarget} visualStepTarget=${visualStepTarget} pendingBridgeAgeMs=${pendingBridgeAgeMs} reason=bridge_retry_recovery_step`,
+                );
+              } catch {}
+            }
+          }
         }
       }
       const requestedTargetLine = targetLine;
@@ -14839,6 +14904,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 runGeneration:
                   normalizeRunGeneration(pendingRunGeneration) ?? resolveActiveRunGeneration(),
               };
+              try {
+                console.warn(
+                  `[ASR_LIVE_BRIDGE_WALK_STAGED] semanticFrom=${pendingSpeakableBridgeState.semanticFrom} semanticTarget=${pendingSpeakableBridgeState.semanticTarget} visualReducedTarget=${pendingSpeakableBridgeState.visualReducedTarget} skippedVisibleRows=${pendingSpeakableBridgeState.skippedVisibleRows} proofSource=${pendingSpeakableBridgeState.proofSource || 'unknown'} runGeneration=${pendingSpeakableBridgeState.runGeneration ?? -1}`,
+                );
+                console.warn(
+                  `[ASR_LIVE_BRIDGE_VISUAL_STEP] semanticFrom=${pendingSpeakableBridgeState.semanticFrom} semanticTarget=${pendingSpeakableBridgeState.semanticTarget} visualStepTarget=${visibleStepTarget} skippedRowsRemaining=${pendingSpeakableBridgeState.skippedVisibleRows} reason=bridge_visual_walk_step`,
+                );
+              } catch {}
               warnGuard('asr_pending_speakable_bridge_set', [
                 `semanticFrom=${pendingSpeakableBridgeState.semanticFrom}`,
                 `semanticTarget=${pendingSpeakableBridgeState.semanticTarget}`,
@@ -15834,6 +15907,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const terminalBridgeBlockKey = `${prevLineIndex}->${targetLine}:${runGenerationForTerminalCommit}`;
       const terminalBridgeBlockRecord = liveBridgeDownstreamBlockUntilByKey.get(terminalBridgeBlockKey);
       const terminalRenderedDelta = Math.max(0, targetLine - prevLineIndex);
+      const pendingBridgeCompletionBypass =
+        String(forceReason || '').toLowerCase().includes('pending_speakable_bridge_complete') ||
+        String(movementAuthoritySourceBranch || '').toLowerCase().includes('pending_speakable_bridge_complete');
       if (
         modeNow === 'asr' &&
         isSessionLivePhase() &&
@@ -15841,7 +15917,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         targetLine > prevLineIndex &&
         terminalRenderedDelta > 1 &&
         terminalBridgeBlockRecord &&
-        terminalBridgeBlockRecord.until > Date.now()
+        terminalBridgeBlockRecord.until > Date.now() &&
+        !pendingBridgeCompletionBypass
       ) {
         try {
           console.warn(

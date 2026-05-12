@@ -1709,7 +1709,9 @@ describe('ASR live commit motion', () => {
         (line.includes('ASR_LIVE_UNLEASHED_STEP') &&
           line.includes('reason=pending_visual_cap_live_unleashed')) ||
         line.includes('ASR_LIVE_BRIDGE_STAGED_VISUAL_ONLY') ||
-        line.includes('ASR_LIVE_BRIDGE_DOWNSTREAM_COMMIT_BLOCKED'),
+        line.includes('ASR_LIVE_BRIDGE_DOWNSTREAM_COMMIT_BLOCKED') ||
+        line.includes('ASR_LIVE_BRIDGE_WALK_STAGED') ||
+        line.includes('ASR_LIVE_BRIDGE_VISUAL_STEP'),
       ),
     ).toBe(true);
 
@@ -1888,7 +1890,14 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(260);
 
     const warns = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(warns.some((l) => l.includes('ASR_STARTUP_FRESH_ADJACENT_FAST_COMMIT_EARLY') && l.includes('current=1') && l.includes('target=2'))).toBe(true);
+    expect(
+      warns.some((l) =>
+        (l.includes('ASR_STARTUP_ADJACENT_PRE_REBASE_COMMIT') ||
+         l.includes('ASR_STARTUP_FRESH_ADJACENT_FAST_COMMIT_EARLY')) &&
+        l.includes('current=1') &&
+        l.includes('target=2'),
+      ),
+    ).toBe(true);
     expect(warns.some((l) => l.includes('asr_soft_runtime_rebase') || l.includes('soft_runtime_rebase'))).toBe(false);
     expect(driver.getLastLineIndex()).toBe(2);
 
