@@ -329,6 +329,9 @@ const ASR_VISUAL_SOFT_LEAD_START = 4;
 const ASR_VISUAL_HARD_LEAD_START = 6;
 const ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS = 2100;
 const ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS = 14;
+const ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS = 700;
+const ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS = 1200;
+const ASR_VISUAL_FOLLOW_NORMAL_ADJ_MIN_PXPS = 20;
 const ASR_VISUAL_FOLLOW_MAX_PXPS = 80;
 const ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS = 35;
 const ASR_VISUAL_FOLLOW_MIN_PXPS = 8;
@@ -3415,6 +3418,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let liveAsrVisualGovernorHardHold = false;
   let liveAsrVisualGovernorHardHoldSinceMs = 0;
   let liveAsrVisualUnlockSlowFollowUntilMs = 0;
+  let liveAsrNormalAdjacentFollowBoostUntilMs = 0;
+  let liveAsrNormalAdjacentCapLastLogAt = 0;
   let liveAsrVisualSuppressionLoopCount = 0;
   let liveAsrVisualSuppressionKey = '';
   let recentRescueBypassAtMs: number[] = [];
@@ -6889,11 +6894,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       (count, entry) => count + (repeatedHoldReasons.has(String(entry?.reason || '')) ? 1 : 0),
       0,
     );
-    const thresholdMs = repeatedHoldCount > 2 ? 600 : 900;
+    let thresholdMs = repeatedHoldCount > 2 ? 600 : 900;
     const actualDelayMs = Math.max(0, Math.round(Number(args.noCommitMs ?? args.stallMs ?? 0)));
     const speechFresh = !!args.speechRunningActual || !!args.finalPacketFresh;
     const hasAuthority = args.authority === 'proof' || args.authority === 'reconcile';
     let reducedTarget = resolveForwardSpeakableTarget(current, semanticTargetRaw, 1);
+    if (getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed() && reducedTarget > current + 1) {
+      const bridgeReducedTarget = resolveForwardSpeakableTarget(current, reducedTarget, 1);
+      if (bridgeReducedTarget > current && bridgeReducedTarget <= current + 1) {
+        try {
+          console.warn(
+            `[ASR_LIVE_BRIDGE_REDUCED_TO_ADJACENT] current=${current} requested=${requestedTarget} target=${bridgeReducedTarget} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=live_bridge_single_step_policy`,
+          );
+        } catch {}
+        reducedTarget = bridgeReducedTarget;
+      }
+    }
     const nextSpeakable = resolveLiveStrictNextSpeakableStep(current, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN)?.targetLine ?? null;
     const safeAdjacentOrBridge =
       reducedTarget > current &&
@@ -6931,6 +6947,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       (proofSourceLower.includes('live_strict_local_proof_ok') ||
        proofSourceLower.includes('adjacent_rescue_proofed') ||
        proofSourceLower.includes('cue_exit'));
+    const freshAdjacentFastCommitEligible =
+      reducedTarget === current + 1 &&
+      (speechFreshNow || !!args.finalPacketFresh || !!args.speechRunningActual) &&
+      (
+        directAdjacentLocalProof ||
+        proofSourceLower.includes('strict_adjacent_tail_progression') ||
+        proofSourceLower.includes('strict_speakable_bridge_landing')
+      );
+    if (freshAdjacentFastCommitEligible) {
+      thresholdMs = Math.min(thresholdMs, ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS);
+      thresholdMs = Math.max(ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS, thresholdMs);
+    }
     const freshLandingLexicalNoStale =
       speechFreshNow &&
       proofSourceLower.includes('landing') &&
@@ -7168,6 +7196,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (rescueBypassLike) {
       recentRescueBypassAtMs.push(commitTs);
       lastRescueBypassAtMs = commitTs;
+    }
+    if (reducedTarget === current + 1) {
+      liveAsrNormalAdjacentFollowBoostUntilMs = Date.now() + 2200;
+      try {
+        console.warn(
+          `[ASR_FRESH_ADJACENT_FAST_COMMIT] current=${current} target=${reducedTarget} noCommitMs=${actualDelayMs} thresholdMs=${thresholdMs} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} speechRunningActual=${args.speechRunningActual ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0}`,
+        );
+      } catch {}
+    } else {
+      liveAsrNormalAdjacentFollowBoostUntilMs = 0;
     }
     return { accepted: true, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
   };
@@ -9926,6 +9964,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS);
       } else {
         maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_FOLLOW_MIN_PXPS);
+      }
+      const normalAdjacentBoostActive =
+        liveAsrNormalAdjacentFollowBoostUntilMs > nowTs &&
+        !liveHardHold &&
+        leadState === 'aligned_or_behind' &&
+        err >= (24 * 1.5);
+      if (normalAdjacentBoostActive) {
+        maxVelForErr = Math.max(maxVelForErr, ASR_VISUAL_FOLLOW_NORMAL_ADJ_MIN_PXPS);
+        if (nowTs - liveAsrNormalAdjacentCapLastLogAt >= 800) {
+          liveAsrNormalAdjacentCapLastLogAt = nowTs;
+          try {
+            console.warn(
+              `[ASR_VISUAL_FOLLOW_NORMAL_ADJACENT_CAP] pxps=${Math.round(maxVelForErr)} deltaPx=${Math.round(err)} leadState=${leadState} reason=normal_adjacent_boost`,
+            );
+          } catch {}
+        }
       }
       if (liveAsrVisualUnlockSlowFollowUntilMs > Date.now()) {
         maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS);
