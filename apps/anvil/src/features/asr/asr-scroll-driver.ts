@@ -6920,8 +6920,32 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const actualDelayMs = Math.max(0, Math.round(Number(args.noCommitMs ?? args.stallMs ?? 0)));
     const speechFresh = !!args.speechRunningActual || !!args.finalPacketFresh;
     const hasAuthority = args.authority === 'proof' || args.authority === 'reconcile';
+    const sourceBranchLowerEarly = String(args.sourceBranch || 'unknown').toLowerCase();
+    const bypassedBlockersLowerEarly = String(args.bypassedBlockers || 'none').toLowerCase();
+    const riskyBridgeBypassSourceEarly =
+      sourceBranchLowerEarly.includes('movement_authority_forced_reconcile_single_step') ||
+      sourceBranchLowerEarly.includes('sustained_read') ||
+      sourceBranchLowerEarly.includes('pending_visual_cap') ||
+      sourceBranchLowerEarly.includes('live_unleashed') ||
+      sourceBranchLowerEarly.includes('rescue') ||
+      sourceBranchLowerEarly.includes('stall_rescue') ||
+      sourceBranchLowerEarly.includes('soft_runtime_rebase') ||
+      sourceBranchLowerEarly.includes('reader_leash') ||
+      bypassedBlockersLowerEarly.includes('asr_reader_leash_hold') ||
+      bypassedBlockersLowerEarly.includes('pending_visual_cap') ||
+      bypassedBlockersLowerEarly.includes('visible_bridge_step_cap');
     let reducedTarget = resolveForwardSpeakableTarget(current, semanticTargetRaw, 1);
-    if (getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed() && (requestedTarget > current + 1 || reducedTarget > current + 1)) {
+    const allowSemanticBridgeCompletion =
+      sourceBranchLowerEarly.includes('pending_speakable_bridge_complete') ||
+      String(args.reason || '').toLowerCase().includes('pending_speakable_bridge_complete') ||
+      String(args.proofSource || '').toLowerCase().includes('strict_speakable_bridge_landing');
+    if (
+      getScrollMode() === 'asr' &&
+      isSessionLivePhase() &&
+      isSessionAsrArmed() &&
+      !allowSemanticBridgeCompletion &&
+      (requestedTarget > current + 1 || reducedTarget > current + 1)
+    ) {
       const bridgeReducedTarget = resolveForwardSpeakableTarget(current, reducedTarget, 1);
       const visualReducedTarget = Math.max(current, Math.min(requestedTarget, current + 1));
       try {
@@ -6948,12 +6972,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } catch {}
         reducedTarget = bridgeReducedTarget;
       } else {
-        liveBridgeDownstreamBlockUntilByKey.set(bridgeBlockKey, {
-          until: commitTs + 2500,
-          originalSourceBranch: String(args.sourceBranch || 'unknown'),
-          requestedTarget: equivalentBridgeTarget,
-          current,
-        });
+        if (riskyBridgeBypassSourceEarly) {
+          liveBridgeDownstreamBlockUntilByKey.set(bridgeBlockKey, {
+            until: commitTs + 2500,
+            originalSourceBranch: String(args.sourceBranch || 'unknown'),
+            requestedTarget: equivalentBridgeTarget,
+            current,
+          });
+        }
         return { accepted: false, target: current, thresholdMs: 900, actualDelayMs: 0, commitTs };
       }
     }
@@ -7066,12 +7092,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               `[ASR_RESCUE_BRIDGE_HELD_AFTER_BYPASS] current=${current} requested=${requestedTarget} target=${reducedTarget} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=recent_rescue_bridge_blocked`,
             );
           } catch {}
-          liveBridgeDownstreamBlockUntilByKey.set(bridgeBlockKey, {
-            until: commitTs + 2500,
-            originalSourceBranch: String(args.sourceBranch || 'unknown'),
-            requestedTarget: equivalentBridgeTarget,
-            current,
-          });
+          if (riskyBridgeBypassSourceEarly) {
+            liveBridgeDownstreamBlockUntilByKey.set(bridgeBlockKey, {
+              until: commitTs + 2500,
+              originalSourceBranch: String(args.sourceBranch || 'unknown'),
+              requestedTarget: equivalentBridgeTarget,
+              current,
+            });
+          }
           return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
         }
       }
@@ -12537,6 +12565,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         (asrRuntimeSpeechRunningActual || runtimeSpeechFresh || strictFinalEvidenceArriving) &&
         Number.isFinite(adjacentCandidateSim) &&
         adjacentCandidateSim >= 0.52;
+      const startupFreshAdjacentFastPathEarly =
+        startupFreshAdjacentFastPath &&
+        Math.max(0, now - lastCommitTime) >= ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS;
+      if (startupFreshAdjacentFastPathEarly) {
+        warnGuard('ASR_STARTUP_FRESH_ADJACENT_FAST_COMMIT_EARLY', [
+          `current=${lastLineIndex}`,
+          `target=${line}`,
+          `adjacentSim=${formatLogScore(adjacentCandidateSim)}`,
+          `stallMs=${Math.max(0, now - lastCommitTime)}`,
+          `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+          `finalPacketFresh=${strictFinalEvidenceArriving ? 1 : 0}`,
+          'reason=startup_early_adjacent_accept',
+        ]);
+        forceReason = 'startup_fresh_adjacent_fast_commit_early';
+      }
       if (
         strictAutonomousCandidate &&
         !strictBacklogDrainTerminalActive &&
@@ -12605,6 +12648,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         strictEarlyBacklogDrainActive ||
         strictSpeakableBridgeAuthorized ||
         strictBridgeForceProofOk ||
+        startupFreshAdjacentFastPathEarly ||
         ((strictFastAdjacentAllowed || markerLagPressureBypass) && line > lastLineIndex) ||
         (conf >= effectiveMatchThreshold && tieGateOk);
       if (!strongMatch) {
@@ -15786,6 +15830,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
       const prevLineIndex = lastLineIndex;
       const modeNow = getScrollMode();
+      const runGenerationForTerminalCommit = lastFinalTranscriptRunGeneration ?? -1;
+      const terminalBridgeBlockKey = `${prevLineIndex}->${targetLine}:${runGenerationForTerminalCommit}`;
+      const terminalBridgeBlockRecord = liveBridgeDownstreamBlockUntilByKey.get(terminalBridgeBlockKey);
+      const terminalRenderedDelta = Math.max(0, targetLine - prevLineIndex);
+      if (
+        modeNow === 'asr' &&
+        isSessionLivePhase() &&
+        isSessionAsrArmed() &&
+        targetLine > prevLineIndex &&
+        terminalRenderedDelta > 1 &&
+        terminalBridgeBlockRecord &&
+        terminalBridgeBlockRecord.until > Date.now()
+      ) {
+        try {
+          console.warn(
+            `[ASR_LIVE_BRIDGE_FINAL_COMMIT_ABORTED] current=${prevLineIndex} target=${targetLine} renderedDelta=${terminalRenderedDelta} sourceBranch=${movementAuthoritySourceBranch || pendingSourceBranch || 'unknown'} proofSource=${movementAuthorityProofSource || pendingProofSource || 'none'} blockReason=bridge_block_token runGeneration=${runGenerationForTerminalCommit}`,
+          );
+        } catch {}
+        return;
+      }
       if (
         modeNow === 'asr' &&
         isSessionLivePhase() &&

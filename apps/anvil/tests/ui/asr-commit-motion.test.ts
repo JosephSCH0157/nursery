@@ -1867,6 +1867,35 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('startup current=1 adjacent target commits via early fast path without starvation/rebase wait', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+    driver.setLastLineIndex(1);
+    await jest.advanceTimersByTimeAsync(900);
+
+    driver.ingest('Not perfume amazing.', true, {
+      currentIdx: 1,
+      matchId: 'startup-adjacent-early-1-to-2',
+      match: {
+        bestIdx: 2,
+        bestSim: 0.88,
+        topScores: [{ idx: 2, score: 0.88 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(260);
+
+    const warns = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(warns.some((l) => l.includes('ASR_STARTUP_FRESH_ADJACENT_FAST_COMMIT_EARLY') && l.includes('current=1') && l.includes('target=2'))).toBe(true);
+    expect(warns.some((l) => l.includes('asr_soft_runtime_rebase') || l.includes('soft_runtime_rebase'))).toBe(false);
+    expect(driver.getLastLineIndex()).toBe(2);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('quarantines transcript packets during focus loss', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const driver = createAsrScrollDriver();
