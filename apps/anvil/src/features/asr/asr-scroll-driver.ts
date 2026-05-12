@@ -3429,6 +3429,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     current: number;
   }>();
   let liveAsrVisualSemanticMismatchHeld = false;
+  let lastBridgeCompletionHeldLogAt = 0;
+  let lastBridgeWalkRecoveryLogAt = 0;
   let recentRescueBypassAtMs: number[] = [];
   let lastRescueBypassAtMs = 0;
   let lastLiveSafeTerminalShieldAt = 0;
@@ -11500,7 +11502,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         adjacentCandidateSim >= 0.52 &&
         Math.max(0, now - lastCommitTime) >= 700;
       if (startupAdjacentPreRebaseCommitEligible) {
-        forceReason = 'startup_adjacent_pre_rebase_commit';
         warnGuard('ASR_STARTUP_ADJACENT_PRE_REBASE_COMMIT', [
           `current=${lastLineIndex}`,
           `target=${line}`,
@@ -12959,11 +12960,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               `ageMs=${pendingBridgeAgeMs}`,
             ]);
           } else {
-            try {
-              console.warn(
-                `[ASR_LIVE_BRIDGE_COMPLETION_HELD] semanticFrom=${pendingBridgeState.semanticFrom} semanticTarget=${pendingBridgeState.semanticTarget} visualReducedTarget=${pendingBridgeState.visualReducedTarget} pendingBridgeAgeMs=${pendingBridgeAgeMs} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} finalPacketFresh=${bridgeFinalFresh ? 1 : 0} landingProof=${bridgeDirectFreshProof ? 'direct' : 'stale_or_missing'} reason=await_fresh_direct_landing_proof`,
-              );
-            } catch {}
+            if (now - lastBridgeCompletionHeldLogAt >= 700) {
+              lastBridgeCompletionHeldLogAt = now;
+              try {
+                console.warn(
+                  `[ASR_LIVE_BRIDGE_COMPLETION_HELD] semanticFrom=${pendingBridgeState.semanticFrom} semanticTarget=${pendingBridgeState.semanticTarget} visualReducedTarget=${pendingBridgeState.visualReducedTarget} pendingBridgeAgeMs=${pendingBridgeAgeMs} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} finalPacketFresh=${bridgeFinalFresh ? 1 : 0} landingProof=${bridgeDirectFreshProof ? 'direct' : 'stale_or_missing'} reason=await_fresh_direct_landing_proof`,
+                );
+              } catch {}
+            }
             if (pendingBridgeAgeMs >= 2500 && bridgeFinalFresh && asrRuntimeSpeechRunningActual) {
               const visualStepTarget = Math.max(lastLineIndex + 1, pendingBridgeState.visualReducedTarget);
               pendingSpeakableBridgeState = {
@@ -12973,11 +12977,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 skippedVisibleRows: Math.max(0, pendingBridgeState.semanticTarget - visualStepTarget),
                 createdAtMs: now,
               };
-              try {
-                console.warn(
-                  `[ASR_LIVE_BRIDGE_WALK_RECOVERY] semanticFrom=${pendingBridgeState.semanticFrom} semanticTarget=${pendingBridgeState.semanticTarget} visualStepTarget=${visualStepTarget} pendingBridgeAgeMs=${pendingBridgeAgeMs} reason=bridge_retry_recovery_step`,
-                );
-              } catch {}
+              if (now - lastBridgeWalkRecoveryLogAt >= 700) {
+                lastBridgeWalkRecoveryLogAt = now;
+                try {
+                  console.warn(
+                    `[ASR_LIVE_BRIDGE_WALK_RECOVERY] semanticFrom=${pendingBridgeState.semanticFrom} semanticTarget=${pendingBridgeState.semanticTarget} visualStepTarget=${visualStepTarget} pendingBridgeAgeMs=${pendingBridgeAgeMs} reason=bridge_retry_recovery_step`,
+                  );
+                } catch {}
+              }
             }
           }
         }
@@ -21541,6 +21548,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     pendingMatch = null;
     pendingSpeakableBridgeState = null;
+    liveBridgeDownstreamBlockUntilByKey.clear();
     asrSilenceActive = true;
     lastStallRecoveryOverrideAt = 0;
     _postCommitReadabilitySeq += 1;
@@ -21661,6 +21669,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     pendingMatch = null;
     pendingSpeakableBridgeState = null;
+    liveBridgeDownstreamBlockUntilByKey.clear();
     strongHits.length = 0;
     evidenceEntries.length = 0;
     evidenceText = '';
