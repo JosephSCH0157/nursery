@@ -319,6 +319,7 @@ const ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_AHEAD_MS = 900;
 const ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_COMFORTABLE_MS = 350;
 const ASR_EARLY_BRIDGE_GOVERNOR_MAX_COMMITS = 4;
 const ASR_EARLY_BRIDGE_GOVERNOR_MAX_RENDERED_DELTA = 2;
+const ASR_VISUAL_GOVERNOR_HOLD_CLEAR_TARGET_MS = 1200;
 const ASR_VISUAL_FOLLOW_MAX_PXPS = 80;
 const ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS = 35;
 const ASR_VISUAL_FOLLOW_MIN_PXPS = 8;
@@ -3403,6 +3404,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastCommitTranscriptNormSnapshot = '';
   let lastStrongConfirmedSpokenLine = 0;
   let liveAsrVisualGovernorHardHold = false;
+  let liveAsrVisualGovernorHardHoldSinceMs = 0;
   let lastLiveSafeTerminalShieldAt = 0;
   let lastLiveSafeTerminalShieldLine = -1;
   let lastLiveSafeTerminalShieldSource = '';
@@ -7444,6 +7446,34 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const adjacentCandidate = rankedTopScores.find((entry) => entry.idx === safeTarget);
     const adjacentSim = Number(adjacentCandidate?.score);
     const adjacentSupport = Number.isFinite(adjacentSim) && adjacentSim >= adjacentNeed;
+    const confirmedSpoken = Math.max(
+      0,
+      Math.max(
+        lastStrongConfirmedSpokenLine,
+        Number.isFinite(lastFreshProofLine) ? Math.max(0, lastFreshProofLine) : 0,
+      ),
+    );
+    const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, safeTarget));
+    const renderedLead = Math.max(0, safeTarget - confirmedSpoken);
+    const farAheadByLead =
+      speakableLead > ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE ||
+      renderedLead > ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES;
+    const hasFreshDirectAdjacentResumeProof =
+      adjacentSupport &&
+      (asrRuntimeSpeechRunningActual || hasRecentActualSpeech(now)) &&
+      hasRecentVadSpeechNow(now);
+    if (
+      safeTarget > safeCursor &&
+      (liveAsrVisualGovernorHardHold || farAheadByLead) &&
+      !hasFreshDirectAdjacentResumeProof
+    ) {
+      try {
+        console.warn(
+          `[ASR_FORWARD_PROOF_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${safeCursor} target=${safeTarget} bestIdx=${safeTarget} speakableLead=${speakableLead} renderedLead=${renderedLead} proofSource=live_strict_local_proof_ok sourceBranch=proof_eval_local reason=visual_governor_hard_hold`,
+        );
+      } catch {}
+      return false;
+    }
     const rescueEvidenceAgeMs =
       lastRescueMatchEvidenceAt > 0
         ? Math.max(0, now - lastRescueMatchEvidenceAt)
@@ -7878,6 +7908,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (safeTarget <= safeCursor + 1) return false;
     const step = resolveLiveStrictNextSpeakableStep(safeCursor, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN);
     if (!step || step.targetLine !== safeTarget) return false;
+    const confirmedSpoken = Math.max(
+      0,
+      Math.max(
+        lastStrongConfirmedSpokenLine,
+        Number.isFinite(lastFreshProofLine) ? Math.max(0, lastFreshProofLine) : 0,
+      ),
+    );
+    const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, safeTarget));
+    const renderedLead = Math.max(0, safeTarget - confirmedSpoken);
+    const farAheadByLead =
+      speakableLead > ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE ||
+      renderedLead > ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES;
+    if (safeTarget > safeCursor && (liveAsrVisualGovernorHardHold || farAheadByLead)) {
+      try {
+        console.warn(
+          `[ASR_FORWARD_PROOF_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${safeCursor} target=${safeTarget} bestIdx=${safeTarget} speakableLead=${speakableLead} renderedLead=${renderedLead} proofSource=strict_speakable_bridge_landing sourceBranch=proof_eval_bridge reason=visual_governor_hard_hold`,
+        );
+      } catch {}
+      return false;
+    }
     const freshFinalTranscriptSignal =
       lastFinalTranscriptAt > 0 &&
       now - lastFinalTranscriptAt <= DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS;
@@ -7998,6 +8048,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const safeCursor = Math.max(0, Math.floor(cursorLine));
     const safeTarget = Math.max(0, Math.floor(targetLine));
     if (safeTarget !== safeCursor + 1) return false;
+    const confirmedSpoken = Math.max(
+      0,
+      Math.max(
+        lastStrongConfirmedSpokenLine,
+        Number.isFinite(lastFreshProofLine) ? Math.max(0, lastFreshProofLine) : 0,
+      ),
+    );
+    const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, safeTarget));
+    const renderedLead = Math.max(0, safeTarget - confirmedSpoken);
+    const farAheadByLead =
+      speakableLead > ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE ||
+      renderedLead > ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES;
+    if (safeTarget > safeCursor && (liveAsrVisualGovernorHardHold || farAheadByLead)) {
+      try {
+        console.warn(
+          `[ASR_FORWARD_PROOF_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${safeCursor} target=${safeTarget} bestIdx=${safeTarget} speakableLead=${speakableLead} renderedLead=${renderedLead} proofSource=live_strict_cue_exit_proof sourceBranch=proof_eval_cue_exit reason=visual_governor_hard_hold`,
+        );
+      } catch {}
+      return false;
+    }
     if (!isIgnorableCueLineText(getLineTextAt(safeCursor))) return false;
     if (!hasRecentActualSpeech(now) || !hasRecentVadSpeechNow(now)) return false;
 
@@ -8265,6 +8335,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     );
     let targetLine = cueBridge.nextLine;
     if (targetLine == null || targetLine <= cursorLine) return false;
+    const confirmedSpoken = Math.max(
+      0,
+      Math.max(
+        lastStrongConfirmedSpokenLine,
+        Number.isFinite(lastFreshProofLine) ? Math.max(0, lastFreshProofLine) : 0,
+      ),
+    );
+    const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, targetLine));
+    const renderedLead = Math.max(0, targetLine - confirmedSpoken);
+    const farAheadByLead =
+      speakableLead > ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE ||
+      renderedLead > ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES;
+    if (targetLine > cursorLine && (liveAsrVisualGovernorHardHold || farAheadByLead)) {
+      try {
+        console.warn(
+          `[ASR_FORWARD_PROOF_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${cursorLine} target=${targetLine} bestIdx=${targetLine} speakableLead=${speakableLead} renderedLead=${renderedLead} proofSource=cue_stall_rescue sourceBranch=stall-rescue reason=visual_governor_hard_hold`,
+        );
+      } catch {}
+      return false;
+    }
     let deltaLines = targetLine - cursorLine;
     if (deltaLines <= 0 || deltaLines > DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES) return false;
     const strictSpeakableStep = liveStrictFollow
@@ -9666,6 +9756,36 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       } catch {}
     }
     liveAsrVisualGovernorHardHold = liveHardHold;
+    if (liveHardHold) {
+      if (liveAsrVisualGovernorHardHoldSinceMs <= 0) {
+        liveAsrVisualGovernorHardHoldSinceMs = Date.now();
+      }
+      const heldMs = Math.max(0, Date.now() - liveAsrVisualGovernorHardHoldSinceMs);
+      const resumeEvidenceAgeMs =
+        lastRescueMatchEvidenceAt > 0 ? Math.max(0, Date.now() - lastRescueMatchEvidenceAt) : Number.POSITIVE_INFINITY;
+      const hasFreshDirectAdjacentResumeProof =
+        (asrRuntimeSpeechRunningActual || hasRecentActualSpeech(Date.now())) &&
+        hasRecentVadSpeechNow(Date.now()) &&
+        resumeEvidenceAgeMs <= DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS &&
+        (lastRescueMatchEvidenceLine === lastLineIndex + 1 || lastFreshProofLine === lastLineIndex + 1);
+      if (
+        heldMs >= ASR_VISUAL_GOVERNOR_HOLD_CLEAR_TARGET_MS &&
+        pursuitTargetTop != null &&
+        !hasFreshDirectAdjacentResumeProof
+      ) {
+        const oldTarget = pursuitTargetTop;
+        pursuitTargetTop = current;
+        pursuitVel = 0;
+        pursuitActive = false;
+        try {
+          console.warn(
+            `[ASR_VISUAL_TARGET_CLEARED_BY_GOVERNOR_HOLD] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(current)} oldTargetScrollTop=${Math.round(oldTarget)} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), lastLineIndex))} renderedLead=${Math.max(0, lastLineIndex - Math.max(0, lastStrongConfirmedSpokenLine))} heldMs=${heldMs}`,
+          );
+        } catch {}
+      }
+    } else {
+      liveAsrVisualGovernorHardHoldSinceMs = 0;
+    }
     try { (window as any).__tpLiveAsrGovernorHold = liveHardHold; } catch {}
     if (microActive) {
       maxVelForErr = Math.min(maxVelForErr, microPursuitCapPxPerSec);

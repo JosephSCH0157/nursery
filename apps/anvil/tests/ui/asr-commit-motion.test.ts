@@ -1890,4 +1890,47 @@ describe('ASR live commit motion', () => {
     warnSpy.mockRestore();
     driver.dispose();
   });
+
+  test('keeps same-line confirmation and adjacent resume behavior stable', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+
+    driver.setLastLineIndex(1);
+    await jest.advanceTimersByTimeAsync(2500);
+
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 1,
+      matchId: 'same-line-confirm-during-hold',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.96,
+        topScores: [{ idx: 1, score: 0.96 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(200);
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'adjacent-resume-proof',
+      match: {
+        bestIdx: 2,
+        bestSim: 0.95,
+        topScores: [{ idx: 2, score: 0.95 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(300);
+    expect(driver.getLastLineIndex()).toBe(2);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
 });
