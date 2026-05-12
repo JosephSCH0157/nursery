@@ -3422,7 +3422,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let liveAsrNormalAdjacentCapLastLogAt = 0;
   let liveAsrVisualSuppressionLoopCount = 0;
   let liveAsrVisualSuppressionKey = '';
-  const liveBridgeDownstreamBlockUntilByKey = new Map<string, number>();
+  const liveBridgeDownstreamBlockUntilByKey = new Map<string, {
+    until: number;
+    originalSourceBranch: string;
+    requestedTarget: number;
+    current: number;
+  }>();
+  let liveAsrVisualSemanticMismatchHeld = false;
   let recentRescueBypassAtMs: number[] = [];
   let lastRescueBypassAtMs = 0;
   let lastLiveSafeTerminalShieldAt = 0;
@@ -6879,12 +6885,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const semanticTargetRaw = Math.max(current, Math.floor(Number(args.semanticTarget) || current));
     const visualTarget = Math.max(current, Math.floor(Number(args.visualTarget ?? semanticTargetRaw) || semanticTargetRaw));
     const hardContradiction = !!args.hardContradiction;
-    const bridgeBlockKey = `${current}->${requestedTarget}:${String(args.sourceBranch || 'unknown')}:${lastFinalTranscriptRunGeneration ?? -1}`;
-    const bridgeBlockUntil = liveBridgeDownstreamBlockUntilByKey.get(bridgeBlockKey) || 0;
-    if (bridgeBlockUntil > commitTs && requestedTarget > current + 1) {
+    const equivalentBridgeTarget = Math.max(requestedTarget, semanticTargetRaw);
+    const bridgeBlockKey = `${current}->${equivalentBridgeTarget}:${lastFinalTranscriptRunGeneration ?? -1}`;
+    const bridgeBlockRecord = liveBridgeDownstreamBlockUntilByKey.get(bridgeBlockKey);
+    const bridgeBlockUntil = bridgeBlockRecord?.until || 0;
+    if (bridgeBlockUntil > commitTs && equivalentBridgeTarget > current + 1) {
       try {
         console.warn(
           `[ASR_LIVE_BRIDGE_DOWNSTREAM_COMMIT_BLOCKED] current=${current} requestedTarget=${requestedTarget} sourceBranch=${args.sourceBranch || 'unknown'} proofSource=${args.proofSource || 'none'} reason=bridge_block_token`,
+        );
+        console.warn(
+          `[ASR_LIVE_BRIDGE_EQUIVALENT_COMMIT_BLOCKED] current=${current} requestedTarget=${bridgeBlockRecord?.requestedTarget ?? requestedTarget} attemptedTarget=${equivalentBridgeTarget} originalSourceBranch=${bridgeBlockRecord?.originalSourceBranch || 'unknown'} attemptedSourceBranch=${args.sourceBranch || 'unknown'} proofSource=${args.proofSource || 'none'} renderedDelta=${Math.max(0, equivalentBridgeTarget - current)} reason=equivalent_bridge_target_blocked`,
         );
       } catch {}
       return { accepted: false, target: current, thresholdMs: 900, actualDelayMs: 0, commitTs };
@@ -6937,7 +6948,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } catch {}
         reducedTarget = bridgeReducedTarget;
       } else {
-        liveBridgeDownstreamBlockUntilByKey.set(bridgeBlockKey, commitTs + 2500);
+        liveBridgeDownstreamBlockUntilByKey.set(bridgeBlockKey, {
+          until: commitTs + 2500,
+          originalSourceBranch: String(args.sourceBranch || 'unknown'),
+          requestedTarget: equivalentBridgeTarget,
+          current,
+        });
         return { accepted: false, target: current, thresholdMs: 900, actualDelayMs: 0, commitTs };
       }
     }
@@ -7050,7 +7066,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               `[ASR_RESCUE_BRIDGE_HELD_AFTER_BYPASS] current=${current} requested=${requestedTarget} target=${reducedTarget} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=recent_rescue_bridge_blocked`,
             );
           } catch {}
-          liveBridgeDownstreamBlockUntilByKey.set(bridgeBlockKey, commitTs + 2500);
+          liveBridgeDownstreamBlockUntilByKey.set(bridgeBlockKey, {
+            until: commitTs + 2500,
+            originalSourceBranch: String(args.sourceBranch || 'unknown'),
+            requestedTarget: equivalentBridgeTarget,
+            current,
+          });
           return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
         }
       }
@@ -10052,6 +10073,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveAsrVisualGovernorHardHoldSinceMs = Date.now();
       }
       const heldMs = Math.max(0, Date.now() - liveAsrVisualGovernorHardHoldSinceMs);
+      const mismatchHardHold =
+        Math.max(0, lastLineIndex - Math.max(0, lastStrongConfirmedSpokenLine)) >= 7;
+      if (mismatchHardHold && !liveAsrVisualSemanticMismatchHeld) {
+        liveAsrVisualSemanticMismatchHeld = true;
+        try {
+          console.warn(
+            `[ASR_VISUAL_SEMANTIC_MISMATCH_HELD] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(pursuitTargetTop || current)} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), lastLineIndex))} renderedLead=${Math.max(0, lastLineIndex - Math.max(0, lastStrongConfirmedSpokenLine))} heldMs=${heldMs} reason=visual_far_ahead_semantic_mismatch`,
+          );
+        } catch {}
+      }
       const resumeEvidenceAgeMs =
         lastRescueMatchEvidenceAt > 0 ? Math.max(0, Date.now() - lastRescueMatchEvidenceAt) : Number.POSITIVE_INFINITY;
       const hasFreshDirectAdjacentResumeProof =
@@ -10076,6 +10107,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
     } else {
       liveAsrVisualGovernorHardHoldSinceMs = 0;
+      if (liveAsrVisualSemanticMismatchHeld) {
+        liveAsrVisualSemanticMismatchHeld = false;
+        try {
+          console.warn(
+            `[ASR_VISUAL_SEMANTIC_MISMATCH_RECOVERED] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(pursuitTargetTop || current)} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), lastLineIndex))} renderedLead=${Math.max(0, lastLineIndex - Math.max(0, lastStrongConfirmedSpokenLine))} reason=visual_semantic_mismatch_recovered`,
+          );
+        } catch {}
+      }
     }
     try { (window as any).__tpLiveAsrGovernorHold = liveHardHold; } catch {}
     if (microActive) {
@@ -14383,6 +14422,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               ? 'transcript_not_growing'
               : (contradictionActiveEffective ? 'contradiction_active' : 'no_safe_adjacent');
             console.warn(`[ASR_SUSTAINED_READ_BLOCKED] current=${lastLineIndex} requested=${args.requestedTarget} adjacentTarget=${bridgeCandidate} activeHoldReason=${args.sourceHoldReason} stallMs=${Math.round(stallMs)} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} lastTranscriptAgeMs=${Math.round(lastTranscriptAgeMs)} reason=${blockedReason} contradictionKind=${contradictionKind} stalePrefixIgnored=${args.stalePrefixIgnored ? 1 : 0} backwardContradictionOverriddenByTail=${args.backwardContradictionOverriddenByTail ? 1 : 0} bridgeCandidate=${bridgeCandidate} skippedIgnorableLines=[${skippedIgnorableLines.join(',')}] safeAdjacentReason=${safeAdjacentReason}`);
+          } catch {}
+          return { applied: false, target: bridgeCandidate };
+        }
+        if (args.requestedTarget > lastLineIndex + 1 || bridgeCandidate > lastLineIndex + 1) {
+          try {
+            console.warn(
+              `[ASR_SUSTAINED_READ_BRIDGE_COMMIT_BLOCKED] current=${lastLineIndex} requestedTarget=${args.requestedTarget} bridgeCandidate=${bridgeCandidate} sourceBranch=${args.sourceBranch || 'unknown'} proofSource=${args.proofSource || 'none'} renderedDelta=${Math.max(0, args.requestedTarget - lastLineIndex)} reason=staged_bridge_requires_adjacent_progress`,
+            );
           } catch {}
           return { applied: false, target: bridgeCandidate };
         }
