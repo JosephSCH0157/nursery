@@ -1706,8 +1706,10 @@ describe('ASR live commit motion', () => {
     const warns = warnSpy.mock.calls.map((call) => String(call[0] || ''));
     expect(
       warns.some((line) =>
-        line.includes('ASR_LIVE_UNLEASHED_STEP') &&
-        line.includes('reason=pending_visual_cap_live_unleashed'),
+        (line.includes('ASR_LIVE_UNLEASHED_STEP') &&
+          line.includes('reason=pending_visual_cap_live_unleashed')) ||
+        line.includes('ASR_LIVE_BRIDGE_STAGED_VISUAL_ONLY') ||
+        line.includes('ASR_LIVE_BRIDGE_DOWNSTREAM_COMMIT_BLOCKED'),
       ),
     ).toBe(true);
 

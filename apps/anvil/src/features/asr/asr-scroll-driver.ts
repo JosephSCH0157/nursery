@@ -3422,6 +3422,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let liveAsrNormalAdjacentCapLastLogAt = 0;
   let liveAsrVisualSuppressionLoopCount = 0;
   let liveAsrVisualSuppressionKey = '';
+  const liveBridgeDownstreamBlockUntilByKey = new Map<string, number>();
   let recentRescueBypassAtMs: number[] = [];
   let lastRescueBypassAtMs = 0;
   let lastLiveSafeTerminalShieldAt = 0;
@@ -6878,6 +6879,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const semanticTargetRaw = Math.max(current, Math.floor(Number(args.semanticTarget) || current));
     const visualTarget = Math.max(current, Math.floor(Number(args.visualTarget ?? semanticTargetRaw) || semanticTargetRaw));
     const hardContradiction = !!args.hardContradiction;
+    const bridgeBlockKey = `${current}->${requestedTarget}:${String(args.sourceBranch || 'unknown')}:${lastFinalTranscriptRunGeneration ?? -1}`;
+    const bridgeBlockUntil = liveBridgeDownstreamBlockUntilByKey.get(bridgeBlockKey) || 0;
+    if (bridgeBlockUntil > commitTs && requestedTarget > current + 1) {
+      try {
+        console.warn(
+          `[ASR_LIVE_BRIDGE_DOWNSTREAM_COMMIT_BLOCKED] current=${current} requestedTarget=${requestedTarget} sourceBranch=${args.sourceBranch || 'unknown'} proofSource=${args.proofSource || 'none'} reason=bridge_block_token`,
+        );
+      } catch {}
+      return { accepted: false, target: current, thresholdMs: 900, actualDelayMs: 0, commitTs };
+    }
     const repeatedHoldReasons = new Set([
       'same_line_noop',
       'live_strict_rescue_hold_no_local_proof',
@@ -6899,8 +6910,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const speechFresh = !!args.speechRunningActual || !!args.finalPacketFresh;
     const hasAuthority = args.authority === 'proof' || args.authority === 'reconcile';
     let reducedTarget = resolveForwardSpeakableTarget(current, semanticTargetRaw, 1);
-    if (getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed() && reducedTarget > current + 1) {
+    if (getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed() && (requestedTarget > current + 1 || reducedTarget > current + 1)) {
       const bridgeReducedTarget = resolveForwardSpeakableTarget(current, reducedTarget, 1);
+      const visualReducedTarget = Math.max(current, Math.min(requestedTarget, current + 1));
+      try {
+        console.warn(
+          `[ASR_LIVE_BRIDGE_STAGED_VISUAL_ONLY] current=${current} requestedTarget=${requestedTarget} semanticTarget=${reducedTarget} visualReducedTarget=${visualReducedTarget} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(',')}] proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=stage_before_semantic_commit`,
+        );
+      } catch {}
+      try {
+        const scroller = getScroller();
+        if (scroller) {
+          const lineEl = getLineElementByIndex(scroller, visualReducedTarget);
+          const topRaw = computeLineTargetTop(scroller, lineEl);
+          if (Number.isFinite(topRaw as number)) {
+            pursuitTargetTop = clamp(Number(topRaw), 0, Math.max(0, scroller.scrollHeight - scroller.clientHeight));
+            pursuitActive = true;
+          }
+        }
+      } catch {}
       if (bridgeReducedTarget > current && bridgeReducedTarget <= current + 1) {
         try {
           console.warn(
@@ -6908,6 +6936,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
         reducedTarget = bridgeReducedTarget;
+      } else {
+        liveBridgeDownstreamBlockUntilByKey.set(bridgeBlockKey, commitTs + 2500);
+        return { accepted: false, target: current, thresholdMs: 900, actualDelayMs: 0, commitTs };
       }
     }
     const nextSpeakable = resolveLiveStrictNextSpeakableStep(current, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN)?.targetLine ?? null;
@@ -6958,6 +6989,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (freshAdjacentFastCommitEligible) {
       thresholdMs = Math.min(thresholdMs, ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS);
       thresholdMs = Math.max(ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS, thresholdMs);
+      if (current <= 1 && reducedTarget === current + 1) {
+        try {
+          console.warn(
+            `[ASR_STARTUP_FRESH_ADJACENT_FAST_COMMIT] current=${current} target=${reducedTarget} thresholdMs=${thresholdMs} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} speechRunningActual=${args.speechRunningActual ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0}`,
+          );
+        } catch {}
+      }
     }
     const freshLandingLexicalNoStale =
       speechFreshNow &&
@@ -7012,6 +7050,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               `[ASR_RESCUE_BRIDGE_HELD_AFTER_BYPASS] current=${current} requested=${requestedTarget} target=${reducedTarget} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=recent_rescue_bridge_blocked`,
             );
           } catch {}
+          liveBridgeDownstreamBlockUntilByKey.set(bridgeBlockKey, commitTs + 2500);
           return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
         }
       }
@@ -7578,10 +7617,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         bypassedBlockers: 'reader_leash',
         reason: 'final_live_safe_step',
       });
-      try {
-        console.warn(`[ASR_LIVE_UNLEASHED_STEP] current=${safeCurrent} target=${safeTarget} semanticTarget=${safeTarget} visualTarget=${safeTarget} authority=proof sourceBranch=${sourceBranch || 'unknown'} proofSource=${proofSource || 'none'} skippedIgnorableLines=[] bridgeSafe=${strictNextSpeakable != null && safeTarget === strictNextSpeakable ? 1 : 0} bypassedLeash=1 bypassedCooldown=0 bypassedPendingVisualCap=0 stallMs=${actualDelayMs} noCommitMs=${actualDelayMs} thresholdMs=${terminal.thresholdMs} actualDelayMs=${actualDelayMs} reason=reader_leash_live_unleashed`);
-      } catch {}
-      return true;
+      if (terminal.accepted) {
+        try {
+          console.warn(`[ASR_LIVE_UNLEASHED_STEP] current=${safeCurrent} target=${safeTarget} semanticTarget=${safeTarget} visualTarget=${safeTarget} authority=proof sourceBranch=${sourceBranch || 'unknown'} proofSource=${proofSource || 'none'} skippedIgnorableLines=[] bridgeSafe=${strictNextSpeakable != null && safeTarget === strictNextSpeakable ? 1 : 0} bypassedLeash=1 bypassedCooldown=0 bypassedPendingVisualCap=0 stallMs=${actualDelayMs} noCommitMs=${actualDelayMs} thresholdMs=${terminal.thresholdMs} actualDelayMs=${actualDelayMs} reason=reader_leash_live_unleashed`);
+        } catch {}
+      }
+      return terminal.accepted;
     }
     const hardRecoveryPolicyAllow =
       targetHasFreshProof &&
@@ -12450,10 +12491,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           forceReason === 'watchdog' ||
           forceReason === 'stall_recovery_override'
         );
+      const startupFreshAdjacentFastPath =
+        liveStrictFollow &&
+        lastLineIndex <= 1 &&
+        line === lastLineIndex + 1 &&
+        (asrRuntimeSpeechRunningActual || runtimeSpeechFresh || strictFinalEvidenceArriving) &&
+        Number.isFinite(adjacentCandidateSim) &&
+        adjacentCandidateSim >= 0.52;
       if (
         strictAutonomousCandidate &&
         !strictBacklogDrainTerminalActive &&
         !(strictFastAdjacentAllowed || markerLagPressureBypass) &&
+        !startupFreshAdjacentFastPath &&
         !strictLocalProofForAdjacent &&
         isProofOwnedPrimaryForceReason(forceReason)
       ) {
@@ -12470,6 +12519,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         strictAutonomousCandidate &&
         !strictBacklogDrainTerminalActive &&
         !(strictFastAdjacentAllowed || markerLagPressureBypass) &&
+        !startupFreshAdjacentFastPath &&
         !strictLocalProofForAdjacent &&
         !isProofOwnedPrimaryForceReason(forceReason) &&
         !(
@@ -14644,10 +14694,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 reason: 'final_live_safe_step',
                 emitVisibleBridgeBypass: true,
               });
-              try {
-                console.warn(`[ASR_LIVE_UNLEASHED_STEP] current=${lastLineIndex} target=${targetLine} semanticTarget=${targetLine} visualTarget=${targetLine} authority=${movementAuthority} proofSource=${pendingProofSource || movementAuthorityProofSource || 'none'} sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown'} skippedIgnorableLines=[] bridgeSafe=1 bypassedLeash=0 bypassedCooldown=0 bypassedPendingVisualCap=1 stallMs=${Math.max(0, now - lastForwardCommitAt)} noCommitMs=${noCommitDelayMs} thresholdMs=${terminal.thresholdMs} actualDelayMs=${noCommitDelayMs} reason=pending_visual_cap_live_unleashed`);
-              } catch {}
-              bypassedPendingVisualCapTerminal = true;
+              if (terminal.accepted) {
+                try {
+                  console.warn(`[ASR_LIVE_UNLEASHED_STEP] current=${lastLineIndex} target=${targetLine} semanticTarget=${targetLine} visualTarget=${targetLine} authority=${movementAuthority} proofSource=${pendingProofSource || movementAuthorityProofSource || 'none'} sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown'} skippedIgnorableLines=[] bridgeSafe=1 bypassedLeash=0 bypassedCooldown=0 bypassedPendingVisualCap=1 stallMs=${Math.max(0, now - lastForwardCommitAt)} noCommitMs=${noCommitDelayMs} thresholdMs=${terminal.thresholdMs} actualDelayMs=${noCommitDelayMs} reason=pending_visual_cap_live_unleashed`);
+                } catch {}
+                bypassedPendingVisualCapTerminal = true;
+              }
             } else {
             const reducedLineEl = getLineElementByIndex(scroller, visibleStepTarget);
             const reducedLineTopRaw = computeLineTargetTop(scroller, reducedLineEl);
@@ -15703,6 +15755,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
         return;
+      }
+      if (startupFreshAdjacentFastPath) {
+        const startupFinalPacketFresh =
+          lastFinalTranscriptAt > 0 &&
+          now - lastFinalTranscriptAt <= 1800;
+        warnGuard('startup_fresh_adjacent_fast_commit', [
+          `current=${lastLineIndex}`,
+          `target=${line}`,
+          `adjacentSim=${formatLogScore(adjacentCandidateSim)}`,
+          `runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0}`,
+          `finalPacketFresh=${startupFinalPacketFresh ? 1 : 0}`,
+          `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
+          'reason=startup_fresh_adjacent_fast_path',
+        ]);
       }
       const asrDeterministicMarkerLockCommit = modeNow === 'asr';
       const liveAsrCommitCapActive =
@@ -16938,10 +17004,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             bypassedBlockers: 'cooldown',
             reason: 'final_live_safe_step',
           });
-          try {
-            console.warn(`[ASR_COOLDOWN_LIVE_UNLEASHED] current=${currentForSoftRuntimeRebase} target=${rebaseForwardCappedIdx} cooldownMs=${cooldownRemainingMs} noCommitMs=${noCommitMsForSoftRuntimeRebase} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`);
-            console.warn(`[ASR_LIVE_UNLEASHED_STEP] current=${currentForSoftRuntimeRebase} target=${rebaseForwardCappedIdx} semanticTarget=${rebaseForwardCappedIdx} visualTarget=${rebaseForwardCappedIdx} authority=proof proofSource=${softRuntimeRebaseForwardLexicalFallback?.proofSource || 'starvation_best_sim'} sourceBranch=soft_runtime_rebase skippedIgnorableLines=[] bridgeSafe=${rebaseForwardCappedIdx > currentForSoftRuntimeRebase + 1 ? 1 : 0} bypassedLeash=0 bypassedCooldown=1 bypassedPendingVisualCap=0 stallMs=${starvationMsForSoftRuntimeRebase} noCommitMs=${noCommitMsForSoftRuntimeRebase} thresholdMs=${terminal.thresholdMs} actualDelayMs=${noCommitMsForSoftRuntimeRebase} reason=cooldown_live_unleashed`);
-          } catch {}
+          if (terminal.accepted) {
+            try {
+              console.warn(`[ASR_COOLDOWN_LIVE_UNLEASHED] current=${currentForSoftRuntimeRebase} target=${rebaseForwardCappedIdx} cooldownMs=${cooldownRemainingMs} noCommitMs=${noCommitMsForSoftRuntimeRebase} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`);
+              console.warn(`[ASR_LIVE_UNLEASHED_STEP] current=${currentForSoftRuntimeRebase} target=${rebaseForwardCappedIdx} semanticTarget=${rebaseForwardCappedIdx} visualTarget=${rebaseForwardCappedIdx} authority=proof proofSource=${softRuntimeRebaseForwardLexicalFallback?.proofSource || 'starvation_best_sim'} sourceBranch=soft_runtime_rebase skippedIgnorableLines=[] bridgeSafe=${rebaseForwardCappedIdx > currentForSoftRuntimeRebase + 1 ? 1 : 0} bypassedLeash=0 bypassedCooldown=1 bypassedPendingVisualCap=0 stallMs=${starvationMsForSoftRuntimeRebase} noCommitMs=${noCommitMsForSoftRuntimeRebase} thresholdMs=${terminal.thresholdMs} actualDelayMs=${noCommitMsForSoftRuntimeRebase} reason=cooldown_live_unleashed`);
+            } catch {}
+          } else {
+            return;
+          }
           const catchupMatch: MatchResult = {
             ...(incomingMatch as any),
             bestIdx: rebaseForwardCappedIdx,
