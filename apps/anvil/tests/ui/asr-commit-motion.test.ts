@@ -1973,4 +1973,64 @@ describe('ASR live commit motion', () => {
     warnSpy.mockRestore();
     driver.dispose();
   });
+
+  test('restarts backend when recognizer is attached but transcript packets go stale during live ASR', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const stopRecognizer = jest.fn();
+    const startRecognizer = jest.fn();
+    (window as any).__tpSpeech = { stopRecognizer, startRecognizer };
+    const driver = createAsrScrollDriver();
+
+    driver.setLastLineIndex(1);
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: {
+        speechRunningActual: true,
+        recognizerAttached: true,
+        activeReadMode: true,
+      },
+    }));
+
+    await jest.advanceTimersByTimeAsync(10050);
+
+    const warns = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(warns.some((l) => l.includes('ASR_BACKEND_TRANSCRIPT_STALE'))).toBe(true);
+    expect(warns.some((l) => l.includes('ASR_BACKEND_RESTART_REQUESTED') && l.includes('skipped=0'))).toBe(true);
+    expect(warns.some((l) => l.includes('ASR_BACKEND_RESTART_COMPLETED'))).toBe(true);
+    expect(stopRecognizer).toHaveBeenCalled();
+    expect(startRecognizer).toHaveBeenCalled();
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    delete (window as any).__tpSpeech;
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('off-script noMatch packet is surfaced and not silently accepted as a commit', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+
+    driver.ingest('LOUD OFF SCRIPT TANGENT', true, {
+      currentIdx: 1,
+      noMatch: true,
+      source: 'openai-whisper-bridge',
+      match: {
+        bestIdx: -1,
+        bestSim: Number.NaN,
+        topScores: [],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(200);
+    expect(driver.getLastLineIndex()).toBe(1);
+    const warnLines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(
+      warnLines.some((l) =>
+        l.includes('asr_commit_blocked_stale_whisperbridge_packet') ||
+        l.includes('no_match'),
+      ),
+    ).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
 });

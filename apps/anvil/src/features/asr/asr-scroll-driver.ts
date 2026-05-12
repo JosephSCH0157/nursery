@@ -446,6 +446,10 @@ const DEFAULT_ASR_SOFT_RUNTIME_REBASE_FINAL_MAX_AGE_MS = 5000;
 const DEFAULT_ASR_SOFT_RUNTIME_REBASE_SKIP_LOG_COOLDOWN_MS = 1200;
 const DEFAULT_ASR_VAD_SPEECH_GRACE_MS = 900;
 const DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS = 900;
+const DEFAULT_ASR_BACKEND_HEARTBEAT_MS = 1000;
+const DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS = 9000;
+const DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS = 7000;
+const DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS = 30000;
 const DEFAULT_LIVE_ASR_MIN_FORWARD_COMMIT_GAP_MS = 420;
 const DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM = 0.55;
 const DEFAULT_ASR_AUTHORITY_SPEECH_STOP_BRAKE_MS = 1800;
@@ -3445,6 +3449,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let asrRuntimeSpeechSeen = false;
   let asrRuntimeSpeechEverTrue = false;
   let asrRuntimeSpeechRunningActual = false;
+  let asrRuntimeRecognizerAttached = false;
+  let asrRuntimeActiveReadMode = false;
+  let lastTranscriptPacketAt = 0;
+  let lastAudioChunkAt = 0;
+  let backendRestartWindowStartedAt = 0;
+  let backendRestartedInWindow = false;
+  let lastBackendHeartbeatAt = 0;
+  let lastBackendTranscriptStaleAt = 0;
+  let lastBackendAudioStaleAt = 0;
+  let backendLivenessTimer: ReturnType<typeof setInterval> | null = null;
   let lastSpeechRunningActualAtMs = 0;
   let lastRuntimeSpeechAt = 0;
   let speechStopBrakeCleanupUsed = false;
@@ -3700,6 +3714,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
 
   const noteRuntimeSpeechState = (detail: unknown) => {
+    const recognizerAttachedRaw = (detail as { recognizerAttached?: unknown } | null | undefined)?.recognizerAttached;
+    if (typeof recognizerAttachedRaw === 'boolean') {
+      asrRuntimeRecognizerAttached = recognizerAttachedRaw;
+    }
+    const activeReadModeRaw = (detail as { activeReadMode?: unknown } | null | undefined)?.activeReadMode;
+    if (typeof activeReadModeRaw === 'boolean') {
+      asrRuntimeActiveReadMode = activeReadModeRaw;
+    }
+    const chunkAtRaw = (detail as { lastAudioChunkAt?: unknown; chunkEnqueueTs?: unknown } | null | undefined)?.lastAudioChunkAt
+      ?? (detail as { chunkEnqueueTs?: unknown } | null | undefined)?.chunkEnqueueTs;
+    if (Number.isFinite(Number(chunkAtRaw))) {
+      lastAudioChunkAt = Math.max(lastAudioChunkAt, Math.floor(Number(chunkAtRaw)));
+    }
     const runKeyRaw = (detail as { runKey?: unknown } | null | undefined)?.runKey;
     const runGenerationRaw =
       (detail as { runGeneration?: unknown } | null | undefined)?.runGeneration;
@@ -5538,6 +5565,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const runtimeStatusHandler = (event: Event) => {
     noteRuntimeSpeechState((event as CustomEvent)?.detail);
   };
+  const audioChunkHandler = (event: Event) => {
+    const detail = (event as CustomEvent)?.detail || {};
+    const tsRaw = (detail as { ts?: unknown; at?: unknown; chunkEnqueueTs?: unknown }).ts
+      ?? (detail as { at?: unknown }).at
+      ?? (detail as { chunkEnqueueTs?: unknown }).chunkEnqueueTs;
+    const ts = Number.isFinite(Number(tsRaw)) ? Math.floor(Number(tsRaw)) : Date.now();
+    lastAudioChunkAt = Math.max(lastAudioChunkAt, ts);
+  };
 
   const resetHandler = () => {
     clearEvidenceBuffer('script-reset');
@@ -5572,6 +5607,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   try { window.addEventListener('tp:vad', vadHandler as EventListener); } catch {}
   noteRuntimeSpeechState((window as any).__tpAsrRuntimeStatus);
   try { window.addEventListener('tp:asr:runtime-status', runtimeStatusHandler as EventListener); } catch {}
+  try { window.addEventListener('tp:asr:audio-chunk', audioChunkHandler as EventListener); } catch {}
   try { window.addEventListener('tp:script:reset', resetHandler as EventListener); } catch {}
   try { window.addEventListener('tp:asr:rescue', rescueHandler as EventListener); } catch {}
   try { window.addEventListener(ASR_MANUAL_ANCHOR_EVENT, handleManualAnchorSignal as EventListener); } catch {}
@@ -5581,6 +5617,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   try { document.addEventListener('visibilitychange', focusGateVisibilityHandler as EventListener); } catch {}
   syncAsrFocusMovementGate('init', Date.now());
   publishAsrFocusGateState();
+  backendLivenessTimer = setInterval(() => {
+    if (disposed) return;
+    checkBackendLiveness();
+  }, DEFAULT_ASR_BACKEND_HEARTBEAT_MS);
 
   const summarizeGuardCounts = (limit = Number.POSITIVE_INFINITY) => {
     const entries = Array.from(guardCounts.entries())
@@ -6530,6 +6570,97 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     if (cursor > safeCurrent) return cursor;
     return Math.min(physicalCapped, safeCurrent + stepsCap);
+  };
+
+  const requestBackendRestart = (reason: string, now: number, transcriptAgeMs: number, audioAgeMs: number) => {
+    if (backendRestartedInWindow) {
+      try {
+        console.warn(
+          `[ASR_BACKEND_RESTART_REQUESTED] skipped=1 reason=${reason} skipReason=already_restarted_in_window windowMs=${DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS} transcriptAgeMs=${Math.round(transcriptAgeMs)} audioAgeMs=${Math.round(audioAgeMs)}`,
+        );
+      } catch {}
+      return;
+    }
+    const speech = (window as any).__tpSpeech;
+    if (!speech || typeof speech.stopRecognizer !== 'function' || typeof speech.startRecognizer !== 'function') {
+      try {
+        console.warn(
+          `[ASR_BACKEND_RESTART_REQUESTED] skipped=1 reason=${reason} skipReason=recognizer_controls_unavailable transcriptAgeMs=${Math.round(transcriptAgeMs)} audioAgeMs=${Math.round(audioAgeMs)}`,
+        );
+      } catch {}
+      return;
+    }
+    backendRestartedInWindow = true;
+    try {
+      console.warn(
+        `[ASR_BACKEND_RESTART_REQUESTED] skipped=0 reason=${reason} transcriptAgeMs=${Math.round(transcriptAgeMs)} audioAgeMs=${Math.round(audioAgeMs)} current=${lastLineIndex}`,
+      );
+    } catch {}
+    try { speech.stopRecognizer(); } catch {}
+    try { speech.startRecognizer(() => {}, { lang: 'en-US' }); } catch {}
+    const restartScroller = getScroller();
+    const restartScrollTop = restartScroller ? restartScroller.scrollTop : 0;
+    try {
+      console.warn(
+        `[ASR_BACKEND_RESTART_COMPLETED] reason=${reason} current=${lastLineIndex} commitIndex=${lastCommitIndex ?? -1} scrollTop=${Math.round(restartScrollTop || 0)}`,
+      );
+    } catch {}
+  };
+
+  const checkBackendLiveness = () => {
+    const now = Date.now();
+    const liveAsr =
+      getScrollMode() === 'asr' &&
+      isSessionLivePhase() &&
+      isSessionAsrArmed();
+    const recognizerAttached =
+      asrRuntimeRecognizerAttached ||
+      !!(window as any).__tpRecognizer ||
+      !!(window as any).__tpGetActiveRecognizer?.();
+    if (!liveAsr || !recognizerAttached) return;
+
+    const speechActive =
+      asrRuntimeSpeechRunningActual ||
+      hasRecentActualSpeech(now) ||
+      hasRecentVadSpeechNow(now);
+    const activeReadMode = asrRuntimeActiveReadMode || speechActive;
+    if (!speechActive && !activeReadMode) return;
+
+    if (backendRestartWindowStartedAt <= 0 || now - backendRestartWindowStartedAt > DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS) {
+      backendRestartWindowStartedAt = now;
+      backendRestartedInWindow = false;
+    }
+
+    const transcriptAgeMs = lastTranscriptPacketAt > 0 ? Math.max(0, now - lastTranscriptPacketAt) : Number.POSITIVE_INFINITY;
+    const audioAgeMs = lastAudioChunkAt > 0 ? Math.max(0, now - lastAudioChunkAt) : Number.POSITIVE_INFINITY;
+
+    if (now - lastBackendHeartbeatAt >= DEFAULT_ASR_BACKEND_HEARTBEAT_MS) {
+      lastBackendHeartbeatAt = now;
+      try {
+        console.warn(
+          `[ASR_BACKEND_HEARTBEAT] live=1 asrArmed=1 recognizerAttached=${recognizerAttached ? 1 : 0} speechActive=${speechActive ? 1 : 0} activeReadMode=${activeReadMode ? 1 : 0} transcriptAgeMs=${Number.isFinite(transcriptAgeMs) ? Math.round(transcriptAgeMs) : -1} audioAgeMs=${Number.isFinite(audioAgeMs) ? Math.round(audioAgeMs) : -1} restartedInWindow=${backendRestartedInWindow ? 1 : 0}`,
+        );
+      } catch {}
+    }
+
+    if (Number.isFinite(audioAgeMs) && audioAgeMs >= DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS && now - lastBackendAudioStaleAt >= 1000) {
+      lastBackendAudioStaleAt = now;
+      try {
+        console.warn(
+          `[ASR_AUDIO_CHUNK_STALE] ageMs=${Math.round(audioAgeMs)} thresholdMs=${DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS} recognizerAttached=${recognizerAttached ? 1 : 0} speechActive=${speechActive ? 1 : 0}`,
+        );
+      } catch {}
+    }
+
+    if (transcriptAgeMs >= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS && now - lastBackendTranscriptStaleAt >= 1000) {
+      lastBackendTranscriptStaleAt = now;
+      try {
+        console.warn(
+          `[ASR_BACKEND_TRANSCRIPT_STALE] ageMs=${Math.round(transcriptAgeMs)} thresholdMs=${DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS} recognizerAttached=${recognizerAttached ? 1 : 0} speechActive=${speechActive ? 1 : 0} activeReadMode=${activeReadMode ? 1 : 0}`,
+        );
+      } catch {}
+      requestBackendRestart('backend_transcript_starvation', now, transcriptAgeMs, audioAgeMs);
+    }
   };
 
   const resolveForwardGovernorSnapshot = (
@@ -17476,6 +17607,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       } catch {}
     }
     lastIngestAt = now;
+    lastTranscriptPacketAt = now;
+    if (lastAudioChunkAt <= 0 || now - lastAudioChunkAt > 250) {
+      lastAudioChunkAt = now;
+    }
+    backendRestartWindowStartedAt = now;
+    backendRestartedInWindow = false;
     updateDebugState('ingest');
     maybeLogStall(now);
     if (resyncReason && resyncUntil && now >= resyncUntil) {
@@ -21565,6 +21702,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     try { window.removeEventListener('tp:asr:silence', silenceHandler as EventListener); } catch {}
     try { window.removeEventListener('tp:vad', vadHandler as EventListener); } catch {}
     try { window.removeEventListener('tp:asr:runtime-status', runtimeStatusHandler as EventListener); } catch {}
+    try { window.removeEventListener('tp:asr:audio-chunk', audioChunkHandler as EventListener); } catch {}
     try { window.removeEventListener('tp:script:reset', resetHandler as EventListener); } catch {}
     try { window.removeEventListener('tp:asr:rescue', rescueHandler as EventListener); } catch {}
     try { window.removeEventListener(ASR_MANUAL_ANCHOR_EVENT, handleManualAnchorSignal as EventListener); } catch {}
@@ -21587,6 +21725,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     publishAsrFocusGateState();
     if (activeGuardCounts === guardCounts) {
       activeGuardCounts = null;
+    }
+    if (backendLivenessTimer) {
+      try { clearInterval(backendLivenessTimer); } catch {}
+      backendLivenessTimer = null;
     }
   };
 
