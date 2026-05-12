@@ -320,6 +320,9 @@ const ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_COMFORTABLE_MS = 350;
 const ASR_EARLY_BRIDGE_GOVERNOR_MAX_COMMITS = 4;
 const ASR_EARLY_BRIDGE_GOVERNOR_MAX_RENDERED_DELTA = 2;
 const ASR_VISUAL_GOVERNOR_HOLD_CLEAR_TARGET_MS = 1200;
+const ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS = 9000;
+const ASR_RESCUE_BYPASS_BUDGET_MAX = 3;
+const ASR_RESCUE_BYPASS_MIN_DELAY_MS = 1400;
 const ASR_VISUAL_FOLLOW_MAX_PXPS = 80;
 const ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS = 35;
 const ASR_VISUAL_FOLLOW_MIN_PXPS = 8;
@@ -3405,6 +3408,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastStrongConfirmedSpokenLine = 0;
   let liveAsrVisualGovernorHardHold = false;
   let liveAsrVisualGovernorHardHoldSinceMs = 0;
+  let recentRescueBypassAtMs: number[] = [];
+  let lastRescueBypassAtMs = 0;
   let lastLiveSafeTerminalShieldAt = 0;
   let lastLiveSafeTerminalShieldLine = -1;
   let lastLiveSafeTerminalShieldSource = '';
@@ -6879,7 +6884,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const actualDelayMs = Math.max(0, Math.round(Number(args.noCommitMs ?? args.stallMs ?? 0)));
     const speechFresh = !!args.speechRunningActual || !!args.finalPacketFresh;
     const hasAuthority = args.authority === 'proof' || args.authority === 'reconcile';
-    const reducedTarget = resolveForwardSpeakableTarget(current, semanticTargetRaw, 1);
+    let reducedTarget = resolveForwardSpeakableTarget(current, semanticTargetRaw, 1);
     const nextSpeakable = resolveLiveStrictNextSpeakableStep(current, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN)?.targetLine ?? null;
     const safeAdjacentOrBridge =
       reducedTarget > current &&
@@ -6893,6 +6898,87 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       hasAuthority &&
       safeAdjacentOrBridge &&
       !hardContradiction;
+    const proofSourceLower = String(args.proofSource || 'none').toLowerCase();
+    const sourceBranchLower = String(args.sourceBranch || 'unknown').toLowerCase();
+    const bypassedBlockersLower = String(args.bypassedBlockers || 'none').toLowerCase();
+    const rescueBypassLike =
+      bypassedBlockersLower.includes('asr_reader_leash_hold') ||
+      bypassedBlockersLower.includes('pending_visual_cap') ||
+      bypassedBlockersLower.includes('visible_bridge_step_cap') ||
+      sourceBranchLower.includes('asr_reader_leash_hold') ||
+      sourceBranchLower.includes('sustained_read') ||
+      sourceBranchLower.includes('stall_rescue') ||
+      sourceBranchLower.includes('cue_stall_rescue_blocked') ||
+      sourceBranchLower.includes('live_strict_rescue_hold_no_local_proof') ||
+      sourceBranchLower.includes('pending_visual_cap') ||
+      proofSourceLower.includes('starvation') ||
+      proofSourceLower.includes('adjacent_completion') ||
+      proofSourceLower.includes('cue_stall') ||
+      proofSourceLower.includes('rescue');
+    const speechFreshNow = !!args.speechRunningActual || !!args.finalPacketFresh || hasRecentActualSpeech(commitTs);
+    const directAdjacentLocalProof =
+      reducedTarget === current + 1 &&
+      speechFreshNow &&
+      (proofSourceLower.includes('live_strict_local_proof_ok') ||
+       proofSourceLower.includes('adjacent_rescue_proofed') ||
+       proofSourceLower.includes('cue_exit'));
+    const freshLandingLexicalNoStale =
+      speechFreshNow &&
+      proofSourceLower.includes('landing') &&
+      !proofSourceLower.includes('stale') &&
+      !proofSourceLower.includes('tail');
+    recentRescueBypassAtMs = recentRescueBypassAtMs.filter((ts) => commitTs - ts <= ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS);
+    const recentBypassCount = recentRescueBypassAtMs.length;
+    const lastBypassAgeMs = lastRescueBypassAtMs > 0 ? Math.max(0, commitTs - lastRescueBypassAtMs) : Number.POSITIVE_INFINITY;
+    if (gatePassCore && rescueBypassLike && !directAdjacentLocalProof && recentBypassCount >= ASR_RESCUE_BYPASS_BUDGET_MAX) {
+      try {
+        console.warn(
+          `[ASR_RESCUE_BYPASS_BUDGET_HELD] current=${current} target=${reducedTarget} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} recentBypassCount=${recentBypassCount} windowMs=${ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS} reason=bypass_budget_exhausted`,
+        );
+      } catch {}
+      return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
+    }
+    if (gatePassCore && rescueBypassLike && bypassedBlockersLower.includes('asr_reader_leash_hold')) {
+      const canBypassLeash =
+        directAdjacentLocalProof ||
+        freshLandingLexicalNoStale ||
+        lastBypassAgeMs >= ASR_RESCUE_BYPASS_MIN_DELAY_MS;
+      if (!canBypassLeash) {
+        try {
+          console.warn(
+            `[ASR_READER_LEASH_BYPASS_HELD] current=${current} requested=${requestedTarget} target=${reducedTarget} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} blocker=asr_reader_leash_hold lastBypassAgeMs=${Number.isFinite(lastBypassAgeMs) ? Math.round(lastBypassAgeMs) : -1} reason=insufficient_leash_bypass_proof`,
+          );
+        } catch {}
+        return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
+      }
+    }
+    if (gatePassCore && rescueBypassLike && reducedTarget > current + 1 && lastBypassAgeMs <= ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS) {
+      const strongBridgeProof =
+        speechFreshNow &&
+        !!args.speechRunningActual &&
+        !proofSourceLower.includes('stale') &&
+        !proofSourceLower.includes('tail') &&
+        (proofSourceLower.includes('landing') || proofSourceLower.includes('live_strict_local_proof_ok'));
+      const aheadNow =
+        Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), current)) > 0;
+      if (!strongBridgeProof || aheadNow) {
+        if (isSpeakableScriptLine(current + 1)) {
+          reducedTarget = current + 1;
+          try {
+            console.warn(
+              `[ASR_RESCUE_BRIDGE_REDUCED_TO_ADJACENT] current=${current} requested=${requestedTarget} target=${reducedTarget} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=recent_rescue_requires_stronger_bridge_proof`,
+            );
+          } catch {}
+        } else {
+          try {
+            console.warn(
+              `[ASR_RESCUE_BRIDGE_HELD_AFTER_BYPASS] current=${current} requested=${requestedTarget} target=${reducedTarget} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=recent_rescue_bridge_blocked`,
+            );
+          } catch {}
+          return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
+        }
+      }
+    }
     const renderedDelta = Math.max(
       0,
       Math.max(requestedTarget, semanticTargetRaw, visualTarget) - current,
@@ -6999,6 +7085,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         );
       }
     } catch {}
+    if (rescueBypassLike) {
+      recentRescueBypassAtMs.push(commitTs);
+      lastRescueBypassAtMs = commitTs;
+    }
     return { accepted: true, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
   };
 
