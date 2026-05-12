@@ -323,8 +323,12 @@ const ASR_VISUAL_GOVERNOR_HOLD_CLEAR_TARGET_MS = 1200;
 const ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS = 9000;
 const ASR_RESCUE_BYPASS_BUDGET_MAX = 3;
 const ASR_RESCUE_BYPASS_MIN_DELAY_MS = 1400;
-const ASR_READER_PACE_MAX_MARKER_LEAD_LINES = 4;
-const ASR_READER_PACE_NO_SPEECH_HOLD_MS = 1200;
+const ASR_READER_PACE_MAX_MARKER_LEAD_LINES = 6;
+const ASR_READER_PACE_NO_SPEECH_HOLD_MS = 2600;
+const ASR_VISUAL_SOFT_LEAD_START = 4;
+const ASR_VISUAL_HARD_LEAD_START = 6;
+const ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS = 2100;
+const ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS = 14;
 const ASR_VISUAL_FOLLOW_MAX_PXPS = 80;
 const ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS = 35;
 const ASR_VISUAL_FOLLOW_MIN_PXPS = 8;
@@ -3410,6 +3414,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastStrongConfirmedSpokenLine = 0;
   let liveAsrVisualGovernorHardHold = false;
   let liveAsrVisualGovernorHardHoldSinceMs = 0;
+  let liveAsrVisualUnlockSlowFollowUntilMs = 0;
+  let liveAsrVisualSuppressionLoopCount = 0;
+  let liveAsrVisualSuppressionKey = '';
   let recentRescueBypassAtMs: number[] = [];
   let lastRescueBypassAtMs = 0;
   let lastLiveSafeTerminalShieldAt = 0;
@@ -7051,6 +7058,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       liveEligibilityFirstSeenByKey.delete(eligibilityKey);
     }
     const accepted = gatePassCore && actualDelayMs >= thresholdMs;
+    const liveSpeechFresh =
+      hasRecentActualSpeech(commitTs) || hasRecentVadSpeechNow(commitTs) || !!args.speechRunningActual;
     if (accepted && reducedTarget > current) {
       const scroller = getScroller();
       const markerIdx = scroller ? computeCueSafeMarkerIndex(scroller) : -1;
@@ -7060,10 +7069,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         hasRecentActualSpeech(commitTs) || hasRecentVadSpeechNow(commitTs) || !!args.speechRunningActual;
       const latestSpeechTs = Math.max(lastRuntimeSpeechAt || 0, lastVadSpeechAt || 0, lastSpeechRunningActualAtMs || 0);
       const noSpeechMs = latestSpeechTs > 0 ? Math.max(0, commitTs - latestSpeechTs) : Number.POSITIVE_INFINITY;
+      const proofSourceLower = String(args.proofSource || 'none').toLowerCase();
+      const directProofLike =
+        proofSourceLower.includes('live_strict_local_proof_ok') ||
+        proofSourceLower.includes('strict_speakable_bridge_landing') ||
+        proofSourceLower.includes('adjacent_rescue_proofed') ||
+        proofSourceLower.includes('landing_lexical');
       if (
         markerLeadLines >= ASR_READER_PACE_MAX_MARKER_LEAD_LINES &&
         !speechFreshForPace &&
-        noSpeechMs >= ASR_READER_PACE_NO_SPEECH_HOLD_MS
+        !args.finalPacketFresh &&
+        !args.speechRunningActual &&
+        noSpeechMs >= ASR_READER_PACE_NO_SPEECH_HOLD_MS &&
+        !directProofLike
       ) {
         try {
           console.warn(
@@ -7074,12 +7092,50 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
     }
     if (accepted && liveAsrVisualGovernorHardHold) {
-      try {
-        console.warn(
-          `[ASR_SEMANTIC_COMMIT_HELD_BY_VISUAL_GOVERNOR] current=${current} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} lastStrongConfirmedSpokenLine=${Math.max(0, lastStrongConfirmedSpokenLine)} speechFresh=${hasRecentActualSpeech(Date.now()) ? 1 : 0} transcriptGrowing=${lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength ? 1 : 0} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=visual_governor_hard_hold`,
-        );
-      } catch {}
-      return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
+      const adjacentTarget = reducedTarget === current + 1;
+      const noHardContradiction = !hardContradiction;
+      const noRecentLargeBridge =
+        (Date.now() - lastCommitAt) > 700 || requestedTarget <= current + 1;
+      const freshAdjacentUnlockAllowed =
+        adjacentTarget &&
+        noHardContradiction &&
+        noRecentLargeBridge &&
+        (liveSpeechFresh || !!args.finalPacketFresh);
+      const noCommitMs = Math.max(0, Date.now() - lastCommitTime);
+      if (freshAdjacentUnlockAllowed && noCommitMs >= ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS) {
+        try {
+          console.warn(
+            `[ASR_VISUAL_GOVERNOR_FRESH_ADJACENT_UNLOCK] current=${current} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} speechRunningActual=${args.speechRunningActual ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} liveSpeechFresh=${liveSpeechFresh ? 1 : 0} noCommitMs=${noCommitMs} reason=fresh_adjacent_under_hold`,
+          );
+          if (liveAsrVisualSuppressionLoopCount >= 2) {
+            console.warn(
+              `[ASR_VISUAL_GOVERNOR_SUPPRESSION_LOOP_BROKEN] current=${current} target=${reducedTarget} bestIdx=${requestedTarget} noCommitMs=${noCommitMs} suppressions=${liveAsrVisualSuppressionLoopCount} reason=fresh_adjacent_unlock`,
+            );
+          }
+        } catch {}
+        liveAsrVisualUnlockSlowFollowUntilMs = Date.now() + 2200;
+        liveAsrVisualSuppressionLoopCount = 0;
+        liveAsrVisualSuppressionKey = '';
+      } else {
+        const suppressionKey = `${current}->${reducedTarget}`;
+        if (liveAsrVisualSuppressionKey === suppressionKey) {
+          liveAsrVisualSuppressionLoopCount += 1;
+        } else {
+          liveAsrVisualSuppressionKey = suppressionKey;
+          liveAsrVisualSuppressionLoopCount = 1;
+        }
+        try {
+          console.warn(
+            `[ASR_TERMINAL_COMMIT_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${current} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=visual_governor_hard_hold`,
+          );
+        } catch {}
+        try {
+          console.warn(
+            `[ASR_SEMANTIC_COMMIT_HELD_BY_VISUAL_GOVERNOR] current=${current} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} lastStrongConfirmedSpokenLine=${Math.max(0, lastStrongConfirmedSpokenLine)} speechFresh=${hasRecentActualSpeech(Date.now()) ? 1 : 0} transcriptGrowing=${lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength ? 1 : 0} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=visual_governor_hard_hold`,
+          );
+        } catch {}
+        return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
+      }
     }
     if (!accepted) {
       return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
@@ -9846,13 +9902,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         hasRecentActualSpeech(nowTs) || hasRecentVadSpeechNow(nowTs) || asrRuntimeSpeechRunningActual;
       const ahead = speakableLead > 0 || renderedLead > 0;
       const leadState =
-        speakableLead > ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE || renderedLead > ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES
+        speakableLead >= ASR_VISUAL_HARD_LEAD_START || renderedLead >= ASR_VISUAL_HARD_LEAD_START
           ? 'far_ahead'
-          : (ahead ? 'ahead' : 'aligned_or_behind');
+          : ((speakableLead >= ASR_VISUAL_SOFT_LEAD_START || renderedLead >= ASR_VISUAL_SOFT_LEAD_START)
+            ? 'ahead'
+            : (ahead ? 'ahead' : 'aligned_or_behind'));
       const readerPaceHold =
         markerLeadLines >= ASR_READER_PACE_MAX_MARKER_LEAD_LINES &&
         !readerDrivingNow &&
-        noSpeechMs >= ASR_READER_PACE_NO_SPEECH_HOLD_MS;
+        noSpeechMs >= ASR_READER_PACE_NO_SPEECH_HOLD_MS &&
+        !(lastFinalTranscriptAt > 0 && (nowTs - lastFinalTranscriptAt) <= 1200);
       if (leadState === 'far_ahead') {
         maxVelForErr = 0;
         liveHardHold = true;
@@ -9867,6 +9926,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS);
       } else {
         maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_FOLLOW_MIN_PXPS);
+      }
+      if (liveAsrVisualUnlockSlowFollowUntilMs > Date.now()) {
+        maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS);
       }
       try {
         const approxLinePx = 24;
