@@ -323,6 +323,8 @@ const ASR_VISUAL_GOVERNOR_HOLD_CLEAR_TARGET_MS = 1200;
 const ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS = 9000;
 const ASR_RESCUE_BYPASS_BUDGET_MAX = 3;
 const ASR_RESCUE_BYPASS_MIN_DELAY_MS = 1400;
+const ASR_READER_PACE_MAX_MARKER_LEAD_LINES = 4;
+const ASR_READER_PACE_NO_SPEECH_HOLD_MS = 1200;
 const ASR_VISUAL_FOLLOW_MAX_PXPS = 80;
 const ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS = 35;
 const ASR_VISUAL_FOLLOW_MIN_PXPS = 8;
@@ -7049,6 +7051,28 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       liveEligibilityFirstSeenByKey.delete(eligibilityKey);
     }
     const accepted = gatePassCore && actualDelayMs >= thresholdMs;
+    if (accepted && reducedTarget > current) {
+      const scroller = getScroller();
+      const markerIdx = scroller ? computeCueSafeMarkerIndex(scroller) : -1;
+      const markerLeadLines =
+        markerIdx >= 0 ? Math.max(0, current - markerIdx) : 0;
+      const speechFreshForPace =
+        hasRecentActualSpeech(commitTs) || hasRecentVadSpeechNow(commitTs) || !!args.speechRunningActual;
+      const latestSpeechTs = Math.max(lastRuntimeSpeechAt || 0, lastVadSpeechAt || 0, lastSpeechRunningActualAtMs || 0);
+      const noSpeechMs = latestSpeechTs > 0 ? Math.max(0, commitTs - latestSpeechTs) : Number.POSITIVE_INFINITY;
+      if (
+        markerLeadLines >= ASR_READER_PACE_MAX_MARKER_LEAD_LINES &&
+        !speechFreshForPace &&
+        noSpeechMs >= ASR_READER_PACE_NO_SPEECH_HOLD_MS
+      ) {
+        try {
+          console.warn(
+            `[ASR_READER_PACE_HOLD] current=${current} target=${reducedTarget} markerIdx=${markerIdx} markerLeadLines=${markerLeadLines} noSpeechMs=${Number.isFinite(noSpeechMs) ? Math.round(noSpeechMs) : -1} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=reader_not_driving`,
+          );
+        } catch {}
+        return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
+      }
+    }
     if (accepted && liveAsrVisualGovernorHardHold) {
       try {
         console.warn(
@@ -9812,12 +9836,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       );
       const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, lastLineIndex));
       const renderedLead = Math.max(0, lastLineIndex - confirmedSpoken);
+      const markerIdx = computeCueSafeMarkerIndex(scroller);
+      const markerLeadLines =
+        markerIdx >= 0 ? Math.max(0, lastLineIndex - markerIdx) : 0;
+      const nowTs = Date.now();
+      const latestSpeechTs = Math.max(lastRuntimeSpeechAt || 0, lastVadSpeechAt || 0, lastSpeechRunningActualAtMs || 0);
+      const noSpeechMs = latestSpeechTs > 0 ? Math.max(0, nowTs - latestSpeechTs) : Number.POSITIVE_INFINITY;
+      const readerDrivingNow =
+        hasRecentActualSpeech(nowTs) || hasRecentVadSpeechNow(nowTs) || asrRuntimeSpeechRunningActual;
       const ahead = speakableLead > 0 || renderedLead > 0;
       const leadState =
         speakableLead > ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE || renderedLead > ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES
           ? 'far_ahead'
           : (ahead ? 'ahead' : 'aligned_or_behind');
+      const readerPaceHold =
+        markerLeadLines >= ASR_READER_PACE_MAX_MARKER_LEAD_LINES &&
+        !readerDrivingNow &&
+        noSpeechMs >= ASR_READER_PACE_NO_SPEECH_HOLD_MS;
       if (leadState === 'far_ahead') {
+        maxVelForErr = 0;
+        liveHardHold = true;
+      } else if (readerPaceHold) {
         maxVelForErr = 0;
         liveHardHold = true;
       } else if (ahead) {
@@ -9838,6 +9877,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         console.warn(
           `[ASR_VISUAL_FOLLOW_VELOCITY] pxps=${Math.round(maxVelForErr)} deltaPx=${Math.round(err)} deltaLines=${deltaLinesApprox.toFixed(2)} capped=${maxVelForErr < resolveMaxVel(err) ? 1 : 0} capReason=${leadState === 'far_ahead' ? 'governor_hold' : 'follow_cap'} leadState=${leadState} speechFresh=${hasRecentActualSpeech(Date.now()) ? 1 : 0} proofSource=live_follow_tick`,
         );
+        if (readerPaceHold) {
+          console.warn(
+            `[ASR_READER_PACE_VISUAL_HOLD] current=${lastLineIndex} markerIdx=${markerIdx} markerLeadLines=${markerLeadLines} noSpeechMs=${Number.isFinite(noSpeechMs) ? Math.round(noSpeechMs) : -1} targetScrollTop=${Math.round(pursuitTargetTop || current)} currentScrollTop=${Math.round(current)} reason=reader_not_driving`,
+          );
+        }
         if (liveHardHold) {
           console.warn(
             `[ASR_VISUAL_FOLLOW_HARD_HELD] currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(pursuitTargetTop || current)} deltaPx=${Math.round(err)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=governor_hold source=tick_controller`,
