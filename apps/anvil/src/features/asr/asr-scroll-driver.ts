@@ -43,6 +43,12 @@ import {
   normalizeNoMatchEvidence,
   shouldAllowStalePrefixContradictionOverride,
 } from './asr-offscript';
+import {
+  shouldClassifyBackendTranscriptStall,
+  shouldClassifyBridgeTrap,
+  shouldClassifyScrollCommitStall,
+} from './asr-stall-classifier';
+import { shouldStageVisualOnlyBridge } from './asr-bridge-policy';
 import { evaluateBackendLiveness } from './asr-backend-liveness';
 import {
   areAsrThresholdsDirty,
@@ -6449,7 +6455,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
     if (decision.firstTranscriptGraceActive) return;
 
-    if (decision.shouldEmitTranscriptStale && now - lastBackendTranscriptStaleAt >= 1000) {
+    const backendTranscriptStall = shouldClassifyBackendTranscriptStall({
+      liveAsr,
+      asrArmed,
+      recognizerAttached,
+      speechActive,
+      activeReadMode,
+      firstTranscriptGraceActive: decision.firstTranscriptGraceActive,
+      transcriptAgeMs: transcriptAgeMs,
+      transcriptStaleMs: DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS,
+    });
+    if (backendTranscriptStall && now - lastBackendTranscriptStaleAt >= 1000) {
       lastBackendTranscriptStaleAt = now;
       const transcriptAgeForLog = Number.isFinite(transcriptAgeMs as number)
         ? Number(transcriptAgeMs)
@@ -14513,16 +14529,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const liveTranscriptFresh =
           lastTranscriptPacketAt > 0 &&
           Math.max(0, now - lastTranscriptPacketAt) <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS;
-        const bridgeTrapThresholdMs = repeatedHoldCount > 3 ? 2500 : 3500;
-        const bridgeTrapDetected =
-          liveTranscriptFresh &&
-          Number.isFinite(conf) &&
-          conf > 0 &&
-          (asrRuntimeSpeechRunningActual || asrRuntimeActiveReadMode) &&
-          args.requestedTarget > lastLineIndex &&
-          bridgeCandidate > lastLineIndex &&
-          repeatedHoldCount >= 3 &&
-          stallMs >= bridgeTrapThresholdMs;
+        const bridgeTrapDetected = shouldClassifyBridgeTrap({
+          liveTranscriptFresh,
+          conf,
+          speechActive: asrRuntimeSpeechRunningActual,
+          activeReadMode: asrRuntimeActiveReadMode,
+          requestedTarget: args.requestedTarget,
+          currentLine: lastLineIndex,
+          adjacentTarget: bridgeCandidate,
+          repeatedHoldCount,
+          stallMs,
+        });
         if (bridgeTrapDetected) {
           try {
             console.warn(
@@ -14821,15 +14838,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         );
         if (visibleStepTarget > lastLineIndex && visibleStepTarget < targetLine) {
           const reducedLineSpeakable = isSpeakableScriptLine(visibleStepTarget);
+          const bridgeStageDecision = shouldStageVisualOnlyBridge({
+            liveStrictFollow,
+            pendingSpeakableBridgeCompletion,
+            currentIndex: lastLineIndex,
+            targetIndex: targetLine,
+            visibleStepTarget,
+            reducedLineSpeakable,
+            asrRuntimeSpeechRunningActual,
+            movementAuthority,
+            liveUnleashedEnabled: isAsrLiveUnleashedEnabled(),
+          });
           if (!reducedLineSpeakable) {
-            const shouldBypassPendingVisualCap =
-              asrRuntimeSpeechRunningActual &&
-              (
-                movementAuthority === 'proof' ||
-                movementAuthority === 'reconcile' ||
-                isAsrLiveUnleashedEnabled()
-              ) &&
-              targetLine > lastLineIndex;
+            const shouldBypassPendingVisualCap = bridgeStageDecision.shouldBypassPendingVisualCap === true;
             if (shouldBypassPendingVisualCap) {
               warnGuard('asr_pending_speakable_bridge_live_unleashed', [
                 `semanticFrom=${lastLineIndex}`,
@@ -14863,7 +14884,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 } catch {}
                 bypassedPendingVisualCapTerminal = true;
               }
-            } else {
+            } else if (bridgeStageDecision.shouldStage) {
             const reducedLineEl = getLineElementByIndex(scroller, visibleStepTarget);
             const reducedLineTopRaw = computeLineTargetTop(scroller, reducedLineEl);
             const reducedLineTop = finiteNumberOrNull(
@@ -14894,13 +14915,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               pursuitVel = 0;
               pursuitActive = false;
               microPursuitUntil = 0;
-              pendingSpeakableBridgeState = {
-                semanticFrom: lastLineIndex,
-                semanticTarget: targetLine,
-                visualCurrent: visibleStepTarget,
-                visualReducedTarget: visibleStepTarget,
-                skippedVisibleRows: Math.max(1, targetLine - visibleStepTarget),
-                proofSource: pendingProofSource || movementAuthorityProofSource || 'unknown',
+                pendingSpeakableBridgeState = {
+                  semanticFrom: lastLineIndex,
+                  semanticTarget: targetLine,
+                  visualCurrent: visibleStepTarget,
+                  visualReducedTarget: visibleStepTarget,
+                  skippedVisibleRows: bridgeStageDecision.skippedRows ?? Math.max(1, targetLine - visibleStepTarget),
+                  proofSource: pendingProofSource || movementAuthorityProofSource || 'unknown',
                 sourceBranch:
                   pendingSourceBranch ||
                   movementAuthoritySourceBranch ||
@@ -16728,10 +16749,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       (lastLineIndex >= 0 ? lastLineIndex : (incomingIdx ?? -1));
     const sinceCommitMs = Math.max(0, now - lastCommitTime);
     const lostForwardAtDetection = lostForwardActive;
-    const starvationDetected =
-      lastCommitIndex != null &&
-      sinceCommitMs > DEFAULT_STARVATION_COMMIT_GAP_MS &&
-      currentCursorIndex === lastCommitIndex;
+    const starvationDetected = shouldClassifyScrollCommitStall({
+      lastCommitIndex,
+      noCommitMs: sinceCommitMs,
+      commitGapMs: DEFAULT_STARVATION_COMMIT_GAP_MS,
+      currentCursorIndex,
+      explicitNoMatch: false,
+    });
     const starvationRelock =
       starvationDetected && lostForwardAtDetection
         ? attemptForwardRelock(now, currentCursorIndex, compacted, isFinal)
