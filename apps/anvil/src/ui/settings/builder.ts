@@ -319,7 +319,7 @@ export function addAsrWizardCard(root: HTMLElement) {
     sec.innerHTML = `
       <h3>ASR Input (Calibration)</h3>
 
-      <div class="row">
+      <div class="row" hidden aria-hidden="true">
         <label class="grow">Microphone <select id="asrDevice"></select></label>
         <button id="asrRefreshDevs" class="btn">Refresh</button>
         <button id="asrGrantPerm" class="btn">Grant mic access</button>

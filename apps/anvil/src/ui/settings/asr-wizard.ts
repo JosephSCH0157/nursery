@@ -77,6 +77,20 @@ async function populateMicSelect(): Promise<void> {
   }
 }
 
+function syncAsrDeviceFromSettingsMic(): void {
+  try {
+    const settingsMicSel = $('settingsMicSel') as HTMLSelectElement | null;
+    const asrDeviceSel = $('asrDevice') as HTMLSelectElement | null;
+    if (!settingsMicSel || !asrDeviceSel) return;
+    const next = String(settingsMicSel.value || '').trim();
+    if (!next) return;
+    const hasOption = Array.from(asrDeviceSel.options).some((opt) => opt.value === next);
+    if (hasOption) asrDeviceSel.value = next;
+  } catch {
+    // ignore
+  }
+}
+
 async function grantMicLabels(): Promise<void> {
   try {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -89,6 +103,7 @@ async function grantMicLabels(): Promise<void> {
     toast('Mic access denied. You can still calibrate with generic names.');
   }
   await populateMicSelect();
+  syncAsrDeviceFromSettingsMic();
 }
 
 // --- Meter + derived values -----------------------------------------------
@@ -444,6 +459,9 @@ function wire(): void {
 
     $('asrRefreshDevs')?.addEventListener('click', () => { void populateMicSelect(); });
     $('asrGrantPerm')?.addEventListener('click', () => { void grantMicLabels(); });
+    $('settingsMicSel')?.addEventListener('change', () => {
+      syncAsrDeviceFromSettingsMic();
+    });
   } catch {
     // ignore
   }
@@ -452,6 +470,7 @@ function wire(): void {
 export async function initAsrSettingsUI(): Promise<void> {
   try {
     await populateMicSelect();
+    syncAsrDeviceFromSettingsMic();
 
     try {
       $('asrAEC')?.removeAttribute('checked');
