@@ -19,6 +19,7 @@ import {
 import { getAsrBlockElements } from '../../scroll/asr-block-store';
 import { isSeekAnimationActive, seekToBlockAnimated } from '../../scroll/scroll-writer';
 import { shouldLogScrollWrite } from '../../scroll/scroll-helpers';
+import { evaluateBackendLiveness } from './asr-backend-liveness';
 import {
   areAsrThresholdsDirty,
   getAsrDriverThresholds,
@@ -27,6 +28,7 @@ import {
 import { bootTrace } from '../../boot/boot-trace';
 import { shouldLogLevel, shouldLogTag } from '../../env/dev-log';
 import {
+  BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS,
   DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS,
   DEFAULT_ASR_BACKEND_FIRST_TRANSCRIPT_GRACE_MS,
   DEFAULT_ASR_BACKEND_HEARTBEAT_MS,
@@ -35,12 +37,31 @@ import {
   DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS,
   DEFAULT_ASR_VAD_SPEECH_GRACE_MS,
   DEFAULT_MIN_EVIDENCE_CHARS,
+  DEFAULT_MATCH_BACKTRACK_LINES,
+  DEFAULT_MATCH_LOOKAHEAD_LINES,
+  DEFAULT_MATCH_LOOKAHEAD_STEPS,
   DEFAULT_MIN_TOKEN_COUNT,
   DEFAULT_NOISE_INTERIM_MIN_CHARS,
   DEFAULT_NOISE_INTERIM_MIN_TOKENS,
   DEFAULT_NO_MATCH_BUMP_HITS,
   DEFAULT_NO_MATCH_RELOCK_HITS,
   DEFAULT_NO_MATCH_WINDOW_MS,
+  DEFAULT_BAND_BACK_TOLERANCE_LINES,
+  DEFAULT_STALL_LOG_COOLDOWN_MS,
+  EVENT_DUMP_COUNT,
+  EVENT_RING_MAX,
+  GUARD_THROTTLE_MS,
+  HOLD_TICK_LOG_THROTTLE_MS,
+  HUD_PURSUE_THROTTLE_MS,
+  HUD_STATUS_THROTTLE_MS,
+  LOG_THROTTLE_MS,
+  MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS,
+  MANUAL_ANCHOR_MIN_SCROLL_PX,
+  MANUAL_ANCHOR_PENDING_TIMEOUT_MS,
+  MANUAL_ANCHOR_SIM_SLACK,
+  MANUAL_ANCHOR_WINDOW_LINES,
+  NAN_GUARD_THROTTLE_MS,
+  SUMMARY_TOAST_DEDUPE_MS,
 } from './asr-scroll-driver.constants';
 import type {
   AsrBlockCorpusEntry,
@@ -74,14 +95,10 @@ export type { AsrScrollDriver, AsrScrollDriverStats } from './asr-scroll-driver.
 const DEFAULT_MIN_LINE_ADVANCE = 1;
 const DEFAULT_SEEK_THROTTLE_MS = 120;
 const DEFAULT_INTERIM_SCALE = 1.15;
-const DEFAULT_MATCH_BACKTRACK_LINES = 2;
-const DEFAULT_MATCH_LOOKAHEAD_LINES = 50;
-const DEFAULT_MATCH_LOOKAHEAD_STEPS = [DEFAULT_MATCH_LOOKAHEAD_LINES, 120, 200, 400];
 const DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS = 2000;
 const DEFAULT_LOOKAHEAD_BEHIND_HITS = 2;
 const DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS = 1800;
 const DEFAULT_LOOKAHEAD_STALL_MS = 2500;
-const DEFAULT_BAND_BACK_TOLERANCE_LINES = 1;
 const DEFAULT_SAME_LINE_THROTTLE_MS = 90;
 const DEFAULT_CREEP_PX = 10;
 const DEFAULT_CREEP_NEAR_PX = 8;
@@ -221,7 +238,6 @@ const DEFAULT_SLAM_DUNK_SIM = 0.95;
 const DEFAULT_SLAM_DUNK_MAX_DELTA = 2;
 const DEFAULT_CONFIRMATION_RELAXED_SIM = 0.9;
 const DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA = 2;
-const GUARD_THROTTLE_MS = 750;
 const DEFAULT_SHORT_TOKEN_MAX = 4;
 const DEFAULT_SHORT_TOKEN_BOOST = 0.12;
 const DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM = 0.2;
@@ -247,10 +263,8 @@ const DEFAULT_STARVATION_RELOCK_SIM_SLACK = 0.08;
 const DEFAULT_STARVATION_RELOCK_COOLDOWN_MS = 1200;
 const DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK = 3;
 const DEFAULT_FINAL_CONTINUATION_SIM_EPS = 0.02;
-const BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS = 1500;
 const AUTO_CUE_SKIP_COOLDOWN_MS = 150;
 const DEFAULT_STALL_COMMIT_MS = 15000;
-const DEFAULT_STALL_LOG_COOLDOWN_MS = 4000;
 const DEFAULT_LOW_SIM_FLOOR = 0.25;
 const DEFAULT_STUCK_RESYNC_WINDOW_MS = 2600;
 const DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS = 80;
@@ -296,8 +310,6 @@ const POST_CATCHUP_SAMPLES = 6;
 const DEFAULT_BACKJUMP_BLOCK_LINES = 5;
 const DEFAULT_FREEZE_LOW_SIM_HITS = 20;
 const DEFAULT_FREEZE_LOW_SIM_WINDOW_MS = 5000;
-const EVENT_RING_MAX = 50;
-const EVENT_DUMP_COUNT = 12;
 const BEHIND_DEBT_WINDOW_LINES = 4;
 const BEHIND_DEBT_DECAY = 2;
 const BEHIND_DEBT_CAP = 200;
@@ -305,11 +317,6 @@ const RECOVERY_BIG_JUMP_LINES = 15;
 const RECOVERY_SIM_MIN = 0.75;
 const RECOVERY_STREAK_REQUIRED = 3;
 const RECOVERY_SIM_SLACK = 0.05;
-const MANUAL_ANCHOR_MIN_SCROLL_PX = 400;
-const MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS = 1000;
-const MANUAL_ANCHOR_PENDING_TIMEOUT_MS = 5000;
-const MANUAL_ANCHOR_WINDOW_LINES = 10;
-const MANUAL_ANCHOR_SIM_SLACK = 0.03;
 const MAX_LINES_PER_COMMIT = 2.0;
 const DELTA_SMOOTHING_FACTOR = 0.3;
 const TAPER_EXPONENT = 2.2;
@@ -435,7 +442,6 @@ const DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS = 3;
 const DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES = 1;
 const DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM = 0.72;
 const DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES = 6;
-const HOLD_TICK_LOG_THROTTLE_MS = 500;
 const DEFAULT_NO_PROGRESS_STREAK_TRIGGER = 4;
 const DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES = 25;
 const DEFAULT_LOST_FORWARD_MIN_SIM = 0.45;
@@ -1417,14 +1423,9 @@ const LIVE_STRICT_SPECULATIVE_FORCE_REASONS = new Set<string>([
   'outrun',
   'stall_recovery_override',
 ]);
-const LOG_THROTTLE_MS = 500;
-const HUD_STATUS_THROTTLE_MS = 500;
-const HUD_PURSUE_THROTTLE_MS = 200;
 let lastPursueHudAt = 0;
-const SUMMARY_TOAST_DEDUPE_MS = 1000;
 const SUMMARY_MIN_DURATION_MS = 250;
 const DRIVER_ACTIVE_DISPOSE_MIN_MS = 2000;
-const NAN_GUARD_THROTTLE_MS = 1000;
 const MAX_REPORTED_RUN_KEYS = 128;
 const reportedSummaryRunKeys = new Set<string>();
 let lastSummaryToastKey = '';
@@ -6400,63 +6401,100 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
   const checkBackendLiveness = () => {
     const now = Date.now();
+    const asrArmed = isSessionAsrArmed();
     const liveAsr =
       getScrollMode() === 'asr' &&
       isSessionLivePhase() &&
-      isSessionAsrArmed();
+      asrArmed;
     const recognizerAttached =
       asrRuntimeRecognizerAttached ||
       !!(window as any).__tpRecognizer ||
       !!(window as any).__tpGetActiveRecognizer?.();
-    if (!liveAsr || !recognizerAttached) return;
 
     const speechActive =
       asrRuntimeSpeechRunningActual ||
       hasRecentActualSpeech(now) ||
       hasRecentVadSpeechNow(now);
     const activeReadMode = asrRuntimeActiveReadMode || speechActive;
-    if (!speechActive && !activeReadMode) return;
+
+    const decision = evaluateBackendLiveness({
+      now,
+      liveAsr,
+      asrArmed,
+      recognizerAttached,
+      recognizerAttachedAt: asrRuntimeRecognizerAttachedAt > 0 ? asrRuntimeRecognizerAttachedAt : null,
+      speechActive,
+      activeReadMode,
+      lastTranscriptPacketAt: lastTranscriptPacketAt > 0 ? lastTranscriptPacketAt : null,
+      lastAudioChunkAt: lastAudioChunkAt > 0 ? lastAudioChunkAt : null,
+      lastBackendHeartbeatAt: lastBackendHeartbeatAt > 0 ? lastBackendHeartbeatAt : null,
+      lastBackendTranscriptStaleAt: lastBackendTranscriptStaleAt > 0 ? lastBackendTranscriptStaleAt : null,
+      lastBackendAudioStaleAt: lastBackendAudioStaleAt > 0 ? lastBackendAudioStaleAt : null,
+      backendRestartWindowStartedAt: backendRestartWindowStartedAt > 0 ? backendRestartWindowStartedAt : null,
+      backendRestartedInWindow,
+      thresholds: {
+        heartbeatMs: DEFAULT_ASR_BACKEND_HEARTBEAT_MS,
+        transcriptStaleMs: DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS,
+        audioChunkStaleMs: DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS,
+        restartWindowMs: DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS,
+        firstTranscriptGraceMs: DEFAULT_ASR_BACKEND_FIRST_TRANSCRIPT_GRACE_MS,
+      },
+    });
+    if (!decision.shouldCheck) return;
 
     if (backendRestartWindowStartedAt <= 0 || now - backendRestartWindowStartedAt > DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS) {
       backendRestartWindowStartedAt = now;
       backendRestartedInWindow = false;
     }
+    const transcriptAgeMs = decision.transcriptAgeMs;
+    const audioAgeMs = decision.audioAgeMs;
 
-    const transcriptAgeMs = lastTranscriptPacketAt > 0 ? Math.max(0, now - lastTranscriptPacketAt) : Number.POSITIVE_INFINITY;
-    const audioAgeMs = lastAudioChunkAt > 0 ? Math.max(0, now - lastAudioChunkAt) : Number.POSITIVE_INFINITY;
-
-    if (now - lastBackendHeartbeatAt >= DEFAULT_ASR_BACKEND_HEARTBEAT_MS) {
+    if (decision.shouldEmitHeartbeat && now - lastBackendHeartbeatAt >= DEFAULT_ASR_BACKEND_HEARTBEAT_MS) {
       lastBackendHeartbeatAt = now;
+      const transcriptHeartbeatAge = Number.isFinite(transcriptAgeMs as number)
+        ? Number(transcriptAgeMs)
+        : Number.NaN;
+      const audioHeartbeatAge = Number.isFinite(audioAgeMs as number)
+        ? Number(audioAgeMs)
+        : Number.NaN;
       try {
         console.warn(
-          `[ASR_BACKEND_HEARTBEAT] live=1 asrArmed=1 recognizerAttached=${recognizerAttached ? 1 : 0} speechActive=${speechActive ? 1 : 0} activeReadMode=${activeReadMode ? 1 : 0} transcriptAgeMs=${Number.isFinite(transcriptAgeMs) ? Math.round(transcriptAgeMs) : -1} audioAgeMs=${Number.isFinite(audioAgeMs) ? Math.round(audioAgeMs) : -1} restartedInWindow=${backendRestartedInWindow ? 1 : 0}`,
+          `[ASR_BACKEND_HEARTBEAT] live=1 asrArmed=1 recognizerAttached=${recognizerAttached ? 1 : 0} speechActive=${speechActive ? 1 : 0} activeReadMode=${activeReadMode ? 1 : 0} transcriptAgeMs=${Number.isFinite(transcriptHeartbeatAge) ? Math.round(transcriptHeartbeatAge) : -1} audioAgeMs=${Number.isFinite(audioHeartbeatAge) ? Math.round(audioHeartbeatAge) : -1} restartedInWindow=${backendRestartedInWindow ? 1 : 0}`,
         );
       } catch {}
     }
 
-    if (Number.isFinite(audioAgeMs) && audioAgeMs >= DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS && now - lastBackendAudioStaleAt >= 1000) {
+    if (decision.shouldEmitAudioStale && now - lastBackendAudioStaleAt >= 1000 && Number.isFinite(audioAgeMs as number)) {
       lastBackendAudioStaleAt = now;
+      const audioAgeForLog = Number(audioAgeMs);
       try {
         console.warn(
-          `[ASR_AUDIO_CHUNK_STALE] ageMs=${Math.round(audioAgeMs)} thresholdMs=${DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS} recognizerAttached=${recognizerAttached ? 1 : 0} speechActive=${speechActive ? 1 : 0}`,
+          `[ASR_AUDIO_CHUNK_STALE] ageMs=${Math.round(audioAgeForLog)} thresholdMs=${DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS} recognizerAttached=${recognizerAttached ? 1 : 0} speechActive=${speechActive ? 1 : 0}`,
         );
       } catch {}
     }
 
-    const firstTranscriptGraceActive =
-      !Number.isFinite(transcriptAgeMs) &&
-      asrRuntimeRecognizerAttachedAt > 0 &&
-      now - asrRuntimeRecognizerAttachedAt < DEFAULT_ASR_BACKEND_FIRST_TRANSCRIPT_GRACE_MS;
-    if (firstTranscriptGraceActive) return;
+    if (decision.firstTranscriptGraceActive) return;
 
-    if (transcriptAgeMs >= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS && now - lastBackendTranscriptStaleAt >= 1000) {
+    if (decision.shouldEmitTranscriptStale && now - lastBackendTranscriptStaleAt >= 1000) {
       lastBackendTranscriptStaleAt = now;
+      const transcriptAgeForLog = Number.isFinite(transcriptAgeMs as number)
+        ? Number(transcriptAgeMs)
+        : Number.POSITIVE_INFINITY;
+      const audioAgeForLog = Number.isFinite(audioAgeMs as number)
+        ? Number(audioAgeMs)
+        : Number.POSITIVE_INFINITY;
       try {
         console.warn(
-          `[ASR_BACKEND_TRANSCRIPT_STALE] ageMs=${Math.round(transcriptAgeMs)} thresholdMs=${DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS} recognizerAttached=${recognizerAttached ? 1 : 0} speechActive=${speechActive ? 1 : 0} activeReadMode=${activeReadMode ? 1 : 0}`,
+          `[ASR_BACKEND_TRANSCRIPT_STALE] ageMs=${Math.round(transcriptAgeForLog)} thresholdMs=${DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS} recognizerAttached=${recognizerAttached ? 1 : 0} speechActive=${speechActive ? 1 : 0} activeReadMode=${activeReadMode ? 1 : 0}`,
         );
       } catch {}
-      requestBackendRestart('backend_transcript_starvation', now, transcriptAgeMs, audioAgeMs);
+      requestBackendRestart(
+        'backend_transcript_starvation',
+        now,
+        transcriptAgeForLog,
+        audioAgeForLog,
+      );
     }
   };
   function syncBackendLivenessTimer() {
