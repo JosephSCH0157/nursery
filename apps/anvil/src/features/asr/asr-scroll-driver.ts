@@ -11428,7 +11428,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (liveSpeechForwardPushRunStale) return null;
         const initialStep = strictSpeakableStep;
         if (!initialStep || initialStep.targetLine <= lastLineIndex) return null;
-        const _bestRequestedTarget = Math.max(lastLineIndex + 1, Math.floor(line));
         const stepProof = (
           fromLine: number,
           toLine: number,
@@ -11613,15 +11612,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const repeatedLeadPresent = Array.from(leadCounts.values()).some((count) => count >= 2);
         return speakableShortCount >= 3 && repeatedLeadPresent;
       };
-      const _starvationFutureSpeechReconcileCandidateActive =
-        liveStrictFollow &&
-        isFinal &&
-        hasEvidence &&
-        asrRuntimeSpeechRunningActual &&
-        finalTranscriptFreshForReconcile &&
-        starvationFutureSpeechReconcileMs >= starvationFutureSpeechReconcileMinMs &&
-        starvationFutureSpeechReconcileNoCommitMs >= starvationFutureSpeechReconcileMinMs &&
-        starvationFutureSpeechReconcileCandidateIdx > lastLineIndex;
       if (
         !isProofOwnedPrimaryForceReason(forceReason) &&
         liveStrictFollow &&
@@ -13138,9 +13128,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ? Math.max(0, lastLineIndex - movementAuthorityMarkerState.markerIdx)
         : 0;
       const movementAuthorityReaderVisualBand = resolveReaderVisualBand(scroller, lastLineIndex);
-      const _movementAuthorityPendingBridgeAgeMs = pendingSpeakableBridgeState
-        ? Math.max(0, now - pendingSpeakableBridgeState.createdAtMs)
-        : Number.POSITIVE_INFINITY;
       const movementAuthorityLiveForwardGuardHeld =
         asrMode &&
         isSessionLivePhase() &&
