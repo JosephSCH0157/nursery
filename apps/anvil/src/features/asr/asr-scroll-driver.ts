@@ -54,6 +54,13 @@ import {
   shouldBlockEquivalentBridgeCommit,
   shouldStageVisualOnlyBridge,
 } from './asr-bridge-policy';
+import {
+  classifyVisualLead,
+  selectVisualFollowVelocity,
+  shouldApplyNormalAdjacentCap,
+  shouldHardHoldVisualFollow,
+  shouldStopForVisualDeadband,
+} from './asr-visual-follow';
 import { evaluateBackendLiveness } from './asr-backend-liveness';
 import {
   areAsrThresholdsDirty,
@@ -9994,15 +10001,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const err = pursuitTargetTop - current;
     const microActive = microPursuitUntil > now;
     const allowCreep = microActive || motionTuning.minPursuitPxPerSec > 0;
-    if (err <= (liveAsrFollowMode ? ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX : 0.5)) {
-      const target = pursuitTargetTop;
-      pursuitVel = 0;
-      pursuitActive = false;
-      pursuitTargetTop = null;
-      emitPursuitHud(err, pursuitVel, target, current);
-      return;
-    }
-    if (err <= deadbandPx && !allowCreep) {
+    if (shouldStopForVisualDeadband({
+      errPx: err,
+      liveAsrFollowMode,
+      stopDeadbandPx: ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX,
+      deadbandPx,
+      allowCreep,
+    })) {
       const target = pursuitTargetTop;
       pursuitVel = 0;
       pursuitActive = false;
@@ -10031,38 +10036,46 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const noSpeechMs = latestSpeechTs > 0 ? Math.max(0, nowTs - latestSpeechTs) : Number.POSITIVE_INFINITY;
       const readerDrivingNow =
         hasRecentActualSpeech(nowTs) || hasRecentVadSpeechNow(nowTs) || asrRuntimeSpeechRunningActual;
-      const ahead = speakableLead > 0 || renderedLead > 0;
-      const leadState =
-        speakableLead >= ASR_VISUAL_HARD_LEAD_START || renderedLead >= ASR_VISUAL_HARD_LEAD_START
-          ? 'far_ahead'
-          : ((speakableLead >= ASR_VISUAL_SOFT_LEAD_START || renderedLead >= ASR_VISUAL_SOFT_LEAD_START)
-            ? 'ahead'
-            : (ahead ? 'ahead' : 'aligned_or_behind'));
-      const readerPaceHold =
-        markerLeadLines >= ASR_READER_PACE_MAX_MARKER_LEAD_LINES &&
-        !readerDrivingNow &&
-        noSpeechMs >= ASR_READER_PACE_NO_SPEECH_HOLD_MS &&
-        !(lastFinalTranscriptAt > 0 && (nowTs - lastFinalTranscriptAt) <= 1200);
-      if (leadState === 'far_ahead') {
-        maxVelForErr = 0;
-        liveHardHold = true;
-      } else if (readerPaceHold) {
-        maxVelForErr = 0;
-        liveHardHold = true;
-      } else if (ahead) {
-        maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS);
-      } else if (err >= ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX) {
-        maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_FOLLOW_MAX_PXPS);
-      } else if (err >= ASR_VISUAL_FOLLOW_SLOW_ZONE_PX) {
-        maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS);
-      } else {
-        maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_FOLLOW_MIN_PXPS);
-      }
-      const normalAdjacentBoostActive =
-        liveAsrNormalAdjacentFollowBoostUntilMs > nowTs &&
-        !liveHardHold &&
-        leadState === 'aligned_or_behind' &&
-        err >= (24 * 1.5);
+      const leadClassification = classifyVisualLead({
+        speakableLead,
+        renderedLead,
+        softLeadStart: ASR_VISUAL_SOFT_LEAD_START,
+        hardLeadStart: ASR_VISUAL_HARD_LEAD_START,
+      });
+      const ahead = leadClassification.ahead;
+      const leadState = leadClassification.leadState;
+      const holdDecision = shouldHardHoldVisualFollow({
+        leadState,
+        markerLeadLines,
+        readerDrivingNow,
+        noSpeechMs,
+        noSpeechHoldMs: ASR_READER_PACE_NO_SPEECH_HOLD_MS,
+        maxMarkerLeadLines: ASR_READER_PACE_MAX_MARKER_LEAD_LINES,
+        hasRecentFinalTranscript: lastFinalTranscriptAt > 0 && (nowTs - lastFinalTranscriptAt) <= 1200,
+      });
+      const readerPaceHold = holdDecision.readerPaceHold;
+      liveHardHold = holdDecision.shouldHold;
+      maxVelForErr = selectVisualFollowVelocity({
+        baseMaxVelForErr: maxVelForErr,
+        liveHardHold,
+        ahead,
+        errPx: err,
+        maxPxps: ASR_VISUAL_FOLLOW_MAX_PXPS,
+        comfortablePxps: ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS,
+        minPxps: ASR_VISUAL_FOLLOW_MIN_PXPS,
+        hardCatchupPx: ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX,
+        slowZonePx: ASR_VISUAL_FOLLOW_SLOW_ZONE_PX,
+        unlockSlowFollowActive: liveAsrVisualUnlockSlowFollowUntilMs > Date.now(),
+        unlockSlowFollowPxps: ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS,
+      }).maxVelForErr;
+      const normalAdjacentBoostActive = shouldApplyNormalAdjacentCap({
+        now: nowTs,
+        boostUntilMs: liveAsrNormalAdjacentFollowBoostUntilMs,
+        liveHardHold,
+        leadState,
+        errPx: err,
+        minErrPx: (24 * 1.5),
+      }).shouldApply;
       if (normalAdjacentBoostActive) {
         maxVelForErr = Math.max(maxVelForErr, ASR_VISUAL_FOLLOW_NORMAL_ADJ_MIN_PXPS);
         if (nowTs - liveAsrNormalAdjacentCapLastLogAt >= 800) {
@@ -10073,9 +10086,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             );
           } catch {}
         }
-      }
-      if (liveAsrVisualUnlockSlowFollowUntilMs > Date.now()) {
-        maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS);
       }
       try {
         const approxLinePx = 24;
