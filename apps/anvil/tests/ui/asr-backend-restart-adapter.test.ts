@@ -1,4 +1,7 @@
-import { buildBackendRestartRequestedPayloadInput } from '../../src/features/asr/asr-backend-restart-adapter';
+import {
+  buildBackendHeartbeatDiagnosticInput,
+  buildBackendRestartRequestedPayloadInput,
+} from '../../src/features/asr/asr-backend-restart-adapter';
 
 describe('ASR backend restart adapter payload shaping', () => {
   test('restart skipped when already restarted in window', () => {
@@ -71,6 +74,67 @@ describe('ASR backend restart adapter payload shaping', () => {
     };
     const before = { ...input };
     buildBackendRestartRequestedPayloadInput(input);
+    expect(input).toEqual(before);
+  });
+
+  test('heartbeat input shaping preserves normal finite values', () => {
+    const payload = buildBackendHeartbeatDiagnosticInput({
+      transcriptAgeMs: 123.4,
+      audioAgeMs: 567.8,
+      recognizerAttached: true,
+      speechActive: false,
+      activeReadMode: true,
+      backendRestartedInWindow: false,
+    });
+    expect(payload).toEqual({
+      transcriptAgeMs: 123.4,
+      audioAgeMs: 567.8,
+      recognizerAttached: true,
+      speechActive: false,
+      activeReadMode: true,
+      backendRestartedInWindow: false,
+    });
+  });
+
+  test('heartbeat input shaping preserves current non-finite handling', () => {
+    const inf = buildBackendHeartbeatDiagnosticInput({
+      transcriptAgeMs: Number.POSITIVE_INFINITY,
+      audioAgeMs: Number.NEGATIVE_INFINITY,
+      recognizerAttached: false,
+      speechActive: true,
+      activeReadMode: false,
+      backendRestartedInWindow: true,
+    });
+    expect(Number.isNaN(inf.transcriptAgeMs)).toBe(true);
+    expect(Number.isNaN(inf.audioAgeMs)).toBe(true);
+    expect(inf.recognizerAttached).toBe(false);
+    expect(inf.speechActive).toBe(true);
+    expect(inf.activeReadMode).toBe(false);
+    expect(inf.backendRestartedInWindow).toBe(true);
+
+    const missing = buildBackendHeartbeatDiagnosticInput({
+      transcriptAgeMs: null,
+      audioAgeMs: null,
+      recognizerAttached: true,
+      speechActive: true,
+      activeReadMode: true,
+      backendRestartedInWindow: false,
+    });
+    expect(Number.isNaN(missing.transcriptAgeMs)).toBe(true);
+    expect(Number.isNaN(missing.audioAgeMs)).toBe(true);
+  });
+
+  test('heartbeat input shaping builder is pure and does not mutate input', () => {
+    const input = {
+      transcriptAgeMs: 111.1,
+      audioAgeMs: Number.NaN,
+      recognizerAttached: true,
+      speechActive: false,
+      activeReadMode: false,
+      backendRestartedInWindow: true,
+    };
+    const before = { ...input };
+    buildBackendHeartbeatDiagnosticInput(input);
     expect(input).toEqual(before);
   });
 });

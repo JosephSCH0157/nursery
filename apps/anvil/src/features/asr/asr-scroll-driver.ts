@@ -72,7 +72,10 @@ import {
   shouldStopForVisualDeadband,
 } from './asr-visual-follow';
 import { isManualAnchorPendingFresh, isManualAnchorWithinLineWindow } from './asr-manual-anchor-policy';
-import { buildBackendRestartRequestedPayloadInput } from './asr-backend-restart-adapter';
+import {
+  buildBackendHeartbeatDiagnosticInput,
+  buildBackendRestartRequestedPayloadInput,
+} from './asr-backend-restart-adapter';
 import { evaluateBackendLiveness } from './asr-backend-liveness';
 import {
   areAsrThresholdsDirty,
@@ -6461,22 +6464,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
     if (decision.shouldEmitHeartbeat && now - lastBackendHeartbeatAt >= DEFAULT_ASR_BACKEND_HEARTBEAT_MS) {
       lastBackendHeartbeatAt = now;
-      const transcriptHeartbeatAge = Number.isFinite(transcriptAgeMs as number)
-        ? Number(transcriptAgeMs)
-        : Number.NaN;
-      const audioHeartbeatAge = Number.isFinite(audioAgeMs as number)
-        ? Number(audioAgeMs)
-        : Number.NaN;
+      const heartbeatDiagnosticInput = buildBackendHeartbeatDiagnosticInput({
+        transcriptAgeMs,
+        audioAgeMs,
+        recognizerAttached,
+        speechActive,
+        activeReadMode,
+        backendRestartedInWindow,
+      });
       try {
         console.warn(
-          buildAsrBackendHeartbeatDiagnostic({
-            recognizerAttached,
-            speechActive,
-            activeReadMode,
-            transcriptAgeMs: transcriptHeartbeatAge,
-            audioAgeMs: audioHeartbeatAge,
-            backendRestartedInWindow,
-          }),
+          buildAsrBackendHeartbeatDiagnostic(heartbeatDiagnosticInput),
         );
       } catch {}
     }
