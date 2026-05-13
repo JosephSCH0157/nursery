@@ -48,7 +48,11 @@ import {
   shouldClassifyBridgeTrap,
   shouldClassifyScrollCommitStall,
 } from './asr-stall-classifier';
-import { shouldBlockEquivalentBridgeCommit, shouldStageVisualOnlyBridge } from './asr-bridge-policy';
+import {
+  shouldAllowPendingBridgeCompletion,
+  shouldBlockEquivalentBridgeCommit,
+  shouldStageVisualOnlyBridge,
+} from './asr-bridge-policy';
 import { evaluateBackendLiveness } from './asr-backend-liveness';
 import {
   areAsrThresholdsDirty,
@@ -6878,7 +6882,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       sourceBranch: args.sourceBranch || 'unknown',
       reason: args.reason,
     });
-    const bridgeCompletionPath = equivalentBridgeBlock.bridgeCompletionPath === true;
+    const _bridgeCompletionPath = equivalentBridgeBlock.bridgeCompletionPath === true;
     const bridgeTrapEscapePath = equivalentBridgeBlock.bridgeTrapEscapePath === true;
     if (equivalentBridgeBlock.shouldBlock) {
       try {
@@ -12897,18 +12901,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             pendingBridgeState.semanticTarget,
             now,
           );
-          const bridgeFinalFresh =
-            runtimeSpeechFresh ||
-            (lastFinalTranscriptAt > 0 && now - lastFinalTranscriptAt <= 1800);
-          const bridgeDirectFreshProof =
-            !!bridgeLandingProof?.ok && !bridgeLandingProof?.fromStaleTranscriptOnly;
-          const bridgeCompletionReady =
-            bridgeFinalFresh &&
-            (
-              bridgeDirectFreshProof ||
-              pendingBridgeAgeMs >= 900
-            );
-          if (bridgeCompletionReady) {
+          const pendingBridgeCompletionDecision = shouldAllowPendingBridgeCompletion({
+            currentLine: lastLineIndex,
+            pendingSemanticFrom: pendingBridgeState.semanticFrom,
+            pendingSemanticTarget: pendingBridgeState.semanticTarget,
+            pendingBridgeAgeMs,
+            speechRunningActual: asrRuntimeSpeechRunningActual,
+            runtimeSpeechFresh,
+            lastFinalTranscriptFresh: lastFinalTranscriptAt > 0 && now - lastFinalTranscriptAt <= 1800,
+            bridgeLandingProofOk: !!bridgeLandingProof?.ok,
+            bridgeLandingProofFromStaleTranscriptOnly: !!bridgeLandingProof?.fromStaleTranscriptOnly,
+            sourceBranch: pendingBridgeState.sourceBranch || 'unknown',
+          });
+          const bridgeFinalFresh = pendingBridgeCompletionDecision.bridgeFinalFresh === true;
+          const bridgeDirectFreshProof = pendingBridgeCompletionDecision.bridgeDirectFreshProof === true;
+          if (pendingBridgeCompletionDecision.shouldAllow) {
             const bridgeSemanticTarget = Math.max(
               pendingBridgeState.semanticTarget,
               targetLine,

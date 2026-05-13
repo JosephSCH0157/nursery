@@ -1,4 +1,5 @@
 import {
+  shouldAllowPendingBridgeCompletion,
   shouldBlockEquivalentBridgeCommit,
   shouldStageVisualOnlyBridge,
 } from '../../src/features/asr/asr-bridge-policy';
@@ -135,5 +136,90 @@ describe('ASR bridge policy (read-only staging decision)', () => {
     });
     expect(trapEscape.shouldBlock).toBe(false);
     expect(trapEscape.bridgeTrapEscapePath).toBe(true);
+  });
+
+  test('pending bridge completion allowed when current semantics allow it', () => {
+    const decision = shouldAllowPendingBridgeCompletion({
+      currentLine: 5,
+      pendingSemanticFrom: 5,
+      pendingSemanticTarget: 8,
+      pendingBridgeAgeMs: 950,
+      speechRunningActual: true,
+      runtimeSpeechFresh: true,
+      lastFinalTranscriptFresh: false,
+      bridgeLandingProofOk: false,
+      bridgeLandingProofFromStaleTranscriptOnly: false,
+      sourceBranch: 'pending_speakable_bridge',
+    });
+    expect(decision.shouldAllow).toBe(true);
+    expect(decision.reason).toBe('pending_speakable_bridge_complete');
+    expect(decision.targetIndex).toBe(8);
+  });
+
+  test('completion blocked when direct proof is stale or missing', () => {
+    const staleOrMissing = shouldAllowPendingBridgeCompletion({
+      currentLine: 5,
+      pendingSemanticFrom: 5,
+      pendingSemanticTarget: 8,
+      pendingBridgeAgeMs: 300,
+      speechRunningActual: true,
+      runtimeSpeechFresh: true,
+      lastFinalTranscriptFresh: false,
+      bridgeLandingProofOk: false,
+      bridgeLandingProofFromStaleTranscriptOnly: true,
+      sourceBranch: 'pending_speakable_bridge',
+    });
+    expect(staleOrMissing.shouldAllow).toBe(false);
+    expect(staleOrMissing.reason).toBe('await_fresh_direct_landing_proof');
+  });
+
+  test('completion blocked when target/source does not match pending bridge cursor semantics', () => {
+    const cursorShifted = shouldAllowPendingBridgeCompletion({
+      currentLine: 6,
+      pendingSemanticFrom: 5,
+      pendingSemanticTarget: 8,
+      pendingBridgeAgeMs: 1200,
+      speechRunningActual: true,
+      runtimeSpeechFresh: true,
+      lastFinalTranscriptFresh: true,
+      bridgeLandingProofOk: true,
+      bridgeLandingProofFromStaleTranscriptOnly: false,
+      sourceBranch: 'pending_speakable_bridge',
+    });
+    expect(cursorShifted.shouldAllow).toBe(false);
+    expect(cursorShifted.reason).toBe('cursor_shifted');
+  });
+
+  test('completion path preserves expected reason and proof payload fields', () => {
+    const decision = shouldAllowPendingBridgeCompletion({
+      currentLine: 2,
+      pendingSemanticFrom: 2,
+      pendingSemanticTarget: 4,
+      pendingBridgeAgeMs: 100,
+      speechRunningActual: true,
+      runtimeSpeechFresh: true,
+      lastFinalTranscriptFresh: true,
+      bridgeLandingProofOk: true,
+      bridgeLandingProofFromStaleTranscriptOnly: false,
+      sourceBranch: 'pending_speakable_bridge',
+    });
+    expect(decision.shouldAllow).toBe(true);
+    expect(decision.reason).toBe('pending_speakable_bridge_complete');
+    expect(decision.bridgeFinalFresh).toBe(true);
+    expect(decision.bridgeDirectFreshProof).toBe(true);
+  });
+
+  test('bridge-trap escape path remains separate and unaffected', () => {
+    const blockDecision = shouldBlockEquivalentBridgeCommit({
+      current: 1,
+      requestedTarget: 5,
+      semanticTarget: 5,
+      commitTs: 1000,
+      bridgeBlockUntil: 2000,
+      sourceBranch: 'any',
+      reason: 'bridge_trap_escape',
+    });
+    expect(blockDecision.shouldBlock).toBe(false);
+    expect(blockDecision.bridgeTrapEscapePath).toBe(true);
   });
 });

@@ -16,6 +16,15 @@ export type BridgeEquivalentBlockDecision = {
   bridgeTrapEscapePath?: boolean;
 };
 
+export type PendingBridgeCompletionDecision = {
+  shouldAllow: boolean;
+  reason?: string;
+  targetIndex?: number;
+  sourceBranch?: string;
+  bridgeFinalFresh?: boolean;
+  bridgeDirectFreshProof?: boolean;
+};
+
 export function shouldStageVisualOnlyBridge(input: {
   liveStrictFollow: boolean;
   pendingSpeakableBridgeCompletion: boolean;
@@ -87,5 +96,47 @@ export function shouldBlockEquivalentBridgeCommit(input: {
     equivalentTarget,
     bridgeCompletionPath,
     bridgeTrapEscapePath,
+  };
+}
+
+export function shouldAllowPendingBridgeCompletion(input: {
+  currentLine: number;
+  pendingSemanticFrom: number;
+  pendingSemanticTarget: number;
+  pendingBridgeAgeMs: number;
+  speechRunningActual: boolean;
+  runtimeSpeechFresh: boolean;
+  lastFinalTranscriptFresh: boolean;
+  bridgeLandingProofOk: boolean;
+  bridgeLandingProofFromStaleTranscriptOnly: boolean;
+  sourceBranch?: string;
+}): PendingBridgeCompletionDecision {
+  if (input.pendingSemanticFrom !== input.currentLine) {
+    return { shouldAllow: false, reason: 'cursor_shifted', sourceBranch: input.sourceBranch };
+  }
+  if (input.pendingSemanticTarget <= input.currentLine) {
+    return { shouldAllow: false, reason: 'target_already_reached', sourceBranch: input.sourceBranch };
+  }
+  if (!input.speechRunningActual || !input.runtimeSpeechFresh) {
+    return { shouldAllow: false, reason: 'speech_not_active', sourceBranch: input.sourceBranch };
+  }
+  const bridgeFinalFresh =
+    input.runtimeSpeechFresh ||
+    input.lastFinalTranscriptFresh;
+  const bridgeDirectFreshProof =
+    !!input.bridgeLandingProofOk && !input.bridgeLandingProofFromStaleTranscriptOnly;
+  const shouldAllow =
+    bridgeFinalFresh &&
+    (
+      bridgeDirectFreshProof ||
+      input.pendingBridgeAgeMs >= 900
+    );
+  return {
+    shouldAllow,
+    reason: shouldAllow ? 'pending_speakable_bridge_complete' : 'await_fresh_direct_landing_proof',
+    targetIndex: input.pendingSemanticTarget,
+    sourceBranch: input.sourceBranch,
+    bridgeFinalFresh,
+    bridgeDirectFreshProof,
   };
 }
