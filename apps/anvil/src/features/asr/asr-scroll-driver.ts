@@ -71,6 +71,7 @@ import {
   shouldHardHoldVisualFollow,
   shouldStopForVisualDeadband,
 } from './asr-visual-follow';
+import { isManualAnchorPendingFresh } from './asr-manual-anchor-policy';
 import { buildBackendRestartRequestedPayloadInput } from './asr-backend-restart-adapter';
 import { evaluateBackendLiveness } from './asr-backend-liveness';
 import {
@@ -8655,7 +8656,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (!Number.isFinite(cursorRaw) || cursorRaw < 0) return false;
     const cursorLine = Math.max(0, Math.floor(cursorRaw));
     const reasonTag = String(reason || '').trim().toLowerCase();
-    if (manualAnchorPending && now - manualAnchorPending.ts >= MANUAL_ANCHOR_PENDING_TIMEOUT_MS) {
+    if (manualAnchorPending && !isManualAnchorPendingFresh({
+      pendingTs: manualAnchorPending.ts,
+      now,
+      timeoutMs: MANUAL_ANCHOR_PENDING_TIMEOUT_MS,
+    })) {
       rejectManualAnchorPending('timeout:stall-rescue');
     }
     if (manualAnchorPending && isAutomaticStallRescueReason(reasonTag)) {
@@ -18265,7 +18270,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     let inBand = rawIdx >= bandStart && rawIdx <= bandEnd;
     const manualAnchorEnabled = isManualAnchorAdoptEnabled();
-    if (manualAnchorPending && manualAnchorEnabled && now - manualAnchorPending.ts >= MANUAL_ANCHOR_PENDING_TIMEOUT_MS) {
+    if (
+      manualAnchorPending &&
+      manualAnchorEnabled &&
+      !isManualAnchorPendingFresh({
+        pendingTs: manualAnchorPending.ts,
+        now,
+        timeoutMs: MANUAL_ANCHOR_PENDING_TIMEOUT_MS,
+      })
+    ) {
       rejectManualAnchorPending('no local evidence');
     }
     if (!inBand) {
