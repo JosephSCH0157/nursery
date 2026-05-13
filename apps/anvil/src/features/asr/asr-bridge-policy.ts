@@ -25,6 +25,17 @@ export type PendingBridgeCompletionDecision = {
   bridgeDirectFreshProof?: boolean;
 };
 
+export type BridgeAdjacentReductionDecision = {
+  shouldReduce: boolean;
+  reason?: string;
+  reducedTargetIndex?: number;
+  originalTargetIndex?: number;
+  currentIndex?: number;
+  skippedRows?: string[];
+  logicalStep?: number;
+  renderedDelta?: number;
+};
+
 export function shouldStageVisualOnlyBridge(input: {
   liveStrictFollow: boolean;
   pendingSpeakableBridgeCompletion: boolean;
@@ -138,5 +149,26 @@ export function shouldAllowPendingBridgeCompletion(input: {
     sourceBranch: input.sourceBranch,
     bridgeFinalFresh,
     bridgeDirectFreshProof,
+  };
+}
+
+export function shouldReduceBridgeToAdjacentRenderedRow(input: {
+  bridgeReducedTarget: number;
+  currentIndex: number;
+  originalTargetIndex: number;
+  skippedRows?: string[];
+}): BridgeAdjacentReductionDecision {
+  const shouldReduce =
+    input.bridgeReducedTarget > input.currentIndex &&
+    input.bridgeReducedTarget <= input.currentIndex + 1;
+  return {
+    shouldReduce,
+    reason: shouldReduce ? 'live_bridge_single_step_policy' : undefined,
+    reducedTargetIndex: shouldReduce ? input.bridgeReducedTarget : undefined,
+    originalTargetIndex: input.originalTargetIndex,
+    currentIndex: input.currentIndex,
+    skippedRows: input.skippedRows,
+    logicalStep: input.bridgeReducedTarget - input.currentIndex,
+    renderedDelta: input.originalTargetIndex - input.currentIndex,
   };
 }

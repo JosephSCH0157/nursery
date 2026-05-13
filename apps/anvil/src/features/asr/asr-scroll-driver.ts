@@ -50,6 +50,7 @@ import {
 } from './asr-stall-classifier';
 import {
   shouldAllowPendingBridgeCompletion,
+  shouldReduceBridgeToAdjacentRenderedRow,
   shouldBlockEquivalentBridgeCommit,
   shouldStageVisualOnlyBridge,
 } from './asr-bridge-policy';
@@ -6960,7 +6961,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           }
         }
       } catch {}
-      if (bridgeReducedTarget > current && bridgeReducedTarget <= current + 1) {
+      const adjacentReductionDecision = shouldReduceBridgeToAdjacentRenderedRow({
+        bridgeReducedTarget,
+        currentIndex: current,
+        originalTargetIndex: requestedTarget,
+        skippedRows: args.skippedIgnorableLines || [],
+      });
+      if (adjacentReductionDecision.shouldReduce) {
         try {
           console.warn(
             `[ASR_LIVE_BRIDGE_REDUCED_TO_ADJACENT] current=${current} requested=${requestedTarget} target=${bridgeReducedTarget} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=live_bridge_single_step_policy`,

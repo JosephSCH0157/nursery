@@ -1,5 +1,6 @@
 import {
   shouldAllowPendingBridgeCompletion,
+  shouldReduceBridgeToAdjacentRenderedRow,
   shouldBlockEquivalentBridgeCommit,
   shouldStageVisualOnlyBridge,
 } from '../../src/features/asr/asr-bridge-policy';
@@ -221,5 +222,73 @@ describe('ASR bridge policy (read-only staging decision)', () => {
     });
     expect(blockDecision.shouldBlock).toBe(false);
     expect(blockDecision.bridgeTrapEscapePath).toBe(true);
+  });
+
+  test('multi-row bridge over cue/blank can reduce to adjacent rendered row according to current semantics', () => {
+    const decision = shouldReduceBridgeToAdjacentRenderedRow({
+      bridgeReducedTarget: 11,
+      currentIndex: 10,
+      originalTargetIndex: 15,
+      skippedRows: ['12', '13', '14'],
+    });
+    expect(decision.shouldReduce).toBe(true);
+    expect(decision.reason).toBe('live_bridge_single_step_policy');
+    expect(decision.reducedTargetIndex).toBe(11);
+  });
+
+  test('direct adjacent target does not require reduction', () => {
+    const decision = shouldReduceBridgeToAdjacentRenderedRow({
+      bridgeReducedTarget: 10,
+      currentIndex: 10,
+      originalTargetIndex: 11,
+      skippedRows: [],
+    });
+    expect(decision.shouldReduce).toBe(false);
+  });
+
+  test('non-speakable skipped rows are preserved in decision payload', () => {
+    const skippedRows = ['8', '9'];
+    const decision = shouldReduceBridgeToAdjacentRenderedRow({
+      bridgeReducedTarget: 7,
+      currentIndex: 6,
+      originalTargetIndex: 10,
+      skippedRows,
+    });
+    expect(decision.shouldReduce).toBe(true);
+    expect(decision.skippedRows).toEqual(skippedRows);
+    expect(decision.renderedDelta).toBe(4);
+  });
+
+  test('no reduction when current semantics require full bridge staging or blocking', () => {
+    const decision = shouldReduceBridgeToAdjacentRenderedRow({
+      bridgeReducedTarget: 14,
+      currentIndex: 10,
+      originalTargetIndex: 15,
+      skippedRows: ['11', '12', '13'],
+    });
+    expect(decision.shouldReduce).toBe(false);
+    expect(decision.reducedTargetIndex).toBeUndefined();
+  });
+
+  test('bridge-trap escape path remains separate and unaffected for adjacent reduction helper', () => {
+    const decision = shouldReduceBridgeToAdjacentRenderedRow({
+      bridgeReducedTarget: 11,
+      currentIndex: 10,
+      originalTargetIndex: 15,
+      skippedRows: ['12'],
+    });
+    expect(decision.shouldReduce).toBe(true);
+
+    const trapEscape = shouldBlockEquivalentBridgeCommit({
+      current: 10,
+      requestedTarget: 15,
+      semanticTarget: 15,
+      commitTs: 1000,
+      bridgeBlockUntil: 2000,
+      sourceBranch: 'normal',
+      reason: 'bridge_trap_escape',
+    });
+    expect(trapEscape.shouldBlock).toBe(false);
+    expect(trapEscape.bridgeTrapEscapePath).toBe(true);
   });
 });
