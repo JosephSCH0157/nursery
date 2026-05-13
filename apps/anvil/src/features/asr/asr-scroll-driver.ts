@@ -27,6 +27,22 @@ import {
   buildAsrBackendRestartRequestedDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
 } from './asr-diagnostics';
+import {
+  classifyAsrLine,
+  collectSkippedAsrRows as collectSkippedAsrRowsHelper,
+  countSpeakableDistanceAhead as countSpeakableDistanceAheadHelper,
+  findNextSpeakableLineIndex,
+  findNextSpeakableLineIndexWithin,
+  isAsrStrictSkippableLine,
+  resolveForwardSpeakableTarget as resolveForwardSpeakableTargetHelper,
+} from './asr-line-classification';
+import {
+  hasBackwardOrLocalContradiction,
+  isExplicitNoMatch,
+  isInvalidMatchResult,
+  normalizeNoMatchEvidence,
+  shouldAllowStalePrefixContradictionOverride,
+} from './asr-offscript';
 import { evaluateBackendLiveness } from './asr-backend-liveness';
 import {
   areAsrThresholdsDirty,
@@ -546,12 +562,6 @@ const CURSOR_BACKJUMP_ALLOWED_REASONS = new Set([
   'anchor-sync',
   'block-anchor-sync',
 ]);
-const CUE_LINE_BRACKET_RE = /^\s*[\[(\{][^\]\)\}]{0,120}[\]\)\}]\s*$/;
-const CUE_LINE_WORD_RE = /\b(pause|beat|silence|breath|breathe|hold|wait|reflective)\b/i;
-const STRUCTURAL_EMPTY_LINE_RE = /^\s*empty\s*[.!?]?\s*$/i;
-const SPEAKER_TAG_ONLY_RE = /^\s*\[\s*\/?\s*(s1|s2|guest1|guest2|g1|g2)\s*\]\s*$/i;
-const NOTE_TAG_ONLY_RE = /^\s*\[\s*\/?\s*note(?:[^\]]*)\]\s*$/i;
-const NOTE_INLINE_BLOCK_RE = /^\s*\[\s*note(?:[^\]]*)\][\s\S]*\[\s*\/\s*note\s*\]\s*$/i;
 const MAX_CUE_SKIP_LOOKAHEAD_LINES = 12;
 const ANCHOR_STOPWORDS = new Set([
   'the', 'a', 'an', 'and', 'or', 'but', 'if', 'so', 'to', 'of', 'in', 'on',
@@ -969,29 +979,11 @@ function parseBlockIndexFromElement(el: HTMLElement | null, fallback: number): n
 }
 
 function classifySkippableLineForCueBridge(value: string): CueBridgeSkipReason | null {
-  const raw = String(value || '').trim();
-  if (!raw) return 'blank';
-  if (SPEAKER_TAG_ONLY_RE.test(raw)) return 'speaker';
-  if (NOTE_TAG_ONLY_RE.test(raw) || NOTE_INLINE_BLOCK_RE.test(raw) || /\[\s*\/?\s*note\b/i.test(raw)) return 'note';
-  const normalized = normalizeComparableText(raw);
-  if (!normalized) return 'blank';
-  if (CUE_LINE_BRACKET_RE.test(raw)) return 'cue';
-  const tokenCount = normalized.split(' ').filter(Boolean).length;
-  return tokenCount <= 4 && CUE_LINE_WORD_RE.test(normalized) ? 'cue' : null;
+  return classifyAsrLine(value).skippableReason;
 }
 
 function classifyStrictSkippableLineForCueBridge(value: string): CueBridgeSkipReason | null {
-  const raw = String(value || '').trim();
-  if (!raw) return 'blank';
-  if (STRUCTURAL_EMPTY_LINE_RE.test(raw)) return 'cue';
-  if (SPEAKER_TAG_ONLY_RE.test(raw)) return 'speaker';
-  if (NOTE_TAG_ONLY_RE.test(raw) || NOTE_INLINE_BLOCK_RE.test(raw) || /\[\s*\/?\s*note\b/i.test(raw)) return 'note';
-  if (CUE_LINE_BRACKET_RE.test(raw)) return 'cue';
-  const normalized = normalizeComparableText(raw);
-  if (!normalized) return 'blank';
-  const tokenCount = normalized.split(' ').filter(Boolean).length;
-  if (tokenCount <= 3 && CUE_LINE_WORD_RE.test(normalized)) return 'cue';
-  return null;
+  return classifyAsrLine(value).strictSkippableReason;
 }
 
 export function scanCueBridgeWindow(
@@ -1722,32 +1714,11 @@ function shouldForcePixelAsrCommitPath(): boolean {
 }
 
 function normalizeSpeechMatchResult(input: unknown): MatchResult | null {
-  if (!input || typeof input !== 'object') return null;
-  const raw = input as Record<string, unknown>;
-  const bestIdxRaw = raw.bestIdx ?? raw.idx;
-  const bestSimRaw = raw.bestSim ?? raw.sim;
-  const bestIdx = Number.isFinite(Number(bestIdxRaw)) ? Math.floor(Number(bestIdxRaw)) : -1;
-  const explicitNoMatch = raw.noMatch === true;
-  const noMatch = explicitNoMatch || bestIdx < 0;
-  const bestSim = Number.isFinite(Number(bestSimRaw)) ? Number(bestSimRaw) : 0;
-  const topScores = Array.isArray(raw.topScores)
-    ? raw.topScores
-    : (Array.isArray(raw.candidates) ? raw.candidates : []);
-  const normalized: MatchResult & Record<string, unknown> = {
-    ...(raw as MatchResult),
-    bestIdx: noMatch ? -1 : bestIdx,
-    bestSim: noMatch ? Number.NaN : bestSim,
-    topScores: topScores as Array<{ idx: number; score: number }>,
-  };
-  normalized.noMatch = noMatch;
-  return normalized;
+  return normalizeNoMatchEvidence(input);
 }
 
 function isNoMatchResult(match: MatchResult | null | undefined): boolean {
-  if (!match) return true;
-  if ((match as any).noMatch === true) return true;
-  const bestIdx = Number((match as any).bestIdx);
-  return !Number.isFinite(bestIdx) || bestIdx < 0;
+  return isInvalidMatchResult(match);
 }
 
 function resolveSpeechMatchResult(text: string, isFinal: boolean): MatchResult | null {
@@ -3652,19 +3623,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       return;
     }
-    const contradictionNeed = Math.max(
-      DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM,
-      bestSim - 0.08,
-    );
-    const hasBackwardContradiction =
-      (Number.isFinite(currentLineDirectSim) && currentLineDirectSim >= contradictionNeed) ||
-      (Array.isArray(topScores) && topScores.some((entry) => {
-        const idx = Number(entry.idx);
-        const score = Number(entry.score);
-        if (!Number.isFinite(idx) || !Number.isFinite(score)) return false;
-        if (Math.floor(idx) > safeCursor) return false;
-        return score >= contradictionNeed;
-      }));
+    const hasBackwardContradiction = hasBackwardOrLocalContradiction({
+      cursorLine: safeCursor,
+      bestSim,
+      currentLineDirectSim,
+      topScores,
+      minSimFloor: DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM,
+      simSlack: 0.08,
+    });
     if (hasBackwardContradiction) {
       liveStrictForwardClusterContradictionAt = now;
       if (liveStrictForwardClusterCursor === safeCursor) {
@@ -5572,36 +5538,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     startIndex: number,
     maxLookahead = MAX_CUE_SKIP_LOOKAHEAD_LINES,
   ): number | null => {
-    const total = getTotalLines();
-    if (!Number.isFinite(startIndex) || total <= 0) return null;
-    const begin = Math.max(0, Math.floor(startIndex));
-    if (begin >= total) return null;
-    const end = Math.min(total - 1, begin + Math.max(1, Math.floor(maxLookahead)));
-    for (let idx = begin; idx <= end; idx += 1) {
-      const lineText = getLineTextAt(idx);
-      if (!isIgnorableCueLineText(lineText)) {
-        return idx;
-      }
-    }
-    return null;
+    return findNextSpeakableLineIndex({
+      startIndex,
+      maxLookahead,
+      totalLines: getTotalLines(),
+      getLineText: getLineTextAt,
+    });
   };
 
   const findNextSpokenLineIndexWithin = (
     startIndex: number,
     endIndexInclusive: number,
   ): number | null => {
-    const total = getTotalLines();
-    if (!Number.isFinite(startIndex) || !Number.isFinite(endIndexInclusive) || total <= 0) return null;
-    const begin = Math.max(0, Math.floor(startIndex));
-    const end = Math.min(total - 1, Math.max(begin, Math.floor(endIndexInclusive)));
-    if (begin > end) return null;
-    for (let idx = begin; idx <= end; idx += 1) {
-      const lineText = getLineTextAt(idx);
-      if (!isIgnorableCueLineText(lineText)) {
-        return idx;
-      }
-    }
-    return null;
+    return findNextSpeakableLineIndexWithin({
+      startIndex,
+      endIndexInclusive,
+      totalLines: getTotalLines(),
+      getLineText: getLineTextAt,
+    });
   };
 
   const computeCueSafeMarkerIndex = (
@@ -6083,7 +6037,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (end < start) return null;
     for (let idx = start; idx <= end; idx += 1) {
       const lineText = getLineTextAt(idx);
-      if (classifyStrictSkippableLineForCueBridge(lineText) == null) {
+      if (!isAsrStrictSkippableLine(lineText)) {
         return idx;
       }
     }
@@ -6115,24 +6069,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     fromLine: number,
     targetLine: number,
   ): number => {
-    const safeFrom = Number.isFinite(fromLine) ? Math.floor(fromLine) : -1;
-    const safeTarget = Number.isFinite(targetLine) ? Math.max(0, Math.floor(targetLine)) : -1;
-    if (safeTarget <= safeFrom) return 0;
-    const total = getTotalLines();
-    if (total <= 0) {
-      return Math.max(0, safeTarget - Math.max(0, safeFrom));
-    }
-    let steps = 0;
-    let cursor = safeFrom;
-    const maxIterations = Math.max(1, total + 4);
-    for (let i = 0; i < maxIterations; i += 1) {
-      const next = findNextSpokenLineIndex(Math.max(0, cursor + 1), total);
-      if (next == null) break;
-      steps += 1;
-      if (next >= safeTarget) return steps;
-      cursor = next;
-    }
-    return Number.POSITIVE_INFINITY;
+    return countSpeakableDistanceAheadHelper({
+      fromLine,
+      targetLine,
+      totalLines: getTotalLines(),
+      getLineText: getLineTextAt,
+    });
   };
 
   const isReaderLeashHardRecoverySource = (source?: string): boolean => {
@@ -6350,26 +6292,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     requestedTarget: number,
     maxSpeakableSteps: number,
   ): number => {
-    const safeCurrent = Math.max(0, Math.floor(Number(currentLine) || 0));
-    const safeRequested = Math.max(safeCurrent, Math.floor(Number(requestedTarget) || safeCurrent));
-    const stepsCap = Math.max(1, Math.floor(Number(maxSpeakableSteps) || 1));
-    const totalLines = getTotalLines();
-    const physicalCapped = totalLines > 0
-      ? clamp(safeRequested, safeCurrent, Math.max(0, totalLines - 1))
-      : safeRequested;
-    let cursor = safeCurrent;
-    let steps = 0;
-    while (steps < stepsCap) {
-      const next = findNextSpokenLineIndex(Math.max(0, cursor + 1), totalLines);
-      if (!Number.isFinite(next as number) || (next as number) <= cursor) break;
-      const safeNext = Math.max(0, Math.floor(next as number));
-      if (safeNext > physicalCapped) break;
-      cursor = safeNext;
-      steps += 1;
-      if (cursor >= physicalCapped) break;
-    }
-    if (cursor > safeCurrent) return cursor;
-    return Math.min(physicalCapped, safeCurrent + stepsCap);
+    return resolveForwardSpeakableTargetHelper({
+      currentLine,
+      requestedTarget,
+      maxSpeakableSteps,
+      totalLines: getTotalLines(),
+      getLineText: getLineTextAt,
+    });
   };
 
   const requestBackendRestart = (reason: string, now: number, transcriptAgeMs: number, audioAgeMs: number) => {
@@ -11695,11 +11624,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 `minShortSim=${formatLogScore(starvationFutureSpeechReconcileShortFragmentMinSim)}`,
               ]);
             } else {
-              const skippedIgnorableLines: CueBridgeSkipReason[] = [];
-              for (let idx = lastLineIndex + 1; idx < adjacentTarget; idx += 1) {
-                const reason = classifyStrictSkippableLineForCueBridge(getLineTextAt(idx));
-                if (reason) skippedIgnorableLines.push(reason);
-              }
+              const skippedIgnorableLines = collectSkippedAsrRowsHelper({
+                currentLine: lastLineIndex,
+                targetLine: adjacentTarget,
+                getLineText: getLineTextAt,
+                strict: true,
+              }).skippedReasons;
               starvationFutureSpeechReconcileTargetLine = adjacentTarget;
               forceReason = 'starvation_future_speech_reconcile';
               warnGuard('proof_owned_primary_commit', [
@@ -11742,11 +11672,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                   'sourceBranch=starvation_future_speech_reconcile',
                 ]);
               }
-              const skippedIgnorableLines: CueBridgeSkipReason[] = [];
-              for (let idx = lastLineIndex + 1; idx < adjacentTarget; idx += 1) {
-                const reason = classifyStrictSkippableLineForCueBridge(getLineTextAt(idx));
-                if (reason) skippedIgnorableLines.push(reason);
-              }
+              const skippedIgnorableLines = collectSkippedAsrRowsHelper({
+                currentLine: lastLineIndex,
+                targetLine: adjacentTarget,
+                getLineText: getLineTextAt,
+                strict: true,
+              }).skippedReasons;
               starvationFutureSpeechReconcileTargetLine = adjacentTarget;
               forceReason = 'starvation_future_speech_reconcile';
               warnGuard('proof_owned_primary_commit', [
@@ -14521,18 +14452,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           (Number.isFinite(lastTranscriptAgeMs) && lastTranscriptAgeMs <= 1800);
         const proofAuthority = args.authority === 'proof' || args.authority === 'reconcile';
         const bridgeCandidate = resolveForwardSpeakableTarget(lastLineIndex, args.requestedTarget, 1);
-        const skippedIgnorableLines: CueBridgeSkipReason[] = [];
-        let skippedNonIgnorable = false;
-        if (bridgeCandidate > lastLineIndex) {
-          for (let idx = lastLineIndex + 1; idx < bridgeCandidate; idx += 1) {
-            const reason = classifyStrictSkippableLineForCueBridge(getLineTextAt(idx));
-            if (reason == null) {
-              skippedNonIgnorable = true;
-              break;
-            }
-            skippedIgnorableLines.push(reason);
-          }
-        }
+        const skippedBetween = collectSkippedAsrRowsHelper({
+          currentLine: lastLineIndex,
+          targetLine: bridgeCandidate,
+          getLineText: getLineTextAt,
+          strict: true,
+        });
+        const skippedIgnorableLines = skippedBetween.skippedReasons;
+        const skippedNonIgnorable = skippedBetween.skippedNonIgnorable;
         const bridgeSafe =
           bridgeCandidate > lastLineIndex &&
           !skippedNonIgnorable &&
@@ -14555,8 +14482,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const contradictionKind = args.contradictionActive ? 'backward_or_offscript' : 'none';
         const contradictionActiveEffective =
           args.contradictionActive &&
-          !args.stalePrefixIgnored &&
-          !args.backwardContradictionOverriddenByTail;
+          !shouldAllowStalePrefixContradictionOverride({
+            contradictionActive: args.contradictionActive,
+            stalePrefixIgnored: args.stalePrefixIgnored,
+            backwardContradictionOverriddenByTail: args.backwardContradictionOverriddenByTail,
+          });
         const repeatedHoldReasons = new Set([
           'live_strict_rescue_hold_no_local_proof',
           'cue_stall_rescue_blocked',
@@ -16922,7 +16852,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       rawMatchId = null;
     }
     let hasMatchId = typeof rawMatchId === 'string' && rawMatchId.length > 0;
-    const explicitNoMatch = (rawMatchId === null || rawMatchId === undefined) && noMatch && !incomingMatch;
+    const explicitNoMatch = isExplicitNoMatch({
+      rawMatchId,
+      noMatch,
+      incomingMatch,
+    });
     if (!hasMatchId && !explicitNoMatch && incomingMatch) {
       rawMatchId = nextSyntheticMatchId();
       hasMatchId = true;
