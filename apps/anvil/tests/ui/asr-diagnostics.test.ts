@@ -1,4 +1,5 @@
 import {
+  buildAsrHudNoTargetDetail,
   buildAsrAudioChunkStaleDiagnostic,
   buildAsrBridgeTrapDetectedDiagnostic,
   buildAsrBackendHeartbeatDiagnostic,
@@ -203,5 +204,94 @@ describe('ASR backend liveness diagnostics builders', () => {
       'adjacentTarget=4',
       'sourceBranch=pending-cap-bypass-precap',
     ]);
+  });
+
+  test('builds no_target HUD detail with expected fields and values', () => {
+    const detail = buildAsrHudNoTargetDetail({
+      line: 22,
+      delta: 3,
+      simRaw: 0.67891,
+      reasons: 'dom_miss|clamp',
+      domLines: 120,
+      marker: 19,
+      retry: 2,
+      matchId: 'm-123',
+    });
+    expect(detail).toEqual({
+      line: 22,
+      delta: 3,
+      sim: 0.679,
+      reasons: 'dom_miss|clamp',
+      domLines: 120,
+      marker: 19,
+      retry: 2,
+      matchId: 'm-123',
+    });
+  });
+
+  test('no_target HUD detail sim handling matches finite behavior', () => {
+    const detail = buildAsrHudNoTargetDetail({
+      line: 1,
+      delta: 1,
+      simRaw: 0.1 + 0.2,
+      reasons: 'x',
+      domLines: 1,
+      marker: 1,
+      retry: 0,
+      matchId: 'id',
+    });
+    expect(detail.sim).toBe(0.3);
+  });
+
+  test('no_target HUD detail sim handling matches non-finite behavior', () => {
+    const inf = buildAsrHudNoTargetDetail({
+      line: 1,
+      delta: 1,
+      simRaw: Number.POSITIVE_INFINITY,
+      reasons: 'x',
+      domLines: 1,
+      marker: 1,
+      retry: 0,
+      matchId: 'id',
+    });
+    expect(inf.sim).toBe(Number.POSITIVE_INFINITY);
+
+    const nan = buildAsrHudNoTargetDetail({
+      line: 1,
+      delta: 1,
+      simRaw: Number.NaN,
+      reasons: 'x',
+      domLines: 1,
+      marker: 1,
+      retry: 0,
+      matchId: 'id',
+    });
+    expect(Number.isNaN(nan.sim)).toBe(true);
+  });
+
+  test('no_target HUD detail builder is pure and does not mutate input', () => {
+    const input = {
+      line: 3,
+      delta: 2,
+      simRaw: 0.5555,
+      reasons: 'chain',
+      domLines: 90,
+      marker: 2,
+      retry: 1,
+      matchId: 'm',
+    };
+    const before = { ...input };
+    const detail = buildAsrHudNoTargetDetail(input);
+    expect(input).toEqual(before);
+    expect(detail).toEqual({
+      line: 3,
+      delta: 2,
+      sim: 0.555,
+      reasons: 'chain',
+      domLines: 90,
+      marker: 2,
+      retry: 1,
+      matchId: 'm',
+    });
   });
 });

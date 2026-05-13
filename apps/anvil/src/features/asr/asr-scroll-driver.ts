@@ -20,6 +20,7 @@ import { getAsrBlockElements } from '../../scroll/asr-block-store';
 import { isSeekAnimationActive, seekToBlockAnimated } from '../../scroll/scroll-writer';
 import { shouldLogScrollWrite } from '../../scroll/scroll-helpers';
 import {
+  buildAsrHudNoTargetDetail,
   buildAsrAudioChunkStaleDiagnostic,
   buildAsrBridgeTrapDetectedDiagnostic,
   buildAsrBackendHeartbeatDiagnostic,
@@ -15276,16 +15277,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `marker=${diag.markerIdx}`,
             snippet ? `clue="${snippet}"` : '',
           ]);
-          emitHudStatus('no_target', 'No target line in DOM', {
+          emitHudStatus('no_target', 'No target line in DOM', buildAsrHudNoTargetDetail({
             line: targetLine,
             delta: deltaLines,
-            sim: Number.isFinite(conf) ? Number(conf.toFixed(3)) : conf,
+            simRaw: conf,
             reasons: reasonChain,
             domLines: diag.domLines,
             marker: diag.markerIdx,
             retry: retryCount,
             matchId,
-          });
+          }));
           logDev('no_target', {
             line: targetLine,
             delta: deltaLines,

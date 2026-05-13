@@ -115,3 +115,34 @@ export function buildRecoverySkipNonAdjacentTargetGuardBaseParts(args: {
     `sourceBranch=${args.sourceBranch}`,
   ];
 }
+
+export function buildAsrHudNoTargetDetail(args: {
+  line: number;
+  delta: number;
+  simRaw: number;
+  reasons: string;
+  domLines: number;
+  marker: number;
+  retry: number;
+  matchId: string | undefined;
+}): {
+  line: number;
+  delta: number;
+  sim: number;
+  reasons: string;
+  domLines: number;
+  marker: number;
+  retry: number;
+  matchId: string | undefined;
+} {
+  return {
+    line: args.line,
+    delta: args.delta,
+    sim: Number.isFinite(args.simRaw) ? Number(args.simRaw.toFixed(3)) : args.simRaw,
+    reasons: args.reasons,
+    domLines: args.domLines,
+    marker: args.marker,
+    retry: args.retry,
+    matchId: args.matchId,
+  };
+}
