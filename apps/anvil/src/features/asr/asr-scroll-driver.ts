@@ -71,7 +71,7 @@ import {
   shouldHardHoldVisualFollow,
   shouldStopForVisualDeadband,
 } from './asr-visual-follow';
-import { isManualAnchorPendingFresh } from './asr-manual-anchor-policy';
+import { isManualAnchorPendingFresh, isManualAnchorWithinLineWindow } from './asr-manual-anchor-policy';
 import { buildBackendRestartRequestedPayloadInput } from './asr-backend-restart-adapter';
 import { evaluateBackendLiveness } from './asr-backend-liveness';
 import {
@@ -4615,7 +4615,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const markerIdx = computeMarkerLineIndex(scroller);
     if (!Number.isFinite(markerIdx) || markerIdx < 0) return;
     const targetIndex = Math.max(0, Math.floor(markerIdx));
-    if (manualAnchorPending && Math.abs(manualAnchorPending.targetIndex - targetIndex) <= MANUAL_ANCHOR_WINDOW_LINES) {
+    if (manualAnchorPending && isManualAnchorWithinLineWindow({
+      targetIndex: manualAnchorPending.targetIndex,
+      candidateIndex: targetIndex,
+      windowLines: MANUAL_ANCHOR_WINDOW_LINES,
+    })) {
       manualAnchorPending.ts = now;
       updateManualAnchorGlobalState();
       return;
@@ -4634,7 +4638,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const now = Date.now();
     manualScrollLastTop = getScroller()?.scrollTop ?? manualScrollLastTop;
     manualScrollLastAt = now;
-    if (manualAnchorPending && Math.abs(manualAnchorPending.targetIndex - targetIndex) <= MANUAL_ANCHOR_WINDOW_LINES) {
+    if (manualAnchorPending && isManualAnchorWithinLineWindow({
+      targetIndex: manualAnchorPending.targetIndex,
+      candidateIndex: targetIndex,
+      windowLines: MANUAL_ANCHOR_WINDOW_LINES,
+    })) {
       manualAnchorPending.ts = now;
       updateManualAnchorGlobalState();
       logDev('[ASR_ADOPT] signal refresh targetIndex=' + manualAnchorPending.targetIndex);
@@ -18423,7 +18431,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const candidateNeed = clamp(thresholds.candidateMinSim + MANUAL_ANCHOR_SIM_SLACK, 0, 1);
       if (
         candidateLine >= 0 &&
-        Math.abs(candidateLine - manualAnchorPending.targetIndex) <= MANUAL_ANCHOR_WINDOW_LINES &&
+        isManualAnchorWithinLineWindow({
+          targetIndex: manualAnchorPending.targetIndex,
+          candidateIndex: candidateLine,
+          windowLines: MANUAL_ANCHOR_WINDOW_LINES,
+        }) &&
         conf >= candidateNeed
       ) {
         if (adoptManualAnchorTruth(candidateLine, conf, scrollerForMatch)) {
