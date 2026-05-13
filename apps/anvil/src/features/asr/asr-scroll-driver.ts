@@ -37,106 +37,30 @@ import type {
   AsrBlockCorpusEntry,
   AsrBlockMatch,
   AsrCommit,
+  AsrCommitMoveDeps,
   AsrEventSnapshot,
+  AsrMoveResult,
+  AsrMovementAuthorityContext,
+  AsrMovementAuthorityDecision,
   AsrScrollDriver,
   AsrScrollDriverStats,
   ConsistencyEntry,
   ConsistencyResult,
+  CueBridgeScanResult,
+  CueBridgeSkipReason,
   DriverOptions,
   EvidenceEntry,
   LagSample,
+  LiveProgressHeuristics,
   PendingMatch,
+  PendingSpeakableBridgeState,
+  StallCueRescuePolicy,
   TranscriptDetail,
-  ViewerRole,
 } from './asr-scroll-driver.types';
 
 export type { AsrScrollDriver, AsrScrollDriverStats } from './asr-scroll-driver.types';
 
 // ASR Training rule: matching should be permissive; committing should be conservative.
-
-type AsrCommitMoveDeps = {
-  scroller: HTMLElement;
-  writerAvailable: boolean;
-  role: ViewerRole;
-  path: string;
-};
-
-type AsrMoveResult = {
-  method: 'writer' | 'pixel';
-  writerCommitted: boolean;
-  beforeTop: number;
-  afterTop: number;
-  movedPx: number;
-};
-
-type CueBridgeSkipReason = 'blank' | 'cue' | 'note' | 'speaker';
-
-type CueBridgeScanResult = {
-  nextOffset: number | null;
-  skippedReasons: CueBridgeSkipReason[];
-};
-
-type AsrMovementAuthority =
-  | 'none'
-  | 'weak'
-  | 'strong'
-  | 'proof'
-  | 'reconcile';
-
-type AsrMovementAuthorityDecision = {
-  authority: AsrMovementAuthority;
-  current: number;
-  target: number;
-  bestIdx: number;
-  bestSim: number;
-  reason: string;
-  proofSource?: string;
-  sourceBranch: string;
-  bypassDownstreamVeto: boolean;
-};
-
-type AsrMovementAuthorityContext = {
-  current: number;
-  target: number;
-  bestIdx: number;
-  bestSim: number;
-  starvationMs: number;
-  speechRunningActual: boolean;
-  isFinal: boolean;
-  hasStrictLocalProof: boolean;
-  hasAdjacentProof: boolean;
-  hasBridgeLexicalProof: boolean;
-  hasFinalForwardProof: boolean;
-  proofSource?: string;
-};
-
-type PendingSpeakableBridgeState = {
-  semanticFrom: number;
-  semanticTarget: number;
-  visualCurrent: number;
-  visualReducedTarget: number;
-  skippedVisibleRows: number;
-  proofSource: string;
-  sourceBranch: string;
-  createdAtMs: number;
-  runKey: string;
-  runGeneration: number | null;
-};
-
-type StallCueRescuePolicy = {
-  allow: boolean;
-  directContentForwardRescue: boolean;
-  blockedReason: string;
-};
-
-type LiveProgressHeuristics = {
-  lastAdvanceAtMs: number;
-  lastStrongSyncAtMs: number;
-  lastAcceptedForwardIndex: number;
-  consecutiveNoAdvanceFrames: number;
-  consecutiveWeakForwardSignals: number;
-  estimatedBehindByLines: number;
-};
 
 const DEFAULT_MIN_LINE_ADVANCE = 1;
 const DEFAULT_SEEK_THROTTLE_MS = 120;

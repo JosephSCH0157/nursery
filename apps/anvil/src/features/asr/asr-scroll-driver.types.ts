@@ -142,6 +142,90 @@ export type AsrCommit = {
 
 export type ViewerRole = 'main' | 'display';
 
+export type AsrCommitMoveDeps = {
+  scroller: HTMLElement;
+  writerAvailable: boolean;
+  role: ViewerRole;
+  path: string;
+};
+
+export type AsrMoveResult = {
+  method: 'writer' | 'pixel';
+  writerCommitted: boolean;
+  beforeTop: number;
+  afterTop: number;
+  movedPx: number;
+};
+
+export type CueBridgeSkipReason = 'blank' | 'cue' | 'note' | 'speaker';
+
+export type CueBridgeScanResult = {
+  nextOffset: number | null;
+  skippedReasons: CueBridgeSkipReason[];
+};
+
+export type AsrMovementAuthority =
+  | 'none'
+  | 'weak'
+  | 'strong'
+  | 'proof'
+  | 'reconcile';
+
+export type AsrMovementAuthorityDecision = {
+  authority: AsrMovementAuthority;
+  current: number;
+  target: number;
+  bestIdx: number;
+  bestSim: number;
+  reason: string;
+  proofSource?: string;
+  sourceBranch: string;
+  bypassDownstreamVeto: boolean;
+};
+
+export type AsrMovementAuthorityContext = {
+  current: number;
+  target: number;
+  bestIdx: number;
+  bestSim: number;
+  starvationMs: number;
+  speechRunningActual: boolean;
+  isFinal: boolean;
+  hasStrictLocalProof: boolean;
+  hasAdjacentProof: boolean;
+  hasBridgeLexicalProof: boolean;
+  hasFinalForwardProof: boolean;
+  proofSource?: string;
+};
+
+export type PendingSpeakableBridgeState = {
+  semanticFrom: number;
+  semanticTarget: number;
+  visualCurrent: number;
+  visualReducedTarget: number;
+  skippedVisibleRows: number;
+  proofSource: string;
+  sourceBranch: string;
+  createdAtMs: number;
+  runKey: string;
+  runGeneration: number | null;
+};
+
+export type StallCueRescuePolicy = {
+  allow: boolean;
+  directContentForwardRescue: boolean;
+  blockedReason: string;
+};
+
+export type LiveProgressHeuristics = {
+  lastAdvanceAtMs: number;
+  lastStrongSyncAtMs: number;
+  lastAcceptedForwardIndex: number;
+  consecutiveNoAdvanceFrames: number;
+  consecutiveWeakForwardSignals: number;
+  estimatedBehindByLines: number;
+};
+
 export type AsrScrollDriverStats = {
   lastIngestAt: number;
   lastCommitAt: number;
