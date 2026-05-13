@@ -26,6 +26,7 @@ import {
   buildAsrBackendRestartCompletedDiagnostic,
   buildAsrBackendRestartRequestedDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
+  buildProofOwnedPrimaryCommitGuardBaseParts,
 } from './asr-diagnostics';
 import {
   classifyAsrLine,
@@ -9027,11 +9028,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         asrRuntimeSpeechSeen &&
         asrRuntimeSpeechRunningActual;
       warnGuard('proof_owned_primary_commit', [
-        `current=${cursorLine}`,
-        `target=${targetLine}`,
-        `bestIdx=${targetLine}`,
-        `proofSource=${proofSource}`,
-        `skippedIgnorableLines=[${cueBridge.skippedReasons.join(',')}]`,
+        ...buildProofOwnedPrimaryCommitGuardBaseParts({
+          current: cursorLine,
+          target: targetLine,
+          bestIdx: targetLine,
+          proofSource,
+          skippedIgnorableLines: cueBridge.skippedReasons,
+        }),
         `stallMs=${Math.max(0, now - lastForwardCommitAt)}`,
         'sourceBranch=stall-rescue:proof-owned',
         `oldWouldHaveUsedStallOverride=${oldWouldHaveUsedStallOverride ? 'true' : 'false'}`,
@@ -11507,13 +11510,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           Math.max(0, now - lastCommitTime) >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
           Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
         warnGuard('proof_owned_primary_commit', [
-          `current=${lastLineIndex}`,
-          `target=${strictProofOwnedCapBypassTarget.target}`,
-          `bestIdx=${line}`,
-          `proofSource=${strictProofOwnedCapBypassTarget.proofSource}`,
-          strictProofOwnedCapBypassTarget.skippedIgnorableLines.length
-            ? `skippedIgnorableLines=[${strictProofOwnedCapBypassTarget.skippedIgnorableLines.join(',')}]`
-            : 'skippedIgnorableLines=[]',
+          ...buildProofOwnedPrimaryCommitGuardBaseParts({
+            current: lastLineIndex,
+            target: strictProofOwnedCapBypassTarget.target,
+            bestIdx: line,
+            proofSource: strictProofOwnedCapBypassTarget.proofSource,
+            skippedIgnorableLines: strictProofOwnedCapBypassTarget.skippedIgnorableLines,
+          }),
           `speakableSteps=${strictProofOwnedCapBypassTarget.speakableSteps}`,
           `stallMs=${strictProofOwnedCapBypassTarget.stallMs}`,
           'sourceBranch=pending-cap-bypass-precap',
@@ -11688,13 +11691,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               starvationFutureSpeechReconcileTargetLine = adjacentTarget;
               forceReason = 'starvation_future_speech_reconcile';
               warnGuard('proof_owned_primary_commit', [
-                `current=${lastLineIndex}`,
-                `target=${starvationFutureSpeechReconcileTargetLine}`,
-                `bestIdx=${starvationFutureSpeechReconcileCandidateIdx}`,
-                'proofSource=short_fragment_adjacent_progression',
-                skippedIgnorableLines.length
-                  ? `skippedIgnorableLines=[${skippedIgnorableLines.join(',')}]`
-                  : 'skippedIgnorableLines=[]',
+                ...buildProofOwnedPrimaryCommitGuardBaseParts({
+                  current: lastLineIndex,
+                  target: starvationFutureSpeechReconcileTargetLine,
+                  bestIdx: starvationFutureSpeechReconcileCandidateIdx,
+                  proofSource: 'short_fragment_adjacent_progression',
+                  skippedIgnorableLines,
+                }),
                 `stallMs=${starvationFutureSpeechReconcileMs}`,
                 'sourceBranch=starvation_future_speech_reconcile',
                 'oldWouldHaveUsedStallOverride=true',
@@ -14018,13 +14021,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             sinceCommitMs >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
             Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
           warnGuard('proof_owned_primary_commit', [
-            `current=${lastLineIndex}`,
-            `target=${liveStepTarget}`,
-            `bestIdx=${line}`,
-            `proofSource=${proofSource}`,
-            skippedIgnorableLines.length
-              ? `skippedIgnorableLines=[${skippedIgnorableLines.join(',')}]`
-              : 'skippedIgnorableLines=[]',
+            ...buildProofOwnedPrimaryCommitGuardBaseParts({
+              current: lastLineIndex,
+              target: liveStepTarget,
+              bestIdx: line,
+              proofSource,
+              skippedIgnorableLines,
+            }),
             `stallMs=${Math.max(0, now - lastForwardCommitAt)}`,
             'sourceBranch=pending-live-step-hold',
             `oldWouldHaveUsedStallOverride=${starvationDetected && isFinal ? 'true' : 'false'}`,
@@ -14696,13 +14699,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           Math.max(0, now - lastCommitTime) >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
           Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
         warnGuard('proof_owned_primary_commit', [
-          `current=${lastLineIndex}`,
-          `target=${targetLine}`,
-          `bestIdx=${line}`,
-          `proofSource=${strictProofSourceForCommit}`,
-          strictSpeakableStep?.skippedReasons?.length
-            ? `skippedIgnorableLines=[${strictSpeakableStep.skippedReasons.join(',')}]`
-            : 'skippedIgnorableLines=[]',
+          ...buildProofOwnedPrimaryCommitGuardBaseParts({
+            current: lastLineIndex,
+            target: targetLine,
+            bestIdx: line,
+            proofSource: strictProofSourceForCommit,
+            skippedIgnorableLines: strictSpeakableStep?.skippedReasons || [],
+          }),
           `stallMs=${Math.max(0, now - lastForwardCommitAt)}`,
           'sourceBranch=pending-commit:strict-proof',
           `oldWouldHaveUsedStallOverride=${oldWouldHaveUsedStallOverride ? 'true' : 'false'}`,

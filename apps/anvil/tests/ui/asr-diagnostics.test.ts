@@ -5,6 +5,7 @@ import {
   buildAsrBackendRestartCompletedDiagnostic,
   buildAsrBackendRestartRequestedDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
+  buildProofOwnedPrimaryCommitGuardBaseParts,
 } from '../../src/features/asr/asr-diagnostics';
 
 describe('ASR backend liveness diagnostics builders', () => {
@@ -116,5 +117,47 @@ describe('ASR backend liveness diagnostics builders', () => {
     expect(line).toBe(
       '[ASR_BRIDGE_TRAP_DETECTED] current=11 bestIdx=14 requestedTarget=15 adjacentTarget=12 skipped=[cue,meta] repeatedHoldCount=4 noCommitMs=3550 blockerReason=bridge_or_non_adjacent_guard proofSource=strict_bridge_landing_lexical_tail textPreview="preview text"',
     );
+  });
+
+  test('builds proof-owned primary commit guard base parts with expected fields/order', () => {
+    const parts = buildProofOwnedPrimaryCommitGuardBaseParts({
+      current: 3,
+      target: 5,
+      bestIdx: 6,
+      proofSource: 'live_strict_local_proof_ok',
+      skippedIgnorableLines: ['cue', 'blank'],
+    });
+    expect(parts).toEqual([
+      'current=3',
+      'target=5',
+      'bestIdx=6',
+      'proofSource=live_strict_local_proof_ok',
+      'skippedIgnorableLines=[cue,blank]',
+    ]);
+  });
+
+  test('proof-owned primary guard base parts preserves empty skipped list behavior', () => {
+    const parts = buildProofOwnedPrimaryCommitGuardBaseParts({
+      current: 1,
+      target: 2,
+      bestIdx: 2,
+      proofSource: 'short_fragment_adjacent_progression',
+      skippedIgnorableLines: [],
+    });
+    expect(parts[4]).toBe('skippedIgnorableLines=[]');
+  });
+
+  test('proof-owned primary guard base parts builder is pure and does not mutate input', () => {
+    const input = {
+      current: 9,
+      target: 10,
+      bestIdx: 10,
+      proofSource: 'strict_speakable_bridge_landing',
+      skippedIgnorableLines: ['cue'],
+    };
+    const before = [...input.skippedIgnorableLines];
+    const parts = buildProofOwnedPrimaryCommitGuardBaseParts(input);
+    expect(input.skippedIgnorableLines).toEqual(before);
+    expect(parts).not.toBe(input.skippedIgnorableLines);
   });
 });

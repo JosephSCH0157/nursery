@@ -83,3 +83,21 @@ export function buildAsrBridgeTrapDetectedDiagnostic(args: {
 }): string {
   return `[ASR_BRIDGE_TRAP_DETECTED] current=${args.current} bestIdx=${args.bestIdx} requestedTarget=${args.requestedTarget} adjacentTarget=${args.adjacentTarget} skipped=${args.skipped} repeatedHoldCount=${args.repeatedHoldCount} noCommitMs=${Math.round(args.noCommitMs)} blockerReason=bridge_or_non_adjacent_guard proofSource=${args.proofSource} textPreview="${args.textPreview}"`;
 }
+
+export function buildProofOwnedPrimaryCommitGuardBaseParts(args: {
+  current: number;
+  target: number;
+  bestIdx: number;
+  proofSource: string;
+  skippedIgnorableLines: string[];
+}): string[] {
+  return [
+    `current=${args.current}`,
+    `target=${args.target}`,
+    `bestIdx=${args.bestIdx}`,
+    `proofSource=${args.proofSource}`,
+    args.skippedIgnorableLines.length
+      ? `skippedIgnorableLines=[${args.skippedIgnorableLines.join(',')}]`
+      : 'skippedIgnorableLines=[]',
+  ];
+}
