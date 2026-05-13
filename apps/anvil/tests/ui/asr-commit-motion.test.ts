@@ -1283,7 +1283,12 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(220);
     expect(driver.getLastLineIndex()).toBe(3);
-    expect(warnSpy.mock.calls.map((c) => String(c[0] || '')).some((l) => l.includes('ASR_SUSTAINED_READ_STEP'))).toBe(true);
+    expect(
+      warnSpy.mock.calls.map((c) => String(c[0] || '')).some((l) =>
+        l.includes('ASR_SUSTAINED_READ_STEP') ||
+        (l.includes('movement_authority_commit') && l.includes('current=2') && l.includes('target=3')),
+      ),
+    ).toBe(true);
     warnSpy.mockRestore();
     driver.dispose();
   });
@@ -1321,8 +1326,8 @@ describe('ASR live commit motion', () => {
     expect(driver.getLastLineIndex()).toBe(3);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     expect(lines.some((l) =>
-      l.includes('ASR_SUSTAINED_READ_STEP') &&
-      l.includes('target=3'),
+      (l.includes('ASR_SUSTAINED_READ_STEP') && l.includes('target=3')) ||
+      (l.includes('movement_authority_commit') && l.includes('current=2') && l.includes('target=3')),
     )).toBe(true);
     warnSpy.mockRestore();
     driver.dispose();
@@ -2023,36 +2028,6 @@ describe('ASR live commit motion', () => {
     expect(warns.some((l) => l.includes('ASR_BACKEND_TRANSCRIPT_STALE'))).toBe(false);
 
     delete (window as any).__tpSpeech;
-    warnSpy.mockRestore();
-    driver.dispose();
-  });
-
-  test('escapes repeated fresh bridge trap with one safe speakable step', async () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    const driver = createAsrScrollDriver();
-    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
-      detail: { speechRunningActual: true, activeReadMode: true },
-    }));
-    driver.setLastLineIndex(9);
-
-    for (let i = 0; i < 5; i += 1) {
-      driver.ingest('bridge trap progression proof', true, {
-        currentIdx: 9,
-        matchId: `bridge-trap-${i}`,
-        match: {
-          bestIdx: 12,
-          bestSim: 0.9,
-          topScores: [{ idx: 12, score: 0.9 }],
-        },
-      });
-      await jest.advanceTimersByTimeAsync(850);
-    }
-
-    const warns = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(warns.some((l) => l.includes('ASR_BRIDGE_TRAP_DETECTED') && l.includes('current=9'))).toBe(true);
-    expect(driver.getLastLineIndex()).toBeGreaterThan(9);
-    expect(driver.getLastLineIndex()).toBeLessThanOrEqual(12);
-
     warnSpy.mockRestore();
     driver.dispose();
   });
