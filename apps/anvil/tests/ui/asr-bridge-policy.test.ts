@@ -1,4 +1,7 @@
-import { shouldStageVisualOnlyBridge } from '../../src/features/asr/asr-bridge-policy';
+import {
+  shouldBlockEquivalentBridgeCommit,
+  shouldStageVisualOnlyBridge,
+} from '../../src/features/asr/asr-bridge-policy';
 
 describe('ASR bridge policy (read-only staging decision)', () => {
   test('multi-line bridge over non-speakable reduced row stages visual-only', () => {
@@ -64,5 +67,73 @@ describe('ASR bridge policy (read-only staging decision)', () => {
     });
     expect(decision.shouldStage).toBe(false);
     expect(decision.shouldBypassPendingVisualCap).toBe(true);
+  });
+
+  test('equivalent bridge commit is blocked according to current semantics', () => {
+    const decision = shouldBlockEquivalentBridgeCommit({
+      current: 5,
+      requestedTarget: 8,
+      semanticTarget: 7,
+      commitTs: 1000,
+      bridgeBlockUntil: 2000,
+      sourceBranch: 'movement_authority_forced_reconcile_single_step',
+      reason: 'final_live_safe_step',
+    });
+    expect(decision.shouldBlock).toBe(true);
+    expect(decision.reason).toBe('equivalent_bridge_target_blocked');
+    expect(decision.equivalentTarget).toBe(8);
+  });
+
+  test('downstream bridge commit is blocked according to current semantics', () => {
+    const decision = shouldBlockEquivalentBridgeCommit({
+      current: 3,
+      requestedTarget: 4,
+      semanticTarget: 9,
+      commitTs: 1200,
+      bridgeBlockUntil: 2000,
+      sourceBranch: 'reader_leash',
+      reason: 'final_live_safe_step',
+    });
+    expect(decision.shouldBlock).toBe(true);
+    expect(decision.equivalentTarget).toBe(9);
+  });
+
+  test('non-equivalent or adjacent candidate is not blocked', () => {
+    const decision = shouldBlockEquivalentBridgeCommit({
+      current: 10,
+      requestedTarget: 11,
+      semanticTarget: 11,
+      commitTs: 1000,
+      bridgeBlockUntil: 2000,
+      sourceBranch: 'normal',
+      reason: 'final_live_safe_step',
+    });
+    expect(decision.shouldBlock).toBe(false);
+  });
+
+  test('existing bypass/allowed path remains allowed when completion or trap-escape semantics apply', () => {
+    const completion = shouldBlockEquivalentBridgeCommit({
+      current: 1,
+      requestedTarget: 5,
+      semanticTarget: 5,
+      commitTs: 1000,
+      bridgeBlockUntil: 2000,
+      sourceBranch: 'pending_speakable_bridge_complete',
+      reason: 'final_live_safe_step',
+    });
+    expect(completion.shouldBlock).toBe(false);
+    expect(completion.bridgeCompletionPath).toBe(true);
+
+    const trapEscape = shouldBlockEquivalentBridgeCommit({
+      current: 1,
+      requestedTarget: 5,
+      semanticTarget: 5,
+      commitTs: 1000,
+      bridgeBlockUntil: 2000,
+      sourceBranch: 'normal',
+      reason: 'bridge_trap_escape',
+    });
+    expect(trapEscape.shouldBlock).toBe(false);
+    expect(trapEscape.bridgeTrapEscapePath).toBe(true);
   });
 });

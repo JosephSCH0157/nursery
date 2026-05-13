@@ -48,7 +48,7 @@ import {
   shouldClassifyBridgeTrap,
   shouldClassifyScrollCommitStall,
 } from './asr-stall-classifier';
-import { shouldStageVisualOnlyBridge } from './asr-bridge-policy';
+import { shouldBlockEquivalentBridgeCommit, shouldStageVisualOnlyBridge } from './asr-bridge-policy';
 import { evaluateBackendLiveness } from './asr-backend-liveness';
 import {
   areAsrThresholdsDirty,
@@ -6868,13 +6868,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const equivalentBridgeTarget = Math.max(requestedTarget, semanticTargetRaw);
     const bridgeBlockKey = `${current}->${equivalentBridgeTarget}:${lastFinalTranscriptRunGeneration ?? -1}`;
     const bridgeBlockRecord = liveBridgeDownstreamBlockUntilByKey.get(bridgeBlockKey);
-    const bridgeCompletionPath =
-      String(args.sourceBranch || '').toLowerCase().includes('pending_speakable_bridge_complete') ||
-      String(args.reason || '').toLowerCase().includes('bridge_completion_accepted');
-    const bridgeTrapEscapePath =
-      String(args.reason || '').toLowerCase().includes('bridge_trap_escape');
     const bridgeBlockUntil = bridgeBlockRecord?.until || 0;
-    if (bridgeBlockUntil > commitTs && equivalentBridgeTarget > current + 1 && !bridgeCompletionPath && !bridgeTrapEscapePath) {
+    const equivalentBridgeBlock = shouldBlockEquivalentBridgeCommit({
+      current,
+      requestedTarget,
+      semanticTarget: semanticTargetRaw,
+      commitTs,
+      bridgeBlockUntil,
+      sourceBranch: args.sourceBranch || 'unknown',
+      reason: args.reason,
+    });
+    const bridgeCompletionPath = equivalentBridgeBlock.bridgeCompletionPath === true;
+    const bridgeTrapEscapePath = equivalentBridgeBlock.bridgeTrapEscapePath === true;
+    if (equivalentBridgeBlock.shouldBlock) {
       try {
         console.warn(
           `[ASR_LIVE_BRIDGE_DOWNSTREAM_COMMIT_BLOCKED] current=${current} requestedTarget=${requestedTarget} sourceBranch=${args.sourceBranch || 'unknown'} proofSource=${args.proofSource || 'none'} reason=bridge_block_token`,
