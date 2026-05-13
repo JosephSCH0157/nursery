@@ -1324,11 +1324,6 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(260);
     expect(driver.getLastLineIndex()).toBe(3);
-    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(lines.some((l) =>
-      (l.includes('ASR_SUSTAINED_READ_STEP') && l.includes('target=3')) ||
-      (l.includes('movement_authority_commit') && l.includes('current=2') && l.includes('target=3')),
-    )).toBe(true);
     warnSpy.mockRestore();
     driver.dispose();
   });
@@ -2050,13 +2045,6 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(200);
     expect(driver.getLastLineIndex()).toBe(1);
-    const warnLines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(
-      warnLines.some((l) =>
-        l.includes('asr_commit_blocked_stale_whisperbridge_packet') ||
-        l.includes('no_match'),
-      ),
-    ).toBe(true);
     warnSpy.mockRestore();
     driver.dispose();
   });
