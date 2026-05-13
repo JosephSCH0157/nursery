@@ -6,6 +6,7 @@ import {
   buildAsrBackendRestartRequestedDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
   buildProofOwnedPrimaryCommitGuardBaseParts,
+  buildRecoverySkipNonAdjacentTargetGuardBaseParts,
 } from '../../src/features/asr/asr-diagnostics';
 
 describe('ASR backend liveness diagnostics builders', () => {
@@ -159,5 +160,48 @@ describe('ASR backend liveness diagnostics builders', () => {
     const parts = buildProofOwnedPrimaryCommitGuardBaseParts(input);
     expect(input.skippedIgnorableLines).toEqual(before);
     expect(parts).not.toBe(input.skippedIgnorableLines);
+  });
+
+  test('builds recovery skip non-adjacent target guard base parts with expected fields/order', () => {
+    const parts = buildRecoverySkipNonAdjacentTargetGuardBaseParts({
+      current: 4,
+      requested: 10,
+      adjacentTarget: 5,
+      sourceBranch: 'soft_runtime_rebase',
+    });
+    expect(parts).toEqual([
+      'current=4',
+      'requested=10',
+      'adjacentTarget=5',
+      'sourceBranch=soft_runtime_rebase',
+    ]);
+  });
+
+  test('recovery skip non-adjacent target guard base parts preserves optional-like source values', () => {
+    const parts = buildRecoverySkipNonAdjacentTargetGuardBaseParts({
+      current: 7,
+      requested: 9,
+      adjacentTarget: 8,
+      sourceBranch: 'unknown',
+    });
+    expect(parts[3]).toBe('sourceBranch=unknown');
+  });
+
+  test('recovery skip non-adjacent target builder is pure and does not mutate input', () => {
+    const input = {
+      current: 3,
+      requested: 11,
+      adjacentTarget: 4,
+      sourceBranch: 'pending-cap-bypass-precap',
+    };
+    const before = { ...input };
+    const parts = buildRecoverySkipNonAdjacentTargetGuardBaseParts(input);
+    expect(input).toEqual(before);
+    expect(parts).toEqual([
+      'current=3',
+      'requested=11',
+      'adjacentTarget=4',
+      'sourceBranch=pending-cap-bypass-precap',
+    ]);
   });
 });

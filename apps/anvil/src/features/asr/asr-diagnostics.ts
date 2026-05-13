@@ -101,3 +101,17 @@ export function buildProofOwnedPrimaryCommitGuardBaseParts(args: {
       : 'skippedIgnorableLines=[]',
   ];
 }
+
+export function buildRecoverySkipNonAdjacentTargetGuardBaseParts(args: {
+  current: number;
+  requested: number;
+  adjacentTarget: number;
+  sourceBranch: string;
+}): string[] {
+  return [
+    `current=${args.current}`,
+    `requested=${args.requested}`,
+    `adjacentTarget=${args.adjacentTarget}`,
+    `sourceBranch=${args.sourceBranch}`,
+  ];
+}

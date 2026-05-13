@@ -27,6 +27,7 @@ import {
   buildAsrBackendRestartRequestedDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
   buildProofOwnedPrimaryCommitGuardBaseParts,
+  buildRecoverySkipNonAdjacentTargetGuardBaseParts,
 } from './asr-diagnostics';
 import {
   classifyAsrLine,
@@ -11485,10 +11486,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           const adjacentTarget = resolveForwardSpeakableTarget(lastLineIndex, target, 1);
           if (adjacentTarget > lastLineIndex && adjacentTarget < target) {
             warnGuard('asr_recovery_skip_non_adjacent_target', [
-              `current=${lastLineIndex}`,
-              `requested=${target}`,
-              `adjacentTarget=${adjacentTarget}`,
-              'sourceBranch=pending-cap-bypass-precap',
+              ...buildRecoverySkipNonAdjacentTargetGuardBaseParts({
+                current: lastLineIndex,
+                requested: target,
+                adjacentTarget,
+                sourceBranch: 'pending-cap-bypass-precap',
+              }),
             ]);
             target = adjacentTarget;
             speakableSteps = 1;
@@ -11724,10 +11727,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             } else {
               if (starvationFutureSpeechReconcileCandidateIdx > adjacentTarget) {
                 warnGuard('asr_recovery_skip_non_adjacent_target', [
-                  `current=${lastLineIndex}`,
-                  `requested=${starvationFutureSpeechReconcileCandidateIdx}`,
-                  `adjacentTarget=${adjacentTarget}`,
-                  'sourceBranch=starvation_future_speech_reconcile',
+                  ...buildRecoverySkipNonAdjacentTargetGuardBaseParts({
+                    current: lastLineIndex,
+                    requested: starvationFutureSpeechReconcileCandidateIdx,
+                    adjacentTarget,
+                    sourceBranch: 'starvation_future_speech_reconcile',
+                  }),
                 ]);
               }
               const skippedIgnorableLines = collectSkippedAsrRowsHelper({
@@ -11863,10 +11868,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           starvationFutureSpeechReconcileAppliedTarget > starvationFutureSpeechReconcileAdjacentTarget
         ) {
           warnGuard('asr_recovery_skip_non_adjacent_target', [
-            `current=${lastLineIndex}`,
-            `requested=${starvationFutureSpeechReconcileAppliedTarget}`,
-            `adjacentTarget=${starvationFutureSpeechReconcileAdjacentTarget}`,
-            'sourceBranch=starvation_future_speech_reconcile',
+            ...buildRecoverySkipNonAdjacentTargetGuardBaseParts({
+              current: lastLineIndex,
+              requested: starvationFutureSpeechReconcileAppliedTarget,
+              adjacentTarget: starvationFutureSpeechReconcileAdjacentTarget,
+              sourceBranch: 'starvation_future_speech_reconcile',
+            }),
           ]);
           starvationFutureSpeechReconcileAppliedTarget = starvationFutureSpeechReconcileAdjacentTarget;
         }
@@ -13479,10 +13486,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ]);
           if (movementAuthorityRecoveryLike) {
             warnGuard('asr_recovery_skip_non_adjacent_target', [
-              `current=${lastLineIndex}`,
-              `requested=${targetLine}`,
-              `adjacentTarget=${adjacentAuthorityTarget}`,
-              `sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || 'unknown'}`,
+              ...buildRecoverySkipNonAdjacentTargetGuardBaseParts({
+                current: lastLineIndex,
+                requested: targetLine,
+                adjacentTarget: adjacentAuthorityTarget,
+                sourceBranch: pendingSourceBranch || movementAuthoritySourceBranch || 'unknown',
+              }),
             ]);
           }
           targetLine = adjacentAuthorityTarget;
@@ -17120,10 +17129,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         rebaseForwardEvidenceIdx > rebaseForwardCappedIdx;
       if (rebaseForwardEvidenceIdx > rebaseForwardCappedIdx) {
         warnGuard('asr_recovery_skip_non_adjacent_target', [
-          `current=${currentForSoftRuntimeRebase}`,
-          `requested=${rebaseForwardEvidenceIdx}`,
-          `adjacentTarget=${rebaseForwardCappedIdx}`,
-          'sourceBranch=soft_runtime_rebase',
+          ...buildRecoverySkipNonAdjacentTargetGuardBaseParts({
+            current: currentForSoftRuntimeRebase,
+            requested: rebaseForwardEvidenceIdx,
+            adjacentTarget: rebaseForwardCappedIdx,
+            sourceBranch: 'soft_runtime_rebase',
+          }),
         ]);
       }
       const rebaseForwardEvidenceSim = Math.max(
@@ -17341,10 +17352,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             : retryForwardEvidenceIdx;
         if (retryForwardEvidenceIdx > retryForwardCappedIdx) {
           warnGuard('asr_recovery_skip_non_adjacent_target', [
-            `current=${currentForSoftRuntimeRebase}`,
-            `requested=${retryForwardEvidenceIdx}`,
-            `adjacentTarget=${retryForwardCappedIdx}`,
-            'sourceBranch=soft_runtime_rebase_retry',
+            ...buildRecoverySkipNonAdjacentTargetGuardBaseParts({
+              current: currentForSoftRuntimeRebase,
+              requested: retryForwardEvidenceIdx,
+              adjacentTarget: retryForwardCappedIdx,
+              sourceBranch: 'soft_runtime_rebase_retry',
+            }),
           ]);
         }
         const retryForwardEvidenceSim = Math.max(
