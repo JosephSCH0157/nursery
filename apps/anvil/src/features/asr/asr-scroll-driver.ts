@@ -6897,7 +6897,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       sourceBranch: args.sourceBranch || 'unknown',
       reason: args.reason,
     });
-    const _bridgeCompletionPath = equivalentBridgeBlock.bridgeCompletionPath === true;
     const bridgeTrapEscapePath = equivalentBridgeBlock.bridgeTrapEscapePath === true;
     if (equivalentBridgeBlock.shouldBlock) {
       try {
