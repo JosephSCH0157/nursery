@@ -446,10 +446,11 @@ const DEFAULT_ASR_SOFT_RUNTIME_REBASE_FINAL_MAX_AGE_MS = 5000;
 const DEFAULT_ASR_SOFT_RUNTIME_REBASE_SKIP_LOG_COOLDOWN_MS = 1200;
 const DEFAULT_ASR_VAD_SPEECH_GRACE_MS = 900;
 const DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS = 900;
-const DEFAULT_ASR_BACKEND_HEARTBEAT_MS = 1000;
+const DEFAULT_ASR_BACKEND_HEARTBEAT_MS = 5000;
 const DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS = 9000;
 const DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS = 7000;
 const DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS = 30000;
+const DEFAULT_ASR_BACKEND_FIRST_TRANSCRIPT_GRACE_MS = 4000;
 const DEFAULT_LIVE_ASR_MIN_FORWARD_COMMIT_GAP_MS = 420;
 const DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM = 0.55;
 const DEFAULT_ASR_AUTHORITY_SPEECH_STOP_BRAKE_MS = 1800;
@@ -3450,6 +3451,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let asrRuntimeSpeechEverTrue = false;
   let asrRuntimeSpeechRunningActual = false;
   let asrRuntimeRecognizerAttached = false;
+  let asrRuntimeRecognizerAttachedAt = 0;
   let asrRuntimeActiveReadMode = false;
   let lastTranscriptPacketAt = 0;
   let lastAudioChunkAt = 0;
@@ -3716,7 +3718,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const noteRuntimeSpeechState = (detail: unknown) => {
     const recognizerAttachedRaw = (detail as { recognizerAttached?: unknown } | null | undefined)?.recognizerAttached;
     if (typeof recognizerAttachedRaw === 'boolean') {
+      if (recognizerAttachedRaw && !asrRuntimeRecognizerAttached) {
+        asrRuntimeRecognizerAttachedAt = Date.now();
+      } else if (!recognizerAttachedRaw) {
+        asrRuntimeRecognizerAttachedAt = 0;
+      }
       asrRuntimeRecognizerAttached = recognizerAttachedRaw;
+      syncBackendLivenessTimer();
     }
     const activeReadModeRaw = (detail as { activeReadMode?: unknown } | null | undefined)?.activeReadMode;
     if (typeof activeReadModeRaw === 'boolean') {
@@ -5617,10 +5625,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   try { document.addEventListener('visibilitychange', focusGateVisibilityHandler as EventListener); } catch {}
   syncAsrFocusMovementGate('init', Date.now());
   publishAsrFocusGateState();
-  backendLivenessTimer = setInterval(() => {
-    if (disposed) return;
-    checkBackendLiveness();
-  }, DEFAULT_ASR_BACKEND_HEARTBEAT_MS);
+  syncBackendLivenessTimer();
 
   const summarizeGuardCounts = (limit = Number.POSITIVE_INFINITY) => {
     const entries = Array.from(guardCounts.entries())
@@ -6652,6 +6657,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       } catch {}
     }
 
+    const firstTranscriptGraceActive =
+      !Number.isFinite(transcriptAgeMs) &&
+      asrRuntimeRecognizerAttachedAt > 0 &&
+      now - asrRuntimeRecognizerAttachedAt < DEFAULT_ASR_BACKEND_FIRST_TRANSCRIPT_GRACE_MS;
+    if (firstTranscriptGraceActive) return;
+
     if (transcriptAgeMs >= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS && now - lastBackendTranscriptStaleAt >= 1000) {
       lastBackendTranscriptStaleAt = now;
       try {
@@ -6662,6 +6673,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       requestBackendRestart('backend_transcript_starvation', now, transcriptAgeMs, audioAgeMs);
     }
   };
+  function syncBackendLivenessTimer() {
+    const shouldRun =
+      asrRuntimeRecognizerAttached ||
+      !!(window as any).__tpRecognizer ||
+      !!(window as any).__tpGetActiveRecognizer?.();
+    if (shouldRun && !backendLivenessTimer) {
+      backendLivenessTimer = setInterval(() => {
+        if (disposed) return;
+        checkBackendLiveness();
+      }, DEFAULT_ASR_BACKEND_HEARTBEAT_MS);
+      return;
+    }
+    if (!shouldRun && backendLivenessTimer) {
+      try { clearInterval(backendLivenessTimer); } catch {}
+      backendLivenessTimer = null;
+    }
+  }
 
   const resolveForwardGovernorSnapshot = (
     currentLine: number,
@@ -7024,8 +7052,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const bridgeCompletionPath =
       String(args.sourceBranch || '').toLowerCase().includes('pending_speakable_bridge_complete') ||
       String(args.reason || '').toLowerCase().includes('bridge_completion_accepted');
+    const bridgeTrapEscapePath =
+      String(args.reason || '').toLowerCase().includes('bridge_trap_escape');
     const bridgeBlockUntil = bridgeBlockRecord?.until || 0;
-    if (bridgeBlockUntil > commitTs && equivalentBridgeTarget > current + 1 && !bridgeCompletionPath) {
+    if (bridgeBlockUntil > commitTs && equivalentBridgeTarget > current + 1 && !bridgeCompletionPath && !bridgeTrapEscapePath) {
       try {
         console.warn(
           `[ASR_LIVE_BRIDGE_DOWNSTREAM_COMMIT_BLOCKED] current=${current} requestedTarget=${requestedTarget} sourceBranch=${args.sourceBranch || 'unknown'} proofSource=${args.proofSource || 'none'} reason=bridge_block_token`,
@@ -7080,6 +7110,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       isSessionLivePhase() &&
       isSessionAsrArmed() &&
       !allowSemanticBridgeCompletion &&
+      !bridgeTrapEscapePath &&
       (requestedTarget > current + 1 || reducedTarget > current + 1)
     ) {
       const bridgeReducedTarget = resolveForwardSpeakableTarget(current, reducedTarget, 1);
@@ -11641,6 +11672,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0}`,
           `finalPacketFresh=${runtimeSpeechFresh ? 1 : 0}`,
         ]);
+        if (!forceReason) {
+          forceReason = 'startup_adjacent_pre_rebase_commit';
+        }
       }
       const starvationFutureSpeechReconcileMinMs = 3000;
       const starvationFutureSpeechReconcileMinSim = 0.8;
@@ -14601,7 +14635,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         contradictionActive: boolean;
         stalePrefixIgnored: boolean;
         backwardContradictionOverriddenByTail: boolean;
-      }): { applied: boolean; target: number } => {
+      }): { applied: boolean; target: number; reason?: string } => {
         const stallMs = Math.max(0, now - lastCommitTime);
         const lastTranscriptAgeMs =
           lastFinalTranscriptAt > 0 ? Math.max(0, now - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
@@ -14672,6 +14706,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           } catch {}
           return { applied: false, target: bridgeCandidate };
         }
+        const liveTranscriptFresh =
+          lastTranscriptPacketAt > 0 &&
+          Math.max(0, now - lastTranscriptPacketAt) <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS;
+        const bridgeTrapThresholdMs = repeatedHoldCount > 3 ? 2500 : 3500;
+        const bridgeTrapDetected =
+          liveTranscriptFresh &&
+          Number.isFinite(conf) &&
+          conf > 0 &&
+          (asrRuntimeSpeechRunningActual || asrRuntimeActiveReadMode) &&
+          args.requestedTarget > lastLineIndex &&
+          bridgeCandidate > lastLineIndex &&
+          repeatedHoldCount >= 3 &&
+          stallMs >= bridgeTrapThresholdMs;
+        if (bridgeTrapDetected) {
+          try {
+            console.warn(
+              `[ASR_BRIDGE_TRAP_DETECTED] current=${lastLineIndex} bestIdx=${Math.max(lastLineIndex, Math.floor(Number(line) || lastLineIndex))} requestedTarget=${args.requestedTarget} adjacentTarget=${bridgeCandidate} skipped=${skippedIgnorableLines.length ? `[${skippedIgnorableLines.join(',')}]` : '[]'} repeatedHoldCount=${repeatedHoldCount} noCommitMs=${Math.round(stallMs)} blockerReason=bridge_or_non_adjacent_guard proofSource=${args.proofSource || 'none'} textPreview="${String(snippet || '').slice(0, 80)}"`,
+            );
+          } catch {}
+          return { applied: true, target: bridgeCandidate, reason: 'bridge_trap_escape' };
+        }
         if (args.requestedTarget > lastLineIndex + 1 || bridgeCandidate > lastLineIndex + 1) {
           try {
             console.warn(
@@ -14701,7 +14756,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         });
         if (sustainedReadStep.applied) {
           targetLine = sustainedReadStep.target;
-          forceReason = forceReason || 'sustained_read_step';
+          forceReason = forceReason || sustainedReadStep.reason || 'sustained_read_step';
           clearRecoveryLandingHold('sustained_read_step', now, lastLineIndex, line);
         } else {
         warnGuard('asr_recovery_chain_blocked', [

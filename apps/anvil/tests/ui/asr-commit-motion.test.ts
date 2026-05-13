@@ -2005,6 +2005,58 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('does not emit backend transcript stale during first transcript grace window', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (window as any).__tpSpeech = { stopRecognizer: jest.fn(), startRecognizer: jest.fn() };
+    const driver = createAsrScrollDriver();
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: {
+        speechRunningActual: true,
+        recognizerAttached: true,
+        activeReadMode: true,
+      },
+    }));
+    await jest.advanceTimersByTimeAsync(3000);
+
+    const warns = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(warns.some((l) => l.includes('ASR_BACKEND_TRANSCRIPT_STALE'))).toBe(false);
+
+    delete (window as any).__tpSpeech;
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('escapes repeated fresh bridge trap with one safe speakable step', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true, activeReadMode: true },
+    }));
+    driver.setLastLineIndex(9);
+
+    for (let i = 0; i < 5; i += 1) {
+      driver.ingest('bridge trap progression proof', true, {
+        currentIdx: 9,
+        matchId: `bridge-trap-${i}`,
+        match: {
+          bestIdx: 12,
+          bestSim: 0.9,
+          topScores: [{ idx: 12, score: 0.9 }],
+        },
+      });
+      await jest.advanceTimersByTimeAsync(850);
+    }
+
+    const warns = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(warns.some((l) => l.includes('ASR_BRIDGE_TRAP_DETECTED') && l.includes('current=9'))).toBe(true);
+    expect(driver.getLastLineIndex()).toBeGreaterThan(9);
+    expect(driver.getLastLineIndex()).toBeLessThanOrEqual(12);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('off-script noMatch packet is surfaced and not silently accepted as a commit', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const driver = createAsrScrollDriver();
