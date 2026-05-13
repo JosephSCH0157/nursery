@@ -55,6 +55,13 @@ import {
   shouldStageVisualOnlyBridge,
 } from './asr-bridge-policy';
 import {
+  isRescueBudgetExhausted,
+  shouldAllowBridgeTrapEscape,
+  shouldAllowFreshAdjacentFastCommit,
+  shouldAllowReaderLeashBypass,
+  shouldHoldForVisualGovernor,
+} from './asr-commit-authority';
+import {
   classifyVisualLead,
   selectVisualFollowVelocity,
   shouldApplyNormalAdjacentCap,
@@ -7030,14 +7037,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       (proofSourceLower.includes('live_strict_local_proof_ok') ||
        proofSourceLower.includes('adjacent_rescue_proofed') ||
        proofSourceLower.includes('cue_exit'));
-    const freshAdjacentFastCommitEligible =
-      reducedTarget === current + 1 &&
-      (speechFreshNow || !!args.finalPacketFresh || !!args.speechRunningActual) &&
-      (
-        directAdjacentLocalProof ||
-        proofSourceLower.includes('strict_adjacent_tail_progression') ||
-        proofSourceLower.includes('strict_speakable_bridge_landing')
-      );
+    const freshAdjacentFastCommitEligible = shouldAllowFreshAdjacentFastCommit({
+      reducedTarget,
+      current,
+      speechFreshNow,
+      finalPacketFresh: !!args.finalPacketFresh,
+      speechRunningActual: !!args.speechRunningActual,
+      directAdjacentLocalProof,
+      proofSourceLower,
+    }).eligible;
     if (freshAdjacentFastCommitEligible) {
       thresholdMs = Math.min(thresholdMs, ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS);
       thresholdMs = Math.max(ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS, thresholdMs);
@@ -7057,7 +7065,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     recentRescueBypassAtMs = recentRescueBypassAtMs.filter((ts) => commitTs - ts <= ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS);
     const recentBypassCount = recentRescueBypassAtMs.length;
     const lastBypassAgeMs = lastRescueBypassAtMs > 0 ? Math.max(0, commitTs - lastRescueBypassAtMs) : Number.POSITIVE_INFINITY;
-    if (gatePassCore && rescueBypassLike && !directAdjacentLocalProof && recentBypassCount >= ASR_RESCUE_BYPASS_BUDGET_MAX) {
+    if (isRescueBudgetExhausted({
+      gatePassCore,
+      rescueBypassLike,
+      directAdjacentLocalProof,
+      recentBypassCount,
+      bypassBudgetMax: ASR_RESCUE_BYPASS_BUDGET_MAX,
+    })) {
       try {
         console.warn(
           `[ASR_RESCUE_BYPASS_BUDGET_HELD] current=${current} target=${reducedTarget} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} recentBypassCount=${recentBypassCount} windowMs=${ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS} reason=bypass_budget_exhausted`,
@@ -7065,12 +7079,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       } catch {}
       return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
     }
-    if (gatePassCore && rescueBypassLike && bypassedBlockersLower.includes('asr_reader_leash_hold')) {
-      const canBypassLeash =
-        directAdjacentLocalProof ||
-        freshLandingLexicalNoStale ||
-        lastBypassAgeMs >= ASR_RESCUE_BYPASS_MIN_DELAY_MS;
-      if (!canBypassLeash) {
+    const readerLeashBypassDecision = shouldAllowReaderLeashBypass({
+      gatePassCore,
+      rescueBypassLike,
+      bypassedBlockersLower,
+      directAdjacentLocalProof,
+      freshLandingLexicalNoStale,
+      lastBypassAgeMs,
+      minBypassDelayMs: ASR_RESCUE_BYPASS_MIN_DELAY_MS,
+    });
+    if (readerLeashBypassDecision.shouldCheck) {
+      if (!readerLeashBypassDecision.shouldAllow) {
         try {
           console.warn(
             `[ASR_READER_LEASH_BYPASS_HELD] current=${current} requested=${requestedTarget} target=${reducedTarget} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} blocker=asr_reader_leash_hold lastBypassAgeMs=${Number.isFinite(lastBypassAgeMs) ? Math.round(lastBypassAgeMs) : -1} reason=insufficient_leash_bypass_proof`,
@@ -7217,18 +7236,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
       }
     }
-    if (accepted && liveAsrVisualGovernorHardHold) {
-      const adjacentTarget = reducedTarget === current + 1;
-      const noHardContradiction = !hardContradiction;
-      const noRecentLargeBridge =
-        (Date.now() - lastCommitAt) > 700 || requestedTarget <= current + 1;
-      const freshAdjacentUnlockAllowed =
-        adjacentTarget &&
-        noHardContradiction &&
-        noRecentLargeBridge &&
-        (liveSpeechFresh || !!args.finalPacketFresh);
-      const noCommitMs = Math.max(0, Date.now() - lastCommitTime);
-      if (freshAdjacentUnlockAllowed && noCommitMs >= ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS) {
+    const noCommitMs = Math.max(0, Date.now() - lastCommitTime);
+    const visualGovernorHoldDecision = shouldHoldForVisualGovernor({
+      accepted,
+      liveAsrVisualGovernorHardHold,
+      reducedTarget,
+      current,
+      hardContradiction,
+      requestedTarget,
+      liveSpeechFresh,
+      finalPacketFresh: !!args.finalPacketFresh,
+      noCommitMs,
+      freshAdjUnlockNoCommitMs: ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS,
+      msSinceLastCommit: Math.max(0, Date.now() - lastCommitAt),
+    });
+    if (visualGovernorHoldDecision.shouldHold || visualGovernorHoldDecision.shouldUnlock) {
+      if (visualGovernorHoldDecision.shouldUnlock) {
         try {
           console.warn(
             `[ASR_VISUAL_GOVERNOR_FRESH_ADJACENT_UNLOCK] current=${current} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} speechRunningActual=${args.speechRunningActual ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} liveSpeechFresh=${liveSpeechFresh ? 1 : 0} noCommitMs=${noCommitMs} reason=fresh_adjacent_under_hold`,
@@ -14570,7 +14593,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           repeatedHoldCount,
           stallMs,
         });
-        if (bridgeTrapDetected) {
+        const bridgeTrapEscapeDecision = shouldAllowBridgeTrapEscape({
+          bridgeTrapDetected,
+          transcriptGrowing,
+          contradictionActiveEffective,
+          safeAdjacent,
+        });
+        if (bridgeTrapEscapeDecision.shouldAllow) {
           try {
             console.warn(
               buildAsrBridgeTrapDetectedDiagnostic({
@@ -14586,7 +14615,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               }),
             );
           } catch {}
-          return { applied: true, target: bridgeCandidate, reason: 'bridge_trap_escape' };
+          return { applied: true, target: bridgeCandidate, reason: bridgeTrapEscapeDecision.reason || 'bridge_trap_escape' };
         }
         if (args.requestedTarget > lastLineIndex + 1 || bridgeCandidate > lastLineIndex + 1) {
           try {
