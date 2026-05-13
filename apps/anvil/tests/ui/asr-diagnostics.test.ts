@@ -1,5 +1,6 @@
 import {
   buildAsrAudioChunkStaleDiagnostic,
+  buildAsrBridgeTrapDetectedDiagnostic,
   buildAsrBackendHeartbeatDiagnostic,
   buildAsrBackendRestartCompletedDiagnostic,
   buildAsrBackendRestartRequestedDiagnostic,
@@ -97,6 +98,23 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR_BACKEND_RESTART_COMPLETED] reason=backend_transcript_starvation current=7 commitIndex=6 scrollTop=433',
+    );
+  });
+
+  test('builds bridge trap detected diagnostic with expected tag and field pattern', () => {
+    const line = buildAsrBridgeTrapDetectedDiagnostic({
+      current: 11,
+      bestIdx: 14,
+      requestedTarget: 15,
+      adjacentTarget: 12,
+      skipped: '[cue,meta]',
+      repeatedHoldCount: 4,
+      noCommitMs: 3550.2,
+      proofSource: 'strict_bridge_landing_lexical_tail',
+      textPreview: 'preview text',
+    });
+    expect(line).toBe(
+      '[ASR_BRIDGE_TRAP_DETECTED] current=11 bestIdx=14 requestedTarget=15 adjacentTarget=12 skipped=[cue,meta] repeatedHoldCount=4 noCommitMs=3550 blockerReason=bridge_or_non_adjacent_guard proofSource=strict_bridge_landing_lexical_tail textPreview="preview text"',
     );
   });
 });

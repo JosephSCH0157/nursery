@@ -69,3 +69,17 @@ export function buildAsrBackendRestartCompletedDiagnostic(args: {
 }): string {
   return `[ASR_BACKEND_RESTART_COMPLETED] reason=${args.reason} current=${args.current} commitIndex=${args.commitIndex} scrollTop=${Math.round(args.scrollTop || 0)}`;
 }
+
+export function buildAsrBridgeTrapDetectedDiagnostic(args: {
+  current: number;
+  bestIdx: number;
+  requestedTarget: number;
+  adjacentTarget: number;
+  skipped: string;
+  repeatedHoldCount: number;
+  noCommitMs: number;
+  proofSource: string;
+  textPreview: string;
+}): string {
+  return `[ASR_BRIDGE_TRAP_DETECTED] current=${args.current} bestIdx=${args.bestIdx} requestedTarget=${args.requestedTarget} adjacentTarget=${args.adjacentTarget} skipped=${args.skipped} repeatedHoldCount=${args.repeatedHoldCount} noCommitMs=${Math.round(args.noCommitMs)} blockerReason=bridge_or_non_adjacent_guard proofSource=${args.proofSource} textPreview="${args.textPreview}"`;
+}

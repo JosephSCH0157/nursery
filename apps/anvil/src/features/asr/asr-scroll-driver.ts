@@ -21,6 +21,7 @@ import { isSeekAnimationActive, seekToBlockAnimated } from '../../scroll/scroll-
 import { shouldLogScrollWrite } from '../../scroll/scroll-helpers';
 import {
   buildAsrAudioChunkStaleDiagnostic,
+  buildAsrBridgeTrapDetectedDiagnostic,
   buildAsrBackendHeartbeatDiagnostic,
   buildAsrBackendRestartCompletedDiagnostic,
   buildAsrBackendRestartRequestedDiagnostic,
@@ -14595,7 +14596,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (bridgeTrapDetected) {
           try {
             console.warn(
-              `[ASR_BRIDGE_TRAP_DETECTED] current=${lastLineIndex} bestIdx=${Math.max(lastLineIndex, Math.floor(Number(line) || lastLineIndex))} requestedTarget=${args.requestedTarget} adjacentTarget=${bridgeCandidate} skipped=${skippedIgnorableLines.length ? `[${skippedIgnorableLines.join(',')}]` : '[]'} repeatedHoldCount=${repeatedHoldCount} noCommitMs=${Math.round(stallMs)} blockerReason=bridge_or_non_adjacent_guard proofSource=${args.proofSource || 'none'} textPreview="${String(snippet || '').slice(0, 80)}"`,
+              buildAsrBridgeTrapDetectedDiagnostic({
+                current: lastLineIndex,
+                bestIdx: Math.max(lastLineIndex, Math.floor(Number(line) || lastLineIndex)),
+                requestedTarget: args.requestedTarget,
+                adjacentTarget: bridgeCandidate,
+                skipped: skippedIgnorableLines.length ? `[${skippedIgnorableLines.join(',')}]` : '[]',
+                repeatedHoldCount,
+                noCommitMs: stallMs,
+                proofSource: args.proofSource || 'none',
+                textPreview: String(snippet || '').slice(0, 80),
+              }),
             );
           } catch {}
           return { applied: true, target: bridgeCandidate, reason: 'bridge_trap_escape' };
