@@ -19,6 +19,13 @@ import {
 import { getAsrBlockElements } from '../../scroll/asr-block-store';
 import { isSeekAnimationActive, seekToBlockAnimated } from '../../scroll/scroll-writer';
 import { shouldLogScrollWrite } from '../../scroll/scroll-helpers';
+import {
+  buildAsrAudioChunkStaleDiagnostic,
+  buildAsrBackendHeartbeatDiagnostic,
+  buildAsrBackendRestartCompletedDiagnostic,
+  buildAsrBackendRestartRequestedDiagnostic,
+  buildAsrBackendTranscriptStaleDiagnostic,
+} from './asr-diagnostics';
 import { evaluateBackendLiveness } from './asr-backend-liveness';
 import {
   areAsrThresholdsDirty,
@@ -6368,7 +6375,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (backendRestartedInWindow) {
       try {
         console.warn(
-          `[ASR_BACKEND_RESTART_REQUESTED] skipped=1 reason=${reason} skipReason=already_restarted_in_window windowMs=${DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS} transcriptAgeMs=${Math.round(transcriptAgeMs)} audioAgeMs=${Math.round(audioAgeMs)}`,
+          buildAsrBackendRestartRequestedDiagnostic({
+            skipped: 1,
+            reason,
+            skipReason: 'already_restarted_in_window',
+            windowMs: DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS,
+            transcriptAgeMs,
+            audioAgeMs,
+          }),
         );
       } catch {}
       return;
@@ -6377,7 +6391,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (!speech || typeof speech.stopRecognizer !== 'function' || typeof speech.startRecognizer !== 'function') {
       try {
         console.warn(
-          `[ASR_BACKEND_RESTART_REQUESTED] skipped=1 reason=${reason} skipReason=recognizer_controls_unavailable transcriptAgeMs=${Math.round(transcriptAgeMs)} audioAgeMs=${Math.round(audioAgeMs)}`,
+          buildAsrBackendRestartRequestedDiagnostic({
+            skipped: 1,
+            reason,
+            skipReason: 'recognizer_controls_unavailable',
+            transcriptAgeMs,
+            audioAgeMs,
+          }),
         );
       } catch {}
       return;
@@ -6385,7 +6405,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     backendRestartedInWindow = true;
     try {
       console.warn(
-        `[ASR_BACKEND_RESTART_REQUESTED] skipped=0 reason=${reason} transcriptAgeMs=${Math.round(transcriptAgeMs)} audioAgeMs=${Math.round(audioAgeMs)} current=${lastLineIndex}`,
+        buildAsrBackendRestartRequestedDiagnostic({
+          skipped: 0,
+          reason,
+          transcriptAgeMs,
+          audioAgeMs,
+          current: lastLineIndex,
+        }),
       );
     } catch {}
     try { speech.stopRecognizer(); } catch {}
@@ -6394,7 +6420,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const restartScrollTop = restartScroller ? restartScroller.scrollTop : 0;
     try {
       console.warn(
-        `[ASR_BACKEND_RESTART_COMPLETED] reason=${reason} current=${lastLineIndex} commitIndex=${lastCommitIndex ?? -1} scrollTop=${Math.round(restartScrollTop || 0)}`,
+        buildAsrBackendRestartCompletedDiagnostic({
+          reason,
+          current: lastLineIndex,
+          commitIndex: lastCommitIndex ?? -1,
+          scrollTop: restartScrollTop,
+        }),
       );
     } catch {}
   };
@@ -6459,7 +6490,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         : Number.NaN;
       try {
         console.warn(
-          `[ASR_BACKEND_HEARTBEAT] live=1 asrArmed=1 recognizerAttached=${recognizerAttached ? 1 : 0} speechActive=${speechActive ? 1 : 0} activeReadMode=${activeReadMode ? 1 : 0} transcriptAgeMs=${Number.isFinite(transcriptHeartbeatAge) ? Math.round(transcriptHeartbeatAge) : -1} audioAgeMs=${Number.isFinite(audioHeartbeatAge) ? Math.round(audioHeartbeatAge) : -1} restartedInWindow=${backendRestartedInWindow ? 1 : 0}`,
+          buildAsrBackendHeartbeatDiagnostic({
+            recognizerAttached,
+            speechActive,
+            activeReadMode,
+            transcriptAgeMs: transcriptHeartbeatAge,
+            audioAgeMs: audioHeartbeatAge,
+            backendRestartedInWindow,
+          }),
         );
       } catch {}
     }
@@ -6469,7 +6507,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const audioAgeForLog = Number(audioAgeMs);
       try {
         console.warn(
-          `[ASR_AUDIO_CHUNK_STALE] ageMs=${Math.round(audioAgeForLog)} thresholdMs=${DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS} recognizerAttached=${recognizerAttached ? 1 : 0} speechActive=${speechActive ? 1 : 0}`,
+          buildAsrAudioChunkStaleDiagnostic({
+            ageMs: audioAgeForLog,
+            thresholdMs: DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS,
+            recognizerAttached,
+            speechActive,
+          }),
         );
       } catch {}
     }
@@ -6486,7 +6529,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         : Number.POSITIVE_INFINITY;
       try {
         console.warn(
-          `[ASR_BACKEND_TRANSCRIPT_STALE] ageMs=${Math.round(transcriptAgeForLog)} thresholdMs=${DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS} recognizerAttached=${recognizerAttached ? 1 : 0} speechActive=${speechActive ? 1 : 0} activeReadMode=${activeReadMode ? 1 : 0}`,
+          buildAsrBackendTranscriptStaleDiagnostic({
+            ageMs: transcriptAgeForLog,
+            thresholdMs: DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS,
+            recognizerAttached,
+            speechActive,
+            activeReadMode,
+          }),
         );
       } catch {}
       requestBackendRestart(
