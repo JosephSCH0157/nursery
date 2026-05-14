@@ -58,6 +58,7 @@ import {
   shouldStageVisualOnlyBridge,
 } from './asr-bridge-policy';
 import {
+  shouldAllowFarAheadHardHoldAdjacentEscape,
   isRescueBudgetExhausted,
   shouldAllowBridgeTrapEscape,
   shouldAllowFreshAdjacentFastCommit,
@@ -216,6 +217,7 @@ const ASR_STARTUP_SHORT_MEMORY_MAX_COMMITS = 5;
 const ASR_STARTUP_SHORT_MEMORY_MAX_RUN_AGE_MS = 15000;
 const ASR_STARTUP_SHORT_MEMORY_MIN_ADJACENT_SIM = 0.52;
 const ASR_STARTUP_SHORT_MEMORY_MIN_TAIL_WORDS = 4;
+const ASR_FAR_AHEAD_HOLD_ADJ_ESCAPE_TIMEOUT_MS = 2000;
 const ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS = 14;
 const ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS = 700;
 const ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS = 1200;
@@ -7439,6 +7441,69 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
     }
     const noCommitMs = Math.max(0, Date.now() - lastCommitTime);
+    const farAheadConfirmedSpoken = Math.max(0, lastStrongConfirmedSpokenLine);
+    const farAheadSpeakableLead = Math.max(0, countSpeakableDistanceAhead(farAheadConfirmedSpoken, reducedTarget));
+    const farAheadRenderedLead = Math.max(0, reducedTarget - farAheadConfirmedSpoken);
+    const farAheadLeadState: 'far_ahead' | 'ahead' | 'aligned_or_behind' =
+      farAheadSpeakableLead >= ASR_VISUAL_HARD_LEAD_START || farAheadRenderedLead >= ASR_VISUAL_HARD_LEAD_START
+        ? 'far_ahead'
+        : ((farAheadSpeakableLead > 0 || farAheadRenderedLead > 0) ? 'ahead' : 'aligned_or_behind');
+    const farAheadHoldAgeMs = liveAsrVisualGovernorHardHoldSinceMs > 0
+      ? Math.max(0, Date.now() - liveAsrVisualGovernorHardHoldSinceMs)
+      : 0;
+    const farAheadLocalAdjacentProof =
+      String(args.proofSource || '').toLowerCase().includes('strict_adjacent_tail_progression') ||
+      String(args.proofSource || '').toLowerCase().includes('live_strict_local_proof_ok') ||
+      String(args.proofSource || '').toLowerCase().includes('adjacent_rescue_proofed') ||
+      String(args.proofSource || '').toLowerCase().includes('cue_exit');
+    const farAheadOffscriptOrNoMatch =
+      String(args.proofSource || '').toLowerCase().includes('nomatch') ||
+      String(args.reason || '').toLowerCase().includes('nomatch') ||
+      String(args.sourceBranch || '').toLowerCase().includes('offscript');
+    const farAheadTranscriptGrowing =
+      lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength ||
+      lastFinalTranscriptAt > lastCommitTranscriptTimestamp;
+    const farAheadBridgeLeashActive =
+      liveAsrBridgeVisualComfortUntilMs > commitTs &&
+      liveAsrBridgeVisualRecoveryDeltaLines > ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES;
+    let farAheadAdjacentEscapeApplied = false;
+    let farAheadAdjacentEscapeReason = '';
+    if (liveAsrVisualGovernorHardHold) {
+      const farAheadEscapeDecision = shouldAllowFarAheadHardHoldAdjacentEscape({
+        liveAsrVisualGovernorHardHold: true,
+        leadState: farAheadLeadState,
+        holdAgeMs: farAheadHoldAgeMs,
+        minHoldAgeMs: ASR_FAR_AHEAD_HOLD_ADJ_ESCAPE_TIMEOUT_MS,
+        current,
+        target: current + 1,
+        semanticTarget: current + 1,
+        skippedIgnorableLinesCount: 0,
+        speechFresh: liveSpeechFresh,
+        finalFresh: !!args.finalPacketFresh,
+        transcriptGrowing: farAheadTranscriptGrowing,
+        localAdjacentProof: farAheadLocalAdjacentProof,
+        offscriptOrNoMatch: farAheadOffscriptOrNoMatch,
+        hardContradiction,
+        bridgeLeashActive: farAheadBridgeLeashActive,
+      });
+      farAheadAdjacentEscapeReason = farAheadEscapeDecision.reason;
+      if (
+        farAheadEscapeDecision.allow &&
+        reducedTarget > current + 1 &&
+        (args.skippedIgnorableLines || []).length === 0
+      ) {
+        requestedTarget = current + 1;
+        semanticTargetRaw = current + 1;
+        reducedTarget = current + 1;
+        farAheadAdjacentEscapeApplied = true;
+      } else if (!farAheadEscapeDecision.allow && reducedTarget > current + 1) {
+        try {
+          console.warn(
+            `[ASR_FAR_AHEAD_HOLD_ESCAPE_BLOCKED] current=${current} requestedTarget=${requestedTarget} holdAgeMs=${Math.round(farAheadHoldAgeMs)} reason=${farAheadEscapeDecision.reason} leadState=${farAheadLeadState} speakableLead=${farAheadSpeakableLead} renderedLead=${farAheadRenderedLead} targetDelta=${Math.max(0, requestedTarget - current)} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(',')}] offscriptNoMatch=${farAheadOffscriptOrNoMatch ? 1 : 0}`,
+          );
+        } catch {}
+      }
+    }
     const visualGovernorHoldDecision = shouldHoldForVisualGovernor({
       accepted,
       liveAsrVisualGovernorHardHold,
@@ -7452,12 +7517,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       freshAdjUnlockNoCommitMs: ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS,
       msSinceLastCommit: Math.max(0, Date.now() - lastCommitAt),
     });
-    if (visualGovernorHoldDecision.shouldHold || visualGovernorHoldDecision.shouldUnlock) {
-      if (visualGovernorHoldDecision.shouldUnlock) {
+    if (visualGovernorHoldDecision.shouldHold || visualGovernorHoldDecision.shouldUnlock || farAheadAdjacentEscapeApplied) {
+      if (visualGovernorHoldDecision.shouldUnlock || farAheadAdjacentEscapeApplied) {
         try {
           console.warn(
             `[ASR_VISUAL_GOVERNOR_FRESH_ADJACENT_UNLOCK] current=${current} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} speechRunningActual=${args.speechRunningActual ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} liveSpeechFresh=${liveSpeechFresh ? 1 : 0} noCommitMs=${noCommitMs} reason=fresh_adjacent_under_hold`,
           );
+          if (farAheadAdjacentEscapeApplied) {
+            console.warn(
+              `[ASR_FAR_AHEAD_HOLD_ADJACENT_ESCAPE] current=${current} target=${reducedTarget} holdAgeMs=${Math.round(farAheadHoldAgeMs)} leadState=${farAheadLeadState} speakableLead=${farAheadSpeakableLead} renderedLead=${farAheadRenderedLead} visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} proofSource=${args.proofSource || 'none'} authority=${args.authority || 'unknown'} sourceBranch=${args.sourceBranch || 'unknown'} speechFresh=${liveSpeechFresh ? 1 : 0} finalFresh=${args.finalPacketFresh ? 1 : 0} transcriptGrowing=${farAheadTranscriptGrowing ? 1 : 0} reason=${farAheadAdjacentEscapeReason || 'far_ahead_timeout_adjacent_escape'}`,
+            );
+          }
           if (liveAsrVisualSuppressionLoopCount >= 2) {
             console.warn(
               `[ASR_VISUAL_GOVERNOR_SUPPRESSION_LOOP_BROKEN] current=${current} target=${reducedTarget} bestIdx=${requestedTarget} noCommitMs=${noCommitMs} suppressions=${liveAsrVisualSuppressionLoopCount} reason=fresh_adjacent_unlock`,

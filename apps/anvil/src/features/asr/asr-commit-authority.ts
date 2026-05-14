@@ -29,6 +29,11 @@ export type StartupShortMemoryAdjacentDecision = {
   reason: string;
 };
 
+export type FarAheadAdjacentEscapeDecision = {
+  allow: boolean;
+  reason: string;
+};
+
 export function isRescueBudgetExhausted(input: {
   gatePassCore: boolean;
   rescueBypassLike: boolean;
@@ -211,4 +216,38 @@ export function shouldAllowStartupShortMemoryAdjacentCommit(input: {
     return { considered, allow: false, reason: 'short_tail_insufficient' };
   }
   return { considered, allow: true, reason: 'startup_settling_adjacent_only' };
+}
+
+export function shouldAllowFarAheadHardHoldAdjacentEscape(input: {
+  liveAsrVisualGovernorHardHold: boolean;
+  leadState: 'far_ahead' | 'ahead' | 'aligned_or_behind';
+  holdAgeMs: number;
+  minHoldAgeMs: number;
+  current: number;
+  target: number;
+  semanticTarget: number;
+  skippedIgnorableLinesCount: number;
+  speechFresh: boolean;
+  finalFresh: boolean;
+  transcriptGrowing: boolean;
+  localAdjacentProof: boolean;
+  offscriptOrNoMatch: boolean;
+  hardContradiction: boolean;
+  bridgeLeashActive: boolean;
+}): FarAheadAdjacentEscapeDecision {
+  if (!input.liveAsrVisualGovernorHardHold) return { allow: false, reason: 'governor_not_holding' };
+  if (input.leadState !== 'far_ahead') return { allow: false, reason: 'not_far_ahead' };
+  if (input.holdAgeMs < input.minHoldAgeMs) return { allow: false, reason: 'hold_age_below_timeout' };
+  if (input.target !== input.current + 1 || input.semanticTarget !== input.current + 1) {
+    return { allow: false, reason: 'non_adjacent_target' };
+  }
+  if (input.skippedIgnorableLinesCount > 0) return { allow: false, reason: 'bridge_like_target' };
+  if (input.bridgeLeashActive) return { allow: false, reason: 'bridge_recovery_window_active' };
+  if (input.offscriptOrNoMatch) return { allow: false, reason: 'offscript_or_nomatch' };
+  if (input.hardContradiction) return { allow: false, reason: 'hard_contradiction' };
+  if (!(input.speechFresh || input.finalFresh || input.transcriptGrowing)) {
+    return { allow: false, reason: 'freshness_missing' };
+  }
+  if (!input.localAdjacentProof) return { allow: false, reason: 'no_local_adjacent_proof' };
+  return { allow: true, reason: 'far_ahead_timeout_adjacent_escape' };
 }

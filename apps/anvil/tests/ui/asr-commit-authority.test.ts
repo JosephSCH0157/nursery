@@ -1,5 +1,6 @@
 import {
   isRescueBudgetExhausted,
+  shouldAllowFarAheadHardHoldAdjacentEscape,
   shouldAllowStartupShortMemoryAdjacentCommit,
   shouldConstrainRecoveryForReaderLeash,
   shouldAllowBridgeTrapEscape,
@@ -321,5 +322,93 @@ describe('ASR commit authority predicates', () => {
     expect(decision.considered).toBe(false);
     expect(decision.allow).toBe(false);
     expect(decision.reason).toBe('startup_window_inactive');
+  });
+
+  test('far-ahead hard-hold timeout escape allows exactly adjacent locally-proofed step', () => {
+    const decision = shouldAllowFarAheadHardHoldAdjacentEscape({
+      liveAsrVisualGovernorHardHold: true,
+      leadState: 'far_ahead',
+      holdAgeMs: 2200,
+      minHoldAgeMs: 2000,
+      current: 87,
+      target: 88,
+      semanticTarget: 88,
+      skippedIgnorableLinesCount: 0,
+      speechFresh: true,
+      finalFresh: false,
+      transcriptGrowing: true,
+      localAdjacentProof: true,
+      offscriptOrNoMatch: false,
+      hardContradiction: false,
+      bridgeLeashActive: false,
+    });
+    expect(decision.allow).toBe(true);
+    expect(decision.reason).toBe('far_ahead_timeout_adjacent_escape');
+  });
+
+  test('far-ahead hard-hold timeout escape blocks non-adjacent targets', () => {
+    const decision = shouldAllowFarAheadHardHoldAdjacentEscape({
+      liveAsrVisualGovernorHardHold: true,
+      leadState: 'far_ahead',
+      holdAgeMs: 2200,
+      minHoldAgeMs: 2000,
+      current: 88,
+      target: 91,
+      semanticTarget: 91,
+      skippedIgnorableLinesCount: 2,
+      speechFresh: true,
+      finalFresh: true,
+      transcriptGrowing: true,
+      localAdjacentProof: true,
+      offscriptOrNoMatch: false,
+      hardContradiction: false,
+      bridgeLeashActive: false,
+    });
+    expect(decision.allow).toBe(false);
+    expect(decision.reason).toBe('non_adjacent_target');
+  });
+
+  test('far-ahead hard-hold timeout escape blocks when hold age is below timeout', () => {
+    const decision = shouldAllowFarAheadHardHoldAdjacentEscape({
+      liveAsrVisualGovernorHardHold: true,
+      leadState: 'far_ahead',
+      holdAgeMs: 1400,
+      minHoldAgeMs: 2000,
+      current: 87,
+      target: 88,
+      semanticTarget: 88,
+      skippedIgnorableLinesCount: 0,
+      speechFresh: true,
+      finalFresh: true,
+      transcriptGrowing: true,
+      localAdjacentProof: true,
+      offscriptOrNoMatch: false,
+      hardContradiction: false,
+      bridgeLeashActive: false,
+    });
+    expect(decision.allow).toBe(false);
+    expect(decision.reason).toBe('hold_age_below_timeout');
+  });
+
+  test('far-ahead hard-hold timeout escape blocks when offscript/noMatch is active', () => {
+    const decision = shouldAllowFarAheadHardHoldAdjacentEscape({
+      liveAsrVisualGovernorHardHold: true,
+      leadState: 'far_ahead',
+      holdAgeMs: 2200,
+      minHoldAgeMs: 2000,
+      current: 87,
+      target: 88,
+      semanticTarget: 88,
+      skippedIgnorableLinesCount: 0,
+      speechFresh: true,
+      finalFresh: true,
+      transcriptGrowing: true,
+      localAdjacentProof: true,
+      offscriptOrNoMatch: true,
+      hardContradiction: false,
+      bridgeLeashActive: false,
+    });
+    expect(decision.allow).toBe(false);
+    expect(decision.reason).toBe('offscript_or_nomatch');
   });
 });
