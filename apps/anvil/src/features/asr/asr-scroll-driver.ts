@@ -63,6 +63,7 @@ import {
   shouldAllowBridgeTrapEscape,
   shouldAllowFreshAdjacentFastCommit,
   shouldAllowStartupShortMemoryAdjacentCommit,
+  shouldConstrainBridgeAuthorityForReaderLeash,
   shouldConstrainRecoveryForReaderLeash,
   shouldAllowReaderLeashBypass,
   shouldHoldForVisualGovernor,
@@ -6926,11 +6927,32 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let semanticTargetRaw = Math.max(current, Math.floor(Number(args.semanticTarget) || current));
     const visualTarget = Math.max(current, Math.floor(Number(args.visualTarget ?? semanticTargetRaw) || semanticTargetRaw));
     const hardContradiction = !!args.hardContradiction;
+    const sourceBranchLowerForLeash = String(args.sourceBranch || '').toLowerCase();
+    const proofSourceLowerForLeash = String(args.proofSource || '').toLowerCase();
+    const reasonLowerForLeash = String(args.reason || '').toLowerCase();
+    const lastConfirmedSpokenForLeash = Math.max(0, lastStrongConfirmedSpokenLine);
+    const speakableLeadForLeash = Math.max(
+      0,
+      countSpeakableDistanceAhead(lastConfirmedSpokenForLeash, Math.max(requestedTarget, semanticTargetRaw)),
+    );
+    const renderedLeadForLeash = Math.max(0, Math.max(requestedTarget, semanticTargetRaw) - lastConfirmedSpokenForLeash);
+    const leadStateForLeash: 'far_ahead' | 'ahead' | 'aligned_or_behind' =
+      speakableLeadForLeash >= ASR_VISUAL_HARD_LEAD_START || renderedLeadForLeash >= ASR_VISUAL_HARD_LEAD_START
+        ? 'far_ahead'
+        : ((speakableLeadForLeash > 0 || renderedLeadForLeash > 0) ? 'ahead' : 'aligned_or_behind');
+    const explicitNoMatchForLeashEarly =
+      reasonLowerForLeash.includes('nomatch') ||
+      proofSourceLowerForLeash.includes('nomatch') ||
+      sourceBranchLowerForLeash.includes('offscript');
     const readerLeashPressureActive =
-      String(args.sourceBranch || '').toLowerCase().includes('reader_leash') ||
+      sourceBranchLowerForLeash.includes('reader_leash') ||
       String(args.bypassedBlockers || '').toLowerCase().includes('asr_reader_leash_hold') ||
       String(lastLiveSafeTerminalShieldSource || '').toLowerCase().includes('asr_reader_leash_hold') ||
       liveAsrVisualGovernorHardHold ||
+      leadStateForLeash === 'ahead' ||
+      leadStateForLeash === 'far_ahead' ||
+      speakableLeadForLeash >= 1 ||
+      renderedLeadForLeash >= 1 ||
       (
         liveAsrBridgeVisualComfortUntilMs > commitTs &&
         liveAsrBridgeVisualRecoveryDeltaLines > ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES
@@ -6967,21 +6989,53 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         return { accepted: false, target: current, thresholdMs: 900, actualDelayMs: 0, commitTs };
       }
     }
+    const safeAdjacentProofAvailableForLeash =
+      proofSourceLowerForLeash.includes('strict_adjacent_tail_progression') ||
+      proofSourceLowerForLeash.includes('live_strict_local_proof_ok') ||
+      proofSourceLowerForLeash.includes('adjacent_rescue_proofed') ||
+      proofSourceLowerForLeash.includes('cue_exit');
+    const bridgeAuthorityCarry = Math.max(0, Math.max(requestedTarget, semanticTargetRaw) - current);
+    const bridgeAuthorityLeashDecision = shouldConstrainBridgeAuthorityForReaderLeash({
+      readerLeashActive: readerLeashPressureActive && !explicitNoMatchForLeashEarly,
+      current,
+      requestedTarget,
+      semanticTarget: semanticTargetRaw,
+      skippedIgnorableLinesCount: (args.skippedIgnorableLines || []).length,
+      carry: bridgeAuthorityCarry,
+      sourceBranch: args.sourceBranch,
+      proofSource: args.proofSource,
+      authority: args.authority,
+      safeAdjacentProofAvailable: safeAdjacentProofAvailableForLeash,
+    });
+    if (bridgeAuthorityLeashDecision.shouldConstrain) {
+      if (bridgeAuthorityLeashDecision.shouldReduceToAdjacent) {
+        const reducedTarget = current + 1;
+        try {
+          console.warn(
+            `[ASR_BRIDGE_AUTHORITY_REDUCED_TO_VISUAL_ADJACENT] current=${current} requestedTarget=${requestedTarget} reducedTarget=${reducedTarget} deltaRaw=${Math.max(0, requestedTarget - current)} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(',')}] carry=${bridgeAuthorityCarry} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} authority=${args.authority || 'unknown'} leadState=${leadStateForLeash} speakableLead=${speakableLeadForLeash} renderedLead=${renderedLeadForLeash} visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} reason=visual_adjacent_only_while_leashed`,
+          );
+        } catch {}
+        requestedTarget = reducedTarget;
+        semanticTargetRaw = Math.min(semanticTargetRaw, reducedTarget);
+      } else {
+        try {
+          console.warn(
+            `[ASR_BRIDGE_AUTHORITY_READER_LEASH_HELD] current=${current} requestedTarget=${requestedTarget} deltaRaw=${Math.max(0, requestedTarget - current)} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(',')}] carry=${bridgeAuthorityCarry} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} authority=${args.authority || 'unknown'} leadState=${leadStateForLeash} speakableLead=${speakableLeadForLeash} renderedLead=${renderedLeadForLeash} visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} readerLeashActive=${readerLeashPressureActive ? 1 : 0} visualGovernorHardHold=${liveAsrVisualGovernorHardHold ? 1 : 0} reason=bridge_authority_must_respect_reader_leash`,
+          );
+        } catch {}
+        return { accepted: false, target: current, thresholdMs: 900, actualDelayMs: 0, commitTs };
+      }
+    }
     const equivalentBridgeTarget = Math.max(requestedTarget, semanticTargetRaw);
     const bridgeBlockKey = `${current}->${equivalentBridgeTarget}:${lastFinalTranscriptRunGeneration ?? -1}`;
     const bridgeBlockRecord = liveBridgeDownstreamBlockUntilByKey.get(bridgeBlockKey);
     const bridgeBlockUntil = bridgeBlockRecord?.until || 0;
     const speechFresh = !!args.speechRunningActual || !!args.finalPacketFresh;
-    const sourceBranchLowerForLeash = String(args.sourceBranch || '').toLowerCase();
     const bridgeLikeCommitCandidateEarly =
       requestedTarget > current + 1 ||
       semanticTargetRaw > current + 1 ||
       (args.skippedIgnorableLines || []).length > 0;
     const adjacentCommitCandidateEarly = requestedTarget === current + 1 || semanticTargetRaw === current + 1;
-    const explicitNoMatchForLeashEarly =
-      String(args.reason || '').toLowerCase().includes('nomatch') ||
-      String(args.proofSource || '').toLowerCase().includes('nomatch') ||
-      sourceBranchLowerForLeash.includes('offscript');
     const bridgeCommitDeltaLinesForLeashEarly = Math.max(
       liveAsrBridgeVisualRecoveryDeltaLines,
       Math.max(0, requestedTarget - current),

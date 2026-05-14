@@ -34,6 +34,12 @@ export type FarAheadAdjacentEscapeDecision = {
   reason: string;
 };
 
+export type BridgeAuthorityReaderLeashDecision = {
+  shouldConstrain: boolean;
+  shouldReduceToAdjacent: boolean;
+  reason: string;
+};
+
 export function isRescueBudgetExhausted(input: {
   gatePassCore: boolean;
   rescueBypassLike: boolean;
@@ -250,4 +256,45 @@ export function shouldAllowFarAheadHardHoldAdjacentEscape(input: {
   }
   if (!input.localAdjacentProof) return { allow: false, reason: 'no_local_adjacent_proof' };
   return { allow: true, reason: 'far_ahead_timeout_adjacent_escape' };
+}
+
+export function shouldConstrainBridgeAuthorityForReaderLeash(input: {
+  readerLeashActive: boolean;
+  current: number;
+  requestedTarget: number;
+  semanticTarget: number;
+  skippedIgnorableLinesCount: number;
+  carry: number;
+  sourceBranch?: string;
+  proofSource?: string;
+  authority?: string;
+  safeAdjacentProofAvailable: boolean;
+}): BridgeAuthorityReaderLeashDecision {
+  if (!input.readerLeashActive) {
+    return { shouldConstrain: false, shouldReduceToAdjacent: false, reason: 'reader_leash_inactive' };
+  }
+  const sourceBranch = String(input.sourceBranch || '').toLowerCase();
+  const proofSource = String(input.proofSource || '').toLowerCase();
+  const authority = String(input.authority || '').toLowerCase();
+  const bridgeAuthorityLike =
+    sourceBranch.includes('bridge') ||
+    sourceBranch.includes('cue_exit') ||
+    sourceBranch.includes('movement_authority_forced_reconcile_single_step') ||
+    sourceBranch.includes('movement_authority_starvation_reconcile_single_step') ||
+    sourceBranch.includes('movement_authority_reconcile') ||
+    proofSource.includes('bridge') ||
+    proofSource.includes('cue_exit') ||
+    authority.includes('reconcile');
+  const visuallyNonAdjacent =
+    input.requestedTarget > input.current + 1 ||
+    input.semanticTarget > input.current + 1 ||
+    input.skippedIgnorableLinesCount > 0 ||
+    input.carry > 1;
+  if (!(bridgeAuthorityLike && visuallyNonAdjacent)) {
+    return { shouldConstrain: false, shouldReduceToAdjacent: false, reason: 'not_bridge_like_or_not_visual_lunge' };
+  }
+  if (input.safeAdjacentProofAvailable) {
+    return { shouldConstrain: true, shouldReduceToAdjacent: true, reason: 'visual_adjacent_only_while_leashed' };
+  }
+  return { shouldConstrain: true, shouldReduceToAdjacent: false, reason: 'bridge_authority_must_respect_reader_leash' };
 }

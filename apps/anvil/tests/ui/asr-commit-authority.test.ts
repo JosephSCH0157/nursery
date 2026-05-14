@@ -2,6 +2,7 @@ import {
   isRescueBudgetExhausted,
   shouldAllowFarAheadHardHoldAdjacentEscape,
   shouldAllowStartupShortMemoryAdjacentCommit,
+  shouldConstrainBridgeAuthorityForReaderLeash,
   shouldConstrainRecoveryForReaderLeash,
   shouldAllowBridgeTrapEscape,
   shouldAllowFreshAdjacentFastCommit,
@@ -410,5 +411,59 @@ describe('ASR commit authority predicates', () => {
     });
     expect(decision.allow).toBe(false);
     expect(decision.reason).toBe('offscript_or_nomatch');
+  });
+
+  test('bridge authority is constrained while leashed for visually non-adjacent bridge target', () => {
+    const decision = shouldConstrainBridgeAuthorityForReaderLeash({
+      readerLeashActive: true,
+      current: 99,
+      requestedTarget: 102,
+      semanticTarget: 102,
+      skippedIgnorableLinesCount: 2,
+      carry: 3,
+      sourceBranch: 'strict_speakable_bridge_landing',
+      proofSource: 'cue_bridge',
+      authority: 'movement_authority_reconcile',
+      safeAdjacentProofAvailable: false,
+    });
+    expect(decision.shouldConstrain).toBe(true);
+    expect(decision.shouldReduceToAdjacent).toBe(false);
+    expect(decision.reason).toBe('bridge_authority_must_respect_reader_leash');
+  });
+
+  test('bridge authority is reduced to adjacent while leashed when local adjacent proof is available', () => {
+    const decision = shouldConstrainBridgeAuthorityForReaderLeash({
+      readerLeashActive: true,
+      current: 99,
+      requestedTarget: 102,
+      semanticTarget: 102,
+      skippedIgnorableLinesCount: 2,
+      carry: 3,
+      sourceBranch: 'movement_authority_forced_reconcile_single_step',
+      proofSource: 'strict_speakable_bridge_landing',
+      authority: 'movement_authority_reconcile',
+      safeAdjacentProofAvailable: true,
+    });
+    expect(decision.shouldConstrain).toBe(true);
+    expect(decision.shouldReduceToAdjacent).toBe(true);
+    expect(decision.reason).toBe('visual_adjacent_only_while_leashed');
+  });
+
+  test('bridge authority remains unchanged when leash is inactive', () => {
+    const decision = shouldConstrainBridgeAuthorityForReaderLeash({
+      readerLeashActive: false,
+      current: 99,
+      requestedTarget: 102,
+      semanticTarget: 102,
+      skippedIgnorableLinesCount: 2,
+      carry: 3,
+      sourceBranch: 'strict_speakable_bridge_landing',
+      proofSource: 'cue_bridge',
+      authority: 'movement_authority_reconcile',
+      safeAdjacentProofAvailable: false,
+    });
+    expect(decision.shouldConstrain).toBe(false);
+    expect(decision.shouldReduceToAdjacent).toBe(false);
+    expect(decision.reason).toBe('reader_leash_inactive');
   });
 });
