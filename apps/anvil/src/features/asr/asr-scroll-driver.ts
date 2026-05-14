@@ -66,6 +66,7 @@ import {
 } from './asr-commit-authority';
 import {
   classifyVisualLead,
+  selectLeadAwarePursuitCap,
   shouldHoldBridgeCommitForVisualRecovery,
   selectBridgeVisualComfortCap,
   selectVisualFollowVelocity,
@@ -207,6 +208,7 @@ const ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS = 2100;
 const ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_WINDOW_MS = 1500;
 const ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_MAX_DELTA_LINES = 3;
 const ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_PXPS = 16;
+const ASR_LEAD_AWARE_PURSUIT_AHEAD_MAX_PXPS = 12;
 const ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES = 4.0;
 const ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS = 14;
 const ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS = 700;
@@ -10261,6 +10263,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         try {
           console.warn(
             `[ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_CAP] current=${lastLineIndex} target=${lastLineIndex} semanticTarget=${lastLineIndex} visualReducedTarget=${lastLineIndex} deltaLines=${deltaLinesApprox.toFixed(2)} originalPxps=${Math.round(originalPxps)} cappedPxps=${Math.round(maxVelForErr)} skippedIgnorableLines=unknown proofSource=${liveAsrBridgeVisualComfortProofSource || 'none'} sourceBranch=${liveAsrBridgeVisualComfortSourceBranch || 'unknown'} reason=bridge_commit_visual_overrun_protection`,
+          );
+        } catch {}
+      }
+      const leadAwarePursuitCapDecision = selectLeadAwarePursuitCap({
+        leadState,
+        speakableLead,
+        renderedLead,
+        speechFresh: readerDrivingNow || (lastFinalTranscriptAt > 0 && (nowTs - lastFinalTranscriptAt) <= 1200),
+        basePxps: maxVelForErr,
+        aheadCapPxps: ASR_LEAD_AWARE_PURSUIT_AHEAD_MAX_PXPS,
+      });
+      if (leadAwarePursuitCapDecision.shouldApply) {
+        const originalPxps = maxVelForErr;
+        maxVelForErr = leadAwarePursuitCapDecision.cappedPxps;
+        try {
+          console.warn(
+            `[ASR_LEAD_AWARE_PURSUIT_CAP] leadState=${leadState} speakableLead=${speakableLead} renderedLead=${renderedLead} deltaLines=${deltaLinesApprox.toFixed(2)} originalPxps=${Math.round(originalPxps)} cappedPxps=${Math.round(maxVelForErr)} speechFresh=${readerDrivingNow ? 1 : 0} reason=${leadAwarePursuitCapDecision.reason || 'reader_ahead_visual_pressure_reduced'}`,
           );
         } catch {}
       }

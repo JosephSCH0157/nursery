@@ -26,6 +26,12 @@ export type BridgeCommitComfortLeashDecision = {
   shouldHold: boolean;
 };
 
+export type LeadAwarePursuitCapDecision = {
+  shouldApply: boolean;
+  cappedPxps: number;
+  reason?: 'reader_ahead_visual_pressure_reduced';
+};
+
 export function classifyVisualLead(input: {
   speakableLead: number;
   renderedLead: number;
@@ -165,4 +171,30 @@ export function shouldHoldBridgeCommitForVisualRecovery(input: {
   if (input.comfortUntilMs <= input.now) return { shouldHold: false };
   if (!(input.deltaLines > input.safeDeltaLines)) return { shouldHold: false };
   return { shouldHold: true };
+}
+
+export function selectLeadAwarePursuitCap(input: {
+  leadState: 'far_ahead' | 'ahead' | 'aligned_or_behind';
+  speakableLead: number;
+  renderedLead: number;
+  speechFresh: boolean;
+  basePxps: number;
+  aheadCapPxps: number;
+}): LeadAwarePursuitCapDecision {
+  if (!input.speechFresh) {
+    return { shouldApply: false, cappedPxps: input.basePxps };
+  }
+  const crowdingAhead =
+    input.leadState === 'ahead' ||
+    input.leadState === 'far_ahead' ||
+    input.speakableLead >= 1 ||
+    input.renderedLead >= 1;
+  if (!crowdingAhead) {
+    return { shouldApply: false, cappedPxps: input.basePxps };
+  }
+  return {
+    shouldApply: input.basePxps > input.aheadCapPxps,
+    cappedPxps: Math.min(input.basePxps, input.aheadCapPxps),
+    reason: 'reader_ahead_visual_pressure_reduced',
+  };
 }

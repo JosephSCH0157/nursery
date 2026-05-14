@@ -234,6 +234,39 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('keeps adjacent commit path active under live follow while lead-aware pursuit logic is present', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    const scroller = document.getElementById('viewer') as HTMLElement;
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'lead-aware-cap-adjacent',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.82,
+        topScores: [{ idx: 1, score: 0.82 }],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(250);
+    expect(driver.getLastLineIndex()).toBe(1);
+    expect(scroller.scrollTop).toBeGreaterThan(0);
+
+    const lines = warnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(
+      lines.some((line) => line.includes('ASR_TERMINAL_COMMIT_SUPPRESSED_BY_VISUAL_GOVERNOR')),
+    ).toBe(false);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('does not let a stalled far-future final keep the script walking forward on its own', async () => {
     const driver = createAsrScrollDriver();
 

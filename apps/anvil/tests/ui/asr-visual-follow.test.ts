@@ -1,5 +1,6 @@
 import {
   classifyVisualLead,
+  selectLeadAwarePursuitCap,
   shouldHoldBridgeCommitForVisualRecovery,
   selectBridgeVisualComfortCap,
   selectVisualFollowVelocity,
@@ -208,5 +209,45 @@ describe('ASR visual follow pure calculations', () => {
       speechFresh: true,
     });
     expect(allowInsideBand.shouldHold).toBe(false);
+  });
+
+  test('lead-aware pursuit cap calms aggressive velocity when reader is ahead and speech is fresh', () => {
+    const capped = selectLeadAwarePursuitCap({
+      leadState: 'ahead',
+      speakableLead: 1,
+      renderedLead: 1,
+      speechFresh: true,
+      basePxps: 35,
+      aheadCapPxps: 12,
+    });
+    expect(capped.shouldApply).toBe(true);
+    expect(capped.cappedPxps).toBeLessThanOrEqual(12);
+    expect(capped.reason).toBe('reader_ahead_visual_pressure_reduced');
+  });
+
+  test('lead-aware pursuit cap does not activate when aligned_or_behind with no lead', () => {
+    const uncapped = selectLeadAwarePursuitCap({
+      leadState: 'aligned_or_behind',
+      speakableLead: 0,
+      renderedLead: 0,
+      speechFresh: true,
+      basePxps: 35,
+      aheadCapPxps: 12,
+    });
+    expect(uncapped.shouldApply).toBe(false);
+    expect(uncapped.cappedPxps).toBe(35);
+  });
+
+  test('lead-aware pursuit stays calm for tiny deltas while ahead', () => {
+    const calm = selectLeadAwarePursuitCap({
+      leadState: 'ahead',
+      speakableLead: 1,
+      renderedLead: 0,
+      speechFresh: true,
+      basePxps: 20,
+      aheadCapPxps: 12,
+    });
+    expect(calm.shouldApply).toBe(true);
+    expect(calm.cappedPxps).toBe(12);
   });
 });
