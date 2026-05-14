@@ -84,6 +84,42 @@ describe('ASR commit authority predicates', () => {
     expect(held.shouldUnlock).toBe(false);
   });
 
+  test('visual governor allows fresh adjacent unlock after timeout under hard hold', () => {
+    const unlocked = shouldHoldForVisualGovernor({
+      accepted: true,
+      liveAsrVisualGovernorHardHold: true,
+      reducedTarget: 10,
+      current: 9,
+      hardContradiction: false,
+      requestedTarget: 10,
+      liveSpeechFresh: true,
+      finalPacketFresh: true,
+      noCommitMs: 2500,
+      freshAdjUnlockNoCommitMs: 2100,
+      msSinceLastCommit: 1200,
+    });
+    expect(unlocked.shouldUnlock).toBe(true);
+    expect(unlocked.shouldHold).toBe(false);
+  });
+
+  test('visual governor keeps non-adjacent targets blocked under hard hold', () => {
+    const held = shouldHoldForVisualGovernor({
+      accepted: true,
+      liveAsrVisualGovernorHardHold: true,
+      reducedTarget: 12,
+      current: 9,
+      hardContradiction: false,
+      requestedTarget: 12,
+      liveSpeechFresh: true,
+      finalPacketFresh: true,
+      noCommitMs: 5000,
+      freshAdjUnlockNoCommitMs: 2100,
+      msSinceLastCommit: 1200,
+    });
+    expect(held.shouldUnlock).toBe(false);
+    expect(held.shouldHold).toBe(true);
+  });
+
   test('bridge trap escape allowed only when qualifying conditions hold', () => {
     const allowed = shouldAllowBridgeTrapEscape({
       bridgeTrapDetected: true,
