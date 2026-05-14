@@ -6949,10 +6949,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       String(args.bypassedBlockers || '').toLowerCase().includes('asr_reader_leash_hold') ||
       String(lastLiveSafeTerminalShieldSource || '').toLowerCase().includes('asr_reader_leash_hold') ||
       liveAsrVisualGovernorHardHold ||
-      leadStateForLeash === 'ahead' ||
-      leadStateForLeash === 'far_ahead' ||
-      speakableLeadForLeash >= 1 ||
-      renderedLeadForLeash >= 1 ||
       (
         liveAsrBridgeVisualComfortUntilMs > commitTs &&
         liveAsrBridgeVisualRecoveryDeltaLines > ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES
