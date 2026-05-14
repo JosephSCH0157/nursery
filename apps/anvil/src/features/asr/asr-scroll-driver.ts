@@ -66,6 +66,7 @@ import {
 } from './asr-commit-authority';
 import {
   classifyVisualLead,
+  shouldHoldBridgeCommitForVisualRecovery,
   selectBridgeVisualComfortCap,
   selectVisualFollowVelocity,
   shouldApplyNormalAdjacentCap,
@@ -206,6 +207,7 @@ const ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS = 2100;
 const ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_WINDOW_MS = 1500;
 const ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_MAX_DELTA_LINES = 3;
 const ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_PXPS = 16;
+const ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES = 4.0;
 const ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS = 14;
 const ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS = 700;
 const ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS = 1200;
@@ -3229,6 +3231,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let liveAsrBridgeVisualComfortUntilMs = 0;
   let liveAsrBridgeVisualComfortSourceBranch = '';
   let liveAsrBridgeVisualComfortProofSource = '';
+  let liveAsrBridgeVisualRecoveryDeltaLines = 0;
   let liveAsrNormalAdjacentFollowBoostUntilMs = 0;
   let liveAsrNormalAdjacentCapLastLogAt = 0;
   let liveAsrVisualSuppressionLoopCount = 0;
@@ -6917,6 +6920,45 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const bridgeBlockKey = `${current}->${equivalentBridgeTarget}:${lastFinalTranscriptRunGeneration ?? -1}`;
     const bridgeBlockRecord = liveBridgeDownstreamBlockUntilByKey.get(bridgeBlockKey);
     const bridgeBlockUntil = bridgeBlockRecord?.until || 0;
+    const speechFresh = !!args.speechRunningActual || !!args.finalPacketFresh;
+    const sourceBranchLowerForLeash = String(args.sourceBranch || '').toLowerCase();
+    const bridgeLikeCommitCandidateEarly =
+      requestedTarget > current + 1 ||
+      semanticTargetRaw > current + 1 ||
+      (args.skippedIgnorableLines || []).length > 0;
+    const adjacentCommitCandidateEarly = requestedTarget === current + 1 || semanticTargetRaw === current + 1;
+    const explicitNoMatchForLeashEarly =
+      String(args.reason || '').toLowerCase().includes('nomatch') ||
+      String(args.proofSource || '').toLowerCase().includes('nomatch') ||
+      sourceBranchLowerForLeash.includes('offscript');
+    const bridgeCommitDeltaLinesForLeashEarly = Math.max(
+      liveAsrBridgeVisualRecoveryDeltaLines,
+      Math.max(0, requestedTarget - current),
+    );
+    const bridgeComfortLeashDecisionEarly = shouldHoldBridgeCommitForVisualRecovery({
+      liveAsrFollowMode: getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed(),
+      now: commitTs,
+      comfortUntilMs: liveAsrBridgeVisualComfortUntilMs,
+      deltaLines: bridgeCommitDeltaLinesForLeashEarly,
+      safeDeltaLines: ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES,
+      bridgeLikeCommit: bridgeLikeCommitCandidateEarly,
+      adjacentCommit: adjacentCommitCandidateEarly,
+      speechFresh,
+    });
+    if (
+      bridgeComfortLeashDecisionEarly.shouldHold &&
+      !hardContradiction &&
+      !explicitNoMatchForLeashEarly &&
+      !sourceBranchLowerForLeash.includes('bridge_trap_escape')
+    ) {
+      const comfortWindowRemainingMs = Math.max(0, Math.round(liveAsrBridgeVisualComfortUntilMs - commitTs));
+      try {
+        console.warn(
+          `[ASR_BRIDGE_COMFORT_COMMIT_LEASH_HELD] current=${current} requestedTarget=${requestedTarget} target=${requestedTarget} semanticTarget=${semanticTargetRaw} visualTarget=${visualTarget} deltaRaw=${Math.max(0, semanticTargetRaw - current)} deltaLines=${formatLogScore(bridgeCommitDeltaLinesForLeashEarly)} comfortWindowRemainingMs=${comfortWindowRemainingMs} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(',')}] reason=bridge_comfort_visual_recovery_pending`,
+        );
+      } catch {}
+      return { accepted: false, target: current, thresholdMs: 900, actualDelayMs: 0, commitTs };
+    }
     const equivalentBridgeBlock = shouldBlockEquivalentBridgeCommit({
       current,
       requestedTarget,
@@ -6956,7 +6998,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     );
     let thresholdMs = repeatedHoldCount > 2 ? 600 : 900;
     const actualDelayMs = Math.max(0, Math.round(Number(args.noCommitMs ?? args.stallMs ?? 0)));
-    const speechFresh = !!args.speechRunningActual || !!args.finalPacketFresh;
     const hasAuthority = args.authority === 'proof' || args.authority === 'reconcile';
     const sourceBranchLowerEarly = String(args.sourceBranch || 'unknown').toLowerCase();
     const bypassedBlockersLowerEarly = String(args.bypassedBlockers || 'none').toLowerCase();
@@ -10204,6 +10245,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       const approxLinePx = 24;
       const deltaLinesApprox = err / approxLinePx;
+      liveAsrBridgeVisualRecoveryDeltaLines = Math.max(0, deltaLinesApprox);
       const bridgeComfortCapDecision = selectBridgeVisualComfortCap({
         liveAsrFollowMode,
         now: nowTs,

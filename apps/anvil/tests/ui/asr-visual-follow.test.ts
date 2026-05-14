@@ -1,5 +1,6 @@
 import {
   classifyVisualLead,
+  shouldHoldBridgeCommitForVisualRecovery,
   selectBridgeVisualComfortCap,
   selectVisualFollowVelocity,
   shouldApplyNormalAdjacentCap,
@@ -169,5 +170,43 @@ describe('ASR visual follow pure calculations', () => {
     });
     expect(noCapOutsideWindow.shouldApply).toBe(false);
     expect(noCapOutsideWindow.cappedPxps).toBe(35);
+  });
+
+  test('bridge commit comfort leash holds only bridge-like non-adjacent commits during active recovery window', () => {
+    const held = shouldHoldBridgeCommitForVisualRecovery({
+      liveAsrFollowMode: true,
+      now: 1000,
+      comfortUntilMs: 2000,
+      deltaLines: 8.0,
+      safeDeltaLines: 4.0,
+      bridgeLikeCommit: true,
+      adjacentCommit: false,
+      speechFresh: true,
+    });
+    expect(held.shouldHold).toBe(true);
+
+    const allowAdjacent = shouldHoldBridgeCommitForVisualRecovery({
+      liveAsrFollowMode: true,
+      now: 1000,
+      comfortUntilMs: 2000,
+      deltaLines: 8.0,
+      safeDeltaLines: 4.0,
+      bridgeLikeCommit: true,
+      adjacentCommit: true,
+      speechFresh: true,
+    });
+    expect(allowAdjacent.shouldHold).toBe(false);
+
+    const allowInsideBand = shouldHoldBridgeCommitForVisualRecovery({
+      liveAsrFollowMode: true,
+      now: 1000,
+      comfortUntilMs: 2000,
+      deltaLines: 2.5,
+      safeDeltaLines: 4.0,
+      bridgeLikeCommit: true,
+      adjacentCommit: false,
+      speechFresh: true,
+    });
+    expect(allowInsideBand.shouldHold).toBe(false);
   });
 });

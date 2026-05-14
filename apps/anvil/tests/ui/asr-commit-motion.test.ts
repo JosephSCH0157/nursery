@@ -1887,6 +1887,206 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('holds an additional bridge-like commit while bridge comfort recovery is active and outside safe band', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const script = document.getElementById('script') as HTMLElement;
+    script.innerHTML = `
+      <div class="line" data-line="0" style="line-height:24px;">Line 0.</div>
+      <div class="line" data-line="1" style="line-height:24px;">Line 1.</div>
+      <div class="line" data-line="2" style="line-height:24px;">Line 2.</div>
+      <div class="line" data-line="3" style="line-height:24px;">Line 3.</div>
+      <div class="line" data-line="4" style="line-height:24px;">Anchor.</div>
+      <div class="line" data-line="5" style="line-height:24px;">[beat]</div>
+      <div class="line" data-line="6" style="line-height:24px;"></div>
+      <div class="line" data-line="7" style="line-height:24px;">First bridge landing.</div>
+      <div class="line" data-line="8" style="line-height:24px;">[pause]</div>
+      <div class="line" data-line="9" style="line-height:24px;"></div>
+      <div class="line" data-line="10" style="line-height:24px;">Second bridge landing.</div>
+    `;
+    const metrics = Array.from({ length: 11 }, (_, idx) => ({ top: idx * 380, height: 236 }));
+    Array.from(script.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+      const metric = metrics[idx];
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: metric.top,
+          left: 0,
+          right: 800,
+          bottom: metric.top + metric.height,
+          width: 800,
+          height: metric.height,
+        }),
+      });
+    });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 8200 });
+    scroller.scrollTop = 0;
+
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', { detail: { speechRunningActual: true } }));
+    driver.setLastLineIndex(4);
+    await jest.advanceTimersByTimeAsync(5200);
+
+    driver.ingest('First bridge landing.', true, {
+      currentIdx: 4,
+      matchId: 'bridge-leash-prime',
+      match: { bestIdx: 7, bestSim: 0.9, topScores: [{ idx: 7, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(650);
+    const bridgeCurrent = Math.max(4, driver.getLastLineIndex());
+    const secondBridgeTarget = Math.min(10, bridgeCurrent + 3);
+
+    driver.ingest('Second bridge landing.', true, {
+      currentIdx: bridgeCurrent,
+      matchId: 'bridge-leash-stack-attempt',
+      match: { bestIdx: secondBridgeTarget, bestSim: 0.9, topScores: [{ idx: secondBridgeTarget, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(350);
+
+    const lines = warnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(lines.some((line) => line.includes('ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_CAP'))).toBe(true);
+    expect(driver.getLastLineIndex()).toBeLessThan(10);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('does not leash ordinary adjacent commit during active bridge comfort recovery', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const script = document.getElementById('script') as HTMLElement;
+    script.innerHTML = `
+      <div class="line" data-line="0" style="line-height:24px;">Line 0.</div>
+      <div class="line" data-line="1" style="line-height:24px;">Line 1.</div>
+      <div class="line" data-line="2" style="line-height:24px;">Line 2.</div>
+      <div class="line" data-line="3" style="line-height:24px;">Line 3.</div>
+      <div class="line" data-line="4" style="line-height:24px;">Anchor.</div>
+      <div class="line" data-line="5" style="line-height:24px;">[beat]</div>
+      <div class="line" data-line="6" style="line-height:24px;"></div>
+      <div class="line" data-line="7" style="line-height:24px;">First bridge landing.</div>
+      <div class="line" data-line="8" style="line-height:24px;">Adjacent follow line.</div>
+    `;
+    const metrics = Array.from({ length: 9 }, (_, idx) => ({ top: idx * 380, height: 236 }));
+    Array.from(script.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+      const metric = metrics[idx];
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: metric.top,
+          left: 0,
+          right: 800,
+          bottom: metric.top + metric.height,
+          width: 800,
+          height: metric.height,
+        }),
+      });
+    });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 6800 });
+    scroller.scrollTop = 0;
+
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', { detail: { speechRunningActual: true } }));
+    driver.setLastLineIndex(4);
+    await jest.advanceTimersByTimeAsync(5200);
+
+    driver.ingest('First bridge landing.', true, {
+      currentIdx: 4,
+      matchId: 'bridge-leash-adj-prime',
+      match: { bestIdx: 7, bestSim: 0.9, topScores: [{ idx: 7, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+
+    driver.ingest('Adjacent follow line.', true, {
+      currentIdx: 7,
+      matchId: 'bridge-leash-adj-step',
+      match: { bestIdx: 8, bestSim: 0.88, topScores: [{ idx: 8, score: 0.88 }] },
+    });
+    await jest.advanceTimersByTimeAsync(350);
+
+    const lines = warnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(
+      lines.some(
+        (line) => line.includes('ASR_BRIDGE_COMFORT_COMMIT_LEASH_HELD') && line.includes('requestedTarget=8'),
+      ),
+    ).toBe(false);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('releases bridge-like commit leash after comfort window expiry', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const script = document.getElementById('script') as HTMLElement;
+    script.innerHTML = `
+      <div class="line" data-line="0" style="line-height:24px;">Line 0.</div>
+      <div class="line" data-line="1" style="line-height:24px;">Line 1.</div>
+      <div class="line" data-line="2" style="line-height:24px;">Line 2.</div>
+      <div class="line" data-line="3" style="line-height:24px;">Line 3.</div>
+      <div class="line" data-line="4" style="line-height:24px;">Anchor.</div>
+      <div class="line" data-line="5" style="line-height:24px;">[beat]</div>
+      <div class="line" data-line="6" style="line-height:24px;"></div>
+      <div class="line" data-line="7" style="line-height:24px;">First bridge landing.</div>
+      <div class="line" data-line="8" style="line-height:24px;">[pause]</div>
+      <div class="line" data-line="9" style="line-height:24px;"></div>
+      <div class="line" data-line="10" style="line-height:24px;">Second bridge landing.</div>
+    `;
+    const metrics = Array.from({ length: 11 }, (_, idx) => ({ top: idx * 380, height: 236 }));
+    Array.from(script.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+      const metric = metrics[idx];
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: metric.top,
+          left: 0,
+          right: 800,
+          bottom: metric.top + metric.height,
+          width: 800,
+          height: metric.height,
+        }),
+      });
+    });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 8200 });
+    scroller.scrollTop = 0;
+
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', { detail: { speechRunningActual: true } }));
+    driver.setLastLineIndex(4);
+    await jest.advanceTimersByTimeAsync(5200);
+
+    driver.ingest('First bridge landing.', true, {
+      currentIdx: 4,
+      matchId: 'bridge-leash-release-prime',
+      match: { bestIdx: 7, bestSim: 0.9, topScores: [{ idx: 7, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(2100);
+
+    driver.ingest('Second bridge landing.', true, {
+      currentIdx: 7,
+      matchId: 'bridge-leash-release-step',
+      match: { bestIdx: 10, bestSim: 0.9, topScores: [{ idx: 10, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(500);
+
+    const lines = warnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(
+      lines.some(
+        (line) => line.includes('ASR_BRIDGE_COMFORT_COMMIT_LEASH_HELD') && line.includes('requestedTarget=10'),
+      ),
+    ).toBe(false);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('documents current harness limitation: 4 -> 7 cue/blank bridge progresses instead of reproducing visual-hold deadlock', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;

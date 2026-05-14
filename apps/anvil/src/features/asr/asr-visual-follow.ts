@@ -22,6 +22,10 @@ export type BridgeVisualComfortCapDecision = {
   cappedPxps: number;
 };
 
+export type BridgeCommitComfortLeashDecision = {
+  shouldHold: boolean;
+};
+
 export function classifyVisualLead(input: {
   speakableLead: number;
   renderedLead: number;
@@ -143,4 +147,22 @@ export function selectBridgeVisualComfortCap(input: {
     shouldApply: true,
     cappedPxps: Math.min(input.basePxps, input.bridgeComfortPxps),
   };
+}
+
+export function shouldHoldBridgeCommitForVisualRecovery(input: {
+  liveAsrFollowMode: boolean;
+  now: number;
+  comfortUntilMs: number;
+  deltaLines: number;
+  safeDeltaLines: number;
+  bridgeLikeCommit: boolean;
+  adjacentCommit: boolean;
+  speechFresh: boolean;
+}): BridgeCommitComfortLeashDecision {
+  if (!input.liveAsrFollowMode) return { shouldHold: false };
+  if (!input.bridgeLikeCommit || input.adjacentCommit) return { shouldHold: false };
+  if (!input.speechFresh) return { shouldHold: false };
+  if (input.comfortUntilMs <= input.now) return { shouldHold: false };
+  if (!(input.deltaLines > input.safeDeltaLines)) return { shouldHold: false };
+  return { shouldHold: true };
 }
