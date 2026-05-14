@@ -46,6 +46,12 @@ export type VisualEnvelopeLeashDecision = {
   reason: string;
 };
 
+export type VisualProjectionLeashDecision = {
+  shouldConstrain: boolean;
+  shouldReduceToAdjacent: boolean;
+  reason: string;
+};
+
 export function isRescueBudgetExhausted(input: {
   gatePassCore: boolean;
   rescueBypassLike: boolean;
@@ -347,4 +353,48 @@ export function shouldConstrainForVisualEnvelopeLeash(input: {
     return { shouldConstrain: true, shouldReduceToAdjacent: true, reason: 'visual_envelope_adjacent_only' };
   }
   return { shouldConstrain: true, shouldReduceToAdjacent: false, reason: 'visual_envelope_requires_adjacent_only' };
+}
+
+export function shouldConstrainForVisualProjectionLeash(input: {
+  current: number;
+  requestedTarget: number;
+  semanticTarget: number;
+  skippedIgnorableLinesCount: number;
+  carry: number;
+  sourceBranch?: string;
+  proofSource?: string;
+  authority?: string;
+  safeAdjacentProofAvailable: boolean;
+  offscriptOrNoMatch: boolean;
+  projectedDeltaLines: number;
+  maxSafeProjectedDeltaLines: number;
+}): VisualProjectionLeashDecision {
+  if (input.offscriptOrNoMatch) {
+    return { shouldConstrain: false, shouldReduceToAdjacent: false, reason: 'offscript_or_nomatch' };
+  }
+  if (!(Number.isFinite(input.projectedDeltaLines) && input.projectedDeltaLines > input.maxSafeProjectedDeltaLines)) {
+    return { shouldConstrain: false, shouldReduceToAdjacent: false, reason: 'projection_within_safe_envelope' };
+  }
+  const sourceBranch = String(input.sourceBranch || '').toLowerCase();
+  const bridgeOrRecoveryLike =
+    sourceBranch.includes('movement_authority_forced_reconcile_single_step') ||
+    sourceBranch.includes('movement_authority_starvation_reconcile_single_step') ||
+    sourceBranch.includes('movement_authority_reconcile') ||
+    sourceBranch.includes('movement_authority_pending_bridge_pressure') ||
+    sourceBranch.includes('movement_authority_pending_bridge_maintenance') ||
+    sourceBranch.includes('movement_authority_commit') ||
+    sourceBranch.includes('pending_bridge_pressure_commit') ||
+    sourceBranch.includes('pending_bridge_marker_maintenance');
+  const visuallyNonAdjacent =
+    input.requestedTarget > input.current + 1 ||
+    input.semanticTarget > input.current + 1 ||
+    input.skippedIgnorableLinesCount > 0 ||
+    input.carry > 1;
+  if (!(bridgeOrRecoveryLike && visuallyNonAdjacent)) {
+    return { shouldConstrain: false, shouldReduceToAdjacent: false, reason: 'not_bridge_recovery_non_adjacent' };
+  }
+  if (input.safeAdjacentProofAvailable) {
+    return { shouldConstrain: true, shouldReduceToAdjacent: true, reason: 'visual_projection_adjacent_only' };
+  }
+  return { shouldConstrain: true, shouldReduceToAdjacent: false, reason: 'visual_projection_requires_adjacent_only' };
 }

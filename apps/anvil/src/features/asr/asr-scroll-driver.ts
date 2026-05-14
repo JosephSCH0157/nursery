@@ -64,6 +64,7 @@ import {
   shouldAllowFreshAdjacentFastCommit,
   shouldAllowStartupShortMemoryAdjacentCommit,
   shouldConstrainForVisualEnvelopeLeash,
+  shouldConstrainForVisualProjectionLeash,
   shouldConstrainBridgeAuthorityForReaderLeash,
   shouldConstrainRecoveryForReaderLeash,
   shouldAllowReaderLeashBypass,
@@ -215,6 +216,7 @@ const ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_MAX_DELTA_LINES = 3;
 const ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_PXPS = 16;
 const ASR_LEAD_AWARE_PURSUIT_AHEAD_MAX_PXPS = 12;
 const ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES = 4.0;
+const ASR_VISUAL_PROJECTION_MAX_SAFE_DELTA_LINES = 4.0;
 const ASR_VISUAL_ENVELOPE_LEASH_ARM_DELTA_LINES = 4.0;
 const ASR_VISUAL_ENVELOPE_LEASH_CLEAR_DELTA_LINES = 3.0;
 const ASR_STARTUP_SHORT_MEMORY_MAX_COMMITS = 5;
@@ -7061,6 +7063,59 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
         return { accepted: false, target: current, thresholdMs: 900, actualDelayMs: 0, commitTs };
+      }
+    }
+    const scrollerForProjection = getScroller();
+    const visualReducedTargetForProjection = current + 1;
+    let projectedDeltaLines = Number.NaN;
+    if (scrollerForProjection) {
+      const semanticTelemetry = resolveLineVisualTelemetry(scrollerForProjection, semanticTargetRaw);
+      const semanticLineEl = getLineElementByIndex(scrollerForProjection, semanticTargetRaw);
+      const semanticLinePx = resolveMotionLineHeightPx(semanticLineEl);
+      if (
+        Number.isFinite(semanticTelemetry.distanceToMarkerPx) &&
+        Number.isFinite(semanticLinePx) &&
+        semanticLinePx > 0
+      ) {
+        projectedDeltaLines = Math.abs(semanticTelemetry.distanceToMarkerPx) / semanticLinePx;
+      }
+    }
+    if (Number.isFinite(projectedDeltaLines) && projectedDeltaLines >= 0) {
+      const visualProjectionLeashDecision = shouldConstrainForVisualProjectionLeash({
+        current,
+        requestedTarget,
+        semanticTarget: semanticTargetRaw,
+        skippedIgnorableLinesCount: (args.skippedIgnorableLines || []).length,
+        carry: bridgeAuthorityCarry,
+        sourceBranch: args.sourceBranch,
+        proofSource: args.proofSource,
+        authority: args.authority,
+        safeAdjacentProofAvailable: safeAdjacentProofAvailableForLeash,
+        offscriptOrNoMatch: explicitNoMatchForLeashEarly,
+        projectedDeltaLines,
+        maxSafeProjectedDeltaLines: ASR_VISUAL_PROJECTION_MAX_SAFE_DELTA_LINES,
+      });
+      if (visualProjectionLeashDecision.shouldConstrain) {
+        try {
+          console.warn(
+            `[ASR_VISUAL_PROJECTION_UNSAFE_PRECOMMIT] current=${current} requestedTarget=${requestedTarget} semanticTarget=${semanticTargetRaw} visualReducedTarget=${visualReducedTargetForProjection} projectedDeltaLines=${formatLogScore(projectedDeltaLines)} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=${visualProjectionLeashDecision.reason || 'visual_projection_requires_adjacent_only'}`,
+          );
+        } catch {}
+        if (visualProjectionLeashDecision.shouldReduceToAdjacent) {
+          const reducedTarget = Math.max(
+            current,
+            Math.min(Math.max(requestedTarget, semanticTargetRaw), visualReducedTargetForProjection),
+          );
+          try {
+            console.warn(
+              `[ASR_VISUAL_PROJECTION_REDUCED_TO_ADJACENT] current=${current} requestedTarget=${requestedTarget} target=${Math.max(requestedTarget, semanticTargetRaw)} semanticTarget=${semanticTargetRaw} visualReducedTarget=${visualReducedTargetForProjection} reducedTarget=${reducedTarget} projectedDeltaLines=${formatLogScore(projectedDeltaLines)} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=visual_projection_adjacent_only`,
+            );
+          } catch {}
+          requestedTarget = reducedTarget;
+          semanticTargetRaw = Math.min(semanticTargetRaw, reducedTarget);
+        } else {
+          return { accepted: false, target: current, thresholdMs: 900, actualDelayMs: 0, commitTs };
+        }
       }
     }
     const equivalentBridgeTarget = Math.max(requestedTarget, semanticTargetRaw);

@@ -3,6 +3,7 @@ import {
   shouldAllowFarAheadHardHoldAdjacentEscape,
   shouldAllowStartupShortMemoryAdjacentCommit,
   shouldConstrainForVisualEnvelopeLeash,
+  shouldConstrainForVisualProjectionLeash,
   shouldConstrainBridgeAuthorityForReaderLeash,
   shouldConstrainRecoveryForReaderLeash,
   shouldAllowBridgeTrapEscape,
@@ -540,5 +541,64 @@ describe('ASR commit authority predicates', () => {
     });
     expect(decision.shouldConstrain).toBe(false);
     expect(decision.reason).toBe('visual_envelope_leash_inactive');
+  });
+
+  test('visual projection leash holds unsafe bridge/recovery non-adjacent when no adjacent proof is available', () => {
+    const decision = shouldConstrainForVisualProjectionLeash({
+      current: 63,
+      requestedTarget: 66,
+      semanticTarget: 66,
+      skippedIgnorableLinesCount: 2,
+      carry: 3,
+      sourceBranch: 'movement_authority_forced_reconcile_single_step',
+      proofSource: 'strict_speakable_bridge_landing',
+      authority: 'movement_authority_reconcile',
+      safeAdjacentProofAvailable: false,
+      offscriptOrNoMatch: false,
+      projectedDeltaLines: 8.78,
+      maxSafeProjectedDeltaLines: 4.0,
+    });
+    expect(decision.shouldConstrain).toBe(true);
+    expect(decision.shouldReduceToAdjacent).toBe(false);
+    expect(decision.reason).toBe('visual_projection_requires_adjacent_only');
+  });
+
+  test('visual projection leash reduces unsafe bridge/recovery non-adjacent when adjacent proof exists', () => {
+    const decision = shouldConstrainForVisualProjectionLeash({
+      current: 63,
+      requestedTarget: 66,
+      semanticTarget: 66,
+      skippedIgnorableLinesCount: 2,
+      carry: 3,
+      sourceBranch: 'movement_authority_pending_bridge_pressure',
+      proofSource: 'strict_speakable_bridge_landing',
+      authority: 'movement_authority_reconcile',
+      safeAdjacentProofAvailable: true,
+      offscriptOrNoMatch: false,
+      projectedDeltaLines: 8.78,
+      maxSafeProjectedDeltaLines: 4.0,
+    });
+    expect(decision.shouldConstrain).toBe(true);
+    expect(decision.shouldReduceToAdjacent).toBe(true);
+    expect(decision.reason).toBe('visual_projection_adjacent_only');
+  });
+
+  test('visual projection leash is inert when projected delta is within safe envelope', () => {
+    const decision = shouldConstrainForVisualProjectionLeash({
+      current: 63,
+      requestedTarget: 66,
+      semanticTarget: 66,
+      skippedIgnorableLinesCount: 2,
+      carry: 3,
+      sourceBranch: 'movement_authority_forced_reconcile_single_step',
+      proofSource: 'strict_speakable_bridge_landing',
+      authority: 'movement_authority_reconcile',
+      safeAdjacentProofAvailable: true,
+      offscriptOrNoMatch: false,
+      projectedDeltaLines: 3.5,
+      maxSafeProjectedDeltaLines: 4.0,
+    });
+    expect(decision.shouldConstrain).toBe(false);
+    expect(decision.reason).toBe('projection_within_safe_envelope');
   });
 });
