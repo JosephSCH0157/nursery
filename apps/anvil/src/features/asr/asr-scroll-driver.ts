@@ -8344,6 +8344,38 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const landingLexical = evaluateLiveStrictBridgeLandingLexicalProof(safeTarget, now);
     const ok = !!landingLexical?.ok;
     if (!ok && landingLexical) {
+      const pendingBridgeState = pendingSpeakableBridgeState;
+      const pendingBridgeAgeMs =
+        pendingBridgeState?.createdAtMs != null
+          ? Math.max(0, now - pendingBridgeState.createdAtMs)
+          : Number.POSITIVE_INFINITY;
+      const pendingCompletionDecision =
+        pendingBridgeState &&
+        pendingBridgeState.semanticFrom === safeCursor &&
+        pendingBridgeState.semanticTarget === safeTarget
+          ? shouldAllowPendingBridgeCompletion({
+            currentLine: safeCursor,
+            pendingSemanticFrom: pendingBridgeState.semanticFrom,
+            pendingSemanticTarget: pendingBridgeState.semanticTarget,
+            pendingBridgeAgeMs,
+            speechRunningActual: asrRuntimeSpeechRunningActual,
+            runtimeSpeechFresh:
+              asrRuntimeSpeechRunningActual || hasRecentActualSpeech(now) || hasRecentVadSpeechNow(now),
+            lastFinalTranscriptFresh:
+              lastFinalTranscriptAt > 0 && now - lastFinalTranscriptAt <= 1800,
+            bridgeLandingProofOk: !!landingLexical.ok,
+            bridgeLandingProofFromStaleTranscriptOnly: !!landingLexical.fromStaleTranscriptOnly,
+            sourceBranch: pendingBridgeState.sourceBranch || 'unknown',
+          })
+          : null;
+      if (pendingCompletionDecision?.shouldAllow) {
+        try {
+          console.warn(
+            `[ASR_LIVE_BRIDGE_STALE_LANDING_HOLD_BYPASSED_BY_PENDING_COMPLETION] current=${safeCursor} target=${safeTarget} pendingBridgeAgeMs=${pendingBridgeAgeMs} proofSource=${pendingBridgeState?.proofSource || 'unknown'} sourceBranch=${pendingBridgeState?.sourceBranch || 'unknown'} reason=pending_bridge_completion_ready`,
+          );
+        } catch {}
+        return false;
+      }
       const finalPacketFresh =
         lastFinalTranscriptAt > 0 &&
         now - lastFinalTranscriptAt <= 1800;
