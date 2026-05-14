@@ -1,5 +1,6 @@
 import {
   classifyVisualLead,
+  selectBridgeVisualComfortCap,
   selectVisualFollowVelocity,
   shouldApplyNormalAdjacentCap,
   shouldHardHoldVisualFollow,
@@ -130,5 +131,43 @@ describe('ASR visual follow pure calculations', () => {
       deadbandPx: 32,
       allowCreep: true,
     })).toBe(true);
+  });
+
+  test('bridge comfort cap activates only during active comfort window and large delta', () => {
+    const capped = selectBridgeVisualComfortCap({
+      liveAsrFollowMode: true,
+      now: 1000,
+      comfortUntilMs: 2000,
+      deltaLines: 7.2,
+      basePxps: 35,
+      maxComfortDeltaLines: 3,
+      bridgeComfortPxps: 16,
+    });
+    expect(capped.shouldApply).toBe(true);
+    expect(capped.cappedPxps).toBe(16);
+
+    const noCapAdjacent = selectBridgeVisualComfortCap({
+      liveAsrFollowMode: true,
+      now: 1000,
+      comfortUntilMs: 2000,
+      deltaLines: 1.2,
+      basePxps: 35,
+      maxComfortDeltaLines: 3,
+      bridgeComfortPxps: 16,
+    });
+    expect(noCapAdjacent.shouldApply).toBe(false);
+    expect(noCapAdjacent.cappedPxps).toBe(35);
+
+    const noCapOutsideWindow = selectBridgeVisualComfortCap({
+      liveAsrFollowMode: true,
+      now: 2200,
+      comfortUntilMs: 2000,
+      deltaLines: 7.2,
+      basePxps: 35,
+      maxComfortDeltaLines: 3,
+      bridgeComfortPxps: 16,
+    });
+    expect(noCapOutsideWindow.shouldApply).toBe(false);
+    expect(noCapOutsideWindow.cappedPxps).toBe(35);
   });
 });

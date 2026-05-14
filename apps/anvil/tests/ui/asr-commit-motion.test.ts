@@ -1811,6 +1811,82 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('applies bridge visual follow comfort cap on large bridge commit overrun but not ordinary adjacent follow', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const script = document.getElementById('script') as HTMLElement;
+    script.innerHTML = `
+      <div class="line" data-line="0" style="line-height:24px;">Different climates.</div>
+      <div class="line" data-line="1" style="line-height:24px;">Different strengths.</div>
+      <div class="line" data-line="2" style="line-height:24px;">For decades, Florida wore the crown.</div>
+      <div class="line" data-line="3" style="line-height:24px;">Not because California was weak.</div>
+      <div class="line" data-line="4" style="line-height:24px;">But citrus did not die.</div>
+      <div class="line" data-line="5" style="line-height:24px;">[beat]</div>
+      <div class="line" data-line="6" style="line-height:24px;"></div>
+      <div class="line" data-line="7" style="line-height:24px;">Growers moved south.</div>
+      <div class="line" data-line="8" style="line-height:24px;">They replanted.</div>
+    `;
+    const metrics = Array.from({ length: 9 }, (_, idx) => ({
+      top: idx * 380,
+      height: 236,
+    }));
+    Array.from(script.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+      const metric = metrics[idx];
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: metric.top,
+          left: 0,
+          right: 800,
+          bottom: metric.top + metric.height,
+          width: 800,
+          height: metric.height,
+        }),
+      });
+    });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 6800 });
+    scroller.scrollTop = 0;
+
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+    driver.setLastLineIndex(4);
+    await jest.advanceTimersByTimeAsync(5200);
+
+    driver.ingest('Growers moved south.', true, {
+      currentIdx: 4,
+      matchId: 'bridge-comfort-cap-prime',
+      match: {
+        bestIdx: 7,
+        bestSim: 0.9,
+        topScores: [{ idx: 7, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(350);
+
+    driver.ingest('They replanted.', true, {
+      currentIdx: 7,
+      matchId: 'bridge-comfort-cap-adjacent',
+      match: {
+        bestIdx: 8,
+        bestSim: 0.86,
+        topScores: [{ idx: 8, score: 0.86 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(350);
+
+    const lines = warnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(lines.some((line) => line.includes('ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_CAP'))).toBe(true);
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(7);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('documents current harness limitation: 4 -> 7 cue/blank bridge progresses instead of reproducing visual-hold deadlock', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;

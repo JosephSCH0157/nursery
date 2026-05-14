@@ -17,6 +17,11 @@ export type VisualFollowVelocityDecision = {
   maxVelForErr: number;
 };
 
+export type BridgeVisualComfortCapDecision = {
+  shouldApply: boolean;
+  cappedPxps: number;
+};
+
 export function classifyVisualLead(input: {
   speakableLead: number;
   renderedLead: number;
@@ -114,4 +119,28 @@ export function selectVisualFollowVelocity(input: {
     maxVelForErr = Math.min(maxVelForErr, input.unlockSlowFollowPxps);
   }
   return { maxVelForErr };
+}
+
+export function selectBridgeVisualComfortCap(input: {
+  liveAsrFollowMode: boolean;
+  now: number;
+  comfortUntilMs: number;
+  deltaLines: number;
+  basePxps: number;
+  maxComfortDeltaLines: number;
+  bridgeComfortPxps: number;
+}): BridgeVisualComfortCapDecision {
+  if (!input.liveAsrFollowMode) {
+    return { shouldApply: false, cappedPxps: input.basePxps };
+  }
+  if (input.comfortUntilMs <= input.now) {
+    return { shouldApply: false, cappedPxps: input.basePxps };
+  }
+  if (!(input.deltaLines > input.maxComfortDeltaLines)) {
+    return { shouldApply: false, cappedPxps: input.basePxps };
+  }
+  return {
+    shouldApply: true,
+    cappedPxps: Math.min(input.basePxps, input.bridgeComfortPxps),
+  };
 }

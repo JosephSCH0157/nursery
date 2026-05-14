@@ -66,6 +66,7 @@ import {
 } from './asr-commit-authority';
 import {
   classifyVisualLead,
+  selectBridgeVisualComfortCap,
   selectVisualFollowVelocity,
   shouldApplyNormalAdjacentCap,
   shouldHardHoldVisualFollow,
@@ -202,6 +203,9 @@ const ASR_READER_PACE_NO_SPEECH_HOLD_MS = 2600;
 const ASR_VISUAL_SOFT_LEAD_START = 4;
 const ASR_VISUAL_HARD_LEAD_START = 6;
 const ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS = 2100;
+const ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_WINDOW_MS = 1500;
+const ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_MAX_DELTA_LINES = 3;
+const ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_PXPS = 16;
 const ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS = 14;
 const ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS = 700;
 const ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS = 1200;
@@ -3222,6 +3226,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let liveAsrVisualGovernorHardHold = false;
   let liveAsrVisualGovernorHardHoldSinceMs = 0;
   let liveAsrVisualUnlockSlowFollowUntilMs = 0;
+  let liveAsrBridgeVisualComfortUntilMs = 0;
+  let liveAsrBridgeVisualComfortSourceBranch = '';
+  let liveAsrBridgeVisualComfortProofSource = '';
   let liveAsrNormalAdjacentFollowBoostUntilMs = 0;
   let liveAsrNormalAdjacentCapLastLogAt = 0;
   let liveAsrVisualSuppressionLoopCount = 0;
@@ -10195,9 +10202,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           } catch {}
         }
       }
+      const approxLinePx = 24;
+      const deltaLinesApprox = err / approxLinePx;
+      const bridgeComfortCapDecision = selectBridgeVisualComfortCap({
+        liveAsrFollowMode,
+        now: nowTs,
+        comfortUntilMs: liveAsrBridgeVisualComfortUntilMs,
+        deltaLines: deltaLinesApprox,
+        basePxps: maxVelForErr,
+        maxComfortDeltaLines: ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_MAX_DELTA_LINES,
+        bridgeComfortPxps: ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_PXPS,
+      });
+      if (bridgeComfortCapDecision.shouldApply) {
+        const originalPxps = maxVelForErr;
+        maxVelForErr = bridgeComfortCapDecision.cappedPxps;
+        try {
+          console.warn(
+            `[ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_CAP] current=${lastLineIndex} target=${lastLineIndex} semanticTarget=${lastLineIndex} visualReducedTarget=${lastLineIndex} deltaLines=${deltaLinesApprox.toFixed(2)} originalPxps=${Math.round(originalPxps)} cappedPxps=${Math.round(maxVelForErr)} skippedIgnorableLines=unknown proofSource=${liveAsrBridgeVisualComfortProofSource || 'none'} sourceBranch=${liveAsrBridgeVisualComfortSourceBranch || 'unknown'} reason=bridge_commit_visual_overrun_protection`,
+          );
+        } catch {}
+      }
       try {
-        const approxLinePx = 24;
-        const deltaLinesApprox = err / approxLinePx;
         console.warn(
           `[ASR_VISUAL_FOLLOW_TARGET] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} desiredMarkerLineIdx=${lastLineIndex} targetScrollTop=${Math.round(pursuitTargetTop || current)} currentScrollTop=${Math.round(current)} deltaPx=${Math.round(err)} deltaLines=${deltaLinesApprox.toFixed(2)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=live_follow_tick`,
         );
@@ -16279,6 +16304,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const commitBeforeTop = currentTop;
       let commitAfterTop = currentTop;
       if (modeNow === 'asr') {
+        const bridgeVisualComfortProofSource = String(movementAuthorityProofSource || pendingProofSource || '').toLowerCase();
+        const bridgeVisualComfortSourceBranch = String(movementAuthoritySourceBranch || pendingSourceBranch || forceReason || '').toLowerCase();
+        const bridgeVisualComfortCommit =
+          terminalRenderedDelta > 1 &&
+          (
+            bridgeVisualComfortProofSource.includes('bridge') ||
+            bridgeVisualComfortProofSource.includes('cue') ||
+            bridgeVisualComfortProofSource.includes('adjacent_rescue') ||
+            bridgeVisualComfortSourceBranch.includes('bridge') ||
+            bridgeVisualComfortSourceBranch.includes('reconcile_single_step') ||
+            bridgeVisualComfortSourceBranch.includes('pending_speakable_bridge_complete')
+          );
+        if (bridgeVisualComfortCommit) {
+          liveAsrBridgeVisualComfortUntilMs = Date.now() + ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_WINDOW_MS;
+          liveAsrBridgeVisualComfortSourceBranch = String(movementAuthoritySourceBranch || pendingSourceBranch || forceReason || 'unknown');
+          liveAsrBridgeVisualComfortProofSource = String(movementAuthorityProofSource || pendingProofSource || 'none');
+        }
         const strongSnapDeltaLines = targetLine - prevLineIndex;
         const strongMarkerSnapRequiredSim = clamp(
           DEFAULT_STRONG_MARKER_SNAP_MIN_SIM +
