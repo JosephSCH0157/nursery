@@ -23,6 +23,12 @@ export type RecoveryReaderLeashDecision = {
   isBridgeLike: boolean;
 };
 
+export type StartupShortMemoryAdjacentDecision = {
+  considered: boolean;
+  allow: boolean;
+  reason: string;
+};
+
 export function isRescueBudgetExhausted(input: {
   gatePassCore: boolean;
   rescueBypassLike: boolean;
@@ -164,4 +170,45 @@ export function shouldConstrainRecoveryForReaderLeash(input: {
     isRecoveryAuthority,
     isBridgeLike,
   };
+}
+
+export function shouldAllowStartupShortMemoryAdjacentCommit(input: {
+  startupSettlingActive: boolean;
+  current: number;
+  requestedTarget: number;
+  semanticTarget: number;
+  skippedIgnorableLinesCount: number;
+  adjacentSim: number;
+  minAdjacentSim: number;
+  shortTailWordCount: number;
+  minShortTailWords: number;
+  readerLeashActive: boolean;
+  leadAhead: boolean;
+  speakableLead: number;
+  renderedLead: number;
+  offscriptOrNoMatch: boolean;
+  backwardContradiction: boolean;
+  starvationFutureTargetPath: boolean;
+}): StartupShortMemoryAdjacentDecision {
+  const considered = input.startupSettlingActive;
+  if (!considered) return { considered, allow: false, reason: 'startup_window_inactive' };
+  if (input.requestedTarget <= input.current) return { considered, allow: false, reason: 'no_forward_target' };
+  if (input.requestedTarget !== input.current + 1 || input.semanticTarget !== input.current + 1) {
+    return { considered, allow: false, reason: 'non_adjacent_target' };
+  }
+  if (input.skippedIgnorableLinesCount > 0) return { considered, allow: false, reason: 'bridge_like_target' };
+  if (input.readerLeashActive) return { considered, allow: false, reason: 'reader_leash_active' };
+  if (input.leadAhead || input.speakableLead >= 1 || input.renderedLead >= 1) {
+    return { considered, allow: false, reason: 'reader_crowded' };
+  }
+  if (input.offscriptOrNoMatch) return { considered, allow: false, reason: 'offscript_or_nomatch' };
+  if (input.backwardContradiction) return { considered, allow: false, reason: 'backward_contradiction' };
+  if (input.starvationFutureTargetPath) return { considered, allow: false, reason: 'future_reconcile_path' };
+  if (!(Number.isFinite(input.adjacentSim) && input.adjacentSim >= input.minAdjacentSim)) {
+    return { considered, allow: false, reason: 'adjacent_sim_too_low' };
+  }
+  if (input.shortTailWordCount < input.minShortTailWords) {
+    return { considered, allow: false, reason: 'short_tail_insufficient' };
+  }
+  return { considered, allow: true, reason: 'startup_settling_adjacent_only' };
 }

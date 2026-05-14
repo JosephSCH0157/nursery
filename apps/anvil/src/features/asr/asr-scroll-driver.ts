@@ -61,6 +61,7 @@ import {
   isRescueBudgetExhausted,
   shouldAllowBridgeTrapEscape,
   shouldAllowFreshAdjacentFastCommit,
+  shouldAllowStartupShortMemoryAdjacentCommit,
   shouldConstrainRecoveryForReaderLeash,
   shouldAllowReaderLeashBypass,
   shouldHoldForVisualGovernor,
@@ -211,6 +212,10 @@ const ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_MAX_DELTA_LINES = 3;
 const ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_PXPS = 16;
 const ASR_LEAD_AWARE_PURSUIT_AHEAD_MAX_PXPS = 12;
 const ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES = 4.0;
+const ASR_STARTUP_SHORT_MEMORY_MAX_COMMITS = 5;
+const ASR_STARTUP_SHORT_MEMORY_MAX_RUN_AGE_MS = 15000;
+const ASR_STARTUP_SHORT_MEMORY_MIN_ADJACENT_SIM = 0.52;
+const ASR_STARTUP_SHORT_MEMORY_MIN_TAIL_WORDS = 4;
 const ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS = 14;
 const ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS = 700;
 const ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS = 1200;
@@ -7318,6 +7323,64 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastFinalTranscriptAt > 0 && commitTs - lastFinalTranscriptAt <= 1800
     );
     const speechEvidenceFresh = runtimeFreshSpeech || finalPacketFresh;
+    const startupSettlingActive =
+      commitCount <= ASR_STARTUP_SHORT_MEMORY_MAX_COMMITS &&
+      runAgeMs <= ASR_STARTUP_SHORT_MEMORY_MAX_RUN_AGE_MS;
+    const shortTailWords = transcriptTailNorm
+      ? transcriptTailNorm.split(/\s+/).filter(Boolean).slice(-16)
+      : [];
+    const shortTailWordCount = shortTailWords.length;
+    const startupAdjacentEvidenceSim = Math.max(tailHitRatio, clueHitRatio);
+    const startupConfirmedSpoken = Math.max(0, lastStrongConfirmedSpokenLine);
+    const startupSpeakableLead = Math.max(0, countSpeakableDistanceAhead(startupConfirmedSpoken, current));
+    const startupRenderedLead = Math.max(0, current - startupConfirmedSpoken);
+    const startupLeadAhead = startupSpeakableLead >= 1 || startupRenderedLead >= 1;
+    const startupReaderLeashActive =
+      String(args.sourceBranch || '').toLowerCase().includes('reader_leash') ||
+      String(args.bypassedBlockers || '').toLowerCase().includes('asr_reader_leash_hold') ||
+      liveAsrVisualGovernorHardHold ||
+      (liveAsrBridgeVisualComfortUntilMs > commitTs && liveAsrBridgeVisualRecoveryDeltaLines > 3.5);
+    const startupOffscriptOrNoMatch =
+      String(args.proofSource || '').toLowerCase().includes('nomatch') ||
+      String(args.reason || '').toLowerCase().includes('nomatch') ||
+      String(args.sourceBranch || '').toLowerCase().includes('offscript');
+    const startupFutureReconcilePath =
+      String(args.sourceBranch || '').toLowerCase().includes('starvation_future_speech_reconcile') ||
+      String(args.reason || '').toLowerCase().includes('starvation_future_speech_reconcile');
+    const startupShortMemoryDecision = shouldAllowStartupShortMemoryAdjacentCommit({
+      startupSettlingActive,
+      current,
+      requestedTarget,
+      semanticTarget: semanticTargetRaw,
+      skippedIgnorableLinesCount: (args.skippedIgnorableLines || []).length,
+      adjacentSim: startupAdjacentEvidenceSim,
+      minAdjacentSim: ASR_STARTUP_SHORT_MEMORY_MIN_ADJACENT_SIM,
+      shortTailWordCount,
+      minShortTailWords: ASR_STARTUP_SHORT_MEMORY_MIN_TAIL_WORDS,
+      readerLeashActive: startupReaderLeashActive,
+      leadAhead: startupLeadAhead,
+      speakableLead: startupSpeakableLead,
+      renderedLead: startupRenderedLead,
+      offscriptOrNoMatch: startupOffscriptOrNoMatch,
+      backwardContradiction: hardContradiction,
+      starvationFutureTargetPath: startupFutureReconcilePath,
+    });
+    if (startupShortMemoryDecision.considered) {
+      if (startupShortMemoryDecision.allow) {
+        thresholdMs = Math.min(thresholdMs, ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS);
+        try {
+          console.warn(
+            `[ASR_STARTUP_SHORT_MEMORY_ADJACENT_COMMIT] current=${current} target=${requestedTarget} commitCount=${commitCount} runAgeMs=${runAgeMs} adjacentSim=${formatLogScore(startupAdjacentEvidenceSim)} shortTailWordCount=${shortTailWordCount} proofSource=startup_short_memory_adjacent reason=startup_settling_adjacent_only`,
+          );
+        } catch {}
+      } else if (requestedTarget > current) {
+        try {
+          console.warn(
+            `[ASR_STARTUP_SHORT_MEMORY_BLOCKED] current=${current} requestedTarget=${requestedTarget} reason=${startupShortMemoryDecision.reason} commitCount=${commitCount} runAgeMs=${runAgeMs} targetDelta=${Math.max(0, requestedTarget - current)} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(',')}] speakableLead=${startupSpeakableLead} renderedLead=${startupRenderedLead} offscriptNoMatch=${startupOffscriptOrNoMatch ? 1 : 0}`,
+          );
+        } catch {}
+      }
+    }
     const earlyBridgeHold =
       gatePassCore &&
       current <= 3 &&

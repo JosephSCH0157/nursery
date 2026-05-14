@@ -1,5 +1,6 @@
 import {
   isRescueBudgetExhausted,
+  shouldAllowStartupShortMemoryAdjacentCommit,
   shouldConstrainRecoveryForReaderLeash,
   shouldAllowBridgeTrapEscape,
   shouldAllowFreshAdjacentFastCommit,
@@ -226,5 +227,99 @@ describe('ASR commit authority predicates', () => {
     expect(decision.isRecoveryAuthority).toBe(true);
     expect(decision.isBridgeLike).toBe(true);
     expect(decision.shouldConstrain).toBe(false);
+  });
+
+  test('startup short-memory assist allows adjacent commit in startup window with local short-tail proof', () => {
+    const decision = shouldAllowStartupShortMemoryAdjacentCommit({
+      startupSettlingActive: true,
+      current: 2,
+      requestedTarget: 3,
+      semanticTarget: 3,
+      skippedIgnorableLinesCount: 0,
+      adjacentSim: 0.62,
+      minAdjacentSim: 0.52,
+      shortTailWordCount: 10,
+      minShortTailWords: 4,
+      readerLeashActive: false,
+      leadAhead: false,
+      speakableLead: 0,
+      renderedLead: 0,
+      offscriptOrNoMatch: false,
+      backwardContradiction: false,
+      starvationFutureTargetPath: false,
+    });
+    expect(decision.considered).toBe(true);
+    expect(decision.allow).toBe(true);
+    expect(decision.reason).toBe('startup_settling_adjacent_only');
+  });
+
+  test('startup short-memory assist blocks bridge-like/non-adjacent movement', () => {
+    const decision = shouldAllowStartupShortMemoryAdjacentCommit({
+      startupSettlingActive: true,
+      current: 3,
+      requestedTarget: 6,
+      semanticTarget: 6,
+      skippedIgnorableLinesCount: 2,
+      adjacentSim: 0.8,
+      minAdjacentSim: 0.52,
+      shortTailWordCount: 10,
+      minShortTailWords: 4,
+      readerLeashActive: false,
+      leadAhead: false,
+      speakableLead: 0,
+      renderedLead: 0,
+      offscriptOrNoMatch: false,
+      backwardContradiction: false,
+      starvationFutureTargetPath: false,
+    });
+    expect(decision.allow).toBe(false);
+    expect(decision.reason).toBe('non_adjacent_target');
+  });
+
+  test('startup short-memory assist blocks when reader is crowded', () => {
+    const decision = shouldAllowStartupShortMemoryAdjacentCommit({
+      startupSettlingActive: true,
+      current: 2,
+      requestedTarget: 3,
+      semanticTarget: 3,
+      skippedIgnorableLinesCount: 0,
+      adjacentSim: 0.8,
+      minAdjacentSim: 0.52,
+      shortTailWordCount: 10,
+      minShortTailWords: 4,
+      readerLeashActive: false,
+      leadAhead: true,
+      speakableLead: 1,
+      renderedLead: 1,
+      offscriptOrNoMatch: false,
+      backwardContradiction: false,
+      starvationFutureTargetPath: false,
+    });
+    expect(decision.allow).toBe(false);
+    expect(decision.reason).toBe('reader_crowded');
+  });
+
+  test('startup short-memory assist does not fire outside startup window', () => {
+    const decision = shouldAllowStartupShortMemoryAdjacentCommit({
+      startupSettlingActive: false,
+      current: 6,
+      requestedTarget: 7,
+      semanticTarget: 7,
+      skippedIgnorableLinesCount: 0,
+      adjacentSim: 0.8,
+      minAdjacentSim: 0.52,
+      shortTailWordCount: 10,
+      minShortTailWords: 4,
+      readerLeashActive: false,
+      leadAhead: false,
+      speakableLead: 0,
+      renderedLead: 0,
+      offscriptOrNoMatch: false,
+      backwardContradiction: false,
+      starvationFutureTargetPath: false,
+    });
+    expect(decision.considered).toBe(false);
+    expect(decision.allow).toBe(false);
+    expect(decision.reason).toBe('startup_window_inactive');
   });
 });
