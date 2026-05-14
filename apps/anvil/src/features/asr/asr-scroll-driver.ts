@@ -7010,6 +7010,32 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } catch {}
         reducedTarget = bridgeReducedTarget;
       } else {
+        const stagedBridgeRepeated = bridgeBlockUntil > commitTs;
+        const stagedBridgeOverdue = actualDelayMs >= thresholdMs;
+        const shouldSeedPendingBridgeCompletion =
+          speechFresh &&
+          equivalentBridgeTarget > current + 1 &&
+          !pendingSpeakableBridgeState &&
+          (stagedBridgeRepeated || stagedBridgeOverdue);
+        if (shouldSeedPendingBridgeCompletion) {
+          pendingSpeakableBridgeState = {
+            semanticFrom: current,
+            semanticTarget: equivalentBridgeTarget,
+            visualCurrent: visualReducedTarget,
+            visualReducedTarget,
+            skippedVisibleRows: Math.max(1, equivalentBridgeTarget - visualReducedTarget),
+            proofSource: String(args.proofSource || 'none'),
+            sourceBranch: String(args.sourceBranch || 'unknown'),
+            createdAtMs: commitTs,
+            runKey: String(lastFinalTranscriptRunKey || summaryRunKey || '').trim(),
+            runGeneration: lastFinalTranscriptRunGeneration ?? resolveActiveRunGeneration(),
+          };
+          try {
+            console.warn(
+              `[ASR_LIVE_BRIDGE_PENDING_COMPLETION_SEEDED] semanticFrom=${current} semanticTarget=${equivalentBridgeTarget} visualReducedTarget=${visualReducedTarget} repeated=${stagedBridgeRepeated ? 1 : 0} overdue=${stagedBridgeOverdue ? 1 : 0} noCommitMs=${actualDelayMs} thresholdMs=${thresholdMs} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=staged_visual_only_overdue`,
+            );
+          } catch {}
+        }
         if (riskyBridgeBypassSourceEarly) {
           liveBridgeDownstreamBlockUntilByKey.set(bridgeBlockKey, {
             until: commitTs + 2500,
