@@ -2,6 +2,7 @@ import {
   isRescueBudgetExhausted,
   shouldAllowFarAheadHardHoldAdjacentEscape,
   shouldAllowStartupShortMemoryAdjacentCommit,
+  shouldConstrainForVisualEnvelopeLeash,
   shouldConstrainBridgeAuthorityForReaderLeash,
   shouldConstrainRecoveryForReaderLeash,
   shouldAllowBridgeTrapEscape,
@@ -465,5 +466,79 @@ describe('ASR commit authority predicates', () => {
     expect(decision.shouldConstrain).toBe(false);
     expect(decision.shouldReduceToAdjacent).toBe(false);
     expect(decision.reason).toBe('reader_leash_inactive');
+  });
+
+  test('visual envelope leash holds bridge-like non-adjacent movement', () => {
+    const decision = shouldConstrainForVisualEnvelopeLeash({
+      visualEnvelopeLeashActive: true,
+      current: 205,
+      requestedTarget: 208,
+      semanticTarget: 208,
+      skippedIgnorableLinesCount: 2,
+      carry: 3,
+      sourceBranch: 'movement_authority_forced_reconcile_single_step',
+      proofSource: 'strict_speakable_bridge_landing',
+      authority: 'reconcile',
+      safeAdjacentProofAvailable: false,
+      offscriptOrNoMatch: false,
+    });
+    expect(decision.shouldConstrain).toBe(true);
+    expect(decision.shouldReduceToAdjacent).toBe(false);
+    expect(decision.reason).toBe('visual_envelope_requires_adjacent_only');
+  });
+
+  test('visual envelope leash reduces to adjacent when local adjacent proof exists', () => {
+    const decision = shouldConstrainForVisualEnvelopeLeash({
+      visualEnvelopeLeashActive: true,
+      current: 205,
+      requestedTarget: 208,
+      semanticTarget: 208,
+      skippedIgnorableLinesCount: 2,
+      carry: 3,
+      sourceBranch: 'pending_speakable_bridge_complete',
+      proofSource: 'strict_speakable_bridge_landing',
+      authority: 'reconcile',
+      safeAdjacentProofAvailable: true,
+      offscriptOrNoMatch: false,
+    });
+    expect(decision.shouldConstrain).toBe(true);
+    expect(decision.shouldReduceToAdjacent).toBe(true);
+    expect(decision.reason).toBe('visual_envelope_adjacent_only');
+  });
+
+  test('visual envelope leash does not constrain adjacent movement', () => {
+    const decision = shouldConstrainForVisualEnvelopeLeash({
+      visualEnvelopeLeashActive: true,
+      current: 205,
+      requestedTarget: 206,
+      semanticTarget: 206,
+      skippedIgnorableLinesCount: 0,
+      carry: 1,
+      sourceBranch: 'movement_authority_proof',
+      proofSource: 'live_strict_local_proof_ok',
+      authority: 'proof',
+      safeAdjacentProofAvailable: true,
+      offscriptOrNoMatch: false,
+    });
+    expect(decision.shouldConstrain).toBe(false);
+    expect(decision.shouldReduceToAdjacent).toBe(false);
+  });
+
+  test('visual envelope leash stays inert when inactive', () => {
+    const decision = shouldConstrainForVisualEnvelopeLeash({
+      visualEnvelopeLeashActive: false,
+      current: 205,
+      requestedTarget: 208,
+      semanticTarget: 208,
+      skippedIgnorableLinesCount: 2,
+      carry: 3,
+      sourceBranch: 'movement_authority_forced_reconcile_single_step',
+      proofSource: 'strict_speakable_bridge_landing',
+      authority: 'reconcile',
+      safeAdjacentProofAvailable: false,
+      offscriptOrNoMatch: false,
+    });
+    expect(decision.shouldConstrain).toBe(false);
+    expect(decision.reason).toBe('visual_envelope_leash_inactive');
   });
 });

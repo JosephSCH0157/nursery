@@ -1981,6 +1981,7 @@ describe('ASR live commit motion', () => {
 
     const lines = warnSpy.mock.calls.map((call) => String(call[0] || ''));
     expect(lines.some((line) => line.includes('ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_CAP'))).toBe(true);
+    expect(lines.some((line) => line.includes('ASR_VISUAL_ENVELOPE_LEASH_ARMED'))).toBe(true);
     expect(driver.getLastLineIndex()).toBeLessThan(10);
 
     warnSpy.mockRestore();
@@ -2046,6 +2047,11 @@ describe('ASR live commit motion', () => {
     expect(
       lines.some(
         (line) => line.includes('ASR_BRIDGE_COMFORT_COMMIT_LEASH_HELD') && line.includes('requestedTarget=8'),
+      ),
+    ).toBe(false);
+    expect(
+      lines.some(
+        (line) => line.includes('ASR_VISUAL_ENVELOPE_LEASH_HELD') && line.includes('requestedTarget=8'),
       ),
     ).toBe(false);
 

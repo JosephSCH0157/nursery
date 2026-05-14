@@ -63,6 +63,7 @@ import {
   shouldAllowBridgeTrapEscape,
   shouldAllowFreshAdjacentFastCommit,
   shouldAllowStartupShortMemoryAdjacentCommit,
+  shouldConstrainForVisualEnvelopeLeash,
   shouldConstrainBridgeAuthorityForReaderLeash,
   shouldConstrainRecoveryForReaderLeash,
   shouldAllowReaderLeashBypass,
@@ -214,6 +215,8 @@ const ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_MAX_DELTA_LINES = 3;
 const ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_PXPS = 16;
 const ASR_LEAD_AWARE_PURSUIT_AHEAD_MAX_PXPS = 12;
 const ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES = 4.0;
+const ASR_VISUAL_ENVELOPE_LEASH_ARM_DELTA_LINES = 4.0;
+const ASR_VISUAL_ENVELOPE_LEASH_CLEAR_DELTA_LINES = 3.0;
 const ASR_STARTUP_SHORT_MEMORY_MAX_COMMITS = 5;
 const ASR_STARTUP_SHORT_MEMORY_MAX_RUN_AGE_MS = 15000;
 const ASR_STARTUP_SHORT_MEMORY_MIN_ADJACENT_SIM = 0.52;
@@ -3243,6 +3246,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let liveAsrBridgeVisualComfortSourceBranch = '';
   let liveAsrBridgeVisualComfortProofSource = '';
   let liveAsrBridgeVisualRecoveryDeltaLines = 0;
+  let liveAsrVisualEnvelopeLeashActive = false;
+  let liveAsrVisualEnvelopeLeashDeltaLines = 0;
+  let liveAsrVisualEnvelopeLeashSourceBranch = '';
+  let liveAsrVisualEnvelopeLeashProofSource = '';
+  let liveAsrVisualEnvelopeLeashAuthority = '';
   let liveAsrNormalAdjacentFollowBoostUntilMs = 0;
   let liveAsrNormalAdjacentCapLastLogAt = 0;
   let liveAsrVisualSuppressionLoopCount = 0;
@@ -7022,6 +7030,39 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         return { accepted: false, target: current, thresholdMs: 900, actualDelayMs: 0, commitTs };
       }
     }
+    const visualEnvelopeLeashDecision = shouldConstrainForVisualEnvelopeLeash({
+      visualEnvelopeLeashActive: liveAsrVisualEnvelopeLeashActive,
+      current,
+      requestedTarget,
+      semanticTarget: semanticTargetRaw,
+      skippedIgnorableLinesCount: (args.skippedIgnorableLines || []).length,
+      carry: bridgeAuthorityCarry,
+      sourceBranch: args.sourceBranch,
+      proofSource: args.proofSource,
+      authority: args.authority,
+      safeAdjacentProofAvailable: safeAdjacentProofAvailableForLeash,
+      offscriptOrNoMatch: explicitNoMatchForLeashEarly,
+    });
+    if (visualEnvelopeLeashDecision.shouldConstrain) {
+      const envelopeDeltaLines = Math.max(0, liveAsrVisualEnvelopeLeashDeltaLines, liveAsrBridgeVisualRecoveryDeltaLines);
+      if (visualEnvelopeLeashDecision.shouldReduceToAdjacent) {
+        const reducedTarget = current + 1;
+        try {
+          console.warn(
+            `[ASR_VISUAL_ENVELOPE_REDUCED_TO_ADJACENT] current=${current} requestedTarget=${requestedTarget} reducedTarget=${reducedTarget} currentEnvelopeDeltaLines=${formatLogScore(envelopeDeltaLines)} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} authority=${args.authority || 'unknown'} reason=visual_envelope_adjacent_only`,
+          );
+        } catch {}
+        requestedTarget = reducedTarget;
+        semanticTargetRaw = Math.min(semanticTargetRaw, reducedTarget);
+      } else {
+        try {
+          console.warn(
+            `[ASR_VISUAL_ENVELOPE_LEASH_HELD] current=${current} requestedTarget=${requestedTarget} deltaRaw=${Math.max(0, requestedTarget - current)} currentEnvelopeDeltaLines=${formatLogScore(envelopeDeltaLines)} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} authority=${args.authority || 'unknown'} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(',')}] reason=visual_envelope_requires_adjacent_only`,
+          );
+        } catch {}
+        return { accepted: false, target: current, thresholdMs: 900, actualDelayMs: 0, commitTs };
+      }
+    }
     const equivalentBridgeTarget = Math.max(requestedTarget, semanticTargetRaw);
     const bridgeBlockKey = `${current}->${equivalentBridgeTarget}:${lastFinalTranscriptRunGeneration ?? -1}`;
     const bridgeBlockRecord = liveBridgeDownstreamBlockUntilByKey.get(bridgeBlockKey);
@@ -7649,6 +7690,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       } catch {}
     } else {
       liveAsrNormalAdjacentFollowBoostUntilMs = 0;
+    }
+    const committedSourceBranchLower = String(args.sourceBranch || '').toLowerCase();
+    const committedProofSourceLower = String(args.proofSource || '').toLowerCase();
+    const committedAuthorityLower = String(args.authority || '').toLowerCase();
+    const committedBridgeRecoveryLike =
+      reducedTarget > current + 1 ||
+      semanticTargetRaw > current + 1 ||
+      (args.skippedIgnorableLines || []).length > 0 ||
+      committedSourceBranchLower.includes('bridge') ||
+      committedSourceBranchLower.includes('reconcile') ||
+      committedSourceBranchLower.includes('pending_speakable_bridge_complete') ||
+      committedProofSourceLower.includes('bridge') ||
+      committedProofSourceLower.includes('strict_speakable_bridge_landing') ||
+      committedAuthorityLower.includes('reconcile');
+    if (committedBridgeRecoveryLike) {
+      liveAsrVisualEnvelopeLeashSourceBranch = String(args.sourceBranch || 'unknown');
+      liveAsrVisualEnvelopeLeashProofSource = String(args.proofSource || 'none');
+      liveAsrVisualEnvelopeLeashAuthority = String(args.authority || 'unknown');
     }
     return { accepted: true, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
   };
@@ -10473,6 +10532,47 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const approxLinePx = 24;
       const deltaLinesApprox = err / approxLinePx;
       liveAsrBridgeVisualRecoveryDeltaLines = Math.max(0, deltaLinesApprox);
+      const envelopeSourceBranch = String(
+        liveAsrVisualEnvelopeLeashSourceBranch || liveAsrBridgeVisualComfortSourceBranch || '',
+      ).toLowerCase();
+      const envelopeProofSource = String(
+        liveAsrVisualEnvelopeLeashProofSource || liveAsrBridgeVisualComfortProofSource || '',
+      ).toLowerCase();
+      const envelopeAuthority = String(liveAsrVisualEnvelopeLeashAuthority || '').toLowerCase();
+      const bridgeRecoveryEnvelopeContext =
+        envelopeSourceBranch.includes('bridge') ||
+        envelopeSourceBranch.includes('reconcile') ||
+        envelopeSourceBranch.includes('pending_speakable_bridge_complete') ||
+        envelopeProofSource.includes('bridge') ||
+        envelopeProofSource.includes('strict_speakable_bridge_landing') ||
+        envelopeAuthority.includes('reconcile');
+      if (
+        !liveAsrVisualEnvelopeLeashActive &&
+        bridgeRecoveryEnvelopeContext &&
+        deltaLinesApprox > ASR_VISUAL_ENVELOPE_LEASH_ARM_DELTA_LINES
+      ) {
+        liveAsrVisualEnvelopeLeashActive = true;
+        liveAsrVisualEnvelopeLeashDeltaLines = Math.max(0, deltaLinesApprox);
+        try {
+          console.warn(
+            `[ASR_VISUAL_ENVELOPE_LEASH_ARMED] current=${lastLineIndex} target=${lastLineIndex} semanticTarget=${lastLineIndex} visualTarget=${lastLineIndex} visualReducedTarget=${lastLineIndex} deltaLines=${deltaLinesApprox.toFixed(2)} deltaPx=${Math.round(err)} proofSource=${liveAsrVisualEnvelopeLeashProofSource || liveAsrBridgeVisualComfortProofSource || 'none'} sourceBranch=${liveAsrVisualEnvelopeLeashSourceBranch || liveAsrBridgeVisualComfortSourceBranch || 'unknown'} authority=${liveAsrVisualEnvelopeLeashAuthority || 'unknown'} reason=bridge_recovery_visual_envelope_exceeded`,
+          );
+        } catch {}
+      } else if (liveAsrVisualEnvelopeLeashActive) {
+        liveAsrVisualEnvelopeLeashDeltaLines = Math.max(0, deltaLinesApprox);
+        if (deltaLinesApprox <= ASR_VISUAL_ENVELOPE_LEASH_CLEAR_DELTA_LINES) {
+          try {
+            console.warn(
+              `[ASR_VISUAL_ENVELOPE_LEASH_CLEARED] current=${lastLineIndex} deltaLines=${deltaLinesApprox.toFixed(2)} reason=visual_envelope_recovered`,
+            );
+          } catch {}
+          liveAsrVisualEnvelopeLeashActive = false;
+          liveAsrVisualEnvelopeLeashDeltaLines = 0;
+          liveAsrVisualEnvelopeLeashSourceBranch = '';
+          liveAsrVisualEnvelopeLeashProofSource = '';
+          liveAsrVisualEnvelopeLeashAuthority = '';
+        }
+      }
       const bridgeComfortCapDecision = selectBridgeVisualComfortCap({
         liveAsrFollowMode,
         now: nowTs,

@@ -40,6 +40,12 @@ export type BridgeAuthorityReaderLeashDecision = {
   reason: string;
 };
 
+export type VisualEnvelopeLeashDecision = {
+  shouldConstrain: boolean;
+  shouldReduceToAdjacent: boolean;
+  reason: string;
+};
+
 export function isRescueBudgetExhausted(input: {
   gatePassCore: boolean;
   rescueBypassLike: boolean;
@@ -297,4 +303,48 @@ export function shouldConstrainBridgeAuthorityForReaderLeash(input: {
     return { shouldConstrain: true, shouldReduceToAdjacent: true, reason: 'visual_adjacent_only_while_leashed' };
   }
   return { shouldConstrain: true, shouldReduceToAdjacent: false, reason: 'bridge_authority_must_respect_reader_leash' };
+}
+
+export function shouldConstrainForVisualEnvelopeLeash(input: {
+  visualEnvelopeLeashActive: boolean;
+  current: number;
+  requestedTarget: number;
+  semanticTarget: number;
+  skippedIgnorableLinesCount: number;
+  carry: number;
+  sourceBranch?: string;
+  proofSource?: string;
+  authority?: string;
+  safeAdjacentProofAvailable: boolean;
+  offscriptOrNoMatch: boolean;
+}): VisualEnvelopeLeashDecision {
+  if (!input.visualEnvelopeLeashActive) {
+    return { shouldConstrain: false, shouldReduceToAdjacent: false, reason: 'visual_envelope_leash_inactive' };
+  }
+  if (input.offscriptOrNoMatch) {
+    return { shouldConstrain: false, shouldReduceToAdjacent: false, reason: 'offscript_or_nomatch' };
+  }
+  const sourceBranch = String(input.sourceBranch || '').toLowerCase();
+  const proofSource = String(input.proofSource || '').toLowerCase();
+  const authority = String(input.authority || '').toLowerCase();
+  const bridgeOrRecoveryLike =
+    sourceBranch.includes('bridge') ||
+    sourceBranch.includes('reconcile') ||
+    sourceBranch.includes('pending_speakable_bridge_complete') ||
+    proofSource.includes('bridge') ||
+    proofSource.includes('cue_exit') ||
+    proofSource.includes('strict_speakable_bridge_landing') ||
+    authority.includes('reconcile');
+  const visuallyNonAdjacent =
+    input.requestedTarget > input.current + 1 ||
+    input.semanticTarget > input.current + 1 ||
+    input.skippedIgnorableLinesCount > 0 ||
+    input.carry > 1;
+  if (!(bridgeOrRecoveryLike && visuallyNonAdjacent)) {
+    return { shouldConstrain: false, shouldReduceToAdjacent: false, reason: 'not_bridge_like_or_not_visual_lunge' };
+  }
+  if (input.safeAdjacentProofAvailable) {
+    return { shouldConstrain: true, shouldReduceToAdjacent: true, reason: 'visual_envelope_adjacent_only' };
+  }
+  return { shouldConstrain: true, shouldReduceToAdjacent: false, reason: 'visual_envelope_requires_adjacent_only' };
 }
