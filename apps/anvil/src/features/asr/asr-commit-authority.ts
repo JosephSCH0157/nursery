@@ -17,6 +17,12 @@ export type BridgeTrapEscapeDecision = {
   reason?: string;
 };
 
+export type RecoveryReaderLeashDecision = {
+  shouldConstrain: boolean;
+  isRecoveryAuthority: boolean;
+  isBridgeLike: boolean;
+};
+
 export function isRescueBudgetExhausted(input: {
   gatePassCore: boolean;
   rescueBypassLike: boolean;
@@ -120,5 +126,42 @@ export function shouldAllowBridgeTrapEscape(input: {
   return {
     shouldAllow,
     reason: shouldAllow ? 'bridge_trap_escape' : undefined,
+  };
+}
+
+export function shouldConstrainRecoveryForReaderLeash(input: {
+  sourceBranch?: string;
+  proofSource?: string;
+  reason?: string;
+  bypassedBlockers?: string;
+  readerLeashActive: boolean;
+  current: number;
+  requestedTarget: number;
+  semanticTarget: number;
+  skippedIgnorableLinesCount: number;
+}): RecoveryReaderLeashDecision {
+  const sourceBranch = String(input.sourceBranch || '').toLowerCase();
+  const proofSource = String(input.proofSource || '').toLowerCase();
+  const reason = String(input.reason || '').toLowerCase();
+  const bypassedBlockers = String(input.bypassedBlockers || '').toLowerCase();
+  const isRecoveryAuthority =
+    sourceBranch.includes('stall_recovery') ||
+    sourceBranch.includes('sustained_read') ||
+    sourceBranch.includes('starvation') ||
+    sourceBranch.includes('movement_authority_reconcile') ||
+    sourceBranch.includes('movement_authority_forced_reconcile_single_step') ||
+    sourceBranch.includes('movement_authority_starvation_reconcile_single_step') ||
+    reason.includes('stall_recovery') ||
+    reason.includes('starvation') ||
+    proofSource.includes('starvation') ||
+    bypassedBlockers.includes('reader_leash');
+  const isBridgeLike =
+    input.requestedTarget > input.current + 1 ||
+    input.semanticTarget > input.current + 1 ||
+    input.skippedIgnorableLinesCount > 0;
+  return {
+    shouldConstrain: input.readerLeashActive && isRecoveryAuthority && isBridgeLike,
+    isRecoveryAuthority,
+    isBridgeLike,
   };
 }

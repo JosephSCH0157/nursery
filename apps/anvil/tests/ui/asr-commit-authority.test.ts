@@ -1,5 +1,6 @@
 import {
   isRescueBudgetExhausted,
+  shouldConstrainRecoveryForReaderLeash,
   shouldAllowBridgeTrapEscape,
   shouldAllowFreshAdjacentFastCommit,
   shouldAllowReaderLeashBypass,
@@ -174,5 +175,56 @@ describe('ASR commit authority predicates', () => {
     const before = { ...leashInput };
     shouldAllowReaderLeashBypass(leashInput);
     expect(leashInput).toEqual(before);
+  });
+
+  test('recovery reader leash constraint engages for bridge-like recovery authority under active leash', () => {
+    const decision = shouldConstrainRecoveryForReaderLeash({
+      sourceBranch: 'movement_authority_reconcile',
+      proofSource: 'starvation_forward_evidence',
+      reason: 'stall_recovery_override',
+      bypassedBlockers: 'asr_reader_leash_hold',
+      readerLeashActive: true,
+      current: 27,
+      requestedTarget: 30,
+      semanticTarget: 30,
+      skippedIgnorableLinesCount: 2,
+    });
+    expect(decision.isRecoveryAuthority).toBe(true);
+    expect(decision.isBridgeLike).toBe(true);
+    expect(decision.shouldConstrain).toBe(true);
+  });
+
+  test('recovery reader leash constraint does not engage for adjacent recovery steps', () => {
+    const decision = shouldConstrainRecoveryForReaderLeash({
+      sourceBranch: 'movement_authority_reconcile',
+      proofSource: 'starvation_forward_evidence',
+      reason: 'stall_recovery_override',
+      bypassedBlockers: 'asr_reader_leash_hold',
+      readerLeashActive: true,
+      current: 30,
+      requestedTarget: 31,
+      semanticTarget: 31,
+      skippedIgnorableLinesCount: 0,
+    });
+    expect(decision.isRecoveryAuthority).toBe(true);
+    expect(decision.isBridgeLike).toBe(false);
+    expect(decision.shouldConstrain).toBe(false);
+  });
+
+  test('recovery reader leash constraint does not engage when leash is inactive', () => {
+    const decision = shouldConstrainRecoveryForReaderLeash({
+      sourceBranch: 'movement_authority_reconcile',
+      proofSource: 'starvation_forward_evidence',
+      reason: 'stall_recovery_override',
+      bypassedBlockers: 'none',
+      readerLeashActive: false,
+      current: 27,
+      requestedTarget: 30,
+      semanticTarget: 30,
+      skippedIgnorableLinesCount: 2,
+    });
+    expect(decision.isRecoveryAuthority).toBe(true);
+    expect(decision.isBridgeLike).toBe(true);
+    expect(decision.shouldConstrain).toBe(false);
   });
 });

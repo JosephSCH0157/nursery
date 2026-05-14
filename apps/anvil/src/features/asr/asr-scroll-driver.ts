@@ -61,6 +61,7 @@ import {
   isRescueBudgetExhausted,
   shouldAllowBridgeTrapEscape,
   shouldAllowFreshAdjacentFastCommit,
+  shouldConstrainRecoveryForReaderLeash,
   shouldAllowReaderLeashBypass,
   shouldHoldForVisualGovernor,
 } from './asr-commit-authority';
@@ -6914,10 +6915,51 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   }): { accepted: boolean; target: number; thresholdMs: number; actualDelayMs: number; commitTs: number } => {
     const commitTs = Date.now();
     const current = Math.max(0, Math.floor(Number(args.current) || 0));
-    const requestedTarget = Math.max(current, Math.floor(Number(args.requestedTarget) || current));
-    const semanticTargetRaw = Math.max(current, Math.floor(Number(args.semanticTarget) || current));
+    let requestedTarget = Math.max(current, Math.floor(Number(args.requestedTarget) || current));
+    let semanticTargetRaw = Math.max(current, Math.floor(Number(args.semanticTarget) || current));
     const visualTarget = Math.max(current, Math.floor(Number(args.visualTarget ?? semanticTargetRaw) || semanticTargetRaw));
     const hardContradiction = !!args.hardContradiction;
+    const readerLeashPressureActive =
+      String(args.sourceBranch || '').toLowerCase().includes('reader_leash') ||
+      String(args.bypassedBlockers || '').toLowerCase().includes('asr_reader_leash_hold') ||
+      String(lastLiveSafeTerminalShieldSource || '').toLowerCase().includes('asr_reader_leash_hold') ||
+      liveAsrVisualGovernorHardHold ||
+      (
+        liveAsrBridgeVisualComfortUntilMs > commitTs &&
+        liveAsrBridgeVisualRecoveryDeltaLines > ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES
+      );
+    const recoveryLeashDecision = shouldConstrainRecoveryForReaderLeash({
+      sourceBranch: args.sourceBranch,
+      proofSource: args.proofSource,
+      reason: args.reason,
+      bypassedBlockers: args.bypassedBlockers,
+      readerLeashActive: readerLeashPressureActive,
+      current,
+      requestedTarget,
+      semanticTarget: semanticTargetRaw,
+      skippedIgnorableLinesCount: (args.skippedIgnorableLines || []).length,
+    });
+    if (recoveryLeashDecision.shouldConstrain) {
+      const adjacentTarget = resolveForwardSpeakableTarget(current, Math.max(requestedTarget, semanticTargetRaw), 1);
+      if (adjacentTarget > current) {
+        if (adjacentTarget < requestedTarget || adjacentTarget < semanticTargetRaw) {
+          try {
+            console.warn(
+              `[ASR_RECOVERY_READER_LEASH_REDUCED_TO_ADJACENT] current=${current} requestedTarget=${requestedTarget} reducedTarget=${adjacentTarget} deltaRaw=${Math.max(0, requestedTarget - current)} authority=${args.authority || 'unknown'} sourceBranch=${args.sourceBranch || 'unknown'} proofSource=${args.proofSource || 'none'} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(',')}] visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} reason=recovery_adjacent_only_while_leashed`,
+            );
+          } catch {}
+        }
+        requestedTarget = adjacentTarget;
+        semanticTargetRaw = Math.min(semanticTargetRaw, adjacentTarget);
+      } else {
+        try {
+          console.warn(
+            `[ASR_RECOVERY_READER_LEASH_HELD] current=${current} requestedTarget=${requestedTarget} target=${semanticTargetRaw} deltaRaw=${Math.max(0, requestedTarget - current)} authority=${args.authority || 'unknown'} sourceBranch=${args.sourceBranch || 'unknown'} proofSource=${args.proofSource || 'none'} stallMs=${Math.max(0, Math.round(Number(args.stallMs ?? 0)))} starvationMs=${Math.max(0, Math.round(Number(args.noCommitMs ?? 0)))} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(',')}] visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} reason=recovery_must_respect_reader_leash`,
+          );
+        } catch {}
+        return { accepted: false, target: current, thresholdMs: 900, actualDelayMs: 0, commitTs };
+      }
+    }
     const equivalentBridgeTarget = Math.max(requestedTarget, semanticTargetRaw);
     const bridgeBlockKey = `${current}->${equivalentBridgeTarget}:${lastFinalTranscriptRunGeneration ?? -1}`;
     const bridgeBlockRecord = liveBridgeDownstreamBlockUntilByKey.get(bridgeBlockKey);
