@@ -33287,8 +33287,712 @@ var init_tuning_store = __esm({
   }
 });
 
+// src/features/asr/asr-diagnostics.ts
+function buildAsrBackendHeartbeatDiagnostic(args) {
+  return `[ASR_BACKEND_HEARTBEAT] live=1 asrArmed=1 recognizerAttached=${args.recognizerAttached ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} activeReadMode=${args.activeReadMode ? 1 : 0} transcriptAgeMs=${Number.isFinite(args.transcriptAgeMs) ? Math.round(args.transcriptAgeMs) : -1} audioAgeMs=${Number.isFinite(args.audioAgeMs) ? Math.round(args.audioAgeMs) : -1} restartedInWindow=${args.backendRestartedInWindow ? 1 : 0}`;
+}
+function buildAsrBackendTranscriptStaleDiagnostic(args) {
+  return `[ASR_BACKEND_TRANSCRIPT_STALE] ageMs=${Math.round(args.ageMs)} thresholdMs=${args.thresholdMs} recognizerAttached=${args.recognizerAttached ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} activeReadMode=${args.activeReadMode ? 1 : 0}`;
+}
+function buildAsrAudioChunkStaleDiagnostic(args) {
+  return `[ASR_AUDIO_CHUNK_STALE] ageMs=${Math.round(args.ageMs)} thresholdMs=${args.thresholdMs} recognizerAttached=${args.recognizerAttached ? 1 : 0} speechActive=${args.speechActive ? 1 : 0}`;
+}
+function buildAsrBackendRestartRequestedDiagnostic(args) {
+  if (args.skipped === 0) {
+    return `[ASR_BACKEND_RESTART_REQUESTED] skipped=0 reason=${args.reason} transcriptAgeMs=${Math.round(args.transcriptAgeMs)} audioAgeMs=${Math.round(args.audioAgeMs)} current=${args.current}`;
+  }
+  if (args.skipReason === "already_restarted_in_window") {
+    return `[ASR_BACKEND_RESTART_REQUESTED] skipped=1 reason=${args.reason} skipReason=already_restarted_in_window windowMs=${args.windowMs} transcriptAgeMs=${Math.round(args.transcriptAgeMs)} audioAgeMs=${Math.round(args.audioAgeMs)}`;
+  }
+  return `[ASR_BACKEND_RESTART_REQUESTED] skipped=1 reason=${args.reason} skipReason=recognizer_controls_unavailable transcriptAgeMs=${Math.round(args.transcriptAgeMs)} audioAgeMs=${Math.round(args.audioAgeMs)}`;
+}
+function buildAsrBackendRestartCompletedDiagnostic(args) {
+  return `[ASR_BACKEND_RESTART_COMPLETED] reason=${args.reason} current=${args.current} commitIndex=${args.commitIndex} scrollTop=${Math.round(args.scrollTop || 0)}`;
+}
+function buildAsrBridgeTrapDetectedDiagnostic(args) {
+  return `[ASR_BRIDGE_TRAP_DETECTED] current=${args.current} bestIdx=${args.bestIdx} requestedTarget=${args.requestedTarget} adjacentTarget=${args.adjacentTarget} skipped=${args.skipped} repeatedHoldCount=${args.repeatedHoldCount} noCommitMs=${Math.round(args.noCommitMs)} blockerReason=bridge_or_non_adjacent_guard proofSource=${args.proofSource} textPreview="${args.textPreview}"`;
+}
+function buildProofOwnedPrimaryCommitGuardBaseParts(args) {
+  return [
+    `current=${args.current}`,
+    `target=${args.target}`,
+    `bestIdx=${args.bestIdx}`,
+    `proofSource=${args.proofSource}`,
+    args.skippedIgnorableLines.length ? `skippedIgnorableLines=[${args.skippedIgnorableLines.join(",")}]` : "skippedIgnorableLines=[]"
+  ];
+}
+function buildRecoverySkipNonAdjacentTargetGuardBaseParts(args) {
+  return [
+    `current=${args.current}`,
+    `requested=${args.requested}`,
+    `adjacentTarget=${args.adjacentTarget}`,
+    `sourceBranch=${args.sourceBranch}`
+  ];
+}
+function buildAsrHudNoTargetDetail(args) {
+  return {
+    line: args.line,
+    delta: args.delta,
+    sim: Number.isFinite(args.simRaw) ? Number(args.simRaw.toFixed(3)) : args.simRaw,
+    reasons: args.reasons,
+    domLines: args.domLines,
+    marker: args.marker,
+    retry: args.retry,
+    matchId: args.matchId
+  };
+}
+var init_asr_diagnostics = __esm({
+  "src/features/asr/asr-diagnostics.ts"() {
+    "use strict";
+  }
+});
+
+// src/features/asr/asr-line-classification.ts
+function normalizeComparableText(value) {
+  return normTokens(String(value || "")).join(" ");
+}
+function classifySkippableLineForCueBridge(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "blank";
+  if (SPEAKER_TAG_ONLY_RE.test(raw)) return "speaker";
+  if (NOTE_TAG_ONLY_RE.test(raw) || NOTE_INLINE_BLOCK_RE.test(raw) || /\[\s*\/?\s*note\b/i.test(raw)) return "note";
+  const normalized = normalizeComparableText(raw);
+  if (!normalized) return "blank";
+  if (CUE_LINE_BRACKET_RE.test(raw)) return "cue";
+  const tokenCount = normalized.split(" ").filter(Boolean).length;
+  return tokenCount <= 4 && CUE_LINE_WORD_RE.test(normalized) ? "cue" : null;
+}
+function classifyStrictSkippableLineForCueBridge(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "blank";
+  if (STRUCTURAL_EMPTY_LINE_RE.test(raw)) return "cue";
+  if (SPEAKER_TAG_ONLY_RE.test(raw)) return "speaker";
+  if (NOTE_TAG_ONLY_RE.test(raw) || NOTE_INLINE_BLOCK_RE.test(raw) || /\[\s*\/?\s*note\b/i.test(raw)) return "note";
+  if (CUE_LINE_BRACKET_RE.test(raw)) return "cue";
+  const normalized = normalizeComparableText(raw);
+  if (!normalized) return "blank";
+  const tokenCount = normalized.split(" ").filter(Boolean).length;
+  if (tokenCount <= 3 && CUE_LINE_WORD_RE.test(normalized)) return "cue";
+  return null;
+}
+function classifyAsrLine(text) {
+  return {
+    skippableReason: classifySkippableLineForCueBridge(text),
+    strictSkippableReason: classifyStrictSkippableLineForCueBridge(text)
+  };
+}
+function isAsrStrictSkippableLine(text) {
+  return classifyStrictSkippableLineForCueBridge(text) != null;
+}
+function resolveForwardSpeakableTarget(input) {
+  const safeCurrent = Math.max(0, Math.floor(Number(input.currentLine) || 0));
+  const safeRequested = Math.max(safeCurrent, Math.floor(Number(input.requestedTarget) || safeCurrent));
+  const stepsCap = Math.max(1, Math.floor(Number(input.maxSpeakableSteps) || 1));
+  const totalLines = Number.isFinite(input.totalLines) ? Math.max(0, Math.floor(input.totalLines)) : 0;
+  const physicalCapped = totalLines > 0 ? Math.min(Math.max(safeRequested, safeCurrent), Math.max(0, totalLines - 1)) : safeRequested;
+  let cursor = safeCurrent;
+  let steps = 0;
+  while (steps < stepsCap) {
+    const next = findNextSpeakableLineIndex({
+      startIndex: Math.max(0, cursor + 1),
+      maxLookahead: totalLines,
+      totalLines,
+      getLineText: input.getLineText
+    });
+    if (!Number.isFinite(next) || next <= cursor) break;
+    const safeNext = Math.max(0, Math.floor(next));
+    if (safeNext > physicalCapped) break;
+    cursor = safeNext;
+    steps += 1;
+    if (cursor >= physicalCapped) break;
+  }
+  if (cursor > safeCurrent) return cursor;
+  return Math.min(physicalCapped, safeCurrent + stepsCap);
+}
+function countSpeakableDistanceAhead(input) {
+  const safeFrom = Number.isFinite(input.fromLine) ? Math.floor(input.fromLine) : -1;
+  const safeTarget = Number.isFinite(input.targetLine) ? Math.max(0, Math.floor(input.targetLine)) : -1;
+  if (safeTarget <= safeFrom) return 0;
+  const total = Number.isFinite(input.totalLines) ? Math.max(0, Math.floor(input.totalLines)) : 0;
+  if (total <= 0) {
+    return Math.max(0, safeTarget - Math.max(0, safeFrom));
+  }
+  let steps = 0;
+  let cursor = safeFrom;
+  const maxIterations = Math.max(1, total + 4);
+  for (let i = 0; i < maxIterations; i += 1) {
+    const next = findNextSpeakableLineIndex({
+      startIndex: Math.max(0, cursor + 1),
+      maxLookahead: total,
+      totalLines: total,
+      getLineText: input.getLineText
+    });
+    if (next == null) break;
+    steps += 1;
+    if (next >= safeTarget) return steps;
+    cursor = next;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+function collectSkippedAsrRows(input) {
+  const current2 = Number.isFinite(input.currentLine) ? Math.floor(input.currentLine) : -1;
+  const target = Number.isFinite(input.targetLine) ? Math.floor(input.targetLine) : -1;
+  const skippedReasons = [];
+  if (target <= current2 + 1) {
+    return { skippedReasons, skippedNonIgnorable: false };
+  }
+  const strict = input.strict !== false;
+  for (let idx = current2 + 1; idx < target; idx += 1) {
+    const text = input.getLineText(idx);
+    const reason = strict ? classifyStrictSkippableLineForCueBridge(text) : classifySkippableLineForCueBridge(text);
+    if (reason == null) {
+      return { skippedReasons, skippedNonIgnorable: true };
+    }
+    skippedReasons.push(reason);
+  }
+  return { skippedReasons, skippedNonIgnorable: false };
+}
+function findNextSpeakableLineIndex(input) {
+  const total = Number.isFinite(input.totalLines) ? Math.max(0, Math.floor(input.totalLines)) : 0;
+  if (!Number.isFinite(input.startIndex) || total <= 0) return null;
+  const begin = Math.max(0, Math.floor(input.startIndex));
+  if (begin >= total) return null;
+  const end = Math.min(total - 1, begin + Math.max(1, Math.floor(input.maxLookahead)));
+  for (let idx = begin; idx <= end; idx += 1) {
+    const lineText = input.getLineText(idx);
+    if (classifySkippableLineForCueBridge(lineText) == null) {
+      return idx;
+    }
+  }
+  return null;
+}
+function findNextSpeakableLineIndexWithin(input) {
+  const total = Number.isFinite(input.totalLines) ? Math.max(0, Math.floor(input.totalLines)) : 0;
+  if (!Number.isFinite(input.startIndex) || !Number.isFinite(input.endIndexInclusive) || total <= 0) return null;
+  const begin = Math.max(0, Math.floor(input.startIndex));
+  const end = Math.min(total - 1, Math.max(begin, Math.floor(input.endIndexInclusive)));
+  if (begin > end) return null;
+  for (let idx = begin; idx <= end; idx += 1) {
+    const lineText = input.getLineText(idx);
+    if (classifySkippableLineForCueBridge(lineText) == null) {
+      return idx;
+    }
+  }
+  return null;
+}
+var CUE_LINE_BRACKET_RE, CUE_LINE_WORD_RE, STRUCTURAL_EMPTY_LINE_RE, SPEAKER_TAG_ONLY_RE, NOTE_TAG_ONLY_RE, NOTE_INLINE_BLOCK_RE;
+var init_asr_line_classification = __esm({
+  "src/features/asr/asr-line-classification.ts"() {
+    "use strict";
+    init_matcher();
+    CUE_LINE_BRACKET_RE = /^\s*[\[(\{][^\]\)\}]{0,120}[\]\)\}]\s*$/;
+    CUE_LINE_WORD_RE = /\b(pause|beat|silence|breath|breathe|hold|wait|reflective)\b/i;
+    STRUCTURAL_EMPTY_LINE_RE = /^\s*empty\s*[.!?]?\s*$/i;
+    SPEAKER_TAG_ONLY_RE = /^\s*\[\s*\/?\s*(s1|s2|guest1|guest2|g1|g2)\s*\]\s*$/i;
+    NOTE_TAG_ONLY_RE = /^\s*\[\s*\/?\s*note(?:[^\]]*)\]\s*$/i;
+    NOTE_INLINE_BLOCK_RE = /^\s*\[\s*note(?:[^\]]*)\][\s\S]*\[\s*\/\s*note\s*\]\s*$/i;
+  }
+});
+
+// src/features/asr/asr-offscript.ts
+function normalizeNoMatchEvidence(input) {
+  if (!input || typeof input !== "object") return null;
+  const raw = input;
+  const bestIdxRaw = raw.bestIdx ?? raw.idx;
+  const bestSimRaw = raw.bestSim ?? raw.sim;
+  const bestIdx = Number.isFinite(Number(bestIdxRaw)) ? Math.floor(Number(bestIdxRaw)) : -1;
+  const explicitNoMatch = raw.noMatch === true;
+  const noMatch = explicitNoMatch || bestIdx < 0;
+  const bestSim = Number.isFinite(Number(bestSimRaw)) ? Number(bestSimRaw) : 0;
+  const topScores = Array.isArray(raw.topScores) ? raw.topScores : Array.isArray(raw.candidates) ? raw.candidates : [];
+  const normalized = {
+    ...raw,
+    bestIdx: noMatch ? -1 : bestIdx,
+    bestSim: noMatch ? Number.NaN : bestSim,
+    topScores
+  };
+  normalized.noMatch = noMatch;
+  return normalized;
+}
+function isInvalidMatchResult(match) {
+  if (!match) return true;
+  if (match.noMatch === true) return true;
+  const bestIdx = Number(match.bestIdx);
+  return !Number.isFinite(bestIdx) || bestIdx < 0;
+}
+function isExplicitNoMatch(args) {
+  return (args.rawMatchId === null || args.rawMatchId === void 0) && args.noMatch === true && !args.incomingMatch;
+}
+function hasBackwardOrLocalContradiction(args) {
+  const safeCursor = Math.max(0, Math.floor(args.cursorLine));
+  const contradictionNeed = Math.max(
+    args.minSimFloor,
+    args.bestSim - args.simSlack
+  );
+  return Number.isFinite(args.currentLineDirectSim) && args.currentLineDirectSim >= contradictionNeed || Array.isArray(args.topScores) && args.topScores.some((entry) => {
+    const idx = Number(entry.idx);
+    const score = Number(entry.score);
+    if (!Number.isFinite(idx) || !Number.isFinite(score)) return false;
+    if (Math.floor(idx) > safeCursor) return false;
+    return score >= contradictionNeed;
+  });
+}
+function shouldAllowStalePrefixContradictionOverride(args) {
+  return args.contradictionActive && (args.stalePrefixIgnored || args.backwardContradictionOverriddenByTail);
+}
+var init_asr_offscript = __esm({
+  "src/features/asr/asr-offscript.ts"() {
+    "use strict";
+  }
+});
+
+// src/features/asr/asr-stall-classifier.ts
+function shouldClassifyBridgeTrap(input) {
+  const bridgeTrapThresholdMs = input.repeatedHoldCount > 3 ? 2500 : 3500;
+  return input.liveTranscriptFresh && Number.isFinite(input.conf) && input.conf > 0 && (input.speechActive || input.activeReadMode) && input.requestedTarget > input.currentLine && input.adjacentTarget > input.currentLine && input.repeatedHoldCount >= 3 && input.stallMs >= bridgeTrapThresholdMs;
+}
+function shouldClassifyScrollCommitStall(input) {
+  return input.lastCommitIndex != null && input.noCommitMs > input.commitGapMs && input.currentCursorIndex === input.lastCommitIndex && input.explicitNoMatch !== true;
+}
+function shouldClassifyBackendTranscriptStall(input) {
+  if (!input.liveAsr || !input.asrArmed || !input.recognizerAttached) return false;
+  if (!input.speechActive && !input.activeReadMode) return false;
+  if (input.firstTranscriptGraceActive) return false;
+  return input.transcriptAgeMs == null || input.transcriptAgeMs >= input.transcriptStaleMs;
+}
+var init_asr_stall_classifier = __esm({
+  "src/features/asr/asr-stall-classifier.ts"() {
+    "use strict";
+  }
+});
+
+// src/features/asr/asr-bridge-policy.ts
+function shouldStageVisualOnlyBridge(input) {
+  const multiJumpDelta = input.targetIndex - input.currentIndex;
+  if (!input.liveStrictFollow || multiJumpDelta <= 1 || input.pendingSpeakableBridgeCompletion) {
+    return { shouldStage: false };
+  }
+  if (!(input.visibleStepTarget > input.currentIndex && input.visibleStepTarget < input.targetIndex)) {
+    return { shouldStage: false };
+  }
+  if (input.reducedLineSpeakable) {
+    return { shouldStage: false };
+  }
+  const shouldBypassPendingVisualCap = input.asrRuntimeSpeechRunningActual && (input.movementAuthority === "proof" || input.movementAuthority === "reconcile" || input.liveUnleashedEnabled) && input.targetIndex > input.currentIndex;
+  if (shouldBypassPendingVisualCap) {
+    return { shouldStage: false, shouldBypassPendingVisualCap: true };
+  }
+  return {
+    shouldStage: true,
+    reason: "non_speakable_visual_cap",
+    targetIndex: input.visibleStepTarget,
+    skippedRows: Math.max(1, input.targetIndex - input.visibleStepTarget),
+    shouldBypassPendingVisualCap: false
+  };
+}
+function shouldBlockEquivalentBridgeCommit(input) {
+  const sourceBranch = String(input.sourceBranch || "unknown");
+  const reason = String(input.reason || "unknown");
+  const equivalentTarget = Math.max(input.requestedTarget, input.semanticTarget);
+  const bridgeCompletionPath = sourceBranch.toLowerCase().includes("pending_speakable_bridge_complete") || reason.toLowerCase().includes("bridge_completion_accepted");
+  const bridgeTrapEscapePath = reason.toLowerCase().includes("bridge_trap_escape");
+  const shouldBlock = input.bridgeBlockUntil > input.commitTs && equivalentTarget > input.current + 1 && !bridgeCompletionPath && !bridgeTrapEscapePath;
+  return {
+    shouldBlock,
+    reason: shouldBlock ? "equivalent_bridge_target_blocked" : void 0,
+    sourceBranch,
+    targetIndex: input.requestedTarget,
+    equivalentTarget,
+    bridgeCompletionPath,
+    bridgeTrapEscapePath
+  };
+}
+function shouldAllowPendingBridgeCompletion(input) {
+  if (input.pendingSemanticFrom !== input.currentLine) {
+    return { shouldAllow: false, reason: "cursor_shifted", sourceBranch: input.sourceBranch };
+  }
+  if (input.pendingSemanticTarget <= input.currentLine) {
+    return { shouldAllow: false, reason: "target_already_reached", sourceBranch: input.sourceBranch };
+  }
+  if (!input.speechRunningActual || !input.runtimeSpeechFresh) {
+    return { shouldAllow: false, reason: "speech_not_active", sourceBranch: input.sourceBranch };
+  }
+  const bridgeFinalFresh = input.runtimeSpeechFresh || input.lastFinalTranscriptFresh;
+  const bridgeDirectFreshProof = !!input.bridgeLandingProofOk && !input.bridgeLandingProofFromStaleTranscriptOnly;
+  const shouldAllow2 = bridgeFinalFresh && (bridgeDirectFreshProof || input.pendingBridgeAgeMs >= 900);
+  return {
+    shouldAllow: shouldAllow2,
+    reason: shouldAllow2 ? "pending_speakable_bridge_complete" : "await_fresh_direct_landing_proof",
+    targetIndex: input.pendingSemanticTarget,
+    sourceBranch: input.sourceBranch,
+    bridgeFinalFresh,
+    bridgeDirectFreshProof
+  };
+}
+function shouldReduceBridgeToAdjacentRenderedRow(input) {
+  const shouldReduce = input.bridgeReducedTarget > input.currentIndex && input.bridgeReducedTarget <= input.currentIndex + 1;
+  return {
+    shouldReduce,
+    reason: shouldReduce ? "live_bridge_single_step_policy" : void 0,
+    reducedTargetIndex: shouldReduce ? input.bridgeReducedTarget : void 0,
+    originalTargetIndex: input.originalTargetIndex,
+    currentIndex: input.currentIndex,
+    skippedRows: input.skippedRows,
+    logicalStep: input.bridgeReducedTarget - input.currentIndex,
+    renderedDelta: input.originalTargetIndex - input.currentIndex
+  };
+}
+var init_asr_bridge_policy = __esm({
+  "src/features/asr/asr-bridge-policy.ts"() {
+    "use strict";
+  }
+});
+
+// src/features/asr/asr-commit-authority.ts
+function isRescueBudgetExhausted(input) {
+  return input.gatePassCore && input.rescueBypassLike && !input.directAdjacentLocalProof && input.recentBypassCount >= input.bypassBudgetMax;
+}
+function shouldAllowReaderLeashBypass(input) {
+  const shouldCheck = input.gatePassCore && input.rescueBypassLike && input.bypassedBlockersLower.includes("asr_reader_leash_hold");
+  const shouldAllow2 = input.directAdjacentLocalProof || input.freshLandingLexicalNoStale || input.lastBypassAgeMs >= input.minBypassDelayMs;
+  return { shouldCheck, shouldAllow: shouldAllow2 };
+}
+function shouldAllowFreshAdjacentFastCommit(input) {
+  const eligible = input.reducedTarget === input.current + 1 && (input.speechFreshNow || input.finalPacketFresh || input.speechRunningActual) && (input.directAdjacentLocalProof || input.proofSourceLower.includes("strict_adjacent_tail_progression") || input.proofSourceLower.includes("strict_speakable_bridge_landing"));
+  return { eligible };
+}
+function shouldHoldForVisualGovernor(input) {
+  if (!(input.accepted && input.liveAsrVisualGovernorHardHold)) {
+    return { shouldHold: false, shouldUnlock: false };
+  }
+  const adjacentTarget = input.reducedTarget === input.current + 1;
+  const noHardContradiction = !input.hardContradiction;
+  const noRecentLargeBridge = input.msSinceLastCommit > 700 || input.requestedTarget <= input.current + 1;
+  const freshAdjacentUnlockAllowed = adjacentTarget && noHardContradiction && noRecentLargeBridge && (input.liveSpeechFresh || input.finalPacketFresh);
+  const shouldUnlock = freshAdjacentUnlockAllowed && input.noCommitMs >= input.freshAdjUnlockNoCommitMs;
+  return {
+    shouldHold: !shouldUnlock,
+    shouldUnlock
+  };
+}
+function shouldAllowBridgeTrapEscape(input) {
+  const shouldAllow2 = input.bridgeTrapDetected && input.transcriptGrowing && !input.contradictionActiveEffective && input.safeAdjacent;
+  return {
+    shouldAllow: shouldAllow2,
+    reason: shouldAllow2 ? "bridge_trap_escape" : void 0
+  };
+}
+function shouldConstrainRecoveryForReaderLeash(input) {
+  const sourceBranch = String(input.sourceBranch || "").toLowerCase();
+  const proofSource = String(input.proofSource || "").toLowerCase();
+  const reason = String(input.reason || "").toLowerCase();
+  const bypassedBlockers = String(input.bypassedBlockers || "").toLowerCase();
+  const isRecoveryAuthority = sourceBranch.includes("stall_recovery") || sourceBranch.includes("sustained_read") || sourceBranch.includes("starvation") || sourceBranch.includes("movement_authority_reconcile") || sourceBranch.includes("movement_authority_forced_reconcile_single_step") || sourceBranch.includes("movement_authority_starvation_reconcile_single_step") || reason.includes("stall_recovery") || reason.includes("starvation") || proofSource.includes("starvation") || bypassedBlockers.includes("reader_leash");
+  const isBridgeLike = input.requestedTarget > input.current + 1 || input.semanticTarget > input.current + 1 || input.skippedIgnorableLinesCount > 0;
+  return {
+    shouldConstrain: input.readerLeashActive && isRecoveryAuthority && isBridgeLike,
+    isRecoveryAuthority,
+    isBridgeLike
+  };
+}
+function shouldAllowStartupShortMemoryAdjacentCommit(input) {
+  const considered = input.startupSettlingActive;
+  if (!considered) return { considered, allow: false, reason: "startup_window_inactive" };
+  if (input.requestedTarget <= input.current) return { considered, allow: false, reason: "no_forward_target" };
+  if (input.requestedTarget !== input.current + 1 || input.semanticTarget !== input.current + 1) {
+    return { considered, allow: false, reason: "non_adjacent_target" };
+  }
+  if (input.skippedIgnorableLinesCount > 0) return { considered, allow: false, reason: "bridge_like_target" };
+  if (input.readerLeashActive) return { considered, allow: false, reason: "reader_leash_active" };
+  if (input.leadAhead || input.speakableLead >= 1 || input.renderedLead >= 1) {
+    return { considered, allow: false, reason: "reader_crowded" };
+  }
+  if (input.offscriptOrNoMatch) return { considered, allow: false, reason: "offscript_or_nomatch" };
+  if (input.backwardContradiction) return { considered, allow: false, reason: "backward_contradiction" };
+  if (input.starvationFutureTargetPath) return { considered, allow: false, reason: "future_reconcile_path" };
+  if (!(Number.isFinite(input.adjacentSim) && input.adjacentSim >= input.minAdjacentSim)) {
+    return { considered, allow: false, reason: "adjacent_sim_too_low" };
+  }
+  if (input.shortTailWordCount < input.minShortTailWords) {
+    return { considered, allow: false, reason: "short_tail_insufficient" };
+  }
+  return { considered, allow: true, reason: "startup_settling_adjacent_only" };
+}
+function shouldAllowFarAheadHardHoldAdjacentEscape(input) {
+  if (!input.liveAsrVisualGovernorHardHold) return { allow: false, reason: "governor_not_holding" };
+  if (input.leadState !== "far_ahead") return { allow: false, reason: "not_far_ahead" };
+  if (input.holdAgeMs < input.minHoldAgeMs) return { allow: false, reason: "hold_age_below_timeout" };
+  if (input.target !== input.current + 1 || input.semanticTarget !== input.current + 1) {
+    return { allow: false, reason: "non_adjacent_target" };
+  }
+  if (input.skippedIgnorableLinesCount > 0) return { allow: false, reason: "bridge_like_target" };
+  if (input.bridgeLeashActive) return { allow: false, reason: "bridge_recovery_window_active" };
+  if (input.offscriptOrNoMatch) return { allow: false, reason: "offscript_or_nomatch" };
+  if (input.hardContradiction) return { allow: false, reason: "hard_contradiction" };
+  if (!(input.speechFresh || input.finalFresh || input.transcriptGrowing)) {
+    return { allow: false, reason: "freshness_missing" };
+  }
+  if (!input.localAdjacentProof) return { allow: false, reason: "no_local_adjacent_proof" };
+  return { allow: true, reason: "far_ahead_timeout_adjacent_escape" };
+}
+function shouldConstrainBridgeAuthorityForReaderLeash(input) {
+  if (!input.readerLeashActive) {
+    return { shouldConstrain: false, shouldReduceToAdjacent: false, reason: "reader_leash_inactive" };
+  }
+  const sourceBranch = String(input.sourceBranch || "").toLowerCase();
+  const proofSource = String(input.proofSource || "").toLowerCase();
+  const authority = String(input.authority || "").toLowerCase();
+  const bridgeAuthorityLike = sourceBranch.includes("bridge") || sourceBranch.includes("cue_exit") || sourceBranch.includes("movement_authority_forced_reconcile_single_step") || sourceBranch.includes("movement_authority_starvation_reconcile_single_step") || sourceBranch.includes("movement_authority_reconcile") || proofSource.includes("bridge") || proofSource.includes("cue_exit") || authority.includes("reconcile");
+  const visuallyNonAdjacent = input.requestedTarget > input.current + 1 || input.semanticTarget > input.current + 1 || input.skippedIgnorableLinesCount > 0 || input.carry > 1;
+  if (!(bridgeAuthorityLike && visuallyNonAdjacent)) {
+    return { shouldConstrain: false, shouldReduceToAdjacent: false, reason: "not_bridge_like_or_not_visual_lunge" };
+  }
+  if (input.safeAdjacentProofAvailable) {
+    return { shouldConstrain: true, shouldReduceToAdjacent: true, reason: "visual_adjacent_only_while_leashed" };
+  }
+  return { shouldConstrain: true, shouldReduceToAdjacent: false, reason: "bridge_authority_must_respect_reader_leash" };
+}
+function shouldConstrainForVisualEnvelopeLeash(input) {
+  if (!input.visualEnvelopeLeashActive) {
+    return { shouldConstrain: false, shouldReduceToAdjacent: false, reason: "visual_envelope_leash_inactive" };
+  }
+  if (input.offscriptOrNoMatch) {
+    return { shouldConstrain: false, shouldReduceToAdjacent: false, reason: "offscript_or_nomatch" };
+  }
+  const sourceBranch = String(input.sourceBranch || "").toLowerCase();
+  const proofSource = String(input.proofSource || "").toLowerCase();
+  const authority = String(input.authority || "").toLowerCase();
+  const bridgeOrRecoveryLike = sourceBranch.includes("bridge") || sourceBranch.includes("reconcile") || sourceBranch.includes("pending_speakable_bridge_complete") || proofSource.includes("bridge") || proofSource.includes("cue_exit") || proofSource.includes("strict_speakable_bridge_landing") || authority.includes("reconcile");
+  const visuallyNonAdjacent = input.requestedTarget > input.current + 1 || input.semanticTarget > input.current + 1 || input.skippedIgnorableLinesCount > 0 || input.carry > 1;
+  if (!(bridgeOrRecoveryLike && visuallyNonAdjacent)) {
+    return { shouldConstrain: false, shouldReduceToAdjacent: false, reason: "not_bridge_like_or_not_visual_lunge" };
+  }
+  if (input.safeAdjacentProofAvailable) {
+    return { shouldConstrain: true, shouldReduceToAdjacent: true, reason: "visual_envelope_adjacent_only" };
+  }
+  return { shouldConstrain: true, shouldReduceToAdjacent: false, reason: "visual_envelope_requires_adjacent_only" };
+}
+function shouldConstrainForVisualProjectionLeash(input) {
+  if (input.offscriptOrNoMatch) {
+    return { shouldConstrain: false, shouldReduceToAdjacent: false, reason: "offscript_or_nomatch" };
+  }
+  if (!(Number.isFinite(input.projectedDeltaLines) && input.projectedDeltaLines > input.maxSafeProjectedDeltaLines)) {
+    return { shouldConstrain: false, shouldReduceToAdjacent: false, reason: "projection_within_safe_envelope" };
+  }
+  const sourceBranch = String(input.sourceBranch || "").toLowerCase();
+  const bridgeOrRecoveryLike = sourceBranch.includes("movement_authority_forced_reconcile_single_step") || sourceBranch.includes("movement_authority_starvation_reconcile_single_step") || sourceBranch.includes("movement_authority_reconcile") || sourceBranch.includes("movement_authority_pending_bridge_pressure") || sourceBranch.includes("movement_authority_pending_bridge_maintenance") || sourceBranch.includes("movement_authority_commit") || sourceBranch.includes("pending_bridge_pressure_commit") || sourceBranch.includes("pending_bridge_marker_maintenance");
+  const visuallyNonAdjacent = input.requestedTarget > input.current + 1 || input.semanticTarget > input.current + 1 || input.skippedIgnorableLinesCount > 0 || input.carry > 1;
+  if (!(bridgeOrRecoveryLike && visuallyNonAdjacent)) {
+    return { shouldConstrain: false, shouldReduceToAdjacent: false, reason: "not_bridge_recovery_non_adjacent" };
+  }
+  if (input.safeAdjacentProofAvailable) {
+    return { shouldConstrain: true, shouldReduceToAdjacent: true, reason: "visual_projection_adjacent_only" };
+  }
+  return { shouldConstrain: true, shouldReduceToAdjacent: false, reason: "visual_projection_requires_adjacent_only" };
+}
+var init_asr_commit_authority = __esm({
+  "src/features/asr/asr-commit-authority.ts"() {
+    "use strict";
+  }
+});
+
+// src/features/asr/asr-visual-follow.ts
+function classifyVisualLead(input) {
+  const ahead = input.speakableLead > 0 || input.renderedLead > 0;
+  const leadState = input.speakableLead >= input.hardLeadStart || input.renderedLead >= input.hardLeadStart ? "far_ahead" : input.speakableLead >= input.softLeadStart || input.renderedLead >= input.softLeadStart ? "ahead" : ahead ? "ahead" : "aligned_or_behind";
+  return { ahead, leadState };
+}
+function shouldStopForVisualDeadband(input) {
+  if (input.errPx <= (input.liveAsrFollowMode ? input.stopDeadbandPx : 0.5)) return true;
+  if (input.errPx <= input.deadbandPx && !input.allowCreep) return true;
+  return false;
+}
+function shouldHardHoldVisualFollow(input) {
+  const readerPaceHold = input.markerLeadLines >= input.maxMarkerLeadLines && !input.readerDrivingNow && input.noSpeechMs >= input.noSpeechHoldMs && !input.hasRecentFinalTranscript;
+  if (input.leadState === "far_ahead") {
+    return { shouldHold: true, readerPaceHold, reason: "governor_far_ahead" };
+  }
+  if (readerPaceHold) {
+    return { shouldHold: true, readerPaceHold, reason: "reader_pace_hold" };
+  }
+  return { shouldHold: false, readerPaceHold };
+}
+function shouldApplyNormalAdjacentCap(input) {
+  return {
+    shouldApply: input.boostUntilMs > input.now && !input.liveHardHold && input.leadState === "aligned_or_behind" && input.errPx >= input.minErrPx
+  };
+}
+function selectVisualFollowVelocity(input) {
+  let maxVelForErr = input.baseMaxVelForErr;
+  if (input.liveHardHold) {
+    maxVelForErr = 0;
+  } else if (input.ahead) {
+    maxVelForErr = Math.min(maxVelForErr, input.comfortablePxps);
+  } else if (input.errPx >= input.hardCatchupPx) {
+    maxVelForErr = Math.min(maxVelForErr, input.maxPxps);
+  } else if (input.errPx >= input.slowZonePx) {
+    maxVelForErr = Math.min(maxVelForErr, input.comfortablePxps);
+  } else {
+    const safeSlowZonePx = Math.max(1, input.slowZonePx);
+    const rampT = Math.max(0, Math.min(1, input.errPx / safeSlowZonePx));
+    const rampPxps = input.minPxps + (input.comfortablePxps - input.minPxps) * rampT;
+    maxVelForErr = Math.min(maxVelForErr, rampPxps);
+  }
+  if (input.unlockSlowFollowActive) {
+    maxVelForErr = Math.min(maxVelForErr, input.unlockSlowFollowPxps);
+  }
+  return { maxVelForErr };
+}
+function selectBridgeVisualComfortCap(input) {
+  if (!input.liveAsrFollowMode) {
+    return { shouldApply: false, cappedPxps: input.basePxps };
+  }
+  if (input.comfortUntilMs <= input.now) {
+    return { shouldApply: false, cappedPxps: input.basePxps };
+  }
+  if (!(input.deltaLines > input.maxComfortDeltaLines)) {
+    return { shouldApply: false, cappedPxps: input.basePxps };
+  }
+  return {
+    shouldApply: true,
+    cappedPxps: Math.min(input.basePxps, input.bridgeComfortPxps)
+  };
+}
+function shouldHoldBridgeCommitForVisualRecovery(input) {
+  if (!input.liveAsrFollowMode) return { shouldHold: false };
+  if (!input.bridgeLikeCommit || input.adjacentCommit) return { shouldHold: false };
+  if (!input.speechFresh) return { shouldHold: false };
+  if (input.comfortUntilMs <= input.now) return { shouldHold: false };
+  if (!(input.deltaLines > input.safeDeltaLines)) return { shouldHold: false };
+  return { shouldHold: true };
+}
+function selectLeadAwarePursuitCap(input) {
+  if (!input.speechFresh) {
+    return { shouldApply: false, cappedPxps: input.basePxps };
+  }
+  const crowdingAhead = input.leadState === "ahead" || input.leadState === "far_ahead" || input.speakableLead >= 1 || input.renderedLead >= 1;
+  if (!crowdingAhead) {
+    return { shouldApply: false, cappedPxps: input.basePxps };
+  }
+  return {
+    shouldApply: input.basePxps > input.aheadCapPxps,
+    cappedPxps: Math.min(input.basePxps, input.aheadCapPxps),
+    reason: "reader_ahead_visual_pressure_reduced"
+  };
+}
+var init_asr_visual_follow = __esm({
+  "src/features/asr/asr-visual-follow.ts"() {
+    "use strict";
+  }
+});
+
+// src/features/asr/asr-manual-anchor-policy.ts
+function isManualAnchorPendingFresh(input) {
+  if (input.pendingTs == null) return false;
+  return input.now - input.pendingTs < input.timeoutMs;
+}
+function isManualAnchorWithinLineWindow(input) {
+  return Math.abs(input.targetIndex - input.candidateIndex) <= input.windowLines;
+}
+var init_asr_manual_anchor_policy = __esm({
+  "src/features/asr/asr-manual-anchor-policy.ts"() {
+    "use strict";
+  }
+});
+
+// src/features/asr/asr-backend-restart-adapter.ts
+function buildBackendRestartRequestedPayloadInput(input) {
+  if (input.backendRestartedInWindow) {
+    return {
+      skipped: 1,
+      reason: input.reason,
+      skipReason: "already_restarted_in_window",
+      windowMs: input.restartWindowMs,
+      transcriptAgeMs: input.transcriptAgeMs,
+      audioAgeMs: input.audioAgeMs
+    };
+  }
+  if (!input.hasRecognizerControls) {
+    return {
+      skipped: 1,
+      reason: input.reason,
+      skipReason: "recognizer_controls_unavailable",
+      transcriptAgeMs: input.transcriptAgeMs,
+      audioAgeMs: input.audioAgeMs
+    };
+  }
+  return {
+    skipped: 0,
+    reason: input.reason,
+    transcriptAgeMs: input.transcriptAgeMs,
+    audioAgeMs: input.audioAgeMs,
+    current: input.current
+  };
+}
+function buildBackendHeartbeatDiagnosticInput(input) {
+  const transcriptHeartbeatAge = Number.isFinite(input.transcriptAgeMs) ? Number(input.transcriptAgeMs) : Number.NaN;
+  const audioHeartbeatAge = Number.isFinite(input.audioAgeMs) ? Number(input.audioAgeMs) : Number.NaN;
+  return {
+    recognizerAttached: input.recognizerAttached,
+    speechActive: input.speechActive,
+    activeReadMode: input.activeReadMode,
+    transcriptAgeMs: transcriptHeartbeatAge,
+    audioAgeMs: audioHeartbeatAge,
+    backendRestartedInWindow: input.backendRestartedInWindow
+  };
+}
+var init_asr_backend_restart_adapter = __esm({
+  "src/features/asr/asr-backend-restart-adapter.ts"() {
+    "use strict";
+  }
+});
+
+// src/features/asr/asr-backend-liveness.ts
+function evaluateBackendLiveness(input) {
+  const isSessionActive = input.liveAsr && input.asrArmed && input.recognizerAttached && (input.speechActive || input.activeReadMode);
+  if (!isSessionActive) {
+    return {
+      shouldCheck: false,
+      transcriptAgeMs: null,
+      audioAgeMs: null,
+      recognizerAgeMs: null,
+      firstTranscriptGraceActive: false,
+      shouldEmitHeartbeat: false,
+      shouldEmitAudioStale: false,
+      shouldEmitTranscriptStale: false,
+      shouldRequestRestart: false
+    };
+  }
+  const transcriptAgeMs = input.lastTranscriptPacketAt != null ? Math.max(0, input.now - input.lastTranscriptPacketAt) : null;
+  const audioAgeMs = input.lastAudioChunkAt != null ? Math.max(0, input.now - input.lastAudioChunkAt) : null;
+  const recognizerAgeMs = input.recognizerAttachedAt != null ? Math.max(0, input.now - input.recognizerAttachedAt) : null;
+  const firstTranscriptGraceActive = transcriptAgeMs == null && recognizerAgeMs != null && recognizerAgeMs < input.thresholds.firstTranscriptGraceMs;
+  const shouldEmitAudioStale = audioAgeMs != null && audioAgeMs >= input.thresholds.audioChunkStaleMs;
+  const transcriptStaleEligible = input.liveAsr && input.asrArmed && input.recognizerAttached && (input.speechActive || input.activeReadMode) && !firstTranscriptGraceActive;
+  const shouldEmitTranscriptStale = transcriptStaleEligible && (transcriptAgeMs == null || transcriptAgeMs >= input.thresholds.transcriptStaleMs);
+  const shouldRequestRestart = shouldEmitTranscriptStale && !input.backendRestartedInWindow;
+  const restartSkipReason = shouldEmitTranscriptStale && input.backendRestartedInWindow ? "already_restarted_in_window" : void 0;
+  return {
+    shouldCheck: true,
+    transcriptAgeMs,
+    audioAgeMs,
+    recognizerAgeMs,
+    firstTranscriptGraceActive,
+    shouldEmitHeartbeat: true,
+    shouldEmitAudioStale,
+    shouldEmitTranscriptStale,
+    shouldRequestRestart,
+    restartSkipReason
+  };
+}
+var init_asr_backend_liveness = __esm({
+  "src/features/asr/asr-backend-liveness.ts"() {
+    "use strict";
+  }
+});
+
 // src/features/asr/asr-scroll-driver.constants.ts
-var DEFAULT_ASR_BACKEND_HEARTBEAT_MS, DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS, DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS, DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS, DEFAULT_ASR_BACKEND_FIRST_TRANSCRIPT_GRACE_MS, DEFAULT_MIN_TOKEN_COUNT, DEFAULT_MIN_EVIDENCE_CHARS, DEFAULT_NO_MATCH_WINDOW_MS, DEFAULT_NO_MATCH_BUMP_HITS, DEFAULT_NO_MATCH_RELOCK_HITS, DEFAULT_NOISE_INTERIM_MIN_TOKENS, DEFAULT_NOISE_INTERIM_MIN_CHARS, DEFAULT_ASR_VAD_SPEECH_GRACE_MS, DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS, GUARD_THROTTLE_MS, BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS, DEFAULT_STALL_LOG_COOLDOWN_MS, EVENT_RING_MAX, EVENT_DUMP_COUNT, HOLD_TICK_LOG_THROTTLE_MS, LOG_THROTTLE_MS, HUD_STATUS_THROTTLE_MS, HUD_PURSUE_THROTTLE_MS, SUMMARY_TOAST_DEDUPE_MS, NAN_GUARD_THROTTLE_MS;
+var DEFAULT_ASR_BACKEND_HEARTBEAT_MS, DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS, DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS, DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS, DEFAULT_ASR_BACKEND_FIRST_TRANSCRIPT_GRACE_MS, DEFAULT_MIN_TOKEN_COUNT, DEFAULT_MIN_EVIDENCE_CHARS, DEFAULT_NO_MATCH_WINDOW_MS, DEFAULT_NO_MATCH_BUMP_HITS, DEFAULT_NO_MATCH_RELOCK_HITS, DEFAULT_NOISE_INTERIM_MIN_TOKENS, DEFAULT_NOISE_INTERIM_MIN_CHARS, DEFAULT_ASR_VAD_SPEECH_GRACE_MS, DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS, GUARD_THROTTLE_MS, BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS, DEFAULT_STALL_LOG_COOLDOWN_MS, EVENT_RING_MAX, EVENT_DUMP_COUNT, HOLD_TICK_LOG_THROTTLE_MS, LOG_THROTTLE_MS, HUD_STATUS_THROTTLE_MS, HUD_PURSUE_THROTTLE_MS, SUMMARY_TOAST_DEDUPE_MS, NAN_GUARD_THROTTLE_MS, MANUAL_ANCHOR_MIN_SCROLL_PX, MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS, MANUAL_ANCHOR_PENDING_TIMEOUT_MS, MANUAL_ANCHOR_WINDOW_LINES, MANUAL_ANCHOR_SIM_SLACK, DEFAULT_MATCH_BACKTRACK_LINES, DEFAULT_MATCH_LOOKAHEAD_LINES, DEFAULT_MATCH_LOOKAHEAD_STEPS, DEFAULT_BAND_BACK_TOLERANCE_LINES;
 var init_asr_scroll_driver_constants = __esm({
   "src/features/asr/asr-scroll-driver.constants.ts"() {
     "use strict";
@@ -33317,6 +34021,15 @@ var init_asr_scroll_driver_constants = __esm({
     HUD_PURSUE_THROTTLE_MS = 200;
     SUMMARY_TOAST_DEDUPE_MS = 1e3;
     NAN_GUARD_THROTTLE_MS = 1e3;
+    MANUAL_ANCHOR_MIN_SCROLL_PX = 400;
+    MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS = 1e3;
+    MANUAL_ANCHOR_PENDING_TIMEOUT_MS = 5e3;
+    MANUAL_ANCHOR_WINDOW_LINES = 10;
+    MANUAL_ANCHOR_SIM_SLACK = 0.03;
+    DEFAULT_MATCH_BACKTRACK_LINES = 2;
+    DEFAULT_MATCH_LOOKAHEAD_LINES = 50;
+    DEFAULT_MATCH_LOOKAHEAD_STEPS = [DEFAULT_MATCH_LOOKAHEAD_LINES, 120, 200, 400];
+    DEFAULT_BAND_BACK_TOLERANCE_LINES = 1;
   }
 });
 
@@ -33332,7 +34045,7 @@ function formatLogSnippet(value, maxLen) {
 function formatLogScore(value) {
   return Number.isFinite(value) ? value.toFixed(2) : "?";
 }
-function normalizeComparableText(value) {
+function normalizeComparableText2(value) {
   return normTokens(String(value || "")).join(" ");
 }
 function splitFinalTranscriptChunks(value) {
@@ -33341,7 +34054,7 @@ function splitFinalTranscriptChunks(value) {
   const dedupe = /* @__PURE__ */ new Set();
   const chunks = [];
   const pushChunk = (chunk) => {
-    const normalized = normalizeComparableText(chunk);
+    const normalized = normalizeComparableText2(chunk);
     if (!normalized) return;
     const tokenLen = normTokens(normalized).length;
     if (tokenLen < DEFAULT_FORWARD_WINDOW_MIN_TOKENS) return;
@@ -33577,32 +34290,14 @@ function parseBlockIndexFromElement(el, fallback) {
   const raw = Number(el?.dataset.tpBlock ?? fallback);
   return Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : Math.max(0, Math.floor(fallback));
 }
-function classifySkippableLineForCueBridge(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return "blank";
-  if (SPEAKER_TAG_ONLY_RE.test(raw)) return "speaker";
-  if (NOTE_TAG_ONLY_RE.test(raw) || NOTE_INLINE_BLOCK_RE.test(raw) || /\[\s*\/?\s*note\b/i.test(raw)) return "note";
-  const normalized = normalizeComparableText(raw);
-  if (!normalized) return "blank";
-  if (CUE_LINE_BRACKET_RE.test(raw)) return "cue";
-  const tokenCount = normalized.split(" ").filter(Boolean).length;
-  return tokenCount <= 4 && CUE_LINE_WORD_RE.test(normalized) ? "cue" : null;
+function classifySkippableLineForCueBridge2(value) {
+  return classifyAsrLine(value).skippableReason;
 }
-function classifyStrictSkippableLineForCueBridge(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return "blank";
-  if (STRUCTURAL_EMPTY_LINE_RE.test(raw)) return "cue";
-  if (SPEAKER_TAG_ONLY_RE.test(raw)) return "speaker";
-  if (NOTE_TAG_ONLY_RE.test(raw) || NOTE_INLINE_BLOCK_RE.test(raw) || /\[\s*\/?\s*note\b/i.test(raw)) return "note";
-  if (CUE_LINE_BRACKET_RE.test(raw)) return "cue";
-  const normalized = normalizeComparableText(raw);
-  if (!normalized) return "blank";
-  const tokenCount = normalized.split(" ").filter(Boolean).length;
-  if (tokenCount <= 3 && CUE_LINE_WORD_RE.test(normalized)) return "cue";
-  return null;
+function classifyStrictSkippableLineForCueBridge2(value) {
+  return classifyAsrLine(value).strictSkippableReason;
 }
 function scanCueBridgeWindow(windowLines, opts) {
-  const classify = opts?.strict ? classifyStrictSkippableLineForCueBridge : classifySkippableLineForCueBridge;
+  const classify = opts?.strict ? classifyStrictSkippableLineForCueBridge2 : classifySkippableLineForCueBridge2;
   const skippedReasons = [];
   for (let offset = 0; offset < windowLines.length; offset += 1) {
     const reason = classify(windowLines[offset]);
@@ -33758,7 +34453,7 @@ function evaluateCueBoundaryMultiJumpRelaxation(opts) {
       reason: "forced-final-bridge"
     };
   }
-  const skippedReason = classifyStrictSkippableLineForCueBridge(String(opts.skippedText || ""));
+  const skippedReason = classifyStrictSkippableLineForCueBridge2(String(opts.skippedText || ""));
   const cueSafeImmediatePromotion = cursorLine >= 0 && requestedLine === cursorLine + 1 && promotedLine > requestedLine && promotedLine > cursorLine && promotedLine - cursorLine <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES && skippedReason != null;
   if (cueSafeImmediatePromotion) {
     return {
@@ -33776,7 +34471,7 @@ function isAutomaticStallRescueReason(reasonTag) {
   return normalized === "auto-stall" || normalized.startsWith("stall:");
 }
 function isSkippableLineForCueBridge(value) {
-  return classifySkippableLineForCueBridge(value) != null;
+  return classifySkippableLineForCueBridge2(value) != null;
 }
 function isIgnorableCueLineText(value) {
   return isSkippableLineForCueBridge(value);
@@ -33804,7 +34499,7 @@ function buildAsrBlockCorpusFromElements(blockEls2) {
     }
     if (!lineIndices.length) continue;
     lineIndices.sort((a, b) => a - b);
-    const textNorm = normalizeComparableText(spokenTextParts.join(" "));
+    const textNorm = normalizeComparableText2(spokenTextParts.join(" "));
     corpus.push({
       blockId,
       startLine: lineIndices[0],
@@ -34087,29 +34782,10 @@ function shouldForcePixelAsrCommitPath() {
   return false;
 }
 function normalizeSpeechMatchResult(input) {
-  if (!input || typeof input !== "object") return null;
-  const raw = input;
-  const bestIdxRaw = raw.bestIdx ?? raw.idx;
-  const bestSimRaw = raw.bestSim ?? raw.sim;
-  const bestIdx = Number.isFinite(Number(bestIdxRaw)) ? Math.floor(Number(bestIdxRaw)) : -1;
-  const explicitNoMatch = raw.noMatch === true;
-  const noMatch = explicitNoMatch || bestIdx < 0;
-  const bestSim = Number.isFinite(Number(bestSimRaw)) ? Number(bestSimRaw) : 0;
-  const topScores = Array.isArray(raw.topScores) ? raw.topScores : Array.isArray(raw.candidates) ? raw.candidates : [];
-  const normalized = {
-    ...raw,
-    bestIdx: noMatch ? -1 : bestIdx,
-    bestSim: noMatch ? Number.NaN : bestSim,
-    topScores
-  };
-  normalized.noMatch = noMatch;
-  return normalized;
+  return normalizeNoMatchEvidence(input);
 }
 function isNoMatchResult(match) {
-  if (!match) return true;
-  if (match.noMatch === true) return true;
-  const bestIdx = Number(match.bestIdx);
-  return !Number.isFinite(bestIdx) || bestIdx < 0;
+  return isInvalidMatchResult(match);
 }
 function resolveSpeechMatchResult(text, isFinal) {
   if (typeof window === "undefined") return null;
@@ -34929,7 +35605,7 @@ function createAsrScrollDriver(options = {}) {
     if (liveAsrMode && liveAsrVisualGovernorHardHold) {
       try {
         console.warn(
-          `[ASR_VISUAL_FOLLOW_HARD_HELD] currentScrollTop=${Math.round(currentTop)} targetScrollTop=${Math.round(targetTop)} deltaPx=${Math.round(targetTop - currentTop)} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), Math.max(0, lastLineIndex)))} renderedLead=${Math.max(0, Math.max(0, lastLineIndex) - Math.max(0, lastStrongConfirmedSpokenLine))} reason=governor_hold source=applyScrollWithHybridGuard`
+          `[ASR_VISUAL_FOLLOW_HARD_HELD] currentScrollTop=${Math.round(currentTop)} targetScrollTop=${Math.round(targetTop)} deltaPx=${Math.round(targetTop - currentTop)} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), Math.max(0, lastLineIndex)))} renderedLead=${Math.max(0, Math.max(0, lastLineIndex) - Math.max(0, lastStrongConfirmedSpokenLine))} reason=governor_hold source=applyScrollWithHybridGuard`
         );
       } catch {
       }
@@ -35307,6 +35983,15 @@ function createAsrScrollDriver(options = {}) {
   let liveAsrVisualGovernorHardHold = false;
   let liveAsrVisualGovernorHardHoldSinceMs = 0;
   let liveAsrVisualUnlockSlowFollowUntilMs = 0;
+  let liveAsrBridgeVisualComfortUntilMs = 0;
+  let liveAsrBridgeVisualComfortSourceBranch = "";
+  let liveAsrBridgeVisualComfortProofSource = "";
+  let liveAsrBridgeVisualRecoveryDeltaLines = 0;
+  let liveAsrVisualEnvelopeLeashActive = false;
+  let liveAsrVisualEnvelopeLeashDeltaLines = 0;
+  let liveAsrVisualEnvelopeLeashSourceBranch = "";
+  let liveAsrVisualEnvelopeLeashProofSource = "";
+  let liveAsrVisualEnvelopeLeashAuthority = "";
   let liveAsrNormalAdjacentFollowBoostUntilMs = 0;
   let liveAsrNormalAdjacentCapLastLogAt = 0;
   let liveAsrVisualSuppressionLoopCount = 0;
@@ -35647,16 +36332,13 @@ function createAsrScrollDriver(options = {}) {
       }
       return;
     }
-    const contradictionNeed = Math.max(
-      DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM,
-      bestSim - 0.08
-    );
-    const hasBackwardContradiction = Number.isFinite(currentLineDirectSim) && currentLineDirectSim >= contradictionNeed || Array.isArray(topScores) && topScores.some((entry) => {
-      const idx = Number(entry.idx);
-      const score = Number(entry.score);
-      if (!Number.isFinite(idx) || !Number.isFinite(score)) return false;
-      if (Math.floor(idx) > safeCursor) return false;
-      return score >= contradictionNeed;
+    const hasBackwardContradiction = hasBackwardOrLocalContradiction({
+      cursorLine: safeCursor,
+      bestSim,
+      currentLineDirectSim,
+      topScores,
+      minSimFloor: DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM,
+      simSlack: 0.08
     });
     if (hasBackwardContradiction) {
       liveStrictForwardClusterContradictionAt = now3;
@@ -36145,7 +36827,7 @@ function createAsrScrollDriver(options = {}) {
     }
     const scoreByIdx = /* @__PURE__ */ new Map();
     candidateLineIdx.forEach((idx) => {
-      const lineNorm = normalizeComparableText(getLineTextAt(idx));
+      const lineNorm = normalizeComparableText2(getLineTextAt(idx));
       const lineTokens = lineNorm ? normTokens(lineNorm) : [];
       if (!lineTokens.length) return;
       let bestLineScore = 0;
@@ -36482,7 +37164,11 @@ function createAsrScrollDriver(options = {}) {
     const markerIdx = computeMarkerLineIndex(scroller);
     if (!Number.isFinite(markerIdx) || markerIdx < 0) return;
     const targetIndex = Math.max(0, Math.floor(markerIdx));
-    if (manualAnchorPending && Math.abs(manualAnchorPending.targetIndex - targetIndex) <= MANUAL_ANCHOR_WINDOW_LINES) {
+    if (manualAnchorPending && isManualAnchorWithinLineWindow({
+      targetIndex: manualAnchorPending.targetIndex,
+      candidateIndex: targetIndex,
+      windowLines: MANUAL_ANCHOR_WINDOW_LINES
+    })) {
       manualAnchorPending.ts = now3;
       updateManualAnchorGlobalState();
       return;
@@ -36500,7 +37186,11 @@ function createAsrScrollDriver(options = {}) {
     const now3 = Date.now();
     manualScrollLastTop = getScroller()?.scrollTop ?? manualScrollLastTop;
     manualScrollLastAt = now3;
-    if (manualAnchorPending && Math.abs(manualAnchorPending.targetIndex - targetIndex) <= MANUAL_ANCHOR_WINDOW_LINES) {
+    if (manualAnchorPending && isManualAnchorWithinLineWindow({
+      targetIndex: manualAnchorPending.targetIndex,
+      candidateIndex: targetIndex,
+      windowLines: MANUAL_ANCHOR_WINDOW_LINES
+    })) {
       manualAnchorPending.ts = now3;
       updateManualAnchorGlobalState();
       logDev("[ASR_ADOPT] signal refresh targetIndex=" + manualAnchorPending.targetIndex);
@@ -37334,32 +38024,20 @@ function createAsrScrollDriver(options = {}) {
     }
   };
   const findNextSpokenLineIndex = (startIndex, maxLookahead = MAX_CUE_SKIP_LOOKAHEAD_LINES) => {
-    const total = getTotalLines();
-    if (!Number.isFinite(startIndex) || total <= 0) return null;
-    const begin = Math.max(0, Math.floor(startIndex));
-    if (begin >= total) return null;
-    const end = Math.min(total - 1, begin + Math.max(1, Math.floor(maxLookahead)));
-    for (let idx = begin; idx <= end; idx += 1) {
-      const lineText = getLineTextAt(idx);
-      if (!isIgnorableCueLineText(lineText)) {
-        return idx;
-      }
-    }
-    return null;
+    return findNextSpeakableLineIndex({
+      startIndex,
+      maxLookahead,
+      totalLines: getTotalLines(),
+      getLineText: getLineTextAt
+    });
   };
   const findNextSpokenLineIndexWithin = (startIndex, endIndexInclusive) => {
-    const total = getTotalLines();
-    if (!Number.isFinite(startIndex) || !Number.isFinite(endIndexInclusive) || total <= 0) return null;
-    const begin = Math.max(0, Math.floor(startIndex));
-    const end = Math.min(total - 1, Math.max(begin, Math.floor(endIndexInclusive)));
-    if (begin > end) return null;
-    for (let idx = begin; idx <= end; idx += 1) {
-      const lineText = getLineTextAt(idx);
-      if (!isIgnorableCueLineText(lineText)) {
-        return idx;
-      }
-    }
-    return null;
+    return findNextSpeakableLineIndexWithin({
+      startIndex,
+      endIndexInclusive,
+      totalLines: getTotalLines(),
+      getLineText: getLineTextAt
+    });
   };
   const computeCueSafeMarkerIndex = (scroller, maxForward = DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES) => {
     const markerRaw = computeMarkerLineIndex(scroller);
@@ -37418,7 +38096,7 @@ function createAsrScrollDriver(options = {}) {
     const dedupe = /* @__PURE__ */ new Set();
     const inputs = [];
     const pushInput = (value) => {
-      const normalized = normalizeComparableText(value);
+      const normalized = normalizeComparableText2(value);
       if (!normalized) return;
       if (dedupe.has(normalized)) return;
       dedupe.add(normalized);
@@ -37449,7 +38127,7 @@ function createAsrScrollDriver(options = {}) {
         lineTokenCache.set(idx, []);
         return [];
       }
-      const normalized = normalizeComparableText(raw);
+      const normalized = normalizeComparableText2(raw);
       const tokens = normalized ? normTokens(normalized) : [];
       lineTokenCache.set(idx, tokens);
       return tokens;
@@ -37738,7 +38416,7 @@ function createAsrScrollDriver(options = {}) {
     if (end < start2) return null;
     for (let idx = start2; idx <= end; idx += 1) {
       const lineText = getLineTextAt(idx);
-      if (classifyStrictSkippableLineForCueBridge(lineText) == null) {
+      if (!isAsrStrictSkippableLine(lineText)) {
         return idx;
       }
     }
@@ -37760,25 +38438,13 @@ function createAsrScrollDriver(options = {}) {
     }
     return cursor >= 0 ? cursor : null;
   };
-  const countSpeakableDistanceAhead = (fromLine, targetLine) => {
-    const safeFrom = Number.isFinite(fromLine) ? Math.floor(fromLine) : -1;
-    const safeTarget = Number.isFinite(targetLine) ? Math.max(0, Math.floor(targetLine)) : -1;
-    if (safeTarget <= safeFrom) return 0;
-    const total = getTotalLines();
-    if (total <= 0) {
-      return Math.max(0, safeTarget - Math.max(0, safeFrom));
-    }
-    let steps = 0;
-    let cursor = safeFrom;
-    const maxIterations = Math.max(1, total + 4);
-    for (let i = 0; i < maxIterations; i += 1) {
-      const next = findNextSpokenLineIndex(Math.max(0, cursor + 1), total);
-      if (next == null) break;
-      steps += 1;
-      if (next >= safeTarget) return steps;
-      cursor = next;
-    }
-    return Number.POSITIVE_INFINITY;
+  const countSpeakableDistanceAhead2 = (fromLine, targetLine) => {
+    return countSpeakableDistanceAhead({
+      fromLine,
+      targetLine,
+      totalLines: getTotalLines(),
+      getLineText: getLineTextAt
+    });
   };
   const isReaderLeashHardRecoverySource = (source) => {
     const normalized = String(source || "").trim().toLowerCase();
@@ -37898,31 +38564,30 @@ function createAsrScrollDriver(options = {}) {
   const resolveReaderVisualBand = (scroller, lineIndex) => {
     return resolveLineVisualTelemetry(scroller, lineIndex).band;
   };
-  const resolveForwardSpeakableTarget = (currentLine, requestedTarget, maxSpeakableSteps) => {
-    const safeCurrent = Math.max(0, Math.floor(Number(currentLine) || 0));
-    const safeRequested = Math.max(safeCurrent, Math.floor(Number(requestedTarget) || safeCurrent));
-    const stepsCap = Math.max(1, Math.floor(Number(maxSpeakableSteps) || 1));
-    const totalLines = getTotalLines();
-    const physicalCapped = totalLines > 0 ? clamp4(safeRequested, safeCurrent, Math.max(0, totalLines - 1)) : safeRequested;
-    let cursor = safeCurrent;
-    let steps = 0;
-    while (steps < stepsCap) {
-      const next = findNextSpokenLineIndex(Math.max(0, cursor + 1), totalLines);
-      if (!Number.isFinite(next) || next <= cursor) break;
-      const safeNext = Math.max(0, Math.floor(next));
-      if (safeNext > physicalCapped) break;
-      cursor = safeNext;
-      steps += 1;
-      if (cursor >= physicalCapped) break;
-    }
-    if (cursor > safeCurrent) return cursor;
-    return Math.min(physicalCapped, safeCurrent + stepsCap);
+  const resolveForwardSpeakableTarget2 = (currentLine, requestedTarget, maxSpeakableSteps) => {
+    return resolveForwardSpeakableTarget({
+      currentLine,
+      requestedTarget,
+      maxSpeakableSteps,
+      totalLines: getTotalLines(),
+      getLineText: getLineTextAt
+    });
   };
   const requestBackendRestart = (reason, now3, transcriptAgeMs, audioAgeMs) => {
     if (backendRestartedInWindow) {
       try {
         console.warn(
-          `[ASR_BACKEND_RESTART_REQUESTED] skipped=1 reason=${reason} skipReason=already_restarted_in_window windowMs=${DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS} transcriptAgeMs=${Math.round(transcriptAgeMs)} audioAgeMs=${Math.round(audioAgeMs)}`
+          buildAsrBackendRestartRequestedDiagnostic(
+            buildBackendRestartRequestedPayloadInput({
+              reason,
+              transcriptAgeMs,
+              audioAgeMs,
+              current: lastLineIndex,
+              backendRestartedInWindow: true,
+              hasRecognizerControls: true,
+              restartWindowMs: DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS
+            })
+          )
         );
       } catch {
       }
@@ -37932,7 +38597,17 @@ function createAsrScrollDriver(options = {}) {
     if (!speech || typeof speech.stopRecognizer !== "function" || typeof speech.startRecognizer !== "function") {
       try {
         console.warn(
-          `[ASR_BACKEND_RESTART_REQUESTED] skipped=1 reason=${reason} skipReason=recognizer_controls_unavailable transcriptAgeMs=${Math.round(transcriptAgeMs)} audioAgeMs=${Math.round(audioAgeMs)}`
+          buildAsrBackendRestartRequestedDiagnostic(
+            buildBackendRestartRequestedPayloadInput({
+              reason,
+              transcriptAgeMs,
+              audioAgeMs,
+              current: lastLineIndex,
+              backendRestartedInWindow: false,
+              hasRecognizerControls: false,
+              restartWindowMs: DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS
+            })
+          )
         );
       } catch {
       }
@@ -37941,7 +38616,17 @@ function createAsrScrollDriver(options = {}) {
     backendRestartedInWindow = true;
     try {
       console.warn(
-        `[ASR_BACKEND_RESTART_REQUESTED] skipped=0 reason=${reason} transcriptAgeMs=${Math.round(transcriptAgeMs)} audioAgeMs=${Math.round(audioAgeMs)} current=${lastLineIndex}`
+        buildAsrBackendRestartRequestedDiagnostic(
+          buildBackendRestartRequestedPayloadInput({
+            reason,
+            transcriptAgeMs,
+            audioAgeMs,
+            current: lastLineIndex,
+            backendRestartedInWindow: false,
+            hasRecognizerControls: true,
+            restartWindowMs: DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS
+          })
+        )
       );
     } catch {
     }
@@ -37958,54 +38643,118 @@ function createAsrScrollDriver(options = {}) {
     const restartScrollTop = restartScroller ? restartScroller.scrollTop : 0;
     try {
       console.warn(
-        `[ASR_BACKEND_RESTART_COMPLETED] reason=${reason} current=${lastLineIndex} commitIndex=${lastCommitIndex ?? -1} scrollTop=${Math.round(restartScrollTop || 0)}`
+        buildAsrBackendRestartCompletedDiagnostic({
+          reason,
+          current: lastLineIndex,
+          commitIndex: lastCommitIndex ?? -1,
+          scrollTop: restartScrollTop
+        })
       );
     } catch {
     }
   };
   const checkBackendLiveness = () => {
     const now3 = Date.now();
-    const liveAsr = getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed();
+    const asrArmed = isSessionAsrArmed();
+    const liveAsr = getScrollMode3() === "asr" && isSessionLivePhase() && asrArmed;
     const recognizerAttached = asrRuntimeRecognizerAttached || !!window.__tpRecognizer || !!window.__tpGetActiveRecognizer?.();
-    if (!liveAsr || !recognizerAttached) return;
     const speechActive2 = asrRuntimeSpeechRunningActual || hasRecentActualSpeech(now3) || hasRecentVadSpeechNow(now3);
     const activeReadMode = asrRuntimeActiveReadMode || speechActive2;
-    if (!speechActive2 && !activeReadMode) return;
+    const decision = evaluateBackendLiveness({
+      now: now3,
+      liveAsr,
+      asrArmed,
+      recognizerAttached,
+      recognizerAttachedAt: asrRuntimeRecognizerAttachedAt > 0 ? asrRuntimeRecognizerAttachedAt : null,
+      speechActive: speechActive2,
+      activeReadMode,
+      lastTranscriptPacketAt: lastTranscriptPacketAt > 0 ? lastTranscriptPacketAt : null,
+      lastAudioChunkAt: lastAudioChunkAt > 0 ? lastAudioChunkAt : null,
+      lastBackendHeartbeatAt: lastBackendHeartbeatAt > 0 ? lastBackendHeartbeatAt : null,
+      lastBackendTranscriptStaleAt: lastBackendTranscriptStaleAt > 0 ? lastBackendTranscriptStaleAt : null,
+      lastBackendAudioStaleAt: lastBackendAudioStaleAt > 0 ? lastBackendAudioStaleAt : null,
+      backendRestartWindowStartedAt: backendRestartWindowStartedAt > 0 ? backendRestartWindowStartedAt : null,
+      backendRestartedInWindow,
+      thresholds: {
+        heartbeatMs: DEFAULT_ASR_BACKEND_HEARTBEAT_MS,
+        transcriptStaleMs: DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS,
+        audioChunkStaleMs: DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS,
+        restartWindowMs: DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS,
+        firstTranscriptGraceMs: DEFAULT_ASR_BACKEND_FIRST_TRANSCRIPT_GRACE_MS
+      }
+    });
+    if (!decision.shouldCheck) return;
     if (backendRestartWindowStartedAt <= 0 || now3 - backendRestartWindowStartedAt > DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS) {
       backendRestartWindowStartedAt = now3;
       backendRestartedInWindow = false;
     }
-    const transcriptAgeMs = lastTranscriptPacketAt > 0 ? Math.max(0, now3 - lastTranscriptPacketAt) : Number.POSITIVE_INFINITY;
-    const audioAgeMs = lastAudioChunkAt > 0 ? Math.max(0, now3 - lastAudioChunkAt) : Number.POSITIVE_INFINITY;
-    if (now3 - lastBackendHeartbeatAt >= DEFAULT_ASR_BACKEND_HEARTBEAT_MS) {
+    const transcriptAgeMs = decision.transcriptAgeMs;
+    const audioAgeMs = decision.audioAgeMs;
+    if (decision.shouldEmitHeartbeat && now3 - lastBackendHeartbeatAt >= DEFAULT_ASR_BACKEND_HEARTBEAT_MS) {
       lastBackendHeartbeatAt = now3;
+      const heartbeatDiagnosticInput = buildBackendHeartbeatDiagnosticInput({
+        transcriptAgeMs,
+        audioAgeMs,
+        recognizerAttached,
+        speechActive: speechActive2,
+        activeReadMode,
+        backendRestartedInWindow
+      });
       try {
         console.warn(
-          `[ASR_BACKEND_HEARTBEAT] live=1 asrArmed=1 recognizerAttached=${recognizerAttached ? 1 : 0} speechActive=${speechActive2 ? 1 : 0} activeReadMode=${activeReadMode ? 1 : 0} transcriptAgeMs=${Number.isFinite(transcriptAgeMs) ? Math.round(transcriptAgeMs) : -1} audioAgeMs=${Number.isFinite(audioAgeMs) ? Math.round(audioAgeMs) : -1} restartedInWindow=${backendRestartedInWindow ? 1 : 0}`
+          buildAsrBackendHeartbeatDiagnostic(heartbeatDiagnosticInput)
         );
       } catch {
       }
     }
-    if (Number.isFinite(audioAgeMs) && audioAgeMs >= DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS && now3 - lastBackendAudioStaleAt >= 1e3) {
+    if (decision.shouldEmitAudioStale && now3 - lastBackendAudioStaleAt >= 1e3 && Number.isFinite(audioAgeMs)) {
       lastBackendAudioStaleAt = now3;
+      const audioAgeForLog = Number(audioAgeMs);
       try {
         console.warn(
-          `[ASR_AUDIO_CHUNK_STALE] ageMs=${Math.round(audioAgeMs)} thresholdMs=${DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS} recognizerAttached=${recognizerAttached ? 1 : 0} speechActive=${speechActive2 ? 1 : 0}`
+          buildAsrAudioChunkStaleDiagnostic({
+            ageMs: audioAgeForLog,
+            thresholdMs: DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS,
+            recognizerAttached,
+            speechActive: speechActive2
+          })
         );
       } catch {
       }
     }
-    const firstTranscriptGraceActive = !Number.isFinite(transcriptAgeMs) && asrRuntimeRecognizerAttachedAt > 0 && now3 - asrRuntimeRecognizerAttachedAt < DEFAULT_ASR_BACKEND_FIRST_TRANSCRIPT_GRACE_MS;
-    if (firstTranscriptGraceActive) return;
-    if (transcriptAgeMs >= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS && now3 - lastBackendTranscriptStaleAt >= 1e3) {
+    if (decision.firstTranscriptGraceActive) return;
+    const backendTranscriptStall = shouldClassifyBackendTranscriptStall({
+      liveAsr,
+      asrArmed,
+      recognizerAttached,
+      speechActive: speechActive2,
+      activeReadMode,
+      firstTranscriptGraceActive: decision.firstTranscriptGraceActive,
+      transcriptAgeMs,
+      transcriptStaleMs: DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS
+    });
+    if (backendTranscriptStall && now3 - lastBackendTranscriptStaleAt >= 1e3) {
       lastBackendTranscriptStaleAt = now3;
+      const transcriptAgeForLog = Number.isFinite(transcriptAgeMs) ? Number(transcriptAgeMs) : Number.POSITIVE_INFINITY;
+      const audioAgeForLog = Number.isFinite(audioAgeMs) ? Number(audioAgeMs) : Number.POSITIVE_INFINITY;
       try {
         console.warn(
-          `[ASR_BACKEND_TRANSCRIPT_STALE] ageMs=${Math.round(transcriptAgeMs)} thresholdMs=${DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS} recognizerAttached=${recognizerAttached ? 1 : 0} speechActive=${speechActive2 ? 1 : 0} activeReadMode=${activeReadMode ? 1 : 0}`
+          buildAsrBackendTranscriptStaleDiagnostic({
+            ageMs: transcriptAgeForLog,
+            thresholdMs: DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS,
+            recognizerAttached,
+            speechActive: speechActive2,
+            activeReadMode
+          })
         );
       } catch {
       }
-      requestBackendRestart("backend_transcript_starvation", now3, transcriptAgeMs, audioAgeMs);
+      requestBackendRestart(
+        "backend_transcript_starvation",
+        now3,
+        transcriptAgeForLog,
+        audioAgeForLog
+      );
     }
   };
   function syncBackendLivenessTimer() {
@@ -38039,7 +38788,7 @@ function createAsrScrollDriver(options = {}) {
         )
       )
     );
-    const speakableLead = countSpeakableDistanceAhead(confirmedSpoken, target);
+    const speakableLead = countSpeakableDistanceAhead2(confirmedSpoken, target);
     const renderedLead = Math.max(0, target - confirmedSpoken);
     return {
       current: current2,
@@ -38143,7 +38892,7 @@ function createAsrScrollDriver(options = {}) {
       return {
         authority: "reconcile",
         current: safeCurrent,
-        target: resolveForwardSpeakableTarget(safeCurrent, Math.max(safeTarget, safeBestIdx), 1),
+        target: resolveForwardSpeakableTarget2(safeCurrent, Math.max(safeTarget, safeBestIdx), 1),
         bestIdx: safeBestIdx,
         bestSim: safeBestSim,
         reason: "starvation_forward_evidence",
@@ -38156,7 +38905,7 @@ function createAsrScrollDriver(options = {}) {
       return {
         authority: "proof",
         current: safeCurrent,
-        target: resolveForwardSpeakableTarget(safeCurrent, safeTarget, 1),
+        target: resolveForwardSpeakableTarget2(safeCurrent, safeTarget, 1),
         bestIdx: safeBestIdx,
         bestSim: safeBestSim,
         reason: "strict_or_lexical_proof",
@@ -38169,7 +38918,7 @@ function createAsrScrollDriver(options = {}) {
       return {
         authority: "strong",
         current: safeCurrent,
-        target: resolveForwardSpeakableTarget(safeCurrent, safeTarget, 2),
+        target: resolveForwardSpeakableTarget2(safeCurrent, safeTarget, 2),
         bestIdx: safeBestIdx,
         bestSim: safeBestSim,
         reason: "strong_forward_match",
@@ -38181,7 +38930,7 @@ function createAsrScrollDriver(options = {}) {
       return {
         authority: "weak",
         current: safeCurrent,
-        target: resolveForwardSpeakableTarget(safeCurrent, safeTarget, 1),
+        target: resolveForwardSpeakableTarget2(safeCurrent, safeTarget, 1),
         bestIdx: safeBestIdx,
         bestSim: safeBestSim,
         reason: "weak_forward_match",
@@ -38225,7 +38974,7 @@ function createAsrScrollDriver(options = {}) {
         )
       )
     );
-    const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, safeTarget));
+    const speakableLead = Math.max(0, countSpeakableDistanceAhead2(confirmedSpoken, safeTarget));
     const renderedLead = Math.max(0, Math.max(safeTarget, semanticTarget, visualTarget) - confirmedSpoken);
     const msSinceLastCommit = Math.max(0, Date.now() - lastCommitAt2);
     const ahead = speakableLead > 0 || renderedLead > 0;
@@ -38288,17 +39037,219 @@ function createAsrScrollDriver(options = {}) {
   const commitLiveAsrSafeStep = (args) => {
     const commitTs = Date.now();
     const current2 = Math.max(0, Math.floor(Number(args.current) || 0));
-    const requestedTarget = Math.max(current2, Math.floor(Number(args.requestedTarget) || current2));
-    const semanticTargetRaw = Math.max(current2, Math.floor(Number(args.semanticTarget) || current2));
+    let requestedTarget = Math.max(current2, Math.floor(Number(args.requestedTarget) || current2));
+    let semanticTargetRaw = Math.max(current2, Math.floor(Number(args.semanticTarget) || current2));
     const visualTarget = Math.max(current2, Math.floor(Number(args.visualTarget ?? semanticTargetRaw) || semanticTargetRaw));
     const hardContradiction = !!args.hardContradiction;
+    const sourceBranchLowerForLeash = String(args.sourceBranch || "").toLowerCase();
+    const proofSourceLowerForLeash = String(args.proofSource || "").toLowerCase();
+    const reasonLowerForLeash = String(args.reason || "").toLowerCase();
+    const lastConfirmedSpokenForLeash = Math.max(0, lastStrongConfirmedSpokenLine);
+    const speakableLeadForLeash = Math.max(
+      0,
+      countSpeakableDistanceAhead2(lastConfirmedSpokenForLeash, Math.max(requestedTarget, semanticTargetRaw))
+    );
+    const renderedLeadForLeash = Math.max(0, Math.max(requestedTarget, semanticTargetRaw) - lastConfirmedSpokenForLeash);
+    const leadStateForLeash = speakableLeadForLeash >= ASR_VISUAL_HARD_LEAD_START || renderedLeadForLeash >= ASR_VISUAL_HARD_LEAD_START ? "far_ahead" : speakableLeadForLeash > 0 || renderedLeadForLeash > 0 ? "ahead" : "aligned_or_behind";
+    const explicitNoMatchForLeashEarly = reasonLowerForLeash.includes("nomatch") || proofSourceLowerForLeash.includes("nomatch") || sourceBranchLowerForLeash.includes("offscript");
+    const readerLeashPressureActive = sourceBranchLowerForLeash.includes("reader_leash") || String(args.bypassedBlockers || "").toLowerCase().includes("asr_reader_leash_hold") || String(lastLiveSafeTerminalShieldSource || "").toLowerCase().includes("asr_reader_leash_hold") || liveAsrVisualGovernorHardHold || liveAsrBridgeVisualComfortUntilMs > commitTs && liveAsrBridgeVisualRecoveryDeltaLines > ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES;
+    const recoveryLeashDecision = shouldConstrainRecoveryForReaderLeash({
+      sourceBranch: args.sourceBranch,
+      proofSource: args.proofSource,
+      reason: args.reason,
+      bypassedBlockers: args.bypassedBlockers,
+      readerLeashActive: readerLeashPressureActive,
+      current: current2,
+      requestedTarget,
+      semanticTarget: semanticTargetRaw,
+      skippedIgnorableLinesCount: (args.skippedIgnorableLines || []).length
+    });
+    if (recoveryLeashDecision.shouldConstrain) {
+      const adjacentTarget = resolveForwardSpeakableTarget2(current2, Math.max(requestedTarget, semanticTargetRaw), 1);
+      if (adjacentTarget > current2) {
+        if (adjacentTarget < requestedTarget || adjacentTarget < semanticTargetRaw) {
+          try {
+            console.warn(
+              `[ASR_RECOVERY_READER_LEASH_REDUCED_TO_ADJACENT] current=${current2} requestedTarget=${requestedTarget} reducedTarget=${adjacentTarget} deltaRaw=${Math.max(0, requestedTarget - current2)} authority=${args.authority || "unknown"} sourceBranch=${args.sourceBranch || "unknown"} proofSource=${args.proofSource || "none"} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} reason=recovery_adjacent_only_while_leashed`
+            );
+          } catch {
+          }
+        }
+        requestedTarget = adjacentTarget;
+        semanticTargetRaw = Math.min(semanticTargetRaw, adjacentTarget);
+      } else {
+        try {
+          console.warn(
+            `[ASR_RECOVERY_READER_LEASH_HELD] current=${current2} requestedTarget=${requestedTarget} target=${semanticTargetRaw} deltaRaw=${Math.max(0, requestedTarget - current2)} authority=${args.authority || "unknown"} sourceBranch=${args.sourceBranch || "unknown"} proofSource=${args.proofSource || "none"} stallMs=${Math.max(0, Math.round(Number(args.stallMs ?? 0)))} starvationMs=${Math.max(0, Math.round(Number(args.noCommitMs ?? 0)))} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} reason=recovery_must_respect_reader_leash`
+          );
+        } catch {
+        }
+        return { accepted: false, target: current2, thresholdMs: 900, actualDelayMs: 0, commitTs };
+      }
+    }
+    const safeAdjacentProofAvailableForLeash = proofSourceLowerForLeash.includes("strict_adjacent_tail_progression") || proofSourceLowerForLeash.includes("live_strict_local_proof_ok") || proofSourceLowerForLeash.includes("adjacent_rescue_proofed") || proofSourceLowerForLeash.includes("cue_exit");
+    const bridgeAuthorityCarry = Math.max(0, Math.max(requestedTarget, semanticTargetRaw) - current2);
+    const bridgeAuthorityLeashDecision = shouldConstrainBridgeAuthorityForReaderLeash({
+      readerLeashActive: readerLeashPressureActive && !explicitNoMatchForLeashEarly,
+      current: current2,
+      requestedTarget,
+      semanticTarget: semanticTargetRaw,
+      skippedIgnorableLinesCount: (args.skippedIgnorableLines || []).length,
+      carry: bridgeAuthorityCarry,
+      sourceBranch: args.sourceBranch,
+      proofSource: args.proofSource,
+      authority: args.authority,
+      safeAdjacentProofAvailable: safeAdjacentProofAvailableForLeash
+    });
+    if (bridgeAuthorityLeashDecision.shouldConstrain) {
+      if (bridgeAuthorityLeashDecision.shouldReduceToAdjacent) {
+        const reducedTarget2 = current2 + 1;
+        try {
+          console.warn(
+            `[ASR_BRIDGE_AUTHORITY_REDUCED_TO_VISUAL_ADJACENT] current=${current2} requestedTarget=${requestedTarget} reducedTarget=${reducedTarget2} deltaRaw=${Math.max(0, requestedTarget - current2)} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] carry=${bridgeAuthorityCarry} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} authority=${args.authority || "unknown"} leadState=${leadStateForLeash} speakableLead=${speakableLeadForLeash} renderedLead=${renderedLeadForLeash} visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} reason=visual_adjacent_only_while_leashed`
+          );
+        } catch {
+        }
+        requestedTarget = reducedTarget2;
+        semanticTargetRaw = Math.min(semanticTargetRaw, reducedTarget2);
+      } else {
+        try {
+          console.warn(
+            `[ASR_BRIDGE_AUTHORITY_READER_LEASH_HELD] current=${current2} requestedTarget=${requestedTarget} deltaRaw=${Math.max(0, requestedTarget - current2)} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] carry=${bridgeAuthorityCarry} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} authority=${args.authority || "unknown"} leadState=${leadStateForLeash} speakableLead=${speakableLeadForLeash} renderedLead=${renderedLeadForLeash} visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} readerLeashActive=${readerLeashPressureActive ? 1 : 0} visualGovernorHardHold=${liveAsrVisualGovernorHardHold ? 1 : 0} reason=bridge_authority_must_respect_reader_leash`
+          );
+        } catch {
+        }
+        return { accepted: false, target: current2, thresholdMs: 900, actualDelayMs: 0, commitTs };
+      }
+    }
+    const visualEnvelopeLeashDecision = shouldConstrainForVisualEnvelopeLeash({
+      visualEnvelopeLeashActive: liveAsrVisualEnvelopeLeashActive,
+      current: current2,
+      requestedTarget,
+      semanticTarget: semanticTargetRaw,
+      skippedIgnorableLinesCount: (args.skippedIgnorableLines || []).length,
+      carry: bridgeAuthorityCarry,
+      sourceBranch: args.sourceBranch,
+      proofSource: args.proofSource,
+      authority: args.authority,
+      safeAdjacentProofAvailable: safeAdjacentProofAvailableForLeash,
+      offscriptOrNoMatch: explicitNoMatchForLeashEarly
+    });
+    if (visualEnvelopeLeashDecision.shouldConstrain) {
+      const envelopeDeltaLines = Math.max(0, liveAsrVisualEnvelopeLeashDeltaLines, liveAsrBridgeVisualRecoveryDeltaLines);
+      if (visualEnvelopeLeashDecision.shouldReduceToAdjacent) {
+        const reducedTarget2 = current2 + 1;
+        try {
+          console.warn(
+            `[ASR_VISUAL_ENVELOPE_REDUCED_TO_ADJACENT] current=${current2} requestedTarget=${requestedTarget} reducedTarget=${reducedTarget2} currentEnvelopeDeltaLines=${formatLogScore(envelopeDeltaLines)} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} authority=${args.authority || "unknown"} reason=visual_envelope_adjacent_only`
+          );
+        } catch {
+        }
+        requestedTarget = reducedTarget2;
+        semanticTargetRaw = Math.min(semanticTargetRaw, reducedTarget2);
+      } else {
+        try {
+          console.warn(
+            `[ASR_VISUAL_ENVELOPE_LEASH_HELD] current=${current2} requestedTarget=${requestedTarget} deltaRaw=${Math.max(0, requestedTarget - current2)} currentEnvelopeDeltaLines=${formatLogScore(envelopeDeltaLines)} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} authority=${args.authority || "unknown"} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] reason=visual_envelope_requires_adjacent_only`
+          );
+        } catch {
+        }
+        return { accepted: false, target: current2, thresholdMs: 900, actualDelayMs: 0, commitTs };
+      }
+    }
+    const scrollerForProjection = getScroller();
+    const visualReducedTargetForProjection = current2 + 1;
+    let projectedDeltaLines = Number.NaN;
+    if (scrollerForProjection) {
+      const semanticTelemetry = resolveLineVisualTelemetry(scrollerForProjection, semanticTargetRaw);
+      const semanticLineEl = getLineElementByIndex(scrollerForProjection, semanticTargetRaw);
+      const semanticLinePx = resolveMotionLineHeightPx(semanticLineEl);
+      if (Number.isFinite(semanticTelemetry.distanceToMarkerPx) && Number.isFinite(semanticLinePx) && semanticLinePx > 0) {
+        projectedDeltaLines = Math.abs(semanticTelemetry.distanceToMarkerPx) / semanticLinePx;
+      }
+    }
+    if (Number.isFinite(projectedDeltaLines) && projectedDeltaLines >= 0) {
+      const visualProjectionLeashDecision = shouldConstrainForVisualProjectionLeash({
+        current: current2,
+        requestedTarget,
+        semanticTarget: semanticTargetRaw,
+        skippedIgnorableLinesCount: (args.skippedIgnorableLines || []).length,
+        carry: bridgeAuthorityCarry,
+        sourceBranch: args.sourceBranch,
+        proofSource: args.proofSource,
+        authority: args.authority,
+        safeAdjacentProofAvailable: safeAdjacentProofAvailableForLeash,
+        offscriptOrNoMatch: explicitNoMatchForLeashEarly,
+        projectedDeltaLines,
+        maxSafeProjectedDeltaLines: ASR_VISUAL_PROJECTION_MAX_SAFE_DELTA_LINES
+      });
+      if (visualProjectionLeashDecision.shouldConstrain) {
+        try {
+          console.warn(
+            `[ASR_VISUAL_PROJECTION_UNSAFE_PRECOMMIT] current=${current2} requestedTarget=${requestedTarget} semanticTarget=${semanticTargetRaw} visualReducedTarget=${visualReducedTargetForProjection} projectedDeltaLines=${formatLogScore(projectedDeltaLines)} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=${visualProjectionLeashDecision.reason || "visual_projection_requires_adjacent_only"}`
+          );
+        } catch {
+        }
+        if (visualProjectionLeashDecision.shouldReduceToAdjacent) {
+          const reducedTarget2 = Math.max(
+            current2,
+            Math.min(Math.max(requestedTarget, semanticTargetRaw), visualReducedTargetForProjection)
+          );
+          try {
+            console.warn(
+              `[ASR_VISUAL_PROJECTION_REDUCED_TO_ADJACENT] current=${current2} requestedTarget=${requestedTarget} target=${Math.max(requestedTarget, semanticTargetRaw)} semanticTarget=${semanticTargetRaw} visualReducedTarget=${visualReducedTargetForProjection} reducedTarget=${reducedTarget2} projectedDeltaLines=${formatLogScore(projectedDeltaLines)} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=visual_projection_adjacent_only`
+            );
+          } catch {
+          }
+          requestedTarget = reducedTarget2;
+          semanticTargetRaw = Math.min(semanticTargetRaw, reducedTarget2);
+        } else {
+          return { accepted: false, target: current2, thresholdMs: 900, actualDelayMs: 0, commitTs };
+        }
+      }
+    }
     const equivalentBridgeTarget = Math.max(requestedTarget, semanticTargetRaw);
     const bridgeBlockKey = `${current2}->${equivalentBridgeTarget}:${lastFinalTranscriptRunGeneration ?? -1}`;
     const bridgeBlockRecord = liveBridgeDownstreamBlockUntilByKey.get(bridgeBlockKey);
-    const bridgeCompletionPath = String(args.sourceBranch || "").toLowerCase().includes("pending_speakable_bridge_complete") || String(args.reason || "").toLowerCase().includes("bridge_completion_accepted");
-    const bridgeTrapEscapePath = String(args.reason || "").toLowerCase().includes("bridge_trap_escape");
     const bridgeBlockUntil = bridgeBlockRecord?.until || 0;
-    if (bridgeBlockUntil > commitTs && equivalentBridgeTarget > current2 + 1 && !bridgeCompletionPath && !bridgeTrapEscapePath) {
+    const speechFresh = !!args.speechRunningActual || !!args.finalPacketFresh;
+    const bridgeLikeCommitCandidateEarly = requestedTarget > current2 + 1 || semanticTargetRaw > current2 + 1 || (args.skippedIgnorableLines || []).length > 0;
+    const adjacentCommitCandidateEarly = requestedTarget === current2 + 1 || semanticTargetRaw === current2 + 1;
+    const bridgeCommitDeltaLinesForLeashEarly = Math.max(
+      liveAsrBridgeVisualRecoveryDeltaLines,
+      Math.max(0, requestedTarget - current2)
+    );
+    const bridgeComfortLeashDecisionEarly = shouldHoldBridgeCommitForVisualRecovery({
+      liveAsrFollowMode: getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed(),
+      now: commitTs,
+      comfortUntilMs: liveAsrBridgeVisualComfortUntilMs,
+      deltaLines: bridgeCommitDeltaLinesForLeashEarly,
+      safeDeltaLines: ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES,
+      bridgeLikeCommit: bridgeLikeCommitCandidateEarly,
+      adjacentCommit: adjacentCommitCandidateEarly,
+      speechFresh
+    });
+    if (bridgeComfortLeashDecisionEarly.shouldHold && !hardContradiction && !explicitNoMatchForLeashEarly && !sourceBranchLowerForLeash.includes("bridge_trap_escape")) {
+      const comfortWindowRemainingMs = Math.max(0, Math.round(liveAsrBridgeVisualComfortUntilMs - commitTs));
+      try {
+        console.warn(
+          `[ASR_BRIDGE_COMFORT_COMMIT_LEASH_HELD] current=${current2} requestedTarget=${requestedTarget} target=${requestedTarget} semanticTarget=${semanticTargetRaw} visualTarget=${visualTarget} deltaRaw=${Math.max(0, semanticTargetRaw - current2)} deltaLines=${formatLogScore(bridgeCommitDeltaLinesForLeashEarly)} comfortWindowRemainingMs=${comfortWindowRemainingMs} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] reason=bridge_comfort_visual_recovery_pending`
+        );
+      } catch {
+      }
+      return { accepted: false, target: current2, thresholdMs: 900, actualDelayMs: 0, commitTs };
+    }
+    const equivalentBridgeBlock = shouldBlockEquivalentBridgeCommit({
+      current: current2,
+      requestedTarget,
+      semanticTarget: semanticTargetRaw,
+      commitTs,
+      bridgeBlockUntil,
+      sourceBranch: args.sourceBranch || "unknown",
+      reason: args.reason
+    });
+    const bridgeTrapEscapePath = equivalentBridgeBlock.bridgeTrapEscapePath === true;
+    if (equivalentBridgeBlock.shouldBlock) {
       try {
         console.warn(
           `[ASR_LIVE_BRIDGE_DOWNSTREAM_COMMIT_BLOCKED] current=${current2} requestedTarget=${requestedTarget} sourceBranch=${args.sourceBranch || "unknown"} proofSource=${args.proofSource || "none"} reason=bridge_block_token`
@@ -38328,15 +39279,14 @@ function createAsrScrollDriver(options = {}) {
     );
     let thresholdMs = repeatedHoldCount > 2 ? 600 : 900;
     const actualDelayMs = Math.max(0, Math.round(Number(args.noCommitMs ?? args.stallMs ?? 0)));
-    const speechFresh = !!args.speechRunningActual || !!args.finalPacketFresh;
     const hasAuthority = args.authority === "proof" || args.authority === "reconcile";
     const sourceBranchLowerEarly = String(args.sourceBranch || "unknown").toLowerCase();
     const bypassedBlockersLowerEarly = String(args.bypassedBlockers || "none").toLowerCase();
     const riskyBridgeBypassSourceEarly = sourceBranchLowerEarly.includes("movement_authority_forced_reconcile_single_step") || sourceBranchLowerEarly.includes("sustained_read") || sourceBranchLowerEarly.includes("pending_visual_cap") || sourceBranchLowerEarly.includes("live_unleashed") || sourceBranchLowerEarly.includes("rescue") || sourceBranchLowerEarly.includes("stall_rescue") || sourceBranchLowerEarly.includes("soft_runtime_rebase") || sourceBranchLowerEarly.includes("reader_leash") || bypassedBlockersLowerEarly.includes("asr_reader_leash_hold") || bypassedBlockersLowerEarly.includes("pending_visual_cap") || bypassedBlockersLowerEarly.includes("visible_bridge_step_cap");
-    let reducedTarget = resolveForwardSpeakableTarget(current2, semanticTargetRaw, 1);
+    let reducedTarget = resolveForwardSpeakableTarget2(current2, semanticTargetRaw, 1);
     const allowSemanticBridgeCompletion = sourceBranchLowerEarly.includes("pending_speakable_bridge_complete") || String(args.reason || "").toLowerCase().includes("pending_speakable_bridge_complete") || String(args.proofSource || "").toLowerCase().includes("strict_speakable_bridge_landing");
     if (getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed() && !allowSemanticBridgeCompletion && !bridgeTrapEscapePath && (requestedTarget > current2 + 1 || reducedTarget > current2 + 1)) {
-      const bridgeReducedTarget = resolveForwardSpeakableTarget(current2, reducedTarget, 1);
+      const bridgeReducedTarget = resolveForwardSpeakableTarget2(current2, reducedTarget, 1);
       const visualReducedTarget = Math.max(current2, Math.min(requestedTarget, current2 + 1));
       try {
         console.warn(
@@ -38356,7 +39306,13 @@ function createAsrScrollDriver(options = {}) {
         }
       } catch {
       }
-      if (bridgeReducedTarget > current2 && bridgeReducedTarget <= current2 + 1) {
+      const adjacentReductionDecision = shouldReduceBridgeToAdjacentRenderedRow({
+        bridgeReducedTarget,
+        currentIndex: current2,
+        originalTargetIndex: requestedTarget,
+        skippedRows: args.skippedIgnorableLines || []
+      });
+      if (adjacentReductionDecision.shouldReduce) {
         try {
           console.warn(
             `[ASR_LIVE_BRIDGE_REDUCED_TO_ADJACENT] current=${current2} requested=${requestedTarget} target=${bridgeReducedTarget} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=live_bridge_single_step_policy`
@@ -38365,6 +39321,29 @@ function createAsrScrollDriver(options = {}) {
         }
         reducedTarget = bridgeReducedTarget;
       } else {
+        const stagedBridgeRepeated = bridgeBlockUntil > commitTs;
+        const stagedBridgeOverdue = actualDelayMs >= thresholdMs;
+        const shouldSeedPendingBridgeCompletion = speechFresh && equivalentBridgeTarget > current2 + 1 && !pendingSpeakableBridgeState && (stagedBridgeRepeated || stagedBridgeOverdue);
+        if (shouldSeedPendingBridgeCompletion) {
+          pendingSpeakableBridgeState = {
+            semanticFrom: current2,
+            semanticTarget: equivalentBridgeTarget,
+            visualCurrent: visualReducedTarget,
+            visualReducedTarget,
+            skippedVisibleRows: Math.max(1, equivalentBridgeTarget - visualReducedTarget),
+            proofSource: String(args.proofSource || "none"),
+            sourceBranch: String(args.sourceBranch || "unknown"),
+            createdAtMs: commitTs,
+            runKey: String(lastFinalTranscriptRunKey || summaryRunKey || "").trim(),
+            runGeneration: lastFinalTranscriptRunGeneration ?? resolveActiveRunGeneration()
+          };
+          try {
+            console.warn(
+              `[ASR_LIVE_BRIDGE_PENDING_COMPLETION_SEEDED] semanticFrom=${current2} semanticTarget=${equivalentBridgeTarget} visualReducedTarget=${visualReducedTarget} repeated=${stagedBridgeRepeated ? 1 : 0} overdue=${stagedBridgeOverdue ? 1 : 0} noCommitMs=${actualDelayMs} thresholdMs=${thresholdMs} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=staged_visual_only_overdue`
+            );
+          } catch {
+          }
+        }
         if (riskyBridgeBypassSourceEarly) {
           liveBridgeDownstreamBlockUntilByKey.set(bridgeBlockKey, {
             until: commitTs + 2500,
@@ -38385,7 +39364,15 @@ function createAsrScrollDriver(options = {}) {
     const rescueBypassLike = bypassedBlockersLower.includes("asr_reader_leash_hold") || bypassedBlockersLower.includes("pending_visual_cap") || bypassedBlockersLower.includes("visible_bridge_step_cap") || sourceBranchLower.includes("asr_reader_leash_hold") || sourceBranchLower.includes("sustained_read") || sourceBranchLower.includes("stall_rescue") || sourceBranchLower.includes("cue_stall_rescue_blocked") || sourceBranchLower.includes("live_strict_rescue_hold_no_local_proof") || sourceBranchLower.includes("pending_visual_cap") || proofSourceLower.includes("starvation") || proofSourceLower.includes("adjacent_completion") || proofSourceLower.includes("cue_stall") || proofSourceLower.includes("rescue");
     const speechFreshNow = !!args.speechRunningActual || !!args.finalPacketFresh || hasRecentActualSpeech(commitTs);
     const directAdjacentLocalProof = reducedTarget === current2 + 1 && speechFreshNow && (proofSourceLower.includes("live_strict_local_proof_ok") || proofSourceLower.includes("adjacent_rescue_proofed") || proofSourceLower.includes("cue_exit"));
-    const freshAdjacentFastCommitEligible = reducedTarget === current2 + 1 && (speechFreshNow || !!args.finalPacketFresh || !!args.speechRunningActual) && (directAdjacentLocalProof || proofSourceLower.includes("strict_adjacent_tail_progression") || proofSourceLower.includes("strict_speakable_bridge_landing"));
+    const freshAdjacentFastCommitEligible = shouldAllowFreshAdjacentFastCommit({
+      reducedTarget,
+      current: current2,
+      speechFreshNow,
+      finalPacketFresh: !!args.finalPacketFresh,
+      speechRunningActual: !!args.speechRunningActual,
+      directAdjacentLocalProof,
+      proofSourceLower
+    }).eligible;
     if (freshAdjacentFastCommitEligible) {
       thresholdMs = Math.min(thresholdMs, ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS);
       thresholdMs = Math.max(ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS, thresholdMs);
@@ -38402,7 +39389,13 @@ function createAsrScrollDriver(options = {}) {
     recentRescueBypassAtMs = recentRescueBypassAtMs.filter((ts) => commitTs - ts <= ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS);
     const recentBypassCount = recentRescueBypassAtMs.length;
     const lastBypassAgeMs = lastRescueBypassAtMs > 0 ? Math.max(0, commitTs - lastRescueBypassAtMs) : Number.POSITIVE_INFINITY;
-    if (gatePassCore && rescueBypassLike && !directAdjacentLocalProof && recentBypassCount >= ASR_RESCUE_BYPASS_BUDGET_MAX) {
+    if (isRescueBudgetExhausted({
+      gatePassCore,
+      rescueBypassLike,
+      directAdjacentLocalProof,
+      recentBypassCount,
+      bypassBudgetMax: ASR_RESCUE_BYPASS_BUDGET_MAX
+    })) {
       try {
         console.warn(
           `[ASR_RESCUE_BYPASS_BUDGET_HELD] current=${current2} target=${reducedTarget} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} recentBypassCount=${recentBypassCount} windowMs=${ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS} reason=bypass_budget_exhausted`
@@ -38411,9 +39404,17 @@ function createAsrScrollDriver(options = {}) {
       }
       return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
     }
-    if (gatePassCore && rescueBypassLike && bypassedBlockersLower.includes("asr_reader_leash_hold")) {
-      const canBypassLeash = directAdjacentLocalProof || freshLandingLexicalNoStale || lastBypassAgeMs >= ASR_RESCUE_BYPASS_MIN_DELAY_MS;
-      if (!canBypassLeash) {
+    const readerLeashBypassDecision = shouldAllowReaderLeashBypass({
+      gatePassCore,
+      rescueBypassLike,
+      bypassedBlockersLower,
+      directAdjacentLocalProof,
+      freshLandingLexicalNoStale,
+      lastBypassAgeMs,
+      minBypassDelayMs: ASR_RESCUE_BYPASS_MIN_DELAY_MS
+    });
+    if (readerLeashBypassDecision.shouldCheck) {
+      if (!readerLeashBypassDecision.shouldAllow) {
         try {
           console.warn(
             `[ASR_READER_LEASH_BYPASS_HELD] current=${current2} requested=${requestedTarget} target=${reducedTarget} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} blocker=asr_reader_leash_hold lastBypassAgeMs=${Number.isFinite(lastBypassAgeMs) ? Math.round(lastBypassAgeMs) : -1} reason=insufficient_leash_bypass_proof`
@@ -38425,7 +39426,7 @@ function createAsrScrollDriver(options = {}) {
     }
     if (gatePassCore && rescueBypassLike && reducedTarget > current2 + 1 && lastBypassAgeMs <= ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS) {
       const strongBridgeProof = speechFreshNow && !!args.speechRunningActual && !proofSourceLower.includes("stale") && !proofSourceLower.includes("tail") && (proofSourceLower.includes("landing") || proofSourceLower.includes("live_strict_local_proof_ok"));
-      const aheadNow = Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), current2)) > 0;
+      const aheadNow = Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), current2)) > 0;
       if (!strongBridgeProof || aheadNow) {
         if (isSpeakableScriptLine(current2 + 1)) {
           reducedTarget = current2 + 1;
@@ -38463,10 +39464,10 @@ function createAsrScrollDriver(options = {}) {
     const transcriptNorm = String(lastFinalTranscriptNorm || "").trim();
     const commitSnapshotNorm = String(lastCommitTranscriptNormSnapshot || "").trim();
     const transcriptTailNorm = commitSnapshotNorm && transcriptNorm && transcriptNorm.startsWith(commitSnapshotNorm) ? transcriptNorm.slice(commitSnapshotNorm.length).trim() : transcriptNorm;
-    const targetNorm = normalizeComparableText(getLineTextAt(requestedTarget));
-    const clueNorm = normalizeComparableText(String(args.clue || ""));
+    const targetNorm = normalizeComparableText2(getLineTextAt(requestedTarget));
+    const clueNorm = normalizeComparableText2(String(args.clue || ""));
     const targetContentSet = getContentTokenSet(normTokens(targetNorm));
-    const tailContentTokens = normTokens(normalizeComparableText(transcriptTailNorm));
+    const tailContentTokens = normTokens(normalizeComparableText2(transcriptTailNorm));
     const tailContentHits = countSharedContentTokenHits(targetContentSet, tailContentTokens);
     const tailHitRatio = targetContentSet.size > 0 ? tailContentHits / targetContentSet.size : 0;
     const clueContentHits = countSharedContentTokenHits(targetContentSet, normTokens(clueNorm));
@@ -38479,6 +39480,53 @@ function createAsrScrollDriver(options = {}) {
     const runtimeFreshSpeech = !!args.speechRunningActual || hasRecentActualSpeech(commitTs);
     const finalPacketFresh = !!args.finalPacketFresh || lastFinalTranscriptAt > 0 && commitTs - lastFinalTranscriptAt <= 1800;
     const speechEvidenceFresh = runtimeFreshSpeech || finalPacketFresh;
+    const startupSettlingActive = commitCount <= ASR_STARTUP_SHORT_MEMORY_MAX_COMMITS && runAgeMs <= ASR_STARTUP_SHORT_MEMORY_MAX_RUN_AGE_MS;
+    const shortTailWords = transcriptTailNorm ? transcriptTailNorm.split(/\s+/).filter(Boolean).slice(-16) : [];
+    const shortTailWordCount = shortTailWords.length;
+    const startupAdjacentEvidenceSim = Math.max(tailHitRatio, clueHitRatio);
+    const startupConfirmedSpoken = Math.max(0, lastStrongConfirmedSpokenLine);
+    const startupSpeakableLead = Math.max(0, countSpeakableDistanceAhead2(startupConfirmedSpoken, current2));
+    const startupRenderedLead = Math.max(0, current2 - startupConfirmedSpoken);
+    const startupLeadAhead = startupSpeakableLead >= 1 || startupRenderedLead >= 1;
+    const startupReaderLeashActive = String(args.sourceBranch || "").toLowerCase().includes("reader_leash") || String(args.bypassedBlockers || "").toLowerCase().includes("asr_reader_leash_hold") || liveAsrVisualGovernorHardHold || liveAsrBridgeVisualComfortUntilMs > commitTs && liveAsrBridgeVisualRecoveryDeltaLines > 3.5;
+    const startupOffscriptOrNoMatch = String(args.proofSource || "").toLowerCase().includes("nomatch") || String(args.reason || "").toLowerCase().includes("nomatch") || String(args.sourceBranch || "").toLowerCase().includes("offscript");
+    const startupFutureReconcilePath = String(args.sourceBranch || "").toLowerCase().includes("starvation_future_speech_reconcile") || String(args.reason || "").toLowerCase().includes("starvation_future_speech_reconcile");
+    const startupShortMemoryDecision = shouldAllowStartupShortMemoryAdjacentCommit({
+      startupSettlingActive,
+      current: current2,
+      requestedTarget,
+      semanticTarget: semanticTargetRaw,
+      skippedIgnorableLinesCount: (args.skippedIgnorableLines || []).length,
+      adjacentSim: startupAdjacentEvidenceSim,
+      minAdjacentSim: ASR_STARTUP_SHORT_MEMORY_MIN_ADJACENT_SIM,
+      shortTailWordCount,
+      minShortTailWords: ASR_STARTUP_SHORT_MEMORY_MIN_TAIL_WORDS,
+      readerLeashActive: startupReaderLeashActive,
+      leadAhead: startupLeadAhead,
+      speakableLead: startupSpeakableLead,
+      renderedLead: startupRenderedLead,
+      offscriptOrNoMatch: startupOffscriptOrNoMatch,
+      backwardContradiction: hardContradiction,
+      starvationFutureTargetPath: startupFutureReconcilePath
+    });
+    if (startupShortMemoryDecision.considered) {
+      if (startupShortMemoryDecision.allow) {
+        thresholdMs = Math.min(thresholdMs, ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS);
+        try {
+          console.warn(
+            `[ASR_STARTUP_SHORT_MEMORY_ADJACENT_COMMIT] current=${current2} target=${requestedTarget} commitCount=${commitCount} runAgeMs=${runAgeMs} adjacentSim=${formatLogScore(startupAdjacentEvidenceSim)} shortTailWordCount=${shortTailWordCount} proofSource=startup_short_memory_adjacent reason=startup_settling_adjacent_only`
+          );
+        } catch {
+        }
+      } else if (requestedTarget > current2) {
+        try {
+          console.warn(
+            `[ASR_STARTUP_SHORT_MEMORY_BLOCKED] current=${current2} requestedTarget=${requestedTarget} reason=${startupShortMemoryDecision.reason} commitCount=${commitCount} runAgeMs=${runAgeMs} targetDelta=${Math.max(0, requestedTarget - current2)} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] speakableLead=${startupSpeakableLead} renderedLead=${startupRenderedLead} offscriptNoMatch=${startupOffscriptOrNoMatch ? 1 : 0}`
+          );
+        } catch {
+        }
+      }
+    }
     const earlyBridgeHold = gatePassCore && current2 <= 3 && requestedTarget > current2 + 1 && commitCount < ASR_EARLY_BRIDGE_GOVERNOR_MAX_COMMITS && renderedDelta > ASR_EARLY_BRIDGE_GOVERNOR_MAX_RENDERED_DELTA && (!landingProofDirect || !speechEvidenceFresh || stalePrefixIgnored);
     if (earlyBridgeHold) {
       try {
@@ -38518,17 +39566,75 @@ function createAsrScrollDriver(options = {}) {
         return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
       }
     }
-    if (accepted && liveAsrVisualGovernorHardHold) {
-      const adjacentTarget = reducedTarget === current2 + 1;
-      const noHardContradiction = !hardContradiction;
-      const noRecentLargeBridge = Date.now() - lastCommitAt2 > 700 || requestedTarget <= current2 + 1;
-      const freshAdjacentUnlockAllowed = adjacentTarget && noHardContradiction && noRecentLargeBridge && (liveSpeechFresh || !!args.finalPacketFresh);
-      const noCommitMs = Math.max(0, Date.now() - lastCommitTime);
-      if (freshAdjacentUnlockAllowed && noCommitMs >= ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS) {
+    const noCommitMs = Math.max(0, Date.now() - lastCommitTime);
+    const farAheadConfirmedSpoken = Math.max(0, lastStrongConfirmedSpokenLine);
+    const farAheadSpeakableLead = Math.max(0, countSpeakableDistanceAhead2(farAheadConfirmedSpoken, reducedTarget));
+    const farAheadRenderedLead = Math.max(0, reducedTarget - farAheadConfirmedSpoken);
+    const farAheadLeadState = farAheadSpeakableLead >= ASR_VISUAL_HARD_LEAD_START || farAheadRenderedLead >= ASR_VISUAL_HARD_LEAD_START ? "far_ahead" : farAheadSpeakableLead > 0 || farAheadRenderedLead > 0 ? "ahead" : "aligned_or_behind";
+    const farAheadHoldAgeMs = liveAsrVisualGovernorHardHoldSinceMs > 0 ? Math.max(0, Date.now() - liveAsrVisualGovernorHardHoldSinceMs) : 0;
+    const farAheadLocalAdjacentProof = String(args.proofSource || "").toLowerCase().includes("strict_adjacent_tail_progression") || String(args.proofSource || "").toLowerCase().includes("live_strict_local_proof_ok") || String(args.proofSource || "").toLowerCase().includes("adjacent_rescue_proofed") || String(args.proofSource || "").toLowerCase().includes("cue_exit");
+    const farAheadOffscriptOrNoMatch = String(args.proofSource || "").toLowerCase().includes("nomatch") || String(args.reason || "").toLowerCase().includes("nomatch") || String(args.sourceBranch || "").toLowerCase().includes("offscript");
+    const farAheadTranscriptGrowing = lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength || lastFinalTranscriptAt > lastCommitTranscriptTimestamp;
+    const farAheadBridgeLeashActive = liveAsrBridgeVisualComfortUntilMs > commitTs && liveAsrBridgeVisualRecoveryDeltaLines > ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES;
+    let farAheadAdjacentEscapeApplied = false;
+    let farAheadAdjacentEscapeReason = "";
+    if (liveAsrVisualGovernorHardHold) {
+      const farAheadEscapeDecision = shouldAllowFarAheadHardHoldAdjacentEscape({
+        liveAsrVisualGovernorHardHold: true,
+        leadState: farAheadLeadState,
+        holdAgeMs: farAheadHoldAgeMs,
+        minHoldAgeMs: ASR_FAR_AHEAD_HOLD_ADJ_ESCAPE_TIMEOUT_MS,
+        current: current2,
+        target: current2 + 1,
+        semanticTarget: current2 + 1,
+        skippedIgnorableLinesCount: 0,
+        speechFresh: liveSpeechFresh,
+        finalFresh: !!args.finalPacketFresh,
+        transcriptGrowing: farAheadTranscriptGrowing,
+        localAdjacentProof: farAheadLocalAdjacentProof,
+        offscriptOrNoMatch: farAheadOffscriptOrNoMatch,
+        hardContradiction,
+        bridgeLeashActive: farAheadBridgeLeashActive
+      });
+      farAheadAdjacentEscapeReason = farAheadEscapeDecision.reason;
+      if (farAheadEscapeDecision.allow && reducedTarget > current2 + 1 && (args.skippedIgnorableLines || []).length === 0) {
+        requestedTarget = current2 + 1;
+        semanticTargetRaw = current2 + 1;
+        reducedTarget = current2 + 1;
+        farAheadAdjacentEscapeApplied = true;
+      } else if (!farAheadEscapeDecision.allow && reducedTarget > current2 + 1) {
         try {
           console.warn(
-            `[ASR_VISUAL_GOVERNOR_FRESH_ADJACENT_UNLOCK] current=${current2} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} speechRunningActual=${args.speechRunningActual ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} liveSpeechFresh=${liveSpeechFresh ? 1 : 0} noCommitMs=${noCommitMs} reason=fresh_adjacent_under_hold`
+            `[ASR_FAR_AHEAD_HOLD_ESCAPE_BLOCKED] current=${current2} requestedTarget=${requestedTarget} holdAgeMs=${Math.round(farAheadHoldAgeMs)} reason=${farAheadEscapeDecision.reason} leadState=${farAheadLeadState} speakableLead=${farAheadSpeakableLead} renderedLead=${farAheadRenderedLead} targetDelta=${Math.max(0, requestedTarget - current2)} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] offscriptNoMatch=${farAheadOffscriptOrNoMatch ? 1 : 0}`
           );
+        } catch {
+        }
+      }
+    }
+    const visualGovernorHoldDecision = shouldHoldForVisualGovernor({
+      accepted,
+      liveAsrVisualGovernorHardHold,
+      reducedTarget,
+      current: current2,
+      hardContradiction,
+      requestedTarget,
+      liveSpeechFresh,
+      finalPacketFresh: !!args.finalPacketFresh,
+      noCommitMs,
+      freshAdjUnlockNoCommitMs: ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS,
+      msSinceLastCommit: Math.max(0, Date.now() - lastCommitAt2)
+    });
+    if (visualGovernorHoldDecision.shouldHold || visualGovernorHoldDecision.shouldUnlock || farAheadAdjacentEscapeApplied) {
+      if (visualGovernorHoldDecision.shouldUnlock || farAheadAdjacentEscapeApplied) {
+        try {
+          console.warn(
+            `[ASR_VISUAL_GOVERNOR_FRESH_ADJACENT_UNLOCK] current=${current2} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} speechRunningActual=${args.speechRunningActual ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} liveSpeechFresh=${liveSpeechFresh ? 1 : 0} noCommitMs=${noCommitMs} reason=fresh_adjacent_under_hold`
+          );
+          if (farAheadAdjacentEscapeApplied) {
+            console.warn(
+              `[ASR_FAR_AHEAD_HOLD_ADJACENT_ESCAPE] current=${current2} target=${reducedTarget} holdAgeMs=${Math.round(farAheadHoldAgeMs)} leadState=${farAheadLeadState} speakableLead=${farAheadSpeakableLead} renderedLead=${farAheadRenderedLead} visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} proofSource=${args.proofSource || "none"} authority=${args.authority || "unknown"} sourceBranch=${args.sourceBranch || "unknown"} speechFresh=${liveSpeechFresh ? 1 : 0} finalFresh=${args.finalPacketFresh ? 1 : 0} transcriptGrowing=${farAheadTranscriptGrowing ? 1 : 0} reason=${farAheadAdjacentEscapeReason || "far_ahead_timeout_adjacent_escape"}`
+            );
+          }
           if (liveAsrVisualSuppressionLoopCount >= 2) {
             console.warn(
               `[ASR_VISUAL_GOVERNOR_SUPPRESSION_LOOP_BROKEN] current=${current2} target=${reducedTarget} bestIdx=${requestedTarget} noCommitMs=${noCommitMs} suppressions=${liveAsrVisualSuppressionLoopCount} reason=fresh_adjacent_unlock`
@@ -38549,13 +39655,13 @@ function createAsrScrollDriver(options = {}) {
         }
         try {
           console.warn(
-            `[ASR_TERMINAL_COMMIT_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${current2} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=visual_governor_hard_hold`
+            `[ASR_TERMINAL_COMMIT_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${current2} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=visual_governor_hard_hold`
           );
         } catch {
         }
         try {
           console.warn(
-            `[ASR_SEMANTIC_COMMIT_HELD_BY_VISUAL_GOVERNOR] current=${current2} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} lastStrongConfirmedSpokenLine=${Math.max(0, lastStrongConfirmedSpokenLine)} speechFresh=${hasRecentActualSpeech(Date.now()) ? 1 : 0} transcriptGrowing=${lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength ? 1 : 0} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=visual_governor_hard_hold`
+            `[ASR_SEMANTIC_COMMIT_HELD_BY_VISUAL_GOVERNOR] current=${current2} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} lastStrongConfirmedSpokenLine=${Math.max(0, lastStrongConfirmedSpokenLine)} speechFresh=${hasRecentActualSpeech(Date.now()) ? 1 : 0} transcriptGrowing=${lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength ? 1 : 0} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=visual_governor_hard_hold`
           );
         } catch {
         }
@@ -38606,6 +39712,15 @@ function createAsrScrollDriver(options = {}) {
     } else {
       liveAsrNormalAdjacentFollowBoostUntilMs = 0;
     }
+    const committedSourceBranchLower = String(args.sourceBranch || "").toLowerCase();
+    const committedProofSourceLower = String(args.proofSource || "").toLowerCase();
+    const committedAuthorityLower = String(args.authority || "").toLowerCase();
+    const committedBridgeRecoveryLike = reducedTarget > current2 + 1 || semanticTargetRaw > current2 + 1 || (args.skippedIgnorableLines || []).length > 0 || committedSourceBranchLower.includes("bridge") || committedSourceBranchLower.includes("reconcile") || committedSourceBranchLower.includes("pending_speakable_bridge_complete") || committedProofSourceLower.includes("bridge") || committedProofSourceLower.includes("strict_speakable_bridge_landing") || committedAuthorityLower.includes("reconcile");
+    if (committedBridgeRecoveryLike) {
+      liveAsrVisualEnvelopeLeashSourceBranch = String(args.sourceBranch || "unknown");
+      liveAsrVisualEnvelopeLeashProofSource = String(args.proofSource || "none");
+      liveAsrVisualEnvelopeLeashAuthority = String(args.authority || "unknown");
+    }
     return { accepted: true, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
   };
   const allowAsrReaderLeashAdvance = (args) => {
@@ -38633,7 +39748,7 @@ function createAsrScrollDriver(options = {}) {
         safeCurrent,
         LIVE_STRICT_MAX_CUE_BRIDGE_SPAN
       )?.targetLine ?? null;
-      const safeCandidate = resolveForwardSpeakableTarget(
+      const safeCandidate = resolveForwardSpeakableTarget2(
         safeCurrent,
         safeTarget,
         strictNextSpeakable2 != null ? Math.max(1, strictNextSpeakable2 - safeCurrent) : 1
@@ -38811,7 +39926,7 @@ function createAsrScrollDriver(options = {}) {
       ]);
       return true;
     }
-    const speakableDistanceAhead = countSpeakableDistanceAhead(proofBase, safeTarget);
+    const speakableDistanceAhead = countSpeakableDistanceAhead2(proofBase, safeTarget);
     if (Number.isFinite(speakableDistanceAhead) && speakableDistanceAhead > ASR_READER_LEASH_MAX_READABLE_AHEAD && !targetHasFreshProof) {
       const driftClampTerminal = commitLiveAsrSafeStep({
         current: safeCurrent,
@@ -38976,7 +40091,7 @@ function createAsrScrollDriver(options = {}) {
         Number.isFinite(lastFreshProofLine) ? Math.max(0, lastFreshProofLine) : 0
       )
     );
-    const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, safeTarget));
+    const speakableLead = Math.max(0, countSpeakableDistanceAhead2(confirmedSpoken, safeTarget));
     const renderedLead = Math.max(0, safeTarget - confirmedSpoken);
     const farAheadByLead = speakableLead > ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE || renderedLead > ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES;
     const hasFreshDirectAdjacentResumeProof = adjacentSupport && (asrRuntimeSpeechRunningActual || hasRecentActualSpeech(now3)) && hasRecentVadSpeechNow(now3);
@@ -39054,7 +40169,7 @@ function createAsrScrollDriver(options = {}) {
         stalePrefixIgnored: false
       };
     }
-    const targetNorm = normalizeComparableText(getLineTextAt(safeTarget));
+    const targetNorm = normalizeComparableText2(getLineTextAt(safeTarget));
     const targetTokens = targetNorm ? normTokens(targetNorm) : [];
     if (!targetTokens.length) {
       return {
@@ -39198,8 +40313,8 @@ function createAsrScrollDriver(options = {}) {
         tailPreview: ""
       };
     }
-    const targetNorm = normalizeComparableText(getLineTextAt(safeTarget));
-    const currentNorm = normalizeComparableText(getLineTextAt(safeCursor));
+    const targetNorm = normalizeComparableText2(getLineTextAt(safeTarget));
+    const currentNorm = normalizeComparableText2(getLineTextAt(safeCursor));
     const targetTokens = targetNorm ? normTokens(targetNorm) : [];
     if (!targetTokens.length) {
       return {
@@ -39301,7 +40416,7 @@ function createAsrScrollDriver(options = {}) {
         Number.isFinite(lastFreshProofLine) ? Math.max(0, lastFreshProofLine) : 0
       )
     );
-    const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, safeTarget));
+    const speakableLead = Math.max(0, countSpeakableDistanceAhead2(confirmedSpoken, safeTarget));
     const renderedLead = Math.max(0, safeTarget - confirmedSpoken);
     const farAheadByLead = speakableLead > ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE || renderedLead > ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES;
     if (safeTarget > safeCursor && (liveAsrVisualGovernorHardHold || farAheadByLead)) {
@@ -39336,6 +40451,29 @@ function createAsrScrollDriver(options = {}) {
     const landingLexical = evaluateLiveStrictBridgeLandingLexicalProof(safeTarget, now3);
     const ok = !!landingLexical?.ok;
     if (!ok && landingLexical) {
+      const pendingBridgeState = pendingSpeakableBridgeState;
+      const pendingBridgeAgeMs = pendingBridgeState?.createdAtMs != null ? Math.max(0, now3 - pendingBridgeState.createdAtMs) : Number.POSITIVE_INFINITY;
+      const pendingCompletionDecision = pendingBridgeState && pendingBridgeState.semanticFrom === safeCursor && pendingBridgeState.semanticTarget === safeTarget ? shouldAllowPendingBridgeCompletion({
+        currentLine: safeCursor,
+        pendingSemanticFrom: pendingBridgeState.semanticFrom,
+        pendingSemanticTarget: pendingBridgeState.semanticTarget,
+        pendingBridgeAgeMs,
+        speechRunningActual: asrRuntimeSpeechRunningActual,
+        runtimeSpeechFresh: asrRuntimeSpeechRunningActual || hasRecentActualSpeech(now3) || hasRecentVadSpeechNow(now3),
+        lastFinalTranscriptFresh: lastFinalTranscriptAt > 0 && now3 - lastFinalTranscriptAt <= 1800,
+        bridgeLandingProofOk: !!landingLexical.ok,
+        bridgeLandingProofFromStaleTranscriptOnly: !!landingLexical.fromStaleTranscriptOnly,
+        sourceBranch: pendingBridgeState.sourceBranch || "unknown"
+      }) : null;
+      if (pendingCompletionDecision?.shouldAllow) {
+        try {
+          console.warn(
+            `[ASR_LIVE_BRIDGE_STALE_LANDING_HOLD_BYPASSED_BY_PENDING_COMPLETION] current=${safeCursor} target=${safeTarget} pendingBridgeAgeMs=${pendingBridgeAgeMs} proofSource=${pendingBridgeState?.proofSource || "unknown"} sourceBranch=${pendingBridgeState?.sourceBranch || "unknown"} reason=pending_bridge_completion_ready`
+          );
+        } catch {
+        }
+        return false;
+      }
       const finalPacketFresh = lastFinalTranscriptAt > 0 && now3 - lastFinalTranscriptAt <= 1800;
       const transcriptGrowing = lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength || lastFinalTranscriptAt > lastCommitTranscriptTimestamp;
       const tailProofUsed = bridgeSupport || safeTarget > safeCursor;
@@ -39406,7 +40544,7 @@ function createAsrScrollDriver(options = {}) {
         Number.isFinite(lastFreshProofLine) ? Math.max(0, lastFreshProofLine) : 0
       )
     );
-    const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, safeTarget));
+    const speakableLead = Math.max(0, countSpeakableDistanceAhead2(confirmedSpoken, safeTarget));
     const renderedLead = Math.max(0, safeTarget - confirmedSpoken);
     const farAheadByLead = speakableLead > ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE || renderedLead > ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES;
     if (safeTarget > safeCursor && (liveAsrVisualGovernorHardHold || farAheadByLead)) {
@@ -39617,7 +40755,11 @@ function createAsrScrollDriver(options = {}) {
     if (!Number.isFinite(cursorRaw) || cursorRaw < 0) return false;
     const cursorLine = Math.max(0, Math.floor(cursorRaw));
     const reasonTag = String(reason || "").trim().toLowerCase();
-    if (manualAnchorPending && now3 - manualAnchorPending.ts >= MANUAL_ANCHOR_PENDING_TIMEOUT_MS) {
+    if (manualAnchorPending && !isManualAnchorPendingFresh({
+      pendingTs: manualAnchorPending.ts,
+      now: now3,
+      timeoutMs: MANUAL_ANCHOR_PENDING_TIMEOUT_MS
+    })) {
       rejectManualAnchorPending("timeout:stall-rescue");
     }
     if (manualAnchorPending && isAutomaticStallRescueReason(reasonTag)) {
@@ -39633,7 +40775,7 @@ function createAsrScrollDriver(options = {}) {
       return false;
     }
     const cursorLineText = getLineTextAt(cursorLine);
-    const cursorLineSkippable = classifyStrictSkippableLineForCueBridge(cursorLineText) != null;
+    const cursorLineSkippable = classifyStrictSkippableLineForCueBridge2(cursorLineText) != null;
     const cueBridge = findNextSpeakableWithinBridge(
       cursorLine,
       DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES,
@@ -39648,7 +40790,7 @@ function createAsrScrollDriver(options = {}) {
         Number.isFinite(lastFreshProofLine) ? Math.max(0, lastFreshProofLine) : 0
       )
     );
-    const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, targetLine));
+    const speakableLead = Math.max(0, countSpeakableDistanceAhead2(confirmedSpoken, targetLine));
     const renderedLead = Math.max(0, targetLine - confirmedSpoken);
     const farAheadByLead = speakableLead > ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE || renderedLead > ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES;
     if (targetLine > cursorLine && (liveAsrVisualGovernorHardHold || farAheadByLead)) {
@@ -39908,11 +41050,13 @@ function createAsrScrollDriver(options = {}) {
       const proofSource = strictBridgeProof ? "strict_speakable_bridge_landing" : strictAdjacentTailProgressionOk ? "strict_adjacent_tail_progression" : strictCueExitProof ? "live_strict_cue_exit_proof" : "live_strict_local_proof_ok";
       const oldWouldHaveUsedStallOverride = reasonTag === "auto-stall" && strictStarvationActive && strictFinalEvidenceArriving && asrRuntimeSpeechSeen && asrRuntimeSpeechRunningActual;
       warnGuard("proof_owned_primary_commit", [
-        `current=${cursorLine}`,
-        `target=${targetLine}`,
-        `bestIdx=${targetLine}`,
-        `proofSource=${proofSource}`,
-        `skippedIgnorableLines=[${cueBridge.skippedReasons.join(",")}]`,
+        ...buildProofOwnedPrimaryCommitGuardBaseParts({
+          current: cursorLine,
+          target: targetLine,
+          bestIdx: targetLine,
+          proofSource,
+          skippedIgnorableLines: cueBridge.skippedReasons
+        }),
         `stallMs=${Math.max(0, now3 - lastForwardCommitAt)}`,
         "sourceBranch=stall-rescue:proof-owned",
         `oldWouldHaveUsedStallOverride=${oldWouldHaveUsedStallOverride ? "true" : "false"}`,
@@ -39952,7 +41096,7 @@ function createAsrScrollDriver(options = {}) {
       const transcriptGrowing = lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength || lastFinalTranscriptAt > lastCommitTranscriptTimestamp;
       const heldMs = Math.max(0, now3 - lastCommitTime);
       if ((asrRuntimeSpeechRunningActual || finalPacketFresh) && transcriptGrowing) {
-        const fallbackTarget = resolveForwardSpeakableTarget(
+        const fallbackTarget = resolveForwardSpeakableTarget2(
           cursorLine,
           targetLine,
           LIVE_STRICT_MAX_CUE_BRIDGE_SPAN
@@ -40015,7 +41159,7 @@ function createAsrScrollDriver(options = {}) {
       const transcriptGrowing = lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength || lastFinalTranscriptAt > lastCommitTranscriptTimestamp;
       const heldMs = Math.max(0, now3 - lastCommitTime);
       if ((asrRuntimeSpeechRunningActual || finalPacketFresh) && transcriptGrowing) {
-        const fallbackTarget = resolveForwardSpeakableTarget(
+        const fallbackTarget = resolveForwardSpeakableTarget2(
           cursorLine,
           targetLine,
           LIVE_STRICT_MAX_CUE_BRIDGE_SPAN
@@ -40745,15 +41889,13 @@ function createAsrScrollDriver(options = {}) {
     const err = pursuitTargetTop - current2;
     const microActive = microPursuitUntil > now3;
     const allowCreep = microActive || motionTuning.minPursuitPxPerSec > 0;
-    if (err <= (liveAsrFollowMode ? ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX : 0.5)) {
-      const target = pursuitTargetTop;
-      pursuitVel = 0;
-      pursuitActive = false;
-      pursuitTargetTop = null;
-      emitPursuitHud(err, pursuitVel, target, current2);
-      return;
-    }
-    if (err <= deadbandPx && !allowCreep) {
+    if (shouldStopForVisualDeadband({
+      errPx: err,
+      liveAsrFollowMode,
+      stopDeadbandPx: ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX,
+      deadbandPx,
+      allowCreep
+    })) {
       const target = pursuitTargetTop;
       pursuitVel = 0;
       pursuitActive = false;
@@ -40771,7 +41913,7 @@ function createAsrScrollDriver(options = {}) {
           Number.isFinite(lastFreshProofLine) ? Math.max(0, lastFreshProofLine) : 0
         )
       );
-      const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, lastLineIndex));
+      const speakableLead = Math.max(0, countSpeakableDistanceAhead2(confirmedSpoken, lastLineIndex));
       const renderedLead = Math.max(0, lastLineIndex - confirmedSpoken);
       const markerIdx = computeCueSafeMarkerIndex(scroller);
       const markerLeadLines = markerIdx >= 0 ? Math.max(0, lastLineIndex - markerIdx) : 0;
@@ -40779,25 +41921,46 @@ function createAsrScrollDriver(options = {}) {
       const latestSpeechTs = Math.max(lastRuntimeSpeechAt || 0, lastVadSpeechAt || 0, lastSpeechRunningActualAtMs || 0);
       const noSpeechMs = latestSpeechTs > 0 ? Math.max(0, nowTs2 - latestSpeechTs) : Number.POSITIVE_INFINITY;
       const readerDrivingNow = hasRecentActualSpeech(nowTs2) || hasRecentVadSpeechNow(nowTs2) || asrRuntimeSpeechRunningActual;
-      const ahead = speakableLead > 0 || renderedLead > 0;
-      const leadState = speakableLead >= ASR_VISUAL_HARD_LEAD_START || renderedLead >= ASR_VISUAL_HARD_LEAD_START ? "far_ahead" : speakableLead >= ASR_VISUAL_SOFT_LEAD_START || renderedLead >= ASR_VISUAL_SOFT_LEAD_START ? "ahead" : ahead ? "ahead" : "aligned_or_behind";
-      const readerPaceHold = markerLeadLines >= ASR_READER_PACE_MAX_MARKER_LEAD_LINES && !readerDrivingNow && noSpeechMs >= ASR_READER_PACE_NO_SPEECH_HOLD_MS && !(lastFinalTranscriptAt > 0 && nowTs2 - lastFinalTranscriptAt <= 1200);
-      if (leadState === "far_ahead") {
-        maxVelForErr = 0;
-        liveHardHold = true;
-      } else if (readerPaceHold) {
-        maxVelForErr = 0;
-        liveHardHold = true;
-      } else if (ahead) {
-        maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS);
-      } else if (err >= ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX) {
-        maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_FOLLOW_MAX_PXPS);
-      } else if (err >= ASR_VISUAL_FOLLOW_SLOW_ZONE_PX) {
-        maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS);
-      } else {
-        maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_FOLLOW_MIN_PXPS);
-      }
-      const normalAdjacentBoostActive = liveAsrNormalAdjacentFollowBoostUntilMs > nowTs2 && !liveHardHold && leadState === "aligned_or_behind" && err >= 24 * 1.5;
+      const leadClassification = classifyVisualLead({
+        speakableLead,
+        renderedLead,
+        softLeadStart: ASR_VISUAL_SOFT_LEAD_START,
+        hardLeadStart: ASR_VISUAL_HARD_LEAD_START
+      });
+      const ahead = leadClassification.ahead;
+      const leadState = leadClassification.leadState;
+      const holdDecision = shouldHardHoldVisualFollow({
+        leadState,
+        markerLeadLines,
+        readerDrivingNow,
+        noSpeechMs,
+        noSpeechHoldMs: ASR_READER_PACE_NO_SPEECH_HOLD_MS,
+        maxMarkerLeadLines: ASR_READER_PACE_MAX_MARKER_LEAD_LINES,
+        hasRecentFinalTranscript: lastFinalTranscriptAt > 0 && nowTs2 - lastFinalTranscriptAt <= 1200
+      });
+      const readerPaceHold = holdDecision.readerPaceHold;
+      liveHardHold = holdDecision.shouldHold;
+      maxVelForErr = selectVisualFollowVelocity({
+        baseMaxVelForErr: maxVelForErr,
+        liveHardHold,
+        ahead,
+        errPx: err,
+        maxPxps: ASR_VISUAL_FOLLOW_MAX_PXPS,
+        comfortablePxps: ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS,
+        minPxps: ASR_VISUAL_FOLLOW_MIN_PXPS,
+        hardCatchupPx: ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX,
+        slowZonePx: ASR_VISUAL_FOLLOW_SLOW_ZONE_PX,
+        unlockSlowFollowActive: liveAsrVisualUnlockSlowFollowUntilMs > Date.now(),
+        unlockSlowFollowPxps: ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS
+      }).maxVelForErr;
+      const normalAdjacentBoostActive = shouldApplyNormalAdjacentCap({
+        now: nowTs2,
+        boostUntilMs: liveAsrNormalAdjacentFollowBoostUntilMs,
+        liveHardHold,
+        leadState,
+        errPx: err,
+        minErrPx: 24 * 1.5
+      }).shouldApply;
       if (normalAdjacentBoostActive) {
         maxVelForErr = Math.max(maxVelForErr, ASR_VISUAL_FOLLOW_NORMAL_ADJ_MIN_PXPS);
         if (nowTs2 - liveAsrNormalAdjacentCapLastLogAt >= 800) {
@@ -40810,12 +41973,80 @@ function createAsrScrollDriver(options = {}) {
           }
         }
       }
-      if (liveAsrVisualUnlockSlowFollowUntilMs > Date.now()) {
-        maxVelForErr = Math.min(maxVelForErr, ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS);
+      const approxLinePx = 24;
+      const deltaLinesApprox = err / approxLinePx;
+      liveAsrBridgeVisualRecoveryDeltaLines = Math.max(0, deltaLinesApprox);
+      const envelopeSourceBranch = String(
+        liveAsrVisualEnvelopeLeashSourceBranch || liveAsrBridgeVisualComfortSourceBranch || ""
+      ).toLowerCase();
+      const envelopeProofSource = String(
+        liveAsrVisualEnvelopeLeashProofSource || liveAsrBridgeVisualComfortProofSource || ""
+      ).toLowerCase();
+      const envelopeAuthority = String(liveAsrVisualEnvelopeLeashAuthority || "").toLowerCase();
+      const bridgeRecoveryEnvelopeContext = envelopeSourceBranch.includes("bridge") || envelopeSourceBranch.includes("reconcile") || envelopeSourceBranch.includes("pending_speakable_bridge_complete") || envelopeProofSource.includes("bridge") || envelopeProofSource.includes("strict_speakable_bridge_landing") || envelopeAuthority.includes("reconcile");
+      if (!liveAsrVisualEnvelopeLeashActive && bridgeRecoveryEnvelopeContext && deltaLinesApprox > ASR_VISUAL_ENVELOPE_LEASH_ARM_DELTA_LINES) {
+        liveAsrVisualEnvelopeLeashActive = true;
+        liveAsrVisualEnvelopeLeashDeltaLines = Math.max(0, deltaLinesApprox);
+        try {
+          console.warn(
+            `[ASR_VISUAL_ENVELOPE_LEASH_ARMED] current=${lastLineIndex} target=${lastLineIndex} semanticTarget=${lastLineIndex} visualTarget=${lastLineIndex} visualReducedTarget=${lastLineIndex} deltaLines=${deltaLinesApprox.toFixed(2)} deltaPx=${Math.round(err)} proofSource=${liveAsrVisualEnvelopeLeashProofSource || liveAsrBridgeVisualComfortProofSource || "none"} sourceBranch=${liveAsrVisualEnvelopeLeashSourceBranch || liveAsrBridgeVisualComfortSourceBranch || "unknown"} authority=${liveAsrVisualEnvelopeLeashAuthority || "unknown"} reason=bridge_recovery_visual_envelope_exceeded`
+          );
+        } catch {
+        }
+      } else if (liveAsrVisualEnvelopeLeashActive) {
+        liveAsrVisualEnvelopeLeashDeltaLines = Math.max(0, deltaLinesApprox);
+        if (deltaLinesApprox <= ASR_VISUAL_ENVELOPE_LEASH_CLEAR_DELTA_LINES) {
+          try {
+            console.warn(
+              `[ASR_VISUAL_ENVELOPE_LEASH_CLEARED] current=${lastLineIndex} deltaLines=${deltaLinesApprox.toFixed(2)} reason=visual_envelope_recovered`
+            );
+          } catch {
+          }
+          liveAsrVisualEnvelopeLeashActive = false;
+          liveAsrVisualEnvelopeLeashDeltaLines = 0;
+          liveAsrVisualEnvelopeLeashSourceBranch = "";
+          liveAsrVisualEnvelopeLeashProofSource = "";
+          liveAsrVisualEnvelopeLeashAuthority = "";
+        }
+      }
+      const bridgeComfortCapDecision = selectBridgeVisualComfortCap({
+        liveAsrFollowMode,
+        now: nowTs2,
+        comfortUntilMs: liveAsrBridgeVisualComfortUntilMs,
+        deltaLines: deltaLinesApprox,
+        basePxps: maxVelForErr,
+        maxComfortDeltaLines: ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_MAX_DELTA_LINES,
+        bridgeComfortPxps: ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_PXPS
+      });
+      if (bridgeComfortCapDecision.shouldApply) {
+        const originalPxps = maxVelForErr;
+        maxVelForErr = bridgeComfortCapDecision.cappedPxps;
+        try {
+          console.warn(
+            `[ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_CAP] current=${lastLineIndex} target=${lastLineIndex} semanticTarget=${lastLineIndex} visualReducedTarget=${lastLineIndex} deltaLines=${deltaLinesApprox.toFixed(2)} originalPxps=${Math.round(originalPxps)} cappedPxps=${Math.round(maxVelForErr)} skippedIgnorableLines=unknown proofSource=${liveAsrBridgeVisualComfortProofSource || "none"} sourceBranch=${liveAsrBridgeVisualComfortSourceBranch || "unknown"} reason=bridge_commit_visual_overrun_protection`
+          );
+        } catch {
+        }
+      }
+      const leadAwarePursuitCapDecision = selectLeadAwarePursuitCap({
+        leadState,
+        speakableLead,
+        renderedLead,
+        speechFresh: readerDrivingNow || lastFinalTranscriptAt > 0 && nowTs2 - lastFinalTranscriptAt <= 1200,
+        basePxps: maxVelForErr,
+        aheadCapPxps: ASR_LEAD_AWARE_PURSUIT_AHEAD_MAX_PXPS
+      });
+      if (leadAwarePursuitCapDecision.shouldApply) {
+        const originalPxps = maxVelForErr;
+        maxVelForErr = leadAwarePursuitCapDecision.cappedPxps;
+        try {
+          console.warn(
+            `[ASR_LEAD_AWARE_PURSUIT_CAP] leadState=${leadState} speakableLead=${speakableLead} renderedLead=${renderedLead} deltaLines=${deltaLinesApprox.toFixed(2)} originalPxps=${Math.round(originalPxps)} cappedPxps=${Math.round(maxVelForErr)} speechFresh=${readerDrivingNow ? 1 : 0} reason=${leadAwarePursuitCapDecision.reason || "reader_ahead_visual_pressure_reduced"}`
+          );
+        } catch {
+        }
       }
       try {
-        const approxLinePx = 24;
-        const deltaLinesApprox = err / approxLinePx;
         console.warn(
           `[ASR_VISUAL_FOLLOW_TARGET] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} desiredMarkerLineIdx=${lastLineIndex} targetScrollTop=${Math.round(pursuitTargetTop || current2)} currentScrollTop=${Math.round(current2)} deltaPx=${Math.round(err)} deltaLines=${deltaLinesApprox.toFixed(2)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=live_follow_tick`
         );
@@ -40846,7 +42077,7 @@ function createAsrScrollDriver(options = {}) {
         liveAsrVisualSemanticMismatchHeld = true;
         try {
           console.warn(
-            `[ASR_VISUAL_SEMANTIC_MISMATCH_HELD] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(pursuitTargetTop || current2)} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), lastLineIndex))} renderedLead=${Math.max(0, lastLineIndex - Math.max(0, lastStrongConfirmedSpokenLine))} heldMs=${heldMs} reason=visual_far_ahead_semantic_mismatch`
+            `[ASR_VISUAL_SEMANTIC_MISMATCH_HELD] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(pursuitTargetTop || current2)} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), lastLineIndex))} renderedLead=${Math.max(0, lastLineIndex - Math.max(0, lastStrongConfirmedSpokenLine))} heldMs=${heldMs} reason=visual_far_ahead_semantic_mismatch`
           );
         } catch {
         }
@@ -40860,7 +42091,7 @@ function createAsrScrollDriver(options = {}) {
         pursuitActive = false;
         try {
           console.warn(
-            `[ASR_VISUAL_TARGET_CLEARED_BY_GOVERNOR_HOLD] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(current2)} oldTargetScrollTop=${Math.round(oldTarget)} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), lastLineIndex))} renderedLead=${Math.max(0, lastLineIndex - Math.max(0, lastStrongConfirmedSpokenLine))} heldMs=${heldMs}`
+            `[ASR_VISUAL_TARGET_CLEARED_BY_GOVERNOR_HOLD] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(current2)} oldTargetScrollTop=${Math.round(oldTarget)} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), lastLineIndex))} renderedLead=${Math.max(0, lastLineIndex - Math.max(0, lastStrongConfirmedSpokenLine))} heldMs=${heldMs}`
           );
         } catch {
         }
@@ -40871,7 +42102,7 @@ function createAsrScrollDriver(options = {}) {
         liveAsrVisualSemanticMismatchHeld = false;
         try {
           console.warn(
-            `[ASR_VISUAL_SEMANTIC_MISMATCH_RECOVERED] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(pursuitTargetTop || current2)} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), lastLineIndex))} renderedLead=${Math.max(0, lastLineIndex - Math.max(0, lastStrongConfirmedSpokenLine))} reason=visual_semantic_mismatch_recovered`
+            `[ASR_VISUAL_SEMANTIC_MISMATCH_RECOVERED] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(pursuitTargetTop || current2)} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), lastLineIndex))} renderedLead=${Math.max(0, lastLineIndex - Math.max(0, lastStrongConfirmedSpokenLine))} reason=visual_semantic_mismatch_recovered`
           );
         } catch {
         }
@@ -41023,7 +42254,7 @@ function createAsrScrollDriver(options = {}) {
               )
             )
           );
-          const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, committedLineIdx));
+          const speakableLead = Math.max(0, countSpeakableDistanceAhead2(confirmedSpoken, committedLineIdx));
           const renderedLead = Math.max(0, committedLineIdx - confirmedSpoken);
           try {
             console.warn(
@@ -41878,7 +43109,6 @@ function createAsrScrollDriver(options = {}) {
           if (liveSpeechForwardPushRunStale) return null;
           const initialStep = strictSpeakableStep;
           if (!initialStep || initialStep.targetLine <= lastLineIndex) return null;
-          const _bestRequestedTarget = Math.max(lastLineIndex + 1, Math.floor(line));
           const stepProof = (fromLine, toLine, skippedReasons) => {
             const localProof = hasLiveStrictLocalProof(
               fromLine,
@@ -41923,13 +43153,15 @@ function createAsrScrollDriver(options = {}) {
           let proofSource = firstProof.source;
           let speakableSteps = 1;
           if (target > lastLineIndex + 1) {
-            const adjacentTarget = resolveForwardSpeakableTarget(lastLineIndex, target, 1);
+            const adjacentTarget = resolveForwardSpeakableTarget2(lastLineIndex, target, 1);
             if (adjacentTarget > lastLineIndex && adjacentTarget < target) {
               warnGuard("asr_recovery_skip_non_adjacent_target", [
-                `current=${lastLineIndex}`,
-                `requested=${target}`,
-                `adjacentTarget=${adjacentTarget}`,
-                "sourceBranch=pending-cap-bypass-precap"
+                ...buildRecoverySkipNonAdjacentTargetGuardBaseParts({
+                  current: lastLineIndex,
+                  requested: target,
+                  adjacentTarget,
+                  sourceBranch: "pending-cap-bypass-precap"
+                })
               ]);
               target = adjacentTarget;
               speakableSteps = 1;
@@ -41947,11 +43179,13 @@ function createAsrScrollDriver(options = {}) {
         if (strictProofOwnedCapBypassTarget && !isProofOwnedPrimaryForceReason(forceReason)) {
           const oldWouldHaveUsedStallOverride = isFinal && lastCommitIndex != null && Math.max(0, now3 - lastCommitTime) >= DEFAULT_STARVATION_COMMIT_GAP_MS && Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
           warnGuard("proof_owned_primary_commit", [
-            `current=${lastLineIndex}`,
-            `target=${strictProofOwnedCapBypassTarget.target}`,
-            `bestIdx=${line}`,
-            `proofSource=${strictProofOwnedCapBypassTarget.proofSource}`,
-            strictProofOwnedCapBypassTarget.skippedIgnorableLines.length ? `skippedIgnorableLines=[${strictProofOwnedCapBypassTarget.skippedIgnorableLines.join(",")}]` : "skippedIgnorableLines=[]",
+            ...buildProofOwnedPrimaryCommitGuardBaseParts({
+              current: lastLineIndex,
+              target: strictProofOwnedCapBypassTarget.target,
+              bestIdx: line,
+              proofSource: strictProofOwnedCapBypassTarget.proofSource,
+              skippedIgnorableLines: strictProofOwnedCapBypassTarget.skippedIgnorableLines
+            }),
             `speakableSteps=${strictProofOwnedCapBypassTarget.speakableSteps}`,
             `stallMs=${strictProofOwnedCapBypassTarget.stallMs}`,
             "sourceBranch=pending-cap-bypass-precap",
@@ -42028,7 +43262,6 @@ function createAsrScrollDriver(options = {}) {
           const repeatedLeadPresent = Array.from(leadCounts.values()).some((count) => count >= 2);
           return speakableShortCount >= 3 && repeatedLeadPresent;
         };
-        const _starvationFutureSpeechReconcileCandidateActive = liveStrictFollow && isFinal && hasEvidence && asrRuntimeSpeechRunningActual && finalTranscriptFreshForReconcile && starvationFutureSpeechReconcileMs >= starvationFutureSpeechReconcileMinMs && starvationFutureSpeechReconcileNoCommitMs >= starvationFutureSpeechReconcileMinMs && starvationFutureSpeechReconcileCandidateIdx > lastLineIndex;
         if (!isProofOwnedPrimaryForceReason(forceReason) && liveStrictFollow && isFinal && hasEvidence && starvationFutureSpeechReconcileMs >= starvationFutureSpeechReconcileMinMs && starvationFutureSpeechReconcileCandidateIdx > lastLineIndex) {
           if (!asrRuntimeSpeechRunningActual) {
             logStarvationFutureSpeechReconcileSkip("speech_not_running");
@@ -42045,7 +43278,7 @@ function createAsrScrollDriver(options = {}) {
           } else if (liveSpeechForwardPushRunStale) {
             logStarvationFutureSpeechReconcileSkip("stale_run_identity");
           } else if (starvationFutureSpeechReconcileCandidateSim < starvationFutureSpeechReconcileMinSim) {
-            const adjacentTarget = resolveForwardSpeakableTarget(
+            const adjacentTarget = resolveForwardSpeakableTarget2(
               lastLineIndex,
               starvationFutureSpeechReconcileCandidateIdx,
               1
@@ -42081,19 +43314,22 @@ function createAsrScrollDriver(options = {}) {
                   `minShortSim=${formatLogScore(starvationFutureSpeechReconcileShortFragmentMinSim)}`
                 ]);
               } else {
-                const skippedIgnorableLines = [];
-                for (let idx = lastLineIndex + 1; idx < adjacentTarget; idx += 1) {
-                  const reason = classifyStrictSkippableLineForCueBridge(getLineTextAt(idx));
-                  if (reason) skippedIgnorableLines.push(reason);
-                }
+                const skippedIgnorableLines = collectSkippedAsrRows({
+                  currentLine: lastLineIndex,
+                  targetLine: adjacentTarget,
+                  getLineText: getLineTextAt,
+                  strict: true
+                }).skippedReasons;
                 starvationFutureSpeechReconcileTargetLine = adjacentTarget;
                 forceReason = "starvation_future_speech_reconcile";
                 warnGuard("proof_owned_primary_commit", [
-                  `current=${lastLineIndex}`,
-                  `target=${starvationFutureSpeechReconcileTargetLine}`,
-                  `bestIdx=${starvationFutureSpeechReconcileCandidateIdx}`,
-                  "proofSource=short_fragment_adjacent_progression",
-                  skippedIgnorableLines.length ? `skippedIgnorableLines=[${skippedIgnorableLines.join(",")}]` : "skippedIgnorableLines=[]",
+                  ...buildProofOwnedPrimaryCommitGuardBaseParts({
+                    current: lastLineIndex,
+                    target: starvationFutureSpeechReconcileTargetLine,
+                    bestIdx: starvationFutureSpeechReconcileCandidateIdx,
+                    proofSource: "short_fragment_adjacent_progression",
+                    skippedIgnorableLines
+                  }),
                   `stallMs=${starvationFutureSpeechReconcileMs}`,
                   "sourceBranch=starvation_future_speech_reconcile",
                   "oldWouldHaveUsedStallOverride=true",
@@ -42109,7 +43345,7 @@ function createAsrScrollDriver(options = {}) {
             if (backwardContradiction) {
               logStarvationFutureSpeechReconcileSkip("backward_contradiction");
             } else {
-              const adjacentTarget = resolveForwardSpeakableTarget(
+              const adjacentTarget = resolveForwardSpeakableTarget2(
                 lastLineIndex,
                 starvationFutureSpeechReconcileCandidateIdx,
                 1
@@ -42119,17 +43355,20 @@ function createAsrScrollDriver(options = {}) {
               } else {
                 if (starvationFutureSpeechReconcileCandidateIdx > adjacentTarget) {
                   warnGuard("asr_recovery_skip_non_adjacent_target", [
-                    `current=${lastLineIndex}`,
-                    `requested=${starvationFutureSpeechReconcileCandidateIdx}`,
-                    `adjacentTarget=${adjacentTarget}`,
-                    "sourceBranch=starvation_future_speech_reconcile"
+                    ...buildRecoverySkipNonAdjacentTargetGuardBaseParts({
+                      current: lastLineIndex,
+                      requested: starvationFutureSpeechReconcileCandidateIdx,
+                      adjacentTarget,
+                      sourceBranch: "starvation_future_speech_reconcile"
+                    })
                   ]);
                 }
-                const skippedIgnorableLines = [];
-                for (let idx = lastLineIndex + 1; idx < adjacentTarget; idx += 1) {
-                  const reason = classifyStrictSkippableLineForCueBridge(getLineTextAt(idx));
-                  if (reason) skippedIgnorableLines.push(reason);
-                }
+                const skippedIgnorableLines = collectSkippedAsrRows({
+                  currentLine: lastLineIndex,
+                  targetLine: adjacentTarget,
+                  getLineText: getLineTextAt,
+                  strict: true
+                }).skippedReasons;
                 starvationFutureSpeechReconcileTargetLine = adjacentTarget;
                 forceReason = "starvation_future_speech_reconcile";
                 warnGuard("proof_owned_primary_commit", [
@@ -42228,22 +43467,24 @@ function createAsrScrollDriver(options = {}) {
         if (starvationFutureSpeechReconcileTarget) {
           const starvationFutureSpeechReconcileNoInputGuard = !hasRecentVadSpeech || !runtimeSpeechFresh || !!pending.liveForwardGuardActive;
           let starvationFutureSpeechReconcileAppliedTarget = starvationFutureSpeechReconcileTarget.target;
-          const starvationFutureSpeechReconcileAdjacentTarget = resolveForwardSpeakableTarget(
+          const starvationFutureSpeechReconcileAdjacentTarget = resolveForwardSpeakableTarget2(
             lastLineIndex,
             starvationFutureSpeechReconcileAppliedTarget,
             1
           );
           if (starvationFutureSpeechReconcileAdjacentTarget > lastLineIndex && starvationFutureSpeechReconcileAppliedTarget > starvationFutureSpeechReconcileAdjacentTarget) {
             warnGuard("asr_recovery_skip_non_adjacent_target", [
-              `current=${lastLineIndex}`,
-              `requested=${starvationFutureSpeechReconcileAppliedTarget}`,
-              `adjacentTarget=${starvationFutureSpeechReconcileAdjacentTarget}`,
-              "sourceBranch=starvation_future_speech_reconcile"
+              ...buildRecoverySkipNonAdjacentTargetGuardBaseParts({
+                current: lastLineIndex,
+                requested: starvationFutureSpeechReconcileAppliedTarget,
+                adjacentTarget: starvationFutureSpeechReconcileAdjacentTarget,
+                sourceBranch: "starvation_future_speech_reconcile"
+              })
             ]);
             starvationFutureSpeechReconcileAppliedTarget = starvationFutureSpeechReconcileAdjacentTarget;
           }
           if (starvationFutureSpeechReconcileNoInputGuard && starvationFutureSpeechReconcileAppliedTarget > lastLineIndex + DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS) {
-            const singleStepTarget = resolveForwardSpeakableTarget(
+            const singleStepTarget = resolveForwardSpeakableTarget2(
               lastLineIndex,
               starvationFutureSpeechReconcileAppliedTarget,
               DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS
@@ -42485,12 +43726,12 @@ function createAsrScrollDriver(options = {}) {
         const cueBridgePathEligible = cueBridgeDelta > 0 && cueBridgeDelta <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES && line > lastLineIndex && line - lastLineIndex <= cueBridgeDelta;
         const cueBridgeCurrent = Math.max(0, Math.floor(lastLineIndex));
         const cueBridgeTarget = Math.max(0, Math.floor(line));
-        const cueBridgeTargetSkipReason = classifySkippableLineForCueBridge(getLineTextAt(cueBridgeTarget));
+        const cueBridgeTargetSkipReason = classifySkippableLineForCueBridge2(getLineTextAt(cueBridgeTarget));
         const cueBridgeIntermediateReasons = [];
         let cueBridgePathValid = cueBridgePathEligible;
         if (cueBridgePathValid) {
           for (let idx = cueBridgeCurrent + 1; idx < cueBridgeTarget; idx += 1) {
-            const skipReason = classifySkippableLineForCueBridge(getLineTextAt(idx));
+            const skipReason = classifySkippableLineForCueBridge2(getLineTextAt(idx));
             if (!skipReason) {
               cueBridgePathValid = false;
               break;
@@ -42893,10 +44134,21 @@ function createAsrScrollDriver(options = {}) {
               pendingBridgeState.semanticTarget,
               now3
             );
-            const bridgeFinalFresh = runtimeSpeechFresh || lastFinalTranscriptAt > 0 && now3 - lastFinalTranscriptAt <= 1800;
-            const bridgeDirectFreshProof = !!bridgeLandingProof?.ok && !bridgeLandingProof?.fromStaleTranscriptOnly;
-            const bridgeCompletionReady = bridgeFinalFresh && (bridgeDirectFreshProof || pendingBridgeAgeMs >= 900);
-            if (bridgeCompletionReady) {
+            const pendingBridgeCompletionDecision = shouldAllowPendingBridgeCompletion({
+              currentLine: lastLineIndex,
+              pendingSemanticFrom: pendingBridgeState.semanticFrom,
+              pendingSemanticTarget: pendingBridgeState.semanticTarget,
+              pendingBridgeAgeMs,
+              speechRunningActual: asrRuntimeSpeechRunningActual,
+              runtimeSpeechFresh,
+              lastFinalTranscriptFresh: lastFinalTranscriptAt > 0 && now3 - lastFinalTranscriptAt <= 1800,
+              bridgeLandingProofOk: !!bridgeLandingProof?.ok,
+              bridgeLandingProofFromStaleTranscriptOnly: !!bridgeLandingProof?.fromStaleTranscriptOnly,
+              sourceBranch: pendingBridgeState.sourceBranch || "unknown"
+            });
+            const bridgeFinalFresh = pendingBridgeCompletionDecision.bridgeFinalFresh === true;
+            const bridgeDirectFreshProof = pendingBridgeCompletionDecision.bridgeDirectFreshProof === true;
+            if (pendingBridgeCompletionDecision.shouldAllow) {
               const bridgeSemanticTarget = Math.max(
                 pendingBridgeState.semanticTarget,
                 targetLine
@@ -43018,7 +44270,6 @@ function createAsrScrollDriver(options = {}) {
         const movementAuthorityMarkerState = isMarkerTrackingHealthyForLine(scroller, lastLineIndex);
         const movementAuthorityMarkerLagLines = movementAuthorityMarkerState.markerIdx >= 0 ? Math.max(0, lastLineIndex - movementAuthorityMarkerState.markerIdx) : 0;
         const movementAuthorityReaderVisualBand = resolveReaderVisualBand(scroller, lastLineIndex);
-        const _movementAuthorityPendingBridgeAgeMs = pendingSpeakableBridgeState ? Math.max(0, now3 - pendingSpeakableBridgeState.createdAtMs) : Number.POSITIVE_INFINITY;
         const movementAuthorityLiveForwardGuardHeld = asrMode && isSessionLivePhase() && isSessionAsrArmed() && (!hasRecentVadSpeech || !runtimeSpeechFresh || !!pending.liveForwardGuardActive);
         if (pendingSpeakableBridgeCompletion && asrRuntimeSpeechRunningActual && runtimeSpeechFresh && hasActiveSpeechWindow && targetLine > lastLineIndex) {
           movementAuthority = "proof";
@@ -43094,7 +44345,7 @@ function createAsrScrollDriver(options = {}) {
           bypassDownstreamVeto = false;
         }
         if ((movementAuthority === "reconcile" || movementAuthority === "proof") && movementAuthorityLiveForwardGuardHeld && movementAuthorityStarvationMs >= DEFAULT_STARVATION_COMMIT_GAP_MS && movementAuthorityDecision.target > lastLineIndex + DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS) {
-          const singleStepTarget = resolveForwardSpeakableTarget(
+          const singleStepTarget = resolveForwardSpeakableTarget2(
             lastLineIndex,
             movementAuthorityDecision.target,
             DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS
@@ -43120,7 +44371,7 @@ function createAsrScrollDriver(options = {}) {
           }
         }
         if ((movementAuthority === "reconcile" || movementAuthority === "proof") && movementAuthorityStarvationMs >= DEFAULT_STARVATION_COMMIT_GAP_MS && movementAuthorityDecision.target > lastLineIndex + DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS && conf < DEFAULT_STRONG_FORWARD_COMMIT_SIM) {
-          const singleStepTarget = resolveForwardSpeakableTarget(
+          const singleStepTarget = resolveForwardSpeakableTarget2(
             lastLineIndex,
             movementAuthorityDecision.target,
             DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS
@@ -43148,7 +44399,7 @@ function createAsrScrollDriver(options = {}) {
             0,
             Math.floor(starvationFutureSpeechReconcileTargetLine)
           );
-          const singleStepTarget = resolveForwardSpeakableTarget(
+          const singleStepTarget = resolveForwardSpeakableTarget2(
             lastLineIndex,
             reconcileTarget,
             DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS
@@ -43171,7 +44422,7 @@ function createAsrScrollDriver(options = {}) {
         }
         const forcedReconcileLikeCommit = !!forced && (String(forceReason || "").includes("proof_owned") || String(forceReason || "").includes("reconcile") || String(matchId || "").includes("future-reconcile"));
         if (forcedReconcileLikeCommit && (movementAuthority === "reconcile" || movementAuthority === "proof") && movementAuthorityDecision.target > lastLineIndex + DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS && (movementAuthorityLiveForwardGuardHeld || movementAuthorityStarvationMs >= DEFAULT_STARVATION_COMMIT_GAP_MS)) {
-          const singleStepTarget = resolveForwardSpeakableTarget(
+          const singleStepTarget = resolveForwardSpeakableTarget2(
             lastLineIndex,
             movementAuthorityDecision.target,
             DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS
@@ -43198,7 +44449,7 @@ function createAsrScrollDriver(options = {}) {
           speechStopBrakeCleanupUsed = false;
         } else {
           clearPendingSpeakableBridge("speech_stopped_brake_window_expired");
-          const cleanupTarget = resolveForwardSpeakableTarget(
+          const cleanupTarget = resolveForwardSpeakableTarget2(
             lastLineIndex,
             Math.max(lastLineIndex + 1, movementAuthorityDecision.target),
             DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS
@@ -43252,7 +44503,7 @@ function createAsrScrollDriver(options = {}) {
           }
         }
         if (liveStrictFollow && targetLine > lastLineIndex) {
-          const adjacentAuthorityTarget = resolveForwardSpeakableTarget(
+          const adjacentAuthorityTarget = resolveForwardSpeakableTarget2(
             lastLineIndex,
             targetLine,
             1
@@ -43267,10 +44518,12 @@ function createAsrScrollDriver(options = {}) {
             ]);
             if (movementAuthorityRecoveryLike) {
               warnGuard("asr_recovery_skip_non_adjacent_target", [
-                `current=${lastLineIndex}`,
-                `requested=${targetLine}`,
-                `adjacentTarget=${adjacentAuthorityTarget}`,
-                `sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || "unknown"}`
+                ...buildRecoverySkipNonAdjacentTargetGuardBaseParts({
+                  current: lastLineIndex,
+                  requested: targetLine,
+                  adjacentTarget: adjacentAuthorityTarget,
+                  sourceBranch: pendingSourceBranch || movementAuthoritySourceBranch || "unknown"
+                })
               ]);
             }
             targetLine = adjacentAuthorityTarget;
@@ -43682,11 +44935,13 @@ function createAsrScrollDriver(options = {}) {
             const sinceCommitMs = Math.max(0, now3 - lastCommitTime);
             const starvationDetected = lastCommitIndex != null && sinceCommitMs >= DEFAULT_STARVATION_COMMIT_GAP_MS && Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
             warnGuard("proof_owned_primary_commit", [
-              `current=${lastLineIndex}`,
-              `target=${liveStepTarget}`,
-              `bestIdx=${line}`,
-              `proofSource=${proofSource}`,
-              skippedIgnorableLines.length ? `skippedIgnorableLines=[${skippedIgnorableLines.join(",")}]` : "skippedIgnorableLines=[]",
+              ...buildProofOwnedPrimaryCommitGuardBaseParts({
+                current: lastLineIndex,
+                target: liveStepTarget,
+                bestIdx: line,
+                proofSource,
+                skippedIgnorableLines
+              }),
               `stallMs=${Math.max(0, now3 - lastForwardCommitAt)}`,
               "sourceBranch=pending-live-step-hold",
               `oldWouldHaveUsedStallOverride=${starvationDetected && isFinal ? "true" : "false"}`,
@@ -44034,26 +45289,26 @@ function createAsrScrollDriver(options = {}) {
           const transcriptGrowing = lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength || lastFinalTranscriptAt > lastCommitTranscriptTimestamp;
           const sustainedSpeech = asrRuntimeSpeechRunningActual || Number.isFinite(lastTranscriptAgeMs) && lastTranscriptAgeMs <= 1800;
           const proofAuthority = args.authority === "proof" || args.authority === "reconcile";
-          const bridgeCandidate = resolveForwardSpeakableTarget(lastLineIndex, args.requestedTarget, 1);
-          const skippedIgnorableLines = [];
-          let skippedNonIgnorable = false;
-          if (bridgeCandidate > lastLineIndex) {
-            for (let idx = lastLineIndex + 1; idx < bridgeCandidate; idx += 1) {
-              const reason = classifyStrictSkippableLineForCueBridge(getLineTextAt(idx));
-              if (reason == null) {
-                skippedNonIgnorable = true;
-                break;
-              }
-              skippedIgnorableLines.push(reason);
-            }
-          }
+          const bridgeCandidate = resolveForwardSpeakableTarget2(lastLineIndex, args.requestedTarget, 1);
+          const skippedBetween = collectSkippedAsrRows({
+            currentLine: lastLineIndex,
+            targetLine: bridgeCandidate,
+            getLineText: getLineTextAt,
+            strict: true
+          });
+          const skippedIgnorableLines = skippedBetween.skippedReasons;
+          const skippedNonIgnorable = skippedBetween.skippedNonIgnorable;
           const bridgeSafe = bridgeCandidate > lastLineIndex && !skippedNonIgnorable && bridgeCandidate <= Math.max(lastLineIndex + 1, args.requestedTarget);
           const safeAdjacentReason = bridgeSafe ? bridgeCandidate === lastLineIndex + 1 ? "literal_adjacent" : "next_speakable_bridge" : "no_safe_adjacent";
           const bridgeProofSource = String(args.proofSource || "").includes("strict_speakable_bridge_landing") || String(args.proofSource || "").includes("adjacent_rescue_proofed") || String(args.proofSource || "").includes("bridge");
           const forcedReconcileBridgeSafe = String(args.sourceBranch || "").includes("movement_authority_forced_reconcile_single_step") && bridgeProofSource && bridgeSafe;
           const safeAdjacent = bridgeSafe || forcedReconcileBridgeSafe;
           const contradictionKind = args.contradictionActive ? "backward_or_offscript" : "none";
-          const contradictionActiveEffective = args.contradictionActive && !args.stalePrefixIgnored && !args.backwardContradictionOverriddenByTail;
+          const contradictionActiveEffective = args.contradictionActive && !shouldAllowStalePrefixContradictionOverride({
+            contradictionActive: args.contradictionActive,
+            stalePrefixIgnored: args.stalePrefixIgnored,
+            backwardContradictionOverriddenByTail: args.backwardContradictionOverriddenByTail
+          });
           const repeatedHoldReasons = /* @__PURE__ */ new Set([
             "live_strict_rescue_hold_no_local_proof",
             "cue_stall_rescue_blocked",
@@ -44076,16 +45331,41 @@ function createAsrScrollDriver(options = {}) {
             return { applied: false, target: bridgeCandidate };
           }
           const liveTranscriptFresh = lastTranscriptPacketAt > 0 && Math.max(0, now3 - lastTranscriptPacketAt) <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS;
-          const bridgeTrapThresholdMs = repeatedHoldCount > 3 ? 2500 : 3500;
-          const bridgeTrapDetected = liveTranscriptFresh && Number.isFinite(conf) && conf > 0 && (asrRuntimeSpeechRunningActual || asrRuntimeActiveReadMode) && args.requestedTarget > lastLineIndex && bridgeCandidate > lastLineIndex && repeatedHoldCount >= 3 && stallMs >= bridgeTrapThresholdMs;
-          if (bridgeTrapDetected) {
+          const bridgeTrapDetected = shouldClassifyBridgeTrap({
+            liveTranscriptFresh,
+            conf,
+            speechActive: asrRuntimeSpeechRunningActual,
+            activeReadMode: asrRuntimeActiveReadMode,
+            requestedTarget: args.requestedTarget,
+            currentLine: lastLineIndex,
+            adjacentTarget: bridgeCandidate,
+            repeatedHoldCount,
+            stallMs
+          });
+          const bridgeTrapEscapeDecision = shouldAllowBridgeTrapEscape({
+            bridgeTrapDetected,
+            transcriptGrowing,
+            contradictionActiveEffective,
+            safeAdjacent
+          });
+          if (bridgeTrapEscapeDecision.shouldAllow) {
             try {
               console.warn(
-                `[ASR_BRIDGE_TRAP_DETECTED] current=${lastLineIndex} bestIdx=${Math.max(lastLineIndex, Math.floor(Number(line) || lastLineIndex))} requestedTarget=${args.requestedTarget} adjacentTarget=${bridgeCandidate} skipped=${skippedIgnorableLines.length ? `[${skippedIgnorableLines.join(",")}]` : "[]"} repeatedHoldCount=${repeatedHoldCount} noCommitMs=${Math.round(stallMs)} blockerReason=bridge_or_non_adjacent_guard proofSource=${args.proofSource || "none"} textPreview="${String(snippet || "").slice(0, 80)}"`
+                buildAsrBridgeTrapDetectedDiagnostic({
+                  current: lastLineIndex,
+                  bestIdx: Math.max(lastLineIndex, Math.floor(Number(line) || lastLineIndex)),
+                  requestedTarget: args.requestedTarget,
+                  adjacentTarget: bridgeCandidate,
+                  skipped: skippedIgnorableLines.length ? `[${skippedIgnorableLines.join(",")}]` : "[]",
+                  repeatedHoldCount,
+                  noCommitMs: stallMs,
+                  proofSource: args.proofSource || "none",
+                  textPreview: String(snippet || "").slice(0, 80)
+                })
               );
             } catch {
             }
-            return { applied: true, target: bridgeCandidate, reason: "bridge_trap_escape" };
+            return { applied: true, target: bridgeCandidate, reason: bridgeTrapEscapeDecision.reason || "bridge_trap_escape" };
           }
           if (args.requestedTarget > lastLineIndex + 1 || bridgeCandidate > lastLineIndex + 1) {
             try {
@@ -44167,11 +45447,13 @@ function createAsrScrollDriver(options = {}) {
         if (proofOwnedPrimaryCommitEligible) {
           const oldWouldHaveUsedStallOverride = isFinal && lastCommitIndex != null && Math.max(0, now3 - lastCommitTime) >= DEFAULT_STARVATION_COMMIT_GAP_MS && Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
           warnGuard("proof_owned_primary_commit", [
-            `current=${lastLineIndex}`,
-            `target=${targetLine}`,
-            `bestIdx=${line}`,
-            `proofSource=${strictProofSourceForCommit}`,
-            strictSpeakableStep?.skippedReasons?.length ? `skippedIgnorableLines=[${strictSpeakableStep.skippedReasons.join(",")}]` : "skippedIgnorableLines=[]",
+            ...buildProofOwnedPrimaryCommitGuardBaseParts({
+              current: lastLineIndex,
+              target: targetLine,
+              bestIdx: line,
+              proofSource: strictProofSourceForCommit,
+              skippedIgnorableLines: strictSpeakableStep?.skippedReasons || []
+            }),
             `stallMs=${Math.max(0, now3 - lastForwardCommitAt)}`,
             "sourceBranch=pending-commit:strict-proof",
             `oldWouldHaveUsedStallOverride=${oldWouldHaveUsedStallOverride ? "true" : "false"}`,
@@ -44283,8 +45565,19 @@ function createAsrScrollDriver(options = {}) {
           );
           if (visibleStepTarget > lastLineIndex && visibleStepTarget < targetLine) {
             const reducedLineSpeakable = isSpeakableScriptLine(visibleStepTarget);
+            const bridgeStageDecision = shouldStageVisualOnlyBridge({
+              liveStrictFollow,
+              pendingSpeakableBridgeCompletion,
+              currentIndex: lastLineIndex,
+              targetIndex: targetLine,
+              visibleStepTarget,
+              reducedLineSpeakable,
+              asrRuntimeSpeechRunningActual,
+              movementAuthority,
+              liveUnleashedEnabled: isAsrLiveUnleashedEnabled()
+            });
             if (!reducedLineSpeakable) {
-              const shouldBypassPendingVisualCap = asrRuntimeSpeechRunningActual && (movementAuthority === "proof" || movementAuthority === "reconcile" || isAsrLiveUnleashedEnabled()) && targetLine > lastLineIndex;
+              const shouldBypassPendingVisualCap = bridgeStageDecision.shouldBypassPendingVisualCap === true;
               if (shouldBypassPendingVisualCap) {
                 warnGuard("asr_pending_speakable_bridge_live_unleashed", [
                   `semanticFrom=${lastLineIndex}`,
@@ -44313,13 +45606,16 @@ function createAsrScrollDriver(options = {}) {
                   emitVisibleBridgeBypass: true
                 });
                 if (terminal.accepted) {
+                  const canonicalTarget = Math.max(lastLineIndex, Math.floor(Number(terminal.target) || targetLine));
+                  targetLine = canonicalTarget;
+                  multiJumpDelta = targetLine - lastLineIndex;
                   try {
-                    console.warn(`[ASR_LIVE_UNLEASHED_STEP] current=${lastLineIndex} target=${targetLine} semanticTarget=${targetLine} visualTarget=${targetLine} authority=${movementAuthority} proofSource=${pendingProofSource || movementAuthorityProofSource || "none"} sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || forceReason || "unknown"} skippedIgnorableLines=[] bridgeSafe=1 bypassedLeash=0 bypassedCooldown=0 bypassedPendingVisualCap=1 stallMs=${Math.max(0, now3 - lastForwardCommitAt)} noCommitMs=${noCommitDelayMs} thresholdMs=${terminal.thresholdMs} actualDelayMs=${noCommitDelayMs} reason=pending_visual_cap_live_unleashed`);
+                    console.warn(`[ASR_LIVE_UNLEASHED_STEP] current=${lastLineIndex} target=${canonicalTarget} semanticTarget=${canonicalTarget} visualTarget=${canonicalTarget} authority=${movementAuthority} proofSource=${pendingProofSource || movementAuthorityProofSource || "none"} sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || forceReason || "unknown"} skippedIgnorableLines=[] bridgeSafe=1 bypassedLeash=0 bypassedCooldown=0 bypassedPendingVisualCap=1 stallMs=${Math.max(0, now3 - lastForwardCommitAt)} noCommitMs=${noCommitDelayMs} thresholdMs=${terminal.thresholdMs} actualDelayMs=${noCommitDelayMs} reason=pending_visual_cap_live_unleashed`);
                   } catch {
                   }
                   bypassedPendingVisualCapTerminal = true;
                 }
-              } else {
+              } else if (bridgeStageDecision.shouldStage) {
                 const reducedLineEl = getLineElementByIndex(scroller, visibleStepTarget);
                 const reducedLineTopRaw = computeLineTargetTop(scroller, reducedLineEl);
                 const reducedLineTop = finiteNumberOrNull(
@@ -44355,7 +45651,7 @@ function createAsrScrollDriver(options = {}) {
                     semanticTarget: targetLine,
                     visualCurrent: visibleStepTarget,
                     visualReducedTarget: visibleStepTarget,
-                    skippedVisibleRows: Math.max(1, targetLine - visibleStepTarget),
+                    skippedVisibleRows: bridgeStageDecision.skippedRows ?? Math.max(1, targetLine - visibleStepTarget),
                     proofSource: pendingProofSource || movementAuthorityProofSource || "unknown",
                     sourceBranch: pendingSourceBranch || movementAuthoritySourceBranch || forceReason || "commit-path",
                     createdAtMs: now3,
@@ -44406,6 +45702,9 @@ function createAsrScrollDriver(options = {}) {
                 emitVisibleBridgeBypass: true
               });
               if (visibleCapTerminal.accepted) {
+                const canonicalTarget = Math.max(lastLineIndex, Math.floor(Number(visibleCapTerminal.target) || targetLine));
+                targetLine = canonicalTarget;
+                multiJumpDelta = targetLine - lastLineIndex;
                 bypassedPendingVisualCapTerminal = true;
               } else {
                 warnGuard("asr_live_visible_bridge_step_cap", [
@@ -44458,11 +45757,11 @@ function createAsrScrollDriver(options = {}) {
             const earlyBridgeLandingProof = evaluateLiveStrictBridgeLandingLexicalProof(lastLineIndex, targetLine);
             const earlyBridgeFinalPacketFresh = lastFinalTranscriptAt > 0 && now3 - lastFinalTranscriptAt <= 1800;
             const earlyBridgeTargetContent = getContentTokenSet(
-              normTokens(normalizeComparableText(getLineTextAt(targetLine)))
+              normTokens(normalizeComparableText2(getLineTextAt(targetLine)))
             );
             const earlyBridgeSnippetHits = countSharedContentTokenHits(
               earlyBridgeTargetContent,
-              normTokens(normalizeComparableText(snippet || ""))
+              normTokens(normalizeComparableText2(snippet || ""))
             );
             const earlyBridgeSnippetFresh = earlyBridgeTargetContent.size > 0 && earlyBridgeSnippetHits / earlyBridgeTargetContent.size >= 0.5;
             const earlyBridgeSpeechEvidenceFresh = runtimeSpeechFresh || earlyBridgeFinalPacketFresh;
@@ -44621,16 +45920,16 @@ function createAsrScrollDriver(options = {}) {
             `marker=${diag.markerIdx}`,
             snippet ? `clue="${snippet}"` : ""
           ]);
-          emitHudStatus("no_target", "No target line in DOM", {
+          emitHudStatus("no_target", "No target line in DOM", buildAsrHudNoTargetDetail({
             line: targetLine,
             delta: deltaLines2,
-            sim: Number.isFinite(conf) ? Number(conf.toFixed(3)) : conf,
+            simRaw: conf,
             reasons: reasonChain,
             domLines: diag.domLines,
             marker: diag.markerIdx,
             retry: retryCount,
             matchId
-          });
+          }));
           logDev("no_target", {
             line: targetLine,
             delta: deltaLines2,
@@ -44852,7 +46151,7 @@ function createAsrScrollDriver(options = {}) {
           } else {
             const sustainedStallMs = Math.max(0, now3 - lastCommitTime);
             const sustainedLastTranscriptAgeMs = lastFinalTranscriptAt > 0 ? Math.max(0, now3 - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
-            const sustainedAdjacentTarget = resolveForwardSpeakableTarget(lastLineIndex, line, 1);
+            const sustainedAdjacentTarget = resolveForwardSpeakableTarget2(lastLineIndex, line, 1);
             if (liveStrictFollow && sustainedStallMs >= 2500 && (asrRuntimeSpeechRunningActual || sustainedLastTranscriptAgeMs <= 1800)) {
               try {
                 console.warn(
@@ -44948,9 +46247,10 @@ function createAsrScrollDriver(options = {}) {
               reason: "final_live_safe_step"
             });
             if (skepticTerminal.accepted) {
+              targetLine = Math.max(lastLineIndex, Math.floor(Number(skepticTerminal.target) || targetLine));
               warnGuard("asr_alignment_skeptic_live_unleashed", [
                 `current=${lastLineIndex}`,
-                `target=${skepticTerminal.target}`,
+                `target=${targetLine}`,
                 `thresholdMs=${skepticTerminal.thresholdMs}`,
                 `actualDelayMs=${skepticTerminal.actualDelayMs}`
               ]);
@@ -45186,16 +46486,44 @@ function createAsrScrollDriver(options = {}) {
           return;
         }
         if (modeNow === "asr" && isSessionLivePhase() && isSessionAsrArmed() && targetLine > prevLineIndex && liveAsrVisualGovernorHardHold) {
+          const terminalNoCommitMs = Math.max(0, Date.now() - lastCommitTime);
+          const terminalLiveSpeechFresh = runtimeSpeechFresh || asrRuntimeSpeechRunningActual || hasRecentActualSpeech(Date.now()) || hasRecentVadSpeech;
+          const terminalFinalPacketFresh = lastFinalTranscriptAt > 0 && now3 - lastFinalTranscriptAt <= 1800;
+          const terminalGovernorDecision = shouldHoldForVisualGovernor({
+            accepted: true,
+            liveAsrVisualGovernorHardHold: true,
+            reducedTarget: targetLine,
+            current: prevLineIndex,
+            hardContradiction: !!strictBackwardContradictionForCommit,
+            requestedTarget: targetLine,
+            liveSpeechFresh: terminalLiveSpeechFresh,
+            finalPacketFresh: terminalFinalPacketFresh,
+            noCommitMs: terminalNoCommitMs,
+            freshAdjUnlockNoCommitMs: ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS,
+            msSinceLastCommit: Math.max(0, now3 - lastCommitAt2)
+          });
           const confirmedSpoken = Math.max(0, lastStrongConfirmedSpokenLine);
-          const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, targetLine));
+          const speakableLead = Math.max(0, countSpeakableDistanceAhead2(confirmedSpoken, targetLine));
           const renderedLead = Math.max(0, targetLine - confirmedSpoken);
-          try {
-            console.warn(
-              `[ASR_TERMINAL_COMMIT_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${prevLineIndex} target=${targetLine} bestIdx=${Math.max(prevLineIndex, Math.floor(Number(line) || targetLine))} speakableLead=${speakableLead} renderedLead=${renderedLead} proofSource=${movementAuthorityProofSource || "none"} sourceBranch=${movementAuthoritySourceBranch || "unknown"} reason=visual_governor_hard_hold`
-            );
-          } catch {
+          if (terminalGovernorDecision.shouldUnlock) {
+            liveAsrVisualUnlockSlowFollowUntilMs = Date.now() + 2200;
+            liveAsrVisualSuppressionLoopCount = 0;
+            liveAsrVisualSuppressionKey = "";
+            try {
+              console.warn(
+                `[ASR_VISUAL_GOVERNOR_FRESH_ADJACENT_UNLOCK] current=${prevLineIndex} target=${targetLine} bestIdx=${Math.max(prevLineIndex, Math.floor(Number(line) || targetLine))} speakableLead=${speakableLead} renderedLead=${renderedLead} proofSource=${movementAuthorityProofSource || "none"} sourceBranch=${movementAuthoritySourceBranch || "unknown"} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} finalPacketFresh=${terminalFinalPacketFresh ? 1 : 0} liveSpeechFresh=${terminalLiveSpeechFresh ? 1 : 0} noCommitMs=${terminalNoCommitMs} reason=fresh_adjacent_under_hold`
+              );
+            } catch {
+            }
+          } else {
+            try {
+              console.warn(
+                `[ASR_TERMINAL_COMMIT_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${prevLineIndex} target=${targetLine} bestIdx=${Math.max(prevLineIndex, Math.floor(Number(line) || targetLine))} speakableLead=${speakableLead} renderedLead=${renderedLead} proofSource=${movementAuthorityProofSource || "none"} sourceBranch=${movementAuthoritySourceBranch || "unknown"} reason=visual_governor_hard_hold`
+              );
+            } catch {
+            }
+            return;
           }
-          return;
         }
         if (startupFreshAdjacentFastPath) {
           const startupFinalPacketFresh = lastFinalTranscriptAt > 0 && now3 - lastFinalTranscriptAt <= 1800;
@@ -45308,6 +46636,14 @@ function createAsrScrollDriver(options = {}) {
         const commitBeforeTop = currentTop;
         let commitAfterTop = currentTop;
         if (modeNow === "asr") {
+          const bridgeVisualComfortProofSource = String(movementAuthorityProofSource || pendingProofSource || "").toLowerCase();
+          const bridgeVisualComfortSourceBranch = String(movementAuthoritySourceBranch || pendingSourceBranch || forceReason || "").toLowerCase();
+          const bridgeVisualComfortCommit = terminalRenderedDelta > 1 && (bridgeVisualComfortProofSource.includes("bridge") || bridgeVisualComfortProofSource.includes("cue") || bridgeVisualComfortProofSource.includes("adjacent_rescue") || bridgeVisualComfortSourceBranch.includes("bridge") || bridgeVisualComfortSourceBranch.includes("reconcile_single_step") || bridgeVisualComfortSourceBranch.includes("pending_speakable_bridge_complete"));
+          if (bridgeVisualComfortCommit) {
+            liveAsrBridgeVisualComfortUntilMs = Date.now() + ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_WINDOW_MS;
+            liveAsrBridgeVisualComfortSourceBranch = String(movementAuthoritySourceBranch || pendingSourceBranch || forceReason || "unknown");
+            liveAsrBridgeVisualComfortProofSource = String(movementAuthorityProofSource || pendingProofSource || "none");
+          }
           const strongSnapDeltaLines = targetLine - prevLineIndex;
           const strongMarkerSnapRequiredSim = clamp4(
             DEFAULT_STRONG_MARKER_SNAP_MIN_SIM + Math.max(0, strongSnapDeltaLines - DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES) * DEFAULT_STRONG_MARKER_SNAP_SIM_PER_EXTRA_LINE,
@@ -45806,7 +47142,7 @@ function createAsrScrollDriver(options = {}) {
       return;
     }
     const permissiveMatcher = isPermissiveAsrMatcherEnabled();
-    const compactedComparable = normalizeComparableText(compacted);
+    const compactedComparable = normalizeComparableText2(compacted);
     const compactedTokenCount = normTokens(compactedComparable).length;
     if (compactedComparable.length > 0) {
       const rescueMeaningfulChange = hasMeaningfulTranscriptChange(
@@ -45853,7 +47189,13 @@ function createAsrScrollDriver(options = {}) {
     const currentCursorIndex = stateCurrentIdx ?? (lastLineIndex >= 0 ? lastLineIndex : incomingIdx ?? -1);
     const sinceCommitMs = Math.max(0, now3 - lastCommitTime);
     const lostForwardAtDetection = lostForwardActive;
-    const starvationDetected = lastCommitIndex != null && sinceCommitMs > DEFAULT_STARVATION_COMMIT_GAP_MS && currentCursorIndex === lastCommitIndex;
+    const starvationDetected = shouldClassifyScrollCommitStall({
+      lastCommitIndex,
+      noCommitMs: sinceCommitMs,
+      commitGapMs: DEFAULT_STARVATION_COMMIT_GAP_MS,
+      currentCursorIndex,
+      explicitNoMatch: false
+    });
     const starvationRelock = starvationDetected && lostForwardAtDetection ? attemptForwardRelock(now3, currentCursorIndex, compacted, isFinal) : null;
     if (starvationDetected && maybeSuppressTerminalScriptEndWatchdog(currentCursorIndex, "starvation-terminal")) {
     } else if (starvationDetected && now3 - lastStarvationWarnAt >= DEFAULT_STARVATION_WARN_COOLDOWN_MS) {
@@ -45950,7 +47292,11 @@ function createAsrScrollDriver(options = {}) {
       rawMatchId = null;
     }
     let hasMatchId = typeof rawMatchId === "string" && rawMatchId.length > 0;
-    const explicitNoMatch = (rawMatchId === null || rawMatchId === void 0) && noMatch && !incomingMatch;
+    const explicitNoMatch = isExplicitNoMatch({
+      rawMatchId,
+      noMatch,
+      incomingMatch
+    });
     if (!hasMatchId && !explicitNoMatch && incomingMatch) {
       rawMatchId = nextSyntheticMatchId();
       hasMatchId = true;
@@ -46104,7 +47450,7 @@ function createAsrScrollDriver(options = {}) {
         }
       }
       const rebaseForwardEvidenceIdx = softRuntimeRebaseForwardLexicalFallback?.target ?? bestIdxForSoftRuntimeRebase;
-      const rebaseAdjacentTarget = resolveForwardSpeakableTarget(
+      const rebaseAdjacentTarget = resolveForwardSpeakableTarget2(
         currentForSoftRuntimeRebase,
         rebaseForwardEvidenceIdx,
         1
@@ -46113,10 +47459,12 @@ function createAsrScrollDriver(options = {}) {
       const rebaseForwardWasNonAdjacent = rebaseForwardEvidenceIdx > rebaseForwardCappedIdx;
       if (rebaseForwardEvidenceIdx > rebaseForwardCappedIdx) {
         warnGuard("asr_recovery_skip_non_adjacent_target", [
-          `current=${currentForSoftRuntimeRebase}`,
-          `requested=${rebaseForwardEvidenceIdx}`,
-          `adjacentTarget=${rebaseForwardCappedIdx}`,
-          "sourceBranch=soft_runtime_rebase"
+          ...buildRecoverySkipNonAdjacentTargetGuardBaseParts({
+            current: currentForSoftRuntimeRebase,
+            requested: rebaseForwardEvidenceIdx,
+            adjacentTarget: rebaseForwardCappedIdx,
+            sourceBranch: "soft_runtime_rebase"
+          })
         ]);
       }
       const rebaseForwardEvidenceSim = Math.max(
@@ -46288,7 +47636,7 @@ function createAsrScrollDriver(options = {}) {
           rebaseForwardCappedIdx,
           softRuntimeRebaseForwardLexicalFallback?.target ?? -1
         );
-        const retryAdjacentTarget = resolveForwardSpeakableTarget(
+        const retryAdjacentTarget = resolveForwardSpeakableTarget2(
           currentForSoftRuntimeRebase,
           retryForwardEvidenceIdx,
           1
@@ -46296,10 +47644,12 @@ function createAsrScrollDriver(options = {}) {
         const retryForwardCappedIdx = retryAdjacentTarget > currentForSoftRuntimeRebase ? retryAdjacentTarget : retryForwardEvidenceIdx;
         if (retryForwardEvidenceIdx > retryForwardCappedIdx) {
           warnGuard("asr_recovery_skip_non_adjacent_target", [
-            `current=${currentForSoftRuntimeRebase}`,
-            `requested=${retryForwardEvidenceIdx}`,
-            `adjacentTarget=${retryForwardCappedIdx}`,
-            "sourceBranch=soft_runtime_rebase_retry"
+            ...buildRecoverySkipNonAdjacentTargetGuardBaseParts({
+              current: currentForSoftRuntimeRebase,
+              requested: retryForwardEvidenceIdx,
+              adjacentTarget: retryForwardCappedIdx,
+              sourceBranch: "soft_runtime_rebase_retry"
+            })
           ]);
         }
         const retryForwardEvidenceSim = Math.max(
@@ -46575,7 +47925,7 @@ function createAsrScrollDriver(options = {}) {
     const topScoresSpeakable = topScores.filter((entry) => isSpeakableTopScoreIdx(entry.idx));
     const blockCorpus = asrMode ? getAsrBlockCorpus() : [];
     const anchorBlockId = asrMode ? resolveAsrAnchorBlockId(blockCorpus) : -1;
-    const blockAsrText = asrMode ? normalizeComparableText(bufferedText || compacted) : "";
+    const blockAsrText = asrMode ? normalizeComparableText2(bufferedText || compacted) : "";
     const blockMatch = asrMode ? matchAgainstBlocks(blockAsrText, anchorBlockId, blockCorpus, {
       bufferGrowing,
       cursorLine: effectiveAnchor,
@@ -46680,8 +48030,8 @@ function createAsrScrollDriver(options = {}) {
     const currentIdxRaw = stateCurrentIdx != null ? stateCurrentIdx : Number(window?.currentIndex ?? -1);
     const currentIdx = Number.isFinite(currentIdxRaw) ? Math.max(0, Math.floor(currentIdxRaw)) : -1;
     const cursorLine = currentIdx >= 0 ? currentIdx : lastLineIndex >= 0 ? lastLineIndex : effectiveAnchor;
-    const transcriptComparableForCurrent = normalizeComparableText(bufferedText || compacted || text);
-    const currentLineComparableForCurrent = normalizeComparableText(getLineTextAt(cursorLine));
+    const transcriptComparableForCurrent = normalizeComparableText2(bufferedText || compacted || text);
+    const currentLineComparableForCurrent = normalizeComparableText2(getLineTextAt(cursorLine));
     let currentLineDirectSim = Number.NaN;
     if (transcriptComparableForCurrent && currentLineComparableForCurrent) {
       const transcriptTokens = normTokens(transcriptComparableForCurrent);
@@ -47047,7 +48397,11 @@ function createAsrScrollDriver(options = {}) {
     }
     let inBand = rawIdx >= bandStart && rawIdx <= bandEnd;
     const manualAnchorEnabled = isManualAnchorAdoptEnabled();
-    if (manualAnchorPending && manualAnchorEnabled && now3 - manualAnchorPending.ts >= MANUAL_ANCHOR_PENDING_TIMEOUT_MS) {
+    if (manualAnchorPending && manualAnchorEnabled && !isManualAnchorPendingFresh({
+      pendingTs: manualAnchorPending.ts,
+      now: now3,
+      timeoutMs: MANUAL_ANCHOR_PENDING_TIMEOUT_MS
+    })) {
       rejectManualAnchorPending("no local evidence");
     }
     if (!inBand) {
@@ -47184,7 +48538,11 @@ function createAsrScrollDriver(options = {}) {
     if (manualAnchorPending && manualAnchorEnabled) {
       const candidateLine = Number.isFinite(rawIdx) ? Math.max(0, Math.floor(rawIdx)) : -1;
       const candidateNeed = clamp4(thresholds.candidateMinSim + MANUAL_ANCHOR_SIM_SLACK, 0, 1);
-      if (candidateLine >= 0 && Math.abs(candidateLine - manualAnchorPending.targetIndex) <= MANUAL_ANCHOR_WINDOW_LINES && conf >= candidateNeed) {
+      if (candidateLine >= 0 && isManualAnchorWithinLineWindow({
+        targetIndex: manualAnchorPending.targetIndex,
+        candidateIndex: candidateLine,
+        windowLines: MANUAL_ANCHOR_WINDOW_LINES
+      }) && conf >= candidateNeed) {
         if (adoptManualAnchorTruth(candidateLine, conf, scrollerForMatch)) {
           return;
         }
@@ -47241,9 +48599,9 @@ function createAsrScrollDriver(options = {}) {
       const currentIndex = cursorLine;
       const scriptLinesLength = getTotalLines();
       const scriptRaw = getLineTextAt(currentIndex);
-      const scriptNormalized = normalizeComparableText(scriptRaw);
+      const scriptNormalized = normalizeComparableText2(scriptRaw);
       const asrRaw = String(text || "");
-      const asrNormalized = normalizeComparableText(asrRaw);
+      const asrNormalized = normalizeComparableText2(asrRaw);
       try {
         console.log("=== ASR DEBUG COMPARISON ===");
         console.log("ScriptLines length:", Number.isFinite(scriptLinesLength) ? scriptLinesLength : "null");
@@ -47371,14 +48729,14 @@ function createAsrScrollDriver(options = {}) {
     forwardLineScores.forEach(adoptForwardScore);
     forwardWindowScores.forEach(adoptForwardScore);
     const forwardBandScores = Array.from(forwardScoreByIdx.values());
-    const transcriptForAnchorScan = normalizeComparableText(bufferedText || compacted || text);
+    const transcriptForAnchorScan = normalizeComparableText2(bufferedText || compacted || text);
     const transcriptContentSetForAnchorScan = getContentTokenSet(normTokens(transcriptForAnchorScan));
     const lineEvidenceCache = /* @__PURE__ */ new Map();
     const getForwardLineEvidence = (lineIdx) => {
       const safeLine = Math.max(0, Math.floor(Number(lineIdx) || 0));
       const cached2 = lineEvidenceCache.get(safeLine);
       if (cached2) return cached2;
-      const lineTokens = normTokens(normalizeComparableText(getLineTextAt(safeLine)));
+      const lineTokens = normTokens(normalizeComparableText2(getLineTextAt(safeLine)));
       const contentTokenCount = getContentTokenSet(lineTokens).size;
       const sharedContentHits = countSharedContentTokenHits(transcriptContentSetForAnchorScan, lineTokens);
       const next = { contentTokenCount, sharedContentHits };
@@ -47576,7 +48934,7 @@ function createAsrScrollDriver(options = {}) {
             return;
           }
           if (guardReason === "same_line_noop") {
-            const nextSpeakableTarget = resolveForwardSpeakableTarget(
+            const nextSpeakableTarget = resolveForwardSpeakableTarget2(
               cursorLine,
               cursorLine + DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES,
               1
@@ -47673,7 +49031,7 @@ function createAsrScrollDriver(options = {}) {
       return;
     }
     const transcriptComparable = forwardMatcherInputs[0] || "";
-    const stableComparable = transcriptComparable || normalizeComparableText(bufferedText || compacted || text);
+    const stableComparable = transcriptComparable || normalizeComparableText2(bufferedText || compacted || text);
     if (!isSessionAsrArmed() || commitCount <= 0) {
       stableInterimTranscriptNorm = stableComparable;
       stableInterimLastMeaningfulChangeAt = now3;
@@ -47687,7 +49045,7 @@ function createAsrScrollDriver(options = {}) {
       stableInterimTranscriptNorm = stableComparable;
     }
     const stableInterimMs = stableInterimLastMeaningfulChangeAt > 0 ? now3 - stableInterimLastMeaningfulChangeAt : 0;
-    const currentLineComparable = normalizeComparableText(getLineTextAt(cursorLine));
+    const currentLineComparable = normalizeComparableText2(getLineTextAt(cursorLine));
     const transcriptLongerThanCurrent = transcriptComparable.length > currentLineComparable.length;
     const currentLineScoreFromTop = Number(rawScoreByIdx.get(cursorLine));
     let currentLineScore = Number.isFinite(currentLineScoreFromTop) ? currentLineScoreFromTop : Number.NaN;
@@ -47810,10 +49168,10 @@ function createAsrScrollDriver(options = {}) {
     );
     const interimAmbiguityBest = interimAmbiguityCandidates[0] || null;
     const interimAmbiguitySecond = interimAmbiguityCandidates[1] || null;
-    const interimAmbiguityTranscript = transcriptComparable || normalizeComparableText(bufferedText || compacted || text);
+    const interimAmbiguityTranscript = transcriptComparable || normalizeComparableText2(bufferedText || compacted || text);
     const interimAmbiguityTranscriptContent = getContentTokenSet(normTokens(interimAmbiguityTranscript));
-    const interimAmbiguityBestTokens = interimAmbiguityBest ? normTokens(normalizeComparableText(getLineTextAt(interimAmbiguityBest.idx))) : [];
-    const interimAmbiguitySecondTokens = interimAmbiguitySecond ? normTokens(normalizeComparableText(getLineTextAt(interimAmbiguitySecond.idx))) : [];
+    const interimAmbiguityBestTokens = interimAmbiguityBest ? normTokens(normalizeComparableText2(getLineTextAt(interimAmbiguityBest.idx))) : [];
+    const interimAmbiguitySecondTokens = interimAmbiguitySecond ? normTokens(normalizeComparableText2(getLineTextAt(interimAmbiguitySecond.idx))) : [];
     const interimAmbiguityBestContentCount = getContentTokenSet(interimAmbiguityBestTokens).size;
     const interimAmbiguityBestOverlapHits = countSharedContentTokenHits(
       interimAmbiguityTranscriptContent,
@@ -48619,7 +49977,7 @@ function createAsrScrollDriver(options = {}) {
                 const transcriptTokens = normTokens(
                   transcriptComparable || bufferedText || compacted || text
                 );
-                const prevTokens = normTokens(normalizeComparableText(prevLineText));
+                const prevTokens = normTokens(normalizeComparableText2(prevLineText));
                 const prevSim = transcriptTokens.length && prevTokens.length ? computeLineSimilarityFromTokens(transcriptTokens, prevTokens) : 0;
                 const currentSim = Number.isFinite(arbitrationCurrentScore) ? arbitrationCurrentScore : conf;
                 if (isFinal && tryGraceRollback(
@@ -48744,8 +50102,8 @@ function createAsrScrollDriver(options = {}) {
     const preNudgeTranscript = transcriptComparable || bufferedText || compacted || text;
     const preNudgeTranscriptContent = getContentTokenSet(normTokens(preNudgeTranscript));
     const preNudgeBestLine = preNudgeBest ? preNudgeBest.idx : Math.max(0, Math.floor(rawIdx));
-    const preNudgeBestTokens = normTokens(normalizeComparableText(getLineTextAt(preNudgeBestLine)));
-    const preNudgeSecondTokens = preNudgeSecond ? normTokens(normalizeComparableText(getLineTextAt(preNudgeSecond.idx))) : [];
+    const preNudgeBestTokens = normTokens(normalizeComparableText2(getLineTextAt(preNudgeBestLine)));
+    const preNudgeSecondTokens = preNudgeSecond ? normTokens(normalizeComparableText2(getLineTextAt(preNudgeSecond.idx))) : [];
     const preNudgeBestContentCount = getContentTokenSet(preNudgeBestTokens).size;
     const preNudgeBestOverlapHits = countSharedContentTokenHits(preNudgeTranscriptContent, preNudgeBestTokens);
     const preNudgeSimGap = preNudgeBest && preNudgeSecond ? preNudgeBest.score - preNudgeSecond.score : Number.NaN;
@@ -49139,8 +50497,8 @@ function createAsrScrollDriver(options = {}) {
     const holdTranscript = transcriptComparable || bufferedText || compacted || text;
     const holdTranscriptContentSet = getContentTokenSet(normTokens(holdTranscript));
     const holdBestIdx = holdBestCandidate ? holdBestCandidate.idx : Math.max(0, Math.floor(rawIdx));
-    const holdBestLineTokens = normTokens(normalizeComparableText(getLineTextAt(holdBestIdx)));
-    const holdSecondLineTokens = holdSecondCandidate ? normTokens(normalizeComparableText(getLineTextAt(holdSecondCandidate.idx))) : [];
+    const holdBestLineTokens = normTokens(normalizeComparableText2(getLineTextAt(holdBestIdx)));
+    const holdSecondLineTokens = holdSecondCandidate ? normTokens(normalizeComparableText2(getLineTextAt(holdSecondCandidate.idx))) : [];
     const holdBestLineContentCount = getContentTokenSet(holdBestLineTokens).size;
     const holdBestOverlapHits = countSharedContentTokenHits(holdTranscriptContentSet, holdBestLineTokens);
     const holdAmbiguity = evaluateShortLineAmbiguityHold(
@@ -49157,7 +50515,7 @@ function createAsrScrollDriver(options = {}) {
     const holdReasonCode = holdShortLineAmbiguous ? holdAmbiguity.reason || "short_line_ambiguous" : "";
     const holdCandidateAmbiguous = rawIdx >= cursorLine && holdShortLineAmbiguous && !permissiveMatcher;
     const holdAnchorCandidates = forwardBandScores.filter((entry) => entry.idx > cursorLine && entry.idx <= cursorLine + DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES).map((entry) => {
-      const lineTokens = normTokens(normalizeComparableText(getLineTextAt(entry.idx)));
+      const lineTokens = normTokens(normalizeComparableText2(getLineTextAt(entry.idx)));
       const contentTokenCount = getContentTokenSet(lineTokens).size;
       const sharedContentHits = countSharedContentTokenHits(holdTranscriptContentSet, lineTokens);
       const longAnchor = contentTokenCount >= DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS;
@@ -49256,7 +50614,7 @@ function createAsrScrollDriver(options = {}) {
         );
         const releaseThresholdMs = repeatedHoldCount > 2 ? 600 : 900;
         const holdMs = ambiguityHoldSince > 0 ? Math.max(0, now3 - ambiguityHoldSince) : 0;
-        const nextAdjacent = resolveForwardSpeakableTarget(
+        const nextAdjacent = resolveForwardSpeakableTarget2(
           cursorLine,
           holdBestIdx,
           LIVE_STRICT_MAX_CUE_BRIDGE_SPAN
@@ -49873,7 +51231,7 @@ function createAsrScrollDriver(options = {}) {
   }
   return driver;
 }
-var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_MATCH_BACKTRACK_LINES, DEFAULT_MATCH_LOOKAHEAD_LINES, DEFAULT_MATCH_LOOKAHEAD_STEPS, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_BAND_BACK_TOLERANCE_LINES, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, LIVE_ASR_COMMIT_MIN_PX, LIVE_ASR_COMMIT_MAX_LINES, LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO, LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES, ASR_FORWARD_GOVERNOR_MAX_COMFORT_LEAD_SPEAKABLE, ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE, ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES, ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_AHEAD_MS, ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_COMFORTABLE_MS, ASR_EARLY_BRIDGE_GOVERNOR_MAX_COMMITS, ASR_EARLY_BRIDGE_GOVERNOR_MAX_RENDERED_DELTA, ASR_VISUAL_GOVERNOR_HOLD_CLEAR_TARGET_MS, ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS, ASR_RESCUE_BYPASS_BUDGET_MAX, ASR_RESCUE_BYPASS_MIN_DELAY_MS, ASR_READER_PACE_MAX_MARKER_LEAD_LINES, ASR_READER_PACE_NO_SPEECH_HOLD_MS, ASR_VISUAL_SOFT_LEAD_START, ASR_VISUAL_HARD_LEAD_START, ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS, ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS, ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS, ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS, ASR_VISUAL_FOLLOW_NORMAL_ADJ_MIN_PXPS, ASR_VISUAL_FOLLOW_MAX_PXPS, ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS, ASR_VISUAL_FOLLOW_MIN_PXPS, ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX, ASR_VISUAL_FOLLOW_SLOW_ZONE_PX, ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX, ALIGNMENT_SKEPTIC_WINDOW_MS, ALIGNMENT_SKEPTIC_FORWARD_CONF_BONUS, ALIGNMENT_SKEPTIC_MIN_FORWARD_TOKENS, ALIGNMENT_SKEPTIC_MIN_SUSTAINED_SPEECH_MS, ALIGNMENT_SKEPTIC_STABLE_SAME_LINE_HITS, ALIGNMENT_SKEPTIC_ADJACENT_COMMIT_HITS, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_STALL_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_COOLDOWN_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_FINAL_MAX_AGE_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_SKIP_LOG_COOLDOWN_MS, DEFAULT_LIVE_ASR_MIN_FORWARD_COMMIT_GAP_MS, DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM, DEFAULT_ASR_AUTHORITY_SPEECH_STOP_BRAKE_MS, DEFAULT_ASR_AUTHORITY_FINAL_AFTER_SPEECH_STOP_MAX_AGE_MS, DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, AUTO_CUE_SKIP_COOLDOWN_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MANUAL_ANCHOR_MIN_SCROLL_PX, MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS, MANUAL_ANCHOR_PENDING_TIMEOUT_MS, MANUAL_ANCHOR_WINDOW_LINES, MANUAL_ANCHOR_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS, DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS, DEFAULT_RESCUE_MATCH_MIN_SIM, DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES, DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS, DEFAULT_LIVE_STRICT_LOCAL_PROOF_ADJACENT_MIN_SIM, DEFAULT_LIVE_STRICT_LOCAL_PROOF_RESCUE_MIN_SIM, DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MIN_SIM, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_SIM_BONUS, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MAX_FORWARD_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_DELTA_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MAX_DELTA_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_STABLE_HITS, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_INDEX_EPS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS, LIVE_STRICT_MOMENTUM_SYNC_WINDOW_MS, LIVE_STRICT_STALL_AFTER_MS, LIVE_STRICT_WEAK_SIGNAL_REPEAT_COUNT, LIVE_STRICT_WEAK_POSITIVE_ADJACENT_MIN_SIM, LIVE_STRICT_BEHIND_RECOVERY_MIN_LINES, LIVE_STRICT_BEHIND_RECOVERY_MAX_LINES, LIVE_STRICT_BEHIND_RECOVERY_ADJACENT_SLACK, ASR_READER_LEASH_MAX_READABLE_AHEAD, ASR_READER_LEASH_MAX_UNPROVEN_AHEAD, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN, DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS, DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS, DEFAULT_ASR_PENDING_BRIDGE_PRESSURE_COMMIT_MS, DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_LINES, DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_NO_COMMIT_MS, DEFAULT_ASR_MARKER_LAG_PRESSURE_ADJACENT_SIM_SLACK, LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS, LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT, LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES, DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MULTI_STEP_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES, DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM, DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK, DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_LIVE_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_STALL_MS, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SIM, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SCORE_GAP, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_RATIO, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_HITS, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_NOVEL_TOKENS, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_COMMITS, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_SIM_PER_EXTRA_LINE, DEFAULT_STRONG_MARKER_SNAP_MAX_REQUIRED_SIM, DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES, DEFAULT_ASR_MARKER_ANCHOR_LIVE_MAX_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_MIN_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_LOW_CONF_SIM, DEFAULT_LIVE_ASR_SOFT_COMMIT_MAX_LINES, DEFAULT_STARVATION_TIE_FORWARD_MAX_DELTA_LINES, DEFAULT_STARVATION_TIE_FORWARD_SIM_SLACK, DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES, DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM, DEFAULT_ASR_ADJACENT_COMPLETION_SIM_SLACK, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_REQUIRED_LEAD, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_FINAL_MATCH_NUDGE_MAX_DELTA_LINES, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CURSOR_BACKJUMP_ALLOWED_REASONS, CUE_LINE_BRACKET_RE, CUE_LINE_WORD_RE, STRUCTURAL_EMPTY_LINE_RE, SPEAKER_TAG_ONLY_RE, NOTE_TAG_ONLY_RE, NOTE_INLINE_BLOCK_RE, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, GUARD_DEBUG_REASONS, ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, LIVE_STRICT_SPECULATIVE_FORCE_REASONS, lastPursueHudAt, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
+var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, LIVE_ASR_COMMIT_MIN_PX, LIVE_ASR_COMMIT_MAX_LINES, LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO, LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES, ASR_FORWARD_GOVERNOR_MAX_COMFORT_LEAD_SPEAKABLE, ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE, ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES, ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_AHEAD_MS, ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_COMFORTABLE_MS, ASR_EARLY_BRIDGE_GOVERNOR_MAX_COMMITS, ASR_EARLY_BRIDGE_GOVERNOR_MAX_RENDERED_DELTA, ASR_VISUAL_GOVERNOR_HOLD_CLEAR_TARGET_MS, ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS, ASR_RESCUE_BYPASS_BUDGET_MAX, ASR_RESCUE_BYPASS_MIN_DELAY_MS, ASR_READER_PACE_MAX_MARKER_LEAD_LINES, ASR_READER_PACE_NO_SPEECH_HOLD_MS, ASR_VISUAL_SOFT_LEAD_START, ASR_VISUAL_HARD_LEAD_START, ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS, ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_WINDOW_MS, ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_MAX_DELTA_LINES, ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_PXPS, ASR_LEAD_AWARE_PURSUIT_AHEAD_MAX_PXPS, ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES, ASR_VISUAL_PROJECTION_MAX_SAFE_DELTA_LINES, ASR_VISUAL_ENVELOPE_LEASH_ARM_DELTA_LINES, ASR_VISUAL_ENVELOPE_LEASH_CLEAR_DELTA_LINES, ASR_STARTUP_SHORT_MEMORY_MAX_COMMITS, ASR_STARTUP_SHORT_MEMORY_MAX_RUN_AGE_MS, ASR_STARTUP_SHORT_MEMORY_MIN_ADJACENT_SIM, ASR_STARTUP_SHORT_MEMORY_MIN_TAIL_WORDS, ASR_FAR_AHEAD_HOLD_ADJ_ESCAPE_TIMEOUT_MS, ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS, ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS, ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS, ASR_VISUAL_FOLLOW_NORMAL_ADJ_MIN_PXPS, ASR_VISUAL_FOLLOW_MAX_PXPS, ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS, ASR_VISUAL_FOLLOW_MIN_PXPS, ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX, ASR_VISUAL_FOLLOW_SLOW_ZONE_PX, ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX, ALIGNMENT_SKEPTIC_WINDOW_MS, ALIGNMENT_SKEPTIC_FORWARD_CONF_BONUS, ALIGNMENT_SKEPTIC_MIN_FORWARD_TOKENS, ALIGNMENT_SKEPTIC_MIN_SUSTAINED_SPEECH_MS, ALIGNMENT_SKEPTIC_STABLE_SAME_LINE_HITS, ALIGNMENT_SKEPTIC_ADJACENT_COMMIT_HITS, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_STALL_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_COOLDOWN_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_FINAL_MAX_AGE_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_SKIP_LOG_COOLDOWN_MS, DEFAULT_LIVE_ASR_MIN_FORWARD_COMMIT_GAP_MS, DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM, DEFAULT_ASR_AUTHORITY_SPEECH_STOP_BRAKE_MS, DEFAULT_ASR_AUTHORITY_FINAL_AFTER_SPEECH_STOP_MAX_AGE_MS, DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, AUTO_CUE_SKIP_COOLDOWN_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS, DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS, DEFAULT_RESCUE_MATCH_MIN_SIM, DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES, DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS, DEFAULT_LIVE_STRICT_LOCAL_PROOF_ADJACENT_MIN_SIM, DEFAULT_LIVE_STRICT_LOCAL_PROOF_RESCUE_MIN_SIM, DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MIN_SIM, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_SIM_BONUS, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MAX_FORWARD_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_DELTA_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MAX_DELTA_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_STABLE_HITS, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_INDEX_EPS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS, LIVE_STRICT_MOMENTUM_SYNC_WINDOW_MS, LIVE_STRICT_STALL_AFTER_MS, LIVE_STRICT_WEAK_SIGNAL_REPEAT_COUNT, LIVE_STRICT_WEAK_POSITIVE_ADJACENT_MIN_SIM, LIVE_STRICT_BEHIND_RECOVERY_MIN_LINES, LIVE_STRICT_BEHIND_RECOVERY_MAX_LINES, LIVE_STRICT_BEHIND_RECOVERY_ADJACENT_SLACK, ASR_READER_LEASH_MAX_READABLE_AHEAD, ASR_READER_LEASH_MAX_UNPROVEN_AHEAD, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN, DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS, DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS, DEFAULT_ASR_PENDING_BRIDGE_PRESSURE_COMMIT_MS, DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_LINES, DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_NO_COMMIT_MS, DEFAULT_ASR_MARKER_LAG_PRESSURE_ADJACENT_SIM_SLACK, LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS, LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT, LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES, DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MULTI_STEP_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES, DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM, DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK, DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_LIVE_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_STALL_MS, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SIM, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SCORE_GAP, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_RATIO, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_HITS, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_NOVEL_TOKENS, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_COMMITS, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_SIM_PER_EXTRA_LINE, DEFAULT_STRONG_MARKER_SNAP_MAX_REQUIRED_SIM, DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES, DEFAULT_ASR_MARKER_ANCHOR_LIVE_MAX_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_MIN_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_LOW_CONF_SIM, DEFAULT_LIVE_ASR_SOFT_COMMIT_MAX_LINES, DEFAULT_STARVATION_TIE_FORWARD_MAX_DELTA_LINES, DEFAULT_STARVATION_TIE_FORWARD_SIM_SLACK, DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES, DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM, DEFAULT_ASR_ADJACENT_COMPLETION_SIM_SLACK, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_REQUIRED_LEAD, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_FINAL_MATCH_NUDGE_MAX_DELTA_LINES, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CURSOR_BACKJUMP_ALLOWED_REASONS, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, GUARD_DEBUG_REASONS, ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, LIVE_STRICT_SPECULATIVE_FORCE_REASONS, lastPursueHudAt, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
 var init_asr_scroll_driver = __esm({
   "src/features/asr/asr-scroll-driver.ts"() {
     "use strict";
@@ -49886,6 +51244,16 @@ var init_asr_scroll_driver = __esm({
     init_asr_block_store();
     init_scroll_writer();
     init_scroll_helpers();
+    init_asr_diagnostics();
+    init_asr_line_classification();
+    init_asr_offscript();
+    init_asr_stall_classifier();
+    init_asr_bridge_policy();
+    init_asr_commit_authority();
+    init_asr_visual_follow();
+    init_asr_manual_anchor_policy();
+    init_asr_backend_restart_adapter();
+    init_asr_backend_liveness();
     init_asr_threshold_store();
     init_boot_trace();
     init_dev_log();
@@ -49893,14 +51261,10 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_MIN_LINE_ADVANCE = 1;
     DEFAULT_SEEK_THROTTLE_MS = 120;
     DEFAULT_INTERIM_SCALE = 1.15;
-    DEFAULT_MATCH_BACKTRACK_LINES = 2;
-    DEFAULT_MATCH_LOOKAHEAD_LINES = 50;
-    DEFAULT_MATCH_LOOKAHEAD_STEPS = [DEFAULT_MATCH_LOOKAHEAD_LINES, 120, 200, 400];
     DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS = 2e3;
     DEFAULT_LOOKAHEAD_BEHIND_HITS = 2;
     DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS = 1800;
     DEFAULT_LOOKAHEAD_STALL_MS = 2500;
-    DEFAULT_BAND_BACK_TOLERANCE_LINES = 1;
     DEFAULT_SAME_LINE_THROTTLE_MS = 90;
     DEFAULT_CREEP_PX = 10;
     DEFAULT_CREEP_NEAR_PX = 8;
@@ -49941,6 +51305,19 @@ var init_asr_scroll_driver = __esm({
     ASR_VISUAL_SOFT_LEAD_START = 4;
     ASR_VISUAL_HARD_LEAD_START = 6;
     ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS = 2100;
+    ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_WINDOW_MS = 1500;
+    ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_MAX_DELTA_LINES = 3;
+    ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_PXPS = 16;
+    ASR_LEAD_AWARE_PURSUIT_AHEAD_MAX_PXPS = 12;
+    ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES = 4;
+    ASR_VISUAL_PROJECTION_MAX_SAFE_DELTA_LINES = 4;
+    ASR_VISUAL_ENVELOPE_LEASH_ARM_DELTA_LINES = 4;
+    ASR_VISUAL_ENVELOPE_LEASH_CLEAR_DELTA_LINES = 3;
+    ASR_STARTUP_SHORT_MEMORY_MAX_COMMITS = 5;
+    ASR_STARTUP_SHORT_MEMORY_MAX_RUN_AGE_MS = 15e3;
+    ASR_STARTUP_SHORT_MEMORY_MIN_ADJACENT_SIM = 0.52;
+    ASR_STARTUP_SHORT_MEMORY_MIN_TAIL_WORDS = 4;
+    ASR_FAR_AHEAD_HOLD_ADJ_ESCAPE_TIMEOUT_MS = 2e3;
     ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS = 14;
     ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS = 700;
     ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS = 1200;
@@ -50113,11 +51490,6 @@ var init_asr_scroll_driver = __esm({
     RECOVERY_SIM_MIN = 0.75;
     RECOVERY_STREAK_REQUIRED = 3;
     RECOVERY_SIM_SLACK = 0.05;
-    MANUAL_ANCHOR_MIN_SCROLL_PX = 400;
-    MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS = 1e3;
-    MANUAL_ANCHOR_PENDING_TIMEOUT_MS = 5e3;
-    MANUAL_ANCHOR_WINDOW_LINES = 10;
-    MANUAL_ANCHOR_SIM_SLACK = 0.03;
     MAX_LINES_PER_COMMIT = 2;
     DELTA_SMOOTHING_FACTOR = 0.3;
     TAPER_EXPONENT = 2.2;
@@ -50339,12 +51711,6 @@ var init_asr_scroll_driver = __esm({
       "anchor-sync",
       "block-anchor-sync"
     ]);
-    CUE_LINE_BRACKET_RE = /^\s*[\[(\{][^\]\)\}]{0,120}[\]\)\}]\s*$/;
-    CUE_LINE_WORD_RE = /\b(pause|beat|silence|breath|breathe|hold|wait|reflective)\b/i;
-    STRUCTURAL_EMPTY_LINE_RE = /^\s*empty\s*[.!?]?\s*$/i;
-    SPEAKER_TAG_ONLY_RE = /^\s*\[\s*\/?\s*(s1|s2|guest1|guest2|g1|g2)\s*\]\s*$/i;
-    NOTE_TAG_ONLY_RE = /^\s*\[\s*\/?\s*note(?:[^\]]*)\]\s*$/i;
-    NOTE_INLINE_BLOCK_RE = /^\s*\[\s*note(?:[^\]]*)\][\s\S]*\[\s*\/\s*note\s*\]\s*$/i;
     MAX_CUE_SKIP_LOOKAHEAD_LINES = 12;
     ANCHOR_STOPWORDS = /* @__PURE__ */ new Set([
       "the",
@@ -54580,13 +55946,13 @@ function shouldPromoteInterimToFinal(text) {
   if (t.length >= 90) return true;
   return false;
 }
-function normalizeComparableText2(value) {
+function normalizeComparableText3(value) {
   return normTokens(String(value || "")).join(" ");
 }
 function isCueOnlyLineText(value) {
   const raw = String(value || "").trim();
   if (!raw) return true;
-  const normalized = normalizeComparableText2(raw);
+  const normalized = normalizeComparableText3(raw);
   if (!normalized) return true;
   if (CUE_LINE_BRACKET_RE2.test(raw)) return true;
   const tokenCount = normalized.split(" ").filter(Boolean).length;
@@ -56106,7 +57472,7 @@ function pushAsrTranscript(text, isFinal, detail) {
   attachAsrScrollDriver({ reason: "transcript", mode, allowCreate: true });
   bootTrace("ASR:ingest", {
     raw: t,
-    normalized: normalizeComparableText2(t)
+    normalized: normalizeComparableText3(t)
   });
   try {
     asrScrollDriver?.ingest(t, !!isFinal, detail);
@@ -73560,6 +74926,18 @@ async function populateMicSelect() {
   } catch {
   }
 }
+function syncAsrDeviceFromSettingsMic() {
+  try {
+    const settingsMicSel = $("settingsMicSel");
+    const asrDeviceSel = $("asrDevice");
+    if (!settingsMicSel || !asrDeviceSel) return;
+    const next = String(settingsMicSel.value || "").trim();
+    if (!next) return;
+    const hasOption = Array.from(asrDeviceSel.options).some((opt) => opt.value === next);
+    if (hasOption) asrDeviceSel.value = next;
+  } catch {
+  }
+}
 async function grantMicLabels() {
   try {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -73572,6 +74950,7 @@ async function grantMicLabels() {
     toast2("Mic access denied. You can still calibrate with generic names.");
   }
   await populateMicSelect();
+  syncAsrDeviceFromSettingsMic();
 }
 function mapDbToPct(db) {
   const clamped = Math.max(-80, Math.min(0, db));
@@ -73848,12 +75227,16 @@ function wire() {
     $("asrGrantPerm")?.addEventListener("click", () => {
       void grantMicLabels();
     });
+    $("settingsMicSel")?.addEventListener("change", () => {
+      syncAsrDeviceFromSettingsMic();
+    });
   } catch {
   }
 }
 async function initAsrSettingsUI() {
   try {
     await populateMicSelect();
+    syncAsrDeviceFromSettingsMic();
     try {
       $("asrAEC")?.removeAttribute("checked");
     } catch {
@@ -74206,7 +75589,7 @@ function addAsrWizardCard(root) {
     sec.innerHTML = `
       <h3>ASR Input (Calibration)</h3>
 
-      <div class="row">
+      <div class="row" hidden aria-hidden="true">
         <label class="grow">Microphone <select id="asrDevice"></select></label>
         <button id="asrRefreshDevs" class="btn">Refresh</button>
         <button id="asrGrantPerm" class="btn">Grant mic access</button>
