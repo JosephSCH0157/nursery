@@ -469,4 +469,89 @@ describe('whisper bridge recorder segmentation', () => {
     recognizer.stop();
     await flushMicrotasks();
   });
+
+  test('recording-active capture policy prefers raw mic for ASR start', async () => {
+    jest.doMock('../../src/forge/supabaseClient', () => ({
+      supabase: { auth: { getSession: jest.fn(async () => ({ data: { session: { access_token: 'x' } }, error: null })) } },
+    }));
+    jest.doMock('../../src/recording/recorderRegistry', () => ({
+      isSessionRecording: jest.fn(() => true),
+    }));
+    installMockRecorder();
+    (globalThis as any).fetch = jest.fn().mockResolvedValue(createMockJsonResponse(200, { ok: true, text: 'ok' }));
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+    const rawStream = new MockMediaStream([new MockTrack()]);
+    const requestMic = jest.fn(async (_opts?: any) => rawStream);
+    (window as any).__tpMic = { requestMic, __lastRawStream: rawStream };
+    const { createWhisperBridgeRecognizer } = await import('../../src/speech/engines/whisper-bridge');
+    const recognizer = createWhisperBridgeRecognizer({ endpointingMs: 100 });
+    await recognizer.start();
+    expect(requestMic).toHaveBeenCalledWith(expect.objectContaining({ preferRawForAsr: true }));
+    expect(infoSpy.mock.calls.some((c) => c[0] === '[ASR_WHISPER_CAPTURE_POLICY]')).toBe(true);
+    recognizer.stop();
+    await flushMicrotasks();
+  });
+
+  test('zero-byte streak triggers raw fallback and starts fallback recorder path', async () => {
+    jest.doMock('../../src/forge/supabaseClient', () => ({
+      supabase: { auth: { getSession: jest.fn(async () => ({ data: { session: { access_token: 'x' } }, error: null })) } },
+    }));
+    jest.doMock('../../src/recording/recorderRegistry', () => ({
+      isSessionRecording: jest.fn(() => false),
+    }));
+    const recorderInstances = installMockRecorder();
+    (globalThis as any).fetch = jest.fn().mockResolvedValue(createMockJsonResponse(200, { ok: true, text: 'ok' }));
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const processedStream = new MockMediaStream([new MockTrack()]);
+    const rawStream = new MockMediaStream([new MockTrack()]);
+    const requestMic = jest.fn(async (opts?: any) => (opts?.preferRawForAsr ? rawStream : processedStream));
+    (window as any).__tpMic = { requestMic, __lastRawStream: rawStream };
+    const { createWhisperBridgeRecognizer } = await import('../../src/speech/engines/whisper-bridge');
+    const recognizer = createWhisperBridgeRecognizer({ endpointingMs: 100 });
+    await recognizer.start();
+    recorderInstances[0]?.ondataavailable?.({ data: new Blob([], { type: 'audio/webm;codecs=opus' }), timecode: 1000 } as BlobEvent);
+    recorderInstances[0]?.ondataavailable?.({ data: new Blob([], { type: 'audio/webm;codecs=opus' }), timecode: 2000 } as BlobEvent);
+    recorderInstances[0]?.ondataavailable?.({ data: new Blob([], { type: 'audio/webm;codecs=opus' }), timecode: 3000 } as BlobEvent);
+    await flushMicrotasks(20);
+    expect(warnSpy.mock.calls.some((c) =>
+      c[0] === '[ASR_WHISPER_CAPTURE_SOURCE_SELECTED]'
+      && c[1]
+      && (c[1] as any).selected === 'raw-mic',
+    )).toBe(true);
+    recognizer.stop();
+    await flushMicrotasks();
+  });
+
+  test('logs raw fallback unavailable when zero-byte fallback cannot get live raw stream', async () => {
+    jest.doMock('../../src/forge/supabaseClient', () => ({
+      supabase: { auth: { getSession: jest.fn(async () => ({ data: { session: { access_token: 'x' } }, error: null })) } },
+    }));
+    jest.doMock('../../src/recording/recorderRegistry', () => ({
+      isSessionRecording: jest.fn(() => false),
+    }));
+    const recorderInstances = installMockRecorder();
+    (globalThis as any).fetch = jest.fn().mockResolvedValue(createMockJsonResponse(200, { ok: true, text: 'ok' }));
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const processedStream = new MockMediaStream([new MockTrack()]);
+    const deadRawTrack = new MockTrack();
+    deadRawTrack.readyState = 'ended';
+    const deadRawStream = new MockMediaStream([deadRawTrack]);
+    const requestMic = jest.fn(async (opts?: any) => {
+      if (opts?.preferRawForAsr) {
+        throw new Error('raw stream unavailable');
+      }
+      return processedStream;
+    });
+    (window as any).__tpMic = { requestMic, __lastRawStream: deadRawStream };
+    const { createWhisperBridgeRecognizer } = await import('../../src/speech/engines/whisper-bridge');
+    const recognizer = createWhisperBridgeRecognizer({ endpointingMs: 100 });
+    await recognizer.start();
+    recorderInstances[0]?.ondataavailable?.({ data: new Blob([], { type: 'audio/webm;codecs=opus' }), timecode: 1000 } as BlobEvent);
+    recorderInstances[0]?.ondataavailable?.({ data: new Blob([], { type: 'audio/webm;codecs=opus' }), timecode: 2000 } as BlobEvent);
+    recorderInstances[0]?.ondataavailable?.({ data: new Blob([], { type: 'audio/webm;codecs=opus' }), timecode: 3000 } as BlobEvent);
+    await flushMicrotasks(20);
+    expect(warnSpy.mock.calls.some((c) => c[0] === '[ASR_WHISPER_RAW_FALLBACK_UNAVAILABLE]')).toBe(true);
+    recognizer.stop();
+    await flushMicrotasks();
+  });
 });

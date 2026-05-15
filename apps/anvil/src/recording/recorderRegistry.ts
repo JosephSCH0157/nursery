@@ -42,6 +42,7 @@ function withTimeout<T>(
 function emitRecordingState(recording: boolean): void {
   try {
     if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      try { (window as any).__tpRecordingActive = !!recording; } catch {}
       window.dispatchEvent(
         new CustomEvent('tp:recording:state', { detail: { recording: !!recording } }),
       );

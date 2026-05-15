@@ -3,6 +3,7 @@ import { supabase } from "../../forge/supabaseClient";
 import { resolveForgeUserAccessToken } from "../../forge/tongs-user-auth";
 import { shouldLogLevel } from "../../env/dev-log";
 import { getActiveAsrProfile } from "../../asr/active-profile";
+import { isSessionRecording } from "../../recording/recorderRegistry";
 
 type WhisperBridgeEvent = "start" | "end" | "error" | "partial" | "final";
 type WhisperBridgeListener = (payload?: unknown) => void;
@@ -436,6 +437,10 @@ class WhisperBridgeRecognizer {
   private zeroByteChunkStreak = 0;
   private switchedToRawCapture = false;
   private flowProbeLogged = false;
+  private recordingActiveAtCaptureStart = false;
+  private lastCaptureRuntimePath = "whisper-bridge";
+  private lastCaptureProfileId: string | null = null;
+  private lastCaptureConstraints: unknown = null;
 
   constructor(options: WhisperBridgeRecognizerOptions = {}) {
     this.route = options.route || DEFAULT_ROUTE;
@@ -484,6 +489,32 @@ class WhisperBridgeRecognizer {
     } catch {
       return { runKey: null, runGeneration: null, elapsedSinceLiveStartMs: null };
     }
+  }
+
+  private isRecordingActiveNow(): boolean {
+    try {
+      if (isSessionRecording()) return true;
+    } catch {}
+    try {
+      return !!(window as any).__tpRecordingActive;
+    } catch {
+      return false;
+    }
+  }
+
+  private logCapturePolicy(selected: string, preferRawForAsr: boolean, reason: string): void {
+    const runMeta = this.readRunMeta();
+    try {
+      console.info("[ASR_WHISPER_CAPTURE_POLICY]", {
+        runKey: runMeta.runKey,
+        runGeneration: runMeta.runGeneration,
+        recordingActive: this.recordingActiveAtCaptureStart,
+        preferRawForAsr,
+        selected,
+        reason,
+        elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+      });
+    } catch {}
   }
 
   private describeAudioTracks(stream: MediaStream): Array<{
@@ -550,11 +581,11 @@ class WhisperBridgeRecognizer {
     } catch {}
   }
 
-  private async probeAudioFlow(stream: MediaStream, source: string): Promise<void> {
-    if (this.flowProbeLogged) return;
+  private async probeAudioFlow(stream: MediaStream, source: string): Promise<{ rms: number; peak: number; sampleCount: number } | null> {
+    if (this.flowProbeLogged) return null;
     this.flowProbeLogged = true;
     const AC = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext | undefined;
-    if (!AC) return;
+    if (!AC) return null;
     let ctx: AudioContext | null = null;
     try {
       ctx = new AC();
@@ -589,35 +620,92 @@ class WhisperBridgeRecognizer {
           elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
         });
       } catch {}
+      return { rms, peak, sampleCount: data.length };
     } catch {
       // best-effort diagnostics only
+      return null;
     } finally {
       try { await ctx?.close?.(); } catch {}
     }
   }
 
-  private switchToRawCaptureStream(): boolean {
+  private async switchToRawCaptureStream(reason: string): Promise<boolean> {
+    const runMeta = this.readRunMeta();
+    try {
+      console.warn("[ASR_WHISPER_RAW_FALLBACK_ATTEMPT]", {
+        runKey: runMeta.runKey,
+        runGeneration: runMeta.runGeneration,
+        reason,
+        recordingActive: this.recordingActiveAtCaptureStart,
+        elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+      });
+    } catch {}
     try {
       const mic = (window as any).__tpMic;
-      const raw = mic?.__lastRawStream as MediaStream | undefined;
-      if (!raw || typeof raw.getAudioTracks !== "function") return false;
-      const rawTracks = raw.getAudioTracks().filter((track) => track && track.readyState === "live");
-      if (!rawTracks.length) return false;
+      let raw = mic?.__lastRawStream as MediaStream | undefined;
+      let rawTracks = raw?.getAudioTracks?.().filter((track) => track && track.readyState === "live") || [];
+      if (!raw || !rawTracks.length) {
+        try {
+          raw = await mic?.requestMic?.({
+            source: "whisper-bridge",
+            asrPath: this.lastCaptureRuntimePath,
+            profileId: this.lastCaptureProfileId,
+            capture: this.lastCaptureConstraints,
+            preferRawForAsr: true,
+          });
+          rawTracks = raw?.getAudioTracks?.().filter((track) => track && track.readyState === "live") || [];
+        } catch {
+          raw = undefined;
+          rawTracks = [];
+        }
+      }
+      if (!raw || typeof raw.getAudioTracks !== "function" || !rawTracks.length) {
+        try {
+          console.warn("[ASR_WHISPER_RAW_FALLBACK_UNAVAILABLE]", {
+            runKey: runMeta.runKey,
+            runGeneration: runMeta.runGeneration,
+            recordingActive: this.recordingActiveAtCaptureStart,
+            hasLastRawStream: !!mic?.__lastRawStream,
+            lastRawTrackState: mic?.__lastRawStream ? this.describeAudioTrackState(mic.__lastRawStream) : [],
+            elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+          });
+        } catch {}
+        return false;
+      }
       const cloned = new MediaStream(rawTracks.map((track) => track.clone()));
       this.recorderStream = cloned;
       this.switchedToRawCapture = true;
-      const runMeta = this.readRunMeta();
+      try {
+        console.info("[ASR_WHISPER_CAPTURE_STREAM_READY]", {
+          runKey: runMeta.runKey,
+          runGeneration: runMeta.runGeneration,
+          streamTrackCount: cloned.getAudioTracks().length,
+          trackStates: this.describeAudioTracks(cloned),
+          elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+          source: "raw-fallback",
+        });
+      } catch {}
       try {
         console.warn("[ASR_WHISPER_CAPTURE_SOURCE_SELECTED]", {
           runKey: runMeta.runKey,
           runGeneration: runMeta.runGeneration,
-          selected: "raw-mic-fallback",
-          reason: "repeated_zero_byte_chunks",
+          selected: "raw-mic",
+          reason,
           elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
         });
       } catch {}
+      this.logCapturePolicy("raw-mic", true, reason);
       this.logTrackState("raw-fallback", cloned);
-      void this.probeAudioFlow(cloned, "raw-fallback");
+      this.flowProbeLogged = false;
+      await this.probeAudioFlow(cloned, "raw-fallback");
+      try {
+        console.info("[ASR_WHISPER_RAW_FALLBACK_STARTED]", {
+          runKey: runMeta.runKey,
+          runGeneration: runMeta.runGeneration,
+          streamTrackCount: cloned.getAudioTracks().length,
+          elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+        });
+      } catch {}
       return true;
     } catch {
       return false;
@@ -670,9 +758,19 @@ class WhisperBridgeRecognizer {
     this.zeroByteChunkStreak = 0;
     this.switchedToRawCapture = false;
     this.flowProbeLogged = false;
+    this.recordingActiveAtCaptureStart = this.isRecordingActiveNow();
 
     const activeProfile = getActiveAsrProfile();
     const runtimePath = this.asrLane === 'ASR2' ? 'whisper-large-live' : 'whisper-bridge';
+    this.lastCaptureRuntimePath = runtimePath;
+    this.lastCaptureProfileId = activeProfile?.id || null;
+    this.lastCaptureConstraints = activeProfile?.capture || null;
+    const preferRawForAsr = this.recordingActiveAtCaptureStart;
+    this.logCapturePolicy(
+      preferRawForAsr ? "raw-mic" : "processed-dsp",
+      preferRawForAsr,
+      preferRawForAsr ? "recording_active" : "default_processed_path",
+    );
     {
       const runMeta = this.readRunMeta();
       try {
@@ -689,6 +787,7 @@ class WhisperBridgeRecognizer {
       asrPath: runtimePath,
       profileId: activeProfile?.id || null,
       capture: activeProfile?.capture || null,
+      preferRawForAsr,
     });
     {
       const runMeta = this.readRunMeta();
@@ -724,10 +823,17 @@ class WhisperBridgeRecognizer {
     if (!audioTracks.length) {
       throw new Error("No audio track available");
     }
-
-    this.recorderStream = new MediaStream(audioTracks.map((track: MediaStreamTrack) => track.clone()));
-    this.logTrackState("capture-start", this.recorderStream);
-    void this.probeAudioFlow(this.recorderStream, "processed-capture");
+    let captureStream = new MediaStream(audioTracks.map((track: MediaStreamTrack) => track.clone()));
+    this.logTrackState("capture-start", captureStream);
+    const flowSource = preferRawForAsr ? "raw-capture" : "processed-capture";
+    const flow = await this.probeAudioFlow(captureStream, flowSource);
+    if (!preferRawForAsr && flow && flow.rms === 0 && flow.peak === 0) {
+      const switched = await this.switchToRawCaptureStream("probe_zero_energy");
+      if (switched && this.recorderStream) {
+        captureStream = this.recorderStream;
+      }
+    }
+    this.recorderStream = captureStream;
     const mimeType = chooseMimeType();
     this.recorderMimeType = mimeType;
     this.transcriptWindow = [];
@@ -890,7 +996,7 @@ class WhisperBridgeRecognizer {
     this.recorder = recorder;
     this.pendingRecorderStop = null;
 
-    recorder.ondataavailable = (event: BlobEvent) => {
+    recorder.ondataavailable = async (event: BlobEvent) => {
       const blob = event.data;
       const runMeta = this.readRunMeta();
       try {
@@ -952,8 +1058,21 @@ class WhisperBridgeRecognizer {
               elapsedSinceLiveStartMs: zeroRunMeta.elapsedSinceLiveStartMs,
             });
           } catch {}
-          if (this.zeroByteChunkStreak >= 3 && !this.switchedToRawCapture && this.switchToRawCaptureStream()) {
-            try { recorder.stop(); } catch {}
+          if (this.zeroByteChunkStreak >= 3 && !this.switchedToRawCapture) {
+            const switched = await this.switchToRawCaptureStream("repeated_zero_byte_chunks");
+            if (switched) {
+              try { recorder.stop(); } catch {}
+            } else {
+              this.requestInvalid = true;
+              this.lastAiError = "ASR raw fallback unavailable after repeated zero-byte chunks.";
+              this.syncAiActivity();
+              this.emit("error", {
+                source: SOURCE,
+                message: this.lastAiError,
+                timestamp: nowTs(),
+              });
+              this.stop();
+            }
           }
         }
         this.logChunkLifecycle("skipped", blob, {
