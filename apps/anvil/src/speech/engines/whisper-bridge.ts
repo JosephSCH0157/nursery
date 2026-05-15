@@ -483,6 +483,29 @@ class WhisperBridgeRecognizer {
     }
   }
 
+  private describeAudioTracks(stream: MediaStream): Array<{
+    id: string | null;
+    label: string | null;
+    readyState: string | null;
+    enabled: boolean | null;
+    muted: boolean | null;
+  }> {
+    try {
+      return stream.getAudioTracks().map((track) => {
+        const row = track as MediaStreamTrack & { muted?: boolean };
+        return {
+          id: typeof row.id === "string" ? row.id : null,
+          label: typeof row.label === "string" ? row.label : null,
+          readyState: typeof row.readyState === "string" ? row.readyState : null,
+          enabled: typeof row.enabled === "boolean" ? row.enabled : null,
+          muted: typeof row.muted === "boolean" ? row.muted : null,
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+
   private syncAiActivity(): void {
     const queueDepth = this.queue.length;
     const requestsInFlight = this.requestsInFlight;
@@ -529,12 +552,36 @@ class WhisperBridgeRecognizer {
 
     const activeProfile = getActiveAsrProfile();
     const runtimePath = this.asrLane === 'ASR2' ? 'whisper-large-live' : 'whisper-bridge';
+    {
+      const runMeta = this.readRunMeta();
+      try {
+        console.info("[ASR_WHISPER_CAPTURE_START_REQUESTED]", {
+          runKey: runMeta.runKey,
+          runGeneration: runMeta.runGeneration,
+          runtimePath,
+          elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+        });
+      } catch {}
+    }
     const stream = await (window as any).__tpMic.requestMic({
       source: "whisper-bridge",
       asrPath: runtimePath,
       profileId: activeProfile?.id || null,
       capture: activeProfile?.capture || null,
     });
+    {
+      const runMeta = this.readRunMeta();
+      try {
+        const audioTracks = stream.getAudioTracks();
+        console.info("[ASR_WHISPER_CAPTURE_STREAM_READY]", {
+          runKey: runMeta.runKey,
+          runGeneration: runMeta.runGeneration,
+          streamTrackCount: audioTracks.length,
+          trackStates: this.describeAudioTracks(stream),
+          elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+        });
+      } catch {}
+    }
     try {
       const runtimeDetail = (window as any).__tpCalibrationRuntime;
       const state = String(runtimeDetail?.calibrationState || (activeProfile ? "partially_calibrated" : "bypassed"));
@@ -701,11 +748,38 @@ class WhisperBridgeRecognizer {
     const recorder = this.recorderMimeType
       ? new MediaRecorder(this.recorderStream, { mimeType: this.recorderMimeType })
       : new MediaRecorder(this.recorderStream);
+    const timesliceMs = Math.max(700, this.segmentMs);
+    {
+      const runMeta = this.readRunMeta();
+      try {
+        console.info("[ASR_WHISPER_MEDIA_RECORDER_CREATED]", {
+          runKey: runMeta.runKey,
+          runGeneration: runMeta.runGeneration,
+          mimeType: this.recorderMimeType || null,
+          timesliceMs,
+          streamTrackCount: this.recorderStream.getAudioTracks().length,
+          trackStates: this.describeAudioTracks(this.recorderStream),
+          elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+        });
+      } catch {}
+    }
     this.recorder = recorder;
     this.pendingRecorderStop = null;
 
     recorder.ondataavailable = (event: BlobEvent) => {
       const blob = event.data;
+      const runMeta = this.readRunMeta();
+      try {
+        console.info("[ASR_WHISPER_MEDIA_RECORDER_DATAAVAILABLE]", {
+          runKey: runMeta.runKey,
+          runGeneration: runMeta.runGeneration,
+          blobSize: blob?.size ?? 0,
+          blobType: blob?.type || "unknown",
+          mimeType: this.recorderMimeType || null,
+          timesliceMs,
+          elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+        });
+      } catch {}
       const queueBefore = this.queue.length;
       const nextSeq = this.seq + 1;
       if (!this.running) {
@@ -755,18 +829,18 @@ class WhisperBridgeRecognizer {
       this.queue.push({ blob, seq: this.seq, durationMs: chunkDurationMs });
       const queueAfter = this.queue.length;
       const enqueueTs = Date.now();
-      const runMeta = this.readRunMeta();
+      const runMetaForQueue = this.readRunMeta();
       if (!this.firstAudioChunkLogged) {
         this.firstAudioChunkLogged = true;
         try {
           console.info("[ASR_FIRST_AUDIO_CHUNK]", {
-            runKey: runMeta.runKey,
-            runGeneration: runMeta.runGeneration,
+            runKey: runMetaForQueue.runKey,
+            runGeneration: runMetaForQueue.runGeneration,
             seq: this.seq,
             blobSize: blob.size,
             blobType: blob.type || "unknown",
             queueDepthAfter: queueAfter,
-            elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+            elapsedSinceLiveStartMs: runMetaForQueue.elapsedSinceLiveStartMs,
           });
         } catch {
           // diagnostics are best-effort
@@ -774,14 +848,14 @@ class WhisperBridgeRecognizer {
       }
       try {
         console.info("[ASR_WHISPER_QUEUE_ENQUEUED]", {
-          runKey: runMeta.runKey,
-          runGeneration: runMeta.runGeneration,
+          runKey: runMetaForQueue.runKey,
+          runGeneration: runMetaForQueue.runGeneration,
           seq: this.seq,
           blobSize: blob.size,
           blobType: blob.type || "unknown",
           queueDepthBefore: queueBefore,
           queueDepthAfter: queueAfter,
-          elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+          elapsedSinceLiveStartMs: runMetaForQueue.elapsedSinceLiveStartMs,
         });
       } catch {
         // diagnostics are best-effort
@@ -791,8 +865,8 @@ class WhisperBridgeRecognizer {
           detail: {
             ts: enqueueTs,
             chunkEnqueueTs: enqueueTs,
-            runKey: runMeta.runKey,
-            runGeneration: runMeta.runGeneration,
+            runKey: runMetaForQueue.runKey,
+            runGeneration: runMetaForQueue.runGeneration,
             seq: this.seq,
             blobSize: blob.size,
             blobType: blob.type || "unknown",
@@ -814,15 +888,61 @@ class WhisperBridgeRecognizer {
     recorder.onerror = (event: Event) => {
       const error = (event as Event & { error?: { message?: string } }).error;
       const message = error?.message || "Whisper recorder error";
+      const runMeta = this.readRunMeta();
+      try {
+        console.warn("[ASR_WHISPER_MEDIA_RECORDER_ERROR]", {
+          runKey: runMeta.runKey,
+          runGeneration: runMeta.runGeneration,
+          message,
+          mimeType: this.recorderMimeType || null,
+          timesliceMs,
+          elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+        });
+      } catch {}
       this.lastAiError = message;
       this.syncAiActivity();
       this.emit("error", { source: SOURCE, message, timestamp: nowTs() });
     };
     recorder.onstop = () => {
+      const runMeta = this.readRunMeta();
+      try {
+        console.info("[ASR_WHISPER_MEDIA_RECORDER_STOPPED]", {
+          runKey: runMeta.runKey,
+          runGeneration: runMeta.runGeneration,
+          mimeType: this.recorderMimeType || null,
+          timesliceMs,
+          elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+        });
+      } catch {}
       this.handleRecorderStop(recorder);
     };
 
-    recorder.start();
+    try {
+      recorder.start(timesliceMs);
+      const runMeta = this.readRunMeta();
+      try {
+        console.info("[ASR_WHISPER_MEDIA_RECORDER_STARTED]", {
+          runKey: runMeta.runKey,
+          runGeneration: runMeta.runGeneration,
+          mimeType: this.recorderMimeType || null,
+          timesliceMs,
+          elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+        });
+      } catch {}
+    } catch {
+      recorder.start();
+      const runMeta = this.readRunMeta();
+      try {
+        console.info("[ASR_WHISPER_MEDIA_RECORDER_STARTED]", {
+          runKey: runMeta.runKey,
+          runGeneration: runMeta.runGeneration,
+          mimeType: this.recorderMimeType || null,
+          timesliceMs: 0,
+          fallbackNoTimeslice: true,
+          elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+        });
+      } catch {}
+    }
     this.armSegmentTimer();
   }
 

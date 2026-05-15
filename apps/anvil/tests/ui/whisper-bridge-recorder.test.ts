@@ -108,9 +108,12 @@ describe('whisper bridge recorder segmentation', () => {
     delete (globalThis as any).MediaRecorder;
     delete (globalThis as any).MediaStream;
     delete (globalThis as any).fetch;
+    delete (window as any).__tpAsrRunKey;
+    delete (window as any).__tpAsrRunGeneration;
+    delete (window as any).__tpAsrRunStartedAt;
   });
 
-  test('rolls recorder segments with full stop/start cycles instead of timeslice chunks', async () => {
+  test('starts MediaRecorder with a timeslice and still rolls recorder segments', async () => {
     jest.doMock('../../src/forge/supabaseClient', () => ({
       supabase: {
         auth: {
@@ -161,14 +164,16 @@ describe('whisper bridge recorder segmentation', () => {
     }));
 
     expect(recorderInstances).toHaveLength(1);
-    expect(recorderInstances[0]?.start.mock.calls[0]).toHaveLength(0);
+    expect(recorderInstances[0]?.start.mock.calls[0]).toHaveLength(1);
+    expect(Number(recorderInstances[0]?.start.mock.calls[0]?.[0])).toBeGreaterThanOrEqual(700);
 
     await jest.advanceTimersByTimeAsync(1300);
 
     expect(recorderInstances[0]?.stop).toHaveBeenCalledTimes(1);
     expect(recorderInstances[0]?.requestData).not.toHaveBeenCalled();
     expect(recorderInstances).toHaveLength(2);
-    expect(recorderInstances[1]?.start.mock.calls[0]).toHaveLength(0);
+    expect(recorderInstances[1]?.start.mock.calls[0]).toHaveLength(1);
+    expect(Number(recorderInstances[1]?.start.mock.calls[0]?.[0])).toBeGreaterThanOrEqual(700);
 
     recognizer.stop();
     await Promise.resolve();
@@ -349,5 +354,52 @@ describe('whisper bridge recorder segmentation', () => {
         }),
       ],
     ]));
+  });
+
+  test('emits audio chunk event and first-chunk diagnostics for non-empty dataavailable payloads', async () => {
+    jest.doMock('../../src/forge/supabaseClient', () => ({
+      supabase: {
+        auth: {
+          getSession: jest.fn(async () => ({
+            data: { session: { access_token: 'test-access-token' } },
+            error: null,
+          })),
+        },
+      },
+    }));
+
+    const recorderInstances = installMockRecorder();
+    (globalThis as any).fetch = jest.fn().mockResolvedValue(createMockJsonResponse(200, {
+      ok: true,
+      text: 'hello world',
+      provider_request_id: 'req-1',
+    }));
+
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+    const audioChunkHandler = jest.fn();
+    window.addEventListener('tp:asr:audio-chunk', audioChunkHandler as EventListener);
+
+    const inputStream = new MockMediaStream([new MockTrack()]);
+    (window as any).__tpMic = { requestMic: jest.fn(async () => inputStream) };
+    (window as any).__tpAsrRunKey = 'run-test-1';
+    (window as any).__tpAsrRunGeneration = 42;
+    (window as any).__tpAsrRunStartedAt = Date.now() - 1000;
+
+    const { createWhisperBridgeRecognizer } = await import('../../src/speech/engines/whisper-bridge');
+    const recognizer = createWhisperBridgeRecognizer({ endpointingMs: 100 });
+    await recognizer.start();
+
+    recorderInstances[0]?.ondataavailable?.({
+      data: new Blob([new Uint8Array(4096)], { type: 'audio/webm' }),
+      timecode: 1000,
+    } as BlobEvent);
+    await flushMicrotasks();
+
+    expect(audioChunkHandler).toHaveBeenCalled();
+    expect(infoSpy.mock.calls.some((call) => call[0] === '[ASR_FIRST_AUDIO_CHUNK]')).toBe(true);
+
+    recognizer.stop();
+    await flushMicrotasks();
+    window.removeEventListener('tp:asr:audio-chunk', audioChunkHandler as EventListener);
   });
 });
