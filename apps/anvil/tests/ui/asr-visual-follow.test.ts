@@ -74,7 +74,7 @@ describe('ASR visual follow pure calculations', () => {
     })).toBe(true);
   });
 
-  test('normal adjacent target gets current minimum responsive pxps behavior', () => {
+  test('normal adjacent target uses smooth ramp inside slow zone', () => {
     const vel = selectVisualFollowVelocity({
       baseMaxVelForErr: 470,
       liveHardHold: false,
@@ -88,7 +88,55 @@ describe('ASR visual follow pure calculations', () => {
       unlockSlowFollowActive: false,
       unlockSlowFollowPxps: 14,
     });
-    expect(vel.maxVelForErr).toBe(8);
+    expect(vel.maxVelForErr).toBeGreaterThan(8);
+    expect(vel.maxVelForErr).toBeLessThan(35);
+    expect(vel.maxVelForErr).toBeLessThanOrEqual(470);
+  });
+
+  test('slow-zone velocity ramps up monotonically with larger error', () => {
+    const low = selectVisualFollowVelocity({
+      baseMaxVelForErr: 470,
+      liveHardHold: false,
+      ahead: false,
+      errPx: 10,
+      maxPxps: 80,
+      comfortablePxps: 35,
+      minPxps: 8,
+      hardCatchupPx: 220,
+      slowZonePx: 80,
+      unlockSlowFollowActive: false,
+      unlockSlowFollowPxps: 14,
+    });
+    const mid = selectVisualFollowVelocity({
+      baseMaxVelForErr: 470,
+      liveHardHold: false,
+      ahead: false,
+      errPx: 40,
+      maxPxps: 80,
+      comfortablePxps: 35,
+      minPxps: 8,
+      hardCatchupPx: 220,
+      slowZonePx: 80,
+      unlockSlowFollowActive: false,
+      unlockSlowFollowPxps: 14,
+    });
+    const high = selectVisualFollowVelocity({
+      baseMaxVelForErr: 470,
+      liveHardHold: false,
+      ahead: false,
+      errPx: 70,
+      maxPxps: 80,
+      comfortablePxps: 35,
+      minPxps: 8,
+      hardCatchupPx: 220,
+      slowZonePx: 80,
+      unlockSlowFollowActive: false,
+      unlockSlowFollowPxps: 14,
+    });
+    expect(low.maxVelForErr).toBeGreaterThanOrEqual(8);
+    expect(mid.maxVelForErr).toBeGreaterThan(low.maxVelForErr);
+    expect(high.maxVelForErr).toBeGreaterThan(mid.maxVelForErr);
+    expect(high.maxVelForErr).toBeLessThanOrEqual(35);
   });
 
   test('adjacent cap decision matches current behavior', () => {

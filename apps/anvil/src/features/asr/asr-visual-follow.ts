@@ -123,7 +123,11 @@ export function selectVisualFollowVelocity(input: {
   } else if (input.errPx >= input.slowZonePx) {
     maxVelForErr = Math.min(maxVelForErr, input.comfortablePxps);
   } else {
-    maxVelForErr = Math.min(maxVelForErr, input.minPxps);
+    // Smoothly ramp pursuit velocity inside the slow zone to avoid abrupt 20->8 style drops.
+    const safeSlowZonePx = Math.max(1, input.slowZonePx);
+    const rampT = Math.max(0, Math.min(1, input.errPx / safeSlowZonePx));
+    const rampPxps = input.minPxps + (input.comfortablePxps - input.minPxps) * rampT;
+    maxVelForErr = Math.min(maxVelForErr, rampPxps);
   }
   if (input.unlockSlowFollowActive) {
     maxVelForErr = Math.min(maxVelForErr, input.unlockSlowFollowPxps);
