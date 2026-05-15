@@ -1,10 +1,23 @@
 /** @jest-environment jsdom */
 
 class MockTrack {
+  id = `track-${Math.random().toString(36).slice(2, 8)}`;
+  label = 'Mock Mic';
+  readyState: MediaStreamTrackState = 'live';
+  enabled = true;
+  muted = false;
   stop = jest.fn();
 
   clone(): MockTrack {
     return new MockTrack();
+  }
+
+  getSettings() {
+    return { sampleRate: 48000, channelCount: 1 };
+  }
+
+  getConstraints() {
+    return { channelCount: 1 };
   }
 }
 
@@ -401,5 +414,59 @@ describe('whisper bridge recorder segmentation', () => {
     recognizer.stop();
     await flushMicrotasks();
     window.removeEventListener('tp:asr:audio-chunk', audioChunkHandler as EventListener);
+  });
+
+  test('zero-byte dataavailable emits ASR_WHISPER_ZERO_BYTE_CHUNK and does not enqueue', async () => {
+    jest.doMock('../../src/forge/supabaseClient', () => ({
+      supabase: {
+        auth: {
+          getSession: jest.fn(async () => ({
+            data: { session: { access_token: 'test-access-token' } },
+            error: null,
+          })),
+        },
+      },
+    }));
+    const recorderInstances = installMockRecorder();
+    const fetchMock = jest.fn().mockResolvedValue(createMockJsonResponse(200, {
+      ok: true,
+      text: 'should-not-send',
+    }));
+    (globalThis as any).fetch = fetchMock;
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(console, 'info').mockImplementation(() => {});
+    const inputStream = new MockMediaStream([new MockTrack()]);
+    (window as any).__tpMic = { requestMic: jest.fn(async () => inputStream), __lastRawStream: inputStream };
+    const { createWhisperBridgeRecognizer } = await import('../../src/speech/engines/whisper-bridge');
+    const recognizer = createWhisperBridgeRecognizer({ endpointingMs: 100 });
+    await recognizer.start();
+    recorderInstances[0]?.ondataavailable?.({
+      data: new Blob([], { type: 'audio/webm;codecs=opus' }),
+      timecode: 1000,
+    } as BlobEvent);
+    await flushMicrotasks();
+    expect(fetchMock).toHaveBeenCalledTimes(0);
+    expect(warnSpy.mock.calls.some((c) => c[0] === '[ASR_WHISPER_ZERO_BYTE_CHUNK]')).toBe(true);
+    recognizer.stop();
+    await flushMicrotasks();
+  });
+
+  test('emits stream track diagnostics at capture start', async () => {
+    jest.doMock('../../src/forge/supabaseClient', () => ({
+      supabase: {
+        auth: { getSession: jest.fn(async () => ({ data: { session: { access_token: 'x' } }, error: null })) },
+      },
+    }));
+    installMockRecorder();
+    (globalThis as any).fetch = jest.fn().mockResolvedValue(createMockJsonResponse(200, { ok: true, text: 'ok' }));
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+    const inputStream = new MockMediaStream([new MockTrack()]);
+    (window as any).__tpMic = { requestMic: jest.fn(async () => inputStream), __lastRawStream: inputStream };
+    const { createWhisperBridgeRecognizer } = await import('../../src/speech/engines/whisper-bridge');
+    const recognizer = createWhisperBridgeRecognizer({ endpointingMs: 100 });
+    await recognizer.start();
+    expect(infoSpy.mock.calls.some((c) => c[0] === '[ASR_WHISPER_STREAM_TRACK_STATE]')).toBe(true);
+    recognizer.stop();
+    await flushMicrotasks();
   });
 });

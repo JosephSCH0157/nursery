@@ -11,6 +11,7 @@ export interface MicAPI {
   clearBars?(el?: HTMLElement | null): void;
   isOpen(): boolean;
   __lastStream?: MediaStream | null;
+  __lastRawStream?: MediaStream | null;
 }
 
 export type MicRequestOptions = {
@@ -19,6 +20,7 @@ export type MicRequestOptions = {
   source?: string;
   asrPath?: string;
   profileId?: string | null;
+  preferRawForAsr?: boolean;
 };
 
 declare global {
@@ -262,6 +264,13 @@ function applyCalibrationDsp(
   try {
     closeDspChain();
     const ctx = new AC();
+    try {
+      if (typeof ctx.resume === 'function' && ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+    } catch {
+      // ignore resume failures
+    }
     dspCtx = ctx;
     const source = ctx.createMediaStreamSource(input);
     const nodes: AudioNode[] = [];
@@ -482,7 +491,8 @@ async function requestMic(preferredId?: string | MicRequestOptions): Promise<Med
     rawAudioStream = rawStream;
     const selectedProfileForDsp = selectedProfile || null;
     const dspResult = applyCalibrationDsp(rawStream, selectedProfileForDsp);
-    const stream = dspResult.stream;
+    const preferRawForAsr = source === 'whisper-bridge' && normalizedOptions.preferRawForAsr === true;
+    const stream = preferRawForAsr ? rawStream : dspResult.stream;
 
     let runtimeCalibrationState: RuntimeCalibrationState = 'bypassed';
     const requestedKeys = Object.keys(audioConstraints).filter((key) => (audioConstraints as any)[key] !== undefined);
@@ -542,10 +552,23 @@ async function requestMic(preferredId?: string | MicRequestOptions): Promise<Med
         dsp: dspResult.diagnostics,
         sampleRate,
       });
+      if (source === 'whisper-bridge') {
+        try {
+          console.info('[ASR_WHISPER_CAPTURE_SOURCE_SELECTED]', {
+            source,
+            asrPath,
+            selected: preferRawForAsr ? 'raw-mic' : (dspResult.diagnostics.state === 'active' ? 'processed-dsp' : 'raw-mic'),
+            preferRawForAsr,
+            dspState: dspResult.diagnostics.state,
+            activeFilters: dspResult.diagnostics.activeFilters,
+          });
+        } catch {}
+      }
     } catch {}
 
     audioStream = stream;
     mic.__lastStream = stream;
+    mic.__lastRawStream = rawStream;
     try {
       (window as any).__tpMicPermState = 'granted';
     } catch {
@@ -655,6 +678,7 @@ const mic: MicAPI = {
   clearBars,
   isOpen,
   __lastStream: null,
+  __lastRawStream: null,
 };
 
 if (typeof window !== 'undefined') {

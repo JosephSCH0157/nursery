@@ -433,6 +433,9 @@ class WhisperBridgeRecognizer {
   private readonly inFlightTranscriptionControllers = new Set<AbortController>();
   private firstAudioChunkLogged = false;
   private firstTranscriptPacketLogged = false;
+  private zeroByteChunkStreak = 0;
+  private switchedToRawCapture = false;
+  private flowProbeLogged = false;
 
   constructor(options: WhisperBridgeRecognizerOptions = {}) {
     this.route = options.route || DEFAULT_ROUTE;
@@ -506,6 +509,121 @@ class WhisperBridgeRecognizer {
     }
   }
 
+  private describeAudioTrackState(stream: MediaStream): Array<Record<string, unknown>> {
+    try {
+      return stream.getAudioTracks().map((track) => {
+        const row = track as MediaStreamTrack & { muted?: boolean };
+        const settings = typeof row.getSettings === "function" ? row.getSettings() : null;
+        const constraints = typeof row.getConstraints === "function" ? row.getConstraints() : null;
+        const capabilities = typeof (row as any).getCapabilities === "function"
+          ? (row as any).getCapabilities()
+          : null;
+        return {
+          streamId: (stream as any).id || null,
+          streamActive: (stream as any).active !== false,
+          trackId: typeof row.id === "string" ? row.id : null,
+          label: typeof row.label === "string" ? row.label : null,
+          readyState: typeof row.readyState === "string" ? row.readyState : null,
+          enabled: typeof row.enabled === "boolean" ? row.enabled : null,
+          muted: typeof row.muted === "boolean" ? row.muted : null,
+          settings,
+          constraints,
+          capabilities,
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  private logTrackState(marker: string, stream: MediaStream): void {
+    const runMeta = this.readRunMeta();
+    try {
+      console.info("[ASR_WHISPER_STREAM_TRACK_STATE]", {
+        marker,
+        runKey: runMeta.runKey,
+        runGeneration: runMeta.runGeneration,
+        trackCount: stream.getAudioTracks().length,
+        tracks: this.describeAudioTrackState(stream),
+        elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+      });
+    } catch {}
+  }
+
+  private async probeAudioFlow(stream: MediaStream, source: string): Promise<void> {
+    if (this.flowProbeLogged) return;
+    this.flowProbeLogged = true;
+    const AC = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext | undefined;
+    if (!AC) return;
+    let ctx: AudioContext | null = null;
+    try {
+      ctx = new AC();
+      try {
+        if (typeof ctx.resume === "function" && ctx.state === "suspended") await ctx.resume();
+      } catch {}
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      src.connect(analyser);
+      await new Promise((resolve) => setTimeout(resolve, 140));
+      const data = new Uint8Array(analyser.fftSize);
+      analyser.getByteTimeDomainData(data);
+      let sumSq = 0;
+      let peak = 0;
+      for (let i = 0; i < data.length; i += 1) {
+        const centered = (data[i] - 128) / 128;
+        const abs = Math.abs(centered);
+        if (abs > peak) peak = abs;
+        sumSq += centered * centered;
+      }
+      const rms = Math.sqrt(sumSq / Math.max(1, data.length));
+      const runMeta = this.readRunMeta();
+      try {
+        console.info("[ASR_WHISPER_AUDIO_FLOW_PROBE]", {
+          runKey: runMeta.runKey,
+          runGeneration: runMeta.runGeneration,
+          source,
+          rms,
+          peak,
+          sampleCount: data.length,
+          elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+        });
+      } catch {}
+    } catch {
+      // best-effort diagnostics only
+    } finally {
+      try { await ctx?.close?.(); } catch {}
+    }
+  }
+
+  private switchToRawCaptureStream(): boolean {
+    try {
+      const mic = (window as any).__tpMic;
+      const raw = mic?.__lastRawStream as MediaStream | undefined;
+      if (!raw || typeof raw.getAudioTracks !== "function") return false;
+      const rawTracks = raw.getAudioTracks().filter((track) => track && track.readyState === "live");
+      if (!rawTracks.length) return false;
+      const cloned = new MediaStream(rawTracks.map((track) => track.clone()));
+      this.recorderStream = cloned;
+      this.switchedToRawCapture = true;
+      const runMeta = this.readRunMeta();
+      try {
+        console.warn("[ASR_WHISPER_CAPTURE_SOURCE_SELECTED]", {
+          runKey: runMeta.runKey,
+          runGeneration: runMeta.runGeneration,
+          selected: "raw-mic-fallback",
+          reason: "repeated_zero_byte_chunks",
+          elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+        });
+      } catch {}
+      this.logTrackState("raw-fallback", cloned);
+      void this.probeAudioFlow(cloned, "raw-fallback");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private syncAiActivity(): void {
     const queueDepth = this.queue.length;
     const requestsInFlight = this.requestsInFlight;
@@ -549,6 +667,9 @@ class WhisperBridgeRecognizer {
     if (typeof (window as any).__tpMic?.requestMic !== "function") {
       throw new Error("Microphone API not available");
     }
+    this.zeroByteChunkStreak = 0;
+    this.switchedToRawCapture = false;
+    this.flowProbeLogged = false;
 
     const activeProfile = getActiveAsrProfile();
     const runtimePath = this.asrLane === 'ASR2' ? 'whisper-large-live' : 'whisper-bridge';
@@ -582,6 +703,7 @@ class WhisperBridgeRecognizer {
         });
       } catch {}
     }
+    this.logTrackState("requestMic-return", stream);
     try {
       const runtimeDetail = (window as any).__tpCalibrationRuntime;
       const state = String(runtimeDetail?.calibrationState || (activeProfile ? "partially_calibrated" : "bypassed"));
@@ -604,6 +726,8 @@ class WhisperBridgeRecognizer {
     }
 
     this.recorderStream = new MediaStream(audioTracks.map((track: MediaStreamTrack) => track.clone()));
+    this.logTrackState("capture-start", this.recorderStream);
+    void this.probeAudioFlow(this.recorderStream, "processed-capture");
     const mimeType = chooseMimeType();
     this.recorderMimeType = mimeType;
     this.transcriptWindow = [];
@@ -815,6 +939,23 @@ class WhisperBridgeRecognizer {
       }
       const skipReason = this.getChunkSkipReason(blob);
       if (skipReason) {
+        if ((blob?.size ?? 0) <= 0) {
+          this.zeroByteChunkStreak += 1;
+          const zeroRunMeta = this.readRunMeta();
+          try {
+            console.warn("[ASR_WHISPER_ZERO_BYTE_CHUNK]", {
+              runKey: zeroRunMeta.runKey,
+              runGeneration: zeroRunMeta.runGeneration,
+              streak: this.zeroByteChunkStreak,
+              seq: nextSeq,
+              mimeType: this.recorderMimeType || null,
+              elapsedSinceLiveStartMs: zeroRunMeta.elapsedSinceLiveStartMs,
+            });
+          } catch {}
+          if (this.zeroByteChunkStreak >= 3 && !this.switchedToRawCapture && this.switchToRawCaptureStream()) {
+            try { recorder.stop(); } catch {}
+          }
+        }
         this.logChunkLifecycle("skipped", blob, {
           seq: nextSeq,
           queueDepthBefore: queueBefore,
@@ -825,6 +966,7 @@ class WhisperBridgeRecognizer {
         });
         return;
       }
+      this.zeroByteChunkStreak = 0;
       this.seq = nextSeq;
       this.queue.push({ blob, seq: this.seq, durationMs: chunkDurationMs });
       const queueAfter = this.queue.length;
