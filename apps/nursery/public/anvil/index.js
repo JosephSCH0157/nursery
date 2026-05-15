@@ -36019,6 +36019,7 @@ function createAsrScrollDriver(options = {}) {
   let asrRuntimeActiveReadMode = false;
   let lastTranscriptPacketAt = 0;
   let lastAudioChunkAt = 0;
+  let firstTranscriptPacketLogged = false;
   let backendRestartWindowStartedAt = 0;
   let backendRestartedInWindow = false;
   let lastBackendHeartbeatAt = 0;
@@ -46784,6 +46785,66 @@ function createAsrScrollDriver(options = {}) {
           }
           commitAfterTop = scroller.scrollTop || (pursuitTargetTop ?? currentTop);
         }
+        const commitMovedPxRaw = commitAfterTop - commitBeforeTop;
+        const commitMovedPx = Number.isFinite(commitMovedPxRaw) ? Math.round(commitMovedPxRaw) : 0;
+        const commitMoved = Math.abs(commitMovedPxRaw) >= 1;
+        const commitCurrentTop = Number.isFinite(scroller.scrollTop) ? scroller.scrollTop : commitAfterTop;
+        const commitRequestedTargetTop = pursuitTargetTop != null && Number.isFinite(pursuitTargetTop) ? pursuitTargetTop : commitCurrentTop;
+        const commitDeltaLines = Number.isFinite(liveAsrBridgeVisualRecoveryDeltaLines) && liveAsrBridgeVisualRecoveryDeltaLines > 0 ? liveAsrBridgeVisualRecoveryDeltaLines : lineHeightPx > 0 ? Math.max(0, Math.abs(commitRequestedTargetTop - commitCurrentTop) / lineHeightPx) : 0;
+        const deadScreenSpeechFresh = runtimeSpeechFresh || asrRuntimeSpeechRunningActual || hasRecentActualSpeech(now3) || hasRecentVadSpeechNow(now3) || lastFinalTranscriptAt > 0 && now3 - lastFinalTranscriptAt <= 1800;
+        const deadScreenNoCommitMs = Math.max(0, now3 - lastCommitTime);
+        const deadScreenGovernorHoldAgeMs = liveAsrVisualGovernorHardHoldSinceMs > 0 ? Math.max(0, now3 - liveAsrVisualGovernorHardHoldSinceMs) : 0;
+        const deadScreenSourceBranch = movementAuthoritySourceBranch || pendingSourceBranch || forceReason || "unknown";
+        const deadScreenProofSource = movementAuthorityProofSource || pendingProofSource || "none";
+        const deadScreenGlobalHold = !!window?.__tpLiveAsrGovernorHold;
+        const deadScreenActive = modeNow === "asr" && isSessionLivePhase() && isSessionAsrArmed() && targetLine > prevLineIndex && (liveAsrVisualGovernorHardHold || deadScreenGlobalHold) && deadScreenSpeechFresh && !commitMoved;
+        if (deadScreenActive) {
+          const deadScreenTargetCueOnly = !isSpeakableScriptLine(targetLine);
+          try {
+            console.warn(
+              `[ASR_GOVERNOR_DEAD_SCREEN_DETECTED] current=${prevLineIndex} requestedTarget=${targetLine} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(commitCurrentTop)} targetScrollTop=${Math.round(commitRequestedTargetTop)} moved=${Math.round(commitMovedPx)} deltaLines=${formatLogScore(commitDeltaLines)} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), targetLine))} renderedLead=${Math.max(0, targetLine - Math.max(0, lastStrongConfirmedSpokenLine))} governorHoldAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)} noCommitMs=${Math.round(deadScreenNoCommitMs)} speechFresh=${deadScreenSpeechFresh ? 1 : 0} finalPacketFresh=${lastFinalTranscriptAt > 0 && now3 - lastFinalTranscriptAt <= 1800 ? 1 : 0} liveSpeechFresh=${runtimeSpeechFresh ? 1 : 0} sourceBranch=${deadScreenSourceBranch} proofSource=${deadScreenProofSource}`
+            );
+          } catch {
+          }
+          const pendingBridgeAgeMs = pendingSpeakableBridgeState ? Math.max(0, now3 - pendingSpeakableBridgeState.createdAtMs) : 0;
+          if (pendingSpeakableBridgeState && pendingBridgeAgeMs >= 1800) {
+            try {
+              console.warn(
+                `[ASR_GOVERNOR_DEAD_SCREEN_PENDING_BRIDGE_CLEARED] current=${prevLineIndex} requestedTarget=${targetLine} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(commitCurrentTop)} targetScrollTop=${Math.round(commitRequestedTargetTop)} moved=${Math.round(commitMovedPx)} deltaLines=${formatLogScore(commitDeltaLines)} governorHoldAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)} noCommitMs=${Math.round(deadScreenNoCommitMs)} sourceBranch=${deadScreenSourceBranch} proofSource=${deadScreenProofSource} reason=pending_bridge_stuck_under_hold`
+              );
+            } catch {
+            }
+            clearPendingSpeakableBridge("dead_screen_pending_bridge_cleared", [
+              `current=${prevLineIndex}`,
+              `target=${targetLine}`,
+              `holdAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)}`,
+              `noCommitMs=${Math.round(deadScreenNoCommitMs)}`
+            ]);
+          }
+          if (!deadScreenTargetCueOnly) {
+            const staleVisualTarget = commitRequestedTargetTop != null && Number.isFinite(commitRequestedTargetTop) && Math.abs(commitRequestedTargetTop - commitCurrentTop) > 1;
+            if (staleVisualTarget || deadScreenGovernorHoldAgeMs >= 900) {
+              const oldTarget = commitRequestedTargetTop;
+              pursuitTargetTop = commitCurrentTop;
+              pursuitVel = 0;
+              pursuitActive = false;
+              microPursuitUntil = 0;
+              try {
+                console.warn(
+                  `[ASR_GOVERNOR_DEAD_SCREEN_REBASED] current=${prevLineIndex} requestedTarget=${targetLine} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(commitCurrentTop)} targetScrollTop=${Math.round(oldTarget)} moved=${Math.round(commitMovedPx)} deltaLines=${formatLogScore(commitDeltaLines)} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), targetLine))} renderedLead=${Math.max(0, targetLine - Math.max(0, lastStrongConfirmedSpokenLine))} governorHoldAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)} noCommitMs=${Math.round(deadScreenNoCommitMs)} speechFresh=${deadScreenSpeechFresh ? 1 : 0} sourceBranch=${deadScreenSourceBranch} proofSource=${deadScreenProofSource}`
+                );
+              } catch {
+              }
+            }
+          }
+          try {
+            console.warn(
+              `[ASR_GOVERNOR_DEAD_SCREEN_COMMIT_HELD] current=${prevLineIndex} requestedTarget=${targetLine} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(commitCurrentTop)} targetScrollTop=${Math.round(commitRequestedTargetTop)} moved=${Math.round(commitMovedPx)} deltaLines=${formatLogScore(commitDeltaLines)} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), targetLine))} renderedLead=${Math.max(0, targetLine - Math.max(0, lastStrongConfirmedSpokenLine))} governorHoldAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)} noCommitMs=${Math.round(deadScreenNoCommitMs)} speechFresh=${deadScreenSpeechFresh ? 1 : 0} sourceBranch=${deadScreenSourceBranch} proofSource=${deadScreenProofSource}${deadScreenTargetCueOnly ? " reason=cue_target_under_dead_screen_hold" : " reason=visual_governor_dead_screen_hold"}`
+            );
+          } catch {
+          }
+          return;
+        }
         lastLineIndex = Math.max(lastLineIndex, targetLine);
         const cursorIndex = lastLineIndex;
         if (targetLine > prevLineIndex && movementAuthority !== "none") {
@@ -47111,6 +47172,21 @@ function createAsrScrollDriver(options = {}) {
       runKey: transcriptRunKey || void 0,
       runGeneration: transcriptRunGeneration
     })) {
+      if (isWhisperBridgeTranscriptSource(transcriptSource)) {
+        const runStartedAtRaw = Number(window.__tpAsrRunStartedAt);
+        const elapsedSinceLiveStartMs = Number.isFinite(runStartedAtRaw) && runStartedAtRaw > 0 ? Math.max(0, now3 - runStartedAtRaw) : null;
+        try {
+          console.warn("[ASR_WHISPER_RESPONSE_DROPPED]", {
+            runKey: transcriptRunKey || resolveActiveRunKey() || null,
+            runGeneration: transcriptRunGeneration ?? resolveActiveRunGeneration() ?? null,
+            reason: "run_identity_stale",
+            elapsedSinceLiveStartMs,
+            final: !!isFinal,
+            transcriptSource: transcriptSource || "unknown"
+          });
+        } catch {
+        }
+      }
       warnGuard("asr_live_stale_generation_hold", [
         "source=ingest",
         `driverRunGeneration=${resolveDriverRunGeneration() ?? -1}`,
@@ -47831,6 +47907,22 @@ function createAsrScrollDriver(options = {}) {
     lastTranscriptPacketAt = now3;
     if (lastAudioChunkAt <= 0 || now3 - lastAudioChunkAt > 250) {
       lastAudioChunkAt = now3;
+    }
+    if (!firstTranscriptPacketLogged) {
+      firstTranscriptPacketLogged = true;
+      const runStartedAtRaw = Number(window.__tpAsrRunStartedAt);
+      const elapsedSinceLiveStartMs = Number.isFinite(runStartedAtRaw) && runStartedAtRaw > 0 ? Math.max(0, now3 - runStartedAtRaw) : null;
+      try {
+        console.info("[ASR_FIRST_TRANSCRIPT_PACKET]", {
+          runKey: transcriptRunKey || resolveActiveRunKey() || null,
+          runGeneration: transcriptRunGeneration ?? resolveActiveRunGeneration() ?? null,
+          source: transcriptSource || "unknown",
+          final: !!isFinal,
+          textLength: compacted.length,
+          elapsedSinceLiveStartMs
+        });
+      } catch {
+      }
     }
     backendRestartWindowStartedAt = now3;
     backendRestartedInWindow = false;
@@ -51948,6 +52040,10 @@ function withTimeout(taskOrFactory, timeoutMs, context) {
 function emitRecordingState(recording) {
   try {
     if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+      try {
+        window.__tpRecordingActive = !!recording;
+      } catch {
+      }
       window.dispatchEvent(
         new CustomEvent("tp:recording:state", { detail: { recording: !!recording } })
       );
@@ -52564,6 +52660,7 @@ var init_whisper_bridge = __esm({
     init_tongs_user_auth();
     init_dev_log();
     init_active_profile();
+    init_recorderRegistry();
     WhisperBridgeHttpError = class extends Error {
       status;
       payload;
@@ -52625,6 +52722,15 @@ var init_whisper_bridge = __esm({
       consecutiveUnsupportedAudioErrors = 0;
       deterministicLatchLogged = false;
       inFlightTranscriptionControllers = /* @__PURE__ */ new Set();
+      firstAudioChunkLogged = false;
+      firstTranscriptPacketLogged = false;
+      zeroByteChunkStreak = 0;
+      switchedToRawCapture = false;
+      flowProbeLogged = false;
+      recordingActiveAtCaptureStart = false;
+      lastCaptureRuntimePath = "whisper-bridge";
+      lastCaptureProfileId = null;
+      lastCaptureConstraints = null;
       constructor(options = {}) {
         this.route = options.route || DEFAULT_ROUTE;
         this.lang = options.lang || "en-US";
@@ -52648,6 +52754,241 @@ var init_whisper_bridge = __esm({
             listener(payload);
           } catch {
           }
+        }
+      }
+      readRunMeta() {
+        try {
+          const win = window;
+          const runKeyRaw = String(win.__tpAsrRunKey || win.__tpAsrRuntimeStatus?.runKey || "").trim();
+          const runGenerationRaw = Number(win.__tpAsrRunGeneration ?? win.__tpAsrRuntimeStatus?.runGeneration);
+          const startedAtRaw = Number(win.__tpAsrRunStartedAt);
+          const now3 = Date.now();
+          const elapsed = Number.isFinite(startedAtRaw) && startedAtRaw > 0 ? Math.max(0, now3 - startedAtRaw) : null;
+          return {
+            runKey: runKeyRaw || null,
+            runGeneration: Number.isFinite(runGenerationRaw) ? Math.max(0, Math.floor(runGenerationRaw)) : null,
+            elapsedSinceLiveStartMs: elapsed
+          };
+        } catch {
+          return { runKey: null, runGeneration: null, elapsedSinceLiveStartMs: null };
+        }
+      }
+      isRecordingActiveNow() {
+        try {
+          if (isSessionRecording()) return true;
+        } catch {
+        }
+        try {
+          return !!window.__tpRecordingActive;
+        } catch {
+          return false;
+        }
+      }
+      logCapturePolicy(selected, preferRawForAsr, reason) {
+        const runMeta = this.readRunMeta();
+        try {
+          console.info("[ASR_WHISPER_CAPTURE_POLICY]", {
+            runKey: runMeta.runKey,
+            runGeneration: runMeta.runGeneration,
+            recordingActive: this.recordingActiveAtCaptureStart,
+            preferRawForAsr,
+            selected,
+            reason,
+            elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+          });
+        } catch {
+        }
+      }
+      describeAudioTracks(stream) {
+        try {
+          return stream.getAudioTracks().map((track) => {
+            const row = track;
+            return {
+              id: typeof row.id === "string" ? row.id : null,
+              label: typeof row.label === "string" ? row.label : null,
+              readyState: typeof row.readyState === "string" ? row.readyState : null,
+              enabled: typeof row.enabled === "boolean" ? row.enabled : null,
+              muted: typeof row.muted === "boolean" ? row.muted : null
+            };
+          });
+        } catch {
+          return [];
+        }
+      }
+      describeAudioTrackState(stream) {
+        try {
+          return stream.getAudioTracks().map((track) => {
+            const row = track;
+            const settings2 = typeof row.getSettings === "function" ? row.getSettings() : null;
+            const constraints = typeof row.getConstraints === "function" ? row.getConstraints() : null;
+            const capabilities = typeof row.getCapabilities === "function" ? row.getCapabilities() : null;
+            return {
+              streamId: stream.id || null,
+              streamActive: stream.active !== false,
+              trackId: typeof row.id === "string" ? row.id : null,
+              label: typeof row.label === "string" ? row.label : null,
+              readyState: typeof row.readyState === "string" ? row.readyState : null,
+              enabled: typeof row.enabled === "boolean" ? row.enabled : null,
+              muted: typeof row.muted === "boolean" ? row.muted : null,
+              settings: settings2,
+              constraints,
+              capabilities
+            };
+          });
+        } catch {
+          return [];
+        }
+      }
+      logTrackState(marker, stream) {
+        const runMeta = this.readRunMeta();
+        try {
+          console.info("[ASR_WHISPER_STREAM_TRACK_STATE]", {
+            marker,
+            runKey: runMeta.runKey,
+            runGeneration: runMeta.runGeneration,
+            trackCount: stream.getAudioTracks().length,
+            tracks: this.describeAudioTrackState(stream),
+            elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+          });
+        } catch {
+        }
+      }
+      async probeAudioFlow(stream, source) {
+        if (this.flowProbeLogged) return null;
+        this.flowProbeLogged = true;
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        let ctx = null;
+        try {
+          ctx = new AC();
+          try {
+            if (typeof ctx.resume === "function" && ctx.state === "suspended") await ctx.resume();
+          } catch {
+          }
+          const src = ctx.createMediaStreamSource(stream);
+          const analyser2 = ctx.createAnalyser();
+          analyser2.fftSize = 1024;
+          src.connect(analyser2);
+          await new Promise((resolve) => setTimeout(resolve, 140));
+          const data = new Uint8Array(analyser2.fftSize);
+          analyser2.getByteTimeDomainData(data);
+          let sumSq = 0;
+          let peak = 0;
+          for (let i = 0; i < data.length; i += 1) {
+            const centered = (data[i] - 128) / 128;
+            const abs = Math.abs(centered);
+            if (abs > peak) peak = abs;
+            sumSq += centered * centered;
+          }
+          const rms = Math.sqrt(sumSq / Math.max(1, data.length));
+          const runMeta = this.readRunMeta();
+          try {
+            console.info("[ASR_WHISPER_AUDIO_FLOW_PROBE]", {
+              runKey: runMeta.runKey,
+              runGeneration: runMeta.runGeneration,
+              source,
+              rms,
+              peak,
+              sampleCount: data.length,
+              elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+            });
+          } catch {
+          }
+          return { rms, peak, sampleCount: data.length };
+        } catch {
+          return null;
+        } finally {
+          try {
+            await ctx?.close?.();
+          } catch {
+          }
+        }
+      }
+      async switchToRawCaptureStream(reason) {
+        const runMeta = this.readRunMeta();
+        try {
+          console.warn("[ASR_WHISPER_RAW_FALLBACK_ATTEMPT]", {
+            runKey: runMeta.runKey,
+            runGeneration: runMeta.runGeneration,
+            reason,
+            recordingActive: this.recordingActiveAtCaptureStart,
+            elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+          });
+        } catch {
+        }
+        try {
+          const mic2 = window.__tpMic;
+          let raw = mic2?.__lastRawStream;
+          let rawTracks = raw?.getAudioTracks?.().filter((track) => track && track.readyState === "live") || [];
+          if (!raw || !rawTracks.length) {
+            try {
+              raw = await mic2?.requestMic?.({
+                source: "whisper-bridge",
+                asrPath: this.lastCaptureRuntimePath,
+                profileId: this.lastCaptureProfileId,
+                capture: this.lastCaptureConstraints,
+                preferRawForAsr: true
+              });
+              rawTracks = raw?.getAudioTracks?.().filter((track) => track && track.readyState === "live") || [];
+            } catch {
+              raw = void 0;
+              rawTracks = [];
+            }
+          }
+          if (!raw || typeof raw.getAudioTracks !== "function" || !rawTracks.length) {
+            try {
+              console.warn("[ASR_WHISPER_RAW_FALLBACK_UNAVAILABLE]", {
+                runKey: runMeta.runKey,
+                runGeneration: runMeta.runGeneration,
+                recordingActive: this.recordingActiveAtCaptureStart,
+                hasLastRawStream: !!mic2?.__lastRawStream,
+                lastRawTrackState: mic2?.__lastRawStream ? this.describeAudioTrackState(mic2.__lastRawStream) : [],
+                elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+              });
+            } catch {
+            }
+            return false;
+          }
+          const cloned = new MediaStream(rawTracks.map((track) => track.clone()));
+          this.recorderStream = cloned;
+          this.switchedToRawCapture = true;
+          try {
+            console.info("[ASR_WHISPER_CAPTURE_STREAM_READY]", {
+              runKey: runMeta.runKey,
+              runGeneration: runMeta.runGeneration,
+              streamTrackCount: cloned.getAudioTracks().length,
+              trackStates: this.describeAudioTracks(cloned),
+              elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+              source: "raw-fallback"
+            });
+          } catch {
+          }
+          try {
+            console.warn("[ASR_WHISPER_CAPTURE_SOURCE_SELECTED]", {
+              runKey: runMeta.runKey,
+              runGeneration: runMeta.runGeneration,
+              selected: "raw-mic",
+              reason,
+              elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+            });
+          } catch {
+          }
+          this.logCapturePolicy("raw-mic", true, reason);
+          this.logTrackState("raw-fallback", cloned);
+          this.flowProbeLogged = false;
+          await this.probeAudioFlow(cloned, "raw-fallback");
+          try {
+            console.info("[ASR_WHISPER_RAW_FALLBACK_STARTED]", {
+              runKey: runMeta.runKey,
+              runGeneration: runMeta.runGeneration,
+              streamTrackCount: cloned.getAudioTracks().length,
+              elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+            });
+          } catch {
+          }
+          return true;
+        } catch {
+          return false;
         }
       }
       syncAiActivity() {
@@ -52691,14 +53032,55 @@ var init_whisper_bridge = __esm({
         if (typeof window.__tpMic?.requestMic !== "function") {
           throw new Error("Microphone API not available");
         }
+        this.zeroByteChunkStreak = 0;
+        this.switchedToRawCapture = false;
+        this.flowProbeLogged = false;
+        this.recordingActiveAtCaptureStart = this.isRecordingActiveNow();
         const activeProfile = getActiveAsrProfile();
         const runtimePath = this.asrLane === "ASR2" ? "whisper-large-live" : "whisper-bridge";
+        this.lastCaptureRuntimePath = runtimePath;
+        this.lastCaptureProfileId = activeProfile?.id || null;
+        this.lastCaptureConstraints = activeProfile?.capture || null;
+        const preferRawForAsr = this.recordingActiveAtCaptureStart;
+        this.logCapturePolicy(
+          preferRawForAsr ? "raw-mic" : "processed-dsp",
+          preferRawForAsr,
+          preferRawForAsr ? "recording_active" : "default_processed_path"
+        );
+        {
+          const runMeta = this.readRunMeta();
+          try {
+            console.info("[ASR_WHISPER_CAPTURE_START_REQUESTED]", {
+              runKey: runMeta.runKey,
+              runGeneration: runMeta.runGeneration,
+              runtimePath,
+              elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+            });
+          } catch {
+          }
+        }
         const stream = await window.__tpMic.requestMic({
           source: "whisper-bridge",
           asrPath: runtimePath,
           profileId: activeProfile?.id || null,
-          capture: activeProfile?.capture || null
+          capture: activeProfile?.capture || null,
+          preferRawForAsr
         });
+        {
+          const runMeta = this.readRunMeta();
+          try {
+            const audioTracks2 = stream.getAudioTracks();
+            console.info("[ASR_WHISPER_CAPTURE_STREAM_READY]", {
+              runKey: runMeta.runKey,
+              runGeneration: runMeta.runGeneration,
+              streamTrackCount: audioTracks2.length,
+              trackStates: this.describeAudioTracks(stream),
+              elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+            });
+          } catch {
+          }
+        }
+        this.logTrackState("requestMic-return", stream);
         try {
           const runtimeDetail = window.__tpCalibrationRuntime;
           const state8 = String(runtimeDetail?.calibrationState || (activeProfile ? "partially_calibrated" : "bypassed"));
@@ -52718,7 +53100,17 @@ var init_whisper_bridge = __esm({
         if (!audioTracks.length) {
           throw new Error("No audio track available");
         }
-        this.recorderStream = new MediaStream(audioTracks.map((track) => track.clone()));
+        let captureStream = new MediaStream(audioTracks.map((track) => track.clone()));
+        this.logTrackState("capture-start", captureStream);
+        const flowSource = preferRawForAsr ? "raw-capture" : "processed-capture";
+        const flow = await this.probeAudioFlow(captureStream, flowSource);
+        if (!preferRawForAsr && flow && flow.rms === 0 && flow.peak === 0) {
+          const switched = await this.switchToRawCaptureStream("probe_zero_energy");
+          if (switched && this.recorderStream) {
+            captureStream = this.recorderStream;
+          }
+        }
+        this.recorderStream = captureStream;
         const mimeType = chooseMimeType();
         this.recorderMimeType = mimeType;
         this.transcriptWindow = [];
@@ -52733,6 +53125,8 @@ var init_whisper_bridge = __esm({
         this.requestInvalid = false;
         this.consecutiveUnsupportedAudioErrors = 0;
         this.deterministicLatchLogged = false;
+        this.firstAudioChunkLogged = false;
+        this.firstTranscriptPacketLogged = false;
         this.pendingRecorderStop = null;
         this.endEmitted = false;
         this.generation += 1;
@@ -52838,10 +53232,39 @@ var init_whisper_bridge = __esm({
         }
         this.lastChunkTimecode = null;
         const recorder2 = this.recorderMimeType ? new MediaRecorder(this.recorderStream, { mimeType: this.recorderMimeType }) : new MediaRecorder(this.recorderStream);
+        const timesliceMs = Math.max(700, this.segmentMs);
+        {
+          const runMeta = this.readRunMeta();
+          try {
+            console.info("[ASR_WHISPER_MEDIA_RECORDER_CREATED]", {
+              runKey: runMeta.runKey,
+              runGeneration: runMeta.runGeneration,
+              mimeType: this.recorderMimeType || null,
+              timesliceMs,
+              streamTrackCount: this.recorderStream.getAudioTracks().length,
+              trackStates: this.describeAudioTracks(this.recorderStream),
+              elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+            });
+          } catch {
+          }
+        }
         this.recorder = recorder2;
         this.pendingRecorderStop = null;
-        recorder2.ondataavailable = (event) => {
+        recorder2.ondataavailable = async (event) => {
           const blob = event.data;
+          const runMeta = this.readRunMeta();
+          try {
+            console.info("[ASR_WHISPER_MEDIA_RECORDER_DATAAVAILABLE]", {
+              runKey: runMeta.runKey,
+              runGeneration: runMeta.runGeneration,
+              blobSize: blob?.size ?? 0,
+              blobType: blob?.type || "unknown",
+              mimeType: this.recorderMimeType || null,
+              timesliceMs,
+              elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+            });
+          } catch {
+          }
           const queueBefore = this.queue.length;
           const nextSeq2 = this.seq + 1;
           if (!this.running) {
@@ -52877,6 +53300,40 @@ var init_whisper_bridge = __esm({
           }
           const skipReason = this.getChunkSkipReason(blob);
           if (skipReason) {
+            if ((blob?.size ?? 0) <= 0) {
+              this.zeroByteChunkStreak += 1;
+              const zeroRunMeta = this.readRunMeta();
+              try {
+                console.warn("[ASR_WHISPER_ZERO_BYTE_CHUNK]", {
+                  runKey: zeroRunMeta.runKey,
+                  runGeneration: zeroRunMeta.runGeneration,
+                  streak: this.zeroByteChunkStreak,
+                  seq: nextSeq2,
+                  mimeType: this.recorderMimeType || null,
+                  elapsedSinceLiveStartMs: zeroRunMeta.elapsedSinceLiveStartMs
+                });
+              } catch {
+              }
+              if (this.zeroByteChunkStreak >= 3 && !this.switchedToRawCapture) {
+                const switched = await this.switchToRawCaptureStream("repeated_zero_byte_chunks");
+                if (switched) {
+                  try {
+                    recorder2.stop();
+                  } catch {
+                  }
+                } else {
+                  this.requestInvalid = true;
+                  this.lastAiError = "ASR raw fallback unavailable after repeated zero-byte chunks.";
+                  this.syncAiActivity();
+                  this.emit("error", {
+                    source: SOURCE,
+                    message: this.lastAiError,
+                    timestamp: nowTs()
+                  });
+                  this.stop();
+                }
+              }
+            }
             this.logChunkLifecycle("skipped", blob, {
               seq: nextSeq2,
               queueDepthBefore: queueBefore,
@@ -52887,9 +53344,54 @@ var init_whisper_bridge = __esm({
             });
             return;
           }
+          this.zeroByteChunkStreak = 0;
           this.seq = nextSeq2;
           this.queue.push({ blob, seq: this.seq, durationMs: chunkDurationMs });
           const queueAfter = this.queue.length;
+          const enqueueTs = Date.now();
+          const runMetaForQueue = this.readRunMeta();
+          if (!this.firstAudioChunkLogged) {
+            this.firstAudioChunkLogged = true;
+            try {
+              console.info("[ASR_FIRST_AUDIO_CHUNK]", {
+                runKey: runMetaForQueue.runKey,
+                runGeneration: runMetaForQueue.runGeneration,
+                seq: this.seq,
+                blobSize: blob.size,
+                blobType: blob.type || "unknown",
+                queueDepthAfter: queueAfter,
+                elapsedSinceLiveStartMs: runMetaForQueue.elapsedSinceLiveStartMs
+              });
+            } catch {
+            }
+          }
+          try {
+            console.info("[ASR_WHISPER_QUEUE_ENQUEUED]", {
+              runKey: runMetaForQueue.runKey,
+              runGeneration: runMetaForQueue.runGeneration,
+              seq: this.seq,
+              blobSize: blob.size,
+              blobType: blob.type || "unknown",
+              queueDepthBefore: queueBefore,
+              queueDepthAfter: queueAfter,
+              elapsedSinceLiveStartMs: runMetaForQueue.elapsedSinceLiveStartMs
+            });
+          } catch {
+          }
+          try {
+            window.dispatchEvent(new CustomEvent("tp:asr:audio-chunk", {
+              detail: {
+                ts: enqueueTs,
+                chunkEnqueueTs: enqueueTs,
+                runKey: runMetaForQueue.runKey,
+                runGeneration: runMetaForQueue.runGeneration,
+                seq: this.seq,
+                blobSize: blob.size,
+                blobType: blob.type || "unknown"
+              }
+            }));
+          } catch {
+          }
           this.logChunkLifecycle("queued", blob, {
             seq: this.seq,
             queueDepthBefore: queueBefore,
@@ -52903,14 +53405,64 @@ var init_whisper_bridge = __esm({
         recorder2.onerror = (event) => {
           const error = event.error;
           const message = error?.message || "Whisper recorder error";
+          const runMeta = this.readRunMeta();
+          try {
+            console.warn("[ASR_WHISPER_MEDIA_RECORDER_ERROR]", {
+              runKey: runMeta.runKey,
+              runGeneration: runMeta.runGeneration,
+              message,
+              mimeType: this.recorderMimeType || null,
+              timesliceMs,
+              elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+            });
+          } catch {
+          }
           this.lastAiError = message;
           this.syncAiActivity();
           this.emit("error", { source: SOURCE, message, timestamp: nowTs() });
         };
         recorder2.onstop = () => {
+          const runMeta = this.readRunMeta();
+          try {
+            console.info("[ASR_WHISPER_MEDIA_RECORDER_STOPPED]", {
+              runKey: runMeta.runKey,
+              runGeneration: runMeta.runGeneration,
+              mimeType: this.recorderMimeType || null,
+              timesliceMs,
+              elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+            });
+          } catch {
+          }
           this.handleRecorderStop(recorder2);
         };
-        recorder2.start();
+        try {
+          recorder2.start(timesliceMs);
+          const runMeta = this.readRunMeta();
+          try {
+            console.info("[ASR_WHISPER_MEDIA_RECORDER_STARTED]", {
+              runKey: runMeta.runKey,
+              runGeneration: runMeta.runGeneration,
+              mimeType: this.recorderMimeType || null,
+              timesliceMs,
+              elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+            });
+          } catch {
+          }
+        } catch {
+          recorder2.start();
+          const runMeta = this.readRunMeta();
+          try {
+            console.info("[ASR_WHISPER_MEDIA_RECORDER_STARTED]", {
+              runKey: runMeta.runKey,
+              runGeneration: runMeta.runGeneration,
+              mimeType: this.recorderMimeType || null,
+              timesliceMs: 0,
+              fallbackNoTimeslice: true,
+              elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+            });
+          } catch {
+          }
+        }
         this.armSegmentTimer();
       }
       armSegmentTimer() {
@@ -53009,6 +53561,18 @@ var init_whisper_bridge = __esm({
               );
               const staleDropReason = this.getStaleDropReason(requestGeneration);
               if (staleDropReason) {
+                const runMeta = this.readRunMeta();
+                try {
+                  console.warn("[ASR_WHISPER_RESPONSE_DROPPED]", {
+                    runKey: runMeta.runKey,
+                    runGeneration: runMeta.runGeneration,
+                    seq: next.seq,
+                    reason: staleDropReason,
+                    dropPhase: "post-response",
+                    elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+                  });
+                } catch {
+                }
                 this.logStaleResponseDropped({
                   seq: next.seq,
                   reason: staleDropReason,
@@ -53025,6 +53589,18 @@ var init_whisper_bridge = __esm({
             } catch (error) {
               const staleDropReason = this.getStaleDropReason(requestGeneration);
               if (staleDropReason || this.isAbortError(error)) {
+                const runMeta = this.readRunMeta();
+                try {
+                  console.warn("[ASR_WHISPER_RESPONSE_DROPPED]", {
+                    runKey: runMeta.runKey,
+                    runGeneration: runMeta.runGeneration,
+                    seq: next.seq,
+                    reason: staleDropReason ?? "request-aborted",
+                    dropPhase: "request-error",
+                    elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+                  });
+                } catch {
+                }
                 this.logStaleResponseDropped({
                   seq: next.seq,
                   reason: staleDropReason ?? "request-aborted",
@@ -53241,6 +53817,23 @@ var init_whisper_bridge = __esm({
           normalizedLanguage,
           requestInvalid: this.requestInvalid
         });
+        {
+          const runMeta = this.readRunMeta();
+          try {
+            console.info("[ASR_WHISPER_REQUEST_SENT]", {
+              runKey: runMeta.runKey,
+              runGeneration: runMeta.runGeneration,
+              seq,
+              blobSize: blob.size,
+              blobType: blob.type || "unknown",
+              mimeType,
+              queueDepthBefore,
+              queueDepthAfter,
+              elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+            });
+          } catch {
+          }
+        }
         const abortController = new AbortController();
         this.inFlightTranscriptionControllers.add(abortController);
         if (this.getStaleDropReason(requestGeneration)) {
@@ -53308,6 +53901,23 @@ var init_whisper_bridge = __esm({
         if (this.getStaleDropReason(requestGeneration)) {
           throw new Error("whisper_stale_response");
         }
+        {
+          const runMeta = this.readRunMeta();
+          try {
+            console.info("[ASR_WHISPER_RESPONSE_RECEIVED]", {
+              runKey: runMeta.runKey,
+              runGeneration: runMeta.runGeneration,
+              seq,
+              ok: response.ok,
+              status: response.status,
+              hasText: typeof payload.text === "string" && payload.text.trim().length > 0,
+              textLength: typeof payload.text === "string" ? payload.text.trim().length : 0,
+              providerRequestId: payload.provider_request_id ?? null,
+              elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+            });
+          } catch {
+          }
+        }
         return payload;
       }
       handleTranscript(payload) {
@@ -53316,6 +53926,21 @@ var init_whisper_bridge = __esm({
         const now3 = nowTs();
         const incomingTokens = toWordTokens(text);
         if (!incomingTokens.length) return;
+        if (!this.firstTranscriptPacketLogged) {
+          this.firstTranscriptPacketLogged = true;
+          const runMeta = this.readRunMeta();
+          try {
+            console.info("[ASR_FIRST_TRANSCRIPT_PACKET]", {
+              runKey: runMeta.runKey,
+              runGeneration: runMeta.runGeneration,
+              textLength: text.length,
+              incomingTokenCount: incomingTokens.length,
+              providerRequestId: payload.provider_request_id ?? null,
+              elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs
+            });
+          } catch {
+          }
+        }
         if (this.lastTranscriptAt > 0 && now3 - this.lastTranscriptAt > RESET_WINDOW_IDLE_MS) {
           this.transcriptWindow = [];
         }
@@ -57197,7 +57822,8 @@ function beginAsrRunKey(mode, reason) {
   if (activeAsrRunKey) return activeAsrRunKey;
   asrRunGeneration += 1;
   asrRunCounter += 1;
-  activeAsrRunKey = `asr-${Date.now().toString(36)}-${asrRunCounter}-${String(mode || "unknown").toLowerCase()}`;
+  const startedAt = Date.now();
+  activeAsrRunKey = `asr-${startedAt.toString(36)}-${asrRunCounter}-${String(mode || "unknown").toLowerCase()}`;
   if (typeof window !== "undefined") {
     try {
       window.__tpAsrRunKey = activeAsrRunKey;
@@ -57207,12 +57833,17 @@ function beginAsrRunKey(mode, reason) {
       window.__tpAsrRunGeneration = asrRunGeneration;
     } catch {
     }
+    try {
+      window.__tpAsrRunStartedAt = startedAt;
+    } catch {
+    }
   }
   if (isDevMode5() && shouldLogLevel(1)) {
     try {
       console.info("[ASR] run begin", {
         runKey: activeAsrRunKey,
         runGeneration: asrRunGeneration,
+        startedAt,
         mode,
         reason
       });
@@ -57252,6 +57883,10 @@ function clearAsrRunKey(reason) {
     }
     try {
       window.__tpAsrRunGeneration = asrRunGeneration;
+    } catch {
+    }
+    try {
+      window.__tpAsrRunStartedAt = 0;
     } catch {
     }
   }
@@ -68636,6 +69271,9 @@ function readBoolean(value) {
 function buildLocalSnapshotKey(captureSessionId) {
   return `${LOCAL_SNAPSHOT_KEY_PREFIX}${captureSessionId}`;
 }
+function buildLocalDebugSnapshotKey(captureSessionId) {
+  return `${LOCAL_DEBUG_SNAPSHOT_KEY_PREFIX}${captureSessionId}`;
+}
 function safeNow() {
   return Date.now();
 }
@@ -68856,21 +69494,31 @@ function buildFinalArtifact(args) {
     segments: normalizeFinalSegments(args.session.segments)
   };
 }
-var LIVE_SNAPSHOT_PREFIX, FINAL_TRANSCRIPT_PREFIX, LOCAL_SNAPSHOT_KEY_PREFIX, SNAPSHOT_PERSIST_INTERVAL_MS, DEFAULT_SPEAKER, FINAL_HYPOTHESIS_BOUNDARY_WINDOW_MS, ASR2_EXPERIMENTAL_LANE, RecordingTranscriptController;
+var LIVE_SNAPSHOT_PREFIX, FINAL_TRANSCRIPT_PREFIX, LOCAL_SNAPSHOT_KEY_PREFIX, DEBUG_SNAPSHOT_PREFIX, DEBUG_FINAL_PREFIX, LOCAL_DEBUG_SNAPSHOT_KEY_PREFIX, SNAPSHOT_PERSIST_INTERVAL_MS, DEFAULT_SPEAKER, FINAL_HYPOTHESIS_BOUNDARY_WINDOW_MS, ASR2_EXPERIMENTAL_LANE, LIVE_NONCANONICAL_ASR_DEBUG_EVENT, RecordingTranscriptController;
 var init_recordingTranscriptController = __esm({
   "src/recording/recordingTranscriptController.ts"() {
     "use strict";
     LIVE_SNAPSHOT_PREFIX = "anvil/transcript/live";
     FINAL_TRANSCRIPT_PREFIX = "anvil/transcript/final";
     LOCAL_SNAPSHOT_KEY_PREFIX = "forge_anvil_live_transcript_v1:";
+    DEBUG_SNAPSHOT_PREFIX = "anvil/asr/live_noncanonical_asr_debug";
+    DEBUG_FINAL_PREFIX = "anvil/asr/live_noncanonical_asr_debug";
+    LOCAL_DEBUG_SNAPSHOT_KEY_PREFIX = "forge_anvil_live_noncanonical_asr_debug_v1:";
     SNAPSHOT_PERSIST_INTERVAL_MS = 1500;
     DEFAULT_SPEAKER = "unknown";
     FINAL_HYPOTHESIS_BOUNDARY_WINDOW_MS = 1200;
     ASR2_EXPERIMENTAL_LANE = "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL";
+    LIVE_NONCANONICAL_ASR_DEBUG_EVENT = "live_noncanonical_asr_debug";
     RecordingTranscriptController = class {
       deps;
       session = null;
       persistChain = Promise.resolve();
+      get persistenceMode() {
+        return this.deps.persistenceMode ?? "disabled";
+      }
+      get persistenceEnabled() {
+        return this.persistenceMode !== "disabled";
+      }
       transcriptListener = (event) => {
         const detail = event.detail;
         const session = this.session;
@@ -68910,8 +69558,8 @@ var init_recordingTranscriptController = __esm({
       async startSession(args) {
         await this.disposeSession();
         const target = await this.deps.ensureCaptureTarget();
-        const livePath = `${LIVE_SNAPSHOT_PREFIX}/${args.captureSessionId}.snapshot.v1.json`;
-        const finalPath = `${FINAL_TRANSCRIPT_PREFIX}/${args.captureSessionId}.structured.v1.json`;
+        const livePath = this.persistenceMode === "live_noncanonical_asr_debug" ? `${DEBUG_SNAPSHOT_PREFIX}/${args.captureSessionId}.snapshot.v1.json` : `${LIVE_SNAPSHOT_PREFIX}/${args.captureSessionId}.snapshot.v1.json`;
+        const finalPath = this.persistenceMode === "live_noncanonical_asr_debug" ? `${DEBUG_FINAL_PREFIX}/${args.captureSessionId}.final.v1.json` : `${FINAL_TRANSCRIPT_PREFIX}/${args.captureSessionId}.structured.v1.json`;
         this.session = {
           captureSessionId: args.captureSessionId,
           recordingStartedAtMs: args.recordingStartedAtMs,
@@ -68946,7 +69594,7 @@ var init_recordingTranscriptController = __esm({
             workpieceId: null,
             status: "degraded",
             degradedReason: "transcript-session-released",
-            livePath
+            livePath: this.persistenceEnabled ? livePath : null
           };
         }
         if (!started) {
@@ -68965,7 +69613,7 @@ var init_recordingTranscriptController = __esm({
           workpieceId: session.target?.ok ? session.target.workpieceId : null,
           status: session.status,
           degradedReason: session.degradedReason,
-          livePath
+          livePath: this.persistenceEnabled ? livePath : null
         };
       }
       async stopSession(args) {
@@ -69004,7 +69652,7 @@ var init_recordingTranscriptController = __esm({
           session.partialText = null;
           session.partialStartSec = null;
         }
-        const finalArtifact = session.segments.length > 0 ? buildFinalArtifact({
+        const finalArtifact = this.persistenceMode === "live_noncanonical_asr_debug" && session.segments.length > 0 ? buildFinalArtifact({
           session,
           mediaPath: args.mediaPath ?? null,
           contentType: args.contentType ?? null
@@ -69016,14 +69664,14 @@ var init_recordingTranscriptController = __esm({
             workpieceId: captureTarget.workpieceId,
             path: session.finalPath,
             data: finalArtifact,
-            eventName: "take_transcript_finalized",
+            eventName: LIVE_NONCANONICAL_ASR_DEBUG_EVENT,
             eventPayload: {
-              source: "anvil.recording-transcript",
+              source: "live_noncanonical_asr_debug",
               transcript_path: session.finalPath,
               anvil_capture_session_id: session.captureSessionId,
               recording_session_id: captureTarget.plannerRecordingSessionId,
               segment_count: session.segments.length,
-              transcript_status: "ready"
+              transcript_status: "noncanonical_debug"
             }
           });
           if (!commitResult.ok) {
@@ -69047,7 +69695,7 @@ var init_recordingTranscriptController = __esm({
         }
         session.finalized = true;
         session.status = finalArtifact && !finalCommitFailed ? "ready" : "degraded";
-        session.degradedReason = finalArtifact ? finalCommitFailed ? "transcript-final-commit-failed" : null : "no-transcript-captured";
+        session.degradedReason = finalArtifact ? finalCommitFailed ? "transcript-final-commit-failed" : null : this.persistenceEnabled ? "no-transcript-captured" : "transcript-persistence-disabled";
         await this.persistSnapshot(true);
         emitTranscriptDiag("anvil:transcript:finalize_done", {
           capture_session_id: session.captureSessionId,
@@ -69062,7 +69710,7 @@ var init_recordingTranscriptController = __esm({
           workpieceId: session.target?.ok ? session.target.workpieceId : null,
           status: session.status,
           degradedReason: session.degradedReason,
-          livePath: session.livePath,
+          livePath: this.persistenceEnabled ? session.livePath : null,
           finalPath: finalArtifact ? session.finalPath : null,
           finalArtifact,
           segmentCount: session.segments.length
@@ -69080,8 +69728,8 @@ var init_recordingTranscriptController = __esm({
           workpieceId: session?.target?.ok ? session.target.workpieceId : null,
           status: session?.status ?? "idle",
           degradedReason: session?.degradedReason ?? null,
-          livePath: session?.livePath ?? null,
-          finalPath: session?.finalized ? session.finalPath : null,
+          livePath: this.persistenceEnabled ? session?.livePath ?? null : null,
+          finalPath: this.persistenceEnabled && session?.finalized ? session.finalPath : null,
           segmentCount: session?.segments.length ?? 0,
           partialText: session?.partialText ?? null
         };
@@ -69097,6 +69745,7 @@ var init_recordingTranscriptController = __esm({
       async persistSnapshot(force) {
         const session = this.session;
         if (!session) return;
+        if (!this.persistenceEnabled) return;
         const now3 = safeNow();
         if (!force && now3 - session.lastPersistedAtMs < SNAPSHOT_PERSIST_INTERVAL_MS) {
           return;
@@ -69105,7 +69754,8 @@ var init_recordingTranscriptController = __esm({
         const snapshot = buildSnapshot(session);
         const captureTarget = session.target;
         try {
-          this.deps.localStorage.setItem(buildLocalSnapshotKey(session.captureSessionId), JSON.stringify(snapshot));
+          const key = this.persistenceMode === "live_noncanonical_asr_debug" ? buildLocalDebugSnapshotKey(session.captureSessionId) : buildLocalSnapshotKey(session.captureSessionId);
+          this.deps.localStorage.setItem(key, JSON.stringify(snapshot));
           emitTranscriptDiag("anvil:transcript:live_snapshot_saved", {
             capture_session_id: session.captureSessionId,
             workpiece_id: captureTarget?.ok ? captureTarget.workpieceId : null,
@@ -69121,11 +69771,11 @@ var init_recordingTranscriptController = __esm({
             workpieceId: captureTarget.workpieceId,
             path: session.livePath,
             data: snapshot,
-            eventName: "take_transcript_snapshot",
+            eventName: LIVE_NONCANONICAL_ASR_DEBUG_EVENT,
             eventPayload: {
-              source: "anvil.recording-transcript",
+              source: "live_noncanonical_asr_debug",
               transcript_path: session.livePath,
-              transcript_status: session.status,
+              transcript_status: "noncanonical_debug",
               anvil_capture_session_id: session.captureSessionId,
               recording_session_id: captureTarget.plannerRecordingSessionId,
               segment_count: session.segments.length
@@ -69461,7 +70111,8 @@ var init_local_auto = __esm({
         commitJsonArtifact: commitRecordingJsonArtifactToTongs,
         startSpeech: startSpeechBackendForSession,
         stopSpeech: stopSpeechBackendForSession,
-        localStorage
+        localStorage,
+        persistenceMode: "disabled"
       });
       const pad = (n) => String(n).padStart(2, "0");
       const READY_SCRIPT_PREFIX = "ready:";
@@ -80759,6 +81410,13 @@ function applyCalibrationDsp(input, profile) {
   try {
     closeDspChain();
     const ctx = new AC();
+    try {
+      if (typeof ctx.resume === "function" && ctx.state === "suspended") {
+        ctx.resume().catch(() => {
+        });
+      }
+    } catch {
+    }
     dspCtx = ctx;
     const source = ctx.createMediaStreamSource(input);
     const nodes = [];
@@ -80954,7 +81612,8 @@ async function requestMic(preferredId) {
     rawAudioStream = rawStream;
     const selectedProfileForDsp = selectedProfile || null;
     const dspResult = applyCalibrationDsp(rawStream, selectedProfileForDsp);
-    const stream = dspResult.stream;
+    const preferRawForAsr = source === "whisper-bridge" && normalizedOptions.preferRawForAsr === true;
+    const stream = preferRawForAsr ? rawStream : dspResult.stream;
     let runtimeCalibrationState = "bypassed";
     const requestedKeys = Object.keys(audioConstraints).filter((key) => audioConstraints[key] !== void 0);
     const applied = {};
@@ -81000,10 +81659,24 @@ async function requestMic(preferredId) {
         dsp: dspResult.diagnostics,
         sampleRate
       });
+      if (source === "whisper-bridge") {
+        try {
+          console.info("[ASR_WHISPER_CAPTURE_SOURCE_SELECTED]", {
+            source,
+            asrPath,
+            selected: preferRawForAsr ? "raw-mic" : dspResult.diagnostics.state === "active" ? "processed-dsp" : "raw-mic",
+            preferRawForAsr,
+            dspState: dspResult.diagnostics.state,
+            activeFilters: dspResult.diagnostics.activeFilters
+          });
+        } catch {
+        }
+      }
     } catch {
     }
     audioStream = stream;
     mic.__lastStream = stream;
+    mic.__lastRawStream = rawStream;
     try {
       window.__tpMicPermState = "granted";
     } catch {
@@ -81119,7 +81792,8 @@ var init_mic = __esm({
       startDbMeter,
       clearBars,
       isOpen,
-      __lastStream: null
+      __lastStream: null,
+      __lastRawStream: null
     };
     if (typeof window !== "undefined") {
       const target = window.__tpMic || {};

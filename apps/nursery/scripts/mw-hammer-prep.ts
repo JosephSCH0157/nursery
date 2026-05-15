@@ -75,6 +75,8 @@ const MEDIA_CONTENT_TYPES: Partial<Record<string, string>> = {
   ".m4a": "audio/mp4",
 };
 
+type TranscriptUploadMode = "auto" | "direct" | "transcoded" | "compare";
+
 type HammerAudioPolishProgressRecord = {
   workspaceId: string;
   workpieceId: string;
@@ -203,6 +205,15 @@ function readTrimmed(value: unknown): string | null {
   return trimmed ? trimmed : null;
 }
 
+function toFiniteNumberOrNull(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
 function readPrepMetaFromBody(body: unknown): {
   workspace_id: string | null;
   workpiece_id: string | null;
@@ -279,37 +290,146 @@ function shouldPreferForgeTranscriptTranscode(): boolean {
   return readTrimmed(process.env.HAMMER_TRANSCRIPT_AUDIO_TRANSCODE_BACKEND)?.toLowerCase() === "forge";
 }
 
+function resolveTranscriptUploadMode(req: IncomingMessage): TranscriptUploadMode {
+  const fromHeader = readTrimmed(readHeaderString(req.headers["x-hammer-transcript-upload-mode"]));
+  const fromEnv = readTrimmed(process.env.HAMMER_TRANSCRIPT_UPLOAD_MODE);
+  const raw = (fromHeader ?? fromEnv ?? "auto").toLowerCase();
+  if (raw === "direct" || raw === "transcoded" || raw === "compare") return raw;
+  return "auto";
+}
+
+function isLikelyUnsupportedAudioUpload(status: number, detail: string): boolean {
+  if (status !== 400 && status !== 415 && status !== 422) return false;
+  const lower = detail.toLowerCase();
+  return lower.includes("audio file might be corrupted or unsupported")
+    || lower.includes("invalid_request_error")
+    || lower.includes("unsupported")
+    || lower.includes("invalid value");
+}
+
+async function probeUploadWithFfprobe(args: {
+  ffprobeBin: string;
+  bytes: Buffer;
+  sourceExtension: string;
+  sourceLabel: string;
+}): Promise<{
+  codec: string | null;
+  sampleRate: number | null;
+  channels: number | null;
+  durationSec: number | null;
+  bitRate: number | null;
+}> {
+  const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-transcript-ffprobe-"));
+  const safeExtension = args.sourceExtension || ".bin";
+  const inputPath = path.join(tempRoot, `input${safeExtension}`);
+  try {
+    await fsPromises.writeFile(inputPath, args.bytes);
+    const probeJson = await new Promise<string>((resolve, reject) => {
+      const child = spawn(
+        args.ffprobeBin,
+        [
+          "-v",
+          "error",
+          "-select_streams",
+          "a:0",
+          "-show_entries",
+          "stream=codec_name,sample_rate,channels,duration,bit_rate:format=duration,bit_rate",
+          "-of",
+          "json",
+          inputPath,
+        ],
+        { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
+      );
+
+      let stdout = "";
+      let stderr = "";
+      let timedOut = false;
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        child.kill();
+      }, 15_000);
+
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString("utf8");
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        const next = chunk.toString("utf8");
+        if (stderr.length < 16_384) stderr += next.slice(0, 16_384 - stderr.length);
+      });
+      child.on("error", (error: unknown) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+      child.on("close", (code: number | null) => {
+        clearTimeout(timeoutId);
+        if (timedOut) {
+          reject(new Error("Hammer transcript ffprobe timed out."));
+          return;
+        }
+        if (code === 0) {
+          resolve(stdout);
+          return;
+        }
+        reject(new Error(stderr.trim() || `Hammer transcript ffprobe failed for ${args.sourceLabel}.`));
+      });
+    });
+
+    const parsed = JSON.parse(probeJson) as {
+      streams?: Array<Record<string, unknown>>;
+      format?: Record<string, unknown>;
+    };
+    const stream = Array.isArray(parsed.streams) ? parsed.streams[0] ?? {} : {};
+    const format = parsed.format ?? {};
+    const streamDuration = toFiniteNumberOrNull(stream.duration);
+    const formatDuration = toFiniteNumberOrNull(format.duration);
+    return {
+      codec: readTrimmed(stream.codec_name),
+      sampleRate: toFiniteNumberOrNull(stream.sample_rate),
+      channels: toFiniteNumberOrNull(stream.channels),
+      durationSec: streamDuration ?? formatDuration,
+      bitRate: toFiniteNumberOrNull(stream.bit_rate) ?? toFiniteNumberOrNull(format.bit_rate),
+    };
+  } finally {
+    await fsPromises.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 async function renderTranscriptAudioWavWithFfmpeg(args: {
   sourceBytes: Buffer;
   sourceExtension: string;
   sourceLabel: string;
   ffmpegBin: string;
-}): Promise<Buffer> {
+}): Promise<{
+  wavBytes: Buffer;
+  command: string[];
+  exitCode: number;
+}> {
   const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-transcript-audio-"));
   const safeExtension = args.sourceExtension || ".bin";
   const inputPath = path.join(tempRoot, `input${safeExtension}`);
   const outputPath = path.join(tempRoot, "transcript-audio.wav");
   try {
     await fsPromises.writeFile(inputPath, args.sourceBytes);
-    await new Promise<void>((resolve, reject) => {
+    const ffmpegArgs = [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-y",
+      "-i",
+      inputPath,
+      "-vn",
+      "-acodec",
+      "pcm_s16le",
+      "-ar",
+      "16000",
+      "-ac",
+      "1",
+      outputPath,
+    ];
+    const exitCode = await new Promise<number>((resolve, reject) => {
       const child = spawn(
         args.ffmpegBin,
-        [
-          "-hide_banner",
-          "-loglevel",
-          "error",
-          "-y",
-          "-i",
-          inputPath,
-          "-vn",
-          "-acodec",
-          "pcm_s16le",
-          "-ar",
-          "16000",
-          "-ac",
-          "1",
-          outputPath,
-        ],
+        ffmpegArgs,
         {
           windowsHide: true,
           stdio: ["ignore", "ignore", "pipe"],
@@ -340,7 +460,7 @@ async function renderTranscriptAudioWavWithFfmpeg(args: {
           return;
         }
         if (code === 0) {
-          resolve();
+          resolve(0);
           return;
         }
         reject(new Error(
@@ -348,7 +468,11 @@ async function renderTranscriptAudioWavWithFfmpeg(args: {
         ));
       });
     });
-    return await fsPromises.readFile(outputPath);
+    return {
+      wavBytes: await fsPromises.readFile(outputPath),
+      command: ffmpegArgs,
+      exitCode,
+    };
   } finally {
     await fsPromises.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -360,6 +484,7 @@ async function prepareTranscriptUploadMedia(args: {
   contentType: string;
   extension: string;
   stageTimer: HammerTranscriptStageTimer;
+  forceTranscode?: boolean;
 }): Promise<{
   ok: true;
   fileBytes: Buffer;
@@ -370,13 +495,21 @@ async function prepareTranscriptUploadMedia(args: {
   outputFormat: string | null;
   outputSampleRate: number | null;
   outputChannels: number | null;
+  transcodeApplied: boolean;
+  transcodeReason: string;
 } | {
   ok: false;
   message: string;
   detail?: unknown;
 }> {
-  const shouldTranscode = VIDEO_MEDIA_EXTENSIONS.has(args.extension)
-    || args.fileBytes.byteLength > MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES;
+  const transcodeReason = args.forceTranscode
+    ? "forced_by_mode"
+    : args.contentType.toLowerCase().startsWith("video/")
+      ? "video_source"
+      : args.fileBytes.byteLength > MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES
+        ? "openai_upload_limit"
+        : "none";
+  const shouldTranscode = transcodeReason !== "none";
 
   if (!shouldTranscode) {
     args.stageTimer.mark("media:transcode:skipped", {
@@ -394,6 +527,8 @@ async function prepareTranscriptUploadMedia(args: {
       outputFormat: null,
       outputSampleRate: null,
       outputChannels: null,
+      transcodeApplied: false,
+      transcodeReason,
     };
   }
 
@@ -445,6 +580,8 @@ async function prepareTranscriptUploadMedia(args: {
         outputFormat: transcoded.outputFormat,
         outputSampleRate: transcoded.outputSampleRate,
         outputChannels: transcoded.outputChannels,
+        transcodeApplied: true,
+        transcodeReason,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -494,16 +631,19 @@ async function prepareTranscriptUploadMedia(args: {
       ffmpeg_bin: ffmpegBin,
     });
     try {
-      const wavBytes = await renderTranscriptAudioWavWithFfmpeg({
+      const localTranscode = await renderTranscriptAudioWavWithFfmpeg({
         sourceBytes: args.fileBytes,
         sourceExtension: args.extension,
         sourceLabel: args.sourceLabel,
         ffmpegBin,
       });
+      const wavBytes = localTranscode.wavBytes;
       args.stageTimer.mark("media:transcode:local:ok", {
         byte_count: wavBytes.byteLength,
         output_sample_rate: 16000,
         output_channels: 1,
+        ffmpeg_command: localTranscode.command,
+        ffmpeg_exit_code: localTranscode.exitCode,
       });
       return {
         ok: true,
@@ -515,6 +655,8 @@ async function prepareTranscriptUploadMedia(args: {
         outputFormat: "wav_pcm_s16le",
         outputSampleRate: 16000,
         outputChannels: 1,
+        transcodeApplied: true,
+        transcodeReason,
       };
     } catch (error) {
       return {
@@ -2237,12 +2379,32 @@ export function createHammerPrepMiddleware() {
         });
         return;
       }
+      const originalFileBytes = fileBytes;
+      const originalSourceLabel = sourceLabel;
+      const originalContentType = contentType;
+      const originalExtension = extension;
+      const originalFileName = path.basename(originalSourceLabel);
+      const uploadMode = resolveTranscriptUploadMode(req);
+      const originalLooksVideo = originalContentType.toLowerCase().startsWith("video/");
+      const directAcceptableForOpenAi = !originalLooksVideo
+        && originalFileBytes.byteLength <= MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES;
+      stageTimer.mark("media:upload:original:selected", {
+        original_artifact_selected: true,
+        original_file_path_or_id: originalSourceLabel,
+        original_filename: originalFileName,
+        original_mime_type: originalContentType,
+        original_byte_length: originalFileBytes.byteLength,
+        original_direct_acceptable_for_openai: directAcceptableForOpenAi,
+        upload_mode: uploadMode,
+      });
+
       const uploadMedia = await prepareTranscriptUploadMedia({
-        fileBytes,
-        sourceLabel,
-        contentType,
-        extension,
+        fileBytes: originalFileBytes,
+        sourceLabel: originalSourceLabel,
+        contentType: originalContentType,
+        extension: originalExtension,
         stageTimer,
+        forceTranscode: uploadMode === "transcoded",
       });
       if (!uploadMedia.ok) {
         stageTimer.mark("media:transcode:failed", {
@@ -2263,23 +2425,29 @@ export function createHammerPrepMiddleware() {
         });
         return;
       }
-      fileBytes = uploadMedia.fileBytes;
-      contentType = uploadMedia.contentType;
-      sourceLabel = uploadMedia.sourceLabel;
-      if (fileBytes.byteLength > MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES) {
+      stageTimer.mark("media:upload:prepared", {
+        prep_decides_transcode: uploadMedia.transcodeApplied,
+        prep_transcode_reason: uploadMedia.transcodeReason,
+        prepared_upload_file_path: uploadMedia.sourceLabel,
+        prepared_upload_filename: path.basename(uploadMedia.sourceLabel),
+        prepared_upload_mime_type: uploadMedia.contentType,
+        prepared_upload_byte_length: uploadMedia.fileBytes.byteLength,
+      });
+
+      if (uploadMedia.fileBytes.byteLength > MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES) {
         stageTimer.mark("media:transcode:failed", {
           reason: "transcript_upload_too_large",
-          byte_count: fileBytes.byteLength,
+          byte_count: uploadMedia.fileBytes.byteLength,
           backend: uploadMedia.backend,
         }, "warn");
         sendTranscriptPrepError(res, {
           status: 413,
           code: "SOURCE_TOO_LARGE",
-          message: buildUploadTooLargeMessage(fileBytes.byteLength),
+          message: buildUploadTooLargeMessage(uploadMedia.fileBytes.byteLength),
           retryable: false,
           detail: {
             max_upload_bytes: MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES,
-            observed_bytes: fileBytes.byteLength,
+            observed_bytes: uploadMedia.fileBytes.byteLength,
             transcode_backend: uploadMedia.backend,
           },
           meta: {
@@ -2290,49 +2458,73 @@ export function createHammerPrepMiddleware() {
         });
         return;
       }
+      const mediaRuntime = detectHammerMediaRuntime();
+      const ffprobeBin = readTrimmed(mediaRuntime.ffmpeg.ffprobe_bin);
+      const probeForCandidate = async (label: string, bytes: Buffer, extensionHint: string) => {
+        if (!ffprobeBin || !mediaRuntime.ffmpeg.ffprobe_available) {
+          stageTimer.mark("media:upload:ffprobe:skipped", { label, reason: "ffprobe_unavailable" });
+          return;
+        }
+        try {
+          const probe = await probeUploadWithFfprobe({
+            ffprobeBin,
+            bytes,
+            sourceExtension: extensionHint,
+            sourceLabel: label,
+          });
+          stageTimer.mark("media:upload:ffprobe:ok", {
+            label,
+            codec: probe.codec,
+            sample_rate: probe.sampleRate,
+            channels: probe.channels,
+            duration_sec: probe.durationSec,
+            bit_rate: probe.bitRate,
+          });
+        } catch (error) {
+          stageTimer.mark("media:upload:ffprobe:failed", {
+            label,
+            message: error instanceof Error ? error.message : String(error),
+          }, "warn");
+        }
+      };
 
-      const form = new FormData();
-      form.set("model", model);
-      form.set("response_format", "diarized_json");
-      form.set("chunking_strategy", "auto");
-      form.set(
-        "file",
-        new Blob([new Uint8Array(fileBytes)], { type: contentType }),
-        path.basename(sourceLabel),
-      );
+      const directCandidate = {
+        kind: "direct_original" as const,
+        fileBytes: originalFileBytes,
+        contentType: originalContentType,
+        sourceLabel: originalSourceLabel,
+        backend: "direct_source" as const,
+        serviceRequestId: null as string | null,
+        outputFormat: null as string | null,
+        outputSampleRate: null as number | null,
+        outputChannels: null as number | null,
+      };
+      let transcodeCandidate = {
+        kind: "transcoded_wav" as const,
+        fileBytes: uploadMedia.fileBytes,
+        contentType: uploadMedia.contentType,
+        sourceLabel: uploadMedia.sourceLabel,
+        backend: uploadMedia.backend,
+        serviceRequestId: uploadMedia.serviceRequestId,
+        outputFormat: uploadMedia.outputFormat,
+        outputSampleRate: uploadMedia.outputSampleRate,
+        outputChannels: uploadMedia.outputChannels,
+      };
 
-      const upstreamTimeout = createTimeoutAbortController(openAiTimeoutMs);
-      let upstream: Response;
-      try {
-        stageTimer.mark("openai:request:start", {
-          model,
-          response_format: "diarized_json",
-          chunking_strategy: "auto",
-          content_type: contentType,
-          file_name: path.basename(sourceLabel),
-          byte_count: fileBytes.byteLength,
-          transcode_backend: uploadMedia.backend,
-          ffmpeg_request_id: uploadMedia.serviceRequestId,
-          output_format: uploadMedia.outputFormat,
-          output_sample_rate: uploadMedia.outputSampleRate,
-          output_channels: uploadMedia.outputChannels,
-        });
-        upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${textApiKey}`,
-          },
-          body: form,
-          signal: upstreamTimeout.controller.signal,
-        });
-      } catch (error) {
-        if (upstreamTimeout.controller.signal.aborted) {
-          stageTimer.mark("openai:request:timeout", { timeout_ms: openAiTimeoutMs }, "warn");
+      const candidates: Array<typeof directCandidate | typeof transcodeCandidate> = [];
+      if (uploadMode === "direct") {
+        if (!directAcceptableForOpenAi) {
           sendTranscriptPrepError(res, {
-            status: 504,
-            code: "OPENAI_TIMEOUT",
-            message: "Hammer transcript prep timed out while waiting for OpenAI transcription.",
-            retryable: true,
+            status: 400,
+            code: "INVALID_REQUEST",
+            message: "Direct upload mode selected but the source file is not directly acceptable for OpenAI.",
+            retryable: false,
+            detail: {
+              direct_acceptable: directAcceptableForOpenAi,
+              source_content_type: originalContentType,
+              source_extension: originalExtension,
+              source_bytes: originalFileBytes.byteLength,
+            },
             meta: {
               workspace_id: request.workspace_id,
               workpiece_id: request.workpiece_id,
@@ -2341,12 +2533,245 @@ export function createHammerPrepMiddleware() {
           });
           return;
         }
-        stageTimer.mark("openai:request:failed", { error: error instanceof Error ? error.message : String(error) }, "error");
+        candidates.push(directCandidate);
+      } else if (uploadMode === "transcoded") {
+        candidates.push(transcodeCandidate);
+      } else if (uploadMode === "compare") {
+        if (directAcceptableForOpenAi) candidates.push(directCandidate);
+        if (transcodeCandidate.sourceLabel !== directCandidate.sourceLabel || transcodeCandidate.contentType !== directCandidate.contentType) {
+          candidates.push(transcodeCandidate);
+        }
+      } else {
+        if (directAcceptableForOpenAi) {
+          candidates.push(directCandidate);
+          if (uploadMedia.transcodeApplied) candidates.push(transcodeCandidate);
+        } else {
+          candidates.push(transcodeCandidate);
+        }
+      }
+
+      let upstream: Response | null = null;
+      let selectedCandidate: (typeof directCandidate | typeof transcodeCandidate) | null = null;
+      let lastUpstreamDetail = "";
+      let fallbackTranscodeAppended = false;
+      for (const candidate of candidates) {
+        if (candidate.kind === "transcoded_wav" && candidate.contentType === "audio/wav") {
+          const magic = candidate.fileBytes.subarray(0, 4).toString("ascii");
+          if (magic !== "RIFF") {
+            stageTimer.mark("media:transcode:invalid_output", {
+              candidate_kind: candidate.kind,
+              expected_magic: "RIFF",
+              observed_magic: magic,
+              byte_count: candidate.fileBytes.byteLength,
+            }, "warn");
+            sendTranscriptPrepError(res, {
+              status: 422,
+              code: "MEDIA_READ_FAILED",
+              message: "Transcoded audio output is invalid before upload (WAV header missing).",
+              retryable: false,
+              detail: {
+                candidate_kind: candidate.kind,
+                observed_magic: magic,
+                byte_count: candidate.fileBytes.byteLength,
+              },
+              meta: {
+                workspace_id: request.workspace_id,
+                workpiece_id: request.workpiece_id,
+                client_request_id: request.client_request_id ?? null,
+              },
+            });
+            return;
+          }
+        }
+        stageTimer.mark("openai:upload:candidate", {
+          candidate_kind: candidate.kind,
+          prepared_upload_file_path: candidate.sourceLabel,
+          prepared_upload_filename: path.basename(candidate.sourceLabel),
+          prepared_upload_mime_type: candidate.contentType,
+          prepared_upload_byte_length: candidate.fileBytes.byteLength,
+          transcode_backend: candidate.backend,
+          ffmpeg_request_id: candidate.serviceRequestId,
+          output_format: candidate.outputFormat,
+          output_sample_rate: candidate.outputSampleRate,
+          output_channels: candidate.outputChannels,
+        });
+        await probeForCandidate(candidate.sourceLabel, candidate.fileBytes, path.extname(candidate.sourceLabel).toLowerCase() || ".bin");
+
+        const form = new FormData();
+        form.set("model", model);
+        form.set("response_format", "diarized_json");
+        form.set("chunking_strategy", "auto");
+        form.set(
+          "file",
+          new Blob([new Uint8Array(candidate.fileBytes)], { type: candidate.contentType }),
+          path.basename(candidate.sourceLabel),
+        );
+        stageTimer.mark("openai:file_object", {
+          candidate_kind: candidate.kind,
+          filename: path.basename(candidate.sourceLabel),
+          mime_type: candidate.contentType,
+          byte_length: candidate.fileBytes.byteLength,
+        });
+
+        const upstreamTimeout = createTimeoutAbortController(openAiTimeoutMs);
+        try {
+          stageTimer.mark("openai:request:start", {
+            model,
+            response_format: "diarized_json",
+            chunking_strategy: "auto",
+            content_type: candidate.contentType,
+            file_name: path.basename(candidate.sourceLabel),
+            byte_count: candidate.fileBytes.byteLength,
+            candidate_kind: candidate.kind,
+            transcode_backend: candidate.backend,
+            ffmpeg_request_id: candidate.serviceRequestId,
+            output_format: candidate.outputFormat,
+            output_sample_rate: candidate.outputSampleRate,
+            output_channels: candidate.outputChannels,
+          });
+          const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+            method: "POST",
+            headers: { authorization: `Bearer ${textApiKey}` },
+            body: form,
+            signal: upstreamTimeout.controller.signal,
+          });
+          if (response.ok) {
+            upstream = response;
+            selectedCandidate = candidate;
+            break;
+          }
+          const detail = await response.text();
+          lastUpstreamDetail = detail;
+          stageTimer.mark("openai:response:error", {
+            status: response.status,
+            candidate_kind: candidate.kind,
+            detail_sample: detail.slice(0, 400),
+          }, "warn");
+          if (!(uploadMode === "auto" && candidate.kind === "direct_original" && isLikelyUnsupportedAudioUpload(response.status, detail))) {
+            upstream = response;
+            selectedCandidate = candidate;
+            break;
+          }
+          if (!fallbackTranscodeAppended && !uploadMedia.transcodeApplied) {
+            const fallbackTranscode = await prepareTranscriptUploadMedia({
+              fileBytes: originalFileBytes,
+              sourceLabel: originalSourceLabel,
+              contentType: originalContentType,
+              extension: originalExtension,
+              stageTimer,
+              forceTranscode: true,
+            });
+            if (!fallbackTranscode.ok) {
+              stageTimer.mark("media:transcode:failed", {
+                message: fallbackTranscode.message,
+                detail: fallbackTranscode.detail,
+                reason: "fallback_after_direct_reject",
+              }, "warn");
+              sendTranscriptPrepError(res, {
+                status: 422,
+                code: "MEDIA_READ_FAILED",
+                message: fallbackTranscode.message,
+                retryable: false,
+                detail: fallbackTranscode.detail,
+                meta: {
+                  workspace_id: request.workspace_id,
+                  workpiece_id: request.workpiece_id,
+                  client_request_id: request.client_request_id ?? null,
+                },
+              });
+              return;
+            }
+            if (fallbackTranscode.fileBytes.byteLength > MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES) {
+              stageTimer.mark("media:transcode:failed", {
+                reason: "fallback_transcript_upload_too_large",
+                byte_count: fallbackTranscode.fileBytes.byteLength,
+                backend: fallbackTranscode.backend,
+              }, "warn");
+              sendTranscriptPrepError(res, {
+                status: 413,
+                code: "SOURCE_TOO_LARGE",
+                message: buildUploadTooLargeMessage(fallbackTranscode.fileBytes.byteLength),
+                retryable: false,
+                detail: {
+                  max_upload_bytes: MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES,
+                  observed_bytes: fallbackTranscode.fileBytes.byteLength,
+                  transcode_backend: fallbackTranscode.backend,
+                },
+                meta: {
+                  workspace_id: request.workspace_id,
+                  workpiece_id: request.workpiece_id,
+                  client_request_id: request.client_request_id ?? null,
+                },
+              });
+              return;
+            }
+            transcodeCandidate = {
+              kind: "transcoded_wav",
+              fileBytes: fallbackTranscode.fileBytes,
+              contentType: fallbackTranscode.contentType,
+              sourceLabel: fallbackTranscode.sourceLabel,
+              backend: fallbackTranscode.backend,
+              serviceRequestId: fallbackTranscode.serviceRequestId,
+              outputFormat: fallbackTranscode.outputFormat,
+              outputSampleRate: fallbackTranscode.outputSampleRate,
+              outputChannels: fallbackTranscode.outputChannels,
+            };
+            fallbackTranscodeAppended = true;
+            stageTimer.mark("media:upload:prepared", {
+              prep_decides_transcode: fallbackTranscode.transcodeApplied,
+              prep_transcode_reason: `${fallbackTranscode.transcodeReason}:fallback_after_direct_reject`,
+              prepared_upload_file_path: fallbackTranscode.sourceLabel,
+              prepared_upload_filename: path.basename(fallbackTranscode.sourceLabel),
+              prepared_upload_mime_type: fallbackTranscode.contentType,
+              prepared_upload_byte_length: fallbackTranscode.fileBytes.byteLength,
+            });
+            candidates.push(transcodeCandidate);
+          }
+          stageTimer.mark("openai:upload:fallback", {
+            reason: "direct_upload_rejected_switch_to_transcoded",
+            status: response.status,
+          }, "warn");
+        } catch (error) {
+          if (upstreamTimeout.controller.signal.aborted) {
+            stageTimer.mark("openai:request:timeout", { timeout_ms: openAiTimeoutMs }, "warn");
+            sendTranscriptPrepError(res, {
+              status: 504,
+              code: "OPENAI_TIMEOUT",
+              message: "Hammer transcript prep timed out while waiting for OpenAI transcription.",
+              retryable: true,
+              meta: {
+                workspace_id: request.workspace_id,
+                workpiece_id: request.workpiece_id,
+                client_request_id: request.client_request_id ?? null,
+              },
+            });
+            return;
+          }
+          stageTimer.mark("openai:request:failed", { error: error instanceof Error ? error.message : String(error) }, "error");
+          sendTranscriptPrepError(res, {
+            status: 502,
+            code: "OPENAI_UPSTREAM_ERROR",
+            message: `Hammer transcript prep could not reach OpenAI transcription (${error instanceof Error ? error.message : "unknown error"}).`,
+            retryable: true,
+            meta: {
+              workspace_id: request.workspace_id,
+              workpiece_id: request.workpiece_id,
+              client_request_id: request.client_request_id ?? null,
+            },
+          });
+          return;
+        } finally {
+          upstreamTimeout.dispose();
+        }
+      }
+
+      if (!upstream || !selectedCandidate) {
         sendTranscriptPrepError(res, {
           status: 502,
           code: "OPENAI_UPSTREAM_ERROR",
-          message: `Hammer transcript prep could not reach OpenAI transcription (${error instanceof Error ? error.message : "unknown error"}).`,
+          message: readUpstreamErrorMessage(lastUpstreamDetail) ?? "OpenAI transcription failed.",
           retryable: true,
+          detail: lastUpstreamDetail,
           meta: {
             workspace_id: request.workspace_id,
             workpiece_id: request.workpiece_id,
@@ -2354,12 +2779,15 @@ export function createHammerPrepMiddleware() {
           },
         });
         return;
-      } finally {
-        upstreamTimeout.dispose();
       }
+
+      fileBytes = selectedCandidate.fileBytes;
+      contentType = selectedCandidate.contentType;
+      sourceLabel = selectedCandidate.sourceLabel;
 
       stageTimer.mark("openai:response:received", {
         status: upstream.status,
+        candidate_kind: selectedCandidate.kind,
         provider_request_id: upstream.headers.get("x-request-id"),
       });
       if (!upstream.ok) {

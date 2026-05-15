@@ -126,6 +126,7 @@ async function main(): Promise<void> {
     const mediaName = "source.wav";
     await fsPromises.writeFile(path.join(tempRoot, mediaName), Buffer.from("fake-audio-bytes"));
     await fsPromises.writeFile(path.join(tempRoot, "source.webm"), Buffer.from("fake-video-bytes"));
+    await fsPromises.writeFile(path.join(tempRoot, "source-audio.webm"), Buffer.from("fake-audio-webm-bytes"));
 
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = toUrl(input);
@@ -159,8 +160,18 @@ async function main(): Promise<void> {
         assert(body instanceof FormData, "expected OpenAI request body to be FormData");
         const file = body.get("file");
         assert(file instanceof Blob, "expected OpenAI request to include a file blob");
-        if (calls.filter((call) => call.url === "https://api.openai.com/v1/audio/transcriptions").length === 2) {
-          assert.equal(file.type, "audio/wav", "expected video source to be transcoded before OpenAI");
+        if (file.type === "audio/webm") {
+          return jsonResponse(400, {
+            error: {
+              message: "Audio file might be corrupted or unsupported",
+              type: "invalid_request_error",
+              param: "file",
+              code: "invalid_value",
+            },
+          });
+        }
+        if (calls.filter((call) => call.url === "https://api.openai.com/v1/audio/transcriptions").length >= 2) {
+          assert.equal(file.type, "audio/wav", "expected fallback/transcoded upload to be WAV");
         }
         const longText = [
           "Here is the weird part.",
@@ -219,6 +230,25 @@ async function main(): Promise<void> {
     const openAiCalls = calls.filter((call) => call.url === "https://api.openai.com/v1/audio/transcriptions");
     assert.equal(openAiCalls.length > 0, true, "expected OpenAI transcription to be called");
 
+    const audioWebmResponse = await fetch(`${server.origin}/api/hammer/prep/transcript`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer test-user-access-token",
+      },
+      body: JSON.stringify({
+        workspace_id: TEST_WORKSPACE_ID,
+        workpiece_id: TEST_WORKPIECE_ID,
+        media_kind: "recording_audio",
+        local_root_abs: tempRoot,
+        local_relpath: "source-audio.webm",
+        mime_type: "audio/webm",
+      }),
+    });
+    const audioWebmPayload = await audioWebmResponse.json();
+    assert.equal(audioWebmResponse.status, 200, "expected transcoded audio-webm prep response");
+    assert.equal(Boolean(audioWebmPayload?.ok), true, "expected transcoded audio-webm ok flag");
+
     const videoResponse = await fetch(`${server.origin}/api/hammer/prep/transcript`, {
       method: "POST",
       headers: {
@@ -237,7 +267,7 @@ async function main(): Promise<void> {
     const videoPayload = await videoResponse.json();
     assert.equal(videoResponse.status, 200, "expected transcoded video prep response");
     assert.equal(Boolean(videoPayload?.ok), true, "expected transcoded video ok flag");
-    assert.equal(ffmpegServer.calls(), 1, "expected video source to use Forge FFmpeg once");
+    assert.equal(ffmpegServer.calls(), 2, "expected audio-webm and video sources to use Forge FFmpeg");
 
     console.log("Hammer transcript normalization tests passed.");
   } finally {
