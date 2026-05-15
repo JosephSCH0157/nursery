@@ -431,6 +431,8 @@ class WhisperBridgeRecognizer {
   private consecutiveUnsupportedAudioErrors = 0;
   private deterministicLatchLogged = false;
   private readonly inFlightTranscriptionControllers = new Set<AbortController>();
+  private firstAudioChunkLogged = false;
+  private firstTranscriptPacketLogged = false;
 
   constructor(options: WhisperBridgeRecognizerOptions = {}) {
     this.route = options.route || DEFAULT_ROUTE;
@@ -460,6 +462,24 @@ class WhisperBridgeRecognizer {
       } catch {
         // listener failures are non-fatal
       }
+    }
+  }
+
+  private readRunMeta(): { runKey: string | null; runGeneration: number | null; elapsedSinceLiveStartMs: number | null } {
+    try {
+      const win = window as any;
+      const runKeyRaw = String(win.__tpAsrRunKey || win.__tpAsrRuntimeStatus?.runKey || "").trim();
+      const runGenerationRaw = Number(win.__tpAsrRunGeneration ?? win.__tpAsrRuntimeStatus?.runGeneration);
+      const startedAtRaw = Number(win.__tpAsrRunStartedAt);
+      const now = Date.now();
+      const elapsed = Number.isFinite(startedAtRaw) && startedAtRaw > 0 ? Math.max(0, now - startedAtRaw) : null;
+      return {
+        runKey: runKeyRaw || null,
+        runGeneration: Number.isFinite(runGenerationRaw) ? Math.max(0, Math.floor(runGenerationRaw)) : null,
+        elapsedSinceLiveStartMs: elapsed,
+      };
+    } catch {
+      return { runKey: null, runGeneration: null, elapsedSinceLiveStartMs: null };
     }
   }
 
@@ -551,6 +571,8 @@ class WhisperBridgeRecognizer {
     this.requestInvalid = false;
     this.consecutiveUnsupportedAudioErrors = 0;
     this.deterministicLatchLogged = false;
+    this.firstAudioChunkLogged = false;
+    this.firstTranscriptPacketLogged = false;
     this.pendingRecorderStop = null;
     this.endEmitted = false;
     this.generation += 1;
@@ -732,6 +754,53 @@ class WhisperBridgeRecognizer {
       this.seq = nextSeq;
       this.queue.push({ blob, seq: this.seq, durationMs: chunkDurationMs });
       const queueAfter = this.queue.length;
+      const enqueueTs = Date.now();
+      const runMeta = this.readRunMeta();
+      if (!this.firstAudioChunkLogged) {
+        this.firstAudioChunkLogged = true;
+        try {
+          console.info("[ASR_FIRST_AUDIO_CHUNK]", {
+            runKey: runMeta.runKey,
+            runGeneration: runMeta.runGeneration,
+            seq: this.seq,
+            blobSize: blob.size,
+            blobType: blob.type || "unknown",
+            queueDepthAfter: queueAfter,
+            elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+          });
+        } catch {
+          // diagnostics are best-effort
+        }
+      }
+      try {
+        console.info("[ASR_WHISPER_QUEUE_ENQUEUED]", {
+          runKey: runMeta.runKey,
+          runGeneration: runMeta.runGeneration,
+          seq: this.seq,
+          blobSize: blob.size,
+          blobType: blob.type || "unknown",
+          queueDepthBefore: queueBefore,
+          queueDepthAfter: queueAfter,
+          elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+        });
+      } catch {
+        // diagnostics are best-effort
+      }
+      try {
+        window.dispatchEvent(new CustomEvent("tp:asr:audio-chunk", {
+          detail: {
+            ts: enqueueTs,
+            chunkEnqueueTs: enqueueTs,
+            runKey: runMeta.runKey,
+            runGeneration: runMeta.runGeneration,
+            seq: this.seq,
+            blobSize: blob.size,
+            blobType: blob.type || "unknown",
+          },
+        }));
+      } catch {
+        // diagnostics are best-effort
+      }
       this.logChunkLifecycle("queued", blob, {
         seq: this.seq,
         queueDepthBefore: queueBefore,
@@ -862,6 +931,17 @@ class WhisperBridgeRecognizer {
           );
           const staleDropReason = this.getStaleDropReason(requestGeneration);
           if (staleDropReason) {
+            const runMeta = this.readRunMeta();
+            try {
+              console.warn("[ASR_WHISPER_RESPONSE_DROPPED]", {
+                runKey: runMeta.runKey,
+                runGeneration: runMeta.runGeneration,
+                seq: next.seq,
+                reason: staleDropReason,
+                dropPhase: "post-response",
+                elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+              });
+            } catch {}
             this.logStaleResponseDropped({
               seq: next.seq,
               reason: staleDropReason,
@@ -878,6 +958,17 @@ class WhisperBridgeRecognizer {
         } catch (error) {
           const staleDropReason = this.getStaleDropReason(requestGeneration);
           if (staleDropReason || this.isAbortError(error)) {
+            const runMeta = this.readRunMeta();
+            try {
+              console.warn("[ASR_WHISPER_RESPONSE_DROPPED]", {
+                runKey: runMeta.runKey,
+                runGeneration: runMeta.runGeneration,
+                seq: next.seq,
+                reason: staleDropReason ?? "request-aborted",
+                dropPhase: "request-error",
+                elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+              });
+            } catch {}
             this.logStaleResponseDropped({
               seq: next.seq,
               reason: staleDropReason ?? "request-aborted",
@@ -1155,6 +1246,22 @@ class WhisperBridgeRecognizer {
       normalizedLanguage,
       requestInvalid: this.requestInvalid,
     });
+    {
+      const runMeta = this.readRunMeta();
+      try {
+        console.info("[ASR_WHISPER_REQUEST_SENT]", {
+          runKey: runMeta.runKey,
+          runGeneration: runMeta.runGeneration,
+          seq,
+          blobSize: blob.size,
+          blobType: blob.type || "unknown",
+          mimeType,
+          queueDepthBefore,
+          queueDepthAfter,
+          elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+        });
+      } catch {}
+    }
 
     const abortController = new AbortController();
     this.inFlightTranscriptionControllers.add(abortController);
@@ -1227,6 +1334,22 @@ class WhisperBridgeRecognizer {
     if (this.getStaleDropReason(requestGeneration)) {
       throw new Error("whisper_stale_response");
     }
+    {
+      const runMeta = this.readRunMeta();
+      try {
+        console.info("[ASR_WHISPER_RESPONSE_RECEIVED]", {
+          runKey: runMeta.runKey,
+          runGeneration: runMeta.runGeneration,
+          seq,
+          ok: response.ok,
+          status: response.status,
+          hasText: typeof payload.text === "string" && payload.text.trim().length > 0,
+          textLength: typeof payload.text === "string" ? payload.text.trim().length : 0,
+          providerRequestId: payload.provider_request_id ?? null,
+          elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+        });
+      } catch {}
+    }
     return payload;
   }
 
@@ -1237,6 +1360,20 @@ class WhisperBridgeRecognizer {
     const now = nowTs();
     const incomingTokens = toWordTokens(text);
     if (!incomingTokens.length) return;
+    if (!this.firstTranscriptPacketLogged) {
+      this.firstTranscriptPacketLogged = true;
+      const runMeta = this.readRunMeta();
+      try {
+        console.info("[ASR_FIRST_TRANSCRIPT_PACKET]", {
+          runKey: runMeta.runKey,
+          runGeneration: runMeta.runGeneration,
+          textLength: text.length,
+          incomingTokenCount: incomingTokens.length,
+          providerRequestId: payload.provider_request_id ?? null,
+          elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+        });
+      } catch {}
+    }
 
     if (this.lastTranscriptAt > 0 && now - this.lastTranscriptAt > RESET_WINDOW_IDLE_MS) {
       this.transcriptWindow = [];

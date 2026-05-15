@@ -3285,6 +3285,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let asrRuntimeActiveReadMode = false;
   let lastTranscriptPacketAt = 0;
   let lastAudioChunkAt = 0;
+  let firstTranscriptPacketLogged = false;
   let backendRestartWindowStartedAt = 0;
   let backendRestartedInWindow = false;
   let lastBackendHeartbeatAt = 0;
@@ -17311,6 +17312,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         runGeneration: transcriptRunGeneration,
       })
     ) {
+      if (isWhisperBridgeTranscriptSource(transcriptSource)) {
+        const runStartedAtRaw = Number((window as any).__tpAsrRunStartedAt);
+        const elapsedSinceLiveStartMs =
+          Number.isFinite(runStartedAtRaw) && runStartedAtRaw > 0
+            ? Math.max(0, now - runStartedAtRaw)
+            : null;
+        try {
+          console.warn('[ASR_WHISPER_RESPONSE_DROPPED]', {
+            runKey: transcriptRunKey || resolveActiveRunKey() || null,
+            runGeneration: transcriptRunGeneration ?? resolveActiveRunGeneration() ?? null,
+            reason: 'run_identity_stale',
+            elapsedSinceLiveStartMs,
+            final: !!isFinal,
+            transcriptSource: transcriptSource || 'unknown',
+          });
+        } catch {}
+      }
       warnGuard('asr_live_stale_generation_hold', [
         'source=ingest',
         `driverRunGeneration=${resolveDriverRunGeneration() ?? -1}`,
@@ -18173,6 +18191,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastTranscriptPacketAt = now;
     if (lastAudioChunkAt <= 0 || now - lastAudioChunkAt > 250) {
       lastAudioChunkAt = now;
+    }
+    if (!firstTranscriptPacketLogged) {
+      firstTranscriptPacketLogged = true;
+      const runStartedAtRaw = Number((window as any).__tpAsrRunStartedAt);
+      const elapsedSinceLiveStartMs =
+        Number.isFinite(runStartedAtRaw) && runStartedAtRaw > 0
+          ? Math.max(0, now - runStartedAtRaw)
+          : null;
+      try {
+        console.info('[ASR_FIRST_TRANSCRIPT_PACKET]', {
+          runKey: transcriptRunKey || resolveActiveRunKey() || null,
+          runGeneration: transcriptRunGeneration ?? resolveActiveRunGeneration() ?? null,
+          source: transcriptSource || 'unknown',
+          final: !!isFinal,
+          textLength: compacted.length,
+          elapsedSinceLiveStartMs,
+        });
+      } catch {}
     }
     backendRestartWindowStartedAt = now;
     backendRestartedInWindow = false;

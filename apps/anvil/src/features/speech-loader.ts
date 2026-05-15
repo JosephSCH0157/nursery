@@ -3495,16 +3495,19 @@ function beginAsrRunKey(mode: string, reason?: string): string {
   if (activeAsrRunKey) return activeAsrRunKey;
   asrRunGeneration += 1;
   asrRunCounter += 1;
-  activeAsrRunKey = `asr-${Date.now().toString(36)}-${asrRunCounter}-${String(mode || 'unknown').toLowerCase()}`;
+  const startedAt = Date.now();
+  activeAsrRunKey = `asr-${startedAt.toString(36)}-${asrRunCounter}-${String(mode || 'unknown').toLowerCase()}`;
   if (typeof window !== 'undefined') {
     try { window.__tpAsrRunKey = activeAsrRunKey; } catch {}
     try { window.__tpAsrRunGeneration = asrRunGeneration; } catch {}
+    try { window.__tpAsrRunStartedAt = startedAt; } catch {}
   }
   if (isDevMode() && shouldLogLevel(1)) {
     try {
       console.info('[ASR] run begin', {
         runKey: activeAsrRunKey,
         runGeneration: asrRunGeneration,
+        startedAt,
         mode,
         reason,
       });
@@ -3533,6 +3536,7 @@ function clearAsrRunKey(reason: string): void {
     try { window.__tpAsrLastEndedRunAt = Date.now(); } catch {}
     try { window.__tpAsrRunKey = null; } catch {}
     try { window.__tpAsrRunGeneration = asrRunGeneration; } catch {}
+    try { window.__tpAsrRunStartedAt = 0; } catch {}
   }
   emitAsrRuntimeStatus(`run-clear:${reason}`);
 }
