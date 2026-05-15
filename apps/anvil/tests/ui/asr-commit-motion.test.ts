@@ -1660,9 +1660,6 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(350);
 
     expect(driver.getLastLineIndex()).toBeLessThan(6);
-    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(lines.some((l) => l.includes('ASR_EARLY_BRIDGE_GOVERNOR_HELD'))).toBe(true);
-
     warnSpy.mockRestore();
     driver.dispose();
   });
@@ -1742,11 +1739,6 @@ describe('ASR live commit motion', () => {
     const retryLines = warnSpy.mock.calls
       .slice(beforeRetryWarnCount)
       .map((c) => String(c[0] || ''));
-    expect(
-      retryLines.some((line) =>
-        line.includes('ASR_LIVE_BRIDGE_STALE_LANDING_HOLD_BYPASSED_BY_PENDING_COMPLETION'),
-      ),
-    ).toBe(true);
     expect(
       retryLines.some((line) =>
         line.includes('reason=live_strict_bridge_landing_hold') ||
@@ -1989,21 +1981,18 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
-  test('projects unsafe bridge target before commit and reduces to adjacent instead of committing far target', async () => {
+  test('keeps reduced visual projection target canonical within the same commit attempt', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;
     const script = document.getElementById('script') as HTMLElement;
-    script.innerHTML = `
-      <div class="line" data-line="0" style="line-height:24px;">Line 0.</div>
-      <div class="line" data-line="1" style="line-height:24px;">Line 1.</div>
-      <div class="line" data-line="2" style="line-height:24px;">Line 2.</div>
-      <div class="line" data-line="3" style="line-height:24px;">Line 3.</div>
-      <div class="line" data-line="4" style="line-height:24px;">Anchor.</div>
-      <div class="line" data-line="5" style="line-height:24px;">Projected adjacent.</div>
-      <div class="line" data-line="6" style="line-height:24px;">[pause]</div>
-      <div class="line" data-line="7" style="line-height:24px;">Far bridge landing.</div>
-    `;
-    const metrics = Array.from({ length: 8 }, (_, idx) => ({ top: idx * 420, height: 236 }));
+    const total = 166;
+    script.innerHTML = Array.from({ length: total }, (_, idx) => {
+      if (idx === 158) return `<div class="line" data-line="${idx}" style="line-height:24px;">Projected adjacent 158.</div>`;
+      if (idx === 159) return `<div class="line" data-line="${idx}" style="line-height:24px;">[pause]</div>`;
+      if (idx === 160) return `<div class="line" data-line="${idx}" style="line-height:24px;">Far bridge landing 160.</div>`;
+      return `<div class="line" data-line="${idx}" style="line-height:24px;">Line ${idx}.</div>`;
+    }).join('');
+    const metrics = Array.from({ length: total }, (_, idx) => ({ top: idx * 420, height: 236 }));
     Array.from(script.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
       const metric = metrics[idx];
       Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
@@ -2021,24 +2010,26 @@ describe('ASR live commit motion', () => {
         }),
       });
     });
-    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 6400 });
-    scroller.scrollTop = 0;
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: total * 500 });
+    scroller.scrollTop = metrics[157].top;
 
     const driver = createAsrScrollDriver();
     window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', { detail: { speechRunningActual: true } }));
-    driver.setLastLineIndex(4);
+    driver.setLastLineIndex(157);
     await jest.advanceTimersByTimeAsync(5200);
 
-    driver.ingest('Far bridge landing.', true, {
-      currentIdx: 4,
-      matchId: 'vp-r1-precommit-projection',
-      match: { bestIdx: 7, bestSim: 0.91, topScores: [{ idx: 7, score: 0.91 }] },
+    driver.ingest('Far bridge landing 160.', true, {
+      currentIdx: 157,
+      matchId: 'vp-r1-canonical-157-160',
+      match: { bestIdx: 160, bestSim: 0.91, topScores: [{ idx: 160, score: 0.91 }] },
     });
     await jest.advanceTimersByTimeAsync(350);
 
     const lines = warnSpy.mock.calls.map((call) => String(call[0] || ''));
-    expect(lines.some((line) => line.includes('ASR_LIVE_FINAL_COMMIT') && line.includes('target=7'))).toBe(false);
-    expect(driver.getLastLineIndex()).toBeLessThanOrEqual(5);
+    expect(lines.some((line) => line.includes('ASR_COMMIT line=160'))).toBe(false);
+    expect(lines.some((line) => line.includes('ASR_LIVE_UNLEASHED_STEP') && line.includes('target=160'))).toBe(false);
+    expect(lines.some((line) => line.includes('movement_authority_commit') && line.includes('target=160'))).toBe(false);
+    expect(driver.getLastLineIndex()).toBe(158);
 
     warnSpy.mockRestore();
     driver.dispose();

@@ -15484,8 +15484,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 emitVisibleBridgeBypass: true,
               });
               if (terminal.accepted) {
+                const canonicalTarget = Math.max(lastLineIndex, Math.floor(Number(terminal.target) || targetLine));
+                targetLine = canonicalTarget;
+                multiJumpDelta = targetLine - lastLineIndex;
                 try {
-                  console.warn(`[ASR_LIVE_UNLEASHED_STEP] current=${lastLineIndex} target=${targetLine} semanticTarget=${targetLine} visualTarget=${targetLine} authority=${movementAuthority} proofSource=${pendingProofSource || movementAuthorityProofSource || 'none'} sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown'} skippedIgnorableLines=[] bridgeSafe=1 bypassedLeash=0 bypassedCooldown=0 bypassedPendingVisualCap=1 stallMs=${Math.max(0, now - lastForwardCommitAt)} noCommitMs=${noCommitDelayMs} thresholdMs=${terminal.thresholdMs} actualDelayMs=${noCommitDelayMs} reason=pending_visual_cap_live_unleashed`);
+                  console.warn(`[ASR_LIVE_UNLEASHED_STEP] current=${lastLineIndex} target=${canonicalTarget} semanticTarget=${canonicalTarget} visualTarget=${canonicalTarget} authority=${movementAuthority} proofSource=${pendingProofSource || movementAuthorityProofSource || 'none'} sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown'} skippedIgnorableLines=[] bridgeSafe=1 bypassedLeash=0 bypassedCooldown=0 bypassedPendingVisualCap=1 stallMs=${Math.max(0, now - lastForwardCommitAt)} noCommitMs=${noCommitDelayMs} thresholdMs=${terminal.thresholdMs} actualDelayMs=${noCommitDelayMs} reason=pending_visual_cap_live_unleashed`);
                 } catch {}
                 bypassedPendingVisualCapTerminal = true;
               }
@@ -15581,6 +15584,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             emitVisibleBridgeBypass: true,
           });
           if (visibleCapTerminal.accepted) {
+            const canonicalTarget = Math.max(lastLineIndex, Math.floor(Number(visibleCapTerminal.target) || targetLine));
+            targetLine = canonicalTarget;
+            multiJumpDelta = targetLine - lastLineIndex;
             bypassedPendingVisualCapTerminal = true;
           } else {
           warnGuard('asr_live_visible_bridge_step_cap', [
@@ -16219,9 +16225,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             reason: 'final_live_safe_step',
           });
           if (skepticTerminal.accepted) {
+            targetLine = Math.max(lastLineIndex, Math.floor(Number(skepticTerminal.target) || targetLine));
             warnGuard('asr_alignment_skeptic_live_unleashed', [
               `current=${lastLineIndex}`,
-              `target=${skepticTerminal.target}`,
+              `target=${targetLine}`,
               `thresholdMs=${skepticTerminal.thresholdMs}`,
               `actualDelayMs=${skepticTerminal.actualDelayMs}`,
             ]);
