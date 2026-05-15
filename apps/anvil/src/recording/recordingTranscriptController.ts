@@ -4,10 +4,14 @@ import type { RecordingCaptureStrategy } from "./selectBestRecordingStrategy";
 const LIVE_SNAPSHOT_PREFIX = "anvil/transcript/live";
 const FINAL_TRANSCRIPT_PREFIX = "anvil/transcript/final";
 const LOCAL_SNAPSHOT_KEY_PREFIX = "forge_anvil_live_transcript_v1:";
+const DEBUG_SNAPSHOT_PREFIX = "anvil/asr/live_noncanonical_asr_debug";
+const DEBUG_FINAL_PREFIX = "anvil/asr/live_noncanonical_asr_debug";
+const LOCAL_DEBUG_SNAPSHOT_KEY_PREFIX = "forge_anvil_live_noncanonical_asr_debug_v1:";
 const SNAPSHOT_PERSIST_INTERVAL_MS = 1_500;
 const DEFAULT_SPEAKER = "unknown";
 const FINAL_HYPOTHESIS_BOUNDARY_WINDOW_MS = 1_200;
 const ASR2_EXPERIMENTAL_LANE = "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL";
+const LIVE_NONCANONICAL_ASR_DEBUG_EVENT = "live_noncanonical_asr_debug";
 
 type TranscriptPayload = {
   text?: unknown;
@@ -26,6 +30,10 @@ export type RecordingTranscriptStatus =
   | "finalizing"
   | "ready"
   | "degraded";
+
+export type RecordingTranscriptPersistenceMode =
+  | "disabled"
+  | "live_noncanonical_asr_debug";
 
 export type RecordingTranscriptArtifact = {
   schema_version: 1;
@@ -103,6 +111,7 @@ type RecordingTranscriptControllerDeps = {
   startSpeech: (info?: { reason?: string; mode?: string }) => Promise<boolean>;
   stopSpeech: (reason?: string) => void;
   localStorage: Pick<Storage, 'setItem'>;
+  persistenceMode?: RecordingTranscriptPersistenceMode;
 };
 
 type RecordingCaptureTargetResult =
@@ -156,6 +165,10 @@ function readBoolean(value: unknown): boolean {
 
 function buildLocalSnapshotKey(captureSessionId: string): string {
   return `${LOCAL_SNAPSHOT_KEY_PREFIX}${captureSessionId}`;
+}
+
+function buildLocalDebugSnapshotKey(captureSessionId: string): string {
+  return `${LOCAL_DEBUG_SNAPSHOT_KEY_PREFIX}${captureSessionId}`;
 }
 
 function safeNow(): number {
@@ -419,6 +432,14 @@ export class RecordingTranscriptController {
 
   private persistChain: Promise<void> = Promise.resolve();
 
+  private get persistenceMode(): RecordingTranscriptPersistenceMode {
+    return this.deps.persistenceMode ?? "disabled";
+  }
+
+  private get persistenceEnabled(): boolean {
+    return this.persistenceMode !== "disabled";
+  }
+
   private readonly transcriptListener = (event: Event): void => {
     const detail = (event as CustomEvent<TranscriptPayload>).detail;
     const session = this.session;
@@ -467,8 +488,12 @@ export class RecordingTranscriptController {
     await this.disposeSession();
 
     const target = await this.deps.ensureCaptureTarget();
-    const livePath = `${LIVE_SNAPSHOT_PREFIX}/${args.captureSessionId}.snapshot.v1.json`;
-    const finalPath = `${FINAL_TRANSCRIPT_PREFIX}/${args.captureSessionId}.structured.v1.json`;
+    const livePath = this.persistenceMode === "live_noncanonical_asr_debug"
+      ? `${DEBUG_SNAPSHOT_PREFIX}/${args.captureSessionId}.snapshot.v1.json`
+      : `${LIVE_SNAPSHOT_PREFIX}/${args.captureSessionId}.snapshot.v1.json`;
+    const finalPath = this.persistenceMode === "live_noncanonical_asr_debug"
+      ? `${DEBUG_FINAL_PREFIX}/${args.captureSessionId}.final.v1.json`
+      : `${FINAL_TRANSCRIPT_PREFIX}/${args.captureSessionId}.structured.v1.json`;
     this.session = {
       captureSessionId: args.captureSessionId,
       recordingStartedAtMs: args.recordingStartedAtMs,
@@ -505,7 +530,7 @@ export class RecordingTranscriptController {
         workpieceId: null,
         status: "degraded",
         degradedReason: "transcript-session-released",
-        livePath,
+        livePath: this.persistenceEnabled ? livePath : null,
       };
     }
 
@@ -526,7 +551,7 @@ export class RecordingTranscriptController {
       workpieceId: session.target?.ok ? session.target.workpieceId : null,
       status: session.status,
       degradedReason: session.degradedReason,
-      livePath,
+      livePath: this.persistenceEnabled ? livePath : null,
     };
   }
 
@@ -575,7 +600,7 @@ export class RecordingTranscriptController {
       session.partialStartSec = null;
     }
 
-    const finalArtifact = session.segments.length > 0
+    const finalArtifact = this.persistenceMode === "live_noncanonical_asr_debug" && session.segments.length > 0
       ? buildFinalArtifact({
           session,
           mediaPath: args.mediaPath ?? null,
@@ -590,14 +615,14 @@ export class RecordingTranscriptController {
         workpieceId: captureTarget.workpieceId,
         path: session.finalPath,
         data: finalArtifact,
-        eventName: "take_transcript_finalized",
+        eventName: LIVE_NONCANONICAL_ASR_DEBUG_EVENT,
         eventPayload: {
-          source: "anvil.recording-transcript",
+          source: "live_noncanonical_asr_debug",
           transcript_path: session.finalPath,
           anvil_capture_session_id: session.captureSessionId,
           recording_session_id: captureTarget.plannerRecordingSessionId,
           segment_count: session.segments.length,
-          transcript_status: "ready",
+          transcript_status: "noncanonical_debug",
         },
       });
       if (!commitResult.ok) {
@@ -626,7 +651,9 @@ export class RecordingTranscriptController {
       ? finalCommitFailed
         ? "transcript-final-commit-failed"
         : null
-      : "no-transcript-captured";
+      : this.persistenceEnabled
+        ? "no-transcript-captured"
+        : "transcript-persistence-disabled";
     await this.persistSnapshot(true);
     emitTranscriptDiag("anvil:transcript:finalize_done", {
       capture_session_id: session.captureSessionId,
@@ -642,7 +669,7 @@ export class RecordingTranscriptController {
       workpieceId: session.target?.ok ? session.target.workpieceId : null,
       status: session.status,
       degradedReason: session.degradedReason,
-      livePath: session.livePath,
+      livePath: this.persistenceEnabled ? session.livePath : null,
       finalPath: finalArtifact ? session.finalPath : null,
       finalArtifact,
       segmentCount: session.segments.length,
@@ -662,8 +689,8 @@ export class RecordingTranscriptController {
       workpieceId: session?.target?.ok ? session.target.workpieceId : null,
       status: session?.status ?? "idle",
       degradedReason: session?.degradedReason ?? null,
-      livePath: session?.livePath ?? null,
-      finalPath: session?.finalized ? session.finalPath : null,
+      livePath: this.persistenceEnabled ? (session?.livePath ?? null) : null,
+      finalPath: this.persistenceEnabled && session?.finalized ? session.finalPath : null,
       segmentCount: session?.segments.length ?? 0,
       partialText: session?.partialText ?? null,
     };
@@ -674,6 +701,7 @@ export class RecordingTranscriptController {
   private async persistSnapshot(force: boolean): Promise<void> {
     const session = this.session;
     if (!session) return;
+    if (!this.persistenceEnabled) return;
     const now = safeNow();
     if (!force && now - session.lastPersistedAtMs < SNAPSHOT_PERSIST_INTERVAL_MS) {
       return;
@@ -682,7 +710,10 @@ export class RecordingTranscriptController {
     const snapshot = buildSnapshot(session);
     const captureTarget = session.target;
     try {
-      this.deps.localStorage.setItem(buildLocalSnapshotKey(session.captureSessionId), JSON.stringify(snapshot));
+      const key = this.persistenceMode === "live_noncanonical_asr_debug"
+        ? buildLocalDebugSnapshotKey(session.captureSessionId)
+        : buildLocalSnapshotKey(session.captureSessionId);
+      this.deps.localStorage.setItem(key, JSON.stringify(snapshot));
       emitTranscriptDiag("anvil:transcript:live_snapshot_saved", {
         capture_session_id: session.captureSessionId,
         workpiece_id: captureTarget?.ok ? captureTarget.workpieceId : null,
@@ -700,11 +731,11 @@ export class RecordingTranscriptController {
           workpieceId: captureTarget.workpieceId,
           path: session.livePath,
           data: snapshot,
-          eventName: "take_transcript_snapshot",
+          eventName: LIVE_NONCANONICAL_ASR_DEBUG_EVENT,
           eventPayload: {
-            source: "anvil.recording-transcript",
+            source: "live_noncanonical_asr_debug",
             transcript_path: session.livePath,
-            transcript_status: session.status,
+            transcript_status: "noncanonical_debug",
             anvil_capture_session_id: session.captureSessionId,
             recording_session_id: captureTarget.plannerRecordingSessionId,
             segment_count: session.segments.length,

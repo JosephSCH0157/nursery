@@ -16925,6 +16925,89 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
         commitAfterTop = scroller.scrollTop || (pursuitTargetTop ?? currentTop);
       }
+      const commitMovedPxRaw = commitAfterTop - commitBeforeTop;
+      const commitMovedPx = Number.isFinite(commitMovedPxRaw) ? Math.round(commitMovedPxRaw) : 0;
+      const commitMoved = Math.abs(commitMovedPxRaw) >= 1;
+      const commitCurrentTop = Number.isFinite(scroller.scrollTop) ? scroller.scrollTop : commitAfterTop;
+      const commitRequestedTargetTop =
+        pursuitTargetTop != null && Number.isFinite(pursuitTargetTop)
+          ? pursuitTargetTop
+          : commitCurrentTop;
+      const commitDeltaLines =
+        Number.isFinite(liveAsrBridgeVisualRecoveryDeltaLines) && liveAsrBridgeVisualRecoveryDeltaLines > 0
+          ? liveAsrBridgeVisualRecoveryDeltaLines
+          : (lineHeightPx > 0
+            ? Math.max(0, Math.abs(commitRequestedTargetTop - commitCurrentTop) / lineHeightPx)
+            : 0);
+      const deadScreenSpeechFresh =
+        runtimeSpeechFresh ||
+        asrRuntimeSpeechRunningActual ||
+        hasRecentActualSpeech(now) ||
+        hasRecentVadSpeechNow(now) ||
+        (lastFinalTranscriptAt > 0 && now - lastFinalTranscriptAt <= 1800);
+      const deadScreenNoCommitMs = Math.max(0, now - lastCommitTime);
+      const deadScreenGovernorHoldAgeMs = liveAsrVisualGovernorHardHoldSinceMs > 0
+        ? Math.max(0, now - liveAsrVisualGovernorHardHoldSinceMs)
+        : 0;
+      const deadScreenSourceBranch = movementAuthoritySourceBranch || pendingSourceBranch || forceReason || 'unknown';
+      const deadScreenProofSource = movementAuthorityProofSource || pendingProofSource || 'none';
+      const deadScreenGlobalHold = !!((window as any)?.__tpLiveAsrGovernorHold);
+      const deadScreenActive =
+        modeNow === 'asr' &&
+        isSessionLivePhase() &&
+        isSessionAsrArmed() &&
+        targetLine > prevLineIndex &&
+        (liveAsrVisualGovernorHardHold || deadScreenGlobalHold) &&
+        deadScreenSpeechFresh &&
+        !commitMoved;
+      if (deadScreenActive) {
+        const deadScreenTargetCueOnly = !isSpeakableScriptLine(targetLine);
+        try {
+          console.warn(
+            `[ASR_GOVERNOR_DEAD_SCREEN_DETECTED] current=${prevLineIndex} requestedTarget=${targetLine} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(commitCurrentTop)} targetScrollTop=${Math.round(commitRequestedTargetTop)} moved=${Math.round(commitMovedPx)} deltaLines=${formatLogScore(commitDeltaLines)} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), targetLine))} renderedLead=${Math.max(0, targetLine - Math.max(0, lastStrongConfirmedSpokenLine))} governorHoldAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)} noCommitMs=${Math.round(deadScreenNoCommitMs)} speechFresh=${deadScreenSpeechFresh ? 1 : 0} finalPacketFresh=${lastFinalTranscriptAt > 0 && now - lastFinalTranscriptAt <= 1800 ? 1 : 0} liveSpeechFresh=${runtimeSpeechFresh ? 1 : 0} sourceBranch=${deadScreenSourceBranch} proofSource=${deadScreenProofSource}`,
+          );
+        } catch {}
+        const pendingBridgeAgeMs = pendingSpeakableBridgeState
+          ? Math.max(0, now - pendingSpeakableBridgeState.createdAtMs)
+          : 0;
+        if (pendingSpeakableBridgeState && pendingBridgeAgeMs >= 1800) {
+          try {
+            console.warn(
+              `[ASR_GOVERNOR_DEAD_SCREEN_PENDING_BRIDGE_CLEARED] current=${prevLineIndex} requestedTarget=${targetLine} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(commitCurrentTop)} targetScrollTop=${Math.round(commitRequestedTargetTop)} moved=${Math.round(commitMovedPx)} deltaLines=${formatLogScore(commitDeltaLines)} governorHoldAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)} noCommitMs=${Math.round(deadScreenNoCommitMs)} sourceBranch=${deadScreenSourceBranch} proofSource=${deadScreenProofSource} reason=pending_bridge_stuck_under_hold`,
+            );
+          } catch {}
+          clearPendingSpeakableBridge('dead_screen_pending_bridge_cleared', [
+            `current=${prevLineIndex}`,
+            `target=${targetLine}`,
+            `holdAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)}`,
+            `noCommitMs=${Math.round(deadScreenNoCommitMs)}`,
+          ]);
+        }
+        if (!deadScreenTargetCueOnly) {
+          const staleVisualTarget =
+            commitRequestedTargetTop != null &&
+            Number.isFinite(commitRequestedTargetTop) &&
+            Math.abs(commitRequestedTargetTop - commitCurrentTop) > 1;
+          if (staleVisualTarget || deadScreenGovernorHoldAgeMs >= 900) {
+            const oldTarget = commitRequestedTargetTop;
+            pursuitTargetTop = commitCurrentTop;
+            pursuitVel = 0;
+            pursuitActive = false;
+            microPursuitUntil = 0;
+            try {
+              console.warn(
+                `[ASR_GOVERNOR_DEAD_SCREEN_REBASED] current=${prevLineIndex} requestedTarget=${targetLine} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(commitCurrentTop)} targetScrollTop=${Math.round(oldTarget)} moved=${Math.round(commitMovedPx)} deltaLines=${formatLogScore(commitDeltaLines)} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), targetLine))} renderedLead=${Math.max(0, targetLine - Math.max(0, lastStrongConfirmedSpokenLine))} governorHoldAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)} noCommitMs=${Math.round(deadScreenNoCommitMs)} speechFresh=${deadScreenSpeechFresh ? 1 : 0} sourceBranch=${deadScreenSourceBranch} proofSource=${deadScreenProofSource}`,
+              );
+            } catch {}
+          }
+        }
+        try {
+          console.warn(
+            `[ASR_GOVERNOR_DEAD_SCREEN_COMMIT_HELD] current=${prevLineIndex} requestedTarget=${targetLine} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(commitCurrentTop)} targetScrollTop=${Math.round(commitRequestedTargetTop)} moved=${Math.round(commitMovedPx)} deltaLines=${formatLogScore(commitDeltaLines)} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), targetLine))} renderedLead=${Math.max(0, targetLine - Math.max(0, lastStrongConfirmedSpokenLine))} governorHoldAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)} noCommitMs=${Math.round(deadScreenNoCommitMs)} speechFresh=${deadScreenSpeechFresh ? 1 : 0} sourceBranch=${deadScreenSourceBranch} proofSource=${deadScreenProofSource}${deadScreenTargetCueOnly ? ' reason=cue_target_under_dead_screen_hold' : ' reason=visual_governor_dead_screen_hold'}`,
+          );
+        } catch {}
+        return;
+      }
       lastLineIndex = Math.max(lastLineIndex, targetLine);
       const cursorIndex = lastLineIndex;
       if (targetLine > prevLineIndex && movementAuthority !== 'none') {

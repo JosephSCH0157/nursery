@@ -156,6 +156,18 @@ function testSnapshotWorkpieceIdIsPresent() {
   assert.equal(found.capture_session_id, "wp-id-check");
 }
 
+function testIgnoresLiveNoncanonicalAsrDebugSnapshotKeys() {
+  const storage = createMemoryStorage({
+    "forge_anvil_live_noncanonical_asr_debug_v1:debug": JSON.stringify({
+      capture_session_id: "debug",
+      workpiece_id: "workpiece-debug",
+      segment_count: 9,
+    }),
+  });
+  const found = findRecoveredAnvilSnapshotByWorkpieceId("workpiece-debug", storage);
+  assert.equal(found, null);
+}
+
 try {
   testFindsSnapshotByWorkpieceId();
   testPrefersHighestSegmentCount();
@@ -163,6 +175,7 @@ try {
   testIncludesSegmentsFromSnapshot();
   testIgnoresSegmentsWithEmptyText();
   testSnapshotWorkpieceIdIsPresent();
+  testIgnoresLiveNoncanonicalAsrDebugSnapshotKeys();
   console.log("Hammer Anvil snapshot recovery tests passed.");
 } catch (error) {
   console.error("Hammer Anvil snapshot recovery tests failed:", error);
