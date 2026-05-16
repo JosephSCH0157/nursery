@@ -435,6 +435,16 @@ class OpenAiTranscriptionError extends Error {
   }
 }
 
+function assertValidWavHeader(bytes: Uint8Array): void {
+  if (bytes.byteLength < 4) {
+    throw new Error("Transcoded audio output is invalid before upload (too small for WAV header).");
+  }
+  const magic = Buffer.from(bytes.subarray(0, 4)).toString("ascii");
+  if (magic !== "RIFF") {
+    throw new Error(`Transcoded audio output is invalid before upload (expected RIFF header, got ${magic || "empty"}).`);
+  }
+}
+
 async function prepareTranscriptJobUploadMedia(args: {
   bytes: Uint8Array;
   contentType: string;
@@ -733,6 +743,7 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
     && bytes.byteLength <= MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES;
   let selectedUploadMedia = uploadMedia;
   let openAiResult: Awaited<ReturnType<typeof runOpenAiTranscription>>;
+  let fallbackAttempted = false;
   try {
     const firstCandidate = directAcceptableForOpenAi
       ? {
@@ -760,21 +771,34 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
       && directAcceptableForOpenAi
       && isLikelyUnsupportedAudioUpload(error.status, error.detail);
     if (!shouldFallbackToTranscode) throw error;
+    fallbackAttempted = true;
     const fallbackUploadMedia = await prepareTranscriptJobUploadMedia({
       bytes,
       contentType: originalContentType,
       sourcePath,
       forceTranscode: true,
     });
+    if (fallbackUploadMedia.contentType === "audio/wav") {
+      assertValidWavHeader(fallbackUploadMedia.bytes);
+    }
     selectedUploadMedia = fallbackUploadMedia;
-    openAiResult = await runOpenAiTranscription({
-      apiKey: textApiKey,
-      model,
-      bytes: fallbackUploadMedia.bytes,
-      contentType: fallbackUploadMedia.contentType,
-      filename: fallbackUploadMedia.filename,
-      timeoutMs,
-    });
+    try {
+      openAiResult = await runOpenAiTranscription({
+        apiKey: textApiKey,
+        model,
+        bytes: fallbackUploadMedia.bytes,
+        contentType: fallbackUploadMedia.contentType,
+        filename: fallbackUploadMedia.filename,
+        timeoutMs,
+      });
+    } catch (fallbackError) {
+      if (fallbackError instanceof OpenAiTranscriptionError) {
+        throw new Error(
+          `OpenAI transcription failed after fallback transcode (${fallbackError.status}): ${fallbackError.detail.slice(0, 240)}`,
+        );
+      }
+      throw fallbackError;
+    }
   }
   await updateJobProgressPercent(deps.service, job.id, 70);
 
@@ -910,6 +934,10 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
       provider_request_id: openAiResult.provider_request_id,
       model,
       provider: "openai",
+      fallback_attempted: fallbackAttempted,
+      original_source_content_type: originalContentType,
+      original_source_bytes: bytes.byteLength,
+      direct_acceptable_for_openai: directAcceptableForOpenAi,
       transcode_backend: selectedUploadMedia.transcodeBackend,
       ffmpeg_request_id: selectedUploadMedia.ffmpegRequestId,
       upload_bytes: selectedUploadMedia.bytes.byteLength,
