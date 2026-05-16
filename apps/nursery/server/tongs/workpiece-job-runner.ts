@@ -739,8 +739,7 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
     return { placementCountBefore: placementCount, uncertainCountBefore: count };
   })();
 
-  const directAcceptableForOpenAi = !originalContentType.toLowerCase().startsWith("video/")
-    && bytes.byteLength <= MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES;
+  const directAcceptableForOpenAi = bytes.byteLength <= MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES;
   let selectedUploadMedia = uploadMedia;
   let openAiResult: Awaited<ReturnType<typeof runOpenAiTranscription>>;
   let fallbackAttempted = false;
