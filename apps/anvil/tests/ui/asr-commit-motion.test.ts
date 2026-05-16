@@ -75,6 +75,7 @@ describe('ASR live commit motion', () => {
     cafSpy.mockRestore();
     delete (window as any).__tpStore;
     delete (window as any).__TP_MARKER_PCT;
+    delete (window as any).__tpLiveAsrGovernorHold;
   });
 
   test('live ASR commit sets semantic target and then follows it with motion over time', async () => {
@@ -2563,6 +2564,55 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('resets run timers on fresh runtime run identity and avoids stale startup stall timing', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true, runKey: 'run-a', runGeneration: 1 },
+    }));
+    driver.setLastLineIndex(1);
+    await jest.advanceTimersByTimeAsync(22000);
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true, runKey: 'run-b', runGeneration: 2 },
+    }));
+
+    driver.ingest('Not perfume amazing.', true, {
+      currentIdx: 1,
+      runKey: 'run-b',
+      runGeneration: 2,
+      matchId: 'startup-adjacent-fresh-run-1-to-2',
+      match: {
+        bestIdx: 2,
+        bestSim: 0.818,
+        topScores: [{ idx: 2, score: 0.818 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(1200);
+
+    const infos = infoSpy.mock.calls.map((c) => String(c[0] || ''));
+    const warns = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+
+    expect(infos.some((l) => l.includes('ASR_RUN_TIMER_RESET'))).toBe(true);
+    expect(warns.some((l) => l.includes('starvation_future_speech_reconcile'))).toBe(false);
+    const startupLine =
+      warns.find((l) => l.includes('ASR_STARTUP_ADJACENT_PRE_REBASE_COMMIT')) ||
+      warns.find((l) => l.includes('ASR_STARTUP_FRESH_ADJACENT_FAST_COMMIT_EARLY')) ||
+      '';
+    if (startupLine) {
+      const stallMatch = startupLine.match(/stallMs=(\d+)/);
+      if (stallMatch) {
+        expect(Number(stallMatch[1])).toBeLessThan(3000);
+      }
+    }
+    expect(driver.getLastLineIndex()).toBe(2);
+
+    infoSpy.mockRestore();
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('quarantines transcript packets during focus loss', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const driver = createAsrScrollDriver();
@@ -2582,9 +2632,96 @@ describe('ASR live commit motion', () => {
 
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     expect(lines.some((l) => l.includes('ASR_FOCUS_LOSS_TRANSCRIPT_QUARANTINED'))).toBe(true);
+    expect(lines.some((l) => l.includes('ASR_RUN_AFFECTED_BY_FOCUS_LOSS'))).toBe(true);
     expect(driver.getLastLineIndex()).toBe(1);
 
     hasFocusSpy.mockRestore();
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('releases dead-screen governor hold for adjacent safe step instead of indefinite hold', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+    (window as any).__tpLiveAsrGovernorHold = true;
+    const driver = createAsrScrollDriver();
+    (window as any).__tpAsrRunKey = 'dead-screen-deterministic-run';
+    (window as any).__tpAsrRunGeneration = 42;
+    (window as any).__tpAsrRunStartedAt = Date.now();
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const compactMetrics = [
+      { top: 0, height: 24 },
+      { top: 24, height: 24 },
+      { top: 48, height: 24 },
+      { top: 72, height: 24 },
+    ];
+    Array.from(document.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+      const metric = compactMetrics[idx];
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: metric.top,
+          left: 0,
+          right: 800,
+          bottom: metric.top + metric.height,
+          width: 800,
+          height: metric.height,
+        }),
+      });
+    });
+    let frozenTop = 0;
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => frozenTop,
+      set: (_v: number) => {
+        frozenTop = 0;
+      },
+    });
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+
+    driver.setLastLineIndex(2);
+    await jest.advanceTimersByTimeAsync(1200);
+
+    driver.ingest('Neon ads hum above the aisle.', true, {
+      currentIdx: 2,
+      matchId: 'dead-screen-adjacent-release',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.9,
+        topScores: [{ idx: 3, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(1200);
+
+    const warnLines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const debugLines = debugSpy.mock.calls.map((c) => String(c[0] || ''));
+    const infoLines = infoSpy.mock.calls.map((c) => String(c[0] || ''));
+    const deadScreenDetected = warnLines.some((l) => l.includes('ASR_GOVERNOR_DEAD_SCREEN_DETECTED'));
+    const released = warnLines.some((l) => l.includes('ASR_GOVERNOR_DEAD_SCREEN_RELEASED'));
+    const heldCount = warnLines.filter((l) => l.includes('ASR_GOVERNOR_DEAD_SCREEN_COMMIT_HELD')).length;
+    const bypassed = warnLines.some((l) => l.includes('ASR_VISIBLE_BRIDGE_CAP_BYPASSED_TERMINAL'));
+    const timerResetSeen = infoLines.some((l) => l.includes('ASR_RUN_TIMER_RESET'));
+    void timerResetSeen;
+    expect(deadScreenDetected).toBe(true);
+    expect(released).toBe(true);
+    expect(heldCount).toBeLessThanOrEqual(1);
+    expect(bypassed).toBe(false);
+    expect(debugLines.some((l) => l.includes('reason=strict_live_accept'))).toBe(true);
+    expect(driver.getLastLineIndex()).toBe(3);
+
+    delete (window as any).__tpLiveAsrGovernorHold;
+    delete (window as any).__tpAsrRunKey;
+    delete (window as any).__tpAsrRunGeneration;
+    delete (window as any).__tpAsrRunStartedAt;
+    infoSpy.mockRestore();
+    debugSpy.mockRestore();
     warnSpy.mockRestore();
     driver.dispose();
   });

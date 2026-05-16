@@ -3433,6 +3433,37 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
   const resolveDriverRunGeneration = (): number | null => normalizeRunGeneration(driverRunGeneration);
   const resolveDriverRunKey = (): string => normalizeRunKey(driverRunKey);
+  const resetRunTimingState = (source: string, nextRunKey: string, nextRunGeneration: number | null) => {
+    const now = Date.now();
+    lastCommitAt = now;
+    lastCommitTime = now;
+    lastForwardCommitAt = now;
+    liveProgressHeuristics.lastAdvanceAtMs = now;
+    liveProgressHeuristics.lastStrongSyncAtMs = now;
+    lastTranscriptPacketAt = 0;
+    lastFinalTranscriptAt = 0;
+    lastFinalTranscriptRunKey = '';
+    lastFinalTranscriptRunGeneration = null;
+    firstTranscriptPacketLogged = false;
+    lastStallLogAt = 0;
+    lastStarvationWarnAt = 0;
+    lastStarvationRelockAt = 0;
+    lastStallRecoveryOverrideAt = 0;
+    stallRescueRequested = false;
+    stallHudEmitted = false;
+    runAffectedByFocusLoss = false;
+    guardEvents.length = 0;
+    try {
+      console.info('[ASR_RUN_TIMER_RESET]', {
+        source,
+        runKey: nextRunKey || null,
+        runGeneration: nextRunGeneration ?? -1,
+        nowMs: now,
+        lastCommitTs: lastCommitTime,
+        lastTranscriptTs: lastTranscriptPacketAt,
+      });
+    } catch {}
+  };
 
   const syncDriverRunIdentity = (args: {
     source: string;
@@ -3464,6 +3495,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (args.runGenerationProvided) {
       driverRunGeneration = nextDriverRunGeneration;
     }
+    resetRunTimingState(args.source, resolveDriverRunKey(), resolveDriverRunGeneration());
     const activeRunKey = args.activeRunKey ?? resolveActiveRunKey();
     const activeRunGeneration = args.activeRunGeneration ?? resolveActiveRunGeneration();
     warnGuard('asr_live_generation_synced', [
@@ -3804,6 +3836,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let asrFocusSignalSeen = false;
     let postFocusFreshProofRequired = false;
     let focusTranscriptQuarantineActive = false;
+    let runAffectedByFocusLoss = false;
     let lastMatchId: string | undefined;
     let syntheticMatchIdSeq = 0;
     let lastScriptHash = '';
@@ -4952,6 +4985,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lastFocusLostAt = now;
           postFocusFreshProofRequired = true;
           focusTranscriptQuarantineActive = true;
+          if (!runAffectedByFocusLoss) {
+            runAffectedByFocusLoss = true;
+            try {
+              console.warn(
+                `[ASR_RUN_AFFECTED_BY_FOCUS_LOSS] generation=${asrFocusGeneration} source=${source} state=lost reason=focus_loss_quarantine`,
+              );
+            } catch {}
+          }
         freezeAsrMovementForFocusHold('lost');
         warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
           `state=lost`,
@@ -17067,14 +17108,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         : 0;
       const deadScreenSourceBranch = movementAuthoritySourceBranch || pendingSourceBranch || forceReason || 'unknown';
       const deadScreenProofSource = movementAuthorityProofSource || pendingProofSource || 'none';
+      const deadScreenAdjacentProofBacked =
+        targetLine === prevLineIndex + 1 &&
+        deadScreenProofSource !== 'none';
       const deadScreenGlobalHold = !!((window as any)?.__tpLiveAsrGovernorHold);
+      const deadScreenHoldMatured =
+        deadScreenNoCommitMs >= 900 ||
+        deadScreenGovernorHoldAgeMs >= 600 ||
+        deadScreenGlobalHold;
       const deadScreenActive =
         modeNow === 'asr' &&
         isSessionLivePhase() &&
         isSessionAsrArmed() &&
         targetLine > prevLineIndex &&
         (liveAsrVisualGovernorHardHold || deadScreenGlobalHold) &&
-        deadScreenSpeechFresh &&
+        deadScreenHoldMatured &&
+        (deadScreenSpeechFresh || deadScreenAdjacentProofBacked) &&
         !commitMoved;
       if (deadScreenActive) {
         const deadScreenTargetCueOnly = !isSpeakableScriptLine(targetLine);
@@ -17122,7 +17171,33 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `[ASR_GOVERNOR_DEAD_SCREEN_COMMIT_HELD] current=${prevLineIndex} requestedTarget=${targetLine} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(commitCurrentTop)} targetScrollTop=${Math.round(commitRequestedTargetTop)} moved=${Math.round(commitMovedPx)} deltaLines=${formatLogScore(commitDeltaLines)} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), targetLine))} renderedLead=${Math.max(0, targetLine - Math.max(0, lastStrongConfirmedSpokenLine))} governorHoldAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)} noCommitMs=${Math.round(deadScreenNoCommitMs)} speechFresh=${deadScreenSpeechFresh ? 1 : 0} sourceBranch=${deadScreenSourceBranch} proofSource=${deadScreenProofSource}${deadScreenTargetCueOnly ? ' reason=cue_target_under_dead_screen_hold' : ' reason=visual_governor_dead_screen_hold'}`,
           );
         } catch {}
+        const deadScreenSpeakableLead = Math.max(
+          0,
+          countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), targetLine),
+        );
+        const deadScreenRenderedLead = Math.max(0, targetLine - Math.max(0, lastStrongConfirmedSpokenLine));
+        const deadScreenTranscriptFresh =
+          lastTranscriptPacketAt > 0 &&
+          Math.max(0, now - lastTranscriptPacketAt) <= 2000;
+        const deadScreenReleaseEligible =
+          !deadScreenTargetCueOnly &&
+          targetLine === prevLineIndex + 1 &&
+          (deadScreenSpeechFresh || deadScreenAdjacentProofBacked) &&
+          (deadScreenTranscriptFresh || deadScreenAdjacentProofBacked) &&
+          deadScreenNoCommitMs >= 1000 &&
+          (deadScreenGovernorHoldAgeMs >= 600 || deadScreenGlobalHold) &&
+          commitDeltaLines <= ASR_LIVE_VISUAL_BRIDGE_STEP_MAX_LINES;
+        if (deadScreenReleaseEligible) {
+          liveAsrVisualGovernorHardHold = false;
+          liveAsrVisualGovernorHardHoldSinceMs = 0;
+          try {
+            console.warn(
+              `[ASR_GOVERNOR_DEAD_SCREEN_RELEASED] current=${prevLineIndex} target=${targetLine} holdAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)} noCommitMs=${Math.round(deadScreenNoCommitMs)} speakableLead=${deadScreenSpeakableLead} renderedLead=${deadScreenRenderedLead} sourceBranch=${deadScreenSourceBranch} proofSource=${deadScreenProofSource} reason=adjacent_safe_release`,
+            );
+          } catch {}
+        } else {
         return;
+        }
       }
       lastLineIndex = Math.max(lastLineIndex, targetLine);
       const cursorIndex = lastLineIndex;
