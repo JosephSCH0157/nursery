@@ -115,10 +115,47 @@ test("coalesceScriptTextIntoOps shapes set_body proposals before review display"
 
 test("requestHearthChatReply includes attachment context metadata in payload", async () => {
   const originalFetch = globalThis.fetch;
+  const originalWindow = (globalThis as { window?: unknown }).window;
   let capturedBody: Record<string, unknown> | null = null;
+
+  const storage = new Map<string, string>();
+  const jwtHeader = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const jwtPayload = Buffer.from(JSON.stringify({
+    sub: "55555555-5555-4555-8555-555555555555",
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  })).toString("base64url");
+  storage.set("forge-auth", `${jwtHeader}.${jwtPayload}.sig`);
+  (globalThis as { window?: unknown }).window = {
+    localStorage: {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => void storage.set(key, value),
+      removeItem: (key: string) => void storage.delete(key),
+      clear: () => void storage.clear(),
+      key: (index: number) => Array.from(storage.keys())[index] ?? null,
+      get length() {
+        return storage.size;
+      },
+    },
+    __forgeSupabaseUrl: "https://supabase.example.test",
+    __forgeSupabaseAnonKey: "anon-test-key",
+  };
 
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     const url = String(input);
+    if (url.includes("/rest/v1/workspaces")) {
+      return new Response(JSON.stringify([{ org_id: "44444444-4444-4444-8444-444444444444" }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (url.includes("/rest/v1/rpc/resolve_ai_policy")) {
+      return new Response(JSON.stringify([{ decision_type: "ALLOW", reason_code: null }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
     if (url.includes("/api/ai-keys/status")) {
       return new Response(JSON.stringify({
         ok: true,
@@ -183,6 +220,7 @@ test("requestHearthChatReply includes attachment context metadata in payload", a
     assert.deepEqual(attachmentContext?.attachment_ids, ["33333333-3333-4333-8333-333333333333"]);
   } finally {
     globalThis.fetch = originalFetch;
+    (globalThis as { window?: unknown }).window = originalWindow;
   }
 });
 

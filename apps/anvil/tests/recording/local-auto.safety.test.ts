@@ -223,6 +223,118 @@ describe('local-auto recorder safety guards', () => {
     expect(mockShowRecordingDecisionDialog).not.toHaveBeenCalled();
   });
 
+  test('reports local mirror failure when canonical succeeds but recording folder handle is unavailable', async () => {
+    const localSafetyEvents: Array<Record<string, unknown>> = [];
+    const fallbackEvents: Array<Record<string, unknown>> = [];
+    window.addEventListener('tp:recording:local-safety-copy', (ev: Event) => {
+      localSafetyEvents.push(((ev as CustomEvent).detail || {}) as Record<string, unknown>);
+    });
+    window.addEventListener('tp:recording:upload-fallback', (ev: Event) => {
+      fallbackEvents.push(((ev as CustomEvent).detail || {}) as Record<string, unknown>);
+    });
+
+    mockCommitRecordingBytesToTongs.mockResolvedValueOnce({
+      ok: true,
+      workpieceId: 'w-test-1',
+      path: 'recordings/canonical-ok.webm',
+      createdCradle: false,
+      plannerRecordingSessionId: null,
+      captureSessionId: 'cap-test-1',
+      status: 200,
+    });
+
+    (window as any).__tpRecDir = {
+      init: jest.fn(async () => {}),
+      get: jest.fn(() => null),
+      isManaged: jest.fn(() => true),
+      managedHint: jest.fn(() => 'Forge Recordings'),
+    };
+
+    await (window as any).__tpAutoRecord.start();
+    await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const missingHandleFailure = localSafetyEvents.find(
+      (row) => row.attempted === true && row.success === false && row.errorCode === 'missing_directory_handle',
+    );
+    expect(missingHandleFailure).toBeTruthy();
+    expect(missingHandleFailure).toEqual(expect.objectContaining({
+      attempted: true,
+      success: false,
+      safeToLeave: false,
+      localMirrorExpected: true,
+      localMirrorSucceeded: false,
+      canonicalCommitSucceeded: true,
+    }));
+    expect(String((missingHandleFailure as any)?.errorMessage || '').length).toBeGreaterThan(0);
+
+    expect((window as any).toast).toHaveBeenCalledWith(
+      'Recording was saved to Forge, but the local mirror copy was not saved because the recording folder is unavailable.',
+      { type: 'warning' },
+    );
+
+    expect(fallbackEvents.length).toBeGreaterThan(0);
+    const lastFallback = fallbackEvents[fallbackEvents.length - 1] || {};
+    expect(lastFallback).toEqual(expect.objectContaining({
+      canonicalSucceeded: true,
+      localMirrorExpected: true,
+      localMirrorSucceeded: false,
+      localCopySecured: false,
+      downloadFallbackAttempted: false,
+      downloadFallbackSkippedReason: 'canonical_commit_succeeded',
+      safeToLeave: true,
+    }));
+  });
+
+  test('keeps stronger unsafe warning when canonical fails and recording folder handle is unavailable', async () => {
+    const localSafetyEvents: Array<Record<string, unknown>> = [];
+    const fallbackEvents: Array<Record<string, unknown>> = [];
+    window.addEventListener('tp:recording:local-safety-copy', (ev: Event) => {
+      localSafetyEvents.push(((ev as CustomEvent).detail || {}) as Record<string, unknown>);
+    });
+    window.addEventListener('tp:recording:upload-fallback', (ev: Event) => {
+      fallbackEvents.push(((ev as CustomEvent).detail || {}) as Record<string, unknown>);
+    });
+
+    mockCommitRecordingBytesToTongs.mockResolvedValueOnce({
+      ok: false,
+      reason: 'commit_failed',
+      errorMessage: 'canonical upload failed',
+    });
+
+    (window as any).__tpRecDir = {
+      init: jest.fn(async () => {}),
+      get: jest.fn(() => null),
+      isManaged: jest.fn(() => true),
+      managedHint: jest.fn(() => 'Forge Recordings'),
+    };
+
+    await (window as any).__tpAutoRecord.start();
+    await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const missingHandleFailure = localSafetyEvents.find(
+      (row) => row.attempted === true && row.success === false && row.errorCode === 'missing_directory_handle',
+    );
+    expect(missingHandleFailure).toBeTruthy();
+    expect(missingHandleFailure).toEqual(expect.objectContaining({
+      attempted: true,
+      success: false,
+      safeToLeave: false,
+      canonicalCommitSucceeded: false,
+    }));
+
+    expect((window as any).toast).toHaveBeenCalledWith(
+      'Recording finished, but the local safety copy was not saved. Do not leave this screen until the recording is verified or downloaded.',
+      { type: 'error' },
+    );
+
+    expect(fallbackEvents.length).toBeGreaterThan(0);
+    const lastFallback = fallbackEvents[fallbackEvents.length - 1] || {};
+    expect(lastFallback.safeToLeave).toBe(false);
+    expect(lastFallback.canonicalSucceeded).toBe(false);
+  });
+
   test('blocks keep flow when finalized artifact verifies as no-audio stream', async () => {
     const invalidEvents: Array<Record<string, unknown>> = [];
     window.addEventListener('tp:recording:podcast-audio-invalid', (ev: Event) => {

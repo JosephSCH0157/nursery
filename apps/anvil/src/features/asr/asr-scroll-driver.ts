@@ -217,6 +217,8 @@ const ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_PXPS = 16;
 const ASR_LEAD_AWARE_PURSUIT_AHEAD_MAX_PXPS = 12;
 const ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES = 4.0;
 const ASR_VISUAL_PROJECTION_MAX_SAFE_DELTA_LINES = 4.0;
+const ASR_LIVE_VISUAL_STEP_MAX_LINES = 1;
+const ASR_LIVE_VISUAL_BRIDGE_STEP_MAX_LINES = 2;
 const ASR_VISUAL_ENVELOPE_LEASH_ARM_DELTA_LINES = 4.0;
 const ASR_VISUAL_ENVELOPE_LEASH_CLEAR_DELTA_LINES = 3.0;
 const ASR_STARTUP_SHORT_MEMORY_MAX_COMMITS = 5;
@@ -7212,6 +7214,69 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       bypassedBlockersLowerEarly.includes('pending_visual_cap') ||
       bypassedBlockersLowerEarly.includes('visible_bridge_step_cap');
     let reducedTarget = resolveForwardSpeakableTarget(current, semanticTargetRaw, 1);
+    const activeLiveSpeech =
+      getScrollMode() === 'asr' &&
+      isSessionLivePhase() &&
+      isSessionAsrArmed() &&
+      (!!args.speechRunningActual || hasRecentActualSpeech(commitTs) || hasRecentVadSpeechNow(commitTs));
+    const bridgeLikeVisualMovement =
+      requestedTarget > current + 1 ||
+      semanticTargetRaw > current + 1 ||
+      (args.skippedIgnorableLines || []).length > 0;
+    const maxLiveVisualStepLines = bridgeLikeVisualMovement
+      ? ASR_LIVE_VISUAL_BRIDGE_STEP_MAX_LINES
+      : ASR_LIVE_VISUAL_STEP_MAX_LINES;
+    let projectedLayoutDeltaLines = 0;
+    try {
+      const scroller = getScroller();
+      if (scroller) {
+        const currentEl = getLineElementByIndex(scroller, current);
+        const targetEl = getLineElementByIndex(scroller, reducedTarget);
+        const currentTop = finiteNumberOrNull('visualProjection.currentTop', computeLineTargetTop(scroller, currentEl));
+        const targetTop = finiteNumberOrNull('visualProjection.targetTop', computeLineTargetTop(scroller, targetEl));
+        const currentHeight = currentEl ? Math.max(1, Number(currentEl.clientHeight || currentEl.offsetHeight || 0)) : 0;
+        const targetHeight = targetEl ? Math.max(1, Number(targetEl.clientHeight || targetEl.offsetHeight || 0)) : 0;
+        const avgHeight = Math.max(1, (currentHeight + targetHeight) / 2);
+        if (currentTop != null && targetTop != null) {
+          projectedLayoutDeltaLines = Math.max(0, Math.abs(targetTop - currentTop) / avgHeight);
+        }
+      }
+    } catch {}
+    const projectedVisualDeltaLines = Math.max(
+      Math.max(0, reducedTarget - current),
+      Number.isFinite(projectedLayoutDeltaLines)
+        ? Math.max(0, Math.ceil(projectedLayoutDeltaLines))
+        : 0,
+      Number.isFinite(liveAsrBridgeVisualRecoveryDeltaLines)
+        ? Math.max(0, Math.ceil(liveAsrBridgeVisualRecoveryDeltaLines))
+        : 0,
+    );
+    if (activeLiveSpeech && projectedVisualDeltaLines > maxLiveVisualStepLines) {
+      const boundedVisualCandidate = resolveForwardSpeakableTarget(
+        current,
+        Math.min(reducedTarget, current + maxLiveVisualStepLines),
+        maxLiveVisualStepLines,
+      );
+      if (boundedVisualCandidate > current) {
+        const priorReduced = reducedTarget;
+        reducedTarget = boundedVisualCandidate;
+        try {
+          console.warn(
+            `[ASR_VISUAL_SAFETY_CAP_HELD] current=${current} requestedSemanticTarget=${semanticTargetRaw} visualReducedTarget=${reducedTarget} projectedDeltaLines=${projectedVisualDeltaLines} maxAllowedLines=${maxLiveVisualStepLines} recoverySource=${args.sourceBranch || 'unknown'} reason=active_live_visual_step_cap`,
+          );
+        } catch {}
+        if (priorReduced > reducedTarget) {
+          requestedTarget = Math.max(requestedTarget, priorReduced);
+        }
+      } else {
+        try {
+          console.warn(
+            `[ASR_VISUAL_SAFETY_CAP_HELD] current=${current} requestedSemanticTarget=${semanticTargetRaw} visualReducedTarget=${current} projectedDeltaLines=${projectedVisualDeltaLines} maxAllowedLines=${maxLiveVisualStepLines} recoverySource=${args.sourceBranch || 'unknown'} reason=active_live_visual_step_cap_hold`,
+          );
+        } catch {}
+        return { accepted: false, target: current, thresholdMs, actualDelayMs, commitTs };
+      }
+    }
     const allowSemanticBridgeCompletion =
       sourceBranchLowerEarly.includes('pending_speakable_bridge_complete') ||
       String(args.reason || '').toLowerCase().includes('pending_speakable_bridge_complete') ||
@@ -15435,6 +15500,60 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveStrictFollow &&
         strictBacklogDrainAppliedSteps > 0 &&
         targetLine > adjacentLine;
+      if (
+        liveStrictFollow &&
+        asrRuntimeSpeechRunningActual &&
+        multiJumpDelta > 0
+      ) {
+        let projectedLayoutDeltaLines = 0;
+        try {
+          const scroller = getScroller();
+          if (scroller) {
+            const currentEl = getLineElementByIndex(scroller, lastLineIndex);
+            const targetEl = getLineElementByIndex(scroller, targetLine);
+            const currentTop = finiteNumberOrNull('visualSafety.currentTop', computeLineTargetTop(scroller, currentEl));
+            const targetTop = finiteNumberOrNull('visualSafety.targetTop', computeLineTargetTop(scroller, targetEl));
+            const currentHeight = currentEl ? Math.max(1, Number(currentEl.clientHeight || currentEl.offsetHeight || 0)) : 0;
+            const targetHeight = targetEl ? Math.max(1, Number(targetEl.clientHeight || targetEl.offsetHeight || 0)) : 0;
+            const avgHeight = Math.max(1, (currentHeight + targetHeight) / 2);
+            if (currentTop != null && targetTop != null) {
+              projectedLayoutDeltaLines = Math.max(0, Math.abs(targetTop - currentTop) / avgHeight);
+            }
+          }
+        } catch {}
+        const bridgeLike =
+          multiJumpDelta > 1 ||
+          strictLogicalSpeakableBridgeStep;
+        const maxAllowedLines = ASR_LIVE_VISUAL_STEP_MAX_LINES;
+        const bridgeProjectionPenalty = bridgeLike ? 1 : 0;
+        const projectedDeltaLines = Math.max(
+          Math.max(0, multiJumpDelta + bridgeProjectionPenalty),
+          Number.isFinite(projectedLayoutDeltaLines) ? Math.max(0, Math.ceil(projectedLayoutDeltaLines)) : 0,
+        );
+        if (projectedDeltaLines > maxAllowedLines) {
+          const visualReducedTarget = resolveLiveVisibleForwardTarget(
+            lastLineIndex,
+            targetLine,
+            maxAllowedLines,
+          );
+          if (visualReducedTarget > lastLineIndex) {
+            try {
+              console.warn(
+                `[ASR_VISUAL_SAFETY_CAP_HELD] current=${lastLineIndex} requestedSemanticTarget=${targetLine} visualReducedTarget=${visualReducedTarget} projectedDeltaLines=${projectedDeltaLines} maxAllowedLines=${maxAllowedLines} recoverySource=${pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown'} reason=active_live_visual_step_cap`,
+              );
+            } catch {}
+            targetLine = visualReducedTarget;
+            multiJumpDelta = targetLine - lastLineIndex;
+          } else {
+            try {
+              console.warn(
+                `[ASR_VISUAL_SAFETY_CAP_HELD] current=${lastLineIndex} requestedSemanticTarget=${targetLine} visualReducedTarget=${lastLineIndex} projectedDeltaLines=${projectedDeltaLines} maxAllowedLines=${maxAllowedLines} recoverySource=${pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown'} reason=active_live_visual_step_cap_hold`,
+              );
+            } catch {}
+            return;
+          }
+        }
+      }
       if (liveStrictFollow && multiJumpDelta > 1 && !pendingSpeakableBridgeCompletion) {
         let bypassedPendingVisualCapTerminal = false;
         const visibleStepTarget = resolveLiveVisibleForwardTarget(
@@ -15456,7 +15575,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             liveUnleashedEnabled: isAsrLiveUnleashedEnabled(),
           });
           if (!reducedLineSpeakable) {
-            const shouldBypassPendingVisualCap = bridgeStageDecision.shouldBypassPendingVisualCap === true;
+            const shouldBypassPendingVisualCap = false;
             if (shouldBypassPendingVisualCap) {
               warnGuard('asr_pending_speakable_bridge_live_unleashed', [
                 `semanticFrom=${lastLineIndex}`,
@@ -15482,15 +15601,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 noCommitMs: noCommitDelayMs,
                 bypassedBlockers: 'pending_visual_cap',
                 reason: 'final_live_safe_step',
-                emitVisibleBridgeBypass: true,
+                emitVisibleBridgeBypass: false,
               });
               if (terminal.accepted) {
                 const canonicalTarget = Math.max(lastLineIndex, Math.floor(Number(terminal.target) || targetLine));
                 targetLine = canonicalTarget;
                 multiJumpDelta = targetLine - lastLineIndex;
-                try {
-                  console.warn(`[ASR_LIVE_UNLEASHED_STEP] current=${lastLineIndex} target=${canonicalTarget} semanticTarget=${canonicalTarget} visualTarget=${canonicalTarget} authority=${movementAuthority} proofSource=${pendingProofSource || movementAuthorityProofSource || 'none'} sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown'} skippedIgnorableLines=[] bridgeSafe=1 bypassedLeash=0 bypassedCooldown=0 bypassedPendingVisualCap=1 stallMs=${Math.max(0, now - lastForwardCommitAt)} noCommitMs=${noCommitDelayMs} thresholdMs=${terminal.thresholdMs} actualDelayMs=${noCommitDelayMs} reason=pending_visual_cap_live_unleashed`);
-                } catch {}
                 bypassedPendingVisualCapTerminal = true;
               }
             } else if (bridgeStageDecision.shouldStage) {
@@ -15582,7 +15698,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             noCommitMs: Math.max(0, now - lastCommitTime),
             bypassedBlockers: 'visible_bridge_step_cap',
             reason: 'final_live_safe_step',
-            emitVisibleBridgeBypass: true,
+            emitVisibleBridgeBypass: false,
           });
           if (visibleCapTerminal.accepted) {
             const canonicalTarget = Math.max(lastLineIndex, Math.floor(Number(visibleCapTerminal.target) || targetLine));

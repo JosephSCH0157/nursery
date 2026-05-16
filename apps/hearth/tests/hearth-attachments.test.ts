@@ -14,6 +14,35 @@ import {
 
 type FetchStub = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+function installWindowAuthStub(): () => void {
+  const originalWindow = (globalThis as { window?: unknown }).window;
+  const storage = new Map<string, string>();
+  const jwtHeader = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const jwtPayload = Buffer.from(JSON.stringify({
+    sub: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  })).toString("base64url");
+  storage.set("forge-auth", `${jwtHeader}.${jwtPayload}.sig`);
+
+  (globalThis as { window?: unknown }).window = {
+    location: { search: "" },
+    localStorage: {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => void storage.set(key, value),
+      removeItem: (key: string) => void storage.delete(key),
+      clear: () => void storage.clear(),
+      key: (index: number) => Array.from(storage.keys())[index] ?? null,
+      get length() {
+        return storage.size;
+      },
+    },
+  };
+
+  return () => {
+    (globalThis as { window?: unknown }).window = originalWindow;
+  };
+}
+
 function installFetchStub(stub: FetchStub): () => void {
   const original = globalThis.fetch;
   (globalThis as Record<string, unknown>).fetch = stub;
@@ -34,6 +63,7 @@ function jsonResponse(status: number, body: unknown): Response {
 // ---------------------------------------------------------------------------
 
 test("listHearthAttachments returns normalized attachment records on success", async () => {
+  const restoreWindow = installWindowAuthStub();
   const record = {
     id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     workspace_id: "11111111-1111-4111-8111-111111111111",
@@ -70,10 +100,12 @@ test("listHearthAttachments returns normalized attachment records on success", a
     assert.equal(a.extracted_text, "hello world");
   } finally {
     restore();
+    restoreWindow();
   }
 });
 
 test("listHearthAttachments returns empty array on 404", async () => {
+  const restoreWindow = installWindowAuthStub();
   const restore = installFetchStub(() =>
     Promise.resolve(new Response(null, { status: 404 })),
   );
@@ -88,10 +120,12 @@ test("listHearthAttachments returns empty array on 404", async () => {
     assert.equal(result.attachments.length, 0);
   } finally {
     restore();
+    restoreWindow();
   }
 });
 
 test("listHearthAttachments returns error result on 401", async () => {
+  const restoreWindow = installWindowAuthStub();
   const restore = installFetchStub(() =>
     Promise.resolve(jsonResponse(401, { error: "Unauthorized" })),
   );
@@ -107,10 +141,12 @@ test("listHearthAttachments returns error result on 401", async () => {
     assert.ok(result.error.length > 0);
   } finally {
     restore();
+    restoreWindow();
   }
 });
 
 test("listHearthAttachments skips rows that fail normalization", async () => {
+  const restoreWindow = installWindowAuthStub();
   const validRecord = {
     id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     workspace_id: "11111111-1111-4111-8111-111111111111",
@@ -144,6 +180,7 @@ test("listHearthAttachments skips rows that fail normalization", async () => {
     assert.equal(result.attachments[0]?.id, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
   } finally {
     restore();
+    restoreWindow();
   }
 });
 
@@ -152,6 +189,7 @@ test("listHearthAttachments skips rows that fail normalization", async () => {
 // ---------------------------------------------------------------------------
 
 test("uploadHearthAttachment returns normalized record on success", async () => {
+  const restoreWindow = installWindowAuthStub();
   let capturedFormData: FormData | null = null;
 
   const restore = installFetchStub(async (_input, init) => {
@@ -200,10 +238,12 @@ test("uploadHearthAttachment returns normalized record on success", async () => 
     assert.equal((capturedFormData as FormData).get("mime_type"), "text/markdown");
   } finally {
     restore();
+    restoreWindow();
   }
 });
 
 test("uploadHearthAttachment returns error result on 415 unsupported type", async () => {
+  const restoreWindow = installWindowAuthStub();
   const restore = installFetchStub(() =>
     Promise.resolve(jsonResponse(415, { ok: false, error: { code: "unsupported_attachment_type", message: "Unsupported file type." } })),
   );
@@ -220,5 +260,6 @@ test("uploadHearthAttachment returns error result on 415 unsupported type", asyn
     assert.equal(result.status, 415);
   } finally {
     restore();
+    restoreWindow();
   }
 });

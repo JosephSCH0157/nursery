@@ -200,8 +200,19 @@ import {
     success: boolean;
     bytesWritten: number;
     finalPath: string | null;
+    errorCode?: string | null;
     errorMessage: string | null;
     safeToLeave: boolean;
+    localCopySecured?: boolean;
+    localMirrorExpected?: boolean;
+    localMirrorAttempted?: boolean;
+    localMirrorSucceeded?: boolean;
+    canonicalCommitAttempted?: boolean;
+    canonicalCommitSucceeded?: boolean;
+    overallSafeToLeave?: boolean;
+    downloadFallbackAttempted?: boolean;
+    downloadFallbackSucceeded?: boolean;
+    downloadFallbackSkippedReason?: string | null;
   }): void {
     try {
       window.dispatchEvent(new CustomEvent('tp:recording:local-safety-copy', { detail }));
@@ -314,6 +325,13 @@ import {
     errorCode?: string | null;
     errorMessage?: string | null;
     finalStorageKey?: string | null;
+    localMirrorExpected?: boolean;
+    localMirrorAttempted?: boolean;
+    localMirrorSucceeded?: boolean;
+    localCopySecured?: boolean;
+    downloadFallbackAttempted?: boolean;
+    downloadFallbackSucceeded?: boolean;
+    downloadFallbackSkippedReason?: string | null;
   }): void {
     const cleanTitle = String(detail.saveIdentity?.baseTitle || '').trim();
     const fallbackTitle = cleanTitle || String(detail.originalName || '').replace(/\.[^.]+$/, '').trim() || null;
@@ -334,6 +352,13 @@ import {
       errorCode: detail.errorCode || null,
       errorMessage: detail.errorMessage || null,
       finalStorageKey: detail.finalStorageKey || null,
+      localMirrorExpected: detail.localMirrorExpected === true,
+      localMirrorAttempted: detail.localMirrorAttempted === true,
+      localMirrorSucceeded: detail.localMirrorSucceeded === true,
+      localCopySecured: detail.localCopySecured === true,
+      downloadFallbackAttempted: detail.downloadFallbackAttempted === true,
+      downloadFallbackSucceeded: detail.downloadFallbackSucceeded === true,
+      downloadFallbackSkippedReason: detail.downloadFallbackSkippedReason || null,
     };
     try {
       window.dispatchEvent(new CustomEvent('tp:recording:upload-fallback', { detail: payload }));
@@ -1049,6 +1074,12 @@ import {
     let canonicalAttempted = false;
     let canonicalErrorCode: string | null = null;
     let canonicalErrorMessage: string | null = null;
+    let localMirrorExpected = false;
+    let localMirrorAttempted = false;
+    let localMirrorSucceeded = false;
+    let downloadFallbackAttempted = false;
+    let downloadFallbackSucceeded = false;
+    let downloadFallbackSkippedReason: string | null = null;
     try {
       const recordingValidity = await verifyFinalizedRecordingArtifact(blob);
       try {
@@ -1201,6 +1232,7 @@ import {
           const configuredPath = managed
             ? (typeof hint === 'string' && hint.trim() ? hint.trim() : 'managed:recordings')
             : (dir && typeof (dir as any).name === 'string' ? String((dir as any).name).trim() : null);
+          localMirrorExpected = managed || !!configuredPath || !!dir;
           const safetyEnabled = !!dir;
           emitLocalSafetyCopyStatus({
             enabled: safetyEnabled,
@@ -1209,11 +1241,23 @@ import {
             success: false,
             bytesWritten: 0,
             finalPath: null,
+            errorCode: null,
             errorMessage: null,
             safeToLeave: false,
+            localCopySecured: false,
+            localMirrorExpected,
+            localMirrorAttempted: false,
+            localMirrorSucceeded: false,
+            canonicalCommitAttempted: canonicalAttempted,
+            canonicalCommitSucceeded: committed,
+            overallSafeToLeave: committed,
+            downloadFallbackAttempted,
+            downloadFallbackSucceeded,
+            downloadFallbackSkippedReason,
           });
           if (dir && typeof dir.getFileHandle === 'function') {
             try {
+              localMirrorAttempted = true;
               try {
                 console.log('[core-recorder] writing to directory', { name: (dir as any).name || '(handle)' });
               } catch {}
@@ -1233,6 +1277,7 @@ import {
               const w = await fh.createWritable();
               await w.write(localWritePayload);
               await w.close();
+              localMirrorSucceeded = true;
               emitLocalSafetyCopyStatus({
                 enabled: true,
                 configuredPath: configuredPath || null,
@@ -1240,8 +1285,19 @@ import {
                 success: true,
                 bytesWritten: bytes.length,
                 finalPath: `local:directory:${name}`,
+                errorCode: null,
                 errorMessage: null,
                 safeToLeave: true,
+                localCopySecured: true,
+                localMirrorExpected,
+                localMirrorAttempted,
+                localMirrorSucceeded,
+                canonicalCommitAttempted: canonicalAttempted,
+                canonicalCommitSucceeded: committed,
+                overallSafeToLeave: true,
+                downloadFallbackAttempted,
+                downloadFallbackSucceeded,
+                downloadFallbackSkippedReason,
               });
               try {
                 console.log('[core-recorder] saved file mirror', name);
@@ -1272,6 +1328,13 @@ import {
                   errorCode: canonicalErrorCode,
                   errorMessage: canonicalErrorMessage,
                   finalStorageKey: `local:directory:${name}`,
+                  localMirrorExpected,
+                  localMirrorAttempted,
+                  localMirrorSucceeded,
+                  localCopySecured: true,
+                  downloadFallbackAttempted,
+                  downloadFallbackSucceeded,
+                  downloadFallbackSkippedReason,
                 });
               }
               return true;
@@ -1283,16 +1346,35 @@ import {
                 success: false,
                 bytesWritten: 0,
                 finalPath: null,
+                errorCode: 'local_safety_copy_write_failed',
                 errorMessage: String((err as any)?.message || err || 'local_safety_copy_failed'),
                 safeToLeave: false,
+                localCopySecured: false,
+                localMirrorExpected,
+                localMirrorAttempted: true,
+                localMirrorSucceeded: false,
+                canonicalCommitAttempted: canonicalAttempted,
+                canonicalCommitSucceeded: committed,
+                overallSafeToLeave: committed,
+                downloadFallbackAttempted,
+                downloadFallbackSucceeded,
+                downloadFallbackSkippedReason,
               });
-              showRecorderToast(
-                'Recording finished, but the local safety copy was not saved. Do not leave this screen until the recording is verified or downloaded.',
-                'error',
-              );
+              if (committed) {
+                showRecorderToast(
+                  'Recording was saved to Forge, but the local mirror copy was not saved because the recording folder is unavailable.',
+                  'warning',
+                );
+              } else {
+                showRecorderToast(
+                  'Recording finished, but the local safety copy was not saved. Do not leave this screen until the recording is verified or downloaded.',
+                  'error',
+                );
+              }
               try { console.warn('[core-recorder] failed to write via FileSystemAccess', err); } catch {}
             }
           } else {
+            localMirrorAttempted = localMirrorExpected;
             try {
               const managed = !!(window as any).__tpRecDir?.isManaged?.();
               const hint = (window as any).__tpRecDir?.managedHint?.();
@@ -1302,21 +1384,67 @@ import {
               );
             } catch {}
             emitLocalSafetyCopyStatus({
-              enabled: false,
+              enabled: localMirrorExpected,
               configuredPath: configuredPath || null,
-              attempted: false,
+              attempted: localMirrorAttempted,
               success: false,
               bytesWritten: 0,
               finalPath: null,
-              errorMessage: 'recording_directory_handle_missing',
+              errorCode: 'missing_directory_handle',
+              errorMessage: 'Recording folder handle is unavailable.',
               safeToLeave: false,
+              localCopySecured: false,
+              localMirrorExpected,
+              localMirrorAttempted,
+              localMirrorSucceeded: false,
+              canonicalCommitAttempted: canonicalAttempted,
+              canonicalCommitSucceeded: committed,
+              overallSafeToLeave: committed,
+              downloadFallbackAttempted,
+              downloadFallbackSucceeded,
+              downloadFallbackSkippedReason,
             });
+            if (localMirrorExpected) {
+              if (committed) {
+                showRecorderToast(
+                  'Recording was saved to Forge, but the local mirror copy was not saved because the recording folder is unavailable.',
+                  'warning',
+                );
+              } else {
+                showRecorderToast(
+                  'Recording finished, but the local safety copy was not saved. Do not leave this screen until the recording is verified or downloaded.',
+                  'error',
+                );
+              }
+            }
           }
         } catch {}
         if (committed) {
+          downloadFallbackSkippedReason = 'canonical_commit_succeeded';
           try {
             console.log('[core-recorder] canonical commit succeeded; skipping download fallback', { name });
           } catch {}
+          if (localMirrorExpected && !localMirrorSucceeded) {
+            emitUploadFallbackAudit({
+              saveIdentity: opts.saveIdentity ?? null,
+              originalName: name,
+              bytes: bytes.length,
+              canonicalAttempted,
+              canonicalSucceeded: true,
+              fallbackUsed: false,
+              safeToLeave: true,
+              errorCode: canonicalErrorCode,
+              errorMessage: canonicalErrorMessage,
+              finalStorageKey: commitResultOk?.path || null,
+              localMirrorExpected,
+              localMirrorAttempted,
+              localMirrorSucceeded,
+              localCopySecured: false,
+              downloadFallbackAttempted,
+              downloadFallbackSucceeded,
+              downloadFallbackSkippedReason,
+            });
+          }
           if (commitResultOk) {
             hideRecordingFinalizeIndicator();
             await promptForTakeDecision({
@@ -1338,6 +1466,7 @@ import {
           'warning',
         );
         try {
+          downloadFallbackAttempted = true;
           const downloadBlob = new Blob([bytes], { type: contentType });
           const url = URL.createObjectURL(downloadBlob);
           const a = document.createElement('a');
@@ -1352,6 +1481,7 @@ import {
               URL.revokeObjectURL(url);
             } catch {}
           }, 2000);
+          downloadFallbackSucceeded = true;
         } catch {}
         emitUploadFallbackAudit({
           saveIdentity: opts.saveIdentity ?? null,
@@ -1364,6 +1494,13 @@ import {
           errorCode: canonicalErrorCode,
           errorMessage: canonicalErrorMessage,
           finalStorageKey: `local:download:${name}`,
+          localMirrorExpected,
+          localMirrorAttempted,
+          localMirrorSucceeded,
+          localCopySecured: downloadFallbackSucceeded,
+          downloadFallbackAttempted,
+          downloadFallbackSucceeded,
+          downloadFallbackSkippedReason,
         });
         showRecorderToast(
           'Recording finished, but the local safety copy was not saved. Do not leave this screen until the recording is verified or downloaded.',
