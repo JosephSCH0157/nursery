@@ -39,7 +39,6 @@ type RunnerState = {
   inFlight: boolean;
 };
 
-const VIDEO_MEDIA_EXTENSIONS = new Set([".mp4", ".webm", ".mov"]);
 const MAX_TRANSCRIPT_SOURCE_BYTES = 256 * 1024 * 1024;
 const MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES = 25 * 1024 * 1024;
 const FFMPEG_TRANSCRIPT_AUDIO_TIMEOUT_MS = 3 * 60 * 1000;
@@ -416,10 +415,31 @@ function shouldPreferForgeTranscriptTranscode(): boolean {
   return readTrimmed(process.env.HAMMER_TRANSCRIPT_AUDIO_TRANSCODE_BACKEND)?.toLowerCase() === "forge";
 }
 
+function isLikelyUnsupportedAudioUpload(status: number, detail: string): boolean {
+  if (status !== 400 && status !== 415 && status !== 422) return false;
+  const lower = detail.toLowerCase();
+  return lower.includes("audio file might be corrupted or unsupported")
+    || lower.includes("invalid_request_error")
+    || lower.includes("unsupported")
+    || lower.includes("invalid value");
+}
+
+class OpenAiTranscriptionError extends Error {
+  status: number;
+  detail: string;
+  constructor(status: number, detail: string) {
+    super(`OpenAI transcription failed (${status}): ${detail.slice(0, 240)}`);
+    this.name = "OpenAiTranscriptionError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 async function prepareTranscriptJobUploadMedia(args: {
   bytes: Uint8Array;
   contentType: string;
   sourcePath: string;
+  forceTranscode?: boolean;
 }): Promise<{
   bytes: Uint8Array;
   contentType: string;
@@ -435,7 +455,8 @@ async function prepareTranscriptJobUploadMedia(args: {
   }
 
   const extension = path.extname(args.sourcePath).toLowerCase();
-  const shouldTranscode = VIDEO_MEDIA_EXTENSIONS.has(extension)
+  const shouldTranscode = Boolean(args.forceTranscode)
+    || args.contentType.toLowerCase().startsWith("video/")
     || args.bytes.byteLength > MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES;
   if (!shouldTranscode) {
     return {
@@ -559,7 +580,7 @@ async function runOpenAiTranscription(args: {
     const providerRequestId = response.headers.get("x-request-id");
     if (!response.ok) {
       const detail = await response.text().catch(() => "");
-      throw new Error(`OpenAI transcription failed (${response.status}): ${detail.slice(0, 240)}`);
+      throw new OpenAiTranscriptionError(response.status, detail);
     }
     const payload = (await response.json()) as unknown;
     const segments = normalizeSegments(payload);
@@ -668,9 +689,10 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
 
   const { bytes, contentType } = await downloadWorkpieceBytes(deps.service.supabase, deps.service.bucket, job.workpiece_id, sourcePath);
   await updateJobProgressPercent(deps.service, job.id, 15);
+  const originalContentType = inferContentType(sourcePath, mimeTypeHint ?? contentType);
   const uploadMedia = await prepareTranscriptJobUploadMedia({
     bytes,
-    contentType: inferContentType(sourcePath, mimeTypeHint ?? contentType),
+    contentType: originalContentType,
     sourcePath,
   });
   await updateJobProgressPercent(deps.service, job.id, 30);
@@ -707,14 +729,53 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
     return { placementCountBefore: placementCount, uncertainCountBefore: count };
   })();
 
-  const openAiResult = await runOpenAiTranscription({
-    apiKey: textApiKey,
-    model,
-    bytes: uploadMedia.bytes,
-    contentType: uploadMedia.contentType,
-    filename: uploadMedia.filename,
-    timeoutMs,
-  });
+  const directAcceptableForOpenAi = !originalContentType.toLowerCase().startsWith("video/")
+    && bytes.byteLength <= MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES;
+  let selectedUploadMedia = uploadMedia;
+  let openAiResult: Awaited<ReturnType<typeof runOpenAiTranscription>>;
+  try {
+    const firstCandidate = directAcceptableForOpenAi
+      ? {
+          bytes,
+          contentType: originalContentType,
+          filename: path.basename(sourcePath) || "source-media",
+          transcodeBackend: "direct_source" as const,
+          ffmpegRequestId: null,
+          outputFormat: null,
+          outputSampleRate: null,
+          outputChannels: null,
+        }
+      : uploadMedia;
+    selectedUploadMedia = firstCandidate;
+    openAiResult = await runOpenAiTranscription({
+      apiKey: textApiKey,
+      model,
+      bytes: firstCandidate.bytes,
+      contentType: firstCandidate.contentType,
+      filename: firstCandidate.filename,
+      timeoutMs,
+    });
+  } catch (error) {
+    const shouldFallbackToTranscode = error instanceof OpenAiTranscriptionError
+      && directAcceptableForOpenAi
+      && isLikelyUnsupportedAudioUpload(error.status, error.detail);
+    if (!shouldFallbackToTranscode) throw error;
+    const fallbackUploadMedia = await prepareTranscriptJobUploadMedia({
+      bytes,
+      contentType: originalContentType,
+      sourcePath,
+      forceTranscode: true,
+    });
+    selectedUploadMedia = fallbackUploadMedia;
+    openAiResult = await runOpenAiTranscription({
+      apiKey: textApiKey,
+      model,
+      bytes: fallbackUploadMedia.bytes,
+      contentType: fallbackUploadMedia.contentType,
+      filename: fallbackUploadMedia.filename,
+      timeoutMs,
+    });
+  }
   await updateJobProgressPercent(deps.service, job.id, 70);
 
   const mediaRef: MediaRef = {
@@ -834,9 +895,9 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
     uncertain_count_after: uncertainCountAfter,
     transcript_id: prepared.transcriptId,
     provider_request_id: openAiResult.provider_request_id,
-    transcode_backend: uploadMedia.transcodeBackend,
-    ffmpeg_request_id: uploadMedia.ffmpegRequestId,
-    transcript_upload_bytes: uploadMedia.bytes.byteLength,
+    transcode_backend: selectedUploadMedia.transcodeBackend,
+    ffmpeg_request_id: selectedUploadMedia.ffmpegRequestId,
+    transcript_upload_bytes: selectedUploadMedia.bytes.byteLength,
   };
 
   await writeIngestDiagnostics(deps.service, job, {
@@ -849,12 +910,12 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
       provider_request_id: openAiResult.provider_request_id,
       model,
       provider: "openai",
-      transcode_backend: uploadMedia.transcodeBackend,
-      ffmpeg_request_id: uploadMedia.ffmpegRequestId,
-      upload_bytes: uploadMedia.bytes.byteLength,
-      output_format: uploadMedia.outputFormat,
-      output_sample_rate: uploadMedia.outputSampleRate,
-      output_channels: uploadMedia.outputChannels,
+      transcode_backend: selectedUploadMedia.transcodeBackend,
+      ffmpeg_request_id: selectedUploadMedia.ffmpegRequestId,
+      upload_bytes: selectedUploadMedia.bytes.byteLength,
+      output_format: selectedUploadMedia.outputFormat,
+      output_sample_rate: selectedUploadMedia.outputSampleRate,
+      output_channels: selectedUploadMedia.outputChannels,
     },
     seal_outcome: canonical.sealed_at ? "skipped_already_sealed" : "attempted",
     placements_refreshed: placementsRefreshed,
