@@ -42,6 +42,8 @@ type RunnerState = {
 const MAX_TRANSCRIPT_SOURCE_BYTES = 256 * 1024 * 1024;
 const MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES = 25 * 1024 * 1024;
 const FFMPEG_TRANSCRIPT_AUDIO_TIMEOUT_MS = 3 * 60 * 1000;
+const NEAR_SILENT_RMS_DBFS_THRESHOLD = -52;
+const MIN_USABLE_AUDIO_DURATION_SEC = 0.35;
 
 function readTrimmed(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -435,6 +437,129 @@ class OpenAiTranscriptionError extends Error {
   }
 }
 
+type TranscriptAudioProbeDiagnostic = {
+  canonical_media_path: string;
+  byte_size: number;
+  mime: string;
+  extension: string;
+  hasAudioStream: boolean;
+  audioCodec: string | null;
+  channels: number | null;
+  sampleRate: number | null;
+  durationSec: number | null;
+  nearSilent: boolean | null;
+  rmsDbfs: number | null;
+};
+
+class TranscriptAudioPreflightError extends Error {
+  diagnostic: TranscriptAudioProbeDiagnostic;
+  constructor(message: string, diagnostic: TranscriptAudioProbeDiagnostic) {
+    super(message);
+    this.name = "TranscriptAudioPreflightError";
+    this.diagnostic = diagnostic;
+  }
+}
+
+function analyzeWavSignal(bytes: Uint8Array): {
+  channels: number | null;
+  sampleRate: number | null;
+  durationSec: number | null;
+  rmsDbfs: number | null;
+  nearSilent: boolean | null;
+} {
+  try {
+    if (bytes.byteLength < 44) {
+      return { channels: null, sampleRate: null, durationSec: null, rmsDbfs: null, nearSilent: null };
+    }
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const channels = view.getUint16(22, true);
+    const sampleRate = view.getUint32(24, true);
+    const bitsPerSample = view.getUint16(34, true);
+    if (!channels || !sampleRate || bitsPerSample !== 16) {
+      return { channels: channels || null, sampleRate: sampleRate || null, durationSec: null, rmsDbfs: null, nearSilent: null };
+    }
+    const dataBytes = Math.max(0, bytes.byteLength - 44);
+    const sampleCount = Math.floor(dataBytes / 2);
+    if (sampleCount <= 0) {
+      return { channels, sampleRate, durationSec: 0, rmsDbfs: -120, nearSilent: true };
+    }
+    let energy = 0;
+    for (let i = 44; i + 1 < bytes.byteLength; i += 2) {
+      const sample = view.getInt16(i, true) / 32768;
+      energy += sample * sample;
+    }
+    const rms = Math.sqrt(energy / sampleCount);
+    const rmsDbfs = rms > 0 ? 20 * Math.log10(rms) : -120;
+    const durationSec = sampleCount / (sampleRate * channels);
+    const nearSilent = durationSec >= MIN_USABLE_AUDIO_DURATION_SEC && rmsDbfs <= NEAR_SILENT_RMS_DBFS_THRESHOLD;
+    return { channels, sampleRate, durationSec, rmsDbfs, nearSilent };
+  } catch {
+    return { channels: null, sampleRate: null, durationSec: null, rmsDbfs: null, nearSilent: null };
+  }
+}
+
+function isLikelyNoAudioStreamError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes("contains no stream")
+    || lower.includes("stream map")
+    || lower.includes("no audio")
+    || lower.includes("audio stream");
+}
+
+async function runTranscriptRegenerationAudioPreflight(args: {
+  sourcePath: string;
+  originalContentType: string;
+  sourceBytes: Uint8Array;
+}): Promise<TranscriptAudioProbeDiagnostic> {
+  const extension = path.extname(args.sourcePath).toLowerCase();
+  const baseDiagnostic: TranscriptAudioProbeDiagnostic = {
+    canonical_media_path: args.sourcePath,
+    byte_size: args.sourceBytes.byteLength,
+    mime: args.originalContentType,
+    extension,
+    hasAudioStream: false,
+    audioCodec: null,
+    channels: null,
+    sampleRate: null,
+    durationSec: null,
+    nearSilent: null,
+    rmsDbfs: null,
+  };
+
+  try {
+    const preflightMedia = await prepareTranscriptJobUploadMedia({
+      bytes: args.sourceBytes,
+      contentType: args.originalContentType,
+      sourcePath: args.sourcePath,
+      forceTranscode: true,
+    });
+    if (preflightMedia.contentType !== "audio/wav") {
+      return {
+        ...baseDiagnostic,
+        hasAudioStream: true,
+      };
+    }
+    assertValidWavHeader(preflightMedia.bytes);
+    const wav = analyzeWavSignal(preflightMedia.bytes);
+    return {
+      ...baseDiagnostic,
+      hasAudioStream: (wav.channels ?? 0) > 0 && (wav.sampleRate ?? 0) > 0 && (wav.durationSec ?? 0) > 0,
+      audioCodec: "pcm_s16le",
+      channels: wav.channels,
+      sampleRate: wav.sampleRate,
+      durationSec: wav.durationSec,
+      nearSilent: wav.nearSilent,
+      rmsDbfs: wav.rmsDbfs,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isLikelyNoAudioStreamError(message)) {
+      return baseDiagnostic;
+    }
+    throw error;
+  }
+}
+
 function assertValidWavHeader(bytes: Uint8Array): void {
   if (bytes.byteLength < 4) {
     throw new Error("Transcoded audio output is invalid before upload (too small for WAV header).");
@@ -700,6 +825,25 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
   const { bytes, contentType } = await downloadWorkpieceBytes(deps.service.supabase, deps.service.bucket, job.workpiece_id, sourcePath);
   await updateJobProgressPercent(deps.service, job.id, 15);
   const originalContentType = inferContentType(sourcePath, mimeTypeHint ?? contentType);
+  if (job.job_type === "hammer_transcript_regeneration") {
+    const audioProbe = await runTranscriptRegenerationAudioPreflight({
+      sourcePath,
+      originalContentType,
+      sourceBytes: bytes,
+    });
+    if (!audioProbe.hasAudioStream) {
+      throw new TranscriptAudioPreflightError(
+        "The selected canonical recording has no usable audio, so transcript regeneration cannot run.",
+        audioProbe,
+      );
+    }
+    if (audioProbe.nearSilent === true) {
+      throw new TranscriptAudioPreflightError(
+        "The selected canonical recording has no usable audio, so transcript regeneration cannot run.",
+        audioProbe,
+      );
+    }
+  }
   const uploadMedia = await prepareTranscriptJobUploadMedia({
     bytes,
     contentType: originalContentType,
@@ -842,6 +986,9 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const transcriptPreflightDiagnostic = error instanceof TranscriptAudioPreflightError
+        ? error.diagnostic
+        : null;
       if (!message.includes("already sealed")) {
         // ignore seal races / non-fatal failures
       }
@@ -1049,6 +1196,7 @@ async function tickRunner(deps: RunnerDeps, state: RunnerState): Promise<void> {
           provider: "openai",
           status: "failed",
           error_message: message,
+          ...(transcriptPreflightDiagnostic ? { transcript_audio_preflight: transcriptPreflightDiagnostic } : {}),
         },
       }).catch(() => undefined);
       await finalizeJob(deps.service, job.id, {
@@ -1057,8 +1205,16 @@ async function tickRunner(deps: RunnerDeps, state: RunnerState): Promise<void> {
         lease_expires_at: null,
         heartbeat_at: new Date().toISOString(),
         progress_percent: null,
-        error_code: "JOB_FAILED",
+        error_code: transcriptPreflightDiagnostic ? "AUDIO_PREFLIGHT_FAILED" : "JOB_FAILED",
         error_message: message,
+        ...(transcriptPreflightDiagnostic
+          ? {
+              result_json: {
+                transcript_audio_preflight: transcriptPreflightDiagnostic,
+                user_message: message,
+              } as unknown as Json,
+            }
+          : {}),
       });
     }
   } finally {

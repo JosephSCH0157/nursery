@@ -1,6 +1,6 @@
 // Lightweight auto-record stub (browser MediaRecorder-based).
 // Mirrors the legacy JS behavior but typed for the TS runtime.
-import { getRecordingMode } from './recording-settings';
+import { getRecordingEngine, getRecordingMode } from './recording-settings';
 import {
   appendRecordingDecisionToTongs,
   beginRecordingCaptureSession,
@@ -123,6 +123,161 @@ import {
         toast(message, { type });
       }
     } catch {}
+  }
+
+  type RecorderTrackSnapshot = {
+    audioTrackCount: number;
+    videoTrackCount: number;
+    audioTracks: Array<{
+      enabled: boolean;
+      muted: boolean;
+      readyState: string;
+      label: string | null;
+      deviceId: string | null;
+    }>;
+    videoTracks: Array<{
+      enabled: boolean;
+      muted: boolean;
+      readyState: string;
+      label: string | null;
+      deviceId: string | null;
+    }>;
+    selectedMicDeviceId: string | null;
+    recorderEngine: string;
+  };
+
+  let lastRecorderTrackSnapshot: RecorderTrackSnapshot | null = null;
+
+  function readSelectedMicDeviceId(): string | null {
+    try {
+      const raw = localStorage.getItem('tp_mic_device_v1');
+      const value = String(raw || '').trim();
+      return value || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function readTrackDeviceId(track: MediaStreamTrack): string | null {
+    try {
+      const settings = (track as any)?.getSettings?.();
+      const value = String(settings?.deviceId || '').trim();
+      return value || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function summarizeTracks(stream: MediaStream): RecorderTrackSnapshot {
+    const audioTracks = stream.getAudioTracks();
+    const videoTracks = stream.getVideoTracks();
+    return {
+      audioTrackCount: audioTracks.length,
+      videoTrackCount: videoTracks.length,
+      audioTracks: audioTracks.map((track) => ({
+        enabled: track.enabled !== false,
+        muted: track.muted === true,
+        readyState: String(track.readyState || ''),
+        label: String(track.label || '').trim() || null,
+        deviceId: readTrackDeviceId(track),
+      })),
+      videoTracks: videoTracks.map((track) => ({
+        enabled: track.enabled !== false,
+        muted: track.muted === true,
+        readyState: String(track.readyState || ''),
+        label: String(track.label || '').trim() || null,
+        deviceId: readTrackDeviceId(track),
+      })),
+      selectedMicDeviceId: readSelectedMicDeviceId(),
+      recorderEngine: getRecordingEngine(),
+    };
+  }
+
+  function emitLocalSafetyCopyStatus(detail: {
+    enabled: boolean;
+    configuredPath: string | null;
+    attempted: boolean;
+    success: boolean;
+    bytesWritten: number;
+    finalPath: string | null;
+    errorMessage: string | null;
+    safeToLeave: boolean;
+  }): void {
+    try {
+      window.dispatchEvent(new CustomEvent('tp:recording:local-safety-copy', { detail }));
+    } catch {}
+  }
+
+  type RecordedArtifactAudioProbe = {
+    hasAudioStream: boolean;
+    audioDurationSec: number | null;
+    channels: number | null;
+    sampleRate: number | null;
+    nearSilent: boolean | null;
+    rmsDbfs: number | null;
+    hasVideoStream: boolean;
+    contentType: string;
+  };
+
+  type RecordedArtifactValidity =
+    | { ok: true; probe: RecordedArtifactAudioProbe }
+    | { ok: false; reason: 'no_audio_stream' | 'near_silent_audio'; probe: RecordedArtifactAudioProbe };
+
+  function buildProbeFromSnapshot(contentType: string): RecordedArtifactAudioProbe {
+    const audioTrackCount = Number(lastRecorderTrackSnapshot?.audioTrackCount || 0);
+    const videoTrackCount = Number(lastRecorderTrackSnapshot?.videoTrackCount || 0);
+    return {
+      hasAudioStream: audioTrackCount > 0,
+      audioDurationSec: null,
+      channels: null,
+      sampleRate: null,
+      nearSilent: null,
+      rmsDbfs: null,
+      hasVideoStream: videoTrackCount > 0 || contentType.startsWith('video/'),
+      contentType,
+    };
+  }
+
+  async function verifyFinalizedRecordingArtifact(blob: Blob): Promise<RecordedArtifactValidity> {
+    const contentType = String(blob.type || 'application/octet-stream').trim().toLowerCase();
+    try {
+      const customVerifier = (window as any).__tpVerifyRecordedArtifact;
+      if (typeof customVerifier === 'function') {
+        const result = await customVerifier(blob, {
+          lastRecorderTrackSnapshot,
+          recordingEngine: getRecordingEngine(),
+        });
+        if (result && typeof result === 'object') {
+          const probe: RecordedArtifactAudioProbe = {
+            hasAudioStream: !!(result as any).hasAudioStream,
+            audioDurationSec: Number.isFinite(Number((result as any).audioDurationSec))
+              ? Number((result as any).audioDurationSec)
+              : null,
+            channels: Number.isFinite(Number((result as any).channels)) ? Number((result as any).channels) : null,
+            sampleRate: Number.isFinite(Number((result as any).sampleRate)) ? Number((result as any).sampleRate) : null,
+            nearSilent: typeof (result as any).nearSilent === 'boolean' ? !!(result as any).nearSilent : null,
+            rmsDbfs: Number.isFinite(Number((result as any).rmsDbfs)) ? Number((result as any).rmsDbfs) : null,
+            hasVideoStream: typeof (result as any).hasVideoStream === 'boolean'
+              ? !!(result as any).hasVideoStream
+              : contentType.startsWith('video/'),
+            contentType,
+          };
+          if (!probe.hasAudioStream || (typeof probe.channels === 'number' && probe.channels <= 0) || (typeof probe.sampleRate === 'number' && probe.sampleRate <= 0)) {
+            return { ok: false, reason: 'no_audio_stream', probe };
+          }
+          if (probe.nearSilent === true) {
+            return { ok: false, reason: 'near_silent_audio', probe };
+          }
+          return { ok: true, probe };
+        }
+      }
+    } catch {}
+
+    const fallbackProbe = buildProbeFromSnapshot(contentType);
+    if (!fallbackProbe.hasAudioStream) {
+      return { ok: false, reason: 'no_audio_stream', probe: fallbackProbe };
+    }
+    return { ok: true, probe: fallbackProbe };
   }
 
   function readCaptureSessionRunKey(): string | null {
@@ -698,6 +853,42 @@ import {
     }
 
     currentStream = mix;
+    const recorderTrackSnapshot = summarizeTracks(mix);
+    lastRecorderTrackSnapshot = recorderTrackSnapshot;
+    try {
+      console.info('[core-recorder] recorder stream tracks', recorderTrackSnapshot);
+      window.dispatchEvent(new CustomEvent('tp:recording:recorder-stream', { detail: recorderTrackSnapshot }));
+    } catch {}
+    try {
+      const asrSourceSelected = String((window as any).__tpCalibrationRuntime?.source || '').trim() || 'unknown';
+      const asrPath = String((window as any).__tpCalibrationRuntime?.asrPath || '').trim() || 'unknown';
+      const asrSource = { asrSourceSelected, asrPath };
+      console.info('[core-recorder] asr vs recorder source', {
+        asr: asrSource,
+        recorderEngine: recorderTrackSnapshot.recorderEngine,
+        recorderAudioTrackCount: recorderTrackSnapshot.audioTrackCount,
+      });
+      window.dispatchEvent(new CustomEvent('tp:recording:asr-recorder-source', {
+        detail: {
+          asr: asrSource,
+          recorder: {
+            engine: recorderTrackSnapshot.recorderEngine,
+            audioTrackCount: recorderTrackSnapshot.audioTrackCount,
+            videoTrackCount: recorderTrackSnapshot.videoTrackCount,
+          },
+        },
+      }));
+    } catch {}
+    if (recorderTrackSnapshot.audioTrackCount <= 0) {
+      showRecorderToast(
+        'Recording cannot start because the recorder has no active audio track. ASR may still hear the mic, but the recording would be silent.',
+        'error',
+      );
+      try {
+        console.error('[core-recorder] refusing to start: recorder stream has no audio track', recorderTrackSnapshot);
+      } catch {}
+      throw new Error('recorder_stream_missing_audio_track');
+    }
     const recorderOptions: MediaRecorderOptions = {};
     if (strategy.mimeType) recorderOptions.mimeType = strategy.mimeType;
     if (strategy.videoBitsPerSecond != null) recorderOptions.videoBitsPerSecond = strategy.videoBitsPerSecond;
@@ -859,10 +1050,58 @@ import {
     let canonicalErrorCode: string | null = null;
     let canonicalErrorMessage: string | null = null;
     try {
+      const recordingValidity = await verifyFinalizedRecordingArtifact(blob);
+      try {
+        console.info('[core-recorder] finalized artifact validity', recordingValidity);
+        window.dispatchEvent(new CustomEvent('tp:recording:artifact-audio-verification', {
+          detail: {
+            ok: recordingValidity.ok,
+            reason: recordingValidity.ok ? null : recordingValidity.reason,
+            probe: recordingValidity.probe,
+          },
+        }));
+      } catch {}
+      if (!recordingValidity.ok) {
+        if (recordingValidity.reason === 'no_audio_stream') {
+          showRecorderToast('The finalized recording has no audio track. This cannot be saved as a podcast take.', 'error');
+          canonicalErrorCode = 'podcast_take_no_audio_stream';
+          canonicalErrorMessage = 'The finalized recording has no audio track. This cannot be saved as a podcast take.';
+        } else {
+          showRecorderToast('The finalized recording contains an audio track, but no usable audio was detected. Verify the recording before leaving.', 'error');
+          canonicalErrorCode = 'podcast_take_near_silent_audio';
+          canonicalErrorMessage = 'The finalized recording contains an audio track, but no usable audio was detected. Verify the recording before leaving.';
+        }
+        try {
+          window.dispatchEvent(new CustomEvent('tp:recording:podcast-audio-invalid', {
+            detail: {
+              reason: recordingValidity.reason,
+              probe: recordingValidity.probe,
+              safeToLeave: false,
+            },
+          }));
+        } catch {}
+      }
+
+      const recorderAudioTrackCount = Number(lastRecorderTrackSnapshot?.audioTrackCount || 0);
+      const recorderVideoTrackCount = Number(lastRecorderTrackSnapshot?.videoTrackCount || 0);
+      const expectedContainerHasAudio = recorderAudioTrackCount > 0;
+      try {
+        console.info('[core-recorder] finalize blob diagnostics', {
+          mimeType: contentType,
+          bytes: bytes.length,
+          durationMs: typeof opts.durationMs === 'number' ? opts.durationMs : null,
+          recorderAudioTrackCount,
+          recorderVideoTrackCount,
+          expectedContainerHasAudio,
+          recorderEngine: lastRecorderTrackSnapshot?.recorderEngine || getRecordingEngine(),
+        });
+      } catch {}
       const storageLimitHintBytes = readStorageLimitHintBytes();
       const skipCanonicalCommit =
         storageLimitHintBytes != null && bytes.length >= storageLimitHintBytes;
-      if (skipCanonicalCommit) {
+      if (canonicalErrorCode === 'podcast_take_no_audio_stream' || canonicalErrorCode === 'podcast_take_near_silent_audio') {
+        canonicalAttempted = false;
+      } else if (skipCanonicalCommit) {
         try {
           console.warn('[core-recorder] skipping canonical commit after prior storage size-limit failure', {
             size: bytes.length,
@@ -957,6 +1196,22 @@ import {
             await (window as any).__tpRecDir?.init?.();
           } catch {}
           const dir = (window as any).__tpRecDir?.get?.() || null;
+          const managed = !!(window as any).__tpRecDir?.isManaged?.();
+          const hint = (window as any).__tpRecDir?.managedHint?.();
+          const configuredPath = managed
+            ? (typeof hint === 'string' && hint.trim() ? hint.trim() : 'managed:recordings')
+            : (dir && typeof (dir as any).name === 'string' ? String((dir as any).name).trim() : null);
+          const safetyEnabled = !!dir;
+          emitLocalSafetyCopyStatus({
+            enabled: safetyEnabled,
+            configuredPath: configuredPath || null,
+            attempted: false,
+            success: false,
+            bytesWritten: 0,
+            finalPath: null,
+            errorMessage: null,
+            safeToLeave: false,
+          });
           if (dir && typeof dir.getFileHandle === 'function') {
             try {
               try {
@@ -978,6 +1233,16 @@ import {
               const w = await fh.createWritable();
               await w.write(localWritePayload);
               await w.close();
+              emitLocalSafetyCopyStatus({
+                enabled: true,
+                configuredPath: configuredPath || null,
+                attempted: true,
+                success: true,
+                bytesWritten: bytes.length,
+                finalPath: `local:directory:${name}`,
+                errorMessage: null,
+                safeToLeave: true,
+              });
               try {
                 console.log('[core-recorder] saved file mirror', name);
               } catch {}
@@ -1003,7 +1268,7 @@ import {
                   canonicalAttempted,
                   canonicalSucceeded: false,
                   fallbackUsed: true,
-                  safeToLeave: true,
+                  safeToLeave: canonicalErrorCode == null,
                   errorCode: canonicalErrorCode,
                   errorMessage: canonicalErrorMessage,
                   finalStorageKey: `local:directory:${name}`,
@@ -1011,6 +1276,20 @@ import {
               }
               return true;
             } catch (err) {
+              emitLocalSafetyCopyStatus({
+                enabled: true,
+                configuredPath: configuredPath || null,
+                attempted: true,
+                success: false,
+                bytesWritten: 0,
+                finalPath: null,
+                errorMessage: String((err as any)?.message || err || 'local_safety_copy_failed'),
+                safeToLeave: false,
+              });
+              showRecorderToast(
+                'Recording finished, but the local safety copy was not saved. Do not leave this screen until the recording is verified or downloaded.',
+                'error',
+              );
               try { console.warn('[core-recorder] failed to write via FileSystemAccess', err); } catch {}
             }
           } else {
@@ -1022,6 +1301,16 @@ import {
                 { managed, hint: hint || null },
               );
             } catch {}
+            emitLocalSafetyCopyStatus({
+              enabled: false,
+              configuredPath: configuredPath || null,
+              attempted: false,
+              success: false,
+              bytesWritten: 0,
+              finalPath: null,
+              errorMessage: 'recording_directory_handle_missing',
+              safeToLeave: false,
+            });
           }
         } catch {}
         if (committed) {
@@ -1071,11 +1360,15 @@ import {
           canonicalAttempted,
           canonicalSucceeded: false,
           fallbackUsed: true,
-          safeToLeave: true,
+          safeToLeave: false,
           errorCode: canonicalErrorCode,
           errorMessage: canonicalErrorMessage,
           finalStorageKey: `local:download:${name}`,
         });
+        showRecorderToast(
+          'Recording finished, but the local safety copy was not saved. Do not leave this screen until the recording is verified or downloaded.',
+          'error',
+        );
         return false;
       } finally {
         hideRecordingFinalizeIndicator();
