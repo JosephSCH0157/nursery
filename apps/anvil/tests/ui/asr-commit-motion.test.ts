@@ -2807,6 +2807,73 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('stale visual debt expires when a newer committed line supersedes pursuit target', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 180;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'short-memory-supersede-a',
+      match: { bestIdx: 1, bestSim: 0.91, topScores: [{ idx: 1, score: 0.91 }] },
+    });
+    await jest.advanceTimersByTimeAsync(180);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'short-memory-supersede-b',
+      match: { bestIdx: 3, bestSim: 0.92, topScores: [{ idx: 3, score: 0.92 }] },
+    });
+    await jest.advanceTimersByTimeAsync(260);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_VISUAL_SHORT_MEMORY_RESET'))).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('current pocket authority settles when line is already in settle zone despite stale pursuit intent', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 300;
+    const line2 = document.querySelector<HTMLElement>('.line[data-line="2"]')!;
+    Object.defineProperty(line2, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 500, left: 0, right: 800, bottom: 736, width: 800, height: 236 }),
+    });
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'short-memory-current-pocket-settle',
+      match: { bestIdx: 2, bestSim: 0.92, topScores: [{ idx: 2, score: 0.92 }] },
+    });
+    await jest.advanceTimersByTimeAsync(260);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_CURRENT_POCKET_AUTHORITY'))).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('current low line uses current pocket authority and bounded pursuit over stale debt', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 180;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'short-memory-current-pocket-low',
+      match: { bestIdx: 2, bestSim: 0.91, topScores: [{ idx: 2, score: 0.91 }] },
+    });
+    await jest.advanceTimersByTimeAsync(320);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_CURRENT_POCKET_AUTHORITY'))).toBe(true);
+    expect(lines.some((l) => l.includes('action=pursue'))).toBe(true);
+    expect(scroller.scrollTop).toBeGreaterThan(180);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('bridge hold path preserves protection while visual follow can still nudge from low placement', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;

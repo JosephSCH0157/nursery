@@ -3274,6 +3274,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let liveAsrVisualSuppressionKey = '';
   let liveAsrReaderTooLowSinceMs = 0;
   let liveAsrPreferredLowerRailReleaseActive = false;
+  let liveAsrVisualPursuitLineIdx: number | null = null;
   const liveBridgeDownstreamBlockUntilByKey = new Map<string, {
     until: number;
     originalSourceBranch: string;
@@ -10623,7 +10624,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       pursuitTargetTop = current;
     }
 
-    const err = pursuitTargetTop - current;
+    let err = pursuitTargetTop - current;
     const microActive = microPursuitUntil > now;
     const allowCreep = microActive || motionTuning.minPursuitPxPerSec > 0;
     if (shouldStopForVisualDeadband({
@@ -10773,6 +10774,75 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           : Number.NaN;
       const pocketTargetMidY = markerY + (1.25 * measuredLineHeightPx);
       const targetDebtPx = Number.isFinite(nextLineY) ? Math.max(0, nextLineY - pocketTargetMidY) : Number.NaN;
+      const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+      const oldTargetTop = pursuitTargetTop;
+      const oldDebtPx = Number.isFinite(oldTargetTop) ? (oldTargetTop - current) : Number.NaN;
+      const previousPursuitLineIdx = liveAsrVisualPursuitLineIdx;
+      const stalePursuitLine =
+        liveAsrVisualPursuitLineIdx != null &&
+        liveAsrVisualPursuitLineIdx !== nextSpeakableLineIdx;
+      const stalePursuitDebt =
+        Number.isFinite(oldDebtPx) &&
+        (
+          (insidePreferredSettleZone && oldDebtPx > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX) ||
+          (nextTooHigh && oldDebtPx > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX)
+        );
+      if (
+        Number.isFinite(nextLineY) &&
+        (stalePursuitLine || stalePursuitDebt)
+      ) {
+        const desiredByGeometry = clamp(current + (nextLineY - pocketTargetMidY), current, maxScrollTop);
+        let newTargetTop = desiredByGeometry;
+        let resetReason = stalePursuitLine
+          ? 'superseded_committed_line'
+          : 'stale_debt_conflicts_with_current_pocket';
+        if (insidePreferredSettleZone || nextTooHigh) {
+          newTargetTop = current;
+          resetReason = insidePreferredSettleZone
+            ? 'current_line_in_settle_zone'
+            : 'top_pressure_guard';
+        }
+        pursuitTargetTop = newTargetTop;
+        pursuitVel = 0;
+        liveAsrVisualPursuitLineIdx = nextSpeakableLineIdx;
+        err = pursuitTargetTop - current;
+        try {
+          console.warn(
+            `[ASR_VISUAL_SHORT_MEMORY_RESET] previousTargetScrollTop=${Math.round(oldTargetTop)} newTargetScrollTop=${Math.round(newTargetTop)} previousLineIdx=${previousPursuitLineIdx == null ? -1 : previousPursuitLineIdx} currentNextSpeakableLineIdx=${nextSpeakableLineIdx} markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} pocketZone=${insidePreferredSettleZone ? 'preferred_settle' : (insidePreferredLowerRail ? 'preferred_lower_rail' : (nextTooLow ? 'below_preferred' : (nextTooHigh ? 'above_tolerated_top' : (insideTolerated ? 'tolerated' : 'unknown'))))} oldDebtPx=${Number.isFinite(oldDebtPx) ? Math.round(oldDebtPx) : -1} newDebtPx=${Math.round(newTargetTop - current)} reason=${resetReason}`,
+          );
+        } catch {}
+      }
+      if (
+        Number.isFinite(nextLineY) &&
+        (nextLineY > preferredSettleBottom || insidePreferredSettleZone || nextTooHigh)
+      ) {
+        let authorityAction: 'hold' | 'pursue' | 'clamp' = 'hold';
+        let authorityReason = 'inside_settle_zone';
+        let desiredTopFromCurrent = current;
+        if (nextLineY > preferredSettleBottom) {
+          authorityAction = 'pursue';
+          authorityReason = 'below_settle_zone_follow_current_geometry';
+          desiredTopFromCurrent = clamp(current + (nextLineY - pocketTargetMidY), current, maxScrollTop);
+        } else if (nextTooHigh) {
+          authorityAction = 'clamp';
+          authorityReason = 'top_pressure_guard';
+          desiredTopFromCurrent = current;
+        }
+        const wouldOverrideStale =
+          !Number.isFinite(oldTargetTop) ||
+          Math.abs((oldTargetTop || current) - desiredTopFromCurrent) > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX;
+        if (wouldOverrideStale) {
+          pursuitTargetTop = desiredTopFromCurrent;
+          pursuitVel = 0;
+          liveAsrVisualPursuitLineIdx = nextSpeakableLineIdx;
+          err = pursuitTargetTop - current;
+          try {
+            console.warn(
+              `[ASR_CURRENT_POCKET_AUTHORITY] markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} preferredBandTop=${Math.round(preferredBandTop)} preferredSettleBottom=${Math.round(preferredSettleBottom)} preferredBandBottom=${Math.round(preferredBandBottom)} currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(desiredTopFromCurrent)} pocketZone=${insidePreferredSettleZone ? 'preferred_settle' : (insidePreferredLowerRail ? 'preferred_lower_rail' : (nextTooLow ? 'below_preferred' : (nextTooHigh ? 'above_tolerated_top' : (insideTolerated ? 'tolerated' : 'unknown'))))} action=${authorityAction} reason=${authorityReason}`,
+            );
+          } catch {}
+        }
+      }
       if (liveAsrPreferredLowerRailReleaseActive && insidePreferredSettleZone) {
         liveAsrPreferredLowerRailReleaseActive = false;
       }
@@ -17083,7 +17153,38 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const liveCappedMarkerTop = Math.min(markerTargetTop, currentTop + liveAsrCommitCapPx);
         nextTargetTop = Math.max(currentTop, liveCappedMarkerTop);
       }
+      const previousCommitPursuitTargetTop = pursuitTargetTop;
+      const previousCommitPursuitLineIdx = liveAsrVisualPursuitLineIdx;
       pursuitTargetTop = nextTargetTop;
+      liveAsrVisualPursuitLineIdx = targetLine;
+      if (
+        modeNow === 'asr' &&
+        previousCommitPursuitLineIdx != null &&
+        previousCommitPursuitLineIdx !== targetLine &&
+        previousCommitPursuitTargetTop != null &&
+        Number.isFinite(previousCommitPursuitTargetTop)
+      ) {
+        const previousTargetTop = Number(previousCommitPursuitTargetTop);
+        const oldDebtPx = previousTargetTop - currentTop;
+        const newDebtPx = nextTargetTop - currentTop;
+        const markerYForReset = Math.max(1, Number(scroller.clientHeight || 0)) *
+          clamp(
+            typeof (window as any).__TP_MARKER_PCT === 'number'
+              ? Number((window as any).__TP_MARKER_PCT)
+              : 0.4,
+            0.05,
+            0.95,
+          );
+        const nextVisualForReset = resolveLineVisualTelemetry(scroller, targetLine);
+        const nextLineYForReset = Number.isFinite(nextVisualForReset.lineCenterInViewport)
+          ? nextVisualForReset.lineCenterInViewport
+          : Number.NaN;
+        try {
+          console.warn(
+            `[ASR_VISUAL_SHORT_MEMORY_RESET] previousTargetScrollTop=${Math.round(previousTargetTop)} newTargetScrollTop=${Math.round(nextTargetTop)} previousLineIdx=${previousCommitPursuitLineIdx} currentNextSpeakableLineIdx=${targetLine} markerY=${Math.round(markerYForReset)} nextLineY=${Number.isFinite(nextLineYForReset) ? Math.round(nextLineYForReset) : -1} pocketZone=commit_supersede oldDebtPx=${Math.round(oldDebtPx)} newDebtPx=${Math.round(newDebtPx)} reason=commit_superseded_line`,
+          );
+        } catch {}
+      }
       if (modeNow === 'asr' && (!isSessionLivePhase() || !isSessionAsrArmed())) {
         if (isDevMode() && shouldLogTag('ASR:movement-blocked:not-armed', 1, 1000)) {
           try {
