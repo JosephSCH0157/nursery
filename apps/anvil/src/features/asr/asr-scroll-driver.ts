@@ -74,7 +74,6 @@ import {
   classifyVisualLead,
   selectLeadAwarePursuitCap,
   selectReaderPressureVelocityCap,
-  shouldHoldForReaderComfortBand,
   shouldHoldBridgeCommitForVisualRecovery,
   selectBridgeVisualComfortCap,
   selectVisualFollowVelocity,
@@ -237,9 +236,10 @@ const ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS = 35;
 const ASR_VISUAL_FOLLOW_MIN_PXPS = 8;
 const ASR_VISUAL_FOLLOW_READER_AHEAD_PXPS = 8;
 const ASR_VISUAL_FOLLOW_READER_HIGH_LEAD_PXPS = 4;
-const ASR_READER_COMFORT_PREFERRED_ABOVE_PX = 20;
-const ASR_READER_COMFORT_PREFERRED_BELOW_PX = 44;
-const ASR_READER_COMFORT_TOLERATED_BELOW_PX = 84;
+const ASR_READER_POCKET_PREFERRED_TOP_LINES = 0.5;
+const ASR_READER_POCKET_PREFERRED_BOTTOM_LINES = 2.0;
+const ASR_READER_POCKET_TOLERATED_TOP_LINES = -0.5;
+const ASR_READER_POCKET_TOLERATED_BOTTOM_LINES = 2.5;
 const ASR_READER_COMFORT_NUDGE_PXPS = 10;
 const ASR_READER_COMFORT_BOTTOM_DRIFT_NUDGE_PXPS = 14;
 const ASR_READER_COMFORT_BOTTOM_DRIFT_WINDOW_MS = 1200;
@@ -10679,9 +10679,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const markerPct = clamp(markerPctRaw, 0.05, 0.95);
       const viewportHeight = Math.max(1, Number(scroller.clientHeight || 0));
       const markerY = viewportHeight * markerPct;
-      const preferredBandTop = Math.max(0, markerY - ASR_READER_COMFORT_PREFERRED_ABOVE_PX);
-      const preferredBandBottom = Math.min(viewportHeight, markerY + ASR_READER_COMFORT_PREFERRED_BELOW_PX);
-      const toleratedBandBottom = Math.min(viewportHeight, markerY + ASR_READER_COMFORT_TOLERATED_BELOW_PX);
       const totalLines = getTotalLines();
       const nextSpeakableLineIdx =
         findNextSpeakableLineIndex({
@@ -10692,16 +10689,31 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }) ?? lastLineIndex;
       const currentVisual = resolveLineVisualTelemetry(scroller, lastLineIndex);
       const nextVisual = resolveLineVisualTelemetry(scroller, nextSpeakableLineIdx);
-      const comfortDecision = shouldHoldForReaderComfortBand({
-        currentLineY: Number.isFinite(currentVisual.lineCenterInViewport) ? currentVisual.lineCenterInViewport : Number.NaN,
-        nextLineY: Number.isFinite(nextVisual.lineCenterInViewport) ? nextVisual.lineCenterInViewport : Number.NaN,
-        comfortBandTop: preferredBandTop,
-        comfortBandBottom: preferredBandBottom,
-      });
+      const nextSpeakableEl = getLineElementByIndex(scroller, nextSpeakableLineIdx);
+      const measuredLineHeightPx = clamp(
+        Number.isFinite(Number(nextSpeakableEl?.clientHeight))
+          ? Number(nextSpeakableEl?.clientHeight)
+          : (Number.isFinite(Number(nextSpeakableEl?.getBoundingClientRect?.().height))
+            ? Number(nextSpeakableEl?.getBoundingClientRect?.().height)
+            : 24),
+        12,
+        320,
+      );
+      const preferredBandTop = markerY + (ASR_READER_POCKET_PREFERRED_TOP_LINES * measuredLineHeightPx);
+      const preferredBandBottom = markerY + (ASR_READER_POCKET_PREFERRED_BOTTOM_LINES * measuredLineHeightPx);
+      const toleratedBandTop = markerY + (ASR_READER_POCKET_TOLERATED_TOP_LINES * measuredLineHeightPx);
+      const toleratedBandBottom = markerY + (ASR_READER_POCKET_TOLERATED_BOTTOM_LINES * measuredLineHeightPx);
       const nextLineY = Number.isFinite(nextVisual.lineCenterInViewport) ? nextVisual.lineCenterInViewport : Number.NaN;
-      const nextTooLow =
+      const insidePreferred =
         Number.isFinite(nextLineY) &&
-        nextLineY > preferredBandBottom;
+        nextLineY >= preferredBandTop &&
+        nextLineY <= preferredBandBottom;
+      const insideTolerated =
+        Number.isFinite(nextLineY) &&
+        nextLineY >= toleratedBandTop &&
+        nextLineY <= toleratedBandBottom;
+      const nextTooLow = Number.isFinite(nextLineY) && nextLineY > toleratedBandBottom;
+      const nextTooHigh = Number.isFinite(nextLineY) && nextLineY < toleratedBandTop;
       if (nextTooLow) {
         if (liveAsrReaderTooLowSinceMs <= 0) liveAsrReaderTooLowSinceMs = nowTs;
       } else {
@@ -10709,13 +10721,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       let comfortNudgeActive = false;
       let comfortNudgePxps = 0;
-      if (!visualGovernorHoldActive && nextTooLow) {
+      if (!visualGovernorHoldActive && (nextTooLow || (insideTolerated && !insidePreferred && Number.isFinite(nextLineY) && nextLineY > preferredBandBottom))) {
         comfortNudgeActive = true;
         const driftAgeMs =
           liveAsrReaderTooLowSinceMs > 0
             ? Math.max(0, nowTs - liveAsrReaderTooLowSinceMs)
             : 0;
-        const bottomDriftActive = driftAgeMs >= ASR_READER_COMFORT_BOTTOM_DRIFT_WINDOW_MS;
+        const bottomDriftActive = nextTooLow && driftAgeMs >= ASR_READER_COMFORT_BOTTOM_DRIFT_WINDOW_MS;
         comfortNudgePxps = bottomDriftActive
           ? ASR_READER_COMFORT_BOTTOM_DRIFT_NUDGE_PXPS
           : ASR_READER_COMFORT_NUDGE_PXPS;
@@ -10723,15 +10735,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const deltaPx = Number.isFinite(nextLineY) ? Math.round(nextLineY - preferredBandBottom) : 0;
         try {
           console.warn(
-            `[ASR_READER_COMFORT_NUDGE] markerY=${Math.round(markerY)} nextLineY=${Number.isFinite(nextLineY) ? Math.round(nextLineY) : -1} preferredBandTop=${Math.round(preferredBandTop)} preferredBandBottom=${Math.round(preferredBandBottom)} toleratedBandBottom=${Math.round(toleratedBandBottom)} deltaPx=${deltaPx} pxps=${Math.round(comfortNudgePxps)} reason=${bottomDriftActive ? 'bottom_drift_guard' : 'near_lower_edge'}`,
+            `[ASR_READER_COMFORT_NUDGE] markerY=${Math.round(markerY)} nextLineY=${Number.isFinite(nextLineY) ? Math.round(nextLineY) : -1} preferredBandTop=${Math.round(preferredBandTop)} preferredBandBottom=${Math.round(preferredBandBottom)} toleratedBandBottom=${Math.round(toleratedBandBottom)} deltaPx=${deltaPx} pxps=${Math.round(comfortNudgePxps)} reason=${bottomDriftActive ? 'bottom_drift_guard' : 'outside_preferred_within_tolerated'}`,
           );
         } catch {}
       }
-      if (comfortDecision.shouldHold && !visualGovernorHoldActive && !comfortNudgeActive) {
+      const comfortHoldEligible = insidePreferred || nextTooHigh;
+      if (comfortHoldEligible && !visualGovernorHoldActive && !comfortNudgeActive) {
         liveHardHold = true;
         try {
           console.warn(
-            `[ASR_READER_COMFORT_HOLD] currentLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} nextSpeakableLineIdx=${nextSpeakableLineIdx} markerY=${Math.round(markerY)} currentLineY=${Number.isFinite(currentVisual.lineCenterInViewport) ? Math.round(currentVisual.lineCenterInViewport) : -1} nextLineY=${Number.isFinite(nextVisual.lineCenterInViewport) ? Math.round(nextVisual.lineCenterInViewport) : -1} comfortBandTop=${Math.round(preferredBandTop)} comfortBandBottom=${Math.round(preferredBandBottom)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=${comfortDecision.reason || 'reader_comfort_hold'}`,
+            `[ASR_READER_COMFORT_HOLD] currentLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} nextSpeakableLineIdx=${nextSpeakableLineIdx} markerY=${Math.round(markerY)} currentLineY=${Number.isFinite(currentVisual.lineCenterInViewport) ? Math.round(currentVisual.lineCenterInViewport) : -1} nextLineY=${Number.isFinite(nextVisual.lineCenterInViewport) ? Math.round(nextVisual.lineCenterInViewport) : -1} comfortBandTop=${Math.round(preferredBandTop)} comfortBandBottom=${Math.round(preferredBandBottom)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=${nextTooHigh ? 'next_line_above_tolerated_top' : 'next_line_within_preferred_pocket'}`,
           );
         } catch {}
       }

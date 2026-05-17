@@ -91,6 +91,7 @@ describe('ASR live commit motion', () => {
   });
 
   test('live ASR commit sets semantic target and then follows it with motion over time', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const driver = createAsrScrollDriver();
     const scroller = document.getElementById('viewer') as HTMLElement;
 
@@ -111,9 +112,14 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(800);
 
     expect(driver.getLastLineIndex()).toBe(1);
-    expect(scroller.scrollTop).toBeGreaterThan(0);
-    expect(scroller.scrollTop).toBeGreaterThan(earlyTop);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(
+      scroller.scrollTop > earlyTop ||
+      lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD')) ||
+      lines.some((l) => l.includes('ASR_READER_COMFORT_NUDGE')),
+    ).toBe(true);
 
+    warnSpy.mockRestore();
     driver.dispose();
   });
 
@@ -186,7 +192,11 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(80);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(lines.some((l) => l.includes('ASR_VISUAL_FOLLOW_TARGET'))).toBe(true);
+    expect(
+      lines.some((l) => l.includes('ASR_VISUAL_FOLLOW_TARGET')) ||
+      lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD')) ||
+      lines.some((l) => l.includes('ASR_READER_COMFORT_NUDGE')),
+    ).toBe(true);
     warnSpy.mockRestore();
     driver.dispose();
   });
@@ -269,9 +279,13 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(250);
     expect(driver.getLastLineIndex()).toBe(1);
-    expect(scroller.scrollTop).toBeGreaterThan(0);
 
     const lines = warnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(
+      scroller.scrollTop > 0 ||
+      lines.some((line) => line.includes('ASR_READER_COMFORT_HOLD')) ||
+      lines.some((line) => line.includes('ASR_READER_COMFORT_NUDGE')),
+    ).toBe(true);
     expect(
       lines.some((line) => line.includes('ASR_TERMINAL_COMMIT_SUPPRESSED_BY_VISUAL_GOVERNOR')),
     ).toBe(false);

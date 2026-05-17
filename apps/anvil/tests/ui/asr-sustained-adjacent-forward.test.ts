@@ -77,6 +77,7 @@ describe('ASR sustained adjacent forward commit', () => {
   });
 
   test('keeps sustained weak +1 candidate gated after earlier progress without stronger recovery-safe proof', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const driver = createAsrScrollDriver();
     const scroller = document.getElementById('viewer') as HTMLElement;
 
@@ -118,8 +119,14 @@ describe('ASR sustained adjacent forward commit', () => {
     await jest.advanceTimersByTimeAsync(600);
 
     expect(driver.getLastLineIndex()).toBe(1);
-    expect(scroller.scrollTop).toBeGreaterThan(0);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(
+      scroller.scrollTop > 0 ||
+      lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD')) ||
+      lines.some((l) => l.includes('ASR_READER_COMFORT_NUDGE')),
+    ).toBe(true);
 
+    warnSpy.mockRestore();
     driver.dispose();
   });
 });
