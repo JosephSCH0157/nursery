@@ -5,9 +5,17 @@ import { createAsrScrollDriver } from '../../src/features/asr/asr-scroll-driver'
 describe('ASR live commit motion', () => {
   let rafSpy: jest.SpyInstance<number, [FrameRequestCallback]>;
   let cafSpy: jest.SpyInstance<void, [number]>;
+  let consoleLogSpy: jest.SpyInstance<void, any[]>;
+  let consoleInfoSpy: jest.SpyInstance<void, any[]>;
+  let consoleDebugSpy: jest.SpyInstance<void, any[]>;
+  let consoleWarnSpy: jest.SpyInstance<void, any[]>;
 
   beforeEach(() => {
     jest.useFakeTimers();
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    consoleInfoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+    consoleDebugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
+    consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     rafSpy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
       return window.setTimeout(() => cb(performance.now()), 16) as unknown as number;
     });
@@ -71,6 +79,10 @@ describe('ASR live commit motion', () => {
   afterEach(() => {
     jest.clearAllTimers();
     jest.useRealTimers();
+    consoleLogSpy.mockRestore();
+    consoleInfoSpy.mockRestore();
+    consoleDebugSpy.mockRestore();
+    consoleWarnSpy.mockRestore();
     rafSpy.mockRestore();
     cafSpy.mockRestore();
     delete (window as any).__tpStore;
@@ -2559,6 +2571,77 @@ describe('ASR live commit motion', () => {
     ).toBe(true);
     expect(warns.some((l) => l.includes('asr_soft_runtime_rebase') || l.includes('soft_runtime_rebase'))).toBe(false);
     expect(driver.getLastLineIndex()).toBe(2);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('startup adjacent 0 -> 1 holds comfort or reduces pressure instead of aggressive marker chase', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'reader-comfort-startup-adjacent',
+      match: { bestIdx: 1, bestSim: 0.9, topScores: [{ idx: 1, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(160);
+
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(driver.getLastLineIndex()).toBe(1);
+    expect(scroller.scrollTop).toBeLessThan(140);
+    expect(lines.some((line) => line.includes('ASR_TERMINAL_COMMIT_SUPPRESSED_BY_VISUAL_GOVERNOR'))).toBe(false);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('bridge-style completion keeps visual comfort and does not force immediate high-pressure pursuit', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    const scroller = document.getElementById('viewer') as HTMLElement;
+
+    driver.setLastLineIndex(1);
+    driver.ingest('Neon ads hum above the aisle.', true, {
+      currentIdx: 1,
+      matchId: 'reader-comfort-bridge-style',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.92,
+        topScores: [
+          { idx: 2, score: 0.72 },
+          { idx: 3, score: 0.92 },
+        ],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(220);
+
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(driver.getLastLineIndex()).toBe(2);
+    expect(scroller.scrollTop).toBeLessThan(220);
+    expect(lines.some((line) => line.includes('ASR_TERMINAL_COMMIT_SUPPRESSED_BY_VISUAL_GOVERNOR'))).toBe(false);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('if next speakable is near top, follow holds and does not keep upward pursuit', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 900;
+    (window as any).__TP_MARKER_PCT = 0.9;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'reader-comfort-top-boundary-hold',
+      match: { bestIdx: 2, bestSim: 0.89, topScores: [{ idx: 2, score: 0.89 }] },
+    });
+    await jest.advanceTimersByTimeAsync(180);
+
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((line) => line.includes('ASR_READER_COMFORT_HOLD'))).toBe(true);
 
     warnSpy.mockRestore();
     driver.dispose();

@@ -32,6 +32,20 @@ export type LeadAwarePursuitCapDecision = {
   reason?: 'reader_ahead_visual_pressure_reduced';
 };
 
+export type ReaderComfortBandDecision = {
+  shouldHold: boolean;
+  reason?:
+    | 'next_line_above_comfort_band'
+    | 'next_line_within_comfort_band'
+    | 'current_line_near_top';
+};
+
+export type ReaderPressureVelocityDecision = {
+  shouldApply: boolean;
+  reducedPxps: number;
+  reason?: 'reader_pressure_high_lead' | 'reader_pressure_ahead';
+};
+
 export function classifyVisualLead(input: {
   speakableLead: number;
   renderedLead: number;
@@ -201,4 +215,54 @@ export function selectLeadAwarePursuitCap(input: {
     cappedPxps: Math.min(input.basePxps, input.aheadCapPxps),
     reason: 'reader_ahead_visual_pressure_reduced',
   };
+}
+
+export function shouldHoldForReaderComfortBand(input: {
+  currentLineY: number;
+  nextLineY: number;
+  comfortBandTop: number;
+  comfortBandBottom: number;
+}): ReaderComfortBandDecision {
+  const currentNearTop = Number.isFinite(input.currentLineY) && input.currentLineY <= input.comfortBandTop;
+  if (currentNearTop) {
+    return { shouldHold: true, reason: 'current_line_near_top' };
+  }
+  const nextWithinBand =
+    Number.isFinite(input.nextLineY) &&
+    input.nextLineY >= input.comfortBandTop &&
+    input.nextLineY <= input.comfortBandBottom;
+  if (nextWithinBand) {
+    return { shouldHold: true, reason: 'next_line_within_comfort_band' };
+  }
+  const nextAboveBand = Number.isFinite(input.nextLineY) && input.nextLineY < input.comfortBandTop;
+  if (nextAboveBand) {
+    return { shouldHold: true, reason: 'next_line_above_comfort_band' };
+  }
+  return { shouldHold: false };
+}
+
+export function selectReaderPressureVelocityCap(input: {
+  speakableLead: number;
+  renderedLead: number;
+  basePxps: number;
+  aheadPxps: number;
+  highLeadPxps: number;
+}): ReaderPressureVelocityDecision {
+  const highLead = input.speakableLead >= 2 || input.renderedLead >= 3;
+  if (highLead) {
+    return {
+      shouldApply: input.basePxps > input.highLeadPxps,
+      reducedPxps: Math.min(input.basePxps, input.highLeadPxps),
+      reason: 'reader_pressure_high_lead',
+    };
+  }
+  const ahead = input.speakableLead >= 1 || input.renderedLead >= 1;
+  if (ahead) {
+    return {
+      shouldApply: input.basePxps > input.aheadPxps,
+      reducedPxps: Math.min(input.basePxps, input.aheadPxps),
+      reason: 'reader_pressure_ahead',
+    };
+  }
+  return { shouldApply: false, reducedPxps: input.basePxps };
 }

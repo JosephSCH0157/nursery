@@ -73,6 +73,8 @@ import {
 import {
   classifyVisualLead,
   selectLeadAwarePursuitCap,
+  selectReaderPressureVelocityCap,
+  shouldHoldForReaderComfortBand,
   shouldHoldBridgeCommitForVisualRecovery,
   selectBridgeVisualComfortCap,
   selectVisualFollowVelocity,
@@ -233,6 +235,8 @@ const ASR_VISUAL_FOLLOW_NORMAL_ADJ_MIN_PXPS = 20;
 const ASR_VISUAL_FOLLOW_MAX_PXPS = 80;
 const ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS = 35;
 const ASR_VISUAL_FOLLOW_MIN_PXPS = 8;
+const ASR_VISUAL_FOLLOW_READER_AHEAD_PXPS = 8;
+const ASR_VISUAL_FOLLOW_READER_HIGH_LEAD_PXPS = 4;
 const ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX = 8;
 const ASR_VISUAL_FOLLOW_SLOW_ZONE_PX = 80;
 const ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX = 220;
@@ -10622,6 +10626,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
     let maxVelForErr = resolveMaxVel(err);
     let liveHardHold = false;
+    let visualGovernorHoldActive = false;
     if (liveAsrFollowMode) {
       const confirmedSpoken = Math.max(
         0,
@@ -10658,7 +10663,41 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         hasRecentFinalTranscript: lastFinalTranscriptAt > 0 && (nowTs - lastFinalTranscriptAt) <= 1200,
       });
       const readerPaceHold = holdDecision.readerPaceHold;
-      liveHardHold = holdDecision.shouldHold;
+      visualGovernorHoldActive = holdDecision.shouldHold;
+      liveHardHold = visualGovernorHoldActive;
+      const markerPctRaw =
+        typeof (window as any).__TP_MARKER_PCT === 'number'
+          ? Number((window as any).__TP_MARKER_PCT)
+          : 0.4;
+      const markerPct = clamp(markerPctRaw, 0.05, 0.95);
+      const viewportHeight = Math.max(1, Number(scroller.clientHeight || 0));
+      const markerY = viewportHeight * markerPct;
+      const comfortBandTop = Math.max(0, markerY - 24);
+      const comfortBandBottom = Math.min(viewportHeight, markerY + 96);
+      const totalLines = getTotalLines();
+      const nextSpeakableLineIdx =
+        findNextSpeakableLineIndex({
+          startIndex: Math.max(0, lastLineIndex),
+          maxLookahead: Math.max(1, totalLines),
+          totalLines,
+          getLineText: getLineTextAt,
+        }) ?? lastLineIndex;
+      const currentVisual = resolveLineVisualTelemetry(scroller, lastLineIndex);
+      const nextVisual = resolveLineVisualTelemetry(scroller, nextSpeakableLineIdx);
+      const comfortDecision = shouldHoldForReaderComfortBand({
+        currentLineY: Number.isFinite(currentVisual.lineCenterInViewport) ? currentVisual.lineCenterInViewport : Number.NaN,
+        nextLineY: Number.isFinite(nextVisual.lineCenterInViewport) ? nextVisual.lineCenterInViewport : Number.NaN,
+        comfortBandTop,
+        comfortBandBottom,
+      });
+      if (comfortDecision.shouldHold && !visualGovernorHoldActive) {
+        liveHardHold = true;
+        try {
+          console.warn(
+            `[ASR_READER_COMFORT_HOLD] currentLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} nextSpeakableLineIdx=${nextSpeakableLineIdx} markerY=${Math.round(markerY)} currentLineY=${Number.isFinite(currentVisual.lineCenterInViewport) ? Math.round(currentVisual.lineCenterInViewport) : -1} nextLineY=${Number.isFinite(nextVisual.lineCenterInViewport) ? Math.round(nextVisual.lineCenterInViewport) : -1} comfortBandTop=${Math.round(comfortBandTop)} comfortBandBottom=${Math.round(comfortBandBottom)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=${comfortDecision.reason || 'reader_comfort_hold'}`,
+          );
+        } catch {}
+      }
       maxVelForErr = selectVisualFollowVelocity({
         baseMaxVelForErr: maxVelForErr,
         liveHardHold,
@@ -10770,6 +10809,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
+      const pressureCapDecision = selectReaderPressureVelocityCap({
+        speakableLead,
+        renderedLead,
+        basePxps: maxVelForErr,
+        aheadPxps: ASR_VISUAL_FOLLOW_READER_AHEAD_PXPS,
+        highLeadPxps: ASR_VISUAL_FOLLOW_READER_HIGH_LEAD_PXPS,
+      });
+      if (pressureCapDecision.shouldApply) {
+        const originalPxps = maxVelForErr;
+        maxVelForErr = pressureCapDecision.reducedPxps;
+        try {
+          console.warn(
+            `[ASR_READER_PRESSURE_REDUCED] originalPxps=${Math.round(originalPxps)} reducedPxps=${Math.round(maxVelForErr)} speakableLead=${speakableLead} renderedLead=${renderedLead} deltaLines=${deltaLinesApprox.toFixed(2)} reason=${pressureCapDecision.reason || 'reader_pressure_reduced'}`,
+          );
+        } catch {}
+      }
       try {
         console.warn(
           `[ASR_VISUAL_FOLLOW_TARGET] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} desiredMarkerLineIdx=${lastLineIndex} targetScrollTop=${Math.round(pursuitTargetTop || current)} currentScrollTop=${Math.round(current)} deltaPx=${Math.round(err)} deltaLines=${deltaLinesApprox.toFixed(2)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=live_follow_tick`,
@@ -10789,8 +10844,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
       } catch {}
     }
-    liveAsrVisualGovernorHardHold = liveHardHold;
-    if (liveHardHold) {
+    liveAsrVisualGovernorHardHold = visualGovernorHoldActive;
+    if (visualGovernorHoldActive) {
       if (liveAsrVisualGovernorHardHoldSinceMs <= 0) {
         liveAsrVisualGovernorHardHoldSinceMs = Date.now();
       }
@@ -10838,7 +10893,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } catch {}
       }
     }
-    try { (window as any).__tpLiveAsrGovernorHold = liveHardHold; } catch {}
+    try { (window as any).__tpLiveAsrGovernorHold = visualGovernorHoldActive; } catch {}
+    const comfortOnlyHoldActive = liveHardHold && !visualGovernorHoldActive;
+    if (comfortOnlyHoldActive) {
+      pursuitVel = 0;
+      pursuitActive = false;
+      pursuitTargetTop = null;
+      emitPursuitHud(err, pursuitVel, pursuitTargetTop, current);
+      return;
+    }
     if (microActive) {
       maxVelForErr = Math.min(maxVelForErr, microPursuitCapPxPerSec);
     }
