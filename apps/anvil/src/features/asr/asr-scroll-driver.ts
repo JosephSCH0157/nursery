@@ -239,6 +239,7 @@ const ASR_VISUAL_FOLLOW_READER_AHEAD_PXPS = 8;
 const ASR_VISUAL_FOLLOW_READER_HIGH_LEAD_PXPS = 4;
 const ASR_READER_POCKET_PREFERRED_TOP_LINES = 0.5;
 const ASR_READER_POCKET_PREFERRED_BOTTOM_LINES = 2.0;
+const ASR_READER_POCKET_PREFERRED_SETTLE_BOTTOM_LINES = 1.5;
 const ASR_READER_POCKET_TOLERATED_TOP_LINES = -0.5;
 const ASR_READER_POCKET_TOLERATED_BOTTOM_LINES = 2.5;
 const ASR_READER_COMFORT_NUDGE_PXPS = 10;
@@ -3272,6 +3273,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let liveAsrVisualSuppressionLoopCount = 0;
   let liveAsrVisualSuppressionKey = '';
   let liveAsrReaderTooLowSinceMs = 0;
+  let liveAsrPreferredLowerRailReleaseActive = false;
   const liveBridgeDownstreamBlockUntilByKey = new Map<string, {
     until: number;
     originalSourceBranch: string;
@@ -10709,12 +10711,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       );
       const preferredBandTop = markerY + (ASR_READER_POCKET_PREFERRED_TOP_LINES * measuredLineHeightPx);
       const preferredBandBottom = markerY + (ASR_READER_POCKET_PREFERRED_BOTTOM_LINES * measuredLineHeightPx);
+      const preferredSettleBottom = markerY + (ASR_READER_POCKET_PREFERRED_SETTLE_BOTTOM_LINES * measuredLineHeightPx);
       const toleratedBandTop = markerY + (ASR_READER_POCKET_TOLERATED_TOP_LINES * measuredLineHeightPx);
       const toleratedBandBottom = markerY + (ASR_READER_POCKET_TOLERATED_BOTTOM_LINES * measuredLineHeightPx);
       const nextLineY = Number.isFinite(nextVisual.lineCenterInViewport) ? nextVisual.lineCenterInViewport : Number.NaN;
       const insidePreferred =
         Number.isFinite(nextLineY) &&
         nextLineY >= preferredBandTop &&
+        nextLineY <= preferredBandBottom;
+      const insidePreferredSettleZone =
+        Number.isFinite(nextLineY) &&
+        nextLineY >= preferredBandTop &&
+        nextLineY <= preferredSettleBottom;
+      const insidePreferredLowerRail =
+        Number.isFinite(nextLineY) &&
+        nextLineY > preferredSettleBottom &&
         nextLineY <= preferredBandBottom;
       const insideTolerated =
         Number.isFinite(nextLineY) &&
@@ -10730,6 +10741,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       let comfortNudgeActive = false;
       let comfortNudgePxps = 0;
       let bottomLockReleaseActive = false;
+      let preferredLowerRailReleaseActive = false;
       let bottomLockReleaseReason = '';
       const bridgeLikeStepPending = nextSpeakableLineIdx > (lastLineIndex + 1);
       const bridgeHoldContextActive =
@@ -10759,6 +10771,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         Number.isFinite(nextLineY) && Number.isFinite(measuredLineHeightPx) && measuredLineHeightPx > 0
           ? (nextLineY - preferredBandBottom) / measuredLineHeightPx
           : Number.NaN;
+      const pocketTargetMidY = markerY + (1.25 * measuredLineHeightPx);
+      const targetDebtPx = Number.isFinite(nextLineY) ? Math.max(0, nextLineY - pocketTargetMidY) : Number.NaN;
+      if (liveAsrPreferredLowerRailReleaseActive && insidePreferredSettleZone) {
+        liveAsrPreferredLowerRailReleaseActive = false;
+      }
       const bottomLockedNow =
         readerDrivingNow &&
         semanticProofHealthy &&
@@ -10785,6 +10802,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
+      if (
+        !bottomLockReleaseActive &&
+        !bridgeHoldContextActive &&
+        readerDrivingNow &&
+        semanticProofHealthy &&
+        insidePreferredLowerRail
+      ) {
+        preferredLowerRailReleaseActive = true;
+        liveAsrPreferredLowerRailReleaseActive = true;
+        comfortNudgeActive = true;
+        comfortNudgePxps = ASR_READER_COMFORT_NUDGE_PXPS;
+        maxVelForErr = Math.max(maxVelForErr, comfortNudgePxps);
+        liveHardHold = false;
+        try {
+          console.warn(
+            `[ASR_PREFERRED_LOWER_RAIL_RELEASE] markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} preferredBandTop=${Math.round(preferredBandTop)} preferredSettleBottom=${Math.round(preferredSettleBottom)} preferredBandBottom=${Math.round(preferredBandBottom)} toleratedBandBottom=${Math.round(toleratedBandBottom)} pocketOffsetPx=${Number.isFinite(pocketOffsetPx) ? Math.round(pocketOffsetPx) : -1} targetScrollTop=${Math.round(pursuitTargetTop || current)} currentScrollTop=${Math.round(current)} targetDebtPx=${Number.isFinite(targetDebtPx) ? Math.round(targetDebtPx) : -1} deltaLines=${Number.isFinite(pocketDeltaLines) ? pocketDeltaLines.toFixed(2) : 'NaN'} pxps=${Math.round(comfortNudgePxps)} reason=preferred_lower_rail_not_settled`,
+          );
+        } catch {}
+      }
       if (!bottomLockReleaseActive && !visualGovernorHoldActive && (nextTooLow || (insideTolerated && !insidePreferred && Number.isFinite(nextLineY) && nextLineY > preferredBandBottom))) {
         comfortNudgeActive = true;
         const driftAgeMs =
@@ -10803,7 +10839,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
-      const comfortHoldEligible = (insidePreferred || nextTooHigh) && !bottomLockReleaseActive;
+      const comfortHoldEligible =
+        (insidePreferredSettleZone || nextTooHigh) &&
+        !bottomLockReleaseActive &&
+        !preferredLowerRailReleaseActive &&
+        !liveAsrPreferredLowerRailReleaseActive;
       if (comfortHoldEligible && !visualGovernorHoldActive && !comfortNudgeActive) {
         liveHardHold = true;
         try {

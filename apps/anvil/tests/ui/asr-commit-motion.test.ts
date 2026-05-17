@@ -2684,6 +2684,57 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('nextLineY at preferredBandBottom triggers lower-rail release and not comfort hold', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 200;
+    const line2 = document.querySelector<HTMLElement>('.line[data-line="2"]')!;
+    Object.defineProperty(line2, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 560, left: 0, right: 800, bottom: 796, width: 800, height: 236 }),
+    });
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'preferred-lower-rail-at-bottom',
+      match: { bestIdx: 2, bestSim: 0.92, topScores: [{ idx: 2, score: 0.92 }] },
+    });
+    await jest.advanceTimersByTimeAsync(260);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(
+      lines.some((l) => l.includes('ASR_PREFERRED_LOWER_RAIL_RELEASE')) ||
+      lines.some((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE')),
+    ).toBe(true);
+    expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
+    expect(scroller.scrollTop).toBeGreaterThan(200);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('inside preferred settle zone allows comfort hold', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 300;
+    const line2 = document.querySelector<HTMLElement>('.line[data-line="2"]')!;
+    Object.defineProperty(line2, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 500, left: 0, right: 800, bottom: 736, width: 800, height: 236 }),
+    });
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'preferred-settle-zone-hold',
+      match: { bestIdx: 2, bestSim: 0.92, topScores: [{ idx: 2, score: 0.92 }] },
+    });
+    await jest.advanceTimersByTimeAsync(260);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_PREFERRED_LOWER_RAIL_RELEASE'))).toBe(false);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('persistent bottom-lock exits toward pocket with bounded release and no comfort hold frame', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;
@@ -2819,6 +2870,57 @@ describe('ASR live commit motion', () => {
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     expect(lines.some((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE'))).toBe(true);
     expect(lines.some((l) => l.includes('reason=next_line_above_tolerated_top'))).toBe(false);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('preferred-lower-rail release does not create top pressure on repeated adjacent commits', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 200;
+    const line1 = document.querySelector<HTMLElement>('.line[data-line="1"]')!;
+    const line2 = document.querySelector<HTMLElement>('.line[data-line="2"]')!;
+    const line3 = document.querySelector<HTMLElement>('.line[data-line="3"]')!;
+    Object.defineProperty(line1, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 560, left: 0, right: 800, bottom: 796, width: 800, height: 236 }),
+    });
+    Object.defineProperty(line2, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 560, left: 0, right: 800, bottom: 796, width: 800, height: 236 }),
+    });
+    Object.defineProperty(line3, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 560, left: 0, right: 800, bottom: 796, width: 800, height: 236 }),
+    });
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'rail-repeat-1',
+      match: { bestIdx: 1, bestSim: 0.91, topScores: [{ idx: 1, score: 0.91 }] },
+    });
+    await jest.advanceTimersByTimeAsync(260);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'rail-repeat-2',
+      match: { bestIdx: 2, bestSim: 0.91, topScores: [{ idx: 2, score: 0.91 }] },
+    });
+    await jest.advanceTimersByTimeAsync(260);
+    driver.ingest('Neon ads hum above the aisle.', true, {
+      currentIdx: 2,
+      matchId: 'rail-repeat-3',
+      match: { bestIdx: 3, bestSim: 0.91, topScores: [{ idx: 3, score: 0.91 }] },
+    });
+    await jest.advanceTimersByTimeAsync(320);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(
+      lines.some((l) => l.includes('ASR_PREFERRED_LOWER_RAIL_RELEASE')) ||
+      lines.some((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE')) ||
+      lines.some((l) => l.includes('ASR_READER_COMFORT_NUDGE')),
+    ).toBe(true);
+    expect(lines.some((l) => l.includes('reason=next_line_above_tolerated_top'))).toBe(false);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_FOLLOW_HARD_HELD'))).toBe(false);
     warnSpy.mockRestore();
     driver.dispose();
   });
