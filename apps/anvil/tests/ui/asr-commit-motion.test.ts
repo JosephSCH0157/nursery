@@ -2647,6 +2647,100 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('nudges instead of comfort-holding when next speakable sits near lower comfort edge', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 200;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'reader-comfort-lower-edge-nudge',
+      match: { bestIdx: 2, bestSim: 0.9, topScores: [{ idx: 2, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(220);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_READER_COMFORT_NUDGE'))).toBe(true);
+    expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
+    expect(scroller.scrollTop).toBeGreaterThan(200);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('preferred-zone comfort hold settles pursuit without repeated hard-held spam', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 290;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'reader-comfort-preferred-hold-settle',
+      match: { bestIdx: 2, bestSim: 0.89, topScores: [{ idx: 2, score: 0.89 }] },
+    });
+    await jest.advanceTimersByTimeAsync(400);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const holdCount = lines.filter((l) => l.includes('ASR_READER_COMFORT_HOLD')).length;
+    const nudgeCount = lines.filter((l) => l.includes('ASR_READER_COMFORT_NUDGE')).length;
+    const hardHeldCount = lines.filter((l) => l.includes('ASR_VISUAL_FOLLOW_HARD_HELD')).length;
+    expect(holdCount + nudgeCount).toBeGreaterThan(0);
+    expect(hardHeldCount).toBe(0);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('repeated adjacent commits avoid persistent bottom-screen drift', async () => {
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'reader-comfort-longrun-1',
+      match: { bestIdx: 1, bestSim: 0.9, topScores: [{ idx: 1, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(220);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'reader-comfort-longrun-2',
+      match: { bestIdx: 2, bestSim: 0.9, topScores: [{ idx: 2, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(220);
+    driver.ingest('Neon ads hum above the aisle.', true, {
+      currentIdx: 2,
+      matchId: 'reader-comfort-longrun-3',
+      match: { bestIdx: 3, bestSim: 0.9, topScores: [{ idx: 3, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(300);
+    expect(driver.getLastLineIndex()).toBe(3);
+    expect(scroller.scrollTop).toBeGreaterThan(200);
+    driver.dispose();
+  });
+
+  test('bridge hold path preserves protection while visual follow can still nudge from low placement', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 180;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(3);
+    driver.ingest('Neon ads hum above the aisle.', true, {
+      currentIdx: 3,
+      matchId: 'reader-comfort-bridge-3-to-6',
+      match: {
+        bestIdx: 6,
+        bestSim: 0.92,
+        topScores: [{ idx: 6, score: 0.92 }],
+      },
+    } as any);
+    await jest.advanceTimersByTimeAsync(260);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(
+      lines.some((l) => l.includes('ASR_LIVE_BRIDGE')) ||
+      driver.getLastLineIndex() <= 4,
+    ).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('resets run timers on fresh runtime run identity and avoids stale startup stall timing', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
