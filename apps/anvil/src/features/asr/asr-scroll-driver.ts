@@ -30,6 +30,7 @@ import {
   buildProofOwnedPrimaryCommitGuardBaseParts,
   buildRecoverySkipNonAdjacentTargetGuardBaseParts,
 } from './asr-diagnostics';
+import { AsrAlignmentEpisodeTracker } from './asr-alignment-episodes';
 import {
   classifyAsrLine,
   collectSkippedAsrRows as collectSkippedAsrRowsHelper,
@@ -2509,6 +2510,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     setAsrDriverThresholds({ candidateMinSim: threshold });
   }
   let lastLineIndex = -1;
+  const alignmentEpisodes = new AsrAlignmentEpisodeTracker();
   let postCatchupUntil = 0;
   let postCatchupSamplesLeft = 0;
   let lastSeekTs = 0;
@@ -6547,6 +6549,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     const transcriptAgeMs = decision.transcriptAgeMs;
     const audioAgeMs = decision.audioAgeMs;
+    alignmentEpisodes.noteHeartbeat({
+      transcriptAgeMs: Number.isFinite(transcriptAgeMs as number) ? Number(transcriptAgeMs) : -1,
+      audioAgeMs: Number.isFinite(audioAgeMs as number) ? Number(audioAgeMs) : -1,
+    });
 
     if (decision.shouldEmitHeartbeat && now - lastBackendHeartbeatAt >= DEFAULT_ASR_BACKEND_HEARTBEAT_MS) {
       lastBackendHeartbeatAt = now;
@@ -6562,6 +6568,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         console.warn(
           buildAsrBackendHeartbeatDiagnostic(heartbeatDiagnosticInput),
         );
+        const closed = alignmentEpisodes.flushStale();
+        if (closed) alignmentEpisodes.dumpForConsole(closed);
       } catch {}
     }
 
@@ -10721,7 +10729,63 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       let comfortNudgeActive = false;
       let comfortNudgePxps = 0;
-      if (!visualGovernorHoldActive && (nextTooLow || (insideTolerated && !insidePreferred && Number.isFinite(nextLineY) && nextLineY > preferredBandBottom))) {
+      let bottomLockReleaseActive = false;
+      let bottomLockReleaseReason = '';
+      const bridgeLikeStepPending = nextSpeakableLineIdx > (lastLineIndex + 1);
+      const bridgeHoldContextActive =
+        bridgeLikeStepPending ||
+        !!pendingSpeakableBridgeState ||
+        liveAsrVisualEnvelopeLeashActive ||
+        (
+          liveAsrBridgeVisualComfortUntilMs > nowTs &&
+          (
+            String(liveAsrBridgeVisualComfortSourceBranch || '').toLowerCase().includes('bridge') ||
+            String(liveAsrBridgeVisualComfortProofSource || '').toLowerCase().includes('bridge')
+          )
+        );
+      const semanticProofHealthy =
+        (
+          Number.isFinite(lastFreshProofLine) &&
+          lastFreshProofLine >= Math.max(0, lastLineIndex - 1)
+        ) &&
+        (
+          asrRuntimeSpeechRunningActual ||
+          hasRecentActualSpeech(nowTs) ||
+          hasRecentVadSpeechNow(nowTs) ||
+          (lastFinalTranscriptAt > 0 && (nowTs - lastFinalTranscriptAt) <= 1800)
+        );
+      const pocketOffsetPx = Number.isFinite(nextLineY) ? (nextLineY - markerY) : Number.NaN;
+      const pocketDeltaLines =
+        Number.isFinite(nextLineY) && Number.isFinite(measuredLineHeightPx) && measuredLineHeightPx > 0
+          ? (nextLineY - preferredBandBottom) / measuredLineHeightPx
+          : Number.NaN;
+      const bottomLockedNow =
+        readerDrivingNow &&
+        semanticProofHealthy &&
+        !bridgeHoldContextActive &&
+        Number.isFinite(nextLineY) &&
+        nextLineY > preferredBandBottom &&
+        Number.isFinite(pocketDeltaLines) &&
+        pocketDeltaLines >= 0.3 &&
+        (
+          nextTooLow ||
+          (insideTolerated && !insidePreferred) ||
+          liveHardHold
+        );
+      if (bottomLockedNow) {
+        comfortNudgeActive = true;
+        bottomLockReleaseActive = true;
+        bottomLockReleaseReason = nextTooLow ? 'below_tolerated_bottom' : 'below_preferred_bottom';
+        comfortNudgePxps = Math.max(ASR_READER_COMFORT_NUDGE_PXPS, ASR_READER_COMFORT_BOTTOM_DRIFT_NUDGE_PXPS);
+        maxVelForErr = Math.max(maxVelForErr, comfortNudgePxps);
+        liveHardHold = false;
+        try {
+          console.warn(
+            `[ASR_BOTTOM_LOCK_RELEASE] markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} preferredBandTop=${Math.round(preferredBandTop)} preferredBandBottom=${Math.round(preferredBandBottom)} toleratedBandBottom=${Math.round(toleratedBandBottom)} deltaLines=${Number.isFinite(pocketDeltaLines) ? pocketDeltaLines.toFixed(2) : 'NaN'} pocketOffsetPx=${Number.isFinite(pocketOffsetPx) ? Math.round(pocketOffsetPx) : -1} pxps=${Math.round(comfortNudgePxps)} proofSource=${String(liveAsrBridgeVisualComfortProofSource || 'live_follow_tick')} authority=${String(liveAsrVisualEnvelopeLeashAuthority || (semanticProofHealthy ? 'proof' : 'none'))} bridgeBlocked=${bridgeHoldContextActive ? 1 : 0} reason=${bottomLockReleaseReason}`,
+          );
+        } catch {}
+      }
+      if (!bottomLockReleaseActive && !visualGovernorHoldActive && (nextTooLow || (insideTolerated && !insidePreferred && Number.isFinite(nextLineY) && nextLineY > preferredBandBottom))) {
         comfortNudgeActive = true;
         const driftAgeMs =
           liveAsrReaderTooLowSinceMs > 0
@@ -10739,13 +10803,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
-      const comfortHoldEligible = insidePreferred || nextTooHigh;
+      const comfortHoldEligible = (insidePreferred || nextTooHigh) && !bottomLockReleaseActive;
       if (comfortHoldEligible && !visualGovernorHoldActive && !comfortNudgeActive) {
         liveHardHold = true;
         try {
+          const comfortReason = nextTooHigh ? 'next_line_above_tolerated_top' : 'next_line_within_preferred_pocket';
           console.warn(
-            `[ASR_READER_COMFORT_HOLD] currentLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} nextSpeakableLineIdx=${nextSpeakableLineIdx} markerY=${Math.round(markerY)} currentLineY=${Number.isFinite(currentVisual.lineCenterInViewport) ? Math.round(currentVisual.lineCenterInViewport) : -1} nextLineY=${Number.isFinite(nextVisual.lineCenterInViewport) ? Math.round(nextVisual.lineCenterInViewport) : -1} comfortBandTop=${Math.round(preferredBandTop)} comfortBandBottom=${Math.round(preferredBandBottom)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=${nextTooHigh ? 'next_line_above_tolerated_top' : 'next_line_within_preferred_pocket'}`,
+            `[ASR_READER_COMFORT_HOLD] currentLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} nextSpeakableLineIdx=${nextSpeakableLineIdx} markerY=${Math.round(markerY)} currentLineY=${Number.isFinite(currentVisual.lineCenterInViewport) ? Math.round(currentVisual.lineCenterInViewport) : -1} nextLineY=${Number.isFinite(nextVisual.lineCenterInViewport) ? Math.round(nextVisual.lineCenterInViewport) : -1} comfortBandTop=${Math.round(preferredBandTop)} comfortBandBottom=${Math.round(preferredBandBottom)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=${comfortReason}`,
           );
+          alignmentEpisodes.noteComfort({
+            markerY,
+            currentLineY: Number(currentVisual.lineCenterInViewport),
+            nextSpeakableLineY: Number(nextVisual.lineCenterInViewport),
+            reason: comfortReason,
+          });
         } catch {}
       }
       maxVelForErr = selectVisualFollowVelocity({
@@ -10884,6 +10955,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           console.warn(
             `[ASR_VISUAL_FOLLOW_TARGET] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} desiredMarkerLineIdx=${lastLineIndex} targetScrollTop=${Math.round(pursuitTargetTop || current)} currentScrollTop=${Math.round(current)} deltaPx=${Math.round(err)} deltaLines=${deltaLinesApprox.toFixed(2)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=live_follow_tick`,
           );
+          alignmentEpisodes.noteFollow({
+            deltaLines: deltaLinesApprox,
+            reason: 'live_follow_tick',
+          });
           console.warn(
             `[ASR_VISUAL_FOLLOW_VELOCITY] pxps=${Math.round(maxVelForErr)} deltaPx=${Math.round(err)} deltaLines=${deltaLinesApprox.toFixed(2)} capped=${maxVelForErr < resolveMaxVel(err) ? 1 : 0} capReason=${leadState === 'far_ahead' ? 'governor_hold' : 'follow_cap'} leadState=${leadState} speechFresh=${hasRecentActualSpeech(Date.now()) ? 1 : 0} proofSource=live_follow_tick`,
           );
@@ -10896,6 +10971,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             console.warn(
               `[ASR_VISUAL_FOLLOW_HARD_HELD] currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(pursuitTargetTop || current)} deltaPx=${Math.round(err)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=governor_hold source=tick_controller`,
             );
+            alignmentEpisodes.noteHold({ reason: 'tick_controller:governor_hold' });
           }
         } catch {}
       }
@@ -10936,6 +11012,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           console.warn(
             `[ASR_VISUAL_TARGET_CLEARED_BY_GOVERNOR_HOLD] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(current)} oldTargetScrollTop=${Math.round(oldTarget)} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), lastLineIndex))} renderedLead=${Math.max(0, lastLineIndex - Math.max(0, lastStrongConfirmedSpokenLine))} heldMs=${heldMs}`,
           );
+          alignmentEpisodes.noteCleared({ reason: 'governor_hold_clear_target' });
         } catch {}
       }
     } else {
@@ -11138,9 +11215,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             console.warn(
               `[ASR_VISUAL_SNAP_SUPPRESSED] commitLineIdx=${committedLineIdx} targetScrollTop=${Math.round(afterTopValue)} currentScrollTop=${Math.round(currentScrollTop)} reason=live_target_follow_motor`,
             );
+            alignmentEpisodes.noteSnapSuppressed({ reason: 'live_target_follow_motor' });
             console.warn(
               `[ASR_VISUAL_FOLLOW_TARGET] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${committedLineIdx} desiredMarkerLineIdx=${committedLineIdx} targetScrollTop=${Math.round(afterTopValue)} currentScrollTop=${Math.round(currentScrollTop)} deltaPx=${deltaPx} deltaLines=${deltaLines.toFixed(2)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=snap_suppressed`,
             );
+            alignmentEpisodes.noteFollow({ deltaLines, reason: 'snap_suppressed' });
             const absDelta = Math.abs(deltaPx);
             const leadState = speakableLead > ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE
               ? 'far_ahead'
@@ -11251,6 +11330,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           console.warn(
             `[ASR_VISUAL_SNAP_SUPPRESSED] commitLineIdx=${commit.lineIdx} targetScrollTop=${Math.round(targetTop)} currentScrollTop=${Math.round(beforeTop)} reason=live_asr_marker_lock_suppressed`,
           );
+          alignmentEpisodes.noteSnapSuppressed({ reason: 'live_asr_marker_lock_suppressed' });
         } catch {}
       } else {
       stopCommitPursuit('asr-marker-lock-commit');
@@ -11352,6 +11432,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           console.warn(
             `[ASR_VISUAL_SNAP_SUPPRESSED] commitLineIdx=${commit.lineIdx} targetScrollTop=${Math.round(targetTop)} currentScrollTop=${Math.round(beforeTop)} reason=live_asr_strong_marker_snap_suppressed source=strong-marker-snap`,
           );
+          alignmentEpisodes.noteSnapSuppressed({ reason: 'live_asr_strong_marker_snap_suppressed' });
         } catch {}
         return {
           method: 'pixel',
@@ -15399,6 +15480,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
         try {
           console.warn(`[ASR_SUSTAINED_READ_STEP] current=${lastLineIndex} target=${bridgeCandidate} originalRequestedTarget=${args.requestedTarget} sourceHoldReason=${args.sourceHoldReason} stallMs=${Math.round(stallMs)} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} transcriptGrowing=1 tailProofUsed=${args.tailProofUsed ? 1 : 0} authority=${args.authority} sourceBranch=${args.sourceBranch || 'unknown'} proofSource=${args.proofSource || 'none'} reducedToAdjacent=${args.requestedTarget > bridgeCandidate ? 1 : 0} bridgeSafe=1 skippedIgnorableLines=[${skippedIgnorableLines.join(',')}] reason=sustained_read_adjacent_step neighborhoodEvidence=${args.neighborhoodEvidence ? 1 : 0} thresholdMs=${sustainedThresholdMs} actualDelayMs=${Math.round(stallMs)}`);
+          alignmentEpisodes.noteStallDelay(stallMs, String(args.sourceHoldReason || 'sustained_read_adjacent_step'));
         } catch {}
         return { applied: true, target: bridgeCandidate };
       };
@@ -17084,6 +17166,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         );
         writerCommitted = commitMove.writerCommitted;
         commitAfterTop = commitMove.afterTop;
+        alignmentEpisodes.noteCommit({
+          scrollTopBefore: commitBeforeTop,
+          scrollTopAfter: commitAfterTop,
+          targetScrollTop: Number.isFinite(nextTargetTop) ? nextTargetTop : targetTop,
+        });
         if (writerCommitted) {
           beginWriterCommitWindow(writerCommitStartedAt);
         }
@@ -17321,6 +17408,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastLineIndex = Math.max(lastLineIndex, targetLine);
       const cursorIndex = lastLineIndex;
       if (targetLine > prevLineIndex && movementAuthority !== 'none') {
+        alignmentEpisodes.begin({
+          currentLine: prevLineIndex,
+          requestedTarget: line,
+          acceptedCommitTarget: targetLine,
+          proofSource: movementAuthorityProofSource || 'none',
+          authorityPath: movementAuthoritySourceBranch || 'unknown',
+          sourceHoldReason: String(forceReason || pendingSourceBranch || 'none'),
+          flags: [
+            movementAuthorityReason || 'none',
+            bypassDownstreamVeto ? 'veto_bypassed' : 'veto_respected',
+          ],
+          reason: 'movement_authority_commit',
+        });
         warnGuard('movement_authority_commit', [
           `current=${prevLineIndex}`,
           `target=${targetLine}`,
@@ -22673,6 +22773,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
   const dispose = () => {
     if (disposed) return;
+    const activeEpisode = alignmentEpisodes.flushStale();
+    if (activeEpisode) alignmentEpisodes.dumpForConsole(activeEpisode);
     emitSummary('dispose');
     disposed = true;
     releaseCommitWindow('dispose');

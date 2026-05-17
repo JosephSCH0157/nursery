@@ -2674,8 +2674,34 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(220);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(lines.some((l) => l.includes('ASR_READER_COMFORT_NUDGE'))).toBe(true);
+    expect(
+      lines.some((l) => l.includes('ASR_READER_COMFORT_NUDGE')) ||
+      lines.some((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE')),
+    ).toBe(true);
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
+    expect(scroller.scrollTop).toBeGreaterThan(200);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('persistent bottom-lock exits toward pocket with bounded release and no comfort hold frame', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 200;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'bottom-lock-release-to-pocket',
+      match: { bestIdx: 2, bestSim: 0.9, topScores: [{ idx: 2, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(300);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE'))).toBe(true);
+    expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
+    const releaseLine = lines.find((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE')) || '';
+    const pxpsMatch = releaseLine.match(/pxps=(\d+)/);
+    if (pxpsMatch) expect(Number(pxpsMatch[1])).toBeLessThanOrEqual(20);
     expect(scroller.scrollTop).toBeGreaterThan(200);
     warnSpy.mockRestore();
     driver.dispose();
@@ -2751,6 +2777,48 @@ describe('ASR live commit motion', () => {
       lines.some((l) => l.includes('ASR_LIVE_BRIDGE')) ||
       driver.getLastLineIndex() <= 4,
     ).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('bottom-lock release does not bypass bridge safety blockers', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 180;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(3);
+    driver.ingest('Neon ads hum above the aisle.', true, {
+      currentIdx: 3,
+      matchId: 'bottom-lock-bridge-safety',
+      match: {
+        bestIdx: 6,
+        bestSim: 0.92,
+        topScores: [{ idx: 6, score: 0.92 }],
+      },
+    } as any);
+    await jest.advanceTimersByTimeAsync(320);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_LIVE_BRIDGE') || l.includes('bridge'))).toBe(true);
+    expect(driver.getLastLineIndex()).toBeLessThanOrEqual(4);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('bottom-lock release does not create top-pressure overshoot', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 200;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'bottom-lock-no-top-pressure',
+      match: { bestIdx: 2, bestSim: 0.9, topScores: [{ idx: 2, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(800);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE'))).toBe(true);
+    expect(lines.some((l) => l.includes('reason=next_line_above_tolerated_top'))).toBe(false);
     warnSpy.mockRestore();
     driver.dispose();
   });
