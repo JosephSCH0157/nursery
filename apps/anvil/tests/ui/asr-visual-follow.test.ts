@@ -1,6 +1,5 @@
 import {
   classifyVisualLead,
-  planBottomRailReaderRoomRescue,
   selectLeadAwarePursuitCap,
   shouldHoldBridgeCommitForVisualRecovery,
   selectBridgeVisualComfortCap,
@@ -298,22 +297,5 @@ describe('ASR visual follow pure calculations', () => {
     });
     expect(calm.shouldApply).toBe(true);
     expect(calm.cappedPxps).toBe(12);
-  });
-
-  test('bottom-rail reader-room rescue caps movement to at most two rendered lines', () => {
-    const plan = planBottomRailReaderRoomRescue({
-      lineY: 660,
-      viewportHeight: 669,
-      markerY: 268,
-      lineHeightPx: 24,
-      currentScrollTop: 100,
-      maxScrollTop: 4000,
-      desiredOffsetLines: 1.25,
-      maxMoveLines: 2,
-      bottomRailLines: 2,
-    });
-    expect(plan.shouldRescue).toBe(true);
-    expect(plan.appliedDeltaPx).toBeLessThanOrEqual(48);
-    expect(plan.targetScrollTop).toBe(148);
   });
 });

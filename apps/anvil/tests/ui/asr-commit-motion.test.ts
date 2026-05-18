@@ -2590,40 +2590,6 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
-  test('fires bottom-rail reader-room rescue without changing semantic currentIndex', async () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    const scroller = document.getElementById('viewer') as HTMLElement;
-    scroller.scrollTop = 80;
-    const driver = createAsrScrollDriver();
-
-    driver.setLastLineIndex(0);
-    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
-      currentIdx: 0,
-      matchId: 'bottom-rail-reader-room-rescue',
-      match: {
-        bestIdx: 1,
-        bestSim: 0.91,
-        topScores: [{ idx: 1, score: 0.91 }],
-      },
-    });
-    await jest.advanceTimersByTimeAsync(220);
-
-    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    const rescueLine = lines.find((line) => line.includes('ASR_BOTTOM_RAIL_READER_ROOM_RESCUE')) || '';
-    expect(rescueLine).toContain('proofSource=');
-    expect(driver.getLastLineIndex()).toBe(1);
-    expect(scroller.scrollTop).toBeGreaterThan(80);
-
-    const lineHeightMatch = rescueLine.match(/lineHeightPx=(\d+)/);
-    const appliedMatch = rescueLine.match(/appliedDeltaPx=(\d+)/);
-    if (lineHeightMatch && appliedMatch) {
-      expect(Number(appliedMatch[1])).toBeLessThanOrEqual(Number(lineHeightMatch[1]) * 2);
-    }
-
-    warnSpy.mockRestore();
-    driver.dispose();
-  });
-
   test('startup adjacent 0 -> 1 holds comfort or reduces pressure instead of aggressive marker chase', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;
@@ -3150,83 +3116,6 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
-  test('does not fire bottom-rail reader-room rescue during focus loss', async () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    const scroller = document.getElementById('viewer') as HTMLElement;
-    scroller.scrollTop = 80;
-    const driver = createAsrScrollDriver();
-    let focusActive = true;
-    const hasFocusSpy = jest.spyOn(document, 'hasFocus').mockImplementation(() => focusActive);
-
-    driver.setLastLineIndex(0);
-    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
-      currentIdx: 0,
-      matchId: 'bottom-rail-focus-prime',
-      match: {
-        bestIdx: 1,
-        bestSim: 0.91,
-        topScores: [{ idx: 1, score: 0.91 }],
-      },
-    });
-    await jest.advanceTimersByTimeAsync(120);
-    const rescueCountBeforeBlur = warnSpy.mock.calls
-      .map((c) => String(c[0] || ''))
-      .filter((line) => line.includes('ASR_BOTTOM_RAIL_READER_ROOM_RESCUE'))
-      .length;
-
-    focusActive = false;
-    window.dispatchEvent(new Event('blur'));
-    driver.ingest('The seats remember every early shift.', true, {
-      currentIdx: 1,
-      matchId: 'bottom-rail-focus-lost',
-      match: {
-        bestIdx: 2,
-        bestSim: 0.93,
-        topScores: [{ idx: 2, score: 0.93 }],
-      },
-    });
-    await jest.advanceTimersByTimeAsync(220);
-
-    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    const rescueCountAfterBlur = lines.filter((line) => line.includes('ASR_BOTTOM_RAIL_READER_ROOM_RESCUE')).length;
-    expect(rescueCountAfterBlur).toBe(rescueCountBeforeBlur);
-
-    hasFocusSpy.mockRestore();
-    warnSpy.mockRestore();
-    driver.dispose();
-  });
-
-  test('does not fire bottom-rail reader-room rescue at max scroll', async () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    const scroller = document.getElementById('viewer') as HTMLElement;
-    const line1 = document.querySelector<HTMLElement>('.line[data-line="1"]')!;
-    const maxScrollTop = scroller.scrollHeight - scroller.clientHeight;
-    scroller.scrollTop = maxScrollTop;
-    Object.defineProperty(line1, 'offsetTop', { configurable: true, value: maxScrollTop + 520 });
-    Object.defineProperty(line1, 'offsetHeight', { configurable: true, value: 236 });
-    Object.defineProperty(line1, 'clientHeight', { configurable: true, value: 236 });
-    const driver = createAsrScrollDriver();
-
-    driver.setLastLineIndex(0);
-    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
-      currentIdx: 0,
-      matchId: 'bottom-rail-max-scroll',
-      match: {
-        bestIdx: 1,
-        bestSim: 0.91,
-        topScores: [{ idx: 1, score: 0.91 }],
-      },
-    });
-    await jest.advanceTimersByTimeAsync(220);
-
-    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(lines.some((line) => line.includes('ASR_BOTTOM_RAIL_READER_ROOM_RESCUE]'))).toBe(false);
-    expect(driver.getLastLineIndex()).toBe(1);
-    expect(scroller.scrollTop).toBe(maxScrollTop);
-
-    warnSpy.mockRestore();
-    driver.dispose();
-  });
 
   test('releases dead-screen governor hold for adjacent safe step instead of indefinite hold', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});

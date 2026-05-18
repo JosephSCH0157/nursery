@@ -5,8 +5,7 @@ import {
   buildAsrBackendHeartbeatDiagnostic,
   buildAsrBackendRestartCompletedDiagnostic,
   buildAsrBackendRestartRequestedDiagnostic,
-  buildAsrBottomRailReaderRoomRescueBlockedDiagnostic,
-  buildAsrBottomRailReaderRoomRescueDiagnostic,
+  buildAsrBottomLockGeometryDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
   buildProofOwnedPrimaryCommitGuardBaseParts,
   buildRecoverySkipNonAdjacentTargetGuardBaseParts,
@@ -297,43 +296,59 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
   });
 
-  test('builds bottom-rail reader-room rescue diagnostic with expected fields', () => {
-    const line = buildAsrBottomRailReaderRoomRescueDiagnostic({
-      currentIndex: 8,
-      committedLineIdx: 8,
-      nextSpeakableLineIdx: 9,
-      lineY: 620.4,
-      viewportBottom: 669,
-      lineHeightPx: 24,
-      beforeScrollTop: 100,
-      afterScrollTop: 140,
-      requestedDeltaPx: 61.8,
-      appliedDeltaPx: 40,
-      targetScrollTop: 140,
-      maxScrollTop: 1200,
-      proofSource: 'fresh_commit',
-      reason: 'next_speakable_line_bottom_rail',
+  test('builds bottom-lock geometry diagnostic with expected fields', () => {
+    const line = buildAsrBottomLockGeometryDiagnostic({
+      markerY: 390.4,
+      currentLineY: 489.9,
+      nextSpeakableLineY: 514.2,
+      preferredBandTop: 300.2,
+      preferredSettleBottom: 430.7,
+      preferredBandBottom: 450.1,
+      toleratedBandBottom: 490.9,
+      currentScrollTop: 220.4,
+      targetScrollTop: 260.1,
+      scrollTopBefore: 200.2,
+      scrollTopAfter: 220.4,
+      pocketZone: 'bottom',
+      lastAction: 'snap_suppressed',
+      lastComfortReason: 'next_line_within_preferred_pocket',
+      lastVisualTargetDeltaPx: -1,
+      lastVisualVelocityPxps: -1,
+      snapSuppressedInEpisode: true,
+      reasonChain: 'live_target_follow_motor|snap_suppressed',
+      deltaLinesSamples: '1.50|0.75',
     });
     expect(line).toBe(
-      '[ASR_BOTTOM_RAIL_READER_ROOM_RESCUE] currentIndex=8 committedLineIdx=8 nextSpeakableLineIdx=9 lineY=620 viewportBottom=669 lineHeightPx=24 beforeScrollTop=100 afterScrollTop=140 requestedDeltaPx=62 appliedDeltaPx=40 targetScrollTop=140 maxScrollTop=1200 proofSource=fresh_commit reason=next_speakable_line_bottom_rail',
+      '[ASR_BOTTOM_LOCK_GEOMETRY_DIAG] markerY=390 currentLineY=490 nextSpeakableLineY=514 preferredBandTop=300 preferredSettleBottom=431 preferredBandBottom=450 toleratedBandBottom=491 currentScrollTop=220 targetScrollTop=260 scrollTopBefore=200 scrollTopAfter=220 pocketZone=bottom lastAction=snap_suppressed lastComfortReason=next_line_within_preferred_pocket lastVisualTargetDeltaPx=-1 lastVisualVelocityPxps=-1 snapSuppressedInEpisode=1 reasonChain=live_target_follow_motor|snap_suppressed deltaLinesSamples=1.50|0.75',
     );
   });
 
-  test('builds bottom-rail reader-room rescue blocked diagnostic for scroll limit', () => {
-    const line = buildAsrBottomRailReaderRoomRescueBlockedDiagnostic({
-      currentIndex: 8,
-      committedLineIdx: 8,
-      nextSpeakableLineIdx: 9,
-      lineY: 620.4,
-      viewportBottom: 669,
-      lineHeightPx: 24,
-      currentScrollTop: 1200,
-      maxScrollTop: 1200,
-      proofSource: 'fresh_commit',
-      reason: 'at_scroll_limit',
+  test('builds bottom-lock geometry diagnostic with default sentinel mirrors', () => {
+    const line = buildAsrBottomLockGeometryDiagnostic({
+      markerY: -1,
+      currentLineY: -1,
+      nextSpeakableLineY: -1,
+      preferredBandTop: -1,
+      preferredSettleBottom: -1,
+      preferredBandBottom: -1,
+      toleratedBandBottom: -1,
+      currentScrollTop: -1,
+      targetScrollTop: -1,
+      scrollTopBefore: -1,
+      scrollTopAfter: -1,
+      pocketZone: 'unknown',
+      lastAction: 'none',
+      lastComfortReason: 'none',
+      lastVisualTargetDeltaPx: -1,
+      lastVisualVelocityPxps: -1,
+      snapSuppressedInEpisode: false,
+      reasonChain: 'none',
+      deltaLinesSamples: 'none',
     });
-    expect(line).toBe(
-      '[ASR_BOTTOM_RAIL_READER_ROOM_RESCUE_BLOCKED] currentIndex=8 committedLineIdx=8 nextSpeakableLineIdx=9 lineY=620 viewportBottom=669 lineHeightPx=24 currentScrollTop=1200 maxScrollTop=1200 proofSource=fresh_commit reason=at_scroll_limit',
-    );
+    expect(line).toContain('lastAction=none');
+    expect(line).toContain('lastComfortReason=none');
+    expect(line).toContain('lastVisualTargetDeltaPx=-1');
+    expect(line).toContain('lastVisualVelocityPxps=-1');
+    expect(line).toContain('snapSuppressedInEpisode=0');
   });
 });

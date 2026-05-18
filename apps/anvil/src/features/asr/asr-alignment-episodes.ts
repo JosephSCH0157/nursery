@@ -1,3 +1,5 @@
+import { buildAsrBottomLockGeometryDiagnostic } from './asr-diagnostics';
+
 export type VisualOutcome =
   | 'in_pocket'
   | 'bottom_locked'
@@ -29,8 +31,17 @@ type Episode = {
     markerY: number;
     currentLineY: number;
     nextSpeakableLineY: number;
+    preferredBandTop: number;
+    preferredSettleBottom: number;
+    preferredBandBottom: number;
+    toleratedBandBottom: number;
     pocketZone: string;
     actions: VisualAction[];
+    lastAction: VisualAction | 'none';
+    lastComfortReason: string;
+    lastVisualTargetDeltaPx: number;
+    lastVisualVelocityPxps: number;
+    snapSuppressedInEpisode: boolean;
   };
   metrics: {
     deltaLinesSamples: number[];
@@ -115,8 +126,17 @@ export class AsrAlignmentEpisodeTracker {
         markerY: -1,
         currentLineY: -1,
         nextSpeakableLineY: -1,
+        preferredBandTop: -1,
+        preferredSettleBottom: -1,
+        preferredBandBottom: -1,
+        toleratedBandBottom: -1,
         pocketZone: 'unknown',
         actions: [],
+        lastAction: 'none',
+        lastComfortReason: 'none',
+        lastVisualTargetDeltaPx: -1,
+        lastVisualVelocityPxps: -1,
+        snapSuppressedInEpisode: false,
       },
       metrics: {
         deltaLinesSamples: [],
@@ -140,11 +160,23 @@ export class AsrAlignmentEpisodeTracker {
     ep.visual.targetScrollTop = finiteOr(input.targetScrollTop);
   }
 
-  noteFollow(input: { deltaLines: number; reason?: string }): void {
+  noteFollow(input: {
+    deltaLines: number;
+    reason?: string;
+    targetDeltaPx?: number;
+    velocityPxps?: number;
+  }): void {
     const ep = this.active;
     if (!ep) return;
     ep.visual.actions.push('pursued');
+    ep.visual.lastAction = 'pursued';
     ep.metrics.deltaLinesSamples.push(finiteOr(input.deltaLines, 0));
+    if (Number.isFinite(input.targetDeltaPx)) {
+      ep.visual.lastVisualTargetDeltaPx = finiteOr(input.targetDeltaPx ?? -1);
+    }
+    if (Number.isFinite(input.velocityPxps)) {
+      ep.visual.lastVisualVelocityPxps = finiteOr(input.velocityPxps ?? -1);
+    }
     if (input.reason) ep.reasonChain.push(String(input.reason));
   }
 
@@ -152,6 +184,7 @@ export class AsrAlignmentEpisodeTracker {
     const ep = this.active;
     if (!ep) return;
     ep.visual.actions.push('held');
+    ep.visual.lastAction = 'held';
     ep.metrics.hardHoldTicks += 1;
     if (input.reason) ep.reasonChain.push(String(input.reason));
   }
@@ -160,6 +193,8 @@ export class AsrAlignmentEpisodeTracker {
     const ep = this.active;
     if (!ep) return;
     ep.visual.actions.push('snap_suppressed');
+    ep.visual.lastAction = 'snap_suppressed';
+    ep.visual.snapSuppressedInEpisode = true;
     if (input.reason) ep.reasonChain.push(String(input.reason));
   }
 
@@ -167,6 +202,7 @@ export class AsrAlignmentEpisodeTracker {
     const ep = this.active;
     if (!ep) return;
     ep.visual.actions.push('cleared');
+    ep.visual.lastAction = 'cleared';
     if (input.reason) ep.reasonChain.push(String(input.reason));
   }
 
@@ -174,6 +210,12 @@ export class AsrAlignmentEpisodeTracker {
     markerY: number;
     currentLineY: number;
     nextSpeakableLineY: number;
+    preferredBandTop?: number;
+    preferredSettleBottom?: number;
+    preferredBandBottom?: number;
+    toleratedBandBottom?: number;
+    targetDeltaPx?: number;
+    velocityPxps?: number;
     reason?: string;
   }): void {
     const ep = this.active;
@@ -181,7 +223,18 @@ export class AsrAlignmentEpisodeTracker {
     ep.visual.markerY = finiteOr(input.markerY);
     ep.visual.currentLineY = finiteOr(input.currentLineY);
     ep.visual.nextSpeakableLineY = finiteOr(input.nextSpeakableLineY);
+    ep.visual.preferredBandTop = finiteOr(input.preferredBandTop as number);
+    ep.visual.preferredSettleBottom = finiteOr(input.preferredSettleBottom as number);
+    ep.visual.preferredBandBottom = finiteOr(input.preferredBandBottom as number);
+    ep.visual.toleratedBandBottom = finiteOr(input.toleratedBandBottom as number);
     ep.visual.pocketZone = classifyPocketZone(ep.visual.markerY, ep.visual.currentLineY);
+    if (Number.isFinite(input.targetDeltaPx)) {
+      ep.visual.lastVisualTargetDeltaPx = finiteOr(input.targetDeltaPx ?? -1);
+    }
+    if (Number.isFinite(input.velocityPxps)) {
+      ep.visual.lastVisualVelocityPxps = finiteOr(input.velocityPxps ?? -1);
+    }
+    ep.visual.lastComfortReason = String(input.reason || ep.visual.lastComfortReason || 'none');
     if (
       Number.isFinite(ep.visual.markerY) &&
       Number.isFinite(ep.visual.currentLineY) &&
@@ -236,6 +289,31 @@ export class AsrAlignmentEpisodeTracker {
       console.info(
         `[ASR_ALIGNMENT_EPISODE] id=${ep.id} currentLine=${ep.semantic.currentLine} requestedTarget=${ep.semantic.requestedTarget} acceptedCommitTarget=${ep.semantic.acceptedCommitTarget} authorityPath=${ep.semantic.authorityPath} proofSource=${ep.semantic.proofSource} sourceHoldReason=${ep.semantic.sourceHoldReason} scrollTopBefore=${Math.round(ep.visual.scrollTopBefore)} scrollTopAfter=${Math.round(ep.visual.scrollTopAfter)} targetScrollTop=${Math.round(ep.visual.targetScrollTop)} markerY=${Math.round(ep.visual.markerY)} currentLineY=${Math.round(ep.visual.currentLineY)} nextSpeakableLineY=${Math.round(ep.visual.nextSpeakableLineY)} pocketZone=${ep.visual.pocketZone} actions=${ep.visual.actions.join('|') || 'none'} deltaLinesSamples=${ep.metrics.deltaLinesSamples.map((n) => n.toFixed(2)).join('|') || 'none'} settleMs=${Math.round(ep.metrics.settleMs)} lowerPocketMs=${Math.round(ep.metrics.lowerPocketMs)} hardHoldTicks=${ep.metrics.hardHoldTicks} transcriptAgeMs=${Math.round(ep.metrics.transcriptAgeMs)} audioAgeMs=${Math.round(ep.metrics.audioAgeMs)} stallDelayMs=${Math.round(ep.metrics.stallDelayMs)} visualOutcome=${ep.visualOutcome} reasonChain=${ep.reasonChain.slice(-8).join('|') || 'none'}`,
       );
+      if (ep.visualOutcome === 'bottom_locked') {
+        console.info(
+          buildAsrBottomLockGeometryDiagnostic({
+            markerY: ep.visual.markerY,
+            currentLineY: ep.visual.currentLineY,
+            nextSpeakableLineY: ep.visual.nextSpeakableLineY,
+            preferredBandTop: ep.visual.preferredBandTop,
+            preferredSettleBottom: ep.visual.preferredSettleBottom,
+            preferredBandBottom: ep.visual.preferredBandBottom,
+            toleratedBandBottom: ep.visual.toleratedBandBottom,
+            currentScrollTop: ep.visual.scrollTopAfter,
+            targetScrollTop: ep.visual.targetScrollTop,
+            scrollTopBefore: ep.visual.scrollTopBefore,
+            scrollTopAfter: ep.visual.scrollTopAfter,
+            pocketZone: ep.visual.pocketZone,
+            lastAction: ep.visual.lastAction,
+            lastComfortReason: ep.visual.lastComfortReason || 'none',
+            lastVisualTargetDeltaPx: ep.visual.lastVisualTargetDeltaPx,
+            lastVisualVelocityPxps: ep.visual.lastVisualVelocityPxps,
+            snapSuppressedInEpisode: ep.visual.snapSuppressedInEpisode,
+            reasonChain: ep.reasonChain.slice(-8).join('|') || 'none',
+            deltaLinesSamples: ep.metrics.deltaLinesSamples.map((n) => n.toFixed(2)).join('|') || 'none',
+          }),
+        );
+      }
     } catch {}
   }
 }

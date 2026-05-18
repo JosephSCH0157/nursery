@@ -46,15 +46,6 @@ export type ReaderPressureVelocityDecision = {
   reason?: 'reader_pressure_high_lead' | 'reader_pressure_ahead';
 };
 
-export type BottomRailReaderRoomRescuePlan = {
-  shouldRescue: boolean;
-  requestedDeltaPx: number;
-  appliedDeltaPx: number;
-  targetScrollTop: number;
-  desiredLineY: number;
-  bottomRailThresholdY: number;
-};
-
 export function classifyVisualLead(input: {
   speakableLead: number;
   renderedLead: number;
@@ -274,66 +265,4 @@ export function selectReaderPressureVelocityCap(input: {
     };
   }
   return { shouldApply: false, reducedPxps: input.basePxps };
-}
-
-export function planBottomRailReaderRoomRescue(input: {
-  lineY: number;
-  viewportHeight: number;
-  markerY: number;
-  lineHeightPx: number;
-  currentScrollTop: number;
-  maxScrollTop: number;
-  desiredOffsetLines: number;
-  maxMoveLines: number;
-  bottomRailLines: number;
-}): BottomRailReaderRoomRescuePlan {
-  const safeLineHeightPx = Math.max(1, Number(input.lineHeightPx) || 0);
-  const safeViewportHeight = Math.max(1, Number(input.viewportHeight) || 0);
-  const safeCurrentScrollTop = Math.max(0, Number(input.currentScrollTop) || 0);
-  const safeMaxScrollTop = Math.max(0, Number(input.maxScrollTop) || 0);
-  const safeLineY = Number(input.lineY);
-  if (!Number.isFinite(safeLineY) || safeLineY < 0 || safeLineY > safeViewportHeight) {
-    return {
-      shouldRescue: false,
-      requestedDeltaPx: 0,
-      appliedDeltaPx: 0,
-      targetScrollTop: safeCurrentScrollTop,
-      desiredLineY: Number(input.markerY) + Number(input.desiredOffsetLines) * safeLineHeightPx,
-      bottomRailThresholdY: safeViewportHeight - Number(input.bottomRailLines) * safeLineHeightPx,
-    };
-  }
-  const desiredLineY = Number(input.markerY) + Number(input.desiredOffsetLines) * safeLineHeightPx;
-  const bottomRailThresholdY = safeViewportHeight - Number(input.bottomRailLines) * safeLineHeightPx;
-  if (!(safeLineY >= bottomRailThresholdY)) {
-    return {
-      shouldRescue: false,
-      requestedDeltaPx: 0,
-      appliedDeltaPx: 0,
-      targetScrollTop: safeCurrentScrollTop,
-      desiredLineY,
-      bottomRailThresholdY,
-    };
-  }
-  const requestedDeltaPx = Math.max(0, safeLineY - desiredLineY);
-  const maxMovePx = Math.max(0, Number(input.maxMoveLines) * safeLineHeightPx);
-  const appliedDeltaPx = Math.max(
-    0,
-    Math.min(
-      requestedDeltaPx,
-      maxMovePx,
-      Math.max(0, safeMaxScrollTop - safeCurrentScrollTop),
-    ),
-  );
-  const targetScrollTop = Math.max(
-    0,
-    Math.min(safeMaxScrollTop, safeCurrentScrollTop + appliedDeltaPx),
-  );
-  return {
-    shouldRescue: appliedDeltaPx > 0.5,
-    requestedDeltaPx,
-    appliedDeltaPx,
-    targetScrollTop,
-    desiredLineY,
-    bottomRailThresholdY,
-  };
 }
