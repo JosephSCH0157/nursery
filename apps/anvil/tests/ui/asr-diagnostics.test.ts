@@ -6,6 +6,7 @@ import {
   buildAsrBackendRestartCompletedDiagnostic,
   buildAsrBackendRestartRequestedDiagnostic,
   buildAsrBottomLockGeometryDiagnostic,
+  buildAsrDelayedSuppressionAutopsyDiagnostic,
   buildAsrEarlyBridgeTrapReleasedDiagnostic,
   buildAsrMarkerErrorHoldBandRejectedDiagnostic,
   buildAsrMarkerErrorLowerRailRejectedDiagnostic,
@@ -477,6 +478,48 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR_SCROLL_AUTHORITY_CONFLICT] tickId=42 authorities=[preferred_lower_rail_release,comfort_nudge] beforeScrollTop=220 intermediateScrollTop=240 finalScrollTop=226 currentLineIdx=8 nextSpeakableLineIdx=9 reason=multiple_live_scroll_authorities_observed',
+    );
+  });
+
+  test('builds delayed suppression autopsy diagnostic with expected fields', () => {
+    const line = buildAsrDelayedSuppressionAutopsyDiagnostic({
+      episodeId: 'ae-22',
+      runKey: 'run-1',
+      runGeneration: 7,
+      currentLineIdx: 23,
+      committedLineIdx: 23,
+      requestedTargetIdx: 25,
+      acceptedCommitTargetIdx: 24,
+      nextSpeakableLineIdx: 25,
+      visualOutcome: 'delayed_until_starvation',
+      reasonChain: 'movement_authority_commit|asr_recovery_chain_blocked|live_asr_marker_lock_suppressed|superseded_by_new_commit',
+      actions: 'snap_suppressed',
+      stallDelayMs: 2065,
+      settleMs: 2060,
+      speechActive: true,
+      transcriptAgeMs: 841,
+      audioAgeMs: 634,
+      finalPacketFresh: true,
+      transcriptGrowing: false,
+      lastGuardReason: 'asr_recovery_chain_blocked',
+      lastHudGuardText: 'Hold: waiting for direct adjacent ASR match',
+      lastSelectedAuthority: 'comfort_nudge',
+      lastVisualAction: 'snap_suppressed',
+      lastVisualErrorPx: 17,
+      markerY: 390,
+      actualNextSpeakableLineY: 482,
+      desiredLineY: 467,
+      tolerancePx: 20,
+      holdTolerancePx: 12,
+      currentScrollTop: 1702,
+      targetScrollTop: 1791,
+      deltaLinesSamples: 'none',
+      snapSuppressedInEpisode: true,
+      supersededByNewCommit: true,
+      blockerCategory: 'recovery_chain_blocked',
+    });
+    expect(line).toBe(
+      '[ASR_DELAYED_SUPPRESSION_AUTOPSY] episodeId=ae-22 runKey=run-1 runGeneration=7 currentLineIdx=23 committedLineIdx=23 requestedTargetIdx=25 acceptedCommitTargetIdx=24 nextSpeakableLineIdx=25 visualOutcome=delayed_until_starvation reasonChain=movement_authority_commit|asr_recovery_chain_blocked|live_asr_marker_lock_suppressed|superseded_by_new_commit actions=snap_suppressed stallDelayMs=2065 settleMs=2060 speechActive=1 transcriptAgeMs=841 audioAgeMs=634 finalPacketFresh=1 transcriptGrowing=0 lastGuardReason=asr_recovery_chain_blocked lastHudGuardText=Hold: waiting for direct adjacent ASR match lastSelectedAuthority=comfort_nudge lastVisualAction=snap_suppressed lastVisualErrorPx=17 markerY=390 actualNextSpeakableLineY=482 desiredLineY=467 tolerancePx=20 holdTolerancePx=12 currentScrollTop=1702 targetScrollTop=1791 deltaLinesSamples=none snapSuppressedInEpisode=1 supersededByNewCommit=1 blockerCategory=recovery_chain_blocked',
     );
   });
 });

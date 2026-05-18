@@ -117,4 +117,143 @@ describe('ASR alignment episode diagnostics', () => {
 
     infoSpy.mockRestore();
   });
+
+  test('emits delayed suppression autopsy for delayed snap-suppressed episodes', () => {
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+    const tracker = new AsrAlignmentEpisodeTracker();
+
+    tracker.begin({
+      currentLine: 23,
+      requestedTarget: 25,
+      acceptedCommitTarget: 24,
+      proofSource: 'strict_speakable_bridge_landing',
+      authorityPath: 'movement_authority_forced_reconcile_single_step',
+    });
+    tracker.noteCommit({
+      scrollTopBefore: 1702,
+      scrollTopAfter: 1702,
+      targetScrollTop: 1791,
+    });
+    tracker.noteComfort({
+      markerY: 390,
+      currentLineY: 412,
+      nextSpeakableLineY: 480,
+      preferredBandTop: 300,
+      preferredSettleBottom: 430,
+      preferredBandBottom: 450,
+      toleratedBandBottom: 491,
+      reason: 'marker_error_within_tolerance',
+    });
+    tracker.noteHeartbeat({
+      transcriptAgeMs: 841,
+      audioAgeMs: 634,
+    });
+    tracker.noteAutopsyState({
+      runKey: 'run-1',
+      runGeneration: 7,
+      nextSpeakableLineIdx: 25,
+      desiredLineY: 467,
+      tolerancePx: 20,
+      holdTolerancePx: 12,
+      lastGuardReason: 'asr_recovery_chain_blocked',
+      lastHudGuardText: 'Hold: waiting for direct adjacent ASR match',
+      lastSelectedAuthority: 'comfort_nudge',
+      lastVisualAction: 'snap_suppressed',
+      lastVisualErrorPx: 17,
+      speechActive: true,
+      finalPacketFresh: true,
+      transcriptGrowing: false,
+    });
+    tracker.noteSnapSuppressed({ reason: 'live_asr_marker_lock_suppressed' });
+    tracker.noteStallDelay(2065, 'asr_recovery_chain_blocked');
+    const closed = tracker.close('superseded_by_new_commit');
+    tracker.dumpForConsole(closed || undefined);
+
+    const lines = infoSpy.mock.calls.map((call) => String(call[0] || ''));
+    const autopsyLines = lines.filter((line) => line.includes('ASR_DELAYED_SUPPRESSION_AUTOPSY'));
+    expect(autopsyLines).toHaveLength(1);
+    expect(autopsyLines[0]).toContain('blockerCategory=recovery_chain_blocked');
+    expect(autopsyLines[0]).toContain('lastGuardReason=asr_recovery_chain_blocked');
+    expect(autopsyLines[0]).toContain('snapSuppressedInEpisode=1');
+
+    infoSpy.mockRestore();
+  });
+
+  test('emits delayed suppression autopsy with no_adjacent_match_hold blocker label', () => {
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+    const tracker = new AsrAlignmentEpisodeTracker();
+
+    tracker.begin({
+      currentLine: 24,
+      requestedTarget: 25,
+      acceptedCommitTarget: 25,
+      proofSource: 'live_strict_local_proof_ok',
+      authorityPath: 'movement_authority_proof',
+    });
+    tracker.noteCommit({
+      scrollTopBefore: 1723,
+      scrollTopAfter: 1723,
+      targetScrollTop: 1859,
+    });
+    tracker.noteComfort({
+      markerY: 390,
+      currentLineY: 459,
+      nextSpeakableLineY: 459,
+      preferredBandTop: 300,
+      preferredSettleBottom: 430,
+      preferredBandBottom: 450,
+      toleratedBandBottom: 491,
+      reason: 'marker_error_within_tolerance',
+    });
+    tracker.noteAutopsyState({
+      lastGuardReason: 'asr_live_no_adjacent_match_hold',
+      lastHudGuardText: 'Hold: waiting for direct adjacent ASR match',
+      nextSpeakableLineIdx: 25,
+    });
+    tracker.noteSnapSuppressed({ reason: 'live_asr_marker_lock_suppressed' });
+    tracker.noteStallDelay(1633, 'asr_live_no_adjacent_match_hold');
+    const closed = tracker.close('superseded_by_new_commit');
+    tracker.dumpForConsole(closed || undefined);
+
+    const lines = infoSpy.mock.calls.map((call) => String(call[0] || ''));
+    const autopsyLine = lines.find((line) => line.includes('ASR_DELAYED_SUPPRESSION_AUTOPSY')) || '';
+    expect(autopsyLine).toContain('blockerCategory=no_adjacent_match_hold');
+
+    infoSpy.mockRestore();
+  });
+
+  test('does not emit delayed suppression autopsy for normal in_pocket episode', () => {
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+    const tracker = new AsrAlignmentEpisodeTracker();
+
+    tracker.begin({
+      currentLine: 8,
+      requestedTarget: 9,
+      acceptedCommitTarget: 9,
+      proofSource: 'fresh_commit',
+      authorityPath: 'strict_adjacent',
+    });
+    tracker.noteCommit({
+      scrollTopBefore: 100,
+      scrollTopAfter: 140,
+      targetScrollTop: 155,
+    });
+    tracker.noteComfort({
+      markerY: 390,
+      currentLineY: 420,
+      nextSpeakableLineY: 438,
+      preferredBandTop: 300,
+      preferredSettleBottom: 430,
+      preferredBandBottom: 450,
+      toleratedBandBottom: 491,
+      reason: 'settled',
+    });
+    const closed = tracker.close('completed');
+    tracker.dumpForConsole(closed || undefined);
+
+    const lines = infoSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(lines.some((line) => line.includes('ASR_DELAYED_SUPPRESSION_AUTOPSY'))).toBe(false);
+
+    infoSpy.mockRestore();
+  });
 });

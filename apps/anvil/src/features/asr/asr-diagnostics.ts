@@ -257,6 +257,45 @@ export function buildAsrScrollAuthorityConflictDiagnostic(args: {
   return `[ASR_SCROLL_AUTHORITY_CONFLICT] tickId=${args.tickId} authorities=[${args.authorities.join(',')}] beforeScrollTop=${Math.round(args.beforeScrollTop)} intermediateScrollTop=${Math.round(args.intermediateScrollTop)} finalScrollTop=${Math.round(args.finalScrollTop)} currentLineIdx=${args.currentLineIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} reason=${args.reason}`;
 }
 
+export function buildAsrDelayedSuppressionAutopsyDiagnostic(args: {
+  episodeId?: string;
+  runKey?: string;
+  runGeneration?: number;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  requestedTargetIdx: number;
+  acceptedCommitTargetIdx: number;
+  nextSpeakableLineIdx: number;
+  visualOutcome: string;
+  reasonChain: string;
+  actions: string;
+  stallDelayMs: number;
+  settleMs: number;
+  speechActive: boolean;
+  transcriptAgeMs: number;
+  audioAgeMs: number;
+  finalPacketFresh: boolean;
+  transcriptGrowing: boolean;
+  lastGuardReason: string;
+  lastHudGuardText: string;
+  lastSelectedAuthority: string;
+  lastVisualAction: string;
+  lastVisualErrorPx: number;
+  markerY: number;
+  actualNextSpeakableLineY: number;
+  desiredLineY: number;
+  tolerancePx: number;
+  holdTolerancePx: number;
+  currentScrollTop: number;
+  targetScrollTop: number;
+  deltaLinesSamples: string;
+  snapSuppressedInEpisode: boolean;
+  supersededByNewCommit: boolean;
+  blockerCategory: string;
+}): string {
+  return `[ASR_DELAYED_SUPPRESSION_AUTOPSY] episodeId=${args.episodeId || 'none'} runKey=${args.runKey || 'none'} runGeneration=${Number.isFinite(args.runGeneration as number) ? Math.round(args.runGeneration as number) : -1} currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} requestedTargetIdx=${args.requestedTargetIdx} acceptedCommitTargetIdx=${args.acceptedCommitTargetIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} visualOutcome=${args.visualOutcome} reasonChain=${args.reasonChain} actions=${args.actions} stallDelayMs=${Math.round(args.stallDelayMs)} settleMs=${Math.round(args.settleMs)} speechActive=${args.speechActive ? 1 : 0} transcriptAgeMs=${Math.round(args.transcriptAgeMs)} audioAgeMs=${Math.round(args.audioAgeMs)} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} transcriptGrowing=${args.transcriptGrowing ? 1 : 0} lastGuardReason=${args.lastGuardReason} lastHudGuardText=${args.lastHudGuardText} lastSelectedAuthority=${args.lastSelectedAuthority} lastVisualAction=${args.lastVisualAction} lastVisualErrorPx=${Math.round(args.lastVisualErrorPx)} markerY=${Math.round(args.markerY)} actualNextSpeakableLineY=${Math.round(args.actualNextSpeakableLineY)} desiredLineY=${Math.round(args.desiredLineY)} tolerancePx=${Math.round(args.tolerancePx)} holdTolerancePx=${Math.round(args.holdTolerancePx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} deltaLinesSamples=${args.deltaLinesSamples} snapSuppressedInEpisode=${args.snapSuppressedInEpisode ? 1 : 0} supersededByNewCommit=${args.supersededByNewCommit ? 1 : 0} blockerCategory=${args.blockerCategory}`;
+}
+
 export function buildAsrEarlyBridgeTrapReleasedDiagnostic(args: {
   current: number;
   requestedTarget: number;

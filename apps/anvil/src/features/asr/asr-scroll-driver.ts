@@ -1458,6 +1458,8 @@ const logLastAt = new Map<string, number>();
 const guardStatusLastAt = new Map<string, number>();
 let activeGuardCounts: Map<string, number> | null = null;
 const guardEvents: Array<{ ts: number; reason: string }> = [];
+let lastAsrGuardReason = 'none';
+let lastAsrHudGuardText = 'none';
 const GUARD_DEBUG_REASONS = new Set<string>([
   'same_line_noop',
   'same_line_throttle',
@@ -1549,6 +1551,7 @@ function logThrottled(key: string, level: 'log' | 'warn' | 'debug', message: str
 
 function warnGuard(reason: string, parts: Array<string | number | null | undefined>) {
   const now = Date.now();
+  lastAsrGuardReason = String(reason || 'none');
   try {
     guardEvents.push({ ts: now, reason });
     const cutoff = now - DEFAULT_STALL_COMMIT_MS;
@@ -1662,6 +1665,7 @@ function emitHudStatus(key: string, text: string, detail?: Record<string, unknow
   const last = guardStatusLastAt.get(key) ?? 0;
   if (now - last < HUD_STATUS_THROTTLE_MS) return;
   guardStatusLastAt.set(key, now);
+  lastAsrHudGuardText = String(text || 'none');
   const payload = { text, ts: now, ...detail };
   try { window.dispatchEvent(new CustomEvent('tp:asr:guard', { detail: payload })); } catch {}
   try { (window as any).__tpHud?.bus?.emit?.('asr:guard', payload); } catch {}
@@ -6678,6 +6682,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       transcriptAgeMs: Number.isFinite(transcriptAgeMs as number) ? Number(transcriptAgeMs) : -1,
       audioAgeMs: Number.isFinite(audioAgeMs as number) ? Number(audioAgeMs) : -1,
     });
+    alignmentEpisodes.noteAutopsyState({
+      runKey: resolveActiveRunKey() || asrRuntimeRunKey || summaryRunKey || '',
+      runGeneration: resolveActiveRunGeneration() ?? asrRuntimeRunGeneration ?? summaryRunGeneration ?? -1,
+      speechActive,
+      finalPacketFresh: lastFinalTranscriptAt > 0 && (now - lastFinalTranscriptAt) <= 1800,
+      transcriptGrowing:
+        lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength ||
+        lastFinalTranscriptAt > lastCommitTranscriptTimestamp,
+      lastGuardReason: lastAsrGuardReason,
+      lastHudGuardText: lastAsrHudGuardText,
+    });
 
     if (decision.shouldEmitHeartbeat && now - lastBackendHeartbeatAt >= DEFAULT_ASR_BACKEND_HEARTBEAT_MS) {
       lastBackendHeartbeatAt = now;
@@ -11332,6 +11347,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             ? 'marker_error_line_too_low'
             : 'marker_error_line_too_high';
         }
+        alignmentEpisodes.noteAutopsyState({
+          runKey: resolveActiveRunKey() || asrRuntimeRunKey || summaryRunKey || '',
+          runGeneration: resolveActiveRunGeneration() ?? asrRuntimeRunGeneration ?? summaryRunGeneration ?? -1,
+          nextSpeakableLineIdx,
+          desiredLineY,
+          tolerancePx,
+          holdTolerancePx,
+          lastGuardReason: lastAsrGuardReason,
+          lastHudGuardText: lastAsrHudGuardText,
+          lastSelectedAuthority: liveTickSelectedAuthority,
+          lastVisualAction: markerCorrectionAction,
+          lastVisualErrorPx: visualErrorPx,
+          speechActive: readerDrivingNow,
+          finalPacketFresh: lastFinalTranscriptAt > 0 && (nowTs - lastFinalTranscriptAt) <= 1800,
+          transcriptGrowing:
+            lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength ||
+            lastFinalTranscriptAt > lastCommitTranscriptTimestamp,
+        });
         try {
           console.warn(
             buildAsrVisualMarkerErrorCorrectionDiagnostic({

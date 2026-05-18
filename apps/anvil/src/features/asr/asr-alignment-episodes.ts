@@ -1,4 +1,7 @@
-import { buildAsrBottomLockGeometryDiagnostic } from './asr-diagnostics';
+import {
+  buildAsrBottomLockGeometryDiagnostic,
+  buildAsrDelayedSuppressionAutopsyDiagnostic,
+} from './asr-diagnostics';
 
 export type VisualOutcome =
   | 'in_pocket'
@@ -51,6 +54,22 @@ type Episode = {
     transcriptAgeMs: number;
     audioAgeMs: number;
     stallDelayMs: number;
+    speechActive: boolean;
+    finalPacketFresh: boolean;
+    transcriptGrowing: boolean;
+  };
+  diagnostic: {
+    runKey: string;
+    runGeneration: number;
+    nextSpeakableLineIdx: number;
+    desiredLineY: number;
+    tolerancePx: number;
+    holdTolerancePx: number;
+    lastGuardReason: string;
+    lastHudGuardText: string;
+    lastSelectedAuthority: string;
+    lastVisualAction: string;
+    lastVisualErrorPx: number;
   };
   reasonChain: string[];
   visualOutcome: VisualOutcome;
@@ -82,6 +101,26 @@ function classifyOutcome(ep: Episode): VisualOutcome {
   if (ep.visual.pocketZone === 'bottom') return 'bottom_locked';
   if (ep.visual.pocketZone === 'top') return 'top_pressure';
   if (ep.visual.pocketZone === 'pocket') return 'in_pocket';
+  return 'unknown';
+}
+
+function classifyDelayedSuppressionBlocker(ep: Episode): string {
+  const reasonChain = ep.reasonChain.join('|').toLowerCase();
+  const lastGuardReason = String(ep.diagnostic.lastGuardReason || '').toLowerCase();
+  const lastHudGuardText = String(ep.diagnostic.lastHudGuardText || '').toLowerCase();
+  const contains = (needle: string) =>
+    reasonChain.includes(needle) ||
+    lastGuardReason.includes(needle) ||
+    lastHudGuardText.includes(needle);
+  if (reasonChain.includes('asr_recovery_chain_blocked') || lastGuardReason.includes('recovery_chain')) {
+    return 'recovery_chain_blocked';
+  }
+  if (reasonChain.includes('asr_live_no_adjacent_match_hold') || lastGuardReason.includes('adjacent')) {
+    return 'no_adjacent_match_hold';
+  }
+  if (contains('bridge')) return 'bridge_guard';
+  if (contains('cue')) return 'cue_guard';
+  if (contains('low_confidence') || contains('low confidence')) return 'low_confidence';
   return 'unknown';
 }
 
@@ -146,6 +185,22 @@ export class AsrAlignmentEpisodeTracker {
         transcriptAgeMs: -1,
         audioAgeMs: -1,
         stallDelayMs: 0,
+        speechActive: false,
+        finalPacketFresh: false,
+        transcriptGrowing: false,
+      },
+      diagnostic: {
+        runKey: '',
+        runGeneration: -1,
+        nextSpeakableLineIdx: finiteOr(input.acceptedCommitTarget),
+        desiredLineY: -1,
+        tolerancePx: -1,
+        holdTolerancePx: -1,
+        lastGuardReason: 'none',
+        lastHudGuardText: 'none',
+        lastSelectedAuthority: 'none',
+        lastVisualAction: 'none',
+        lastVisualErrorPx: -1,
       },
       reasonChain: input.reason ? [String(input.reason)] : [],
       visualOutcome: 'unknown',
@@ -259,6 +314,40 @@ export class AsrAlignmentEpisodeTracker {
     ep.metrics.audioAgeMs = finiteOr(input.audioAgeMs);
   }
 
+  noteAutopsyState(input: {
+    runKey?: string | null;
+    runGeneration?: number | null;
+    nextSpeakableLineIdx?: number;
+    desiredLineY?: number;
+    tolerancePx?: number;
+    holdTolerancePx?: number;
+    lastGuardReason?: string | null;
+    lastHudGuardText?: string | null;
+    lastSelectedAuthority?: string | null;
+    lastVisualAction?: string | null;
+    lastVisualErrorPx?: number;
+    speechActive?: boolean;
+    finalPacketFresh?: boolean;
+    transcriptGrowing?: boolean;
+  }): void {
+    const ep = this.active;
+    if (!ep) return;
+    if (input.runKey != null) ep.diagnostic.runKey = String(input.runKey || '');
+    if (Number.isFinite(input.runGeneration as number)) ep.diagnostic.runGeneration = finiteOr(input.runGeneration as number);
+    if (Number.isFinite(input.nextSpeakableLineIdx as number)) ep.diagnostic.nextSpeakableLineIdx = finiteOr(input.nextSpeakableLineIdx as number);
+    if (Number.isFinite(input.desiredLineY as number)) ep.diagnostic.desiredLineY = finiteOr(input.desiredLineY as number);
+    if (Number.isFinite(input.tolerancePx as number)) ep.diagnostic.tolerancePx = finiteOr(input.tolerancePx as number);
+    if (Number.isFinite(input.holdTolerancePx as number)) ep.diagnostic.holdTolerancePx = finiteOr(input.holdTolerancePx as number);
+    if (input.lastGuardReason != null) ep.diagnostic.lastGuardReason = String(input.lastGuardReason || 'none');
+    if (input.lastHudGuardText != null) ep.diagnostic.lastHudGuardText = String(input.lastHudGuardText || 'none');
+    if (input.lastSelectedAuthority != null) ep.diagnostic.lastSelectedAuthority = String(input.lastSelectedAuthority || 'none');
+    if (input.lastVisualAction != null) ep.diagnostic.lastVisualAction = String(input.lastVisualAction || 'none');
+    if (Number.isFinite(input.lastVisualErrorPx as number)) ep.diagnostic.lastVisualErrorPx = finiteOr(input.lastVisualErrorPx as number);
+    if (typeof input.speechActive === 'boolean') ep.metrics.speechActive = input.speechActive;
+    if (typeof input.finalPacketFresh === 'boolean') ep.metrics.finalPacketFresh = input.finalPacketFresh;
+    if (typeof input.transcriptGrowing === 'boolean') ep.metrics.transcriptGrowing = input.transcriptGrowing;
+  }
+
   isSnapSuppressedActive(): boolean {
     return !!this.active?.visual.snapSuppressedInEpisode;
   }
@@ -315,6 +404,56 @@ export class AsrAlignmentEpisodeTracker {
             snapSuppressedInEpisode: ep.visual.snapSuppressedInEpisode,
             reasonChain: ep.reasonChain.slice(-8).join('|') || 'none',
             deltaLinesSamples: ep.metrics.deltaLinesSamples.map((n) => n.toFixed(2)).join('|') || 'none',
+          }),
+        );
+      }
+      const reasonChain = ep.reasonChain.slice(-8).join('|') || 'none';
+      const actions = ep.visual.actions.join('|') || 'none';
+      const supersededByNewCommit = ep.reasonChain.some((r) => String(r).includes('superseded_by_new_commit'));
+      const shouldEmitDelayedSuppressionAutopsy =
+        ep.visualOutcome === 'delayed_until_starvation' &&
+        (
+          ep.visual.snapSuppressedInEpisode ||
+          ep.reasonChain.some((r) => String(r).includes('live_asr_marker_lock_suppressed')) ||
+          ep.visual.actions.includes('snap_suppressed')
+        );
+      if (shouldEmitDelayedSuppressionAutopsy) {
+        console.info(
+          buildAsrDelayedSuppressionAutopsyDiagnostic({
+            episodeId: ep.id,
+            runKey: ep.diagnostic.runKey || 'none',
+            runGeneration: ep.diagnostic.runGeneration,
+            currentLineIdx: ep.semantic.currentLine,
+            committedLineIdx: ep.semantic.currentLine,
+            requestedTargetIdx: ep.semantic.requestedTarget,
+            acceptedCommitTargetIdx: ep.semantic.acceptedCommitTarget,
+            nextSpeakableLineIdx: ep.diagnostic.nextSpeakableLineIdx,
+            visualOutcome: ep.visualOutcome,
+            reasonChain,
+            actions,
+            stallDelayMs: ep.metrics.stallDelayMs,
+            settleMs: ep.metrics.settleMs,
+            speechActive: ep.metrics.speechActive,
+            transcriptAgeMs: ep.metrics.transcriptAgeMs,
+            audioAgeMs: ep.metrics.audioAgeMs,
+            finalPacketFresh: ep.metrics.finalPacketFresh,
+            transcriptGrowing: ep.metrics.transcriptGrowing,
+            lastGuardReason: ep.diagnostic.lastGuardReason || 'none',
+            lastHudGuardText: ep.diagnostic.lastHudGuardText || 'none',
+            lastSelectedAuthority: ep.diagnostic.lastSelectedAuthority || 'none',
+            lastVisualAction: ep.diagnostic.lastVisualAction || ep.visual.lastAction,
+            lastVisualErrorPx: ep.diagnostic.lastVisualErrorPx,
+            markerY: ep.visual.markerY,
+            actualNextSpeakableLineY: ep.visual.nextSpeakableLineY,
+            desiredLineY: ep.diagnostic.desiredLineY,
+            tolerancePx: ep.diagnostic.tolerancePx,
+            holdTolerancePx: ep.diagnostic.holdTolerancePx,
+            currentScrollTop: ep.visual.scrollTopAfter,
+            targetScrollTop: ep.visual.targetScrollTop,
+            deltaLinesSamples: ep.metrics.deltaLinesSamples.map((n) => n.toFixed(2)).join('|') || 'none',
+            snapSuppressedInEpisode: ep.visual.snapSuppressedInEpisode,
+            supersededByNewCommit,
+            blockerCategory: classifyDelayedSuppressionBlocker(ep),
           }),
         );
       }
