@@ -2762,6 +2762,7 @@ describe('ASR live commit motion', () => {
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
     expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && (l.includes('action=nudge') || l.includes('action=pursue')))).toBe(true);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_SHORT_MEMORY_RESET') && l.includes('reason=current_line_in_settle_zone'))).toBe(false);
     expect(scroller.scrollTop).toBeGreaterThan(200);
     warnSpy.mockRestore();
     driver.dispose();

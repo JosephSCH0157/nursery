@@ -188,3 +188,21 @@ export function buildAsrVisualMarkerErrorCorrectionDiagnostic(args: {
 }): string {
   return `[ASR_VISUAL_MARKER_ERROR_CORRECTION] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} markerY=${Math.round(args.markerY)} actualNextSpeakableLineY=${Math.round(args.actualNextSpeakableLineY)} desiredLineY=${Math.round(args.desiredLineY)} desiredReadAheadPx=${Math.round(args.desiredReadAheadPx)} visualErrorPx=${Math.round(args.visualErrorPx)} tolerancePx=${Math.round(args.tolerancePx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} action=${args.action} reason=${args.reason}`;
 }
+
+export function buildAsrEarlyBridgeTrapReleasedDiagnostic(args: {
+  current: number;
+  requestedTarget: number;
+  commitTarget: number;
+  skippedIgnorableLines: string[];
+  repeatedHoldCount: number;
+  noCommitMs: number;
+  runAgeMs: number;
+  pendingBridgeAgeMs: number;
+  proofSource: string;
+  finalPacketFresh: boolean;
+  transcriptGrowing: boolean;
+  targetViewportState: string;
+  reason: string;
+}): string {
+  return `[ASR_EARLY_BRIDGE_TRAP_RELEASED] current=${args.current} requestedTarget=${args.requestedTarget} commitTarget=${args.commitTarget} skippedIgnorableLines=[${args.skippedIgnorableLines.join(',')}] repeatedHoldCount=${args.repeatedHoldCount} noCommitMs=${Math.round(args.noCommitMs)} runAgeMs=${Math.round(args.runAgeMs)} pendingBridgeAgeMs=${Math.round(args.pendingBridgeAgeMs)} proofSource=${args.proofSource} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} transcriptGrowing=${args.transcriptGrowing ? 1 : 0} targetViewportState=${args.targetViewportState} reason=${args.reason}`;
+}

@@ -6,6 +6,7 @@ import {
   buildAsrBackendRestartCompletedDiagnostic,
   buildAsrBackendRestartRequestedDiagnostic,
   buildAsrBottomLockGeometryDiagnostic,
+  buildAsrEarlyBridgeTrapReleasedDiagnostic,
   buildAsrVisualMarkerErrorCorrectionDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
   buildProofOwnedPrimaryCommitGuardBaseParts,
@@ -371,6 +372,27 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR_VISUAL_MARKER_ERROR_CORRECTION] currentLineIdx=8 committedLineIdx=8 nextSpeakableLineIdx=9 markerY=390 actualNextSpeakableLineY=490 desiredLineY=420 desiredReadAheadPx=30 visualErrorPx=70 tolerancePx=8 currentScrollTop=220 targetScrollTop=291 action=pursue reason=marker_error_line_too_low',
+    );
+  });
+
+  test('builds early bridge trap released diagnostic with expected fields', () => {
+    const line = buildAsrEarlyBridgeTrapReleasedDiagnostic({
+      current: 4,
+      requestedTarget: 6,
+      commitTarget: 6,
+      skippedIgnorableLines: ['blank', 'cue'],
+      repeatedHoldCount: 3,
+      noCommitMs: 16993.4,
+      runAgeMs: 24024.2,
+      pendingBridgeAgeMs: 2200.8,
+      proofSource: 'landing_lexical',
+      finalPacketFresh: true,
+      transcriptGrowing: true,
+      targetViewportState: 'bottom',
+      reason: 'pending_bridge_completion_overdue',
+    });
+    expect(line).toBe(
+      '[ASR_EARLY_BRIDGE_TRAP_RELEASED] current=4 requestedTarget=6 commitTarget=6 skippedIgnorableLines=[blank,cue] repeatedHoldCount=3 noCommitMs=16993 runAgeMs=24024 pendingBridgeAgeMs=2201 proofSource=landing_lexical finalPacketFresh=1 transcriptGrowing=1 targetViewportState=bottom reason=pending_bridge_completion_overdue',
     );
   });
 });

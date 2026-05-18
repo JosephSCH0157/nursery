@@ -27,6 +27,7 @@ import {
   buildAsrBackendRestartCompletedDiagnostic,
   buildAsrBackendRestartRequestedDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
+  buildAsrEarlyBridgeTrapReleasedDiagnostic,
   buildProofOwnedPrimaryCommitGuardBaseParts,
   buildRecoverySkipNonAdjacentTargetGuardBaseParts,
   buildAsrVisualMarkerErrorCorrectionDiagnostic,
@@ -83,6 +84,7 @@ import {
   shouldHardHoldVisualFollow,
   shouldStopForVisualDeadband,
 } from './asr-visual-follow';
+import { clearOnlyMatchingBridgeBlockToken, shouldReleaseEarlyBridgeTrap } from './asr-bridge-trap';
 import { isManualAnchorPendingFresh, isManualAnchorWithinLineWindow } from './asr-manual-anchor-policy';
 import {
   buildBackendHeartbeatDiagnosticInput,
@@ -205,6 +207,10 @@ const ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_AHEAD_MS = 900;
 const ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_COMFORTABLE_MS = 350;
 const ASR_EARLY_BRIDGE_GOVERNOR_MAX_COMMITS = 4;
 const ASR_EARLY_BRIDGE_GOVERNOR_MAX_RENDERED_DELTA = 2;
+const ASR_EARLY_BRIDGE_TRAP_STARTUP_MAX_CURRENT = 9;
+const ASR_EARLY_BRIDGE_TRAP_STARTUP_MAX_RUN_AGE_MS = 30000;
+const ASR_EARLY_BRIDGE_TRAP_PENDING_OVERDUE_MS = 1800;
+const ASR_EARLY_BRIDGE_TRAP_MIN_REPEATED_HOLDS = 2;
 const ASR_VISUAL_GOVERNOR_HOLD_CLEAR_TARGET_MS = 1200;
 const ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS = 9000;
 const ASR_RESCUE_BYPASS_BUDGET_MAX = 3;
@@ -3286,6 +3292,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     requestedTarget: number;
     current: number;
   }>();
+  const earlyBridgeTrapHoldCountByKey = new Map<string, {
+    count: number;
+    firstAt: number;
+    lastAt: number;
+  }>();
   let liveAsrVisualSemanticMismatchHeld = false;
   let lastBridgeCompletionHeldLogAt = 0;
   let lastBridgeWalkRecoveryLogAt = 0;
@@ -4783,6 +4794,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastCommittedLine = normalized;
     lastFreshProofLine = normalized;
     pendingSpeakableBridgeState = null;
+    earlyBridgeTrapHoldCountByKey.clear();
     matchAnchorIdx = normalized;
     lastEvidenceAt = now;
     lastForwardCommitAt = now;
@@ -6424,6 +6436,106 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return resolveLineVisualTelemetry(scroller, lineIndex).band;
   };
 
+  const buildEarlyBridgeTrapKey = (
+    current: number,
+    requestedTarget: number,
+    commitTarget: number,
+  ): string => `${current}->${requestedTarget}->${commitTarget}:${lastFinalTranscriptRunGeneration ?? -1}`;
+
+  const noteEarlyBridgeTrapHold = (
+    current: number,
+    requestedTarget: number,
+    commitTarget: number,
+    now: number,
+  ): number => {
+    const key = buildEarlyBridgeTrapKey(current, requestedTarget, commitTarget);
+    const prior = earlyBridgeTrapHoldCountByKey.get(key);
+    const stale = !prior || (now - prior.lastAt) > 6000;
+    const next = {
+      count: stale ? 1 : (prior.count + 1),
+      firstAt: stale ? now : prior.firstAt,
+      lastAt: now,
+    };
+    earlyBridgeTrapHoldCountByKey.set(key, next);
+    return next.count;
+  };
+
+  const clearEarlyBridgeTrapHold = (
+    current: number,
+    requestedTarget: number,
+    commitTarget: number,
+  ): void => {
+    earlyBridgeTrapHoldCountByKey.delete(
+      buildEarlyBridgeTrapKey(current, requestedTarget, commitTarget),
+    );
+  };
+
+  const maybeResolveEarlyBridgeTrapRelease = (args: {
+    now: number;
+    current: number;
+    requestedTarget: number;
+    proofSource: string;
+    finalPacketFresh: boolean;
+    hardContradiction: boolean;
+    offscriptNoMatch: boolean;
+    noCommitMs: number;
+    repeatedHoldCount: number;
+  }): null | {
+    commitTarget: number;
+    skippedIgnorableLines: CueBridgeSkipReason[];
+    pendingBridgeAgeMs: number;
+    runAgeMs: number;
+    transcriptGrowing: boolean;
+    targetViewportState: 'top' | 'middle' | 'bottom' | 'above' | 'below' | 'unknown';
+    reason: string;
+  } => {
+    const runAgeMs = Math.max(0, args.now - sessionStartAt);
+    const strictStep = resolveLiveStrictNextSpeakableStep(args.current, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN);
+    if (!strictStep || strictStep.targetLine <= args.current) return null;
+    const skippedIgnorableLines = strictStep.skippedReasons || [];
+    const transcriptGrowing =
+      lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength ||
+      lastFinalTranscriptAt > lastCommitTranscriptTimestamp;
+    const pendingBridgeAgeMs =
+      pendingSpeakableBridgeState &&
+      pendingSpeakableBridgeState.semanticFrom === args.current &&
+      pendingSpeakableBridgeState.semanticTarget >= strictStep.targetLine
+        ? Math.max(0, args.now - pendingSpeakableBridgeState.createdAtMs)
+        : -1;
+    const scroller = getScroller();
+    const targetViewportState = resolveReaderVisualBand(scroller, strictStep.targetLine);
+    const releaseDecision = shouldReleaseEarlyBridgeTrap({
+      liveAsrActive: getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed(),
+      current: args.current,
+      requestedTarget: args.requestedTarget,
+      nextSpeakableTarget: strictStep.targetLine,
+      requestedTargetIsSpeakable: isSpeakableScriptLine(args.requestedTarget),
+      skippedIgnorableLines,
+      repeatedHoldCount: args.repeatedHoldCount,
+      runAgeMs,
+      pendingBridgeAgeMs,
+      finalPacketFresh: args.finalPacketFresh,
+      transcriptGrowing,
+      targetViewportState,
+      hardContradiction: args.hardContradiction,
+      offscriptNoMatch: args.offscriptNoMatch,
+      startupMaxCurrent: ASR_EARLY_BRIDGE_TRAP_STARTUP_MAX_CURRENT,
+      startupMaxRunAgeMs: ASR_EARLY_BRIDGE_TRAP_STARTUP_MAX_RUN_AGE_MS,
+      pendingOverdueMs: ASR_EARLY_BRIDGE_TRAP_PENDING_OVERDUE_MS,
+      minRepeatedHolds: ASR_EARLY_BRIDGE_TRAP_MIN_REPEATED_HOLDS,
+    });
+    if (!releaseDecision.shouldRelease) return null;
+    return {
+      commitTarget: releaseDecision.commitTarget,
+      skippedIgnorableLines,
+      pendingBridgeAgeMs,
+      runAgeMs,
+      transcriptGrowing,
+      targetViewportState,
+      reason: releaseDecision.reason,
+    };
+  };
+
   const resolveForwardSpeakableTarget = (
     currentLine: number,
     requestedTarget: number,
@@ -7237,7 +7349,71 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       reason: args.reason,
     });
     const bridgeTrapEscapePath = equivalentBridgeBlock.bridgeTrapEscapePath === true;
+    let earlyBridgeTrapReleaseActive = false;
+    const bridgeTrapRepeatedHoldReasons = new Set([
+      'asr_early_bridge_governor_hold',
+      'asr_live_visible_bridge_step_cap',
+      'asr_pending_speakable_bridge_set',
+      'asr_pending_speakable_bridge_skip',
+      'asr_recovery_skip_non_adjacent_target',
+      'asr_recovery_skip_tracking_healthy',
+      'same_line_noop',
+      'asr_live_no_adjacent_match_hold',
+    ]);
+    const bridgeTrapRepeatedHoldCount = guardEvents.reduce(
+      (count, entry) => count + (bridgeTrapRepeatedHoldReasons.has(String(entry?.reason || '')) ? 1 : 0),
+      0,
+    );
     if (equivalentBridgeBlock.shouldBlock) {
+      const blockedHoldCount = noteEarlyBridgeTrapHold(
+        current,
+        requestedTarget,
+        Math.max(current + 1, resolveLiveStrictNextSpeakableStep(current, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN)?.targetLine ?? current),
+        commitTs,
+      );
+      const release = maybeResolveEarlyBridgeTrapRelease({
+        now: commitTs,
+        current,
+        requestedTarget,
+        proofSource: args.proofSource || 'none',
+        finalPacketFresh: !!args.finalPacketFresh || (
+          lastFinalTranscriptAt > 0 &&
+          commitTs - lastFinalTranscriptAt <= 1800
+        ),
+        hardContradiction,
+        offscriptNoMatch: explicitNoMatchForLeashEarly,
+        noCommitMs: Math.max(0, Math.round(Number(args.noCommitMs ?? args.stallMs ?? 0))),
+        repeatedHoldCount: Math.max(bridgeTrapRepeatedHoldCount, blockedHoldCount),
+      });
+      if (release) {
+        clearOnlyMatchingBridgeBlockToken(liveBridgeDownstreamBlockUntilByKey, bridgeBlockKey);
+        clearEarlyBridgeTrapHold(current, requestedTarget, release.commitTarget);
+        requestedTarget = release.commitTarget;
+        semanticTargetRaw = Math.min(semanticTargetRaw, release.commitTarget);
+        earlyBridgeTrapReleaseActive = true;
+        try {
+          console.warn(
+            buildAsrEarlyBridgeTrapReleasedDiagnostic({
+              current,
+              requestedTarget: equivalentBridgeTarget,
+              commitTarget: release.commitTarget,
+              skippedIgnorableLines: release.skippedIgnorableLines,
+              repeatedHoldCount: Math.max(bridgeTrapRepeatedHoldCount, blockedHoldCount),
+              noCommitMs: Math.max(0, Math.round(Number(args.noCommitMs ?? args.stallMs ?? 0))),
+              runAgeMs: release.runAgeMs,
+              pendingBridgeAgeMs: release.pendingBridgeAgeMs,
+              proofSource: args.proofSource || 'none',
+              finalPacketFresh: !!args.finalPacketFresh || (
+                lastFinalTranscriptAt > 0 &&
+                commitTs - lastFinalTranscriptAt <= 1800
+              ),
+              transcriptGrowing: release.transcriptGrowing,
+              targetViewportState: release.targetViewportState,
+              reason: release.reason,
+            }),
+          );
+        } catch {}
+      } else {
       try {
         console.warn(
           `[ASR_LIVE_BRIDGE_DOWNSTREAM_COMMIT_BLOCKED] current=${current} requestedTarget=${requestedTarget} sourceBranch=${args.sourceBranch || 'unknown'} proofSource=${args.proofSource || 'none'} reason=bridge_block_token`,
@@ -7247,6 +7423,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         );
       } catch {}
       return { accepted: false, target: current, thresholdMs: 900, actualDelayMs: 0, commitTs };
+      }
     }
     const repeatedHoldReasons = new Set([
       'same_line_noop',
@@ -7355,6 +7532,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       isSessionAsrArmed() &&
       !allowSemanticBridgeCompletion &&
       !bridgeTrapEscapePath &&
+      !earlyBridgeTrapReleaseActive &&
       (requestedTarget > current + 1 || reducedTarget > current + 1)
     ) {
       const bridgeReducedTarget = resolveForwardSpeakableTarget(current, reducedTarget, 1);
@@ -7671,12 +7849,57 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       renderedDelta > ASR_EARLY_BRIDGE_GOVERNOR_MAX_RENDERED_DELTA &&
       (!landingProofDirect || !speechEvidenceFresh || stalePrefixIgnored);
     if (earlyBridgeHold) {
+      const heldCount = noteEarlyBridgeTrapHold(
+        current,
+        requestedTarget,
+        Math.max(current + 1, resolveLiveStrictNextSpeakableStep(current, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN)?.targetLine ?? current),
+        commitTs,
+      );
+      const release = maybeResolveEarlyBridgeTrapRelease({
+        now: commitTs,
+        current,
+        requestedTarget,
+        proofSource,
+        finalPacketFresh,
+        hardContradiction,
+        offscriptNoMatch: explicitNoMatchForLeashEarly,
+        noCommitMs: actualDelayMs,
+        repeatedHoldCount: Math.max(repeatedHoldCount, heldCount),
+      });
+      if (release) {
+        clearOnlyMatchingBridgeBlockToken(liveBridgeDownstreamBlockUntilByKey, bridgeBlockKey);
+        clearEarlyBridgeTrapHold(current, requestedTarget, release.commitTarget);
+        requestedTarget = release.commitTarget;
+        semanticTargetRaw = Math.min(semanticTargetRaw, release.commitTarget);
+        reducedTarget = release.commitTarget;
+        earlyBridgeTrapReleaseActive = true;
+        try {
+          console.warn(
+            buildAsrEarlyBridgeTrapReleasedDiagnostic({
+              current,
+              requestedTarget: equivalentBridgeTarget,
+              commitTarget: release.commitTarget,
+              skippedIgnorableLines: release.skippedIgnorableLines,
+              repeatedHoldCount: Math.max(repeatedHoldCount, heldCount),
+              noCommitMs: actualDelayMs,
+              runAgeMs: release.runAgeMs,
+              pendingBridgeAgeMs: release.pendingBridgeAgeMs,
+              proofSource,
+              finalPacketFresh,
+              transcriptGrowing: release.transcriptGrowing,
+              targetViewportState: release.targetViewportState,
+              reason: release.reason,
+            }),
+          );
+        } catch {}
+      } else {
       try {
         console.warn(
           `[ASR_EARLY_BRIDGE_GOVERNOR_HELD] current=${current} target=${requestedTarget} renderedDelta=${renderedDelta} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(',')}] commitCount=${commitCount} runAgeMs=${runAgeMs} proofSource=${proofSource} speechFresh=${runtimeFreshSpeech ? 1 : 0} finalPacketFresh=${finalPacketFresh ? 1 : 0} stalePrefixIgnored=${stalePrefixIgnored ? 1 : 0} tailProofUsed=${tailProofUsed ? 1 : 0} reason=early_bridge_requires_direct_fresh_landing_proof`,
         );
       } catch {}
       return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
+      }
     }
     const eligibilityKey = `${current}->${reducedTarget}:${args.sourceBranch || 'unknown'}:${args.reason}`;
     if (gatePassCore) {
@@ -7686,7 +7909,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     } else {
       liveEligibilityFirstSeenByKey.delete(eligibilityKey);
     }
-    const accepted = gatePassCore && actualDelayMs >= thresholdMs;
+    const accepted = gatePassCore && (earlyBridgeTrapReleaseActive || actualDelayMs >= thresholdMs);
     const liveSpeechFresh =
       hasRecentActualSpeech(commitTs) || hasRecentVadSpeechNow(commitTs) || !!args.speechRunningActual;
     if (accepted && reducedTarget > current) {
@@ -16248,6 +16471,57 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               earlyBridgeLandingProof.stalePrefixIgnored
             );
           if (earlyBridgeHold) {
+            const earlyBridgeRequestedTarget = targetLine;
+            const heldCount = noteEarlyBridgeTrapHold(
+              lastLineIndex,
+              earlyBridgeRequestedTarget,
+              Math.max(
+                lastLineIndex + 1,
+                resolveLiveStrictNextSpeakableStep(lastLineIndex, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN)?.targetLine ?? lastLineIndex,
+              ),
+              now,
+            );
+            const release = maybeResolveEarlyBridgeTrapRelease({
+              now,
+              current: lastLineIndex,
+              requestedTarget: earlyBridgeRequestedTarget,
+              proofSource: pendingProofSource || movementAuthorityProofSource || 'none',
+              finalPacketFresh: earlyBridgeFinalPacketFresh,
+              hardContradiction: !!strictBackwardContradictionForCommit && !liveSpeechForwardPushBackwardContradictionOverriddenByTail,
+              offscriptNoMatch:
+                String(pendingProofSource || movementAuthorityProofSource || '').toLowerCase().includes('nomatch') ||
+                String(pendingSourceBranch || movementAuthoritySourceBranch || forceReason || '').toLowerCase().includes('offscript'),
+              noCommitMs: Math.max(0, now - lastCommitTime),
+              repeatedHoldCount: heldCount,
+            });
+            if (release) {
+              clearOnlyMatchingBridgeBlockToken(
+                liveBridgeDownstreamBlockUntilByKey,
+                `${lastLineIndex}->${earlyBridgeRequestedTarget}:${lastFinalTranscriptRunGeneration ?? -1}`,
+              );
+              clearEarlyBridgeTrapHold(lastLineIndex, earlyBridgeRequestedTarget, release.commitTarget);
+              targetLine = release.commitTarget;
+              multiJumpDelta = targetLine - lastLineIndex;
+              try {
+                console.warn(
+                  buildAsrEarlyBridgeTrapReleasedDiagnostic({
+                    current: lastLineIndex,
+                    requestedTarget: earlyBridgeRequestedTarget,
+                    commitTarget: release.commitTarget,
+                    skippedIgnorableLines: release.skippedIgnorableLines,
+                    repeatedHoldCount: heldCount,
+                    noCommitMs: Math.max(0, now - lastCommitTime),
+                    runAgeMs: release.runAgeMs,
+                    pendingBridgeAgeMs: release.pendingBridgeAgeMs,
+                    proofSource: pendingProofSource || movementAuthorityProofSource || 'none',
+                    finalPacketFresh: earlyBridgeFinalPacketFresh,
+                    transcriptGrowing: release.transcriptGrowing,
+                    targetViewportState: release.targetViewportState,
+                    reason: release.reason,
+                  }),
+                );
+              } catch {}
+            } else {
             const skippedReasons = strictBacklogDrainStep
               ? ['backlog-drain']
               : (strictSpeakableStep?.skippedReasons || []);
@@ -16267,6 +16541,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             ]);
             emitHudStatus('asr_early_bridge_governor_hold', 'Hold: waiting for direct fresh landing proof');
             return;
+            }
           }
           warnGuard('strict_live_adjacent_speakable_bridge', [
             `current=${lastLineIndex}`,
@@ -23051,6 +23326,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     pendingMatch = null;
     pendingSpeakableBridgeState = null;
+    earlyBridgeTrapHoldCountByKey.clear();
     liveBridgeDownstreamBlockUntilByKey.clear();
     asrSilenceActive = true;
     lastStallRecoveryOverrideAt = 0;
@@ -23178,6 +23454,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     pendingMatch = null;
     pendingSpeakableBridgeState = null;
     liveBridgeDownstreamBlockUntilByKey.clear();
+    earlyBridgeTrapHoldCountByKey.clear();
     strongHits.length = 0;
     evidenceEntries.length = 0;
     evidenceText = '';
