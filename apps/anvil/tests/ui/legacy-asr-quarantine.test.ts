@@ -16,6 +16,8 @@ describe('legacy ASR quarantine', () => {
     delete (window as any).__TP_TS_PRIMARY__;
     delete (window as any).__TP_BOOT_OWNER;
     delete (window as any).__TP_LEGACY_ASR_BLOCKED__;
+    delete (window as any).__ASR_INIT_IMPL__;
+    delete (window as any).__ASR_DIAGNOSTIC_PROOF__;
     jest.restoreAllMocks();
   });
 
@@ -34,16 +36,21 @@ describe('legacy ASR quarantine', () => {
 
   test('initAsrFeature exposes runtime diagnostic smoke proof object', async () => {
     (window as any).__TP_BUILD_STAMP = 'asr-scroll-2026-05-18T22:07:18.976Z';
+    (window as any).__TP_DEV = true;
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const mod = await import('../../src/index-hooks/asr');
     mod.initAsrFeature();
 
+    expect((window as any).__ASR_INIT_IMPL__).toBe('asr.ts 2026-05-18b');
     expect((window as any).__ASR_DIAGNOSTIC_PROOF__).toEqual(
       expect.objectContaining({
         buildStamp: 'asr-scroll-2026-05-18T22:07:18.976Z',
         delayedAutopsyBuilderPresent: true,
         deadScreenAutopsyBuilderPresent: true,
         dumpPathProofPresent: true,
+        initImpl: 'asr.ts 2026-05-18b',
       }),
     );
+    expect(warn).toHaveBeenCalledWith('[ASR_INIT_IMPL] asr.ts 2026-05-18b');
   });
 });

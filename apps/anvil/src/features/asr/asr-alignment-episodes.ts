@@ -14,6 +14,8 @@ export type VisualOutcome =
   | 'bridge_wait'
   | 'unknown';
 
+const ASR_EPISODE_DUMP_IMPL_PROOF_VERSION = 'asr-alignment-episodes.ts 2026-05-18b';
+
 type VisualAction = 'pursued' | 'held' | 'cleared' | 'snap_suppressed';
 
 type Episode = {
@@ -421,6 +423,12 @@ export class AsrAlignmentEpisodeTracker {
   dumpForConsole(epArg?: Episode): void {
     const ep = epArg || this.active;
     if (!ep) return;
+    if (shouldEmitDumpPathProof() && typeof window !== 'undefined') {
+      (window as any).__ASR_EPISODE_DUMP_IMPL__ = ASR_EPISODE_DUMP_IMPL_PROOF_VERSION;
+      try {
+        console.warn(`[ASR_EPISODE_DUMP_IMPL] ${ASR_EPISODE_DUMP_IMPL_PROOF_VERSION}`);
+      } catch {}
+    }
     const reasonChain = ep.reasonChain.slice(-8).join('|') || 'none';
     const actions = ep.visual.actions.join('|') || 'none';
     const delayedAutopsyGate = explainDelayedSuppressionAutopsyGate(ep);

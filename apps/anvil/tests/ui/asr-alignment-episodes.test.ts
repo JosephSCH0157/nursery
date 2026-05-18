@@ -4,6 +4,7 @@ describe('ASR alignment episode diagnostics', () => {
   afterEach(() => {
     window.history.replaceState({}, '', '/');
     delete (window as any).__asrLogBufferInstalled;
+    delete (window as any).__ASR_EPISODE_DUMP_IMPL__;
     jest.restoreAllMocks();
   });
 
@@ -249,6 +250,45 @@ describe('ASR alignment episode diagnostics', () => {
     expect(autopsyLines[0]).toContain('episodeId=ae-1');
 
     infoSpy.mockRestore();
+  });
+
+  test('marks the real episode dump implementation in dev/log-buffer mode', () => {
+    window.history.replaceState({}, '', '/?dev=1');
+    (window as any).__asrLogBufferInstalled = true;
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const tracker = new AsrAlignmentEpisodeTracker();
+
+    tracker.begin({
+      currentLine: 3,
+      requestedTarget: 3,
+      acceptedCommitTarget: 3,
+      proofSource: 'fresh_commit',
+      authorityPath: 'strict_adjacent',
+    });
+    tracker.noteCommit({
+      scrollTopBefore: 40,
+      scrollTopAfter: 60,
+      targetScrollTop: 65,
+    });
+    tracker.noteComfort({
+      markerY: 390,
+      currentLineY: 420,
+      nextSpeakableLineY: 438,
+      preferredBandTop: 300,
+      preferredSettleBottom: 430,
+      preferredBandBottom: 450,
+      toleratedBandBottom: 491,
+      reason: 'settled',
+    });
+    const closed = tracker.close('completed');
+    tracker.dumpForConsole(closed || undefined);
+
+    expect((window as any).__ASR_EPISODE_DUMP_IMPL__).toBe('asr-alignment-episodes.ts 2026-05-18b');
+    expect(warnSpy).toHaveBeenCalledWith('[ASR_EPISODE_DUMP_IMPL] asr-alignment-episodes.ts 2026-05-18b');
+    expect(infoSpy.mock.calls.map((call) => String(call[0] || ''))).toEqual(
+      expect.arrayContaining([expect.stringContaining('ASR_ALIGNMENT_EPISODE_DUMP_PATH_PROOF')]),
+    );
   });
 
   test('emits delayed suppression autopsy with no_adjacent_match_hold blocker label', () => {
