@@ -189,6 +189,56 @@ export function buildAsrVisualMarkerErrorCorrectionDiagnostic(args: {
   return `[ASR_VISUAL_MARKER_ERROR_CORRECTION] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} markerY=${Math.round(args.markerY)} actualNextSpeakableLineY=${Math.round(args.actualNextSpeakableLineY)} desiredLineY=${Math.round(args.desiredLineY)} desiredReadAheadPx=${Math.round(args.desiredReadAheadPx)} visualErrorPx=${Math.round(args.visualErrorPx)} tolerancePx=${Math.round(args.tolerancePx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} action=${args.action} reason=${args.reason}`;
 }
 
+export function buildAsrMarkerErrorLowerRailRejectedDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  markerY: number;
+  actualNextSpeakableLineY: number;
+  desiredLineY: number;
+  visualErrorPx: number;
+  tolerancePx: number;
+  pocketZone: string;
+  preferredBandTop: number;
+  preferredSettleBottom: number;
+  preferredBandBottom: number;
+  holdSafeBottomY: number;
+  currentScrollTop: number;
+  targetScrollTop: number;
+  snapSuppressedInEpisode: boolean;
+  reason: string;
+}): string {
+  return `[ASR_MARKER_ERROR_LOWER_RAIL_REJECTED] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} markerY=${Math.round(args.markerY)} actualNextSpeakableLineY=${Math.round(args.actualNextSpeakableLineY)} desiredLineY=${Math.round(args.desiredLineY)} visualErrorPx=${Math.round(args.visualErrorPx)} tolerancePx=${Math.round(args.tolerancePx)} pocketZone=${args.pocketZone} preferredBandTop=${Math.round(args.preferredBandTop)} preferredSettleBottom=${Math.round(args.preferredSettleBottom)} preferredBandBottom=${Math.round(args.preferredBandBottom)} holdSafeBottomY=${Math.round(args.holdSafeBottomY)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} snapSuppressedInEpisode=${args.snapSuppressedInEpisode ? 1 : 0} reason=${args.reason}`;
+}
+
+export function buildAsrScrollAuthoritySelectedDiagnostic(args: {
+  tickId: number;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  selectedAuthority: string;
+  candidateAuthorities: string[];
+  beforeScrollTop: number;
+  targetScrollTop: number;
+  afterScrollTop: number;
+  reason: string;
+}): string {
+  return `[ASR_SCROLL_AUTHORITY_SELECTED] tickId=${args.tickId} currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} selectedAuthority=${args.selectedAuthority} candidateAuthorities=[${args.candidateAuthorities.join(',')}] beforeScrollTop=${Math.round(args.beforeScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} afterScrollTop=${Math.round(args.afterScrollTop)} reason=${args.reason}`;
+}
+
+export function buildAsrScrollAuthorityConflictDiagnostic(args: {
+  tickId: number;
+  authorities: string[];
+  beforeScrollTop: number;
+  intermediateScrollTop: number;
+  finalScrollTop: number;
+  currentLineIdx: number;
+  nextSpeakableLineIdx: number;
+  reason: string;
+}): string {
+  return `[ASR_SCROLL_AUTHORITY_CONFLICT] tickId=${args.tickId} authorities=[${args.authorities.join(',')}] beforeScrollTop=${Math.round(args.beforeScrollTop)} intermediateScrollTop=${Math.round(args.intermediateScrollTop)} finalScrollTop=${Math.round(args.finalScrollTop)} currentLineIdx=${args.currentLineIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} reason=${args.reason}`;
+}
+
 export function buildAsrEarlyBridgeTrapReleasedDiagnostic(args: {
   current: number;
   requestedTarget: number;

@@ -28,6 +28,9 @@ import {
   buildAsrBackendRestartRequestedDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
   buildAsrEarlyBridgeTrapReleasedDiagnostic,
+  buildAsrMarkerErrorLowerRailRejectedDiagnostic,
+  buildAsrScrollAuthorityConflictDiagnostic,
+  buildAsrScrollAuthoritySelectedDiagnostic,
   buildProofOwnedPrimaryCommitGuardBaseParts,
   buildRecoverySkipNonAdjacentTargetGuardBaseParts,
   buildAsrVisualMarkerErrorCorrectionDiagnostic,
@@ -3297,6 +3300,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     firstAt: number;
     lastAt: number;
   }>();
+  let liveAsrScrollAuthorityTickId = 0;
   let liveAsrVisualSemanticMismatchHeld = false;
   let lastBridgeCompletionHeldLogAt = 0;
   let lastBridgeWalkRecoveryLogAt = 0;
@@ -10876,6 +10880,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let liveAsrActuatorPursuitActive = false;
     let liveAsrActuatorReason = 'generic_follow';
     let liveAsrActuatorTargetDebtPx = Number.NaN;
+    let liveAsrAuthorityTraceTickId = -1;
+    let liveTickAuthorityPocketZone = 'unknown';
+    let liveTickReaderPocketZone = 'unknown';
+    let liveTickSelectedAuthority = 'hold';
+    let liveTickAuthorityReason = 'marker_error_within_tolerance';
+    const liveTickCandidateAuthorities = new Set<string>();
+    const liveTickConflictingAuthorities = new Set<string>();
     if (liveAsrFollowMode) {
       const confirmedSpoken = Math.max(
         0,
@@ -11018,6 +11029,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const visualErrorWithinTolerance =
         Number.isFinite(visualErrorAbsPx) &&
         visualErrorAbsPx <= tolerancePx;
+      const holdSafeBottomY = desiredLineY + Math.min(tolerancePx, 0.35 * measuredLineHeightPx);
       const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
       const markerErrorTargetTop =
         Number.isFinite(visualErrorPx)
@@ -11025,25 +11037,47 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           : current;
       const targetDebtPx = Number.isFinite(visualErrorPx) ? visualErrorPx : Number.NaN;
       liveAsrActuatorTargetDebtPx = targetDebtPx;
+      liveAsrAuthorityTraceTickId = ++liveAsrScrollAuthorityTickId;
+      let lowerRailHoldRejectedReason = '';
       const oldTargetTop = pursuitTargetTop;
       const stalePursuitLine =
         liveAsrVisualPursuitLineIdx != null &&
         liveAsrVisualPursuitLineIdx !== nextSpeakableLineIdx;
       if (Number.isFinite(nextLineY)) {
+        liveTickAuthorityPocketZone = insidePreferredSettleZone
+          ? 'preferred_settle'
+          : (insidePreferredLowerRail
+            ? 'preferred_lower_rail'
+            : (nextTooLow
+              ? 'below_preferred'
+              : (nextTooHigh
+                ? 'above_tolerated_top'
+                : (insideTolerated ? 'tolerated' : 'unknown'))));
+        liveTickReaderPocketZone =
+          (nextLineY - markerY) > 96
+            ? 'bottom'
+            : ((nextLineY - markerY) < -48 ? 'top' : 'pocket');
         let authorityAction: 'hold' | 'pursue' | 'clamp' = 'hold';
         let authorityReason = 'marker_error_within_tolerance';
         let desiredTopFromCurrent = current;
+        liveTickCandidateAuthorities.add('pocket_authority');
         if (nextTooHigh) {
           authorityAction = 'clamp';
           authorityReason = 'top_pressure_guard';
           desiredTopFromCurrent = current;
+          liveTickCandidateAuthorities.add('top_pressure_clamp');
+          liveTickSelectedAuthority = 'top_pressure_clamp';
         } else if (!visualErrorWithinTolerance) {
           authorityAction = 'pursue';
           authorityReason = visualErrorPx > 0
             ? 'marker_error_line_too_low'
             : 'marker_error_line_too_high';
           desiredTopFromCurrent = markerErrorTargetTop;
+          liveTickSelectedAuthority = 'pocket_authority';
+        } else {
+          liveTickSelectedAuthority = 'hold';
         }
+        liveTickAuthorityReason = authorityReason;
         const wouldOverrideStale =
           stalePursuitLine ||
           !Number.isFinite(oldTargetTop) ||
@@ -11055,7 +11089,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           err = pursuitTargetTop - current;
           try {
             console.warn(
-              `[ASR_CURRENT_POCKET_AUTHORITY] markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} preferredBandTop=${Math.round(preferredBandTop)} preferredSettleBottom=${Math.round(preferredSettleBottom)} preferredBandBottom=${Math.round(preferredBandBottom)} currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(desiredTopFromCurrent)} pocketZone=${insidePreferredSettleZone ? 'preferred_settle' : (insidePreferredLowerRail ? 'preferred_lower_rail' : (nextTooLow ? 'below_preferred' : (nextTooHigh ? 'above_tolerated_top' : (insideTolerated ? 'tolerated' : 'unknown'))))} action=${authorityAction} reason=${authorityReason} desiredLineY=${Math.round(desiredLineY)} visualErrorPx=${Math.round(visualErrorPx)} tolerancePx=${Math.round(tolerancePx)}`,
+              `[ASR_CURRENT_POCKET_AUTHORITY] markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} preferredBandTop=${Math.round(preferredBandTop)} preferredSettleBottom=${Math.round(preferredSettleBottom)} preferredBandBottom=${Math.round(preferredBandBottom)} currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(desiredTopFromCurrent)} pocketZone=${liveTickAuthorityPocketZone} action=${authorityAction} reason=${authorityReason} desiredLineY=${Math.round(desiredLineY)} visualErrorPx=${Math.round(visualErrorPx)} tolerancePx=${Math.round(tolerancePx)}`,
             );
           } catch {}
         }
@@ -11077,6 +11111,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           liveHardHold
         );
       if (bottomLockedNow) {
+        liveTickCandidateAuthorities.add('bottom_lock_release');
+        if (liveTickSelectedAuthority !== 'hold') liveTickConflictingAuthorities.add(liveTickSelectedAuthority);
+        liveTickSelectedAuthority = 'bottom_lock_release';
+        liveTickAuthorityReason = nextTooLow ? 'below_tolerated_bottom' : 'below_preferred_bottom';
         liveAsrActuatorPursuitActive = true;
         liveAsrActuatorReason = 'bottom_lock_release';
         comfortNudgeActive = true;
@@ -11098,6 +11136,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         semanticProofHealthy &&
         insidePreferredLowerRail
       ) {
+        liveTickCandidateAuthorities.add('preferred_lower_rail_release');
+        if (liveTickSelectedAuthority !== 'hold' && liveTickSelectedAuthority !== 'pocket_authority') {
+          liveTickConflictingAuthorities.add(liveTickSelectedAuthority);
+        }
+        liveTickSelectedAuthority = 'preferred_lower_rail_release';
+        liveTickAuthorityReason = 'preferred_lower_rail_not_settled';
         liveAsrActuatorPursuitActive = true;
         liveAsrActuatorReason = 'preferred_lower_rail_release';
         preferredLowerRailReleaseActive = true;
@@ -11113,6 +11157,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } catch {}
       }
       if (!bottomLockReleaseActive && !visualGovernorHoldActive && (nextTooLow || (insideTolerated && !insidePreferred && Number.isFinite(nextLineY) && nextLineY > preferredBandBottom))) {
+        liveTickCandidateAuthorities.add('comfort_nudge');
+        if (
+          liveTickSelectedAuthority !== 'hold' &&
+          liveTickSelectedAuthority !== 'pocket_authority' &&
+          liveTickSelectedAuthority !== 'preferred_lower_rail_release'
+        ) {
+          liveTickConflictingAuthorities.add(liveTickSelectedAuthority);
+        }
+        if (!bottomLockReleaseActive && !preferredLowerRailReleaseActive) {
+          liveTickSelectedAuthority = 'comfort_nudge';
+          liveTickAuthorityReason = nextTooLow ? 'below_tolerated_bottom' : 'outside_preferred_within_tolerated';
+        }
         liveAsrActuatorPursuitActive = true;
         liveAsrActuatorReason = 'comfort_nudge_follow';
         comfortNudgeActive = true;
@@ -11138,8 +11194,54 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !bottomLockReleaseActive &&
         !preferredLowerRailReleaseActive &&
         !liveAsrPreferredLowerRailReleaseActive;
-      if (comfortHoldEligible && !visualGovernorHoldActive && !comfortNudgeActive) {
+      const lowerRailHoldRejected =
+        comfortHoldEligible &&
+        (
+          liveTickReaderPocketZone === 'bottom' ||
+          (Number.isFinite(nextLineY) && nextLineY > holdSafeBottomY)
+        );
+      if (lowerRailHoldRejected) {
+        lowerRailHoldRejectedReason = liveTickReaderPocketZone === 'bottom'
+          ? 'within_tolerance_but_bottom_zone'
+          : 'within_tolerance_but_below_hold_safe_bottom';
+        liveTickCandidateAuthorities.add('hold');
+        if (!comfortNudgeActive && !bottomLockReleaseActive && !preferredLowerRailReleaseActive) {
+          liveTickSelectedAuthority = 'pocket_authority';
+          liveTickAuthorityReason = lowerRailHoldRejectedReason;
+          pursuitTargetTop = markerErrorTargetTop;
+          pursuitVel = 0;
+          liveAsrVisualPursuitLineIdx = nextSpeakableLineIdx;
+          err = pursuitTargetTop - current;
+        }
+        try {
+          console.warn(
+            buildAsrMarkerErrorLowerRailRejectedDiagnostic({
+              currentLineIdx: lastLineIndex,
+              committedLineIdx: lastLineIndex,
+              nextSpeakableLineIdx,
+              markerY,
+              actualNextSpeakableLineY: nextLineY,
+              desiredLineY,
+              visualErrorPx,
+              tolerancePx,
+              pocketZone: liveTickReaderPocketZone,
+              preferredBandTop,
+              preferredSettleBottom,
+              preferredBandBottom,
+              holdSafeBottomY,
+              currentScrollTop: current,
+              targetScrollTop: Number.isFinite(pursuitTargetTop) ? pursuitTargetTop : current,
+              snapSuppressedInEpisode: alignmentEpisodes.isSnapSuppressedActive(),
+              reason: lowerRailHoldRejectedReason,
+            }),
+          );
+        } catch {}
+      }
+      if (comfortHoldEligible && !lowerRailHoldRejected && !visualGovernorHoldActive && !comfortNudgeActive) {
         liveHardHold = true;
+        liveTickCandidateAuthorities.add('hold');
+        liveTickSelectedAuthority = 'hold';
+        liveTickAuthorityReason = 'marker_error_within_tolerance';
         try {
           const comfortReason = 'marker_error_within_tolerance';
           console.warn(
@@ -11163,19 +11265,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const markerCorrectionAction: 'pursue' | 'nudge' | 'hold' =
           comfortNudgeActive
             ? 'nudge'
-            : ((visualErrorWithinTolerance || nextTooHigh) ? 'hold' : 'pursue');
-        const markerCorrectionReason =
-          comfortNudgeActive
-            ? (bottomLockReleaseActive
-              ? `nudge:${bottomLockReleaseReason || 'bottom_lock_release'}`
-              : (preferredLowerRailReleaseActive
-                ? 'nudge:preferred_lower_rail_not_settled'
-                : 'nudge:marker_error_outside_tolerance'))
-            : (nextTooHigh
-              ? 'top_pressure_guard'
-              : (visualErrorWithinTolerance
-                ? 'marker_error_within_tolerance'
-                : (visualErrorPx > 0 ? 'marker_error_line_too_low' : 'marker_error_line_too_high')));
+            : (((visualErrorWithinTolerance && !lowerRailHoldRejected) || nextTooHigh) ? 'hold' : 'pursue');
+        let markerCorrectionReason = 'marker_error_within_tolerance';
+        if (comfortNudgeActive) {
+          markerCorrectionReason = bottomLockReleaseActive
+            ? `nudge:${bottomLockReleaseReason || 'bottom_lock_release'}`
+            : (preferredLowerRailReleaseActive
+              ? 'nudge:preferred_lower_rail_not_settled'
+              : 'nudge:marker_error_outside_tolerance');
+        } else if (nextTooHigh) {
+          markerCorrectionReason = 'top_pressure_guard';
+        } else if (visualErrorWithinTolerance && !lowerRailHoldRejected) {
+          markerCorrectionReason = 'marker_error_within_tolerance';
+        } else if (lowerRailHoldRejected) {
+          markerCorrectionReason = `nudge:${lowerRailHoldRejectedReason}`;
+        } else {
+          markerCorrectionReason = visualErrorPx > 0
+            ? 'marker_error_line_too_low'
+            : 'marker_error_line_too_high';
+        }
         try {
           console.warn(
             buildAsrVisualMarkerErrorCorrectionDiagnostic({
@@ -11480,6 +11588,44 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
         const assistBoost = Math.min(Math.max(0, pursuitVel), HYBRID_ASSIST_MAX_BOOST_PXPS);
         emitHybridAssist(assistBoost, 'asr-pursuit', pursuitTargetTop ?? undefined, HYBRID_ASSIST_TTL_MS);
+      }
+    }
+    if (liveAsrFollowMode) {
+      const candidateAuthorities = Array.from(liveTickCandidateAuthorities);
+      try {
+        console.warn(
+          buildAsrScrollAuthoritySelectedDiagnostic({
+            tickId: liveAsrAuthorityTraceTickId,
+            currentLineIdx: lastLineIndex,
+            committedLineIdx: lastLineIndex,
+            nextSpeakableLineIdx: liveAsrVisualPursuitLineIdx ?? lastLineIndex,
+            selectedAuthority: liveTickSelectedAuthority,
+            candidateAuthorities,
+            beforeScrollTop,
+            targetScrollTop: Number.isFinite(pursuitTargetTop) ? pursuitTargetTop : beforeScrollTop,
+            afterScrollTop,
+            reason: liveTickAuthorityReason,
+          }),
+        );
+      } catch {}
+      if (liveTickConflictingAuthorities.size > 0) {
+        try {
+          console.warn(
+            buildAsrScrollAuthorityConflictDiagnostic({
+              tickId: liveAsrAuthorityTraceTickId,
+              authorities: Array.from(new Set([
+                ...candidateAuthorities,
+                ...Array.from(liveTickConflictingAuthorities),
+              ])),
+              beforeScrollTop,
+              intermediateScrollTop: Number.isFinite(pursuitTargetTop) ? pursuitTargetTop : beforeScrollTop,
+              finalScrollTop: afterScrollTop,
+              currentLineIdx: lastLineIndex,
+              nextSpeakableLineIdx: liveAsrVisualPursuitLineIdx ?? lastLineIndex,
+              reason: 'multiple_live_scroll_authorities_observed',
+            }),
+          );
+        } catch {}
       }
     }
     const frameDtMs = Math.max(1, Math.round(dt * 1000));

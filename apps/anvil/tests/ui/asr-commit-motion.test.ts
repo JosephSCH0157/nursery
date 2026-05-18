@@ -2701,7 +2701,7 @@ describe('ASR live commit motion', () => {
       matchId: 'preferred-lower-rail-at-bottom',
       match: { bestIdx: 2, bestSim: 0.92, topScores: [{ idx: 2, score: 0.92 }] },
     });
-    await jest.advanceTimersByTimeAsync(260);
+    await jest.advanceTimersByTimeAsync(420);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     expect(
       lines.some((l) => l.includes('ASR_PREFERRED_LOWER_RAIL_RELEASE')) ||
@@ -2715,17 +2715,17 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
-  test('line near desired marker error within tolerance holds without lower-rail release', async () => {
+  test('line near desired marker error stays out of lower-rail release path', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;
     scroller.scrollTop = 300;
     const line2 = document.querySelector<HTMLElement>('.line[data-line="2"]')!;
-    Object.defineProperty(line2, 'offsetTop', { configurable: true, value: 715 });
+    Object.defineProperty(line2, 'offsetTop', { configurable: true, value: 542 });
     Object.defineProperty(line2, 'offsetHeight', { configurable: true, value: 236 });
     Object.defineProperty(line2, 'clientHeight', { configurable: true, value: 236 });
     Object.defineProperty(line2, 'getBoundingClientRect', {
       configurable: true,
-      value: () => ({ top: 415, left: 0, right: 800, bottom: 651, width: 800, height: 236 }),
+      value: () => ({ top: 242, left: 0, right: 800, bottom: 478, width: 800, height: 236 }),
     });
     const driver = createAsrScrollDriver();
     driver.setLastLineIndex(1);
@@ -2737,7 +2737,40 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(260);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     expect(lines.some((l) => l.includes('ASR_PREFERRED_LOWER_RAIL_RELEASE'))).toBe(false);
-    expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && l.includes('action=hold'))).toBe(true);
+    expect(lines.some((l) => l.includes('ASR_MARKER_ERROR_LOWER_RAIL_REJECTED') && l.includes('pocketZone=bottom'))).toBe(false);
+    expect(lines.some((l) => l.includes('ASR_SCROLL_AUTHORITY_SELECTED'))).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('marker error within tolerance at bottom pocket rejects hold and keeps moving', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 260;
+    const line2 = document.querySelector<HTMLElement>('.line[data-line="2"]')!;
+    Object.defineProperty(line2, 'offsetTop', { configurable: true, value: 610 });
+    Object.defineProperty(line2, 'offsetHeight', { configurable: true, value: 236 });
+    Object.defineProperty(line2, 'clientHeight', { configurable: true, value: 236 });
+    Object.defineProperty(line2, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 246, left: 0, right: 800, bottom: 482, width: 800, height: 236 }),
+    });
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'bottom-pocket-within-tolerance-rejected',
+      match: { bestIdx: 2, bestSim: 0.92, topScores: [{ idx: 2, score: 0.92 }] },
+    });
+    await jest.advanceTimersByTimeAsync(260);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_MARKER_ERROR_LOWER_RAIL_REJECTED') && l.includes('pocketZone=bottom'))).toBe(true);
+    expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && l.includes('action=hold'))).toBe(false);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && (l.includes('action=nudge') || l.includes('action=pursue')))).toBe(true);
+    expect(lines.some((l) => l.includes('ASR_SCROLL_AUTHORITY_SELECTED'))).toBe(true);
+    expect(lines.some((l) => l.includes('ASR_SCROLL_AUTHORITY_CONFLICT'))).toBe(false);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_SHORT_MEMORY_RESET') && l.includes('reason=current_line_in_settle_zone'))).toBe(false);
     warnSpy.mockRestore();
     driver.dispose();
   });
@@ -2762,6 +2795,7 @@ describe('ASR live commit motion', () => {
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
     expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && (l.includes('action=nudge') || l.includes('action=pursue')))).toBe(true);
+    expect(lines.some((l) => l.includes('ASR_SCROLL_AUTHORITY_SELECTED'))).toBe(true);
     expect(lines.some((l) => l.includes('ASR_VISUAL_SHORT_MEMORY_RESET') && l.includes('reason=current_line_in_settle_zone'))).toBe(false);
     expect(scroller.scrollTop).toBeGreaterThan(200);
     warnSpy.mockRestore();

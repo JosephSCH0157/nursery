@@ -20,8 +20,20 @@ function makeTmpLog(lines: string[]): string {
 
 describe('ASR alignment report diagnostics', () => {
   test('deterministic replay report for same logs', () => {
-    const log1 = 'C:\\Users\\Iam11\\Documents\\Hybrid Logs\\ASR_log_5-17-2 ASR1.txt';
-    const log2 = 'C:\\Users\\Iam11\\Documents\\Hybrid Logs\\ASR_log_5-17-23ASR1.txt';
+    const log1 = makeTmpLog([
+      'x reason=movement_authority_commit current=10 target=11 commitTargetLine=11 proofSource=live_strict_local_proof_ok sourceBranch=movement_authority_proof',
+      '[ASR_COMMIT] before=100 after=100',
+      '[ASR_VISUAL_FOLLOW_TARGET] targetScrollTop=180 currentScrollTop=100 deltaPx=80 deltaLines=3.20',
+      '[ASR_READER_COMFORT_HOLD] markerY=390 currentLineY=482 nextLineY=482',
+    ]);
+    const log2 = makeTmpLog([
+      'x reason=movement_authority_commit current=12 target=13 commitTargetLine=13 proofSource=strict_adjacent_tail_progression sourceBranch=movement_authority_proof',
+      '[ASR_COMMIT] before=200 after=200',
+      '[ASR_VISUAL_FOLLOW_TARGET] targetScrollTop=360 currentScrollTop=200 deltaPx=160 deltaLines=6.64',
+      '[ASR_VISUAL_FOLLOW_HARD_HELD] currentScrollTop=200 targetScrollTop=360 deltaPx=160',
+      '[ASR_VISUAL_FOLLOW_HARD_HELD] currentScrollTop=200 targetScrollTop=360 deltaPx=160',
+      '[ASR_VISUAL_FOLLOW_HARD_HELD] currentScrollTop=200 targetScrollTop=360 deltaPx=160',
+    ]);
     const a = runReport([log1, log2]);
     const b = runReport([log1, log2]);
     const normalize = (payload: any) => ({

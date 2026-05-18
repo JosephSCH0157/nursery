@@ -259,6 +259,10 @@ export class AsrAlignmentEpisodeTracker {
     ep.metrics.audioAgeMs = finiteOr(input.audioAgeMs);
   }
 
+  isSnapSuppressedActive(): boolean {
+    return !!this.active?.visual.snapSuppressedInEpisode;
+  }
+
   close(reason?: string): Episode | null {
     const ep = this.active;
     if (!ep) return null;

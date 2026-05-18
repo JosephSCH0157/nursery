@@ -7,6 +7,9 @@ import {
   buildAsrBackendRestartRequestedDiagnostic,
   buildAsrBottomLockGeometryDiagnostic,
   buildAsrEarlyBridgeTrapReleasedDiagnostic,
+  buildAsrMarkerErrorLowerRailRejectedDiagnostic,
+  buildAsrScrollAuthorityConflictDiagnostic,
+  buildAsrScrollAuthoritySelectedDiagnostic,
   buildAsrVisualMarkerErrorCorrectionDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
   buildProofOwnedPrimaryCommitGuardBaseParts,
@@ -393,6 +396,65 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR_EARLY_BRIDGE_TRAP_RELEASED] current=4 requestedTarget=6 commitTarget=6 skippedIgnorableLines=[blank,cue] repeatedHoldCount=3 noCommitMs=16993 runAgeMs=24024 pendingBridgeAgeMs=2201 proofSource=landing_lexical finalPacketFresh=1 transcriptGrowing=1 targetViewportState=bottom reason=pending_bridge_completion_overdue',
+    );
+  });
+
+  test('builds lower rail rejected diagnostic with expected fields', () => {
+    const line = buildAsrMarkerErrorLowerRailRejectedDiagnostic({
+      currentLineIdx: 8,
+      committedLineIdx: 8,
+      nextSpeakableLineIdx: 9,
+      markerY: 390.4,
+      actualNextSpeakableLineY: 486.8,
+      desiredLineY: 467.2,
+      visualErrorPx: 19.6,
+      tolerancePx: 20.1,
+      pocketZone: 'bottom',
+      preferredBandTop: 424.3,
+      preferredSettleBottom: 492.1,
+      preferredBandBottom: 526.2,
+      holdSafeBottomY: 487.0,
+      currentScrollTop: 220.4,
+      targetScrollTop: 239.6,
+      snapSuppressedInEpisode: true,
+      reason: 'within_tolerance_but_bottom_zone',
+    });
+    expect(line).toBe(
+      '[ASR_MARKER_ERROR_LOWER_RAIL_REJECTED] currentLineIdx=8 committedLineIdx=8 nextSpeakableLineIdx=9 markerY=390 actualNextSpeakableLineY=487 desiredLineY=467 visualErrorPx=20 tolerancePx=20 pocketZone=bottom preferredBandTop=424 preferredSettleBottom=492 preferredBandBottom=526 holdSafeBottomY=487 currentScrollTop=220 targetScrollTop=240 snapSuppressedInEpisode=1 reason=within_tolerance_but_bottom_zone',
+    );
+  });
+
+  test('builds scroll authority selected diagnostic with expected fields', () => {
+    const line = buildAsrScrollAuthoritySelectedDiagnostic({
+      tickId: 42,
+      currentLineIdx: 8,
+      committedLineIdx: 8,
+      nextSpeakableLineIdx: 9,
+      selectedAuthority: 'comfort_nudge',
+      candidateAuthorities: ['pocket_authority', 'comfort_nudge'],
+      beforeScrollTop: 220.4,
+      targetScrollTop: 239.6,
+      afterScrollTop: 226.2,
+      reason: 'outside_preferred_within_tolerated',
+    });
+    expect(line).toBe(
+      '[ASR_SCROLL_AUTHORITY_SELECTED] tickId=42 currentLineIdx=8 committedLineIdx=8 nextSpeakableLineIdx=9 selectedAuthority=comfort_nudge candidateAuthorities=[pocket_authority,comfort_nudge] beforeScrollTop=220 targetScrollTop=240 afterScrollTop=226 reason=outside_preferred_within_tolerated',
+    );
+  });
+
+  test('builds scroll authority conflict diagnostic with expected fields', () => {
+    const line = buildAsrScrollAuthorityConflictDiagnostic({
+      tickId: 42,
+      authorities: ['pocket_authority', 'bottom_lock_release'],
+      beforeScrollTop: 220.4,
+      intermediateScrollTop: 239.6,
+      finalScrollTop: 226.2,
+      currentLineIdx: 8,
+      nextSpeakableLineIdx: 9,
+      reason: 'multiple_live_scroll_authorities_observed',
+    });
+    expect(line).toBe(
+      '[ASR_SCROLL_AUTHORITY_CONFLICT] tickId=42 authorities=[pocket_authority,bottom_lock_release] beforeScrollTop=220 intermediateScrollTop=240 finalScrollTop=226 currentLineIdx=8 nextSpeakableLineIdx=9 reason=multiple_live_scroll_authorities_observed',
     );
   });
 });
