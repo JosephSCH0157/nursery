@@ -1662,13 +1662,14 @@ function emitPursuitHud(err: number, vel: number, target: number | null, top: nu
   const payload = {
     err: Number.isFinite(err) ? Math.round(err) : err,
     vel: Number.isFinite(vel) ? Number(vel.toFixed(1)) : vel,
+    velPxps: Number.isFinite(vel) ? Number(vel.toFixed(1)) : vel,
     target: Number.isFinite(target as number) ? Math.round(target as number) : target,
     top: Math.round(top),
   };
   try { (window as any).__tpHud?.log?.('ASR_PURSUE', payload); } catch {}
   try { (window as any).HUD?.log?.('ASR_PURSUE', payload); } catch {}
   try {
-    console.debug(`ASR_PURSUE err=${payload.err} vel=${payload.vel} target=${payload.target} top=${payload.top}`);
+    console.debug(`ASR_PURSUE err=${payload.err} velPxps=${payload.velPxps} target=${payload.target} top=${payload.top}`);
   } catch {}
 }
 
@@ -3275,6 +3276,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let liveAsrReaderTooLowSinceMs = 0;
   let liveAsrPreferredLowerRailReleaseActive = false;
   let liveAsrVisualPursuitLineIdx: number | null = null;
+  let liveAsrActuatorMismatchStreak = 0;
   const liveBridgeDownstreamBlockUntilByKey = new Map<string, {
     until: number;
     originalSourceBranch: string;
@@ -10645,6 +10647,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let maxVelForErr = resolveMaxVel(err);
     let liveHardHold = false;
     let visualGovernorHoldActive = false;
+    let liveAsrActuatorPursuitActive = false;
+    let liveAsrActuatorReason = 'generic_follow';
+    let liveAsrActuatorTargetDebtPx = Number.NaN;
     if (liveAsrFollowMode) {
       const confirmedSpoken = Math.max(
         0,
@@ -10774,6 +10779,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           : Number.NaN;
       const pocketTargetMidY = markerY + (1.25 * measuredLineHeightPx);
       const targetDebtPx = Number.isFinite(nextLineY) ? Math.max(0, nextLineY - pocketTargetMidY) : Number.NaN;
+      liveAsrActuatorTargetDebtPx = targetDebtPx;
       const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
       const oldTargetTop = pursuitTargetTop;
       const oldDebtPx = Number.isFinite(oldTargetTop) ? (oldTargetTop - current) : Number.NaN;
@@ -10860,6 +10866,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           liveHardHold
         );
       if (bottomLockedNow) {
+        liveAsrActuatorPursuitActive = true;
+        liveAsrActuatorReason = 'bottom_lock_release';
         comfortNudgeActive = true;
         bottomLockReleaseActive = true;
         bottomLockReleaseReason = nextTooLow ? 'below_tolerated_bottom' : 'below_preferred_bottom';
@@ -10879,6 +10887,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         semanticProofHealthy &&
         insidePreferredLowerRail
       ) {
+        liveAsrActuatorPursuitActive = true;
+        liveAsrActuatorReason = 'preferred_lower_rail_release';
         preferredLowerRailReleaseActive = true;
         liveAsrPreferredLowerRailReleaseActive = true;
         comfortNudgeActive = true;
@@ -10892,6 +10902,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } catch {}
       }
       if (!bottomLockReleaseActive && !visualGovernorHoldActive && (nextTooLow || (insideTolerated && !insidePreferred && Number.isFinite(nextLineY) && nextLineY > preferredBandBottom))) {
+        liveAsrActuatorPursuitActive = true;
+        liveAsrActuatorReason = 'comfort_nudge_follow';
         comfortNudgeActive = true;
         const driftAgeMs =
           liveAsrReaderTooLowSinceMs > 0
@@ -11149,22 +11161,58 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       maxVelForErr = Math.min(maxVelForErr, microPursuitCapPxPerSec);
     }
     const desiredVel = Math.min(maxVelForErr, Math.max(0, err * DEFAULT_PURSUE_KP));
-    const accelCap = maxAccelPxPerSec2 * dt;
+    const pursuitVelBefore = pursuitVel;
+    const baseAccelCap = maxAccelPxPerSec2 * dt;
+    const actuatorBoostActive =
+      liveAsrFollowMode &&
+      liveAsrActuatorPursuitActive &&
+      !liveHardHold;
+    const accelCap = actuatorBoostActive
+      ? Math.max(baseAccelCap, Math.max(0, (desiredVel - pursuitVelBefore) * 0.65))
+      : baseAccelCap;
+    const accelLimited = Math.abs(desiredVel - pursuitVelBefore) > accelCap;
     const velDelta = clamp(desiredVel - pursuitVel, -accelCap, accelCap);
     pursuitVel = clamp(pursuitVel + velDelta, 0, maxVelForErr);
     if (err > 0 && pursuitVel < motionTuning.minPursuitPxPerSec) {
       pursuitVel = Math.min(maxVelForErr, Math.max(pursuitVel, motionTuning.minPursuitPxPerSec));
     }
 
-    let move = pursuitVel * dt;
-    move = Math.min(move, maxStepPx);
-    if (!liveHardHold && move < minStepPx) move = Math.min(err, minStepPx);
-    move = Math.min(err, move);
+    const beforeScrollTop = current;
+    const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const distanceToMaxScrollTop = Math.max(0, maxScrollTop - beforeScrollTop);
+    const atScrollLimit = distanceToMaxScrollTop <= 0.5;
+    const requestedDeltaPx = Math.max(0, pursuitVel * dt);
+    const requestedPxps = pursuitVel;
+    let clampReason = 'none';
+    let move = requestedDeltaPx;
+    const dynamicMaxStepPx = actuatorBoostActive
+      ? Math.max(maxStepPx, Math.min(24, Math.max(0, desiredVel * dt)))
+      : maxStepPx;
+    if (move > dynamicMaxStepPx) {
+      move = dynamicMaxStepPx;
+      clampReason = 'max_step_cap';
+    }
+    if (!liveHardHold && move < minStepPx) {
+      const floored = Math.min(err, minStepPx);
+      if (floored > move) {
+        move = floored;
+        clampReason = clampReason === 'none' ? 'min_step_floor' : clampReason;
+      }
+    }
+    if (move > err) {
+      move = err;
+      clampReason = clampReason === 'none' ? 'target_debt_cap' : clampReason;
+    }
+    if (accelLimited && clampReason === 'none') clampReason = 'accel_slew_limit';
 
+    let afterScrollTop = beforeScrollTop;
+    let appliedDeltaPx = 0;
     if (move > 0) {
       const applied = applyScrollWithHybridGuard(current + move, { scroller, reason: 'asr-tick' });
       appliedTopPx = applied;
       lastKnownScrollTop = applied;
+      afterScrollTop = applied;
+      appliedDeltaPx = Math.max(0, afterScrollTop - beforeScrollTop);
       lastMoveAt = Date.now();
       markProgrammaticScroll();
       if (isHybridMode()) {
@@ -11176,6 +11224,34 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const assistBoost = Math.min(Math.max(0, pursuitVel), HYBRID_ASSIST_MAX_BOOST_PXPS);
         emitHybridAssist(assistBoost, 'asr-pursuit', pursuitTargetTop ?? undefined, HYBRID_ASSIST_TTL_MS);
       }
+    }
+    const frameDtMs = Math.max(1, Math.round(dt * 1000));
+    const appliedPxps = (appliedDeltaPx / dt);
+    const clampReasonOut =
+      atScrollLimit
+        ? 'scroll_limit'
+        : (move <= 0 ? (clampReason === 'none' ? 'no_move' : clampReason) : clampReason);
+    if (liveAsrFollowMode && liveAsrActuatorPursuitActive) {
+      try {
+        console.warn(
+          `[ASR_VISUAL_ACTUATOR_APPLIED] requestedPxps=${Math.round(requestedPxps)} appliedPxps=${Math.round(appliedPxps)} frameDtMs=${frameDtMs} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} beforeScrollTop=${Math.round(beforeScrollTop)} afterScrollTop=${Math.round(afterScrollTop)} targetScrollTop=${Math.round(pursuitTargetTop ?? beforeScrollTop)} targetDebtPx=${Number.isFinite(liveAsrActuatorTargetDebtPx) ? Math.round(liveAsrActuatorTargetDebtPx) : -1} source=tick_controller clampReason=${clampReasonOut} writerKind=pixel reason=${liveAsrActuatorReason} maxScrollTop=${Math.round(maxScrollTop)} distanceToMaxScrollTop=${Math.round(distanceToMaxScrollTop)} atScrollLimit=${atScrollLimit ? 1 : 0} scrollHeight=${Math.round(scroller.scrollHeight || 0)} clientHeight=${Math.round(scroller.clientHeight || 0)}`,
+        );
+      } catch {}
+      const mismatchFrame =
+        !atScrollLimit &&
+        requestedPxps >= 35 &&
+        appliedPxps < (requestedPxps * 0.55) &&
+        (requestedPxps - appliedPxps) >= 12;
+      liveAsrActuatorMismatchStreak = mismatchFrame ? (liveAsrActuatorMismatchStreak + 1) : 0;
+      if (liveAsrActuatorMismatchStreak >= 3) {
+        try {
+          console.warn(
+            `[ASR_VISUAL_ACTUATOR_MISMATCH] requestedPxps=${Math.round(requestedPxps)} appliedPxps=${Math.round(appliedPxps)} frameDtMs=${frameDtMs} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} beforeScrollTop=${Math.round(beforeScrollTop)} afterScrollTop=${Math.round(afterScrollTop)} targetScrollTop=${Math.round(pursuitTargetTop ?? beforeScrollTop)} targetDebtPx=${Number.isFinite(liveAsrActuatorTargetDebtPx) ? Math.round(liveAsrActuatorTargetDebtPx) : -1} source=tick_controller clampReason=${clampReasonOut} writerKind=pixel reason=${liveAsrActuatorReason} streak=${liveAsrActuatorMismatchStreak}`,
+          );
+        } catch {}
+      }
+    } else {
+      liveAsrActuatorMismatchStreak = 0;
     }
     emitPursuitHud(err, pursuitVel, pursuitTargetTop, current);
     window.requestAnimationFrame(tickController);

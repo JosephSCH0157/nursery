@@ -2758,6 +2758,54 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('emits actuator applied telemetry for live bottom-lock pursuit path', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 200;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'actuator-applied-telemetry',
+      match: { bestIdx: 2, bestSim: 0.9, topScores: [{ idx: 2, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(320);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const actuatorLine = lines.find((l) => l.includes('ASR_VISUAL_ACTUATOR_APPLIED')) || '';
+    expect(actuatorLine).toContain('requestedPxps=');
+    expect(actuatorLine).toContain('appliedPxps=');
+    expect(actuatorLine).toContain('requestedDeltaPx=');
+    expect(actuatorLine).toContain('appliedDeltaPx=');
+    expect(actuatorLine).toContain('maxScrollTop=');
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('bottom-lock pursuit applies positive actuator movement when requested velocity is elevated', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 180;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'actuator-requested-vs-applied',
+      match: { bestIdx: 2, bestSim: 0.9, topScores: [{ idx: 2, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(360);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const actuatorLines = lines.filter((l) => l.includes('ASR_VISUAL_ACTUATOR_APPLIED'));
+    expect(actuatorLines.length).toBeGreaterThan(0);
+    const elevated = actuatorLines.find((l) => {
+      const req = l.match(/requestedPxps=(\d+)/);
+      const app = l.match(/appliedDeltaPx=(\d+)/);
+      return req && app && Number(req[1]) >= 20 && Number(app[1]) > 0;
+    });
+    expect(!!elevated).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('preferred-zone comfort hold settles pursuit without repeated hard-held spam', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;
