@@ -124,6 +124,17 @@ function classifyDelayedSuppressionBlocker(ep: Episode): string {
   return 'unknown';
 }
 
+function shouldEmitDelayedSuppressionAutopsy(ep: Episode): boolean {
+  return (
+    ep.visualOutcome === 'delayed_until_starvation' &&
+    (
+      ep.visual.snapSuppressedInEpisode ||
+      ep.reasonChain.some((r) => String(r).includes('live_asr_marker_lock_suppressed')) ||
+      ep.visual.actions.includes('snap_suppressed')
+    )
+  );
+}
+
 export class AsrAlignmentEpisodeTracker {
   private sequence = 0;
   private active: Episode | null = null;
@@ -382,7 +393,9 @@ export class AsrAlignmentEpisodeTracker {
       console.info(
         `[ASR_ALIGNMENT_EPISODE] id=${ep.id} currentLine=${ep.semantic.currentLine} requestedTarget=${ep.semantic.requestedTarget} acceptedCommitTarget=${ep.semantic.acceptedCommitTarget} authorityPath=${ep.semantic.authorityPath} proofSource=${ep.semantic.proofSource} sourceHoldReason=${ep.semantic.sourceHoldReason} scrollTopBefore=${Math.round(ep.visual.scrollTopBefore)} scrollTopAfter=${Math.round(ep.visual.scrollTopAfter)} targetScrollTop=${Math.round(ep.visual.targetScrollTop)} markerY=${Math.round(ep.visual.markerY)} currentLineY=${Math.round(ep.visual.currentLineY)} nextSpeakableLineY=${Math.round(ep.visual.nextSpeakableLineY)} pocketZone=${ep.visual.pocketZone} actions=${ep.visual.actions.join('|') || 'none'} deltaLinesSamples=${ep.metrics.deltaLinesSamples.map((n) => n.toFixed(2)).join('|') || 'none'} settleMs=${Math.round(ep.metrics.settleMs)} lowerPocketMs=${Math.round(ep.metrics.lowerPocketMs)} hardHoldTicks=${ep.metrics.hardHoldTicks} transcriptAgeMs=${Math.round(ep.metrics.transcriptAgeMs)} audioAgeMs=${Math.round(ep.metrics.audioAgeMs)} stallDelayMs=${Math.round(ep.metrics.stallDelayMs)} visualOutcome=${ep.visualOutcome} reasonChain=${ep.reasonChain.slice(-8).join('|') || 'none'}`,
       );
-      if (ep.visualOutcome === 'bottom_locked') {
+    } catch {}
+    if (ep.visualOutcome === 'bottom_locked') {
+      try {
         console.info(
           buildAsrBottomLockGeometryDiagnostic({
             markerY: ep.visual.markerY,
@@ -406,18 +419,13 @@ export class AsrAlignmentEpisodeTracker {
             deltaLinesSamples: ep.metrics.deltaLinesSamples.map((n) => n.toFixed(2)).join('|') || 'none',
           }),
         );
-      }
+      } catch {}
+    }
+    if (shouldEmitDelayedSuppressionAutopsy(ep)) {
       const reasonChain = ep.reasonChain.slice(-8).join('|') || 'none';
       const actions = ep.visual.actions.join('|') || 'none';
       const supersededByNewCommit = ep.reasonChain.some((r) => String(r).includes('superseded_by_new_commit'));
-      const shouldEmitDelayedSuppressionAutopsy =
-        ep.visualOutcome === 'delayed_until_starvation' &&
-        (
-          ep.visual.snapSuppressedInEpisode ||
-          ep.reasonChain.some((r) => String(r).includes('live_asr_marker_lock_suppressed')) ||
-          ep.visual.actions.includes('snap_suppressed')
-        );
-      if (shouldEmitDelayedSuppressionAutopsy) {
+      try {
         console.info(
           buildAsrDelayedSuppressionAutopsyDiagnostic({
             episodeId: ep.id,
@@ -456,7 +464,7 @@ export class AsrAlignmentEpisodeTracker {
             blockerCategory: classifyDelayedSuppressionBlocker(ep),
           }),
         );
-      }
-    } catch {}
+      } catch {}
+    }
   }
 }

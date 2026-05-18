@@ -179,6 +179,72 @@ describe('ASR alignment episode diagnostics', () => {
     infoSpy.mockRestore();
   });
 
+  test('emits delayed suppression autopsy from the superseded close path used by live runtime', () => {
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+    const tracker = new AsrAlignmentEpisodeTracker();
+
+    tracker.begin({
+      currentLine: 14,
+      requestedTarget: 16,
+      acceptedCommitTarget: 15,
+      proofSource: 'strict_speakable_bridge_landing',
+      authorityPath: 'movement_authority_forced_reconcile_single_step',
+      sourceHoldReason: 'movement_authority_reconcile',
+      reason: 'movement_authority_commit',
+    });
+    tracker.noteCommit({
+      scrollTopBefore: 1012,
+      scrollTopAfter: 1012,
+      targetScrollTop: 1101,
+    });
+    tracker.noteComfort({
+      markerY: 390,
+      currentLineY: 406,
+      nextSpeakableLineY: 478,
+      preferredBandTop: 300,
+      preferredSettleBottom: 430,
+      preferredBandBottom: 450,
+      toleratedBandBottom: 491,
+      reason: 'marker_error_within_tolerance',
+    });
+    tracker.noteAutopsyState({
+      runKey: 'runtime-close-path',
+      runGeneration: 3,
+      nextSpeakableLineIdx: 16,
+      desiredLineY: 467,
+      tolerancePx: 20,
+      holdTolerancePx: 12,
+      lastGuardReason: 'asr_live_no_adjacent_match_hold',
+      lastHudGuardText: 'Hold: waiting for direct adjacent ASR match',
+      lastSelectedAuthority: 'comfort_nudge',
+      lastVisualAction: 'snap_suppressed',
+      lastVisualErrorPx: 17,
+      speechActive: true,
+      finalPacketFresh: true,
+      transcriptGrowing: true,
+    });
+    tracker.noteSnapSuppressed({ reason: 'live_asr_marker_lock_suppressed' });
+    tracker.noteStallDelay(1785, 'asr_live_no_adjacent_match_hold');
+
+    tracker.begin({
+      currentLine: 15,
+      requestedTarget: 16,
+      acceptedCommitTarget: 16,
+      proofSource: 'live_strict_local_proof_ok',
+      authorityPath: 'movement_authority_proof',
+    });
+
+    const lines = infoSpy.mock.calls.map((call) => String(call[0] || ''));
+    const episodeLines = lines.filter((line) => line.includes('ASR_ALIGNMENT_EPISODE'));
+    const autopsyLines = lines.filter((line) => line.includes('ASR_DELAYED_SUPPRESSION_AUTOPSY'));
+    expect(episodeLines).toHaveLength(1);
+    expect(autopsyLines).toHaveLength(1);
+    expect(autopsyLines[0]).toContain('blockerCategory=no_adjacent_match_hold');
+    expect(autopsyLines[0]).toContain('episodeId=ae-1');
+
+    infoSpy.mockRestore();
+  });
+
   test('emits delayed suppression autopsy with no_adjacent_match_hold blocker label', () => {
     const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
     const tracker = new AsrAlignmentEpisodeTracker();

@@ -30,6 +30,7 @@ import {
   buildAsrEarlyBridgeTrapReleasedDiagnostic,
   buildAsrMarkerErrorHoldBandRejectedDiagnostic,
   buildAsrMarkerErrorLowerRailRejectedDiagnostic,
+  buildAsrVisualGovernorDeadScreenAutopsyDiagnostic,
   buildAsrScrollAuthorityConflictDiagnostic,
   buildAsrScrollAuthoritySelectedDiagnostic,
   buildProofOwnedPrimaryCommitGuardBaseParts,
@@ -89,6 +90,7 @@ import {
   shouldStopForVisualDeadband,
 } from './asr-visual-follow';
 import { clearOnlyMatchingBridgeBlockToken, shouldReleaseEarlyBridgeTrap } from './asr-bridge-trap';
+import { shouldEmitAsrVisualGovernorDeadScreenAutopsy } from './asr-diagnostic-gates';
 import { isManualAnchorPendingFresh, isManualAnchorWithinLineWindow } from './asr-manual-anchor-policy';
 import {
   buildBackendHeartbeatDiagnosticInput,
@@ -3276,6 +3278,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastStrongConfirmedSpokenLine = 0;
   let liveAsrVisualGovernorHardHold = false;
   let liveAsrVisualGovernorHardHoldSinceMs = 0;
+  let deadScreenAutopsyEmittedInWindow = false;
+  let deadScreenSuppressedForwardProofCountInWindow = 0;
+  let deadScreenHardHoldTickCountInWindow = 0;
+  let deadScreenRebaseCountInWindow = 0;
+  let deadScreenFreshAdjacentUnlockSeen = false;
+  let deadScreenTerminalCommitSuppressedByVisualGovernor = false;
+  let deadScreenFinalCommitEligible = false;
+  let deadScreenAcceptedCommitTargetIdx = -1;
   let liveAsrVisualUnlockSlowFollowUntilMs = 0;
   let liveAsrBridgeVisualComfortUntilMs = 0;
   let liveAsrBridgeVisualComfortSourceBranch = '';
@@ -3306,6 +3316,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastAt: number;
   }>();
   let liveAsrScrollAuthorityTickId = 0;
+  let lastAsrSelectedAuthority = 'none';
+  let lastAsrVisualAction = 'none';
+  let lastAsrVisualErrorPx = Number.NaN;
+  let lastAsrBackendSpeechActive = false;
+  let lastAsrBackendTranscriptAgeMs = -1;
+  let lastAsrBackendAudioAgeMs = -1;
   let liveAsrVisualSemanticMismatchHeld = false;
   let lastBridgeCompletionHeldLogAt = 0;
   let lastBridgeWalkRecoveryLogAt = 0;
@@ -3337,6 +3353,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let backendLivenessTimer: ReturnType<typeof setInterval> | null = null;
   let lastSpeechRunningActualAtMs = 0;
   let lastRuntimeSpeechAt = 0;
+  const resetDeadScreenAutopsyWindow = () => {
+    deadScreenAutopsyEmittedInWindow = false;
+    deadScreenSuppressedForwardProofCountInWindow = 0;
+    deadScreenHardHoldTickCountInWindow = 0;
+    deadScreenRebaseCountInWindow = 0;
+    deadScreenFreshAdjacentUnlockSeen = false;
+    deadScreenTerminalCommitSuppressedByVisualGovernor = false;
+    deadScreenFinalCommitEligible = false;
+    deadScreenAcceptedCommitTargetIdx = -1;
+  };
   let speechStopBrakeCleanupUsed = false;
   let pendingSpeakableBridgeState: PendingSpeakableBridgeState | null = null;
   let asrRuntimeRunKey = summaryRunKey;
@@ -3478,6 +3504,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const now = Date.now();
     lastCommitAt = now;
     lastCommitTime = now;
+    resetDeadScreenAutopsyWindow();
     lastForwardCommitAt = now;
     liveProgressHeuristics.lastAdvanceAtMs = now;
     liveProgressHeuristics.lastStrongSyncAtMs = now;
@@ -4809,6 +4836,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastForwardCommitAt = now;
     lastCommitAt = now;
     lastCommitTime = now;
+    resetDeadScreenAutopsyWindow();
     lastSeekTs = now;
     lastMoveAt = now;
     lastIngestAt = now;
@@ -6678,6 +6706,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     const transcriptAgeMs = decision.transcriptAgeMs;
     const audioAgeMs = decision.audioAgeMs;
+    lastAsrBackendSpeechActive = speechActive;
+    lastAsrBackendTranscriptAgeMs = Number.isFinite(transcriptAgeMs as number) ? Number(transcriptAgeMs) : -1;
+    lastAsrBackendAudioAgeMs = Number.isFinite(audioAgeMs as number) ? Number(audioAgeMs) : -1;
     alignmentEpisodes.noteHeartbeat({
       transcriptAgeMs: Number.isFinite(transcriptAgeMs as number) ? Number(transcriptAgeMs) : -1,
       audioAgeMs: Number.isFinite(audioAgeMs as number) ? Number(audioAgeMs) : -1,
@@ -8042,6 +8073,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     });
     if (visualGovernorHoldDecision.shouldHold || visualGovernorHoldDecision.shouldUnlock || farAheadAdjacentEscapeApplied) {
       if (visualGovernorHoldDecision.shouldUnlock || farAheadAdjacentEscapeApplied) {
+        deadScreenFreshAdjacentUnlockSeen = true;
         try {
           console.warn(
             `[ASR_VISUAL_GOVERNOR_FRESH_ADJACENT_UNLOCK] current=${current} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} speechRunningActual=${args.speechRunningActual ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} liveSpeechFresh=${liveSpeechFresh ? 1 : 0} noCommitMs=${noCommitMs} reason=fresh_adjacent_under_hold`,
@@ -8061,6 +8093,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveAsrVisualSuppressionLoopCount = 0;
         liveAsrVisualSuppressionKey = '';
       } else {
+        deadScreenTerminalCommitSuppressedByVisualGovernor = true;
         const suppressionKey = `${current}->${reducedTarget}`;
         if (liveAsrVisualSuppressionKey === suppressionKey) {
           liveAsrVisualSuppressionLoopCount += 1;
@@ -8090,6 +8123,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const waitAfterEligibilityMs = Math.max(0, commitTs - eligibleAtMs);
     liveEligibilityFirstSeenByKey.delete(eligibilityKey);
     try {
+      deadScreenFinalCommitEligible = true;
+      deadScreenAcceptedCommitTargetIdx = Math.max(0, reducedTarget);
       if (args.emitSameLineReleased) {
         console.warn(
           `[ASR_SAME_LINE_TRAP_RELEASED] current=${current} target=${reducedTarget} bestIdx=${current} fallbackTarget=${reducedTarget} tailProofUsed=0 transcriptGrowing=1 heldMs=${actualDelayMs} thresholdMs=${thresholdMs} reason=same_line_noop_live_release`,
@@ -8113,10 +8148,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       recentRescueBypassAtMs.push(commitTs);
       lastRescueBypassAtMs = commitTs;
     }
-    if (reducedTarget === current + 1) {
-      liveAsrNormalAdjacentFollowBoostUntilMs = Date.now() + 2200;
-      try {
-        console.warn(
+      if (reducedTarget === current + 1) {
+        liveAsrNormalAdjacentFollowBoostUntilMs = Date.now() + 2200;
+        try {
+          console.warn(
           `[ASR_FRESH_ADJACENT_FAST_COMMIT] current=${current} target=${reducedTarget} noCommitMs=${actualDelayMs} thresholdMs=${thresholdMs} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} speechRunningActual=${args.speechRunningActual ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0}`,
         );
       } catch {}
@@ -8612,6 +8647,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       !hasFreshDirectAdjacentResumeProof
     ) {
       try {
+        deadScreenSuppressedForwardProofCountInWindow += 1;
         console.warn(
           `[ASR_FORWARD_PROOF_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${safeCursor} target=${safeTarget} bestIdx=${safeTarget} speakableLead=${speakableLead} renderedLead=${renderedLead} proofSource=live_strict_local_proof_ok sourceBranch=proof_eval_local reason=visual_governor_hard_hold`,
         );
@@ -9066,6 +9102,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       renderedLead > ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES;
     if (safeTarget > safeCursor && (liveAsrVisualGovernorHardHold || farAheadByLead)) {
       try {
+        deadScreenSuppressedForwardProofCountInWindow += 1;
         console.warn(
           `[ASR_FORWARD_PROOF_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${safeCursor} target=${safeTarget} bestIdx=${safeTarget} speakableLead=${speakableLead} renderedLead=${renderedLead} proofSource=strict_speakable_bridge_landing sourceBranch=proof_eval_bridge reason=visual_governor_hard_hold`,
         );
@@ -9238,6 +9275,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       renderedLead > ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES;
     if (safeTarget > safeCursor && (liveAsrVisualGovernorHardHold || farAheadByLead)) {
       try {
+        deadScreenSuppressedForwardProofCountInWindow += 1;
         console.warn(
           `[ASR_FORWARD_PROOF_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${safeCursor} target=${safeTarget} bestIdx=${safeTarget} speakableLead=${speakableLead} renderedLead=${renderedLead} proofSource=live_strict_cue_exit_proof sourceBranch=proof_eval_cue_exit reason=visual_governor_hard_hold`,
         );
@@ -9529,6 +9567,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       renderedLead > ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES;
     if (targetLine > cursorLine && (liveAsrVisualGovernorHardHold || farAheadByLead)) {
       try {
+        deadScreenSuppressedForwardProofCountInWindow += 1;
         console.warn(
           `[ASR_FORWARD_PROOF_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${cursorLine} target=${targetLine} bestIdx=${targetLine} speakableLead=${speakableLead} renderedLead=${renderedLead} proofSource=cue_stall_rescue sourceBranch=stall-rescue reason=visual_governor_hard_hold`,
         );
@@ -10247,6 +10286,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     lastCommitAt = now;
     lastCommitTime = now;
+    resetDeadScreenAutopsyWindow();
     const prev = Number.isFinite(prevIndex) ? Math.max(0, Math.floor(prevIndex)) : -1;
     const next = Number.isFinite(nextIndex) ? Math.max(0, Math.floor(nextIndex)) : -1;
     lastCommittedLine = next;
@@ -11365,6 +11405,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength ||
             lastFinalTranscriptAt > lastCommitTranscriptTimestamp,
         });
+        lastAsrSelectedAuthority = String(liveTickSelectedAuthority || 'none');
+        lastAsrVisualAction = String(markerCorrectionAction || 'none');
+        lastAsrVisualErrorPx = Number.isFinite(visualErrorPx) ? Number(visualErrorPx) : Number.NaN;
         try {
           console.warn(
             buildAsrVisualMarkerErrorCorrectionDiagnostic({
@@ -11536,6 +11579,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             );
           }
           if (liveHardHold) {
+            deadScreenHardHoldTickCountInWindow += 1;
             console.warn(
               `[ASR_VISUAL_FOLLOW_HARD_HELD] currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(pursuitTargetTop || current)} deltaPx=${Math.round(err)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=governor_hold source=tick_controller`,
             );
@@ -11585,6 +11629,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
     } else {
       liveAsrVisualGovernorHardHoldSinceMs = 0;
+      resetDeadScreenAutopsyWindow();
       if (liveAsrVisualSemanticMismatchHeld) {
         liveAsrVisualSemanticMismatchHeld = false;
         try {
@@ -17689,6 +17734,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, targetLine));
         const renderedLead = Math.max(0, targetLine - confirmedSpoken);
         if (terminalGovernorDecision.shouldUnlock) {
+          deadScreenFreshAdjacentUnlockSeen = true;
           liveAsrVisualUnlockSlowFollowUntilMs = Date.now() + 2200;
           liveAsrVisualSuppressionLoopCount = 0;
           liveAsrVisualSuppressionKey = '';
@@ -17698,6 +17744,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             );
           } catch {}
         } else {
+          deadScreenTerminalCommitSuppressedByVisualGovernor = true;
           try {
             console.warn(
               `[ASR_TERMINAL_COMMIT_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${prevLineIndex} target=${targetLine} bestIdx=${Math.max(prevLineIndex, Math.floor(Number(line) || targetLine))} speakableLead=${speakableLead} renderedLead=${renderedLead} proofSource=${movementAuthorityProofSource || 'none'} sourceBranch=${movementAuthoritySourceBranch || 'unknown'} reason=visual_governor_hard_hold`,
@@ -18093,12 +18140,72 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         (deadScreenSpeechFresh || deadScreenAdjacentProofBacked) &&
         !commitMoved;
       if (deadScreenActive) {
+        deadScreenAcceptedCommitTargetIdx = Math.max(0, targetLine);
         const deadScreenTargetCueOnly = !isSpeakableScriptLine(targetLine);
+        const deadScreenNoMatchActive =
+          String(lastAsrGuardReason || '').toLowerCase().includes('no_match') ||
+          String(lastAsrHudGuardText || '').toLowerCase().includes('offscript');
         try {
           console.warn(
             `[ASR_GOVERNOR_DEAD_SCREEN_DETECTED] current=${prevLineIndex} requestedTarget=${targetLine} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(commitCurrentTop)} targetScrollTop=${Math.round(commitRequestedTargetTop)} moved=${Math.round(commitMovedPx)} deltaLines=${formatLogScore(commitDeltaLines)} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), targetLine))} renderedLead=${Math.max(0, targetLine - Math.max(0, lastStrongConfirmedSpokenLine))} governorHoldAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)} noCommitMs=${Math.round(deadScreenNoCommitMs)} speechFresh=${deadScreenSpeechFresh ? 1 : 0} finalPacketFresh=${lastFinalTranscriptAt > 0 && now - lastFinalTranscriptAt <= 1800 ? 1 : 0} liveSpeechFresh=${runtimeSpeechFresh ? 1 : 0} sourceBranch=${deadScreenSourceBranch} proofSource=${deadScreenProofSource}`,
           );
         } catch {}
+        if (shouldEmitAsrVisualGovernorDeadScreenAutopsy({
+          alreadyEmittedInWindow: deadScreenAutopsyEmittedInWindow,
+          liveAsrActive: modeNow === 'asr' && isSessionLivePhase() && isSessionAsrArmed(),
+          visualGovernorHardHoldActive: !!(liveAsrVisualGovernorHardHold || deadScreenGlobalHold),
+          currentScrollTop: commitCurrentTop,
+          targetScrollTop: commitRequestedTargetTop,
+          movedPx: commitMovedPx,
+          noCommitMs: deadScreenNoCommitMs,
+          thresholdMs: 3000,
+          freshAdjacentProofContinues:
+            deadScreenAdjacentProofBacked ||
+            deadScreenFreshAdjacentUnlockSeen ||
+            deadScreenSuppressedForwardProofCountInWindow > 0,
+          hardContradiction: !!strictBackwardContradictionForCommit,
+          offscriptNoMatch: deadScreenNoMatchActive,
+        })) {
+          deadScreenAutopsyEmittedInWindow = true;
+          try {
+            console.warn(
+              buildAsrVisualGovernorDeadScreenAutopsyDiagnostic({
+                currentLineIdx: prevLineIndex,
+                committedLineIdx: lastLineIndex,
+                requestedTargetIdx: targetLine,
+                bestIdx: Math.max(prevLineIndex, Math.floor(Number(line) || targetLine)),
+                acceptedCommitTargetIdx: deadScreenAcceptedCommitTargetIdx,
+                proofSource: deadScreenProofSource,
+                sourceBranch: deadScreenSourceBranch,
+                currentScrollTop: commitCurrentTop,
+                targetScrollTop: commitRequestedTargetTop,
+                moved: commitMovedPx,
+                deltaLines: commitDeltaLines,
+                speakableLead: Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), targetLine)),
+                renderedLead: Math.max(0, targetLine - Math.max(0, lastStrongConfirmedSpokenLine)),
+                governorHoldAgeMs: deadScreenGovernorHoldAgeMs,
+                noCommitMs: deadScreenNoCommitMs,
+                speechFresh: deadScreenSpeechFresh,
+                finalPacketFresh: lastFinalTranscriptAt > 0 && now - lastFinalTranscriptAt <= 1800,
+                liveSpeechFresh: runtimeSpeechFresh,
+                speechActive: lastAsrBackendSpeechActive || asrRuntimeSpeechRunningActual,
+                transcriptAgeMs: lastAsrBackendTranscriptAgeMs,
+                audioAgeMs: lastAsrBackendAudioAgeMs,
+                lastSelectedAuthority: lastAsrSelectedAuthority,
+                lastGuardReason: lastAsrGuardReason,
+                lastHudGuardText: lastAsrHudGuardText,
+                lastVisualAction: lastAsrVisualAction,
+                lastVisualErrorPx: lastAsrVisualErrorPx,
+                finalCommitEligible: deadScreenFinalCommitEligible,
+                terminalCommitSuppressedByVisualGovernor: deadScreenTerminalCommitSuppressedByVisualGovernor,
+                freshAdjacentUnlockSeen: deadScreenFreshAdjacentUnlockSeen,
+                suppressedForwardProofCountInWindow: deadScreenSuppressedForwardProofCountInWindow,
+                hardHoldTickCountInWindow: deadScreenHardHoldTickCountInWindow,
+                deadScreenRebaseCountInWindow: deadScreenRebaseCountInWindow,
+              }),
+            );
+          } catch {}
+        }
         const pendingBridgeAgeMs = pendingSpeakableBridgeState
           ? Math.max(0, now - pendingSpeakableBridgeState.createdAtMs)
           : 0;
@@ -18127,6 +18234,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             pursuitActive = false;
             microPursuitUntil = 0;
             try {
+              deadScreenRebaseCountInWindow += 1;
               console.warn(
                 `[ASR_GOVERNOR_DEAD_SCREEN_REBASED] current=${prevLineIndex} requestedTarget=${targetLine} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(commitCurrentTop)} targetScrollTop=${Math.round(oldTarget)} moved=${Math.round(commitMovedPx)} deltaLines=${formatLogScore(commitDeltaLines)} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), targetLine))} renderedLead=${Math.max(0, targetLine - Math.max(0, lastStrongConfirmedSpokenLine))} governorHoldAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)} noCommitMs=${Math.round(deadScreenNoCommitMs)} speechFresh=${deadScreenSpeechFresh ? 1 : 0} sourceBranch=${deadScreenSourceBranch} proofSource=${deadScreenProofSource}`,
               );
@@ -18199,6 +18307,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
       }
       lastCommitTime = Date.now();
+      resetDeadScreenAutopsyWindow();
       lastCommitIndex = cursorIndex;
       creepBudgetLine = -1;
       creepBudgetUsed = 0;

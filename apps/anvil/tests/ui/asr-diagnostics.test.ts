@@ -10,6 +10,7 @@ import {
   buildAsrEarlyBridgeTrapReleasedDiagnostic,
   buildAsrMarkerErrorHoldBandRejectedDiagnostic,
   buildAsrMarkerErrorLowerRailRejectedDiagnostic,
+  buildAsrVisualGovernorDeadScreenAutopsyDiagnostic,
   buildAsrScrollAuthorityConflictDiagnostic,
   buildAsrScrollAuthoritySelectedDiagnostic,
   buildAsrVisualMarkerErrorCorrectionDiagnostic,
@@ -17,6 +18,7 @@ import {
   buildProofOwnedPrimaryCommitGuardBaseParts,
   buildRecoverySkipNonAdjacentTargetGuardBaseParts,
 } from '../../src/features/asr/asr-diagnostics';
+import { shouldEmitAsrVisualGovernorDeadScreenAutopsy } from '../../src/features/asr/asr-diagnostic-gates';
 
 describe('ASR backend liveness diagnostics builders', () => {
   test('builds backend heartbeat diagnostic with expected tag and fields', () => {
@@ -521,5 +523,77 @@ describe('ASR backend liveness diagnostics builders', () => {
     expect(line).toBe(
       '[ASR_DELAYED_SUPPRESSION_AUTOPSY] episodeId=ae-22 runKey=run-1 runGeneration=7 currentLineIdx=23 committedLineIdx=23 requestedTargetIdx=25 acceptedCommitTargetIdx=24 nextSpeakableLineIdx=25 visualOutcome=delayed_until_starvation reasonChain=movement_authority_commit|asr_recovery_chain_blocked|live_asr_marker_lock_suppressed|superseded_by_new_commit actions=snap_suppressed stallDelayMs=2065 settleMs=2060 speechActive=1 transcriptAgeMs=841 audioAgeMs=634 finalPacketFresh=1 transcriptGrowing=0 lastGuardReason=asr_recovery_chain_blocked lastHudGuardText=Hold: waiting for direct adjacent ASR match lastSelectedAuthority=comfort_nudge lastVisualAction=snap_suppressed lastVisualErrorPx=17 markerY=390 actualNextSpeakableLineY=482 desiredLineY=467 tolerancePx=20 holdTolerancePx=12 currentScrollTop=1702 targetScrollTop=1791 deltaLinesSamples=none snapSuppressedInEpisode=1 supersededByNewCommit=1 blockerCategory=recovery_chain_blocked',
     );
+  });
+
+  test('builds visual governor dead-screen autopsy diagnostic with expected fields', () => {
+    const line = buildAsrVisualGovernorDeadScreenAutopsyDiagnostic({
+      currentLineIdx: 53,
+      committedLineIdx: 53,
+      requestedTargetIdx: 54,
+      bestIdx: 54,
+      acceptedCommitTargetIdx: 54,
+      proofSource: 'live_strict_local_proof_ok',
+      sourceBranch: 'movement_authority_proof',
+      currentScrollTop: 3655,
+      targetScrollTop: 3875,
+      moved: 0,
+      deltaLines: 5.95,
+      speakableLead: 6,
+      renderedLead: 7,
+      governorHoldAgeMs: 5147,
+      noCommitMs: 5158,
+      speechFresh: true,
+      finalPacketFresh: true,
+      liveSpeechFresh: true,
+      speechActive: true,
+      transcriptAgeMs: 639,
+      audioAgeMs: 639,
+      lastSelectedAuthority: 'pocket_authority',
+      lastGuardReason: 'movement_authority_resolved',
+      lastHudGuardText: 'Hold: waiting for direct adjacent ASR match',
+      lastVisualAction: 'pursue',
+      lastVisualErrorPx: 143,
+      finalCommitEligible: true,
+      terminalCommitSuppressedByVisualGovernor: true,
+      freshAdjacentUnlockSeen: true,
+      suppressedForwardProofCountInWindow: 12,
+      hardHoldTickCountInWindow: 18,
+      deadScreenRebaseCountInWindow: 2,
+    });
+    expect(line).toBe(
+      '[ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY] currentLineIdx=53 committedLineIdx=53 requestedTargetIdx=54 bestIdx=54 acceptedCommitTargetIdx=54 proofSource=live_strict_local_proof_ok sourceBranch=movement_authority_proof currentScrollTop=3655 targetScrollTop=3875 moved=0 deltaLines=5.95 speakableLead=6 renderedLead=7 governorHoldAgeMs=5147 noCommitMs=5158 speechFresh=1 finalPacketFresh=1 liveSpeechFresh=1 speechActive=1 transcriptAgeMs=639 audioAgeMs=639 lastSelectedAuthority=pocket_authority lastGuardReason=movement_authority_resolved lastHudGuardText=Hold: waiting for direct adjacent ASR match lastVisualAction=pursue lastVisualErrorPx=143 finalCommitEligible=1 terminalCommitSuppressedByVisualGovernor=1 freshAdjacentUnlockSeen=1 suppressedForwardProofCountInWindow=12 hardHoldTickCountInWindow=18 deadScreenRebaseCountInWindow=2',
+    );
+  });
+
+  test('dead-screen autopsy gate emits for sustained hard hold with fresh adjacent proof', () => {
+    expect(shouldEmitAsrVisualGovernorDeadScreenAutopsy({
+      alreadyEmittedInWindow: false,
+      liveAsrActive: true,
+      visualGovernorHardHoldActive: true,
+      currentScrollTop: 3655,
+      targetScrollTop: 3875,
+      movedPx: 0,
+      noCommitMs: 5158,
+      thresholdMs: 3000,
+      freshAdjacentProofContinues: true,
+      hardContradiction: false,
+      offscriptNoMatch: false,
+    })).toBe(true);
+  });
+
+  test('dead-screen autopsy gate does not spam once same window already emitted', () => {
+    expect(shouldEmitAsrVisualGovernorDeadScreenAutopsy({
+      alreadyEmittedInWindow: true,
+      liveAsrActive: true,
+      visualGovernorHardHoldActive: true,
+      currentScrollTop: 3655,
+      targetScrollTop: 3875,
+      movedPx: 0,
+      noCommitMs: 5158,
+      thresholdMs: 3000,
+      freshAdjacentProofContinues: true,
+      hardContradiction: false,
+      offscriptNoMatch: false,
+    })).toBe(false);
   });
 });

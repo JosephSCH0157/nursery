@@ -296,6 +296,43 @@ export function buildAsrDelayedSuppressionAutopsyDiagnostic(args: {
   return `[ASR_DELAYED_SUPPRESSION_AUTOPSY] episodeId=${args.episodeId || 'none'} runKey=${args.runKey || 'none'} runGeneration=${Number.isFinite(args.runGeneration as number) ? Math.round(args.runGeneration as number) : -1} currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} requestedTargetIdx=${args.requestedTargetIdx} acceptedCommitTargetIdx=${args.acceptedCommitTargetIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} visualOutcome=${args.visualOutcome} reasonChain=${args.reasonChain} actions=${args.actions} stallDelayMs=${Math.round(args.stallDelayMs)} settleMs=${Math.round(args.settleMs)} speechActive=${args.speechActive ? 1 : 0} transcriptAgeMs=${Math.round(args.transcriptAgeMs)} audioAgeMs=${Math.round(args.audioAgeMs)} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} transcriptGrowing=${args.transcriptGrowing ? 1 : 0} lastGuardReason=${args.lastGuardReason} lastHudGuardText=${args.lastHudGuardText} lastSelectedAuthority=${args.lastSelectedAuthority} lastVisualAction=${args.lastVisualAction} lastVisualErrorPx=${Math.round(args.lastVisualErrorPx)} markerY=${Math.round(args.markerY)} actualNextSpeakableLineY=${Math.round(args.actualNextSpeakableLineY)} desiredLineY=${Math.round(args.desiredLineY)} tolerancePx=${Math.round(args.tolerancePx)} holdTolerancePx=${Math.round(args.holdTolerancePx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} deltaLinesSamples=${args.deltaLinesSamples} snapSuppressedInEpisode=${args.snapSuppressedInEpisode ? 1 : 0} supersededByNewCommit=${args.supersededByNewCommit ? 1 : 0} blockerCategory=${args.blockerCategory}`;
 }
 
+export function buildAsrVisualGovernorDeadScreenAutopsyDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  requestedTargetIdx: number;
+  bestIdx: number;
+  acceptedCommitTargetIdx: number;
+  proofSource: string;
+  sourceBranch: string;
+  currentScrollTop: number;
+  targetScrollTop: number;
+  moved: number;
+  deltaLines: number;
+  speakableLead: number;
+  renderedLead: number;
+  governorHoldAgeMs: number;
+  noCommitMs: number;
+  speechFresh: boolean;
+  finalPacketFresh: boolean;
+  liveSpeechFresh: boolean;
+  speechActive: boolean;
+  transcriptAgeMs: number;
+  audioAgeMs: number;
+  lastSelectedAuthority: string;
+  lastGuardReason: string;
+  lastHudGuardText: string;
+  lastVisualAction: string;
+  lastVisualErrorPx: number;
+  finalCommitEligible: boolean;
+  terminalCommitSuppressedByVisualGovernor: boolean;
+  freshAdjacentUnlockSeen: boolean;
+  suppressedForwardProofCountInWindow: number;
+  hardHoldTickCountInWindow: number;
+  deadScreenRebaseCountInWindow: number;
+}): string {
+  return `[ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} requestedTargetIdx=${args.requestedTargetIdx} bestIdx=${args.bestIdx} acceptedCommitTargetIdx=${args.acceptedCommitTargetIdx} proofSource=${args.proofSource} sourceBranch=${args.sourceBranch} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} moved=${Math.round(args.moved)} deltaLines=${args.deltaLines.toFixed(2)} speakableLead=${args.speakableLead} renderedLead=${args.renderedLead} governorHoldAgeMs=${Math.round(args.governorHoldAgeMs)} noCommitMs=${Math.round(args.noCommitMs)} speechFresh=${args.speechFresh ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} liveSpeechFresh=${args.liveSpeechFresh ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} transcriptAgeMs=${Math.round(args.transcriptAgeMs)} audioAgeMs=${Math.round(args.audioAgeMs)} lastSelectedAuthority=${args.lastSelectedAuthority} lastGuardReason=${args.lastGuardReason} lastHudGuardText=${args.lastHudGuardText} lastVisualAction=${args.lastVisualAction} lastVisualErrorPx=${Math.round(args.lastVisualErrorPx)} finalCommitEligible=${args.finalCommitEligible ? 1 : 0} terminalCommitSuppressedByVisualGovernor=${args.terminalCommitSuppressedByVisualGovernor ? 1 : 0} freshAdjacentUnlockSeen=${args.freshAdjacentUnlockSeen ? 1 : 0} suppressedForwardProofCountInWindow=${args.suppressedForwardProofCountInWindow} hardHoldTickCountInWindow=${args.hardHoldTickCountInWindow} deadScreenRebaseCountInWindow=${args.deadScreenRebaseCountInWindow}`;
+}
+
 export function buildAsrEarlyBridgeTrapReleasedDiagnostic(args: {
   current: number;
   requestedTarget: number;
