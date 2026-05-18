@@ -29,6 +29,7 @@ import {
   buildAsrBackendTranscriptStaleDiagnostic,
   buildProofOwnedPrimaryCommitGuardBaseParts,
   buildRecoverySkipNonAdjacentTargetGuardBaseParts,
+  buildAsrVisualMarkerErrorCorrectionDiagnostic,
 } from './asr-diagnostics';
 import { AsrAlignmentEpisodeTracker } from './asr-alignment-episodes';
 import {
@@ -245,6 +246,8 @@ const ASR_READER_POCKET_TOLERATED_BOTTOM_LINES = 2.5;
 const ASR_READER_COMFORT_NUDGE_PXPS = 10;
 const ASR_READER_COMFORT_BOTTOM_DRIFT_NUDGE_PXPS = 14;
 const ASR_READER_COMFORT_BOTTOM_DRIFT_WINDOW_MS = 1200;
+const ASR_VISUAL_MARKER_ERROR_DESIRED_READ_AHEAD_LINES = 1.125;
+const ASR_VISUAL_MARKER_ERROR_TOLERANCE_LINES = 0.3;
 const ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX = 8;
 const ASR_VISUAL_FOLLOW_SLOW_ZONE_PX = 80;
 const ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX = 220;
@@ -10784,64 +10787,42 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         Number.isFinite(nextLineY) && Number.isFinite(measuredLineHeightPx) && measuredLineHeightPx > 0
           ? (nextLineY - preferredBandBottom) / measuredLineHeightPx
           : Number.NaN;
-      const pocketTargetMidY = markerY + (1.25 * measuredLineHeightPx);
-      const targetDebtPx = Number.isFinite(nextLineY) ? Math.max(0, nextLineY - pocketTargetMidY) : Number.NaN;
-      liveAsrActuatorTargetDebtPx = targetDebtPx;
+      const desiredReadAheadPx = ASR_VISUAL_MARKER_ERROR_DESIRED_READ_AHEAD_LINES * measuredLineHeightPx;
+      const desiredLineY = markerY + desiredReadAheadPx;
+      const tolerancePx = Math.max(1, ASR_VISUAL_MARKER_ERROR_TOLERANCE_LINES * measuredLineHeightPx);
+      const visualErrorPx = Number.isFinite(nextLineY) ? (nextLineY - desiredLineY) : Number.NaN;
+      const visualErrorAbsPx = Number.isFinite(visualErrorPx) ? Math.abs(visualErrorPx) : Number.NaN;
+      const visualErrorWithinTolerance =
+        Number.isFinite(visualErrorAbsPx) &&
+        visualErrorAbsPx <= tolerancePx;
       const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+      const markerErrorTargetTop =
+        Number.isFinite(visualErrorPx)
+          ? clamp(current + visualErrorPx, 0, maxScrollTop)
+          : current;
+      const targetDebtPx = Number.isFinite(visualErrorPx) ? visualErrorPx : Number.NaN;
+      liveAsrActuatorTargetDebtPx = targetDebtPx;
       const oldTargetTop = pursuitTargetTop;
-      const oldDebtPx = Number.isFinite(oldTargetTop) ? (oldTargetTop - current) : Number.NaN;
-      const previousPursuitLineIdx = liveAsrVisualPursuitLineIdx;
       const stalePursuitLine =
         liveAsrVisualPursuitLineIdx != null &&
         liveAsrVisualPursuitLineIdx !== nextSpeakableLineIdx;
-      const stalePursuitDebt =
-        Number.isFinite(oldDebtPx) &&
-        (
-          (insidePreferredSettleZone && oldDebtPx > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX) ||
-          (nextTooHigh && oldDebtPx > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX)
-        );
-      if (
-        Number.isFinite(nextLineY) &&
-        (stalePursuitLine || stalePursuitDebt)
-      ) {
-        const desiredByGeometry = clamp(current + (nextLineY - pocketTargetMidY), current, maxScrollTop);
-        let newTargetTop = desiredByGeometry;
-        let resetReason = stalePursuitLine
-          ? 'superseded_committed_line'
-          : 'stale_debt_conflicts_with_current_pocket';
-        if (insidePreferredSettleZone || nextTooHigh) {
-          newTargetTop = current;
-          resetReason = insidePreferredSettleZone
-            ? 'current_line_in_settle_zone'
-            : 'top_pressure_guard';
-        }
-        pursuitTargetTop = newTargetTop;
-        pursuitVel = 0;
-        liveAsrVisualPursuitLineIdx = nextSpeakableLineIdx;
-        err = pursuitTargetTop - current;
-        try {
-          console.warn(
-            `[ASR_VISUAL_SHORT_MEMORY_RESET] previousTargetScrollTop=${Math.round(oldTargetTop)} newTargetScrollTop=${Math.round(newTargetTop)} previousLineIdx=${previousPursuitLineIdx == null ? -1 : previousPursuitLineIdx} currentNextSpeakableLineIdx=${nextSpeakableLineIdx} markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} pocketZone=${insidePreferredSettleZone ? 'preferred_settle' : (insidePreferredLowerRail ? 'preferred_lower_rail' : (nextTooLow ? 'below_preferred' : (nextTooHigh ? 'above_tolerated_top' : (insideTolerated ? 'tolerated' : 'unknown'))))} oldDebtPx=${Number.isFinite(oldDebtPx) ? Math.round(oldDebtPx) : -1} newDebtPx=${Math.round(newTargetTop - current)} reason=${resetReason}`,
-          );
-        } catch {}
-      }
-      if (
-        Number.isFinite(nextLineY) &&
-        (nextLineY > preferredSettleBottom || insidePreferredSettleZone || nextTooHigh)
-      ) {
+      if (Number.isFinite(nextLineY)) {
         let authorityAction: 'hold' | 'pursue' | 'clamp' = 'hold';
-        let authorityReason = 'inside_settle_zone';
+        let authorityReason = 'marker_error_within_tolerance';
         let desiredTopFromCurrent = current;
-        if (nextLineY > preferredSettleBottom) {
-          authorityAction = 'pursue';
-          authorityReason = 'below_settle_zone_follow_current_geometry';
-          desiredTopFromCurrent = clamp(current + (nextLineY - pocketTargetMidY), current, maxScrollTop);
-        } else if (nextTooHigh) {
+        if (nextTooHigh) {
           authorityAction = 'clamp';
           authorityReason = 'top_pressure_guard';
           desiredTopFromCurrent = current;
+        } else if (!visualErrorWithinTolerance) {
+          authorityAction = 'pursue';
+          authorityReason = visualErrorPx > 0
+            ? 'marker_error_line_too_low'
+            : 'marker_error_line_too_high';
+          desiredTopFromCurrent = markerErrorTargetTop;
         }
         const wouldOverrideStale =
+          stalePursuitLine ||
           !Number.isFinite(oldTargetTop) ||
           Math.abs((oldTargetTop || current) - desiredTopFromCurrent) > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX;
         if (wouldOverrideStale) {
@@ -10851,7 +10832,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           err = pursuitTargetTop - current;
           try {
             console.warn(
-              `[ASR_CURRENT_POCKET_AUTHORITY] markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} preferredBandTop=${Math.round(preferredBandTop)} preferredSettleBottom=${Math.round(preferredSettleBottom)} preferredBandBottom=${Math.round(preferredBandBottom)} currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(desiredTopFromCurrent)} pocketZone=${insidePreferredSettleZone ? 'preferred_settle' : (insidePreferredLowerRail ? 'preferred_lower_rail' : (nextTooLow ? 'below_preferred' : (nextTooHigh ? 'above_tolerated_top' : (insideTolerated ? 'tolerated' : 'unknown'))))} action=${authorityAction} reason=${authorityReason}`,
+              `[ASR_CURRENT_POCKET_AUTHORITY] markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} preferredBandTop=${Math.round(preferredBandTop)} preferredSettleBottom=${Math.round(preferredSettleBottom)} preferredBandBottom=${Math.round(preferredBandBottom)} currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(desiredTopFromCurrent)} pocketZone=${insidePreferredSettleZone ? 'preferred_settle' : (insidePreferredLowerRail ? 'preferred_lower_rail' : (nextTooLow ? 'below_preferred' : (nextTooHigh ? 'above_tolerated_top' : (insideTolerated ? 'tolerated' : 'unknown'))))} action=${authorityAction} reason=${authorityReason} desiredLineY=${Math.round(desiredLineY)} visualErrorPx=${Math.round(visualErrorPx)} tolerancePx=${Math.round(tolerancePx)}`,
             );
           } catch {}
         }
@@ -10929,16 +10910,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } catch {}
       }
       const comfortHoldEligible =
-        (insidePreferredSettleZone || nextTooHigh) &&
+        visualErrorWithinTolerance &&
+        !nextTooHigh &&
         !bottomLockReleaseActive &&
         !preferredLowerRailReleaseActive &&
         !liveAsrPreferredLowerRailReleaseActive;
       if (comfortHoldEligible && !visualGovernorHoldActive && !comfortNudgeActive) {
         liveHardHold = true;
         try {
-          const comfortReason = nextTooHigh ? 'next_line_above_tolerated_top' : 'next_line_within_preferred_pocket';
+          const comfortReason = 'marker_error_within_tolerance';
           console.warn(
-            `[ASR_READER_COMFORT_HOLD] currentLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} nextSpeakableLineIdx=${nextSpeakableLineIdx} markerY=${Math.round(markerY)} currentLineY=${Number.isFinite(currentVisual.lineCenterInViewport) ? Math.round(currentVisual.lineCenterInViewport) : -1} nextLineY=${Number.isFinite(nextVisual.lineCenterInViewport) ? Math.round(nextVisual.lineCenterInViewport) : -1} comfortBandTop=${Math.round(preferredBandTop)} comfortBandBottom=${Math.round(preferredBandBottom)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=${comfortReason}`,
+            `[ASR_READER_COMFORT_HOLD] currentLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} nextSpeakableLineIdx=${nextSpeakableLineIdx} markerY=${Math.round(markerY)} currentLineY=${Number.isFinite(currentVisual.lineCenterInViewport) ? Math.round(currentVisual.lineCenterInViewport) : -1} nextLineY=${Number.isFinite(nextVisual.lineCenterInViewport) ? Math.round(nextVisual.lineCenterInViewport) : -1} comfortBandTop=${Math.round(preferredBandTop)} comfortBandBottom=${Math.round(preferredBandBottom)} desiredLineY=${Math.round(desiredLineY)} visualErrorPx=${Math.round(visualErrorPx)} tolerancePx=${Math.round(tolerancePx)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=${comfortReason}`,
           );
           alignmentEpisodes.noteComfort({
             markerY,
@@ -10952,6 +10934,43 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             velocityPxps: maxVelForErr,
             reason: comfortReason,
           });
+        } catch {}
+      }
+      if (Number.isFinite(nextLineY)) {
+        const markerCorrectionAction: 'pursue' | 'nudge' | 'hold' =
+          comfortNudgeActive
+            ? 'nudge'
+            : ((visualErrorWithinTolerance || nextTooHigh) ? 'hold' : 'pursue');
+        const markerCorrectionReason =
+          comfortNudgeActive
+            ? (bottomLockReleaseActive
+              ? `nudge:${bottomLockReleaseReason || 'bottom_lock_release'}`
+              : (preferredLowerRailReleaseActive
+                ? 'nudge:preferred_lower_rail_not_settled'
+                : 'nudge:marker_error_outside_tolerance'))
+            : (nextTooHigh
+              ? 'top_pressure_guard'
+              : (visualErrorWithinTolerance
+                ? 'marker_error_within_tolerance'
+                : (visualErrorPx > 0 ? 'marker_error_line_too_low' : 'marker_error_line_too_high')));
+        try {
+          console.warn(
+            buildAsrVisualMarkerErrorCorrectionDiagnostic({
+              currentLineIdx: lastLineIndex,
+              committedLineIdx: lastLineIndex,
+              nextSpeakableLineIdx,
+              markerY,
+              actualNextSpeakableLineY: nextLineY,
+              desiredLineY,
+              desiredReadAheadPx,
+              visualErrorPx,
+              tolerancePx,
+              currentScrollTop: current,
+              targetScrollTop: Number.isFinite(pursuitTargetTop) ? pursuitTargetTop : current,
+              action: markerCorrectionAction,
+              reason: markerCorrectionReason,
+            }),
+          );
         } catch {}
       }
       maxVelForErr = selectVisualFollowVelocity({

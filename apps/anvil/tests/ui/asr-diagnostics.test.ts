@@ -6,6 +6,7 @@ import {
   buildAsrBackendRestartCompletedDiagnostic,
   buildAsrBackendRestartRequestedDiagnostic,
   buildAsrBottomLockGeometryDiagnostic,
+  buildAsrVisualMarkerErrorCorrectionDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
   buildProofOwnedPrimaryCommitGuardBaseParts,
   buildRecoverySkipNonAdjacentTargetGuardBaseParts,
@@ -350,5 +351,26 @@ describe('ASR backend liveness diagnostics builders', () => {
     expect(line).toContain('lastVisualTargetDeltaPx=-1');
     expect(line).toContain('lastVisualVelocityPxps=-1');
     expect(line).toContain('snapSuppressedInEpisode=0');
+  });
+
+  test('builds marker error correction diagnostic with expected fields', () => {
+    const line = buildAsrVisualMarkerErrorCorrectionDiagnostic({
+      currentLineIdx: 8,
+      committedLineIdx: 8,
+      nextSpeakableLineIdx: 9,
+      markerY: 390.4,
+      actualNextSpeakableLineY: 490.4,
+      desiredLineY: 420.1,
+      desiredReadAheadPx: 30.2,
+      visualErrorPx: 70.3,
+      tolerancePx: 8.1,
+      currentScrollTop: 220.4,
+      targetScrollTop: 290.7,
+      action: 'pursue',
+      reason: 'marker_error_line_too_low',
+    });
+    expect(line).toBe(
+      '[ASR_VISUAL_MARKER_ERROR_CORRECTION] currentLineIdx=8 committedLineIdx=8 nextSpeakableLineIdx=9 markerY=390 actualNextSpeakableLineY=490 desiredLineY=420 desiredReadAheadPx=30 visualErrorPx=70 tolerancePx=8 currentScrollTop=220 targetScrollTop=291 action=pursue reason=marker_error_line_too_low',
+    );
   });
 });

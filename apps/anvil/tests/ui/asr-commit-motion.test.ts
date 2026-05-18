@@ -2640,7 +2640,7 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
-  test('if next speakable is near top, follow holds and does not keep upward pursuit', async () => {
+  test('if next speakable is near top, top-pressure guards without comfort hold', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;
     scroller.scrollTop = 900;
@@ -2655,7 +2655,8 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(180);
 
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(lines.some((line) => line.includes('ASR_READER_COMFORT_HOLD'))).toBe(true);
+    expect(lines.some((line) => line.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
+    expect(lines.some((line) => line.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && line.includes('reason=top_pressure_guard'))).toBe(true);
 
     warnSpy.mockRestore();
     driver.dispose();
@@ -2707,19 +2708,24 @@ describe('ASR live commit motion', () => {
       lines.some((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE')),
     ).toBe(true);
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && (l.includes('action=nudge') || l.includes('action=pursue')))).toBe(true);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_SHORT_MEMORY_RESET'))).toBe(false);
     expect(scroller.scrollTop).toBeGreaterThan(200);
     warnSpy.mockRestore();
     driver.dispose();
   });
 
-  test('inside preferred settle zone allows comfort hold', async () => {
+  test('line near desired marker error within tolerance holds without lower-rail release', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;
     scroller.scrollTop = 300;
     const line2 = document.querySelector<HTMLElement>('.line[data-line="2"]')!;
+    Object.defineProperty(line2, 'offsetTop', { configurable: true, value: 715 });
+    Object.defineProperty(line2, 'offsetHeight', { configurable: true, value: 236 });
+    Object.defineProperty(line2, 'clientHeight', { configurable: true, value: 236 });
     Object.defineProperty(line2, 'getBoundingClientRect', {
       configurable: true,
-      value: () => ({ top: 500, left: 0, right: 800, bottom: 736, width: 800, height: 236 }),
+      value: () => ({ top: 415, left: 0, right: 800, bottom: 651, width: 800, height: 236 }),
     });
     const driver = createAsrScrollDriver();
     driver.setLastLineIndex(1);
@@ -2731,6 +2737,32 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(260);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     expect(lines.some((l) => l.includes('ASR_PREFERRED_LOWER_RAIL_RELEASE'))).toBe(false);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && l.includes('action=hold'))).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('line inside broad preferred pocket but below desired line keeps moving instead of holding', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 200;
+    const line2 = document.querySelector<HTMLElement>('.line[data-line="2"]')!;
+    Object.defineProperty(line2, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 460, left: 0, right: 800, bottom: 696, width: 800, height: 236 }),
+    });
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'preferred-pocket-but-too-low',
+      match: { bestIdx: 2, bestSim: 0.92, topScores: [{ idx: 2, score: 0.92 }] },
+    });
+    await jest.advanceTimersByTimeAsync(260);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && (l.includes('action=nudge') || l.includes('action=pursue')))).toBe(true);
+    expect(scroller.scrollTop).toBeGreaterThan(200);
     warnSpy.mockRestore();
     driver.dispose();
   });
@@ -2855,7 +2887,7 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
-  test('stale visual debt expires when a newer committed line supersedes pursuit target', async () => {
+  test('newer committed line does not rely on live short-memory reset to correct visual debt', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;
     scroller.scrollTop = 180;
@@ -2874,7 +2906,8 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(260);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(lines.some((l) => l.includes('ASR_VISUAL_SHORT_MEMORY_RESET'))).toBe(true);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_SHORT_MEMORY_RESET'))).toBe(false);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION'))).toBe(true);
     warnSpy.mockRestore();
     driver.dispose();
   });
