@@ -10885,8 +10885,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let liveTickReaderPocketZone = 'unknown';
     let liveTickSelectedAuthority = 'hold';
     let liveTickAuthorityReason = 'marker_error_within_tolerance';
+    const liveTickBaseAuthority = 'pocket_authority';
     const liveTickCandidateAuthorities = new Set<string>();
     const liveTickConflictingAuthorities = new Set<string>();
+    const noteLiveTickSpecificAuthority = (authority: string) => {
+      liveTickCandidateAuthorities.add(authority);
+      if (
+        liveTickSelectedAuthority !== 'hold' &&
+        liveTickSelectedAuthority !== liveTickBaseAuthority &&
+        liveTickSelectedAuthority !== authority
+      ) {
+        liveTickConflictingAuthorities.add(liveTickSelectedAuthority);
+        liveTickConflictingAuthorities.add(authority);
+      }
+    };
     if (liveAsrFollowMode) {
       const confirmedSpoken = Math.max(
         0,
@@ -11060,12 +11072,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         let authorityAction: 'hold' | 'pursue' | 'clamp' = 'hold';
         let authorityReason = 'marker_error_within_tolerance';
         let desiredTopFromCurrent = current;
-        liveTickCandidateAuthorities.add('pocket_authority');
         if (nextTooHigh) {
           authorityAction = 'clamp';
           authorityReason = 'top_pressure_guard';
           desiredTopFromCurrent = current;
-          liveTickCandidateAuthorities.add('top_pressure_clamp');
+          noteLiveTickSpecificAuthority('top_pressure_clamp');
           liveTickSelectedAuthority = 'top_pressure_clamp';
         } else if (!visualErrorWithinTolerance) {
           authorityAction = 'pursue';
@@ -11073,7 +11084,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             ? 'marker_error_line_too_low'
             : 'marker_error_line_too_high';
           desiredTopFromCurrent = markerErrorTargetTop;
-          liveTickSelectedAuthority = 'pocket_authority';
+          liveTickSelectedAuthority = liveTickBaseAuthority;
         } else {
           liveTickSelectedAuthority = 'hold';
         }
@@ -11111,8 +11122,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           liveHardHold
         );
       if (bottomLockedNow) {
-        liveTickCandidateAuthorities.add('bottom_lock_release');
-        if (liveTickSelectedAuthority !== 'hold') liveTickConflictingAuthorities.add(liveTickSelectedAuthority);
+        noteLiveTickSpecificAuthority('bottom_lock_release');
         liveTickSelectedAuthority = 'bottom_lock_release';
         liveTickAuthorityReason = nextTooLow ? 'below_tolerated_bottom' : 'below_preferred_bottom';
         liveAsrActuatorPursuitActive = true;
@@ -11136,10 +11146,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         semanticProofHealthy &&
         insidePreferredLowerRail
       ) {
-        liveTickCandidateAuthorities.add('preferred_lower_rail_release');
-        if (liveTickSelectedAuthority !== 'hold' && liveTickSelectedAuthority !== 'pocket_authority') {
-          liveTickConflictingAuthorities.add(liveTickSelectedAuthority);
-        }
+        noteLiveTickSpecificAuthority('preferred_lower_rail_release');
         liveTickSelectedAuthority = 'preferred_lower_rail_release';
         liveTickAuthorityReason = 'preferred_lower_rail_not_settled';
         liveAsrActuatorPursuitActive = true;
@@ -11157,14 +11164,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } catch {}
       }
       if (!bottomLockReleaseActive && !visualGovernorHoldActive && (nextTooLow || (insideTolerated && !insidePreferred && Number.isFinite(nextLineY) && nextLineY > preferredBandBottom))) {
-        liveTickCandidateAuthorities.add('comfort_nudge');
-        if (
-          liveTickSelectedAuthority !== 'hold' &&
-          liveTickSelectedAuthority !== 'pocket_authority' &&
-          liveTickSelectedAuthority !== 'preferred_lower_rail_release'
-        ) {
-          liveTickConflictingAuthorities.add(liveTickSelectedAuthority);
-        }
+        noteLiveTickSpecificAuthority('comfort_nudge');
         if (!bottomLockReleaseActive && !preferredLowerRailReleaseActive) {
           liveTickSelectedAuthority = 'comfort_nudge';
           liveTickAuthorityReason = nextTooLow ? 'below_tolerated_bottom' : 'outside_preferred_within_tolerated';
@@ -11206,7 +11206,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           : 'within_tolerance_but_below_hold_safe_bottom';
         liveTickCandidateAuthorities.add('hold');
         if (!comfortNudgeActive && !bottomLockReleaseActive && !preferredLowerRailReleaseActive) {
-          liveTickSelectedAuthority = 'pocket_authority';
+          liveTickSelectedAuthority = liveTickBaseAuthority;
           liveTickAuthorityReason = lowerRailHoldRejectedReason;
           pursuitTargetTop = markerErrorTargetTop;
           pursuitVel = 0;
@@ -11591,7 +11591,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
     }
     if (liveAsrFollowMode) {
-      const candidateAuthorities = Array.from(liveTickCandidateAuthorities);
+      const candidateAuthorities = liveTickCandidateAuthorities.size > 0
+        ? Array.from(liveTickCandidateAuthorities)
+        : [liveTickSelectedAuthority || liveTickBaseAuthority];
       try {
         console.warn(
           buildAsrScrollAuthoritySelectedDiagnostic({
@@ -11613,10 +11615,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           console.warn(
             buildAsrScrollAuthorityConflictDiagnostic({
               tickId: liveAsrAuthorityTraceTickId,
-              authorities: Array.from(new Set([
-                ...candidateAuthorities,
-                ...Array.from(liveTickConflictingAuthorities),
-              ])),
+              authorities: Array.from(liveTickConflictingAuthorities),
               beforeScrollTop,
               intermediateScrollTop: Number.isFinite(pursuitTargetTop) ? pursuitTargetTop : beforeScrollTop,
               finalScrollTop: afterScrollTop,

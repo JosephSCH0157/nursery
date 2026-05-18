@@ -431,21 +431,21 @@ describe('ASR backend liveness diagnostics builders', () => {
       committedLineIdx: 8,
       nextSpeakableLineIdx: 9,
       selectedAuthority: 'comfort_nudge',
-      candidateAuthorities: ['pocket_authority', 'comfort_nudge'],
+      candidateAuthorities: ['comfort_nudge'],
       beforeScrollTop: 220.4,
       targetScrollTop: 239.6,
       afterScrollTop: 226.2,
       reason: 'outside_preferred_within_tolerated',
     });
     expect(line).toBe(
-      '[ASR_SCROLL_AUTHORITY_SELECTED] tickId=42 currentLineIdx=8 committedLineIdx=8 nextSpeakableLineIdx=9 selectedAuthority=comfort_nudge candidateAuthorities=[pocket_authority,comfort_nudge] beforeScrollTop=220 targetScrollTop=240 afterScrollTop=226 reason=outside_preferred_within_tolerated',
+      '[ASR_SCROLL_AUTHORITY_SELECTED] tickId=42 currentLineIdx=8 committedLineIdx=8 nextSpeakableLineIdx=9 selectedAuthority=comfort_nudge candidateAuthorities=[comfort_nudge] beforeScrollTop=220 targetScrollTop=240 afterScrollTop=226 reason=outside_preferred_within_tolerated',
     );
   });
 
   test('builds scroll authority conflict diagnostic with expected fields', () => {
     const line = buildAsrScrollAuthorityConflictDiagnostic({
       tickId: 42,
-      authorities: ['pocket_authority', 'bottom_lock_release'],
+      authorities: ['preferred_lower_rail_release', 'comfort_nudge'],
       beforeScrollTop: 220.4,
       intermediateScrollTop: 239.6,
       finalScrollTop: 226.2,
@@ -454,7 +454,7 @@ describe('ASR backend liveness diagnostics builders', () => {
       reason: 'multiple_live_scroll_authorities_observed',
     });
     expect(line).toBe(
-      '[ASR_SCROLL_AUTHORITY_CONFLICT] tickId=42 authorities=[pocket_authority,bottom_lock_release] beforeScrollTop=220 intermediateScrollTop=240 finalScrollTop=226 currentLineIdx=8 nextSpeakableLineIdx=9 reason=multiple_live_scroll_authorities_observed',
+      '[ASR_SCROLL_AUTHORITY_CONFLICT] tickId=42 authorities=[preferred_lower_rail_release,comfort_nudge] beforeScrollTop=220 intermediateScrollTop=240 finalScrollTop=226 currentLineIdx=8 nextSpeakableLineIdx=9 reason=multiple_live_scroll_authorities_observed',
     );
   });
 });

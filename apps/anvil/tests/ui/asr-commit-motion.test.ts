@@ -2707,6 +2707,9 @@ describe('ASR live commit motion', () => {
       lines.some((l) => l.includes('ASR_PREFERRED_LOWER_RAIL_RELEASE')) ||
       lines.some((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE')),
     ).toBe(true);
+    const selectedLine = lines.find((l) => l.includes('ASR_SCROLL_AUTHORITY_SELECTED')) || '';
+    expect(selectedLine).not.toContain('candidateAuthorities=[pocket_authority,');
+    expect(selectedLine).not.toContain(',pocket_authority');
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
     expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && (l.includes('action=nudge') || l.includes('action=pursue')))).toBe(true);
     expect(lines.some((l) => l.includes('ASR_VISUAL_SHORT_MEMORY_RESET'))).toBe(false);
@@ -2768,7 +2771,10 @@ describe('ASR live commit motion', () => {
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
     expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && l.includes('action=hold'))).toBe(false);
     expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && (l.includes('action=nudge') || l.includes('action=pursue')))).toBe(true);
-    expect(lines.some((l) => l.includes('ASR_SCROLL_AUTHORITY_SELECTED'))).toBe(true);
+    const selectedLine = lines.find((l) => l.includes('ASR_SCROLL_AUTHORITY_SELECTED')) || '';
+    expect(selectedLine).toContain('selectedAuthority=pocket_authority');
+    expect(selectedLine).not.toContain('candidateAuthorities=[pocket_authority,');
+    expect(selectedLine).not.toContain(',pocket_authority');
     expect(lines.some((l) => l.includes('ASR_SCROLL_AUTHORITY_CONFLICT'))).toBe(false);
     expect(lines.some((l) => l.includes('ASR_VISUAL_SHORT_MEMORY_RESET') && l.includes('reason=current_line_in_settle_zone'))).toBe(false);
     warnSpy.mockRestore();
@@ -2816,6 +2822,12 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(300);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     expect(lines.some((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE'))).toBe(true);
+    const selectedLine =
+      lines.find((l) => l.includes('ASR_SCROLL_AUTHORITY_SELECTED') && l.includes('selectedAuthority=bottom_lock_release')) || '';
+    expect(selectedLine).toContain('selectedAuthority=bottom_lock_release');
+    expect(selectedLine).not.toContain('candidateAuthorities=[pocket_authority,');
+    expect(selectedLine).not.toContain(',pocket_authority');
+    expect(lines.some((l) => l.includes('ASR_SCROLL_AUTHORITY_CONFLICT') && l.includes('pocket_authority'))).toBe(false);
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
     const releaseLine = lines.find((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE')) || '';
     const pxpsMatch = releaseLine.match(/pxps=(\d+)/);
