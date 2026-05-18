@@ -11050,13 +11050,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           totalLines,
           getLineText: getLineTextAt,
         }) ?? lastLineIndex;
-      const nextForwardSpeakableLineIdx =
-        findNextSpeakableLineIndex({
-          startIndex: Math.max(0, lastLineIndex + 1),
-          maxLookahead: Math.max(1, totalLines),
-          totalLines,
-          getLineText: getLineTextAt,
-        }) ?? lastLineIndex;
       const currentVisual = resolveLineVisualTelemetry(scroller, lastLineIndex);
       const nextVisual = resolveLineVisualTelemetry(scroller, nextSpeakableLineIdx);
       const nextSpeakableEl = getLineElementByIndex(scroller, nextSpeakableLineIdx);
