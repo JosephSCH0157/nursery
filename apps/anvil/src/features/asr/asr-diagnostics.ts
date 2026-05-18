@@ -146,3 +146,37 @@ export function buildAsrHudNoTargetDetail(args: {
     matchId: args.matchId,
   };
 }
+
+export function buildAsrBottomRailReaderRoomRescueDiagnostic(args: {
+  currentIndex: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  lineY: number;
+  viewportBottom: number;
+  lineHeightPx: number;
+  beforeScrollTop: number;
+  afterScrollTop: number;
+  requestedDeltaPx: number;
+  appliedDeltaPx: number;
+  targetScrollTop: number;
+  maxScrollTop: number;
+  proofSource: string;
+  reason: string;
+}): string {
+  return `[ASR_BOTTOM_RAIL_READER_ROOM_RESCUE] currentIndex=${args.currentIndex} committedLineIdx=${args.committedLineIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} lineY=${Math.round(args.lineY)} viewportBottom=${Math.round(args.viewportBottom)} lineHeightPx=${Math.round(args.lineHeightPx)} beforeScrollTop=${Math.round(args.beforeScrollTop)} afterScrollTop=${Math.round(args.afterScrollTop)} requestedDeltaPx=${Math.round(args.requestedDeltaPx)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} targetScrollTop=${Math.round(args.targetScrollTop)} maxScrollTop=${Math.round(args.maxScrollTop)} proofSource=${args.proofSource} reason=${args.reason}`;
+}
+
+export function buildAsrBottomRailReaderRoomRescueBlockedDiagnostic(args: {
+  currentIndex: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  lineY: number;
+  viewportBottom: number;
+  lineHeightPx: number;
+  currentScrollTop: number;
+  maxScrollTop: number;
+  proofSource: string;
+  reason: 'focus_lost' | 'no_fresh_commit_or_proof' | 'at_scroll_limit' | 'top_pressure_guard' | 'cooldown' | 'unsafe_bridge_context';
+}): string {
+  return `[ASR_BOTTOM_RAIL_READER_ROOM_RESCUE_BLOCKED] currentIndex=${args.currentIndex} committedLineIdx=${args.committedLineIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} lineY=${Math.round(args.lineY)} viewportBottom=${Math.round(args.viewportBottom)} lineHeightPx=${Math.round(args.lineHeightPx)} currentScrollTop=${Math.round(args.currentScrollTop)} maxScrollTop=${Math.round(args.maxScrollTop)} proofSource=${args.proofSource} reason=${args.reason}`;
+}

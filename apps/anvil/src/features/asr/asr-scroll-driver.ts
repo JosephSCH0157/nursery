@@ -27,6 +27,8 @@ import {
   buildAsrBackendRestartCompletedDiagnostic,
   buildAsrBackendRestartRequestedDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
+  buildAsrBottomRailReaderRoomRescueBlockedDiagnostic,
+  buildAsrBottomRailReaderRoomRescueDiagnostic,
   buildProofOwnedPrimaryCommitGuardBaseParts,
   buildRecoverySkipNonAdjacentTargetGuardBaseParts,
 } from './asr-diagnostics';
@@ -81,6 +83,7 @@ import {
   shouldApplyNormalAdjacentCap,
   shouldHardHoldVisualFollow,
   shouldStopForVisualDeadband,
+  planBottomRailReaderRoomRescue,
 } from './asr-visual-follow';
 import { isManualAnchorPendingFresh, isManualAnchorWithinLineWindow } from './asr-manual-anchor-policy';
 import {
@@ -245,6 +248,10 @@ const ASR_READER_POCKET_TOLERATED_BOTTOM_LINES = 2.5;
 const ASR_READER_COMFORT_NUDGE_PXPS = 10;
 const ASR_READER_COMFORT_BOTTOM_DRIFT_NUDGE_PXPS = 14;
 const ASR_READER_COMFORT_BOTTOM_DRIFT_WINDOW_MS = 1200;
+const ASR_BOTTOM_RAIL_READER_ROOM_RESCUE_COOLDOWN_MS = 550;
+const ASR_BOTTOM_RAIL_READER_ROOM_RESCUE_TARGET_OFFSET_LINES = 1.25;
+const ASR_BOTTOM_RAIL_READER_ROOM_RESCUE_MAX_MOVE_LINES = 2;
+const ASR_BOTTOM_RAIL_READER_ROOM_RESCUE_VISIBLE_LINES = 2;
 const ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX = 8;
 const ASR_VISUAL_FOLLOW_SLOW_ZONE_PX = 80;
 const ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX = 220;
@@ -3276,6 +3283,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let liveAsrReaderTooLowSinceMs = 0;
   let liveAsrPreferredLowerRailReleaseActive = false;
   let liveAsrVisualPursuitLineIdx: number | null = null;
+  let liveAsrBottomRailReaderRoomRescueCooldownUntilMs = 0;
+  let liveAsrBottomRailReaderRoomRescueLastBlockedReason = '';
+  let liveAsrBottomRailReaderRoomRescueLastBlockedAt = 0;
   let liveAsrActuatorMismatchStreak = 0;
   const liveBridgeDownstreamBlockUntilByKey = new Map<string, {
     until: number;
@@ -6419,6 +6429,45 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lineIndex: number,
   ): 'top' | 'middle' | 'bottom' | 'above' | 'below' | 'unknown' => {
     return resolveLineVisualTelemetry(scroller, lineIndex).band;
+  };
+
+  const maybeLogBottomRailReaderRoomRescueBlocked = (args: {
+    now: number;
+    currentIndex: number;
+    committedLineIdx: number;
+    nextSpeakableLineIdx: number;
+    lineY: number;
+    viewportBottom: number;
+    lineHeightPx: number;
+    currentScrollTop: number;
+    maxScrollTop: number;
+    proofSource: string;
+    reason: 'focus_lost' | 'no_fresh_commit_or_proof' | 'at_scroll_limit' | 'top_pressure_guard' | 'cooldown' | 'unsafe_bridge_context';
+  }) => {
+    if (
+      args.reason === liveAsrBottomRailReaderRoomRescueLastBlockedReason &&
+      args.now - liveAsrBottomRailReaderRoomRescueLastBlockedAt < 250
+    ) {
+      return;
+    }
+    liveAsrBottomRailReaderRoomRescueLastBlockedReason = args.reason;
+    liveAsrBottomRailReaderRoomRescueLastBlockedAt = args.now;
+    try {
+      console.warn(
+        buildAsrBottomRailReaderRoomRescueBlockedDiagnostic({
+          currentIndex: args.currentIndex,
+          committedLineIdx: args.committedLineIdx,
+          nextSpeakableLineIdx: args.nextSpeakableLineIdx,
+          lineY: args.lineY,
+          viewportBottom: args.viewportBottom,
+          lineHeightPx: args.lineHeightPx,
+          currentScrollTop: args.currentScrollTop,
+          maxScrollTop: args.maxScrollTop,
+          proofSource: args.proofSource,
+          reason: args.reason,
+        }),
+      );
+    } catch {}
   };
 
   const resolveForwardSpeakableTarget = (
@@ -10703,6 +10752,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           totalLines,
           getLineText: getLineTextAt,
         }) ?? lastLineIndex;
+      const nextForwardSpeakableLineIdx =
+        findNextSpeakableLineIndex({
+          startIndex: Math.max(0, lastLineIndex + 1),
+          maxLookahead: Math.max(1, totalLines),
+          totalLines,
+          getLineText: getLineTextAt,
+        }) ?? lastLineIndex;
       const currentVisual = resolveLineVisualTelemetry(scroller, lastLineIndex);
       const nextVisual = resolveLineVisualTelemetry(scroller, nextSpeakableLineIdx);
       const nextSpeakableEl = getLineElementByIndex(scroller, nextSpeakableLineIdx);
@@ -10817,6 +10873,144 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `[ASR_VISUAL_SHORT_MEMORY_RESET] previousTargetScrollTop=${Math.round(oldTargetTop)} newTargetScrollTop=${Math.round(newTargetTop)} previousLineIdx=${previousPursuitLineIdx == null ? -1 : previousPursuitLineIdx} currentNextSpeakableLineIdx=${nextSpeakableLineIdx} markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} pocketZone=${insidePreferredSettleZone ? 'preferred_settle' : (insidePreferredLowerRail ? 'preferred_lower_rail' : (nextTooLow ? 'below_preferred' : (nextTooHigh ? 'above_tolerated_top' : (insideTolerated ? 'tolerated' : 'unknown'))))} oldDebtPx=${Number.isFinite(oldDebtPx) ? Math.round(oldDebtPx) : -1} newDebtPx=${Math.round(newTargetTop - current)} reason=${resetReason}`,
           );
         } catch {}
+      }
+      const freshAcceptedCommit =
+        lastCommitAt > 0 &&
+        (nowTs - lastCommitAt) <= DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS &&
+        lastCommittedLine >= 0 &&
+        Math.abs(lastCommittedLine - lastLineIndex) <= 1;
+      const freshLocalProofCurrent =
+        hasFreshNearbyRescueMatchEvidence(lastLineIndex, lastLineIndex, nowTs, []) ||
+        (
+          lastFreshProofLine === lastLineIndex &&
+          (
+            (lastFinalTranscriptAt > 0 && (nowTs - lastFinalTranscriptAt) <= DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS) ||
+            (asrRuntimeSpeechRunningActual && hasRecentVadSpeechNow(nowTs))
+          )
+        );
+      const freshLocalProofNext =
+        nextForwardSpeakableLineIdx > lastLineIndex &&
+        (
+          hasFreshNearbyRescueMatchEvidence(lastLineIndex, nextForwardSpeakableLineIdx, nowTs, []) ||
+          (
+            lastFreshProofLine === nextForwardSpeakableLineIdx &&
+            (
+              (lastFinalTranscriptAt > 0 && (nowTs - lastFinalTranscriptAt) <= DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS) ||
+              (asrRuntimeSpeechRunningActual && hasRecentVadSpeechNow(nowTs))
+            )
+          )
+        );
+      const currentLineRescuePlan = planBottomRailReaderRoomRescue({
+        lineY: Number(currentVisual.lineCenterInViewport),
+        viewportHeight,
+        markerY,
+        lineHeightPx: measuredLineHeightPx,
+        currentScrollTop: current,
+        maxScrollTop,
+        desiredOffsetLines: ASR_BOTTOM_RAIL_READER_ROOM_RESCUE_TARGET_OFFSET_LINES,
+        maxMoveLines: ASR_BOTTOM_RAIL_READER_ROOM_RESCUE_MAX_MOVE_LINES,
+        bottomRailLines: ASR_BOTTOM_RAIL_READER_ROOM_RESCUE_VISIBLE_LINES,
+      });
+      const nextForwardVisual = resolveLineVisualTelemetry(scroller, nextForwardSpeakableLineIdx);
+      const nextLineRescuePlan = planBottomRailReaderRoomRescue({
+        lineY: Number(nextForwardVisual.lineCenterInViewport),
+        viewportHeight,
+        markerY,
+        lineHeightPx: measuredLineHeightPx,
+        currentScrollTop: current,
+        maxScrollTop,
+        desiredOffsetLines: ASR_BOTTOM_RAIL_READER_ROOM_RESCUE_TARGET_OFFSET_LINES,
+        maxMoveLines: ASR_BOTTOM_RAIL_READER_ROOM_RESCUE_MAX_MOVE_LINES,
+        bottomRailLines: ASR_BOTTOM_RAIL_READER_ROOM_RESCUE_VISIBLE_LINES,
+      });
+      const rescueCandidateLineIdx = currentLineRescuePlan.shouldRescue
+        ? lastLineIndex
+        : (nextLineRescuePlan.shouldRescue ? nextForwardSpeakableLineIdx : -1);
+      const rescueCandidateLineY = currentLineRescuePlan.shouldRescue
+        ? Number(currentVisual.lineCenterInViewport)
+        : (nextLineRescuePlan.shouldRescue ? Number(nextForwardVisual.lineCenterInViewport) : Number.NaN);
+      const rescueCandidatePlan = currentLineRescuePlan.shouldRescue
+        ? currentLineRescuePlan
+        : nextLineRescuePlan;
+      const rescueOvershootActive = nowTs < overshootRiskUntil;
+      const rescueProofSource = freshLocalProofCurrent
+        ? 'live_strict_local_proof_ok'
+        : (freshLocalProofNext
+          ? 'adjacent_rescue_proofed'
+          : (freshAcceptedCommit ? 'fresh_commit' : 'none'));
+      if (rescueCandidateLineIdx >= 0) {
+        const rescueBlockedReason =
+          (asrFocusMovementHoldActive || focusTranscriptQuarantineActive)
+            ? 'focus_lost'
+            : (!freshAcceptedCommit && !freshLocalProofCurrent && !freshLocalProofNext)
+              ? 'no_fresh_commit_or_proof'
+              : (current >= maxScrollTop - 0.5)
+                ? 'at_scroll_limit'
+                : (rescueOvershootActive || nextTooHigh)
+                  ? 'top_pressure_guard'
+                  : (bridgeHoldContextActive)
+                    ? 'unsafe_bridge_context'
+                    : (nowTs < liveAsrBottomRailReaderRoomRescueCooldownUntilMs)
+                      ? 'cooldown'
+                      : '';
+        if (rescueBlockedReason) {
+          maybeLogBottomRailReaderRoomRescueBlocked({
+            now: nowTs,
+            currentIndex: lastLineIndex,
+            committedLineIdx: lastCommittedLine >= 0 ? lastCommittedLine : lastLineIndex,
+            nextSpeakableLineIdx: nextForwardSpeakableLineIdx,
+            lineY: rescueCandidateLineY,
+            viewportBottom: viewportHeight,
+            lineHeightPx: measuredLineHeightPx,
+            currentScrollTop: current,
+            maxScrollTop,
+            proofSource: rescueProofSource,
+            reason: rescueBlockedReason as 'focus_lost' | 'no_fresh_commit_or_proof' | 'at_scroll_limit' | 'top_pressure_guard' | 'cooldown' | 'unsafe_bridge_context',
+          });
+        } else if (rescueCandidatePlan.appliedDeltaPx > 0.5 && canApplyAsrMovement('bottom-rail-reader-room-rescue', nowTs)) {
+          const beforeScrollTop = current;
+          const appliedTop = applyCanonicalScrollTop(rescueCandidatePlan.targetScrollTop, {
+            scroller,
+            reason: 'asr-bottom-rail-reader-room-rescue',
+            source: 'asr-tick',
+          });
+          const afterScrollTop = Number.isFinite(appliedTop)
+            ? Number(appliedTop)
+            : Number(scroller.scrollTop || rescueCandidatePlan.targetScrollTop);
+          const appliedDeltaPx = Math.max(0, afterScrollTop - beforeScrollTop);
+          pursuitTargetTop = afterScrollTop;
+          pursuitVel = 0;
+          liveAsrVisualPursuitLineIdx = rescueCandidateLineIdx;
+          liveAsrBottomRailReaderRoomRescueCooldownUntilMs = nowTs + ASR_BOTTOM_RAIL_READER_ROOM_RESCUE_COOLDOWN_MS;
+          lastKnownScrollTop = afterScrollTop;
+          lastMoveAt = nowTs;
+          markProgrammaticScroll();
+          try {
+            console.warn(
+              buildAsrBottomRailReaderRoomRescueDiagnostic({
+                currentIndex: lastLineIndex,
+                committedLineIdx: lastCommittedLine >= 0 ? lastCommittedLine : lastLineIndex,
+                nextSpeakableLineIdx: nextForwardSpeakableLineIdx,
+                lineY: rescueCandidateLineY,
+                viewportBottom: viewportHeight,
+                lineHeightPx: measuredLineHeightPx,
+                beforeScrollTop,
+                afterScrollTop,
+                requestedDeltaPx: rescueCandidatePlan.requestedDeltaPx,
+                appliedDeltaPx,
+                targetScrollTop: rescueCandidatePlan.targetScrollTop,
+                maxScrollTop,
+                proofSource: rescueProofSource,
+                reason: rescueCandidateLineIdx === lastLineIndex
+                  ? 'committed_line_bottom_rail'
+                  : 'next_speakable_line_bottom_rail',
+              }),
+            );
+          } catch {}
+          emitPursuitHud(afterScrollTop - beforeScrollTop, 0, pursuitTargetTop, afterScrollTop);
+          window.requestAnimationFrame(tickController);
+          return;
+        }
       }
       if (
         Number.isFinite(nextLineY) &&
@@ -23009,6 +23203,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     pendingMatch = null;
     pendingSpeakableBridgeState = null;
     liveBridgeDownstreamBlockUntilByKey.clear();
+    liveAsrBottomRailReaderRoomRescueCooldownUntilMs = 0;
+    liveAsrBottomRailReaderRoomRescueLastBlockedReason = '';
+    liveAsrBottomRailReaderRoomRescueLastBlockedAt = 0;
     asrSilenceActive = true;
     lastStallRecoveryOverrideAt = 0;
     _postCommitReadabilitySeq += 1;
@@ -23116,6 +23313,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lostForwardWallStreak = 0;
     lastProgressCursorLine = lastLineIndex;
     lastCueStallRescueAt = 0;
+    liveAsrBottomRailReaderRoomRescueCooldownUntilMs = 0;
+    liveAsrBottomRailReaderRoomRescueLastBlockedReason = '';
+    liveAsrBottomRailReaderRoomRescueLastBlockedAt = 0;
     softRuntimeRebaseCooldownUntil = 0;
     softRuntimeRebaseLastStallAnchorAt = -1;
     softRuntimeRebaseRetryActive = false;

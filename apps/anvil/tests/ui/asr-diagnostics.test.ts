@@ -5,6 +5,8 @@ import {
   buildAsrBackendHeartbeatDiagnostic,
   buildAsrBackendRestartCompletedDiagnostic,
   buildAsrBackendRestartRequestedDiagnostic,
+  buildAsrBottomRailReaderRoomRescueBlockedDiagnostic,
+  buildAsrBottomRailReaderRoomRescueDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
   buildProofOwnedPrimaryCommitGuardBaseParts,
   buildRecoverySkipNonAdjacentTargetGuardBaseParts,
@@ -293,5 +295,45 @@ describe('ASR backend liveness diagnostics builders', () => {
       retry: 1,
       matchId: 'm',
     });
+  });
+
+  test('builds bottom-rail reader-room rescue diagnostic with expected fields', () => {
+    const line = buildAsrBottomRailReaderRoomRescueDiagnostic({
+      currentIndex: 8,
+      committedLineIdx: 8,
+      nextSpeakableLineIdx: 9,
+      lineY: 620.4,
+      viewportBottom: 669,
+      lineHeightPx: 24,
+      beforeScrollTop: 100,
+      afterScrollTop: 140,
+      requestedDeltaPx: 61.8,
+      appliedDeltaPx: 40,
+      targetScrollTop: 140,
+      maxScrollTop: 1200,
+      proofSource: 'fresh_commit',
+      reason: 'next_speakable_line_bottom_rail',
+    });
+    expect(line).toBe(
+      '[ASR_BOTTOM_RAIL_READER_ROOM_RESCUE] currentIndex=8 committedLineIdx=8 nextSpeakableLineIdx=9 lineY=620 viewportBottom=669 lineHeightPx=24 beforeScrollTop=100 afterScrollTop=140 requestedDeltaPx=62 appliedDeltaPx=40 targetScrollTop=140 maxScrollTop=1200 proofSource=fresh_commit reason=next_speakable_line_bottom_rail',
+    );
+  });
+
+  test('builds bottom-rail reader-room rescue blocked diagnostic for scroll limit', () => {
+    const line = buildAsrBottomRailReaderRoomRescueBlockedDiagnostic({
+      currentIndex: 8,
+      committedLineIdx: 8,
+      nextSpeakableLineIdx: 9,
+      lineY: 620.4,
+      viewportBottom: 669,
+      lineHeightPx: 24,
+      currentScrollTop: 1200,
+      maxScrollTop: 1200,
+      proofSource: 'fresh_commit',
+      reason: 'at_scroll_limit',
+    });
+    expect(line).toBe(
+      '[ASR_BOTTOM_RAIL_READER_ROOM_RESCUE_BLOCKED] currentIndex=8 committedLineIdx=8 nextSpeakableLineIdx=9 lineY=620 viewportBottom=669 lineHeightPx=24 currentScrollTop=1200 maxScrollTop=1200 proofSource=fresh_commit reason=at_scroll_limit',
+    );
   });
 });
