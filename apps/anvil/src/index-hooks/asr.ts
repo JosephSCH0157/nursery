@@ -2,6 +2,7 @@
 // File: src/index-hooks/asr.ts
 // =============================================================
 import type { AsrMode } from '../features/asr-mode';
+import { installAsrLogBuffer } from '../features/asr/asr-log-buffer';
 import { installAsrHotkeys } from '../hotkeys/asr-hotkeys';
 import { ensureAsrSettingsWired } from '../ui/settings-asr';
 import { AsrTopbar } from '../ui/topbar-asr';
@@ -77,6 +78,7 @@ function mountAsrTopbarOnce(modeShim: LegacyAsrModeShim): void {
 export function initAsrFeature() {
   if (asrFeatureInitialized) return;
   asrFeatureInitialized = true;
+  try { installAsrLogBuffer(); } catch {}
   ensureAsrSettingsWired(document.getElementById('settingsBody') || document);
   installAsrHotkeys();
   const modeShim = ensureLegacyAsrModeShim();
