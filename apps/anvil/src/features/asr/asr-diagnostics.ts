@@ -211,6 +211,24 @@ export function buildAsrMarkerErrorLowerRailRejectedDiagnostic(args: {
   return `[ASR_MARKER_ERROR_LOWER_RAIL_REJECTED] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} markerY=${Math.round(args.markerY)} actualNextSpeakableLineY=${Math.round(args.actualNextSpeakableLineY)} desiredLineY=${Math.round(args.desiredLineY)} visualErrorPx=${Math.round(args.visualErrorPx)} tolerancePx=${Math.round(args.tolerancePx)} pocketZone=${args.pocketZone} preferredBandTop=${Math.round(args.preferredBandTop)} preferredSettleBottom=${Math.round(args.preferredSettleBottom)} preferredBandBottom=${Math.round(args.preferredBandBottom)} holdSafeBottomY=${Math.round(args.holdSafeBottomY)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} snapSuppressedInEpisode=${args.snapSuppressedInEpisode ? 1 : 0} reason=${args.reason}`;
 }
 
+export function buildAsrMarkerErrorHoldBandRejectedDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  markerY: number;
+  actualNextSpeakableLineY: number;
+  desiredLineY: number;
+  visualErrorPx: number;
+  tolerancePx: number;
+  holdTolerancePx: number;
+  pocketZone: string;
+  currentScrollTop: number;
+  targetScrollTop: number;
+  reason: string;
+}): string {
+  return `[ASR_MARKER_ERROR_HOLD_BAND_REJECTED] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} markerY=${Math.round(args.markerY)} actualNextSpeakableLineY=${Math.round(args.actualNextSpeakableLineY)} desiredLineY=${Math.round(args.desiredLineY)} visualErrorPx=${Math.round(args.visualErrorPx)} tolerancePx=${Math.round(args.tolerancePx)} holdTolerancePx=${Math.round(args.holdTolerancePx)} pocketZone=${args.pocketZone} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} reason=${args.reason}`;
+}
+
 export function buildAsrScrollAuthoritySelectedDiagnostic(args: {
   tickId: number;
   currentLineIdx: number;

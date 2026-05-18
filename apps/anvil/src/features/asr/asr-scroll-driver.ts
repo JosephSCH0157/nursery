@@ -28,6 +28,7 @@ import {
   buildAsrBackendRestartRequestedDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
   buildAsrEarlyBridgeTrapReleasedDiagnostic,
+  buildAsrMarkerErrorHoldBandRejectedDiagnostic,
   buildAsrMarkerErrorLowerRailRejectedDiagnostic,
   buildAsrScrollAuthorityConflictDiagnostic,
   buildAsrScrollAuthoritySelectedDiagnostic,
@@ -11036,11 +11037,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const desiredReadAheadPx = ASR_VISUAL_MARKER_ERROR_DESIRED_READ_AHEAD_LINES * measuredLineHeightPx;
       const desiredLineY = markerY + desiredReadAheadPx;
       const tolerancePx = Math.max(1, ASR_VISUAL_MARKER_ERROR_TOLERANCE_LINES * measuredLineHeightPx);
+      const holdTolerancePx = Math.max(1, Math.min(tolerancePx, 0.20 * measuredLineHeightPx, 12));
       const visualErrorPx = Number.isFinite(nextLineY) ? (nextLineY - desiredLineY) : Number.NaN;
       const visualErrorAbsPx = Number.isFinite(visualErrorPx) ? Math.abs(visualErrorPx) : Number.NaN;
       const visualErrorWithinTolerance =
         Number.isFinite(visualErrorAbsPx) &&
         visualErrorAbsPx <= tolerancePx;
+      const visualErrorWithinHoldTolerance =
+        Number.isFinite(visualErrorAbsPx) &&
+        visualErrorAbsPx <= holdTolerancePx;
       const holdSafeBottomY = desiredLineY + Math.min(tolerancePx, 0.35 * measuredLineHeightPx);
       const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
       const markerErrorTargetTop =
@@ -11051,6 +11056,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       liveAsrActuatorTargetDebtPx = targetDebtPx;
       liveAsrAuthorityTraceTickId = ++liveAsrScrollAuthorityTickId;
       let lowerRailHoldRejectedReason = '';
+      let holdBandRejectedReason = '';
       const oldTargetTop = pursuitTargetTop;
       const stalePursuitLine =
         liveAsrVisualPursuitLineIdx != null &&
@@ -11083,6 +11089,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           authorityReason = visualErrorPx > 0
             ? 'marker_error_line_too_low'
             : 'marker_error_line_too_high';
+          desiredTopFromCurrent = markerErrorTargetTop;
+          liveTickSelectedAuthority = liveTickBaseAuthority;
+        } else if (!visualErrorWithinHoldTolerance) {
+          authorityAction = 'pursue';
+          authorityReason = 'within_correction_tolerance_but_outside_hold_tolerance';
           desiredTopFromCurrent = markerErrorTargetTop;
           liveTickSelectedAuthority = liveTickBaseAuthority;
         } else {
@@ -11237,7 +11248,42 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
-      if (comfortHoldEligible && !lowerRailHoldRejected && !visualGovernorHoldActive && !comfortNudgeActive) {
+      const holdBandRejected =
+        comfortHoldEligible &&
+        !lowerRailHoldRejected &&
+        !visualErrorWithinHoldTolerance;
+      if (holdBandRejected) {
+        holdBandRejectedReason = 'within_correction_tolerance_but_outside_hold_tolerance';
+        liveTickCandidateAuthorities.add('hold');
+        if (!comfortNudgeActive && !bottomLockReleaseActive && !preferredLowerRailReleaseActive) {
+          liveTickSelectedAuthority = liveTickBaseAuthority;
+          liveTickAuthorityReason = holdBandRejectedReason;
+          pursuitTargetTop = markerErrorTargetTop;
+          pursuitVel = 0;
+          liveAsrVisualPursuitLineIdx = nextSpeakableLineIdx;
+          err = pursuitTargetTop - current;
+        }
+        try {
+          console.warn(
+            buildAsrMarkerErrorHoldBandRejectedDiagnostic({
+              currentLineIdx: lastLineIndex,
+              committedLineIdx: lastLineIndex,
+              nextSpeakableLineIdx,
+              markerY,
+              actualNextSpeakableLineY: nextLineY,
+              desiredLineY,
+              visualErrorPx,
+              tolerancePx,
+              holdTolerancePx,
+              pocketZone: liveTickReaderPocketZone,
+              currentScrollTop: current,
+              targetScrollTop: Number.isFinite(pursuitTargetTop) ? pursuitTargetTop : current,
+              reason: holdBandRejectedReason,
+            }),
+          );
+        } catch {}
+      }
+      if (comfortHoldEligible && !holdBandRejected && !lowerRailHoldRejected && !visualGovernorHoldActive && !comfortNudgeActive) {
         liveHardHold = true;
         liveTickCandidateAuthorities.add('hold');
         liveTickSelectedAuthority = 'hold';
@@ -11265,7 +11311,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const markerCorrectionAction: 'pursue' | 'nudge' | 'hold' =
           comfortNudgeActive
             ? 'nudge'
-            : (((visualErrorWithinTolerance && !lowerRailHoldRejected) || nextTooHigh) ? 'hold' : 'pursue');
+            : (((visualErrorWithinTolerance && !holdBandRejected && !lowerRailHoldRejected) || nextTooHigh) ? 'hold' : 'pursue');
         let markerCorrectionReason = 'marker_error_within_tolerance';
         if (comfortNudgeActive) {
           markerCorrectionReason = bottomLockReleaseActive
@@ -11275,8 +11321,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               : 'nudge:marker_error_outside_tolerance');
         } else if (nextTooHigh) {
           markerCorrectionReason = 'top_pressure_guard';
-        } else if (visualErrorWithinTolerance && !lowerRailHoldRejected) {
+        } else if (visualErrorWithinTolerance && !holdBandRejected && !lowerRailHoldRejected) {
           markerCorrectionReason = 'marker_error_within_tolerance';
+        } else if (holdBandRejected) {
+          markerCorrectionReason = `nudge:${holdBandRejectedReason}`;
         } else if (lowerRailHoldRejected) {
           markerCorrectionReason = `nudge:${lowerRailHoldRejectedReason}`;
         } else {

@@ -7,6 +7,7 @@ import {
   buildAsrBackendRestartRequestedDiagnostic,
   buildAsrBottomLockGeometryDiagnostic,
   buildAsrEarlyBridgeTrapReleasedDiagnostic,
+  buildAsrMarkerErrorHoldBandRejectedDiagnostic,
   buildAsrMarkerErrorLowerRailRejectedDiagnostic,
   buildAsrScrollAuthorityConflictDiagnostic,
   buildAsrScrollAuthoritySelectedDiagnostic,
@@ -421,6 +422,27 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR_MARKER_ERROR_LOWER_RAIL_REJECTED] currentLineIdx=8 committedLineIdx=8 nextSpeakableLineIdx=9 markerY=390 actualNextSpeakableLineY=487 desiredLineY=467 visualErrorPx=20 tolerancePx=20 pocketZone=bottom preferredBandTop=424 preferredSettleBottom=492 preferredBandBottom=526 holdSafeBottomY=487 currentScrollTop=220 targetScrollTop=240 snapSuppressedInEpisode=1 reason=within_tolerance_but_bottom_zone',
+    );
+  });
+
+  test('builds hold band rejected diagnostic with expected fields', () => {
+    const line = buildAsrMarkerErrorHoldBandRejectedDiagnostic({
+      currentLineIdx: 8,
+      committedLineIdx: 8,
+      nextSpeakableLineIdx: 9,
+      markerY: 390.4,
+      actualNextSpeakableLineY: 484.8,
+      desiredLineY: 467.2,
+      visualErrorPx: 17.4,
+      tolerancePx: 20.1,
+      holdTolerancePx: 12.0,
+      pocketZone: 'pocket',
+      currentScrollTop: 220.4,
+      targetScrollTop: 237.6,
+      reason: 'within_correction_tolerance_but_outside_hold_tolerance',
+    });
+    expect(line).toBe(
+      '[ASR_MARKER_ERROR_HOLD_BAND_REJECTED] currentLineIdx=8 committedLineIdx=8 nextSpeakableLineIdx=9 markerY=390 actualNextSpeakableLineY=485 desiredLineY=467 visualErrorPx=17 tolerancePx=20 holdTolerancePx=12 pocketZone=pocket currentScrollTop=220 targetScrollTop=238 reason=within_correction_tolerance_but_outside_hold_tolerance',
     );
   });
 
