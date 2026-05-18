@@ -31,4 +31,19 @@ describe('legacy ASR quarantine', () => {
     expect((window as any).__TP_LEGACY_ASR_BLOCKED__).toBe(true);
     expect(warn).toHaveBeenCalled();
   });
+
+  test('initAsrFeature exposes runtime diagnostic smoke proof object', async () => {
+    (window as any).__TP_BUILD_STAMP = 'asr-scroll-2026-05-18T22:07:18.976Z';
+    const mod = await import('../../src/index-hooks/asr');
+    mod.initAsrFeature();
+
+    expect((window as any).__ASR_DIAGNOSTIC_PROOF__).toEqual(
+      expect.objectContaining({
+        buildStamp: 'asr-scroll-2026-05-18T22:07:18.976Z',
+        delayedAutopsyBuilderPresent: true,
+        deadScreenAutopsyBuilderPresent: true,
+        dumpPathProofPresent: true,
+      }),
+    );
+  });
 });

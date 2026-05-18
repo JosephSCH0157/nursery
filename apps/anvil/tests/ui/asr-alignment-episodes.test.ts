@@ -1,6 +1,12 @@
 import { AsrAlignmentEpisodeTracker } from '../../src/features/asr/asr-alignment-episodes';
 
 describe('ASR alignment episode diagnostics', () => {
+  afterEach(() => {
+    window.history.replaceState({}, '', '/');
+    delete (window as any).__asrLogBufferInstalled;
+    jest.restoreAllMocks();
+  });
+
   test('emits bottom-lock geometry diag exactly once for bottom_locked episodes', () => {
     const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
     const tracker = new AsrAlignmentEpisodeTracker();
@@ -321,5 +327,109 @@ describe('ASR alignment episode diagnostics', () => {
     expect(lines.some((line) => line.includes('ASR_DELAYED_SUPPRESSION_AUTOPSY'))).toBe(false);
 
     infoSpy.mockRestore();
+  });
+
+  test('emits dump-path proof directly alongside alignment episode in dev mode', () => {
+    window.history.replaceState({}, '', '/?dev=1');
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+    const tracker = new AsrAlignmentEpisodeTracker();
+
+    tracker.begin({
+      currentLine: 11,
+      requestedTarget: 13,
+      acceptedCommitTarget: 12,
+      proofSource: 'strict_speakable_bridge_landing',
+      authorityPath: 'movement_authority_reconcile',
+      reason: 'movement_authority_commit',
+    });
+    tracker.noteComfort({
+      markerY: 390,
+      currentLineY: 420,
+      nextSpeakableLineY: 478,
+      preferredBandTop: 300,
+      preferredSettleBottom: 430,
+      preferredBandBottom: 450,
+      toleratedBandBottom: 491,
+      reason: 'marker_error_within_tolerance',
+    });
+    tracker.noteSnapSuppressed({ reason: 'live_asr_marker_lock_suppressed' });
+    tracker.noteStallDelay(1800, 'asr_recovery_chain_blocked');
+    const closed = tracker.close('superseded_by_new_commit');
+    tracker.dumpForConsole(closed || undefined);
+
+    const lines = infoSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(lines.some((line) => line.includes('ASR_ALIGNMENT_EPISODE'))).toBe(true);
+    const proofLine = lines.find((line) => line.includes('ASR_ALIGNMENT_EPISODE_DUMP_PATH_PROOF')) || '';
+    expect(proofLine).toContain('wouldQualifyDelayedSuppressionAutopsy=1');
+    expect(proofLine).toContain('delayedAutopsyGateReason=reason_chain_live_asr_marker_lock_suppressed');
+    expect(proofLine).toContain('wouldQualifyDeadScreenAutopsy=0');
+  });
+
+  test('qualifies delayed suppression autopsy on superseded_by_new_commit even without snap-suppressed action', () => {
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+    const tracker = new AsrAlignmentEpisodeTracker();
+
+    tracker.begin({
+      currentLine: 31,
+      requestedTarget: 33,
+      acceptedCommitTarget: 32,
+      proofSource: 'strict_speakable_bridge_landing',
+      authorityPath: 'movement_authority_reconcile',
+    });
+    tracker.noteComfort({
+      markerY: 390,
+      currentLineY: 421,
+      nextSpeakableLineY: 474,
+      preferredBandTop: 300,
+      preferredSettleBottom: 430,
+      preferredBandBottom: 450,
+      toleratedBandBottom: 491,
+      reason: 'marker_error_within_tolerance',
+    });
+    tracker.noteStallDelay(1810, 'asr_recovery_chain_blocked');
+    const closed = tracker.close('superseded_by_new_commit');
+    tracker.dumpForConsole(closed || undefined);
+
+    const lines = infoSpy.mock.calls.map((call) => String(call[0] || ''));
+    const autopsyLine = lines.find((line) => line.includes('ASR_DELAYED_SUPPRESSION_AUTOPSY')) || '';
+    expect(autopsyLine).toContain('supersededByNewCommit=1');
+  });
+
+  test('optional diagnostic failure does not suppress ASR_ALIGNMENT_EPISODE or sibling error visibility', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation((line?: unknown) => {
+      if (String(line || '').includes('ASR_DELAYED_SUPPRESSION_AUTOPSY')) {
+        throw new Error('synthetic-autopsy-failure');
+      }
+    });
+    const tracker = new AsrAlignmentEpisodeTracker();
+
+    tracker.begin({
+      currentLine: 18,
+      requestedTarget: 20,
+      acceptedCommitTarget: 19,
+      proofSource: 'strict_speakable_bridge_landing',
+      authorityPath: 'movement_authority_reconcile',
+      reason: 'movement_authority_commit',
+    });
+    tracker.noteComfort({
+      markerY: 390,
+      currentLineY: 420,
+      nextSpeakableLineY: 480,
+      preferredBandTop: 300,
+      preferredSettleBottom: 430,
+      preferredBandBottom: 450,
+      toleratedBandBottom: 491,
+      reason: 'marker_error_within_tolerance',
+    });
+    tracker.noteSnapSuppressed({ reason: 'live_asr_marker_lock_suppressed' });
+    tracker.noteStallDelay(1900, 'asr_recovery_chain_blocked');
+    const closed = tracker.close('superseded_by_new_commit');
+    tracker.dumpForConsole(closed || undefined);
+
+    const infoLines = infoSpy.mock.calls.map((call) => String(call[0] || ''));
+    const warnLines = warnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(infoLines.some((line) => line.includes('ASR_ALIGNMENT_EPISODE'))).toBe(true);
+    expect(warnLines.some((line) => line.includes('ASR_OPTIONAL_DIAGNOSTIC_ERROR') && line.includes('diagnosticTag=ASR_DELAYED_SUPPRESSION_AUTOPSY'))).toBe(true);
   });
 });

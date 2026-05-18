@@ -20,16 +20,20 @@ import { getAsrBlockElements } from '../../scroll/asr-block-store';
 import { isSeekAnimationActive, seekToBlockAnimated } from '../../scroll/scroll-writer';
 import { shouldLogScrollWrite } from '../../scroll/scroll-helpers';
 import {
+  ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION,
+  ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION,
   buildAsrHudNoTargetDetail,
   buildAsrAudioChunkStaleDiagnostic,
   buildAsrBridgeTrapDetectedDiagnostic,
   buildAsrBackendHeartbeatDiagnostic,
   buildAsrBackendRestartCompletedDiagnostic,
   buildAsrBackendRestartRequestedDiagnostic,
+  buildAsrDiagnosticBundleProofDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
   buildAsrEarlyBridgeTrapReleasedDiagnostic,
   buildAsrMarkerErrorHoldBandRejectedDiagnostic,
   buildAsrMarkerErrorLowerRailRejectedDiagnostic,
+  buildAsrOptionalDiagnosticErrorDiagnostic,
   buildAsrVisualGovernorDeadScreenAutopsyDiagnostic,
   buildAsrScrollAuthorityConflictDiagnostic,
   buildAsrScrollAuthoritySelectedDiagnostic,
@@ -1721,6 +1725,25 @@ function isDevMode(): boolean {
   return false;
 }
 
+function shouldEmitAsrDiagnosticProof(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (isDevMode()) return true;
+  try {
+    const params = new URLSearchParams(window.location.search || '');
+    if (params.get('asr_log_buffer') === '1') return true;
+  } catch {
+    // ignore
+  }
+  try {
+    const w = window as any;
+    if (w.__asrLogBufferInstalled) return true;
+    if (w.localStorage?.getItem('asr_log_buffer') === '1') return true;
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
 function isAsrLiveUnleashedEnabled(): boolean {
   if (typeof window === 'undefined') return false;
   try {
@@ -2524,6 +2547,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let driverRunKey = summaryRunKey;
   let driverRunGeneration = summaryRunGeneration;
   try { console.log('[ASR DRIVER CREATED]', driverInstanceId); } catch {}
+  if (shouldEmitAsrDiagnosticProof()) {
+    try {
+      const win = window as any;
+      if (!win.__tpAsrDiagnosticBundleProofEmitted) {
+        win.__tpAsrDiagnosticBundleProofEmitted = true;
+        console.info(
+          buildAsrDiagnosticBundleProofDiagnostic({
+            buildStamp: String(win.__TP_BUILD_STAMP || 'unknown'),
+            runKey: summaryRunKey || 'none',
+            runGeneration: summaryRunGeneration ?? -1,
+            hasDelayedSuppressionAutopsyBuilder: true,
+            hasVisualGovernorDeadScreenAutopsyBuilder: true,
+            delayedAutopsyVersion: ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION,
+            deadScreenAutopsyVersion: ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION,
+          }),
+        );
+      }
+    } catch {}
+  }
   let threshold = resolveThreshold();
   // Respect dev/manual threshold ownership (dev panel/profile overrides) and avoid
   // resetting candidate gate on every speech start.
@@ -18204,7 +18246,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 deadScreenRebaseCountInWindow: deadScreenRebaseCountInWindow,
               }),
             );
-          } catch {}
+          } catch (error) {
+            try {
+              console.warn(
+                buildAsrOptionalDiagnosticErrorDiagnostic({
+                  diagnosticTag: 'ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY',
+                  errorMessage: error instanceof Error ? error.message || error.name : String(error),
+                }),
+              );
+            } catch {}
+          }
         }
         const pendingBridgeAgeMs = pendingSpeakableBridgeState
           ? Math.max(0, now - pendingSpeakableBridgeState.createdAtMs)

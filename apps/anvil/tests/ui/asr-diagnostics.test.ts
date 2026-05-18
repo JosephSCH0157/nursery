@@ -1,4 +1,7 @@
 import {
+  ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION,
+  ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION,
+  buildAsrAlignmentEpisodeDumpPathProofDiagnostic,
   buildAsrHudNoTargetDetail,
   buildAsrAudioChunkStaleDiagnostic,
   buildAsrBridgeTrapDetectedDiagnostic,
@@ -7,9 +10,11 @@ import {
   buildAsrBackendRestartRequestedDiagnostic,
   buildAsrBottomLockGeometryDiagnostic,
   buildAsrDelayedSuppressionAutopsyDiagnostic,
+  buildAsrDiagnosticBundleProofDiagnostic,
   buildAsrEarlyBridgeTrapReleasedDiagnostic,
   buildAsrMarkerErrorHoldBandRejectedDiagnostic,
   buildAsrMarkerErrorLowerRailRejectedDiagnostic,
+  buildAsrOptionalDiagnosticErrorDiagnostic,
   buildAsrVisualGovernorDeadScreenAutopsyDiagnostic,
   buildAsrScrollAuthorityConflictDiagnostic,
   buildAsrScrollAuthoritySelectedDiagnostic,
@@ -562,6 +567,48 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY] currentLineIdx=53 committedLineIdx=53 requestedTargetIdx=54 bestIdx=54 acceptedCommitTargetIdx=54 proofSource=live_strict_local_proof_ok sourceBranch=movement_authority_proof currentScrollTop=3655 targetScrollTop=3875 moved=0 deltaLines=5.95 speakableLead=6 renderedLead=7 governorHoldAgeMs=5147 noCommitMs=5158 speechFresh=1 finalPacketFresh=1 liveSpeechFresh=1 speechActive=1 transcriptAgeMs=639 audioAgeMs=639 lastSelectedAuthority=pocket_authority lastGuardReason=movement_authority_resolved lastHudGuardText=Hold: waiting for direct adjacent ASR match lastVisualAction=pursue lastVisualErrorPx=143 finalCommitEligible=1 terminalCommitSuppressedByVisualGovernor=1 freshAdjacentUnlockSeen=1 suppressedForwardProofCountInWindow=12 hardHoldTickCountInWindow=18 deadScreenRebaseCountInWindow=2',
+    );
+  });
+
+  test('builds diagnostic bundle proof with expected fields', () => {
+    const line = buildAsrDiagnosticBundleProofDiagnostic({
+      buildStamp: 'asr-scroll-2026-05-18T22:07:18.976Z',
+      runKey: 'run-13',
+      runGeneration: 4,
+      hasDelayedSuppressionAutopsyBuilder: true,
+      hasVisualGovernorDeadScreenAutopsyBuilder: true,
+      delayedAutopsyVersion: ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION,
+      deadScreenAutopsyVersion: ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION,
+    });
+    expect(line).toBe(
+      `[ASR_DIAGNOSTIC_BUNDLE_PROOF] buildStamp=asr-scroll-2026-05-18T22:07:18.976Z runKey=run-13 runGeneration=4 hasDelayedSuppressionAutopsyBuilder=1 hasVisualGovernorDeadScreenAutopsyBuilder=1 delayedAutopsyVersion=${ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION} deadScreenAutopsyVersion=${ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION}`,
+    );
+  });
+
+  test('builds dump-path proof with expected fields', () => {
+    const line = buildAsrAlignmentEpisodeDumpPathProofDiagnostic({
+      visualOutcome: 'delayed_until_starvation',
+      reasonChain: 'asr_recovery_chain_blocked|live_asr_marker_lock_suppressed|superseded_by_new_commit',
+      actions: 'pursued|snap_suppressed',
+      markerY: 390.4,
+      nextSpeakableLineY: 475.7,
+      wouldQualifyDelayedSuppressionAutopsy: true,
+      delayedAutopsyGateReason: 'reason_chain_live_asr_marker_lock_suppressed',
+      wouldQualifyDeadScreenAutopsy: false,
+      deadScreenAutopsyGateReason: 'not_evaluated_in_episode_dump_path',
+    });
+    expect(line).toBe(
+      '[ASR_ALIGNMENT_EPISODE_DUMP_PATH_PROOF] visualOutcome=delayed_until_starvation reasonChain=asr_recovery_chain_blocked|live_asr_marker_lock_suppressed|superseded_by_new_commit actions=pursued|snap_suppressed markerY=390 nextSpeakableLineY=476 wouldQualifyDelayedSuppressionAutopsy=1 delayedAutopsyGateReason=reason_chain_live_asr_marker_lock_suppressed wouldQualifyDeadScreenAutopsy=0 deadScreenAutopsyGateReason=not_evaluated_in_episode_dump_path',
+    );
+  });
+
+  test('builds optional diagnostic error with expected fields', () => {
+    const line = buildAsrOptionalDiagnosticErrorDiagnostic({
+      diagnosticTag: 'ASR_DELAYED_SUPPRESSION_AUTOPSY',
+      errorMessage: 'boom "quoted"',
+    });
+    expect(line).toBe(
+      `[ASR_OPTIONAL_DIAGNOSTIC_ERROR] diagnosticTag=ASR_DELAYED_SUPPRESSION_AUTOPSY errorMessage="boom 'quoted'"`,
     );
   });
 

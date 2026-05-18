@@ -1,6 +1,8 @@
 import {
+  buildAsrAlignmentEpisodeDumpPathProofDiagnostic,
   buildAsrBottomLockGeometryDiagnostic,
   buildAsrDelayedSuppressionAutopsyDiagnostic,
+  buildAsrOptionalDiagnosticErrorDiagnostic,
 } from './asr-diagnostics';
 
 export type VisualOutcome =
@@ -124,15 +126,45 @@ function classifyDelayedSuppressionBlocker(ep: Episode): string {
   return 'unknown';
 }
 
-function shouldEmitDelayedSuppressionAutopsy(ep: Episode): boolean {
-  return (
-    ep.visualOutcome === 'delayed_until_starvation' &&
-    (
-      ep.visual.snapSuppressedInEpisode ||
-      ep.reasonChain.some((r) => String(r).includes('live_asr_marker_lock_suppressed')) ||
-      ep.visual.actions.includes('snap_suppressed')
-    )
-  );
+function explainDelayedSuppressionAutopsyGate(ep: Episode): { qualifies: boolean; reason: string } {
+  if (ep.visualOutcome !== 'delayed_until_starvation') {
+    return { qualifies: false, reason: 'visual_outcome_not_delayed_until_starvation' };
+  }
+  if (ep.reasonChain.some((r) => String(r).includes('live_asr_marker_lock_suppressed'))) {
+    return { qualifies: true, reason: 'reason_chain_live_asr_marker_lock_suppressed' };
+  }
+  if (ep.visual.actions.includes('snap_suppressed')) {
+    return { qualifies: true, reason: 'actions_include_snap_suppressed' };
+  }
+  if (ep.reasonChain.some((r) => String(r).includes('superseded_by_new_commit'))) {
+    return { qualifies: true, reason: 'reason_chain_superseded_by_new_commit' };
+  }
+  return { qualifies: false, reason: 'no_delayed_suppression_qualifier_present' };
+}
+
+function shouldEmitDumpPathProof(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const params = new URLSearchParams(window.location.search || '');
+    if (params.get('dev') === '1') return true;
+    if (params.get('asr_log_buffer') === '1') return true;
+  } catch {}
+  try {
+    const win = window as any;
+    if (win.__asrLogBufferInstalled) return true;
+    if (window.localStorage?.getItem('tp_dev_mode') === '1') return true;
+    if (window.localStorage?.getItem('asr_log_buffer') === '1') return true;
+  } catch {}
+  return false;
+}
+
+function formatOptionalDiagnosticError(error: unknown): string {
+  if (error instanceof Error) return error.message || error.name || 'unknown_error';
+  try {
+    return String(error);
+  } catch {
+    return 'unknown_error';
+  }
 }
 
 export class AsrAlignmentEpisodeTracker {
@@ -389,10 +421,28 @@ export class AsrAlignmentEpisodeTracker {
   dumpForConsole(epArg?: Episode): void {
     const ep = epArg || this.active;
     if (!ep) return;
+    const reasonChain = ep.reasonChain.slice(-8).join('|') || 'none';
+    const actions = ep.visual.actions.join('|') || 'none';
+    const delayedAutopsyGate = explainDelayedSuppressionAutopsyGate(ep);
     try {
       console.info(
-        `[ASR_ALIGNMENT_EPISODE] id=${ep.id} currentLine=${ep.semantic.currentLine} requestedTarget=${ep.semantic.requestedTarget} acceptedCommitTarget=${ep.semantic.acceptedCommitTarget} authorityPath=${ep.semantic.authorityPath} proofSource=${ep.semantic.proofSource} sourceHoldReason=${ep.semantic.sourceHoldReason} scrollTopBefore=${Math.round(ep.visual.scrollTopBefore)} scrollTopAfter=${Math.round(ep.visual.scrollTopAfter)} targetScrollTop=${Math.round(ep.visual.targetScrollTop)} markerY=${Math.round(ep.visual.markerY)} currentLineY=${Math.round(ep.visual.currentLineY)} nextSpeakableLineY=${Math.round(ep.visual.nextSpeakableLineY)} pocketZone=${ep.visual.pocketZone} actions=${ep.visual.actions.join('|') || 'none'} deltaLinesSamples=${ep.metrics.deltaLinesSamples.map((n) => n.toFixed(2)).join('|') || 'none'} settleMs=${Math.round(ep.metrics.settleMs)} lowerPocketMs=${Math.round(ep.metrics.lowerPocketMs)} hardHoldTicks=${ep.metrics.hardHoldTicks} transcriptAgeMs=${Math.round(ep.metrics.transcriptAgeMs)} audioAgeMs=${Math.round(ep.metrics.audioAgeMs)} stallDelayMs=${Math.round(ep.metrics.stallDelayMs)} visualOutcome=${ep.visualOutcome} reasonChain=${ep.reasonChain.slice(-8).join('|') || 'none'}`,
+        `[ASR_ALIGNMENT_EPISODE] id=${ep.id} currentLine=${ep.semantic.currentLine} requestedTarget=${ep.semantic.requestedTarget} acceptedCommitTarget=${ep.semantic.acceptedCommitTarget} authorityPath=${ep.semantic.authorityPath} proofSource=${ep.semantic.proofSource} sourceHoldReason=${ep.semantic.sourceHoldReason} scrollTopBefore=${Math.round(ep.visual.scrollTopBefore)} scrollTopAfter=${Math.round(ep.visual.scrollTopAfter)} targetScrollTop=${Math.round(ep.visual.targetScrollTop)} markerY=${Math.round(ep.visual.markerY)} currentLineY=${Math.round(ep.visual.currentLineY)} nextSpeakableLineY=${Math.round(ep.visual.nextSpeakableLineY)} pocketZone=${ep.visual.pocketZone} actions=${actions} deltaLinesSamples=${ep.metrics.deltaLinesSamples.map((n) => n.toFixed(2)).join('|') || 'none'} settleMs=${Math.round(ep.metrics.settleMs)} lowerPocketMs=${Math.round(ep.metrics.lowerPocketMs)} hardHoldTicks=${ep.metrics.hardHoldTicks} transcriptAgeMs=${Math.round(ep.metrics.transcriptAgeMs)} audioAgeMs=${Math.round(ep.metrics.audioAgeMs)} stallDelayMs=${Math.round(ep.metrics.stallDelayMs)} visualOutcome=${ep.visualOutcome} reasonChain=${reasonChain}`,
       );
+      if (shouldEmitDumpPathProof()) {
+        console.info(
+          buildAsrAlignmentEpisodeDumpPathProofDiagnostic({
+            visualOutcome: ep.visualOutcome,
+            reasonChain,
+            actions,
+            markerY: ep.visual.markerY,
+            nextSpeakableLineY: ep.visual.nextSpeakableLineY,
+            wouldQualifyDelayedSuppressionAutopsy: delayedAutopsyGate.qualifies,
+            delayedAutopsyGateReason: delayedAutopsyGate.reason,
+            wouldQualifyDeadScreenAutopsy: false,
+            deadScreenAutopsyGateReason: 'not_evaluated_in_episode_dump_path',
+          }),
+        );
+      }
     } catch {}
     if (ep.visualOutcome === 'bottom_locked') {
       try {
@@ -415,15 +465,22 @@ export class AsrAlignmentEpisodeTracker {
             lastVisualTargetDeltaPx: ep.visual.lastVisualTargetDeltaPx,
             lastVisualVelocityPxps: ep.visual.lastVisualVelocityPxps,
             snapSuppressedInEpisode: ep.visual.snapSuppressedInEpisode,
-            reasonChain: ep.reasonChain.slice(-8).join('|') || 'none',
+            reasonChain,
             deltaLinesSamples: ep.metrics.deltaLinesSamples.map((n) => n.toFixed(2)).join('|') || 'none',
           }),
         );
-      } catch {}
+      } catch (error) {
+        try {
+          console.warn(
+            buildAsrOptionalDiagnosticErrorDiagnostic({
+              diagnosticTag: 'ASR_BOTTOM_LOCK_GEOMETRY_DIAG',
+              errorMessage: formatOptionalDiagnosticError(error),
+            }),
+          );
+        } catch {}
+      }
     }
-    if (shouldEmitDelayedSuppressionAutopsy(ep)) {
-      const reasonChain = ep.reasonChain.slice(-8).join('|') || 'none';
-      const actions = ep.visual.actions.join('|') || 'none';
+    if (delayedAutopsyGate.qualifies) {
       const supersededByNewCommit = ep.reasonChain.some((r) => String(r).includes('superseded_by_new_commit'));
       try {
         console.info(
@@ -464,7 +521,16 @@ export class AsrAlignmentEpisodeTracker {
             blockerCategory: classifyDelayedSuppressionBlocker(ep),
           }),
         );
-      } catch {}
+      } catch (error) {
+        try {
+          console.warn(
+            buildAsrOptionalDiagnosticErrorDiagnostic({
+              diagnosticTag: 'ASR_DELAYED_SUPPRESSION_AUTOPSY',
+              errorMessage: formatOptionalDiagnosticError(error),
+            }),
+          );
+        } catch {}
+      }
     }
   }
 }

@@ -88,6 +88,25 @@ describe('ASR live commit motion', () => {
     delete (window as any).__tpStore;
     delete (window as any).__TP_MARKER_PCT;
     delete (window as any).__tpLiveAsrGovernorHold;
+    delete (window as any).__tpAsrDiagnosticBundleProofEmitted;
+    delete (window as any).__TP_BUILD_STAMP;
+  });
+
+  test('emits ASR_DIAGNOSTIC_BUNDLE_PROOF once when ASR driver starts in dev mode', () => {
+    window.history.replaceState({}, '', '/?dev=1');
+    (window as any).__TP_BUILD_STAMP = 'asr-scroll-2026-05-18T22:07:18.976Z';
+    const driver = createAsrScrollDriver({ runKey: 'bundle-proof-run', runGeneration: 9 });
+
+    const lines = consoleInfoSpy.mock.calls.map((c) => String(c[0] || ''));
+    const proofLine = lines.find((line) => line.includes('ASR_DIAGNOSTIC_BUNDLE_PROOF')) || '';
+    expect(proofLine).toContain('buildStamp=asr-scroll-2026-05-18T22:07:18.976Z');
+    expect(proofLine).toContain('runKey=bundle-proof-run');
+    expect(proofLine).toContain('runGeneration=9');
+    expect(proofLine).toContain('hasDelayedSuppressionAutopsyBuilder=1');
+    expect(proofLine).toContain('hasVisualGovernorDeadScreenAutopsyBuilder=1');
+
+    driver.dispose();
+    window.history.replaceState({}, '', '/');
   });
 
   test('live ASR commit sets semantic target and then follows it with motion over time', async () => {

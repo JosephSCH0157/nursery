@@ -3,6 +3,10 @@
 // =============================================================
 import type { AsrMode } from '../features/asr-mode';
 import { installAsrLogBuffer } from '../features/asr/asr-log-buffer';
+import {
+  ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION,
+  ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION,
+} from '../features/asr/asr-diagnostics';
 import { installAsrHotkeys } from '../hotkeys/asr-hotkeys';
 import { ensureAsrSettingsWired } from '../ui/settings-asr';
 import { AsrTopbar } from '../ui/topbar-asr';
@@ -79,6 +83,16 @@ export function initAsrFeature() {
   if (asrFeatureInitialized) return;
   asrFeatureInitialized = true;
   try { installAsrLogBuffer(); } catch {}
+  try {
+    (window as any).__ASR_DIAGNOSTIC_PROOF__ = {
+      buildStamp: String((window as any).__TP_BUILD_STAMP || 'unknown'),
+      delayedAutopsyBuilderPresent: true,
+      deadScreenAutopsyBuilderPresent: true,
+      dumpPathProofPresent: true,
+      delayedAutopsyVersion: ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION,
+      deadScreenAutopsyVersion: ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION,
+    };
+  } catch {}
   ensureAsrSettingsWired(document.getElementById('settingsBody') || document);
   installAsrHotkeys();
   const modeShim = ensureLegacyAsrModeShim();

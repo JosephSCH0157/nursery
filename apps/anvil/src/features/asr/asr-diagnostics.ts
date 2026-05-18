@@ -333,6 +333,42 @@ export function buildAsrVisualGovernorDeadScreenAutopsyDiagnostic(args: {
   return `[ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} requestedTargetIdx=${args.requestedTargetIdx} bestIdx=${args.bestIdx} acceptedCommitTargetIdx=${args.acceptedCommitTargetIdx} proofSource=${args.proofSource} sourceBranch=${args.sourceBranch} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} moved=${Math.round(args.moved)} deltaLines=${args.deltaLines.toFixed(2)} speakableLead=${args.speakableLead} renderedLead=${args.renderedLead} governorHoldAgeMs=${Math.round(args.governorHoldAgeMs)} noCommitMs=${Math.round(args.noCommitMs)} speechFresh=${args.speechFresh ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} liveSpeechFresh=${args.liveSpeechFresh ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} transcriptAgeMs=${Math.round(args.transcriptAgeMs)} audioAgeMs=${Math.round(args.audioAgeMs)} lastSelectedAuthority=${args.lastSelectedAuthority} lastGuardReason=${args.lastGuardReason} lastHudGuardText=${args.lastHudGuardText} lastVisualAction=${args.lastVisualAction} lastVisualErrorPx=${Math.round(args.lastVisualErrorPx)} finalCommitEligible=${args.finalCommitEligible ? 1 : 0} terminalCommitSuppressedByVisualGovernor=${args.terminalCommitSuppressedByVisualGovernor ? 1 : 0} freshAdjacentUnlockSeen=${args.freshAdjacentUnlockSeen ? 1 : 0} suppressedForwardProofCountInWindow=${args.suppressedForwardProofCountInWindow} hardHoldTickCountInWindow=${args.hardHoldTickCountInWindow} deadScreenRebaseCountInWindow=${args.deadScreenRebaseCountInWindow}`;
 }
 
+export const ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION = '2026-05-18a';
+export const ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION = '2026-05-18a';
+
+export function buildAsrDiagnosticBundleProofDiagnostic(args: {
+  buildStamp: string;
+  runKey: string;
+  runGeneration: number;
+  hasDelayedSuppressionAutopsyBuilder: boolean;
+  hasVisualGovernorDeadScreenAutopsyBuilder: boolean;
+  delayedAutopsyVersion: string;
+  deadScreenAutopsyVersion: string;
+}): string {
+  return `[ASR_DIAGNOSTIC_BUNDLE_PROOF] buildStamp=${args.buildStamp} runKey=${args.runKey || 'none'} runGeneration=${Number.isFinite(args.runGeneration) ? Math.round(args.runGeneration) : -1} hasDelayedSuppressionAutopsyBuilder=${args.hasDelayedSuppressionAutopsyBuilder ? 1 : 0} hasVisualGovernorDeadScreenAutopsyBuilder=${args.hasVisualGovernorDeadScreenAutopsyBuilder ? 1 : 0} delayedAutopsyVersion=${args.delayedAutopsyVersion} deadScreenAutopsyVersion=${args.deadScreenAutopsyVersion}`;
+}
+
+export function buildAsrAlignmentEpisodeDumpPathProofDiagnostic(args: {
+  visualOutcome: string;
+  reasonChain: string;
+  actions: string;
+  markerY: number;
+  nextSpeakableLineY: number;
+  wouldQualifyDelayedSuppressionAutopsy: boolean;
+  delayedAutopsyGateReason: string;
+  wouldQualifyDeadScreenAutopsy: boolean;
+  deadScreenAutopsyGateReason: string;
+}): string {
+  return `[ASR_ALIGNMENT_EPISODE_DUMP_PATH_PROOF] visualOutcome=${args.visualOutcome} reasonChain=${args.reasonChain} actions=${args.actions} markerY=${Math.round(args.markerY)} nextSpeakableLineY=${Math.round(args.nextSpeakableLineY)} wouldQualifyDelayedSuppressionAutopsy=${args.wouldQualifyDelayedSuppressionAutopsy ? 1 : 0} delayedAutopsyGateReason=${args.delayedAutopsyGateReason} wouldQualifyDeadScreenAutopsy=${args.wouldQualifyDeadScreenAutopsy ? 1 : 0} deadScreenAutopsyGateReason=${args.deadScreenAutopsyGateReason}`;
+}
+
+export function buildAsrOptionalDiagnosticErrorDiagnostic(args: {
+  diagnosticTag: string;
+  errorMessage: string;
+}): string {
+  return `[ASR_OPTIONAL_DIAGNOSTIC_ERROR] diagnosticTag=${args.diagnosticTag} errorMessage="${args.errorMessage.replace(/"/g, "'")}"`;
+}
+
 export function buildAsrEarlyBridgeTrapReleasedDiagnostic(args: {
   current: number;
   requestedTarget: number;
