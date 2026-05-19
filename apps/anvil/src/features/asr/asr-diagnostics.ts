@@ -495,6 +495,35 @@ export function buildAsrVisualRecoveryBoostBypassedDiagnostic(args: {
   return `[ASR_VISUAL_RECOVERY_BOOST_BYPASSED] authority=${args.authority} reason=${args.reason} targetDebtPx=${Math.round(args.targetDebtPx)} lowStateAgeMs=${Math.round(args.lowStateAgeMs)} bypassReason=${args.bypassReason}`;
 }
 
+export function buildAsrPostAdjacentCommitVisualRecoveryOpenedDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  proofSource: string;
+  snapSuppressed: boolean;
+  moved: number;
+  nextSpeakableLineY: number;
+  markerY: number;
+  targetDebtPx: number;
+  visualErrorPx: number;
+}): string {
+  return `[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_OPENED] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} proofSource=${args.proofSource} snapSuppressed=${args.snapSuppressed ? 1 : 0} moved=${Math.round(args.moved)} nextSpeakableLineY=${Math.round(args.nextSpeakableLineY)} markerY=${Math.round(args.markerY)} targetDebtPx=${Math.round(args.targetDebtPx)} visualErrorPx=${Math.round(args.visualErrorPx)}`;
+}
+
+export function buildAsrPostAdjacentCommitVisualRecoveryAppliedDiagnostic(args: {
+  authority: string;
+  targetDebtPx: number;
+  appliedDeltaPx: number;
+  reason: string;
+}): string {
+  return `[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_APPLIED] authority=${args.authority} targetDebtPx=${Math.round(args.targetDebtPx)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} reason=${args.reason}`;
+}
+
+export function buildAsrPostAdjacentCommitVisualRecoveryBlockedDiagnostic(args: {
+  reason: string;
+}): string {
+  return `[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_BLOCKED] reason=${args.reason}`;
+}
+
 export const ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION = '2026-05-18a';
 export const ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION = '2026-05-18a';
 

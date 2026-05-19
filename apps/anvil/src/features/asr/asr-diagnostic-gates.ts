@@ -36,6 +36,10 @@ export type AsrVisualRecoveryBoostDecision =
   | { allow: true; minStepPx: number; maxStepPx: number }
   | { allow: false; reason: string };
 
+export type AsrPostAdjacentCommitVisualRecoveryDecision =
+  | { allow: true; minStepPx: number; maxStepPx: number }
+  | { allow: false; reason: string };
+
 export function decideAsrAdjacentRecoveryCatchup(input: {
   finalPacketFresh: boolean;
   audioBackendFresh: boolean;
@@ -123,6 +127,42 @@ export function decideAsrVisualRecoveryBoost(input: {
     allow: true,
     minStepPx: stronger ? 14 : 12,
     maxStepPx: stronger ? 16 : 14,
+  };
+}
+
+export function decideAsrPostAdjacentCommitVisualRecovery(input: {
+  windowActive: boolean;
+  speechFresh: boolean;
+  finalPacketFresh: boolean;
+  liveSpeechFresh: boolean;
+  audioBackendFresh: boolean;
+  noMatchOrOffscript: boolean;
+  bridgeTrapActive: boolean;
+  deadScreenActive: boolean;
+  alreadyInBand: boolean;
+  targetDebtPx: number;
+}): AsrPostAdjacentCommitVisualRecoveryDecision {
+  if (!input.windowActive) return { allow: false, reason: 'window_expired' };
+  if (input.bridgeTrapActive) return { allow: false, reason: 'bridge_trap_active' };
+  if (input.deadScreenActive) return { allow: false, reason: 'dead_screen_active' };
+  if (input.noMatchOrOffscript) return { allow: false, reason: 'no_match_or_offscript' };
+  if (
+    !input.speechFresh ||
+    !input.finalPacketFresh ||
+    !input.liveSpeechFresh ||
+    !input.audioBackendFresh
+  ) {
+    return { allow: false, reason: 'stale_speech' };
+  }
+  if (input.alreadyInBand) return { allow: false, reason: 'already_in_band' };
+  if (!Number.isFinite(input.targetDebtPx) || input.targetDebtPx < 80) {
+    return { allow: false, reason: 'debt_too_small' };
+  }
+  const stronger = input.targetDebtPx >= 250;
+  return {
+    allow: true,
+    minStepPx: stronger ? 14 : 12,
+    maxStepPx: stronger ? 18 : 16,
   };
 }
 

@@ -22,6 +22,9 @@ import {
   buildAsrAdjacentRecoveryCatchupBlockedDiagnostic,
   buildAsrAdjacentRecoveryCatchupBypassedDiagnostic,
   buildAsrAdjacentRecoveryCatchupPathProofDiagnostic,
+  buildAsrPostAdjacentCommitVisualRecoveryAppliedDiagnostic,
+  buildAsrPostAdjacentCommitVisualRecoveryBlockedDiagnostic,
+  buildAsrPostAdjacentCommitVisualRecoveryOpenedDiagnostic,
   buildAsrVisualRecoveryBoostAppliedDiagnostic,
   buildAsrVisualRecoveryBoostBypassedDiagnostic,
   buildAsrVisualRecoveryBoostBlockedDiagnostic,
@@ -36,6 +39,7 @@ import {
 import {
   decideAsrVisualGovernorDeadScreenEscape,
   decideAsrAdjacentRecoveryCatchup,
+  decideAsrPostAdjacentCommitVisualRecovery,
   decideAsrVisualRecoveryBoost,
   shouldEmitAsrVisualGovernorDeadScreenAutopsy,
 } from '../../src/features/asr/asr-diagnostic-gates';
@@ -777,6 +781,44 @@ describe('ASR backend liveness diagnostics builders', () => {
     );
   });
 
+  test('builds post adjacent commit visual recovery opened diagnostic with expected fields', () => {
+    const line = buildAsrPostAdjacentCommitVisualRecoveryOpenedDiagnostic({
+      currentLineIdx: 83,
+      committedLineIdx: 84,
+      proofSource: 'live_strict_local_proof_ok',
+      snapSuppressed: true,
+      moved: 0,
+      nextSpeakableLineY: 475.4,
+      markerY: 390.2,
+      targetDebtPx: 212.1,
+      visualErrorPx: 8.3,
+    });
+    expect(line).toBe(
+      '[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_OPENED] currentLineIdx=83 committedLineIdx=84 proofSource=live_strict_local_proof_ok snapSuppressed=1 moved=0 nextSpeakableLineY=475 markerY=390 targetDebtPx=212 visualErrorPx=8',
+    );
+  });
+
+  test('builds post adjacent commit visual recovery applied diagnostic with expected fields', () => {
+    const line = buildAsrPostAdjacentCommitVisualRecoveryAppliedDiagnostic({
+      authority: 'comfort_nudge',
+      targetDebtPx: 212.1,
+      appliedDeltaPx: 14.2,
+      reason: 'fresh_adjacent_commit_sticky_landing',
+    });
+    expect(line).toBe(
+      '[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_APPLIED] authority=comfort_nudge targetDebtPx=212 appliedDeltaPx=14 reason=fresh_adjacent_commit_sticky_landing',
+    );
+  });
+
+  test('builds post adjacent commit visual recovery blocked diagnostic with expected fields', () => {
+    const line = buildAsrPostAdjacentCommitVisualRecoveryBlockedDiagnostic({
+      reason: 'bridge_trap_active',
+    });
+    expect(line).toBe(
+      '[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_BLOCKED] reason=bridge_trap_active',
+    );
+  });
+
   test('builds diagnostic bundle proof with expected fields', () => {
     const line = buildAsrDiagnosticBundleProofDiagnostic({
       buildStamp: 'asr-scroll-2026-05-18T22:07:18.976Z',
@@ -1461,5 +1503,83 @@ describe('ASR backend liveness diagnostics builders', () => {
       insidePreferredSettleBand: false,
       insideToleratedBand: false,
     })).toEqual({ allow: false, reason: 'low_state_not_mature' });
+  });
+
+  test('post adjacent commit visual recovery decision allows fresh low sticky landing', () => {
+    expect(decideAsrPostAdjacentCommitVisualRecovery({
+      windowActive: true,
+      speechFresh: true,
+      finalPacketFresh: true,
+      liveSpeechFresh: true,
+      audioBackendFresh: true,
+      noMatchOrOffscript: false,
+      bridgeTrapActive: false,
+      deadScreenActive: false,
+      alreadyInBand: false,
+      targetDebtPx: 212,
+    })).toEqual({ allow: true, minStepPx: 12, maxStepPx: 16 });
+  });
+
+  test('post adjacent commit visual recovery decision blocks safety and stale cases', () => {
+    expect(decideAsrPostAdjacentCommitVisualRecovery({
+      windowActive: true,
+      speechFresh: true,
+      finalPacketFresh: true,
+      liveSpeechFresh: true,
+      audioBackendFresh: true,
+      noMatchOrOffscript: false,
+      bridgeTrapActive: true,
+      deadScreenActive: false,
+      alreadyInBand: false,
+      targetDebtPx: 212,
+    })).toEqual({ allow: false, reason: 'bridge_trap_active' });
+    expect(decideAsrPostAdjacentCommitVisualRecovery({
+      windowActive: true,
+      speechFresh: true,
+      finalPacketFresh: true,
+      liveSpeechFresh: true,
+      audioBackendFresh: true,
+      noMatchOrOffscript: true,
+      bridgeTrapActive: false,
+      deadScreenActive: false,
+      alreadyInBand: false,
+      targetDebtPx: 212,
+    })).toEqual({ allow: false, reason: 'no_match_or_offscript' });
+    expect(decideAsrPostAdjacentCommitVisualRecovery({
+      windowActive: true,
+      speechFresh: true,
+      finalPacketFresh: true,
+      liveSpeechFresh: true,
+      audioBackendFresh: true,
+      noMatchOrOffscript: false,
+      bridgeTrapActive: false,
+      deadScreenActive: true,
+      alreadyInBand: false,
+      targetDebtPx: 212,
+    })).toEqual({ allow: false, reason: 'dead_screen_active' });
+    expect(decideAsrPostAdjacentCommitVisualRecovery({
+      windowActive: true,
+      speechFresh: false,
+      finalPacketFresh: true,
+      liveSpeechFresh: true,
+      audioBackendFresh: true,
+      noMatchOrOffscript: false,
+      bridgeTrapActive: false,
+      deadScreenActive: false,
+      alreadyInBand: false,
+      targetDebtPx: 212,
+    })).toEqual({ allow: false, reason: 'stale_speech' });
+    expect(decideAsrPostAdjacentCommitVisualRecovery({
+      windowActive: false,
+      speechFresh: true,
+      finalPacketFresh: true,
+      liveSpeechFresh: true,
+      audioBackendFresh: true,
+      noMatchOrOffscript: false,
+      bridgeTrapActive: false,
+      deadScreenActive: false,
+      alreadyInBand: false,
+      targetDebtPx: 212,
+    })).toEqual({ allow: false, reason: 'window_expired' });
   });
 });

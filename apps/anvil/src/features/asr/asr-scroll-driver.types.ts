@@ -155,6 +155,7 @@ export type AsrMoveResult = {
   beforeTop: number;
   afterTop: number;
   movedPx: number;
+  snapSuppressed?: boolean;
 };
 
 export type CueBridgeSkipReason = 'blank' | 'cue' | 'note' | 'speaker';
