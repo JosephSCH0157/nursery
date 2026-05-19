@@ -35,6 +35,8 @@ import {
   buildAsrMarkerErrorLowerRailRejectedDiagnostic,
   buildAsrOptionalDiagnosticErrorDiagnostic,
   buildAsrVisualGovernorDeadScreenAutopsyDiagnostic,
+  buildAsrVisualGovernorDeadScreenEscapeBlockedDiagnostic,
+  buildAsrVisualGovernorDeadScreenEscapeCommitDiagnostic,
   buildAsrScrollAuthorityConflictDiagnostic,
   buildAsrScrollAuthoritySelectedDiagnostic,
   buildProofOwnedPrimaryCommitGuardBaseParts,
@@ -95,6 +97,7 @@ import {
 } from './asr-visual-follow';
 import { clearOnlyMatchingBridgeBlockToken, shouldReleaseEarlyBridgeTrap } from './asr-bridge-trap';
 import { shouldEmitAsrVisualGovernorDeadScreenAutopsy } from './asr-diagnostic-gates';
+import { decideAsrVisualGovernorDeadScreenEscape } from './asr-diagnostic-gates';
 import { isManualAnchorPendingFresh, isManualAnchorWithinLineWindow } from './asr-manual-anchor-policy';
 import {
   buildBackendHeartbeatDiagnosticInput,
@@ -18295,10 +18298,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), targetLine),
         );
         const deadScreenRenderedLead = Math.max(0, targetLine - Math.max(0, lastStrongConfirmedSpokenLine));
-        const deadScreenTranscriptFresh =
+      const deadScreenTranscriptFresh =
           lastTranscriptPacketAt > 0 &&
           Math.max(0, now - lastTranscriptPacketAt) <= 2000;
-        const deadScreenReleaseEligible =
+      const deadScreenReleaseEligible =
           !deadScreenTargetCueOnly &&
           targetLine === prevLineIndex + 1 &&
           (deadScreenSpeechFresh || deadScreenAdjacentProofBacked) &&
@@ -18306,6 +18309,28 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           deadScreenNoCommitMs >= 1000 &&
           (deadScreenGovernorHoldAgeMs >= 600 || deadScreenGlobalHold) &&
           commitDeltaLines <= ASR_LIVE_VISUAL_BRIDGE_STEP_MAX_LINES;
+        const deadScreenEscapeDecision = decideAsrVisualGovernorDeadScreenEscape({
+          movedPx: commitMovedPx,
+          currentLineIdx: prevLineIndex,
+          acceptedCommitTargetIdx: deadScreenAcceptedCommitTargetIdx,
+          targetSpeakable: isSpeakableScriptLine(deadScreenAcceptedCommitTargetIdx),
+          hardContradiction: !!strictBackwardContradictionForCommit,
+          offscriptNoMatch: deadScreenNoMatchActive,
+          speechFresh: deadScreenSpeechFresh,
+          finalPacketFresh: lastFinalTranscriptAt > 0 && now - lastFinalTranscriptAt <= 1800,
+          liveSpeechFresh: runtimeSpeechFresh,
+          freshAdjacentUnlockSeen: deadScreenFreshAdjacentUnlockSeen,
+          suppressedForwardProofCountInWindow: deadScreenSuppressedForwardProofCountInWindow,
+          terminalCommitSuppressedByVisualGovernor: deadScreenTerminalCommitSuppressedByVisualGovernor,
+          noCommitMs: deadScreenNoCommitMs,
+          governorHoldAgeMs: deadScreenGovernorHoldAgeMs,
+          thresholdMs: 3000,
+          globalHold: deadScreenGlobalHold,
+        });
+        const deadScreenEscapeEligible =
+          !deadScreenReleaseEligible &&
+          !deadScreenTargetCueOnly &&
+          deadScreenEscapeDecision.allow;
         if (deadScreenReleaseEligible) {
           liveAsrVisualGovernorHardHold = false;
           liveAsrVisualGovernorHardHoldSinceMs = 0;
@@ -18314,7 +18339,61 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               `[ASR_GOVERNOR_DEAD_SCREEN_RELEASED] current=${prevLineIndex} target=${targetLine} holdAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)} noCommitMs=${Math.round(deadScreenNoCommitMs)} speakableLead=${deadScreenSpeakableLead} renderedLead=${deadScreenRenderedLead} sourceBranch=${deadScreenSourceBranch} proofSource=${deadScreenProofSource} reason=adjacent_safe_release`,
             );
           } catch {}
+        } else if (deadScreenEscapeEligible) {
+          liveAsrVisualGovernorHardHold = false;
+          liveAsrVisualGovernorHardHoldSinceMs = 0;
+          deadScreenTerminalCommitSuppressedByVisualGovernor = false;
+          try {
+            console.warn(
+              buildAsrVisualGovernorDeadScreenEscapeCommitDiagnostic({
+                currentLineIdx: prevLineIndex,
+                committedLineIdx: lastLineIndex,
+                requestedTargetIdx: targetLine,
+                acceptedCommitTargetIdx: deadScreenAcceptedCommitTargetIdx,
+                bestIdx: Math.max(prevLineIndex, Math.floor(Number(line) || targetLine)),
+                proofSource: deadScreenProofSource,
+                sourceBranch: deadScreenSourceBranch,
+                currentScrollTop: commitCurrentTop,
+                targetScrollTop: commitRequestedTargetTop,
+                moved: commitMovedPx,
+                deltaLines: commitDeltaLines,
+                governorHoldAgeMs: deadScreenGovernorHoldAgeMs,
+                noCommitMs: deadScreenNoCommitMs,
+                speechFresh: deadScreenSpeechFresh,
+                finalPacketFresh: lastFinalTranscriptAt > 0 && now - lastFinalTranscriptAt <= 1800,
+                liveSpeechFresh: runtimeSpeechFresh,
+                freshAdjacentUnlockSeen: deadScreenFreshAdjacentUnlockSeen,
+                terminalCommitSuppressedByVisualGovernor: true,
+                reason: 'bounded_adjacent_dead_screen_escape',
+              }),
+            );
+          } catch {}
         } else {
+          try {
+            console.warn(
+              buildAsrVisualGovernorDeadScreenEscapeBlockedDiagnostic({
+                currentLineIdx: prevLineIndex,
+                committedLineIdx: lastLineIndex,
+                requestedTargetIdx: targetLine,
+                acceptedCommitTargetIdx: deadScreenAcceptedCommitTargetIdx,
+                bestIdx: Math.max(prevLineIndex, Math.floor(Number(line) || targetLine)),
+                proofSource: deadScreenProofSource,
+                sourceBranch: deadScreenSourceBranch,
+                currentScrollTop: commitCurrentTop,
+                targetScrollTop: commitRequestedTargetTop,
+                moved: commitMovedPx,
+                deltaLines: commitDeltaLines,
+                governorHoldAgeMs: deadScreenGovernorHoldAgeMs,
+                noCommitMs: deadScreenNoCommitMs,
+                speechFresh: deadScreenSpeechFresh,
+                finalPacketFresh: lastFinalTranscriptAt > 0 && now - lastFinalTranscriptAt <= 1800,
+                liveSpeechFresh: runtimeSpeechFresh,
+                freshAdjacentUnlockSeen: deadScreenFreshAdjacentUnlockSeen,
+                terminalCommitSuppressedByVisualGovernor: deadScreenTerminalCommitSuppressedByVisualGovernor,
+                reason: deadScreenEscapeDecision.allow ? 'hold_not_mature' : deadScreenEscapeDecision.reason,
+              }),
+            );
+          } catch {}
         return;
         }
       }

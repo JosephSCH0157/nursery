@@ -16,6 +16,8 @@ import {
   buildAsrMarkerErrorLowerRailRejectedDiagnostic,
   buildAsrOptionalDiagnosticErrorDiagnostic,
   buildAsrVisualGovernorDeadScreenAutopsyDiagnostic,
+  buildAsrVisualGovernorDeadScreenEscapeBlockedDiagnostic,
+  buildAsrVisualGovernorDeadScreenEscapeCommitDiagnostic,
   buildAsrScrollAuthorityConflictDiagnostic,
   buildAsrScrollAuthoritySelectedDiagnostic,
   buildAsrVisualMarkerErrorCorrectionDiagnostic,
@@ -23,7 +25,10 @@ import {
   buildProofOwnedPrimaryCommitGuardBaseParts,
   buildRecoverySkipNonAdjacentTargetGuardBaseParts,
 } from '../../src/features/asr/asr-diagnostics';
-import { shouldEmitAsrVisualGovernorDeadScreenAutopsy } from '../../src/features/asr/asr-diagnostic-gates';
+import {
+  decideAsrVisualGovernorDeadScreenEscape,
+  shouldEmitAsrVisualGovernorDeadScreenAutopsy,
+} from '../../src/features/asr/asr-diagnostic-gates';
 
 describe('ASR backend liveness diagnostics builders', () => {
   test('builds backend heartbeat diagnostic with expected tag and fields', () => {
@@ -570,6 +575,60 @@ describe('ASR backend liveness diagnostics builders', () => {
     );
   });
 
+  test('builds visual governor dead-screen escape commit diagnostic with expected fields', () => {
+    const line = buildAsrVisualGovernorDeadScreenEscapeCommitDiagnostic({
+      currentLineIdx: 109,
+      committedLineIdx: 109,
+      requestedTargetIdx: 110,
+      acceptedCommitTargetIdx: 110,
+      bestIdx: 111,
+      proofSource: 'adjacent_rescue_proofed',
+      sourceBranch: 'movement_authority_forced_reconcile_single_step',
+      currentScrollTop: 7687,
+      targetScrollTop: 7906,
+      moved: 0,
+      deltaLines: 3.12,
+      governorHoldAgeMs: 5675,
+      noCommitMs: 5687,
+      speechFresh: true,
+      finalPacketFresh: true,
+      liveSpeechFresh: true,
+      freshAdjacentUnlockSeen: true,
+      terminalCommitSuppressedByVisualGovernor: true,
+      reason: 'bounded_adjacent_dead_screen_escape',
+    });
+    expect(line).toBe(
+      '[ASR_VISUAL_GOVERNOR_DEAD_SCREEN_ESCAPE_COMMIT] currentLineIdx=109 committedLineIdx=109 requestedTargetIdx=110 acceptedCommitTargetIdx=110 bestIdx=111 proofSource=adjacent_rescue_proofed sourceBranch=movement_authority_forced_reconcile_single_step currentScrollTop=7687 targetScrollTop=7906 moved=0 deltaLines=3.12 governorHoldAgeMs=5675 noCommitMs=5687 speechFresh=1 finalPacketFresh=1 liveSpeechFresh=1 freshAdjacentUnlockSeen=1 terminalCommitSuppressedByVisualGovernor=1 reason=bounded_adjacent_dead_screen_escape',
+    );
+  });
+
+  test('builds visual governor dead-screen escape blocked diagnostic with expected fields', () => {
+    const line = buildAsrVisualGovernorDeadScreenEscapeBlockedDiagnostic({
+      currentLineIdx: 109,
+      committedLineIdx: 109,
+      requestedTargetIdx: 111,
+      acceptedCommitTargetIdx: 111,
+      bestIdx: 111,
+      proofSource: 'adjacent_rescue_proofed',
+      sourceBranch: 'movement_authority_forced_reconcile_single_step',
+      currentScrollTop: 7687,
+      targetScrollTop: 7906,
+      moved: 0,
+      deltaLines: 3.12,
+      governorHoldAgeMs: 5675,
+      noCommitMs: 5687,
+      speechFresh: true,
+      finalPacketFresh: true,
+      liveSpeechFresh: true,
+      freshAdjacentUnlockSeen: true,
+      terminalCommitSuppressedByVisualGovernor: false,
+      reason: 'target_not_adjacent',
+    });
+    expect(line).toBe(
+      '[ASR_VISUAL_GOVERNOR_DEAD_SCREEN_ESCAPE_BLOCKED] currentLineIdx=109 committedLineIdx=109 requestedTargetIdx=111 acceptedCommitTargetIdx=111 bestIdx=111 proofSource=adjacent_rescue_proofed sourceBranch=movement_authority_forced_reconcile_single_step currentScrollTop=7687 targetScrollTop=7906 moved=0 deltaLines=3.12 governorHoldAgeMs=5675 noCommitMs=5687 speechFresh=1 finalPacketFresh=1 liveSpeechFresh=1 freshAdjacentUnlockSeen=1 terminalCommitSuppressedByVisualGovernor=0 reason=target_not_adjacent',
+    );
+  });
+
   test('builds diagnostic bundle proof with expected fields', () => {
     const line = buildAsrDiagnosticBundleProofDiagnostic({
       buildStamp: 'asr-scroll-2026-05-18T22:07:18.976Z',
@@ -642,5 +701,152 @@ describe('ASR backend liveness diagnostics builders', () => {
       hardContradiction: false,
       offscriptNoMatch: false,
     })).toBe(false);
+  });
+
+  test('dead-screen escape decision allows bounded adjacent terminal escape', () => {
+    expect(decideAsrVisualGovernorDeadScreenEscape({
+      movedPx: 0,
+      currentLineIdx: 109,
+      acceptedCommitTargetIdx: 110,
+      targetSpeakable: true,
+      hardContradiction: false,
+      offscriptNoMatch: false,
+      speechFresh: true,
+      finalPacketFresh: true,
+      liveSpeechFresh: true,
+      freshAdjacentUnlockSeen: true,
+      suppressedForwardProofCountInWindow: 15,
+      terminalCommitSuppressedByVisualGovernor: true,
+      noCommitMs: 5687,
+      governorHoldAgeMs: 5675,
+      thresholdMs: 3000,
+      globalHold: true,
+    })).toEqual({ allow: true });
+  });
+
+  test('dead-screen escape decision blocks non-adjacent target', () => {
+    expect(decideAsrVisualGovernorDeadScreenEscape({
+      movedPx: 0,
+      currentLineIdx: 109,
+      acceptedCommitTargetIdx: 111,
+      targetSpeakable: true,
+      hardContradiction: false,
+      offscriptNoMatch: false,
+      speechFresh: true,
+      finalPacketFresh: true,
+      liveSpeechFresh: true,
+      freshAdjacentUnlockSeen: true,
+      suppressedForwardProofCountInWindow: 15,
+      terminalCommitSuppressedByVisualGovernor: true,
+      noCommitMs: 5687,
+      governorHoldAgeMs: 5675,
+      thresholdMs: 3000,
+      globalHold: true,
+    })).toEqual({ allow: false, reason: 'target_not_adjacent' });
+  });
+
+  test('dead-screen escape decision blocks offscript/no-match', () => {
+    expect(decideAsrVisualGovernorDeadScreenEscape({
+      movedPx: 0,
+      currentLineIdx: 109,
+      acceptedCommitTargetIdx: 110,
+      targetSpeakable: true,
+      hardContradiction: false,
+      offscriptNoMatch: true,
+      speechFresh: true,
+      finalPacketFresh: true,
+      liveSpeechFresh: true,
+      freshAdjacentUnlockSeen: true,
+      suppressedForwardProofCountInWindow: 15,
+      terminalCommitSuppressedByVisualGovernor: true,
+      noCommitMs: 5687,
+      governorHoldAgeMs: 5675,
+      thresholdMs: 3000,
+      globalHold: true,
+    })).toEqual({ allow: false, reason: 'offscript_or_no_match' });
+  });
+
+  test('dead-screen escape decision blocks hard contradiction', () => {
+    expect(decideAsrVisualGovernorDeadScreenEscape({
+      movedPx: 0,
+      currentLineIdx: 109,
+      acceptedCommitTargetIdx: 110,
+      targetSpeakable: true,
+      hardContradiction: true,
+      offscriptNoMatch: false,
+      speechFresh: true,
+      finalPacketFresh: true,
+      liveSpeechFresh: true,
+      freshAdjacentUnlockSeen: true,
+      suppressedForwardProofCountInWindow: 15,
+      terminalCommitSuppressedByVisualGovernor: true,
+      noCommitMs: 5687,
+      governorHoldAgeMs: 5675,
+      thresholdMs: 3000,
+      globalHold: true,
+    })).toEqual({ allow: false, reason: 'hard_contradiction' });
+  });
+
+  test('dead-screen escape decision blocks without fresh live speech', () => {
+    expect(decideAsrVisualGovernorDeadScreenEscape({
+      movedPx: 0,
+      currentLineIdx: 109,
+      acceptedCommitTargetIdx: 110,
+      targetSpeakable: true,
+      hardContradiction: false,
+      offscriptNoMatch: false,
+      speechFresh: true,
+      finalPacketFresh: true,
+      liveSpeechFresh: false,
+      freshAdjacentUnlockSeen: true,
+      suppressedForwardProofCountInWindow: 15,
+      terminalCommitSuppressedByVisualGovernor: true,
+      noCommitMs: 5687,
+      governorHoldAgeMs: 5675,
+      thresholdMs: 3000,
+      globalHold: true,
+    })).toEqual({ allow: false, reason: 'no_fresh_live_speech' });
+  });
+
+  test('dead-screen escape decision blocks without fresh final packet', () => {
+    expect(decideAsrVisualGovernorDeadScreenEscape({
+      movedPx: 0,
+      currentLineIdx: 109,
+      acceptedCommitTargetIdx: 110,
+      targetSpeakable: true,
+      hardContradiction: false,
+      offscriptNoMatch: false,
+      speechFresh: true,
+      finalPacketFresh: false,
+      liveSpeechFresh: true,
+      freshAdjacentUnlockSeen: true,
+      suppressedForwardProofCountInWindow: 15,
+      terminalCommitSuppressedByVisualGovernor: true,
+      noCommitMs: 5687,
+      governorHoldAgeMs: 5675,
+      thresholdMs: 3000,
+      globalHold: true,
+    })).toEqual({ allow: false, reason: 'no_fresh_final_packet' });
+  });
+
+  test('dead-screen escape decision blocks without terminal suppression evidence', () => {
+    expect(decideAsrVisualGovernorDeadScreenEscape({
+      movedPx: 0,
+      currentLineIdx: 109,
+      acceptedCommitTargetIdx: 110,
+      targetSpeakable: true,
+      hardContradiction: false,
+      offscriptNoMatch: false,
+      speechFresh: true,
+      finalPacketFresh: true,
+      liveSpeechFresh: true,
+      freshAdjacentUnlockSeen: true,
+      suppressedForwardProofCountInWindow: 15,
+      terminalCommitSuppressedByVisualGovernor: false,
+      noCommitMs: 5687,
+      governorHoldAgeMs: 5675,
+      thresholdMs: 3000,
+      globalHold: true,
+    })).toEqual({ allow: false, reason: 'no_terminal_suppression' });
   });
 });

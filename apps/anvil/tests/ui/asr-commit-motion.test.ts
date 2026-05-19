@@ -3312,6 +3312,7 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(1200);
 
     const warnLines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    console.log('ESCAPE_WARN', warnLines);
     const debugLines = debugSpy.mock.calls.map((c) => String(c[0] || ''));
     const infoLines = infoSpy.mock.calls.map((c) => String(c[0] || ''));
     const deadScreenDetected = warnLines.some((l) => l.includes('ASR_GOVERNOR_DEAD_SCREEN_DETECTED'));
