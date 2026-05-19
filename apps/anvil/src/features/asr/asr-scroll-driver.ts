@@ -40,7 +40,7 @@ import {
   buildAsrPostAdjacentCommitVisualRecoveryOpenedDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryPathProofDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic,
-  buildAsrVisualRecoveryCommitteeArbitrationDiagnostic,
+  buildAsrScrollChairpersonArbitrationDiagnostic,
   buildAsrVisualRecoveryBoostAppliedDiagnostic,
   buildAsrVisualRecoveryBoostBlockedDiagnostic,
   buildAsrVisualRecoveryBoostPathProofDiagnostic,
@@ -3471,6 +3471,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let postAdjacentCommitVisualRecoverySnapSuppressed = false;
   let postAdjacentCommitVisualRecoveryMovedPx = 0;
   let postAdjacentCommitVisualRecoveryLastBlockedReason = '';
+  let lastChairpersonArbitrationSelectedAuthority = 'none';
+  let lastChairpersonArbitrationClampReason = 'none';
+  let lastChairpersonArbitrationChair = 'none';
+  let lastChairpersonArbitrationGear = 'none';
   const clearRecoveryLandingHold = (
     reason: string,
     now: number,
@@ -11023,10 +11027,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let liveAsrRecoveryBoostBlockedReason = '';
     let postAdjacentCommitRecoveryBlockedReason = '';
     let liveAsrCommitteeSemanticTargetIdx = -1;
+    let liveAsrCommitteeAcceptedCommitTargetIdx = -1;
+    let liveAsrCommitteeDistanceCapTargetIdx = -1;
+    let liveAsrCommitteeRequestedTargetIdx = -1;
     let liveAsrCommitteeBridgeCueOwner = 'none';
+    let liveAsrCommitteeBridgeOwner = 'none';
+    let liveAsrCommitteeCueOwner = 'none';
     let liveAsrCommitteeVisualGovernorState = 'inactive';
     let liveAsrCommitteeMarkerLockState = 'unknown';
     let liveAsrCommitteeComfortLowRailState = 'none';
+    let liveAsrCommitteeComfortState = 'inactive';
+    let liveAsrCommitteeVisualRecoveryState = 'inactive';
+    let liveAsrCommitteeHardSafetyState = 'clear';
     let liveAsrCommitteeSafetyCapState = 'none';
     let liveAsrCommitteePostAdjacentRecoveryState = 'not_evaluated';
     let liveAsrCommitteeBridgeHoldContextActive = false;
@@ -11169,10 +11181,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       liveAsrCommitteeBridgeHoldContextActive = bridgeHoldContextActive;
       liveAsrCommitteePendingBridgeStateActive = !!pendingSpeakableBridgeState;
       liveAsrCommitteeSemanticTargetIdx = pendingSpeakableBridgeState?.semanticTarget ?? nextSpeakableLineIdx;
+      liveAsrCommitteeAcceptedCommitTargetIdx = nextSpeakableLineIdx;
+      liveAsrCommitteeRequestedTargetIdx = pendingSpeakableBridgeState?.semanticTarget ?? nextSpeakableLineIdx;
+      liveAsrCommitteeDistanceCapTargetIdx = pendingSpeakableBridgeState?.visualReducedTarget ??
+        (bridgeLikeStepPending ? Math.max(lastLineIndex, lastLineIndex + 1) : -1);
       liveAsrCommitteeBridgeCueOwner =
         pendingSpeakableBridgeState?.sourceBranch ||
         liveAsrBridgeVisualComfortSourceBranch ||
         (bridgeHoldContextActive ? 'bridge_context_active' : 'none');
+      const bridgeCueOwnerLower = String(liveAsrCommitteeBridgeCueOwner || '').toLowerCase();
+      liveAsrCommitteeBridgeOwner = bridgeCueOwnerLower.includes('bridge')
+        ? liveAsrCommitteeBridgeCueOwner
+        : 'none';
+      liveAsrCommitteeCueOwner = bridgeCueOwnerLower.includes('cue')
+        ? liveAsrCommitteeBridgeCueOwner
+        : 'none';
       const semanticProofHealthy =
         (
           Number.isFinite(lastFreshProofLine) &&
@@ -11561,6 +11584,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               : (nextTooLow
                 ? 'low_no_release'
                 : (insidePreferred ? 'in_preferred_band' : 'none'))));
+      liveAsrCommitteeComfortState =
+        liveTickSelectedAuthority === 'hold'
+          ? 'comfort_hold'
+          : (comfortNudgeActive
+            ? (Number.isFinite(targetDebtPx) && targetDebtPx >= 120 ? 'comfort_nudge_large_debt' : 'comfort_nudge')
+            : (insidePreferred ? 'already_in_band' : 'inactive'));
       const visualRecoveryBoostSpeechFresh =
         readerDrivingNow &&
         lastFinalTranscriptAt > 0 &&
@@ -11581,6 +11610,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         String(lastAsrGuardReason || '').toLowerCase().includes('no_match') ||
         String(lastAsrHudGuardText || '').toLowerCase().includes('offscript') ||
         String(lastAsrGuardReason || '').toLowerCase().includes('contradiction');
+      liveAsrCommitteeHardSafetyState = (
+        !Number.isFinite(nextLineY) ||
+        !Number.isFinite(markerY) ||
+        postAdjacentCommitNoMatchOrOffscript ||
+        liveAsrVisualGovernorHardHold ||
+        !postAdjacentCommitAudioBackendFresh
+      )
+        ? 'absolute_hold'
+        : (bridgeHoldContextActive ? 'distance_restrict_only' : 'clear');
       const postAdjacentCommitWindowStillFresh =
         postAdjacentCommitVisualRecoveryUntilMs > nowTs &&
         (postAdjacentCommitVisualRecoveryPending || postAdjacentCommitVisualRecoveryOpen);
@@ -11698,6 +11736,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         postAdjacentCommitDecision.allow
           ? 'eligible'
           : `blocked:${postAdjacentCommitDecision.reason}`;
+      liveAsrCommitteeVisualRecoveryState =
+        postAdjacentCommitDecision.allow
+          ? 'post_adjacent_commit_visual_recovery'
+          : (bottomLockReleaseActive
+            ? 'bottom_lock_release'
+            : (preferredLowerRailReleaseActive
+              ? 'preferred_lower_rail_release'
+              : (comfortNudgeActive && Number.isFinite(targetDebtPx) && targetDebtPx >= 120
+                ? 'comfort_nudge_large_debt'
+                : (comfortNudgeActive ? 'generic_comfort_nudge' : 'inactive'))));
       if (postAdjacentCommitDecision.allow) {
         postAdjacentCommitRecoveryMinStepPx = postAdjacentCommitDecision.minStepPx;
         postAdjacentCommitRecoveryMaxStepPx = postAdjacentCommitDecision.maxStepPx;
@@ -11799,10 +11847,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       });
       liveAsrCommitteeSafetyCapState =
         bridgeHoldContextActive
-          ? 'bridge_or_cue_context_active'
-          : (visualRecoveryBoostDecision.allow
-            ? 'boost_eligible'
-            : `boost_blocked:${visualRecoveryBoostDecision.reason}`);
+          ? (pendingSpeakableBridgeState?.visualReducedTarget != null &&
+            pendingSpeakableBridgeState.semanticTarget > pendingSpeakableBridgeState.visualReducedTarget
+              ? 'bridge_reduced_to_adjacent'
+              : 'bridge_or_cue_context_active')
+          : (liveTickSelectedAuthority === 'top_pressure_clamp'
+            ? 'top_pressure_clamp'
+            : 'inactive');
       if (visualRecoveryBoostDecision.allow) {
         liveAsrRecoveryBoostMinStepPx = visualRecoveryBoostDecision.minStepPx;
         liveAsrRecoveryBoostMaxStepPx = visualRecoveryBoostDecision.maxStepPx;
@@ -12201,52 +12252,124 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
-      const committeeStateActive =
-        liveAsrCommitteeBridgeHoldContextActive ||
-        liveAsrCommitteePendingBridgeStateActive ||
-        liveAsrCommitteeComfortNudgeActive ||
-        liveAsrCommitteeBottomLockReleaseActive ||
-        liveAsrCommitteePreferredLowerRailReleaseActive ||
-        visualGovernorHoldActive ||
-        liveHardHold ||
-        liveAsrCommitteePostAdjacentRecoveryPending ||
-        liveAsrCommitteePostAdjacentRecoveryOpen;
-      if (
-        committeeStateActive &&
-        Number.isFinite(liveAsrActuatorTargetDebtPx) &&
-        liveAsrActuatorTargetDebtPx >= 120 &&
-        Math.round(appliedDeltaPx) === DEFAULT_MIN_STEP_PX
-      ) {
-        let strongerRecoveryDidNotWinReason = 'default_actuator_floor';
-        if (postAdjacentCommitRecoveryBlockedReason) {
-          strongerRecoveryDidNotWinReason = `post_adjacent_recovery_${postAdjacentCommitRecoveryBlockedReason}`;
-        } else if (liveAsrRecoveryBoostBlockedReason) {
-          strongerRecoveryDidNotWinReason = `visual_recovery_boost_${liveAsrRecoveryBoostBlockedReason}`;
-        } else if (visualGovernorHoldActive || liveHardHold) {
-          strongerRecoveryDidNotWinReason = 'visual_governor_or_marker_lock_hold';
-        } else if (liveAsrCommitteeBridgeHoldContextActive || liveAsrCommitteePendingBridgeStateActive) {
-          strongerRecoveryDidNotWinReason = 'bridge_or_cue_owned_context';
-        } else if (clampReasonOut === 'min_step_floor') {
-          strongerRecoveryDidNotWinReason = 'fell_back_to_min_step_floor';
-        }
+      const arithmeticTargetDebtPx = Number.isFinite(liveAsrActuatorTargetDebtPx) ? liveAsrActuatorTargetDebtPx : Number.NaN;
+      const gear =
+        clampReasonOut === 'no_move' || move <= 0 || appliedDeltaPx <= 0
+          ? 'hold'
+          : (Math.round(appliedDeltaPx) === DEFAULT_MIN_STEP_PX
+            ? 'normal_floor'
+            : ((postAdjacentCommitVisualRecoveryActive || visualRecoveryBoostActive)
+              ? (Math.max(appliedDeltaPx, effectiveMinStepPx) >= 12 ? 'urgent_recovery' : 'recovery')
+              : 'normal_tracking'));
+      const absoluteHoldActive = liveAsrCommitteeHardSafetyState === 'absolute_hold' && gear === 'hold';
+      const distanceCapActive =
+        liveAsrCommitteeSafetyCapState !== 'inactive' &&
+        liveAsrCommitteeDistanceCapTargetIdx >= 0 &&
+        liveAsrCommitteeSemanticTargetIdx >= 0 &&
+        liveAsrCommitteeDistanceCapTargetIdx <= liveAsrCommitteeSemanticTargetIdx;
+      const visualRecoveryEligible = liveAsrCommitteeVisualRecoveryState !== 'inactive';
+      const markerLockEligible =
+        liveAsrCommitteeMarkerLockState !== 'unknown' &&
+        liveAsrCommitteeMarkerLockState !== 'outside_tolerance' &&
+        liveAsrCommitteeMarkerLockState !== 'geometry_unavailable';
+      const comfortEligible =
+        liveAsrCommitteeComfortState !== 'inactive' &&
+        liveAsrCommitteeComfortState !== 'already_in_band';
+      const chair =
+        absoluteHoldActive
+          ? 'absolute_hold'
+          : (distanceCapActive
+            ? 'target_distance_cap'
+            : (visualRecoveryEligible
+              ? 'visual_recovery'
+              : (markerLockEligible
+                ? 'marker_lock_smoothing'
+                : (comfortEligible
+                  ? 'comfort_advisory'
+                  : (liveAsrCommitteeSemanticTargetIdx > lastLineIndex
+                    ? 'semantic_target'
+                    : 'actuator_execution')))));
+      const chairReason =
+        chair === 'absolute_hold'
+          ? liveAsrCommitteeHardSafetyState
+          : (chair === 'target_distance_cap'
+            ? liveAsrCommitteeSafetyCapState
+            : (chair === 'visual_recovery'
+              ? liveAsrCommitteeVisualRecoveryState
+              : (chair === 'marker_lock_smoothing'
+                ? liveAsrCommitteeMarkerLockState
+                : (chair === 'comfort_advisory'
+                  ? liveAsrCommitteeComfortState
+                  : (chair === 'semantic_target'
+                    ? 'semantic_target_valid'
+                    : 'no_recovery_owner_claimed_tick')))));
+      const floorFallbackReason =
+        gear !== 'normal_floor'
+          ? 'none'
+          : (
+            visualRecoveryEligible && markerLockEligible
+              ? 'marker_lock_suppressed_recovery'
+              : (chair === 'visual_recovery'
+                ? 'recovery_owner_normal_gear'
+                : (chair === 'target_distance_cap'
+                  ? 'distance_cap_normal_gear'
+                  : (chair === 'comfort_advisory'
+                    ? 'comfort_advisory_floor'
+                    : (chair === 'actuator_execution'
+                      ? 'no_recovery_owner'
+                      : (liveAsrCommitteeHardSafetyState === 'distance_restrict_only'
+                        ? 'absolute_hold_not_applicable'
+                        : 'unknown_floor_path'))))));
+      const overruledEligible: string[] = [];
+      if (liveAsrCommitteeSemanticTargetIdx > lastLineIndex) overruledEligible.push('semantic_target');
+      if (distanceCapActive) overruledEligible.push('target_distance_cap');
+      if (visualRecoveryEligible) overruledEligible.push('visual_recovery');
+      if (markerLockEligible) overruledEligible.push('marker_lock_smoothing');
+      if (comfortEligible) overruledEligible.push('comfort_advisory');
+      const overruled = overruledEligible.filter((name) => name !== chair).join('|') || 'none';
+      const shouldEmitChairpersonArbitration =
+        Number.isFinite(arithmeticTargetDebtPx) &&
+        (
+          arithmeticTargetDebtPx >= 120 ||
+          Math.round(appliedDeltaPx) === DEFAULT_MIN_STEP_PX ||
+          liveTickSelectedAuthority !== lastChairpersonArbitrationSelectedAuthority ||
+          clampReasonOut !== lastChairpersonArbitrationClampReason ||
+          chair !== lastChairpersonArbitrationChair ||
+          gear !== lastChairpersonArbitrationGear
+        );
+      if (shouldEmitChairpersonArbitration) {
         try {
+          // Safety governs whether movement is allowed; proof governs the target; caps govern distance; recovery governs catch-up; marker-lock and comfort are advisory once recovery is required; the actuator executes gear rather than making policy.
           console.warn(
-            buildAsrVisualRecoveryCommitteeArbitrationDiagnostic({
+            buildAsrScrollChairpersonArbitrationDiagnostic({
+              chair,
+              reason: chairReason,
               semanticTargetIdx: liveAsrCommitteeSemanticTargetIdx,
-              bridgeCueOwner: liveAsrCommitteeBridgeCueOwner,
-              visualGovernorState: liveAsrCommitteeVisualGovernorState,
+              acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+              distanceCapTargetIdx: liveAsrCommitteeDistanceCapTargetIdx,
+              currentLineIdx: lastLineIndex,
+              requestedTargetIdx: liveAsrCommitteeRequestedTargetIdx,
+              bridgeOwner: liveAsrCommitteeBridgeOwner,
+              cueOwner: liveAsrCommitteeCueOwner,
               markerLockState: liveAsrCommitteeMarkerLockState,
-              comfortLowRailState: liveAsrCommitteeComfortLowRailState,
+              comfortState: liveAsrCommitteeComfortState,
+              visualRecoveryState: liveAsrCommitteeVisualRecoveryState,
+              hardSafetyState: liveAsrCommitteeHardSafetyState,
               safetyCapState: liveAsrCommitteeSafetyCapState,
               postAdjacentRecoveryState: liveAsrCommitteePostAdjacentRecoveryState,
-              finalSelectedAuthority: liveTickSelectedAuthority,
-              finalActuatorFloorPx: DEFAULT_MIN_STEP_PX,
-              targetDebtPx: liveAsrActuatorTargetDebtPx,
+              targetDebtPx: arithmeticTargetDebtPx,
               appliedDeltaPx,
-              strongerRecoveryDidNotWinReason,
+              clampReason: clampReasonOut,
+              gear,
+              floorFallbackReason,
+              overruled,
             }),
           );
         } catch {}
+        lastChairpersonArbitrationSelectedAuthority = String(liveTickSelectedAuthority || 'none');
+        lastChairpersonArbitrationClampReason = String(clampReasonOut || 'none');
+        lastChairpersonArbitrationChair = String(chair || 'none');
+        lastChairpersonArbitrationGear = String(gear || 'none');
       }
       try {
         console.warn(

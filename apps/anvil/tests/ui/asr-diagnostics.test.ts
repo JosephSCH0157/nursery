@@ -29,7 +29,7 @@ import {
   buildAsrPostAdjacentCommitVisualRecoveryOpenedDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryPathProofDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic,
-  buildAsrVisualRecoveryCommitteeArbitrationDiagnostic,
+  buildAsrScrollChairpersonArbitrationDiagnostic,
   buildAsrVisualRecoveryBoostAppliedDiagnostic,
   buildAsrVisualRecoveryBoostBypassedDiagnostic,
   buildAsrVisualRecoveryBoostBlockedDiagnostic,
@@ -892,23 +892,32 @@ describe('ASR backend liveness diagnostics builders', () => {
     );
   });
 
-  test('builds visual recovery committee arbitration diagnostic with expected fields', () => {
-    const line = buildAsrVisualRecoveryCommitteeArbitrationDiagnostic({
+  test('builds scroll chairperson arbitration diagnostic with expected fields', () => {
+    const line = buildAsrScrollChairpersonArbitrationDiagnostic({
+      chair: 'visual_recovery',
+      reason: 'bottom_lock_release',
       semanticTargetIdx: 91,
-      bridgeCueOwner: 'live_strict_rescue_hold_no_local_proof',
-      visualGovernorState: 'inactive',
+      acceptedCommitTargetIdx: 84,
+      distanceCapTargetIdx: 83,
+      currentLineIdx: 82,
+      requestedTargetIdx: 84,
+      bridgeOwner: 'live_strict_rescue_hold_no_local_proof',
+      cueOwner: 'none',
       markerLockState: 'within_hold_tolerance',
-      comfortLowRailState: 'comfort_nudge',
+      comfortState: 'comfort_nudge_large_debt',
+      visualRecoveryState: 'bottom_lock_release',
+      hardSafetyState: 'distance_restrict_only',
       safetyCapState: 'bridge_or_cue_context_active',
       postAdjacentRecoveryState: 'blocked:bridge_trap_active',
-      finalSelectedAuthority: 'comfort_nudge',
-      finalActuatorFloorPx: 6,
       targetDebtPx: 212.1,
       appliedDeltaPx: 6.0,
-      strongerRecoveryDidNotWinReason: 'bridge_or_cue_owned_context',
+      clampReason: 'min_step_floor',
+      gear: 'normal_floor',
+      floorFallbackReason: 'marker_lock_suppressed_recovery',
+      overruled: 'target_distance_cap|marker_lock_smoothing|comfort_advisory',
     });
     expect(line).toBe(
-      '[ASR_VISUAL_RECOVERY_COMMITTEE_ARBITRATION] semanticTargetIdx=91 bridgeCueOwner=live_strict_rescue_hold_no_local_proof visualGovernorState=inactive markerLockState=within_hold_tolerance comfortLowRailState=comfort_nudge safetyCapState=bridge_or_cue_context_active postAdjacentRecoveryState=blocked:bridge_trap_active finalSelectedAuthority=comfort_nudge finalActuatorFloorPx=6 targetDebtPx=212 appliedDeltaPx=6 strongerRecoveryDidNotWinReason=bridge_or_cue_owned_context',
+      '[ASR_SCROLL_CHAIRPERSON_ARBITRATION] chair=visual_recovery reason=bottom_lock_release semanticTargetIdx=91 acceptedCommitTargetIdx=84 distanceCapTargetIdx=83 currentLineIdx=82 requestedTargetIdx=84 bridgeOwner=live_strict_rescue_hold_no_local_proof cueOwner=none markerLockState=within_hold_tolerance comfortState=comfort_nudge_large_debt visualRecoveryState=bottom_lock_release hardSafetyState=distance_restrict_only safetyCapState=bridge_or_cue_context_active postAdjacentRecoveryState=blocked:bridge_trap_active targetDebtPx=212 appliedDeltaPx=6 clampReason=min_step_floor gear=normal_floor floorFallbackReason=marker_lock_suppressed_recovery overruled=target_distance_cap|marker_lock_smoothing|comfort_advisory',
     );
   });
 

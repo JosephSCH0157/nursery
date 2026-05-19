@@ -580,21 +580,57 @@ export function buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic(
   return `[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_WINDOW_CLEARED] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} reason=${args.reason} elapsedMs=${Math.round(args.elapsedMs)} nextSpeakableLineY=${Math.round(args.nextSpeakableLineY)} markerY=${Math.round(args.markerY)}`;
 }
 
-export function buildAsrVisualRecoveryCommitteeArbitrationDiagnostic(args: {
+export type AsrScrollChair =
+  | 'absolute_hold'
+  | 'semantic_target'
+  | 'target_distance_cap'
+  | 'visual_recovery'
+  | 'marker_lock_smoothing'
+  | 'comfort_advisory'
+  | 'actuator_execution';
+
+export type AsrActuatorGear =
+  | 'hold'
+  | 'normal_floor'
+  | 'normal_tracking'
+  | 'recovery'
+  | 'urgent_recovery'
+  | 'bounded_snap';
+
+export type AsrFloorFallbackReason =
+  | 'none'
+  | 'no_recovery_owner'
+  | 'recovery_owner_normal_gear'
+  | 'distance_cap_normal_gear'
+  | 'marker_lock_suppressed_recovery'
+  | 'comfort_advisory_floor'
+  | 'absolute_hold_not_applicable'
+  | 'unknown_floor_path';
+
+export function buildAsrScrollChairpersonArbitrationDiagnostic(args: {
+  chair: AsrScrollChair;
+  reason: string;
   semanticTargetIdx: number;
-  bridgeCueOwner: string;
-  visualGovernorState: string;
+  acceptedCommitTargetIdx: number;
+  distanceCapTargetIdx: number;
+  currentLineIdx: number;
+  requestedTargetIdx: number;
+  bridgeOwner: string;
+  cueOwner: string;
   markerLockState: string;
-  comfortLowRailState: string;
+  comfortState: string;
+  visualRecoveryState: string;
+  hardSafetyState: string;
   safetyCapState: string;
   postAdjacentRecoveryState: string;
-  finalSelectedAuthority: string;
-  finalActuatorFloorPx: number;
   targetDebtPx: number;
   appliedDeltaPx: number;
-  strongerRecoveryDidNotWinReason: string;
+  clampReason: string;
+  gear: AsrActuatorGear;
+  floorFallbackReason: AsrFloorFallbackReason;
+  overruled: string;
 }): string {
-  return `[ASR_VISUAL_RECOVERY_COMMITTEE_ARBITRATION] semanticTargetIdx=${args.semanticTargetIdx} bridgeCueOwner=${args.bridgeCueOwner} visualGovernorState=${args.visualGovernorState} markerLockState=${args.markerLockState} comfortLowRailState=${args.comfortLowRailState} safetyCapState=${args.safetyCapState} postAdjacentRecoveryState=${args.postAdjacentRecoveryState} finalSelectedAuthority=${args.finalSelectedAuthority} finalActuatorFloorPx=${Math.round(args.finalActuatorFloorPx)} targetDebtPx=${Math.round(args.targetDebtPx)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} strongerRecoveryDidNotWinReason=${args.strongerRecoveryDidNotWinReason}`;
+  return `[ASR_SCROLL_CHAIRPERSON_ARBITRATION] chair=${args.chair} reason=${args.reason} semanticTargetIdx=${Math.round(args.semanticTargetIdx)} acceptedCommitTargetIdx=${Math.round(args.acceptedCommitTargetIdx)} distanceCapTargetIdx=${Math.round(args.distanceCapTargetIdx)} currentLineIdx=${Math.round(args.currentLineIdx)} requestedTargetIdx=${Math.round(args.requestedTargetIdx)} bridgeOwner=${args.bridgeOwner} cueOwner=${args.cueOwner} markerLockState=${args.markerLockState} comfortState=${args.comfortState} visualRecoveryState=${args.visualRecoveryState} hardSafetyState=${args.hardSafetyState} safetyCapState=${args.safetyCapState} postAdjacentRecoveryState=${args.postAdjacentRecoveryState} targetDebtPx=${Math.round(args.targetDebtPx)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} clampReason=${args.clampReason} gear=${args.gear} floorFallbackReason=${args.floorFallbackReason} overruled=${args.overruled}`;
 }
 
 export const ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION = '2026-05-18a';

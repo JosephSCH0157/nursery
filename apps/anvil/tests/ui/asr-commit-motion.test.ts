@@ -2935,6 +2935,7 @@ describe('ASR live commit motion', () => {
     expect(actuatorLine).toContain('requestedDeltaPx=');
     expect(actuatorLine).toContain('appliedDeltaPx=');
     expect(actuatorLine).toContain('maxScrollTop=');
+    expect(lines.some((l) => l.includes('ASR_SCROLL_CHAIRPERSON_ARBITRATION'))).toBe(true);
     warnSpy.mockRestore();
     driver.dispose();
   });
@@ -2967,6 +2968,47 @@ describe('ASR live commit motion', () => {
     expect(boosted).toContain('reason=below_tolerated_bottom');
     const boostedDelta = boosted.match(/appliedDeltaPx=(\d+)/);
     expect(boostedDelta ? Number(boostedDelta[1]) : 0).toBeGreaterThanOrEqual(12);
+    const committeeLines = lines.filter((l) => l.includes('ASR_SCROLL_CHAIRPERSON_ARBITRATION'));
+    expect(committeeLines.length).toBeGreaterThan(0);
+    expect(
+      committeeLines.some((l) => {
+        const debt = l.match(/targetDebtPx=(\d+)/);
+        return !!debt && Number(debt[1]) >= 120;
+      }),
+    ).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('min-step floor ticks emit chairperson arbitration from the actuator-applied path', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 0;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'committee-low-debt-threshold',
+      match: { bestIdx: 1, bestSim: 0.9, topScores: [{ idx: 1, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(120);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const floorActuatorLine = lines.find(
+      (l) =>
+        l.includes('ASR_VISUAL_ACTUATOR_APPLIED') &&
+        l.includes('appliedDeltaPx=6') &&
+        l.includes('clampReason=min_step_floor'),
+    ) || '';
+    expect(floorActuatorLine).toContain('targetDebtPx=');
+    const committeeLines = lines.filter((l) => l.includes('ASR_SCROLL_CHAIRPERSON_ARBITRATION'));
+    expect(
+      committeeLines.some((l) => {
+        return (
+          l.includes('appliedDeltaPx=6') &&
+          l.includes('clampReason=min_step_floor')
+        );
+      }),
+    ).toBe(true);
     warnSpy.mockRestore();
     driver.dispose();
   });
