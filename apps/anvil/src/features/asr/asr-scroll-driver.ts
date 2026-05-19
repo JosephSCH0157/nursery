@@ -33,9 +33,14 @@ import {
   buildAsrAdjacentRecoveryCatchupBlockedDiagnostic,
   buildAsrAdjacentRecoveryCatchupBypassedDiagnostic,
   buildAsrAdjacentRecoveryCatchupPathProofDiagnostic,
+  buildAsrPostAdjacentCommitVisualRecoveryBypassedDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryAppliedDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryBlockedDiagnostic,
+  buildAsrPostAdjacentCommitVisualRecoveryOpenBlockedDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryOpenedDiagnostic,
+  buildAsrPostAdjacentCommitVisualRecoveryPathProofDiagnostic,
+  buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic,
+  buildAsrVisualRecoveryCommitteeArbitrationDiagnostic,
   buildAsrVisualRecoveryBoostAppliedDiagnostic,
   buildAsrVisualRecoveryBoostBlockedDiagnostic,
   buildAsrVisualRecoveryBoostPathProofDiagnostic,
@@ -3460,6 +3465,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let postAdjacentCommitVisualRecoveryPending = false;
   let postAdjacentCommitVisualRecoveryOpen = false;
   let postAdjacentCommitVisualRecoveryUntilMs = 0;
+  let postAdjacentCommitVisualRecoveryStartedAtMs = 0;
   let postAdjacentCommitVisualRecoveryCommittedLine = -1;
   let postAdjacentCommitVisualRecoveryProofSource = 'none';
   let postAdjacentCommitVisualRecoverySnapSuppressed = false;
@@ -11016,6 +11022,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let postAdjacentCommitRecoveryMaxStepPx = 0;
     let liveAsrRecoveryBoostBlockedReason = '';
     let postAdjacentCommitRecoveryBlockedReason = '';
+    let liveAsrCommitteeSemanticTargetIdx = -1;
+    let liveAsrCommitteeBridgeCueOwner = 'none';
+    let liveAsrCommitteeVisualGovernorState = 'inactive';
+    let liveAsrCommitteeMarkerLockState = 'unknown';
+    let liveAsrCommitteeComfortLowRailState = 'none';
+    let liveAsrCommitteeSafetyCapState = 'none';
+    let liveAsrCommitteePostAdjacentRecoveryState = 'not_evaluated';
+    let liveAsrCommitteeBridgeHoldContextActive = false;
+    let liveAsrCommitteePendingBridgeStateActive = false;
+    let liveAsrCommitteeComfortNudgeActive = false;
+    let liveAsrCommitteeBottomLockReleaseActive = false;
+    let liveAsrCommitteePreferredLowerRailReleaseActive = false;
+    let liveAsrCommitteePostAdjacentRecoveryPending = false;
+    let liveAsrCommitteePostAdjacentRecoveryOpen = false;
     let liveAsrAuthorityTraceTickId = -1;
     let liveTickAuthorityPocketZone = 'unknown';
     let liveTickReaderPocketZone = 'unknown';
@@ -11146,6 +11166,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             String(liveAsrBridgeVisualComfortProofSource || '').toLowerCase().includes('bridge')
           )
         );
+      liveAsrCommitteeBridgeHoldContextActive = bridgeHoldContextActive;
+      liveAsrCommitteePendingBridgeStateActive = !!pendingSpeakableBridgeState;
+      liveAsrCommitteeSemanticTargetIdx = pendingSpeakableBridgeState?.semanticTarget ?? nextSpeakableLineIdx;
+      liveAsrCommitteeBridgeCueOwner =
+        pendingSpeakableBridgeState?.sourceBranch ||
+        liveAsrBridgeVisualComfortSourceBranch ||
+        (bridgeHoldContextActive ? 'bridge_context_active' : 'none');
       const semanticProofHealthy =
         (
           Number.isFinite(lastFreshProofLine) &&
@@ -11182,6 +11209,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           : current;
       const targetDebtPx = Number.isFinite(visualErrorPx) ? visualErrorPx : Number.NaN;
       liveAsrActuatorTargetDebtPx = targetDebtPx;
+      liveAsrCommitteeVisualGovernorState = visualGovernorHoldActive || liveHardHold
+        ? 'hard_hold_active'
+        : 'inactive';
       liveAsrAuthorityTraceTickId = ++liveAsrScrollAuthorityTickId;
       let lowerRailHoldRejectedReason = '';
       let holdBandRejectedReason = '';
@@ -11267,6 +11297,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveAsrActuatorPursuitActive = true;
         liveAsrActuatorReason = 'bottom_lock_release';
         comfortNudgeActive = true;
+        liveAsrCommitteeComfortNudgeActive = true;
+        liveAsrCommitteeBottomLockReleaseActive = true;
         bottomLockReleaseActive = true;
         bottomLockReleaseReason = nextTooLow ? 'below_tolerated_bottom' : 'below_preferred_bottom';
         comfortNudgePxps = Math.max(ASR_READER_COMFORT_NUDGE_PXPS, ASR_READER_COMFORT_BOTTOM_DRIFT_NUDGE_PXPS);
@@ -11291,6 +11323,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveAsrActuatorPursuitActive = true;
         liveAsrActuatorReason = 'preferred_lower_rail_release';
         preferredLowerRailReleaseActive = true;
+        liveAsrCommitteeComfortNudgeActive = true;
+        liveAsrCommitteePreferredLowerRailReleaseActive = true;
         liveAsrPreferredLowerRailReleaseActive = true;
         comfortNudgeActive = true;
         comfortNudgePxps = ASR_READER_COMFORT_NUDGE_PXPS;
@@ -11311,6 +11345,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveAsrActuatorPursuitActive = true;
         liveAsrActuatorReason = 'comfort_nudge_follow';
         comfortNudgeActive = true;
+        liveAsrCommitteeComfortNudgeActive = true;
         const driftAgeMs =
           liveAsrReaderTooLowSinceMs > 0
             ? Math.max(0, nowTs - liveAsrReaderTooLowSinceMs)
@@ -11340,6 +11375,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           (Number.isFinite(nextLineY) && nextLineY > holdSafeBottomY)
         );
       if (lowerRailHoldRejected) {
+        liveAsrCommitteeMarkerLockState = 'lower_rail_hold_rejected';
         lowerRailHoldRejectedReason = liveTickReaderPocketZone === 'bottom'
           ? 'within_tolerance_but_bottom_zone'
           : 'within_tolerance_but_below_hold_safe_bottom';
@@ -11381,6 +11417,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !lowerRailHoldRejected &&
         !visualErrorWithinHoldTolerance;
       if (holdBandRejected) {
+        liveAsrCommitteeMarkerLockState = 'hold_band_rejected';
         holdBandRejectedReason = 'within_correction_tolerance_but_outside_hold_tolerance';
         liveTickCandidateAuthorities.add('hold');
         if (!comfortNudgeActive && !bottomLockReleaseActive && !preferredLowerRailReleaseActive) {
@@ -11412,6 +11449,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } catch {}
       }
       if (comfortHoldEligible && !holdBandRejected && !lowerRailHoldRejected && !visualGovernorHoldActive && !comfortNudgeActive) {
+        liveAsrCommitteeMarkerLockState = 'marker_lock_hold';
         liveHardHold = true;
         liveTickCandidateAuthorities.add('hold');
         liveTickSelectedAuthority = 'hold';
@@ -11505,6 +11543,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
+      if (liveAsrCommitteeMarkerLockState === 'unknown') {
+        liveAsrCommitteeMarkerLockState =
+          !Number.isFinite(visualErrorPx)
+            ? 'geometry_unavailable'
+            : (!visualErrorWithinTolerance
+              ? 'outside_tolerance'
+              : (visualErrorWithinHoldTolerance ? 'within_hold_tolerance' : 'within_correction_tolerance'));
+      }
+      liveAsrCommitteeComfortLowRailState =
+        bottomLockReleaseActive
+          ? 'bottom_lock_release'
+          : (preferredLowerRailReleaseActive
+            ? 'preferred_lower_rail_release'
+            : (comfortNudgeActive
+              ? 'comfort_nudge'
+              : (nextTooLow
+                ? 'low_no_release'
+                : (insidePreferred ? 'in_preferred_band' : 'none'))));
       const visualRecoveryBoostSpeechFresh =
         readerDrivingNow &&
         lastFinalTranscriptAt > 0 &&
@@ -11528,6 +11584,46 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const postAdjacentCommitWindowStillFresh =
         postAdjacentCommitVisualRecoveryUntilMs > nowTs &&
         (postAdjacentCommitVisualRecoveryPending || postAdjacentCommitVisualRecoveryOpen);
+      liveAsrCommitteePostAdjacentRecoveryPending = postAdjacentCommitVisualRecoveryPending;
+      liveAsrCommitteePostAdjacentRecoveryOpen = postAdjacentCommitVisualRecoveryOpen;
+      if (postAdjacentCommitVisualRecoveryPending && postAdjacentCommitWindowStillFresh) {
+        try {
+          console.warn(
+            buildAsrPostAdjacentCommitVisualRecoveryPathProofDiagnostic({
+              currentLineIdx: lastLineIndex,
+              committedLineIdx: postAdjacentCommitVisualRecoveryCommittedLine >= 0
+                ? postAdjacentCommitVisualRecoveryCommittedLine
+                : lastLineIndex,
+              requestedTargetIdx: postAdjacentCommitVisualRecoveryCommittedLine >= 0
+                ? postAdjacentCommitVisualRecoveryCommittedLine
+                : lastLineIndex,
+              acceptedCommitTargetIdx: postAdjacentCommitVisualRecoveryCommittedLine >= 0
+                ? postAdjacentCommitVisualRecoveryCommittedLine
+                : lastLineIndex,
+              proofSource: postAdjacentCommitVisualRecoveryProofSource || 'none',
+              sourceBranch: 'live_follow_tick',
+              adjacentCommit:
+                postAdjacentCommitVisualRecoveryCommittedLine >= 0 &&
+                postAdjacentCommitVisualRecoveryCommittedLine === lastLineIndex + 1,
+              snapSuppressed: postAdjacentCommitVisualRecoverySnapSuppressed,
+              movedPx: postAdjacentCommitVisualRecoveryMovedPx,
+              scrollTopBefore: current,
+              scrollTopAfter: current,
+              nextSpeakableLineY: nextLineY,
+              markerY,
+              visualErrorPx,
+              speechFresh: readerDrivingNow,
+              finalPacketFresh: postAdjacentCommitFinalPacketFresh,
+              liveSpeechFresh: postAdjacentCommitLiveSpeechFresh,
+              audioBackendFresh: postAdjacentCommitAudioBackendFresh,
+              bridgeTrapActive: bridgeHoldContextActive || !!pendingSpeakableBridgeState,
+              deadScreenActive: visualGovernorHoldActive || liveAsrVisualGovernorHardHold,
+              noMatchOrOffscript: postAdjacentCommitNoMatchOrOffscript,
+              hardContradiction: false,
+            }),
+          );
+        } catch {}
+      }
       if (
         postAdjacentCommitVisualRecoveryPending &&
         postAdjacentCommitWindowStillFresh &&
@@ -11568,8 +11664,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             console.warn(buildAsrPostAdjacentCommitVisualRecoveryBlockedDiagnostic({ reason: 'window_expired' }));
           } catch {}
         }
+        try {
+          console.warn(
+            buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic({
+              currentLineIdx: lastLineIndex,
+              committedLineIdx: postAdjacentCommitVisualRecoveryCommittedLine >= 0
+                ? postAdjacentCommitVisualRecoveryCommittedLine
+                : lastLineIndex,
+              reason: 'expired',
+              elapsedMs: Math.max(0, nowTs - postAdjacentCommitVisualRecoveryStartedAtMs),
+              nextSpeakableLineY: nextLineY,
+              markerY,
+            }),
+          );
+        } catch {}
         postAdjacentCommitVisualRecoveryPending = false;
         postAdjacentCommitVisualRecoveryOpen = false;
+        postAdjacentCommitVisualRecoveryStartedAtMs = 0;
       }
       const postAdjacentCommitDecision = decideAsrPostAdjacentCommitVisualRecovery({
         windowActive: postAdjacentCommitVisualRecoveryOpen && postAdjacentCommitVisualRecoveryUntilMs > nowTs,
@@ -11583,6 +11694,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         alreadyInBand: insidePreferred,
         targetDebtPx,
       });
+      liveAsrCommitteePostAdjacentRecoveryState =
+        postAdjacentCommitDecision.allow
+          ? 'eligible'
+          : `blocked:${postAdjacentCommitDecision.reason}`;
       if (postAdjacentCommitDecision.allow) {
         postAdjacentCommitRecoveryMinStepPx = postAdjacentCommitDecision.minStepPx;
         postAdjacentCommitRecoveryMaxStepPx = postAdjacentCommitDecision.maxStepPx;
@@ -11592,6 +11707,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         postAdjacentCommitRecoveryMinStepPx = 0;
         postAdjacentCommitRecoveryMaxStepPx = 0;
         postAdjacentCommitRecoveryBlockedReason = postAdjacentCommitDecision.reason;
+        let openBlockedReason = postAdjacentCommitDecision.reason;
+        if (postAdjacentCommitDecision.reason === 'stale_speech') {
+          if (!readerDrivingNow || !postAdjacentCommitLiveSpeechFresh) openBlockedReason = 'stale_speech';
+          else if (!postAdjacentCommitFinalPacketFresh) openBlockedReason = 'stale_final_packet';
+          else if (!postAdjacentCommitAudioBackendFresh) openBlockedReason = 'stale_backend';
+        }
         if (
           (postAdjacentCommitVisualRecoveryPending || postAdjacentCommitVisualRecoveryOpen) &&
           postAdjacentCommitVisualRecoveryLastBlockedReason !== postAdjacentCommitDecision.reason
@@ -11604,10 +11725,32 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               }),
             );
           } catch {}
+          try {
+            console.warn(
+              buildAsrPostAdjacentCommitVisualRecoveryOpenBlockedDiagnostic({
+                reason: openBlockedReason,
+              }),
+            );
+          } catch {}
         }
         if (postAdjacentCommitDecision.reason === 'already_in_band') {
+          try {
+            console.warn(
+              buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic({
+                currentLineIdx: lastLineIndex,
+                committedLineIdx: postAdjacentCommitVisualRecoveryCommittedLine >= 0
+                  ? postAdjacentCommitVisualRecoveryCommittedLine
+                  : lastLineIndex,
+                reason: 'entered_band',
+                elapsedMs: Math.max(0, nowTs - postAdjacentCommitVisualRecoveryStartedAtMs),
+                nextSpeakableLineY: nextLineY,
+                markerY,
+              }),
+            );
+          } catch {}
           postAdjacentCommitVisualRecoveryPending = false;
           postAdjacentCommitVisualRecoveryOpen = false;
+          postAdjacentCommitVisualRecoveryStartedAtMs = 0;
         }
       }
       const visualRecoveryBoostBridgeBlocked =
@@ -11654,6 +11797,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         insidePreferredSettleBand: insidePreferredSettleZone,
         insideToleratedBand: insideTolerated,
       });
+      liveAsrCommitteeSafetyCapState =
+        bridgeHoldContextActive
+          ? 'bridge_or_cue_context_active'
+          : (visualRecoveryBoostDecision.allow
+            ? 'boost_eligible'
+            : `boost_blocked:${visualRecoveryBoostDecision.reason}`);
       if (visualRecoveryBoostDecision.allow) {
         liveAsrRecoveryBoostMinStepPx = visualRecoveryBoostDecision.minStepPx;
         liveAsrRecoveryBoostMaxStepPx = visualRecoveryBoostDecision.maxStepPx;
@@ -12048,6 +12197,53 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               targetDebtPx: liveAsrActuatorTargetDebtPx,
               appliedDeltaPx,
               reason: 'fresh_adjacent_commit_sticky_landing',
+            }),
+          );
+        } catch {}
+      }
+      const committeeStateActive =
+        liveAsrCommitteeBridgeHoldContextActive ||
+        liveAsrCommitteePendingBridgeStateActive ||
+        liveAsrCommitteeComfortNudgeActive ||
+        liveAsrCommitteeBottomLockReleaseActive ||
+        liveAsrCommitteePreferredLowerRailReleaseActive ||
+        visualGovernorHoldActive ||
+        liveHardHold ||
+        liveAsrCommitteePostAdjacentRecoveryPending ||
+        liveAsrCommitteePostAdjacentRecoveryOpen;
+      if (
+        committeeStateActive &&
+        Number.isFinite(liveAsrActuatorTargetDebtPx) &&
+        liveAsrActuatorTargetDebtPx >= 120 &&
+        Math.round(appliedDeltaPx) === DEFAULT_MIN_STEP_PX
+      ) {
+        let strongerRecoveryDidNotWinReason = 'default_actuator_floor';
+        if (postAdjacentCommitRecoveryBlockedReason) {
+          strongerRecoveryDidNotWinReason = `post_adjacent_recovery_${postAdjacentCommitRecoveryBlockedReason}`;
+        } else if (liveAsrRecoveryBoostBlockedReason) {
+          strongerRecoveryDidNotWinReason = `visual_recovery_boost_${liveAsrRecoveryBoostBlockedReason}`;
+        } else if (visualGovernorHoldActive || liveHardHold) {
+          strongerRecoveryDidNotWinReason = 'visual_governor_or_marker_lock_hold';
+        } else if (liveAsrCommitteeBridgeHoldContextActive || liveAsrCommitteePendingBridgeStateActive) {
+          strongerRecoveryDidNotWinReason = 'bridge_or_cue_owned_context';
+        } else if (clampReasonOut === 'min_step_floor') {
+          strongerRecoveryDidNotWinReason = 'fell_back_to_min_step_floor';
+        }
+        try {
+          console.warn(
+            buildAsrVisualRecoveryCommitteeArbitrationDiagnostic({
+              semanticTargetIdx: liveAsrCommitteeSemanticTargetIdx,
+              bridgeCueOwner: liveAsrCommitteeBridgeCueOwner,
+              visualGovernorState: liveAsrCommitteeVisualGovernorState,
+              markerLockState: liveAsrCommitteeMarkerLockState,
+              comfortLowRailState: liveAsrCommitteeComfortLowRailState,
+              safetyCapState: liveAsrCommitteeSafetyCapState,
+              postAdjacentRecoveryState: liveAsrCommitteePostAdjacentRecoveryState,
+              finalSelectedAuthority: liveTickSelectedAuthority,
+              finalActuatorFloorPx: DEFAULT_MIN_STEP_PX,
+              targetDebtPx: liveAsrActuatorTargetDebtPx,
+              appliedDeltaPx,
+              strongerRecoveryDidNotWinReason,
             }),
           );
         } catch {}
@@ -18622,30 +18818,128 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const commitMovedPxRaw = commitAfterTop - commitBeforeTop;
       const commitMovedPx = Number.isFinite(commitMovedPxRaw) ? Math.round(commitMovedPxRaw) : 0;
       const commitMoved = Math.abs(commitMovedPxRaw) >= 1;
+      const stickyLandingNowTs = Date.now();
       const stickyLandingProofSource = String(movementAuthorityProofSource || pendingProofSource || 'none');
       const stickyLandingProofSourceLower = stickyLandingProofSource.toLowerCase();
+      const stickyLandingSourceBranch = String(
+        movementAuthoritySourceBranch || pendingSourceBranch || forceReason || 'unknown',
+      );
+      const stickyLandingSourceBranchLower = stickyLandingSourceBranch.toLowerCase();
       const stickyAdjacentCommitProofed =
         stickyLandingProofSourceLower.includes('live_strict_local_proof_ok') ||
         stickyLandingProofSourceLower.includes('strict_adjacent_tail_progression') ||
         stickyLandingProofSourceLower.includes('local_proof') ||
         stickyLandingProofSourceLower.includes('tail_progression');
+      const stickyAdjacentCommit = targetLine === prevLineIndex + 1;
+      const stickyLandingRecoveryCandidate = stickyAdjacentCommit && (commitSnapSuppressed || !commitMoved);
+      if (stickyLandingRecoveryCandidate) {
+        try {
+          console.warn(
+            buildAsrPostAdjacentCommitVisualRecoveryPathProofDiagnostic({
+              currentLineIdx: prevLineIndex,
+              committedLineIdx: targetLine,
+              requestedTargetIdx: targetLine,
+              acceptedCommitTargetIdx: targetLine,
+              proofSource: stickyLandingProofSource || 'none',
+              sourceBranch: stickyLandingSourceBranch || 'unknown',
+              adjacentCommit: stickyAdjacentCommit,
+              snapSuppressed: commitSnapSuppressed,
+              movedPx: commitMovedPx,
+              scrollTopBefore: commitBeforeTop,
+              scrollTopAfter: commitAfterTop,
+              nextSpeakableLineY: lastAsrNextSpeakableLineY,
+              markerY: typeof (window as any).__TP_MARKER_PCT === 'number'
+                ? Number((scroller.clientHeight || 0)) * clamp(Number((window as any).__TP_MARKER_PCT), 0.05, 0.95)
+                : Number.NaN,
+              visualErrorPx: lastAsrVisualErrorPx,
+              speechFresh:
+                asrRuntimeSpeechRunningActual ||
+                hasRecentActualSpeech(stickyLandingNowTs) ||
+                hasRecentVadSpeechNow(stickyLandingNowTs),
+              finalPacketFresh:
+                lastFinalTranscriptAt > 0 &&
+                (stickyLandingNowTs - lastFinalTranscriptAt) <= 1800,
+              liveSpeechFresh:
+                asrRuntimeSpeechRunningActual ||
+                hasRecentActualSpeech(stickyLandingNowTs) ||
+                hasRecentVadSpeechNow(stickyLandingNowTs),
+              audioBackendFresh:
+                lastTranscriptPacketAt > 0 &&
+                Math.max(0, stickyLandingNowTs - lastTranscriptPacketAt) <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS &&
+                !asrSilenceActive,
+              bridgeTrapActive: !!pendingSpeakableBridgeState,
+              deadScreenActive: liveAsrVisualGovernorHardHold,
+              noMatchOrOffscript:
+                String(lastAsrGuardReason || '').toLowerCase().includes('no_match') ||
+                String(lastAsrHudGuardText || '').toLowerCase().includes('offscript'),
+              hardContradiction: String(lastAsrGuardReason || '').toLowerCase().includes('contradiction'),
+            }),
+          );
+        } catch {}
+      }
       if (
         modeNow === 'asr' &&
-        targetLine === prevLineIndex + 1 &&
+        stickyAdjacentCommit &&
         stickyAdjacentCommitProofed &&
         (commitSnapSuppressed || !commitMoved)
       ) {
         postAdjacentCommitVisualRecoveryPending = true;
         postAdjacentCommitVisualRecoveryOpen = false;
         postAdjacentCommitVisualRecoveryUntilMs = now + ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_WINDOW_MS;
+        postAdjacentCommitVisualRecoveryStartedAtMs = now;
         postAdjacentCommitVisualRecoveryCommittedLine = targetLine;
         postAdjacentCommitVisualRecoveryProofSource = stickyLandingProofSource || 'none';
         postAdjacentCommitVisualRecoverySnapSuppressed = commitSnapSuppressed;
         postAdjacentCommitVisualRecoveryMovedPx = commitMovedPx;
         postAdjacentCommitVisualRecoveryLastBlockedReason = '';
+      } else if (modeNow === 'asr' && targetLine > prevLineIndex) {
+        let bypassReason = 'commit_not_proofed';
+        if (!stickyAdjacentCommit) {
+          bypassReason = 'non_adjacent_commit';
+        } else if (!(commitSnapSuppressed || !commitMoved)) {
+          bypassReason = 'no_snap_suppression_or_move';
+        } else if (
+          stickyLandingSourceBranchLower.includes('bridge') ||
+          stickyLandingSourceBranchLower.includes('reconcile') ||
+          stickyLandingProofSourceLower.includes('rescue')
+        ) {
+          bypassReason = 'bridge_owned_branch';
+        } else if (!Number.isFinite(lastAsrNextSpeakableLineY)) {
+          bypassReason = 'geometry_unavailable';
+        }
+        try {
+          console.warn(
+            buildAsrPostAdjacentCommitVisualRecoveryBypassedDiagnostic({
+              currentLineIdx: prevLineIndex,
+              committedLineIdx: targetLine,
+              requestedTargetIdx: targetLine,
+              acceptedCommitTargetIdx: targetLine,
+              proofSource: stickyLandingProofSource || 'none',
+              sourceBranch: stickyLandingSourceBranch || 'unknown',
+              reason: bypassReason,
+            }),
+          );
+        } catch {}
       } else if (targetLine > prevLineIndex) {
+        if (postAdjacentCommitVisualRecoveryPending || postAdjacentCommitVisualRecoveryOpen) {
+          try {
+            console.warn(
+              buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic({
+                currentLineIdx: prevLineIndex,
+                committedLineIdx: postAdjacentCommitVisualRecoveryCommittedLine >= 0
+                  ? postAdjacentCommitVisualRecoveryCommittedLine
+                  : targetLine,
+                reason: 'new_commit_superseded',
+                elapsedMs: Math.max(0, now - postAdjacentCommitVisualRecoveryStartedAtMs),
+                nextSpeakableLineY: lastAsrNextSpeakableLineY,
+                markerY: Number.NaN,
+              }),
+            );
+          } catch {}
+        }
         postAdjacentCommitVisualRecoveryPending = false;
         postAdjacentCommitVisualRecoveryOpen = false;
+        postAdjacentCommitVisualRecoveryStartedAtMs = 0;
       }
       const commitCurrentTop = Number.isFinite(scroller.scrollTop) ? scroller.scrollTop : commitAfterTop;
       const commitRequestedTargetTop =

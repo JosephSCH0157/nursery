@@ -509,6 +509,45 @@ export function buildAsrPostAdjacentCommitVisualRecoveryOpenedDiagnostic(args: {
   return `[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_OPENED] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} proofSource=${args.proofSource} snapSuppressed=${args.snapSuppressed ? 1 : 0} moved=${Math.round(args.moved)} nextSpeakableLineY=${Math.round(args.nextSpeakableLineY)} markerY=${Math.round(args.markerY)} targetDebtPx=${Math.round(args.targetDebtPx)} visualErrorPx=${Math.round(args.visualErrorPx)}`;
 }
 
+export function buildAsrPostAdjacentCommitVisualRecoveryPathProofDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  requestedTargetIdx: number;
+  acceptedCommitTargetIdx: number;
+  proofSource: string;
+  sourceBranch: string;
+  adjacentCommit: boolean;
+  snapSuppressed: boolean;
+  movedPx: number;
+  scrollTopBefore: number;
+  scrollTopAfter: number;
+  nextSpeakableLineY: number;
+  markerY: number;
+  visualErrorPx: number;
+  speechFresh: boolean;
+  finalPacketFresh: boolean;
+  liveSpeechFresh: boolean;
+  audioBackendFresh: boolean;
+  bridgeTrapActive: boolean;
+  deadScreenActive: boolean;
+  noMatchOrOffscript: boolean;
+  hardContradiction: boolean;
+}): string {
+  return `[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_PATH_PROOF] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} requestedTargetIdx=${args.requestedTargetIdx} acceptedCommitTargetIdx=${args.acceptedCommitTargetIdx} proofSource=${args.proofSource} sourceBranch=${args.sourceBranch} adjacentCommit=${args.adjacentCommit ? 1 : 0} snapSuppressed=${args.snapSuppressed ? 1 : 0} movedPx=${Math.round(args.movedPx)} scrollTopBefore=${Math.round(args.scrollTopBefore)} scrollTopAfter=${Math.round(args.scrollTopAfter)} nextSpeakableLineY=${Math.round(args.nextSpeakableLineY)} markerY=${Math.round(args.markerY)} visualErrorPx=${Math.round(args.visualErrorPx)} speechFresh=${args.speechFresh ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} liveSpeechFresh=${args.liveSpeechFresh ? 1 : 0} audioBackendFresh=${args.audioBackendFresh ? 1 : 0} bridgeTrapActive=${args.bridgeTrapActive ? 1 : 0} deadScreenActive=${args.deadScreenActive ? 1 : 0} noMatchOrOffscript=${args.noMatchOrOffscript ? 1 : 0} hardContradiction=${args.hardContradiction ? 1 : 0}`;
+}
+
+export function buildAsrPostAdjacentCommitVisualRecoveryBypassedDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  requestedTargetIdx: number;
+  acceptedCommitTargetIdx: number;
+  proofSource: string;
+  sourceBranch: string;
+  reason: string;
+}): string {
+  return `[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_BYPASSED] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} requestedTargetIdx=${args.requestedTargetIdx} acceptedCommitTargetIdx=${args.acceptedCommitTargetIdx} proofSource=${args.proofSource} sourceBranch=${args.sourceBranch} reason=${args.reason}`;
+}
+
 export function buildAsrPostAdjacentCommitVisualRecoveryAppliedDiagnostic(args: {
   authority: string;
   targetDebtPx: number;
@@ -522,6 +561,40 @@ export function buildAsrPostAdjacentCommitVisualRecoveryBlockedDiagnostic(args: 
   reason: string;
 }): string {
   return `[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_BLOCKED] reason=${args.reason}`;
+}
+
+export function buildAsrPostAdjacentCommitVisualRecoveryOpenBlockedDiagnostic(args: {
+  reason: string;
+}): string {
+  return `[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_OPEN_BLOCKED] reason=${args.reason}`;
+}
+
+export function buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  reason: string;
+  elapsedMs: number;
+  nextSpeakableLineY: number;
+  markerY: number;
+}): string {
+  return `[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_WINDOW_CLEARED] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} reason=${args.reason} elapsedMs=${Math.round(args.elapsedMs)} nextSpeakableLineY=${Math.round(args.nextSpeakableLineY)} markerY=${Math.round(args.markerY)}`;
+}
+
+export function buildAsrVisualRecoveryCommitteeArbitrationDiagnostic(args: {
+  semanticTargetIdx: number;
+  bridgeCueOwner: string;
+  visualGovernorState: string;
+  markerLockState: string;
+  comfortLowRailState: string;
+  safetyCapState: string;
+  postAdjacentRecoveryState: string;
+  finalSelectedAuthority: string;
+  finalActuatorFloorPx: number;
+  targetDebtPx: number;
+  appliedDeltaPx: number;
+  strongerRecoveryDidNotWinReason: string;
+}): string {
+  return `[ASR_VISUAL_RECOVERY_COMMITTEE_ARBITRATION] semanticTargetIdx=${args.semanticTargetIdx} bridgeCueOwner=${args.bridgeCueOwner} visualGovernorState=${args.visualGovernorState} markerLockState=${args.markerLockState} comfortLowRailState=${args.comfortLowRailState} safetyCapState=${args.safetyCapState} postAdjacentRecoveryState=${args.postAdjacentRecoveryState} finalSelectedAuthority=${args.finalSelectedAuthority} finalActuatorFloorPx=${Math.round(args.finalActuatorFloorPx)} targetDebtPx=${Math.round(args.targetDebtPx)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} strongerRecoveryDidNotWinReason=${args.strongerRecoveryDidNotWinReason}`;
 }
 
 export const ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION = '2026-05-18a';

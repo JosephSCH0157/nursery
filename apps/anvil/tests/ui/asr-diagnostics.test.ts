@@ -23,8 +23,13 @@ import {
   buildAsrAdjacentRecoveryCatchupBypassedDiagnostic,
   buildAsrAdjacentRecoveryCatchupPathProofDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryAppliedDiagnostic,
+  buildAsrPostAdjacentCommitVisualRecoveryBypassedDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryBlockedDiagnostic,
+  buildAsrPostAdjacentCommitVisualRecoveryOpenBlockedDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryOpenedDiagnostic,
+  buildAsrPostAdjacentCommitVisualRecoveryPathProofDiagnostic,
+  buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic,
+  buildAsrVisualRecoveryCommitteeArbitrationDiagnostic,
   buildAsrVisualRecoveryBoostAppliedDiagnostic,
   buildAsrVisualRecoveryBoostBypassedDiagnostic,
   buildAsrVisualRecoveryBoostBlockedDiagnostic,
@@ -798,6 +803,51 @@ describe('ASR backend liveness diagnostics builders', () => {
     );
   });
 
+  test('builds post adjacent commit visual recovery path proof diagnostic with expected fields', () => {
+    const line = buildAsrPostAdjacentCommitVisualRecoveryPathProofDiagnostic({
+      currentLineIdx: 87,
+      committedLineIdx: 88,
+      requestedTargetIdx: 88,
+      acceptedCommitTargetIdx: 88,
+      proofSource: 'rescue_hold_adjacent_release',
+      sourceBranch: 'live_strict_rescue_hold_no_local_proof',
+      adjacentCommit: true,
+      snapSuppressed: true,
+      movedPx: 0,
+      scrollTopBefore: 6212,
+      scrollTopAfter: 6212,
+      nextSpeakableLineY: 477.4,
+      markerY: 390.2,
+      visualErrorPx: 8.1,
+      speechFresh: true,
+      finalPacketFresh: true,
+      liveSpeechFresh: true,
+      audioBackendFresh: true,
+      bridgeTrapActive: false,
+      deadScreenActive: false,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+    });
+    expect(line).toBe(
+      '[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_PATH_PROOF] currentLineIdx=87 committedLineIdx=88 requestedTargetIdx=88 acceptedCommitTargetIdx=88 proofSource=rescue_hold_adjacent_release sourceBranch=live_strict_rescue_hold_no_local_proof adjacentCommit=1 snapSuppressed=1 movedPx=0 scrollTopBefore=6212 scrollTopAfter=6212 nextSpeakableLineY=477 markerY=390 visualErrorPx=8 speechFresh=1 finalPacketFresh=1 liveSpeechFresh=1 audioBackendFresh=1 bridgeTrapActive=0 deadScreenActive=0 noMatchOrOffscript=0 hardContradiction=0',
+    );
+  });
+
+  test('builds post adjacent commit visual recovery bypassed diagnostic with expected fields', () => {
+    const line = buildAsrPostAdjacentCommitVisualRecoveryBypassedDiagnostic({
+      currentLineIdx: 87,
+      committedLineIdx: 88,
+      requestedTargetIdx: 88,
+      acceptedCommitTargetIdx: 88,
+      proofSource: 'rescue_hold_adjacent_release',
+      sourceBranch: 'live_strict_rescue_hold_no_local_proof',
+      reason: 'bridge_owned_branch',
+    });
+    expect(line).toBe(
+      '[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_BYPASSED] currentLineIdx=87 committedLineIdx=88 requestedTargetIdx=88 acceptedCommitTargetIdx=88 proofSource=rescue_hold_adjacent_release sourceBranch=live_strict_rescue_hold_no_local_proof reason=bridge_owned_branch',
+    );
+  });
+
   test('builds post adjacent commit visual recovery applied diagnostic with expected fields', () => {
     const line = buildAsrPostAdjacentCommitVisualRecoveryAppliedDiagnostic({
       authority: 'comfort_nudge',
@@ -816,6 +866,49 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_BLOCKED] reason=bridge_trap_active',
+    );
+  });
+
+  test('builds post adjacent commit visual recovery open blocked diagnostic with expected fields', () => {
+    const line = buildAsrPostAdjacentCommitVisualRecoveryOpenBlockedDiagnostic({
+      reason: 'stale_final_packet',
+    });
+    expect(line).toBe(
+      '[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_OPEN_BLOCKED] reason=stale_final_packet',
+    );
+  });
+
+  test('builds post adjacent commit visual recovery window cleared diagnostic with expected fields', () => {
+    const line = buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic({
+      currentLineIdx: 87,
+      committedLineIdx: 88,
+      reason: 'new_commit_superseded',
+      elapsedMs: 701.9,
+      nextSpeakableLineY: 475.4,
+      markerY: 390.2,
+    });
+    expect(line).toBe(
+      '[ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_WINDOW_CLEARED] currentLineIdx=87 committedLineIdx=88 reason=new_commit_superseded elapsedMs=702 nextSpeakableLineY=475 markerY=390',
+    );
+  });
+
+  test('builds visual recovery committee arbitration diagnostic with expected fields', () => {
+    const line = buildAsrVisualRecoveryCommitteeArbitrationDiagnostic({
+      semanticTargetIdx: 91,
+      bridgeCueOwner: 'live_strict_rescue_hold_no_local_proof',
+      visualGovernorState: 'inactive',
+      markerLockState: 'within_hold_tolerance',
+      comfortLowRailState: 'comfort_nudge',
+      safetyCapState: 'bridge_or_cue_context_active',
+      postAdjacentRecoveryState: 'blocked:bridge_trap_active',
+      finalSelectedAuthority: 'comfort_nudge',
+      finalActuatorFloorPx: 6,
+      targetDebtPx: 212.1,
+      appliedDeltaPx: 6.0,
+      strongerRecoveryDidNotWinReason: 'bridge_or_cue_owned_context',
+    });
+    expect(line).toBe(
+      '[ASR_VISUAL_RECOVERY_COMMITTEE_ARBITRATION] semanticTargetIdx=91 bridgeCueOwner=live_strict_rescue_hold_no_local_proof visualGovernorState=inactive markerLockState=within_hold_tolerance comfortLowRailState=comfort_nudge safetyCapState=bridge_or_cue_context_active postAdjacentRecoveryState=blocked:bridge_trap_active finalSelectedAuthority=comfort_nudge finalActuatorFloorPx=6 targetDebtPx=212 appliedDeltaPx=6 strongerRecoveryDidNotWinReason=bridge_or_cue_owned_context',
     );
   });
 

@@ -237,6 +237,23 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('proofed sticky adjacent landing emits post-adjacent recovery path proof', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (window as any).__TP_MARKER_PCT = 0.4;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'post-adjacent-path-proof',
+      match: { bestIdx: 1, bestSim: 0.9, topScores: [{ idx: 1, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(120);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_PATH_PROOF'))).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('still caps a far future live ASR match to the next readable line when later content matches more strongly', async () => {
     const driver = createAsrScrollDriver();
 
