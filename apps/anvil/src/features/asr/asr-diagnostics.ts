@@ -421,6 +421,38 @@ export function buildAsrAdjacentRecoveryCatchupBlockedDiagnostic(args: {
   return `[ASR_ADJACENT_RECOVERY_CATCHUP_BLOCKED] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} requestedTargetIdx=${args.requestedTargetIdx} commitTargetIdx=${args.commitTargetIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} visualErrorPx=${Math.round(args.visualErrorPx)} boundedVisualTolerancePx=${Math.round(args.boundedVisualTolerancePx)} pocketZone=${args.pocketZone} nextSpeakableLineY=${Math.round(args.nextSpeakableLineY)} preferredBandBottom=${Math.round(args.preferredBandBottom)} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} audioBackendFresh=${args.audioBackendFresh ? 1 : 0} reason=${args.reason}`;
 }
 
+export function buildAsrAdjacentRecoveryCatchupPathProofDiagnostic(args: {
+  currentLineIdx: number;
+  requestedTargetIdx: number;
+  commitTargetIdx: number;
+  proofSource: string;
+  sourceBranch: string;
+  finalPacketFresh: boolean;
+  audioBackendFresh: boolean;
+  noMatchOrOffscript: boolean;
+  hardContradiction: boolean;
+  targetSpeakable: boolean;
+  lowEnough: boolean;
+  visualErrorPx: number;
+  boundedVisualTolerancePx: number;
+  bridgeTrapActive: boolean;
+  terminalDeadScreenBlockActive: boolean;
+  alreadyUsedInEpisode: boolean;
+}): string {
+  return `[ASR_ADJACENT_RECOVERY_CATCHUP_PATH_PROOF] currentLineIdx=${args.currentLineIdx} requestedTargetIdx=${args.requestedTargetIdx} commitTargetIdx=${args.commitTargetIdx} proofSource=${args.proofSource} sourceBranch=${args.sourceBranch} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} audioBackendFresh=${args.audioBackendFresh ? 1 : 0} noMatchOrOffscript=${args.noMatchOrOffscript ? 1 : 0} hardContradiction=${args.hardContradiction ? 1 : 0} targetSpeakable=${args.targetSpeakable ? 1 : 0} lowEnough=${args.lowEnough ? 1 : 0} visualErrorPx=${Math.round(args.visualErrorPx)} boundedVisualTolerancePx=${Math.round(args.boundedVisualTolerancePx)} bridgeTrapActive=${args.bridgeTrapActive ? 1 : 0} terminalDeadScreenBlockActive=${args.terminalDeadScreenBlockActive ? 1 : 0} alreadyUsedInEpisode=${args.alreadyUsedInEpisode ? 1 : 0}`;
+}
+
+export function buildAsrAdjacentRecoveryCatchupBypassedDiagnostic(args: {
+  currentLineIdx: number;
+  requestedTargetIdx: number;
+  commitTargetIdx: number;
+  proofSource: string;
+  sourceBranch: string;
+  reason: string;
+}): string {
+  return `[ASR_ADJACENT_RECOVERY_CATCHUP_BYPASSED] currentLineIdx=${args.currentLineIdx} requestedTargetIdx=${args.requestedTargetIdx} commitTargetIdx=${args.commitTargetIdx} proofSource=${args.proofSource} sourceBranch=${args.sourceBranch} reason=${args.reason}`;
+}
+
 export function buildAsrVisualRecoveryBoostAppliedDiagnostic(args: {
   authority: string;
   targetDebtPx: number;
@@ -437,6 +469,30 @@ export function buildAsrVisualRecoveryBoostBlockedDiagnostic(args: {
   reason: string;
 }): string {
   return `[ASR_VISUAL_RECOVERY_BOOST_BLOCKED] authority=${args.authority} targetDebtPx=${Math.round(args.targetDebtPx)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} reason=${args.reason}`;
+}
+
+export function buildAsrVisualRecoveryBoostPathProofDiagnostic(args: {
+  authority: string;
+  reason: string;
+  speechFresh: boolean;
+  proofHealthy: boolean;
+  bridgeBlocked: boolean;
+  targetDebtPx: number;
+  lowStateAgeMs: number;
+  insidePreferredSettleBand: boolean;
+  insideToleratedBand: boolean;
+}): string {
+  return `[ASR_VISUAL_RECOVERY_BOOST_PATH_PROOF] authority=${args.authority} reason=${args.reason} speechFresh=${args.speechFresh ? 1 : 0} proofHealthy=${args.proofHealthy ? 1 : 0} bridgeBlocked=${args.bridgeBlocked ? 1 : 0} targetDebtPx=${Math.round(args.targetDebtPx)} lowStateAgeMs=${Math.round(args.lowStateAgeMs)} insidePreferredSettleBand=${args.insidePreferredSettleBand ? 1 : 0} insideToleratedBand=${args.insideToleratedBand ? 1 : 0}`;
+}
+
+export function buildAsrVisualRecoveryBoostBypassedDiagnostic(args: {
+  authority: string;
+  reason: string;
+  targetDebtPx: number;
+  lowStateAgeMs: number;
+  bypassReason: string;
+}): string {
+  return `[ASR_VISUAL_RECOVERY_BOOST_BYPASSED] authority=${args.authority} reason=${args.reason} targetDebtPx=${Math.round(args.targetDebtPx)} lowStateAgeMs=${Math.round(args.lowStateAgeMs)} bypassReason=${args.bypassReason}`;
 }
 
 export const ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION = '2026-05-18a';

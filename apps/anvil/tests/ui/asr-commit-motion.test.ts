@@ -708,6 +708,7 @@ describe('ASR live commit motion', () => {
     const warns = warnSpy.mock.calls.map((call) => String(call[0] || ''));
     expect(warns.some((line) => line.includes('asr_recovery_chain_blocked'))).toBe(true);
     expect(warns.some((line) => line.includes('asr_recovery_landing_hold_cleared'))).toBe(true);
+    expect(warns.some((line) => line.includes('ASR_ADJACENT_RECOVERY_CATCHUP_PATH_PROOF'))).toBe(true);
 
     warnSpy.mockRestore();
     driver.dispose();
@@ -1366,6 +1367,12 @@ describe('ASR live commit motion', () => {
       warnSpy.mock.calls.map((c) => String(c[0] || '')).some((l) =>
         l.includes('ASR_SUSTAINED_READ_STEP') ||
         (l.includes('movement_authority_commit') && l.includes('current=2') && l.includes('target=3')),
+      ),
+    ).toBe(true);
+    expect(
+      warnSpy.mock.calls.map((c) => String(c[0] || '')).some((l) =>
+        l.includes('ASR_ADJACENT_RECOVERY_CATCHUP_BYPASSED') &&
+        l.includes('reason=path_not_reached'),
       ),
     ).toBe(true);
     warnSpy.mockRestore();
@@ -2883,6 +2890,7 @@ describe('ASR live commit motion', () => {
     expect(selectedLine).not.toContain(',pocket_authority');
     expect(lines.some((l) => l.includes('ASR_SCROLL_AUTHORITY_CONFLICT') && l.includes('pocket_authority'))).toBe(false);
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_RECOVERY_BOOST_PATH_PROOF'))).toBe(true);
     const releaseLine = lines.find((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE')) || '';
     const pxpsMatch = releaseLine.match(/pxps=(\d+)/);
     if (pxpsMatch) expect(Number(pxpsMatch[1])).toBeLessThanOrEqual(20);

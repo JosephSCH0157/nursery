@@ -20,8 +20,12 @@ import {
   buildAsrVisualGovernorDeadScreenEscapeCommitDiagnostic,
   buildAsrAdjacentRecoveryCatchupAllowedDiagnostic,
   buildAsrAdjacentRecoveryCatchupBlockedDiagnostic,
+  buildAsrAdjacentRecoveryCatchupBypassedDiagnostic,
+  buildAsrAdjacentRecoveryCatchupPathProofDiagnostic,
   buildAsrVisualRecoveryBoostAppliedDiagnostic,
+  buildAsrVisualRecoveryBoostBypassedDiagnostic,
   buildAsrVisualRecoveryBoostBlockedDiagnostic,
+  buildAsrVisualRecoveryBoostPathProofDiagnostic,
   buildAsrScrollAuthorityConflictDiagnostic,
   buildAsrScrollAuthoritySelectedDiagnostic,
   buildAsrVisualMarkerErrorCorrectionDiagnostic,
@@ -681,6 +685,44 @@ describe('ASR backend liveness diagnostics builders', () => {
     );
   });
 
+  test('builds adjacent recovery catchup path proof diagnostic with expected fields', () => {
+    const line = buildAsrAdjacentRecoveryCatchupPathProofDiagnostic({
+      currentLineIdx: 23,
+      requestedTargetIdx: 25,
+      commitTargetIdx: 24,
+      proofSource: 'live_strict_local_proof_ok',
+      sourceBranch: 'movement_authority_proof',
+      finalPacketFresh: true,
+      audioBackendFresh: true,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+      targetSpeakable: true,
+      lowEnough: true,
+      visualErrorPx: 11.2,
+      boundedVisualTolerancePx: 12,
+      bridgeTrapActive: false,
+      terminalDeadScreenBlockActive: false,
+      alreadyUsedInEpisode: false,
+    });
+    expect(line).toBe(
+      '[ASR_ADJACENT_RECOVERY_CATCHUP_PATH_PROOF] currentLineIdx=23 requestedTargetIdx=25 commitTargetIdx=24 proofSource=live_strict_local_proof_ok sourceBranch=movement_authority_proof finalPacketFresh=1 audioBackendFresh=1 noMatchOrOffscript=0 hardContradiction=0 targetSpeakable=1 lowEnough=1 visualErrorPx=11 boundedVisualTolerancePx=12 bridgeTrapActive=0 terminalDeadScreenBlockActive=0 alreadyUsedInEpisode=0',
+    );
+  });
+
+  test('builds adjacent recovery catchup bypassed diagnostic with expected fields', () => {
+    const line = buildAsrAdjacentRecoveryCatchupBypassedDiagnostic({
+      currentLineIdx: 23,
+      requestedTargetIdx: 25,
+      commitTargetIdx: 24,
+      proofSource: 'adjacent_rescue_proofed',
+      sourceBranch: 'movement_authority_reconcile',
+      reason: 'bridge_branch_owned',
+    });
+    expect(line).toBe(
+      '[ASR_ADJACENT_RECOVERY_CATCHUP_BYPASSED] currentLineIdx=23 requestedTargetIdx=25 commitTargetIdx=24 proofSource=adjacent_rescue_proofed sourceBranch=movement_authority_reconcile reason=bridge_branch_owned',
+    );
+  });
+
   test('builds visual recovery boost applied diagnostic with expected fields', () => {
     const line = buildAsrVisualRecoveryBoostAppliedDiagnostic({
       authority: 'bottom_lock_release',
@@ -702,6 +744,36 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR_VISUAL_RECOVERY_BOOST_BLOCKED] authority=preferred_lower_rail_release targetDebtPx=98 appliedDeltaPx=6 reason=target_debt_below_threshold',
+    );
+  });
+
+  test('builds visual recovery boost path proof diagnostic with expected fields', () => {
+    const line = buildAsrVisualRecoveryBoostPathProofDiagnostic({
+      authority: 'bottom_lock_release',
+      reason: 'below_tolerated_bottom',
+      speechFresh: true,
+      proofHealthy: true,
+      bridgeBlocked: false,
+      targetDebtPx: 332.2,
+      lowStateAgeMs: 812.4,
+      insidePreferredSettleBand: false,
+      insideToleratedBand: false,
+    });
+    expect(line).toBe(
+      '[ASR_VISUAL_RECOVERY_BOOST_PATH_PROOF] authority=bottom_lock_release reason=below_tolerated_bottom speechFresh=1 proofHealthy=1 bridgeBlocked=0 targetDebtPx=332 lowStateAgeMs=812 insidePreferredSettleBand=0 insideToleratedBand=0',
+    );
+  });
+
+  test('builds visual recovery boost bypassed diagnostic with expected fields', () => {
+    const line = buildAsrVisualRecoveryBoostBypassedDiagnostic({
+      authority: 'comfort_nudge',
+      reason: 'outside_preferred_within_tolerated',
+      targetDebtPx: 43.8,
+      lowStateAgeMs: 0,
+      bypassReason: 'path_not_reached',
+    });
+    expect(line).toBe(
+      '[ASR_VISUAL_RECOVERY_BOOST_BYPASSED] authority=comfort_nudge reason=outside_preferred_within_tolerated targetDebtPx=44 lowStateAgeMs=0 bypassReason=path_not_reached',
     );
   });
 

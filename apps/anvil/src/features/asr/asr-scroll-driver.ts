@@ -31,8 +31,11 @@ import {
   buildAsrDiagnosticBundleProofDiagnostic,
   buildAsrAdjacentRecoveryCatchupAllowedDiagnostic,
   buildAsrAdjacentRecoveryCatchupBlockedDiagnostic,
+  buildAsrAdjacentRecoveryCatchupBypassedDiagnostic,
+  buildAsrAdjacentRecoveryCatchupPathProofDiagnostic,
   buildAsrVisualRecoveryBoostAppliedDiagnostic,
   buildAsrVisualRecoveryBoostBlockedDiagnostic,
+  buildAsrVisualRecoveryBoostPathProofDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
   buildAsrEarlyBridgeTrapReleasedDiagnostic,
   buildAsrMarkerErrorHoldBandRejectedDiagnostic,
@@ -11486,33 +11489,51 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
+      const visualRecoveryBoostSpeechFresh =
+        readerDrivingNow &&
+        lastFinalTranscriptAt > 0 &&
+        (nowTs - lastFinalTranscriptAt) <= 1800;
+      const visualRecoveryBoostBridgeBlocked =
+        bridgeHoldContextActive ||
+        (
+          liveAsrBridgeVisualComfortUntilMs > nowTs &&
+          (
+            String(liveAsrBridgeVisualComfortSourceBranch || '').toLowerCase().includes('bridge') ||
+            String(liveAsrBridgeVisualComfortSourceBranch || '').toLowerCase().includes('cue') ||
+            String(liveAsrBridgeVisualComfortSourceBranch || '').toLowerCase().includes('reconcile_single_step') ||
+            String(liveAsrBridgeVisualComfortProofSource || '').toLowerCase().includes('bridge') ||
+            String(liveAsrBridgeVisualComfortProofSource || '').toLowerCase().includes('cue') ||
+            String(liveAsrBridgeVisualComfortProofSource || '').toLowerCase().includes('adjacent_rescue')
+          )
+        );
+      const visualRecoveryBoostLowStateAgeMs =
+        liveAsrReaderTooLowSinceMs > 0
+          ? Math.max(0, nowTs - liveAsrReaderTooLowSinceMs)
+          : 0;
+      try {
+        console.warn(
+          buildAsrVisualRecoveryBoostPathProofDiagnostic({
+            authority: liveTickSelectedAuthority,
+            reason: liveTickAuthorityReason,
+            speechFresh: visualRecoveryBoostSpeechFresh,
+            proofHealthy: semanticProofHealthy,
+            bridgeBlocked: visualRecoveryBoostBridgeBlocked,
+            targetDebtPx,
+            lowStateAgeMs: visualRecoveryBoostLowStateAgeMs,
+            insidePreferredSettleBand: insidePreferredSettleZone,
+            insideToleratedBand: insideTolerated,
+          }),
+        );
+      } catch {}
       const visualRecoveryBoostDecision = decideAsrVisualRecoveryBoost({
         liveAsrActive: liveAsrFollowMode,
         authority: liveTickSelectedAuthority,
         reason: liveTickAuthorityReason,
-        speechFresh:
-          readerDrivingNow &&
-          lastFinalTranscriptAt > 0 &&
-          (nowTs - lastFinalTranscriptAt) <= 1800,
+        speechFresh: visualRecoveryBoostSpeechFresh,
         proofHealthy: semanticProofHealthy,
-        bridgeBlocked:
-          bridgeHoldContextActive ||
-          (
-            liveAsrBridgeVisualComfortUntilMs > nowTs &&
-            (
-              String(liveAsrBridgeVisualComfortSourceBranch || '').toLowerCase().includes('bridge') ||
-              String(liveAsrBridgeVisualComfortSourceBranch || '').toLowerCase().includes('cue') ||
-              String(liveAsrBridgeVisualComfortSourceBranch || '').toLowerCase().includes('reconcile_single_step') ||
-              String(liveAsrBridgeVisualComfortProofSource || '').toLowerCase().includes('bridge') ||
-              String(liveAsrBridgeVisualComfortProofSource || '').toLowerCase().includes('cue') ||
-              String(liveAsrBridgeVisualComfortProofSource || '').toLowerCase().includes('adjacent_rescue')
-            )
-          ),
+        bridgeBlocked: visualRecoveryBoostBridgeBlocked,
         targetDebtPx,
-        lowStateAgeMs:
-          liveAsrReaderTooLowSinceMs > 0
-            ? Math.max(0, nowTs - liveAsrReaderTooLowSinceMs)
-            : 0,
+        lowStateAgeMs: visualRecoveryBoostLowStateAgeMs,
         insidePreferredSettleBand: insidePreferredSettleZone,
         insideToleratedBand: insideTolerated,
       });
@@ -16397,6 +16418,28 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             Number.isFinite(lastAsrPreferredBandBottom) &&
             lastAsrNextSpeakableLineY > lastAsrPreferredBandBottom
           );
+        try {
+          console.warn(
+            buildAsrAdjacentRecoveryCatchupPathProofDiagnostic({
+              currentLineIdx: lastLineIndex,
+              requestedTargetIdx: args.requestedTarget,
+              commitTargetIdx: commitTarget,
+              proofSource: pendingProofSource || movementAuthorityProofSource || 'none',
+              sourceBranch: pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown',
+              finalPacketFresh,
+              audioBackendFresh,
+              noMatchOrOffscript,
+              hardContradiction,
+              targetSpeakable: isSpeakableScriptLine(commitTarget),
+              lowEnough,
+              visualErrorPx: lastAsrVisualErrorPx,
+              boundedVisualTolerancePx,
+              bridgeTrapActive,
+              terminalDeadScreenBlockActive: deadScreenTerminalCommitSuppressedByVisualGovernor,
+              alreadyUsedInEpisode: adjacentRecoveryCatchupUsedInEpisode,
+            }),
+          );
+        } catch {}
         const catchupDecision = decideAsrAdjacentRecoveryCatchup({
           finalPacketFresh,
           audioBackendFresh,
@@ -16480,6 +16523,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           backwardContradictionOverriddenByTail: !!liveSpeechForwardPushBackwardContradictionOverriddenByTail,
         });
         if (sustainedReadStep.applied) {
+          try {
+            console.warn(
+              buildAsrAdjacentRecoveryCatchupBypassedDiagnostic({
+                currentLineIdx: lastLineIndex,
+                requestedTargetIdx: requestedTargetLine,
+                commitTargetIdx: Math.max(lastLineIndex + 1, adjacentLine),
+                proofSource: pendingProofSource || movementAuthorityProofSource || 'none',
+                sourceBranch: pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown',
+                reason: 'path_not_reached',
+              }),
+            );
+          } catch {}
           targetLine = sustainedReadStep.target;
           forceReason = forceReason || sustainedReadStep.reason || 'sustained_read_step';
           clearRecoveryLandingHold('sustained_read_step', now, lastLineIndex, line);
@@ -17822,6 +17877,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             (!!directAdjacentTailProgressionProof?.stalePrefixIgnored && !!strictBackwardContradictionForCommit),
         });
         if (sustainedReadStep.applied) {
+          try {
+            console.warn(
+              buildAsrAdjacentRecoveryCatchupBypassedDiagnostic({
+                currentLineIdx: lastLineIndex,
+                requestedTargetIdx: requestedTargetLine,
+                commitTargetIdx: Math.max(lastLineIndex + 1, adjacentLine),
+                proofSource: movementAuthorityProofSource || 'none',
+                sourceBranch: movementAuthoritySourceBranch || forceReason || 'unknown',
+                reason: 'path_not_reached',
+              }),
+            );
+          } catch {}
           targetLine = sustainedReadStep.target;
           forceReason = forceReason || 'sustained_read_step';
         } else if (!directAdjacentAnyBypassEligible) {
@@ -17869,6 +17936,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           });
           return;
           }
+        } else {
+          try {
+            console.warn(
+              buildAsrAdjacentRecoveryCatchupBypassedDiagnostic({
+                currentLineIdx: lastLineIndex,
+                requestedTargetIdx: requestedTargetLine,
+                commitTargetIdx: Math.max(lastLineIndex + 1, adjacentLine),
+                proofSource: movementAuthorityProofSource || 'none',
+                sourceBranch: movementAuthoritySourceBranch || forceReason || 'unknown',
+                reason: 'bridge_branch_owned',
+              }),
+            );
+          } catch {}
         }
       }
       if (directAdjacentFallbackProofOwned && !directAdjacentMatch) {
