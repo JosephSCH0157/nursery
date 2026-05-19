@@ -18,6 +18,8 @@ import {
   buildAsrVisualGovernorDeadScreenAutopsyDiagnostic,
   buildAsrVisualGovernorDeadScreenEscapeBlockedDiagnostic,
   buildAsrVisualGovernorDeadScreenEscapeCommitDiagnostic,
+  buildAsrAdjacentRecoveryCatchupAllowedDiagnostic,
+  buildAsrAdjacentRecoveryCatchupBlockedDiagnostic,
   buildAsrScrollAuthorityConflictDiagnostic,
   buildAsrScrollAuthoritySelectedDiagnostic,
   buildAsrVisualMarkerErrorCorrectionDiagnostic,
@@ -27,6 +29,7 @@ import {
 } from '../../src/features/asr/asr-diagnostics';
 import {
   decideAsrVisualGovernorDeadScreenEscape,
+  decideAsrAdjacentRecoveryCatchup,
   shouldEmitAsrVisualGovernorDeadScreenAutopsy,
 } from '../../src/features/asr/asr-diagnostic-gates';
 
@@ -629,6 +632,52 @@ describe('ASR backend liveness diagnostics builders', () => {
     );
   });
 
+  test('builds adjacent recovery catchup allowed diagnostic with expected fields', () => {
+    const line = buildAsrAdjacentRecoveryCatchupAllowedDiagnostic({
+      currentLineIdx: 23,
+      committedLineIdx: 23,
+      requestedTargetIdx: 25,
+      commitTargetIdx: 24,
+      nextSpeakableLineIdx: 24,
+      currentScrollTop: 1702.4,
+      targetScrollTop: 1791.4,
+      visualErrorPx: 11.2,
+      boundedVisualTolerancePx: 12,
+      pocketZone: 'pocket',
+      nextSpeakableLineY: 478.1,
+      preferredBandBottom: 467.2,
+      finalPacketFresh: true,
+      audioBackendFresh: true,
+      reason: 'bounded_adjacent_recovery_catchup',
+    });
+    expect(line).toBe(
+      '[ASR_ADJACENT_RECOVERY_CATCHUP_ALLOWED] currentLineIdx=23 committedLineIdx=23 requestedTargetIdx=25 commitTargetIdx=24 nextSpeakableLineIdx=24 currentScrollTop=1702 targetScrollTop=1791 visualErrorPx=11 boundedVisualTolerancePx=12 pocketZone=pocket nextSpeakableLineY=478 preferredBandBottom=467 finalPacketFresh=1 audioBackendFresh=1 reason=bounded_adjacent_recovery_catchup',
+    );
+  });
+
+  test('builds adjacent recovery catchup blocked diagnostic with expected fields', () => {
+    const line = buildAsrAdjacentRecoveryCatchupBlockedDiagnostic({
+      currentLineIdx: 23,
+      committedLineIdx: 23,
+      requestedTargetIdx: 25,
+      commitTargetIdx: 24,
+      nextSpeakableLineIdx: 24,
+      currentScrollTop: 1702.4,
+      targetScrollTop: 1791.4,
+      visualErrorPx: 17.2,
+      boundedVisualTolerancePx: 12,
+      pocketZone: 'pocket',
+      nextSpeakableLineY: 462.1,
+      preferredBandBottom: 467.2,
+      finalPacketFresh: true,
+      audioBackendFresh: true,
+      reason: 'not_low_enough',
+    });
+    expect(line).toBe(
+      '[ASR_ADJACENT_RECOVERY_CATCHUP_BLOCKED] currentLineIdx=23 committedLineIdx=23 requestedTargetIdx=25 commitTargetIdx=24 nextSpeakableLineIdx=24 currentScrollTop=1702 targetScrollTop=1791 visualErrorPx=17 boundedVisualTolerancePx=12 pocketZone=pocket nextSpeakableLineY=462 preferredBandBottom=467 finalPacketFresh=1 audioBackendFresh=1 reason=not_low_enough',
+    );
+  });
+
   test('builds diagnostic bundle proof with expected fields', () => {
     const line = buildAsrDiagnosticBundleProofDiagnostic({
       buildStamp: 'asr-scroll-2026-05-18T22:07:18.976Z',
@@ -848,5 +897,180 @@ describe('ASR backend liveness diagnostics builders', () => {
       thresholdMs: 3000,
       globalHold: true,
     })).toEqual({ allow: false, reason: 'no_terminal_suppression' });
+  });
+
+  test('adjacent recovery catchup decision allows fresh low adjacent step', () => {
+    expect(decideAsrAdjacentRecoveryCatchup({
+      finalPacketFresh: true,
+      audioBackendFresh: true,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+      requestedTargetLine: 25,
+      currentLineIdx: 23,
+      commitTargetLine: 24,
+      targetSpeakable: true,
+      lowEnough: true,
+      visualErrorPx: 11,
+      boundedVisualTolerancePx: 12,
+      bridgeTrapActive: false,
+      terminalDeadScreenBlockActive: false,
+      alreadyUsedInEpisode: false,
+    })).toEqual({ allow: true });
+  });
+
+  test('adjacent recovery catchup decision blocks stale packet and stale backend', () => {
+    expect(decideAsrAdjacentRecoveryCatchup({
+      finalPacketFresh: false,
+      audioBackendFresh: true,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+      requestedTargetLine: 25,
+      currentLineIdx: 23,
+      commitTargetLine: 24,
+      targetSpeakable: true,
+      lowEnough: true,
+      visualErrorPx: 11,
+      boundedVisualTolerancePx: 12,
+      bridgeTrapActive: false,
+      terminalDeadScreenBlockActive: false,
+      alreadyUsedInEpisode: false,
+    })).toEqual({ allow: false, reason: 'stale_final_packet' });
+    expect(decideAsrAdjacentRecoveryCatchup({
+      finalPacketFresh: true,
+      audioBackendFresh: false,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+      requestedTargetLine: 25,
+      currentLineIdx: 23,
+      commitTargetLine: 24,
+      targetSpeakable: true,
+      lowEnough: true,
+      visualErrorPx: 11,
+      boundedVisualTolerancePx: 12,
+      bridgeTrapActive: false,
+      terminalDeadScreenBlockActive: false,
+      alreadyUsedInEpisode: false,
+    })).toEqual({ allow: false, reason: 'stale_audio_or_backend' });
+  });
+
+  test('adjacent recovery catchup decision blocks no-match/offscript and contradiction', () => {
+    expect(decideAsrAdjacentRecoveryCatchup({
+      finalPacketFresh: true,
+      audioBackendFresh: true,
+      noMatchOrOffscript: true,
+      hardContradiction: false,
+      requestedTargetLine: 25,
+      currentLineIdx: 23,
+      commitTargetLine: 24,
+      targetSpeakable: true,
+      lowEnough: true,
+      visualErrorPx: 11,
+      boundedVisualTolerancePx: 12,
+      bridgeTrapActive: false,
+      terminalDeadScreenBlockActive: false,
+      alreadyUsedInEpisode: false,
+    })).toEqual({ allow: false, reason: 'no_match_or_offscript' });
+    expect(decideAsrAdjacentRecoveryCatchup({
+      finalPacketFresh: true,
+      audioBackendFresh: true,
+      noMatchOrOffscript: false,
+      hardContradiction: true,
+      requestedTargetLine: 25,
+      currentLineIdx: 23,
+      commitTargetLine: 24,
+      targetSpeakable: true,
+      lowEnough: true,
+      visualErrorPx: 11,
+      boundedVisualTolerancePx: 12,
+      bridgeTrapActive: false,
+      terminalDeadScreenBlockActive: false,
+      alreadyUsedInEpisode: false,
+    })).toEqual({ allow: false, reason: 'no_match_or_offscript' });
+  });
+
+  test('adjacent recovery catchup decision blocks non-adjacent and bridge trap', () => {
+    expect(decideAsrAdjacentRecoveryCatchup({
+      finalPacketFresh: true,
+      audioBackendFresh: true,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+      requestedTargetLine: 27,
+      currentLineIdx: 23,
+      commitTargetLine: 25,
+      targetSpeakable: true,
+      lowEnough: true,
+      visualErrorPx: 11,
+      boundedVisualTolerancePx: 12,
+      bridgeTrapActive: false,
+      terminalDeadScreenBlockActive: false,
+      alreadyUsedInEpisode: false,
+    })).toEqual({ allow: false, reason: 'non_adjacent_target' });
+    expect(decideAsrAdjacentRecoveryCatchup({
+      finalPacketFresh: true,
+      audioBackendFresh: true,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+      requestedTargetLine: 25,
+      currentLineIdx: 23,
+      commitTargetLine: 24,
+      targetSpeakable: true,
+      lowEnough: true,
+      visualErrorPx: 11,
+      boundedVisualTolerancePx: 12,
+      bridgeTrapActive: true,
+      terminalDeadScreenBlockActive: false,
+      alreadyUsedInEpisode: false,
+    })).toEqual({ allow: false, reason: 'bridge_trap_active' });
+  });
+
+  test('adjacent recovery catchup decision blocks high error, not-low-enough, and repeat use', () => {
+    expect(decideAsrAdjacentRecoveryCatchup({
+      finalPacketFresh: true,
+      audioBackendFresh: true,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+      requestedTargetLine: 25,
+      currentLineIdx: 23,
+      commitTargetLine: 24,
+      targetSpeakable: true,
+      lowEnough: false,
+      visualErrorPx: 11,
+      boundedVisualTolerancePx: 12,
+      bridgeTrapActive: false,
+      terminalDeadScreenBlockActive: false,
+      alreadyUsedInEpisode: false,
+    })).toEqual({ allow: false, reason: 'not_low_enough' });
+    expect(decideAsrAdjacentRecoveryCatchup({
+      finalPacketFresh: true,
+      audioBackendFresh: true,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+      requestedTargetLine: 25,
+      currentLineIdx: 23,
+      commitTargetLine: 24,
+      targetSpeakable: true,
+      lowEnough: true,
+      visualErrorPx: 17,
+      boundedVisualTolerancePx: 12,
+      bridgeTrapActive: false,
+      terminalDeadScreenBlockActive: false,
+      alreadyUsedInEpisode: false,
+    })).toEqual({ allow: false, reason: 'visual_error_out_of_bounds' });
+    expect(decideAsrAdjacentRecoveryCatchup({
+      finalPacketFresh: true,
+      audioBackendFresh: true,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+      requestedTargetLine: 25,
+      currentLineIdx: 23,
+      commitTargetLine: 24,
+      targetSpeakable: true,
+      lowEnough: true,
+      visualErrorPx: 11,
+      boundedVisualTolerancePx: 12,
+      bridgeTrapActive: false,
+      terminalDeadScreenBlockActive: false,
+      alreadyUsedInEpisode: true,
+    })).toEqual({ allow: false, reason: 'already_used_in_episode' });
   });
 });

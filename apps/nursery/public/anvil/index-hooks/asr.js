@@ -287,6 +287,10 @@ function installAsrLogBuffer(win = window) {
   win.__getAsrLogSummary = () => buffer.summary();
 }
 
+// src/features/asr/asr-diagnostics.ts
+var ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION = "2026-05-18a";
+var ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION = "2026-05-18a";
+
 // src/state/appStore.ts
 function getAppStore() {
   if (typeof window === "undefined") return null;
@@ -2968,6 +2972,7 @@ var asrFeatureInitialized = false;
 var asrTopbarMounted = false;
 var legacyShimWarned = false;
 var legacyOverrideWarned = false;
+var ASR_INIT_IMPL_PROOF_VERSION = "asr.ts 2026-05-18b";
 function allowLegacyAsrModeRuntime() {
   if (typeof window === "undefined") return false;
   try {
@@ -2980,6 +2985,23 @@ function allowLegacyAsrModeRuntime() {
 }
 function isSpeechLoaderShim(value) {
   return !!value && typeof value.setEnabled === "function" && value.__tpLegacyShim === true;
+}
+function shouldEmitAsrInitProof() {
+  if (typeof window === "undefined") return false;
+  try {
+    const w = window;
+    if (w.__TP_DEV || w.__TP_DEV1 || w.__tpDevMode) return true;
+    if (w.__asrLogBufferInstalled) return true;
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.get("dev") === "1" || params.get("asr_log_buffer") === "1") return true;
+  } catch {
+  }
+  try {
+    if (window.localStorage?.getItem("tp_dev_mode") === "1") return true;
+    if (window.localStorage?.getItem("asr_log_buffer") === "1") return true;
+  } catch {
+  }
+  return false;
 }
 function ensureLegacyAsrModeShim() {
   const existing = window.__tpAsrMode;
@@ -3032,8 +3054,36 @@ function mountAsrTopbarOnce(modeShim) {
 function initAsrFeature() {
   if (asrFeatureInitialized) return;
   asrFeatureInitialized = true;
+  if (typeof window !== "undefined" && shouldEmitAsrInitProof()) {
+    window.__ASR_INIT_IMPL__ = ASR_INIT_IMPL_PROOF_VERSION;
+    window.__ASR_DIAGNOSTIC_PROOF__ = {
+      buildStamp: String(window.__TP_BUILD_STAMP || "unknown"),
+      delayedAutopsyBuilderPresent: true,
+      deadScreenAutopsyBuilderPresent: true,
+      dumpPathProofPresent: true,
+      delayedAutopsyVersion: ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION,
+      deadScreenAutopsyVersion: ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION,
+      initImpl: ASR_INIT_IMPL_PROOF_VERSION
+    };
+    try {
+      console.warn(`[ASR_INIT_IMPL] ${ASR_INIT_IMPL_PROOF_VERSION}`);
+    } catch {
+    }
+  }
   try {
     installAsrLogBuffer();
+  } catch {
+  }
+  try {
+    window.__ASR_DIAGNOSTIC_PROOF__ = {
+      buildStamp: String(window.__TP_BUILD_STAMP || "unknown"),
+      delayedAutopsyBuilderPresent: true,
+      deadScreenAutopsyBuilderPresent: true,
+      dumpPathProofPresent: true,
+      delayedAutopsyVersion: ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION,
+      deadScreenAutopsyVersion: ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION,
+      initImpl: ASR_INIT_IMPL_PROOF_VERSION
+    };
   } catch {
   }
   ensureAsrSettingsWired(document.getElementById("settingsBody") || document);

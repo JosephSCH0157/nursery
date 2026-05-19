@@ -381,6 +381,46 @@ export function buildAsrVisualGovernorDeadScreenEscapeBlockedDiagnostic(args: {
   return `[ASR_VISUAL_GOVERNOR_DEAD_SCREEN_ESCAPE_BLOCKED] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} requestedTargetIdx=${args.requestedTargetIdx} acceptedCommitTargetIdx=${args.acceptedCommitTargetIdx} bestIdx=${args.bestIdx} proofSource=${args.proofSource} sourceBranch=${args.sourceBranch} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} moved=${Math.round(args.moved)} deltaLines=${args.deltaLines.toFixed(2)} governorHoldAgeMs=${Math.round(args.governorHoldAgeMs)} noCommitMs=${Math.round(args.noCommitMs)} speechFresh=${args.speechFresh ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} liveSpeechFresh=${args.liveSpeechFresh ? 1 : 0} freshAdjacentUnlockSeen=${args.freshAdjacentUnlockSeen ? 1 : 0} terminalCommitSuppressedByVisualGovernor=${args.terminalCommitSuppressedByVisualGovernor ? 1 : 0} reason=${args.reason}`;
 }
 
+export function buildAsrAdjacentRecoveryCatchupAllowedDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  requestedTargetIdx: number;
+  commitTargetIdx: number;
+  nextSpeakableLineIdx: number;
+  currentScrollTop: number;
+  targetScrollTop: number;
+  visualErrorPx: number;
+  boundedVisualTolerancePx: number;
+  pocketZone: string;
+  nextSpeakableLineY: number;
+  preferredBandBottom: number;
+  finalPacketFresh: boolean;
+  audioBackendFresh: boolean;
+  reason: string;
+}): string {
+  return `[ASR_ADJACENT_RECOVERY_CATCHUP_ALLOWED] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} requestedTargetIdx=${args.requestedTargetIdx} commitTargetIdx=${args.commitTargetIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} visualErrorPx=${Math.round(args.visualErrorPx)} boundedVisualTolerancePx=${Math.round(args.boundedVisualTolerancePx)} pocketZone=${args.pocketZone} nextSpeakableLineY=${Math.round(args.nextSpeakableLineY)} preferredBandBottom=${Math.round(args.preferredBandBottom)} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} audioBackendFresh=${args.audioBackendFresh ? 1 : 0} reason=${args.reason}`;
+}
+
+export function buildAsrAdjacentRecoveryCatchupBlockedDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  requestedTargetIdx: number;
+  commitTargetIdx: number;
+  nextSpeakableLineIdx: number;
+  currentScrollTop: number;
+  targetScrollTop: number;
+  visualErrorPx: number;
+  boundedVisualTolerancePx: number;
+  pocketZone: string;
+  nextSpeakableLineY: number;
+  preferredBandBottom: number;
+  finalPacketFresh: boolean;
+  audioBackendFresh: boolean;
+  reason: string;
+}): string {
+  return `[ASR_ADJACENT_RECOVERY_CATCHUP_BLOCKED] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} requestedTargetIdx=${args.requestedTargetIdx} commitTargetIdx=${args.commitTargetIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} visualErrorPx=${Math.round(args.visualErrorPx)} boundedVisualTolerancePx=${Math.round(args.boundedVisualTolerancePx)} pocketZone=${args.pocketZone} nextSpeakableLineY=${Math.round(args.nextSpeakableLineY)} preferredBandBottom=${Math.round(args.preferredBandBottom)} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} audioBackendFresh=${args.audioBackendFresh ? 1 : 0} reason=${args.reason}`;
+}
+
 export const ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION = '2026-05-18a';
 export const ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION = '2026-05-18a';
 

@@ -29,6 +29,8 @@ import {
   buildAsrBackendRestartCompletedDiagnostic,
   buildAsrBackendRestartRequestedDiagnostic,
   buildAsrDiagnosticBundleProofDiagnostic,
+  buildAsrAdjacentRecoveryCatchupAllowedDiagnostic,
+  buildAsrAdjacentRecoveryCatchupBlockedDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
   buildAsrEarlyBridgeTrapReleasedDiagnostic,
   buildAsrMarkerErrorHoldBandRejectedDiagnostic,
@@ -98,6 +100,7 @@ import {
 import { clearOnlyMatchingBridgeBlockToken, shouldReleaseEarlyBridgeTrap } from './asr-bridge-trap';
 import { shouldEmitAsrVisualGovernorDeadScreenAutopsy } from './asr-diagnostic-gates';
 import { decideAsrVisualGovernorDeadScreenEscape } from './asr-diagnostic-gates';
+import { decideAsrAdjacentRecoveryCatchup } from './asr-diagnostic-gates';
 import { isManualAnchorPendingFresh, isManualAnchorWithinLineWindow } from './asr-manual-anchor-policy';
 import {
   buildBackendHeartbeatDiagnosticInput,
@@ -3364,6 +3367,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastAsrSelectedAuthority = 'none';
   let lastAsrVisualAction = 'none';
   let lastAsrVisualErrorPx = Number.NaN;
+  let lastAsrHoldTolerancePx = Number.NaN;
+  let lastAsrPreferredBandBottom = Number.NaN;
+  let lastAsrNextSpeakableLineY = Number.NaN;
+  let lastAsrReaderPocketZone = 'unknown';
   let lastAsrBackendSpeechActive = false;
   let lastAsrBackendTranscriptAgeMs = -1;
   let lastAsrBackendAudioAgeMs = -1;
@@ -3436,6 +3443,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let recoveryLandingHoldFromLine = -1;
   let recoveryLandingHoldToLine = -1;
   let recoveryLandingHoldSource = '';
+  let adjacentRecoveryCatchupUsedInEpisode = false;
   const clearRecoveryLandingHold = (
     reason: string,
     now: number,
@@ -11446,6 +11454,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lastAsrSelectedAuthority = String(liveTickSelectedAuthority || 'none');
         lastAsrVisualAction = String(markerCorrectionAction || 'none');
         lastAsrVisualErrorPx = Number.isFinite(visualErrorPx) ? Number(visualErrorPx) : Number.NaN;
+        lastAsrHoldTolerancePx = Number.isFinite(holdTolerancePx) ? Number(holdTolerancePx) : Number.NaN;
+        lastAsrPreferredBandBottom = Number.isFinite(preferredBandBottom) ? Number(preferredBandBottom) : Number.NaN;
+        lastAsrNextSpeakableLineY = Number.isFinite(nextLineY) ? Number(nextLineY) : Number.NaN;
+        lastAsrReaderPocketZone = String(liveTickReaderPocketZone || 'unknown');
         try {
           console.warn(
             buildAsrVisualMarkerErrorCorrectionDiagnostic({
@@ -16245,6 +16257,132 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } catch {}
         return { applied: true, target: bridgeCandidate };
       };
+      const maybeAdjacentRecoveryCatchup = (args: {
+        sourceHoldReason: string;
+        requestedTarget: number;
+        commitTarget: number;
+        currentScrollTop: number;
+        targetScrollTop: number;
+      }): { applied: boolean; target: number; reason?: string } => {
+        const commitTarget = Math.max(lastLineIndex, Math.floor(Number(args.commitTarget) || lastLineIndex));
+        const finalPacketFresh =
+          lastFinalTranscriptAt > 0 &&
+          now - lastFinalTranscriptAt <= 1800;
+        const audioBackendFresh =
+          !asrSilenceActive &&
+          runtimeSpeechFresh &&
+          hasRecentVadSpeech &&
+          (asrRuntimeSpeechRunningActual || hasRecentActualSpeech(now));
+        const noMatchOrOffscript =
+          String(lastAsrGuardReason || '').toLowerCase().includes('no_match') ||
+          String(lastAsrHudGuardText || '').toLowerCase().includes('offscript') ||
+          String(pendingSourceBranch || movementAuthoritySourceBranch || forceReason || '').toLowerCase().includes('offscript');
+        const hardContradiction =
+          !!strictBackwardContradictionForCommit &&
+          !liveSpeechForwardPushBackwardContradictionOverriddenByTail;
+        const repeatedHoldReasons = new Set([
+          'live_strict_rescue_hold_no_local_proof',
+          'cue_stall_rescue_blocked',
+          'asr_recovery_skip_non_adjacent_target',
+          'asr_recovery_skip_tracking_healthy',
+          'asr_live_no_adjacent_match_hold',
+          'asr_recovery_chain_blocked',
+        ]);
+        const repeatedHoldCount = guardEvents.reduce((count, entry) =>
+          count + (repeatedHoldReasons.has(String(entry?.reason || '')) ? 1 : 0), 0);
+        const liveTranscriptFresh =
+          lastTranscriptPacketAt > 0 &&
+          Math.max(0, now - lastTranscriptPacketAt) <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS;
+        const bridgeTrapActive = shouldClassifyBridgeTrap({
+          liveTranscriptFresh,
+          conf,
+          speechActive: asrRuntimeSpeechRunningActual,
+          activeReadMode: asrRuntimeActiveReadMode,
+          requestedTarget: args.requestedTarget,
+          currentLine: lastLineIndex,
+          adjacentTarget: commitTarget,
+          repeatedHoldCount,
+          stallMs: Math.max(0, now - lastCommitTime),
+        }) || !!pendingSpeakableBridgeState;
+        const boundedVisualTolerancePx =
+          Number.isFinite(lastAsrHoldTolerancePx)
+            ? Math.max(1, Math.min(12, Number(lastAsrHoldTolerancePx)))
+            : 12;
+        const lowEnough =
+          lastAsrReaderPocketZone === 'bottom' ||
+          (
+            Number.isFinite(lastAsrNextSpeakableLineY) &&
+            Number.isFinite(lastAsrPreferredBandBottom) &&
+            lastAsrNextSpeakableLineY > lastAsrPreferredBandBottom
+          );
+        const catchupDecision = decideAsrAdjacentRecoveryCatchup({
+          finalPacketFresh,
+          audioBackendFresh,
+          noMatchOrOffscript,
+          hardContradiction,
+          requestedTargetLine: args.requestedTarget,
+          currentLineIdx: lastLineIndex,
+          commitTargetLine: commitTarget,
+          targetSpeakable: isSpeakableScriptLine(commitTarget),
+          lowEnough,
+          visualErrorPx: lastAsrVisualErrorPx,
+          boundedVisualTolerancePx,
+          bridgeTrapActive,
+          terminalDeadScreenBlockActive: deadScreenTerminalCommitSuppressedByVisualGovernor,
+          alreadyUsedInEpisode: adjacentRecoveryCatchupUsedInEpisode,
+        });
+        if (!catchupDecision.allow) {
+          try {
+            console.warn(
+              buildAsrAdjacentRecoveryCatchupBlockedDiagnostic({
+                currentLineIdx: lastLineIndex,
+                committedLineIdx: lastLineIndex,
+                requestedTargetIdx: args.requestedTarget,
+                commitTargetIdx: commitTarget,
+                nextSpeakableLineIdx: commitTarget,
+                currentScrollTop: args.currentScrollTop,
+                targetScrollTop: args.targetScrollTop,
+                visualErrorPx: lastAsrVisualErrorPx,
+                boundedVisualTolerancePx,
+                pocketZone: lastAsrReaderPocketZone,
+                nextSpeakableLineY: lastAsrNextSpeakableLineY,
+                preferredBandBottom: lastAsrPreferredBandBottom,
+                finalPacketFresh,
+                audioBackendFresh,
+                reason: catchupDecision.reason,
+              }),
+            );
+          } catch {}
+          return { applied: false, target: commitTarget };
+        }
+        adjacentRecoveryCatchupUsedInEpisode = true;
+        try {
+          console.warn(
+            buildAsrAdjacentRecoveryCatchupAllowedDiagnostic({
+              currentLineIdx: lastLineIndex,
+              committedLineIdx: lastLineIndex,
+              requestedTargetIdx: args.requestedTarget,
+              commitTargetIdx: commitTarget,
+              nextSpeakableLineIdx: commitTarget,
+              currentScrollTop: args.currentScrollTop,
+              targetScrollTop: args.targetScrollTop,
+              visualErrorPx: lastAsrVisualErrorPx,
+              boundedVisualTolerancePx,
+              pocketZone: lastAsrReaderPocketZone,
+              nextSpeakableLineY: lastAsrNextSpeakableLineY,
+              preferredBandBottom: lastAsrPreferredBandBottom,
+              finalPacketFresh,
+              audioBackendFresh,
+              reason: 'bounded_adjacent_recovery_catchup',
+            }),
+          );
+          alignmentEpisodes.noteStallDelay(
+            Math.max(0, now - lastCommitTime),
+            String(args.sourceHoldReason || 'adjacent_recovery_catchup'),
+          );
+        } catch {}
+        return { applied: true, target: commitTarget, reason: 'adjacent_recovery_catchup' };
+      };
       if (recoveryLandingHoldActive && recoveryLandingHoldChainCandidate) {
         const sustainedReadStep = maybeSustainedReadStep({
           sourceHoldReason: 'asr_recovery_chain_blocked',
@@ -16264,6 +16402,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           forceReason = forceReason || sustainedReadStep.reason || 'sustained_read_step';
           clearRecoveryLandingHold('sustained_read_step', now, lastLineIndex, line);
         } else {
+        const adjacentRecoveryTargetScrollTop =
+          pursuitTargetTop != null && Number.isFinite(Number(pursuitTargetTop))
+            ? Number(pursuitTargetTop)
+            : Number(getScroller()?.scrollTop ?? 0);
+        const adjacentRecoveryCatchup = maybeAdjacentRecoveryCatchup({
+          sourceHoldReason: 'asr_recovery_chain_blocked',
+          requestedTarget: requestedTargetLine,
+          commitTarget: lastLineIndex + 1,
+          currentScrollTop: getScroller()?.scrollTop ?? 0,
+          targetScrollTop: adjacentRecoveryTargetScrollTop,
+        });
+        if (adjacentRecoveryCatchup.applied) {
+          targetLine = adjacentRecoveryCatchup.target;
+          forceReason = forceReason || adjacentRecoveryCatchup.reason || 'adjacent_recovery_catchup';
+          clearRecoveryLandingHold('adjacent_recovery_catchup', now, lastLineIndex, line);
+        } else {
         warnGuard('asr_recovery_chain_blocked', [
           `current=${lastLineIndex}`,
           `target=${targetLine}`,
@@ -16275,6 +16429,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           recoveryLandingHoldArmedAt > 0 ? `holdAgeMs=${Math.max(0, now - recoveryLandingHoldArmedAt)}` : '',
         ]);
         return;
+        }
         }
       }
       const recoveryModeActiveForCommit = isRecoveryModeActive();
@@ -17588,6 +17743,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           targetLine = sustainedReadStep.target;
           forceReason = forceReason || 'sustained_read_step';
         } else if (!directAdjacentAnyBypassEligible) {
+          const adjacentRecoveryTargetScrollTop =
+            pursuitTargetTop != null && Number.isFinite(Number(pursuitTargetTop))
+              ? Number(pursuitTargetTop)
+              : Number(getScroller()?.scrollTop ?? 0);
+          const adjacentRecoveryCatchup = maybeAdjacentRecoveryCatchup({
+            sourceHoldReason: 'asr_live_no_adjacent_match_hold',
+            requestedTarget: requestedTargetLine,
+            commitTarget: lastLineIndex + 1,
+            currentScrollTop: getScroller()?.scrollTop ?? 0,
+            targetScrollTop: adjacentRecoveryTargetScrollTop,
+          });
+          if (adjacentRecoveryCatchup.applied) {
+            targetLine = adjacentRecoveryCatchup.target;
+            forceReason = forceReason || adjacentRecoveryCatchup.reason || 'adjacent_recovery_catchup';
+          } else {
           warnGuard('asr_live_no_adjacent_match_hold', [
             `current=${lastLineIndex}`,
             `target=${targetLine}`,
@@ -17616,6 +17786,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             visualTarget: targetLine,
           });
           return;
+          }
         }
       }
       if (directAdjacentFallbackProofOwned && !directAdjacentMatch) {
@@ -18400,6 +18571,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastLineIndex = Math.max(lastLineIndex, targetLine);
       const cursorIndex = lastLineIndex;
       if (targetLine > prevLineIndex && movementAuthority !== 'none') {
+        adjacentRecoveryCatchupUsedInEpisode = false;
         alignmentEpisodes.begin({
           currentLine: prevLineIndex,
           requestedTarget: line,

@@ -28,6 +28,52 @@ export type AsrVisualGovernorDeadScreenEscapeDecision =
   | { allow: true }
   | { allow: false; reason: string };
 
+export type AsrAdjacentRecoveryCatchupDecision =
+  | { allow: true }
+  | { allow: false; reason: string };
+
+export function decideAsrAdjacentRecoveryCatchup(input: {
+  finalPacketFresh: boolean;
+  audioBackendFresh: boolean;
+  noMatchOrOffscript: boolean;
+  hardContradiction: boolean;
+  requestedTargetLine: number;
+  currentLineIdx: number;
+  commitTargetLine: number;
+  targetSpeakable: boolean;
+  lowEnough: boolean;
+  visualErrorPx: number;
+  boundedVisualTolerancePx: number;
+  bridgeTrapActive: boolean;
+  terminalDeadScreenBlockActive: boolean;
+  alreadyUsedInEpisode: boolean;
+}): AsrAdjacentRecoveryCatchupDecision {
+  if (input.alreadyUsedInEpisode) return { allow: false, reason: 'already_used_in_episode' };
+  if (!input.finalPacketFresh) return { allow: false, reason: 'stale_final_packet' };
+  if (!input.audioBackendFresh) return { allow: false, reason: 'stale_audio_or_backend' };
+  if (input.noMatchOrOffscript || input.hardContradiction) {
+    return { allow: false, reason: 'no_match_or_offscript' };
+  }
+  if (!(input.requestedTargetLine > input.currentLineIdx)) {
+    return { allow: false, reason: 'non_adjacent_target' };
+  }
+  if (input.commitTargetLine !== input.currentLineIdx + 1) {
+    return { allow: false, reason: 'non_adjacent_target' };
+  }
+  if (!input.targetSpeakable) return { allow: false, reason: 'non_adjacent_target' };
+  if (input.bridgeTrapActive || input.terminalDeadScreenBlockActive) {
+    return { allow: false, reason: 'bridge_trap_active' };
+  }
+  if (!Number.isFinite(input.visualErrorPx) || !Number.isFinite(input.boundedVisualTolerancePx)) {
+    return { allow: false, reason: 'visual_error_out_of_bounds' };
+  }
+  if (Math.abs(input.visualErrorPx) > Math.max(1, input.boundedVisualTolerancePx)) {
+    return { allow: false, reason: 'visual_error_out_of_bounds' };
+  }
+  if (!input.lowEnough) return { allow: false, reason: 'not_low_enough' };
+  return { allow: true };
+}
+
 export function decideAsrVisualGovernorDeadScreenEscape(input: {
   movedPx: number;
   currentLineIdx: number;
