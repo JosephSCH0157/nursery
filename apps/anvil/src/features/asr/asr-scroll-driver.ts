@@ -31,6 +31,8 @@ import {
   buildAsrDiagnosticBundleProofDiagnostic,
   buildAsrAdjacentRecoveryCatchupAllowedDiagnostic,
   buildAsrAdjacentRecoveryCatchupBlockedDiagnostic,
+  buildAsrVisualRecoveryBoostAppliedDiagnostic,
+  buildAsrVisualRecoveryBoostBlockedDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
   buildAsrEarlyBridgeTrapReleasedDiagnostic,
   buildAsrMarkerErrorHoldBandRejectedDiagnostic,
@@ -101,6 +103,7 @@ import { clearOnlyMatchingBridgeBlockToken, shouldReleaseEarlyBridgeTrap } from 
 import { shouldEmitAsrVisualGovernorDeadScreenAutopsy } from './asr-diagnostic-gates';
 import { decideAsrVisualGovernorDeadScreenEscape } from './asr-diagnostic-gates';
 import { decideAsrAdjacentRecoveryCatchup } from './asr-diagnostic-gates';
+import { decideAsrVisualRecoveryBoost } from './asr-diagnostic-gates';
 import { isManualAnchorPendingFresh, isManualAnchorWithinLineWindow } from './asr-manual-anchor-policy';
 import {
   buildBackendHeartbeatDiagnosticInput,
@@ -10989,6 +10992,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let liveAsrActuatorPursuitActive = false;
     let liveAsrActuatorReason = 'generic_follow';
     let liveAsrActuatorTargetDebtPx = Number.NaN;
+    let liveAsrRecoveryBoostMinStepPx = 0;
+    let liveAsrRecoveryBoostMaxStepPx = 0;
+    let liveAsrRecoveryBoostBlockedReason = '';
     let liveAsrAuthorityTraceTickId = -1;
     let liveTickAuthorityPocketZone = 'unknown';
     let liveTickReaderPocketZone = 'unknown';
@@ -11478,6 +11484,45 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
+      const visualRecoveryBoostDecision = decideAsrVisualRecoveryBoost({
+        liveAsrActive: liveAsrFollowMode,
+        authority: liveTickSelectedAuthority,
+        reason: liveTickAuthorityReason,
+        speechFresh:
+          readerDrivingNow &&
+          lastFinalTranscriptAt > 0 &&
+          (nowTs - lastFinalTranscriptAt) <= 1800,
+        proofHealthy: semanticProofHealthy,
+        bridgeBlocked:
+          bridgeHoldContextActive ||
+          (
+            liveAsrBridgeVisualComfortUntilMs > nowTs &&
+            (
+              String(liveAsrBridgeVisualComfortSourceBranch || '').toLowerCase().includes('bridge') ||
+              String(liveAsrBridgeVisualComfortSourceBranch || '').toLowerCase().includes('cue') ||
+              String(liveAsrBridgeVisualComfortSourceBranch || '').toLowerCase().includes('reconcile_single_step') ||
+              String(liveAsrBridgeVisualComfortProofSource || '').toLowerCase().includes('bridge') ||
+              String(liveAsrBridgeVisualComfortProofSource || '').toLowerCase().includes('cue') ||
+              String(liveAsrBridgeVisualComfortProofSource || '').toLowerCase().includes('adjacent_rescue')
+            )
+          ),
+        targetDebtPx,
+        lowStateAgeMs:
+          liveAsrReaderTooLowSinceMs > 0
+            ? Math.max(0, nowTs - liveAsrReaderTooLowSinceMs)
+            : 0,
+        insidePreferredSettleBand: insidePreferredSettleZone,
+        insideToleratedBand: insideTolerated,
+      });
+      if (visualRecoveryBoostDecision.allow) {
+        liveAsrRecoveryBoostMinStepPx = visualRecoveryBoostDecision.minStepPx;
+        liveAsrRecoveryBoostMaxStepPx = visualRecoveryBoostDecision.maxStepPx;
+        liveAsrRecoveryBoostBlockedReason = '';
+      } else {
+        liveAsrRecoveryBoostMinStepPx = 0;
+        liveAsrRecoveryBoostMaxStepPx = 0;
+        liveAsrRecoveryBoostBlockedReason = visualRecoveryBoostDecision.reason;
+      }
       maxVelForErr = selectVisualFollowVelocity({
         baseMaxVelForErr: maxVelForErr,
         liveHardHold,
@@ -11726,15 +11771,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const requestedPxps = pursuitVel;
     let clampReason = 'none';
     let move = requestedDeltaPx;
+    const visualRecoveryBoostActive =
+      liveAsrFollowMode &&
+      liveAsrActuatorPursuitActive &&
+      liveAsrRecoveryBoostMinStepPx > 0 &&
+      liveAsrRecoveryBoostMaxStepPx > 0 &&
+      !liveHardHold;
     const dynamicMaxStepPx = actuatorBoostActive
       ? Math.max(maxStepPx, Math.min(24, Math.max(0, desiredVel * dt)))
       : maxStepPx;
-    if (move > dynamicMaxStepPx) {
-      move = dynamicMaxStepPx;
+    const effectiveMaxStepPx = visualRecoveryBoostActive
+      ? Math.max(dynamicMaxStepPx, liveAsrRecoveryBoostMaxStepPx)
+      : dynamicMaxStepPx;
+    if (move > effectiveMaxStepPx) {
+      move = effectiveMaxStepPx;
       clampReason = 'max_step_cap';
     }
-    if (!liveHardHold && move < minStepPx) {
-      const floored = Math.min(err, minStepPx);
+    const effectiveMinStepPx = visualRecoveryBoostActive
+      ? Math.max(minStepPx, liveAsrRecoveryBoostMinStepPx)
+      : minStepPx;
+    if (!liveHardHold && move < effectiveMinStepPx) {
+      const floored = Math.min(err, effectiveMinStepPx);
       if (floored > move) {
         move = floored;
         clampReason = clampReason === 'none' ? 'min_step_floor' : clampReason;
@@ -11810,6 +11867,29 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ? 'scroll_limit'
         : (move <= 0 ? (clampReason === 'none' ? 'no_move' : clampReason) : clampReason);
     if (liveAsrFollowMode && liveAsrActuatorPursuitActive) {
+      const shouldLogVisualRecoveryBoost =
+        liveTickSelectedAuthority === 'bottom_lock_release' ||
+        liveTickSelectedAuthority === 'preferred_lower_rail_release' ||
+        liveTickSelectedAuthority === 'comfort_nudge';
+      if (shouldLogVisualRecoveryBoost) {
+        try {
+          console.warn(
+            visualRecoveryBoostActive
+              ? buildAsrVisualRecoveryBoostAppliedDiagnostic({
+                authority: liveTickSelectedAuthority,
+                targetDebtPx: liveAsrActuatorTargetDebtPx,
+                appliedDeltaPx,
+                reason: liveTickAuthorityReason,
+              })
+              : buildAsrVisualRecoveryBoostBlockedDiagnostic({
+                authority: liveTickSelectedAuthority,
+                targetDebtPx: liveAsrActuatorTargetDebtPx,
+                appliedDeltaPx,
+                reason: liveAsrRecoveryBoostBlockedReason || 'not_eligible',
+              }),
+          );
+        } catch {}
+      }
       try {
         console.warn(
           `[ASR_VISUAL_ACTUATOR_APPLIED] requestedPxps=${Math.round(requestedPxps)} appliedPxps=${Math.round(appliedPxps)} frameDtMs=${frameDtMs} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} beforeScrollTop=${Math.round(beforeScrollTop)} afterScrollTop=${Math.round(afterScrollTop)} targetScrollTop=${Math.round(pursuitTargetTop ?? beforeScrollTop)} targetDebtPx=${Number.isFinite(liveAsrActuatorTargetDebtPx) ? Math.round(liveAsrActuatorTargetDebtPx) : -1} source=tick_controller clampReason=${clampReasonOut} writerKind=pixel reason=${liveAsrActuatorReason} maxScrollTop=${Math.round(maxScrollTop)} distanceToMaxScrollTop=${Math.round(distanceToMaxScrollTop)} atScrollLimit=${atScrollLimit ? 1 : 0} scrollHeight=${Math.round(scroller.scrollHeight || 0)} clientHeight=${Math.round(scroller.clientHeight || 0)}`,

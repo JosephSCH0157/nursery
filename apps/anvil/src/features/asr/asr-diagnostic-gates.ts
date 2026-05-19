@@ -32,6 +32,10 @@ export type AsrAdjacentRecoveryCatchupDecision =
   | { allow: true }
   | { allow: false; reason: string };
 
+export type AsrVisualRecoveryBoostDecision =
+  | { allow: true; minStepPx: number; maxStepPx: number }
+  | { allow: false; reason: string };
+
 export function decideAsrAdjacentRecoveryCatchup(input: {
   finalPacketFresh: boolean;
   audioBackendFresh: boolean;
@@ -72,6 +76,54 @@ export function decideAsrAdjacentRecoveryCatchup(input: {
   }
   if (!input.lowEnough) return { allow: false, reason: 'not_low_enough' };
   return { allow: true };
+}
+
+export function decideAsrVisualRecoveryBoost(input: {
+  liveAsrActive: boolean;
+  authority: string;
+  reason: string;
+  speechFresh: boolean;
+  proofHealthy: boolean;
+  bridgeBlocked: boolean;
+  targetDebtPx: number;
+  lowStateAgeMs: number;
+  insidePreferredSettleBand: boolean;
+  insideToleratedBand: boolean;
+}): AsrVisualRecoveryBoostDecision {
+  if (!input.liveAsrActive) return { allow: false, reason: 'not_live_asr' };
+  const authorityEligible =
+    input.authority === 'bottom_lock_release' ||
+    input.authority === 'preferred_lower_rail_release' ||
+    input.authority === 'comfort_nudge';
+  if (!authorityEligible) return { allow: false, reason: 'authority_not_eligible' };
+  const reasonEligible =
+    input.reason === 'below_tolerated_bottom' ||
+    input.reason === 'below_preferred_bottom' ||
+    input.reason === 'preferred_lower_rail_not_settled';
+  if (!reasonEligible) return { allow: false, reason: 'reason_not_eligible' };
+  if (!input.speechFresh) return { allow: false, reason: 'speech_not_fresh' };
+  if (!input.proofHealthy) return { allow: false, reason: 'proof_not_healthy' };
+  if (input.bridgeBlocked) return { allow: false, reason: 'bridge_blocked' };
+  if (!Number.isFinite(input.lowStateAgeMs) || input.lowStateAgeMs < 250) {
+    return { allow: false, reason: 'low_state_not_mature' };
+  }
+  const requiredDebtPx =
+    input.authority === 'preferred_lower_rail_release'
+      ? 250
+      : 120;
+  if (!Number.isFinite(input.targetDebtPx) || input.targetDebtPx < requiredDebtPx) {
+    return { allow: false, reason: 'target_debt_below_threshold' };
+  }
+  if (input.insidePreferredSettleBand) return { allow: false, reason: 'inside_preferred_settle_band' };
+  if (input.insideToleratedBand && input.reason !== 'preferred_lower_rail_not_settled') {
+    return { allow: false, reason: 'inside_tolerated_band' };
+  }
+  const stronger = input.targetDebtPx >= 250;
+  return {
+    allow: true,
+    minStepPx: stronger ? 14 : 12,
+    maxStepPx: stronger ? 16 : 14,
+  };
 }
 
 export function decideAsrVisualGovernorDeadScreenEscape(input: {

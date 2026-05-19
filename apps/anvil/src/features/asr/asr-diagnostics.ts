@@ -421,6 +421,24 @@ export function buildAsrAdjacentRecoveryCatchupBlockedDiagnostic(args: {
   return `[ASR_ADJACENT_RECOVERY_CATCHUP_BLOCKED] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} requestedTargetIdx=${args.requestedTargetIdx} commitTargetIdx=${args.commitTargetIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} visualErrorPx=${Math.round(args.visualErrorPx)} boundedVisualTolerancePx=${Math.round(args.boundedVisualTolerancePx)} pocketZone=${args.pocketZone} nextSpeakableLineY=${Math.round(args.nextSpeakableLineY)} preferredBandBottom=${Math.round(args.preferredBandBottom)} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} audioBackendFresh=${args.audioBackendFresh ? 1 : 0} reason=${args.reason}`;
 }
 
+export function buildAsrVisualRecoveryBoostAppliedDiagnostic(args: {
+  authority: string;
+  targetDebtPx: number;
+  appliedDeltaPx: number;
+  reason: string;
+}): string {
+  return `[ASR_VISUAL_RECOVERY_BOOST_APPLIED] authority=${args.authority} targetDebtPx=${Math.round(args.targetDebtPx)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} reason=${args.reason}`;
+}
+
+export function buildAsrVisualRecoveryBoostBlockedDiagnostic(args: {
+  authority: string;
+  targetDebtPx: number;
+  appliedDeltaPx: number;
+  reason: string;
+}): string {
+  return `[ASR_VISUAL_RECOVERY_BOOST_BLOCKED] authority=${args.authority} targetDebtPx=${Math.round(args.targetDebtPx)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} reason=${args.reason}`;
+}
+
 export const ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION = '2026-05-18a';
 export const ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION = '2026-05-18a';
 

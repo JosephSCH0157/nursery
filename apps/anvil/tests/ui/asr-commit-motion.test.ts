@@ -2935,6 +2935,13 @@ describe('ASR live commit motion', () => {
       return req && app && Number(req[1]) >= 20 && Number(app[1]) > 0;
     });
     expect(!!elevated).toBe(true);
+    const boosted = lines.find((l) =>
+      l.includes('ASR_VISUAL_RECOVERY_BOOST_APPLIED') &&
+      l.includes('authority=bottom_lock_release'),
+    ) || '';
+    expect(boosted).toContain('reason=below_tolerated_bottom');
+    const boostedDelta = boosted.match(/appliedDeltaPx=(\d+)/);
+    expect(boostedDelta ? Number(boostedDelta[1]) : 0).toBeGreaterThanOrEqual(12);
     warnSpy.mockRestore();
     driver.dispose();
   });

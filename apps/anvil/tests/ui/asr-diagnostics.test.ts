@@ -20,6 +20,8 @@ import {
   buildAsrVisualGovernorDeadScreenEscapeCommitDiagnostic,
   buildAsrAdjacentRecoveryCatchupAllowedDiagnostic,
   buildAsrAdjacentRecoveryCatchupBlockedDiagnostic,
+  buildAsrVisualRecoveryBoostAppliedDiagnostic,
+  buildAsrVisualRecoveryBoostBlockedDiagnostic,
   buildAsrScrollAuthorityConflictDiagnostic,
   buildAsrScrollAuthoritySelectedDiagnostic,
   buildAsrVisualMarkerErrorCorrectionDiagnostic,
@@ -30,6 +32,7 @@ import {
 import {
   decideAsrVisualGovernorDeadScreenEscape,
   decideAsrAdjacentRecoveryCatchup,
+  decideAsrVisualRecoveryBoost,
   shouldEmitAsrVisualGovernorDeadScreenAutopsy,
 } from '../../src/features/asr/asr-diagnostic-gates';
 
@@ -678,6 +681,30 @@ describe('ASR backend liveness diagnostics builders', () => {
     );
   });
 
+  test('builds visual recovery boost applied diagnostic with expected fields', () => {
+    const line = buildAsrVisualRecoveryBoostAppliedDiagnostic({
+      authority: 'bottom_lock_release',
+      targetDebtPx: 332.2,
+      appliedDeltaPx: 14.1,
+      reason: 'below_tolerated_bottom',
+    });
+    expect(line).toBe(
+      '[ASR_VISUAL_RECOVERY_BOOST_APPLIED] authority=bottom_lock_release targetDebtPx=332 appliedDeltaPx=14 reason=below_tolerated_bottom',
+    );
+  });
+
+  test('builds visual recovery boost blocked diagnostic with expected fields', () => {
+    const line = buildAsrVisualRecoveryBoostBlockedDiagnostic({
+      authority: 'preferred_lower_rail_release',
+      targetDebtPx: 98.4,
+      appliedDeltaPx: 6.1,
+      reason: 'target_debt_below_threshold',
+    });
+    expect(line).toBe(
+      '[ASR_VISUAL_RECOVERY_BOOST_BLOCKED] authority=preferred_lower_rail_release targetDebtPx=98 appliedDeltaPx=6 reason=target_debt_below_threshold',
+    );
+  });
+
   test('builds diagnostic bundle proof with expected fields', () => {
     const line = buildAsrDiagnosticBundleProofDiagnostic({
       buildStamp: 'asr-scroll-2026-05-18T22:07:18.976Z',
@@ -1072,5 +1099,167 @@ describe('ASR backend liveness diagnostics builders', () => {
       terminalDeadScreenBlockActive: false,
       alreadyUsedInEpisode: true,
     })).toEqual({ allow: false, reason: 'already_used_in_episode' });
+  });
+
+  test('visual recovery boost decision allows bounded low-rail recovery with large debt', () => {
+    expect(decideAsrVisualRecoveryBoost({
+      liveAsrActive: true,
+      authority: 'bottom_lock_release',
+      reason: 'below_tolerated_bottom',
+      speechFresh: true,
+      proofHealthy: true,
+      bridgeBlocked: false,
+      targetDebtPx: 332,
+      lowStateAgeMs: 350,
+      insidePreferredSettleBand: false,
+      insideToleratedBand: false,
+    })).toEqual({ allow: true, minStepPx: 14, maxStepPx: 16 });
+  });
+
+  test('visual recovery boost decision allows preferred-lower-rail recovery only at large debt', () => {
+    expect(decideAsrVisualRecoveryBoost({
+      liveAsrActive: true,
+      authority: 'preferred_lower_rail_release',
+      reason: 'preferred_lower_rail_not_settled',
+      speechFresh: true,
+      proofHealthy: true,
+      bridgeBlocked: false,
+      targetDebtPx: 280,
+      lowStateAgeMs: 350,
+      insidePreferredSettleBand: false,
+      insideToleratedBand: true,
+    })).toEqual({ allow: true, minStepPx: 14, maxStepPx: 16 });
+  });
+
+  test('visual recovery boost decision blocks stale speech, weak proof, and bridge hold', () => {
+    expect(decideAsrVisualRecoveryBoost({
+      liveAsrActive: true,
+      authority: 'bottom_lock_release',
+      reason: 'below_tolerated_bottom',
+      speechFresh: false,
+      proofHealthy: true,
+      bridgeBlocked: false,
+      targetDebtPx: 180,
+      lowStateAgeMs: 350,
+      insidePreferredSettleBand: false,
+      insideToleratedBand: false,
+    })).toEqual({ allow: false, reason: 'speech_not_fresh' });
+    expect(decideAsrVisualRecoveryBoost({
+      liveAsrActive: true,
+      authority: 'bottom_lock_release',
+      reason: 'below_tolerated_bottom',
+      speechFresh: true,
+      proofHealthy: false,
+      bridgeBlocked: false,
+      targetDebtPx: 180,
+      lowStateAgeMs: 350,
+      insidePreferredSettleBand: false,
+      insideToleratedBand: false,
+    })).toEqual({ allow: false, reason: 'proof_not_healthy' });
+    expect(decideAsrVisualRecoveryBoost({
+      liveAsrActive: true,
+      authority: 'bottom_lock_release',
+      reason: 'below_tolerated_bottom',
+      speechFresh: true,
+      proofHealthy: true,
+      bridgeBlocked: true,
+      targetDebtPx: 180,
+      lowStateAgeMs: 350,
+      insidePreferredSettleBand: false,
+      insideToleratedBand: false,
+    })).toEqual({ allow: false, reason: 'bridge_blocked' });
+  });
+
+  test('visual recovery boost decision blocks ineligible authority/reason and low debt', () => {
+    expect(decideAsrVisualRecoveryBoost({
+      liveAsrActive: true,
+      authority: 'hold',
+      reason: 'below_tolerated_bottom',
+      speechFresh: true,
+      proofHealthy: true,
+      bridgeBlocked: false,
+      targetDebtPx: 180,
+      lowStateAgeMs: 350,
+      insidePreferredSettleBand: false,
+      insideToleratedBand: false,
+    })).toEqual({ allow: false, reason: 'authority_not_eligible' });
+    expect(decideAsrVisualRecoveryBoost({
+      liveAsrActive: true,
+      authority: 'comfort_nudge',
+      reason: 'outside_preferred_within_tolerated',
+      speechFresh: true,
+      proofHealthy: true,
+      bridgeBlocked: false,
+      targetDebtPx: 180,
+      lowStateAgeMs: 350,
+      insidePreferredSettleBand: false,
+      insideToleratedBand: true,
+    })).toEqual({ allow: false, reason: 'reason_not_eligible' });
+    expect(decideAsrVisualRecoveryBoost({
+      liveAsrActive: true,
+      authority: 'bottom_lock_release',
+      reason: 'below_preferred_bottom',
+      speechFresh: true,
+      proofHealthy: true,
+      bridgeBlocked: false,
+      targetDebtPx: 98,
+      lowStateAgeMs: 350,
+      insidePreferredSettleBand: false,
+      insideToleratedBand: false,
+    })).toEqual({ allow: false, reason: 'target_debt_below_threshold' });
+    expect(decideAsrVisualRecoveryBoost({
+      liveAsrActive: true,
+      authority: 'preferred_lower_rail_release',
+      reason: 'preferred_lower_rail_not_settled',
+      speechFresh: true,
+      proofHealthy: true,
+      bridgeBlocked: false,
+      targetDebtPx: 180,
+      lowStateAgeMs: 350,
+      insidePreferredSettleBand: false,
+      insideToleratedBand: true,
+    })).toEqual({ allow: false, reason: 'target_debt_below_threshold' });
+  });
+
+  test('visual recovery boost decision blocks when already within settle/tolerated band', () => {
+    expect(decideAsrVisualRecoveryBoost({
+      liveAsrActive: true,
+      authority: 'bottom_lock_release',
+      reason: 'below_preferred_bottom',
+      speechFresh: true,
+      proofHealthy: true,
+      bridgeBlocked: false,
+      targetDebtPx: 180,
+      lowStateAgeMs: 350,
+      insidePreferredSettleBand: true,
+      insideToleratedBand: false,
+    })).toEqual({ allow: false, reason: 'inside_preferred_settle_band' });
+    expect(decideAsrVisualRecoveryBoost({
+      liveAsrActive: true,
+      authority: 'bottom_lock_release',
+      reason: 'below_preferred_bottom',
+      speechFresh: true,
+      proofHealthy: true,
+      bridgeBlocked: false,
+      targetDebtPx: 180,
+      lowStateAgeMs: 350,
+      insidePreferredSettleBand: false,
+      insideToleratedBand: true,
+    })).toEqual({ allow: false, reason: 'inside_tolerated_band' });
+  });
+
+  test('visual recovery boost decision blocks until low state matures', () => {
+    expect(decideAsrVisualRecoveryBoost({
+      liveAsrActive: true,
+      authority: 'bottom_lock_release',
+      reason: 'below_tolerated_bottom',
+      speechFresh: true,
+      proofHealthy: true,
+      bridgeBlocked: false,
+      targetDebtPx: 180,
+      lowStateAgeMs: 120,
+      insidePreferredSettleBand: false,
+      insideToleratedBand: false,
+    })).toEqual({ allow: false, reason: 'low_state_not_mature' });
   });
 });
