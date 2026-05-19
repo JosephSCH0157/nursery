@@ -3345,6 +3345,70 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('allows one-shot dead-screen escape after fresh adjacent unlock without terminal suppression', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
+    (window as any).__tpLiveAsrGovernorHold = true;
+    const driver = createAsrScrollDriver();
+    (window as any).__tpAsrRunKey = 'dead-screen-fresh-unlock-run';
+    (window as any).__tpAsrRunGeneration = 43;
+    (window as any).__tpAsrRunStartedAt = Date.now();
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    let frozenTop = 0;
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => frozenTop,
+      set: (_v: number) => {
+        frozenTop = 0;
+      },
+    });
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+
+    driver.setLastLineIndex(2);
+    await jest.advanceTimersByTimeAsync(3200);
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+
+    driver.ingest('Neon ads hum above the aisle.', true, {
+      currentIdx: 2,
+      matchId: 'dead-screen-fresh-adjacent-unlock',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.9,
+        topScores: [{ idx: 3, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(1500);
+
+    const warnLines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(warnLines.some((l) => l.includes('ASR_GOVERNOR_DEAD_SCREEN_DETECTED'))).toBe(true);
+    expect(warnLines.some((l) => l.includes('ASR_VISUAL_GOVERNOR_FRESH_ADJACENT_UNLOCK'))).toBe(true);
+    expect(
+      warnLines.some((l) =>
+        l.includes('ASR_VISUAL_GOVERNOR_DEAD_SCREEN_ESCAPE_COMMIT') &&
+        l.includes('reason=fresh_adjacent_unlock_dead_screen_escape'),
+      ),
+    ).toBe(true);
+    expect(
+      warnLines.some((l) => l.includes('ASR_VISUAL_GOVERNOR_DEAD_SCREEN_ESCAPE_BLOCKED')),
+    ).toBe(false);
+    expect(driver.getLastLineIndex()).toBe(3);
+
+    delete (window as any).__tpLiveAsrGovernorHold;
+    delete (window as any).__tpAsrRunKey;
+    delete (window as any).__tpAsrRunGeneration;
+    delete (window as any).__tpAsrRunStartedAt;
+    debugSpy.mockRestore();
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('keeps same-line confirmation and adjacent resume behavior stable', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const driver = createAsrScrollDriver();

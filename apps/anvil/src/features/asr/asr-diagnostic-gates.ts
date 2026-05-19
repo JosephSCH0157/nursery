@@ -136,14 +136,23 @@ export function decideAsrVisualGovernorDeadScreenEscape(input: {
   speechFresh: boolean;
   finalPacketFresh: boolean;
   liveSpeechFresh: boolean;
+  audioBackendFresh: boolean;
+  bridgeTrapActive: boolean;
+  proofSource: string;
   freshAdjacentUnlockSeen: boolean;
   suppressedForwardProofCountInWindow: number;
   terminalCommitSuppressedByVisualGovernor: boolean;
+  alreadyUsedInHoldEpisode: boolean;
   noCommitMs: number;
   governorHoldAgeMs: number;
   thresholdMs: number;
   globalHold: boolean;
 }): AsrVisualGovernorDeadScreenEscapeDecision {
+  const proofSource = String(input.proofSource || '').toLowerCase();
+  const unlockProofEligible =
+    proofSource.includes('live_strict_local_proof_ok') ||
+    proofSource.includes('strict_adjacent_tail_progression') ||
+    proofSource.includes('future_tail_lexical');
   if (Math.abs(Number(input.movedPx) || 0) > 1) return { allow: false, reason: 'scroll_moved' };
   if (!Number.isFinite(input.acceptedCommitTargetIdx) || input.acceptedCommitTargetIdx < 0) {
     return { allow: false, reason: 'no_accepted_commit_target' };
@@ -157,10 +166,16 @@ export function decideAsrVisualGovernorDeadScreenEscape(input: {
   if (!input.speechFresh) return { allow: false, reason: 'no_fresh_speech' };
   if (!input.finalPacketFresh) return { allow: false, reason: 'no_fresh_final_packet' };
   if (!input.liveSpeechFresh) return { allow: false, reason: 'no_fresh_live_speech' };
+  if (!input.audioBackendFresh) return { allow: false, reason: 'stale_audio_or_backend' };
+  if (input.bridgeTrapActive) return { allow: false, reason: 'bridge_trap_active' };
+  if (input.alreadyUsedInHoldEpisode) return { allow: false, reason: 'already_used_in_hold_episode' };
   if (!(input.freshAdjacentUnlockSeen || input.suppressedForwardProofCountInWindow > 0)) {
     return { allow: false, reason: 'no_fresh_adjacent_unlock' };
   }
-  if (!input.terminalCommitSuppressedByVisualGovernor) {
+  if (
+    !input.terminalCommitSuppressedByVisualGovernor &&
+    !(input.freshAdjacentUnlockSeen && unlockProofEligible)
+  ) {
     return { allow: false, reason: 'no_terminal_suppression' };
   }
   const thresholdMs = Math.max(0, input.thresholdMs);
