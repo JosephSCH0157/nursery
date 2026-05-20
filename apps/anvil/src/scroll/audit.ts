@@ -29,6 +29,7 @@ let lastWriteAt = 0;
 let lastWriter = '';
 let lastMode = '';
 let lastPhase = '';
+let asrModeEntryGuardBuildProofEmitted = false;
 
 export function auditEnabled(): boolean {
   try {
@@ -73,6 +74,33 @@ function emitUnexpected(label: string, payload: Record<string, unknown>): void {
   } catch {}
 }
 
+function emitAsrModeEntryGuard(payload: Record<string, unknown>): void {
+  try {
+    console.warn('[ASR_MODE_ENTRY_GUARD]', payload);
+  } catch {}
+}
+
+function emitAsrModeEntryGuardBuildProof(): void {
+  if (asrModeEntryGuardBuildProofEmitted) return;
+  asrModeEntryGuardBuildProofEmitted = true;
+  try {
+    console.warn('[ASR_MODE_ENTRY_GUARD_BUILD_PROOF]', {
+      module: 'scroll-audit',
+      stamp: 'asr-mode-entry-guard-v2',
+      loaded: true,
+    });
+  } catch {}
+}
+
+function isAllowedIdleAsrUiSelection(
+  writer: string,
+  from: string,
+  to: string,
+  phase: string,
+): boolean {
+  return writer === 'ui/applyUiScrollMode' && from === 'hybrid' && to === 'asr' && phase === 'idle';
+}
+
 export function recordWindowSetterCall(
   name: string,
   detail?: Record<string, unknown>,
@@ -93,6 +121,7 @@ export function recordWindowSetterCall(
 
 export function recordScrollModeWrite(event: ScrollModeAuditWrite): void {
   if (!auditEnabled()) return;
+  emitAsrModeEntryGuardBuildProof();
   const now = Date.now();
   const writer = event.writer || 'unknown';
   const from = normalize(event.from);
@@ -100,10 +129,28 @@ export function recordScrollModeWrite(event: ScrollModeAuditWrite): void {
   if (!to || to === from) return;
 
   const phase = normalize(event.phase);
+  const allowIdleAsrUiSelection = isAllowedIdleAsrUiSelection(writer, from, to, phase);
+  if (allowIdleAsrUiSelection) {
+    const payload: Record<string, unknown> = {
+      fromMode: from,
+      toMode: to,
+      phase,
+      writer,
+      userInitiated: true,
+      action: 'idle_ui_selection_recorded',
+      runtimeAction: 'runtime_arm_not_allowed_idle',
+      auditClassification: 'expected_ui_selection',
+    };
+    if (event.source) payload.source = event.source;
+    if (event.via) payload.via = event.via;
+    emitAsrModeEntryGuard(payload);
+  }
   const reasons: string[] = [];
 
   if (!EXPECTED_WRITERS.has(writer)) reasons.push('unexpected-writer');
-  if (FORBIDDEN_PHASES.has(phase) && isContinuousMode(to)) reasons.push('forbidden-phase');
+  if (FORBIDDEN_PHASES.has(phase) && isContinuousMode(to) && !allowIdleAsrUiSelection) {
+    reasons.push('forbidden-phase');
+  }
   const deltaMs = lastWriteAt ? now - lastWriteAt : 0;
   if (lastWriteAt && deltaMs < RACE_WINDOW_MS) reasons.push('rapid-write');
 

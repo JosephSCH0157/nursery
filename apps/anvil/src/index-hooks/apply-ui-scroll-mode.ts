@@ -15,6 +15,7 @@ let lastStableUiMode: UiScrollMode = 'hybrid';
 let asrRejectionToastShown = false;
 let selectPrefersAsr = false;
 let asrProbeToken = 0;
+let asrModeEntryGuardBuildProofEmitted = false;
 
 type LegacyAsrModeCompat = { setEnabled?(_v: boolean): void; __tpLegacyShim?: true };
 
@@ -98,10 +99,26 @@ function setScrollModeFromUi(mode: UiScrollMode): void {
   }, { source: 'ui' });
 }
 
+function emitAsrModeEntryGuard(payload: Record<string, unknown>): void {
+  try {
+    console.warn('[ASR_MODE_ENTRY_GUARD]', payload);
+  } catch {}
+}
+
 export function applyUiScrollMode(
   mode: UiScrollMode,
   opts: { skipStore?: boolean; allowToast?: boolean; source?: ScrollModeSource } = {},
 ) {
+  if (!asrModeEntryGuardBuildProofEmitted) {
+    asrModeEntryGuardBuildProofEmitted = true;
+    try {
+      console.warn('[ASR_MODE_ENTRY_GUARD_BUILD_PROOF]', {
+        module: 'index-hooks/apply-ui-scroll-mode',
+        stamp: 'asr-mode-entry-guard-v2',
+        loaded: true,
+      });
+    } catch {}
+  }
   const normalized = normalizeUiScrollMode(mode);
   const currentMode = ((window as any).__tpUiScrollMode as UiScrollMode | undefined) ?? lastStableUiMode;
   if (normalized !== 'asr') {
@@ -119,6 +136,19 @@ export function applyUiScrollMode(
 
   const readiness = computeAsrReadiness();
   if (readiness.ready) {
+    if (opts.source === 'user') {
+      emitAsrModeEntryGuard({
+        fromMode: currentMode,
+        toMode: 'asr',
+        phase: String(appStore.get?.('session.phase') || 'idle').toLowerCase(),
+        writer: 'ui/applyUiScrollMode',
+        source: opts.source,
+        userInitiated: true,
+        action: 'idle_ui_selection_recorded',
+        runtimeAction: 'runtime_arm_not_allowed_idle',
+        auditClassification: 'expected_ui_selection',
+      });
+    }
     return applyModeNow('asr', opts);
   }
 

@@ -368,6 +368,7 @@ const ALLOWED_SCROLL_MODES: UiScrollMode[] = ['timed', 'wpm', 'hybrid', 'asr', '
 let lastStableUiMode: UiScrollMode = 'hybrid';
 let selectPrefersAsr = false;
 let lastScrollModeSource: ScrollModeSource = 'boot';
+let asrModeEntryGuardBuildProofEmitted = false;
 
 // --- Profile settings persistence (Supabase) ---
 const SETTINGS_KEYS: PersistedAppKey[] = [
@@ -983,6 +984,16 @@ function applyUiScrollMode(
 }
 
 function initScrollModeUiSync(): void {
+  if (!asrModeEntryGuardBuildProofEmitted) {
+    asrModeEntryGuardBuildProofEmitted = true;
+    try {
+      console.warn('[ASR_MODE_ENTRY_GUARD_BUILD_PROOF]', {
+        module: 'index-app',
+        stamp: 'asr-mode-entry-guard-v2',
+        loaded: true,
+      });
+    } catch {}
+  }
   const asrOption = () =>
     document.querySelector<HTMLOptionElement>('#scrollMode option[value="asr"]');
   const scrollModeHelp = () => document.getElementById('scrollModeHelpText') as HTMLElement | null;
