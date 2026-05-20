@@ -15,7 +15,6 @@ let lastStableUiMode: UiScrollMode = 'hybrid';
 let asrRejectionToastShown = false;
 let selectPrefersAsr = false;
 let asrProbeToken = 0;
-let asrModeEntryGuardBuildProofEmitted = false;
 
 type LegacyAsrModeCompat = { setEnabled?(_v: boolean): void; __tpLegacyShim?: true };
 
@@ -109,16 +108,6 @@ export function applyUiScrollMode(
   mode: UiScrollMode,
   opts: { skipStore?: boolean; allowToast?: boolean; source?: ScrollModeSource } = {},
 ) {
-  if (!asrModeEntryGuardBuildProofEmitted) {
-    asrModeEntryGuardBuildProofEmitted = true;
-    try {
-      console.warn('[ASR_MODE_ENTRY_GUARD_BUILD_PROOF]', {
-        module: 'index-hooks/apply-ui-scroll-mode',
-        stamp: 'asr-mode-entry-guard-v2',
-        loaded: true,
-      });
-    } catch {}
-  }
   const normalized = normalizeUiScrollMode(mode);
   const currentMode = ((window as any).__tpUiScrollMode as UiScrollMode | undefined) ?? lastStableUiMode;
   if (normalized !== 'asr') {

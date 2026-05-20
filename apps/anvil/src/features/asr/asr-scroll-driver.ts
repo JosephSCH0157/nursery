@@ -1608,11 +1608,6 @@ function warnGuard(reason: string, parts: Array<string | number | null | undefin
     guardLastAt.set(reason, now);
   }
   const level: 'warn' | 'debug' = GUARD_DEBUG_REASONS.has(reason) ? 'debug' : 'warn';
-  try {
-    const line = ['🧱 ASR_GUARD', `reason=${reason}`, ...parts.filter(Boolean)];
-    if (level === 'debug') console.debug(line.join(' '));
-    else console.warn(line.join(' '));
-  } catch {}
   logThrottled(`ASR_GUARD:${reason}`, level, 'ASR_GUARD', { reason, parts: parts.filter(Boolean) });
 }
 

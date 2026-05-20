@@ -23,7 +23,25 @@ export type AsrLogExport = {
   userAgent: string;
   entryCount: number;
   droppedCount: number;
+  tagCounts: Record<string, number>;
+  tagSummaries: Record<string, AsrLogTagSummary>;
   entries: AsrLogBufferEntry[];
+};
+
+export type AsrLogTagSummary = {
+  family: string;
+  count: number;
+  firstTs: string | null;
+  lastTs: string | null;
+  sampledCount: number;
+  droppedCount: number;
+  lastSample: AsrLogBufferEntry | null;
+  maxInterestSample: AsrLogBufferEntry | null;
+  maxTargetDebtPx: number | null;
+  minStepFloorCount: number;
+  bigDebtMinStepCount: number;
+  largestRepeatedMinStepStreak: number;
+  lastMinStepSample: AsrLogBufferEntry | null;
 };
 
 type InstallWindow = Window & typeof globalThis & {
@@ -50,6 +68,16 @@ type BufferOptions = {
 const DEFAULT_MAX_ENTRIES = 50000;
 const DEFAULT_PROGRESS_EVERY = 250;
 const MAX_STRING_LEN = 2000;
+const DEFAULT_MIN_STEP_PX = 6;
+const BIG_DEBT_MIN_STEP_THRESHOLD_PX = 120;
+const TRACKED_SUMMARY_FAMILIES = new Set<string>([
+  'ASR_VISUAL_ACTUATOR_APPLIED',
+  'ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF',
+  'ASR_READER_COMFORT_HOLD',
+  'ASR_READER_COMFORT_NUDGE',
+  'ASR_SCROLL_AUTHORITY_SELECTED',
+  'ASR_VISUAL_FOLLOW_*',
+]);
 
 function detectEnabled(win: Window): boolean {
   try {
@@ -155,6 +183,114 @@ function parseFieldString(line: string, key: string): string | null {
   return match ? match[1] : null;
 }
 
+function parsePayloadNumber(payload: unknown, key: string): number | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const num = Number((payload as Record<string, unknown>)[key]);
+  return Number.isFinite(num) ? num : null;
+}
+
+function parsePayloadString(payload: unknown, key: string): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const value = (payload as Record<string, unknown>)[key];
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function getTrackedSummaryFamily(tag: string): string | null {
+  if (tag.startsWith('ASR_VISUAL_FOLLOW_')) return 'ASR_VISUAL_FOLLOW_*';
+  return TRACKED_SUMMARY_FAMILIES.has(tag) ? tag : null;
+}
+
+function getEntryFieldNumber(entry: AsrLogBufferEntry, key: string): number | null {
+  return parseFieldNumber(entry.stringLine, key) ?? parsePayloadNumber(entry.payload, key);
+}
+
+function getEntryFieldString(entry: AsrLogBufferEntry, key: string): string | null {
+  return parseFieldString(entry.stringLine, key) ?? parsePayloadString(entry.payload, key);
+}
+
+function computeInterestScore(entry: AsrLogBufferEntry): number {
+  const targetDebtPx = getEntryFieldNumber(entry, 'targetDebtPx');
+  if (targetDebtPx != null) return Math.abs(targetDebtPx);
+  const visualErrorPx = getEntryFieldNumber(entry, 'visualErrorPx');
+  if (visualErrorPx != null) return Math.abs(visualErrorPx);
+  const deltaPx = getEntryFieldNumber(entry, 'deltaPx');
+  if (deltaPx != null) return Math.abs(deltaPx);
+  if (entry.targetScrollTop != null && entry.scrollTop != null) {
+    return Math.abs(entry.targetScrollTop - entry.scrollTop);
+  }
+  return 0;
+}
+
+function buildTagCounts(entries: AsrLogBufferEntry[]): Record<string, number> {
+  const tagCounts: Record<string, number> = {};
+  for (const entry of entries) {
+    tagCounts[entry.tag] = (tagCounts[entry.tag] || 0) + 1;
+  }
+  return tagCounts;
+}
+
+function buildTagSummaries(entries: AsrLogBufferEntry[]): Record<string, AsrLogTagSummary> {
+  const summaries: Record<string, AsrLogTagSummary> = {};
+  const maxInterestScores = new Map<string, number>();
+  const minStepStreaks = new Map<string, number>();
+  for (const entry of entries) {
+    const family = getTrackedSummaryFamily(entry.tag);
+    if (!family) continue;
+    if (!summaries[family]) {
+      summaries[family] = {
+        family,
+        count: 0,
+        firstTs: null,
+        lastTs: null,
+        sampledCount: 0,
+        droppedCount: 0,
+        lastSample: null,
+        maxInterestSample: null,
+        maxTargetDebtPx: null,
+        minStepFloorCount: 0,
+        bigDebtMinStepCount: 0,
+        largestRepeatedMinStepStreak: 0,
+        lastMinStepSample: null,
+      };
+      maxInterestScores.set(family, Number.NEGATIVE_INFINITY);
+      minStepStreaks.set(family, 0);
+    }
+    const summary = summaries[family];
+    summary.count += 1;
+    summary.firstTs = summary.firstTs ?? entry.ts;
+    summary.lastTs = entry.ts;
+    summary.lastSample = entry;
+
+    const targetDebtPx = getEntryFieldNumber(entry, 'targetDebtPx');
+    if (targetDebtPx != null && (summary.maxTargetDebtPx == null || targetDebtPx > summary.maxTargetDebtPx)) {
+      summary.maxTargetDebtPx = targetDebtPx;
+    }
+
+    const interestScore = computeInterestScore(entry);
+    if (interestScore >= (maxInterestScores.get(family) ?? Number.NEGATIVE_INFINITY)) {
+      maxInterestScores.set(family, interestScore);
+      summary.maxInterestSample = entry;
+    }
+
+    const appliedDeltaPx = getEntryFieldNumber(entry, 'appliedDeltaPx');
+    const clampReason = getEntryFieldString(entry, 'clampReason');
+    const isMinStepFloor = Math.round(appliedDeltaPx ?? Number.NaN) === DEFAULT_MIN_STEP_PX && clampReason === 'min_step_floor';
+    if (isMinStepFloor) {
+      const nextStreak = (minStepStreaks.get(family) || 0) + 1;
+      minStepStreaks.set(family, nextStreak);
+      summary.minStepFloorCount += 1;
+      summary.lastMinStepSample = entry;
+      summary.largestRepeatedMinStepStreak = Math.max(summary.largestRepeatedMinStepStreak, nextStreak);
+      if ((targetDebtPx ?? Number.NEGATIVE_INFINITY) >= BIG_DEBT_MIN_STEP_THRESHOLD_PX) {
+        summary.bigDebtMinStepCount += 1;
+      }
+    } else {
+      minStepStreaks.set(family, 0);
+    }
+  }
+  return summaries;
+}
+
 function isAsrDiagnosticLine(line: string): boolean {
   if (!line) return false;
   if (line.includes('[ASR_LOG_PROGRESS]')) return false;
@@ -233,12 +369,16 @@ export function createAsrLogBuffer(options: BufferOptions = {}) {
 
   function exportObject(): AsrLogExport {
     const orderedEntries = getOrderedEntries();
+    const tagCounts = buildTagCounts(orderedEntries);
+    const tagSummaries = buildTagSummaries(orderedEntries);
     return {
       exportedAt: now().toISOString(),
       href: href(),
       userAgent: userAgent(),
       entryCount: orderedEntries.length,
       droppedCount,
+      tagCounts,
+      tagSummaries,
       entries: orderedEntries,
     };
   }
@@ -288,6 +428,8 @@ export function createAsrLogBuffer(options: BufferOptions = {}) {
       progressEvery,
       firstTag: ordered[0]?.tag ?? null,
       lastTag: ordered[ordered.length - 1]?.tag ?? null,
+      tagCounts: buildTagCounts(ordered),
+      tagSummaries: buildTagSummaries(ordered),
     };
   }
 

@@ -73,6 +73,7 @@ import './boot/compat-ids';
 import './features/speech/speech-store';
 import { bootTrace, bootTraceDumpToConsole } from './boot/boot-trace';
 import { shouldLogLevel } from './env/dev-log';
+import { shouldLogVerboseDiagnostic } from './env/diag-verbosity';
 // Global app store (single initializer for __tpStore)
 import { appStore } from './state/app-store';
 import { initSession } from './state/session';
@@ -368,7 +369,6 @@ const ALLOWED_SCROLL_MODES: UiScrollMode[] = ['timed', 'wpm', 'hybrid', 'asr', '
 let lastStableUiMode: UiScrollMode = 'hybrid';
 let selectPrefersAsr = false;
 let lastScrollModeSource: ScrollModeSource = 'boot';
-let asrModeEntryGuardBuildProofEmitted = false;
 
 // --- Profile settings persistence (Supabase) ---
 const SETTINGS_KEYS: PersistedAppKey[] = [
@@ -482,6 +482,7 @@ function attachKickDevGlobalOnce(): void {
 
 function devLog(...args: any[]) {
 	if (!isDevMode()) return;
+	if (!shouldLogVerboseDiagnostic()) return;
 	try { console.debug('[settings]', ...args); } catch {}
 }
 
@@ -984,16 +985,6 @@ function applyUiScrollMode(
 }
 
 function initScrollModeUiSync(): void {
-  if (!asrModeEntryGuardBuildProofEmitted) {
-    asrModeEntryGuardBuildProofEmitted = true;
-    try {
-      console.warn('[ASR_MODE_ENTRY_GUARD_BUILD_PROOF]', {
-        module: 'index-app',
-        stamp: 'asr-mode-entry-guard-v2',
-        loaded: true,
-      });
-    } catch {}
-  }
   const asrOption = () =>
     document.querySelector<HTMLOptionElement>('#scrollMode option[value="asr"]');
   const scrollModeHelp = () => document.getElementById('scrollModeHelpText') as HTMLElement | null;
@@ -1948,16 +1939,16 @@ export async function boot() {
 										document.getElementById('viewer');
 									const msg = `[SCROLL] initOnce: scroll-router (viewer=${!!viewer})`;
 									try { console.info(msg); } catch {}
-									try { console.warn('[AUTO_INTENT] INLINE_WIRE about to addEventListener tp:auto:intent'); } catch {}
+									if (shouldLogVerboseDiagnostic()) { try { console.warn('[AUTO_INTENT] INLINE_WIRE about to addEventListener tp:auto:intent'); } catch {} }
 									try {
 										window.addEventListener('tp:auto:intent', (e: any) => {
-											try { console.warn('[AUTO_INTENT] INLINE recv', e?.detail); } catch {}
+											if (shouldLogVerboseDiagnostic()) { try { console.warn('[AUTO_INTENT] INLINE recv', e?.detail); } catch {} }
 										});
 									} catch {}
-									try { console.warn('[AUTO_INTENT] INLINE_WIRE done'); } catch {}
-									try { console.warn('[AUTO_INTENT] index-app about to call scrollRouter.wireAutoIntentListener', __AUTO_INTENT_WIRE_SENTINEL); } catch {}
+									if (shouldLogVerboseDiagnostic()) { try { console.warn('[AUTO_INTENT] INLINE_WIRE done'); } catch {} }
+									if (shouldLogVerboseDiagnostic()) { try { console.warn('[AUTO_INTENT] index-app about to call scrollRouter.wireAutoIntentListener', __AUTO_INTENT_WIRE_SENTINEL); } catch {} }
 									try { triggerWireAutoIntentListener(); } catch {}
-									try { console.warn('[AUTO_INTENT] index-app returned from wireAutoIntentListener', __AUTO_INTENT_WIRE_SENTINEL); } catch {}
+									if (shouldLogVerboseDiagnostic()) { try { console.warn('[AUTO_INTENT] index-app returned from wireAutoIntentListener', __AUTO_INTENT_WIRE_SENTINEL); } catch {} }
 									return viewer;
 								});
 								initScrollRouter();

@@ -31,6 +31,7 @@ describe('ASR log buffer', () => {
     const exported = await buffer.copy();
     expect(exported.entryCount).toBe(1);
     expect(exported.droppedCount).toBe(0);
+    expect(exported.tagCounts.ASR_VISUAL_MARKER_ERROR_CORRECTION).toBe(1);
     expect(exported.entries[0].tag).toBe('ASR_VISUAL_MARKER_ERROR_CORRECTION');
     expect(exported.entries[0].currentLineIdx).toBe(8);
     expect(exported.entries[0].scrollTop).toBe(220);
@@ -80,6 +81,40 @@ describe('ASR log buffer', () => {
       '[ASR_LOG_PROGRESS] 2 entries captured',
       '[ASR_LOG_PROGRESS] 4 entries captured',
     ]);
+  });
+
+  test('exported summaries preserve actuator and chairperson investigation details', async () => {
+    const buffer = createAsrLogBuffer({
+      now: (() => {
+        let tick = 0;
+        return () => new Date(`2026-05-20T08:22:${String(10 + tick++).padStart(2, '0')}.000Z`);
+      })(),
+    });
+
+    buffer.captureConsoleCall('warn', [
+      '[ASR_VISUAL_ACTUATOR_APPLIED] requestedPxps=24 appliedPxps=12 frameDtMs=16 requestedDeltaPx=18 appliedDeltaPx=6 beforeScrollTop=200 afterScrollTop=206 targetScrollTop=380 targetDebtPx=132 source=tick_controller clampReason=min_step_floor writerKind=pixel reason=marker_lock_suppressed_recovery maxScrollTop=1200 distanceToMaxScrollTop=994 atScrollLimit=0 scrollHeight=1800 clientHeight=600',
+    ]);
+    buffer.captureConsoleCall('warn', [
+      '[ASR_VISUAL_ACTUATOR_APPLIED] requestedPxps=22 appliedPxps=12 frameDtMs=16 requestedDeltaPx=17 appliedDeltaPx=6 beforeScrollTop=206 afterScrollTop=212 targetScrollTop=380 targetDebtPx=148 source=tick_controller clampReason=min_step_floor writerKind=pixel reason=marker_lock_suppressed_recovery maxScrollTop=1200 distanceToMaxScrollTop=988 atScrollLimit=0 scrollHeight=1800 clientHeight=600',
+    ]);
+    buffer.captureConsoleCall('warn', [
+      '[ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF] appliedDeltaPx=6 targetDebtPx=148 clampReason=min_step_floor reason=marker_lock_suppressed_recovery source=tick_controller shouldEmitChairperson=1',
+    ]);
+
+    const exported = await buffer.copy();
+    const actuatorSummary = exported.tagSummaries['ASR_VISUAL_ACTUATOR_APPLIED'];
+    const chairSummary = exported.tagSummaries['ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF'];
+
+    expect(actuatorSummary.count).toBe(2);
+    expect(actuatorSummary.maxTargetDebtPx).toBe(148);
+    expect(actuatorSummary.minStepFloorCount).toBe(2);
+    expect(actuatorSummary.bigDebtMinStepCount).toBe(2);
+    expect(actuatorSummary.largestRepeatedMinStepStreak).toBe(2);
+    expect(actuatorSummary.lastMinStepSample?.tag).toBe('ASR_VISUAL_ACTUATOR_APPLIED');
+    expect(chairSummary.count).toBe(1);
+    expect(chairSummary.maxTargetDebtPx).toBe(148);
+    expect(chairSummary.minStepFloorCount).toBe(1);
+    expect(chairSummary.bigDebtMinStepCount).toBe(1);
   });
 
   test('installer patches console only when enabled and exposes window helpers', async () => {

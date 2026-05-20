@@ -24,6 +24,7 @@ import { hasActiveAsrProfile } from '../../../asr/store';
 import { focusSidebarCalibrationSelect } from '../../../media/calibration-sidebar';
 import { showToast } from '../../../ui/toasts';
 import { DEFAULT_SCRIPT_FONT_PX } from '../../../ui/typography-ssot';
+import { shouldLogVerboseDiagnostic } from '../../../env/diag-verbosity';
 
 const isDevMode = (() => {
   let cache: boolean | null = null;
@@ -60,6 +61,25 @@ const isDevMode = (() => {
     return cache;
   };
 })();
+
+function shouldLogVerboseRouterDiagnostic(): boolean {
+  return isDevMode() && shouldLogVerboseDiagnostic();
+}
+
+function verboseRouterWarn(...args: unknown[]): void {
+  if (!shouldLogVerboseRouterDiagnostic()) return;
+  try { console.warn(...args); } catch {}
+}
+
+function verboseRouterInfo(...args: unknown[]): void {
+  if (!shouldLogVerboseRouterDiagnostic()) return;
+  try { console.info(...args); } catch {}
+}
+
+function verboseRouterLog(...args: unknown[]): void {
+  if (!shouldLogVerboseRouterDiagnostic()) return;
+  try { console.log(...args); } catch {}
+}
 const ASR_COMPLETION_GATE_KEY = 'tp_asr_completion_gate';
 let asrCompletionGateBypassLogged = false;
 function isAsrCompletionGateEnabled(): boolean {
@@ -106,7 +126,7 @@ function ensureMainViewer(action: string) {
   return false;
 }
 try {
-  console.info('[VIEWER_ROLE]', {
+  verboseRouterInfo('[VIEWER_ROLE]', {
     viewerRole,
     path: typeof window !== 'undefined' ? window.location?.pathname : '<unknown>',
   });
@@ -114,7 +134,7 @@ try {
 
 ;(globalThis as any).__tp_router_stamp = ((globalThis as any).__tp_router_stamp ?? 0) + 1;
 try {
-  console.warn('[ROUTER_STAMP]', (globalThis as any).__tp_router_stamp);
+  verboseRouterWarn('[ROUTER_STAMP]', (globalThis as any).__tp_router_stamp);
 } catch {}
 export const ROUTER_STAMP = (globalThis as any).__tp_router_stamp;
 let scrollRouterInstalled = false;
@@ -123,7 +143,7 @@ let scrollRouterInstallCount = 0;
 if (typeof window !== 'undefined') {
   try {
     (window as any).__tp_router_probe = 'scroll-router loaded';
-    console.info('[router-probe] scroll-router loaded');
+    verboseRouterInfo('[router-probe] scroll-router loaded');
   } catch {
     // ignore
   }
@@ -943,7 +963,7 @@ function logHybridTruthLine(payload: {
   driftWeak?: boolean | null;
   targetTopSource?: string | null;
 }) {
-  if (!isDevMode()) return;
+  if (!shouldLogVerboseRouterDiagnostic()) return;
   const now = typeof performance !== "undefined" && typeof performance.now === "function"
     ? performance.now()
     : Date.now();
@@ -1373,56 +1393,44 @@ function beginHybridLiveGraceWindow() {
 
 function onAutoIntent(e: Event) {
   const detail = (e as CustomEvent)?.detail || {};
-  try {
-    console.warn('[AUTO_INTENT] recv', { detail });
-  } catch {}
+  verboseRouterWarn('[AUTO_INTENT] recv', { detail });
   const hasProcessor = !!autoIntentProcessor;
-  console.warn('[AUTO_INTENT] onAutoIntent route', { hasProcessor, buffered: !hasProcessor });
+  verboseRouterWarn('[AUTO_INTENT] onAutoIntent route', { hasProcessor, buffered: !hasProcessor });
   if (!hasProcessor) {
     pendingAutoIntentDetail = detail;
     return;
   }
   try {
-    console.warn('[AUTO_INTENT] onAutoIntent calling processor');
+    verboseRouterWarn('[AUTO_INTENT] onAutoIntent calling processor');
     autoIntentProcessor(detail);
   } catch {}
 }
 
 export function triggerWireAutoIntentListener(): void {
-  try {
-    console.warn('[AUTO_INTENT] triggerWireAutoIntentListener ENTER', __AUTO_INTENT_WIRE_SENTINEL);
-  } catch {}
-  try {
-    console.warn('[AUTO_INTENT] TRIGGER body reached', { stamp: AUTO_INTENT_WIRE_STAMP, already: autoIntentListenerWired });
-  } catch {}
+  verboseRouterWarn('[AUTO_INTENT] triggerWireAutoIntentListener ENTER', __AUTO_INTENT_WIRE_SENTINEL);
+  verboseRouterWarn('[AUTO_INTENT] TRIGGER body reached', { stamp: AUTO_INTENT_WIRE_STAMP, already: autoIntentListenerWired });
     if (autoIntentListenerWired) {
-      try {
-        console.warn('[AUTO_INTENT] TRIGGER step=2 alreadyWired=true; skipping', { stamp: AUTO_INTENT_WIRE_STAMP });
-      } catch {}
+      verboseRouterWarn('[AUTO_INTENT] TRIGGER step=2 alreadyWired=true; skipping', { stamp: AUTO_INTENT_WIRE_STAMP });
     } else {
-      try { console.warn('[AUTO_INTENT] TRIGGER step=3 wiring now'); } catch {}
+      verboseRouterWarn('[AUTO_INTENT] TRIGGER step=3 wiring now');
       autoIntentListenerWired = true;
       window.addEventListener('tp:auto:intent', onAutoIntent as EventListener);
-    try {
-      console.log(`[AUTO_INTENT] listener wired ${AUTO_INTENT_WIRE_STAMP}`, { target: 'window' });
-    } catch {}
-    try { console.warn('[AUTO_INTENT] TRIGGER step=4 wired ok'); } catch {}
+    verboseRouterLog(`[AUTO_INTENT] listener wired ${AUTO_INTENT_WIRE_STAMP}`, { target: 'window' });
+    verboseRouterWarn('[AUTO_INTENT] TRIGGER step=4 wired ok');
     try {
       const counts = [
         (getEventListeners?.(window)?.['tp:auto:intent']?.length ?? 'noAPI'),
       ];
-      console.warn('[AUTO_INTENT] TRIGGER step=5 post-wire sanity', { win: counts[0] });
+      verboseRouterWarn('[AUTO_INTENT] TRIGGER step=5 post-wire sanity', { win: counts[0] });
     } catch {}
     try {
       window.dispatchEvent(
         new CustomEvent('tp:auto:intent', { detail: { enabled: false, reason: 'wire-selftest' } }),
       );
     } catch {}
-    try { console.warn('[AUTO_INTENT] TRIGGER wired listeners (window)'); } catch {}
+    verboseRouterWarn('[AUTO_INTENT] TRIGGER wired listeners (window)');
   }
-  try {
-    console.warn('[AUTO_INTENT] triggerWireAutoIntentListener EXIT', __AUTO_INTENT_WIRE_SENTINEL);
-  } catch {}
+  verboseRouterWarn('[AUTO_INTENT] triggerWireAutoIntentListener EXIT', __AUTO_INTENT_WIRE_SENTINEL);
 }
 
 // src/asr/v2/adapters/vad.ts
@@ -1813,7 +1821,7 @@ function logHybridTrace(
     hybridTraceLastSig.set(tag, signature);
   }
   try {
-    console.info(`[HYBRID_TRACE] ${tag}`, payload);
+    verboseRouterInfo(`[HYBRID_TRACE] ${tag}`, payload);
   } catch {
     // ignore
   }
@@ -3397,9 +3405,9 @@ function installScrollRouter(opts) {
         throw err;
       }
     };
-    console.warn('[AUTO_INTENT] processor assigned', { hasPending: !!pendingAutoIntentDetail });
+    verboseRouterWarn('[AUTO_INTENT] processor assigned', { hasPending: !!pendingAutoIntentDetail });
     if (pendingAutoIntentDetail) {
-      console.warn('[AUTO_INTENT] flushing pending', pendingAutoIntentDetail);
+      verboseRouterWarn('[AUTO_INTENT] flushing pending', pendingAutoIntentDetail);
       try {
         autoIntentProcessor(pendingAutoIntentDetail);
       } catch {
@@ -3422,14 +3430,12 @@ function installScrollRouter(opts) {
     }
   } catch {}
   if (scrollRouterInstalled) {
-    try {
-      console.info('[SCROLL_ROUTER] install skipped (already installed)', {
-        mode: state2.mode,
-        hasViewer: !!viewer,
-        hasScroller: !!scrollerEl,
-        installCount: scrollRouterInstallCount,
-      });
-    } catch {}
+    verboseRouterInfo('[SCROLL_ROUTER] install skipped (already installed)', {
+      mode: state2.mode,
+      hasViewer: !!viewer,
+      hasScroller: !!scrollerEl,
+      installCount: scrollRouterInstallCount,
+    });
     return;
   }
   scrollRouterInstalled = true;
@@ -3444,15 +3450,13 @@ function installScrollRouter(opts) {
       };
     }
   } catch {}
-  try {
-    console.warn('[SCROLL_ROUTER] installScrollRouter ENTER', {
-      viewerInstance: viewerInstallFlag,
-      viewerEl: !!viewer,
-      hostEl: hostEl ? (hostEl.id || hostEl.className || hostEl.tagName) : null,
-      mode: state2.mode,
-      autoIntentProcessorExists: !!autoIntentProcessor,
-    });
-  } catch {}
+  verboseRouterWarn('[SCROLL_ROUTER] installScrollRouter ENTER', {
+    viewerInstance: viewerInstallFlag,
+    viewerEl: !!viewer,
+    hostEl: hostEl ? (hostEl.id || hostEl.className || hostEl.tagName) : null,
+    mode: state2.mode,
+    autoIntentProcessorExists: !!autoIntentProcessor,
+  });
   try {
     window.__tpScrollRouterTsActive = true;
   } catch {
@@ -4013,22 +4017,18 @@ function installScrollRouter(opts) {
         asrArmed;
       if (ignoreAsrScriptEnd) {
         if (isDevMode()) {
-          try {
-            console.warn('[AUTO_INTENT] scriptEnd ignored in live armed ASR', {
-              enabled,
-              reason: reasonRaw ?? null,
-              mode,
-              phase: currentPhase,
-              asrArmed,
-            });
-          } catch {}
+          verboseRouterWarn('[AUTO_INTENT] scriptEnd ignored in live armed ASR', {
+            enabled,
+            reason: reasonRaw ?? null,
+            mode,
+            phase: currentPhase,
+            asrArmed,
+          });
         }
         return null;
       }
       if (shouldIgnoreHybridStop(reasonRaw, enabled)) {
-        try {
-          console.info('[AUTO_INTENT] hybrid stop ignored (live, non-fatal reason)', { reason: reasonRaw });
-        } catch {}
+        verboseRouterInfo('[AUTO_INTENT] hybrid stop ignored (live, non-fatal reason)', { reason: reasonRaw });
         return null;
       }
       const motorRequest = resolveAutoIntentMotorRequest(detail, mode, reasonRaw);
@@ -4039,21 +4039,23 @@ function installScrollRouter(opts) {
       const baseDecision: AutoIntentDecision = enabled ? 'motor-start-request' : 'motor-stop-request';
       const decision: AutoIntentDecision = allowAutoMotor ? baseDecision : 'motor-stop-request';
       const pxPerSec = typeof getCurrentSpeed === 'function' ? getCurrentSpeed() : undefined;
-      try {
-        console.info(
-          `[scroll-router] tp:auto:intent mode=${state2.mode} brain=${brain} phase=${sessionPhase} decision=${decision} userEnabled=${userEnabled} motorKind=${motorRequest.kind} source=${motorRequest.source}`,
-        );
-        console.warn(
-          '[AUTO_INTENT]',
-          'mode=', state2.mode,
-          'enabled=', enabled,
-          'motorKind=', motorRequest.kind,
-          'source=', motorRequest.source,
-          'pxPerSec=', pxPerSec,
-          'sessionPhase=', currentPhase,
-          'userEnabled=', userEnabled,
-        );
-      } catch {}
+      if (shouldLogVerboseRouterDiagnostic()) {
+        try {
+          console.info(
+            `[scroll-router] tp:auto:intent mode=${state2.mode} brain=${brain} phase=${sessionPhase} decision=${decision} userEnabled=${userEnabled} motorKind=${motorRequest.kind} source=${motorRequest.source}`,
+          );
+          console.warn(
+            '[AUTO_INTENT]',
+            'mode=', state2.mode,
+            'enabled=', enabled,
+            'motorKind=', motorRequest.kind,
+            'source=', motorRequest.source,
+            'pxPerSec=', pxPerSec,
+            'sessionPhase=', currentPhase,
+            'userEnabled=', userEnabled,
+          );
+        } catch {}
+      }
       const pxs = Number(pxPerSec) || 0;
       enabledNow = decision === 'motor-start-request';
       if (!allowAutoMotor) {
@@ -4077,32 +4079,28 @@ function installScrollRouter(opts) {
     const payload = handleAutoIntent(detail);
     if (!payload) return;
     const { enabled, decision, pxs, reason, motorKind, motorSource } = payload;
-    const mode = getScrollMode();
+      const mode = getScrollMode();
       const currentPhase = String(appStore.get('session.phase') || sessionPhase);
       if (enabled && currentPhase !== 'live') {
-        try {
-          console.info('[AUTO_INTENT] start ignored: session not live', {
-            mode,
-            phase: currentPhase,
-            reason: reason ?? 'unknown',
-          });
-        } catch {}
+        verboseRouterInfo('[AUTO_INTENT] start ignored: session not live', {
+          mode,
+          phase: currentPhase,
+          reason: reason ?? 'unknown',
+        });
         return;
       }
       const pxps = typeof getCurrentSpeed === 'function' ? getCurrentSpeed() : undefined;
       const chosenMotor = mode === 'hybrid' ? 'hybrid' : 'auto';
-      try {
-        console.warn('[AUTO_INTENT] processor RUN', {
-          enabled,
-          mode,
-          motorKind,
-          source: motorSource,
-          pxps,
-          chosenMotor,
-          viewerRole,
-          lastWpm: lastWpmIntent?.wpm ?? null,
-        });
-      } catch {}
+      verboseRouterWarn('[AUTO_INTENT] processor RUN', {
+        enabled,
+        mode,
+        motorKind,
+        source: motorSource,
+        pxps,
+        chosenMotor,
+        viewerRole,
+        lastWpm: lastWpmIntent?.wpm ?? null,
+      });
       if (mode === 'asr') {
         stopAutoMotor('auto-intent:asr');
         return;
@@ -4189,9 +4187,9 @@ function installScrollRouter(opts) {
       throw err;
     }
   };
-  console.warn('[AUTO_INTENT] processor assigned', { hasPending: !!pendingAutoIntentDetail });
+  verboseRouterWarn('[AUTO_INTENT] processor assigned', { hasPending: !!pendingAutoIntentDetail });
   if (pendingAutoIntentDetail) {
-    console.warn('[AUTO_INTENT] flushing pending', pendingAutoIntentDetail);
+    verboseRouterWarn('[AUTO_INTENT] flushing pending', pendingAutoIntentDetail);
     try {
       autoIntentProcessor(pendingAutoIntentDetail);
     } catch {
@@ -4200,7 +4198,7 @@ function installScrollRouter(opts) {
     pendingAutoIntentDetail = null;
   }
 
-  try { console.info('[scroll-router] tp:auto:intent listener installed'); } catch {}
+  try { verboseRouterInfo('[scroll-router] tp:auto:intent listener installed'); } catch {}
   try {
     window.addEventListener("tp:speech-state", (e) => {
       try {
@@ -5429,7 +5427,7 @@ function applyHybridVelocityCore(silence = hybridSilence) {
         // Open the throttle: take the higher of existing scale vs distance-driven scale.
         effectiveScale = Math.min(maxScale, Math.max(effectiveScale, distanceScale));
 
-        if (isDevMode()) {
+        if (shouldLogVerboseRouterDiagnostic()) {
           try {
             console.warn('[HYBRID_TRUTH]', {
               aggro,
@@ -5750,7 +5748,7 @@ function applyHybridVelocityCore(silence = hybridSilence) {
         : finalReasons.includes('offscript')
         ? 'offscript'
         : undefined;
-    if (isDevMode() && now - lastHybridPolicyLogAt >= HYBRID_POLICY_LOG_THROTTLE_MS) {
+    if (shouldLogVerboseRouterDiagnostic() && now - lastHybridPolicyLogAt >= HYBRID_POLICY_LOG_THROTTLE_MS) {
       lastHybridPolicyLogAt = now;
       const speedSettingRaw = getHybridSpeedSettingRaw();
       try {
@@ -5899,7 +5897,7 @@ function applyHybridVelocityCore(silence = hybridSilence) {
           `finalPxps=${finalPxps.toFixed(2)}`,
           `reasons=${finalReasons.join("|")}`,
         ];
-        console.info("[HYBRID_FINAL_MILE]", logParts.join(" "));
+        verboseRouterInfo("[HYBRID_FINAL_MILE]", logParts.join(" "));
 
         const matchSimLog = matchKnown ? matchSimValue : null;
         const stateParts = [
@@ -5924,7 +5922,7 @@ function applyHybridVelocityCore(silence = hybridSilence) {
           `matcherSource=${runtime.matcherSource}`,
           `matcherFeed=${runtime.matcherSourceDetail}`,
         ];
-        console.info("[HYBRID_FINAL_MILE_STATE]", stateParts.join(" "));
+        verboseRouterInfo("[HYBRID_FINAL_MILE_STATE]", stateParts.join(" "));
         if (blocksNotReadyHold || sawNoMatchEffective || offScriptActive || hardNoMatchEffective) {
           logHybridMatcherProbe('final-mile', {
             noMatch: sawNoMatchEffective || !matchKnown,
