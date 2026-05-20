@@ -3023,6 +3023,11 @@ describe('ASR live commit motion', () => {
         return !!debt && Number(debt[1]) >= 120;
       }),
     ).toBe(true);
+    const resolvedLine = lines.find((l) => l.includes('ASR_SCROLL_AUTHORITY_RESOLVED')) || '';
+    expect(resolvedLine).toContain('movementEnvelopeAuthority=');
+    expect(resolvedLine).toContain('pocketState=');
+    expect(resolvedLine).toContain('chairpersonChair=');
+    expect(resolvedLine).toContain('actualAppliedDeltaPx=');
     warnSpy.mockRestore();
     driver.dispose();
   });

@@ -660,6 +660,46 @@ export function buildAsrRecoveryGearSelectedDiagnostic(args: {
   return `[ASR_RECOVERY_GEAR_SELECTED] currentLineIdx=${Math.round(args.currentLineIdx)} targetLineIdx=${Math.round(args.targetLineIdx)} acceptedCommitTargetIdx=${Math.round(args.acceptedCommitTargetIdx)} cappedTargetIdx=${Math.round(args.cappedTargetIdx)} targetDebtPx=${Math.round(args.targetDebtPx)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} selectedGear=${args.selectedGear} previousGear=${args.previousGear} reason=${args.reason} hardSafetyClear=${args.hardSafetyClear ? 1 : 0} speechFresh=${args.speechFresh ? 1 : 0} backendFresh=${args.backendFresh ? 1 : 0} nextSpeakableLineY=${Math.round(args.nextSpeakableLineY)} overruledControllers=${args.overruledControllers} clampReasonBefore=${args.clampReasonBefore} clampReasonAfter=${args.clampReasonAfter} safetyClass=${args.safetyClass} distanceRestrictionReason=${args.distanceRestrictionReason} absoluteHoldReason=${args.absoluteHoldReason} cappedTargetSafe=${args.cappedTargetSafe ? 1 : 0} urgentRecoveryEligible=${args.urgentRecoveryEligible ? 1 : 0} urgentRecoveryBlockedReason=${args.urgentRecoveryBlockedReason}`;
 }
 
+export function buildAsrScrollAuthorityResolvedDiagnostic(args: {
+  currentLineIdx: number;
+  requestedTargetIdx: number | null;
+  semanticTargetIdx: number | null;
+  allowedTargetIdx: number | null;
+  movementAllowed: boolean;
+  vetoAuthority: string | null;
+  targetAuthority: string;
+  movementEnvelopeAuthority: string;
+  motionAuthority: string;
+  smoothingAuthority: string;
+  finalGear: 'hold' | 'normal_floor' | 'normal_tracking' | 'recovery';
+  finalMinStepPx: number;
+  targetDebtPx: number;
+  appliedDeltaPx: number;
+  clampReason: string;
+  pocketState: 'above_marker' | 'in_preferred_pocket' | 'below_preferred_pocket' | 'near_lower_rail' | 'bottom_locked' | 'top_pressure';
+  movementEnvelopePx: number;
+  movementEnvelopeReason: string;
+  bridgeCueCapApplied: boolean;
+  cappedTargetSafe: boolean;
+  overruledAuthorities: string[];
+  reason: string;
+  chairpersonChair: AsrScrollChair;
+  chairpersonGear: AsrActuatorGear;
+  chairpersonFloorFallbackReason: AsrFloorFallbackReason;
+  actualAppliedDeltaPx: number;
+  actualClampReason: string;
+}): string {
+  const requestedTargetIdx = Number.isFinite(args.requestedTargetIdx as number) ? Math.round(Number(args.requestedTargetIdx)) : -1;
+  const semanticTargetIdx = Number.isFinite(args.semanticTargetIdx as number) ? Math.round(Number(args.semanticTargetIdx)) : -1;
+  const allowedTargetIdx = Number.isFinite(args.allowedTargetIdx as number) ? Math.round(Number(args.allowedTargetIdx)) : -1;
+  const vetoAuthority = String(args.vetoAuthority || 'none');
+  const overruledAuthorities =
+    Array.isArray(args.overruledAuthorities) && args.overruledAuthorities.length > 0
+      ? args.overruledAuthorities.join('|')
+      : 'none';
+  return `[ASR_SCROLL_AUTHORITY_RESOLVED] currentLineIdx=${Math.round(args.currentLineIdx)} requestedTargetIdx=${requestedTargetIdx} semanticTargetIdx=${semanticTargetIdx} allowedTargetIdx=${allowedTargetIdx} movementAllowed=${args.movementAllowed ? 1 : 0} vetoAuthority=${vetoAuthority} targetAuthority=${args.targetAuthority} movementEnvelopeAuthority=${args.movementEnvelopeAuthority} motionAuthority=${args.motionAuthority} smoothingAuthority=${args.smoothingAuthority} finalGear=${args.finalGear} finalMinStepPx=${Math.round(args.finalMinStepPx)} targetDebtPx=${Math.round(args.targetDebtPx)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} clampReason=${args.clampReason} pocketState=${args.pocketState} movementEnvelopePx=${Math.round(args.movementEnvelopePx)} movementEnvelopeReason=${args.movementEnvelopeReason} bridgeCueCapApplied=${args.bridgeCueCapApplied ? 1 : 0} cappedTargetSafe=${args.cappedTargetSafe ? 1 : 0} overruledAuthorities=${overruledAuthorities} reason=${args.reason} chairpersonChair=${args.chairpersonChair} chairpersonGear=${args.chairpersonGear} chairpersonFloorFallbackReason=${args.chairpersonFloorFallbackReason} actualAppliedDeltaPx=${Math.round(args.actualAppliedDeltaPx)} actualClampReason=${args.actualClampReason}`;
+}
+
 export const ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION = '2026-05-18a';
 export const ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION = '2026-05-18a';
 

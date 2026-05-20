@@ -30,6 +30,7 @@ import {
   buildAsrPostAdjacentCommitVisualRecoveryPathProofDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic,
   buildAsrRecoveryGearSelectedDiagnostic,
+  buildAsrScrollAuthorityResolvedDiagnostic,
   buildAsrScrollChairpersonArbitrationDiagnostic,
   buildAsrVisualRecoveryBoostAppliedDiagnostic,
   buildAsrVisualRecoveryBoostBypassedDiagnostic,
@@ -50,6 +51,10 @@ import {
   decideAsrVisualRecoveryBoost,
   shouldEmitAsrVisualGovernorDeadScreenAutopsy,
 } from '../../src/features/asr/asr-diagnostic-gates';
+import {
+  type ResolveAsrScrollAuthorityInput,
+  resolveAsrScrollAuthority,
+} from '../../src/features/asr/asr-authority-resolver';
 
 describe('ASR backend liveness diagnostics builders', () => {
   test('builds backend heartbeat diagnostic with expected tag and fields', () => {
@@ -1881,5 +1886,179 @@ describe('ASR backend liveness diagnostics builders', () => {
       alreadyInBand: false,
       targetDebtPx: 212,
     })).toEqual({ allow: false, reason: 'window_expired' });
+  });
+});
+
+describe('ASR scroll authority resolver', () => {
+  function makeAuthorityInput(
+    overrides: Partial<ResolveAsrScrollAuthorityInput> = {},
+  ): ResolveAsrScrollAuthorityInput {
+    return {
+      currentLineIdx: 10,
+      requestedTargetIdx: 15,
+      semanticTargetIdx: 15,
+      acceptedCommitTargetIdx: 14,
+      distanceCapTargetIdx: 14,
+      bridgeOwner: 'bridge_cap',
+      cueOwner: 'none',
+      markerLockState: 'marker_lock_suppressed',
+      comfortState: 'comfort_nudge_large_debt',
+      visualRecoveryState: 'bottom_lock_release',
+      hardSafetyState: 'clear',
+      safetyCapState: 'bridge_or_cue_context_active',
+      visualGovernorState: 'follow',
+      postAdjacentRecoveryState: 'inactive',
+      targetDebtPx: 168,
+      markerY: 320,
+      nextSpeakableLineY: 470,
+      preferredBandTop: 250,
+      preferredSettleBottom: 360,
+      preferredBandBottom: 410,
+      toleratedBandBottom: 430,
+      terminalClampActive: false,
+      speechFresh: true,
+      backendFresh: true,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+      ...overrides,
+    };
+  }
+
+  test('absolute safety veto beats all lower authorities', () => {
+    const resolved = resolveAsrScrollAuthority(
+      makeAuthorityInput({
+        terminalClampActive: true,
+      }),
+    );
+    expect(resolved.movementAllowed).toBe(false);
+    expect(resolved.vetoAuthority).toBe('absolute_safety');
+    expect(resolved.finalGear).toBe('hold');
+    expect(resolved.reason).toBe('terminal_max_scroll_clamp');
+  });
+
+  test('semantic target plus bridge cap yields capped allowed target', () => {
+    const resolved = resolveAsrScrollAuthority(makeAuthorityInput());
+    expect(resolved.semanticTargetIdx).toBe(15);
+    expect(resolved.allowedTargetIdx).toBe(14);
+    expect(resolved.bridgeCueCapApplied).toBe(true);
+    expect(resolved.cappedTargetSafe).toBe(true);
+  });
+
+  test('safe capped target plus large debt resolves recovery with pocket envelope authority', () => {
+    const resolved = resolveAsrScrollAuthority(makeAuthorityInput());
+    expect(resolved.finalGear).toBe('recovery');
+    expect(resolved.movementEnvelopeAuthority).toBe('reader_pocket_envelope');
+    expect(resolved.motionAuthority).toBe('visual_recovery');
+    expect(resolved.pocketState).toBe('bottom_locked');
+  });
+
+  test('target distance cap may coexist with recovery gear', () => {
+    const resolved = resolveAsrScrollAuthority(
+      makeAuthorityInput({
+        bridgeOwner: 'distance_cap',
+        safetyCapState: 'lead_aware_distance_cap',
+        visualRecoveryState: 'preferred_lower_rail_release',
+        comfortState: 'inactive',
+        nextSpeakableLineY: 395,
+      }),
+    );
+    expect(resolved.bridgeCueCapApplied).toBe(true);
+    expect(resolved.allowedTargetIdx).toBe(14);
+    expect(resolved.finalGear).toBe('recovery');
+  });
+
+  test.each([
+    ['below_preferred_pocket', { nextSpeakableLineY: 452, visualRecoveryState: 'inactive', comfortState: 'inactive' }],
+    ['near_lower_rail', { nextSpeakableLineY: 380, visualRecoveryState: 'preferred_lower_rail_release', comfortState: 'inactive' }],
+    ['bottom_locked', { nextSpeakableLineY: 470, visualRecoveryState: 'bottom_lock_release', comfortState: 'comfort_nudge_large_debt' }],
+  ] as const)('pocket state %s resolves recovery when no veto is active', (_name, overrides) => {
+    const resolved = resolveAsrScrollAuthority(makeAuthorityInput(overrides));
+    expect(resolved.finalGear).toBe('recovery');
+  });
+
+  test('marker lock cannot demote recovery to normal floor', () => {
+    const resolved = resolveAsrScrollAuthority(
+      makeAuthorityInput({
+        markerLockState: 'live_asr_marker_lock_suppressed',
+      }),
+    );
+    expect(resolved.smoothingAuthority).toBe('marker_lock_smoothing');
+    expect(resolved.finalGear).toBe('recovery');
+  });
+
+  test('reader comfort cannot silently veto recovery', () => {
+    const resolved = resolveAsrScrollAuthority(
+      makeAuthorityInput({
+        comfortState: 'comfort_hold_preferred_pocket',
+        visualRecoveryState: 'preferred_lower_rail_release',
+        nextSpeakableLineY: 388,
+      }),
+    );
+    expect(resolved.movementAllowed).toBe(true);
+    expect(resolved.finalGear).toBe('recovery');
+  });
+
+  test('small debt stays in normal gear', () => {
+    const resolved = resolveAsrScrollAuthority(
+      makeAuthorityInput({
+        targetDebtPx: 48,
+        visualRecoveryState: 'inactive',
+        comfortState: 'inactive',
+        nextSpeakableLineY: 438,
+      }),
+    );
+    expect(resolved.finalGear).toBe('normal_floor');
+    expect(resolved.reason).toBe('recovery_not_selected');
+  });
+
+  test('big debt normal floor resolution carries an explicit reason', () => {
+    const resolved = resolveAsrScrollAuthority(
+      makeAuthorityInput({
+        targetDebtPx: 160,
+        speechFresh: false,
+        visualRecoveryState: 'preferred_lower_rail_release',
+        comfortState: 'inactive',
+        nextSpeakableLineY: 392,
+      }),
+    );
+    expect(resolved.finalGear).toBe('normal_floor');
+    expect(resolved.reason).toBe('recovery_not_selected');
+  });
+
+  test('builds resolved authority diagnostic with comparison fields', () => {
+    const line = buildAsrScrollAuthorityResolvedDiagnostic({
+      currentLineIdx: 10,
+      requestedTargetIdx: 15,
+      semanticTargetIdx: 15,
+      allowedTargetIdx: 14,
+      movementAllowed: true,
+      vetoAuthority: null,
+      targetAuthority: 'semantic_target',
+      movementEnvelopeAuthority: 'reader_pocket_envelope',
+      motionAuthority: 'visual_recovery',
+      smoothingAuthority: 'marker_lock_smoothing',
+      finalGear: 'recovery',
+      finalMinStepPx: 12,
+      targetDebtPx: 168,
+      appliedDeltaPx: 6,
+      clampReason: 'min_step_floor',
+      pocketState: 'bottom_locked',
+      movementEnvelopePx: 60,
+      movementEnvelopeReason: 'bottom_lock_release',
+      bridgeCueCapApplied: true,
+      cappedTargetSafe: true,
+      overruledAuthorities: ['reader_comfort'],
+      reason: 'bottom_lock_release',
+      chairpersonChair: 'target_distance_cap',
+      chairpersonGear: 'normal_floor',
+      chairpersonFloorFallbackReason: 'distance_cap_normal_gear',
+      actualAppliedDeltaPx: 6,
+      actualClampReason: 'min_step_floor',
+    });
+    expect(line).toContain('[ASR_SCROLL_AUTHORITY_RESOLVED]');
+    expect(line).toContain('movementEnvelopeAuthority=reader_pocket_envelope');
+    expect(line).toContain('pocketState=bottom_locked');
+    expect(line).toContain('chairpersonChair=target_distance_cap');
+    expect(line).toContain('actualAppliedDeltaPx=6');
   });
 });
