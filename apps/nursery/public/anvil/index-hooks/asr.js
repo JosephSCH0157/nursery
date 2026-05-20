@@ -2,6 +2,16 @@
 var DEFAULT_MAX_ENTRIES = 5e4;
 var DEFAULT_PROGRESS_EVERY = 250;
 var MAX_STRING_LEN = 2e3;
+var DEFAULT_MIN_STEP_PX = 6;
+var BIG_DEBT_MIN_STEP_THRESHOLD_PX = 120;
+var TRACKED_SUMMARY_FAMILIES = /* @__PURE__ */ new Set([
+  "ASR_VISUAL_ACTUATOR_APPLIED",
+  "ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF",
+  "ASR_READER_COMFORT_HOLD",
+  "ASR_READER_COMFORT_NUDGE",
+  "ASR_SCROLL_AUTHORITY_SELECTED",
+  "ASR_VISUAL_FOLLOW_*"
+]);
 function detectEnabled(win) {
   try {
     const params = new URLSearchParams(win.location.search || "");
@@ -100,6 +110,103 @@ function parseFieldString(line, key) {
   const match = line.match(new RegExp(`${key}=([^\\s]+)`));
   return match ? match[1] : null;
 }
+function parsePayloadNumber(payload, key) {
+  if (!payload || typeof payload !== "object") return null;
+  const num = Number(payload[key]);
+  return Number.isFinite(num) ? num : null;
+}
+function parsePayloadString(payload, key) {
+  if (!payload || typeof payload !== "object") return null;
+  const value = payload[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+function getTrackedSummaryFamily(tag) {
+  if (tag.startsWith("ASR_VISUAL_FOLLOW_")) return "ASR_VISUAL_FOLLOW_*";
+  return TRACKED_SUMMARY_FAMILIES.has(tag) ? tag : null;
+}
+function getEntryFieldNumber(entry, key) {
+  return parseFieldNumber(entry.stringLine, key) ?? parsePayloadNumber(entry.payload, key);
+}
+function getEntryFieldString(entry, key) {
+  return parseFieldString(entry.stringLine, key) ?? parsePayloadString(entry.payload, key);
+}
+function computeInterestScore(entry) {
+  const targetDebtPx = getEntryFieldNumber(entry, "targetDebtPx");
+  if (targetDebtPx != null) return Math.abs(targetDebtPx);
+  const visualErrorPx = getEntryFieldNumber(entry, "visualErrorPx");
+  if (visualErrorPx != null) return Math.abs(visualErrorPx);
+  const deltaPx = getEntryFieldNumber(entry, "deltaPx");
+  if (deltaPx != null) return Math.abs(deltaPx);
+  if (entry.targetScrollTop != null && entry.scrollTop != null) {
+    return Math.abs(entry.targetScrollTop - entry.scrollTop);
+  }
+  return 0;
+}
+function buildTagCounts(entries) {
+  const tagCounts = {};
+  for (const entry of entries) {
+    tagCounts[entry.tag] = (tagCounts[entry.tag] || 0) + 1;
+  }
+  return tagCounts;
+}
+function buildTagSummaries(entries) {
+  const summaries = {};
+  const maxInterestScores = /* @__PURE__ */ new Map();
+  const minStepStreaks = /* @__PURE__ */ new Map();
+  for (const entry of entries) {
+    const family = getTrackedSummaryFamily(entry.tag);
+    if (!family) continue;
+    if (!summaries[family]) {
+      summaries[family] = {
+        family,
+        count: 0,
+        firstTs: null,
+        lastTs: null,
+        sampledCount: 0,
+        droppedCount: 0,
+        lastSample: null,
+        maxInterestSample: null,
+        maxTargetDebtPx: null,
+        minStepFloorCount: 0,
+        bigDebtMinStepCount: 0,
+        largestRepeatedMinStepStreak: 0,
+        lastMinStepSample: null
+      };
+      maxInterestScores.set(family, Number.NEGATIVE_INFINITY);
+      minStepStreaks.set(family, 0);
+    }
+    const summary = summaries[family];
+    summary.count += 1;
+    summary.firstTs = summary.firstTs ?? entry.ts;
+    summary.lastTs = entry.ts;
+    summary.lastSample = entry;
+    const targetDebtPx = getEntryFieldNumber(entry, "targetDebtPx");
+    if (targetDebtPx != null && (summary.maxTargetDebtPx == null || targetDebtPx > summary.maxTargetDebtPx)) {
+      summary.maxTargetDebtPx = targetDebtPx;
+    }
+    const interestScore = computeInterestScore(entry);
+    if (interestScore >= (maxInterestScores.get(family) ?? Number.NEGATIVE_INFINITY)) {
+      maxInterestScores.set(family, interestScore);
+      summary.maxInterestSample = entry;
+    }
+    const appliedDeltaPx = getEntryFieldNumber(entry, "appliedDeltaPx");
+    const clampReason = getEntryFieldString(entry, "clampReason");
+    const isMinStepFloor = Math.round(appliedDeltaPx ?? Number.NaN) === DEFAULT_MIN_STEP_PX && clampReason === "min_step_floor";
+    if (isMinStepFloor) {
+      const nextStreak = (minStepStreaks.get(family) || 0) + 1;
+      minStepStreaks.set(family, nextStreak);
+      summary.minStepFloorCount += 1;
+      summary.lastMinStepSample = entry;
+      summary.largestRepeatedMinStepStreak = Math.max(summary.largestRepeatedMinStepStreak, nextStreak);
+      if ((targetDebtPx ?? Number.NEGATIVE_INFINITY) >= BIG_DEBT_MIN_STEP_THRESHOLD_PX) {
+        summary.bigDebtMinStepCount += 1;
+      }
+    } else {
+      minStepStreaks.set(family, 0);
+    }
+  }
+  return summaries;
+}
 function isAsrDiagnosticLine(line) {
   if (!line) return false;
   if (line.includes("[ASR_LOG_PROGRESS]")) return false;
@@ -186,12 +293,16 @@ function createAsrLogBuffer(options = {}) {
   }
   function exportObject() {
     const orderedEntries = getOrderedEntries();
+    const tagCounts = buildTagCounts(orderedEntries);
+    const tagSummaries = buildTagSummaries(orderedEntries);
     return {
       exportedAt: now().toISOString(),
       href: href(),
       userAgent: userAgent(),
       entryCount: orderedEntries.length,
       droppedCount,
+      tagCounts,
+      tagSummaries,
       entries: orderedEntries
     };
   }
@@ -237,7 +348,9 @@ function createAsrLogBuffer(options = {}) {
       maxEntries,
       progressEvery,
       firstTag: ordered[0]?.tag ?? null,
-      lastTag: ordered[ordered.length - 1]?.tag ?? null
+      lastTag: ordered[ordered.length - 1]?.tag ?? null,
+      tagCounts: buildTagCounts(ordered),
+      tagSummaries: buildTagSummaries(ordered)
     };
   }
   return {
@@ -520,6 +633,8 @@ var lastWriteAt = 0;
 var lastWriter = "";
 var lastMode = "";
 var lastPhase = "";
+var asrModeEntryGuardBuildProofEmitted = false;
+var scrollAuditRuntimeProofEmitted = false;
 function auditEnabled() {
   try {
     const w = window;
@@ -546,20 +661,72 @@ function emitUnexpected(label, payload) {
   } catch {
   }
 }
+function emitAsrModeEntryGuard(payload) {
+  try {
+    console.warn("[ASR_MODE_ENTRY_GUARD]", payload);
+  } catch {
+  }
+}
+function emitAsrModeEntryGuardBuildProof() {
+  if (asrModeEntryGuardBuildProofEmitted) return;
+  asrModeEntryGuardBuildProofEmitted = true;
+  try {
+    console.warn("[ASR_MODE_ENTRY_GUARD_BUILD_PROOF]", {
+      module: "scroll-audit",
+      stamp: "asr-mode-entry-guard-v2",
+      loaded: true
+    });
+  } catch {
+  }
+}
+function emitScrollAuditRuntimeProof() {
+  if (scrollAuditRuntimeProofEmitted) return;
+  scrollAuditRuntimeProofEmitted = true;
+  try {
+    console.warn("[SCROLL_AUDIT_RUNTIME_PROOF]", {
+      source: "active-recordScrollModeWrite-path",
+      loaded: true
+    });
+  } catch {
+  }
+}
+function isAllowedIdleAsrUiSelection(writer, from, to, phase) {
+  return writer === "ui/applyUiScrollMode" && from === "hybrid" && to === "asr" && phase === "idle";
+}
 function recordScrollModeWrite(event) {
   if (!auditEnabled()) return;
+  emitAsrModeEntryGuardBuildProof();
   const now = Date.now();
   const writer = event.writer || "unknown";
   const from = normalize(event.from);
   const to = normalize(event.to);
   if (!to || to === from) return;
   const phase = normalize(event.phase);
+  const allowIdleAsrUiSelection = isAllowedIdleAsrUiSelection(writer, from, to, phase);
+  if (allowIdleAsrUiSelection) {
+    const payload = {
+      fromMode: from,
+      toMode: to,
+      phase,
+      writer,
+      userInitiated: true,
+      action: "idle_ui_selection_recorded",
+      runtimeAction: "runtime_arm_not_allowed_idle",
+      auditClassification: "expected_ui_selection"
+    };
+    if (event.source) payload.source = event.source;
+    if (event.via) payload.via = event.via;
+    emitAsrModeEntryGuard(payload);
+  }
   const reasons = [];
   if (!EXPECTED_WRITERS.has(writer)) reasons.push("unexpected-writer");
-  if (FORBIDDEN_PHASES.has(phase) && isContinuousMode(to)) reasons.push("forbidden-phase");
+  if (FORBIDDEN_PHASES.has(phase) && isContinuousMode(to) && !allowIdleAsrUiSelection) {
+    reasons.push("forbidden-phase");
+  }
   const deltaMs = lastWriteAt ? now - lastWriteAt : 0;
   if (lastWriteAt && deltaMs < RACE_WINDOW_MS) reasons.push("rapid-write");
   if (reasons.length > 0) {
+    emitScrollAuditRuntimeProof();
     const payload = {
       reasons,
       writer,

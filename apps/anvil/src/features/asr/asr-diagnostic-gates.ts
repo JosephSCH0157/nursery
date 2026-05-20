@@ -1,3 +1,5 @@
+import type { AsrActuatorGear } from './asr-diagnostics';
+
 export function shouldEmitAsrVisualGovernorDeadScreenAutopsy(input: {
   alreadyEmittedInWindow: boolean;
   liveAsrActive: boolean;
@@ -39,6 +41,23 @@ export type AsrVisualRecoveryBoostDecision =
 export type AsrPostAdjacentCommitVisualRecoveryDecision =
   | { allow: true; minStepPx: number; maxStepPx: number }
   | { allow: false; reason: string };
+
+export type AsrActuatorRecoveryGearDecision = {
+  selectedGear: AsrActuatorGear;
+  minStepPx: number;
+  maxStepPx: number;
+  reason: string;
+  hardSafetyClear: boolean;
+  speechFresh: boolean;
+  backendFresh: boolean;
+  safeTarget: boolean;
+  cappedTargetSafe: boolean;
+  safetyClass: 'absolute_hold' | 'distance_restrict_only' | 'clear';
+  distanceRestrictionReason: string;
+  absoluteHoldReason: string;
+  urgentRecoveryEligible: boolean;
+  urgentRecoveryBlockedReason: string;
+};
 
 export function decideAsrAdjacentRecoveryCatchup(input: {
   finalPacketFresh: boolean;
@@ -163,6 +182,172 @@ export function decideAsrPostAdjacentCommitVisualRecovery(input: {
     allow: true,
     minStepPx: stronger ? 14 : 12,
     maxStepPx: stronger ? 18 : 16,
+  };
+}
+
+export function decideAsrActuatorRecoveryGear(input: {
+  liveAsrActive: boolean;
+  currentLineIdx: number;
+  acceptedCommitTargetIdx: number;
+  cappedTargetIdx: number;
+  authority: string;
+  visualRecoveryState: string;
+  reason: string;
+  targetDebtPx: number;
+  nextSpeakableLineY: number;
+  preferredBandBottom: number;
+  hardSafetyState: string;
+  safetyCapState: string;
+  speechFresh: boolean;
+  backendFresh: boolean;
+  noMatchOrOffscript: boolean;
+  hardContradiction: boolean;
+  terminalClampActive: boolean;
+  recoveryActive: boolean;
+  recoveryMinStepPx: number;
+  recoveryMaxStepPx: number;
+}): AsrActuatorRecoveryGearDecision {
+  const cappedTargetSafe =
+    Number.isFinite(input.cappedTargetIdx) &&
+    input.cappedTargetIdx > input.currentLineIdx &&
+    input.cappedTargetIdx <= input.acceptedCommitTargetIdx;
+  const acceptedTargetSafe =
+    Number.isFinite(input.acceptedCommitTargetIdx) &&
+    input.acceptedCommitTargetIdx > input.currentLineIdx;
+  const safeTarget = cappedTargetSafe || acceptedTargetSafe;
+  const speechFresh = !!input.speechFresh;
+  const backendFresh = !!input.backendFresh;
+  const recoveryAuthorityEligible =
+    input.authority === 'bottom_lock_release' ||
+    input.authority === 'preferred_lower_rail_release' ||
+    input.reason === 'bottom_lock_release' ||
+    input.reason === 'preferred_lower_rail_release' ||
+    input.reason === 'comfort_nudge_follow' ||
+    input.visualRecoveryState === 'bottom_lock_release' ||
+    input.visualRecoveryState === 'preferred_lower_rail_release' ||
+    input.visualRecoveryState === 'comfort_nudge_large_debt' ||
+    input.visualRecoveryState === 'post_adjacent_commit_visual_recovery';
+  const nextLineBelowPreferredPocket =
+    Number.isFinite(input.nextSpeakableLineY) &&
+    Number.isFinite(input.preferredBandBottom) &&
+    input.nextSpeakableLineY > input.preferredBandBottom;
+  const urgentDebt =
+    Number.isFinite(input.targetDebtPx) &&
+    input.targetDebtPx >= 120;
+  const geometryAvailable =
+    Number.isFinite(input.nextSpeakableLineY) &&
+    Number.isFinite(input.preferredBandBottom);
+  const distanceRestrictionReason =
+    input.safetyCapState && input.safetyCapState !== 'inactive' && input.safetyCapState !== 'none'
+      ? input.safetyCapState
+      : (input.hardSafetyState === 'distance_restrict_only' ? 'distance_restrict_only' : 'none');
+  const absoluteHoldReason =
+    input.terminalClampActive
+      ? 'terminal_max_scroll_clamp'
+      : (!geometryAvailable
+        ? 'geometry_unavailable'
+        : (!backendFresh
+          ? 'backend_stale'
+          : (input.noMatchOrOffscript
+            ? 'no_match_or_offscript'
+            : (input.hardContradiction
+              ? 'hard_contradiction'
+              : (input.hardSafetyState === 'absolute_hold' && distanceRestrictionReason === 'none'
+                ? 'hard_safety_state_absolute_hold'
+                : 'none')))));
+  const safetyClass =
+    absoluteHoldReason !== 'none'
+      ? 'absolute_hold'
+      : (distanceRestrictionReason !== 'none' ? 'distance_restrict_only' : 'clear');
+  const hardSafetyClear = safetyClass !== 'absolute_hold';
+  const urgentRecoveryBlockedReason =
+    !input.liveAsrActive
+      ? 'not_live_asr'
+      : (!hardSafetyClear
+        ? absoluteHoldReason
+        : (!safeTarget
+          ? 'no_safe_target'
+          : (!speechFresh
+            ? 'speech_not_fresh'
+            : (!backendFresh
+              ? 'backend_stale'
+              : (input.noMatchOrOffscript
+                ? 'no_match_or_offscript'
+                : (input.hardContradiction
+                  ? 'hard_contradiction'
+                  : (!urgentDebt
+                    ? 'target_debt_below_threshold'
+                    : (!nextLineBelowPreferredPocket
+                      ? 'not_below_preferred_reader_room'
+                      : (!recoveryAuthorityEligible
+                        ? 'authority_not_recovery_eligible'
+                        : 'none')))))))));
+  const urgentRecoveryEligible = urgentRecoveryBlockedReason === 'none';
+
+  if (urgentRecoveryEligible) {
+    const stronger =
+      input.authority === 'preferred_lower_rail_release' ||
+      input.visualRecoveryState === 'preferred_lower_rail_release' ||
+      input.targetDebtPx >= 250;
+    const urgentMinStepPx = stronger ? 16 : 12;
+    const urgentMaxStepPx = stronger ? 18 : 16;
+    return {
+      selectedGear: 'urgent_recovery',
+      minStepPx: Math.max(input.recoveryMinStepPx, urgentMinStepPx),
+      maxStepPx: Math.max(input.recoveryMaxStepPx, urgentMaxStepPx),
+      reason: input.reason || input.authority || input.visualRecoveryState || 'visual_recovery',
+      hardSafetyClear,
+      speechFresh,
+      backendFresh,
+      safeTarget,
+      cappedTargetSafe,
+      safetyClass,
+      distanceRestrictionReason,
+      absoluteHoldReason,
+      urgentRecoveryEligible,
+      urgentRecoveryBlockedReason,
+    };
+  }
+
+  if (
+    hardSafetyClear &&
+    input.recoveryActive &&
+    input.recoveryMinStepPx > 0 &&
+    input.recoveryMaxStepPx > 0
+  ) {
+    return {
+      selectedGear: 'recovery',
+      minStepPx: input.recoveryMinStepPx,
+      maxStepPx: input.recoveryMaxStepPx,
+      reason: input.reason || input.authority || input.visualRecoveryState || 'visual_recovery',
+      hardSafetyClear,
+      speechFresh,
+      backendFresh,
+      safeTarget,
+      cappedTargetSafe,
+      safetyClass,
+      distanceRestrictionReason,
+      absoluteHoldReason,
+      urgentRecoveryEligible,
+      urgentRecoveryBlockedReason,
+    };
+  }
+
+  return {
+    selectedGear: 'normal_floor',
+    minStepPx: 0,
+    maxStepPx: 0,
+    reason: input.reason || input.authority || input.visualRecoveryState || 'normal_floor',
+    hardSafetyClear,
+    speechFresh,
+    backendFresh,
+    safeTarget,
+    cappedTargetSafe,
+    safetyClass,
+    distanceRestrictionReason,
+    absoluteHoldReason,
+    urgentRecoveryEligible,
+    urgentRecoveryBlockedReason,
   };
 }
 

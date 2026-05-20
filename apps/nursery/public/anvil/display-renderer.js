@@ -1769,6 +1769,8 @@ var lastWriteAt = 0;
 var lastWriter = "";
 var lastMode = "";
 var lastPhase = "";
+var asrModeEntryGuardBuildProofEmitted = false;
+var scrollAuditRuntimeProofEmitted = false;
 function auditEnabled() {
   try {
     const w2 = window;
@@ -1795,20 +1797,72 @@ function emitUnexpected(label, payload) {
   } catch {
   }
 }
+function emitAsrModeEntryGuard(payload) {
+  try {
+    console.warn("[ASR_MODE_ENTRY_GUARD]", payload);
+  } catch {
+  }
+}
+function emitAsrModeEntryGuardBuildProof() {
+  if (asrModeEntryGuardBuildProofEmitted) return;
+  asrModeEntryGuardBuildProofEmitted = true;
+  try {
+    console.warn("[ASR_MODE_ENTRY_GUARD_BUILD_PROOF]", {
+      module: "scroll-audit",
+      stamp: "asr-mode-entry-guard-v2",
+      loaded: true
+    });
+  } catch {
+  }
+}
+function emitScrollAuditRuntimeProof() {
+  if (scrollAuditRuntimeProofEmitted) return;
+  scrollAuditRuntimeProofEmitted = true;
+  try {
+    console.warn("[SCROLL_AUDIT_RUNTIME_PROOF]", {
+      source: "active-recordScrollModeWrite-path",
+      loaded: true
+    });
+  } catch {
+  }
+}
+function isAllowedIdleAsrUiSelection(writer, from, to, phase) {
+  return writer === "ui/applyUiScrollMode" && from === "hybrid" && to === "asr" && phase === "idle";
+}
 function recordScrollModeWrite(event) {
   if (!auditEnabled()) return;
+  emitAsrModeEntryGuardBuildProof();
   const now2 = Date.now();
   const writer = event.writer || "unknown";
   const from = normalize(event.from);
   const to = normalize(event.to);
   if (!to || to === from) return;
   const phase = normalize(event.phase);
+  const allowIdleAsrUiSelection = isAllowedIdleAsrUiSelection(writer, from, to, phase);
+  if (allowIdleAsrUiSelection) {
+    const payload = {
+      fromMode: from,
+      toMode: to,
+      phase,
+      writer,
+      userInitiated: true,
+      action: "idle_ui_selection_recorded",
+      runtimeAction: "runtime_arm_not_allowed_idle",
+      auditClassification: "expected_ui_selection"
+    };
+    if (event.source) payload.source = event.source;
+    if (event.via) payload.via = event.via;
+    emitAsrModeEntryGuard(payload);
+  }
   const reasons = [];
   if (!EXPECTED_WRITERS.has(writer)) reasons.push("unexpected-writer");
-  if (FORBIDDEN_PHASES.has(phase) && isContinuousMode(to)) reasons.push("forbidden-phase");
+  if (FORBIDDEN_PHASES.has(phase) && isContinuousMode(to) && !allowIdleAsrUiSelection) {
+    reasons.push("forbidden-phase");
+  }
   const deltaMs = lastWriteAt ? now2 - lastWriteAt : 0;
   if (lastWriteAt && deltaMs < RACE_WINDOW_MS) reasons.push("rapid-write");
   if (reasons.length > 0) {
+    emitScrollAuditRuntimeProof();
     const payload = {
       reasons,
       writer,
@@ -22960,6 +23014,31 @@ if (typeof window !== "undefined") {
   }
 }
 
+// src/env/diag-verbosity.ts
+var DIAG_VERBOSE_QUERY_KEY = "diag_verbose";
+var DIAG_VERBOSE_STORAGE_KEY = "tp_diag_verbose";
+function readBoolFlag(value) {
+  return String(value || "").trim() === "1";
+}
+function isVerboseDiagnosticMode() {
+  if (typeof window === "undefined") return false;
+  try {
+    const runtimeFlag = window.__TP_DIAG_VERBOSE;
+    if (runtimeFlag === true) return true;
+    const params = new URLSearchParams(window.location.search || "");
+    if (readBoolFlag(params.get(DIAG_VERBOSE_QUERY_KEY))) return true;
+  } catch {
+  }
+  try {
+    if (readBoolFlag(window.localStorage?.getItem(DIAG_VERBOSE_STORAGE_KEY))) return true;
+  } catch {
+  }
+  return false;
+}
+function shouldLogVerboseDiagnostic() {
+  return isVerboseDiagnosticMode();
+}
+
 // src/features/scroll/scroll-router/router-impl.ts
 var isDevMode2 = /* @__PURE__ */ (() => {
   let cache = null;
@@ -22995,6 +23074,23 @@ var isDevMode2 = /* @__PURE__ */ (() => {
     return cache;
   };
 })();
+function shouldLogVerboseRouterDiagnostic() {
+  return isDevMode2() && shouldLogVerboseDiagnostic();
+}
+function verboseRouterWarn(...args) {
+  if (!shouldLogVerboseRouterDiagnostic()) return;
+  try {
+    console.warn(...args);
+  } catch {
+  }
+}
+function verboseRouterInfo(...args) {
+  if (!shouldLogVerboseRouterDiagnostic()) return;
+  try {
+    console.info(...args);
+  } catch {
+  }
+}
 var ASR_COMPLETION_GATE_KEY = "tp_asr_completion_gate";
 var asrCompletionGateBypassLogged = false;
 function isAsrCompletionGateEnabled() {
@@ -23037,7 +23133,7 @@ function ensureMainViewer(action) {
   return false;
 }
 try {
-  console.info("[VIEWER_ROLE]", {
+  verboseRouterInfo("[VIEWER_ROLE]", {
     viewerRole,
     path: typeof window !== "undefined" ? window.location?.pathname : "<unknown>"
   });
@@ -23045,7 +23141,7 @@ try {
 }
 globalThis.__tp_router_stamp = (globalThis.__tp_router_stamp ?? 0) + 1;
 try {
-  console.warn("[ROUTER_STAMP]", globalThis.__tp_router_stamp);
+  verboseRouterWarn("[ROUTER_STAMP]", globalThis.__tp_router_stamp);
 } catch {
 }
 var ROUTER_STAMP = globalThis.__tp_router_stamp;
@@ -23054,7 +23150,7 @@ var scrollRouterInstallCount = 0;
 if (typeof window !== "undefined") {
   try {
     window.__tp_router_probe = "scroll-router loaded";
-    console.info("[router-probe] scroll-router loaded");
+    verboseRouterInfo("[router-probe] scroll-router loaded");
   } catch {
   }
 }
@@ -23702,7 +23798,7 @@ function logHybridMultDebug(payload) {
   }
 }
 function logHybridTruthLine(payload) {
-  if (!isDevMode2()) return;
+  if (!shouldLogVerboseRouterDiagnostic()) return;
   const now2 = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
   if (now2 - lastHybridTruthAt < HYBRID_TRUTH_THROTTLE_MS) return;
   lastHybridTruthAt = now2;
@@ -24419,7 +24515,7 @@ function logHybridTrace(tag, payload, opts) {
     hybridTraceLastSig.set(tag, signature);
   }
   try {
-    console.info(`[HYBRID_TRACE] ${tag}`, payload);
+    verboseRouterInfo(`[HYBRID_TRACE] ${tag}`, payload);
   } catch {
   }
 }
@@ -25878,6 +25974,12 @@ function applyMode(m) {
 function installScrollRouter(opts) {
   const { auto: autoMotor, viewer: viewerInstallFlag = false, hostEl = null } = opts;
   auto = autoMotor || auto || null;
+  const emitAsrModeEntryGuard2 = (args) => {
+    try {
+      console.warn("[ASR_MODE_ENTRY_GUARD]", args);
+    } catch {
+    }
+  };
   const canonicalScroller = getScrollerEl(viewerRole) || getScrollerEl("main");
   const docViewer = document.getElementById("viewer");
   if (!viewer) {
@@ -25941,9 +26043,9 @@ function installScrollRouter(opts) {
         throw err;
       }
     };
-    console.warn("[AUTO_INTENT] processor assigned", { hasPending: !!pendingAutoIntentDetail });
+    verboseRouterWarn("[AUTO_INTENT] processor assigned", { hasPending: !!pendingAutoIntentDetail });
     if (pendingAutoIntentDetail) {
-      console.warn("[AUTO_INTENT] flushing pending", pendingAutoIntentDetail);
+      verboseRouterWarn("[AUTO_INTENT] flushing pending", pendingAutoIntentDetail);
       try {
         autoIntentProcessor(pendingAutoIntentDetail);
       } catch {
@@ -25966,15 +26068,12 @@ function installScrollRouter(opts) {
   } catch {
   }
   if (scrollRouterInstalled) {
-    try {
-      console.info("[SCROLL_ROUTER] install skipped (already installed)", {
-        mode: state22.mode,
-        hasViewer: !!viewer,
-        hasScroller: !!scrollerEl,
-        installCount: scrollRouterInstallCount
-      });
-    } catch {
-    }
+    verboseRouterInfo("[SCROLL_ROUTER] install skipped (already installed)", {
+      mode: state22.mode,
+      hasViewer: !!viewer,
+      hasScroller: !!scrollerEl,
+      installCount: scrollRouterInstallCount
+    });
     return;
   }
   scrollRouterInstalled = true;
@@ -25990,16 +26089,13 @@ function installScrollRouter(opts) {
     }
   } catch {
   }
-  try {
-    console.warn("[SCROLL_ROUTER] installScrollRouter ENTER", {
-      viewerInstance: viewerInstallFlag,
-      viewerEl: !!viewer,
-      hostEl: hostEl ? hostEl.id || hostEl.className || hostEl.tagName : null,
-      mode: state22.mode,
-      autoIntentProcessorExists: !!autoIntentProcessor
-    });
-  } catch {
-  }
+  verboseRouterWarn("[SCROLL_ROUTER] installScrollRouter ENTER", {
+    viewerInstance: viewerInstallFlag,
+    viewerEl: !!viewer,
+    hostEl: hostEl ? hostEl.id || hostEl.className || hostEl.tagName : null,
+    mode: state22.mode,
+    autoIntentProcessorExists: !!autoIntentProcessor
+  });
   try {
     window.__tpScrollRouterTsActive = true;
   } catch {
@@ -26530,24 +26626,18 @@ function installScrollRouter(opts) {
       const ignoreAsrScriptEnd = !enabled && isScriptEndReason && mode === "asr" && currentPhase === "live" && asrArmed;
       if (ignoreAsrScriptEnd) {
         if (isDevMode2()) {
-          try {
-            console.warn("[AUTO_INTENT] scriptEnd ignored in live armed ASR", {
-              enabled,
-              reason: reasonRaw ?? null,
-              mode,
-              phase: currentPhase,
-              asrArmed
-            });
-          } catch {
-          }
+          verboseRouterWarn("[AUTO_INTENT] scriptEnd ignored in live armed ASR", {
+            enabled,
+            reason: reasonRaw ?? null,
+            mode,
+            phase: currentPhase,
+            asrArmed
+          });
         }
         return null;
       }
       if (shouldIgnoreHybridStop(reasonRaw, enabled)) {
-        try {
-          console.info("[AUTO_INTENT] hybrid stop ignored (live, non-fatal reason)", { reason: reasonRaw });
-        } catch {
-        }
+        verboseRouterInfo("[AUTO_INTENT] hybrid stop ignored (live, non-fatal reason)", { reason: reasonRaw });
         return null;
       }
       const motorRequest = resolveAutoIntentMotorRequest(detail, mode, reasonRaw);
@@ -26558,28 +26648,30 @@ function installScrollRouter(opts) {
       const baseDecision = enabled ? "motor-start-request" : "motor-stop-request";
       const decision = allowAutoMotor ? baseDecision : "motor-stop-request";
       const pxPerSec = typeof getCurrentSpeed === "function" ? getCurrentSpeed() : void 0;
-      try {
-        console.info(
-          `[scroll-router] tp:auto:intent mode=${state22.mode} brain=${brain} phase=${sessionPhase2} decision=${decision} userEnabled=${userEnabled} motorKind=${motorRequest.kind} source=${motorRequest.source}`
-        );
-        console.warn(
-          "[AUTO_INTENT]",
-          "mode=",
-          state22.mode,
-          "enabled=",
-          enabled,
-          "motorKind=",
-          motorRequest.kind,
-          "source=",
-          motorRequest.source,
-          "pxPerSec=",
-          pxPerSec,
-          "sessionPhase=",
-          currentPhase,
-          "userEnabled=",
-          userEnabled
-        );
-      } catch {
+      if (shouldLogVerboseRouterDiagnostic()) {
+        try {
+          console.info(
+            `[scroll-router] tp:auto:intent mode=${state22.mode} brain=${brain} phase=${sessionPhase2} decision=${decision} userEnabled=${userEnabled} motorKind=${motorRequest.kind} source=${motorRequest.source}`
+          );
+          console.warn(
+            "[AUTO_INTENT]",
+            "mode=",
+            state22.mode,
+            "enabled=",
+            enabled,
+            "motorKind=",
+            motorRequest.kind,
+            "source=",
+            motorRequest.source,
+            "pxPerSec=",
+            pxPerSec,
+            "sessionPhase=",
+            currentPhase,
+            "userEnabled=",
+            userEnabled
+          );
+        } catch {
+        }
       }
       const pxs = Number(pxPerSec) || 0;
       enabledNow = decision === "motor-start-request";
@@ -26613,31 +26705,25 @@ function installScrollRouter(opts) {
     const mode = getScrollMode2();
     const currentPhase = String(appStoreSingleton.get("session.phase") || sessionPhase2);
     if (enabled && currentPhase !== "live") {
-      try {
-        console.info("[AUTO_INTENT] start ignored: session not live", {
-          mode,
-          phase: currentPhase,
-          reason: reason ?? "unknown"
-        });
-      } catch {
-      }
+      verboseRouterInfo("[AUTO_INTENT] start ignored: session not live", {
+        mode,
+        phase: currentPhase,
+        reason: reason ?? "unknown"
+      });
       return;
     }
     const pxps = typeof getCurrentSpeed === "function" ? getCurrentSpeed() : void 0;
     const chosenMotor = mode === "hybrid" ? "hybrid" : "auto";
-    try {
-      console.warn("[AUTO_INTENT] processor RUN", {
-        enabled,
-        mode,
-        motorKind,
-        source: motorSource,
-        pxps,
-        chosenMotor,
-        viewerRole,
-        lastWpm: lastWpmIntent?.wpm ?? null
-      });
-    } catch {
-    }
+    verboseRouterWarn("[AUTO_INTENT] processor RUN", {
+      enabled,
+      mode,
+      motorKind,
+      source: motorSource,
+      pxps,
+      chosenMotor,
+      viewerRole,
+      lastWpm: lastWpmIntent?.wpm ?? null
+    });
     if (mode === "asr") {
       stopAutoMotor("auto-intent:asr");
       return;
@@ -26735,9 +26821,9 @@ function installScrollRouter(opts) {
       throw err;
     }
   };
-  console.warn("[AUTO_INTENT] processor assigned", { hasPending: !!pendingAutoIntentDetail });
+  verboseRouterWarn("[AUTO_INTENT] processor assigned", { hasPending: !!pendingAutoIntentDetail });
   if (pendingAutoIntentDetail) {
-    console.warn("[AUTO_INTENT] flushing pending", pendingAutoIntentDetail);
+    verboseRouterWarn("[AUTO_INTENT] flushing pending", pendingAutoIntentDetail);
     try {
       autoIntentProcessor(pendingAutoIntentDetail);
     } catch {
@@ -26745,7 +26831,7 @@ function installScrollRouter(opts) {
     pendingAutoIntentDetail = null;
   }
   try {
-    console.info("[scroll-router] tp:auto:intent listener installed");
+    verboseRouterInfo("[scroll-router] tp:auto:intent listener installed");
   } catch {
   }
   try {
@@ -27924,7 +28010,7 @@ function installScrollRouter(opts) {
         const errBoost = clamp2(Math.abs(errorLinesRaw) / 6, 0, 1);
         const distanceScale = 1 + errBoost * (maxScale - 1);
         effectiveScale = Math.min(maxScale, Math.max(effectiveScale, distanceScale));
-        if (isDevMode2()) {
+        if (shouldLogVerboseRouterDiagnostic()) {
           try {
             console.warn("[HYBRID_TRUTH]", {
               aggro,
@@ -28211,7 +28297,7 @@ function installScrollRouter(opts) {
     }
     const finalReasons = reasons.length > 0 ? reasons : ["base"];
     const capReason = finalReasons.includes("silence") ? "silence" : finalReasons.includes("offscript") ? "offscript" : void 0;
-    if (isDevMode2() && now2 - lastHybridPolicyLogAt >= HYBRID_POLICY_LOG_THROTTLE_MS) {
+    if (shouldLogVerboseRouterDiagnostic() && now2 - lastHybridPolicyLogAt >= HYBRID_POLICY_LOG_THROTTLE_MS) {
       lastHybridPolicyLogAt = now2;
       const speedSettingRaw = getHybridSpeedSettingRaw();
       try {
@@ -28348,7 +28434,7 @@ function installScrollRouter(opts) {
           `finalPxps=${finalPxps.toFixed(2)}`,
           `reasons=${finalReasons.join("|")}`
         ];
-        console.info("[HYBRID_FINAL_MILE]", logParts.join(" "));
+        verboseRouterInfo("[HYBRID_FINAL_MILE]", logParts.join(" "));
         const matchSimLog = matchKnown ? matchSimValue : null;
         const stateParts = [
           `noMatch=${sawNoMatchEffective || !matchKnown}`,
@@ -28372,7 +28458,7 @@ function installScrollRouter(opts) {
           `matcherSource=${runtime.matcherSource}`,
           `matcherFeed=${runtime.matcherSourceDetail}`
         ];
-        console.info("[HYBRID_FINAL_MILE_STATE]", stateParts.join(" "));
+        verboseRouterInfo("[HYBRID_FINAL_MILE_STATE]", stateParts.join(" "));
         if (blocksNotReadyHold || sawNoMatchEffective || offScriptActive || hardNoMatchEffective) {
           logHybridMatcherProbe("final-mile", {
             noMatch: sawNoMatchEffective || !matchKnown,
@@ -29131,6 +29217,20 @@ function installScrollRouter(opts) {
       appStoreSingleton.subscribe("scrollMode", (modeRaw) => {
         const normalized = normalizeScrollModeValue(modeRaw);
         if (normalized !== "asr") return;
+        const store2 = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
+        const phase = String(store2?.get?.("session.phase") || sessionPhase2 || "idle").toLowerCase();
+        const asrDesired = !!store2?.get?.("session.asrDesired");
+        const asrArmed = !!store2?.get?.("session.asrArmed");
+        const action = phase === "idle" ? "runtime_arm_blocked_idle" : asrDesired && asrArmed ? "runtime_arm_allowed" : "ui_selection_only";
+        emitAsrModeEntryGuard2({
+          fromMode: state22.mode,
+          toMode: normalized,
+          phase,
+          userInitiated: false,
+          asrDesired,
+          asrArmed,
+          action
+        });
         stopAllMotors("mode-enter-asr");
         userEnabled = false;
         userIntentOn = false;
@@ -29140,6 +29240,9 @@ function installScrollRouter(opts) {
         clearHybridSilenceTimer();
         enabledNow = false;
         asrIntentLiveSince = 0;
+        if (phase === "idle") {
+          resetAsrIntentState("mode-enter-asr-idle");
+        }
         try {
           auto?.setEnabled?.(false);
         } catch {

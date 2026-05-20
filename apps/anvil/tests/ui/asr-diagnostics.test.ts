@@ -29,6 +29,7 @@ import {
   buildAsrPostAdjacentCommitVisualRecoveryOpenedDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryPathProofDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic,
+  buildAsrRecoveryGearSelectedDiagnostic,
   buildAsrScrollChairpersonArbitrationDiagnostic,
   buildAsrVisualRecoveryBoostAppliedDiagnostic,
   buildAsrVisualRecoveryBoostBypassedDiagnostic,
@@ -44,6 +45,7 @@ import {
 import {
   decideAsrVisualGovernorDeadScreenEscape,
   decideAsrAdjacentRecoveryCatchup,
+  decideAsrActuatorRecoveryGear,
   decideAsrPostAdjacentCommitVisualRecovery,
   decideAsrVisualRecoveryBoost,
   shouldEmitAsrVisualGovernorDeadScreenAutopsy,
@@ -919,6 +921,202 @@ describe('ASR backend liveness diagnostics builders', () => {
     expect(line).toBe(
       '[ASR_SCROLL_CHAIRPERSON_ARBITRATION] chair=visual_recovery reason=bottom_lock_release semanticTargetIdx=91 acceptedCommitTargetIdx=84 distanceCapTargetIdx=83 currentLineIdx=82 requestedTargetIdx=84 bridgeOwner=live_strict_rescue_hold_no_local_proof cueOwner=none markerLockState=within_hold_tolerance comfortState=comfort_nudge_large_debt visualRecoveryState=bottom_lock_release hardSafetyState=distance_restrict_only safetyCapState=bridge_or_cue_context_active postAdjacentRecoveryState=blocked:bridge_trap_active targetDebtPx=212 appliedDeltaPx=6 clampReason=min_step_floor gear=normal_floor floorFallbackReason=marker_lock_suppressed_recovery overruled=target_distance_cap|marker_lock_smoothing|comfort_advisory',
     );
+  });
+
+  test('builds recovery gear selected diagnostic with expected fields', () => {
+    const line = buildAsrRecoveryGearSelectedDiagnostic({
+      currentLineIdx: 82,
+      targetLineIdx: 83,
+      acceptedCommitTargetIdx: 84,
+      cappedTargetIdx: 83,
+      targetDebtPx: 212.4,
+      appliedDeltaPx: 12.1,
+      selectedGear: 'urgent_recovery',
+      previousGear: 'normal_floor',
+      reason: 'bottom_lock_release',
+      hardSafetyClear: true,
+      speechFresh: true,
+      backendFresh: true,
+      nextSpeakableLineY: 476.2,
+      overruledControllers: 'target_distance_cap|marker_lock_smoothing|comfort_advisory',
+      clampReasonBefore: 'none',
+      clampReasonAfter: 'min_step_floor',
+      safetyClass: 'distance_restrict_only',
+      distanceRestrictionReason: 'bridge_or_cue_context_active',
+      absoluteHoldReason: 'none',
+      cappedTargetSafe: true,
+      urgentRecoveryEligible: true,
+      urgentRecoveryBlockedReason: 'none',
+    });
+    expect(line).toBe(
+      '[ASR_RECOVERY_GEAR_SELECTED] currentLineIdx=82 targetLineIdx=83 acceptedCommitTargetIdx=84 cappedTargetIdx=83 targetDebtPx=212 appliedDeltaPx=12 selectedGear=urgent_recovery previousGear=normal_floor reason=bottom_lock_release hardSafetyClear=1 speechFresh=1 backendFresh=1 nextSpeakableLineY=476 overruledControllers=target_distance_cap|marker_lock_smoothing|comfort_advisory clampReasonBefore=none clampReasonAfter=min_step_floor safetyClass=distance_restrict_only distanceRestrictionReason=bridge_or_cue_context_active absoluteHoldReason=none cappedTargetSafe=1 urgentRecoveryEligible=1 urgentRecoveryBlockedReason=none',
+    );
+  });
+
+  test('large debt plus safe capped target and fresh speech selects urgent recovery gear', () => {
+    const decision = decideAsrActuatorRecoveryGear({
+      liveAsrActive: true,
+      currentLineIdx: 82,
+      acceptedCommitTargetIdx: 84,
+      cappedTargetIdx: 83,
+      authority: 'bottom_lock_release',
+      visualRecoveryState: 'bottom_lock_release',
+      reason: 'bottom_lock_release',
+      targetDebtPx: 212,
+      nextSpeakableLineY: 476,
+      preferredBandBottom: 450,
+      hardSafetyState: 'distance_restrict_only',
+      safetyCapState: 'bridge_or_cue_context_active',
+      speechFresh: true,
+      backendFresh: true,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+      terminalClampActive: false,
+      recoveryActive: true,
+      recoveryMinStepPx: 12,
+      recoveryMaxStepPx: 16,
+    });
+    expect(decision.selectedGear).toBe('urgent_recovery');
+    expect(decision.minStepPx).toBeGreaterThan(6);
+    expect(decision.safetyClass).toBe('distance_restrict_only');
+    expect(decision.cappedTargetSafe).toBe(true);
+  });
+
+  test('hard safety veto prevents urgent recovery gear', () => {
+    const decision = decideAsrActuatorRecoveryGear({
+      liveAsrActive: true,
+      currentLineIdx: 82,
+      acceptedCommitTargetIdx: 83,
+      cappedTargetIdx: 83,
+      authority: 'bottom_lock_release',
+      visualRecoveryState: 'bottom_lock_release',
+      reason: 'bottom_lock_release',
+      targetDebtPx: 212,
+      nextSpeakableLineY: 476,
+      preferredBandBottom: 450,
+      hardSafetyState: 'absolute_hold',
+      safetyCapState: 'none',
+      speechFresh: true,
+      backendFresh: false,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+      terminalClampActive: false,
+      recoveryActive: true,
+      recoveryMinStepPx: 12,
+      recoveryMaxStepPx: 16,
+    });
+    expect(decision.selectedGear).toBe('normal_floor');
+    expect(decision.safetyClass).toBe('absolute_hold');
+    expect(decision.urgentRecoveryBlockedReason).toBe('backend_stale');
+  });
+
+  test('offscript no-match contradiction conditions prevent urgent recovery gear', () => {
+    const decision = decideAsrActuatorRecoveryGear({
+      liveAsrActive: true,
+      currentLineIdx: 82,
+      acceptedCommitTargetIdx: 83,
+      cappedTargetIdx: 83,
+      authority: 'preferred_lower_rail_release',
+      visualRecoveryState: 'preferred_lower_rail_release',
+      reason: 'preferred_lower_rail_release',
+      targetDebtPx: 260,
+      nextSpeakableLineY: 500,
+      preferredBandBottom: 450,
+      hardSafetyState: 'clear',
+      safetyCapState: 'none',
+      speechFresh: true,
+      backendFresh: true,
+      noMatchOrOffscript: true,
+      hardContradiction: true,
+      terminalClampActive: false,
+      recoveryActive: true,
+      recoveryMinStepPx: 14,
+      recoveryMaxStepPx: 18,
+    });
+    expect(decision.selectedGear).toBe('normal_floor');
+    expect(decision.urgentRecoveryBlockedReason).toBe('no_match_or_offscript');
+  });
+
+  test('small debt keeps normal floor gear', () => {
+    const decision = decideAsrActuatorRecoveryGear({
+      liveAsrActive: true,
+      currentLineIdx: 82,
+      acceptedCommitTargetIdx: 83,
+      cappedTargetIdx: 83,
+      authority: 'bottom_lock_release',
+      visualRecoveryState: 'bottom_lock_release',
+      reason: 'bottom_lock_release',
+      targetDebtPx: 60,
+      nextSpeakableLineY: 476,
+      preferredBandBottom: 450,
+      hardSafetyState: 'clear',
+      safetyCapState: 'none',
+      speechFresh: true,
+      backendFresh: true,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+      terminalClampActive: false,
+      recoveryActive: false,
+      recoveryMinStepPx: 0,
+      recoveryMaxStepPx: 0,
+    });
+    expect(decision.selectedGear).toBe('normal_floor');
+  });
+
+  test('distance cap can restrict target without forcing six-pixel gear when capped target is safe', () => {
+    const decision = decideAsrActuatorRecoveryGear({
+      liveAsrActive: true,
+      currentLineIdx: 40,
+      acceptedCommitTargetIdx: 43,
+      cappedTargetIdx: 41,
+      authority: 'preferred_lower_rail_release',
+      visualRecoveryState: 'preferred_lower_rail_release',
+      reason: 'preferred_lower_rail_release',
+      targetDebtPx: 260,
+      nextSpeakableLineY: 500,
+      preferredBandBottom: 450,
+      hardSafetyState: 'distance_restrict_only',
+      safetyCapState: 'bridge_or_cue_context_active',
+      speechFresh: true,
+      backendFresh: true,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+      terminalClampActive: false,
+      recoveryActive: true,
+      recoveryMinStepPx: 14,
+      recoveryMaxStepPx: 18,
+    });
+    expect(decision.selectedGear).toBe('urgent_recovery');
+    expect(decision.minStepPx).toBeGreaterThan(6);
+    expect(decision.safetyClass).toBe('distance_restrict_only');
+  });
+
+  test('true terminal clamp blocks urgent recovery gear', () => {
+    const decision = decideAsrActuatorRecoveryGear({
+      liveAsrActive: true,
+      currentLineIdx: 98,
+      acceptedCommitTargetIdx: 99,
+      cappedTargetIdx: 99,
+      authority: 'bottom_lock_release',
+      visualRecoveryState: 'bottom_lock_release',
+      reason: 'bottom_lock_release',
+      targetDebtPx: 220,
+      nextSpeakableLineY: 480,
+      preferredBandBottom: 450,
+      hardSafetyState: 'clear',
+      safetyCapState: 'none',
+      speechFresh: true,
+      backendFresh: true,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+      terminalClampActive: true,
+      recoveryActive: true,
+      recoveryMinStepPx: 12,
+      recoveryMaxStepPx: 16,
+    });
+    expect(decision.selectedGear).toBe('normal_floor');
+    expect(decision.safetyClass).toBe('absolute_hold');
+    expect(decision.urgentRecoveryBlockedReason).toBe('terminal_max_scroll_clamp');
   });
 
   test('builds diagnostic bundle proof with expected fields', () => {

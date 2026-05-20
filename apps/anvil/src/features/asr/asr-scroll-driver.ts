@@ -40,6 +40,7 @@ import {
   buildAsrPostAdjacentCommitVisualRecoveryOpenedDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryPathProofDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic,
+  buildAsrRecoveryGearSelectedDiagnostic,
   buildAsrScrollChairpersonArbitrationDiagnostic,
   buildAsrVisualRecoveryBoostAppliedDiagnostic,
   buildAsrVisualRecoveryBoostBlockedDiagnostic,
@@ -57,6 +58,7 @@ import {
   buildProofOwnedPrimaryCommitGuardBaseParts,
   buildRecoverySkipNonAdjacentTargetGuardBaseParts,
   buildAsrVisualMarkerErrorCorrectionDiagnostic,
+  type AsrActuatorGear,
 } from './asr-diagnostics';
 import { AsrAlignmentEpisodeTracker } from './asr-alignment-episodes';
 import {
@@ -111,6 +113,7 @@ import {
   shouldStopForVisualDeadband,
 } from './asr-visual-follow';
 import { clearOnlyMatchingBridgeBlockToken, shouldReleaseEarlyBridgeTrap } from './asr-bridge-trap';
+import { decideAsrActuatorRecoveryGear } from './asr-diagnostic-gates';
 import { shouldEmitAsrVisualGovernorDeadScreenAutopsy } from './asr-diagnostic-gates';
 import { decideAsrVisualGovernorDeadScreenEscape } from './asr-diagnostic-gates';
 import { decideAsrAdjacentRecoveryCatchup } from './asr-diagnostic-gates';
@@ -11030,6 +11033,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let liveAsrCommitteeComfortState = 'inactive';
     let liveAsrCommitteeVisualRecoveryState = 'inactive';
     let liveAsrCommitteeHardSafetyState = 'clear';
+    let liveAsrPreviousActuatorGear: AsrActuatorGear = 'hold';
     let liveAsrCommitteeSafetyCapState = 'none';
     let liveAsrCommitteePostAdjacentRecoveryState = 'not_evaluated';
     let liveAsrCommitteeBridgeHoldContextActive = false;
@@ -12114,13 +12118,61 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       postAdjacentCommitRecoveryMinStepPx > 0 &&
       postAdjacentCommitRecoveryMaxStepPx > 0 &&
       !liveHardHold;
+    const recoveryMinStepPx = Math.max(
+      visualRecoveryBoostActive ? liveAsrRecoveryBoostMinStepPx : 0,
+      postAdjacentCommitVisualRecoveryActive ? postAdjacentCommitRecoveryMinStepPx : 0,
+    );
+    const recoveryMaxStepPx = Math.max(
+      visualRecoveryBoostActive ? liveAsrRecoveryBoostMaxStepPx : 0,
+      postAdjacentCommitVisualRecoveryActive ? postAdjacentCommitRecoveryMaxStepPx : 0,
+    );
+    const hardContradictionActive =
+      String(lastAsrGuardReason || '').toLowerCase().includes('contradiction');
+    const actuatorSpeechFresh =
+      asrRuntimeSpeechRunningActual ||
+      hasRecentActualSpeech(Date.now()) ||
+      hasRecentVadSpeechNow(Date.now()) ||
+      (lastFinalTranscriptAt > 0 && (Date.now() - lastFinalTranscriptAt) <= 1800);
+    const actuatorBackendFresh =
+      lastTranscriptPacketAt > 0 &&
+      Math.max(0, Date.now() - lastTranscriptPacketAt) <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS &&
+      !asrSilenceActive;
+    const actuatorNoMatchOrOffscript =
+      String(lastAsrGuardReason || '').toLowerCase().includes('no_match') ||
+      String(lastAsrHudGuardText || '').toLowerCase().includes('offscript') ||
+      hardContradictionActive;
+    const actuatorRecoveryGearDecision = decideAsrActuatorRecoveryGear({
+      liveAsrActive: liveAsrFollowMode && liveAsrActuatorPursuitActive,
+      currentLineIdx: lastLineIndex,
+      acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+      cappedTargetIdx: liveAsrCommitteeDistanceCapTargetIdx,
+      authority: liveTickSelectedAuthority,
+      visualRecoveryState: liveAsrCommitteeVisualRecoveryState,
+      reason: liveAsrActuatorReason,
+      targetDebtPx: liveAsrActuatorTargetDebtPx,
+      nextSpeakableLineY: lastAsrNextSpeakableLineY,
+      preferredBandBottom: lastAsrPreferredBandBottom,
+      hardSafetyState: liveAsrCommitteeHardSafetyState,
+      safetyCapState: liveAsrCommitteeSafetyCapState,
+      speechFresh: actuatorSpeechFresh,
+      backendFresh: actuatorBackendFresh,
+      noMatchOrOffscript: actuatorNoMatchOrOffscript,
+      hardContradiction: hardContradictionActive,
+      terminalClampActive: atScrollLimit,
+      recoveryActive:
+        (visualRecoveryBoostActive || postAdjacentCommitVisualRecoveryActive) &&
+        recoveryMinStepPx > 0 &&
+        recoveryMaxStepPx > 0,
+      recoveryMinStepPx,
+      recoveryMaxStepPx,
+    });
     const dynamicMaxStepPx = actuatorBoostActive
       ? Math.max(maxStepPx, Math.min(24, Math.max(0, desiredVel * dt)))
       : maxStepPx;
     const effectiveMaxStepPx = Math.max(
       dynamicMaxStepPx,
-      visualRecoveryBoostActive ? liveAsrRecoveryBoostMaxStepPx : 0,
-      postAdjacentCommitVisualRecoveryActive ? postAdjacentCommitRecoveryMaxStepPx : 0,
+      recoveryMaxStepPx,
+      actuatorRecoveryGearDecision.maxStepPx,
     );
     if (move > effectiveMaxStepPx) {
       move = effectiveMaxStepPx;
@@ -12128,9 +12180,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     const effectiveMinStepPx = Math.max(
       minStepPx,
-      visualRecoveryBoostActive ? liveAsrRecoveryBoostMinStepPx : 0,
-      postAdjacentCommitVisualRecoveryActive ? postAdjacentCommitRecoveryMinStepPx : 0,
+      recoveryMinStepPx,
+      actuatorRecoveryGearDecision.minStepPx,
     );
+    const clampReasonBeforeFloor = clampReason;
     if (!liveHardHold && move < effectiveMinStepPx) {
       const floored = Math.min(err, effectiveMinStepPx);
       if (floored > move) {
@@ -12247,11 +12300,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const gear =
         clampReasonOut === 'no_move' || move <= 0 || appliedDeltaPx <= 0
           ? 'hold'
-          : (Math.round(appliedDeltaPx) === DEFAULT_MIN_STEP_PX
-            ? 'normal_floor'
-            : ((postAdjacentCommitVisualRecoveryActive || visualRecoveryBoostActive)
-              ? (Math.max(appliedDeltaPx, effectiveMinStepPx) >= 12 ? 'urgent_recovery' : 'recovery')
-              : 'normal_tracking'));
+          : (actuatorRecoveryGearDecision.selectedGear === 'urgent_recovery'
+            ? 'urgent_recovery'
+            : (actuatorRecoveryGearDecision.selectedGear === 'recovery'
+              ? 'recovery'
+              : (Math.round(appliedDeltaPx) === DEFAULT_MIN_STEP_PX
+                ? 'normal_floor'
+                : 'normal_tracking')));
       const absoluteHoldActive = liveAsrCommitteeHardSafetyState === 'absolute_hold' && gear === 'hold';
       const distanceCapActive =
         liveAsrCommitteeSafetyCapState !== 'inactive' &&
@@ -12318,11 +12373,45 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (markerLockEligible) overruledEligible.push('marker_lock_smoothing');
       if (comfortEligible) overruledEligible.push('comfort_advisory');
       const overruled = overruledEligible.filter((name) => name !== chair).join('|') || 'none';
+      if (gear === 'recovery' || gear === 'urgent_recovery') {
+        try {
+          console.warn(
+            buildAsrRecoveryGearSelectedDiagnostic({
+              currentLineIdx: lastLineIndex,
+              targetLineIdx:
+                liveAsrCommitteeDistanceCapTargetIdx > lastLineIndex
+                  ? liveAsrCommitteeDistanceCapTargetIdx
+                  : liveAsrCommitteeAcceptedCommitTargetIdx,
+              acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+              cappedTargetIdx: liveAsrCommitteeDistanceCapTargetIdx,
+              targetDebtPx: arithmeticTargetDebtPx,
+              appliedDeltaPx,
+              selectedGear: gear,
+              previousGear: liveAsrPreviousActuatorGear,
+              reason: actuatorRecoveryGearDecision.reason || liveAsrActuatorReason,
+              hardSafetyClear: actuatorRecoveryGearDecision.hardSafetyClear,
+              speechFresh: actuatorRecoveryGearDecision.speechFresh,
+              backendFresh: actuatorRecoveryGearDecision.backendFresh,
+              nextSpeakableLineY: lastAsrNextSpeakableLineY,
+              overruledControllers: overruled,
+              clampReasonBefore: clampReasonBeforeFloor,
+              clampReasonAfter: clampReasonOut,
+              safetyClass: actuatorRecoveryGearDecision.safetyClass,
+              distanceRestrictionReason: actuatorRecoveryGearDecision.distanceRestrictionReason,
+              absoluteHoldReason: actuatorRecoveryGearDecision.absoluteHoldReason,
+              cappedTargetSafe: actuatorRecoveryGearDecision.cappedTargetSafe,
+              urgentRecoveryEligible: actuatorRecoveryGearDecision.urgentRecoveryEligible,
+              urgentRecoveryBlockedReason: actuatorRecoveryGearDecision.urgentRecoveryBlockedReason,
+            }),
+          );
+        } catch {}
+      }
       try {
         console.warn(
           `[ASR_VISUAL_ACTUATOR_APPLIED] requestedPxps=${Math.round(requestedPxps)} appliedPxps=${Math.round(appliedPxps)} frameDtMs=${frameDtMs} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} beforeScrollTop=${Math.round(beforeScrollTop)} afterScrollTop=${Math.round(afterScrollTop)} targetScrollTop=${Math.round(pursuitTargetTop ?? beforeScrollTop)} targetDebtPx=${Number.isFinite(liveAsrActuatorTargetDebtPx) ? Math.round(liveAsrActuatorTargetDebtPx) : -1} source=tick_controller clampReason=${clampReasonOut} writerKind=pixel reason=${liveAsrActuatorReason} maxScrollTop=${Math.round(maxScrollTop)} distanceToMaxScrollTop=${Math.round(distanceToMaxScrollTop)} atScrollLimit=${atScrollLimit ? 1 : 0} scrollHeight=${Math.round(scroller.scrollHeight || 0)} clientHeight=${Math.round(scroller.clientHeight || 0)}`,
         );
       } catch {}
+      liveAsrPreviousActuatorGear = gear;
       const shouldEmitChairperson =
         Number.isFinite(liveAsrActuatorTargetDebtPx) &&
         Math.round(liveAsrActuatorTargetDebtPx) >= 120 &&
@@ -12378,6 +12467,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
     } else {
       liveAsrActuatorMismatchStreak = 0;
+      liveAsrPreviousActuatorGear = 'hold';
     }
     emitPursuitHud(err, pursuitVel, pursuitTargetTop, current);
     window.requestAnimationFrame(tickController);

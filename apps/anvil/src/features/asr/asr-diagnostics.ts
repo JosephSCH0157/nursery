@@ -633,6 +633,33 @@ export function buildAsrScrollChairpersonArbitrationDiagnostic(args: {
   return `[ASR_SCROLL_CHAIRPERSON_ARBITRATION] chair=${args.chair} reason=${args.reason} semanticTargetIdx=${Math.round(args.semanticTargetIdx)} acceptedCommitTargetIdx=${Math.round(args.acceptedCommitTargetIdx)} distanceCapTargetIdx=${Math.round(args.distanceCapTargetIdx)} currentLineIdx=${Math.round(args.currentLineIdx)} requestedTargetIdx=${Math.round(args.requestedTargetIdx)} bridgeOwner=${args.bridgeOwner} cueOwner=${args.cueOwner} markerLockState=${args.markerLockState} comfortState=${args.comfortState} visualRecoveryState=${args.visualRecoveryState} hardSafetyState=${args.hardSafetyState} safetyCapState=${args.safetyCapState} postAdjacentRecoveryState=${args.postAdjacentRecoveryState} targetDebtPx=${Math.round(args.targetDebtPx)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} clampReason=${args.clampReason} gear=${args.gear} floorFallbackReason=${args.floorFallbackReason} overruled=${args.overruled}`;
 }
 
+export function buildAsrRecoveryGearSelectedDiagnostic(args: {
+  currentLineIdx: number;
+  targetLineIdx: number;
+  acceptedCommitTargetIdx: number;
+  cappedTargetIdx: number;
+  targetDebtPx: number;
+  appliedDeltaPx: number;
+  selectedGear: AsrActuatorGear;
+  previousGear: AsrActuatorGear;
+  reason: string;
+  hardSafetyClear: boolean;
+  speechFresh: boolean;
+  backendFresh: boolean;
+  nextSpeakableLineY: number;
+  overruledControllers: string;
+  clampReasonBefore: string;
+  clampReasonAfter: string;
+  safetyClass: 'absolute_hold' | 'distance_restrict_only' | 'clear';
+  distanceRestrictionReason: string;
+  absoluteHoldReason: string;
+  cappedTargetSafe: boolean;
+  urgentRecoveryEligible: boolean;
+  urgentRecoveryBlockedReason: string;
+}): string {
+  return `[ASR_RECOVERY_GEAR_SELECTED] currentLineIdx=${Math.round(args.currentLineIdx)} targetLineIdx=${Math.round(args.targetLineIdx)} acceptedCommitTargetIdx=${Math.round(args.acceptedCommitTargetIdx)} cappedTargetIdx=${Math.round(args.cappedTargetIdx)} targetDebtPx=${Math.round(args.targetDebtPx)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} selectedGear=${args.selectedGear} previousGear=${args.previousGear} reason=${args.reason} hardSafetyClear=${args.hardSafetyClear ? 1 : 0} speechFresh=${args.speechFresh ? 1 : 0} backendFresh=${args.backendFresh ? 1 : 0} nextSpeakableLineY=${Math.round(args.nextSpeakableLineY)} overruledControllers=${args.overruledControllers} clampReasonBefore=${args.clampReasonBefore} clampReasonAfter=${args.clampReasonAfter} safetyClass=${args.safetyClass} distanceRestrictionReason=${args.distanceRestrictionReason} absoluteHoldReason=${args.absoluteHoldReason} cappedTargetSafe=${args.cappedTargetSafe ? 1 : 0} urgentRecoveryEligible=${args.urgentRecoveryEligible ? 1 : 0} urgentRecoveryBlockedReason=${args.urgentRecoveryBlockedReason}`;
+}
+
 export const ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION = '2026-05-18a';
 export const ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION = '2026-05-18a';
 
