@@ -30,6 +30,7 @@ let lastWriter = '';
 let lastMode = '';
 let lastPhase = '';
 let asrModeEntryGuardBuildProofEmitted = false;
+let scrollAuditRuntimeProofEmitted = false;
 
 export function auditEnabled(): boolean {
   try {
@@ -87,6 +88,17 @@ function emitAsrModeEntryGuardBuildProof(): void {
     console.warn('[ASR_MODE_ENTRY_GUARD_BUILD_PROOF]', {
       module: 'scroll-audit',
       stamp: 'asr-mode-entry-guard-v2',
+      loaded: true,
+    });
+  } catch {}
+}
+
+function emitScrollAuditRuntimeProof(): void {
+  if (scrollAuditRuntimeProofEmitted) return;
+  scrollAuditRuntimeProofEmitted = true;
+  try {
+    console.warn('[SCROLL_AUDIT_RUNTIME_PROOF]', {
+      source: 'active-recordScrollModeWrite-path',
       loaded: true,
     });
   } catch {}
@@ -155,6 +167,7 @@ export function recordScrollModeWrite(event: ScrollModeAuditWrite): void {
   if (lastWriteAt && deltaMs < RACE_WINDOW_MS) reasons.push('rapid-write');
 
   if (reasons.length > 0) {
+    emitScrollAuditRuntimeProof();
     const payload: Record<string, unknown> = {
       reasons,
       writer,

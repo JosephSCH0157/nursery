@@ -80,6 +80,18 @@ function verboseRouterLog(...args: unknown[]): void {
   if (!shouldLogVerboseRouterDiagnostic()) return;
   try { console.log(...args); } catch {}
 }
+let diagVerboseRuntimeProofEmitted = false;
+
+function emitDiagVerboseRuntimeProof(): void {
+  if (diagVerboseRuntimeProofEmitted) return;
+  diagVerboseRuntimeProofEmitted = true;
+  try {
+    console.warn('[DIAG_VERBOSE_RUNTIME_PROOF]', {
+      source: 'active-auto-intent-path',
+      loaded: true,
+    });
+  } catch {}
+}
 const ASR_COMPLETION_GATE_KEY = 'tp_asr_completion_gate';
 let asrCompletionGateBypassLogged = false;
 function isAsrCompletionGateEnabled(): boolean {
@@ -1407,6 +1419,7 @@ function onAutoIntent(e: Event) {
 }
 
 export function triggerWireAutoIntentListener(): void {
+  emitDiagVerboseRuntimeProof();
   verboseRouterWarn('[AUTO_INTENT] triggerWireAutoIntentListener ENTER', __AUTO_INTENT_WIRE_SENTINEL);
   verboseRouterWarn('[AUTO_INTENT] TRIGGER body reached', { stamp: AUTO_INTENT_WIRE_STAMP, already: autoIntentListenerWired });
     if (autoIntentListenerWired) {
