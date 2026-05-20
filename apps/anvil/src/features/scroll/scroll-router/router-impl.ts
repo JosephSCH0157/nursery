@@ -3326,6 +3326,11 @@ function applyMode(m) {
 function installScrollRouter(opts) {
   const { auto: autoMotor, viewer: viewerInstallFlag = false, hostEl = null } = opts;
   auto = autoMotor || auto || null;
+  const emitAsrModeEntryGuard = (args) => {
+    try {
+      console.warn('[ASR_MODE_ENTRY_GUARD]', args);
+    } catch {}
+  };
   const canonicalScroller = getScrollerEl(viewerRole) || getScrollerEl('main');
   const docViewer = document.getElementById('viewer') as HTMLElement | null;
   if (!viewer) {
@@ -6665,6 +6670,23 @@ function applyHybridVelocityCore(silence = hybridSilence) {
       appStore.subscribe("scrollMode", (modeRaw) => {
         const normalized = normalizeScrollModeValue(modeRaw);
         if (normalized !== 'asr') return;
+        const store = (typeof window !== "undefined" ? (window as any).__tpStore : null) || appStore;
+        const phase = String(store?.get?.('session.phase') || sessionPhase || 'idle').toLowerCase();
+        const asrDesired = !!store?.get?.('session.asrDesired');
+        const asrArmed = !!store?.get?.('session.asrArmed');
+        const action =
+          phase === 'idle'
+            ? 'runtime_arm_blocked_idle'
+            : (asrDesired && asrArmed ? 'runtime_arm_allowed' : 'ui_selection_only');
+        emitAsrModeEntryGuard({
+          fromMode: state2.mode,
+          toMode: normalized,
+          phase,
+          userInitiated: false,
+          asrDesired,
+          asrArmed,
+          action,
+        });
         stopAllMotors("mode-enter-asr");
         userEnabled = false;
         userIntentOn = false;
@@ -6674,6 +6696,9 @@ function applyHybridVelocityCore(silence = hybridSilence) {
         clearHybridSilenceTimer();
         enabledNow = false;
         asrIntentLiveSince = 0;
+        if (phase === 'idle') {
+          resetAsrIntentState("mode-enter-asr-idle");
+        }
         try { auto?.setEnabled?.(false); } catch {}
         persistStoredAutoEnabled(false);
         try { emitMotorState("auto", false); } catch {}

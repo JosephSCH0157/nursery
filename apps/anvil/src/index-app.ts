@@ -610,6 +610,11 @@ export type ApplyUiScrollModeOptions = {
   __permissionRetry?: boolean;
 };
 
+type AsrModeEntryGuardAction =
+  | 'ui_selection_only'
+  | 'runtime_arm_allowed'
+  | 'runtime_arm_blocked_idle';
+
 type GateReason = AsrNotReadyReason | 'MIC_ERROR' | 'NO_CALIBRATION';
 
 let asrGatePending = false;
@@ -691,6 +696,39 @@ async function ensureAsrReadyForUser(): Promise<boolean> {
   return waitForActiveAsrProfile();
 }
 
+function getSessionPhaseForAsrModeGuard(): string {
+  try {
+    return String(appStore.get?.('session.phase') || 'idle').toLowerCase();
+  } catch {
+    return 'idle';
+  }
+}
+
+function getSessionAsrFlagsForModeGuard(): { asrDesired: boolean; asrArmed: boolean } {
+  try {
+    return {
+      asrDesired: !!appStore.get?.('session.asrDesired'),
+      asrArmed: !!appStore.get?.('session.asrArmed'),
+    };
+  } catch {
+    return { asrDesired: false, asrArmed: false };
+  }
+}
+
+function emitAsrModeEntryGuard(args: {
+  fromMode: string;
+  toMode: string;
+  phase: string;
+  userInitiated: boolean;
+  asrDesired: boolean;
+  asrArmed: boolean;
+  action: AsrModeEntryGuardAction;
+}): void {
+  try {
+    console.warn('[ASR_MODE_ENTRY_GUARD]', args);
+  } catch {}
+}
+
 function applyUiScrollMode(
   mode: UiScrollMode,
   opts: ApplyUiScrollModeOptions = {},
@@ -699,6 +737,9 @@ function applyUiScrollMode(
   const source: ScrollModeSource = opts.source || 'user';
   lastScrollModeSource = source;
   let normalized = normalizeUiScrollMode(mode);
+  const currentUiMode =
+    ((window as any).__tpUiScrollMode as UiScrollMode | undefined) ??
+    lastStableUiMode;
   let readiness: { ready: true; warn?: AsrWarnReason } | { ready: false; reason: AsrNotReadyReason } | null = null;
   const auto = (window as any).__tpAuto as { setEnabled?(_v: boolean): void } | undefined;
   const asrBridge = (window as any).__asrBridge as { start?: () => Promise<void> | void; stop?: () => Promise<void> | void } | undefined;
@@ -806,7 +847,40 @@ function applyUiScrollMode(
     }
     if (source === 'user') {
       hardStopAuto();
-      requestAsrStart();
+      const phase = getSessionPhaseForAsrModeGuard();
+      const { asrDesired, asrArmed } = getSessionAsrFlagsForModeGuard();
+      if (phase === 'idle') {
+        emitAsrModeEntryGuard({
+          fromMode: currentUiMode,
+          toMode: normalized,
+          phase,
+          userInitiated: true,
+          asrDesired,
+          asrArmed,
+          action: 'ui_selection_only',
+        });
+      } else if (asrDesired && asrArmed) {
+        emitAsrModeEntryGuard({
+          fromMode: currentUiMode,
+          toMode: normalized,
+          phase,
+          userInitiated: true,
+          asrDesired,
+          asrArmed,
+          action: 'runtime_arm_allowed',
+        });
+        requestAsrStart();
+      } else {
+        emitAsrModeEntryGuard({
+          fromMode: currentUiMode,
+          toMode: normalized,
+          phase,
+          userInitiated: true,
+          asrDesired,
+          asrArmed,
+          action: 'ui_selection_only',
+        });
+      }
     }
   } else if (source === 'user') {
     requestAsrStop();

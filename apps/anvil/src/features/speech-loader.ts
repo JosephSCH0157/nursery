@@ -3867,9 +3867,16 @@ function ensureAsrDriverLifecycleHooks(): void {
   const onScrollMode = (event: Event) => {
     const detail = (event as CustomEvent)?.detail || {};
     const mode = String(detail.mode || detail.nextMode || getScrollMode() || '').toLowerCase();
+    const session = getSession();
+    const phase = String(session.phase || '').toLowerCase();
+    const allowCreate =
+      phase === 'preroll' ||
+      phase === 'live' ||
+      session.asrDesired ||
+      session.asrArmed;
     if (isAsrLikeMode(mode)) {
-      attachAsrScrollDriver({ reason: 'scroll-mode', mode, allowCreate: true });
-      syncAsrDriverFromBlocks('scroll-mode', { mode, allowCreate: true });
+      attachAsrScrollDriver({ reason: 'scroll-mode', mode, allowCreate });
+      syncAsrDriverFromBlocks('scroll-mode', { mode, allowCreate });
       return;
     }
     clearPendingAsrScriptEnd('scroll-mode-exit-asr');
@@ -3895,23 +3902,36 @@ function ensureAsrDriverLifecycleHooks(): void {
   const onBlocksReady = (event: Event) => {
     const detail = (event as CustomEvent)?.detail || {};
     const mode = String(getScrollMode() || '').toLowerCase();
+    const session = getSession();
+    const phase = String(session.phase || '').toLowerCase();
+    const allowCreate =
+      phase === 'preroll' ||
+      phase === 'live' ||
+      session.asrDesired ||
+      session.asrArmed;
     if (detail && typeof detail.blockCount === 'number') {
       try { (window as any).__tpAsrBlockCount = Math.max(0, Math.floor(detail.blockCount)); } catch {}
       try { (window as any).__tpAsrBlocksReady = true; } catch {}
     }
-    syncAsrDriverFromBlocks('blocks-ready', { mode, allowCreate: true });
+    syncAsrDriverFromBlocks('blocks-ready', { mode, allowCreate });
   };
   const onScriptRendered = () => {
     const mode = String(getScrollMode() || '').toLowerCase();
     const session = getSession();
-    const wantsAsrDriver = isAsrLikeMode(mode) || session.asrDesired || !!asrScrollDriver;
+    const phase = String(session.phase || '').toLowerCase();
+    const allowCreate =
+      phase === 'preroll' ||
+      phase === 'live' ||
+      session.asrDesired ||
+      session.asrArmed;
+    const wantsAsrDriver = allowCreate || !!asrScrollDriver;
     if (!wantsAsrDriver) return;
     try {
       window.requestAnimationFrame?.(() => {
-        syncAsrDriverFromBlocks('script-rendered', { mode, allowCreate: true });
+        syncAsrDriverFromBlocks('script-rendered', { mode, allowCreate });
       });
     } catch {
-      syncAsrDriverFromBlocks('script-rendered', { mode, allowCreate: true });
+      syncAsrDriverFromBlocks('script-rendered', { mode, allowCreate });
     }
   };
   const onSessionStop = () => {
@@ -4001,9 +4021,15 @@ function ensureAsrDriverLifecycleHooks(): void {
   window.addEventListener('tp:render:done', onScriptRendered, TRANSCRIPT_EVENT_OPTIONS);
   const initialMode = String(getScrollMode() || '').toLowerCase();
   const session = getSession();
-  if (isAsrLikeMode(initialMode) || session.asrDesired) {
-    attachAsrScrollDriver({ reason: 'bootstrap', mode: initialMode, allowCreate: true });
-    syncAsrDriverFromBlocks('bootstrap', { mode: initialMode, allowCreate: true });
+  const initialPhase = String(session.phase || '').toLowerCase();
+  const allowBootstrapCreate =
+    initialPhase === 'preroll' ||
+    initialPhase === 'live' ||
+    session.asrDesired ||
+    session.asrArmed;
+  if (allowBootstrapCreate || !!asrScrollDriver) {
+    attachAsrScrollDriver({ reason: 'bootstrap', mode: initialMode, allowCreate: allowBootstrapCreate });
+    syncAsrDriverFromBlocks('bootstrap', { mode: initialMode, allowCreate: allowBootstrapCreate });
   }
   emitHudSnapshot('lifecycle-hooks-bootstrap', { force: true });
 }

@@ -2935,7 +2935,7 @@ describe('ASR live commit motion', () => {
     expect(actuatorLine).toContain('requestedDeltaPx=');
     expect(actuatorLine).toContain('appliedDeltaPx=');
     expect(actuatorLine).toContain('maxScrollTop=');
-    expect(lines.some((l) => l.includes('ASR_SCROLL_CHAIRPERSON_ARBITRATION'))).toBe(true);
+    expect(lines.some((l) => l.includes('ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF'))).toBe(true);
     warnSpy.mockRestore();
     driver.dispose();
   });
@@ -2968,6 +2968,8 @@ describe('ASR live commit motion', () => {
     expect(boosted).toContain('reason=below_tolerated_bottom');
     const boostedDelta = boosted.match(/appliedDeltaPx=(\d+)/);
     expect(boostedDelta ? Number(boostedDelta[1]) : 0).toBeGreaterThanOrEqual(12);
+    const proofLines = lines.filter((l) => l.includes('ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF'));
+    expect(proofLines.length).toBeGreaterThan(0);
     const committeeLines = lines.filter((l) => l.includes('ASR_SCROLL_CHAIRPERSON_ARBITRATION'));
     expect(committeeLines.length).toBeGreaterThan(0);
     expect(
@@ -2980,7 +2982,7 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
-  test('min-step floor ticks emit chairperson arbitration from the actuator-applied path', async () => {
+  test('min-step floor ticks below the debt threshold emit proof and only allow chairperson at high debt', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;
     scroller.scrollTop = 0;
@@ -3000,13 +3002,19 @@ describe('ASR live commit motion', () => {
         l.includes('clampReason=min_step_floor'),
     ) || '';
     expect(floorActuatorLine).toContain('targetDebtPx=');
+    const proofLines = lines.filter((l) => l.includes('ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF'));
+    expect(
+      proofLines.some((l) =>
+        l.includes('appliedDeltaPx=6') &&
+        l.includes('clampReason=min_step_floor') &&
+        l.includes('shouldEmitChairperson=0'),
+      ),
+    ).toBe(true);
     const committeeLines = lines.filter((l) => l.includes('ASR_SCROLL_CHAIRPERSON_ARBITRATION'));
     expect(
-      committeeLines.some((l) => {
-        return (
-          l.includes('appliedDeltaPx=6') &&
-          l.includes('clampReason=min_step_floor')
-        );
+      committeeLines.every((l) => {
+        const debt = l.match(/targetDebtPx=(\d+)/);
+        return !!debt && Number(debt[1]) >= 120;
       }),
     ).toBe(true);
     warnSpy.mockRestore();

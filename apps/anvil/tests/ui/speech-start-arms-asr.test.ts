@@ -33,6 +33,25 @@ describe('speech start arming', () => {
     addSpy.mockRestore();
   });
 
+  test('idle ASR mode selection does not attach transcript runtime before session start', async () => {
+    const { appStore } = await import('../../src/state/app-store');
+    const { initSession } = await import('../../src/state/session');
+    const { installSpeech } = await import('../../src/features/speech-loader');
+    const addSpy = jest.spyOn(window, 'addEventListener');
+
+    initSession();
+    (window as any).__tpStore = appStore;
+    appStore.set('scrollMode', 'asr' as any);
+
+    installSpeech();
+
+    expect(
+      addSpy.mock.calls.some((call) => String(call[0]) === 'tp:speech:transcript'),
+    ).toBe(false);
+
+    addSpy.mockRestore();
+  });
+
   test('stop click in live ASR always emits session stop intent', async () => {
     const { appStore } = await import('../../src/state/app-store');
     const { initSession, setSessionPhase } = await import('../../src/state/session');

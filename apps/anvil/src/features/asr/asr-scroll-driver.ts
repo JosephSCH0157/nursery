@@ -3471,10 +3471,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let postAdjacentCommitVisualRecoverySnapSuppressed = false;
   let postAdjacentCommitVisualRecoveryMovedPx = 0;
   let postAdjacentCommitVisualRecoveryLastBlockedReason = '';
-  let lastChairpersonArbitrationSelectedAuthority = 'none';
-  let lastChairpersonArbitrationClampReason = 'none';
-  let lastChairpersonArbitrationChair = 'none';
-  let lastChairpersonArbitrationGear = 'none';
   const clearRecoveryLandingHold = (
     reason: string,
     now: number,
@@ -12327,17 +12323,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (markerLockEligible) overruledEligible.push('marker_lock_smoothing');
       if (comfortEligible) overruledEligible.push('comfort_advisory');
       const overruled = overruledEligible.filter((name) => name !== chair).join('|') || 'none';
-      const shouldEmitChairpersonArbitration =
-        Number.isFinite(arithmeticTargetDebtPx) &&
-        (
-          arithmeticTargetDebtPx >= 120 ||
-          Math.round(appliedDeltaPx) === DEFAULT_MIN_STEP_PX ||
-          liveTickSelectedAuthority !== lastChairpersonArbitrationSelectedAuthority ||
-          clampReasonOut !== lastChairpersonArbitrationClampReason ||
-          chair !== lastChairpersonArbitrationChair ||
-          gear !== lastChairpersonArbitrationGear
+      try {
+        console.warn(
+          `[ASR_VISUAL_ACTUATOR_APPLIED] requestedPxps=${Math.round(requestedPxps)} appliedPxps=${Math.round(appliedPxps)} frameDtMs=${frameDtMs} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} beforeScrollTop=${Math.round(beforeScrollTop)} afterScrollTop=${Math.round(afterScrollTop)} targetScrollTop=${Math.round(pursuitTargetTop ?? beforeScrollTop)} targetDebtPx=${Number.isFinite(liveAsrActuatorTargetDebtPx) ? Math.round(liveAsrActuatorTargetDebtPx) : -1} source=tick_controller clampReason=${clampReasonOut} writerKind=pixel reason=${liveAsrActuatorReason} maxScrollTop=${Math.round(maxScrollTop)} distanceToMaxScrollTop=${Math.round(distanceToMaxScrollTop)} atScrollLimit=${atScrollLimit ? 1 : 0} scrollHeight=${Math.round(scroller.scrollHeight || 0)} clientHeight=${Math.round(scroller.clientHeight || 0)}`,
         );
-      if (shouldEmitChairpersonArbitration) {
+      } catch {}
+      const shouldEmitChairperson =
+        Number.isFinite(liveAsrActuatorTargetDebtPx) &&
+        Math.round(liveAsrActuatorTargetDebtPx) >= 120 &&
+        Math.round(appliedDeltaPx) === DEFAULT_MIN_STEP_PX &&
+        clampReasonOut === 'min_step_floor';
+      try {
+        console.warn(
+          `[ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF] appliedDeltaPx=${Math.round(appliedDeltaPx)} targetDebtPx=${Number.isFinite(liveAsrActuatorTargetDebtPx) ? Math.round(liveAsrActuatorTargetDebtPx) : -1} clampReason=${clampReasonOut} shouldEmitChairperson=${shouldEmitChairperson ? 1 : 0}`,
+        );
+      } catch {}
+      if (shouldEmitChairperson) {
         try {
           // Safety governs whether movement is allowed; proof governs the target; caps govern distance; recovery governs catch-up; marker-lock and comfort are advisory once recovery is required; the actuator executes gear rather than making policy.
           console.warn(
@@ -12366,16 +12367,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             }),
           );
         } catch {}
-        lastChairpersonArbitrationSelectedAuthority = String(liveTickSelectedAuthority || 'none');
-        lastChairpersonArbitrationClampReason = String(clampReasonOut || 'none');
-        lastChairpersonArbitrationChair = String(chair || 'none');
-        lastChairpersonArbitrationGear = String(gear || 'none');
       }
-      try {
-        console.warn(
-          `[ASR_VISUAL_ACTUATOR_APPLIED] requestedPxps=${Math.round(requestedPxps)} appliedPxps=${Math.round(appliedPxps)} frameDtMs=${frameDtMs} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} beforeScrollTop=${Math.round(beforeScrollTop)} afterScrollTop=${Math.round(afterScrollTop)} targetScrollTop=${Math.round(pursuitTargetTop ?? beforeScrollTop)} targetDebtPx=${Number.isFinite(liveAsrActuatorTargetDebtPx) ? Math.round(liveAsrActuatorTargetDebtPx) : -1} source=tick_controller clampReason=${clampReasonOut} writerKind=pixel reason=${liveAsrActuatorReason} maxScrollTop=${Math.round(maxScrollTop)} distanceToMaxScrollTop=${Math.round(distanceToMaxScrollTop)} atScrollLimit=${atScrollLimit ? 1 : 0} scrollHeight=${Math.round(scroller.scrollHeight || 0)} clientHeight=${Math.round(scroller.clientHeight || 0)}`,
-        );
-      } catch {}
       const mismatchFrame =
         !atScrollLimit &&
         requestedPxps >= 35 &&
