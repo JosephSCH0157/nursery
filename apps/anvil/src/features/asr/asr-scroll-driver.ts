@@ -3398,6 +3398,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastAsrNextSpeakableLineY = Number.NaN;
   let lastAsrReaderPocketZone = 'unknown';
   let lastAsrResolvedAuthoritySignature = '';
+  let lastResolvedMovementAllowed = false;
+  let lastResolvedCappedTargetSafe = false;
+  let lastResolvedFinalGear: 'hold' | 'normal_floor' | 'normal_tracking' | 'recovery' = 'hold';
+  let lastResolvedAllowedTargetIdx = -1;
+  let lastResolvedPocketState = 'in_preferred_pocket';
   let lastAsrAccumulationSnapshotAt = 0;
   let lastAsrAccumulationSnapshotCommitCount = -1;
   let lastAsrBackendSpeechActive = false;
@@ -12282,6 +12287,31 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       noMatchOrOffscript: actuatorNoMatchOrOffscript,
       hardContradiction: hardContradictionActive,
     });
+    lastResolvedMovementAllowed = resolvedCommand.movementAllowed;
+    lastResolvedCappedTargetSafe = resolvedCommand.cappedTargetSafe;
+    lastResolvedFinalGear = resolvedCommand.finalGear;
+    lastResolvedAllowedTargetIdx = Number.isFinite(resolvedCommand.allowedTargetIdx as number)
+      ? Math.max(-1, Math.floor(Number(resolvedCommand.allowedTargetIdx)))
+      : -1;
+    lastResolvedPocketState = resolvedCommand.pocketState;
+    alignmentEpisodes.noteAutopsyState({
+      movementAllowed: resolvedCommand.movementAllowed,
+      cappedTargetSafe: resolvedCommand.cappedTargetSafe,
+      markerLockSuppressed:
+        liveAsrCommitteeMarkerLockState === 'live_asr_marker_lock_suppressed' ||
+        liveAsrCommitteeMarkerLockState === 'marker_lock_suppressed',
+      recoveryAvailable:
+        resolvedCommand.movementAllowed &&
+        resolvedCommand.cappedTargetSafe &&
+        (
+          resolvedCommand.pocketState === 'below_preferred_pocket' ||
+          resolvedCommand.pocketState === 'near_lower_rail' ||
+          resolvedCommand.pocketState === 'bottom_locked'
+        ),
+      recoverySelected: resolvedCommand.finalGear === 'recovery',
+      targetUnsafe: !resolvedCommand.cappedTargetSafe,
+      terminalGeometryBlocked: atScrollLimit,
+    });
     const resolvedRecoveryObedienceActive =
       resolvedCommand.movementAllowed &&
       resolvedCommand.finalGear === 'recovery' &&
@@ -13136,6 +13166,82 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         : Math.max(0, Math.floor(commit.lineIdx));
     if (commit.markerLockRequired) {
       if (liveAsrGlideActive) {
+        const lowPocketResolvedState =
+          lastResolvedPocketState === 'below_preferred_pocket' ||
+          lastResolvedPocketState === 'near_lower_rail' ||
+          lastResolvedPocketState === 'bottom_locked';
+        const lowPocketAuthorityFallback =
+          lastAsrReaderPocketZone === 'bottom' ||
+          lastAsrSelectedAuthority === 'bottom_lock_release' ||
+          lastAsrSelectedAuthority === 'preferred_lower_rail_release' ||
+          lastAsrSelectedAuthority === 'comfort_nudge';
+        const safeRecoveryResolved =
+          lastResolvedMovementAllowed &&
+          lastResolvedCappedTargetSafe &&
+          lastResolvedFinalGear === 'recovery';
+        const safeRecoveryFallback =
+          lowPocketAuthorityFallback &&
+          !String(lastAsrGuardReason || '').toLowerCase().includes('offscript') &&
+          !String(lastAsrGuardReason || '').toLowerCase().includes('contradiction');
+        const lowPocketRecoveryEligible =
+          (safeRecoveryResolved || safeRecoveryFallback) &&
+          (lowPocketResolvedState || lowPocketAuthorityFallback) &&
+          targetTop > beforeTop;
+        let boundedPocketRecoveryApplied = false;
+        if (lowPocketRecoveryEligible) {
+          const boundedCapPx = resolveLiveAsrCommitCapPx(deps.scroller, commit.lineIdx);
+          const boundedTargetTop = clamp(
+            beforeTop + Math.min(Math.max(0, targetTop - beforeTop), boundedCapPx),
+            0,
+            max,
+          );
+          if (boundedTargetTop > beforeTop + 0.5) {
+            const boundedAppliedTop = applyCanonicalScrollTop(boundedTargetTop, {
+              scroller: deps.scroller,
+              reason: 'asr-marker-lock-pocket-recovery',
+              source: 'asr-commit',
+            });
+            const boundedAfterTop =
+              finiteNumberOrNull(
+                'commit.afterTop.markerLockPocketRecovery',
+                Number.isFinite(boundedAppliedTop) ? boundedAppliedTop : readAfterTop(),
+                { reason, lineIdx: commit.lineIdx, blockId: commit.blockId, markerLockLineIdx },
+              ) ?? beforeTop;
+            pursuitTargetTop = targetTop;
+            lastKnownScrollTop = boundedAfterTop;
+            lastMoveAt = Date.now();
+            markProgrammaticScroll();
+            ensurePursuitActive();
+            snapSuppressed = true;
+            boundedPocketRecoveryApplied = true;
+            try {
+              const pocketRecoveryReason = safeRecoveryResolved
+                ? 'low_pocket_safe_target'
+                : 'low_pocket_adjacent_safe_fallback';
+              console.warn(
+                `[ASR_VISUAL_SNAP_SUPPRESSED] commitLineIdx=${commit.lineIdx} targetScrollTop=${Math.round(targetTop)} currentScrollTop=${Math.round(beforeTop)} reason=live_asr_marker_lock_bounded_recovery`,
+              );
+              alignmentEpisodes.noteSnapSuppressed({ reason: 'live_asr_marker_lock_bounded_recovery' });
+              console.warn(
+                `[ASR_MARKER_LOCK_POCKET_RECOVERY_APPLIED] commitLineIdx=${commit.lineIdx} allowedTargetIdx=${lastResolvedAllowedTargetIdx} currentScrollTop=${Math.round(beforeTop)} boundedTargetScrollTop=${Math.round(boundedTargetTop)} afterScrollTop=${Math.round(boundedAfterTop)} targetScrollTop=${Math.round(targetTop)} pocketState=${lastResolvedPocketState} finalGear=${lastResolvedFinalGear} cappedTargetSafe=${lastResolvedCappedTargetSafe ? 1 : 0} movementAllowed=${lastResolvedMovementAllowed ? 1 : 0} reason=${pocketRecoveryReason}`,
+              );
+              alignmentEpisodes.noteFollow({
+                deltaLines: Math.max(0, (boundedAfterTop - beforeTop) / Math.max(1, resolveMotionLineHeightPx(getLineElementByIndex(deps.scroller, commit.lineIdx)))),
+                reason: 'marker_lock_pocket_recovery',
+                targetDeltaPx: boundedAfterTop - beforeTop,
+                velocityPxps: Math.max(0, boundedAfterTop - beforeTop) * 4,
+              });
+            } catch {}
+            return {
+              method: 'pixel',
+              writerCommitted: false,
+              beforeTop,
+              afterTop: boundedAfterTop,
+              movedPx: Math.round(boundedAfterTop - beforeTop),
+              snapSuppressed,
+            };
+          }
+        }
         pursuitTargetTop = targetTop;
         ensurePursuitActive();
         snapSuppressed = true;
@@ -13144,6 +13250,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `[ASR_VISUAL_SNAP_SUPPRESSED] commitLineIdx=${commit.lineIdx} targetScrollTop=${Math.round(targetTop)} currentScrollTop=${Math.round(beforeTop)} reason=live_asr_marker_lock_suppressed`,
           );
           alignmentEpisodes.noteSnapSuppressed({ reason: 'live_asr_marker_lock_suppressed' });
+          if (lowPocketRecoveryEligible && !boundedPocketRecoveryApplied) {
+            console.warn(
+              `[ASR_MARKER_LOCK_POCKET_RECOVERY_BLOCKED] commitLineIdx=${commit.lineIdx} allowedTargetIdx=${lastResolvedAllowedTargetIdx} currentScrollTop=${Math.round(beforeTop)} targetScrollTop=${Math.round(targetTop)} pocketState=${lastResolvedPocketState} finalGear=${lastResolvedFinalGear} cappedTargetSafe=${lastResolvedCappedTargetSafe ? 1 : 0} movementAllowed=${lastResolvedMovementAllowed ? 1 : 0} reason=bounded_move_not_available`,
+            );
+          }
         } catch {}
       } else {
       stopCommitPursuit('asr-marker-lock-commit');
@@ -25240,6 +25351,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     earlyBridgeTrapHoldCountByKey.clear();
     liveBridgeDownstreamBlockUntilByKey.clear();
     asrSilenceActive = true;
+    lastResolvedMovementAllowed = false;
+    lastResolvedCappedTargetSafe = false;
+    lastResolvedFinalGear = 'hold';
+    lastResolvedAllowedTargetIdx = -1;
+    lastResolvedPocketState = 'in_preferred_pocket';
     lastAsrLiveScrollStallSignature = '';
     lastAsrLiveScrollStallLoggedAt = 0;
     lastAsrLiveScrollStallRecoveryAt = 0;
@@ -25353,6 +25469,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     softRuntimeRebaseLastStallAnchorAt = -1;
     softRuntimeRebaseRetryActive = false;
     softRuntimeRebaseLastSkipLogAt = 0;
+    lastResolvedMovementAllowed = false;
+    lastResolvedCappedTargetSafe = false;
+    lastResolvedFinalGear = 'hold';
+    lastResolvedAllowedTargetIdx = -1;
+    lastResolvedPocketState = 'in_preferred_pocket';
     lastAsrLiveScrollStallSignature = '';
     lastAsrLiveScrollStallLoggedAt = 0;
     lastAsrLiveScrollStallRecoveryAt = 0;

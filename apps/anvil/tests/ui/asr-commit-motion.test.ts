@@ -2994,6 +2994,38 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('safe low-pocket marker-lock path applies bounded pocket recovery instead of pure suppression', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 200;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'marker-lock-pocket-prime',
+      match: { bestIdx: 1, bestSim: 0.92, topScores: [{ idx: 1, score: 0.92 }] },
+    });
+    await jest.advanceTimersByTimeAsync(220);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'marker-lock-pocket-recovery',
+      match: { bestIdx: 2, bestSim: 0.92, topScores: [{ idx: 2, score: 0.92 }] },
+    });
+    await jest.advanceTimersByTimeAsync(240);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_VISUAL_SNAP_SUPPRESSED'))).toBe(true);
+    const recoveryLine = lines.find((l) => l.includes('ASR_MARKER_LOCK_POCKET_RECOVERY_APPLIED')) || '';
+    expect(recoveryLine).toContain('pocketState=');
+    expect(recoveryLine).toContain('movementAllowed=');
+    expect(
+      recoveryLine.includes('reason=low_pocket_safe_target') ||
+      recoveryLine.includes('reason=low_pocket_adjacent_safe_fallback'),
+    ).toBe(true);
+    expect(scroller.scrollTop).toBeGreaterThan(200);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('min-step floor ticks below the debt threshold emit proof and only allow chairperson at high debt', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;

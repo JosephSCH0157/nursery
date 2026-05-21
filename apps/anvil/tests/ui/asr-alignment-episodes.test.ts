@@ -43,12 +43,26 @@ describe('ASR alignment episode diagnostics', () => {
       targetDeltaPx: 36,
       velocityPxps: 12,
     });
+    tracker.noteAutopsyState({
+      movementAllowed: true,
+      cappedTargetSafe: true,
+      markerLockSuppressed: true,
+      recoveryAvailable: true,
+      recoverySelected: true,
+      targetUnsafe: false,
+      terminalGeometryBlocked: false,
+    });
     const closed = tracker.close('completed');
     expect(closed?.visualOutcome).toBe('bottom_locked');
     tracker.dumpForConsole(closed || undefined);
 
     const lines = infoSpy.mock.calls.map((call) => String(call[0] || ''));
     expect(lines.filter((line) => line.includes('ASR_ALIGNMENT_EPISODE'))).toHaveLength(1);
+    const episodeLine = lines.find((line) => line.includes('ASR_ALIGNMENT_EPISODE')) || '';
+    expect(episodeLine).toContain('missReason=marker_lock_suppressed_recovery_delayed');
+    expect(episodeLine).toContain('markerLockSuppressed=1');
+    expect(episodeLine).toContain('recoveryAvailable=1');
+    expect(episodeLine).toContain('recoverySelected=1');
     const diagLines = lines.filter((line) => line.includes('ASR_BOTTOM_LOCK_GEOMETRY_DIAG'));
     expect(diagLines).toHaveLength(1);
     expect(diagLines[0]).toContain('pocketZone=bottom');
@@ -170,6 +184,13 @@ describe('ASR alignment episode diagnostics', () => {
       speechActive: true,
       finalPacketFresh: true,
       transcriptGrowing: false,
+      movementAllowed: true,
+      cappedTargetSafe: true,
+      markerLockSuppressed: true,
+      recoveryAvailable: true,
+      recoverySelected: false,
+      targetUnsafe: false,
+      terminalGeometryBlocked: false,
     });
     tracker.noteSnapSuppressed({ reason: 'live_asr_marker_lock_suppressed' });
     tracker.noteStallDelay(2065, 'asr_recovery_chain_blocked');
@@ -177,6 +198,8 @@ describe('ASR alignment episode diagnostics', () => {
     tracker.dumpForConsole(closed || undefined);
 
     const lines = infoSpy.mock.calls.map((call) => String(call[0] || ''));
+    const episodeLine = lines.find((line) => line.includes('ASR_ALIGNMENT_EPISODE')) || '';
+    expect(episodeLine).toContain('missReason=marker_lock_suppressed_recovery_not_selected');
     const autopsyLines = lines.filter((line) => line.includes('ASR_DELAYED_SUPPRESSION_AUTOPSY'));
     expect(autopsyLines).toHaveLength(1);
     expect(autopsyLines[0]).toContain('blockerCategory=recovery_chain_blocked');
