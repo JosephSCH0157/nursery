@@ -12173,6 +12173,41 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             ? 'distance_restrict_only'
             : 'clear'
         );
+    const arithmeticTargetDebtPx = Number.isFinite(liveAsrActuatorTargetDebtPx) ? liveAsrActuatorTargetDebtPx : Number.NaN;
+    const resolvedCommand = resolveAsrScrollAuthority({
+      currentLineIdx: lastLineIndex,
+      requestedTargetIdx: liveAsrCommitteeRequestedTargetIdx,
+      semanticTargetIdx: liveAsrCommitteeSemanticTargetIdx,
+      acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+      distanceCapTargetIdx: liveAsrCommitteeDistanceCapTargetIdx,
+      bridgeOwner: liveAsrCommitteeBridgeOwner,
+      cueOwner: liveAsrCommitteeCueOwner,
+      markerLockState: liveAsrCommitteeMarkerLockState,
+      comfortState: liveAsrCommitteeComfortState,
+      visualRecoveryState: liveAsrCommitteeVisualRecoveryState,
+      hardSafetyState: resolverHardSafetyState,
+      safetyCapState: liveAsrCommitteeSafetyCapState,
+      visualGovernorState: liveAsrCommitteeVisualGovernorState,
+      postAdjacentRecoveryState: liveAsrCommitteePostAdjacentRecoveryState,
+      targetDebtPx: arithmeticTargetDebtPx,
+      markerY: lastAsrMarkerY,
+      nextSpeakableLineY: lastAsrNextSpeakableLineY,
+      preferredBandTop: lastAsrPreferredBandTop,
+      preferredSettleBottom: lastAsrPreferredSettleBottom,
+      preferredBandBottom: lastAsrPreferredBandBottom,
+      toleratedBandBottom: lastAsrToleratedBandBottom,
+      terminalClampActive: atScrollLimit,
+      speechFresh: actuatorSpeechFresh,
+      backendFresh: resolverBackendFresh,
+      audioPacketFresh: resolverAudioPacketFresh,
+      finalPacketFresh: resolverFinalPacketFresh,
+      noMatchOrOffscript: actuatorNoMatchOrOffscript,
+      hardContradiction: hardContradictionActive,
+    });
+    const resolvedRecoveryObedienceActive =
+      resolvedCommand.movementAllowed &&
+      resolvedCommand.finalGear === 'recovery' &&
+      resolvedCommand.finalMinStepPx > 0;
     const actuatorRecoveryGearDecision = decideAsrActuatorRecoveryGear({
       liveAsrActive: liveAsrFollowMode && liveAsrActuatorPursuitActive,
       currentLineIdx: lastLineIndex,
@@ -12214,6 +12249,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       minStepPx,
       recoveryMinStepPx,
       actuatorRecoveryGearDecision.minStepPx,
+      resolvedRecoveryObedienceActive ? resolvedCommand.finalMinStepPx : 0,
     );
     const clampReasonBeforeFloor = clampReason;
     if (!liveHardHold && move < effectiveMinStepPx) {
@@ -12328,13 +12364,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
-      const arithmeticTargetDebtPx = Number.isFinite(liveAsrActuatorTargetDebtPx) ? liveAsrActuatorTargetDebtPx : Number.NaN;
+      const effectiveSelectedGear: AsrActuatorGear =
+        resolvedRecoveryObedienceActive
+          ? 'recovery'
+          : actuatorRecoveryGearDecision.selectedGear;
       const gear =
         clampReasonOut === 'no_move' || move <= 0 || appliedDeltaPx <= 0
           ? 'hold'
-          : (actuatorRecoveryGearDecision.selectedGear === 'urgent_recovery'
+          : (effectiveSelectedGear === 'urgent_recovery'
             ? 'urgent_recovery'
-            : (actuatorRecoveryGearDecision.selectedGear === 'recovery'
+            : (effectiveSelectedGear === 'recovery'
               ? 'recovery'
               : (Math.round(appliedDeltaPx) === DEFAULT_MIN_STEP_PX
                 ? 'normal_floor'
@@ -12405,36 +12444,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (markerLockEligible) overruledEligible.push('marker_lock_smoothing');
       if (comfortEligible) overruledEligible.push('comfort_advisory');
       const overruled = overruledEligible.filter((name) => name !== chair).join('|') || 'none';
-      const resolvedCommand = resolveAsrScrollAuthority({
-        currentLineIdx: lastLineIndex,
-        requestedTargetIdx: liveAsrCommitteeRequestedTargetIdx,
-        semanticTargetIdx: liveAsrCommitteeSemanticTargetIdx,
-        acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
-        distanceCapTargetIdx: liveAsrCommitteeDistanceCapTargetIdx,
-        bridgeOwner: liveAsrCommitteeBridgeOwner,
-        cueOwner: liveAsrCommitteeCueOwner,
-        markerLockState: liveAsrCommitteeMarkerLockState,
-        comfortState: liveAsrCommitteeComfortState,
-        visualRecoveryState: liveAsrCommitteeVisualRecoveryState,
-        hardSafetyState: resolverHardSafetyState,
-        safetyCapState: liveAsrCommitteeSafetyCapState,
-        visualGovernorState: liveAsrCommitteeVisualGovernorState,
-        postAdjacentRecoveryState: liveAsrCommitteePostAdjacentRecoveryState,
-        targetDebtPx: arithmeticTargetDebtPx,
-        markerY: lastAsrMarkerY,
-        nextSpeakableLineY: lastAsrNextSpeakableLineY,
-        preferredBandTop: lastAsrPreferredBandTop,
-        preferredSettleBottom: lastAsrPreferredSettleBottom,
-        preferredBandBottom: lastAsrPreferredBandBottom,
-        toleratedBandBottom: lastAsrToleratedBandBottom,
-        terminalClampActive: atScrollLimit,
-        speechFresh: actuatorSpeechFresh,
-        backendFresh: resolverBackendFresh,
-        audioPacketFresh: resolverAudioPacketFresh,
-        finalPacketFresh: resolverFinalPacketFresh,
-        noMatchOrOffscript: actuatorNoMatchOrOffscript,
-        hardContradiction: hardContradictionActive,
-      });
       const resolvedAuthoritySignature = JSON.stringify({
         movementAllowed: resolvedCommand.movementAllowed,
         vetoAuthority: resolvedCommand.vetoAuthority,
@@ -12496,6 +12505,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       lastAsrResolvedAuthoritySignature = resolvedAuthoritySignature;
       if (gear === 'recovery' || gear === 'urgent_recovery') {
+        const effectiveRecoveryReason =
+          resolvedRecoveryObedienceActive
+            ? (resolvedCommand.reason || actuatorRecoveryGearDecision.reason || liveAsrActuatorReason)
+            : (actuatorRecoveryGearDecision.reason || liveAsrActuatorReason);
+        const effectiveRecoverySafetyClass =
+          resolvedRecoveryObedienceActive
+            ? resolvedCommand.safetyClass
+            : actuatorRecoveryGearDecision.safetyClass;
+        const effectiveRecoveryDistanceRestrictionReason =
+          resolvedRecoveryObedienceActive && effectiveRecoverySafetyClass === 'distance_restrict_only'
+            ? String(liveAsrCommitteeSafetyCapState || resolverHardSafetyState || 'distance_restrict_only')
+            : actuatorRecoveryGearDecision.distanceRestrictionReason;
+        const effectiveRecoveryAbsoluteHoldReason =
+          resolvedRecoveryObedienceActive && effectiveRecoverySafetyClass === 'absolute_hold'
+            ? resolvedCommand.reason
+            : actuatorRecoveryGearDecision.absoluteHoldReason;
         try {
           console.warn(
             buildAsrRecoveryGearSelectedDiagnostic({
@@ -12510,20 +12535,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               appliedDeltaPx,
               selectedGear: gear,
               previousGear: liveAsrPreviousActuatorGear,
-              reason: actuatorRecoveryGearDecision.reason || liveAsrActuatorReason,
-              hardSafetyClear: actuatorRecoveryGearDecision.hardSafetyClear,
+              reason: effectiveRecoveryReason,
+              hardSafetyClear: effectiveRecoverySafetyClass !== 'absolute_hold',
               speechFresh: actuatorRecoveryGearDecision.speechFresh,
-              backendFresh: actuatorRecoveryGearDecision.backendFresh,
+              backendFresh: resolvedRecoveryObedienceActive ? resolverBackendFresh : actuatorRecoveryGearDecision.backendFresh,
               nextSpeakableLineY: lastAsrNextSpeakableLineY,
               overruledControllers: overruled,
               clampReasonBefore: clampReasonBeforeFloor,
               clampReasonAfter: clampReasonOut,
-              safetyClass: actuatorRecoveryGearDecision.safetyClass,
-              distanceRestrictionReason: actuatorRecoveryGearDecision.distanceRestrictionReason,
-              absoluteHoldReason: actuatorRecoveryGearDecision.absoluteHoldReason,
-              cappedTargetSafe: actuatorRecoveryGearDecision.cappedTargetSafe,
-              urgentRecoveryEligible: actuatorRecoveryGearDecision.urgentRecoveryEligible,
-              urgentRecoveryBlockedReason: actuatorRecoveryGearDecision.urgentRecoveryBlockedReason,
+              safetyClass: effectiveRecoverySafetyClass,
+              distanceRestrictionReason: effectiveRecoveryDistanceRestrictionReason,
+              absoluteHoldReason: effectiveRecoveryAbsoluteHoldReason,
+              cappedTargetSafe: resolvedRecoveryObedienceActive ? resolvedCommand.cappedTargetSafe : actuatorRecoveryGearDecision.cappedTargetSafe,
+              urgentRecoveryEligible: resolvedRecoveryObedienceActive ? false : actuatorRecoveryGearDecision.urgentRecoveryEligible,
+              urgentRecoveryBlockedReason: resolvedRecoveryObedienceActive ? 'resolved_recovery_obedience' : actuatorRecoveryGearDecision.urgentRecoveryBlockedReason,
             }),
           );
         } catch {}

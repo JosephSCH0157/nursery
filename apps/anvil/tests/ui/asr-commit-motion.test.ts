@@ -2984,6 +2984,12 @@ describe('ASR live commit motion', () => {
         return !!debt && Number(debt[1]) >= 120;
       }),
     ).toBe(true);
+    expect(
+      lines.some((l) =>
+        l.includes('ASR_SCROLL_AUTHORITY_RESOLVED') &&
+        l.includes('movementAllowed=1'),
+      ),
+    ).toBe(true);
     warnSpy.mockRestore();
     driver.dispose();
   });
