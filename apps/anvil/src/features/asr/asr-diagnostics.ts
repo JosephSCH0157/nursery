@@ -700,6 +700,33 @@ export function buildAsrScrollAuthorityResolvedDiagnostic(args: {
   return `[ASR_SCROLL_AUTHORITY_RESOLVED] currentLineIdx=${Math.round(args.currentLineIdx)} requestedTargetIdx=${requestedTargetIdx} semanticTargetIdx=${semanticTargetIdx} allowedTargetIdx=${allowedTargetIdx} movementAllowed=${args.movementAllowed ? 1 : 0} vetoAuthority=${vetoAuthority} targetAuthority=${args.targetAuthority} movementEnvelopeAuthority=${args.movementEnvelopeAuthority} motionAuthority=${args.motionAuthority} smoothingAuthority=${args.smoothingAuthority} finalGear=${args.finalGear} finalMinStepPx=${Math.round(args.finalMinStepPx)} targetDebtPx=${Math.round(args.targetDebtPx)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} clampReason=${args.clampReason} pocketState=${args.pocketState} movementEnvelopePx=${Math.round(args.movementEnvelopePx)} movementEnvelopeReason=${args.movementEnvelopeReason} bridgeCueCapApplied=${args.bridgeCueCapApplied ? 1 : 0} cappedTargetSafe=${args.cappedTargetSafe ? 1 : 0} overruledAuthorities=${overruledAuthorities} reason=${args.reason} chairpersonChair=${args.chairpersonChair} chairpersonGear=${args.chairpersonGear} chairpersonFloorFallbackReason=${args.chairpersonFloorFallbackReason} actualAppliedDeltaPx=${Math.round(args.actualAppliedDeltaPx)} actualClampReason=${args.actualClampReason}`;
 }
 
+export function buildAsrAccumulationSnapshotDiagnostic(args: {
+  commitCount: number;
+  eventsSinceCommit: number;
+  finalsSinceCommit: number;
+  alignmentEpisodeCount: number;
+  activeEpisodeActions: number;
+  activeEpisodeDeltaSamples: number;
+  activeEpisodeReasonChain: number;
+  guardEventsCount: number;
+  strongHitsCount: number;
+  evidenceEntriesCount: number;
+  consistencyEntriesCount: number;
+  bridgeBlockMapSize: number;
+  bridgeTrapMapSize: number;
+  logBufferEntryCount: number;
+  logBufferDroppedCount: number;
+  visualGovernorHoldAgeMs: number;
+  noProgressStreak: number;
+  lostForwardWallStreak: number;
+  targetDebtPx: number;
+  distanceToMaxScrollTop: number;
+  currentLineIdx: number;
+  requestedTargetIdx: number;
+}): string {
+  return `[ASR_ACCUMULATION_SNAPSHOT] commitCount=${Math.round(args.commitCount)} eventsSinceCommit=${Math.round(args.eventsSinceCommit)} finalsSinceCommit=${Math.round(args.finalsSinceCommit)} alignmentEpisodeCount=${Math.round(args.alignmentEpisodeCount)} activeEpisodeActions=${Math.round(args.activeEpisodeActions)} activeEpisodeDeltaSamples=${Math.round(args.activeEpisodeDeltaSamples)} activeEpisodeReasonChain=${Math.round(args.activeEpisodeReasonChain)} guardEventsCount=${Math.round(args.guardEventsCount)} strongHitsCount=${Math.round(args.strongHitsCount)} evidenceEntriesCount=${Math.round(args.evidenceEntriesCount)} consistencyEntriesCount=${Math.round(args.consistencyEntriesCount)} bridgeBlockMapSize=${Math.round(args.bridgeBlockMapSize)} bridgeTrapMapSize=${Math.round(args.bridgeTrapMapSize)} logBufferEntryCount=${Math.round(args.logBufferEntryCount)} logBufferDroppedCount=${Math.round(args.logBufferDroppedCount)} visualGovernorHoldAgeMs=${Math.round(args.visualGovernorHoldAgeMs)} noProgressStreak=${Math.round(args.noProgressStreak)} lostForwardWallStreak=${Math.round(args.lostForwardWallStreak)} targetDebtPx=${Math.round(args.targetDebtPx)} distanceToMaxScrollTop=${Math.round(args.distanceToMaxScrollTop)} currentLineIdx=${Math.round(args.currentLineIdx)} requestedTargetIdx=${Math.round(args.requestedTargetIdx)}`;
+}
+
 export const ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION = '2026-05-18a';
 export const ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION = '2026-05-18a';
 

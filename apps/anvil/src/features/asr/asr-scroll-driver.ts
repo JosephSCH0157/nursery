@@ -40,6 +40,7 @@ import {
   buildAsrPostAdjacentCommitVisualRecoveryOpenedDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryPathProofDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic,
+  buildAsrAccumulationSnapshotDiagnostic,
   buildAsrRecoveryGearSelectedDiagnostic,
   buildAsrScrollAuthorityResolvedDiagnostic,
   buildAsrScrollChairpersonArbitrationDiagnostic,
@@ -3393,6 +3394,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastAsrNextSpeakableLineY = Number.NaN;
   let lastAsrReaderPocketZone = 'unknown';
   let lastAsrResolvedAuthoritySignature = '';
+  let lastAsrAccumulationSnapshotAt = 0;
+  let lastAsrAccumulationSnapshotCommitCount = -1;
   let lastAsrBackendSpeechActive = false;
   let lastAsrBackendTranscriptAgeMs = -1;
   let lastAsrBackendAudioAgeMs = -1;
@@ -5025,6 +5028,70 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         asrFocusMovementHoldActive,
       };
     } catch {}
+  };
+
+  const emitAccumulationSnapshotIfNeeded = (args: {
+    nowTs: number;
+    targetDebtPx: number;
+    distanceToMaxScrollTop: number;
+    currentLineIdx: number;
+    requestedTargetIdx: number;
+  }) => {
+    const dueByCommit =
+      commitCount > 0 &&
+      (
+        lastAsrAccumulationSnapshotCommitCount < 0 ||
+        (commitCount - lastAsrAccumulationSnapshotCommitCount) >= 10
+      );
+    const dueByTime =
+      lastAsrAccumulationSnapshotAt <= 0 ||
+      (args.nowTs - lastAsrAccumulationSnapshotAt) >= 5000;
+    if (!dueByCommit && !dueByTime) return;
+
+    const episodeCounts = alignmentEpisodes.getSnapshotCounts();
+    let logBufferEntryCount = 0;
+    let logBufferDroppedCount = 0;
+    try {
+      const summary = (window as any)?.__getAsrLogSummary?.();
+      logBufferEntryCount = Number(summary?.entryCount || 0);
+      logBufferDroppedCount = Number(summary?.droppedCount || 0);
+    } catch {
+      // ignore
+    }
+    const visualGovernorHoldAgeMs =
+      liveAsrVisualGovernorHardHoldSinceMs > 0
+        ? Math.max(0, args.nowTs - liveAsrVisualGovernorHardHoldSinceMs)
+        : 0;
+    try {
+      console.warn(
+        buildAsrAccumulationSnapshotDiagnostic({
+          commitCount,
+          eventsSinceCommit,
+          finalsSinceCommit,
+          alignmentEpisodeCount: episodeCounts.closedEpisodeCount,
+          activeEpisodeActions: episodeCounts.activeEpisodeActionCount,
+          activeEpisodeDeltaSamples: episodeCounts.activeEpisodeDeltaSampleCount,
+          activeEpisodeReasonChain: episodeCounts.activeEpisodeReasonChainCount,
+          guardEventsCount: guardEvents.length,
+          strongHitsCount: strongHits.length,
+          evidenceEntriesCount: evidenceEntries.length,
+          consistencyEntriesCount: consistencyEntries.length,
+          bridgeBlockMapSize: liveBridgeDownstreamBlockUntilByKey.size,
+          bridgeTrapMapSize: earlyBridgeTrapHoldCountByKey.size,
+          logBufferEntryCount,
+          logBufferDroppedCount,
+          visualGovernorHoldAgeMs,
+          noProgressStreak,
+          lostForwardWallStreak,
+          targetDebtPx: args.targetDebtPx,
+          distanceToMaxScrollTop: args.distanceToMaxScrollTop,
+          currentLineIdx: args.currentLineIdx,
+          requestedTargetIdx: args.requestedTargetIdx,
+        }),
+      );
+    } catch {}
+    lastAsrAccumulationSnapshotAt = args.nowTs;
+    lastAsrAccumulationSnapshotCommitCount = commitCount;
   };
 
   const trimEvidenceEntries = (now: number) => {
@@ -12599,6 +12666,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
+      emitAccumulationSnapshotIfNeeded({
+        nowTs: freshnessNowTs,
+        targetDebtPx: arithmeticTargetDebtPx,
+        distanceToMaxScrollTop,
+        currentLineIdx: lastLineIndex,
+        requestedTargetIdx: liveAsrCommitteeRequestedTargetIdx,
+      });
       const mismatchFrame =
         !atScrollLimit &&
         requestedPxps >= 35 &&

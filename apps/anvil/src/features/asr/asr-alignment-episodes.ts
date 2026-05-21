@@ -541,4 +541,18 @@ export class AsrAlignmentEpisodeTracker {
       }
     }
   }
+
+  getSnapshotCounts(): {
+    closedEpisodeCount: number;
+    activeEpisodeActionCount: number;
+    activeEpisodeDeltaSampleCount: number;
+    activeEpisodeReasonChainCount: number;
+  } {
+    return {
+      closedEpisodeCount: this.episodes.length,
+      activeEpisodeActionCount: this.active?.visual.actions.length ?? 0,
+      activeEpisodeDeltaSampleCount: this.active?.metrics.deltaLinesSamples.length ?? 0,
+      activeEpisodeReasonChainCount: this.active?.reasonChain.length ?? 0,
+    };
+  }
 }

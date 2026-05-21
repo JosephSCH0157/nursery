@@ -30,6 +30,7 @@ import {
   buildAsrPostAdjacentCommitVisualRecoveryPathProofDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic,
   buildAsrRecoveryGearSelectedDiagnostic,
+  buildAsrAccumulationSnapshotDiagnostic,
   buildAsrScrollAuthorityResolvedDiagnostic,
   buildAsrScrollChairpersonArbitrationDiagnostic,
   buildAsrVisualRecoveryBoostAppliedDiagnostic,
@@ -2088,5 +2089,37 @@ describe('ASR scroll authority resolver', () => {
     expect(line).toContain('pocketState=bottom_locked');
     expect(line).toContain('chairpersonChair=target_distance_cap');
     expect(line).toContain('actualAppliedDeltaPx=6');
+  });
+
+  test('builds accumulation snapshot diagnostic with expected counters', () => {
+    const line = buildAsrAccumulationSnapshotDiagnostic({
+      commitCount: 27,
+      eventsSinceCommit: 4,
+      finalsSinceCommit: 2,
+      alignmentEpisodeCount: 11,
+      activeEpisodeActions: 19,
+      activeEpisodeDeltaSamples: 19,
+      activeEpisodeReasonChain: 7,
+      guardEventsCount: 23,
+      strongHitsCount: 2,
+      evidenceEntriesCount: 3,
+      consistencyEntriesCount: 5,
+      bridgeBlockMapSize: 6,
+      bridgeTrapMapSize: 2,
+      logBufferEntryCount: 1800,
+      logBufferDroppedCount: 0,
+      visualGovernorHoldAgeMs: 3200,
+      noProgressStreak: 4,
+      lostForwardWallStreak: 1,
+      targetDebtPx: 212,
+      distanceToMaxScrollTop: 1440,
+      currentLineIdx: 82,
+      requestedTargetIdx: 84,
+    });
+    expect(line).toContain('[ASR_ACCUMULATION_SNAPSHOT]');
+    expect(line).toContain('alignmentEpisodeCount=11');
+    expect(line).toContain('guardEventsCount=23');
+    expect(line).toContain('logBufferEntryCount=1800');
+    expect(line).toContain('distanceToMaxScrollTop=1440');
   });
 });
