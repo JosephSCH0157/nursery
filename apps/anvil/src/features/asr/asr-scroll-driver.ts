@@ -12137,21 +12137,42 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       visualRecoveryBoostActive ? liveAsrRecoveryBoostMaxStepPx : 0,
       postAdjacentCommitVisualRecoveryActive ? postAdjacentCommitRecoveryMaxStepPx : 0,
     );
+    const freshnessNowTs = Date.now();
     const hardContradictionActive =
       String(lastAsrGuardReason || '').toLowerCase().includes('contradiction');
     const actuatorSpeechFresh =
       asrRuntimeSpeechRunningActual ||
-      hasRecentActualSpeech(Date.now()) ||
-      hasRecentVadSpeechNow(Date.now()) ||
-      (lastFinalTranscriptAt > 0 && (Date.now() - lastFinalTranscriptAt) <= 1800);
+      hasRecentActualSpeech(freshnessNowTs) ||
+      hasRecentVadSpeechNow(freshnessNowTs) ||
+      (lastFinalTranscriptAt > 0 && (freshnessNowTs - lastFinalTranscriptAt) <= 1800);
+    const resolverFinalPacketFresh =
+      lastFinalTranscriptAt > 0 &&
+      (freshnessNowTs - lastFinalTranscriptAt) <= 1800;
+    const resolverAudioPacketFresh =
+      lastTranscriptPacketAt > 0 &&
+      Math.max(0, freshnessNowTs - lastTranscriptPacketAt) <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS;
     const actuatorBackendFresh =
       lastTranscriptPacketAt > 0 &&
-      Math.max(0, Date.now() - lastTranscriptPacketAt) <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS &&
+      Math.max(0, freshnessNowTs - lastTranscriptPacketAt) <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS &&
       !asrSilenceActive;
+    const resolverBackendFresh =
+      actuatorBackendFresh ||
+      resolverFinalPacketFresh ||
+      (resolverAudioPacketFresh && actuatorSpeechFresh);
     const actuatorNoMatchOrOffscript =
       String(lastAsrGuardReason || '').toLowerCase().includes('no_match') ||
       String(lastAsrHudGuardText || '').toLowerCase().includes('offscript') ||
       hardContradictionActive;
+    const resolverHardSafetyState =
+      actuatorNoMatchOrOffscript || hardContradictionActive
+        ? 'absolute_hold'
+        : (
+          liveAsrCommitteeHardSafetyState === 'distance_restrict_only' ||
+          liveAsrCommitteeHardSafetyState === 'absolute_hold' ||
+          liveAsrVisualGovernorHardHold
+            ? 'distance_restrict_only'
+            : 'clear'
+        );
     const actuatorRecoveryGearDecision = decideAsrActuatorRecoveryGear({
       liveAsrActive: liveAsrFollowMode && liveAsrActuatorPursuitActive,
       currentLineIdx: lastLineIndex,
@@ -12395,7 +12416,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         markerLockState: liveAsrCommitteeMarkerLockState,
         comfortState: liveAsrCommitteeComfortState,
         visualRecoveryState: liveAsrCommitteeVisualRecoveryState,
-        hardSafetyState: liveAsrCommitteeHardSafetyState,
+        hardSafetyState: resolverHardSafetyState,
         safetyCapState: liveAsrCommitteeSafetyCapState,
         visualGovernorState: liveAsrCommitteeVisualGovernorState,
         postAdjacentRecoveryState: liveAsrCommitteePostAdjacentRecoveryState,
@@ -12408,7 +12429,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         toleratedBandBottom: lastAsrToleratedBandBottom,
         terminalClampActive: atScrollLimit,
         speechFresh: actuatorSpeechFresh,
-        backendFresh: actuatorBackendFresh,
+        backendFresh: resolverBackendFresh,
+        audioPacketFresh: resolverAudioPacketFresh,
+        finalPacketFresh: resolverFinalPacketFresh,
         noMatchOrOffscript: actuatorNoMatchOrOffscript,
         hardContradiction: hardContradictionActive,
       });

@@ -1944,6 +1944,33 @@ describe('ASR scroll authority resolver', () => {
     expect(resolved.cappedTargetSafe).toBe(true);
   });
 
+  test('fresh final packet prevents false stale backend veto', () => {
+    const resolved = resolveAsrScrollAuthority(
+      makeAuthorityInput({
+        speechFresh: true,
+        backendFresh: false,
+        finalPacketFresh: true,
+        audioPacketFresh: false,
+      }),
+    );
+    expect(resolved.movementAllowed).toBe(true);
+    expect(resolved.vetoAuthority).toBeNull();
+    expect(resolved.finalGear).toBe('recovery');
+  });
+
+  test('fresh audio packet plus fresh speech prevents false stale backend veto', () => {
+    const resolved = resolveAsrScrollAuthority(
+      makeAuthorityInput({
+        speechFresh: true,
+        backendFresh: false,
+        finalPacketFresh: false,
+        audioPacketFresh: true,
+      }),
+    );
+    expect(resolved.movementAllowed).toBe(true);
+    expect(resolved.vetoAuthority).toBeNull();
+  });
+
   test('safe capped target plus large debt resolves recovery with pocket envelope authority', () => {
     const resolved = resolveAsrScrollAuthority(makeAuthorityInput());
     expect(resolved.finalGear).toBe('recovery');
@@ -2016,6 +2043,7 @@ describe('ASR scroll authority resolver', () => {
       makeAuthorityInput({
         targetDebtPx: 160,
         speechFresh: false,
+        backendFresh: true,
         visualRecoveryState: 'preferred_lower_rail_release',
         comfortState: 'inactive',
         nextSpeakableLineY: 392,

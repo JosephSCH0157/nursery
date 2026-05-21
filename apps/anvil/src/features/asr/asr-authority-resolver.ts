@@ -60,6 +60,8 @@ export type ResolveAsrScrollAuthorityInput = {
   terminalClampActive: boolean;
   speechFresh: boolean;
   backendFresh: boolean;
+  audioPacketFresh?: boolean;
+  finalPacketFresh?: boolean;
   noMatchOrOffscript: boolean;
   hardContradiction: boolean;
 };
@@ -184,6 +186,13 @@ function resolveSafetyClass(input: ResolveAsrScrollAuthorityInput): {
   vetoAuthority: string | null;
   reason: string;
 } {
+  const speechFresh = input.speechFresh === true;
+  const audioPacketFresh = input.audioPacketFresh === true;
+  const finalPacketFresh = input.finalPacketFresh === true;
+  const backendFresh =
+    input.backendFresh === true ||
+    finalPacketFresh ||
+    (audioPacketFresh && speechFresh);
   const geometryUnavailable =
     !Number.isFinite(input.markerY) ||
     !Number.isFinite(input.nextSpeakableLineY) ||
@@ -210,7 +219,7 @@ function resolveSafetyClass(input: ResolveAsrScrollAuthorityInput): {
       reason: 'hard_contradiction',
     };
   }
-  if (!input.backendFresh) {
+  if (!backendFresh && !speechFresh) {
     return {
       safetyClass: 'absolute_hold',
       vetoAuthority: 'absolute_safety',
