@@ -11577,6 +11577,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             preferredSettleBottom,
             preferredBandBottom,
             toleratedBandBottom,
+            lineHeightPx: resolveMotionLineHeightPx(
+              getLineElementByIndex(scroller, Math.max(0, nextSpeakableLineIdx)) ||
+              getLineElementByIndex(scroller, Math.max(0, lastLineIndex)),
+            ),
             targetDeltaPx: err,
             velocityPxps: maxVelForErr,
             reason: comfortReason,
@@ -12257,6 +12261,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             : 'clear'
         );
     const arithmeticTargetDebtPx = Number.isFinite(liveAsrActuatorTargetDebtPx) ? liveAsrActuatorTargetDebtPx : Number.NaN;
+    const resolverLineHeightPx = resolveMotionLineHeightPx(
+      getLineElementByIndex(scroller, Math.max(0, liveAsrCommitteeAcceptedCommitTargetIdx)) ||
+      getLineElementByIndex(scroller, Math.max(0, liveAsrCommitteeRequestedTargetIdx)) ||
+      getLineElementByIndex(scroller, Math.max(0, lastLineIndex)),
+    );
     const resolvedCommand = resolveAsrScrollAuthority({
       currentLineIdx: lastLineIndex,
       requestedTargetIdx: liveAsrCommitteeRequestedTargetIdx,
@@ -12279,6 +12288,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       preferredSettleBottom: lastAsrPreferredSettleBottom,
       preferredBandBottom: lastAsrPreferredBandBottom,
       toleratedBandBottom: lastAsrToleratedBandBottom,
+      lineHeightPx: resolverLineHeightPx,
       terminalClampActive: atScrollLimit,
       speechFresh: actuatorSpeechFresh,
       backendFresh: resolverBackendFresh,
@@ -12761,6 +12771,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               appliedDeltaPx,
               clampReason: clampReasonOut,
               pocketState: resolvedCommand.pocketState,
+              oldPocketState: resolvedCommand.oldPocketState,
+              markerCenteredPocketState: resolvedCommand.markerCenteredPocketState,
+              markerViewportLine: resolvedCommand.markerViewportLine,
+              readViewportLine: resolvedCommand.readViewportLine,
+              distanceFromMarkerLines: resolvedCommand.distanceFromMarkerLines,
+              preferredTopLine: resolvedCommand.preferredTopLine,
+              preferredBottomLine: resolvedCommand.preferredBottomLine,
               movementEnvelopePx: resolvedCommand.movementEnvelopePx,
               movementEnvelopeReason: resolvedCommand.movementEnvelopeReason,
               bridgeCueCapApplied: resolvedCommand.bridgeCueCapApplied,

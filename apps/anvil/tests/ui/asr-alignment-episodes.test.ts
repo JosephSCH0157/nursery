@@ -27,7 +27,8 @@ describe('ASR alignment episode diagnostics', () => {
     tracker.noteComfort({
       markerY: 390,
       currentLineY: 490,
-      nextSpeakableLineY: 514,
+      nextSpeakableLineY: 910,
+      lineHeightPx: 56,
       preferredBandTop: 300,
       preferredSettleBottom: 430,
       preferredBandBottom: 450,
@@ -63,6 +64,8 @@ describe('ASR alignment episode diagnostics', () => {
     expect(episodeLine).toContain('markerLockSuppressed=1');
     expect(episodeLine).toContain('recoveryAvailable=1');
     expect(episodeLine).toContain('recoverySelected=1');
+    expect(episodeLine).toContain('markerCenteredPocketState=bottom_locked');
+    expect(episodeLine).toContain('visualOutcome=bottom_locked');
     const diagLines = lines.filter((line) => line.includes('ASR_BOTTOM_LOCK_GEOMETRY_DIAG'));
     expect(diagLines).toHaveLength(1);
     expect(diagLines[0]).toContain('pocketZone=bottom');
@@ -83,7 +86,7 @@ describe('ASR alignment episode diagnostics', () => {
     },
     {
       name: 'top_pressure',
-      comfort: { markerY: 390, currentLineY: 320, nextSpeakableLineY: 335 },
+      comfort: { markerY: 390, currentLineY: 320, nextSpeakableLineY: 112 },
       reason: 'top_guard',
     },
     {
@@ -121,6 +124,7 @@ describe('ASR alignment episode diagnostics', () => {
     });
     tracker.noteComfort({
       ...comfort,
+      lineHeightPx: 56,
       preferredBandTop: 300,
       preferredSettleBottom: 430,
       preferredBandBottom: 450,
@@ -159,6 +163,7 @@ describe('ASR alignment episode diagnostics', () => {
       markerY: 390,
       currentLineY: 412,
       nextSpeakableLineY: 480,
+      lineHeightPx: 56,
       preferredBandTop: 300,
       preferredSettleBottom: 430,
       preferredBandBottom: 450,
@@ -231,6 +236,7 @@ describe('ASR alignment episode diagnostics', () => {
       markerY: 390,
       currentLineY: 406,
       nextSpeakableLineY: 478,
+      lineHeightPx: 56,
       preferredBandTop: 300,
       preferredSettleBottom: 430,
       preferredBandBottom: 450,
@@ -298,6 +304,7 @@ describe('ASR alignment episode diagnostics', () => {
       markerY: 390,
       currentLineY: 420,
       nextSpeakableLineY: 438,
+      lineHeightPx: 56,
       preferredBandTop: 300,
       preferredSettleBottom: 430,
       preferredBandBottom: 450,
@@ -334,6 +341,7 @@ describe('ASR alignment episode diagnostics', () => {
       markerY: 390,
       currentLineY: 459,
       nextSpeakableLineY: 459,
+      lineHeightPx: 56,
       preferredBandTop: 300,
       preferredSettleBottom: 430,
       preferredBandBottom: 450,
@@ -377,6 +385,7 @@ describe('ASR alignment episode diagnostics', () => {
       markerY: 390,
       currentLineY: 420,
       nextSpeakableLineY: 438,
+      lineHeightPx: 56,
       preferredBandTop: 300,
       preferredSettleBottom: 430,
       preferredBandBottom: 450,
@@ -409,6 +418,7 @@ describe('ASR alignment episode diagnostics', () => {
       markerY: 390,
       currentLineY: 420,
       nextSpeakableLineY: 478,
+      lineHeightPx: 56,
       preferredBandTop: 300,
       preferredSettleBottom: 430,
       preferredBandBottom: 450,
@@ -443,6 +453,7 @@ describe('ASR alignment episode diagnostics', () => {
       markerY: 390,
       currentLineY: 421,
       nextSpeakableLineY: 474,
+      lineHeightPx: 56,
       preferredBandTop: 300,
       preferredSettleBottom: 430,
       preferredBandBottom: 450,
@@ -479,6 +490,7 @@ describe('ASR alignment episode diagnostics', () => {
       markerY: 390,
       currentLineY: 420,
       nextSpeakableLineY: 480,
+      lineHeightPx: 56,
       preferredBandTop: 300,
       preferredSettleBottom: 430,
       preferredBandBottom: 450,

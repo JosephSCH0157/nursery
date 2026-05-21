@@ -1912,11 +1912,12 @@ describe('ASR scroll authority resolver', () => {
       postAdjacentRecoveryState: 'inactive',
       targetDebtPx: 168,
       markerY: 320,
-      nextSpeakableLineY: 470,
+      nextSpeakableLineY: 840,
       preferredBandTop: 250,
       preferredSettleBottom: 360,
       preferredBandBottom: 410,
       toleratedBandBottom: 430,
+      lineHeightPx: 56,
       terminalClampActive: false,
       speechFresh: true,
       backendFresh: true,
@@ -1979,6 +1980,9 @@ describe('ASR scroll authority resolver', () => {
     expect(resolved.movementEnvelopeAuthority).toBe('reader_pocket_envelope');
     expect(resolved.motionAuthority).toBe('visual_recovery');
     expect(resolved.pocketState).toBe('bottom_locked');
+    expect(resolved.markerViewportLine).toBe(6);
+    expect(resolved.readViewportLine).toBe(15);
+    expect(resolved.distanceFromMarkerLines).toBe(9);
   });
 
   test('target distance cap may coexist with recovery gear', () => {
@@ -1988,7 +1992,7 @@ describe('ASR scroll authority resolver', () => {
         safetyCapState: 'lead_aware_distance_cap',
         visualRecoveryState: 'preferred_lower_rail_release',
         comfortState: 'inactive',
-        nextSpeakableLineY: 395,
+        nextSpeakableLineY: 728,
       }),
     );
     expect(resolved.bridgeCueCapApplied).toBe(true);
@@ -1997,11 +2001,12 @@ describe('ASR scroll authority resolver', () => {
   });
 
   test.each([
-    ['below_preferred_pocket', { nextSpeakableLineY: 452, visualRecoveryState: 'inactive', comfortState: 'inactive' }],
-    ['near_lower_rail', { nextSpeakableLineY: 380, visualRecoveryState: 'preferred_lower_rail_release', comfortState: 'inactive' }],
-    ['bottom_locked', { nextSpeakableLineY: 470, visualRecoveryState: 'bottom_lock_release', comfortState: 'comfort_nudge_large_debt' }],
+    ['below_preferred_pocket', { nextSpeakableLineY: 616, visualRecoveryState: 'inactive', comfortState: 'inactive' }],
+    ['near_lower_rail', { nextSpeakableLineY: 728, visualRecoveryState: 'preferred_lower_rail_release', comfortState: 'inactive' }],
+    ['bottom_locked', { nextSpeakableLineY: 840, visualRecoveryState: 'bottom_lock_release', comfortState: 'comfort_nudge_large_debt' }],
   ] as const)('pocket state %s resolves recovery when no veto is active', (_name, overrides) => {
     const resolved = resolveAsrScrollAuthority(makeAuthorityInput(overrides));
+    expect(resolved.pocketState).toBe(_name);
     expect(resolved.finalGear).toBe('recovery');
   });
 
@@ -2020,7 +2025,7 @@ describe('ASR scroll authority resolver', () => {
       makeAuthorityInput({
         comfortState: 'comfort_hold_preferred_pocket',
         visualRecoveryState: 'preferred_lower_rail_release',
-        nextSpeakableLineY: 388,
+        nextSpeakableLineY: 728,
       }),
     );
     expect(resolved.movementAllowed).toBe(true);
@@ -2033,7 +2038,7 @@ describe('ASR scroll authority resolver', () => {
         targetDebtPx: 48,
         visualRecoveryState: 'inactive',
         comfortState: 'inactive',
-        nextSpeakableLineY: 438,
+        nextSpeakableLineY: 616,
       }),
     );
     expect(resolved.finalGear).toBe('normal_floor');
@@ -2048,7 +2053,7 @@ describe('ASR scroll authority resolver', () => {
         backendFresh: true,
         visualRecoveryState: 'preferred_lower_rail_release',
         comfortState: 'inactive',
-        nextSpeakableLineY: 392,
+        nextSpeakableLineY: 728,
       }),
     );
     expect(resolved.finalGear).toBe('normal_floor');
@@ -2073,6 +2078,13 @@ describe('ASR scroll authority resolver', () => {
       appliedDeltaPx: 6,
       clampReason: 'min_step_floor',
       pocketState: 'bottom_locked',
+      oldPocketState: 'bottom_locked',
+      markerCenteredPocketState: 'bottom_locked',
+      markerViewportLine: 6,
+      readViewportLine: 15,
+      distanceFromMarkerLines: 9,
+      preferredTopLine: 2,
+      preferredBottomLine: 10,
       movementEnvelopePx: 60,
       movementEnvelopeReason: 'bottom_lock_release',
       bridgeCueCapApplied: true,
@@ -2088,6 +2100,9 @@ describe('ASR scroll authority resolver', () => {
     expect(line).toContain('[ASR_SCROLL_AUTHORITY_RESOLVED]');
     expect(line).toContain('movementEnvelopeAuthority=reader_pocket_envelope');
     expect(line).toContain('pocketState=bottom_locked');
+    expect(line).toContain('markerViewportLine=6');
+    expect(line).toContain('readViewportLine=15');
+    expect(line).toContain('distanceFromMarkerLines=9');
     expect(line).toContain('chairpersonChair=target_distance_cap');
     expect(line).toContain('actualAppliedDeltaPx=6');
   });

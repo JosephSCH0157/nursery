@@ -677,6 +677,13 @@ export function buildAsrScrollAuthorityResolvedDiagnostic(args: {
   appliedDeltaPx: number;
   clampReason: string;
   pocketState: 'above_marker' | 'in_preferred_pocket' | 'below_preferred_pocket' | 'near_lower_rail' | 'bottom_locked' | 'top_pressure';
+  oldPocketState: 'above_marker' | 'in_preferred_pocket' | 'below_preferred_pocket' | 'near_lower_rail' | 'bottom_locked' | 'top_pressure';
+  markerCenteredPocketState: 'above_marker' | 'in_preferred_pocket' | 'below_preferred_pocket' | 'near_lower_rail' | 'bottom_locked' | 'top_pressure';
+  markerViewportLine: number;
+  readViewportLine: number;
+  distanceFromMarkerLines: number;
+  preferredTopLine: number;
+  preferredBottomLine: number;
   movementEnvelopePx: number;
   movementEnvelopeReason: string;
   bridgeCueCapApplied: boolean;
@@ -697,7 +704,7 @@ export function buildAsrScrollAuthorityResolvedDiagnostic(args: {
     Array.isArray(args.overruledAuthorities) && args.overruledAuthorities.length > 0
       ? args.overruledAuthorities.join('|')
       : 'none';
-  return `[ASR_SCROLL_AUTHORITY_RESOLVED] currentLineIdx=${Math.round(args.currentLineIdx)} requestedTargetIdx=${requestedTargetIdx} semanticTargetIdx=${semanticTargetIdx} allowedTargetIdx=${allowedTargetIdx} movementAllowed=${args.movementAllowed ? 1 : 0} vetoAuthority=${vetoAuthority} targetAuthority=${args.targetAuthority} movementEnvelopeAuthority=${args.movementEnvelopeAuthority} motionAuthority=${args.motionAuthority} smoothingAuthority=${args.smoothingAuthority} finalGear=${args.finalGear} finalMinStepPx=${Math.round(args.finalMinStepPx)} targetDebtPx=${Math.round(args.targetDebtPx)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} clampReason=${args.clampReason} pocketState=${args.pocketState} movementEnvelopePx=${Math.round(args.movementEnvelopePx)} movementEnvelopeReason=${args.movementEnvelopeReason} bridgeCueCapApplied=${args.bridgeCueCapApplied ? 1 : 0} cappedTargetSafe=${args.cappedTargetSafe ? 1 : 0} overruledAuthorities=${overruledAuthorities} reason=${args.reason} chairpersonChair=${args.chairpersonChair} chairpersonGear=${args.chairpersonGear} chairpersonFloorFallbackReason=${args.chairpersonFloorFallbackReason} actualAppliedDeltaPx=${Math.round(args.actualAppliedDeltaPx)} actualClampReason=${args.actualClampReason}`;
+  return `[ASR_SCROLL_AUTHORITY_RESOLVED] currentLineIdx=${Math.round(args.currentLineIdx)} requestedTargetIdx=${requestedTargetIdx} semanticTargetIdx=${semanticTargetIdx} allowedTargetIdx=${allowedTargetIdx} movementAllowed=${args.movementAllowed ? 1 : 0} vetoAuthority=${vetoAuthority} targetAuthority=${args.targetAuthority} movementEnvelopeAuthority=${args.movementEnvelopeAuthority} motionAuthority=${args.motionAuthority} smoothingAuthority=${args.smoothingAuthority} finalGear=${args.finalGear} finalMinStepPx=${Math.round(args.finalMinStepPx)} targetDebtPx=${Math.round(args.targetDebtPx)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} clampReason=${args.clampReason} pocketState=${args.pocketState} oldPocketState=${args.oldPocketState} markerCenteredPocketState=${args.markerCenteredPocketState} markerViewportLine=${Math.round(args.markerViewportLine)} readViewportLine=${Math.round(args.readViewportLine)} distanceFromMarkerLines=${Math.round(args.distanceFromMarkerLines)} preferredTopLine=${Math.round(args.preferredTopLine)} preferredBottomLine=${Math.round(args.preferredBottomLine)} movementEnvelopePx=${Math.round(args.movementEnvelopePx)} movementEnvelopeReason=${args.movementEnvelopeReason} bridgeCueCapApplied=${args.bridgeCueCapApplied ? 1 : 0} cappedTargetSafe=${args.cappedTargetSafe ? 1 : 0} overruledAuthorities=${overruledAuthorities} reason=${args.reason} chairpersonChair=${args.chairpersonChair} chairpersonGear=${args.chairpersonGear} chairpersonFloorFallbackReason=${args.chairpersonFloorFallbackReason} actualAppliedDeltaPx=${Math.round(args.actualAppliedDeltaPx)} actualClampReason=${args.actualClampReason}`;
 }
 
 export function buildAsrAccumulationSnapshotDiagnostic(args: {

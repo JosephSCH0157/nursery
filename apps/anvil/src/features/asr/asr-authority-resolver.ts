@@ -27,6 +27,13 @@ export type AsrScrollResolvedCommand = {
   finalMinStepPx: number;
   safetyClass: AsrSafetyClass;
   pocketState: AsrPocketState;
+  oldPocketState: AsrPocketState;
+  markerCenteredPocketState: AsrPocketState;
+  markerViewportLine: number;
+  readViewportLine: number;
+  distanceFromMarkerLines: number;
+  preferredTopLine: number;
+  preferredBottomLine: number;
   movementEnvelopePx: number;
   movementEnvelopeReason: string;
   bridgeCueCapApplied: boolean;
@@ -57,6 +64,7 @@ export type ResolveAsrScrollAuthorityInput = {
   preferredSettleBottom: number;
   preferredBandBottom: number;
   toleratedBandBottom: number;
+  lineHeightPx?: number;
   terminalClampActive: boolean;
   speechFresh: boolean;
   backendFresh: boolean;
@@ -79,7 +87,7 @@ function finiteIdx(value: number | null | undefined): number | null {
   return idx >= 0 ? idx : null;
 }
 
-function determinePocketState(input: ResolveAsrScrollAuthorityInput): {
+function determineLegacyPocketState(input: ResolveAsrScrollAuthorityInput): {
   pocketState: AsrPocketState;
   movementEnvelopePx: number;
   movementEnvelopeReason: string;
@@ -178,6 +186,111 @@ function determinePocketState(input: ResolveAsrScrollAuthorityInput): {
     pocketState: 'in_preferred_pocket',
     movementEnvelopePx: 0,
     movementEnvelopeReason: 'geometry_unclassified',
+  };
+}
+
+function resolveLineHeightPx(input: ResolveAsrScrollAuthorityInput): number {
+  const explicit = finiteNumber(input.lineHeightPx);
+  if (explicit != null && explicit > 1) return explicit;
+  const deltas = [
+    finiteNumber(input.preferredBandBottom),
+    finiteNumber(input.preferredBandTop),
+    finiteNumber(input.toleratedBandBottom),
+    finiteNumber(input.preferredBandBottom),
+    finiteNumber(input.preferredSettleBottom),
+    finiteNumber(input.preferredBandTop),
+  ];
+  const candidates = [
+    deltas[0] != null && deltas[1] != null ? Math.abs(deltas[0] - deltas[1]) / 4 : null,
+    deltas[2] != null && deltas[3] != null ? Math.abs(deltas[2] - deltas[3]) : null,
+    deltas[4] != null && deltas[5] != null ? Math.abs(deltas[4] - deltas[5]) / 4 : null,
+  ];
+  for (const candidate of candidates) {
+    if (candidate != null && Number.isFinite(candidate) && candidate > 8) {
+      return candidate;
+    }
+  }
+  return 24;
+}
+
+function resolveViewportLine(y: number | null, lineHeightPx: number): number {
+  if (y == null || !Number.isFinite(y) || !Number.isFinite(lineHeightPx) || lineHeightPx <= 1) {
+    return -1;
+  }
+  return Math.max(1, Math.round(y / lineHeightPx));
+}
+
+function determineMarkerCenteredPocketState(input: ResolveAsrScrollAuthorityInput): {
+  pocketState: AsrPocketState;
+  markerCenteredPocketState: AsrPocketState;
+  oldPocketState: AsrPocketState;
+  markerViewportLine: number;
+  readViewportLine: number;
+  distanceFromMarkerLines: number;
+  preferredTopLine: number;
+  preferredBottomLine: number;
+  movementEnvelopePx: number;
+  movementEnvelopeReason: string;
+} {
+  const legacy = determineLegacyPocketState(input);
+  const markerY = finiteNumber(input.markerY);
+  const readY = finiteNumber(input.nextSpeakableLineY);
+  const lineHeightPx = resolveLineHeightPx(input);
+  const markerViewportLine = resolveViewportLine(markerY, lineHeightPx);
+  const readViewportLine = resolveViewportLine(readY, lineHeightPx);
+  if (markerViewportLine < 1 || readViewportLine < 1) {
+    return {
+      pocketState: legacy.pocketState,
+      markerCenteredPocketState: legacy.pocketState,
+      oldPocketState: legacy.pocketState,
+      markerViewportLine,
+      readViewportLine,
+      distanceFromMarkerLines: -1,
+      preferredTopLine: -1,
+      preferredBottomLine: -1,
+      movementEnvelopePx: legacy.movementEnvelopePx,
+      movementEnvelopeReason: legacy.movementEnvelopeReason,
+    };
+  }
+  const preferredTopLine = Math.max(1, markerViewportLine - 4);
+  const preferredBottomLine = markerViewportLine + 4;
+  const distanceFromMarkerLines = readViewportLine - markerViewportLine;
+  const rowsOutsidePocket = Math.max(0, Math.abs(distanceFromMarkerLines) - 4);
+  const movementEnvelopePx = Math.round(rowsOutsidePocket * lineHeightPx);
+
+  let pocketState: AsrPocketState;
+  let movementEnvelopeReason: string;
+  if (distanceFromMarkerLines < -4) {
+    pocketState = 'top_pressure';
+    movementEnvelopeReason = 'marker_centered_top_pressure';
+  } else if (distanceFromMarkerLines > 8) {
+    pocketState = 'bottom_locked';
+    movementEnvelopeReason = 'marker_centered_bottom_locked';
+  } else if (distanceFromMarkerLines > 6) {
+    pocketState = 'near_lower_rail';
+    movementEnvelopeReason = 'marker_centered_near_lower_rail';
+  } else if (distanceFromMarkerLines > 4) {
+    pocketState = 'below_preferred_pocket';
+    movementEnvelopeReason = 'marker_centered_below_preferred_pocket';
+  } else {
+    pocketState = 'in_preferred_pocket';
+    movementEnvelopeReason =
+      distanceFromMarkerLines === 0
+        ? 'marker_centered_ideal'
+        : 'marker_centered_in_preferred_pocket';
+  }
+
+  return {
+    pocketState,
+    markerCenteredPocketState: pocketState,
+    oldPocketState: legacy.pocketState,
+    markerViewportLine,
+    readViewportLine,
+    distanceFromMarkerLines,
+    preferredTopLine,
+    preferredBottomLine,
+    movementEnvelopePx,
+    movementEnvelopeReason,
   };
 }
 
@@ -293,7 +406,18 @@ export function resolveAsrScrollAuthority(input: ResolveAsrScrollAuthorityInput)
     String(input.safetyCapState || '').toLowerCase().includes('bridge') ||
     String(input.safetyCapState || '').toLowerCase().includes('cue');
 
-  const { pocketState, movementEnvelopePx, movementEnvelopeReason } = determinePocketState(input);
+  const {
+    pocketState,
+    markerCenteredPocketState,
+    oldPocketState,
+    markerViewportLine,
+    readViewportLine,
+    distanceFromMarkerLines,
+    preferredTopLine,
+    preferredBottomLine,
+    movementEnvelopePx,
+    movementEnvelopeReason,
+  } = determineMarkerCenteredPocketState(input);
   const { safetyClass, vetoAuthority, reason: safetyReason } = resolveSafetyClass(input);
   const movementAllowed = safetyClass !== 'absolute_hold';
 
@@ -396,6 +520,13 @@ export function resolveAsrScrollAuthority(input: ResolveAsrScrollAuthorityInput)
     finalMinStepPx,
     safetyClass,
     pocketState,
+    oldPocketState,
+    markerCenteredPocketState,
+    markerViewportLine,
+    readViewportLine,
+    distanceFromMarkerLines,
+    preferredTopLine,
+    preferredBottomLine,
     movementEnvelopePx,
     movementEnvelopeReason,
     bridgeCueCapApplied,
