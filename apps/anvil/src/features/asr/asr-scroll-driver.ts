@@ -41,6 +41,7 @@ import {
   buildAsrPostAdjacentCommitVisualRecoveryPathProofDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic,
   buildAsrAccumulationSnapshotDiagnostic,
+  buildAsrLiveScrollStalledDiagnostic,
   buildAsrRecoveryGearSelectedDiagnostic,
   buildAsrScrollAuthorityResolvedDiagnostic,
   buildAsrScrollChairpersonArbitrationDiagnostic,
@@ -84,6 +85,7 @@ import {
   shouldClassifyBackendTranscriptStall,
   shouldClassifyBridgeTrap,
   shouldClassifyScrollCommitStall,
+  resolveAsrLiveScrollStall,
 } from './asr-stall-classifier';
 import {
   shouldAllowPendingBridgeCompletion,
@@ -140,6 +142,8 @@ import {
   DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS,
   DEFAULT_ASR_BACKEND_FIRST_TRANSCRIPT_GRACE_MS,
   DEFAULT_ASR_BACKEND_HEARTBEAT_MS,
+  DEFAULT_ASR_LIVE_SCROLL_STALL_NO_PROGRESS_MS,
+  DEFAULT_ASR_LIVE_SCROLL_STALL_RECOVERY_COOLDOWN_MS,
   DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS,
   DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS,
   DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS,
@@ -3399,6 +3403,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastAsrBackendSpeechActive = false;
   let lastAsrBackendTranscriptAgeMs = -1;
   let lastAsrBackendAudioAgeMs = -1;
+  let lastAsrLiveScrollStallSignature = '';
+  let lastAsrLiveScrollStallLoggedAt = 0;
+  let lastAsrLiveScrollStallRecoveryAt = 0;
   let liveAsrVisualSemanticMismatchHeld = false;
   let lastBridgeCompletionHeldLogAt = 0;
   let lastBridgeWalkRecoveryLogAt = 0;
@@ -6739,7 +6746,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     });
   };
 
-  const requestBackendRestart = (reason: string, now: number, transcriptAgeMs: number, audioAgeMs: number) => {
+  const requestBackendRestart = (
+    reason: string,
+    now: number,
+    transcriptAgeMs: number,
+    audioAgeMs: number,
+  ): 'requested' | 'already_restarted_in_window' | 'recognizer_controls_unavailable' => {
     if (backendRestartedInWindow) {
       try {
         console.warn(
@@ -6756,7 +6768,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ),
         );
       } catch {}
-      return;
+      return 'already_restarted_in_window';
     }
     const speech = (window as any).__tpSpeech;
     if (!speech || typeof speech.stopRecognizer !== 'function' || typeof speech.startRecognizer !== 'function') {
@@ -6775,7 +6787,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ),
         );
       } catch {}
-      return;
+      return 'recognizer_controls_unavailable';
     }
     backendRestartedInWindow = true;
     try {
@@ -6807,6 +6819,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }),
       );
     } catch {}
+    return 'requested';
   };
 
   const checkBackendLiveness = () => {
@@ -12148,29 +12161,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
     }
     try { (window as any).__tpLiveAsrGovernorHold = visualGovernorHoldActive; } catch {}
-    const comfortOnlyHoldActive = liveHardHold && !visualGovernorHoldActive;
+    let comfortOnlyHoldActive = liveHardHold && !visualGovernorHoldActive;
     if (comfortOnlyHoldActive) {
       pursuitVel = 0;
       pursuitActive = false;
       pursuitTargetTop = null;
-      emitPursuitHud(err, pursuitVel, pursuitTargetTop, current);
-      return;
     }
     if (microActive) {
       maxVelForErr = Math.min(maxVelForErr, microPursuitCapPxPerSec);
     }
-    const desiredVel = Math.min(maxVelForErr, Math.max(0, err * DEFAULT_PURSUE_KP));
-    const pursuitVelBefore = pursuitVel;
+    let desiredVel = Math.min(maxVelForErr, Math.max(0, err * DEFAULT_PURSUE_KP));
+    let pursuitVelBefore = pursuitVel;
     const baseAccelCap = maxAccelPxPerSec2 * dt;
-    const actuatorBoostActive =
+    let actuatorBoostActive =
       liveAsrFollowMode &&
       liveAsrActuatorPursuitActive &&
       !liveHardHold;
-    const accelCap = actuatorBoostActive
+    let accelCap = actuatorBoostActive
       ? Math.max(baseAccelCap, Math.max(0, (desiredVel - pursuitVelBefore) * 0.65))
       : baseAccelCap;
-    const accelLimited = Math.abs(desiredVel - pursuitVelBefore) > accelCap;
-    const velDelta = clamp(desiredVel - pursuitVel, -accelCap, accelCap);
+    let accelLimited = Math.abs(desiredVel - pursuitVelBefore) > accelCap;
+    let velDelta = clamp(desiredVel - pursuitVel, -accelCap, accelCap);
     pursuitVel = clamp(pursuitVel + velDelta, 0, maxVelForErr);
     if (err > 0 && pursuitVel < motionTuning.minPursuitPxPerSec) {
       pursuitVel = Math.min(maxVelForErr, Math.max(pursuitVel, motionTuning.minPursuitPxPerSec));
@@ -12180,8 +12191,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
     const distanceToMaxScrollTop = Math.max(0, maxScrollTop - beforeScrollTop);
     const atScrollLimit = distanceToMaxScrollTop <= 0.5;
-    const requestedDeltaPx = Math.max(0, pursuitVel * dt);
-    const requestedPxps = pursuitVel;
+    let requestedDeltaPx = Math.max(0, pursuitVel * dt);
+    let requestedPxps = pursuitVel;
     let clampReason = 'none';
     let move = requestedDeltaPx;
     const visualRecoveryBoostActive =
@@ -12275,6 +12286,171 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       resolvedCommand.movementAllowed &&
       resolvedCommand.finalGear === 'recovery' &&
       resolvedCommand.finalMinStepPx > 0;
+    const visualProgressBaseAt =
+      lastMoveAt > 0
+        ? lastMoveAt
+        : (lastForwardCommitAt > 0 ? lastForwardCommitAt : 0);
+    const noVisualProgressMs =
+      visualProgressBaseAt > 0
+        ? Math.max(0, freshnessNowTs - visualProgressBaseAt)
+        : Number.POSITIVE_INFINITY;
+    const transcriptAgeForStall =
+      lastFinalTranscriptAt > 0
+        ? Math.max(0, freshnessNowTs - lastFinalTranscriptAt)
+        : Number.POSITIVE_INFINITY;
+    const audioAgeForStall =
+      lastTranscriptPacketAt > 0
+        ? Math.max(0, freshnessNowTs - lastTranscriptPacketAt)
+        : Number.POSITIVE_INFINITY;
+    const stallAudioFresh =
+      asrRuntimeSpeechRunningActual ||
+      hasRecentActualSpeech(freshnessNowTs) ||
+      hasRecentVadSpeechNow(freshnessNowTs);
+    const liveScrollStallDecision = resolveAsrLiveScrollStall({
+      liveAsr: liveAsrFollowMode && liveAsrActuatorPursuitActive,
+      movementAllowed: resolvedCommand.movementAllowed,
+      speechFresh: actuatorSpeechFresh,
+      audioFresh: stallAudioFresh,
+      backendFresh: resolverBackendFresh,
+      noMatchOrOffscript: actuatorNoMatchOrOffscript,
+      hardContradiction: hardContradictionActive,
+      terminalClampActive: atScrollLimit,
+      noVisualProgressMs,
+      noVisualProgressThresholdMs: DEFAULT_ASR_LIVE_SCROLL_STALL_NO_PROGRESS_MS,
+      currentLineIdx: lastLineIndex,
+      allowedTargetIdx: resolvedCommand.allowedTargetIdx,
+      acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+      lastAcceptedProofLine: lastFreshProofLine,
+      cappedTargetSafe: resolvedCommand.cappedTargetSafe,
+      targetDebtPx: arithmeticTargetDebtPx,
+      transcriptAgeMs: Number.isFinite(transcriptAgeForStall) ? transcriptAgeForStall : null,
+      transcriptStaleMs: DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS,
+      pocketState: resolvedCommand.pocketState,
+    });
+    let liveScrollStallRestartAction = 'not_needed';
+    let liveScrollStallRecoveryApplied = false;
+    if (liveScrollStallDecision.active) {
+      const liveScrollStallSignature = JSON.stringify({
+        currentLineIdx: lastLineIndex,
+        requestedTargetIdx: liveAsrCommitteeRequestedTargetIdx,
+        allowedTargetIdx: resolvedCommand.allowedTargetIdx,
+        acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+        recoveryTargetIdx: liveScrollStallDecision.recoveryTargetIdx,
+        movementAllowed: resolvedCommand.movementAllowed,
+        finalGear: resolvedCommand.finalGear,
+        pocketState: resolvedCommand.pocketState,
+        cappedTargetSafe: resolvedCommand.cappedTargetSafe,
+        backendTranscriptStale: liveScrollStallDecision.backendTranscriptStale,
+        recoveryAction: liveScrollStallDecision.recoveryAction,
+        reason: liveScrollStallDecision.reason,
+      });
+      const shouldEmitLiveScrollStall =
+        lastAsrLiveScrollStallSignature !== liveScrollStallSignature ||
+        freshnessNowTs - lastAsrLiveScrollStallLoggedAt >= DEFAULT_ASR_LIVE_SCROLL_STALL_RECOVERY_COOLDOWN_MS;
+      if (liveScrollStallDecision.backendTranscriptStale && shouldEmitLiveScrollStall) {
+        const restartResult = requestBackendRestart(
+          'live_scroll_stalled_backend_stale',
+          freshnessNowTs,
+          Number.isFinite(transcriptAgeForStall) ? transcriptAgeForStall : Number.POSITIVE_INFINITY,
+          Number.isFinite(audioAgeForStall) ? audioAgeForStall : Number.POSITIVE_INFINITY,
+        );
+        liveScrollStallRestartAction =
+          restartResult === 'requested'
+            ? 'restart_requested'
+            : (restartResult === 'already_restarted_in_window'
+              ? 'restart_cooldown_blocked'
+              : 'recognizer_controls_unavailable');
+      }
+      const recoveryTargetIdx =
+        Number.isFinite(liveScrollStallDecision.recoveryTargetIdx as number)
+          ? Math.max(0, Math.floor(Number(liveScrollStallDecision.recoveryTargetIdx)))
+          : -1;
+      if (
+        recoveryTargetIdx > lastLineIndex &&
+        freshnessNowTs - lastAsrLiveScrollStallRecoveryAt >= DEFAULT_ASR_LIVE_SCROLL_STALL_RECOVERY_COOLDOWN_MS
+      ) {
+        const recoveryTargetTop =
+          resolveTargetTop(scroller, recoveryTargetIdx) ??
+          estimateTargetTopFromLines(scroller, lastLineIndex, recoveryTargetIdx);
+        if (Number.isFinite(recoveryTargetTop as number) && Number(recoveryTargetTop) > beforeScrollTop + 0.5) {
+          pursuitTargetTop = Number(recoveryTargetTop);
+          liveAsrVisualPursuitLineIdx = recoveryTargetIdx;
+          liveAsrActuatorPursuitActive = true;
+          liveAsrActuatorReason =
+            liveScrollStallDecision.recoveryAction === 'safe_capped_recovery'
+              ? 'live_scroll_stall_safe_capped_recovery'
+              : 'live_scroll_stall_adjacent_rebase';
+          noteLiveTickSpecificAuthority('stall_recovery');
+          liveTickSelectedAuthority = 'stall_recovery';
+          liveTickAuthorityReason = liveScrollStallDecision.reason;
+          liveHardHold = false;
+          comfortOnlyHoldActive = false;
+          liveScrollStallRecoveryApplied = true;
+          lastAsrLiveScrollStallRecoveryAt = freshnessNowTs;
+          err = Math.max(0, Number(pursuitTargetTop) - current);
+          desiredVel = Math.min(maxVelForErr, Math.max(0, err * DEFAULT_PURSUE_KP));
+          pursuitVelBefore = pursuitVel;
+          actuatorBoostActive =
+            liveAsrFollowMode &&
+            liveAsrActuatorPursuitActive &&
+            !liveHardHold;
+          accelCap = actuatorBoostActive
+            ? Math.max(baseAccelCap, Math.max(0, (desiredVel - pursuitVelBefore) * 0.65))
+            : baseAccelCap;
+          accelLimited = Math.abs(desiredVel - pursuitVelBefore) > accelCap;
+          velDelta = clamp(desiredVel - pursuitVel, -accelCap, accelCap);
+          pursuitVel = clamp(pursuitVel + velDelta, 0, maxVelForErr);
+          if (err > 0 && pursuitVel < motionTuning.minPursuitPxPerSec) {
+            pursuitVel = Math.min(maxVelForErr, Math.max(pursuitVel, motionTuning.minPursuitPxPerSec));
+          }
+          requestedDeltaPx = Math.max(0, pursuitVel * dt);
+          requestedPxps = pursuitVel;
+          clampReason = 'none';
+          move = requestedDeltaPx;
+        }
+      }
+      if (shouldEmitLiveScrollStall) {
+        try {
+          console.warn(
+            buildAsrLiveScrollStalledDiagnostic({
+              currentLineIdx: lastLineIndex,
+              requestedTargetIdx: liveAsrCommitteeRequestedTargetIdx,
+              semanticTargetIdx: resolvedCommand.semanticTargetIdx,
+              allowedTargetIdx: resolvedCommand.allowedTargetIdx,
+              acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+              recoveryTargetIdx: liveScrollStallDecision.recoveryTargetIdx,
+              movementAllowed: resolvedCommand.movementAllowed,
+              finalGear: resolvedCommand.finalGear,
+              pocketState: resolvedCommand.pocketState,
+              cappedTargetSafe: resolvedCommand.cappedTargetSafe,
+              targetDebtPx: arithmeticTargetDebtPx,
+              noVisualProgressMs,
+              noCommitMs: Math.max(0, freshnessNowTs - lastForwardCommitAt),
+              speechFresh: actuatorSpeechFresh,
+              audioFresh: stallAudioFresh,
+              backendFresh: resolverBackendFresh,
+              transcriptAgeMs: Number.isFinite(transcriptAgeForStall) ? transcriptAgeForStall : Number.POSITIVE_INFINITY,
+              audioAgeMs: Number.isFinite(audioAgeForStall) ? audioAgeForStall : Number.POSITIVE_INFINITY,
+              backendTranscriptStale: liveScrollStallDecision.backendTranscriptStale,
+              forwardEvidenceExists: liveScrollStallDecision.forwardEvidenceExists,
+              visualGovernorHoldActive,
+              restartAction: liveScrollStallRestartAction,
+              recoveryAction: liveScrollStallDecision.recoveryAction,
+              reason: liveScrollStallDecision.reason,
+            }),
+          );
+        } catch {}
+        lastAsrLiveScrollStallSignature = liveScrollStallSignature;
+        lastAsrLiveScrollStallLoggedAt = freshnessNowTs;
+      }
+    } else {
+      lastAsrLiveScrollStallSignature = '';
+    }
+    if (comfortOnlyHoldActive && !liveScrollStallRecoveryApplied) {
+      emitPursuitHud(err, pursuitVel, pursuitTargetTop, current);
+      window.requestAnimationFrame(tickController);
+      return;
+    }
     const actuatorRecoveryGearDecision = decideAsrActuatorRecoveryGear({
       liveAsrActive: liveAsrFollowMode && liveAsrActuatorPursuitActive,
       currentLineIdx: lastLineIndex,
@@ -12366,7 +12542,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             selectedAuthority: liveTickSelectedAuthority,
             candidateAuthorities,
             beforeScrollTop,
-            targetScrollTop: Number.isFinite(pursuitTargetTop) ? pursuitTargetTop : beforeScrollTop,
+            targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop,
             afterScrollTop,
             reason: liveTickAuthorityReason,
           }),
@@ -12379,7 +12555,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               tickId: liveAsrAuthorityTraceTickId,
               authorities: Array.from(liveTickConflictingAuthorities),
               beforeScrollTop,
-              intermediateScrollTop: Number.isFinite(pursuitTargetTop) ? pursuitTargetTop : beforeScrollTop,
+              intermediateScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop,
               finalScrollTop: afterScrollTop,
               currentLineIdx: lastLineIndex,
               nextSpeakableLineIdx: liveAsrVisualPursuitLineIdx ?? lastLineIndex,
@@ -25064,6 +25240,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     earlyBridgeTrapHoldCountByKey.clear();
     liveBridgeDownstreamBlockUntilByKey.clear();
     asrSilenceActive = true;
+    lastAsrLiveScrollStallSignature = '';
+    lastAsrLiveScrollStallLoggedAt = 0;
+    lastAsrLiveScrollStallRecoveryAt = 0;
     lastStallRecoveryOverrideAt = 0;
     _postCommitReadabilitySeq += 1;
     try {
@@ -25174,6 +25353,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     softRuntimeRebaseLastStallAnchorAt = -1;
     softRuntimeRebaseRetryActive = false;
     softRuntimeRebaseLastSkipLogAt = 0;
+    lastAsrLiveScrollStallSignature = '';
+    lastAsrLiveScrollStallLoggedAt = 0;
+    lastAsrLiveScrollStallRecoveryAt = 0;
     lostForwardActive = false;
     lostForwardStage = 0;
     lostForwardEnteredAt = 0;

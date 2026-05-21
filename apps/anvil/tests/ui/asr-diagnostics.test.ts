@@ -31,6 +31,7 @@ import {
   buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic,
   buildAsrRecoveryGearSelectedDiagnostic,
   buildAsrAccumulationSnapshotDiagnostic,
+  buildAsrLiveScrollStalledDiagnostic,
   buildAsrScrollAuthorityResolvedDiagnostic,
   buildAsrScrollChairpersonArbitrationDiagnostic,
   buildAsrVisualRecoveryBoostAppliedDiagnostic,
@@ -2121,5 +2122,39 @@ describe('ASR scroll authority resolver', () => {
     expect(line).toContain('guardEventsCount=23');
     expect(line).toContain('logBufferEntryCount=1800');
     expect(line).toContain('distanceToMaxScrollTop=1440');
+  });
+
+  test('builds live scroll stalled diagnostic with recovery and restart actions', () => {
+    const line = buildAsrLiveScrollStalledDiagnostic({
+      currentLineIdx: 82,
+      requestedTargetIdx: 84,
+      semanticTargetIdx: 84,
+      allowedTargetIdx: 83,
+      acceptedCommitTargetIdx: 84,
+      recoveryTargetIdx: 83,
+      movementAllowed: true,
+      finalGear: 'recovery',
+      pocketState: 'bottom_locked',
+      cappedTargetSafe: true,
+      targetDebtPx: 212,
+      noVisualProgressMs: 2400,
+      noCommitMs: 2600,
+      speechFresh: true,
+      audioFresh: true,
+      backendFresh: false,
+      transcriptAgeMs: 9600,
+      audioAgeMs: 420,
+      backendTranscriptStale: true,
+      forwardEvidenceExists: true,
+      visualGovernorHoldActive: true,
+      restartAction: 'restart_cooldown_blocked',
+      recoveryAction: 'safe_capped_recovery',
+      reason: 'stale_backend_safe_capped_target',
+    });
+    expect(line).toContain('[ASR_LIVE_SCROLL_STALLED]');
+    expect(line).toContain('recoveryTargetIdx=83');
+    expect(line).toContain('movementAllowed=1');
+    expect(line).toContain('restartAction=restart_cooldown_blocked');
+    expect(line).toContain('recoveryAction=safe_capped_recovery');
   });
 });

@@ -727,6 +727,40 @@ export function buildAsrAccumulationSnapshotDiagnostic(args: {
   return `[ASR_ACCUMULATION_SNAPSHOT] commitCount=${Math.round(args.commitCount)} eventsSinceCommit=${Math.round(args.eventsSinceCommit)} finalsSinceCommit=${Math.round(args.finalsSinceCommit)} alignmentEpisodeCount=${Math.round(args.alignmentEpisodeCount)} activeEpisodeActions=${Math.round(args.activeEpisodeActions)} activeEpisodeDeltaSamples=${Math.round(args.activeEpisodeDeltaSamples)} activeEpisodeReasonChain=${Math.round(args.activeEpisodeReasonChain)} guardEventsCount=${Math.round(args.guardEventsCount)} strongHitsCount=${Math.round(args.strongHitsCount)} evidenceEntriesCount=${Math.round(args.evidenceEntriesCount)} consistencyEntriesCount=${Math.round(args.consistencyEntriesCount)} bridgeBlockMapSize=${Math.round(args.bridgeBlockMapSize)} bridgeTrapMapSize=${Math.round(args.bridgeTrapMapSize)} logBufferEntryCount=${Math.round(args.logBufferEntryCount)} logBufferDroppedCount=${Math.round(args.logBufferDroppedCount)} visualGovernorHoldAgeMs=${Math.round(args.visualGovernorHoldAgeMs)} noProgressStreak=${Math.round(args.noProgressStreak)} lostForwardWallStreak=${Math.round(args.lostForwardWallStreak)} targetDebtPx=${Math.round(args.targetDebtPx)} distanceToMaxScrollTop=${Math.round(args.distanceToMaxScrollTop)} currentLineIdx=${Math.round(args.currentLineIdx)} requestedTargetIdx=${Math.round(args.requestedTargetIdx)}`;
 }
 
+export function buildAsrLiveScrollStalledDiagnostic(args: {
+  currentLineIdx: number;
+  requestedTargetIdx: number | null;
+  semanticTargetIdx: number | null;
+  allowedTargetIdx: number | null;
+  acceptedCommitTargetIdx: number | null;
+  recoveryTargetIdx: number | null;
+  movementAllowed: boolean;
+  finalGear: 'hold' | 'normal_floor' | 'normal_tracking' | 'recovery';
+  pocketState: 'above_marker' | 'in_preferred_pocket' | 'below_preferred_pocket' | 'near_lower_rail' | 'bottom_locked' | 'top_pressure';
+  cappedTargetSafe: boolean;
+  targetDebtPx: number;
+  noVisualProgressMs: number;
+  noCommitMs: number;
+  speechFresh: boolean;
+  audioFresh: boolean;
+  backendFresh: boolean;
+  transcriptAgeMs: number;
+  audioAgeMs: number;
+  backendTranscriptStale: boolean;
+  forwardEvidenceExists: boolean;
+  visualGovernorHoldActive: boolean;
+  restartAction: string;
+  recoveryAction: string;
+  reason: string;
+}): string {
+  const requestedTargetIdx = Number.isFinite(args.requestedTargetIdx as number) ? Math.round(Number(args.requestedTargetIdx)) : -1;
+  const semanticTargetIdx = Number.isFinite(args.semanticTargetIdx as number) ? Math.round(Number(args.semanticTargetIdx)) : -1;
+  const allowedTargetIdx = Number.isFinite(args.allowedTargetIdx as number) ? Math.round(Number(args.allowedTargetIdx)) : -1;
+  const acceptedCommitTargetIdx = Number.isFinite(args.acceptedCommitTargetIdx as number) ? Math.round(Number(args.acceptedCommitTargetIdx)) : -1;
+  const recoveryTargetIdx = Number.isFinite(args.recoveryTargetIdx as number) ? Math.round(Number(args.recoveryTargetIdx)) : -1;
+  return `[ASR_LIVE_SCROLL_STALLED] currentLineIdx=${Math.round(args.currentLineIdx)} requestedTargetIdx=${requestedTargetIdx} semanticTargetIdx=${semanticTargetIdx} allowedTargetIdx=${allowedTargetIdx} acceptedCommitTargetIdx=${acceptedCommitTargetIdx} recoveryTargetIdx=${recoveryTargetIdx} movementAllowed=${args.movementAllowed ? 1 : 0} finalGear=${args.finalGear} pocketState=${args.pocketState} cappedTargetSafe=${args.cappedTargetSafe ? 1 : 0} targetDebtPx=${Math.round(args.targetDebtPx)} noVisualProgressMs=${Math.round(args.noVisualProgressMs)} noCommitMs=${Math.round(args.noCommitMs)} speechFresh=${args.speechFresh ? 1 : 0} audioFresh=${args.audioFresh ? 1 : 0} backendFresh=${args.backendFresh ? 1 : 0} transcriptAgeMs=${Math.round(args.transcriptAgeMs)} audioAgeMs=${Math.round(args.audioAgeMs)} backendTranscriptStale=${args.backendTranscriptStale ? 1 : 0} forwardEvidenceExists=${args.forwardEvidenceExists ? 1 : 0} visualGovernorHoldActive=${args.visualGovernorHoldActive ? 1 : 0} restartAction=${args.restartAction} recoveryAction=${args.recoveryAction} reason=${args.reason}`;
+}
+
 export const ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION = '2026-05-18a';
 export const ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION = '2026-05-18a';
 
