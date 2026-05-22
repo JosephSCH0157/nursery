@@ -3017,6 +3017,15 @@ describe('ASR live commit motion', () => {
     const recoveryLine = lines.find((l) => l.includes('ASR_RECOVERY_TARGET_EASED')) || '';
     expect(recoveryLine).toContain('sourcePath=asr-marker-lock-pocket-recovery');
     expect(recoveryLine).toContain('eased=1');
+    expect(lines.some((l) =>
+      l.includes('ASR_AUTHORITY_TARGET_UPDATED') &&
+      l.includes('sourcePath=asr-marker-lock-pocket-recovery') &&
+      l.includes('targetPreserved=1'),
+    )).toBe(true);
+    expect(lines.some((l) =>
+      l.includes('ASR_TARGET_PRESERVED_FOR_EASING') &&
+      l.includes('sourcePath=asr-marker-lock-pocket-recovery'),
+    )).toBe(true);
     expect(
       recoveryLine.includes('reason=low_pocket_safe_target') ||
       recoveryLine.includes('reason=low_pocket_adjacent_safe_fallback'),
@@ -3025,10 +3034,19 @@ describe('ASR live commit motion', () => {
       l.includes('ASR_DIRECT_SCROLL_SUPPRESSED') &&
       l.includes('sourcePath=asr-marker-lock-pocket-recovery'),
     )).toBe(true);
+    expect(lines.some((l) =>
+      l.includes('ASR_DIRECT_SCROLL_WRITE_BLOCKED') &&
+      l.includes('sourcePath=asr-marker-lock-pocket-recovery'),
+    )).toBe(true);
     expect(scroller.scrollTop).toBeGreaterThanOrEqual(200);
     expect(scroller.scrollTop).toBeLessThan(320);
     await jest.advanceTimersByTimeAsync(120);
     expect(scroller.scrollTop).toBeGreaterThan(200);
+    const easedLines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(easedLines.some((l) =>
+      l.includes('ASR_VISIBLE_SCROLL_EASED') &&
+      l.includes('sourcePath=asr-marker-lock-pocket-recovery'),
+    )).toBe(true);
     warnSpy.mockRestore();
     driver.dispose();
   });

@@ -2960,6 +2960,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   } catch {}
   let activeMotionPreset: 'normal' | 'calm' = calmModeEnabled ? 'calm' : 'normal';
   let motionTuning = { ...(calmModeEnabled ? MOTION_PRESET_CALM : MOTION_PRESET_NORMAL) };
+  let preservedAsrAuthorityTargetTop: number | null = null;
+  let preservedAsrAuthorityTargetReason = 'none';
+  let preservedAsrAuthorityTargetSourcePath = 'none';
   let lastTuningSnapshot = '';
   let lastTuningHudAt = 0;
   const emitTuningHud = (now: number) => {
@@ -11042,6 +11045,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (getScrollMode() === 'asr' && !liveAsrFollowMode) {
       pursuitActive = false;
       pursuitTargetTop = null;
+      preservedAsrAuthorityTargetTop = null;
+      preservedAsrAuthorityTargetReason = 'inactive_phase';
+      preservedAsrAuthorityTargetSourcePath = 'inactive_phase';
       pursuitVel = 0;
       microPursuitUntil = 0;
       return;
@@ -11063,10 +11069,28 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (pursuitActive && lastMoveAt && manualDelta > DEFAULT_PURSUE_MANUAL_CANCEL_PX) {
       pursuitActive = false;
       pursuitTargetTop = null;
+      preservedAsrAuthorityTargetTop = null;
+      preservedAsrAuthorityTargetReason = 'manual_scroll';
+      preservedAsrAuthorityTargetSourcePath = 'manual_scroll';
       pursuitVel = 0;
       lastKnownScrollTop = current;
       logDev('pursuit canceled (manual scroll)', { delta: Math.round(manualDelta) });
       return;
+    }
+
+    if (
+      preservedAsrAuthorityTargetTop != null &&
+      Number.isFinite(preservedAsrAuthorityTargetTop) &&
+      preservedAsrAuthorityTargetTop > current + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX &&
+      (pursuitTargetTop == null || !Number.isFinite(pursuitTargetTop) || pursuitTargetTop < preservedAsrAuthorityTargetTop)
+    ) {
+      const previousTarget = Number.isFinite(pursuitTargetTop as number) ? Number(pursuitTargetTop) : -1;
+      pursuitTargetTop = preservedAsrAuthorityTargetTop;
+      try {
+        console.warn(
+          `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(previousTarget)} requestedTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} effectiveTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} currentScrollTop=${Math.round(current)} deltaPxToTarget=${Math.round(Math.max(0, preservedAsrAuthorityTargetTop - current))} targetPreserved=1`,
+        );
+      } catch {}
     }
 
     if (pursuitTargetTop == null) {
@@ -11093,6 +11117,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       pursuitVel = 0;
       pursuitActive = false;
       pursuitTargetTop = null;
+      if (
+        preservedAsrAuthorityTargetTop != null &&
+        Number.isFinite(preservedAsrAuthorityTargetTop) &&
+        Math.abs(Number(preservedAsrAuthorityTargetTop) - current) <= ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX
+      ) {
+        preservedAsrAuthorityTargetTop = null;
+        preservedAsrAuthorityTargetReason = 'target_reached';
+        preservedAsrAuthorityTargetSourcePath = 'target_reached';
+      }
       emitPursuitHud(err, pursuitVel, target, current);
       return;
     }
@@ -12153,6 +12186,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
           alignmentEpisodes.noteCleared({ reason: 'governor_hold_clear_target' });
         } catch {}
+        if (
+          preservedAsrAuthorityTargetTop != null &&
+          Number.isFinite(preservedAsrAuthorityTargetTop) &&
+          preservedAsrAuthorityTargetTop > current + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX
+        ) {
+          try {
+            console.warn(
+              `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(oldTarget)} requestedTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} effectiveTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} currentScrollTop=${Math.round(current)} deltaPxToTarget=${Math.round(Math.max(0, preservedAsrAuthorityTargetTop - current))} targetPreserved=1`,
+            );
+          } catch {}
+        }
       }
     } else {
       liveAsrVisualGovernorHardHoldSinceMs = 0;
@@ -12168,6 +12212,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     try { (window as any).__tpLiveAsrGovernorHold = visualGovernorHoldActive; } catch {}
     let comfortOnlyHoldActive = liveHardHold && !visualGovernorHoldActive;
+    const preservedAuthorityTargetStillAhead =
+      preservedAsrAuthorityTargetTop != null &&
+      Number.isFinite(preservedAsrAuthorityTargetTop) &&
+      preservedAsrAuthorityTargetTop > current + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX;
+    if (comfortOnlyHoldActive && preservedAuthorityTargetStillAhead) {
+      comfortOnlyHoldActive = false;
+      liveHardHold = false;
+      pursuitTargetTop = Math.max(
+        Number.isFinite(pursuitTargetTop as number) ? Number(pursuitTargetTop) : 0,
+        Number(preservedAsrAuthorityTargetTop),
+      );
+      try {
+        console.warn(
+          `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(current)} requestedTargetScrollTop=${Math.round(Number(preservedAsrAuthorityTargetTop))} effectiveTargetScrollTop=${Math.round(Number(preservedAsrAuthorityTargetTop))} currentScrollTop=${Math.round(current)} deltaPxToTarget=${Math.round(Math.max(0, Number(preservedAsrAuthorityTargetTop) - current))} targetPreserved=1`,
+        );
+      } catch {}
+    }
     if (comfortOnlyHoldActive) {
       pursuitVel = 0;
       pursuitActive = false;
@@ -12555,6 +12616,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       appliedDeltaPx = Math.max(0, afterScrollTop - beforeScrollTop);
       lastMoveAt = Date.now();
       markProgrammaticScroll();
+      if (
+        preservedAsrAuthorityTargetTop != null &&
+        Number.isFinite(preservedAsrAuthorityTargetTop) &&
+        afterScrollTop > beforeScrollTop + 0.5
+      ) {
+        try {
+          console.warn(
+            `[ASR_VISIBLE_SCROLL_EASED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} requestedTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} effectiveTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} currentScrollTop=${Math.round(beforeScrollTop)} deltaPxToTarget=${Math.round(Math.max(0, Number(preservedAsrAuthorityTargetTop) - beforeScrollTop))} visibleStepPx=${Math.round(appliedDeltaPx)} targetPreserved=1 eased=1`,
+          );
+        } catch {}
+      }
       if (isHybridMode()) {
         if (commitCount > 0) {
           const normalizedErr = Math.min(1, err / 200);
@@ -12973,6 +13045,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       console.warn(
         `[ASR_DIRECT_SCROLL_SUPPRESSED] reason=${input.reason} requestedTargetScrollTop=${Math.round(requestedTargetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} deltaPx=${Math.round(deltaPx)} cappedDeltaPx=${Math.round(cappedDeltaPx)} eased=${requested ? 1 : 0} sourcePath=${input.sourcePath}`,
       );
+      console.warn(
+        `[ASR_DIRECT_SCROLL_WRITE_BLOCKED] sourcePath=${input.sourcePath} reason=${input.reason} previousTargetScrollTop=${Math.round(Number.isFinite(pursuitTargetTop as number) ? Number(pursuitTargetTop) : -1)} requestedTargetScrollTop=${Math.round(requestedTargetScrollTop)} effectiveTargetScrollTop=${Math.round(requestedTargetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} deltaPxToTarget=${Math.round(deltaPx)} directWriteBlocked=1`,
+      );
     } catch {}
     if (!requested) {
       return {
@@ -12985,12 +13060,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       };
     }
     stopGlide(`smooth-motion-retarget:${input.sourcePath}`);
-    pursuitTargetTop = easedTargetScrollTop;
-    armMicroPursuit(Date.now(), input.sourcePath);
+    const previousTargetScrollTop =
+      Number.isFinite(pursuitTargetTop as number) ? Number(pursuitTargetTop) : -1;
+    preservedAsrAuthorityTargetTop = requestedTargetScrollTop;
+    preservedAsrAuthorityTargetReason = input.reason;
+    preservedAsrAuthorityTargetSourcePath = input.sourcePath;
+    pursuitTargetTop = requestedTargetScrollTop;
+    try {
+      console.warn(
+        `[ASR_AUTHORITY_TARGET_UPDATED] sourcePath=${input.sourcePath} reason=${input.reason} previousTargetScrollTop=${Math.round(previousTargetScrollTop)} requestedTargetScrollTop=${Math.round(requestedTargetScrollTop)} effectiveTargetScrollTop=${Math.round(requestedTargetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} deltaPxToTarget=${Math.round(deltaPx)} targetPreserved=1`,
+      );
+      console.warn(
+        `[ASR_TARGET_PRESERVED_FOR_EASING] sourcePath=${input.sourcePath} reason=${input.reason} previousTargetScrollTop=${Math.round(previousTargetScrollTop)} requestedTargetScrollTop=${Math.round(requestedTargetScrollTop)} effectiveTargetScrollTop=${Math.round(requestedTargetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} deltaPxToTarget=${Math.round(deltaPx)} cappedDeltaPx=${Math.round(cappedDeltaPx)} targetPreserved=1 eased=1 directWriteBlocked=1`,
+      );
+    } catch {}
     ensurePursuitActive();
     try {
       console.warn(
-        `[ASR_SMOOTH_MOTION_REQUESTED] reason=${input.reason} requestedTargetScrollTop=${Math.round(requestedTargetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} deltaPx=${Math.round(deltaPx)} cappedDeltaPx=${Math.round(cappedDeltaPx)} eased=1 sourcePath=${input.sourcePath}`,
+        `[ASR_SMOOTH_MOTION_REQUESTED] reason=${input.reason} requestedTargetScrollTop=${Math.round(requestedTargetScrollTop)} effectiveTargetScrollTop=${Math.round(requestedTargetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} deltaPx=${Math.round(deltaPx)} cappedDeltaPx=${Math.round(cappedDeltaPx)} eased=1 sourcePath=${input.sourcePath}`,
       );
     } catch {}
     return {
@@ -25406,6 +25493,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     releaseCommitWindow('dispose');
     stopGlide('dispose');
     pursuitTargetTop = null;
+    preservedAsrAuthorityTargetTop = null;
+    preservedAsrAuthorityTargetReason = 'dispose';
+    preservedAsrAuthorityTargetSourcePath = 'dispose';
     pursuitVel = 0;
     pursuitActive = false;
     microPursuitUntil = 0;
@@ -25494,6 +25584,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     stallRescueRequested = false;
     matchAnchorIdx = lastLineIndex;
     pursuitTargetTop = null;
+    preservedAsrAuthorityTargetTop = null;
+    preservedAsrAuthorityTargetReason = 'sync-index';
+    preservedAsrAuthorityTargetSourcePath = 'sync-index';
     pursuitVel = 0;
     pursuitActive = false;
     lastEvidenceAt = 0;
