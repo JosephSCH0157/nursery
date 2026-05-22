@@ -9608,15 +9608,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const scroller = getScroller();
     const targetTop = scroller ? resolveTargetTop(scroller, targetLine) : null;
     if (scroller && targetTop != null) {
-      stopGlide('cue-skip');
-      const applied = applyScrollWithHybridGuard(targetTop, {
+      requestSmoothAsrMotion({
         scroller,
         reason: 'asr-cue-skip',
-        source: 'asr',
+        sourcePath: 'asr-cue-skip',
+        requestedTargetScrollTop: targetTop,
       });
-      lastKnownScrollTop = applied;
-      lastMoveAt = now;
-      markProgrammaticScroll();
     }
     lastLineIndex = targetLine;
     lastCommittedLine = targetLine;
@@ -12936,6 +12933,76 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     window.requestAnimationFrame(tickController);
   };
 
+  const requestSmoothAsrMotion = (input: {
+    scroller?: HTMLElement | null;
+    reason: string;
+    sourcePath: 'asr-marker-lock-pocket-recovery' | 'asr-cue-skip' | 'asr-tick' | 'stall-recovery';
+    requestedTargetScrollTop: number;
+    easedTargetScrollTop?: number | null;
+  }): {
+    requested: boolean;
+    currentScrollTop: number;
+    requestedTargetScrollTop: number;
+    easedTargetScrollTop: number;
+    deltaPx: number;
+    cappedDeltaPx: number;
+  } => {
+    const scroller = input.scroller ?? getScroller();
+    const maxTop = scroller ? Math.max(0, (scroller.scrollHeight || 0) - scroller.clientHeight) : 0;
+    const currentScrollTop = scroller ? Number(scroller.scrollTop || 0) : 0;
+    const requestedTargetScrollTop = clamp(
+      Number.isFinite(input.requestedTargetScrollTop) ? Number(input.requestedTargetScrollTop) : currentScrollTop,
+      0,
+      maxTop,
+    );
+    const easedTargetScrollTop = clamp(
+      Number.isFinite(input.easedTargetScrollTop as number)
+        ? Number(input.easedTargetScrollTop)
+        : requestedTargetScrollTop,
+      0,
+      maxTop,
+    );
+    const deltaPx = Math.max(0, requestedTargetScrollTop - currentScrollTop);
+    const cappedDeltaPx = Math.max(0, easedTargetScrollTop - currentScrollTop);
+    const requested =
+      !!scroller &&
+      Number.isFinite(requestedTargetScrollTop) &&
+      Number.isFinite(easedTargetScrollTop) &&
+      easedTargetScrollTop > currentScrollTop + 0.5;
+    try {
+      console.warn(
+        `[ASR_DIRECT_SCROLL_SUPPRESSED] reason=${input.reason} requestedTargetScrollTop=${Math.round(requestedTargetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} deltaPx=${Math.round(deltaPx)} cappedDeltaPx=${Math.round(cappedDeltaPx)} eased=${requested ? 1 : 0} sourcePath=${input.sourcePath}`,
+      );
+    } catch {}
+    if (!requested) {
+      return {
+        requested: false,
+        currentScrollTop,
+        requestedTargetScrollTop,
+        easedTargetScrollTop,
+        deltaPx,
+        cappedDeltaPx,
+      };
+    }
+    stopGlide(`smooth-motion-retarget:${input.sourcePath}`);
+    pursuitTargetTop = easedTargetScrollTop;
+    armMicroPursuit(Date.now(), input.sourcePath);
+    ensurePursuitActive();
+    try {
+      console.warn(
+        `[ASR_SMOOTH_MOTION_REQUESTED] reason=${input.reason} requestedTargetScrollTop=${Math.round(requestedTargetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} deltaPx=${Math.round(deltaPx)} cappedDeltaPx=${Math.round(cappedDeltaPx)} eased=1 sourcePath=${input.sourcePath}`,
+      );
+    } catch {}
+    return {
+      requested: true,
+      currentScrollTop,
+      requestedTargetScrollTop,
+      easedTargetScrollTop,
+      deltaPx,
+      cappedDeltaPx,
+    };
+  };
+
   const applyAsrCommitMovement = (
     commit: AsrCommit,
     deps: AsrCommitMoveDeps,
@@ -13213,24 +13280,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             max,
           );
           if (boundedTargetTop > beforeTop + 0.5) {
-            const boundedAppliedTop = applyCanonicalScrollTop(boundedTargetTop, {
+            const motionRequest = requestSmoothAsrMotion({
               scroller: deps.scroller,
               reason: 'asr-marker-lock-pocket-recovery',
-              source: 'asr-commit',
+              sourcePath: 'asr-marker-lock-pocket-recovery',
+              requestedTargetScrollTop: targetTop,
+              easedTargetScrollTop: boundedTargetTop,
             });
-            const boundedAfterTop =
-              finiteNumberOrNull(
-                'commit.afterTop.markerLockPocketRecovery',
-                Number.isFinite(boundedAppliedTop) ? boundedAppliedTop : readAfterTop(),
-                { reason, lineIdx: commit.lineIdx, blockId: commit.blockId, markerLockLineIdx },
-              ) ?? beforeTop;
-            pursuitTargetTop = targetTop;
-            lastKnownScrollTop = boundedAfterTop;
-            lastMoveAt = Date.now();
-            markProgrammaticScroll();
-            ensurePursuitActive();
             snapSuppressed = true;
-            boundedPocketRecoveryApplied = true;
+            boundedPocketRecoveryApplied = motionRequest.requested;
             try {
               const pocketRecoveryReason = safeRecoveryResolved
                 ? 'low_pocket_safe_target'
@@ -13240,21 +13298,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               );
               alignmentEpisodes.noteSnapSuppressed({ reason: 'live_asr_marker_lock_bounded_recovery' });
               console.warn(
-                `[ASR_MARKER_LOCK_POCKET_RECOVERY_APPLIED] commitLineIdx=${commit.lineIdx} allowedTargetIdx=${lastResolvedAllowedTargetIdx} currentScrollTop=${Math.round(beforeTop)} boundedTargetScrollTop=${Math.round(boundedTargetTop)} afterScrollTop=${Math.round(boundedAfterTop)} targetScrollTop=${Math.round(targetTop)} pocketState=${lastResolvedPocketState} finalGear=${lastResolvedFinalGear} cappedTargetSafe=${lastResolvedCappedTargetSafe ? 1 : 0} movementAllowed=${lastResolvedMovementAllowed ? 1 : 0} reason=${pocketRecoveryReason}`,
+                `[ASR_RECOVERY_TARGET_EASED] reason=${pocketRecoveryReason} requestedTargetScrollTop=${Math.round(targetTop)} currentScrollTop=${Math.round(beforeTop)} deltaPx=${Math.round(Math.max(0, targetTop - beforeTop))} cappedDeltaPx=${Math.round(Math.max(0, boundedTargetTop - beforeTop))} eased=${motionRequest.requested ? 1 : 0} sourcePath=asr-marker-lock-pocket-recovery`,
               );
-              alignmentEpisodes.noteFollow({
-                deltaLines: Math.max(0, (boundedAfterTop - beforeTop) / Math.max(1, resolveMotionLineHeightPx(getLineElementByIndex(deps.scroller, commit.lineIdx)))),
-                reason: 'marker_lock_pocket_recovery',
-                targetDeltaPx: boundedAfterTop - beforeTop,
-                velocityPxps: Math.max(0, boundedAfterTop - beforeTop) * 4,
-              });
             } catch {}
             return {
               method: 'pixel',
               writerCommitted: false,
               beforeTop,
-              afterTop: boundedAfterTop,
-              movedPx: Math.round(boundedAfterTop - beforeTop),
+              afterTop: beforeTop,
+              movedPx: 0,
               snapSuppressed,
             };
           }
