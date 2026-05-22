@@ -2984,6 +2984,124 @@ describe('ASR live commit motion', () => {
         return !!debt && Number(debt[1]) >= 120;
       }),
     ).toBe(true);
+    expect(
+      lines.some((l) =>
+        l.includes('ASR_SCROLL_AUTHORITY_RESOLVED') &&
+        l.includes('movementAllowed=1'),
+      ),
+    ).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('safe low-pocket marker-lock path requests eased pocket recovery instead of hard jump scrolling', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 200;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'marker-lock-pocket-prime',
+      match: { bestIdx: 1, bestSim: 0.92, topScores: [{ idx: 1, score: 0.92 }] },
+    });
+    await jest.advanceTimersByTimeAsync(220);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'marker-lock-pocket-recovery',
+      match: { bestIdx: 2, bestSim: 0.92, topScores: [{ idx: 2, score: 0.92 }] },
+    });
+    await jest.advanceTimersByTimeAsync(32);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(lines.some((l) => l.includes('ASR_VISUAL_SNAP_SUPPRESSED'))).toBe(true);
+    const recoveryLine = lines.find((l) => l.includes('ASR_RECOVERY_TARGET_EASED')) || '';
+    expect(recoveryLine).toContain('sourcePath=asr-marker-lock-pocket-recovery');
+    expect(recoveryLine).toContain('eased=1');
+    expect(lines.some((l) =>
+      l.includes('ASR_AUTHORITY_TARGET_UPDATED') &&
+      l.includes('sourcePath=asr-marker-lock-pocket-recovery') &&
+      l.includes('targetPreserved=1'),
+    )).toBe(true);
+    expect(lines.some((l) =>
+      l.includes('ASR_TARGET_PRESERVED_FOR_EASING') &&
+      l.includes('sourcePath=asr-marker-lock-pocket-recovery'),
+    )).toBe(true);
+    expect(
+      recoveryLine.includes('reason=low_pocket_safe_target') ||
+      recoveryLine.includes('reason=low_pocket_adjacent_safe_fallback'),
+    ).toBe(true);
+    expect(lines.some((l) =>
+      l.includes('ASR_DIRECT_SCROLL_SUPPRESSED') &&
+      l.includes('sourcePath=asr-marker-lock-pocket-recovery'),
+    )).toBe(true);
+    expect(lines.some((l) =>
+      l.includes('ASR_DIRECT_SCROLL_WRITE_BLOCKED') &&
+      l.includes('sourcePath=asr-marker-lock-pocket-recovery'),
+    )).toBe(true);
+    expect(scroller.scrollTop).toBeGreaterThanOrEqual(200);
+    expect(scroller.scrollTop).toBeLessThan(320);
+    await jest.advanceTimersByTimeAsync(120);
+    expect(scroller.scrollTop).toBeGreaterThan(200);
+    const easedLines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(easedLines.some((l) =>
+      l.includes('ASR_VISIBLE_SCROLL_EASED') &&
+      l.includes('sourcePath=asr-marker-lock-pocket-recovery'),
+    )).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('live cue-skip requests smooth motion instead of teleporting the viewport', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const script = document.getElementById('script') as HTMLElement;
+    script.innerHTML = `
+      <div class="line" data-line="0" style="line-height:24px;">[beat]</div>
+      <div class="line" data-line="1" style="line-height:24px;">Farebox chirps, coffee lids do that little click.</div>
+      <div class="line" data-line="2" style="line-height:24px;">The seats remember every early shift.</div>
+      <div class="line" data-line="3" style="line-height:24px;">Neon ads hum above the aisle.</div>
+    `;
+    const metrics = [
+      { top: 0, height: 236 },
+      { top: 567, height: 236 },
+      { top: 1134, height: 236 },
+      { top: 1701, height: 236 },
+    ];
+    Array.from(document.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+      const metric = metrics[idx];
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: metric.top,
+          left: 0,
+          right: 800,
+          bottom: metric.top + metric.height,
+          width: 800,
+          height: metric.height,
+        }),
+      });
+    });
+    scroller.scrollTop = 0;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(0);
+
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'cue-skip-smooth-motion',
+      match: { bestIdx: 1, bestSim: 0.99, topScores: [{ idx: 1, score: 0.99 }] },
+    });
+
+    await jest.advanceTimersByTimeAsync(32);
+    const earlyTop = scroller.scrollTop;
+    expect(earlyTop).toBeLessThan(250);
+
+    await jest.advanceTimersByTimeAsync(240);
+    expect(scroller.scrollTop).toBeGreaterThan(earlyTop);
+    expect(driver.getLastLineIndex()).toBe(1);
+
     warnSpy.mockRestore();
     driver.dispose();
   });

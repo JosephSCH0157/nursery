@@ -1,5 +1,6 @@
 import {
   classifyAsrStall,
+  resolveAsrLiveScrollStall,
   shouldClassifyBackendTranscriptStall,
   shouldClassifyBridgeTrap,
   shouldClassifyScrollCommitStall,
@@ -126,5 +127,61 @@ describe('ASR stall classifier', () => {
       repeatedHoldCount: 3,
       stallMs: 3500,
     })).toBe(true);
+  });
+
+  test('late live visual stall picks safe capped recovery when movement is allowed', () => {
+    const result = resolveAsrLiveScrollStall({
+      liveAsr: true,
+      movementAllowed: true,
+      speechFresh: true,
+      audioFresh: true,
+      backendFresh: true,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+      terminalClampActive: false,
+      noVisualProgressMs: 2400,
+      noVisualProgressThresholdMs: 1800,
+      currentLineIdx: 82,
+      allowedTargetIdx: 83,
+      acceptedCommitTargetIdx: 84,
+      lastAcceptedProofLine: 83,
+      cappedTargetSafe: true,
+      targetDebtPx: 188,
+      transcriptAgeMs: 600,
+      transcriptStaleMs: 9000,
+      pocketState: 'bottom_locked',
+    });
+    expect(result.active).toBe(true);
+    expect(result.backendTranscriptStale).toBe(false);
+    expect(result.recoveryAction).toBe('safe_capped_recovery');
+    expect(result.recoveryTargetIdx).toBe(83);
+  });
+
+  test('stale backend with no safe target becomes unrecoverable instead of silently inventing one', () => {
+    const result = resolveAsrLiveScrollStall({
+      liveAsr: true,
+      movementAllowed: true,
+      speechFresh: false,
+      audioFresh: true,
+      backendFresh: false,
+      noMatchOrOffscript: false,
+      hardContradiction: false,
+      terminalClampActive: false,
+      noVisualProgressMs: 2600,
+      noVisualProgressThresholdMs: 1800,
+      currentLineIdx: 82,
+      allowedTargetIdx: null,
+      acceptedCommitTargetIdx: 84,
+      lastAcceptedProofLine: 82,
+      cappedTargetSafe: false,
+      targetDebtPx: 154,
+      transcriptAgeMs: 9800,
+      transcriptStaleMs: 9000,
+      pocketState: 'near_lower_rail',
+    });
+    expect(result.active).toBe(true);
+    expect(result.backendTranscriptStale).toBe(true);
+    expect(result.recoveryAction).toBe('unrecoverable');
+    expect(result.recoveryTargetIdx).toBeNull();
   });
 });

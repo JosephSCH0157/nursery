@@ -40,6 +40,8 @@ import {
   buildAsrPostAdjacentCommitVisualRecoveryOpenedDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryPathProofDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic,
+  buildAsrAccumulationSnapshotDiagnostic,
+  buildAsrLiveScrollStalledDiagnostic,
   buildAsrRecoveryGearSelectedDiagnostic,
   buildAsrScrollAuthorityResolvedDiagnostic,
   buildAsrScrollChairpersonArbitrationDiagnostic,
@@ -83,6 +85,7 @@ import {
   shouldClassifyBackendTranscriptStall,
   shouldClassifyBridgeTrap,
   shouldClassifyScrollCommitStall,
+  resolveAsrLiveScrollStall,
 } from './asr-stall-classifier';
 import {
   shouldAllowPendingBridgeCompletion,
@@ -139,6 +142,8 @@ import {
   DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS,
   DEFAULT_ASR_BACKEND_FIRST_TRANSCRIPT_GRACE_MS,
   DEFAULT_ASR_BACKEND_HEARTBEAT_MS,
+  DEFAULT_ASR_LIVE_SCROLL_STALL_NO_PROGRESS_MS,
+  DEFAULT_ASR_LIVE_SCROLL_STALL_RECOVERY_COOLDOWN_MS,
   DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS,
   DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS,
   DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS,
@@ -2955,6 +2960,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   } catch {}
   let activeMotionPreset: 'normal' | 'calm' = calmModeEnabled ? 'calm' : 'normal';
   let motionTuning = { ...(calmModeEnabled ? MOTION_PRESET_CALM : MOTION_PRESET_NORMAL) };
+  let preservedAsrAuthorityTargetTop: number | null = null;
+  let preservedAsrAuthorityTargetReason = 'none';
+  let preservedAsrAuthorityTargetSourcePath = 'none';
   let lastTuningSnapshot = '';
   let lastTuningHudAt = 0;
   const emitTuningHud = (now: number) => {
@@ -3393,9 +3401,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastAsrNextSpeakableLineY = Number.NaN;
   let lastAsrReaderPocketZone = 'unknown';
   let lastAsrResolvedAuthoritySignature = '';
+  let lastResolvedMovementAllowed = false;
+  let lastResolvedCappedTargetSafe = false;
+  let lastResolvedFinalGear: 'hold' | 'normal_floor' | 'normal_tracking' | 'recovery' = 'hold';
+  let lastResolvedAllowedTargetIdx = -1;
+  let lastResolvedPocketState = 'in_preferred_pocket';
+  let lastAsrAccumulationSnapshotAt = 0;
+  let lastAsrAccumulationSnapshotCommitCount = -1;
   let lastAsrBackendSpeechActive = false;
   let lastAsrBackendTranscriptAgeMs = -1;
   let lastAsrBackendAudioAgeMs = -1;
+  let lastAsrLiveScrollStallSignature = '';
+  let lastAsrLiveScrollStallLoggedAt = 0;
+  let lastAsrLiveScrollStallRecoveryAt = 0;
   let liveAsrVisualSemanticMismatchHeld = false;
   let lastBridgeCompletionHeldLogAt = 0;
   let lastBridgeWalkRecoveryLogAt = 0;
@@ -5025,6 +5043,70 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         asrFocusMovementHoldActive,
       };
     } catch {}
+  };
+
+  const emitAccumulationSnapshotIfNeeded = (args: {
+    nowTs: number;
+    targetDebtPx: number;
+    distanceToMaxScrollTop: number;
+    currentLineIdx: number;
+    requestedTargetIdx: number;
+  }) => {
+    const dueByCommit =
+      commitCount > 0 &&
+      (
+        lastAsrAccumulationSnapshotCommitCount < 0 ||
+        (commitCount - lastAsrAccumulationSnapshotCommitCount) >= 10
+      );
+    const dueByTime =
+      lastAsrAccumulationSnapshotAt <= 0 ||
+      (args.nowTs - lastAsrAccumulationSnapshotAt) >= 5000;
+    if (!dueByCommit && !dueByTime) return;
+
+    const episodeCounts = alignmentEpisodes.getSnapshotCounts();
+    let logBufferEntryCount = 0;
+    let logBufferDroppedCount = 0;
+    try {
+      const summary = (window as any)?.__getAsrLogSummary?.();
+      logBufferEntryCount = Number(summary?.entryCount || 0);
+      logBufferDroppedCount = Number(summary?.droppedCount || 0);
+    } catch {
+      // ignore
+    }
+    const visualGovernorHoldAgeMs =
+      liveAsrVisualGovernorHardHoldSinceMs > 0
+        ? Math.max(0, args.nowTs - liveAsrVisualGovernorHardHoldSinceMs)
+        : 0;
+    try {
+      console.warn(
+        buildAsrAccumulationSnapshotDiagnostic({
+          commitCount,
+          eventsSinceCommit,
+          finalsSinceCommit,
+          alignmentEpisodeCount: episodeCounts.closedEpisodeCount,
+          activeEpisodeActions: episodeCounts.activeEpisodeActionCount,
+          activeEpisodeDeltaSamples: episodeCounts.activeEpisodeDeltaSampleCount,
+          activeEpisodeReasonChain: episodeCounts.activeEpisodeReasonChainCount,
+          guardEventsCount: guardEvents.length,
+          strongHitsCount: strongHits.length,
+          evidenceEntriesCount: evidenceEntries.length,
+          consistencyEntriesCount: consistencyEntries.length,
+          bridgeBlockMapSize: liveBridgeDownstreamBlockUntilByKey.size,
+          bridgeTrapMapSize: earlyBridgeTrapHoldCountByKey.size,
+          logBufferEntryCount,
+          logBufferDroppedCount,
+          visualGovernorHoldAgeMs,
+          noProgressStreak,
+          lostForwardWallStreak,
+          targetDebtPx: args.targetDebtPx,
+          distanceToMaxScrollTop: args.distanceToMaxScrollTop,
+          currentLineIdx: args.currentLineIdx,
+          requestedTargetIdx: args.requestedTargetIdx,
+        }),
+      );
+    } catch {}
+    lastAsrAccumulationSnapshotAt = args.nowTs;
+    lastAsrAccumulationSnapshotCommitCount = commitCount;
   };
 
   const trimEvidenceEntries = (now: number) => {
@@ -6672,7 +6754,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     });
   };
 
-  const requestBackendRestart = (reason: string, now: number, transcriptAgeMs: number, audioAgeMs: number) => {
+  const requestBackendRestart = (
+    reason: string,
+    now: number,
+    transcriptAgeMs: number,
+    audioAgeMs: number,
+  ): 'requested' | 'already_restarted_in_window' | 'recognizer_controls_unavailable' => {
     if (backendRestartedInWindow) {
       try {
         console.warn(
@@ -6689,7 +6776,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ),
         );
       } catch {}
-      return;
+      return 'already_restarted_in_window';
     }
     const speech = (window as any).__tpSpeech;
     if (!speech || typeof speech.stopRecognizer !== 'function' || typeof speech.startRecognizer !== 'function') {
@@ -6708,7 +6795,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ),
         );
       } catch {}
-      return;
+      return 'recognizer_controls_unavailable';
     }
     backendRestartedInWindow = true;
     try {
@@ -6740,6 +6827,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }),
       );
     } catch {}
+    return 'requested';
   };
 
   const checkBackendLiveness = () => {
@@ -9523,15 +9611,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const scroller = getScroller();
     const targetTop = scroller ? resolveTargetTop(scroller, targetLine) : null;
     if (scroller && targetTop != null) {
-      stopGlide('cue-skip');
-      const applied = applyScrollWithHybridGuard(targetTop, {
+      requestSmoothAsrMotion({
         scroller,
         reason: 'asr-cue-skip',
-        source: 'asr',
+        sourcePath: 'asr-cue-skip',
+        requestedTargetScrollTop: targetTop,
       });
-      lastKnownScrollTop = applied;
-      lastMoveAt = now;
-      markProgrammaticScroll();
     }
     lastLineIndex = targetLine;
     lastCommittedLine = targetLine;
@@ -10960,6 +11045,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (getScrollMode() === 'asr' && !liveAsrFollowMode) {
       pursuitActive = false;
       pursuitTargetTop = null;
+      preservedAsrAuthorityTargetTop = null;
+      preservedAsrAuthorityTargetReason = 'inactive_phase';
+      preservedAsrAuthorityTargetSourcePath = 'inactive_phase';
       pursuitVel = 0;
       microPursuitUntil = 0;
       return;
@@ -10981,10 +11069,28 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (pursuitActive && lastMoveAt && manualDelta > DEFAULT_PURSUE_MANUAL_CANCEL_PX) {
       pursuitActive = false;
       pursuitTargetTop = null;
+      preservedAsrAuthorityTargetTop = null;
+      preservedAsrAuthorityTargetReason = 'manual_scroll';
+      preservedAsrAuthorityTargetSourcePath = 'manual_scroll';
       pursuitVel = 0;
       lastKnownScrollTop = current;
       logDev('pursuit canceled (manual scroll)', { delta: Math.round(manualDelta) });
       return;
+    }
+
+    if (
+      preservedAsrAuthorityTargetTop != null &&
+      Number.isFinite(preservedAsrAuthorityTargetTop) &&
+      preservedAsrAuthorityTargetTop > current + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX &&
+      (pursuitTargetTop == null || !Number.isFinite(pursuitTargetTop) || pursuitTargetTop < preservedAsrAuthorityTargetTop)
+    ) {
+      const previousTarget = Number.isFinite(pursuitTargetTop as number) ? Number(pursuitTargetTop) : -1;
+      pursuitTargetTop = preservedAsrAuthorityTargetTop;
+      try {
+        console.warn(
+          `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(previousTarget)} requestedTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} effectiveTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} currentScrollTop=${Math.round(current)} deltaPxToTarget=${Math.round(Math.max(0, preservedAsrAuthorityTargetTop - current))} targetPreserved=1`,
+        );
+      } catch {}
     }
 
     if (pursuitTargetTop == null) {
@@ -11011,6 +11117,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       pursuitVel = 0;
       pursuitActive = false;
       pursuitTargetTop = null;
+      if (
+        preservedAsrAuthorityTargetTop != null &&
+        Number.isFinite(preservedAsrAuthorityTargetTop) &&
+        Math.abs(Number(preservedAsrAuthorityTargetTop) - current) <= ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX
+      ) {
+        preservedAsrAuthorityTargetTop = null;
+        preservedAsrAuthorityTargetReason = 'target_reached';
+        preservedAsrAuthorityTargetSourcePath = 'target_reached';
+      }
       emitPursuitHud(err, pursuitVel, target, current);
       return;
     }
@@ -11492,6 +11607,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             preferredSettleBottom,
             preferredBandBottom,
             toleratedBandBottom,
+            lineHeightPx: resolveMotionLineHeightPx(
+              getLineElementByIndex(scroller, Math.max(0, nextSpeakableLineIdx)) ||
+              getLineElementByIndex(scroller, Math.max(0, lastLineIndex)),
+            ),
             targetDeltaPx: err,
             velocityPxps: maxVelForErr,
             reason: comfortReason,
@@ -12067,6 +12186,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
           alignmentEpisodes.noteCleared({ reason: 'governor_hold_clear_target' });
         } catch {}
+        if (
+          preservedAsrAuthorityTargetTop != null &&
+          Number.isFinite(preservedAsrAuthorityTargetTop) &&
+          preservedAsrAuthorityTargetTop > current + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX
+        ) {
+          try {
+            console.warn(
+              `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(oldTarget)} requestedTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} effectiveTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} currentScrollTop=${Math.round(current)} deltaPxToTarget=${Math.round(Math.max(0, preservedAsrAuthorityTargetTop - current))} targetPreserved=1`,
+            );
+          } catch {}
+        }
       }
     } else {
       liveAsrVisualGovernorHardHoldSinceMs = 0;
@@ -12081,29 +12211,44 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
     }
     try { (window as any).__tpLiveAsrGovernorHold = visualGovernorHoldActive; } catch {}
-    const comfortOnlyHoldActive = liveHardHold && !visualGovernorHoldActive;
+    let comfortOnlyHoldActive = liveHardHold && !visualGovernorHoldActive;
+    const preservedAuthorityTargetStillAhead =
+      preservedAsrAuthorityTargetTop != null &&
+      Number.isFinite(preservedAsrAuthorityTargetTop) &&
+      preservedAsrAuthorityTargetTop > current + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX;
+    if (comfortOnlyHoldActive && preservedAuthorityTargetStillAhead) {
+      comfortOnlyHoldActive = false;
+      liveHardHold = false;
+      pursuitTargetTop = Math.max(
+        Number.isFinite(pursuitTargetTop as number) ? Number(pursuitTargetTop) : 0,
+        Number(preservedAsrAuthorityTargetTop),
+      );
+      try {
+        console.warn(
+          `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(current)} requestedTargetScrollTop=${Math.round(Number(preservedAsrAuthorityTargetTop))} effectiveTargetScrollTop=${Math.round(Number(preservedAsrAuthorityTargetTop))} currentScrollTop=${Math.round(current)} deltaPxToTarget=${Math.round(Math.max(0, Number(preservedAsrAuthorityTargetTop) - current))} targetPreserved=1`,
+        );
+      } catch {}
+    }
     if (comfortOnlyHoldActive) {
       pursuitVel = 0;
       pursuitActive = false;
       pursuitTargetTop = null;
-      emitPursuitHud(err, pursuitVel, pursuitTargetTop, current);
-      return;
     }
     if (microActive) {
       maxVelForErr = Math.min(maxVelForErr, microPursuitCapPxPerSec);
     }
-    const desiredVel = Math.min(maxVelForErr, Math.max(0, err * DEFAULT_PURSUE_KP));
-    const pursuitVelBefore = pursuitVel;
+    let desiredVel = Math.min(maxVelForErr, Math.max(0, err * DEFAULT_PURSUE_KP));
+    let pursuitVelBefore = pursuitVel;
     const baseAccelCap = maxAccelPxPerSec2 * dt;
-    const actuatorBoostActive =
+    let actuatorBoostActive =
       liveAsrFollowMode &&
       liveAsrActuatorPursuitActive &&
       !liveHardHold;
-    const accelCap = actuatorBoostActive
+    let accelCap = actuatorBoostActive
       ? Math.max(baseAccelCap, Math.max(0, (desiredVel - pursuitVelBefore) * 0.65))
       : baseAccelCap;
-    const accelLimited = Math.abs(desiredVel - pursuitVelBefore) > accelCap;
-    const velDelta = clamp(desiredVel - pursuitVel, -accelCap, accelCap);
+    let accelLimited = Math.abs(desiredVel - pursuitVelBefore) > accelCap;
+    let velDelta = clamp(desiredVel - pursuitVel, -accelCap, accelCap);
     pursuitVel = clamp(pursuitVel + velDelta, 0, maxVelForErr);
     if (err > 0 && pursuitVel < motionTuning.minPursuitPxPerSec) {
       pursuitVel = Math.min(maxVelForErr, Math.max(pursuitVel, motionTuning.minPursuitPxPerSec));
@@ -12113,8 +12258,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
     const distanceToMaxScrollTop = Math.max(0, maxScrollTop - beforeScrollTop);
     const atScrollLimit = distanceToMaxScrollTop <= 0.5;
-    const requestedDeltaPx = Math.max(0, pursuitVel * dt);
-    const requestedPxps = pursuitVel;
+    let requestedDeltaPx = Math.max(0, pursuitVel * dt);
+    let requestedPxps = pursuitVel;
     let clampReason = 'none';
     let move = requestedDeltaPx;
     const visualRecoveryBoostActive =
@@ -12137,21 +12282,273 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       visualRecoveryBoostActive ? liveAsrRecoveryBoostMaxStepPx : 0,
       postAdjacentCommitVisualRecoveryActive ? postAdjacentCommitRecoveryMaxStepPx : 0,
     );
+    const freshnessNowTs = Date.now();
     const hardContradictionActive =
       String(lastAsrGuardReason || '').toLowerCase().includes('contradiction');
     const actuatorSpeechFresh =
       asrRuntimeSpeechRunningActual ||
-      hasRecentActualSpeech(Date.now()) ||
-      hasRecentVadSpeechNow(Date.now()) ||
-      (lastFinalTranscriptAt > 0 && (Date.now() - lastFinalTranscriptAt) <= 1800);
+      hasRecentActualSpeech(freshnessNowTs) ||
+      hasRecentVadSpeechNow(freshnessNowTs) ||
+      (lastFinalTranscriptAt > 0 && (freshnessNowTs - lastFinalTranscriptAt) <= 1800);
+    const resolverFinalPacketFresh =
+      lastFinalTranscriptAt > 0 &&
+      (freshnessNowTs - lastFinalTranscriptAt) <= 1800;
+    const resolverAudioPacketFresh =
+      lastTranscriptPacketAt > 0 &&
+      Math.max(0, freshnessNowTs - lastTranscriptPacketAt) <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS;
     const actuatorBackendFresh =
       lastTranscriptPacketAt > 0 &&
-      Math.max(0, Date.now() - lastTranscriptPacketAt) <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS &&
+      Math.max(0, freshnessNowTs - lastTranscriptPacketAt) <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS &&
       !asrSilenceActive;
+    const resolverBackendFresh =
+      actuatorBackendFresh ||
+      resolverFinalPacketFresh ||
+      (resolverAudioPacketFresh && actuatorSpeechFresh);
     const actuatorNoMatchOrOffscript =
       String(lastAsrGuardReason || '').toLowerCase().includes('no_match') ||
       String(lastAsrHudGuardText || '').toLowerCase().includes('offscript') ||
       hardContradictionActive;
+    const resolverHardSafetyState =
+      actuatorNoMatchOrOffscript || hardContradictionActive
+        ? 'absolute_hold'
+        : (
+          liveAsrCommitteeHardSafetyState === 'distance_restrict_only' ||
+          liveAsrCommitteeHardSafetyState === 'absolute_hold' ||
+          liveAsrVisualGovernorHardHold
+            ? 'distance_restrict_only'
+            : 'clear'
+        );
+    const arithmeticTargetDebtPx = Number.isFinite(liveAsrActuatorTargetDebtPx) ? liveAsrActuatorTargetDebtPx : Number.NaN;
+    const resolverLineHeightPx = resolveMotionLineHeightPx(
+      getLineElementByIndex(scroller, Math.max(0, liveAsrCommitteeAcceptedCommitTargetIdx)) ||
+      getLineElementByIndex(scroller, Math.max(0, liveAsrCommitteeRequestedTargetIdx)) ||
+      getLineElementByIndex(scroller, Math.max(0, lastLineIndex)),
+    );
+    const resolvedCommand = resolveAsrScrollAuthority({
+      currentLineIdx: lastLineIndex,
+      requestedTargetIdx: liveAsrCommitteeRequestedTargetIdx,
+      semanticTargetIdx: liveAsrCommitteeSemanticTargetIdx,
+      acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+      distanceCapTargetIdx: liveAsrCommitteeDistanceCapTargetIdx,
+      bridgeOwner: liveAsrCommitteeBridgeOwner,
+      cueOwner: liveAsrCommitteeCueOwner,
+      markerLockState: liveAsrCommitteeMarkerLockState,
+      comfortState: liveAsrCommitteeComfortState,
+      visualRecoveryState: liveAsrCommitteeVisualRecoveryState,
+      hardSafetyState: resolverHardSafetyState,
+      safetyCapState: liveAsrCommitteeSafetyCapState,
+      visualGovernorState: liveAsrCommitteeVisualGovernorState,
+      postAdjacentRecoveryState: liveAsrCommitteePostAdjacentRecoveryState,
+      targetDebtPx: arithmeticTargetDebtPx,
+      markerY: lastAsrMarkerY,
+      nextSpeakableLineY: lastAsrNextSpeakableLineY,
+      preferredBandTop: lastAsrPreferredBandTop,
+      preferredSettleBottom: lastAsrPreferredSettleBottom,
+      preferredBandBottom: lastAsrPreferredBandBottom,
+      toleratedBandBottom: lastAsrToleratedBandBottom,
+      lineHeightPx: resolverLineHeightPx,
+      terminalClampActive: atScrollLimit,
+      speechFresh: actuatorSpeechFresh,
+      backendFresh: resolverBackendFresh,
+      audioPacketFresh: resolverAudioPacketFresh,
+      finalPacketFresh: resolverFinalPacketFresh,
+      noMatchOrOffscript: actuatorNoMatchOrOffscript,
+      hardContradiction: hardContradictionActive,
+    });
+    lastResolvedMovementAllowed = resolvedCommand.movementAllowed;
+    lastResolvedCappedTargetSafe = resolvedCommand.cappedTargetSafe;
+    lastResolvedFinalGear = resolvedCommand.finalGear;
+    lastResolvedAllowedTargetIdx = Number.isFinite(resolvedCommand.allowedTargetIdx as number)
+      ? Math.max(-1, Math.floor(Number(resolvedCommand.allowedTargetIdx)))
+      : -1;
+    lastResolvedPocketState = resolvedCommand.pocketState;
+    alignmentEpisodes.noteAutopsyState({
+      movementAllowed: resolvedCommand.movementAllowed,
+      cappedTargetSafe: resolvedCommand.cappedTargetSafe,
+      markerLockSuppressed:
+        liveAsrCommitteeMarkerLockState === 'live_asr_marker_lock_suppressed' ||
+        liveAsrCommitteeMarkerLockState === 'marker_lock_suppressed',
+      recoveryAvailable:
+        resolvedCommand.movementAllowed &&
+        resolvedCommand.cappedTargetSafe &&
+        (
+          resolvedCommand.pocketState === 'below_preferred_pocket' ||
+          resolvedCommand.pocketState === 'near_lower_rail' ||
+          resolvedCommand.pocketState === 'bottom_locked'
+        ),
+      recoverySelected: resolvedCommand.finalGear === 'recovery',
+      targetUnsafe: !resolvedCommand.cappedTargetSafe,
+      terminalGeometryBlocked: atScrollLimit,
+    });
+    const resolvedRecoveryObedienceActive =
+      resolvedCommand.movementAllowed &&
+      resolvedCommand.finalGear === 'recovery' &&
+      resolvedCommand.finalMinStepPx > 0;
+    const visualProgressBaseAt =
+      lastMoveAt > 0
+        ? lastMoveAt
+        : (lastForwardCommitAt > 0 ? lastForwardCommitAt : 0);
+    const noVisualProgressMs =
+      visualProgressBaseAt > 0
+        ? Math.max(0, freshnessNowTs - visualProgressBaseAt)
+        : Number.POSITIVE_INFINITY;
+    const transcriptAgeForStall =
+      lastFinalTranscriptAt > 0
+        ? Math.max(0, freshnessNowTs - lastFinalTranscriptAt)
+        : Number.POSITIVE_INFINITY;
+    const audioAgeForStall =
+      lastTranscriptPacketAt > 0
+        ? Math.max(0, freshnessNowTs - lastTranscriptPacketAt)
+        : Number.POSITIVE_INFINITY;
+    const stallAudioFresh =
+      asrRuntimeSpeechRunningActual ||
+      hasRecentActualSpeech(freshnessNowTs) ||
+      hasRecentVadSpeechNow(freshnessNowTs);
+    const liveScrollStallDecision = resolveAsrLiveScrollStall({
+      liveAsr: liveAsrFollowMode && liveAsrActuatorPursuitActive,
+      movementAllowed: resolvedCommand.movementAllowed,
+      speechFresh: actuatorSpeechFresh,
+      audioFresh: stallAudioFresh,
+      backendFresh: resolverBackendFresh,
+      noMatchOrOffscript: actuatorNoMatchOrOffscript,
+      hardContradiction: hardContradictionActive,
+      terminalClampActive: atScrollLimit,
+      noVisualProgressMs,
+      noVisualProgressThresholdMs: DEFAULT_ASR_LIVE_SCROLL_STALL_NO_PROGRESS_MS,
+      currentLineIdx: lastLineIndex,
+      allowedTargetIdx: resolvedCommand.allowedTargetIdx,
+      acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+      lastAcceptedProofLine: lastFreshProofLine,
+      cappedTargetSafe: resolvedCommand.cappedTargetSafe,
+      targetDebtPx: arithmeticTargetDebtPx,
+      transcriptAgeMs: Number.isFinite(transcriptAgeForStall) ? transcriptAgeForStall : null,
+      transcriptStaleMs: DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS,
+      pocketState: resolvedCommand.pocketState,
+    });
+    let liveScrollStallRestartAction = 'not_needed';
+    let liveScrollStallRecoveryApplied = false;
+    if (liveScrollStallDecision.active) {
+      const liveScrollStallSignature = JSON.stringify({
+        currentLineIdx: lastLineIndex,
+        requestedTargetIdx: liveAsrCommitteeRequestedTargetIdx,
+        allowedTargetIdx: resolvedCommand.allowedTargetIdx,
+        acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+        recoveryTargetIdx: liveScrollStallDecision.recoveryTargetIdx,
+        movementAllowed: resolvedCommand.movementAllowed,
+        finalGear: resolvedCommand.finalGear,
+        pocketState: resolvedCommand.pocketState,
+        cappedTargetSafe: resolvedCommand.cappedTargetSafe,
+        backendTranscriptStale: liveScrollStallDecision.backendTranscriptStale,
+        recoveryAction: liveScrollStallDecision.recoveryAction,
+        reason: liveScrollStallDecision.reason,
+      });
+      const shouldEmitLiveScrollStall =
+        lastAsrLiveScrollStallSignature !== liveScrollStallSignature ||
+        freshnessNowTs - lastAsrLiveScrollStallLoggedAt >= DEFAULT_ASR_LIVE_SCROLL_STALL_RECOVERY_COOLDOWN_MS;
+      if (liveScrollStallDecision.backendTranscriptStale && shouldEmitLiveScrollStall) {
+        const restartResult = requestBackendRestart(
+          'live_scroll_stalled_backend_stale',
+          freshnessNowTs,
+          Number.isFinite(transcriptAgeForStall) ? transcriptAgeForStall : Number.POSITIVE_INFINITY,
+          Number.isFinite(audioAgeForStall) ? audioAgeForStall : Number.POSITIVE_INFINITY,
+        );
+        liveScrollStallRestartAction =
+          restartResult === 'requested'
+            ? 'restart_requested'
+            : (restartResult === 'already_restarted_in_window'
+              ? 'restart_cooldown_blocked'
+              : 'recognizer_controls_unavailable');
+      }
+      const recoveryTargetIdx =
+        Number.isFinite(liveScrollStallDecision.recoveryTargetIdx as number)
+          ? Math.max(0, Math.floor(Number(liveScrollStallDecision.recoveryTargetIdx)))
+          : -1;
+      if (
+        recoveryTargetIdx > lastLineIndex &&
+        freshnessNowTs - lastAsrLiveScrollStallRecoveryAt >= DEFAULT_ASR_LIVE_SCROLL_STALL_RECOVERY_COOLDOWN_MS
+      ) {
+        const recoveryTargetTop =
+          resolveTargetTop(scroller, recoveryTargetIdx) ??
+          estimateTargetTopFromLines(scroller, lastLineIndex, recoveryTargetIdx);
+        if (Number.isFinite(recoveryTargetTop as number) && Number(recoveryTargetTop) > beforeScrollTop + 0.5) {
+          pursuitTargetTop = Number(recoveryTargetTop);
+          liveAsrVisualPursuitLineIdx = recoveryTargetIdx;
+          liveAsrActuatorPursuitActive = true;
+          liveAsrActuatorReason =
+            liveScrollStallDecision.recoveryAction === 'safe_capped_recovery'
+              ? 'live_scroll_stall_safe_capped_recovery'
+              : 'live_scroll_stall_adjacent_rebase';
+          noteLiveTickSpecificAuthority('stall_recovery');
+          liveTickSelectedAuthority = 'stall_recovery';
+          liveTickAuthorityReason = liveScrollStallDecision.reason;
+          liveHardHold = false;
+          comfortOnlyHoldActive = false;
+          liveScrollStallRecoveryApplied = true;
+          lastAsrLiveScrollStallRecoveryAt = freshnessNowTs;
+          err = Math.max(0, Number(pursuitTargetTop) - current);
+          desiredVel = Math.min(maxVelForErr, Math.max(0, err * DEFAULT_PURSUE_KP));
+          pursuitVelBefore = pursuitVel;
+          actuatorBoostActive =
+            liveAsrFollowMode &&
+            liveAsrActuatorPursuitActive &&
+            !liveHardHold;
+          accelCap = actuatorBoostActive
+            ? Math.max(baseAccelCap, Math.max(0, (desiredVel - pursuitVelBefore) * 0.65))
+            : baseAccelCap;
+          accelLimited = Math.abs(desiredVel - pursuitVelBefore) > accelCap;
+          velDelta = clamp(desiredVel - pursuitVel, -accelCap, accelCap);
+          pursuitVel = clamp(pursuitVel + velDelta, 0, maxVelForErr);
+          if (err > 0 && pursuitVel < motionTuning.minPursuitPxPerSec) {
+            pursuitVel = Math.min(maxVelForErr, Math.max(pursuitVel, motionTuning.minPursuitPxPerSec));
+          }
+          requestedDeltaPx = Math.max(0, pursuitVel * dt);
+          requestedPxps = pursuitVel;
+          clampReason = 'none';
+          move = requestedDeltaPx;
+        }
+      }
+      if (shouldEmitLiveScrollStall) {
+        try {
+          console.warn(
+            buildAsrLiveScrollStalledDiagnostic({
+              currentLineIdx: lastLineIndex,
+              requestedTargetIdx: liveAsrCommitteeRequestedTargetIdx,
+              semanticTargetIdx: resolvedCommand.semanticTargetIdx,
+              allowedTargetIdx: resolvedCommand.allowedTargetIdx,
+              acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+              recoveryTargetIdx: liveScrollStallDecision.recoveryTargetIdx,
+              movementAllowed: resolvedCommand.movementAllowed,
+              finalGear: resolvedCommand.finalGear,
+              pocketState: resolvedCommand.pocketState,
+              cappedTargetSafe: resolvedCommand.cappedTargetSafe,
+              targetDebtPx: arithmeticTargetDebtPx,
+              noVisualProgressMs,
+              noCommitMs: Math.max(0, freshnessNowTs - lastForwardCommitAt),
+              speechFresh: actuatorSpeechFresh,
+              audioFresh: stallAudioFresh,
+              backendFresh: resolverBackendFresh,
+              transcriptAgeMs: Number.isFinite(transcriptAgeForStall) ? transcriptAgeForStall : Number.POSITIVE_INFINITY,
+              audioAgeMs: Number.isFinite(audioAgeForStall) ? audioAgeForStall : Number.POSITIVE_INFINITY,
+              backendTranscriptStale: liveScrollStallDecision.backendTranscriptStale,
+              forwardEvidenceExists: liveScrollStallDecision.forwardEvidenceExists,
+              visualGovernorHoldActive,
+              restartAction: liveScrollStallRestartAction,
+              recoveryAction: liveScrollStallDecision.recoveryAction,
+              reason: liveScrollStallDecision.reason,
+            }),
+          );
+        } catch {}
+        lastAsrLiveScrollStallSignature = liveScrollStallSignature;
+        lastAsrLiveScrollStallLoggedAt = freshnessNowTs;
+      }
+    } else {
+      lastAsrLiveScrollStallSignature = '';
+    }
+    if (comfortOnlyHoldActive && !liveScrollStallRecoveryApplied) {
+      emitPursuitHud(err, pursuitVel, pursuitTargetTop, current);
+      window.requestAnimationFrame(tickController);
+      return;
+    }
     const actuatorRecoveryGearDecision = decideAsrActuatorRecoveryGear({
       liveAsrActive: liveAsrFollowMode && liveAsrActuatorPursuitActive,
       currentLineIdx: lastLineIndex,
@@ -12193,6 +12590,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       minStepPx,
       recoveryMinStepPx,
       actuatorRecoveryGearDecision.minStepPx,
+      resolvedRecoveryObedienceActive ? resolvedCommand.finalMinStepPx : 0,
     );
     const clampReasonBeforeFloor = clampReason;
     if (!liveHardHold && move < effectiveMinStepPx) {
@@ -12218,6 +12616,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       appliedDeltaPx = Math.max(0, afterScrollTop - beforeScrollTop);
       lastMoveAt = Date.now();
       markProgrammaticScroll();
+      if (
+        preservedAsrAuthorityTargetTop != null &&
+        Number.isFinite(preservedAsrAuthorityTargetTop) &&
+        afterScrollTop > beforeScrollTop + 0.5
+      ) {
+        try {
+          console.warn(
+            `[ASR_VISIBLE_SCROLL_EASED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} requestedTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} effectiveTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} currentScrollTop=${Math.round(beforeScrollTop)} deltaPxToTarget=${Math.round(Math.max(0, Number(preservedAsrAuthorityTargetTop) - beforeScrollTop))} visibleStepPx=${Math.round(appliedDeltaPx)} targetPreserved=1 eased=1`,
+          );
+        } catch {}
+      }
       if (isHybridMode()) {
         if (commitCount > 0) {
           const normalizedErr = Math.min(1, err / 200);
@@ -12242,7 +12651,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             selectedAuthority: liveTickSelectedAuthority,
             candidateAuthorities,
             beforeScrollTop,
-            targetScrollTop: Number.isFinite(pursuitTargetTop) ? pursuitTargetTop : beforeScrollTop,
+            targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop,
             afterScrollTop,
             reason: liveTickAuthorityReason,
           }),
@@ -12255,7 +12664,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               tickId: liveAsrAuthorityTraceTickId,
               authorities: Array.from(liveTickConflictingAuthorities),
               beforeScrollTop,
-              intermediateScrollTop: Number.isFinite(pursuitTargetTop) ? pursuitTargetTop : beforeScrollTop,
+              intermediateScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop,
               finalScrollTop: afterScrollTop,
               currentLineIdx: lastLineIndex,
               nextSpeakableLineIdx: liveAsrVisualPursuitLineIdx ?? lastLineIndex,
@@ -12307,13 +12716,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
-      const arithmeticTargetDebtPx = Number.isFinite(liveAsrActuatorTargetDebtPx) ? liveAsrActuatorTargetDebtPx : Number.NaN;
+      const effectiveSelectedGear: AsrActuatorGear =
+        resolvedRecoveryObedienceActive
+          ? 'recovery'
+          : actuatorRecoveryGearDecision.selectedGear;
       const gear =
         clampReasonOut === 'no_move' || move <= 0 || appliedDeltaPx <= 0
           ? 'hold'
-          : (actuatorRecoveryGearDecision.selectedGear === 'urgent_recovery'
+          : (effectiveSelectedGear === 'urgent_recovery'
             ? 'urgent_recovery'
-            : (actuatorRecoveryGearDecision.selectedGear === 'recovery'
+            : (effectiveSelectedGear === 'recovery'
               ? 'recovery'
               : (Math.round(appliedDeltaPx) === DEFAULT_MIN_STEP_PX
                 ? 'normal_floor'
@@ -12384,34 +12796,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (markerLockEligible) overruledEligible.push('marker_lock_smoothing');
       if (comfortEligible) overruledEligible.push('comfort_advisory');
       const overruled = overruledEligible.filter((name) => name !== chair).join('|') || 'none';
-      const resolvedCommand = resolveAsrScrollAuthority({
-        currentLineIdx: lastLineIndex,
-        requestedTargetIdx: liveAsrCommitteeRequestedTargetIdx,
-        semanticTargetIdx: liveAsrCommitteeSemanticTargetIdx,
-        acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
-        distanceCapTargetIdx: liveAsrCommitteeDistanceCapTargetIdx,
-        bridgeOwner: liveAsrCommitteeBridgeOwner,
-        cueOwner: liveAsrCommitteeCueOwner,
-        markerLockState: liveAsrCommitteeMarkerLockState,
-        comfortState: liveAsrCommitteeComfortState,
-        visualRecoveryState: liveAsrCommitteeVisualRecoveryState,
-        hardSafetyState: liveAsrCommitteeHardSafetyState,
-        safetyCapState: liveAsrCommitteeSafetyCapState,
-        visualGovernorState: liveAsrCommitteeVisualGovernorState,
-        postAdjacentRecoveryState: liveAsrCommitteePostAdjacentRecoveryState,
-        targetDebtPx: arithmeticTargetDebtPx,
-        markerY: lastAsrMarkerY,
-        nextSpeakableLineY: lastAsrNextSpeakableLineY,
-        preferredBandTop: lastAsrPreferredBandTop,
-        preferredSettleBottom: lastAsrPreferredSettleBottom,
-        preferredBandBottom: lastAsrPreferredBandBottom,
-        toleratedBandBottom: lastAsrToleratedBandBottom,
-        terminalClampActive: atScrollLimit,
-        speechFresh: actuatorSpeechFresh,
-        backendFresh: actuatorBackendFresh,
-        noMatchOrOffscript: actuatorNoMatchOrOffscript,
-        hardContradiction: hardContradictionActive,
-      });
       const resolvedAuthoritySignature = JSON.stringify({
         movementAllowed: resolvedCommand.movementAllowed,
         vetoAuthority: resolvedCommand.vetoAuthority,
@@ -12456,6 +12840,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               appliedDeltaPx,
               clampReason: clampReasonOut,
               pocketState: resolvedCommand.pocketState,
+              oldPocketState: resolvedCommand.oldPocketState,
+              markerCenteredPocketState: resolvedCommand.markerCenteredPocketState,
+              markerViewportLine: resolvedCommand.markerViewportLine,
+              readViewportLine: resolvedCommand.readViewportLine,
+              distanceFromMarkerLines: resolvedCommand.distanceFromMarkerLines,
+              preferredTopLine: resolvedCommand.preferredTopLine,
+              preferredBottomLine: resolvedCommand.preferredBottomLine,
               movementEnvelopePx: resolvedCommand.movementEnvelopePx,
               movementEnvelopeReason: resolvedCommand.movementEnvelopeReason,
               bridgeCueCapApplied: resolvedCommand.bridgeCueCapApplied,
@@ -12473,6 +12864,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       lastAsrResolvedAuthoritySignature = resolvedAuthoritySignature;
       if (gear === 'recovery' || gear === 'urgent_recovery') {
+        const effectiveRecoveryReason =
+          resolvedRecoveryObedienceActive
+            ? (resolvedCommand.reason || actuatorRecoveryGearDecision.reason || liveAsrActuatorReason)
+            : (actuatorRecoveryGearDecision.reason || liveAsrActuatorReason);
+        const effectiveRecoverySafetyClass =
+          resolvedRecoveryObedienceActive
+            ? resolvedCommand.safetyClass
+            : actuatorRecoveryGearDecision.safetyClass;
+        const effectiveRecoveryDistanceRestrictionReason =
+          resolvedRecoveryObedienceActive && effectiveRecoverySafetyClass === 'distance_restrict_only'
+            ? String(liveAsrCommitteeSafetyCapState || resolverHardSafetyState || 'distance_restrict_only')
+            : actuatorRecoveryGearDecision.distanceRestrictionReason;
+        const effectiveRecoveryAbsoluteHoldReason =
+          resolvedRecoveryObedienceActive && effectiveRecoverySafetyClass === 'absolute_hold'
+            ? resolvedCommand.reason
+            : actuatorRecoveryGearDecision.absoluteHoldReason;
         try {
           console.warn(
             buildAsrRecoveryGearSelectedDiagnostic({
@@ -12487,20 +12894,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               appliedDeltaPx,
               selectedGear: gear,
               previousGear: liveAsrPreviousActuatorGear,
-              reason: actuatorRecoveryGearDecision.reason || liveAsrActuatorReason,
-              hardSafetyClear: actuatorRecoveryGearDecision.hardSafetyClear,
+              reason: effectiveRecoveryReason,
+              hardSafetyClear: effectiveRecoverySafetyClass !== 'absolute_hold',
               speechFresh: actuatorRecoveryGearDecision.speechFresh,
-              backendFresh: actuatorRecoveryGearDecision.backendFresh,
+              backendFresh: resolvedRecoveryObedienceActive ? resolverBackendFresh : actuatorRecoveryGearDecision.backendFresh,
               nextSpeakableLineY: lastAsrNextSpeakableLineY,
               overruledControllers: overruled,
               clampReasonBefore: clampReasonBeforeFloor,
               clampReasonAfter: clampReasonOut,
-              safetyClass: actuatorRecoveryGearDecision.safetyClass,
-              distanceRestrictionReason: actuatorRecoveryGearDecision.distanceRestrictionReason,
-              absoluteHoldReason: actuatorRecoveryGearDecision.absoluteHoldReason,
-              cappedTargetSafe: actuatorRecoveryGearDecision.cappedTargetSafe,
-              urgentRecoveryEligible: actuatorRecoveryGearDecision.urgentRecoveryEligible,
-              urgentRecoveryBlockedReason: actuatorRecoveryGearDecision.urgentRecoveryBlockedReason,
+              safetyClass: effectiveRecoverySafetyClass,
+              distanceRestrictionReason: effectiveRecoveryDistanceRestrictionReason,
+              absoluteHoldReason: effectiveRecoveryAbsoluteHoldReason,
+              cappedTargetSafe: resolvedRecoveryObedienceActive ? resolvedCommand.cappedTargetSafe : actuatorRecoveryGearDecision.cappedTargetSafe,
+              urgentRecoveryEligible: resolvedRecoveryObedienceActive ? false : actuatorRecoveryGearDecision.urgentRecoveryEligible,
+              urgentRecoveryBlockedReason: resolvedRecoveryObedienceActive ? 'resolved_recovery_obedience' : actuatorRecoveryGearDecision.urgentRecoveryBlockedReason,
             }),
           );
         } catch {}
@@ -12551,6 +12958,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
+      emitAccumulationSnapshotIfNeeded({
+        nowTs: freshnessNowTs,
+        targetDebtPx: arithmeticTargetDebtPx,
+        distanceToMaxScrollTop,
+        currentLineIdx: lastLineIndex,
+        requestedTargetIdx: liveAsrCommitteeRequestedTargetIdx,
+      });
       const mismatchFrame =
         !atScrollLimit &&
         requestedPxps >= 35 &&
@@ -12589,6 +13003,91 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     pursuitActive = true;
     pursuitLastTs = performance.now();
     window.requestAnimationFrame(tickController);
+  };
+
+  const requestSmoothAsrMotion = (input: {
+    scroller?: HTMLElement | null;
+    reason: string;
+    sourcePath: 'asr-marker-lock-pocket-recovery' | 'asr-cue-skip' | 'asr-tick' | 'stall-recovery';
+    requestedTargetScrollTop: number;
+    easedTargetScrollTop?: number | null;
+  }): {
+    requested: boolean;
+    currentScrollTop: number;
+    requestedTargetScrollTop: number;
+    easedTargetScrollTop: number;
+    deltaPx: number;
+    cappedDeltaPx: number;
+  } => {
+    const scroller = input.scroller ?? getScroller();
+    const maxTop = scroller ? Math.max(0, (scroller.scrollHeight || 0) - scroller.clientHeight) : 0;
+    const currentScrollTop = scroller ? Number(scroller.scrollTop || 0) : 0;
+    const requestedTargetScrollTop = clamp(
+      Number.isFinite(input.requestedTargetScrollTop) ? Number(input.requestedTargetScrollTop) : currentScrollTop,
+      0,
+      maxTop,
+    );
+    const easedTargetScrollTop = clamp(
+      Number.isFinite(input.easedTargetScrollTop as number)
+        ? Number(input.easedTargetScrollTop)
+        : requestedTargetScrollTop,
+      0,
+      maxTop,
+    );
+    const deltaPx = Math.max(0, requestedTargetScrollTop - currentScrollTop);
+    const cappedDeltaPx = Math.max(0, easedTargetScrollTop - currentScrollTop);
+    const requested =
+      !!scroller &&
+      Number.isFinite(requestedTargetScrollTop) &&
+      Number.isFinite(easedTargetScrollTop) &&
+      easedTargetScrollTop > currentScrollTop + 0.5;
+    try {
+      console.warn(
+        `[ASR_DIRECT_SCROLL_SUPPRESSED] reason=${input.reason} requestedTargetScrollTop=${Math.round(requestedTargetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} deltaPx=${Math.round(deltaPx)} cappedDeltaPx=${Math.round(cappedDeltaPx)} eased=${requested ? 1 : 0} sourcePath=${input.sourcePath}`,
+      );
+      console.warn(
+        `[ASR_DIRECT_SCROLL_WRITE_BLOCKED] sourcePath=${input.sourcePath} reason=${input.reason} previousTargetScrollTop=${Math.round(Number.isFinite(pursuitTargetTop as number) ? Number(pursuitTargetTop) : -1)} requestedTargetScrollTop=${Math.round(requestedTargetScrollTop)} effectiveTargetScrollTop=${Math.round(requestedTargetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} deltaPxToTarget=${Math.round(deltaPx)} directWriteBlocked=1`,
+      );
+    } catch {}
+    if (!requested) {
+      return {
+        requested: false,
+        currentScrollTop,
+        requestedTargetScrollTop,
+        easedTargetScrollTop,
+        deltaPx,
+        cappedDeltaPx,
+      };
+    }
+    stopGlide(`smooth-motion-retarget:${input.sourcePath}`);
+    const previousTargetScrollTop =
+      Number.isFinite(pursuitTargetTop as number) ? Number(pursuitTargetTop) : -1;
+    preservedAsrAuthorityTargetTop = requestedTargetScrollTop;
+    preservedAsrAuthorityTargetReason = input.reason;
+    preservedAsrAuthorityTargetSourcePath = input.sourcePath;
+    pursuitTargetTop = requestedTargetScrollTop;
+    try {
+      console.warn(
+        `[ASR_AUTHORITY_TARGET_UPDATED] sourcePath=${input.sourcePath} reason=${input.reason} previousTargetScrollTop=${Math.round(previousTargetScrollTop)} requestedTargetScrollTop=${Math.round(requestedTargetScrollTop)} effectiveTargetScrollTop=${Math.round(requestedTargetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} deltaPxToTarget=${Math.round(deltaPx)} targetPreserved=1`,
+      );
+      console.warn(
+        `[ASR_TARGET_PRESERVED_FOR_EASING] sourcePath=${input.sourcePath} reason=${input.reason} previousTargetScrollTop=${Math.round(previousTargetScrollTop)} requestedTargetScrollTop=${Math.round(requestedTargetScrollTop)} effectiveTargetScrollTop=${Math.round(requestedTargetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} deltaPxToTarget=${Math.round(deltaPx)} cappedDeltaPx=${Math.round(cappedDeltaPx)} targetPreserved=1 eased=1 directWriteBlocked=1`,
+      );
+    } catch {}
+    ensurePursuitActive();
+    try {
+      console.warn(
+        `[ASR_SMOOTH_MOTION_REQUESTED] reason=${input.reason} requestedTargetScrollTop=${Math.round(requestedTargetScrollTop)} effectiveTargetScrollTop=${Math.round(requestedTargetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} deltaPx=${Math.round(deltaPx)} cappedDeltaPx=${Math.round(cappedDeltaPx)} eased=1 sourcePath=${input.sourcePath}`,
+      );
+    } catch {}
+    return {
+      requested: true,
+      currentScrollTop,
+      requestedTargetScrollTop,
+      easedTargetScrollTop,
+      deltaPx,
+      cappedDeltaPx,
+    };
   };
 
   const applyAsrCommitMovement = (
@@ -12838,6 +13337,67 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         : Math.max(0, Math.floor(commit.lineIdx));
     if (commit.markerLockRequired) {
       if (liveAsrGlideActive) {
+        const lowPocketResolvedState =
+          lastResolvedPocketState === 'below_preferred_pocket' ||
+          lastResolvedPocketState === 'near_lower_rail' ||
+          lastResolvedPocketState === 'bottom_locked';
+        const lowPocketAuthorityFallback =
+          lastAsrReaderPocketZone === 'bottom' ||
+          lastAsrSelectedAuthority === 'bottom_lock_release' ||
+          lastAsrSelectedAuthority === 'preferred_lower_rail_release' ||
+          lastAsrSelectedAuthority === 'comfort_nudge';
+        const safeRecoveryResolved =
+          lastResolvedMovementAllowed &&
+          lastResolvedCappedTargetSafe &&
+          lastResolvedFinalGear === 'recovery';
+        const safeRecoveryFallback =
+          lowPocketAuthorityFallback &&
+          !String(lastAsrGuardReason || '').toLowerCase().includes('offscript') &&
+          !String(lastAsrGuardReason || '').toLowerCase().includes('contradiction');
+        const lowPocketRecoveryEligible =
+          (safeRecoveryResolved || safeRecoveryFallback) &&
+          (lowPocketResolvedState || lowPocketAuthorityFallback) &&
+          targetTop > beforeTop;
+        let boundedPocketRecoveryApplied = false;
+        if (lowPocketRecoveryEligible) {
+          const boundedCapPx = resolveLiveAsrCommitCapPx(deps.scroller, commit.lineIdx);
+          const boundedTargetTop = clamp(
+            beforeTop + Math.min(Math.max(0, targetTop - beforeTop), boundedCapPx),
+            0,
+            max,
+          );
+          if (boundedTargetTop > beforeTop + 0.5) {
+            const motionRequest = requestSmoothAsrMotion({
+              scroller: deps.scroller,
+              reason: 'asr-marker-lock-pocket-recovery',
+              sourcePath: 'asr-marker-lock-pocket-recovery',
+              requestedTargetScrollTop: targetTop,
+              easedTargetScrollTop: boundedTargetTop,
+            });
+            snapSuppressed = true;
+            boundedPocketRecoveryApplied = motionRequest.requested;
+            try {
+              const pocketRecoveryReason = safeRecoveryResolved
+                ? 'low_pocket_safe_target'
+                : 'low_pocket_adjacent_safe_fallback';
+              console.warn(
+                `[ASR_VISUAL_SNAP_SUPPRESSED] commitLineIdx=${commit.lineIdx} targetScrollTop=${Math.round(targetTop)} currentScrollTop=${Math.round(beforeTop)} reason=live_asr_marker_lock_bounded_recovery`,
+              );
+              alignmentEpisodes.noteSnapSuppressed({ reason: 'live_asr_marker_lock_bounded_recovery' });
+              console.warn(
+                `[ASR_RECOVERY_TARGET_EASED] reason=${pocketRecoveryReason} requestedTargetScrollTop=${Math.round(targetTop)} currentScrollTop=${Math.round(beforeTop)} deltaPx=${Math.round(Math.max(0, targetTop - beforeTop))} cappedDeltaPx=${Math.round(Math.max(0, boundedTargetTop - beforeTop))} eased=${motionRequest.requested ? 1 : 0} sourcePath=asr-marker-lock-pocket-recovery`,
+              );
+            } catch {}
+            return {
+              method: 'pixel',
+              writerCommitted: false,
+              beforeTop,
+              afterTop: beforeTop,
+              movedPx: 0,
+              snapSuppressed,
+            };
+          }
+        }
         pursuitTargetTop = targetTop;
         ensurePursuitActive();
         snapSuppressed = true;
@@ -12846,6 +13406,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `[ASR_VISUAL_SNAP_SUPPRESSED] commitLineIdx=${commit.lineIdx} targetScrollTop=${Math.round(targetTop)} currentScrollTop=${Math.round(beforeTop)} reason=live_asr_marker_lock_suppressed`,
           );
           alignmentEpisodes.noteSnapSuppressed({ reason: 'live_asr_marker_lock_suppressed' });
+          if (lowPocketRecoveryEligible && !boundedPocketRecoveryApplied) {
+            console.warn(
+              `[ASR_MARKER_LOCK_POCKET_RECOVERY_BLOCKED] commitLineIdx=${commit.lineIdx} allowedTargetIdx=${lastResolvedAllowedTargetIdx} currentScrollTop=${Math.round(beforeTop)} targetScrollTop=${Math.round(targetTop)} pocketState=${lastResolvedPocketState} finalGear=${lastResolvedFinalGear} cappedTargetSafe=${lastResolvedCappedTargetSafe ? 1 : 0} movementAllowed=${lastResolvedMovementAllowed ? 1 : 0} reason=bounded_move_not_available`,
+            );
+          }
         } catch {}
       } else {
       stopCommitPursuit('asr-marker-lock-commit');
@@ -24928,6 +25493,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     releaseCommitWindow('dispose');
     stopGlide('dispose');
     pursuitTargetTop = null;
+    preservedAsrAuthorityTargetTop = null;
+    preservedAsrAuthorityTargetReason = 'dispose';
+    preservedAsrAuthorityTargetSourcePath = 'dispose';
     pursuitVel = 0;
     pursuitActive = false;
     microPursuitUntil = 0;
@@ -24942,6 +25510,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     earlyBridgeTrapHoldCountByKey.clear();
     liveBridgeDownstreamBlockUntilByKey.clear();
     asrSilenceActive = true;
+    lastResolvedMovementAllowed = false;
+    lastResolvedCappedTargetSafe = false;
+    lastResolvedFinalGear = 'hold';
+    lastResolvedAllowedTargetIdx = -1;
+    lastResolvedPocketState = 'in_preferred_pocket';
+    lastAsrLiveScrollStallSignature = '';
+    lastAsrLiveScrollStallLoggedAt = 0;
+    lastAsrLiveScrollStallRecoveryAt = 0;
     lastStallRecoveryOverrideAt = 0;
     _postCommitReadabilitySeq += 1;
     try {
@@ -25008,6 +25584,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     stallRescueRequested = false;
     matchAnchorIdx = lastLineIndex;
     pursuitTargetTop = null;
+    preservedAsrAuthorityTargetTop = null;
+    preservedAsrAuthorityTargetReason = 'sync-index';
+    preservedAsrAuthorityTargetSourcePath = 'sync-index';
     pursuitVel = 0;
     pursuitActive = false;
     lastEvidenceAt = 0;
@@ -25052,6 +25631,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     softRuntimeRebaseLastStallAnchorAt = -1;
     softRuntimeRebaseRetryActive = false;
     softRuntimeRebaseLastSkipLogAt = 0;
+    lastResolvedMovementAllowed = false;
+    lastResolvedCappedTargetSafe = false;
+    lastResolvedFinalGear = 'hold';
+    lastResolvedAllowedTargetIdx = -1;
+    lastResolvedPocketState = 'in_preferred_pocket';
+    lastAsrLiveScrollStallSignature = '';
+    lastAsrLiveScrollStallLoggedAt = 0;
+    lastAsrLiveScrollStallRecoveryAt = 0;
     lostForwardActive = false;
     lostForwardStage = 0;
     lostForwardEnteredAt = 0;

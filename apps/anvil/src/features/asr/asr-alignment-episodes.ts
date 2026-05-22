@@ -7,6 +7,8 @@ import {
 
 export type VisualOutcome =
   | 'in_pocket'
+  | 'below_preferred_pocket'
+  | 'lower_rail'
   | 'bottom_locked'
   | 'top_pressure'
   | 'delayed_until_starvation'
@@ -38,11 +40,19 @@ type Episode = {
     markerY: number;
     currentLineY: number;
     nextSpeakableLineY: number;
+    lineHeightPx: number;
     preferredBandTop: number;
     preferredSettleBottom: number;
     preferredBandBottom: number;
     toleratedBandBottom: number;
     pocketZone: string;
+    oldPocketState: string;
+    markerCenteredPocketState: string;
+    markerViewportLine: number;
+    readViewportLine: number;
+    distanceFromMarkerLines: number;
+    preferredTopLine: number;
+    preferredBottomLine: number;
     actions: VisualAction[];
     lastAction: VisualAction | 'none';
     lastComfortReason: string;
@@ -74,10 +84,39 @@ type Episode = {
     lastSelectedAuthority: string;
     lastVisualAction: string;
     lastVisualErrorPx: number;
+    movementAllowed: boolean;
+    cappedTargetSafe: boolean;
+    markerLockSuppressed: boolean;
+    recoveryAvailable: boolean;
+    recoverySelected: boolean;
+    targetUnsafe: boolean;
+    terminalGeometryBlocked: boolean;
   };
   reasonChain: string[];
   visualOutcome: VisualOutcome;
 };
+
+function classifyNonPocketMissReason(ep: Episode): string {
+  if (ep.visualOutcome === 'in_pocket') return 'none';
+  if (ep.diagnostic.terminalGeometryBlocked) return 'terminal_geometry_blocked';
+  if (ep.diagnostic.targetUnsafe) return 'target_unsafe';
+  if (ep.diagnostic.markerLockSuppressed && ep.diagnostic.recoveryAvailable && !ep.diagnostic.recoverySelected) {
+    return 'marker_lock_suppressed_recovery_not_selected';
+  }
+  if (ep.diagnostic.markerLockSuppressed && ep.diagnostic.recoverySelected) {
+    return 'marker_lock_suppressed_recovery_delayed';
+  }
+  if (ep.diagnostic.markerLockSuppressed) return 'marker_lock_suppressed';
+  if (ep.diagnostic.recoveryAvailable && !ep.diagnostic.recoverySelected) return 'recovery_available_not_selected';
+  if (ep.visualOutcome === 'delayed_until_starvation') return 'delayed_until_starvation';
+  if (ep.visualOutcome === 'below_preferred_pocket') return 'below_preferred_pocket';
+  if (ep.visualOutcome === 'lower_rail') return 'lower_rail';
+  if (ep.visualOutcome === 'bottom_locked') return 'bottom_lock_not_recovered';
+  if (ep.visualOutcome === 'top_pressure') return 'top_pressure';
+  if (ep.visualOutcome === 'bridge_wait') return 'bridge_wait';
+  if (ep.visualOutcome === 'hard_hold_loop') return 'hard_hold_loop';
+  return 'unknown';
+}
 
 const EPISODE_CLOSE_MS = 4000;
 const LOWER_POCKET_OFFSET_PX = 80;
@@ -90,7 +129,7 @@ function finiteOr(value: number, fallback = -1): number {
   return Number.isFinite(value) ? value : fallback;
 }
 
-function classifyPocketZone(markerY: number, currentLineY: number): string {
+function classifyLegacyPocketState(markerY: number, currentLineY: number): string {
   if (!Number.isFinite(markerY) || !Number.isFinite(currentLineY)) return 'unknown';
   const offset = currentLineY - markerY;
   if (offset > 96) return 'bottom';
@@ -98,13 +137,70 @@ function classifyPocketZone(markerY: number, currentLineY: number): string {
   return 'pocket';
 }
 
+function resolveViewportLine(y: number, lineHeightPx: number): number {
+  if (!Number.isFinite(y) || !Number.isFinite(lineHeightPx) || lineHeightPx <= 1) return -1;
+  return Math.max(1, Math.round(y / lineHeightPx));
+}
+
+function classifyMarkerCenteredPocket(input: {
+  markerY: number;
+  readY: number;
+  lineHeightPx: number;
+  legacyPocketState: string;
+}): {
+  pocketState: string;
+  markerViewportLine: number;
+  readViewportLine: number;
+  distanceFromMarkerLines: number;
+  preferredTopLine: number;
+  preferredBottomLine: number;
+} {
+  const markerViewportLine = resolveViewportLine(input.markerY, input.lineHeightPx);
+  const readViewportLine = resolveViewportLine(input.readY, input.lineHeightPx);
+  if (markerViewportLine < 1 || readViewportLine < 1) {
+    return {
+      pocketState: input.legacyPocketState === 'bottom'
+        ? 'bottom_locked'
+        : (input.legacyPocketState === 'top' ? 'top_pressure' : 'unknown'),
+      markerViewportLine,
+      readViewportLine,
+      distanceFromMarkerLines: -1,
+      preferredTopLine: -1,
+      preferredBottomLine: -1,
+    };
+  }
+  const preferredTopLine = Math.max(1, markerViewportLine - 4);
+  const preferredBottomLine = markerViewportLine + 4;
+  const distanceFromMarkerLines = readViewportLine - markerViewportLine;
+  let pocketState = 'in_pocket';
+  if (distanceFromMarkerLines < -4) {
+    pocketState = 'top_pressure';
+  } else if (distanceFromMarkerLines > 8) {
+    pocketState = 'bottom_locked';
+  } else if (distanceFromMarkerLines > 6) {
+    pocketState = 'lower_rail';
+  } else if (distanceFromMarkerLines > 4) {
+    pocketState = 'below_preferred';
+  }
+  return {
+    pocketState,
+    markerViewportLine,
+    readViewportLine,
+    distanceFromMarkerLines,
+    preferredTopLine,
+    preferredBottomLine,
+  };
+}
+
 function classifyOutcome(ep: Episode): VisualOutcome {
   if (ep.metrics.stallDelayMs >= 1400) return 'delayed_until_starvation';
   if (ep.metrics.hardHoldTicks >= 3) return 'hard_hold_loop';
   if (ep.reasonChain.some((r) => r.includes('bridge'))) return 'bridge_wait';
-  if (ep.visual.pocketZone === 'bottom') return 'bottom_locked';
-  if (ep.visual.pocketZone === 'top') return 'top_pressure';
-  if (ep.visual.pocketZone === 'pocket') return 'in_pocket';
+  if (ep.visual.markerCenteredPocketState === 'bottom_locked') return 'bottom_locked';
+  if (ep.visual.markerCenteredPocketState === 'lower_rail') return 'lower_rail';
+  if (ep.visual.markerCenteredPocketState === 'below_preferred') return 'below_preferred_pocket';
+  if (ep.visual.markerCenteredPocketState === 'top_pressure') return 'top_pressure';
+  if (ep.visual.markerCenteredPocketState === 'in_pocket') return 'in_pocket';
   return 'unknown';
 }
 
@@ -210,11 +306,19 @@ export class AsrAlignmentEpisodeTracker {
         markerY: -1,
         currentLineY: -1,
         nextSpeakableLineY: -1,
+        lineHeightPx: -1,
         preferredBandTop: -1,
         preferredSettleBottom: -1,
         preferredBandBottom: -1,
         toleratedBandBottom: -1,
         pocketZone: 'unknown',
+        oldPocketState: 'unknown',
+        markerCenteredPocketState: 'unknown',
+        markerViewportLine: -1,
+        readViewportLine: -1,
+        distanceFromMarkerLines: -1,
+        preferredTopLine: -1,
+        preferredBottomLine: -1,
         actions: [],
         lastAction: 'none',
         lastComfortReason: 'none',
@@ -246,6 +350,13 @@ export class AsrAlignmentEpisodeTracker {
         lastSelectedAuthority: 'none',
         lastVisualAction: 'none',
         lastVisualErrorPx: -1,
+        movementAllowed: false,
+        cappedTargetSafe: false,
+        markerLockSuppressed: false,
+        recoveryAvailable: false,
+        recoverySelected: false,
+        targetUnsafe: false,
+        terminalGeometryBlocked: false,
       },
       reasonChain: input.reason ? [String(input.reason)] : [],
       visualOutcome: 'unknown',
@@ -295,6 +406,7 @@ export class AsrAlignmentEpisodeTracker {
     ep.visual.actions.push('snap_suppressed');
     ep.visual.lastAction = 'snap_suppressed';
     ep.visual.snapSuppressedInEpisode = true;
+    ep.diagnostic.markerLockSuppressed = true;
     if (input.reason) ep.reasonChain.push(String(input.reason));
   }
 
@@ -310,6 +422,7 @@ export class AsrAlignmentEpisodeTracker {
     markerY: number;
     currentLineY: number;
     nextSpeakableLineY: number;
+    lineHeightPx?: number;
     preferredBandTop?: number;
     preferredSettleBottom?: number;
     preferredBandBottom?: number;
@@ -323,11 +436,25 @@ export class AsrAlignmentEpisodeTracker {
     ep.visual.markerY = finiteOr(input.markerY);
     ep.visual.currentLineY = finiteOr(input.currentLineY);
     ep.visual.nextSpeakableLineY = finiteOr(input.nextSpeakableLineY);
+    ep.visual.lineHeightPx = finiteOr(input.lineHeightPx as number, 24);
     ep.visual.preferredBandTop = finiteOr(input.preferredBandTop as number);
     ep.visual.preferredSettleBottom = finiteOr(input.preferredSettleBottom as number);
     ep.visual.preferredBandBottom = finiteOr(input.preferredBandBottom as number);
     ep.visual.toleratedBandBottom = finiteOr(input.toleratedBandBottom as number);
-    ep.visual.pocketZone = classifyPocketZone(ep.visual.markerY, ep.visual.currentLineY);
+    ep.visual.pocketZone = classifyLegacyPocketState(ep.visual.markerY, ep.visual.currentLineY);
+    ep.visual.oldPocketState = ep.visual.pocketZone;
+    const markerCenteredPocket = classifyMarkerCenteredPocket({
+      markerY: ep.visual.markerY,
+      readY: ep.visual.nextSpeakableLineY,
+      lineHeightPx: ep.visual.lineHeightPx,
+      legacyPocketState: ep.visual.oldPocketState,
+    });
+    ep.visual.markerCenteredPocketState = markerCenteredPocket.pocketState;
+    ep.visual.markerViewportLine = markerCenteredPocket.markerViewportLine;
+    ep.visual.readViewportLine = markerCenteredPocket.readViewportLine;
+    ep.visual.distanceFromMarkerLines = markerCenteredPocket.distanceFromMarkerLines;
+    ep.visual.preferredTopLine = markerCenteredPocket.preferredTopLine;
+    ep.visual.preferredBottomLine = markerCenteredPocket.preferredBottomLine;
     if (Number.isFinite(input.targetDeltaPx)) {
       ep.visual.lastVisualTargetDeltaPx = finiteOr(input.targetDeltaPx ?? -1);
     }
@@ -374,6 +501,13 @@ export class AsrAlignmentEpisodeTracker {
     speechActive?: boolean;
     finalPacketFresh?: boolean;
     transcriptGrowing?: boolean;
+    movementAllowed?: boolean;
+    cappedTargetSafe?: boolean;
+    markerLockSuppressed?: boolean;
+    recoveryAvailable?: boolean;
+    recoverySelected?: boolean;
+    targetUnsafe?: boolean;
+    terminalGeometryBlocked?: boolean;
   }): void {
     const ep = this.active;
     if (!ep) return;
@@ -391,6 +525,13 @@ export class AsrAlignmentEpisodeTracker {
     if (typeof input.speechActive === 'boolean') ep.metrics.speechActive = input.speechActive;
     if (typeof input.finalPacketFresh === 'boolean') ep.metrics.finalPacketFresh = input.finalPacketFresh;
     if (typeof input.transcriptGrowing === 'boolean') ep.metrics.transcriptGrowing = input.transcriptGrowing;
+    if (typeof input.movementAllowed === 'boolean') ep.diagnostic.movementAllowed = input.movementAllowed;
+    if (typeof input.cappedTargetSafe === 'boolean') ep.diagnostic.cappedTargetSafe = input.cappedTargetSafe;
+    if (typeof input.markerLockSuppressed === 'boolean') ep.diagnostic.markerLockSuppressed = input.markerLockSuppressed;
+    if (typeof input.recoveryAvailable === 'boolean') ep.diagnostic.recoveryAvailable = input.recoveryAvailable;
+    if (typeof input.recoverySelected === 'boolean') ep.diagnostic.recoverySelected = input.recoverySelected;
+    if (typeof input.targetUnsafe === 'boolean') ep.diagnostic.targetUnsafe = input.targetUnsafe;
+    if (typeof input.terminalGeometryBlocked === 'boolean') ep.diagnostic.terminalGeometryBlocked = input.terminalGeometryBlocked;
   }
 
   isSnapSuppressedActive(): boolean {
@@ -432,9 +573,10 @@ export class AsrAlignmentEpisodeTracker {
     const reasonChain = ep.reasonChain.slice(-8).join('|') || 'none';
     const actions = ep.visual.actions.join('|') || 'none';
     const delayedAutopsyGate = explainDelayedSuppressionAutopsyGate(ep);
+    const missReason = classifyNonPocketMissReason(ep);
     try {
       console.info(
-        `[ASR_ALIGNMENT_EPISODE] id=${ep.id} currentLine=${ep.semantic.currentLine} requestedTarget=${ep.semantic.requestedTarget} acceptedCommitTarget=${ep.semantic.acceptedCommitTarget} authorityPath=${ep.semantic.authorityPath} proofSource=${ep.semantic.proofSource} sourceHoldReason=${ep.semantic.sourceHoldReason} scrollTopBefore=${Math.round(ep.visual.scrollTopBefore)} scrollTopAfter=${Math.round(ep.visual.scrollTopAfter)} targetScrollTop=${Math.round(ep.visual.targetScrollTop)} markerY=${Math.round(ep.visual.markerY)} currentLineY=${Math.round(ep.visual.currentLineY)} nextSpeakableLineY=${Math.round(ep.visual.nextSpeakableLineY)} pocketZone=${ep.visual.pocketZone} actions=${actions} deltaLinesSamples=${ep.metrics.deltaLinesSamples.map((n) => n.toFixed(2)).join('|') || 'none'} settleMs=${Math.round(ep.metrics.settleMs)} lowerPocketMs=${Math.round(ep.metrics.lowerPocketMs)} hardHoldTicks=${ep.metrics.hardHoldTicks} transcriptAgeMs=${Math.round(ep.metrics.transcriptAgeMs)} audioAgeMs=${Math.round(ep.metrics.audioAgeMs)} stallDelayMs=${Math.round(ep.metrics.stallDelayMs)} visualOutcome=${ep.visualOutcome} reasonChain=${reasonChain}`,
+        `[ASR_ALIGNMENT_EPISODE] id=${ep.id} currentLine=${ep.semantic.currentLine} requestedTarget=${ep.semantic.requestedTarget} acceptedCommitTarget=${ep.semantic.acceptedCommitTarget} authorityPath=${ep.semantic.authorityPath} proofSource=${ep.semantic.proofSource} sourceHoldReason=${ep.semantic.sourceHoldReason} scrollTopBefore=${Math.round(ep.visual.scrollTopBefore)} scrollTopAfter=${Math.round(ep.visual.scrollTopAfter)} targetScrollTop=${Math.round(ep.visual.targetScrollTop)} markerY=${Math.round(ep.visual.markerY)} currentLineY=${Math.round(ep.visual.currentLineY)} nextSpeakableLineY=${Math.round(ep.visual.nextSpeakableLineY)} pocketZone=${ep.visual.pocketZone} oldPocketState=${ep.visual.oldPocketState} markerCenteredPocketState=${ep.visual.markerCenteredPocketState} markerViewportLine=${Math.round(ep.visual.markerViewportLine)} readViewportLine=${Math.round(ep.visual.readViewportLine)} distanceFromMarkerLines=${Math.round(ep.visual.distanceFromMarkerLines)} preferredTopLine=${Math.round(ep.visual.preferredTopLine)} preferredBottomLine=${Math.round(ep.visual.preferredBottomLine)} actions=${actions} deltaLinesSamples=${ep.metrics.deltaLinesSamples.map((n) => n.toFixed(2)).join('|') || 'none'} settleMs=${Math.round(ep.metrics.settleMs)} lowerPocketMs=${Math.round(ep.metrics.lowerPocketMs)} hardHoldTicks=${ep.metrics.hardHoldTicks} transcriptAgeMs=${Math.round(ep.metrics.transcriptAgeMs)} audioAgeMs=${Math.round(ep.metrics.audioAgeMs)} stallDelayMs=${Math.round(ep.metrics.stallDelayMs)} visualOutcome=${ep.visualOutcome} missReason=${missReason} markerLockSuppressed=${ep.diagnostic.markerLockSuppressed ? 1 : 0} recoveryAvailable=${ep.diagnostic.recoveryAvailable ? 1 : 0} recoverySelected=${ep.diagnostic.recoverySelected ? 1 : 0} targetUnsafe=${ep.diagnostic.targetUnsafe ? 1 : 0} terminalGeometryBlocked=${ep.diagnostic.terminalGeometryBlocked ? 1 : 0} reasonChain=${reasonChain}`,
       );
       if (shouldEmitDumpPathProof()) {
         console.info(
@@ -540,5 +682,19 @@ export class AsrAlignmentEpisodeTracker {
         } catch {}
       }
     }
+  }
+
+  getSnapshotCounts(): {
+    closedEpisodeCount: number;
+    activeEpisodeActionCount: number;
+    activeEpisodeDeltaSampleCount: number;
+    activeEpisodeReasonChainCount: number;
+  } {
+    return {
+      closedEpisodeCount: this.episodes.length,
+      activeEpisodeActionCount: this.active?.visual.actions.length ?? 0,
+      activeEpisodeDeltaSampleCount: this.active?.metrics.deltaLinesSamples.length ?? 0,
+      activeEpisodeReasonChainCount: this.active?.reasonChain.length ?? 0,
+    };
   }
 }
