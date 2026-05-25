@@ -19,6 +19,8 @@ import {
   buildAsrBackendHeartbeatDiagnostic,
   buildAsrBackendRestartCompletedDiagnostic,
   buildAsrBackendRestartRequestedDiagnostic,
+  buildAsrBridgeReducedVisualCashInAppliedDiagnostic,
+  buildAsrBridgeReducedVisualCashInBlockedDiagnostic,
   buildAsrBottomLockGeometryDiagnostic,
   buildAsrDelayedSuppressionAutopsyDiagnostic,
   buildAsrDiagnosticBundleProofDiagnostic,
@@ -936,6 +938,54 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR_DELAYED_SUPPRESSION_AUTOPSY] episodeId=ae-22 runKey=run-1 runGeneration=7 currentLineIdx=23 committedLineIdx=23 requestedTargetIdx=25 acceptedCommitTargetIdx=24 nextSpeakableLineIdx=25 visualOutcome=delayed_until_starvation reasonChain=movement_authority_commit|asr_recovery_chain_blocked|live_asr_marker_lock_suppressed|superseded_by_new_commit actions=snap_suppressed stallDelayMs=2065 settleMs=2060 speechActive=1 transcriptAgeMs=841 audioAgeMs=634 finalPacketFresh=1 transcriptGrowing=0 lastGuardReason=asr_recovery_chain_blocked lastHudGuardText=Hold: waiting for direct adjacent ASR match lastSelectedAuthority=comfort_nudge lastVisualAction=snap_suppressed lastVisualErrorPx=17 markerY=390 actualNextSpeakableLineY=482 desiredLineY=467 tolerancePx=20 holdTolerancePx=12 currentScrollTop=1702 targetScrollTop=1791 deltaLinesSamples=none snapSuppressedInEpisode=1 supersededByNewCommit=1 blockerCategory=recovery_chain_blocked',
+    );
+  });
+
+  test('builds bridge-reduced visual cash-in diagnostics with expected fields', () => {
+    const applied = buildAsrBridgeReducedVisualCashInAppliedDiagnostic({
+      currentLineIdx: 157,
+      requestedTargetIdx: 160,
+      reducedTargetIdx: 158,
+      acceptedCommitTargetIdx: 158,
+      previousAcceptedCommitTargetIdx: 157,
+      bridgeCarry: 3,
+      bridgeClamp: 2,
+      blockerCategory: 'recovery_chain_blocked',
+      recoveryChainBlocked: true,
+      noAdjacentMatchHold: false,
+      markerLockSuppressed: true,
+      repeatedObservationCount: 3,
+      stallDelayMs: 3386,
+      visualDebtPx: 52,
+      belowPocketPx: 31,
+      actualMovedPx: 22,
+      reason: 'bridge_reduced_adjacent_recovery_chain_cash_in',
+    });
+    expect(applied).toBe(
+      '[ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_APPLIED] currentLineIdx=157 requestedTargetIdx=160 reducedTargetIdx=158 acceptedCommitTargetIdx=158 previousAcceptedCommitTargetIdx=157 bridgeCarry=3 bridgeClamp=2 blockerCategory=recovery_chain_blocked recoveryChainBlocked=1 noAdjacentMatchHold=0 markerLockSuppressed=1 repeatedObservationCount=3 stallDelayMs=3386 visualDebtPx=52 belowPocketPx=31 actualMovedPx=22 reason=bridge_reduced_adjacent_recovery_chain_cash_in',
+    );
+
+    const blocked = buildAsrBridgeReducedVisualCashInBlockedDiagnostic({
+      currentLineIdx: 169,
+      requestedTargetIdx: 171,
+      reducedTargetIdx: 170,
+      acceptedCommitTargetIdx: 170,
+      previousAcceptedCommitTargetIdx: 169,
+      bridgeCarry: 2,
+      bridgeClamp: 1,
+      blockerCategory: 'no_adjacent_match_hold',
+      recoveryChainBlocked: false,
+      noAdjacentMatchHold: true,
+      markerLockSuppressed: false,
+      repeatedObservationCount: 1,
+      stallDelayMs: 210,
+      visualDebtPx: 28,
+      belowPocketPx: 12,
+      actualMovedPx: 0,
+      reason: 'awaiting_repeat_or_short_delay',
+    });
+    expect(blocked).toBe(
+      '[ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_BLOCKED] currentLineIdx=169 requestedTargetIdx=171 reducedTargetIdx=170 acceptedCommitTargetIdx=170 previousAcceptedCommitTargetIdx=169 bridgeCarry=2 bridgeClamp=1 blockerCategory=no_adjacent_match_hold recoveryChainBlocked=0 noAdjacentMatchHold=1 markerLockSuppressed=0 repeatedObservationCount=1 stallDelayMs=210 visualDebtPx=28 belowPocketPx=12 actualMovedPx=0 reason=awaiting_repeat_or_short_delay',
     );
   });
 

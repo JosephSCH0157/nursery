@@ -33460,6 +33460,15 @@ function buildAsrBottomLockGeometryDiagnostic(args) {
 function buildAsrVisualMarkerErrorCorrectionDiagnostic(args) {
   return `[ASR_VISUAL_MARKER_ERROR_CORRECTION] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} markerY=${Math.round(args.markerY)} actualNextSpeakableLineY=${Math.round(args.actualNextSpeakableLineY)} desiredLineY=${Math.round(args.desiredLineY)} desiredReadAheadPx=${Math.round(args.desiredReadAheadPx)} visualErrorPx=${Math.round(args.visualErrorPx)} tolerancePx=${Math.round(args.tolerancePx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} action=${args.action} reason=${args.reason}`;
 }
+function buildAsrReaderComfortRescueAppliedDiagnostic(args) {
+  return `[ASR_READER_COMFORT_RESCUE_APPLIED] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} targetLineIdx=${args.targetLineIdx} visualDebtPx=${Math.round(args.visualDebtPx)} belowPocketPx=${Math.round(args.belowPocketPx)} activeLineViewportRatio=${Number.isFinite(args.activeLineViewportRatio) ? args.activeLineViewportRatio.toFixed(3) : "na"} distanceToBottomRailPx=${Math.round(args.distanceToBottomRailPx)} writerSettleActive=${args.writerSettleActive ? 1 : 0} visualRecoveryCooldownActive=${args.visualRecoveryCooldownActive ? 1 : 0} cooldownRemainingMs=${Math.round(args.cooldownRemainingMs)} debtBelowLineHeight=${args.debtBelowLineHeight ? 1 : 0} unsafeTargetReason=${args.unsafeTargetReason || "none"} targetAcceptedLocal=${args.targetAcceptedLocal ? 1 : 0} repeatedBelowPocketCount=${Math.round(args.repeatedBelowPocketCount)} lastCorrectionAgeMs=${Math.round(args.lastCorrectionAgeMs)} actualMovedPx=${Math.round(args.actualMovedPx)} reason=${args.reason}`;
+}
+function buildAsrReaderComfortRescueBlockedDiagnostic(args) {
+  return `[ASR_READER_COMFORT_RESCUE_BLOCKED] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} targetLineIdx=${args.targetLineIdx} visualDebtPx=${Math.round(args.visualDebtPx)} belowPocketPx=${Math.round(args.belowPocketPx)} activeLineViewportRatio=${Number.isFinite(args.activeLineViewportRatio) ? args.activeLineViewportRatio.toFixed(3) : "na"} distanceToBottomRailPx=${Math.round(args.distanceToBottomRailPx)} writerSettleActive=${args.writerSettleActive ? 1 : 0} visualRecoveryCooldownActive=${args.visualRecoveryCooldownActive ? 1 : 0} cooldownRemainingMs=${Math.round(args.cooldownRemainingMs)} debtBelowLineHeight=${args.debtBelowLineHeight ? 1 : 0} unsafeTargetReason=${args.unsafeTargetReason || "none"} targetAcceptedLocal=${args.targetAcceptedLocal ? 1 : 0} repeatedBelowPocketCount=${Math.round(args.repeatedBelowPocketCount)} lastCorrectionAgeMs=${Math.round(args.lastCorrectionAgeMs)} actualMovedPx=${Math.round(args.actualMovedPx)} reason=${args.reason}`;
+}
+function buildAsrVisualSettleBypassedForReadabilityDiagnostic(args) {
+  return `[ASR_VISUAL_SETTLE_BYPASSED_FOR_READABILITY] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} targetLineIdx=${args.targetLineIdx} visualDebtPx=${Math.round(args.visualDebtPx)} belowPocketPx=${Math.round(args.belowPocketPx)} activeLineViewportRatio=${Number.isFinite(args.activeLineViewportRatio) ? args.activeLineViewportRatio.toFixed(3) : "na"} distanceToBottomRailPx=${Math.round(args.distanceToBottomRailPx)} writerSettleActive=${args.writerSettleActive ? 1 : 0} visualRecoveryCooldownActive=${args.visualRecoveryCooldownActive ? 1 : 0} cooldownRemainingMs=${Math.round(args.cooldownRemainingMs)} debtBelowLineHeight=${args.debtBelowLineHeight ? 1 : 0} unsafeTargetReason=${args.unsafeTargetReason || "none"} targetAcceptedLocal=${args.targetAcceptedLocal ? 1 : 0} repeatedBelowPocketCount=${Math.round(args.repeatedBelowPocketCount)} lastCorrectionAgeMs=${Math.round(args.lastCorrectionAgeMs)} actualMovedPx=${Math.round(args.actualMovedPx)} reason=${args.reason}`;
+}
 function buildAsrStaleRecoveryTargetExpiredDiagnostic(args) {
   return `[ASR_STALE_RECOVERY_TARGET_EXPIRED] sourcePath=${args.sourcePath || "unknown"} reason=${args.reason || "unknown"} previousTargetScrollTop=${Math.round(args.previousTargetScrollTop)} preservedTargetScrollTop=${Math.round(args.preservedTargetScrollTop)} pocketTargetScrollTop=${Math.round(args.pocketTargetScrollTop)} currentScrollTop=${Math.round(args.currentScrollTop)} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} visualErrorPx=${Math.round(args.visualErrorPx)} tolerancePx=${Math.round(args.tolerancePx)} deltaPxToPreservedTarget=${Math.round(args.deltaPxToPreservedTarget)} deltaPxToPocketTarget=${Math.round(args.deltaPxToPocketTarget)}`;
 }
@@ -35516,6 +35525,52 @@ var init_asr_visual_debt_catchup = __esm({
   }
 });
 
+// src/features/asr/asr-live-pocket-maintenance.ts
+function decideAcceptedLocalLagVisualCatchup(input) {
+  const currentLineIdx = Math.max(-1, Math.floor(Number(input.currentLineIdx)));
+  const committedLineIdx = Math.max(-1, Math.floor(Number(input.committedLineIdx)));
+  const nextSpeakableLineIdx = Math.max(-1, Math.floor(Number(input.nextSpeakableLineIdx)));
+  const targetLineIdx = Number.isFinite(input.targetLineIdx) ? Math.floor(Number(input.targetLineIdx)) : -1;
+  const lagLines = currentLineIdx >= 0 && committedLineIdx >= 0 ? Math.max(-1, committedLineIdx - currentLineIdx) : -1;
+  if (lagLines <= 1) {
+    return { blockedReason: "not_far_target", lagLines, relaxed: false };
+  }
+  if (input.terminalClamp) {
+    return { blockedReason: "terminal_near_end", lagLines, relaxed: false };
+  }
+  if (input.noMatchOrOffscript || input.contradiction) {
+    return { blockedReason: "safety_blocked", lagLines, relaxed: false };
+  }
+  if (currentLineIdx < 0 || committedLineIdx < 0 || nextSpeakableLineIdx < 0) {
+    return { blockedReason: "incoherent_indices", lagLines, relaxed: false };
+  }
+  if (lagLines > 2) {
+    return { blockedReason: "true_far_target", lagLines, relaxed: false };
+  }
+  if (nextSpeakableLineIdx !== committedLineIdx) {
+    return { blockedReason: "incoherent_indices", lagLines, relaxed: false };
+  }
+  const targetMatchesAccepted = targetLineIdx >= 0 && (targetLineIdx === committedLineIdx || targetLineIdx === nextSpeakableLineIdx);
+  const targetStillLocal = targetLineIdx < 0 || targetLineIdx === currentLineIdx || targetLineIdx === currentLineIdx + 1;
+  if (!(targetMatchesAccepted || targetStillLocal)) {
+    return { blockedReason: "unaccepted_target", lagLines, relaxed: false };
+  }
+  const lineHeightPx = Math.max(1, Number.isFinite(input.lineHeightPx) ? Number(input.lineHeightPx) : 1);
+  const belowPocketThresholdPx = Math.max(1, Math.round(lineHeightPx * 0.75));
+  const significantBelowPocket = Number.isFinite(input.belowPocketPx) && input.belowPocketPx >= belowPocketThresholdPx;
+  const significantVisualDebt = Number.isFinite(input.visualDebtPx) && input.visualDebtPx >= lineHeightPx;
+  const boundedForwardCorrection = Number.isFinite(input.targetScrollTop) && Number.isFinite(input.currentScrollTop) && input.targetScrollTop > input.currentScrollTop + 0.5 && input.targetScrollTop - input.currentScrollTop <= Math.max(lineHeightPx * 4, 220);
+  if (significantBelowPocket && significantVisualDebt && boundedForwardCorrection) {
+    return { blockedReason: "accepted_local_lag_overblocked", lagLines, relaxed: true };
+  }
+  return { blockedReason: "accepted_local_lag_overblocked", lagLines, relaxed: false };
+}
+var init_asr_live_pocket_maintenance = __esm({
+  "src/features/asr/asr-live-pocket-maintenance.ts"() {
+    "use strict";
+  }
+});
+
 // src/features/asr/asr-bridge-trap.ts
 function isIgnorableOnlyBridgeSkipReasons(skippedIgnorableLines) {
   return skippedIgnorableLines.every(
@@ -36585,6 +36640,31 @@ function isDevMode4() {
   } catch {
   }
   return false;
+}
+function isBridgeHoldReadabilityRescueEnabled() {
+  if (typeof window === "undefined") return ASR_BRIDGE_HOLD_READABILITY_RESCUE_DEFAULT;
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.get("asr_bridge_hold_readability_rescue") === "1") return true;
+    if (params.get("asr_bridge_hold_readability_rescue") === "0") return false;
+  } catch {
+  }
+  try {
+    const stored = window.localStorage?.getItem("asr_bridge_hold_readability_rescue");
+    if (stored === "1") return true;
+    if (stored === "0") return false;
+  } catch {
+  }
+  return ASR_BRIDGE_HOLD_READABILITY_RESCUE_DEFAULT;
+}
+function shouldEmitFrameDiagnostic(key, signature, minMs = ASR_FRAME_DIAGNOSTIC_THROTTLE_MS) {
+  const now3 = Date.now();
+  const last = frameDiagnosticLastSeen.get(key);
+  if (last && last.signature === signature && now3 - last.ts < minMs) {
+    return false;
+  }
+  frameDiagnosticLastSeen.set(key, { ts: now3, signature });
+  return true;
 }
 function shouldEmitAsrDiagnosticProof() {
   if (typeof window === "undefined") return false;
@@ -38006,6 +38086,10 @@ function createAsrScrollDriver(options = {}) {
   let asr4PocketDriftConsecutiveBelowPocketCount = 0;
   let asr4PocketDriftCooldownUntilMs = 0;
   let asr4PocketDriftLastAuthoritySignature = "";
+  let lastAsrReaderComfortRescueAt = 0;
+  let lastAsrReaderComfortRescueSignature = "";
+  let lastAsrReaderComfortRescueBlockedAt = 0;
+  let liveAsrReaderComfortRescueRepeatCount = 0;
   let lastStaleLandingRelaxationAt = 0;
   let liveAsrVisualDebtCatchupCooldownUntilMs = 0;
   let liveAsrVisualDebtCatchupObservationCount = 0;
@@ -44449,6 +44533,118 @@ function createAsrScrollDriver(options = {}) {
     } catch {
     }
   };
+  const resolveVisualRecoveryCooldownRemainingMs = (nowTs2) => {
+    const recentVisualRecoveryRemaining = asr4VisualRecoveryLastAppliedAt > 0 ? Math.max(0, ASR4_POCKET_DRIFT_AUTHORITY_COOLDOWN_MS - (nowTs2 - asr4VisualRecoveryLastAppliedAt)) : 0;
+    const explicitCooldownRemaining = Math.max(0, asr4PocketDriftCooldownUntilMs - nowTs2);
+    return Math.max(recentVisualRecoveryRemaining, explicitCooldownRemaining);
+  };
+  const emitReaderComfortRescueBlocked = (input) => {
+    const signature = [
+      input.currentLineIdx,
+      input.committedLineIdx,
+      input.targetLineIdx,
+      Math.round(input.visualDebtPx),
+      Math.round(input.belowPocketPx),
+      input.reason,
+      Math.round(input.actualMovedPx)
+    ].join("|");
+    const nowTs2 = Date.now();
+    if (nowTs2 - lastAsrReaderComfortRescueBlockedAt < 1200 && signature === lastAsrReaderComfortRescueSignature) {
+      return;
+    }
+    lastAsrReaderComfortRescueBlockedAt = nowTs2;
+    lastAsrReaderComfortRescueSignature = signature;
+    try {
+      console.warn(buildAsrReaderComfortRescueBlockedDiagnostic(input));
+    } catch {
+    }
+  };
+  const applyReaderComfortRescue = (input) => {
+    const maxTop = Math.max(0, (input.scroller.scrollHeight || 0) - (input.scroller.clientHeight || 0));
+    const lineHeightPx = clamp4(resolveMotionLineHeightPx(
+      getLineElementByIndex(input.scroller, Math.max(0, input.targetLineIdx)) || getLineElementByIndex(input.scroller, Math.max(0, input.committedLineIdx)) || getLineElementByIndex(input.scroller, Math.max(0, input.currentLineIdx))
+    ), 12, 320);
+    const maxStepPx2 = Math.max(12, Math.round(lineHeightPx * ASR_READER_COMFORT_RESCUE_MAX_STEP_LINES));
+    const desiredDeltaPx = clamp4(
+      Math.max(
+        input.belowPocketPx,
+        Math.max(0, input.targetScrollTop - input.currentScrollTop)
+      ),
+      0,
+      maxStepPx2
+    );
+    if (!(Number.isFinite(desiredDeltaPx) && desiredDeltaPx > 0.5)) {
+      emitReaderComfortRescueBlocked({
+        ...input,
+        actualMovedPx: 0,
+        reason: `${input.reason}:no_bounded_forward_delta`
+      });
+      return {
+        applied: false,
+        afterScrollTop: input.currentScrollTop,
+        movedPx: 0
+      };
+    }
+    const boundedTargetTop = clamp4(input.currentScrollTop + desiredDeltaPx, 0, maxTop);
+    const appliedTop = applyCanonicalScrollTop(boundedTargetTop, {
+      scroller: input.scroller,
+      reason: "asr-reader-comfort-rescue",
+      source: "asr"
+    });
+    const afterScrollTop = finiteNumberOrNull("readerComfortRescue.afterTop", Number.isFinite(appliedTop) ? appliedTop : input.scroller.scrollTop, {
+      lineIdx: input.targetLineIdx,
+      reason: input.reason
+    }) ?? input.currentScrollTop;
+    const movedPx = Math.max(0, Math.round(afterScrollTop - input.currentScrollTop));
+    if (movedPx <= 0) {
+      emitReaderComfortRescueBlocked({
+        ...input,
+        actualMovedPx: movedPx,
+        reason: `${input.reason}:no_effective_move`
+      });
+      return {
+        applied: false,
+        afterScrollTop: input.currentScrollTop,
+        movedPx: 0
+      };
+    }
+    lastAsrReaderComfortRescueAt = Date.now();
+    lastAsrReaderComfortRescueSignature = [
+      input.currentLineIdx,
+      input.committedLineIdx,
+      input.targetLineIdx,
+      Math.round(input.visualDebtPx),
+      Math.round(input.belowPocketPx),
+      input.reason
+    ].join("|");
+    asr4VisualRecoveryLastAppliedAt = lastAsrReaderComfortRescueAt;
+    lastMoveAt = lastAsrReaderComfortRescueAt;
+    lastKnownScrollTop = afterScrollTop;
+    markProgrammaticScroll();
+    preservedAsrAuthorityTargetTop = null;
+    preservedAsrAuthorityTargetReason = "reader_comfort_rescue_applied";
+    preservedAsrAuthorityTargetSourcePath = "reader_comfort_rescue_applied";
+    pursuitTargetTop = afterScrollTop;
+    pursuitVel = 0;
+    try {
+      console.warn(buildAsrReaderComfortRescueAppliedDiagnostic({
+        ...input,
+        actualMovedPx: movedPx
+      }));
+      if (input.writerSettleActive || input.visualRecoveryCooldownActive) {
+        console.warn(buildAsrVisualSettleBypassedForReadabilityDiagnostic({
+          ...input,
+          actualMovedPx: movedPx
+        }));
+      }
+    } catch {
+    }
+    return {
+      applied: true,
+      afterScrollTop,
+      movedPx
+    };
+  };
   const tickController = () => {
     if (!pursuitActive || disposed) return;
     const liveAsrFollowMode = getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed();
@@ -44513,11 +44709,20 @@ function createAsrScrollDriver(options = {}) {
     if (preservedAsrAuthorityTargetTop != null && Number.isFinite(preservedAsrAuthorityTargetTop) && preservedAsrAuthorityTargetTop > current2 + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX && (pursuitTargetTop == null || !Number.isFinite(pursuitTargetTop) || pursuitTargetTop < preservedAsrAuthorityTargetTop)) {
       const previousTarget = Number.isFinite(pursuitTargetTop) ? Number(pursuitTargetTop) : -1;
       pursuitTargetTop = preservedAsrAuthorityTargetTop;
-      try {
-        console.warn(
-          `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(previousTarget)} requestedTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} effectiveTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} currentScrollTop=${Math.round(current2)} deltaPxToTarget=${Math.round(Math.max(0, preservedAsrAuthorityTargetTop - current2))} targetPreserved=1`
-        );
-      } catch {
+      const suppressionSignature = [
+        preservedAsrAuthorityTargetSourcePath,
+        preservedAsrAuthorityTargetReason,
+        Math.round(previousTarget / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+        Math.round(Number(preservedAsrAuthorityTargetTop) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+        Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX)
+      ].join("|");
+      if (shouldEmitFrameDiagnostic("ASR_TARGET_SUPPRESSION_PREVENTED", suppressionSignature)) {
+        try {
+          console.warn(
+            `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(previousTarget)} requestedTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} effectiveTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} currentScrollTop=${Math.round(current2)} deltaPxToTarget=${Math.round(Math.max(0, preservedAsrAuthorityTargetTop - current2))} targetPreserved=1`
+          );
+        } catch {
+        }
       }
     }
     if (pursuitTargetTop == null) {
@@ -45034,25 +45239,35 @@ function createAsrScrollDriver(options = {}) {
         lastAsrToleratedBandBottom = Number.isFinite(toleratedBandBottom) ? Number(toleratedBandBottom) : Number.NaN;
         lastAsrNextSpeakableLineY = Number.isFinite(nextLineY) ? Number(nextLineY) : Number.NaN;
         lastAsrReaderPocketZone = String(liveTickReaderPocketZone || "unknown");
-        try {
-          console.warn(
-            buildAsrVisualMarkerErrorCorrectionDiagnostic({
-              currentLineIdx: lastLineIndex,
-              committedLineIdx: lastLineIndex,
-              nextSpeakableLineIdx,
-              markerY,
-              actualNextSpeakableLineY: nextLineY,
-              desiredLineY,
-              desiredReadAheadPx,
-              visualErrorPx,
-              tolerancePx,
-              currentScrollTop: current2,
-              targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current2,
-              action: markerCorrectionAction,
-              reason: markerCorrectionReason
-            })
-          );
-        } catch {
+        const markerCorrectionSignature = [
+          lastLineIndex,
+          nextSpeakableLineIdx,
+          markerCorrectionAction,
+          markerCorrectionReason,
+          Math.round(visualErrorPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+          Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX)
+        ].join("|");
+        if (shouldEmitFrameDiagnostic("ASR_VISUAL_MARKER_ERROR_CORRECTION", markerCorrectionSignature, 350)) {
+          try {
+            console.warn(
+              buildAsrVisualMarkerErrorCorrectionDiagnostic({
+                currentLineIdx: lastLineIndex,
+                committedLineIdx: lastLineIndex,
+                nextSpeakableLineIdx,
+                markerY,
+                actualNextSpeakableLineY: nextLineY,
+                desiredLineY,
+                desiredReadAheadPx,
+                visualErrorPx,
+                tolerancePx,
+                currentScrollTop: current2,
+                targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current2,
+                action: markerCorrectionAction,
+                reason: markerCorrectionReason
+              })
+            );
+          } catch {
+          }
         }
       }
       if (liveAsrCommitteeMarkerLockState === "unknown") {
@@ -45441,11 +45656,20 @@ function createAsrScrollDriver(options = {}) {
         } catch {
         }
         if (preservedAsrAuthorityTargetTop != null && Number.isFinite(preservedAsrAuthorityTargetTop) && preservedAsrAuthorityTargetTop > current2 + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX) {
-          try {
-            console.warn(
-              `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(oldTarget)} requestedTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} effectiveTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} currentScrollTop=${Math.round(current2)} deltaPxToTarget=${Math.round(Math.max(0, preservedAsrAuthorityTargetTop - current2))} targetPreserved=1`
-            );
-          } catch {
+          const suppressionSignature = [
+            preservedAsrAuthorityTargetSourcePath,
+            preservedAsrAuthorityTargetReason,
+            Math.round(oldTarget / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Math.round(Number(preservedAsrAuthorityTargetTop) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX)
+          ].join("|");
+          if (shouldEmitFrameDiagnostic("ASR_TARGET_SUPPRESSION_PREVENTED", suppressionSignature)) {
+            try {
+              console.warn(
+                `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(oldTarget)} requestedTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} effectiveTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} currentScrollTop=${Math.round(current2)} deltaPxToTarget=${Math.round(Math.max(0, preservedAsrAuthorityTargetTop - current2))} targetPreserved=1`
+              );
+            } catch {
+            }
           }
         }
       }
@@ -45475,11 +45699,19 @@ function createAsrScrollDriver(options = {}) {
         Number.isFinite(pursuitTargetTop) ? Number(pursuitTargetTop) : 0,
         Number(preservedAsrAuthorityTargetTop)
       );
-      try {
-        console.warn(
-          `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(current2)} requestedTargetScrollTop=${Math.round(Number(preservedAsrAuthorityTargetTop))} effectiveTargetScrollTop=${Math.round(Number(preservedAsrAuthorityTargetTop))} currentScrollTop=${Math.round(current2)} deltaPxToTarget=${Math.round(Math.max(0, Number(preservedAsrAuthorityTargetTop) - current2))} targetPreserved=1`
-        );
-      } catch {
+      const suppressionSignature = [
+        preservedAsrAuthorityTargetSourcePath,
+        preservedAsrAuthorityTargetReason,
+        Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+        Math.round(Number(preservedAsrAuthorityTargetTop) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX)
+      ].join("|");
+      if (shouldEmitFrameDiagnostic("ASR_TARGET_SUPPRESSION_PREVENTED", suppressionSignature)) {
+        try {
+          console.warn(
+            `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(current2)} requestedTargetScrollTop=${Math.round(Number(preservedAsrAuthorityTargetTop))} effectiveTargetScrollTop=${Math.round(Number(preservedAsrAuthorityTargetTop))} currentScrollTop=${Math.round(current2)} deltaPxToTarget=${Math.round(Math.max(0, Number(preservedAsrAuthorityTargetTop) - current2))} targetPreserved=1`
+          );
+        } catch {
+        }
       }
     }
     if (comfortOnlyHoldActive) {
@@ -45883,11 +46115,19 @@ function createAsrScrollDriver(options = {}) {
         }
       }
     } else if (liveAsrFollowMode && Number.isFinite(arithmeticTargetDebtPx)) {
-      try {
-        console.info(
-          `[ASR_VISUAL_DEBT_CATCHUP_EVALUATION_SKIPPED] debtPx=${Math.round(arithmeticTargetDebtPx)} lineHeightPx=${Math.round(safeResolverLineHeightPx)} currentLineIdx=${visualDebtCatchupCurrentLine} committedLineIdx=${visualDebtCatchupCommittedLine} targetLineIdx=${Number.isFinite(visualDebtCatchupTargetLine) ? Math.round(Number(visualDebtCatchupTargetLine)) : -1} reason=debt_below_line_height`
-        );
-      } catch {
+      const skippedDebtSignature = [
+        visualDebtCatchupCurrentLine,
+        visualDebtCatchupCommittedLine,
+        Number.isFinite(visualDebtCatchupTargetLine) ? Math.round(Number(visualDebtCatchupTargetLine)) : -1,
+        Math.round(Number(arithmeticTargetDebtPx) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX)
+      ].join("|");
+      if (shouldEmitFrameDiagnostic("ASR_VISUAL_DEBT_CATCHUP_EVALUATION_SKIPPED", skippedDebtSignature, 500)) {
+        try {
+          console.info(
+            `[ASR_VISUAL_DEBT_CATCHUP_EVALUATION_SKIPPED] debtPx=${Math.round(arithmeticTargetDebtPx)} lineHeightPx=${Math.round(safeResolverLineHeightPx)} currentLineIdx=${visualDebtCatchupCurrentLine} committedLineIdx=${visualDebtCatchupCommittedLine} targetLineIdx=${Number.isFinite(visualDebtCatchupTargetLine) ? Math.round(Number(visualDebtCatchupTargetLine)) : -1} reason=debt_below_line_height`
+          );
+        } catch {
+        }
       }
     }
     if (visualDebtCatchupAllowed) {
@@ -45969,19 +46209,75 @@ function createAsrScrollDriver(options = {}) {
       const maintenanceActiveLineY = Number.isFinite(lastAsrNextSpeakableLineY) ? lastAsrNextSpeakableLineY : Number.NaN;
       const maintenanceBelowPocketPx = Number.isFinite(maintenanceActiveLineY) && Number.isFinite(lastAsrPreferredBandBottom) ? Math.max(0, Math.round(maintenanceActiveLineY - lastAsrPreferredBandBottom)) : -1;
       const maintenancePocketHealth = maintenanceBelowPocketPx > 0 ? "belowPocket" : Number.isFinite(maintenanceActiveLineY) && Number.isFinite(lastAsrPreferredBandTop) && maintenanceActiveLineY < lastAsrPreferredBandTop ? "abovePocket" : "inPocket";
-      const maintenanceEligible = liveAsrCommitteeAcceptedCommitTargetIdx >= 0 && liveAsrCommitteeAcceptedCommitTargetIdx <= lastLineIndex + 1 && resolvedCommand.movementAllowed && resolvedCommand.cappedTargetSafe && !actuatorNoMatchOrOffscript && !hardContradictionActive && !atScrollLimit;
+      const maintenanceNextSpeakableLineIdx = liveAsrVisualPursuitLineIdx ?? lastLineIndex;
+      const maintenanceTargetLineIdx = Number.isFinite(resolvedCommand.allowedTargetIdx) ? Math.max(0, Math.floor(Number(resolvedCommand.allowedTargetIdx))) : -1;
+      const maintenanceFarTargetDecision = decideAcceptedLocalLagVisualCatchup({
+        currentLineIdx: lastLineIndex,
+        committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+        nextSpeakableLineIdx: maintenanceNextSpeakableLineIdx,
+        targetLineIdx: maintenanceTargetLineIdx,
+        noMatchOrOffscript: actuatorNoMatchOrOffscript,
+        contradiction: hardContradictionActive,
+        terminalClamp: atScrollLimit,
+        belowPocketPx: maintenanceBelowPocketPx,
+        visualDebtPx: Number.isFinite(arithmeticTargetDebtPx) ? Number(arithmeticTargetDebtPx) : 0,
+        lineHeightPx: safeResolverLineHeightPx,
+        currentScrollTop: beforeScrollTop,
+        targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop
+      });
+      const maintenanceFarTargetRelaxed = maintenanceFarTargetDecision.relaxed;
+      const maintenanceEligible = liveAsrCommitteeAcceptedCommitTargetIdx >= 0 && (liveAsrCommitteeAcceptedCommitTargetIdx <= lastLineIndex + 1 || maintenanceFarTargetRelaxed) && resolvedCommand.movementAllowed && resolvedCommand.cappedTargetSafe && !actuatorNoMatchOrOffscript && !hardContradictionActive && !atScrollLimit;
       let maintenanceDeniedReason = "none";
       if (actuatorNoMatchOrOffscript) maintenanceDeniedReason = "no_match_or_offscript";
       else if (hardContradictionActive) maintenanceDeniedReason = "contradiction";
-      else if (atScrollLimit) maintenanceDeniedReason = "terminal_clamp";
-      else if (!resolvedCommand.movementAllowed) maintenanceDeniedReason = "movement_not_allowed";
+      else if (atScrollLimit) {
+        maintenanceDeniedReason = liveAsrCommitteeAcceptedCommitTargetIdx > lastLineIndex + 1 ? "terminal_near_end" : "terminal_clamp";
+      } else if (!resolvedCommand.movementAllowed) maintenanceDeniedReason = "movement_not_allowed";
       else if (!resolvedCommand.cappedTargetSafe) maintenanceDeniedReason = "unsafe_target";
-      else if (liveAsrCommitteeAcceptedCommitTargetIdx > lastLineIndex + 1) maintenanceDeniedReason = "far_target";
-      try {
-        console.info(
-          `[ASR_LIVE_POCKET_MAINTENANCE_EVALUATED] currentLineIdx=${lastLineIndex} committedLineIdx=${liveAsrCommitteeAcceptedCommitTargetIdx} nextSpeakableLineIdx=${liveAsrVisualPursuitLineIdx ?? lastLineIndex} targetLineIdx=${Number.isFinite(resolvedCommand.allowedTargetIdx) ? Math.round(Number(resolvedCommand.allowedTargetIdx)) : -1} markerTopPx=${Number.isFinite(lastAsrMarkerY) ? Math.round(lastAsrMarkerY) : -1} activeLineTopPx=${Number.isFinite(maintenanceActiveLineY) ? Math.round(maintenanceActiveLineY) : -1} activeLineDistanceFromMarkerPx=${Number.isFinite(maintenanceActiveLineY) && Number.isFinite(lastAsrMarkerY) ? Math.round(maintenanceActiveLineY - lastAsrMarkerY) : -1} activeLineViewportRatio=${Number.isFinite(maintenanceActiveLineY) && Number(scroller.clientHeight || 0) > 0 ? (maintenanceActiveLineY / Number(scroller.clientHeight || 1)).toFixed(3) : "NaN"} pocketHealth=${maintenancePocketHealth} belowPocketPx=${maintenanceBelowPocketPx} visualDebtPx=${Number.isFinite(arithmeticTargetDebtPx) ? Math.round(arithmeticTargetDebtPx) : -1} currentScrollTop=${Math.round(beforeScrollTop)} targetScrollTop=${Math.round(Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop)} sourcePath=${String(liveTickSelectedAuthority || "none")} eligible=${maintenanceEligible ? 1 : 0} deniedReason=${maintenanceDeniedReason} noMatch=${actuatorNoMatchOrOffscript ? 1 : 0} offScript=${actuatorNoMatchOrOffscript ? 1 : 0} contradiction=${hardContradictionActive ? 1 : 0} farTarget=${liveAsrCommitteeAcceptedCommitTargetIdx > lastLineIndex + 1 ? 1 : 0} terminalClamp=${atScrollLimit ? 1 : 0} directWriteBlocked=${asr4VisualRecoveryLastDirectWriteBlocked ? 1 : 0} targetPreservedForEasing=${preservedAsrAuthorityTargetTop != null ? 1 : 0} actuatorApplied=${appliedDeltaPx > 0 ? 1 : 0} actualMovedPx=${Math.round(appliedDeltaPx)}`
-        );
-      } catch {
+      else if (liveAsrCommitteeAcceptedCommitTargetIdx > lastLineIndex + 1) maintenanceDeniedReason = maintenanceFarTargetDecision.blockedReason;
+      const maintenanceSignature = [
+        lastLineIndex,
+        liveAsrCommitteeAcceptedCommitTargetIdx,
+        maintenanceNextSpeakableLineIdx,
+        maintenanceTargetLineIdx,
+        maintenancePocketHealth,
+        maintenanceDeniedReason,
+        Math.round(maintenanceBelowPocketPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+        Math.round((Number.isFinite(arithmeticTargetDebtPx) ? Number(arithmeticTargetDebtPx) : -1) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+        Math.round(appliedDeltaPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX)
+      ].join("|");
+      if (shouldEmitFrameDiagnostic("ASR_LIVE_POCKET_MAINTENANCE_EVALUATED", maintenanceSignature, 350)) {
+        try {
+          console.info(
+            `[ASR_LIVE_POCKET_MAINTENANCE_EVALUATED] currentLineIdx=${lastLineIndex} committedLineIdx=${liveAsrCommitteeAcceptedCommitTargetIdx} nextSpeakableLineIdx=${maintenanceNextSpeakableLineIdx} targetLineIdx=${maintenanceTargetLineIdx} markerTopPx=${Number.isFinite(lastAsrMarkerY) ? Math.round(lastAsrMarkerY) : -1} activeLineTopPx=${Number.isFinite(maintenanceActiveLineY) ? Math.round(maintenanceActiveLineY) : -1} activeLineDistanceFromMarkerPx=${Number.isFinite(maintenanceActiveLineY) && Number.isFinite(lastAsrMarkerY) ? Math.round(maintenanceActiveLineY - lastAsrMarkerY) : -1} activeLineViewportRatio=${Number.isFinite(maintenanceActiveLineY) && Number(scroller.clientHeight || 0) > 0 ? (maintenanceActiveLineY / Number(scroller.clientHeight || 1)).toFixed(3) : "NaN"} pocketHealth=${maintenancePocketHealth} belowPocketPx=${maintenanceBelowPocketPx} visualDebtPx=${Number.isFinite(arithmeticTargetDebtPx) ? Math.round(arithmeticTargetDebtPx) : -1} currentScrollTop=${Math.round(beforeScrollTop)} targetScrollTop=${Math.round(Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop)} sourcePath=${String(liveTickSelectedAuthority || "none")} eligible=${maintenanceEligible ? 1 : 0} deniedReason=${maintenanceDeniedReason} noMatch=${actuatorNoMatchOrOffscript ? 1 : 0} offScript=${actuatorNoMatchOrOffscript ? 1 : 0} contradiction=${hardContradictionActive ? 1 : 0} farTarget=${liveAsrCommitteeAcceptedCommitTargetIdx > lastLineIndex + 1 ? 1 : 0} terminalClamp=${atScrollLimit ? 1 : 0} directWriteBlocked=${asr4VisualRecoveryLastDirectWriteBlocked ? 1 : 0} targetPreservedForEasing=${preservedAsrAuthorityTargetTop != null ? 1 : 0} actuatorApplied=${appliedDeltaPx > 0 ? 1 : 0} actualMovedPx=${Math.round(appliedDeltaPx)}`
+          );
+        } catch {
+        }
+      }
+      if (maintenanceFarTargetRelaxed) {
+        try {
+          console.warn(
+            `[ASR_SAFE_LIVE_POCKET_CORRECTION_FAR_TARGET_RELAXED] currentLineIdx=${lastLineIndex} committedLineIdx=${liveAsrCommitteeAcceptedCommitTargetIdx} nextSpeakableLineIdx=${maintenanceNextSpeakableLineIdx} targetLineIdx=${maintenanceTargetLineIdx} lagLines=${maintenanceFarTargetDecision.lagLines} visualDebtPx=${Number.isFinite(arithmeticTargetDebtPx) ? Math.round(arithmeticTargetDebtPx) : -1} belowPocketPx=${maintenanceBelowPocketPx} targetScrollTop=${Math.round(Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop)} currentScrollTop=${Math.round(beforeScrollTop)} noMatch=${actuatorNoMatchOrOffscript ? 1 : 0} offScript=${actuatorNoMatchOrOffscript ? 1 : 0} contradiction=${hardContradictionActive ? 1 : 0} terminalClamp=${atScrollLimit ? 1 : 0} reason=accepted_local_lag_catchup`
+          );
+        } catch {
+        }
+      }
+      if (maintenanceFarTargetRelaxed && maintenancePocketHealth === "belowPocket" && Number.isFinite(Number(pursuitTargetTop)) && Number(pursuitTargetTop) > beforeScrollTop + 0.5) {
+        const relaxedCorrection = applySafeLivePocketCorrection({
+          scroller,
+          beforeScrollTop,
+          targetScrollTop: Number(pursuitTargetTop),
+          currentLineIdx: lastLineIndex,
+          committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+          nextSpeakableLineIdx: maintenanceNextSpeakableLineIdx,
+          visualErrorPx: Number.isFinite(arithmeticTargetDebtPx) ? Number(arithmeticTargetDebtPx) : maintenanceBelowPocketPx,
+          source: "tick",
+          reason: "accepted_local_lag_catchup"
+        });
+        if (relaxedCorrection.applied) {
+          afterScrollTop = relaxedCorrection.afterScrollTop;
+          appliedDeltaPx = Math.max(appliedDeltaPx, relaxedCorrection.movedPx);
+        }
       }
       if (maintenancePocketHealth === "belowPocket" && !maintenanceEligible) {
         emitSafeLivePocketCorrectionBlocked({
@@ -46007,6 +46303,82 @@ function createAsrScrollDriver(options = {}) {
           visualErrorPx: Number.isFinite(arithmeticTargetDebtPx) ? Number(arithmeticTargetDebtPx) : maintenanceBelowPocketPx,
           actualMovedPx: appliedDeltaPx
         });
+      }
+      if (isBridgeHoldReadabilityRescueEnabled()) {
+        const maintenanceNowTs = Date.now();
+        const writerSettleActive = isWriterCommitWindowActive();
+        const cooldownRemainingMs = resolveVisualRecoveryCooldownRemainingMs(maintenanceNowTs);
+        const visualRecoveryCooldownActive = cooldownRemainingMs > 0;
+        const maintenanceTargetAcceptedLocal = liveAsrCommitteeAcceptedCommitTargetIdx >= 0 && liveAsrCommitteeAcceptedCommitTargetIdx <= lastLineIndex + 1;
+        const maintenanceActiveLineViewportRatio = Number.isFinite(maintenanceActiveLineY) && Number(scroller.clientHeight || 0) > 0 ? Number(maintenanceActiveLineY) / Math.max(1, Number(scroller.clientHeight || 1)) : Number.NaN;
+        const maintenanceDistanceToBottomRailPx = Number.isFinite(maintenanceActiveLineY) ? Math.round(Number(scroller.clientHeight || 0) - safeResolverLineHeightPx * 1.5 - Number(maintenanceActiveLineY)) : Number.NaN;
+        const maintenanceDebtBelowLineHeight = Number.isFinite(arithmeticTargetDebtPx) && Math.abs(Number(arithmeticTargetDebtPx)) < Math.max(1, safeResolverLineHeightPx);
+        const maintenanceNearBottomRail = Number.isFinite(maintenanceDistanceToBottomRailPx) && maintenanceDistanceToBottomRailPx <= Math.max(18, safeResolverLineHeightPx * 0.35) || Number.isFinite(maintenanceActiveLineViewportRatio) && maintenanceActiveLineViewportRatio >= ASR_READER_COMFORT_RESCUE_BOTTOM_VIEWPORT_RATIO;
+        if (maintenancePocketHealth === "belowPocket" || maintenanceNearBottomRail) {
+          liveAsrReaderComfortRescueRepeatCount += 1;
+        } else {
+          liveAsrReaderComfortRescueRepeatCount = 0;
+        }
+        const maintenanceUnsafeTargetReason = maintenanceDeniedReason === "unsafe_target" ? maintenanceDeniedReason : "none";
+        const lastCorrectionAgeMs = lastMoveAt > 0 ? Math.max(0, maintenanceNowTs - lastMoveAt) : Number.POSITIVE_INFINITY;
+        const rescueVisualTargetLineIdx = maintenanceTargetAcceptedLocal ? liveAsrCommitteeAcceptedCommitTargetIdx : Math.max(lastLineIndex, Math.min(maintenanceTargetLineIdx, lastLineIndex + 1));
+        const rescueVisualTargetTopCandidate = Number.isFinite(Number(pursuitTargetTop)) && Number(pursuitTargetTop) > beforeScrollTop ? Number(pursuitTargetTop) : Number.isFinite(rescueVisualTargetLineIdx) && rescueVisualTargetLineIdx >= 0 ? resolveTargetTop(scroller, rescueVisualTargetLineIdx) : null;
+        const rescueVisualTargetTop = Number.isFinite(rescueVisualTargetTopCandidate) ? Number(rescueVisualTargetTopCandidate) : beforeScrollTop;
+        const rescueUrgentLowLine = maintenanceBelowPocketPx >= Math.max(8, safeResolverLineHeightPx * ASR_READER_COMFORT_RESCUE_MIN_BELOW_POCKET_LINES) || maintenanceNearBottomRail;
+        const rescueMovementStalled = appliedDeltaPx < Math.max(1, safeResolverLineHeightPx * 0.2) && (liveScrollStallDecision.active || !!(preservedAsrAuthorityTargetTop != null) || writerSettleActive);
+        const rescueSafeLocalTarget = !actuatorNoMatchOrOffscript && !hardContradictionActive && !atScrollLimit && (maintenanceEligible || maintenanceTargetAcceptedLocal && maintenanceTargetLineIdx <= lastLineIndex + 1);
+        const rescueCanBypassUnsafeTarget = maintenanceDeniedReason === "unsafe_target" && maintenanceTargetAcceptedLocal && maintenanceTargetLineIdx <= lastLineIndex + 1;
+        const rescueReady = rescueSafeLocalTarget && rescueUrgentLowLine && rescueMovementStalled && liveAsrReaderComfortRescueRepeatCount >= ASR_READER_COMFORT_RESCUE_REPEAT_COUNT && lastCorrectionAgeMs >= ASR_READER_COMFORT_RESCUE_MIN_CORRECTION_GAP_MS && maintenanceNowTs - lastAsrReaderComfortRescueAt >= ASR_READER_COMFORT_RESCUE_COOLDOWN_MS && rescueVisualTargetTop > beforeScrollTop + 0.5 && (!visualRecoveryCooldownActive || maintenanceNearBottomRail || writerSettleActive) && (!maintenanceDebtBelowLineHeight || maintenanceNearBottomRail);
+        if (rescueReady && (maintenanceEligible || rescueCanBypassUnsafeTarget)) {
+          const rescue = applyReaderComfortRescue({
+            scroller,
+            currentLineIdx: lastLineIndex,
+            committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+            targetLineIdx: Math.max(lastLineIndex, rescueVisualTargetLineIdx),
+            currentScrollTop: afterScrollTop,
+            targetScrollTop: rescueVisualTargetTop,
+            visualDebtPx: Number.isFinite(arithmeticTargetDebtPx) ? Number(arithmeticTargetDebtPx) : maintenanceBelowPocketPx,
+            belowPocketPx: Math.max(0, maintenanceBelowPocketPx),
+            activeLineViewportRatio: maintenanceActiveLineViewportRatio,
+            distanceToBottomRailPx: Number.isFinite(maintenanceDistanceToBottomRailPx) ? maintenanceDistanceToBottomRailPx : -1,
+            writerSettleActive,
+            visualRecoveryCooldownActive,
+            cooldownRemainingMs,
+            debtBelowLineHeight: !!maintenanceDebtBelowLineHeight,
+            unsafeTargetReason: maintenanceUnsafeTargetReason,
+            targetAcceptedLocal: maintenanceTargetAcceptedLocal,
+            repeatedBelowPocketCount: liveAsrReaderComfortRescueRepeatCount,
+            lastCorrectionAgeMs: Number.isFinite(lastCorrectionAgeMs) ? lastCorrectionAgeMs : -1,
+            reason: rescueCanBypassUnsafeTarget ? "accepted_local_visual_readability_rescue" : "low_line_visual_readability_rescue"
+          });
+          if (rescue.applied) {
+            afterScrollTop = rescue.afterScrollTop;
+            appliedDeltaPx = Math.max(appliedDeltaPx, rescue.movedPx);
+            liveAsrReaderComfortRescueRepeatCount = 0;
+          }
+        } else if (rescueUrgentLowLine) {
+          emitReaderComfortRescueBlocked({
+            currentLineIdx: lastLineIndex,
+            committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+            targetLineIdx: Math.max(lastLineIndex, rescueVisualTargetLineIdx),
+            visualDebtPx: Number.isFinite(arithmeticTargetDebtPx) ? Number(arithmeticTargetDebtPx) : maintenanceBelowPocketPx,
+            belowPocketPx: Math.max(0, maintenanceBelowPocketPx),
+            activeLineViewportRatio: maintenanceActiveLineViewportRatio,
+            distanceToBottomRailPx: Number.isFinite(maintenanceDistanceToBottomRailPx) ? maintenanceDistanceToBottomRailPx : -1,
+            writerSettleActive,
+            visualRecoveryCooldownActive,
+            cooldownRemainingMs,
+            debtBelowLineHeight: !!maintenanceDebtBelowLineHeight,
+            unsafeTargetReason: maintenanceUnsafeTargetReason,
+            targetAcceptedLocal: maintenanceTargetAcceptedLocal,
+            repeatedBelowPocketCount: liveAsrReaderComfortRescueRepeatCount,
+            lastCorrectionAgeMs: Number.isFinite(lastCorrectionAgeMs) ? lastCorrectionAgeMs : -1,
+            actualMovedPx: appliedDeltaPx,
+            reason: !rescueSafeLocalTarget ? `precondition_${maintenanceDeniedReason}` : !rescueMovementStalled ? "movement_not_stalled" : liveAsrReaderComfortRescueRepeatCount < ASR_READER_COMFORT_RESCUE_REPEAT_COUNT ? "insufficient_persistence" : lastCorrectionAgeMs < ASR_READER_COMFORT_RESCUE_MIN_CORRECTION_GAP_MS ? "recent_correction" : rescueVisualTargetTop <= beforeScrollTop + 0.5 ? "no_forward_visual_target" : maintenanceDebtBelowLineHeight && !maintenanceNearBottomRail ? "debt_below_line_height" : "cooldown_or_settle_guard"
+          });
+        }
+      } else {
+        liveAsrReaderComfortRescueRepeatCount = 0;
       }
       const candidateAuthorities = liveTickCandidateAuthorities.size > 0 ? Array.from(liveTickCandidateAuthorities) : [liveTickSelectedAuthority || liveTickBaseAuthority];
       try {
@@ -57185,6 +57557,10 @@ function createAsrScrollDriver(options = {}) {
     asr4PocketDriftConsecutiveBelowPocketCount = 0;
     asr4PocketDriftCooldownUntilMs = 0;
     asr4PocketDriftLastAuthoritySignature = "";
+    lastAsrReaderComfortRescueAt = 0;
+    lastAsrReaderComfortRescueSignature = "";
+    lastAsrReaderComfortRescueBlockedAt = 0;
+    liveAsrReaderComfortRescueRepeatCount = 0;
     lastStaleLandingRelaxationAt = 0;
     liveAsrVisualDebtCatchupCooldownUntilMs = 0;
     liveAsrVisualDebtCatchupObservationCount = 0;
@@ -57353,6 +57729,10 @@ function createAsrScrollDriver(options = {}) {
     asr4PocketDriftConsecutiveBelowPocketCount = 0;
     asr4PocketDriftCooldownUntilMs = 0;
     asr4PocketDriftLastAuthoritySignature = "";
+    lastAsrReaderComfortRescueAt = 0;
+    lastAsrReaderComfortRescueSignature = "";
+    lastAsrReaderComfortRescueBlockedAt = 0;
+    liveAsrReaderComfortRescueRepeatCount = 0;
     lostForwardActive = false;
     lostForwardStage = 0;
     lostForwardEnteredAt = 0;
@@ -57501,7 +57881,7 @@ function createAsrScrollDriver(options = {}) {
   }
   return driver;
 }
-var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_WINDOW_MS, ASR4_POCKET_DRIFT_AUTHORITY_COOLDOWN_MS, ASR_STALE_LANDING_RELAXATION_COOLDOWN_MS, ASR_VISUAL_DEBT_CATCHUP_COOLDOWN_MS, ASR_VISUAL_DEBT_CATCHUP_RECENT_SAFE_COMMIT_GAP_MS, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, LIVE_ASR_COMMIT_MIN_PX, LIVE_ASR_COMMIT_MAX_LINES, LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO, LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES, ASR_FORWARD_GOVERNOR_MAX_COMFORT_LEAD_SPEAKABLE, ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE, ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES, ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_AHEAD_MS, ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_COMFORTABLE_MS, ASR_EARLY_BRIDGE_GOVERNOR_MAX_COMMITS, ASR_EARLY_BRIDGE_GOVERNOR_MAX_RENDERED_DELTA, ASR_EARLY_BRIDGE_TRAP_STARTUP_MAX_CURRENT, ASR_EARLY_BRIDGE_TRAP_STARTUP_MAX_RUN_AGE_MS, ASR_EARLY_BRIDGE_TRAP_PENDING_OVERDUE_MS, ASR_EARLY_BRIDGE_TRAP_MIN_REPEATED_HOLDS, ASR_VISUAL_GOVERNOR_HOLD_CLEAR_TARGET_MS, ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS, ASR_RESCUE_BYPASS_BUDGET_MAX, ASR_RESCUE_BYPASS_MIN_DELAY_MS, ASR_READER_PACE_MAX_MARKER_LEAD_LINES, ASR_READER_PACE_NO_SPEECH_HOLD_MS, ASR_VISUAL_SOFT_LEAD_START, ASR_VISUAL_HARD_LEAD_START, ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS, ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_WINDOW_MS, ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_MAX_DELTA_LINES, ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_PXPS, ASR_LEAD_AWARE_PURSUIT_AHEAD_MAX_PXPS, ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES, ASR_VISUAL_PROJECTION_MAX_SAFE_DELTA_LINES, ASR_LIVE_VISUAL_STEP_MAX_LINES, ASR_LIVE_VISUAL_BRIDGE_STEP_MAX_LINES, ASR_VISUAL_ENVELOPE_LEASH_ARM_DELTA_LINES, ASR_VISUAL_ENVELOPE_LEASH_CLEAR_DELTA_LINES, ASR_STARTUP_SHORT_MEMORY_MAX_COMMITS, ASR_STARTUP_SHORT_MEMORY_MAX_RUN_AGE_MS, ASR_STARTUP_SHORT_MEMORY_MIN_ADJACENT_SIM, ASR_STARTUP_SHORT_MEMORY_MIN_TAIL_WORDS, ASR_FAR_AHEAD_HOLD_ADJ_ESCAPE_TIMEOUT_MS, ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS, ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS, ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS, ASR_VISUAL_FOLLOW_NORMAL_ADJ_MIN_PXPS, ASR_VISUAL_FOLLOW_MAX_PXPS, ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS, ASR_VISUAL_FOLLOW_MIN_PXPS, ASR_VISUAL_FOLLOW_READER_AHEAD_PXPS, ASR_VISUAL_FOLLOW_READER_HIGH_LEAD_PXPS, ASR_READER_POCKET_PREFERRED_TOP_LINES, ASR_READER_POCKET_PREFERRED_BOTTOM_LINES, ASR_READER_POCKET_PREFERRED_SETTLE_BOTTOM_LINES, ASR_READER_POCKET_TOLERATED_TOP_LINES, ASR_READER_POCKET_TOLERATED_BOTTOM_LINES, ASR_READER_COMFORT_NUDGE_PXPS, ASR_READER_COMFORT_BOTTOM_DRIFT_NUDGE_PXPS, ASR_READER_COMFORT_BOTTOM_DRIFT_WINDOW_MS, ASR_VISUAL_MARKER_ERROR_DESIRED_READ_AHEAD_LINES, ASR_VISUAL_MARKER_ERROR_TOLERANCE_LINES, ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX, ASR_VISUAL_FOLLOW_SLOW_ZONE_PX, ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX, ALIGNMENT_SKEPTIC_WINDOW_MS, ALIGNMENT_SKEPTIC_FORWARD_CONF_BONUS, ALIGNMENT_SKEPTIC_MIN_FORWARD_TOKENS, ALIGNMENT_SKEPTIC_MIN_SUSTAINED_SPEECH_MS, ALIGNMENT_SKEPTIC_STABLE_SAME_LINE_HITS, ALIGNMENT_SKEPTIC_ADJACENT_COMMIT_HITS, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_STALL_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_COOLDOWN_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_FINAL_MAX_AGE_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_SKIP_LOG_COOLDOWN_MS, DEFAULT_LIVE_ASR_MIN_FORWARD_COMMIT_GAP_MS, DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM, DEFAULT_ASR_AUTHORITY_SPEECH_STOP_BRAKE_MS, DEFAULT_ASR_AUTHORITY_FINAL_AFTER_SPEECH_STOP_MAX_AGE_MS, DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, AUTO_CUE_SKIP_COOLDOWN_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS, DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS, DEFAULT_RESCUE_MATCH_MIN_SIM, DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES, DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS, DEFAULT_LIVE_STRICT_LOCAL_PROOF_ADJACENT_MIN_SIM, DEFAULT_LIVE_STRICT_LOCAL_PROOF_RESCUE_MIN_SIM, DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MIN_SIM, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_SIM_BONUS, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MAX_FORWARD_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_DELTA_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MAX_DELTA_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_STABLE_HITS, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_INDEX_EPS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS, LIVE_STRICT_MOMENTUM_SYNC_WINDOW_MS, LIVE_STRICT_STALL_AFTER_MS, LIVE_STRICT_WEAK_SIGNAL_REPEAT_COUNT, LIVE_STRICT_WEAK_POSITIVE_ADJACENT_MIN_SIM, LIVE_STRICT_BEHIND_RECOVERY_MIN_LINES, LIVE_STRICT_BEHIND_RECOVERY_MAX_LINES, LIVE_STRICT_BEHIND_RECOVERY_ADJACENT_SLACK, ASR_READER_LEASH_MAX_READABLE_AHEAD, ASR_READER_LEASH_MAX_UNPROVEN_AHEAD, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN, DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS, DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS, DEFAULT_ASR_PENDING_BRIDGE_PRESSURE_COMMIT_MS, DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_LINES, DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_NO_COMMIT_MS, DEFAULT_ASR_MARKER_LAG_PRESSURE_ADJACENT_SIM_SLACK, LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS, LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT, LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES, DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MULTI_STEP_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES, DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM, DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK, DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_LIVE_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_STALL_MS, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SIM, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SCORE_GAP, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_RATIO, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_HITS, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_NOVEL_TOKENS, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_COMMITS, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_SIM_PER_EXTRA_LINE, DEFAULT_STRONG_MARKER_SNAP_MAX_REQUIRED_SIM, DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES, DEFAULT_ASR_MARKER_ANCHOR_LIVE_MAX_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_MIN_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_LOW_CONF_SIM, DEFAULT_LIVE_ASR_SOFT_COMMIT_MAX_LINES, DEFAULT_STARVATION_TIE_FORWARD_MAX_DELTA_LINES, DEFAULT_STARVATION_TIE_FORWARD_SIM_SLACK, DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES, DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM, DEFAULT_ASR_ADJACENT_COMPLETION_SIM_SLACK, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_REQUIRED_LEAD, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_FINAL_MATCH_NUDGE_MAX_DELTA_LINES, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CURSOR_BACKJUMP_ALLOWED_REASONS, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, lastAsrGuardReason, lastAsrHudGuardText, GUARD_DEBUG_REASONS, ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, LIVE_STRICT_SPECULATIVE_FORCE_REASONS, lastPursueHudAt, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
+var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_WINDOW_MS, ASR4_POCKET_DRIFT_AUTHORITY_COOLDOWN_MS, ASR_STALE_LANDING_RELAXATION_COOLDOWN_MS, ASR_VISUAL_DEBT_CATCHUP_COOLDOWN_MS, ASR_VISUAL_DEBT_CATCHUP_RECENT_SAFE_COMMIT_GAP_MS, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, LIVE_ASR_COMMIT_MIN_PX, LIVE_ASR_COMMIT_MAX_LINES, LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO, LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES, ASR_FORWARD_GOVERNOR_MAX_COMFORT_LEAD_SPEAKABLE, ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE, ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES, ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_AHEAD_MS, ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_COMFORTABLE_MS, ASR_EARLY_BRIDGE_GOVERNOR_MAX_COMMITS, ASR_EARLY_BRIDGE_GOVERNOR_MAX_RENDERED_DELTA, ASR_EARLY_BRIDGE_TRAP_STARTUP_MAX_CURRENT, ASR_EARLY_BRIDGE_TRAP_STARTUP_MAX_RUN_AGE_MS, ASR_EARLY_BRIDGE_TRAP_PENDING_OVERDUE_MS, ASR_EARLY_BRIDGE_TRAP_MIN_REPEATED_HOLDS, ASR_VISUAL_GOVERNOR_HOLD_CLEAR_TARGET_MS, ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS, ASR_RESCUE_BYPASS_BUDGET_MAX, ASR_RESCUE_BYPASS_MIN_DELAY_MS, ASR_READER_PACE_MAX_MARKER_LEAD_LINES, ASR_READER_PACE_NO_SPEECH_HOLD_MS, ASR_VISUAL_SOFT_LEAD_START, ASR_VISUAL_HARD_LEAD_START, ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS, ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_WINDOW_MS, ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_MAX_DELTA_LINES, ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_PXPS, ASR_LEAD_AWARE_PURSUIT_AHEAD_MAX_PXPS, ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES, ASR_VISUAL_PROJECTION_MAX_SAFE_DELTA_LINES, ASR_LIVE_VISUAL_STEP_MAX_LINES, ASR_LIVE_VISUAL_BRIDGE_STEP_MAX_LINES, ASR_VISUAL_ENVELOPE_LEASH_ARM_DELTA_LINES, ASR_VISUAL_ENVELOPE_LEASH_CLEAR_DELTA_LINES, ASR_STARTUP_SHORT_MEMORY_MAX_COMMITS, ASR_STARTUP_SHORT_MEMORY_MAX_RUN_AGE_MS, ASR_STARTUP_SHORT_MEMORY_MIN_ADJACENT_SIM, ASR_STARTUP_SHORT_MEMORY_MIN_TAIL_WORDS, ASR_FAR_AHEAD_HOLD_ADJ_ESCAPE_TIMEOUT_MS, ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS, ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS, ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS, ASR_VISUAL_FOLLOW_NORMAL_ADJ_MIN_PXPS, ASR_VISUAL_FOLLOW_MAX_PXPS, ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS, ASR_VISUAL_FOLLOW_MIN_PXPS, ASR_VISUAL_FOLLOW_READER_AHEAD_PXPS, ASR_VISUAL_FOLLOW_READER_HIGH_LEAD_PXPS, ASR_READER_POCKET_PREFERRED_TOP_LINES, ASR_READER_POCKET_PREFERRED_BOTTOM_LINES, ASR_READER_POCKET_PREFERRED_SETTLE_BOTTOM_LINES, ASR_READER_POCKET_TOLERATED_TOP_LINES, ASR_READER_POCKET_TOLERATED_BOTTOM_LINES, ASR_READER_COMFORT_NUDGE_PXPS, ASR_READER_COMFORT_BOTTOM_DRIFT_NUDGE_PXPS, ASR_READER_COMFORT_BOTTOM_DRIFT_WINDOW_MS, ASR_READER_COMFORT_RESCUE_MIN_BELOW_POCKET_LINES, ASR_READER_COMFORT_RESCUE_BOTTOM_VIEWPORT_RATIO, ASR_READER_COMFORT_RESCUE_REPEAT_COUNT, ASR_READER_COMFORT_RESCUE_MAX_STEP_LINES, ASR_READER_COMFORT_RESCUE_COOLDOWN_MS, ASR_READER_COMFORT_RESCUE_MIN_CORRECTION_GAP_MS, ASR_BRIDGE_HOLD_READABILITY_RESCUE_DEFAULT, ASR_FRAME_DIAGNOSTIC_THROTTLE_MS, ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX, ASR_VISUAL_MARKER_ERROR_DESIRED_READ_AHEAD_LINES, ASR_VISUAL_MARKER_ERROR_TOLERANCE_LINES, ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX, ASR_VISUAL_FOLLOW_SLOW_ZONE_PX, ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX, ALIGNMENT_SKEPTIC_WINDOW_MS, ALIGNMENT_SKEPTIC_FORWARD_CONF_BONUS, ALIGNMENT_SKEPTIC_MIN_FORWARD_TOKENS, ALIGNMENT_SKEPTIC_MIN_SUSTAINED_SPEECH_MS, ALIGNMENT_SKEPTIC_STABLE_SAME_LINE_HITS, ALIGNMENT_SKEPTIC_ADJACENT_COMMIT_HITS, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_STALL_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_COOLDOWN_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_FINAL_MAX_AGE_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_SKIP_LOG_COOLDOWN_MS, DEFAULT_LIVE_ASR_MIN_FORWARD_COMMIT_GAP_MS, DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM, DEFAULT_ASR_AUTHORITY_SPEECH_STOP_BRAKE_MS, DEFAULT_ASR_AUTHORITY_FINAL_AFTER_SPEECH_STOP_MAX_AGE_MS, DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, AUTO_CUE_SKIP_COOLDOWN_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS, DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS, DEFAULT_RESCUE_MATCH_MIN_SIM, DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES, DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS, DEFAULT_LIVE_STRICT_LOCAL_PROOF_ADJACENT_MIN_SIM, DEFAULT_LIVE_STRICT_LOCAL_PROOF_RESCUE_MIN_SIM, DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MIN_SIM, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_SIM_BONUS, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MAX_FORWARD_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_DELTA_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MAX_DELTA_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_STABLE_HITS, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_INDEX_EPS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS, LIVE_STRICT_MOMENTUM_SYNC_WINDOW_MS, LIVE_STRICT_STALL_AFTER_MS, LIVE_STRICT_WEAK_SIGNAL_REPEAT_COUNT, LIVE_STRICT_WEAK_POSITIVE_ADJACENT_MIN_SIM, LIVE_STRICT_BEHIND_RECOVERY_MIN_LINES, LIVE_STRICT_BEHIND_RECOVERY_MAX_LINES, LIVE_STRICT_BEHIND_RECOVERY_ADJACENT_SLACK, ASR_READER_LEASH_MAX_READABLE_AHEAD, ASR_READER_LEASH_MAX_UNPROVEN_AHEAD, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN, DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS, DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS, DEFAULT_ASR_PENDING_BRIDGE_PRESSURE_COMMIT_MS, DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_LINES, DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_NO_COMMIT_MS, DEFAULT_ASR_MARKER_LAG_PRESSURE_ADJACENT_SIM_SLACK, LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS, LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT, LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES, DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MULTI_STEP_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES, DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM, DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK, DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_LIVE_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_STALL_MS, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SIM, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SCORE_GAP, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_RATIO, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_HITS, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_NOVEL_TOKENS, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_COMMITS, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_SIM_PER_EXTRA_LINE, DEFAULT_STRONG_MARKER_SNAP_MAX_REQUIRED_SIM, DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES, DEFAULT_ASR_MARKER_ANCHOR_LIVE_MAX_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_MIN_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_LOW_CONF_SIM, DEFAULT_LIVE_ASR_SOFT_COMMIT_MAX_LINES, DEFAULT_STARVATION_TIE_FORWARD_MAX_DELTA_LINES, DEFAULT_STARVATION_TIE_FORWARD_SIM_SLACK, DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES, DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM, DEFAULT_ASR_ADJACENT_COMPLETION_SIM_SLACK, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_REQUIRED_LEAD, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_FINAL_MATCH_NUDGE_MAX_DELTA_LINES, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CURSOR_BACKJUMP_ALLOWED_REASONS, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, lastAsrGuardReason, lastAsrHudGuardText, GUARD_DEBUG_REASONS, ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, LIVE_STRICT_SPECULATIVE_FORCE_REASONS, lastPursueHudAt, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, frameDiagnosticLastSeen, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
 var init_asr_scroll_driver = __esm({
   "src/features/asr/asr-scroll-driver.ts"() {
     "use strict";
@@ -57527,6 +57907,7 @@ var init_asr_scroll_driver = __esm({
     init_asr_commit_authority();
     init_asr_visual_follow();
     init_asr_visual_debt_catchup();
+    init_asr_live_pocket_maintenance();
     init_asr_bridge_trap();
     init_asr_diagnostic_gates();
     init_asr_diagnostic_gates();
@@ -57629,6 +58010,15 @@ var init_asr_scroll_driver = __esm({
     ASR_READER_COMFORT_NUDGE_PXPS = 10;
     ASR_READER_COMFORT_BOTTOM_DRIFT_NUDGE_PXPS = 14;
     ASR_READER_COMFORT_BOTTOM_DRIFT_WINDOW_MS = 1200;
+    ASR_READER_COMFORT_RESCUE_MIN_BELOW_POCKET_LINES = 0.3;
+    ASR_READER_COMFORT_RESCUE_BOTTOM_VIEWPORT_RATIO = 0.76;
+    ASR_READER_COMFORT_RESCUE_REPEAT_COUNT = 2;
+    ASR_READER_COMFORT_RESCUE_MAX_STEP_LINES = 0.9;
+    ASR_READER_COMFORT_RESCUE_COOLDOWN_MS = 650;
+    ASR_READER_COMFORT_RESCUE_MIN_CORRECTION_GAP_MS = 280;
+    ASR_BRIDGE_HOLD_READABILITY_RESCUE_DEFAULT = false;
+    ASR_FRAME_DIAGNOSTIC_THROTTLE_MS = 250;
+    ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX = 8;
     ASR_VISUAL_MARKER_ERROR_DESIRED_READ_AHEAD_LINES = 1.125;
     ASR_VISUAL_MARKER_ERROR_TOLERANCE_LINES = 0.3;
     ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX = 8;
@@ -58185,6 +58575,7 @@ var init_asr_scroll_driver = __esm({
     lastSummaryToastKey = "";
     lastSummaryToastAt = 0;
     nanGuardLastAt = /* @__PURE__ */ new Map();
+    frameDiagnosticLastSeen = /* @__PURE__ */ new Map();
     HYBRID_BRAKE_TTL_MS = 320;
     HYBRID_ASSIST_TTL_MS = 320;
     HYBRID_TARGET_HINT_TTL_MS = 600;
@@ -87185,6 +87576,174 @@ function getEntryFieldNumber(entry, key) {
 function getEntryFieldString(entry, key) {
   return parseFieldString(entry.stringLine, key) ?? parsePayloadString(entry.payload, key);
 }
+function resolveSummaryLineIdx(entry) {
+  if (entry.currentLineIdx != null) return Math.max(0, entry.currentLineIdx);
+  if (entry.committedLineIdx != null) return Math.max(0, entry.committedLineIdx);
+  if (entry.nextSpeakableLineIdx != null) return Math.max(0, entry.nextSpeakableLineIdx);
+  const targetLineIdx = getEntryFieldNumber(entry, "targetLineIdx");
+  return targetLineIdx != null ? Math.max(0, Math.floor(targetLineIdx)) : null;
+}
+function isCommitEntry(entry) {
+  if (entry.tag.includes("COMMIT")) return true;
+  return /\bcommit(LineIdx|Index|Target|TargetIdx)?=/.test(entry.stringLine);
+}
+function incrementMapCount(map, key) {
+  const safeKey = String(key || "").trim();
+  if (!safeKey) return;
+  map[safeKey] = (map[safeKey] || 0) + 1;
+}
+function getOrCreateRunPhaseSummary(summaries, lineIdx) {
+  const bucketStart = Math.floor(Math.max(0, lineIdx) / DEFAULT_LINE_BUCKET_SIZE) * DEFAULT_LINE_BUCKET_SIZE;
+  const existing = summaries.get(bucketStart);
+  if (existing) return existing;
+  const created = {
+    lineStart: bucketStart,
+    lineEnd: bucketStart + DEFAULT_LINE_BUCKET_SIZE - 1,
+    entryCount: 0,
+    commitCount: 0,
+    commitDeltaSum: 0,
+    commitDeltaCount: 0,
+    bridgeCommitCount: 0,
+    cueBridgeCommitCount: 0,
+    starvationDetectedCount: 0,
+    rescueCount: 0,
+    liveStrictBridgeLandingHoldCount: 0,
+    unsafeTargetCount: 0,
+    debtBelowLineHeightCount: 0,
+    markerErrorLineTooHighCount: 0,
+    readerComfortRescueAppliedCount: 0,
+    readerComfortRescueBlockedCount: 0,
+    safeLivePocketCorrectionAppliedCount: 0,
+    safeLivePocketCorrectionBlockedCount: 0,
+    inPocketCount: 0,
+    belowPocketCount: 0,
+    abovePocketCount: 0,
+    belowPocketSamples: [],
+    maxBelowPocketPx: 0,
+    terminalClampCount: 0,
+    visualActuatorClampReasons: {},
+    actualMovedPxSum: 0,
+    actualMovedPxCount: 0
+  };
+  summaries.set(bucketStart, created);
+  return created;
+}
+function updateRunPhaseSummary(summary, entry) {
+  summary.entryCount += 1;
+  if (isCommitEntry(entry)) {
+    summary.commitCount += 1;
+    const currentLineIdx = entry.currentLineIdx ?? getEntryFieldNumber(entry, "currentLineIdx");
+    const committedLineIdx = entry.committedLineIdx ?? getEntryFieldNumber(entry, "committedLineIdx") ?? getEntryFieldNumber(entry, "targetLineIdx");
+    if (currentLineIdx != null && committedLineIdx != null) {
+      summary.commitDeltaSum += Math.max(0, committedLineIdx - currentLineIdx);
+      summary.commitDeltaCount += 1;
+    }
+  }
+  const lowerTag = entry.tag.toLowerCase();
+  const lowerLine = entry.stringLine.toLowerCase();
+  if (lowerTag.includes("bridge_commit") || lowerLine.includes("bridge_commit")) {
+    summary.bridgeCommitCount += 1;
+  }
+  if (entry.tag === "ASR_CUE_BRIDGE_COMMIT" || lowerLine.includes("cue_bridge_commit")) {
+    summary.cueBridgeCommitCount += 1;
+  }
+  if (entry.tag === "ASR_STARVATION_DETECTED") {
+    summary.starvationDetectedCount += 1;
+  }
+  if (lowerTag.includes("rescue") || /\brescue\b/.test(lowerLine)) {
+    summary.rescueCount += 1;
+  }
+  if (lowerLine.includes("live_strict_bridge_stale_landing_hold") || lowerLine.includes("live_strict_bridge_landing_hold") || entry.tag === "ASR_LIVE_BRIDGE_COMPLETION_HELD") {
+    summary.liveStrictBridgeLandingHoldCount += 1;
+  }
+  if (getEntryFieldString(entry, "deniedReason") === "unsafe_target" || getEntryFieldString(entry, "unsafeTargetReason") === "unsafe_target") {
+    summary.unsafeTargetCount += 1;
+  }
+  if (getEntryFieldString(entry, "reason") === "debt_below_line_height" || lowerLine.includes("reason=debt_below_line_height")) {
+    summary.debtBelowLineHeightCount += 1;
+  }
+  if (getEntryFieldString(entry, "reason") === "marker_error_line_too_high" || lowerLine.includes("reason=marker_error_line_too_high")) {
+    summary.markerErrorLineTooHighCount += 1;
+  }
+  if (entry.tag === "ASR_READER_COMFORT_RESCUE_APPLIED") {
+    summary.readerComfortRescueAppliedCount += 1;
+  }
+  if (entry.tag === "ASR_READER_COMFORT_RESCUE_BLOCKED") {
+    summary.readerComfortRescueBlockedCount += 1;
+  }
+  if (entry.tag === "ASR_SAFE_LIVE_POCKET_CORRECTION_APPLIED") {
+    summary.safeLivePocketCorrectionAppliedCount += 1;
+  }
+  if (entry.tag === "ASR_SAFE_LIVE_POCKET_CORRECTION_BLOCKED") {
+    summary.safeLivePocketCorrectionBlockedCount += 1;
+  }
+  const pocketHealth = getEntryFieldString(entry, "pocketHealth");
+  if (pocketHealth === "inPocket") summary.inPocketCount += 1;
+  else if (pocketHealth === "belowPocket") summary.belowPocketCount += 1;
+  else if (pocketHealth === "abovePocket") summary.abovePocketCount += 1;
+  const belowPocketPx = getEntryFieldNumber(entry, "belowPocketPx");
+  if (belowPocketPx != null && belowPocketPx >= 0) {
+    const rounded = Math.round(belowPocketPx);
+    summary.belowPocketSamples.push(rounded);
+    summary.maxBelowPocketPx = Math.max(summary.maxBelowPocketPx, rounded);
+  }
+  const terminalClampActive = getEntryFieldNumber(entry, "terminalClamp");
+  const deniedReason = getEntryFieldString(entry, "deniedReason");
+  const blockedReason = getEntryFieldString(entry, "blockedReason");
+  if (terminalClampActive === 1 || deniedReason === "terminal_clamp" || deniedReason === "terminal_near_end" || blockedReason === "terminal_clamp") {
+    summary.terminalClampCount += 1;
+  }
+  const clampReason = getEntryFieldString(entry, "clampReason") ?? getEntryFieldString(entry, "blockedReason");
+  if (entry.tag === "ASR_VISUAL_ACTUATOR_APPLIED" || entry.tag === "ASR_VISUAL_DEBT_CATCHUP_BLOCKED") {
+    incrementMapCount(summary.visualActuatorClampReasons, clampReason);
+  }
+  const actualMovedPx = getEntryFieldNumber(entry, "actualMovedPx") ?? getEntryFieldNumber(entry, "appliedDeltaPx") ?? getEntryFieldNumber(entry, "movedPx");
+  if (actualMovedPx != null) {
+    summary.actualMovedPxSum += actualMovedPx;
+    summary.actualMovedPxCount += 1;
+  }
+}
+function finalizeRunPhaseSummaries(summaries) {
+  const ordered = Array.from(summaries.values()).sort((a, b) => a.lineStart - b.lineStart);
+  return ordered.map((summary) => {
+    const belowPocketSamples = summary.belowPocketSamples.slice().sort((a, b) => a - b);
+    let medianBelowPocketPx = 0;
+    if (belowPocketSamples.length > 0) {
+      const mid = Math.floor(belowPocketSamples.length / 2);
+      medianBelowPocketPx = belowPocketSamples.length % 2 === 0 ? Math.round((belowPocketSamples[mid - 1] + belowPocketSamples[mid]) / 2) : belowPocketSamples[mid];
+    }
+    return {
+      tag: "ASR_RUN_PHASE_SUMMARY",
+      lineStart: summary.lineStart,
+      lineEnd: summary.lineEnd,
+      lineRange: `${summary.lineStart}-${summary.lineEnd}`,
+      bucketSize: DEFAULT_LINE_BUCKET_SIZE,
+      entryCount: summary.entryCount,
+      commitCount: summary.commitCount,
+      averageCommitDelta: summary.commitDeltaCount > 0 ? Number((summary.commitDeltaSum / summary.commitDeltaCount).toFixed(3)) : 0,
+      bridgeCommitCount: summary.bridgeCommitCount,
+      cueBridgeCommitCount: summary.cueBridgeCommitCount,
+      starvationDetectedCount: summary.starvationDetectedCount,
+      rescueCount: summary.rescueCount,
+      liveStrictBridgeLandingHoldCount: summary.liveStrictBridgeLandingHoldCount,
+      unsafeTargetCount: summary.unsafeTargetCount,
+      debtBelowLineHeightCount: summary.debtBelowLineHeightCount,
+      markerErrorLineTooHighCount: summary.markerErrorLineTooHighCount,
+      readerComfortRescueAppliedCount: summary.readerComfortRescueAppliedCount,
+      readerComfortRescueBlockedCount: summary.readerComfortRescueBlockedCount,
+      safeLivePocketCorrectionAppliedCount: summary.safeLivePocketCorrectionAppliedCount,
+      safeLivePocketCorrectionBlockedCount: summary.safeLivePocketCorrectionBlockedCount,
+      inPocketCount: summary.inPocketCount,
+      belowPocketCount: summary.belowPocketCount,
+      abovePocketCount: summary.abovePocketCount,
+      medianBelowPocketPx,
+      maxBelowPocketPx: summary.maxBelowPocketPx,
+      terminalClampCount: summary.terminalClampCount,
+      visualActuatorClampReasons: summary.visualActuatorClampReasons,
+      averageActualMovedPx: summary.actualMovedPxCount > 0 ? Number((summary.actualMovedPxSum / summary.actualMovedPxCount).toFixed(3)) : 0
+    };
+  });
+}
 function computeInterestScore(entry) {
   const targetDebtPx = getEntryFieldNumber(entry, "targetDebtPx");
   if (targetDebtPx != null) return Math.abs(targetDebtPx);
@@ -87273,6 +87832,8 @@ function createAsrLogBuffer(options = {}) {
   const maxEntries = Math.max(1, Math.floor(options.maxEntries ?? DEFAULT_MAX_ENTRIES));
   const progressEvery = Math.max(1, Math.floor(options.progressEvery ?? DEFAULT_PROGRESS_EVERY));
   const entries = [];
+  const runPhaseSummaries = /* @__PURE__ */ new Map();
+  let lastKnownSummaryLineIdx = null;
   let droppedCount = 0;
   let writeIndex = 0;
   let capturedCount = 0;
@@ -87303,6 +87864,15 @@ function createAsrLogBuffer(options = {}) {
     return entries.slice(writeIndex).concat(entries.slice(0, writeIndex));
   }
   function append(entry) {
+    let lineIdx = resolveSummaryLineIdx(entry);
+    if (lineIdx != null) {
+      lastKnownSummaryLineIdx = lineIdx;
+    } else if (entry.tag === "ASR_STARVATION_DETECTED" && lastKnownSummaryLineIdx != null) {
+      lineIdx = lastKnownSummaryLineIdx;
+    }
+    if (lineIdx != null) {
+      updateRunPhaseSummary(getOrCreateRunPhaseSummary(runPhaseSummaries, lineIdx), entry);
+    }
     if (entries.length < maxEntries) {
       entries.push(entry);
     } else {
@@ -87332,9 +87902,9 @@ function createAsrLogBuffer(options = {}) {
       payload,
       runKey: parseFieldString(line, "runKey") ?? (payload && typeof payload === "object" ? String(payload.runKey ?? "") || null : null),
       runGeneration: parseFieldNumber(line, "runGeneration") ?? (payload && typeof payload === "object" ? Number(payload.runGeneration ?? NaN) || null : null),
-      currentLineIdx: parseFieldNumber(line, "currentLineIdx") ?? parseFieldNumber(line, "current") ?? null,
-      committedLineIdx: parseFieldNumber(line, "committedLineIdx") ?? parseFieldNumber(line, "commitIndex") ?? null,
-      nextSpeakableLineIdx: parseFieldNumber(line, "nextSpeakableLineIdx") ?? null,
+      currentLineIdx: parseFieldNumber(line, "currentLineIdx") ?? parseFieldNumber(line, "current") ?? parsePayloadNumber(payload, "currentLineIdx") ?? parsePayloadNumber(payload, "current") ?? null,
+      committedLineIdx: parseFieldNumber(line, "committedLineIdx") ?? parseFieldNumber(line, "commitIndex") ?? parsePayloadNumber(payload, "committedLineIdx") ?? parsePayloadNumber(payload, "commitIndex") ?? null,
+      nextSpeakableLineIdx: parseFieldNumber(line, "nextSpeakableLineIdx") ?? parsePayloadNumber(payload, "nextSpeakableLineIdx") ?? null,
       scrollTop: parseFieldNumber(line, "scrollTop") ?? parseFieldNumber(line, "currentScrollTop") ?? parseFieldNumber(line, "beforeScrollTop") ?? null,
       targetScrollTop: parseFieldNumber(line, "targetScrollTop") ?? null
     });
@@ -87342,6 +87912,8 @@ function createAsrLogBuffer(options = {}) {
   }
   function clear() {
     entries.length = 0;
+    runPhaseSummaries.clear();
+    lastKnownSummaryLineIdx = null;
     droppedCount = 0;
     writeIndex = 0;
     capturedCount = 0;
@@ -87358,6 +87930,7 @@ function createAsrLogBuffer(options = {}) {
       droppedCount,
       tagCounts,
       tagSummaries,
+      runPhaseSummaries: finalizeRunPhaseSummaries(runPhaseSummaries),
       entries: orderedEntries
     };
   }
@@ -87405,7 +87978,8 @@ function createAsrLogBuffer(options = {}) {
       firstTag: ordered[0]?.tag ?? null,
       lastTag: ordered[ordered.length - 1]?.tag ?? null,
       tagCounts: buildTagCounts(ordered),
-      tagSummaries: buildTagSummaries(ordered)
+      tagSummaries: buildTagSummaries(ordered),
+      runPhaseSummaries: finalizeRunPhaseSummaries(runPhaseSummaries)
     };
   }
   return {
@@ -87454,15 +88028,16 @@ function installAsrLogBuffer(win = window) {
   win.__clearAsrLog = () => buffer.clear();
   win.__getAsrLogSummary = () => buffer.summary();
 }
-var DEFAULT_MAX_ENTRIES, DEFAULT_PROGRESS_EVERY, MAX_STRING_LEN, DEFAULT_MIN_STEP_PX2, BIG_DEBT_MIN_STEP_THRESHOLD_PX, TRACKED_SUMMARY_FAMILIES;
+var DEFAULT_MAX_ENTRIES, DEFAULT_PROGRESS_EVERY, MAX_STRING_LEN, DEFAULT_MIN_STEP_PX2, BIG_DEBT_MIN_STEP_THRESHOLD_PX, DEFAULT_LINE_BUCKET_SIZE, TRACKED_SUMMARY_FAMILIES;
 var init_asr_log_buffer = __esm({
   "src/features/asr/asr-log-buffer.ts"() {
     "use strict";
-    DEFAULT_MAX_ENTRIES = 5e4;
+    DEFAULT_MAX_ENTRIES = 15e4;
     DEFAULT_PROGRESS_EVERY = 250;
     MAX_STRING_LEN = 2e3;
     DEFAULT_MIN_STEP_PX2 = 6;
     BIG_DEBT_MIN_STEP_THRESHOLD_PX = 120;
+    DEFAULT_LINE_BUCKET_SIZE = 25;
     TRACKED_SUMMARY_FAMILIES = /* @__PURE__ */ new Set([
       "ASR_VISUAL_ACTUATOR_APPLIED",
       "ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF",

@@ -298,6 +298,50 @@ export function buildAsrVisualSettleBypassedForReadabilityDiagnostic(args: {
   return `[ASR_VISUAL_SETTLE_BYPASSED_FOR_READABILITY] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} targetLineIdx=${args.targetLineIdx} visualDebtPx=${Math.round(args.visualDebtPx)} belowPocketPx=${Math.round(args.belowPocketPx)} activeLineViewportRatio=${Number.isFinite(args.activeLineViewportRatio) ? args.activeLineViewportRatio.toFixed(3) : 'na'} distanceToBottomRailPx=${Math.round(args.distanceToBottomRailPx)} writerSettleActive=${args.writerSettleActive ? 1 : 0} visualRecoveryCooldownActive=${args.visualRecoveryCooldownActive ? 1 : 0} cooldownRemainingMs=${Math.round(args.cooldownRemainingMs)} debtBelowLineHeight=${args.debtBelowLineHeight ? 1 : 0} unsafeTargetReason=${args.unsafeTargetReason || 'none'} targetAcceptedLocal=${args.targetAcceptedLocal ? 1 : 0} repeatedBelowPocketCount=${Math.round(args.repeatedBelowPocketCount)} lastCorrectionAgeMs=${Math.round(args.lastCorrectionAgeMs)} actualMovedPx=${Math.round(args.actualMovedPx)} reason=${args.reason}`;
 }
 
+export function buildAsrBridgeReducedVisualCashInAppliedDiagnostic(args: {
+  currentLineIdx: number;
+  requestedTargetIdx: number;
+  reducedTargetIdx: number;
+  acceptedCommitTargetIdx: number;
+  previousAcceptedCommitTargetIdx: number;
+  bridgeCarry: number;
+  bridgeClamp: number;
+  blockerCategory: string;
+  recoveryChainBlocked: boolean;
+  noAdjacentMatchHold: boolean;
+  markerLockSuppressed: boolean;
+  repeatedObservationCount: number;
+  stallDelayMs: number;
+  visualDebtPx: number;
+  belowPocketPx: number;
+  actualMovedPx: number;
+  reason: string;
+}): string {
+  return `[ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_APPLIED] currentLineIdx=${args.currentLineIdx} requestedTargetIdx=${args.requestedTargetIdx} reducedTargetIdx=${args.reducedTargetIdx} acceptedCommitTargetIdx=${args.acceptedCommitTargetIdx} previousAcceptedCommitTargetIdx=${args.previousAcceptedCommitTargetIdx} bridgeCarry=${Math.round(args.bridgeCarry)} bridgeClamp=${Math.round(args.bridgeClamp)} blockerCategory=${args.blockerCategory || 'none'} recoveryChainBlocked=${args.recoveryChainBlocked ? 1 : 0} noAdjacentMatchHold=${args.noAdjacentMatchHold ? 1 : 0} markerLockSuppressed=${args.markerLockSuppressed ? 1 : 0} repeatedObservationCount=${Math.round(args.repeatedObservationCount)} stallDelayMs=${Math.round(args.stallDelayMs)} visualDebtPx=${Math.round(args.visualDebtPx)} belowPocketPx=${Math.round(args.belowPocketPx)} actualMovedPx=${Math.round(args.actualMovedPx)} reason=${args.reason}`;
+}
+
+export function buildAsrBridgeReducedVisualCashInBlockedDiagnostic(args: {
+  currentLineIdx: number;
+  requestedTargetIdx: number;
+  reducedTargetIdx: number;
+  acceptedCommitTargetIdx: number;
+  previousAcceptedCommitTargetIdx: number;
+  bridgeCarry: number;
+  bridgeClamp: number;
+  blockerCategory: string;
+  recoveryChainBlocked: boolean;
+  noAdjacentMatchHold: boolean;
+  markerLockSuppressed: boolean;
+  repeatedObservationCount: number;
+  stallDelayMs: number;
+  visualDebtPx: number;
+  belowPocketPx: number;
+  actualMovedPx: number;
+  reason: string;
+}): string {
+  return `[ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_BLOCKED] currentLineIdx=${args.currentLineIdx} requestedTargetIdx=${args.requestedTargetIdx} reducedTargetIdx=${args.reducedTargetIdx} acceptedCommitTargetIdx=${args.acceptedCommitTargetIdx} previousAcceptedCommitTargetIdx=${args.previousAcceptedCommitTargetIdx} bridgeCarry=${Math.round(args.bridgeCarry)} bridgeClamp=${Math.round(args.bridgeClamp)} blockerCategory=${args.blockerCategory || 'none'} recoveryChainBlocked=${args.recoveryChainBlocked ? 1 : 0} noAdjacentMatchHold=${args.noAdjacentMatchHold ? 1 : 0} markerLockSuppressed=${args.markerLockSuppressed ? 1 : 0} repeatedObservationCount=${Math.round(args.repeatedObservationCount)} stallDelayMs=${Math.round(args.stallDelayMs)} visualDebtPx=${Math.round(args.visualDebtPx)} belowPocketPx=${Math.round(args.belowPocketPx)} actualMovedPx=${Math.round(args.actualMovedPx)} reason=${args.reason}`;
+}
+
 export function buildAsrStaleRecoveryTargetExpiredDiagnostic(args: {
   sourcePath: string;
   reason: string;

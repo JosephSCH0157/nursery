@@ -64,6 +64,8 @@ import {
   buildAsrVisualRecoveryBoostAppliedDiagnostic,
   buildAsrVisualRecoveryBoostBlockedDiagnostic,
   buildAsrVisualRecoveryBoostPathProofDiagnostic,
+  buildAsrBridgeReducedVisualCashInAppliedDiagnostic,
+  buildAsrBridgeReducedVisualCashInBlockedDiagnostic,
   buildAsrVisualSettleBypassedForReadabilityDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
   buildAsrEarlyBridgeTrapReleasedDiagnostic,
@@ -330,6 +332,11 @@ const ASR_READER_COMFORT_RESCUE_MAX_STEP_LINES = 0.9;
 const ASR_READER_COMFORT_RESCUE_COOLDOWN_MS = 650;
 const ASR_READER_COMFORT_RESCUE_MIN_CORRECTION_GAP_MS = 280;
 const ASR_BRIDGE_HOLD_READABILITY_RESCUE_DEFAULT = false;
+const ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MIN_STALL_MS = 420;
+const ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_REPEAT_COUNT = 2;
+const ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_COOLDOWN_MS = 700;
+const ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MIN_CORRECTION_GAP_MS = 240;
+const ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MAX_STEP_LINES = 1.1;
 const ASR_FRAME_DIAGNOSTIC_THROTTLE_MS = 250;
 const ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX = 8;
 const ASR_VISUAL_MARKER_ERROR_DESIRED_READ_AHEAD_LINES = 1.125;
@@ -3575,6 +3582,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastAsrReaderComfortRescueSignature = '';
   let lastAsrReaderComfortRescueBlockedAt = 0;
   let liveAsrReaderComfortRescueRepeatCount = 0;
+  let lastBridgeReducedVisualCashInAt = 0;
+  let lastBridgeReducedVisualCashInSignature = '';
+  let liveAsrBridgeReducedVisualCashInObservationSignature = '';
+  let liveAsrBridgeReducedVisualCashInObservationCount = 0;
   let lastStaleLandingRelaxationAt = 0;
   let liveAsrVisualDebtCatchupCooldownUntilMs = 0;
   let liveAsrVisualDebtCatchupObservationCount = 0;
@@ -11838,6 +11849,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       err = 0;
     }
+    let previousAcceptedCommitTargetIdx = -1;
     if (liveAsrFollowMode) {
       emitLivePocketMaintenanceCallsiteReached({
         nowTs: wallNow,
@@ -12016,6 +12028,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         );
       liveAsrCommitteeBridgeHoldContextActive = bridgeHoldContextActive;
       liveAsrCommitteePendingBridgeStateActive = !!pendingSpeakableBridgeState;
+      previousAcceptedCommitTargetIdx = liveAsrCommitteeAcceptedCommitTargetIdx;
       liveAsrCommitteeSemanticTargetIdx = pendingSpeakableBridgeState?.semanticTarget ?? nextSpeakableLineIdx;
       liveAsrCommitteeAcceptedCommitTargetIdx = nextSpeakableLineIdx;
       liveAsrCommitteeRequestedTargetIdx = pendingSpeakableBridgeState?.semanticTarget ?? nextSpeakableLineIdx;
@@ -13731,7 +13744,226 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           appliedDeltaPx = Math.max(appliedDeltaPx, relaxedCorrection.movedPx);
         }
       }
-      if (maintenancePocketHealth === 'belowPocket' && !maintenanceEligible) {
+      const pendingBridgeStateForCashIn = pendingSpeakableBridgeState;
+      const bridgeReducedRequestedTargetIdx =
+        pendingBridgeStateForCashIn?.semanticTarget ?? liveAsrCommitteeRequestedTargetIdx;
+      const bridgeReducedTargetIdx =
+        pendingBridgeStateForCashIn?.visualReducedTarget ?? -1;
+      const bridgeCarry =
+        bridgeReducedRequestedTargetIdx > lastLineIndex
+          ? Math.max(0, bridgeReducedRequestedTargetIdx - lastLineIndex)
+          : 0;
+      const bridgeClamp =
+        bridgeReducedRequestedTargetIdx > bridgeReducedTargetIdx
+          ? Math.max(0, bridgeReducedRequestedTargetIdx - bridgeReducedTargetIdx)
+          : 0;
+      const guardReasonLower = String(lastAsrGuardReason || '').toLowerCase();
+      const hudGuardLower = String(lastAsrHudGuardText || '').toLowerCase();
+      const recoveryChainBlocked = guardReasonLower.includes('asr_recovery_chain_blocked');
+      const noAdjacentMatchHold =
+        guardReasonLower.includes('asr_live_no_adjacent_match_hold') ||
+        hudGuardLower.includes('direct adjacent');
+      const markerLockSuppressed =
+        liveAsrCommitteeMarkerLockState === 'live_asr_marker_lock_suppressed' ||
+        liveAsrCommitteeMarkerLockState === 'marker_lock_suppressed' ||
+        alignmentEpisodes.isSnapSuppressedActive();
+      const bridgeCashInBlockedByBridgeGovernor =
+        recoveryChainBlocked ||
+        noAdjacentMatchHold ||
+        markerLockSuppressed;
+      const bridgeCashInBlockerCategory = recoveryChainBlocked
+        ? 'recovery_chain_blocked'
+        : (noAdjacentMatchHold
+          ? 'no_adjacent_match_hold'
+          : (markerLockSuppressed
+            ? 'marker_lock_suppressed'
+            : (maintenanceDeniedReason || 'none')));
+      const bridgeReducedPending =
+        !!pendingBridgeStateForCashIn &&
+        pendingBridgeStateForCashIn.semanticTarget > pendingBridgeStateForCashIn.visualReducedTarget;
+      const bridgeReducedAcceptedLocal =
+        bridgeReducedTargetIdx >= lastLineIndex &&
+        bridgeReducedTargetIdx <= lastLineIndex + 1 &&
+        liveAsrCommitteeAcceptedCommitTargetIdx >= lastLineIndex &&
+        liveAsrCommitteeAcceptedCommitTargetIdx <= lastLineIndex + 1;
+      const bridgeCashInBaseCandidate =
+        bridgeReducedPending &&
+        bridgeReducedAcceptedLocal &&
+        bridgeReducedTargetIdx <= liveAsrCommitteeAcceptedCommitTargetIdx &&
+        bridgeCashInBlockedByBridgeGovernor;
+      const bridgeCashInObservationSignature = [
+        lastLineIndex,
+        bridgeReducedRequestedTargetIdx,
+        bridgeReducedTargetIdx,
+        liveAsrCommitteeAcceptedCommitTargetIdx,
+        bridgeCashInBlockerCategory,
+      ].join('|');
+      if (bridgeCashInBaseCandidate) {
+        if (liveAsrBridgeReducedVisualCashInObservationSignature === bridgeCashInObservationSignature) {
+          liveAsrBridgeReducedVisualCashInObservationCount += 1;
+        } else {
+          liveAsrBridgeReducedVisualCashInObservationSignature = bridgeCashInObservationSignature;
+          liveAsrBridgeReducedVisualCashInObservationCount = 1;
+        }
+      } else {
+        liveAsrBridgeReducedVisualCashInObservationSignature = '';
+        liveAsrBridgeReducedVisualCashInObservationCount = 0;
+      }
+      const bridgeCashInStallDelayMs =
+        pendingBridgeStateForCashIn?.createdAtMs != null
+          ? Math.max(0, freshnessNowTs - pendingBridgeStateForCashIn.createdAtMs)
+          : 0;
+      const bridgeCashInVisualDebtPx =
+        Number.isFinite(arithmeticTargetDebtPx)
+          ? Number(arithmeticTargetDebtPx)
+          : Math.max(0, maintenanceBelowPocketPx);
+      const bridgeCashInLowEnough =
+        maintenancePocketHealth === 'belowPocket' &&
+        (
+          maintenanceBelowPocketPx >= Math.max(8, safeResolverLineHeightPx * 0.22) ||
+          bridgeCashInVisualDebtPx >= Math.max(12, safeResolverLineHeightPx * 0.45)
+        );
+      const bridgeCashInStalled =
+        appliedDeltaPx < Math.max(1, safeResolverLineHeightPx * 0.2) &&
+        (
+          liveScrollStallDecision.active ||
+          recoveryChainBlocked ||
+          noAdjacentMatchHold ||
+          markerLockSuppressed ||
+          asr4VisualRecoveryLastDirectWriteBlocked ||
+          preservedAsrAuthorityTargetTop != null
+        );
+      const bridgeCashInCorrectionAgeMs =
+        lastMoveAt > 0
+          ? Math.max(0, freshnessNowTs - lastMoveAt)
+          : Number.POSITIVE_INFINITY;
+      const sameBridgeCashInSignature =
+        lastBridgeReducedVisualCashInSignature === bridgeCashInObservationSignature;
+      const bridgeCashInCooldownActive =
+        lastBridgeReducedVisualCashInAt > 0 &&
+        sameBridgeCashInSignature &&
+        (freshnessNowTs - lastBridgeReducedVisualCashInAt) < ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_COOLDOWN_MS;
+      const bridgeCashInPersistent =
+        liveAsrBridgeReducedVisualCashInObservationCount >= ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_REPEAT_COUNT ||
+        bridgeCashInStallDelayMs >= ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MIN_STALL_MS;
+      const bridgeCashInTargetTopRaw =
+        bridgeReducedTargetIdx >= 0
+          ? resolveTargetTop(scroller, bridgeReducedTargetIdx)
+          : null;
+      const bridgeCashInTargetTop =
+        Number.isFinite(bridgeCashInTargetTopRaw as number)
+          ? Math.min(
+            Number(bridgeCashInTargetTopRaw),
+            beforeScrollTop + (safeResolverLineHeightPx * ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MAX_STEP_LINES),
+          )
+          : beforeScrollTop;
+      const bridgeCashInReady =
+        bridgeCashInBaseCandidate &&
+        !actuatorNoMatchOrOffscript &&
+        !hardContradictionActive &&
+        !atScrollLimit &&
+        bridgeCashInLowEnough &&
+        bridgeCashInStalled &&
+        bridgeCashInPersistent &&
+        !bridgeCashInCooldownActive &&
+        bridgeCashInCorrectionAgeMs >= ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MIN_CORRECTION_GAP_MS &&
+        bridgeCashInTargetTop > beforeScrollTop + 0.5;
+      let bridgeCashInBlockedReason = '';
+      let bridgeCashInApplied = false;
+      if (bridgeCashInBaseCandidate) {
+        if (actuatorNoMatchOrOffscript) bridgeCashInBlockedReason = 'no_match_or_offscript';
+        else if (hardContradictionActive) bridgeCashInBlockedReason = 'contradiction';
+        else if (atScrollLimit) bridgeCashInBlockedReason = 'terminal_clamp';
+        else if (!bridgeCashInLowEnough) bridgeCashInBlockedReason = 'not_low_enough';
+        else if (!bridgeCashInStalled) bridgeCashInBlockedReason = 'not_stalled_enough';
+        else if (!bridgeCashInPersistent) bridgeCashInBlockedReason = 'awaiting_repeat_or_short_delay';
+        else if (bridgeCashInCooldownActive) bridgeCashInBlockedReason = 'cash_in_cooldown';
+        else if (bridgeCashInCorrectionAgeMs < ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MIN_CORRECTION_GAP_MS) {
+          bridgeCashInBlockedReason = 'recent_visual_correction';
+        } else if (!(bridgeCashInTargetTop > beforeScrollTop + 0.5)) {
+          bridgeCashInBlockedReason = 'no_bounded_forward_delta';
+        }
+      }
+      if (bridgeCashInReady) {
+        const bridgeCashInReason = recoveryChainBlocked
+          ? 'bridge_reduced_adjacent_recovery_chain_cash_in'
+          : (noAdjacentMatchHold
+            ? 'bridge_reduced_adjacent_hold_cash_in'
+            : 'bridge_reduced_adjacent_marker_lock_cash_in');
+        const bridgeCashInCorrection = applySafeLivePocketCorrection({
+          scroller,
+          beforeScrollTop,
+          targetScrollTop: bridgeCashInTargetTop,
+          currentLineIdx: lastLineIndex,
+          committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+          nextSpeakableLineIdx: bridgeReducedTargetIdx,
+          visualErrorPx: bridgeCashInVisualDebtPx,
+          source: 'tick',
+          reason: bridgeCashInReason,
+        });
+        if (bridgeCashInCorrection.applied) {
+          afterScrollTop = bridgeCashInCorrection.afterScrollTop;
+          appliedDeltaPx = Math.max(appliedDeltaPx, bridgeCashInCorrection.movedPx);
+          lastBridgeReducedVisualCashInAt = freshnessNowTs;
+          lastBridgeReducedVisualCashInSignature = bridgeCashInObservationSignature;
+          bridgeCashInApplied = true;
+          try {
+            console.warn(buildAsrBridgeReducedVisualCashInAppliedDiagnostic({
+              currentLineIdx: lastLineIndex,
+              requestedTargetIdx: bridgeReducedRequestedTargetIdx,
+              reducedTargetIdx: bridgeReducedTargetIdx,
+              acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+              previousAcceptedCommitTargetIdx,
+              bridgeCarry,
+              bridgeClamp,
+              blockerCategory: bridgeCashInBlockerCategory,
+              recoveryChainBlocked,
+              noAdjacentMatchHold,
+              markerLockSuppressed,
+              repeatedObservationCount: liveAsrBridgeReducedVisualCashInObservationCount,
+              stallDelayMs: bridgeCashInStallDelayMs,
+              visualDebtPx: bridgeCashInVisualDebtPx,
+              belowPocketPx: Math.max(0, maintenanceBelowPocketPx),
+              actualMovedPx: bridgeCashInCorrection.movedPx,
+              reason: bridgeCashInReason,
+            }));
+          } catch {}
+        } else {
+          bridgeCashInBlockedReason = 'no_bounded_forward_delta';
+        }
+      }
+      if (bridgeCashInBaseCandidate && (!bridgeCashInReady || !bridgeCashInApplied)) {
+        const bridgeCashInBlockedSignature = [
+          bridgeCashInObservationSignature,
+          bridgeCashInBlockedReason || 'blocked',
+          Math.round(bridgeCashInVisualDebtPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+          Math.round(Math.max(0, maintenanceBelowPocketPx) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+        ].join('|');
+        if (shouldEmitFrameDiagnostic('ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_BLOCKED', bridgeCashInBlockedSignature, 350)) {
+          try {
+            console.warn(buildAsrBridgeReducedVisualCashInBlockedDiagnostic({
+              currentLineIdx: lastLineIndex,
+              requestedTargetIdx: bridgeReducedRequestedTargetIdx,
+              reducedTargetIdx: bridgeReducedTargetIdx,
+              acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+              previousAcceptedCommitTargetIdx,
+              bridgeCarry,
+              bridgeClamp,
+              blockerCategory: bridgeCashInBlockerCategory,
+              recoveryChainBlocked,
+              noAdjacentMatchHold,
+              markerLockSuppressed,
+              repeatedObservationCount: liveAsrBridgeReducedVisualCashInObservationCount,
+              stallDelayMs: bridgeCashInStallDelayMs,
+              visualDebtPx: bridgeCashInVisualDebtPx,
+              belowPocketPx: Math.max(0, maintenanceBelowPocketPx),
+              actualMovedPx: appliedDeltaPx,
+              reason: bridgeCashInBlockedReason || 'bridge_cash_in_blocked',
+            }));
+          } catch {}
+        }
+      }
+      if (maintenancePocketHealth === 'belowPocket' && !maintenanceEligible && !bridgeCashInApplied) {
         emitSafeLivePocketCorrectionBlocked({
           source: 'tick',
           reason: `precondition_${maintenanceDeniedReason}`,
@@ -13746,6 +13978,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       } else if (
         maintenancePocketHealth === 'belowPocket' &&
         maintenanceEligible &&
+        !bridgeCashInApplied &&
         appliedDeltaPx < 1 &&
         Number.isFinite(Number(pursuitTargetTop)) &&
         Number(pursuitTargetTop) > beforeScrollTop + 0.5
