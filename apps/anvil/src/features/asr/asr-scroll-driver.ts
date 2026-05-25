@@ -64,6 +64,7 @@ import {
   buildAsrVisualRecoveryBoostAppliedDiagnostic,
   buildAsrVisualRecoveryBoostBlockedDiagnostic,
   buildAsrVisualRecoveryBoostPathProofDiagnostic,
+  buildAsrBridgeReducedVisualCashInEvaluatedDiagnostic,
   buildAsrBridgeReducedVisualCashInAppliedDiagnostic,
   buildAsrBridgeReducedVisualCashInBlockedDiagnostic,
   buildAsrVisualSettleBypassedForReadabilityDiagnostic,
@@ -13722,33 +13723,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
-      if (
-        maintenanceFarTargetRelaxed &&
-        maintenancePocketHealth === 'belowPocket' &&
-        Number.isFinite(Number(pursuitTargetTop)) &&
-        Number(pursuitTargetTop) > beforeScrollTop + 0.5
-      ) {
-        const relaxedCorrection = applySafeLivePocketCorrection({
-          scroller,
-          beforeScrollTop,
-          targetScrollTop: Number(pursuitTargetTop),
-          currentLineIdx: lastLineIndex,
-          committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
-          nextSpeakableLineIdx: maintenanceNextSpeakableLineIdx,
-          visualErrorPx: Number.isFinite(arithmeticTargetDebtPx) ? Number(arithmeticTargetDebtPx) : maintenanceBelowPocketPx,
-          source: 'tick',
-          reason: 'accepted_local_lag_catchup',
-        });
-        if (relaxedCorrection.applied) {
-          afterScrollTop = relaxedCorrection.afterScrollTop;
-          appliedDeltaPx = Math.max(appliedDeltaPx, relaxedCorrection.movedPx);
-        }
-      }
-      const pendingBridgeStateForCashIn = pendingSpeakableBridgeState;
-      const bridgeReducedRequestedTargetIdx =
-        pendingBridgeStateForCashIn?.semanticTarget ?? liveAsrCommitteeRequestedTargetIdx;
+      const bridgeReducedRequestedTargetIdx = Math.max(
+        liveAsrCommitteeRequestedTargetIdx,
+        liveAsrCommitteeSemanticTargetIdx,
+      );
       const bridgeReducedTargetIdx =
-        pendingBridgeStateForCashIn?.visualReducedTarget ?? -1;
+        liveAsrCommitteeDistanceCapTargetIdx >= 0
+          ? liveAsrCommitteeDistanceCapTargetIdx
+          : (
+            liveAsrCommitteeAcceptedCommitTargetIdx >= lastLineIndex &&
+            liveAsrCommitteeAcceptedCommitTargetIdx <= lastLineIndex + 1 &&
+            bridgeReducedRequestedTargetIdx > liveAsrCommitteeAcceptedCommitTargetIdx
+              ? liveAsrCommitteeAcceptedCommitTargetIdx
+              : -1
+          );
       const bridgeCarry =
         bridgeReducedRequestedTargetIdx > lastLineIndex
           ? Math.max(0, bridgeReducedRequestedTargetIdx - lastLineIndex)
@@ -13779,8 +13767,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             ? 'marker_lock_suppressed'
             : (maintenanceDeniedReason || 'none')));
       const bridgeReducedPending =
-        !!pendingBridgeStateForCashIn &&
-        pendingBridgeStateForCashIn.semanticTarget > pendingBridgeStateForCashIn.visualReducedTarget;
+        bridgeReducedTargetIdx >= lastLineIndex &&
+        bridgeReducedRequestedTargetIdx > bridgeReducedTargetIdx &&
+        (
+          liveAsrCommitteeBridgeHoldContextActive ||
+          liveAsrCommitteePendingBridgeStateActive ||
+          liveAsrCommitteeBridgeOwner !== 'none' ||
+          liveAsrCommitteeCueOwner !== 'none' ||
+          bridgeCashInBlockedByBridgeGovernor
+        );
       const bridgeReducedAcceptedLocal =
         bridgeReducedTargetIdx >= lastLineIndex &&
         bridgeReducedTargetIdx <= lastLineIndex + 1 &&
@@ -13810,9 +13805,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveAsrBridgeReducedVisualCashInObservationCount = 0;
       }
       const bridgeCashInStallDelayMs =
-        pendingBridgeStateForCashIn?.createdAtMs != null
-          ? Math.max(0, freshnessNowTs - pendingBridgeStateForCashIn.createdAtMs)
-          : 0;
+        pendingSpeakableBridgeState?.createdAtMs != null
+          ? Math.max(0, freshnessNowTs - pendingSpeakableBridgeState.createdAtMs)
+          : Math.max(
+            liveScrollStallDecision.active ? Math.round(noVisualProgressMs) : 0,
+            lastCommitTime > 0 ? Math.max(0, freshnessNowTs - lastCommitTime) : 0,
+          );
       const bridgeCashInVisualDebtPx =
         Number.isFinite(arithmeticTargetDebtPx)
           ? Number(arithmeticTargetDebtPx)
@@ -13870,6 +13868,57 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         bridgeCashInTargetTop > beforeScrollTop + 0.5;
       let bridgeCashInBlockedReason = '';
       let bridgeCashInApplied = false;
+      const bridgeCashInEvaluationReason = bridgeReducedPending
+        ? (bridgeCashInBlockedByBridgeGovernor
+          ? 'bridge_reduced_blocked_local_candidate'
+          : 'bridge_reduced_local_candidate')
+        : 'no_bridge_reduced_local_candidate';
+      if (
+        bridgeReducedPending ||
+        (bridgeCashInBlockedByBridgeGovernor &&
+          bridgeReducedRequestedTargetIdx > lastLineIndex &&
+          liveAsrCommitteeAcceptedCommitTargetIdx <= lastLineIndex + 1)
+      ) {
+        const bridgeCashInEvalSignature = [
+          lastLineIndex,
+          liveAsrCommitteeAcceptedCommitTargetIdx,
+          bridgeReducedRequestedTargetIdx,
+          liveAsrCommitteeSemanticTargetIdx,
+          bridgeReducedTargetIdx,
+          bridgeCashInBlockerCategory,
+          Math.round(bridgeCashInVisualDebtPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+          Math.round(Math.max(0, maintenanceBelowPocketPx) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+        ].join('|');
+        if (shouldEmitFrameDiagnostic('ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_EVALUATED', bridgeCashInEvalSignature, 350)) {
+          try {
+            console.warn(buildAsrBridgeReducedVisualCashInEvaluatedDiagnostic({
+              currentLineIdx: lastLineIndex,
+              committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+              requestedTargetIdx: liveAsrCommitteeRequestedTargetIdx,
+              semanticTargetIdx: liveAsrCommitteeSemanticTargetIdx,
+              visualReducedTargetIdx: bridgeReducedTargetIdx,
+              acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+              nextSpeakableLineIdx: maintenanceNextSpeakableLineIdx,
+              bridgeCarry,
+              bridgeClamp,
+              sourceBranch: String(liveAsrCommitteeBridgeCueOwner || 'unknown'),
+              proofSource: String(pendingSpeakableBridgeState?.proofSource || liveAsrBridgeVisualComfortProofSource || 'none'),
+              blockerCategory: bridgeCashInBlockerCategory,
+              recoveryChainBlocked,
+              noAdjacentMatchHold,
+              markerLockSuppressed,
+              lastGuardReason: String(lastAsrGuardReason || 'none'),
+              lastSelectedAuthority: String(liveTickSelectedAuthority || 'none'),
+              lastVisualAction: String(liveAsrActuatorReason || liveTickAuthorityReason || 'none'),
+              visualErrorPx: bridgeCashInVisualDebtPx,
+              belowPocketPx: Math.max(0, maintenanceBelowPocketPx),
+              currentScrollTop: beforeScrollTop,
+              targetScrollTop: bridgeCashInTargetTop,
+              reason: bridgeCashInEvaluationReason,
+            }));
+          } catch {}
+        }
+      }
       if (bridgeCashInBaseCandidate) {
         if (actuatorNoMatchOrOffscript) bridgeCashInBlockedReason = 'no_match_or_offscript';
         else if (hardContradictionActive) bridgeCashInBlockedReason = 'contradiction';
@@ -13930,6 +13979,29 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           } catch {}
         } else {
           bridgeCashInBlockedReason = 'no_bounded_forward_delta';
+        }
+      }
+      if (
+        !bridgeCashInApplied &&
+        maintenanceFarTargetRelaxed &&
+        maintenancePocketHealth === 'belowPocket' &&
+        Number.isFinite(Number(pursuitTargetTop)) &&
+        Number(pursuitTargetTop) > beforeScrollTop + 0.5
+      ) {
+        const relaxedCorrection = applySafeLivePocketCorrection({
+          scroller,
+          beforeScrollTop,
+          targetScrollTop: Number(pursuitTargetTop),
+          currentLineIdx: lastLineIndex,
+          committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+          nextSpeakableLineIdx: maintenanceNextSpeakableLineIdx,
+          visualErrorPx: Number.isFinite(arithmeticTargetDebtPx) ? Number(arithmeticTargetDebtPx) : maintenanceBelowPocketPx,
+          source: 'tick',
+          reason: 'accepted_local_lag_catchup',
+        });
+        if (relaxedCorrection.applied) {
+          afterScrollTop = relaxedCorrection.afterScrollTop;
+          appliedDeltaPx = Math.max(appliedDeltaPx, relaxedCorrection.movedPx);
         }
       }
       if (bridgeCashInBaseCandidate && (!bridgeCashInReady || !bridgeCashInApplied)) {

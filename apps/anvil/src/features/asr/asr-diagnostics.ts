@@ -342,6 +342,34 @@ export function buildAsrBridgeReducedVisualCashInBlockedDiagnostic(args: {
   return `[ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_BLOCKED] currentLineIdx=${args.currentLineIdx} requestedTargetIdx=${args.requestedTargetIdx} reducedTargetIdx=${args.reducedTargetIdx} acceptedCommitTargetIdx=${args.acceptedCommitTargetIdx} previousAcceptedCommitTargetIdx=${args.previousAcceptedCommitTargetIdx} bridgeCarry=${Math.round(args.bridgeCarry)} bridgeClamp=${Math.round(args.bridgeClamp)} blockerCategory=${args.blockerCategory || 'none'} recoveryChainBlocked=${args.recoveryChainBlocked ? 1 : 0} noAdjacentMatchHold=${args.noAdjacentMatchHold ? 1 : 0} markerLockSuppressed=${args.markerLockSuppressed ? 1 : 0} repeatedObservationCount=${Math.round(args.repeatedObservationCount)} stallDelayMs=${Math.round(args.stallDelayMs)} visualDebtPx=${Math.round(args.visualDebtPx)} belowPocketPx=${Math.round(args.belowPocketPx)} actualMovedPx=${Math.round(args.actualMovedPx)} reason=${args.reason}`;
 }
 
+export function buildAsrBridgeReducedVisualCashInEvaluatedDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  requestedTargetIdx: number;
+  semanticTargetIdx: number;
+  visualReducedTargetIdx: number;
+  acceptedCommitTargetIdx: number;
+  nextSpeakableLineIdx: number;
+  bridgeCarry: number;
+  bridgeClamp: number;
+  sourceBranch: string;
+  proofSource: string;
+  blockerCategory: string;
+  recoveryChainBlocked: boolean;
+  noAdjacentMatchHold: boolean;
+  markerLockSuppressed: boolean;
+  lastGuardReason: string;
+  lastSelectedAuthority: string;
+  lastVisualAction: string;
+  visualErrorPx: number;
+  belowPocketPx: number;
+  currentScrollTop: number;
+  targetScrollTop: number;
+  reason: string;
+}): string {
+  return `[ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_EVALUATED] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} requestedTargetIdx=${args.requestedTargetIdx} semanticTargetIdx=${args.semanticTargetIdx} visualReducedTargetIdx=${args.visualReducedTargetIdx} acceptedCommitTargetIdx=${args.acceptedCommitTargetIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} bridgeCarry=${Math.round(args.bridgeCarry)} bridgeClamp=${Math.round(args.bridgeClamp)} sourceBranch=${args.sourceBranch || 'unknown'} proofSource=${args.proofSource || 'none'} blockerCategory=${args.blockerCategory || 'none'} recoveryChainBlocked=${args.recoveryChainBlocked ? 1 : 0} noAdjacentMatchHold=${args.noAdjacentMatchHold ? 1 : 0} markerLockSuppressed=${args.markerLockSuppressed ? 1 : 0} lastGuardReason=${args.lastGuardReason || 'none'} lastSelectedAuthority=${args.lastSelectedAuthority || 'none'} lastVisualAction=${args.lastVisualAction || 'none'} visualErrorPx=${Math.round(args.visualErrorPx)} belowPocketPx=${Math.round(args.belowPocketPx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} reason=${args.reason}`;
+}
+
 export function buildAsrStaleRecoveryTargetExpiredDiagnostic(args: {
   sourcePath: string;
   reason: string;

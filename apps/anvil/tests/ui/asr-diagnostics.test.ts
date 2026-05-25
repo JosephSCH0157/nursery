@@ -19,6 +19,7 @@ import {
   buildAsrBackendHeartbeatDiagnostic,
   buildAsrBackendRestartCompletedDiagnostic,
   buildAsrBackendRestartRequestedDiagnostic,
+  buildAsrBridgeReducedVisualCashInEvaluatedDiagnostic,
   buildAsrBridgeReducedVisualCashInAppliedDiagnostic,
   buildAsrBridgeReducedVisualCashInBlockedDiagnostic,
   buildAsrBottomLockGeometryDiagnostic,
@@ -942,6 +943,35 @@ describe('ASR backend liveness diagnostics builders', () => {
   });
 
   test('builds bridge-reduced visual cash-in diagnostics with expected fields', () => {
+    const evaluated = buildAsrBridgeReducedVisualCashInEvaluatedDiagnostic({
+      currentLineIdx: 157,
+      committedLineIdx: 158,
+      requestedTargetIdx: 160,
+      semanticTargetIdx: 160,
+      visualReducedTargetIdx: 158,
+      acceptedCommitTargetIdx: 158,
+      nextSpeakableLineIdx: 160,
+      bridgeCarry: 3,
+      bridgeClamp: 2,
+      sourceBranch: 'live_strict_bridge_stale_landing_hold',
+      proofSource: 'landing_lexical',
+      blockerCategory: 'recovery_chain_blocked',
+      recoveryChainBlocked: true,
+      noAdjacentMatchHold: false,
+      markerLockSuppressed: true,
+      lastGuardReason: 'live_strict_proof_owned_commit',
+      lastSelectedAuthority: 'hold',
+      lastVisualAction: 'hold',
+      visualErrorPx: 44,
+      belowPocketPx: 31,
+      currentScrollTop: 11341,
+      targetScrollTop: 11417,
+      reason: 'bridge_reduced_blocked_local_candidate',
+    });
+    expect(evaluated).toBe(
+      '[ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_EVALUATED] currentLineIdx=157 committedLineIdx=158 requestedTargetIdx=160 semanticTargetIdx=160 visualReducedTargetIdx=158 acceptedCommitTargetIdx=158 nextSpeakableLineIdx=160 bridgeCarry=3 bridgeClamp=2 sourceBranch=live_strict_bridge_stale_landing_hold proofSource=landing_lexical blockerCategory=recovery_chain_blocked recoveryChainBlocked=1 noAdjacentMatchHold=0 markerLockSuppressed=1 lastGuardReason=live_strict_proof_owned_commit lastSelectedAuthority=hold lastVisualAction=hold visualErrorPx=44 belowPocketPx=31 currentScrollTop=11341 targetScrollTop=11417 reason=bridge_reduced_blocked_local_candidate',
+    );
+
     const applied = buildAsrBridgeReducedVisualCashInAppliedDiagnostic({
       currentLineIdx: 157,
       requestedTargetIdx: 160,
