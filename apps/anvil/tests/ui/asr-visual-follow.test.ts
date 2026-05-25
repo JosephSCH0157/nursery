@@ -8,8 +8,32 @@ import {
   shouldHardHoldVisualFollow,
   shouldStopForVisualDeadband,
 } from '../../src/features/asr/asr-visual-follow';
+import type { DecideStaleRecoveryTargetExpiryInput } from '../../src/features/asr/asr-visual-target-arbitration';
+import { decideStaleRecoveryTargetExpiry } from '../../src/features/asr/asr-visual-target-arbitration';
 
 describe('ASR visual follow pure calculations', () => {
+  const makeStaleRecoveryInput = (
+    overrides: Partial<DecideStaleRecoveryTargetExpiryInput> = {},
+  ): DecideStaleRecoveryTargetExpiryInput => ({
+    preservedTargetScrollTop: 240,
+    preservedTargetSourcePath: 'asr-marker-lock-pocket-recovery',
+    previousTargetScrollTop: 240,
+    pocketTargetScrollTop: 163,
+    currentScrollTop: 205,
+    currentLineIdx: 3,
+    committedLineIdx: 3,
+    nextSpeakableLineIdx: 3,
+    visualErrorPx: -42,
+    tolerancePx: 17,
+    lineHeightPx: 56,
+    authorityAction: 'pursue',
+    terminalClampActive: false,
+    noMatchOrOffscript: false,
+    hardContradiction: false,
+    stopDeadbandPx: 8,
+    ...overrides,
+  });
+
   test('lead within soft threshold allows follow according to current semantics', () => {
     const lead = classifyVisualLead({
       speakableLead: 1,
@@ -297,5 +321,32 @@ describe('ASR visual follow pure calculations', () => {
     });
     expect(calm.shouldApply).toBe(true);
     expect(calm.cappedPxps).toBe(12);
+  });
+
+  test('expires stale marker-lock recovery target when pocket authority contradicts it', () => {
+    const decision = decideStaleRecoveryTargetExpiry(makeStaleRecoveryInput());
+    expect(decision.expire).toBe(true);
+    expect(decision.reason).toBe('pocket_authority_contradicts_preserved_recovery_target');
+    expect(decision.deltaPxToPreservedTarget).toBe(35);
+    expect(decision.deltaPxToPocketTarget).toBe(-42);
+    expect(decision.contradictionTolerancePx).toBe(28);
+  });
+
+  test('does not expire preserved recovery target when pocket authority target agrees with it', () => {
+    const decision = decideStaleRecoveryTargetExpiry(makeStaleRecoveryInput({
+      pocketTargetScrollTop: 228,
+      visualErrorPx: 23,
+    }));
+    expect(decision.expire).toBe(false);
+    expect(decision.reason).toBeNull();
+  });
+
+  test('does not expire preserved target during noMatch offscript or contradiction safety holds', () => {
+    expect(decideStaleRecoveryTargetExpiry(makeStaleRecoveryInput({
+      noMatchOrOffscript: true,
+    })).expire).toBe(false);
+    expect(decideStaleRecoveryTargetExpiry(makeStaleRecoveryInput({
+      hardContradiction: true,
+    })).expire).toBe(false);
   });
 });

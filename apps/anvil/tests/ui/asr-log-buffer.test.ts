@@ -35,6 +35,8 @@ describe('ASR log buffer', () => {
     expect(exported.entries[0].tag).toBe('ASR_VISUAL_MARKER_ERROR_CORRECTION');
     expect(exported.entries[0].currentLineIdx).toBe(8);
     expect(exported.entries[0].scrollTop).toBe(220);
+    expect(exported.runPhaseSummaries).toHaveLength(1);
+    expect(exported.runPhaseSummaries[0].lineRange).toBe('0-24');
     expect(copied).toContain('"entryCount": 1');
 
     buffer.clear();
@@ -115,6 +117,61 @@ describe('ASR log buffer', () => {
     expect(chairSummary.maxTargetDebtPx).toBe(148);
     expect(chairSummary.minStepFloorCount).toBe(1);
     expect(chairSummary.bigDebtMinStepCount).toBe(1);
+  });
+
+  test('rolling run phase summaries survive ring eviction and preserve late-phase counters', async () => {
+    const buffer = createAsrLogBuffer({ maxEntries: 2 });
+
+    buffer.captureConsoleCall('warn', [
+      '[ASR_CUE_BRIDGE_COMMIT] currentLineIdx=188 committedLineIdx=190 targetLineIdx=190 actualMovedPx=18',
+    ]);
+    buffer.captureConsoleCall('warn', [
+      '[ASR_LIVE_POCKET_MAINTENANCE_EVALUATED] currentLineIdx=194 committedLineIdx=195 targetLineIdx=201 pocketHealth=belowPocket belowPocketPx=42 deniedReason=unsafe_target terminalClamp=0 actualMovedPx=0',
+    ]);
+    buffer.captureConsoleCall('warn', [
+      '[ASR_READER_COMFORT_RESCUE_APPLIED] currentLineIdx=196 committedLineIdx=196 targetLineIdx=196 visualDebtPx=60 belowPocketPx=28 activeLineViewportRatio=0.840 distanceToBottomRailPx=-12 writerSettleActive=1 visualRecoveryCooldownActive=1 cooldownRemainingMs=240 debtBelowLineHeight=0 unsafeTargetReason=unsafe_target targetAcceptedLocal=1 repeatedBelowPocketCount=3 lastCorrectionAgeMs=480 actualMovedPx=20 reason=bridge_hold_local_readability',
+    ]);
+    buffer.captureConsoleCall('warn', [
+      '[ASR_STARVATION_DETECTED] currentLineIdx=205 committedLineIdx=206 targetLineIdx=209 actualMovedPx=0 reason=bridge_hold_starvation',
+    ]);
+
+    const exported = await buffer.copy();
+
+    expect(exported.entryCount).toBe(2);
+    expect(exported.droppedCount).toBe(2);
+    const lateBucket = exported.runPhaseSummaries.find((summary) => summary.lineStart === 175);
+    const tailBucket = exported.runPhaseSummaries.find((summary) => summary.lineStart === 200);
+    expect(lateBucket).toBeTruthy();
+    expect(tailBucket).toBeTruthy();
+    expect(lateBucket?.cueBridgeCommitCount).toBe(1);
+    expect(lateBucket?.unsafeTargetCount).toBe(2);
+    expect(lateBucket?.readerComfortRescueAppliedCount).toBe(1);
+    expect(lateBucket?.belowPocketCount).toBe(1);
+    expect(lateBucket?.medianBelowPocketPx).toBe(35);
+    expect(lateBucket?.averageCommitDelta).toBe(2);
+    expect(tailBucket?.starvationDetectedCount).toBe(1);
+  });
+
+  test('starvation summaries fall back to payload and last known line attribution', async () => {
+    const buffer = createAsrLogBuffer();
+
+    buffer.captureConsoleCall('warn', [
+      '[ASR_LIVE_POCKET_MAINTENANCE_EVALUATED] currentLineIdx=198 committedLineIdx=199 targetLineIdx=201 pocketHealth=belowPocket belowPocketPx=44 deniedReason=unsafe_target',
+    ]);
+    buffer.captureConsoleCall('warn', [
+      '[ASR_STARVATION_DETECTED]',
+      { currentLineIdx: 199, committedLineIdx: 200, reason: 'payload_line_available' },
+    ]);
+    buffer.captureConsoleCall('warn', [
+      '[ASR_STARVATION_DETECTED]',
+      { reason: 'fallback_to_last_known_line' },
+    ]);
+
+    const exported = await buffer.copy();
+    const bucket = exported.runPhaseSummaries.find((summary) => summary.lineStart === 175);
+
+    expect(bucket).toBeTruthy();
+    expect(bucket?.starvationDetectedCount).toBe(2);
   });
 
   test('installer patches console only when enabled and exposes window helpers', async () => {

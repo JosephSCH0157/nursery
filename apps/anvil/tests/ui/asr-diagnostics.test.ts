@@ -4,6 +4,17 @@ import {
   buildAsrAlignmentEpisodeDumpPathProofDiagnostic,
   buildAsrHudNoTargetDetail,
   buildAsrAudioChunkStaleDiagnostic,
+  buildAsrFocusLossTranscriptAcceptedDiagnostic,
+  buildAsrFocusLossTranscriptQuarantinedDiagnostic,
+  buildAsr4RecoveryBudgetAuthorityAppliedDiagnostic,
+  buildAsr4PocketDriftAuthorityAppliedDiagnostic,
+  buildAsr4PocketDriftStateDiagnostic,
+  buildAsr4VisualRecoveryAuthorityAppliedDiagnostic,
+  buildAsr4VisualRecoveryStateDiagnostic,
+  buildAsr4FreshTailVetoDiagnostic,
+  buildAsr4RecoveryBudgetStateDiagnostic,
+  buildAsr4RecoveryBudgetViolationDiagnostic,
+  buildAsr4ShadowMismatchDiagnostic,
   buildAsrBridgeTrapDetectedDiagnostic,
   buildAsrBackendHeartbeatDiagnostic,
   buildAsrBackendRestartCompletedDiagnostic,
@@ -40,7 +51,12 @@ import {
   buildAsrVisualRecoveryBoostPathProofDiagnostic,
   buildAsrScrollAuthorityConflictDiagnostic,
   buildAsrScrollAuthoritySelectedDiagnostic,
+  buildAsrStaleLandingRelaxedForFreshForwardAnchorDiagnostic,
+  buildAsrStaleRecoveryTargetExpiredDiagnostic,
   buildAsrVisualMarkerErrorCorrectionDiagnostic,
+  buildAsrVisualDebtCatchupAllowedDiagnostic,
+  buildAsrVisualDebtCatchupEvaluationSeenDiagnostic,
+  buildAsrVisualDebtCatchupBlockedDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
   buildProofOwnedPrimaryCommitGuardBaseParts,
   buildRecoverySkipNonAdjacentTargetGuardBaseParts,
@@ -59,6 +75,85 @@ import {
 } from '../../src/features/asr/asr-authority-resolver';
 
 describe('ASR backend liveness diagnostics builders', () => {
+  test('builds stale-landing relaxation diagnostic with bounded forward context', () => {
+    const line = buildAsrStaleLandingRelaxedForFreshForwardAnchorDiagnostic({
+      currentLine: 13,
+      candidateLine: 15,
+      deltaLines: 2,
+      whisperFresh: true,
+      matcherStable: true,
+      priorHoldReason: 'live_strict_bridge_stale_landing_hold',
+    });
+    expect(line).toBe(
+      '[ASR_STALE_LANDING_RELAXED_FOR_FRESH_FORWARD_ANCHOR] currentLine=13 candidateLine=15 deltaLines=2 whisperFresh=1 matcherStable=1 priorHoldReason=live_strict_bridge_stale_landing_hold',
+    );
+  });
+
+  test('builds visual debt catch-up diagnostics with proposed and actual move data', () => {
+    const allowed = buildAsrVisualDebtCatchupAllowedDiagnostic({
+      debtPx: 148,
+      lineHeightPx: 56,
+      proposedMovePx: 56,
+      actualMovePx: 42,
+      decisionReason: 'visual_only_recent_safe_commit_allowed',
+      clampReason: 'visual_debt_catchup',
+      currentScrollTop: 205,
+      targetScrollTop: 261,
+      consecutiveDebtObservations: 3,
+    });
+    expect(allowed).toBe(
+      '[ASR_VISUAL_DEBT_CATCHUP_ALLOWED] debtPx=148 lineHeightPx=56 proposedMovePx=56 actualMovePx=42 decisionReason=visual_only_recent_safe_commit_allowed clampReason=visual_debt_catchup currentScrollTop=205 targetScrollTop=261 consecutiveDebtObservations=3',
+    );
+
+    const blocked = buildAsrVisualDebtCatchupBlockedDiagnostic({
+      debtPx: 148,
+      lineHeightPx: 56,
+      proposedMovePx: 56,
+      blockedReason: 'cooldown',
+      postCommitGapMs: 84,
+      requiredGapMs: 140,
+      reducedGapEligible: true,
+      recentSafeCommitAgeMs: 84,
+      consecutiveDebtObservations: 3,
+      currentLineIdx: 40,
+      committedLineIdx: 41,
+      targetLineIdx: 41,
+      decisionReason: 'none',
+    });
+    expect(blocked).toBe(
+      '[ASR_VISUAL_DEBT_CATCHUP_BLOCKED] debtPx=148 lineHeightPx=56 proposedMovePx=56 blockedReason=cooldown postCommitGapMs=84 requiredGapMs=140 reducedGapEligible=1 recentSafeCommitAgeMs=84 consecutiveDebtObservations=3 currentLineIdx=40 committedLineIdx=41 targetLineIdx=41 decisionReason=none',
+    );
+  });
+
+  test('builds visual debt catch-up evaluation diagnostics with decision context', () => {
+    const line = buildAsrVisualDebtCatchupEvaluationSeenDiagnostic({
+      debtPx: 148,
+      lineHeightPx: 56,
+      debtDirection: 'forward',
+      consecutiveDebtObservations: 3,
+      targetLine: 42,
+      currentLine: 40,
+      committedLine: 41,
+      targetForward: true,
+      targetSafe: true,
+      directWriteBlocked: true,
+      targetPreservedForEasing: true,
+      markerLockActive: true,
+      terminalClampActive: false,
+      cooldownActive: false,
+      postCommitGapMs: 84,
+      requiredGapMs: 140,
+      reducedGapEligible: true,
+      recentSafeCommitAgeMs: 84,
+      finalDecision: 'blocked',
+      decisionReason: 'none',
+      blockedReason: 'awaiting_commit_gap_window',
+    });
+    expect(line).toBe(
+      '[ASR_VISUAL_DEBT_CATCHUP_EVALUATION_SEEN] debtPx=148 lineHeightPx=56 debtDirection=forward consecutiveDebtObservations=3 targetLine=42 currentLine=40 committedLine=41 targetForward=1 targetSafe=1 directWriteBlocked=1 targetPreservedForEasing=1 markerLockActive=1 terminalClampActive=0 cooldownActive=0 postCommitGapMs=84 requiredGapMs=140 reducedGapEligible=1 recentSafeCommitAgeMs=84 finalDecision=blocked decisionReason=none blockedReason=awaiting_commit_gap_window',
+    );
+  });
+
   test('builds backend heartbeat diagnostic with expected tag and fields', () => {
     const line = buildAsrBackendHeartbeatDiagnostic({
       recognizerAttached: true,
@@ -166,6 +261,266 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR_BRIDGE_TRAP_DETECTED] current=11 bestIdx=14 requestedTarget=15 adjacentTarget=12 skipped=[cue,meta] repeatedHoldCount=4 noCommitMs=3550 blockerReason=bridge_or_non_adjacent_guard proofSource=strict_bridge_landing_lexical_tail textPreview="preview text"',
+    );
+  });
+
+  test('builds focus-loss transcript diagnostics with expected fields', () => {
+    const quarantined = buildAsrFocusLossTranscriptQuarantinedDiagnostic({
+      focusState: 'lost',
+      generation: 4,
+      runGeneration: 7,
+      runKey: 'focus-safe-run',
+      sessionPhase: 'live',
+      asrArmed: true,
+      speechActive: true,
+      recognizerAttached: true,
+      activeReadMode: true,
+      final: true,
+      noMatch: false,
+      matchBestIdx: 2,
+      currentIdx: 1,
+      clue: 'The seats remember every early shift.',
+    });
+    expect(quarantined).toBe(
+      '[ASR_FOCUS_LOSS_TRANSCRIPT_QUARANTINED] focusState=lost generation=4 runGeneration=7 runKey=focus-safe-run sessionPhase=live asrArmed=1 speechActive=1 recognizerAttached=1 activeReadMode=1 final=1 noMatch=0 matchBestIdx=2 currentIdx=1 clue="The seats remember every early shift."',
+    );
+
+    const accepted = buildAsrFocusLossTranscriptAcceptedDiagnostic({
+      reason: 'active_current_generation_final',
+      focusState: 'lost',
+      generation: 4,
+      runGeneration: 7,
+      runKey: 'focus-safe-run',
+      sessionPhase: 'live',
+      asrArmed: true,
+      speechActive: true,
+      recognizerAttached: true,
+      activeReadMode: true,
+      final: true,
+      noMatch: false,
+      matchBestIdx: 2,
+      currentIdx: 1,
+      clue: 'The seats remember every early shift.',
+    });
+    expect(accepted).toBe(
+      '[ASR_FOCUS_LOSS_TRANSCRIPT_ACCEPTED] reason=active_current_generation_final focusState=lost generation=4 runGeneration=7 runKey=focus-safe-run sessionPhase=live asrArmed=1 speechActive=1 recognizerAttached=1 activeReadMode=1 final=1 noMatch=0 matchBestIdx=2 currentIdx=1 clue="The seats remember every early shift."',
+    );
+  });
+
+  test('builds ASR4 fresh-tail veto diagnostic with expected fields', () => {
+    const line = buildAsr4FreshTailVetoDiagnostic({
+      currentLine: 12,
+      candidateTargetLine: 13,
+      transcriptSource: 'openai-whisper-bridge',
+      wouldFreeze: true,
+      rollingContextMatchesScript: true,
+      previousLineMatched: true,
+      currentLineMatched: false,
+      forwardLineMatched: false,
+      selectedNearbyWindow: 'previous',
+      packetMatchAnchorLine: 11,
+      packetMatchAnchorMatched: true,
+      packetMatchAnchorSim: 0.912,
+      selectedAnchorSource: 'packet_match_local',
+      legacyMoved: false,
+      reason: 'fresh_tail_offscript_overrides_old_context',
+      freshTailPreview: 'buy my toaster',
+      nearbyScriptPreview: 'welcome back to the show',
+    });
+    expect(line).toBe(
+      '[ASR4_FRESH_TAIL_VETO] currentLine=12 candidateTargetLine=13 transcriptSource=openai-whisper-bridge wouldFreeze=1 rollingContextMatchesScript=1 previousLineMatched=1 currentLineMatched=0 forwardLineMatched=0 selectedNearbyWindow=previous packetMatchAnchorLine=11 packetMatchAnchorMatched=1 packetMatchAnchorSim=0.912 selectedAnchorSource=packet_match_local legacyMoved=0 reason=fresh_tail_offscript_overrides_old_context freshTailPreview="buy my toaster" nearbyScriptPreview="welcome back to the show"',
+    );
+  });
+
+  test('builds ASR4 shadow mismatch diagnostic with expected fields', () => {
+    const line = buildAsr4ShadowMismatchDiagnostic({
+      currentLine: 12,
+      legacyTargetLine: 13,
+      transcriptSource: 'openai-whisper-bridge',
+      reason: 'fresh_tail_offscript_overrides_old_context',
+      freshTailPreview: 'buy my toaster',
+      nearbyScriptPreview: 'welcome back to the show',
+      rollingContextMatchesScript: true,
+      previousLineMatched: true,
+      currentLineMatched: false,
+      forwardLineMatched: false,
+      selectedNearbyWindow: 'previous',
+      packetMatchAnchorLine: 11,
+      packetMatchAnchorMatched: true,
+      packetMatchAnchorSim: 0.912,
+      selectedAnchorSource: 'packet_match_local',
+    });
+    expect(line).toBe(
+      '[ASR4_SHADOW_MISMATCH] currentLine=12 legacyTargetLine=13 transcriptSource=openai-whisper-bridge asr4WouldFreeze=1 rollingContextMatchesScript=1 previousLineMatched=1 currentLineMatched=0 forwardLineMatched=0 selectedNearbyWindow=previous packetMatchAnchorLine=11 packetMatchAnchorMatched=1 packetMatchAnchorSim=0.912 selectedAnchorSource=packet_match_local reason=fresh_tail_offscript_overrides_old_context freshTailPreview="buy my toaster" nearbyScriptPreview="welcome back to the show"',
+    );
+  });
+
+  test('builds ASR4 recovery budget state diagnostic with expected fields', () => {
+    const line = buildAsr4RecoveryBudgetStateDiagnostic({
+      currentLine: 4,
+      targetLine: 6,
+      pendingBridgeAgeMs: 1499.8,
+      sinceOnResultMs: 1401.4,
+      sinceIngestMs: 1388.2,
+      sinceCommitMs: 1737.1,
+      commitCount: 3,
+      holdReason: 'await_fresh_direct_landing_proof',
+      sourceBranch: 'pending_speakable_bridge_complete',
+      recoveryState: 'recovering',
+      wouldFreeze: false,
+      targetRecoveryMs: 1500,
+      freezeCeilingMs: 2000,
+      waitingForFreshLocalProof: false,
+      movementAllowed: true,
+      reason: 'recovery_in_budget',
+    });
+    expect(line).toBe(
+      '[ASR4_RECOVERY_BUDGET_STATE] currentLine=4 targetLine=6 pendingBridgeAgeMs=1500 sinceOnResultMs=1401 sinceIngestMs=1388 sinceCommitMs=1737 commitCount=3 holdReason=await_fresh_direct_landing_proof sourceBranch=pending_speakable_bridge_complete recoveryState=recovering wouldFreeze=0 movementAllowed=1 targetRecoveryMs=1500 freezeCeilingMs=2000 waitingForFreshLocalProof=0 reason=recovery_in_budget',
+    );
+  });
+
+  test('builds ASR4 recovery budget violation diagnostic with expected fields', () => {
+    const line = buildAsr4RecoveryBudgetViolationDiagnostic({
+      currentLine: 4,
+      targetLine: 6,
+      pendingBridgeAgeMs: 6356.2,
+      sinceOnResultMs: 6383.4,
+      sinceIngestMs: 6360.1,
+      sinceCommitMs: 8737.3,
+      commitCount: 3,
+      holdReason: 'pending_bridge_completion_ready',
+      sourceBranch: 'pending_speakable_bridge_complete',
+      recoveryState: 'freeze',
+      wouldFreeze: true,
+      targetRecoveryMs: 1500,
+      freezeCeilingMs: 2000,
+      waitingForFreshLocalProof: true,
+      movementAllowed: false,
+      reason: 'recovery_budget_exhausted_waiting_for_fresh_local_proof',
+    });
+    expect(line).toBe(
+      '[ASR4_RECOVERY_BUDGET_VIOLATION] currentLine=4 targetLine=6 pendingBridgeAgeMs=6356 sinceOnResultMs=6383 sinceIngestMs=6360 sinceCommitMs=8737 commitCount=3 holdReason=pending_bridge_completion_ready sourceBranch=pending_speakable_bridge_complete recoveryState=freeze wouldFreeze=1 movementAllowed=0 targetRecoveryMs=1500 freezeCeilingMs=2000 waitingForFreshLocalProof=1 reason=recovery_budget_exhausted_waiting_for_fresh_local_proof',
+    );
+  });
+
+  test('builds ASR4 recovery budget authority applied diagnostic with expected fields', () => {
+    const line = buildAsr4RecoveryBudgetAuthorityAppliedDiagnostic({
+      currentLine: 28,
+      targetLine: 30,
+      pendingBridgeAgeMs: 2489.2,
+      holdReason: 'pending_bridge_completion_ready',
+      sourceBranch: 'live_strict_bridge_stale_landing_hold',
+      previousLegacyAction: 'pending_bridge_completion_ready',
+      authorityAction: 'expired_stale_pending_bridge',
+      movementAllowed: false,
+      staleBridgeCleared: true,
+      waitingForFreshLocalProof: true,
+      reason: 'recovery_budget_expired_pending_bridge_completion',
+    });
+    expect(line).toBe(
+      '[ASR4_RECOVERY_BUDGET_AUTHORITY_APPLIED] currentLine=28 targetLine=30 pendingBridgeAgeMs=2489 holdReason=pending_bridge_completion_ready sourceBranch=live_strict_bridge_stale_landing_hold previousLegacyAction=pending_bridge_completion_ready authorityAction=expired_stale_pending_bridge movementAllowed=0 staleBridgeCleared=1 waitingForFreshLocalProof=1 reason=recovery_budget_expired_pending_bridge_completion',
+    );
+  });
+
+  test('builds ASR4 visual recovery state diagnostic with expected fields', () => {
+    const line = buildAsr4VisualRecoveryStateDiagnostic({
+      currentLine: 32,
+      committedLine: 33,
+      targetLine: 33,
+      beforeScrollTop: 1812,
+      afterScrollTop: 1812,
+      movedPx: 0,
+      consecutiveNoMoveCommits: 1,
+      directWriteBlocked: true,
+      targetPreservedForEasing: true,
+      visualSnapSuppressed: true,
+      liveScrollStalled: false,
+      authorityAction: 'observe_only',
+      movementAllowed: true,
+      suppressedReason: 'none',
+      reason: 'accepted_commit_visible_scroll_stalled',
+    });
+    expect(line).toBe(
+      '[ASR4_VISUAL_RECOVERY_STATE] currentLine=32 committedLine=33 targetLine=33 beforeScrollTop=1812 afterScrollTop=1812 movedPx=0 consecutiveNoMoveCommits=1 directWriteBlocked=1 targetPreservedForEasing=1 visualSnapSuppressed=1 liveScrollStalled=0 authorityAction=observe_only movementAllowed=1 suppressedReason=none reason=accepted_commit_visible_scroll_stalled',
+    );
+  });
+
+  test('builds ASR4 visual recovery authority applied diagnostic with expected fields', () => {
+    const line = buildAsr4VisualRecoveryAuthorityAppliedDiagnostic({
+      currentLine: 32,
+      committedLine: 33,
+      targetLine: 33,
+      beforeScrollTop: 1812,
+      afterScrollTop: 2036,
+      movedPx: 224,
+      consecutiveNoMoveCommits: 2,
+      directWriteBlocked: true,
+      targetPreservedForEasing: true,
+      visualSnapSuppressed: true,
+      liveScrollStalled: true,
+      authorityAction: 'force_marker_lock_correction',
+      movementAllowed: true,
+      reason: 'accepted_commit_visible_scroll_stalled',
+    });
+    expect(line).toBe(
+      '[ASR4_VISUAL_RECOVERY_AUTHORITY_APPLIED] currentLine=32 committedLine=33 targetLine=33 beforeScrollTop=1812 afterScrollTop=2036 movedPx=224 consecutiveNoMoveCommits=2 directWriteBlocked=1 targetPreservedForEasing=1 visualSnapSuppressed=1 liveScrollStalled=1 authorityAction=force_marker_lock_correction movementAllowed=1 reason=accepted_commit_visible_scroll_stalled',
+    );
+  });
+
+  test('builds ASR4 pocket drift state diagnostic with expected fields', () => {
+    const line = buildAsr4PocketDriftStateDiagnostic({
+      currentLine: 20,
+      committedLine: 21,
+      targetLine: 21,
+      currentScrollTop: 900,
+      targetScrollTop: 1020,
+      markerTopPx: 268,
+      activeLineTopPx: 540,
+      activeLineDistanceFromMarkerPx: 390,
+      activeLineViewportRatio: 0.874,
+      lineHeightPx: 120,
+      pocketTolerancePx: 36,
+      belowPocketPx: 354,
+      abovePocketPx: 0,
+      visualDebtPx: 120,
+      movedPx: 14,
+      targetPreservedForEasing: true,
+      directWriteBlocked: false,
+      visualSnapSuppressed: false,
+      terminalClampActive: false,
+      asr4VisualRecoveryRecentlyApplied: true,
+      scrollReason: 'comfort_nudge_follow',
+      followMode: 'live_asr_follow',
+      pocketHealth: 'bottomReading',
+      suppressedReason: 'visual_recovery_cooldown',
+      reason: 'live_follow_pocket_observation',
+    });
+    expect(line).toBe(
+      '[ASR4_POCKET_DRIFT_STATE] currentLine=20 committedLine=21 targetLine=21 currentScrollTop=900 targetScrollTop=1020 markerTopPx=268 activeLineTopPx=540 activeLineDistanceFromMarkerPx=390 activeLineViewportRatio=0.874 lineHeightPx=120 pocketTolerancePx=36 belowPocketPx=354 abovePocketPx=0 visualDebtPx=120 movedPx=14 targetPreservedForEasing=1 directWriteBlocked=0 visualSnapSuppressed=0 terminalClampActive=0 asr4VisualRecoveryRecentlyApplied=1 pocketHealth=bottomReading suppressedReason=visual_recovery_cooldown scrollReason=comfort_nudge_follow followMode=live_asr_follow reason=live_follow_pocket_observation',
+    );
+  });
+
+  test('builds ASR4 pocket drift authority applied diagnostic with expected fields', () => {
+    const line = buildAsr4PocketDriftAuthorityAppliedDiagnostic({
+      currentLine: 20,
+      committedLine: 21,
+      targetLine: 21,
+      currentScrollTop: 900,
+      targetScrollTop: 1020,
+      markerTopPx: 268,
+      activeLineTopPx: 540,
+      activeLineDistanceFromMarkerPx: 390,
+      belowPocketPx: 354,
+      lineHeightPx: 120,
+      consecutiveBelowPocketCount: 2,
+      cooldownActive: false,
+      terminalClampActive: false,
+      authorityAction: 'force_marker_lock_to_pocket',
+      movementAllowed: true,
+      reason: 'pocket_drift_below_marker',
+    });
+    expect(line).toBe(
+      '[ASR4_POCKET_DRIFT_AUTHORITY_APPLIED] currentLine=20 committedLine=21 targetLine=21 currentScrollTop=900 targetScrollTop=1020 markerTopPx=268 activeLineTopPx=540 activeLineDistanceFromMarkerPx=390 belowPocketPx=354 lineHeightPx=120 consecutiveBelowPocketCount=2 cooldownActive=0 terminalClampActive=0 authorityAction=force_marker_lock_to_pocket movementAllowed=1 reason=pocket_drift_below_marker',
     );
   });
 
@@ -417,6 +772,27 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR_VISUAL_MARKER_ERROR_CORRECTION] currentLineIdx=8 committedLineIdx=8 nextSpeakableLineIdx=9 markerY=390 actualNextSpeakableLineY=490 desiredLineY=420 desiredReadAheadPx=30 visualErrorPx=70 tolerancePx=8 currentScrollTop=220 targetScrollTop=291 action=pursue reason=marker_error_line_too_low',
+    );
+  });
+
+  test('builds stale recovery target expired diagnostic with expected fields', () => {
+    const line = buildAsrStaleRecoveryTargetExpiredDiagnostic({
+      sourcePath: 'asr-marker-lock-pocket-recovery',
+      reason: 'pocket_authority_contradicts_preserved_recovery_target',
+      previousTargetScrollTop: 240.4,
+      preservedTargetScrollTop: 240.4,
+      pocketTargetScrollTop: 163.1,
+      currentScrollTop: 205.2,
+      currentLineIdx: 3,
+      committedLineIdx: 3,
+      nextSpeakableLineIdx: 3,
+      visualErrorPx: -42.3,
+      tolerancePx: 17.4,
+      deltaPxToPreservedTarget: 35.2,
+      deltaPxToPocketTarget: -42.1,
+    });
+    expect(line).toBe(
+      '[ASR_STALE_RECOVERY_TARGET_EXPIRED] sourcePath=asr-marker-lock-pocket-recovery reason=pocket_authority_contradicts_preserved_recovery_target previousTargetScrollTop=240 preservedTargetScrollTop=240 pocketTargetScrollTop=163 currentScrollTop=205 currentLineIdx=3 committedLineIdx=3 nextSpeakableLineIdx=3 visualErrorPx=-42 tolerancePx=17 deltaPxToPreservedTarget=35 deltaPxToPocketTarget=-42',
     );
   });
 

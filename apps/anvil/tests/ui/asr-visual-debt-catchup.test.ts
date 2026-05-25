@@ -1,0 +1,87 @@
+import { decideAsrVisualDebtCatchup } from '../../src/features/asr/asr-visual-debt-catchup';
+
+describe('ASR visual debt catch-up gate', () => {
+  const makeInput = (overrides: Partial<Parameters<typeof decideAsrVisualDebtCatchup>[0]> = {}) => ({
+    significantVisualDebtActive: true,
+    consecutiveDebtObservations: 2,
+    targetLine: 2,
+    currentLine: 1,
+    committedLine: 1,
+    movementAllowed: true,
+    targetSafe: true,
+    noMatchOrOffscript: false,
+    hardContradiction: false,
+    terminalClampActive: false,
+    cooldownActive: false,
+    markerLockActive: false,
+    directWriteBlocked: false,
+    targetPreservedForEasing: false,
+    errPx: 156,
+    existingMoveSufficient: false,
+    commitCount: 2,
+    postCommitGapMs: 180,
+    standardGapMs: 700,
+    reducedGapMs: 140,
+    ...overrides,
+  });
+
+  test('allows visual-only catch-up before the standard 700ms gap for recent local safe debt', () => {
+    const decision = decideAsrVisualDebtCatchup(makeInput({
+      postCommitGapMs: 180,
+      targetLine: 1,
+      currentLine: 1,
+      committedLine: 1,
+    }));
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.decisionReason).toBe('visual_only_recent_safe_commit_allowed');
+    expect(decision.requiredGapMs).toBe(140);
+    expect(decision.reducedGapEligible).toBe(true);
+  });
+
+  test('still blocks during the reduced gap window when the recent-safe proof is too fresh', () => {
+    const decision = decideAsrVisualDebtCatchup(makeInput({
+      postCommitGapMs: 96,
+      targetLine: 1,
+      currentLine: 1,
+      committedLine: 1,
+    }));
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.blockedReason).toBe('awaiting_commit_gap_window');
+    expect(decision.requiredGapMs).toBe(140);
+    expect(decision.reducedGapEligible).toBe(true);
+  });
+
+  test('still blocks no-match or off-script cases', () => {
+    const decision = decideAsrVisualDebtCatchup(makeInput({
+      noMatchOrOffscript: true,
+      postCommitGapMs: 250,
+    }));
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.blockedReason).toBe('no_match_or_offscript');
+  });
+
+  test('still blocks far target movement', () => {
+    const decision = decideAsrVisualDebtCatchup(makeInput({
+      targetLine: 4,
+      currentLine: 1,
+      committedLine: 1,
+      postCommitGapMs: 250,
+    }));
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.blockedReason).toBe('far_target');
+  });
+
+  test('still blocks terminal clamp cases', () => {
+    const decision = decideAsrVisualDebtCatchup(makeInput({
+      terminalClampActive: true,
+      postCommitGapMs: 250,
+    }));
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.blockedReason).toBe('terminal_clamp');
+  });
+});

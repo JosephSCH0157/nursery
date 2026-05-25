@@ -156,6 +156,8 @@ export type AsrMoveResult = {
   afterTop: number;
   movedPx: number;
   snapSuppressed?: boolean;
+  directWriteBlocked?: boolean;
+  targetPreservedForEasing?: boolean;
 };
 
 export type CueBridgeSkipReason = 'blank' | 'cue' | 'note' | 'speaker';
