@@ -1430,3 +1430,81 @@ export function buildAsrLowPocketDeadbandBlockedDiagnostic(args: {
     : -1;
   return `[ASR_LOW_POCKET_DEADBAND_BLOCKED] currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${targetScrollTop} belowPocketPx=${Math.round(args.belowPocketPx)} activeLineDistanceFromMarkerPx=${Math.round(args.activeLineDistanceFromMarkerPx)} previousHoldReason=${args.previousHoldReason || 'unknown'} correctionPx=${Math.round(args.correctionPx)} observations=${Math.round(args.observations)} reason=${args.reason || 'unknown'}`;
 }
+
+export function buildAsrLowPocketFreezeFarTargetReconciledDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentScrollTop: number;
+  targetScrollTop: number | null;
+  proposedScrollTop: number;
+  belowPocketPx: number;
+  activeLineDistanceFromMarkerPx: number;
+  holdReason: string;
+  authorityAction: string;
+  farReason: string;
+  semanticDistance: number;
+  visualDistancePx: number;
+  movementAllowed: boolean;
+  correctionPx: number;
+}): string {
+  const targetScrollTop = Number.isFinite(args.targetScrollTop as number)
+    ? Math.round(Number(args.targetScrollTop))
+    : -1;
+  return `[ASR_LOW_POCKET_FREEZE_FAR_TARGET_RECONCILED] currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${targetScrollTop} proposedScrollTop=${Math.round(args.proposedScrollTop)} belowPocketPx=${Math.round(args.belowPocketPx)} activeLineDistanceFromMarkerPx=${Math.round(args.activeLineDistanceFromMarkerPx)} holdReason=${args.holdReason || 'unknown'} authorityAction=${args.authorityAction || 'unknown'} farReason=${args.farReason || 'unknown'} semanticDistance=${Math.round(args.semanticDistance)} visualDistancePx=${Math.round(args.visualDistancePx)} movementAllowed=${args.movementAllowed ? 1 : 0} correctionPx=${Math.round(args.correctionPx)}`;
+}
+
+export function buildAsrLowPocketFreezeFarTargetBlockedDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentScrollTop: number;
+  targetScrollTop: number | null;
+  proposedScrollTop: number;
+  belowPocketPx: number;
+  activeLineDistanceFromMarkerPx: number;
+  holdReason: string;
+  authorityAction: string;
+  farReason: string;
+  semanticDistance: number;
+  visualDistancePx: number;
+  movementAllowed: boolean;
+  correctionPx: number;
+  blockedReason: string;
+}): string {
+  const targetScrollTop = Number.isFinite(args.targetScrollTop as number)
+    ? Math.round(Number(args.targetScrollTop))
+    : -1;
+  return `[ASR_LOW_POCKET_FREEZE_FAR_TARGET_BLOCKED] currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${targetScrollTop} proposedScrollTop=${Math.round(args.proposedScrollTop)} belowPocketPx=${Math.round(args.belowPocketPx)} activeLineDistanceFromMarkerPx=${Math.round(args.activeLineDistanceFromMarkerPx)} holdReason=${args.holdReason || 'unknown'} authorityAction=${args.authorityAction || 'unknown'} farReason=${args.farReason || 'unknown'} semanticDistance=${Math.round(args.semanticDistance)} visualDistancePx=${Math.round(args.visualDistancePx)} movementAllowed=${args.movementAllowed ? 1 : 0} correctionPx=${Math.round(args.correctionPx)} blockedReason=${args.blockedReason || 'unknown'}`;
+}
+
+export function buildAsrApprovedVisualSmoothingBypassedDiagnostic(args: {
+  authority: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentScrollTop: number;
+  approvedTargetScrollTop: number;
+  correctionPx: number;
+  visualErrorPx: number;
+  smoothingReason: string;
+  bypassReason: string;
+}): string {
+  return `[ASR_APPROVED_VISUAL_SMOOTHING_BYPASSED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} approvedTargetScrollTop=${Math.round(args.approvedTargetScrollTop)} correctionPx=${Math.round(args.correctionPx)} visualErrorPx=${Math.round(args.visualErrorPx)} smoothingReason=${args.smoothingReason || 'unknown'} bypassReason=${args.bypassReason || 'unknown'}`;
+}
+
+export function buildAsrApprovedVisualSmoothingRebasedDiagnostic(args: {
+  authority: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentScrollTop: number;
+  previousTargetScrollTop: number;
+  approvedTargetScrollTop: number;
+  correctionPx: number;
+  previousReason: string;
+  smoothingReason: string;
+  rebaseReason: string;
+}): string {
+  return `[ASR_APPROVED_VISUAL_SMOOTHING_REBASED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} previousTargetScrollTop=${Math.round(args.previousTargetScrollTop)} approvedTargetScrollTop=${Math.round(args.approvedTargetScrollTop)} correctionPx=${Math.round(args.correctionPx)} previousReason=${args.previousReason || 'unknown'} smoothingReason=${args.smoothingReason || 'unknown'} rebaseReason=${args.rebaseReason || 'unknown'}`;
+}

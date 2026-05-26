@@ -762,6 +762,7 @@ describe('ASR4 fresh-tail shadow wiring', () => {
         currentLine: number;
         committedLine: number;
         targetLine?: number | null;
+        nextSpeakableLineIdx?: number | null;
         currentScrollTop?: number;
         targetScrollTop?: number | null;
         movedPx?: number;
@@ -1083,6 +1084,92 @@ describe('ASR4 fresh-tail shadow wiring', () => {
     expect(result.applied).toBe(false);
     expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_LOW_POCKET_DEADBAND_RECONCILED'))).toBe(false);
     expect(consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_LOW_POCKET_DEADBAND_BLOCKED') && String(call[0] || '').includes('reason=unsafe_target'))).toBe(true);
+
+    driver.dispose();
+  });
+
+  test('freeze-far-target low-pocket stall allows bounded local semantic rescue', async () => {
+    const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
+      __debugObserveAsr4PocketDrift: any;
+    };
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    const first = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 3,
+      targetLine: 5,
+      nextSpeakableLineIdx: 2,
+      currentScrollTop: 650,
+      targetScrollTop: 650,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_freeze_far_reconcile_1',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+    const second = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 3,
+      targetLine: 5,
+      nextSpeakableLineIdx: 2,
+      currentScrollTop: 650,
+      targetScrollTop: 650,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_freeze_far_reconcile_2',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+    const result = [first, second].find((entry) => entry.applied) ?? second;
+
+    expect([first.applied, second.applied]).toContain(true);
+    expect(result.afterScrollTop).toBeGreaterThan(650);
+    expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_LOW_POCKET_FREEZE_FAR_TARGET_RECONCILED'))).toBe(true);
+
+    driver.dispose();
+  });
+
+  test('freeze-far-target low-pocket stall stays blocked for truly unsafe semantic distance', async () => {
+    const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
+      __debugObserveAsr4PocketDrift: any;
+    };
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    const first = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 3,
+      targetLine: 5,
+      nextSpeakableLineIdx: 5,
+      currentScrollTop: 650,
+      targetScrollTop: 1500,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_freeze_far_blocked_1',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+    const second = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 3,
+      targetLine: 5,
+      nextSpeakableLineIdx: 5,
+      currentScrollTop: 650,
+      targetScrollTop: 1500,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_freeze_far_blocked_2',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+    const result = [first, second].find((entry) => entry.applied) ?? second;
+
+    expect(result.applied).toBe(false);
+    expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_LOW_POCKET_FREEZE_FAR_TARGET_RECONCILED'))).toBe(false);
+    expect(consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_LOW_POCKET_FREEZE_FAR_TARGET_BLOCKED') && String(call[0] || '').includes('blockedReason=semantic_distance_unsafe'))).toBe(true);
 
     driver.dispose();
   });

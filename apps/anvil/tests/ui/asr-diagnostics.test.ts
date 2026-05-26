@@ -11,6 +11,10 @@ import {
   buildAsr4PocketDriftStateDiagnostic,
   buildAsrLowPocketDeadbandBlockedDiagnostic,
   buildAsrLowPocketDeadbandReconciledDiagnostic,
+  buildAsrLowPocketFreezeFarTargetBlockedDiagnostic,
+  buildAsrLowPocketFreezeFarTargetReconciledDiagnostic,
+  buildAsrApprovedVisualSmoothingBypassedDiagnostic,
+  buildAsrApprovedVisualSmoothingRebasedDiagnostic,
   buildAsr4VisualRecoveryAuthorityAppliedDiagnostic,
   buildAsr4VisualRecoveryStateDiagnostic,
   buildAsr4FreshTailVetoDiagnostic,
@@ -561,6 +565,90 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR_LOW_POCKET_DEADBAND_BLOCKED] currentLineIdx=155 committedLineIdx=157 currentScrollTop=11046 targetScrollTop=11046 belowPocketPx=89 activeLineDistanceFromMarkerPx=106 previousHoldReason=existing_target_within_deadband correctionPx=84 observations=2 reason=unsafe_target',
+    );
+  });
+
+  test('builds low-pocket freeze-far-target reconciled diagnostic with expected fields', () => {
+    const line = buildAsrLowPocketFreezeFarTargetReconciledDiagnostic({
+      currentLineIdx: 155,
+      committedLineIdx: 157,
+      nextSpeakableLineIdx: 157,
+      currentScrollTop: 11046,
+      targetScrollTop: 11046,
+      proposedScrollTop: 11102,
+      belowPocketPx: 89,
+      activeLineDistanceFromMarkerPx: 106,
+      holdReason: 'existing_target_within_deadband',
+      authorityAction: 'freeze_far_target',
+      farReason: 'committed_line_far',
+      semanticDistance: 1,
+      visualDistancePx: 0,
+      movementAllowed: true,
+      correctionPx: 56,
+    });
+    expect(line).toBe(
+      '[ASR_LOW_POCKET_FREEZE_FAR_TARGET_RECONCILED] currentLineIdx=155 committedLineIdx=157 nextSpeakableLineIdx=157 currentScrollTop=11046 targetScrollTop=11046 proposedScrollTop=11102 belowPocketPx=89 activeLineDistanceFromMarkerPx=106 holdReason=existing_target_within_deadband authorityAction=freeze_far_target farReason=committed_line_far semanticDistance=1 visualDistancePx=0 movementAllowed=1 correctionPx=56',
+    );
+  });
+
+  test('builds low-pocket freeze-far-target blocked diagnostic with expected fields', () => {
+    const line = buildAsrLowPocketFreezeFarTargetBlockedDiagnostic({
+      currentLineIdx: 155,
+      committedLineIdx: 160,
+      nextSpeakableLineIdx: 160,
+      currentScrollTop: 11046,
+      targetScrollTop: 11046,
+      proposedScrollTop: 11102,
+      belowPocketPx: 89,
+      activeLineDistanceFromMarkerPx: 106,
+      holdReason: 'existing_target_within_deadband',
+      authorityAction: 'freeze_far_target',
+      farReason: 'target_line_far',
+      semanticDistance: 5,
+      visualDistancePx: 0,
+      movementAllowed: false,
+      correctionPx: 56,
+      blockedReason: 'semantic_distance_unsafe',
+    });
+    expect(line).toBe(
+      '[ASR_LOW_POCKET_FREEZE_FAR_TARGET_BLOCKED] currentLineIdx=155 committedLineIdx=160 nextSpeakableLineIdx=160 currentScrollTop=11046 targetScrollTop=11046 proposedScrollTop=11102 belowPocketPx=89 activeLineDistanceFromMarkerPx=106 holdReason=existing_target_within_deadband authorityAction=freeze_far_target farReason=target_line_far semanticDistance=5 visualDistancePx=0 movementAllowed=0 correctionPx=56 blockedReason=semantic_distance_unsafe',
+    );
+  });
+
+  test('builds approved visual smoothing bypassed diagnostic with expected fields', () => {
+    const line = buildAsrApprovedVisualSmoothingBypassedDiagnostic({
+      authority: 'low_pocket_deadband_reconcile',
+      currentLineIdx: 155,
+      committedLineIdx: 157,
+      nextSpeakableLineIdx: 157,
+      currentScrollTop: 11046,
+      approvedTargetScrollTop: 11102,
+      correctionPx: 56,
+      visualErrorPx: 106,
+      smoothingReason: 'asr-low-pocket-deadband-reconcile',
+      bypassReason: 'severe_rescue',
+    });
+    expect(line).toBe(
+      '[ASR_APPROVED_VISUAL_SMOOTHING_BYPASSED] authority=low_pocket_deadband_reconcile currentLineIdx=155 committedLineIdx=157 nextSpeakableLineIdx=157 currentScrollTop=11046 approvedTargetScrollTop=11102 correctionPx=56 visualErrorPx=106 smoothingReason=asr-low-pocket-deadband-reconcile bypassReason=severe_rescue',
+    );
+  });
+
+  test('builds approved visual smoothing rebased diagnostic with expected fields', () => {
+    const line = buildAsrApprovedVisualSmoothingRebasedDiagnostic({
+      authority: 'safe_live_pocket_correction',
+      currentLineIdx: 155,
+      committedLineIdx: 157,
+      nextSpeakableLineIdx: 157,
+      currentScrollTop: 11046,
+      previousTargetScrollTop: 11102,
+      approvedTargetScrollTop: 11148,
+      correctionPx: 102,
+      previousReason: 'safe-live-pocket-correction',
+      smoothingReason: 'asr-low-pocket-freeze-far-target-reconcile',
+      rebaseReason: 'newer_approved_target',
+    });
+    expect(line).toBe(
+      '[ASR_APPROVED_VISUAL_SMOOTHING_REBASED] authority=safe_live_pocket_correction currentLineIdx=155 committedLineIdx=157 nextSpeakableLineIdx=157 currentScrollTop=11046 previousTargetScrollTop=11102 approvedTargetScrollTop=11148 correctionPx=102 previousReason=safe-live-pocket-correction smoothingReason=asr-low-pocket-freeze-far-target-reconcile rebaseReason=newer_approved_target',
     );
   });
 

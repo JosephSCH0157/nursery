@@ -31,6 +31,10 @@ import {
   buildAsr4PocketDriftStateDiagnostic,
   buildAsrLowPocketDeadbandBlockedDiagnostic,
   buildAsrLowPocketDeadbandReconciledDiagnostic,
+  buildAsrLowPocketFreezeFarTargetBlockedDiagnostic,
+  buildAsrLowPocketFreezeFarTargetReconciledDiagnostic,
+  buildAsrApprovedVisualSmoothingBypassedDiagnostic,
+  buildAsrApprovedVisualSmoothingRebasedDiagnostic,
   buildAsr4VisualRecoveryAuthorityAppliedDiagnostic,
   buildAsr4VisualRecoveryStateDiagnostic,
   buildAsr4FreshTailVetoDiagnostic,
@@ -354,6 +358,14 @@ const ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_OBSERVATIONS = 3;
 const ASR_LOW_POCKET_DEADBAND_RECONCILE_SEVERE_LINES = 0.5;
 const ASR_LOW_POCKET_DEADBAND_RECONCILE_MAX_STEP_LINES = 1.5;
 const ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX = 0.5;
+const ASR_APPROVED_VISUAL_GLIDE_MIN_PX = 18;
+const ASR_APPROVED_VISUAL_GLIDE_MAX_LINES = 1.25;
+const ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_RATIO = 0.55;
+const ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_MIN_PX = 18;
+const ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_MAX_LINES = 0.9;
+const ASR_APPROVED_VISUAL_GLIDE_MIN_MS = 110;
+const ASR_APPROVED_VISUAL_GLIDE_MAX_MS = 180;
+const ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE = 1;
 const ASR_BRIDGE_HOLD_READABILITY_RESCUE_DEFAULT = false;
 const ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MIN_STALL_MS = 420;
 const ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_REPEAT_COUNT = 2;
@@ -3216,7 +3228,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
   const stopGlide = (reason?: string) => {
     if (!glideAnim) return;
-    try { glideAnim.cancel(); } catch {}
+    try { glideAnim.cancel(reason); } catch {}
     glideAnim = null;
     if (reason) {
       logDev('glide canceled', { reason });
@@ -3239,6 +3251,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       source?: string;
       durationMs?: number;
       easing?: 'easeOutCubic' | 'linear';
+      onFinish?: () => void;
+      onCancel?: (reason?: string) => void;
     },
   ): boolean => {
     if (isHybridMode()) return false;
@@ -3257,8 +3271,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let cancelled = false;
     const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     glideAnim = {
-      cancel: () => {
+      cancel: (reason?: string) => {
         cancelled = true;
+        try { opts.onCancel?.(reason || 'unknown'); } catch {}
       },
     };
     const step = (ts: number) => {
@@ -3284,6 +3299,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
       } else {
         glideAnim = null;
+        try { opts.onFinish?.(); } catch {}
       }
     };
     if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
@@ -3292,6 +3308,239 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       setTimeout(() => step((typeof performance !== 'undefined' ? performance.now() : Date.now())), 0);
     }
     return true;
+  };
+  const applyApprovedVisualCorrection = (args: {
+    scroller: HTMLElement;
+    currentScrollTop: number;
+    approvedTargetScrollTop: number;
+    authority: string;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    nextSpeakableLineIdx: number;
+    visualErrorPx: number;
+    smoothingReason: string;
+    severeBypassReason?: string | null;
+  }): {
+    applied: boolean;
+    afterScrollTop: number;
+    movedPx: number;
+    renderMode: 'direct' | 'glide';
+  } => {
+    const correctionPx = Math.max(0, args.approvedTargetScrollTop - args.currentScrollTop);
+    if (!(Number.isFinite(args.approvedTargetScrollTop) && correctionPx > 0.5)) {
+      return {
+        applied: false,
+        afterScrollTop: args.currentScrollTop,
+        movedPx: 0,
+        renderMode: 'direct',
+      };
+    }
+    const lineEl =
+      getLineElementByIndex(args.scroller, args.nextSpeakableLineIdx) ??
+      getLineElementByIndex(args.scroller, args.committedLineIdx);
+    const lineHeightPx = Math.max(
+      24,
+      Number.isFinite(Number(lineEl?.clientHeight)) ? Number(lineEl?.clientHeight) : 0,
+      Number.isFinite(Number(lineEl?.offsetHeight)) ? Number(lineEl?.offsetHeight) : 0,
+    );
+    const maxSmoothPx = Math.max(
+      ASR_APPROVED_VISUAL_GLIDE_MIN_PX,
+      Math.round(lineHeightPx * ASR_APPROVED_VISUAL_GLIDE_MAX_LINES),
+    );
+    const bypassReason =
+      args.severeBypassReason ? String(args.severeBypassReason)
+        : isHybridMode() ? 'hybrid_mode'
+          : correctionPx < ASR_APPROVED_VISUAL_GLIDE_MIN_PX ? 'correction_too_small'
+            : correctionPx > maxSmoothPx ? 'correction_too_large'
+              : '';
+    const emitBypass = (reason: string) => {
+      if (!isDevMode()) return;
+      emitDevDiagnostic(
+        'ASR_APPROVED_VISUAL_SMOOTHING_BYPASSED',
+        'info',
+        buildAsrApprovedVisualSmoothingBypassedDiagnostic({
+          authority: args.authority,
+          currentLineIdx: args.currentLineIdx,
+          committedLineIdx: args.committedLineIdx,
+          nextSpeakableLineIdx: args.nextSpeakableLineIdx,
+          currentScrollTop: args.currentScrollTop,
+          approvedTargetScrollTop: args.approvedTargetScrollTop,
+          correctionPx,
+          visualErrorPx: args.visualErrorPx,
+          smoothingReason: args.smoothingReason,
+          bypassReason: reason,
+        }),
+        {
+          minMs: 500,
+          signature: [
+            args.authority,
+            args.currentLineIdx,
+            args.committedLineIdx,
+            args.nextSpeakableLineIdx,
+            reason,
+            Math.round(correctionPx / 12),
+          ].join('|'),
+        },
+      );
+    };
+    const applyDirect = (reason: string) => {
+      emitBypass(reason);
+      stopGlide(`approved-visual-direct:${reason}`);
+      const appliedTop = applyCanonicalScrollTop(args.approvedTargetScrollTop, {
+        scroller: args.scroller,
+        reason: args.smoothingReason,
+        source: 'asr-follow',
+      });
+      const afterScrollTop = Number.isFinite(appliedTop)
+        ? Number(appliedTop)
+        : Number(args.scroller.scrollTop || args.currentScrollTop);
+      const movedPx = Math.max(0, Math.round(afterScrollTop - args.currentScrollTop));
+      return {
+        applied: movedPx > 0,
+        afterScrollTop,
+        movedPx,
+        renderMode: 'direct' as const,
+      };
+    };
+    if (bypassReason) {
+      if (approvedVisualGlideState && isDevMode()) {
+        emitDevDiagnostic(
+          'ASR_APPROVED_VISUAL_SMOOTHING_REBASED',
+          'info',
+          buildAsrApprovedVisualSmoothingRebasedDiagnostic({
+            authority: args.authority,
+            currentLineIdx: args.currentLineIdx,
+            committedLineIdx: args.committedLineIdx,
+            nextSpeakableLineIdx: args.nextSpeakableLineIdx,
+            currentScrollTop: args.currentScrollTop,
+            previousTargetScrollTop: approvedVisualGlideState.targetTop,
+            approvedTargetScrollTop: args.approvedTargetScrollTop,
+            correctionPx,
+            previousReason: approvedVisualGlideState.reason,
+            smoothingReason: args.smoothingReason,
+            rebaseReason: 'newer_target_bypassed_glide',
+          }),
+          {
+            minMs: 250,
+            signature: [
+              args.authority,
+              args.currentLineIdx,
+              args.committedLineIdx,
+              Math.round(approvedVisualGlideState.targetTop),
+              Math.round(args.approvedTargetScrollTop),
+              'bypass',
+            ].join('|'),
+          },
+        );
+      }
+      stopGlide('approved-visual-bypass-rebase');
+      approvedVisualGlideState = null;
+      return applyDirect(bypassReason);
+    }
+    if (approvedVisualGlideState && isDevMode()) {
+      emitDevDiagnostic(
+        'ASR_APPROVED_VISUAL_SMOOTHING_REBASED',
+        'info',
+        buildAsrApprovedVisualSmoothingRebasedDiagnostic({
+          authority: args.authority,
+          currentLineIdx: args.currentLineIdx,
+          committedLineIdx: args.committedLineIdx,
+          nextSpeakableLineIdx: args.nextSpeakableLineIdx,
+          currentScrollTop: args.currentScrollTop,
+          previousTargetScrollTop: approvedVisualGlideState.targetTop,
+          approvedTargetScrollTop: args.approvedTargetScrollTop,
+          correctionPx,
+          previousReason: approvedVisualGlideState.reason,
+          smoothingReason: args.smoothingReason,
+          rebaseReason: 'newer_approved_target',
+        }),
+        {
+          minMs: 250,
+          signature: [
+            args.authority,
+            args.currentLineIdx,
+            args.committedLineIdx,
+            Math.round(approvedVisualGlideState.targetTop),
+            Math.round(args.approvedTargetScrollTop),
+          ].join('|'),
+        },
+      );
+    }
+    const initialStepMaxPx = Math.max(
+      ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_MIN_PX,
+      Math.round(lineHeightPx * ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_MAX_LINES),
+    );
+    const initialStepPx = clamp(
+      Math.max(
+        ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_MIN_PX,
+        correctionPx * ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_RATIO,
+      ),
+      ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_MIN_PX,
+      Math.min(correctionPx, initialStepMaxPx),
+    );
+    const steppedTargetTop = clamp(
+      args.currentScrollTop + initialStepPx,
+      args.currentScrollTop,
+      args.approvedTargetScrollTop,
+    );
+    const steppedTop = applyCanonicalScrollTop(steppedTargetTop, {
+      scroller: args.scroller,
+      reason: `${args.smoothingReason}:glide-step`,
+      source: 'asr-follow',
+    });
+    const afterScrollTop = Number.isFinite(steppedTop)
+      ? Number(steppedTop)
+      : Number(args.scroller.scrollTop || args.currentScrollTop);
+    const movedPx = Math.max(0, Math.round(afterScrollTop - args.currentScrollTop));
+    if (movedPx <= 0) {
+      approvedVisualGlideState = null;
+      return applyDirect('initial_step_zero');
+    }
+    const remainingPx = Math.max(0, args.approvedTargetScrollTop - afterScrollTop);
+    if (remainingPx <= ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX) {
+      approvedVisualGlideState = null;
+      return {
+        applied: true,
+        afterScrollTop,
+        movedPx,
+        renderMode: 'glide',
+      };
+    }
+    approvedVisualGlideState = {
+      authority: args.authority,
+      targetTop: args.approvedTargetScrollTop,
+      reason: args.smoothingReason,
+      currentLineIdx: args.currentLineIdx,
+      committedLineIdx: args.committedLineIdx,
+      nextSpeakableLineIdx: args.nextSpeakableLineIdx,
+    };
+    const durationMs = clamp(
+      Math.round(motionTuning.glideDefaultMs * 0.6),
+      ASR_APPROVED_VISUAL_GLIDE_MIN_MS,
+      ASR_APPROVED_VISUAL_GLIDE_MAX_MS,
+    );
+    const didGlide = startGlideTo(args.approvedTargetScrollTop, {
+      scroller: args.scroller,
+      reason: args.smoothingReason,
+      source: 'asr-follow',
+      durationMs,
+      onFinish: () => {
+        approvedVisualGlideState = null;
+      },
+      onCancel: () => {
+        approvedVisualGlideState = null;
+      },
+    });
+    if (!didGlide) {
+      approvedVisualGlideState = null;
+      return applyDirect('glide_start_failed');
+    }
+    return {
+      applied: true,
+      afterScrollTop,
+      movedPx,
+      renderMode: 'glide',
+    };
   };
   const computeDeltaMinSim = (deltaLines: number): number => {
     if (!Number.isFinite(deltaLines) || deltaLines <= 0) return 0;
@@ -3514,7 +3763,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
   let lastEvidenceAt = 0;
   let lastCommitDeltaPx = 0;
-  let glideAnim: { cancel: () => void } | null = null;
+  let glideAnim: { cancel: (reason?: string) => void } | null = null;
+  let approvedVisualGlideState: {
+    authority: string;
+    targetTop: number;
+    reason: string;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    nextSpeakableLineIdx: number;
+  } | null = null;
   let microPursuitUntil = 0;
   let microPursuitCapPxPerSec = MICRO_PURSUE_MAX_PXPS;
   let creepBudgetLine = -1;
@@ -13784,6 +14041,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             liveAsrCommitteeAcceptedCommitTargetIdx >= 0
               ? liveAsrCommitteeAcceptedCommitTargetIdx
               : lastLineIndex,
+          nextSpeakableLineIdx:
+            Number.isFinite(resolvedCommand.allowedTargetIdx as number) && Number(resolvedCommand.allowedTargetIdx) >= 0
+              ? Number(resolvedCommand.allowedTargetIdx)
+              : (Number.isFinite(Number(pursuitTargetTop)) ? liveAsrVisualPursuitLineIdx : lastLineIndex),
           targetLine:
             Number.isFinite(resolvedCommand.allowedTargetIdx as number) && Number(resolvedCommand.allowedTargetIdx) >= 0
               ? Number(resolvedCommand.allowedTargetIdx)
@@ -14931,15 +15192,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         movedPx: 0,
       };
     }
-    const appliedTop = applyCanonicalScrollTop(clampedTarget, {
+    const rendered = applyApprovedVisualCorrection({
       scroller: input.scroller,
-      reason: 'safe-live-pocket-correction',
-      source: 'asr',
+      currentScrollTop: input.beforeScrollTop,
+      approvedTargetScrollTop: clampedTarget,
+      authority: 'safe_live_pocket_correction',
+      currentLineIdx: input.currentLineIdx,
+      committedLineIdx: input.committedLineIdx,
+      nextSpeakableLineIdx: input.nextSpeakableLineIdx,
+      visualErrorPx: input.visualErrorPx,
+      smoothingReason: 'safe-live-pocket-correction',
+      severeBypassReason:
+        deltaPx > Math.max(120, Math.abs(input.visualErrorPx) * 1.25)
+          ? 'major_mismatch'
+          : null,
     });
     const afterScrollTop =
       finiteNumberOrNull(
         'safeLivePocketCorrection.afterTop',
-        Number.isFinite(appliedTop) ? appliedTop : input.scroller.scrollTop,
+        rendered.afterScrollTop,
         {
           lineIdx: input.committedLineIdx,
           reason: input.reason,
@@ -14953,7 +15224,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       preservedAsrAuthorityTargetTop = null;
       preservedAsrAuthorityTargetReason = 'safe_live_pocket_correction_applied';
       preservedAsrAuthorityTargetSourcePath = 'safe_live_pocket_correction_applied';
-      pursuitTargetTop = afterScrollTop;
+      pursuitTargetTop = rendered.renderMode === 'glide' ? clampedTarget : afterScrollTop;
       pursuitVel = 0;
     }
     try {
@@ -21702,10 +21973,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       const asr4PocketDriftObservation = observeAsr4PocketDrift({
         scroller,
-        currentLine: prevLineIndex,
-        committedLine: targetLine,
-        targetLine,
-        currentScrollTop: commitAfterTop,
+      currentLine: prevLineIndex,
+      committedLine: targetLine,
+      targetLine,
+      nextSpeakableLineIdx: targetLine,
+      currentScrollTop: commitAfterTop,
         targetScrollTop: Number.isFinite(nextTargetTop) ? nextTargetTop : targetTop,
         movedPx: commitMovedPx,
         directWriteBlocked: commitDirectWriteBlocked,
@@ -22927,6 +23199,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     currentLine: number;
     committedLine: number;
     targetLine: number | null;
+    nextSpeakableLineIdx?: number | null;
     currentScrollTop: number;
     targetScrollTop: number | null;
     movedPx: number;
@@ -22943,6 +23216,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const state = computeAsr4PocketDriftState(args);
     emitAsr4PocketDriftState(state);
     const previousHoldReason = String(args.previousHoldReason || '');
+    const nextSpeakableLineIdx = Number.isFinite(args.nextSpeakableLineIdx as number)
+      ? Math.max(0, Math.floor(Number(args.nextSpeakableLineIdx)))
+      : state.targetLine;
     const severeBelowPocketPx = Math.max(
       ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX,
       state.lineHeightPx * ASR_LOW_POCKET_DEADBAND_RECONCILE_SEVERE_LINES,
@@ -22977,6 +23253,38 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       state.belowPocketPx,
       Math.max(12, state.lineHeightPx * ASR_LOW_POCKET_DEADBAND_RECONCILE_MAX_STEP_LINES),
     );
+    const nowTs = Date.now();
+    const speechFresh =
+      asrRuntimeSpeechRunningActual ||
+      hasRecentActualSpeech(nowTs) ||
+      hasRecentVadSpeechNow(nowTs);
+    const noMatchOrOffscript =
+      String(lastAsrGuardReason || '').toLowerCase().includes('no_match') ||
+      String(lastAsrHudGuardText || '').toLowerCase().includes('offscript');
+    const hardContradiction =
+      String(lastAsrGuardReason || '').toLowerCase().includes('contradiction');
+    const localSemanticCandidateLine = [
+      state.targetLine,
+      nextSpeakableLineIdx,
+      state.committedLine,
+    ].find((line) => Number.isFinite(line as number) && Number(line) <= state.currentLine + ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE) ?? null;
+    const semanticDistance = localSemanticCandidateLine != null
+      ? Math.max(0, Number(localSemanticCandidateLine) - state.currentLine)
+      : Math.max(
+        state.targetLine != null ? state.targetLine - state.currentLine : Number.POSITIVE_INFINITY,
+        nextSpeakableLineIdx != null ? nextSpeakableLineIdx - state.currentLine : Number.POSITIVE_INFINITY,
+      );
+    const visualDistancePx = Number.isFinite(state.targetScrollTop as number)
+      ? Math.round(Number(state.targetScrollTop) - state.currentScrollTop)
+      : Math.round(state.activeLineDistanceFromMarkerPx);
+    const farReason = !state.localSafeTarget
+      ? (
+        state.targetLine != null && state.targetLine > state.currentLine + 1
+          ? 'target_line_far'
+          : (state.committedLine > state.currentLine + 1 ? 'committed_line_far' : 'no_local_safe_target')
+      )
+      : 'local_safe_target';
+    let emittedFreezeFarTargetBlockedDiagnostic = false;
     if (evaluateLowPocketDeadband) {
       let blockedReason = '';
       if (state.terminalClampActive) {
@@ -22996,13 +23304,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const reconciledTop = clamp(state.currentScrollTop + boundedCorrectionPx, 0, maxTop);
         const correctionPx = Math.max(0, reconciledTop - state.currentScrollTop);
         if (correctionPx > ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX) {
-          const applied = applyCanonicalScrollTop(reconciledTop, {
+          const rendered = applyApprovedVisualCorrection({
             scroller: args.scroller,
-            reason: 'asr-low-pocket-deadband-reconcile',
-            source: 'asr-follow',
+            currentScrollTop: state.currentScrollTop,
+            approvedTargetScrollTop: reconciledTop,
+            authority: 'low_pocket_deadband_reconcile',
+            currentLineIdx: state.currentLine,
+            committedLineIdx: state.committedLine,
+            nextSpeakableLineIdx: state.committedLine,
+            visualErrorPx: state.activeLineDistanceFromMarkerPx,
+            smoothingReason: 'asr-low-pocket-deadband-reconcile',
+            severeBypassReason:
+              state.belowPocketPx >= Math.max(96, state.lineHeightPx)
+                ? 'severe_rescue'
+                : null,
           });
-          const afterScrollTop = Number.isFinite(applied)
-            ? Number(applied)
+          const afterScrollTop = Number.isFinite(rendered.afterScrollTop)
+            ? Number(rendered.afterScrollTop)
             : Number(args.scroller.scrollTop || state.currentScrollTop);
           const movedPx = Math.round(afterScrollTop - state.currentScrollTop);
           if (Math.abs(movedPx) >= 1) {
@@ -23080,7 +23398,236 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             ].join('|'),
           },
         );
+        if (!state.localSafeTarget) {
+          const freezeFarBlockedReason =
+            !speechFresh ? 'speech_not_fresh'
+              : noMatchOrOffscript ? 'offscript_or_no_match'
+                : hardContradiction ? 'contradiction'
+                  : state.terminalClampActive ? 'terminal_clamp'
+                    : localSemanticCandidateLine == null ? 'semantic_distance_unsafe'
+                      : (semanticDistance > ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE ? 'semantic_distance_unsafe' : blockedReason || 'not_eligible');
+          emitDevDiagnostic(
+            'ASR_LOW_POCKET_FREEZE_FAR_TARGET_BLOCKED',
+            'info',
+            buildAsrLowPocketFreezeFarTargetBlockedDiagnostic({
+              currentLineIdx: state.currentLine,
+              committedLineIdx: state.committedLine,
+              nextSpeakableLineIdx: nextSpeakableLineIdx ?? -1,
+              currentScrollTop: state.currentScrollTop,
+              targetScrollTop: state.targetScrollTop,
+              proposedScrollTop: clamp(
+                state.currentScrollTop + boundedCorrectionPx,
+                state.currentScrollTop,
+                Math.max(0, (args.scroller.scrollHeight || 0) - args.scroller.clientHeight),
+              ),
+              belowPocketPx: state.belowPocketPx,
+              activeLineDistanceFromMarkerPx: state.activeLineDistanceFromMarkerPx,
+              holdReason: previousHoldReason,
+              authorityAction: 'freeze_far_target',
+              farReason,
+              semanticDistance: Number.isFinite(semanticDistance) ? semanticDistance : -1,
+              visualDistancePx,
+              movementAllowed: false,
+              correctionPx: boundedCorrectionPx,
+              blockedReason: freezeFarBlockedReason,
+            }),
+            {
+              minMs: 750,
+              signature: [
+                state.currentLine,
+                state.committedLine,
+                nextSpeakableLineIdx ?? -1,
+                freezeFarBlockedReason,
+                Math.round(state.belowPocketPx / 12),
+              ].join('|'),
+            },
+          );
+          emittedFreezeFarTargetBlockedDiagnostic = true;
+        }
       }
+    }
+    const allowFreezeFarTargetRescue =
+      evaluateLowPocketDeadband &&
+      !state.localSafeTarget &&
+      speechFresh &&
+      !noMatchOrOffscript &&
+      !hardContradiction &&
+      !state.terminalClampActive &&
+      localSemanticCandidateLine != null &&
+      semanticDistance <= ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE;
+    if (allowFreezeFarTargetRescue) {
+      const maxTop = Math.max(0, (args.scroller.scrollHeight || 0) - args.scroller.clientHeight);
+      const fallbackTop =
+        resolveTargetTop(args.scroller, localSemanticCandidateLine) ??
+        estimateTargetTopFromLines(args.scroller, state.currentLine, localSemanticCandidateLine);
+      const proposedScrollTop = clamp(
+        Math.min(
+          state.currentScrollTop + boundedCorrectionPx,
+          Number.isFinite(fallbackTop as number)
+            ? Number(fallbackTop) + Math.max(1, state.pocketTolerancePx)
+            : state.currentScrollTop + boundedCorrectionPx,
+        ),
+        state.currentScrollTop,
+        maxTop,
+      );
+      const correctionPx = Math.max(0, proposedScrollTop - state.currentScrollTop);
+      let blockedReason = '';
+      if (state.cooldownActive || state.asr4VisualRecoveryRecentlyApplied) {
+        blockedReason = 'cooldown_active';
+      } else if (correctionPx <= ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX) {
+        blockedReason = 'bounded_correction_too_small';
+      }
+      if (!blockedReason) {
+        const rendered = applyApprovedVisualCorrection({
+          scroller: args.scroller,
+          currentScrollTop: state.currentScrollTop,
+          approvedTargetScrollTop: proposedScrollTop,
+          authority: 'low_pocket_freeze_far_target_reconcile',
+          currentLineIdx: state.currentLine,
+          committedLineIdx: state.committedLine,
+          nextSpeakableLineIdx: nextSpeakableLineIdx ?? state.committedLine,
+          visualErrorPx: state.activeLineDistanceFromMarkerPx,
+          smoothingReason: 'asr-low-pocket-freeze-far-target-reconcile',
+          severeBypassReason:
+            state.belowPocketPx >= Math.max(96, state.lineHeightPx)
+              ? 'severe_rescue'
+              : null,
+        });
+        const afterScrollTop = Number.isFinite(rendered.afterScrollTop)
+          ? Number(rendered.afterScrollTop)
+          : Number(args.scroller.scrollTop || state.currentScrollTop);
+        const movedPx = Math.round(afterScrollTop - state.currentScrollTop);
+        if (Math.abs(movedPx) >= 1) {
+          lastMoveAt = nowTs;
+          lastKnownScrollTop = afterScrollTop;
+          asr4PocketDriftCooldownUntilMs = nowTs + ASR4_POCKET_DRIFT_AUTHORITY_COOLDOWN_MS;
+          asr4PocketDriftConsecutiveBelowPocketCount = 0;
+          asrLowPocketDeadbandObservationCount = 0;
+          asr4PocketDriftLastAuthoritySignature = '';
+          if (isDevMode()) {
+            emitDevDiagnostic(
+              'ASR_LOW_POCKET_FREEZE_FAR_TARGET_RECONCILED',
+              'warn',
+              buildAsrLowPocketFreezeFarTargetReconciledDiagnostic({
+                currentLineIdx: state.currentLine,
+                committedLineIdx: state.committedLine,
+                nextSpeakableLineIdx: nextSpeakableLineIdx ?? -1,
+                currentScrollTop: state.currentScrollTop,
+                targetScrollTop: state.targetScrollTop,
+                proposedScrollTop,
+                belowPocketPx: state.belowPocketPx,
+                activeLineDistanceFromMarkerPx: state.activeLineDistanceFromMarkerPx,
+                holdReason: previousHoldReason,
+                authorityAction: 'freeze_far_target',
+                farReason,
+                semanticDistance,
+                visualDistancePx,
+                movementAllowed: true,
+                correctionPx: movedPx,
+              }),
+              {
+                minMs: 500,
+                signature: [
+                  state.currentLine,
+                  state.committedLine,
+                  nextSpeakableLineIdx ?? -1,
+                  semanticDistance,
+                  Math.round(state.belowPocketPx / 12),
+                ].join('|'),
+              },
+            );
+          }
+          return {
+            applied: true,
+            afterScrollTop,
+            movedPx,
+            consecutiveBelowPocketCount: 0,
+            state,
+          };
+        }
+        blockedReason = 'correction_zero_after_apply';
+      }
+      if (isDevMode()) {
+        emitDevDiagnostic(
+          'ASR_LOW_POCKET_FREEZE_FAR_TARGET_BLOCKED',
+          'info',
+          buildAsrLowPocketFreezeFarTargetBlockedDiagnostic({
+            currentLineIdx: state.currentLine,
+            committedLineIdx: state.committedLine,
+            nextSpeakableLineIdx: nextSpeakableLineIdx ?? -1,
+            currentScrollTop: state.currentScrollTop,
+            targetScrollTop: state.targetScrollTop,
+            proposedScrollTop,
+            belowPocketPx: state.belowPocketPx,
+            activeLineDistanceFromMarkerPx: state.activeLineDistanceFromMarkerPx,
+            holdReason: previousHoldReason,
+            authorityAction: 'freeze_far_target',
+            farReason,
+            semanticDistance,
+            visualDistancePx,
+            movementAllowed: false,
+            correctionPx,
+            blockedReason,
+          }),
+          {
+            minMs: 750,
+            signature: [
+              state.currentLine,
+              state.committedLine,
+              nextSpeakableLineIdx ?? -1,
+              blockedReason,
+              semanticDistance,
+              Math.round(state.belowPocketPx / 12),
+            ].join('|'),
+          },
+        );
+      }
+    } else if (evaluateLowPocketDeadband && !state.localSafeTarget && isDevMode() && !emittedFreezeFarTargetBlockedDiagnostic) {
+      const proposedScrollTop = clamp(
+        state.currentScrollTop + boundedCorrectionPx,
+        state.currentScrollTop,
+        Math.max(0, (args.scroller.scrollHeight || 0) - args.scroller.clientHeight),
+      );
+      const correctionPx = Math.max(0, proposedScrollTop - state.currentScrollTop);
+      const blockedReason =
+        !speechFresh ? 'speech_not_fresh'
+          : noMatchOrOffscript ? 'offscript_or_no_match'
+            : hardContradiction ? 'contradiction'
+              : state.terminalClampActive ? 'terminal_clamp'
+                : localSemanticCandidateLine == null ? 'semantic_distance_unsafe'
+                  : 'not_eligible';
+      emitDevDiagnostic(
+        'ASR_LOW_POCKET_FREEZE_FAR_TARGET_BLOCKED',
+        'info',
+        buildAsrLowPocketFreezeFarTargetBlockedDiagnostic({
+          currentLineIdx: state.currentLine,
+          committedLineIdx: state.committedLine,
+          nextSpeakableLineIdx: nextSpeakableLineIdx ?? -1,
+          currentScrollTop: state.currentScrollTop,
+          targetScrollTop: state.targetScrollTop,
+          proposedScrollTop,
+          belowPocketPx: state.belowPocketPx,
+          activeLineDistanceFromMarkerPx: state.activeLineDistanceFromMarkerPx,
+          holdReason: previousHoldReason,
+          authorityAction: 'freeze_far_target',
+          farReason,
+          semanticDistance: Number.isFinite(semanticDistance) ? semanticDistance : -1,
+          visualDistancePx,
+          movementAllowed: false,
+          correctionPx,
+          blockedReason,
+        }),
+        {
+          minMs: 750,
+          signature: [
+            state.currentLine,
+            state.committedLine,
+            nextSpeakableLineIdx ?? -1,
+            blockedReason,
+            Math.round(state.belowPocketPx / 12),
+          ].join('|'),
+        },
+      );
     }
     if (state.pocketHealth === 'inPocket' || state.pocketHealth === 'abovePocket' || !significantBelowPocket) {
       return {
@@ -29198,6 +29745,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     currentLine: number;
     committedLine: number;
     targetLine?: number | null;
+    nextSpeakableLineIdx?: number | null;
     currentScrollTop?: number;
     targetScrollTop?: number | null;
     movedPx?: number;
@@ -29231,6 +29779,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       currentLine: args.currentLine,
       committedLine: args.committedLine,
       targetLine: Number.isFinite(args.targetLine as number) ? Number(args.targetLine) : args.committedLine,
+      nextSpeakableLineIdx: Number.isFinite(args.nextSpeakableLineIdx as number)
+        ? Number(args.nextSpeakableLineIdx)
+        : (Number.isFinite(args.targetLine as number) ? Number(args.targetLine) : args.committedLine),
       currentScrollTop,
       targetScrollTop: Number.isFinite(args.targetScrollTop as number) ? Number(args.targetScrollTop) : currentScrollTop,
       movedPx: Number.isFinite(args.movedPx as number) ? Number(args.movedPx) : 0,
