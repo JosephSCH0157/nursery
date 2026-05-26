@@ -773,6 +773,7 @@ describe('ASR4 fresh-tail shadow wiring', () => {
         followMode?: string;
         scrollReason?: string;
         reason?: string;
+        previousHoldReason?: string | null;
       }): {
         applied: boolean;
         afterScrollTop: number;
@@ -831,6 +832,32 @@ describe('ASR4 fresh-tail shadow wiring', () => {
     driver.dispose();
   });
 
+  test('deadband hold stays valid when below-pocket drift remains within tolerance', async () => {
+    const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
+      __debugObserveAsr4PocketDrift: any;
+    };
+
+    const result = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 2,
+      targetLine: 2,
+      currentScrollTop: 893,
+      targetScrollTop: 893,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_deadband_small_drift',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+
+    expect(result.applied).toBe(false);
+    expect(result.state.belowPocketPx).toBeLessThanOrEqual(24);
+    expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_LOW_POCKET_DEADBAND_RECONCILED'))).toBe(false);
+    expect(consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_LOW_POCKET_DEADBAND_BLOCKED'))).toBe(false);
+
+    driver.dispose();
+  });
+
   test('pocket drift below pocket for two consecutive observations triggers authority', async () => {
     const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
       __debugObserveAsr4PocketDrift: any;
@@ -872,6 +899,56 @@ describe('ASR4 fresh-tail shadow wiring', () => {
     driver.dispose();
   });
 
+  test('deadband hold is invalidated after repeated below-pocket no-move observations', async () => {
+    const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
+      __debugObserveAsr4PocketDrift: any;
+    };
+
+    const first = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 2,
+      targetLine: 2,
+      currentScrollTop: 650,
+      targetScrollTop: 650,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_low_pocket_deadband_1',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+    const second = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 2,
+      targetLine: 2,
+      currentScrollTop: 650,
+      targetScrollTop: 650,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_low_pocket_deadband_2',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+    const third = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 2,
+      targetLine: 2,
+      currentScrollTop: 650,
+      targetScrollTop: 650,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_low_pocket_deadband_3',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+    const result = [first, second, third].find((entry) => entry.applied) ?? third;
+
+    expect([first.applied, second.applied, third.applied]).toContain(true);
+    expect(result.afterScrollTop).toBeGreaterThan(650);
+    expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_LOW_POCKET_DEADBAND_RECONCILED'))).toBe(true);
+
+    driver.dispose();
+  });
+
   test('far pocket drift target freezes instead of jumping', async () => {
     const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
       __debugObserveAsr4PocketDrift: any;
@@ -904,6 +981,108 @@ describe('ASR4 fresh-tail shadow wiring', () => {
 
     expect(result.applied).toBe(false);
     expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('authorityAction=freeze_far_target'))).toBe(true);
+
+    driver.dispose();
+  });
+
+  test('deadband reconciliation correction stays bounded', async () => {
+    const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
+      __debugObserveAsr4PocketDrift: any;
+    };
+
+    const first = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 2,
+      targetLine: 2,
+      currentScrollTop: 650,
+      targetScrollTop: 950,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_deadband_bounded_1',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+    const second = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 2,
+      targetLine: 2,
+      currentScrollTop: 650,
+      targetScrollTop: 950,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_deadband_bounded_2',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+
+    const third = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 2,
+      targetLine: 2,
+      currentScrollTop: 650,
+      targetScrollTop: 950,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_deadband_bounded_3',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+    const result = [first, second, third].find((entry) => entry.applied) ?? third;
+
+    expect([first.applied, second.applied, third.applied]).toContain(true);
+    expect(result.movedPx).toBeLessThanOrEqual(Math.round(236 * 1.5));
+
+    driver.dispose();
+  });
+
+  test('deadband reconciliation refuses far unsafe targets', async () => {
+    const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
+      __debugObserveAsr4PocketDrift: any;
+    };
+
+    driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 3,
+      targetLine: 5,
+      currentScrollTop: 650,
+      targetScrollTop: 1500,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_deadband_unsafe_1',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+    driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 3,
+      targetLine: 5,
+      currentScrollTop: 650,
+      targetScrollTop: 1500,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_deadband_unsafe_2',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+    consoleInfoSpy.mockClear();
+    consoleWarnSpy.mockClear();
+
+    const result = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 3,
+      targetLine: 5,
+      currentScrollTop: 650,
+      targetScrollTop: 1500,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_deadband_unsafe_3',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+
+    expect(result.applied).toBe(false);
+    expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_LOW_POCKET_DEADBAND_RECONCILED'))).toBe(false);
+    expect(consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_LOW_POCKET_DEADBAND_BLOCKED') && String(call[0] || '').includes('reason=unsafe_target'))).toBe(true);
 
     driver.dispose();
   });

@@ -9,6 +9,8 @@ import {
   buildAsr4RecoveryBudgetAuthorityAppliedDiagnostic,
   buildAsr4PocketDriftAuthorityAppliedDiagnostic,
   buildAsr4PocketDriftStateDiagnostic,
+  buildAsrLowPocketDeadbandBlockedDiagnostic,
+  buildAsrLowPocketDeadbandReconciledDiagnostic,
   buildAsr4VisualRecoveryAuthorityAppliedDiagnostic,
   buildAsr4VisualRecoveryStateDiagnostic,
   buildAsr4FreshTailVetoDiagnostic,
@@ -524,6 +526,41 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR4_POCKET_DRIFT_AUTHORITY_APPLIED] currentLine=20 committedLine=21 targetLine=21 currentScrollTop=900 targetScrollTop=1020 markerTopPx=268 activeLineTopPx=540 activeLineDistanceFromMarkerPx=390 belowPocketPx=354 lineHeightPx=120 consecutiveBelowPocketCount=2 cooldownActive=0 terminalClampActive=0 authorityAction=force_marker_lock_to_pocket movementAllowed=1 reason=pocket_drift_below_marker',
+    );
+  });
+
+  test('builds low-pocket deadband reconciled diagnostic with expected fields', () => {
+    const line = buildAsrLowPocketDeadbandReconciledDiagnostic({
+      currentLineIdx: 155,
+      committedLineIdx: 157,
+      currentScrollTop: 11046,
+      targetScrollTop: 11046,
+      belowPocketPx: 89,
+      activeLineDistanceFromMarkerPx: 106,
+      previousHoldReason: 'existing_target_within_deadband',
+      correctionPx: 84,
+      observations: 3,
+    });
+    expect(line).toBe(
+      '[ASR_LOW_POCKET_DEADBAND_RECONCILED] currentLineIdx=155 committedLineIdx=157 currentScrollTop=11046 targetScrollTop=11046 belowPocketPx=89 activeLineDistanceFromMarkerPx=106 previousHoldReason=existing_target_within_deadband correctionPx=84 observations=3',
+    );
+  });
+
+  test('builds low-pocket deadband blocked diagnostic with expected fields', () => {
+    const line = buildAsrLowPocketDeadbandBlockedDiagnostic({
+      currentLineIdx: 155,
+      committedLineIdx: 157,
+      currentScrollTop: 11046,
+      targetScrollTop: 11046,
+      belowPocketPx: 89,
+      activeLineDistanceFromMarkerPx: 106,
+      previousHoldReason: 'existing_target_within_deadband',
+      correctionPx: 84,
+      observations: 2,
+      reason: 'unsafe_target',
+    });
+    expect(line).toBe(
+      '[ASR_LOW_POCKET_DEADBAND_BLOCKED] currentLineIdx=155 committedLineIdx=157 currentScrollTop=11046 targetScrollTop=11046 belowPocketPx=89 activeLineDistanceFromMarkerPx=106 previousHoldReason=existing_target_within_deadband correctionPx=84 observations=2 reason=unsafe_target',
     );
   });
 

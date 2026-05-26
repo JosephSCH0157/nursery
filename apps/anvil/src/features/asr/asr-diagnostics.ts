@@ -1395,3 +1395,38 @@ export function buildAsr4PocketDriftAuthorityAppliedDiagnostic(args: {
     : -1;
   return `[ASR4_POCKET_DRIFT_AUTHORITY_APPLIED] currentLine=${Math.round(args.currentLine)} committedLine=${Math.round(args.committedLine)} targetLine=${targetLine} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${targetScrollTop} markerTopPx=${Math.round(args.markerTopPx)} activeLineTopPx=${Math.round(args.activeLineTopPx)} activeLineDistanceFromMarkerPx=${Math.round(args.activeLineDistanceFromMarkerPx)} belowPocketPx=${Math.round(args.belowPocketPx)} lineHeightPx=${Math.round(args.lineHeightPx)} consecutiveBelowPocketCount=${Math.round(args.consecutiveBelowPocketCount)} cooldownActive=${args.cooldownActive ? 1 : 0} terminalClampActive=${args.terminalClampActive ? 1 : 0} authorityAction=${args.authorityAction} movementAllowed=${args.movementAllowed ? 1 : 0} reason=${args.reason}`;
 }
+
+export function buildAsrLowPocketDeadbandReconciledDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  currentScrollTop: number;
+  targetScrollTop: number | null;
+  belowPocketPx: number;
+  activeLineDistanceFromMarkerPx: number;
+  previousHoldReason: string;
+  correctionPx: number;
+  observations: number;
+}): string {
+  const targetScrollTop = Number.isFinite(args.targetScrollTop as number)
+    ? Math.round(Number(args.targetScrollTop))
+    : -1;
+  return `[ASR_LOW_POCKET_DEADBAND_RECONCILED] currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${targetScrollTop} belowPocketPx=${Math.round(args.belowPocketPx)} activeLineDistanceFromMarkerPx=${Math.round(args.activeLineDistanceFromMarkerPx)} previousHoldReason=${args.previousHoldReason || 'unknown'} correctionPx=${Math.round(args.correctionPx)} observations=${Math.round(args.observations)}`;
+}
+
+export function buildAsrLowPocketDeadbandBlockedDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  currentScrollTop: number;
+  targetScrollTop: number | null;
+  belowPocketPx: number;
+  activeLineDistanceFromMarkerPx: number;
+  previousHoldReason: string;
+  correctionPx: number;
+  observations: number;
+  reason: string;
+}): string {
+  const targetScrollTop = Number.isFinite(args.targetScrollTop as number)
+    ? Math.round(Number(args.targetScrollTop))
+    : -1;
+  return `[ASR_LOW_POCKET_DEADBAND_BLOCKED] currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${targetScrollTop} belowPocketPx=${Math.round(args.belowPocketPx)} activeLineDistanceFromMarkerPx=${Math.round(args.activeLineDistanceFromMarkerPx)} previousHoldReason=${args.previousHoldReason || 'unknown'} correctionPx=${Math.round(args.correctionPx)} observations=${Math.round(args.observations)} reason=${args.reason || 'unknown'}`;
+}

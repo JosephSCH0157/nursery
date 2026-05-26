@@ -29,6 +29,8 @@ import {
   buildAsr4RecoveryBudgetAuthorityAppliedDiagnostic,
   buildAsr4PocketDriftAuthorityAppliedDiagnostic,
   buildAsr4PocketDriftStateDiagnostic,
+  buildAsrLowPocketDeadbandBlockedDiagnostic,
+  buildAsrLowPocketDeadbandReconciledDiagnostic,
   buildAsr4VisualRecoveryAuthorityAppliedDiagnostic,
   buildAsr4VisualRecoveryStateDiagnostic,
   buildAsr4FreshTailVetoDiagnostic,
@@ -347,6 +349,11 @@ const ASR_READER_COMFORT_RESCUE_REPEAT_COUNT = 2;
 const ASR_READER_COMFORT_RESCUE_MAX_STEP_LINES = 0.9;
 const ASR_READER_COMFORT_RESCUE_COOLDOWN_MS = 650;
 const ASR_READER_COMFORT_RESCUE_MIN_CORRECTION_GAP_MS = 280;
+const ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX = 24;
+const ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_OBSERVATIONS = 3;
+const ASR_LOW_POCKET_DEADBAND_RECONCILE_SEVERE_LINES = 0.5;
+const ASR_LOW_POCKET_DEADBAND_RECONCILE_MAX_STEP_LINES = 1.5;
+const ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX = 0.5;
 const ASR_BRIDGE_HOLD_READABILITY_RESCUE_DEFAULT = false;
 const ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MIN_STALL_MS = 420;
 const ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_REPEAT_COUNT = 2;
@@ -3633,6 +3640,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let asr4VisualRecoveryLastAuthoritySignature = '';
   let asr4VisualRecoveryLastAppliedAt = 0;
   let asr4PocketDriftConsecutiveBelowPocketCount = 0;
+  let asrLowPocketDeadbandObservationCount = 0;
   let asr4PocketDriftCooldownUntilMs = 0;
   let asr4PocketDriftLastAuthoritySignature = '';
   let lastAsrReaderComfortRescueAt = 0;
@@ -11933,6 +11941,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       err = 0;
     }
     let previousAcceptedCommitTargetIdx = -1;
+    let liveTickDeadbandHoldReason: string | null = null;
     if (liveAsrFollowMode) {
       emitLivePocketMaintenanceCallsiteReached({
         nowTs: wallNow,
@@ -12262,10 +12271,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             },
           );
         } else {
+          liveTickDeadbandHoldReason = stalePursuitLine
+            ? 'stale_pursuit_line_waiting'
+            : 'existing_target_within_deadband';
           emitDevDiagnostic(
             'ASR_CURRENT_POCKET_AUTHORITY_SKIPPED',
             'info',
-            `[ASR_CURRENT_POCKET_AUTHORITY_SKIPPED] currentLineIdx=${lastLineIndex} committedLineIdx=${liveAsrCommitteeAcceptedCommitTargetIdx} nextSpeakableLineIdx=${nextSpeakableLineIdx} currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(desiredTopFromCurrent)} pocketZone=${liveTickAuthorityPocketZone} action=${authorityAction} reason=${stalePursuitLine ? 'stale_pursuit_line_waiting' : 'existing_target_within_deadband'} visualErrorPx=${Math.round(visualErrorPx)} tolerancePx=${Math.round(tolerancePx)}`,
+            `[ASR_CURRENT_POCKET_AUTHORITY_SKIPPED] currentLineIdx=${lastLineIndex} committedLineIdx=${liveAsrCommitteeAcceptedCommitTargetIdx} nextSpeakableLineIdx=${nextSpeakableLineIdx} currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(desiredTopFromCurrent)} pocketZone=${liveTickAuthorityPocketZone} action=${authorityAction} reason=${liveTickDeadbandHoldReason} visualErrorPx=${Math.round(visualErrorPx)} tolerancePx=${Math.round(tolerancePx)}`,
             {
               minMs: 750,
               signature: [
@@ -12273,7 +12285,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 nextSpeakableLineIdx,
                 liveTickAuthorityPocketZone,
                 authorityAction,
-                stalePursuitLine ? 'stale_pursuit_line_waiting' : 'existing_target_within_deadband',
+                liveTickDeadbandHoldReason,
                 Math.round(visualErrorPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
               ].join('|'),
             },
@@ -13787,6 +13799,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           followMode: 'live_asr_follow',
           scrollReason: liveAsrActuatorReason || liveTickAuthorityReason || 'asr-tick',
           reason: 'live_follow_pocket_observation',
+          previousHoldReason: liveTickDeadbandHoldReason,
         })
         : null;
     if (asr4PocketTickObservation?.applied) {
@@ -22728,6 +22741,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     } else if (belowPocketPx > 0) {
       suppressedReason = 'unknown';
     }
+    const localSafeVisualTargetLine =
+      targetLine != null && targetLine <= currentLine + 1
+        ? targetLine
+        : (committedLine <= currentLine + 1 ? committedLine : null);
     return {
       currentLine,
       committedLine,
@@ -22755,10 +22772,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       followMode: String(args.followMode || 'unknown'),
       reason: String(args.reason || 'unknown'),
       cooldownActive,
-      localSafeTarget:
-        targetLine != null &&
-        targetLine <= currentLine + 1 &&
-        committedLine <= currentLine + 1,
+      localSafeTarget: localSafeVisualTargetLine != null,
+      localSafeVisualTargetLine,
     };
   };
 
@@ -22923,12 +22938,151 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     followMode: string;
     scrollReason: string;
     reason: string;
+    previousHoldReason?: string | null;
   }) => {
     const state = computeAsr4PocketDriftState(args);
     emitAsr4PocketDriftState(state);
+    const previousHoldReason = String(args.previousHoldReason || '');
+    const severeBelowPocketPx = Math.max(
+      ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX,
+      state.lineHeightPx * ASR_LOW_POCKET_DEADBAND_RECONCILE_SEVERE_LINES,
+    );
+    const evaluateLowPocketDeadband =
+      previousHoldReason === 'existing_target_within_deadband' &&
+      state.belowPocketPx > ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX &&
+      Math.abs(state.movedPx) <= ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX;
+    if (evaluateLowPocketDeadband) {
+      asrLowPocketDeadbandObservationCount += 1;
+    } else {
+      asrLowPocketDeadbandObservationCount = 0;
+    }
+    const lowPocketDeadbandObservations = asrLowPocketDeadbandObservationCount;
     const significantBelowPocket = state.belowPocketPx >= Math.max(1, state.lineHeightPx);
     if (state.pocketHealth === 'inPocket' || state.pocketHealth === 'abovePocket' || !significantBelowPocket) {
       asr4PocketDriftConsecutiveBelowPocketCount = 0;
+      if (!evaluateLowPocketDeadband) {
+        return {
+          applied: false,
+          afterScrollTop: state.currentScrollTop,
+          movedPx: state.movedPx,
+          consecutiveBelowPocketCount: 0,
+          state,
+        };
+      }
+    } else {
+      asr4PocketDriftConsecutiveBelowPocketCount += 1;
+    }
+    const consecutiveBelowPocketCount = asr4PocketDriftConsecutiveBelowPocketCount;
+    const boundedCorrectionPx = Math.min(
+      state.belowPocketPx,
+      Math.max(12, state.lineHeightPx * ASR_LOW_POCKET_DEADBAND_RECONCILE_MAX_STEP_LINES),
+    );
+    if (evaluateLowPocketDeadband) {
+      let blockedReason = '';
+      if (state.terminalClampActive) {
+        blockedReason = 'terminal_clamp';
+      } else if (!state.localSafeTarget) {
+        blockedReason = 'unsafe_target';
+      } else if (state.cooldownActive || state.asr4VisualRecoveryRecentlyApplied) {
+        blockedReason = 'cooldown_active';
+      } else if (
+        lowPocketDeadbandObservations < ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_OBSERVATIONS &&
+        state.belowPocketPx < severeBelowPocketPx
+      ) {
+        blockedReason = 'awaiting_repeat_observations';
+      }
+      if (!blockedReason) {
+        const maxTop = Math.max(0, (args.scroller.scrollHeight || 0) - args.scroller.clientHeight);
+        const reconciledTop = clamp(state.currentScrollTop + boundedCorrectionPx, 0, maxTop);
+        const correctionPx = Math.max(0, reconciledTop - state.currentScrollTop);
+        if (correctionPx > ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX) {
+          const applied = applyCanonicalScrollTop(reconciledTop, {
+            scroller: args.scroller,
+            reason: 'asr-low-pocket-deadband-reconcile',
+            source: 'asr-follow',
+          });
+          const afterScrollTop = Number.isFinite(applied)
+            ? Number(applied)
+            : Number(args.scroller.scrollTop || state.currentScrollTop);
+          const movedPx = Math.round(afterScrollTop - state.currentScrollTop);
+          if (Math.abs(movedPx) >= 1) {
+            lastMoveAt = Date.now();
+            lastKnownScrollTop = afterScrollTop;
+            asr4PocketDriftCooldownUntilMs = Date.now() + ASR4_POCKET_DRIFT_AUTHORITY_COOLDOWN_MS;
+            asr4PocketDriftConsecutiveBelowPocketCount = 0;
+            asrLowPocketDeadbandObservationCount = 0;
+            asr4PocketDriftLastAuthoritySignature = '';
+            if (isDevMode()) {
+              emitDevDiagnostic(
+                'ASR_LOW_POCKET_DEADBAND_RECONCILED',
+                'warn',
+                buildAsrLowPocketDeadbandReconciledDiagnostic({
+                  currentLineIdx: state.currentLine,
+                  committedLineIdx: state.committedLine,
+                  currentScrollTop: state.currentScrollTop,
+                  targetScrollTop: state.targetScrollTop,
+                  belowPocketPx: state.belowPocketPx,
+                  activeLineDistanceFromMarkerPx: state.activeLineDistanceFromMarkerPx,
+                  previousHoldReason,
+                  correctionPx: movedPx,
+                  observations: lowPocketDeadbandObservations,
+                }),
+                {
+                  minMs: 500,
+                  signature: [
+                    state.currentLine,
+                    state.committedLine,
+                    state.targetLine ?? -1,
+                    Math.round(state.belowPocketPx / 12),
+                    lowPocketDeadbandObservations,
+                  ].join('|'),
+                },
+              );
+            }
+            return {
+              applied: true,
+              afterScrollTop,
+              movedPx,
+              consecutiveBelowPocketCount: 0,
+              state,
+            };
+          }
+          blockedReason = 'correction_zero_after_apply';
+        } else {
+          blockedReason = 'bounded_correction_too_small';
+        }
+      }
+      if (isDevMode()) {
+        emitDevDiagnostic(
+          'ASR_LOW_POCKET_DEADBAND_BLOCKED',
+          'info',
+          buildAsrLowPocketDeadbandBlockedDiagnostic({
+            currentLineIdx: state.currentLine,
+            committedLineIdx: state.committedLine,
+            currentScrollTop: state.currentScrollTop,
+            targetScrollTop: state.targetScrollTop,
+            belowPocketPx: state.belowPocketPx,
+            activeLineDistanceFromMarkerPx: state.activeLineDistanceFromMarkerPx,
+            previousHoldReason,
+            correctionPx: boundedCorrectionPx,
+            observations: lowPocketDeadbandObservations,
+            reason: blockedReason || 'unknown',
+          }),
+          {
+            minMs: 750,
+            signature: [
+              state.currentLine,
+              state.committedLine,
+              state.targetLine ?? -1,
+              blockedReason || 'unknown',
+              Math.round(state.belowPocketPx / 12),
+              lowPocketDeadbandObservations,
+            ].join('|'),
+          },
+        );
+      }
+    }
+    if (state.pocketHealth === 'inPocket' || state.pocketHealth === 'abovePocket' || !significantBelowPocket) {
       return {
         applied: false,
         afterScrollTop: state.currentScrollTop,
@@ -22937,8 +23091,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         state,
       };
     }
-    asr4PocketDriftConsecutiveBelowPocketCount += 1;
-    const consecutiveBelowPocketCount = asr4PocketDriftConsecutiveBelowPocketCount;
     const shouldApply =
       (args.liveScrollStalled || consecutiveBelowPocketCount >= 2) &&
       !state.cooldownActive;
@@ -28780,6 +28932,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     asr4VisualRecoveryLastAuthoritySignature = '';
     asr4VisualRecoveryLastAppliedAt = 0;
     asr4PocketDriftConsecutiveBelowPocketCount = 0;
+    asrLowPocketDeadbandObservationCount = 0;
     asr4PocketDriftCooldownUntilMs = 0;
     asr4PocketDriftLastAuthoritySignature = '';
     lastAsrReaderComfortRescueAt = 0;
@@ -28922,6 +29075,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     asr4VisualRecoveryLastAuthoritySignature = '';
     asr4VisualRecoveryLastAppliedAt = 0;
     asr4PocketDriftConsecutiveBelowPocketCount = 0;
+    asrLowPocketDeadbandObservationCount = 0;
     asr4PocketDriftCooldownUntilMs = 0;
     asr4PocketDriftLastAuthoritySignature = '';
     lastAsrReaderComfortRescueAt = 0;
@@ -29055,6 +29209,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     followMode?: string;
     scrollReason?: string;
     reason?: string;
+    previousHoldReason?: string | null;
   }) => {
     const scroller = getScroller();
     if (!scroller) {
@@ -29087,6 +29242,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       followMode: String(args.followMode || 'debug'),
       scrollReason: String(args.scrollReason || 'debug'),
       reason: String(args.reason || 'debug'),
+      previousHoldReason: args.previousHoldReason ?? null,
     });
   };
   const getLastLineIndex = () => lastLineIndex;
