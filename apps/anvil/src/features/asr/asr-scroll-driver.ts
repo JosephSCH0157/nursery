@@ -232,6 +232,20 @@ export type { AsrScrollDriver, AsrScrollDriverStats } from './asr-scroll-driver.
 
 // ASR Training rule: matching should be permissive; committing should be conservative.
 
+type BridgeReducedVisualCashInHoldSnapshot = {
+  currentLineIdx: number;
+  requestedTargetIdx: number;
+  acceptedCommitTargetIdx: number;
+  reducedTargetIdx: number;
+  sourceBranch: string;
+  proofSource: string;
+  blockerCategory: 'recovery_chain_blocked' | 'no_adjacent_match_hold' | 'marker_lock_suppressed';
+  recoveryChainBlocked: boolean;
+  noAdjacentMatchHold: boolean;
+  markerLockSuppressed: boolean;
+  observedAtMs: number;
+};
+
 const DEFAULT_MIN_LINE_ADVANCE = 1;
 const DEFAULT_SEEK_THROTTLE_MS = 120;
 const DEFAULT_INTERIM_SCALE = 1.15;
@@ -3587,6 +3601,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastBridgeReducedVisualCashInSignature = '';
   let liveAsrBridgeReducedVisualCashInObservationSignature = '';
   let liveAsrBridgeReducedVisualCashInObservationCount = 0;
+  let bridgeReducedVisualCashInHoldSnapshot: BridgeReducedVisualCashInHoldSnapshot | null = null;
   let lastStaleLandingRelaxationAt = 0;
   let liveAsrVisualDebtCatchupCooldownUntilMs = 0;
   let liveAsrVisualDebtCatchupObservationCount = 0;
@@ -13727,49 +13742,73 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveAsrCommitteeRequestedTargetIdx,
         liveAsrCommitteeSemanticTargetIdx,
       );
+      const recentBridgeCashInHoldSnapshot =
+        bridgeReducedVisualCashInHoldSnapshot &&
+        (freshnessNowTs - bridgeReducedVisualCashInHoldSnapshot.observedAtMs) <= 2600 &&
+        bridgeReducedVisualCashInHoldSnapshot.requestedTargetIdx > lastLineIndex &&
+        bridgeReducedVisualCashInHoldSnapshot.acceptedCommitTargetIdx >= lastLineIndex &&
+        bridgeReducedVisualCashInHoldSnapshot.acceptedCommitTargetIdx <= lastLineIndex + 1
+          ? bridgeReducedVisualCashInHoldSnapshot
+          : null;
+      if (!recentBridgeCashInHoldSnapshot && bridgeReducedVisualCashInHoldSnapshot) {
+        bridgeReducedVisualCashInHoldSnapshot = null;
+      }
+      const effectiveBridgeRequestedTargetIdx = recentBridgeCashInHoldSnapshot
+        ? Math.max(bridgeReducedRequestedTargetIdx, recentBridgeCashInHoldSnapshot.requestedTargetIdx)
+        : bridgeReducedRequestedTargetIdx;
       const bridgeReducedTargetIdx =
-        liveAsrCommitteeDistanceCapTargetIdx >= 0
+        recentBridgeCashInHoldSnapshot?.reducedTargetIdx != null &&
+        recentBridgeCashInHoldSnapshot.reducedTargetIdx >= lastLineIndex
+          ? recentBridgeCashInHoldSnapshot.reducedTargetIdx
+          : liveAsrCommitteeDistanceCapTargetIdx >= 0
           ? liveAsrCommitteeDistanceCapTargetIdx
           : (
             liveAsrCommitteeAcceptedCommitTargetIdx >= lastLineIndex &&
             liveAsrCommitteeAcceptedCommitTargetIdx <= lastLineIndex + 1 &&
-            bridgeReducedRequestedTargetIdx > liveAsrCommitteeAcceptedCommitTargetIdx
+            effectiveBridgeRequestedTargetIdx > liveAsrCommitteeAcceptedCommitTargetIdx
               ? liveAsrCommitteeAcceptedCommitTargetIdx
               : -1
           );
       const bridgeCarry =
-        bridgeReducedRequestedTargetIdx > lastLineIndex
-          ? Math.max(0, bridgeReducedRequestedTargetIdx - lastLineIndex)
+        effectiveBridgeRequestedTargetIdx > lastLineIndex
+          ? Math.max(0, effectiveBridgeRequestedTargetIdx - lastLineIndex)
           : 0;
       const bridgeClamp =
-        bridgeReducedRequestedTargetIdx > bridgeReducedTargetIdx
-          ? Math.max(0, bridgeReducedRequestedTargetIdx - bridgeReducedTargetIdx)
+        effectiveBridgeRequestedTargetIdx > bridgeReducedTargetIdx
+          ? Math.max(0, effectiveBridgeRequestedTargetIdx - bridgeReducedTargetIdx)
           : 0;
       const guardReasonLower = String(lastAsrGuardReason || '').toLowerCase();
       const hudGuardLower = String(lastAsrHudGuardText || '').toLowerCase();
-      const recoveryChainBlocked = guardReasonLower.includes('asr_recovery_chain_blocked');
+      const recoveryChainBlocked =
+        !!recentBridgeCashInHoldSnapshot?.recoveryChainBlocked ||
+        guardReasonLower.includes('asr_recovery_chain_blocked');
       const noAdjacentMatchHold =
+        !!recentBridgeCashInHoldSnapshot?.noAdjacentMatchHold ||
         guardReasonLower.includes('asr_live_no_adjacent_match_hold') ||
         hudGuardLower.includes('direct adjacent');
       const markerLockSuppressed =
+        !!recentBridgeCashInHoldSnapshot?.markerLockSuppressed ||
         liveAsrCommitteeMarkerLockState === 'live_asr_marker_lock_suppressed' ||
         liveAsrCommitteeMarkerLockState === 'marker_lock_suppressed' ||
         alignmentEpisodes.isSnapSuppressedActive();
       const bridgeCashInBlockedByBridgeGovernor =
+        !!recentBridgeCashInHoldSnapshot ||
         recoveryChainBlocked ||
         noAdjacentMatchHold ||
         markerLockSuppressed;
-      const bridgeCashInBlockerCategory = recoveryChainBlocked
-        ? 'recovery_chain_blocked'
-        : (noAdjacentMatchHold
-          ? 'no_adjacent_match_hold'
-          : (markerLockSuppressed
-            ? 'marker_lock_suppressed'
-            : (maintenanceDeniedReason || 'none')));
+      const bridgeCashInBlockerCategory = recentBridgeCashInHoldSnapshot?.blockerCategory ||
+        (recoveryChainBlocked
+          ? 'recovery_chain_blocked'
+          : (noAdjacentMatchHold
+            ? 'no_adjacent_match_hold'
+            : (markerLockSuppressed
+              ? 'marker_lock_suppressed'
+              : (maintenanceDeniedReason || 'none'))));
       const bridgeReducedPending =
         bridgeReducedTargetIdx >= lastLineIndex &&
-        bridgeReducedRequestedTargetIdx > bridgeReducedTargetIdx &&
+        effectiveBridgeRequestedTargetIdx > bridgeReducedTargetIdx &&
         (
+          !!recentBridgeCashInHoldSnapshot ||
           liveAsrCommitteeBridgeHoldContextActive ||
           liveAsrCommitteePendingBridgeStateActive ||
           liveAsrCommitteeBridgeOwner !== 'none' ||
@@ -13784,7 +13823,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const bridgeCashInBaseCandidate =
         bridgeReducedPending &&
         bridgeReducedAcceptedLocal &&
-        bridgeReducedTargetIdx <= liveAsrCommitteeAcceptedCommitTargetIdx &&
+        (
+          recentBridgeCashInHoldSnapshot
+            ? bridgeReducedTargetIdx <= recentBridgeCashInHoldSnapshot.acceptedCommitTargetIdx
+            : bridgeReducedTargetIdx <= liveAsrCommitteeAcceptedCommitTargetIdx
+        ) &&
         bridgeCashInBlockedByBridgeGovernor;
       const bridgeCashInObservationSignature = [
         lastLineIndex,
@@ -13805,7 +13848,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveAsrBridgeReducedVisualCashInObservationCount = 0;
       }
       const bridgeCashInStallDelayMs =
-        pendingSpeakableBridgeState?.createdAtMs != null
+        recentBridgeCashInHoldSnapshot?.observedAtMs != null
+          ? Math.max(0, freshnessNowTs - recentBridgeCashInHoldSnapshot.observedAtMs)
+          : pendingSpeakableBridgeState?.createdAtMs != null
           ? Math.max(0, freshnessNowTs - pendingSpeakableBridgeState.createdAtMs)
           : Math.max(
             liveScrollStallDecision.active ? Math.round(noVisualProgressMs) : 0,
@@ -13855,6 +13900,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             beforeScrollTop + (safeResolverLineHeightPx * ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MAX_STEP_LINES),
           )
           : beforeScrollTop;
+      const bridgeCashInCandidateSeen =
+        bridgeReducedPending ||
+        !!recentBridgeCashInHoldSnapshot;
       const bridgeCashInReady =
         bridgeCashInBaseCandidate &&
         !actuatorNoMatchOrOffscript &&
@@ -13868,21 +13916,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         bridgeCashInTargetTop > beforeScrollTop + 0.5;
       let bridgeCashInBlockedReason = '';
       let bridgeCashInApplied = false;
-      const bridgeCashInEvaluationReason = bridgeReducedPending
+      const bridgeCashInEvaluationReason = bridgeCashInCandidateSeen
         ? (bridgeCashInBlockedByBridgeGovernor
           ? 'bridge_reduced_blocked_local_candidate'
           : 'bridge_reduced_local_candidate')
         : 'no_bridge_reduced_local_candidate';
-      if (
-        bridgeReducedPending ||
-        (bridgeCashInBlockedByBridgeGovernor &&
-          bridgeReducedRequestedTargetIdx > lastLineIndex &&
-          liveAsrCommitteeAcceptedCommitTargetIdx <= lastLineIndex + 1)
-      ) {
+      if (bridgeCashInCandidateSeen) {
         const bridgeCashInEvalSignature = [
           lastLineIndex,
           liveAsrCommitteeAcceptedCommitTargetIdx,
-          bridgeReducedRequestedTargetIdx,
+          effectiveBridgeRequestedTargetIdx,
           liveAsrCommitteeSemanticTargetIdx,
           bridgeReducedTargetIdx,
           bridgeCashInBlockerCategory,
@@ -13894,15 +13937,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             console.warn(buildAsrBridgeReducedVisualCashInEvaluatedDiagnostic({
               currentLineIdx: lastLineIndex,
               committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
-              requestedTargetIdx: liveAsrCommitteeRequestedTargetIdx,
+              requestedTargetIdx: effectiveBridgeRequestedTargetIdx,
               semanticTargetIdx: liveAsrCommitteeSemanticTargetIdx,
               visualReducedTargetIdx: bridgeReducedTargetIdx,
-              acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+              acceptedCommitTargetIdx: recentBridgeCashInHoldSnapshot?.acceptedCommitTargetIdx ?? liveAsrCommitteeAcceptedCommitTargetIdx,
               nextSpeakableLineIdx: maintenanceNextSpeakableLineIdx,
               bridgeCarry,
               bridgeClamp,
-              sourceBranch: String(liveAsrCommitteeBridgeCueOwner || 'unknown'),
-              proofSource: String(pendingSpeakableBridgeState?.proofSource || liveAsrBridgeVisualComfortProofSource || 'none'),
+              sourceBranch: String(recentBridgeCashInHoldSnapshot?.sourceBranch || liveAsrCommitteeBridgeCueOwner || 'unknown'),
+              proofSource: String(recentBridgeCashInHoldSnapshot?.proofSource || pendingSpeakableBridgeState?.proofSource || liveAsrBridgeVisualComfortProofSource || 'none'),
               blockerCategory: bridgeCashInBlockerCategory,
               recoveryChainBlocked,
               noAdjacentMatchHold,
@@ -13932,6 +13975,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } else if (!(bridgeCashInTargetTop > beforeScrollTop + 0.5)) {
           bridgeCashInBlockedReason = 'no_bounded_forward_delta';
         }
+      } else if (bridgeCashInCandidateSeen) {
+        if (!bridgeReducedPending) bridgeCashInBlockedReason = 'no_active_bridge_hold_candidate';
+        else if (!bridgeReducedAcceptedLocal) bridgeCashInBlockedReason = 'accepted_target_not_local';
+        else if (
+          recentBridgeCashInHoldSnapshot
+            ? bridgeReducedTargetIdx > recentBridgeCashInHoldSnapshot.acceptedCommitTargetIdx
+            : bridgeReducedTargetIdx > liveAsrCommitteeAcceptedCommitTargetIdx
+        ) {
+          bridgeCashInBlockedReason = 'reduced_target_ahead_of_accepted_local';
+        } else if (!bridgeCashInBlockedByBridgeGovernor) {
+          bridgeCashInBlockedReason = 'bridge_hold_blocker_not_active';
+        }
       }
       if (bridgeCashInReady) {
         const bridgeCashInReason = recoveryChainBlocked
@@ -13959,9 +14014,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           try {
             console.warn(buildAsrBridgeReducedVisualCashInAppliedDiagnostic({
               currentLineIdx: lastLineIndex,
-              requestedTargetIdx: bridgeReducedRequestedTargetIdx,
+              requestedTargetIdx: effectiveBridgeRequestedTargetIdx,
               reducedTargetIdx: bridgeReducedTargetIdx,
-              acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+              acceptedCommitTargetIdx: recentBridgeCashInHoldSnapshot?.acceptedCommitTargetIdx ?? liveAsrCommitteeAcceptedCommitTargetIdx,
               previousAcceptedCommitTargetIdx,
               bridgeCarry,
               bridgeClamp,
@@ -13977,6 +14032,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               reason: bridgeCashInReason,
             }));
           } catch {}
+          bridgeReducedVisualCashInHoldSnapshot = null;
         } else {
           bridgeCashInBlockedReason = 'no_bounded_forward_delta';
         }
@@ -14002,9 +14058,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (relaxedCorrection.applied) {
           afterScrollTop = relaxedCorrection.afterScrollTop;
           appliedDeltaPx = Math.max(appliedDeltaPx, relaxedCorrection.movedPx);
+          bridgeReducedVisualCashInHoldSnapshot = null;
         }
       }
-      if (bridgeCashInBaseCandidate && (!bridgeCashInReady || !bridgeCashInApplied)) {
+      if (bridgeCashInCandidateSeen && (!bridgeCashInReady || !bridgeCashInApplied)) {
+        if (!bridgeCashInBlockedReason) bridgeCashInBlockedReason = 'bridge_cash_in_not_ready';
         const bridgeCashInBlockedSignature = [
           bridgeCashInObservationSignature,
           bridgeCashInBlockedReason || 'blocked',
@@ -14015,9 +14073,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           try {
             console.warn(buildAsrBridgeReducedVisualCashInBlockedDiagnostic({
               currentLineIdx: lastLineIndex,
-              requestedTargetIdx: bridgeReducedRequestedTargetIdx,
+              requestedTargetIdx: effectiveBridgeRequestedTargetIdx,
               reducedTargetIdx: bridgeReducedTargetIdx,
-              acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+              acceptedCommitTargetIdx: recentBridgeCashInHoldSnapshot?.acceptedCommitTargetIdx ?? liveAsrCommitteeAcceptedCommitTargetIdx,
               previousAcceptedCommitTargetIdx,
               bridgeCarry,
               bridgeClamp,
@@ -19513,7 +19571,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           targetLine = adjacentRecoveryCatchup.target;
           forceReason = forceReason || adjacentRecoveryCatchup.reason || 'adjacent_recovery_catchup';
           clearRecoveryLandingHold('adjacent_recovery_catchup', now, lastLineIndex, line);
+          bridgeReducedVisualCashInHoldSnapshot = null;
         } else {
+        bridgeReducedVisualCashInHoldSnapshot = {
+          currentLineIdx: lastLineIndex,
+          requestedTargetIdx: Math.max(lastLineIndex, requestedTargetLine),
+          acceptedCommitTargetIdx: Math.max(lastLineIndex, lastLineIndex + 1),
+          reducedTargetIdx: Math.max(lastLineIndex, lastLineIndex + 1),
+          sourceBranch: String(pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown'),
+          proofSource: String(pendingProofSource || movementAuthorityProofSource || 'none'),
+          blockerCategory: 'recovery_chain_blocked',
+          recoveryChainBlocked: true,
+          noAdjacentMatchHold: false,
+          markerLockSuppressed:
+            String(lastAsrGuardReason || '').toLowerCase().includes('marker_lock') ||
+            alignmentEpisodes.isSnapSuppressedActive(),
+          observedAtMs: now,
+        };
         warnGuard('asr_recovery_chain_blocked', [
           `current=${lastLineIndex}`,
           `target=${targetLine}`,
@@ -20865,7 +20939,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           if (adjacentRecoveryCatchup.applied) {
             targetLine = adjacentRecoveryCatchup.target;
             forceReason = forceReason || adjacentRecoveryCatchup.reason || 'adjacent_recovery_catchup';
+            bridgeReducedVisualCashInHoldSnapshot = null;
           } else {
+          bridgeReducedVisualCashInHoldSnapshot = {
+            currentLineIdx: lastLineIndex,
+            requestedTargetIdx: Math.max(lastLineIndex, requestedTargetLine),
+            acceptedCommitTargetIdx: Math.max(lastLineIndex, lastLineIndex + 1),
+            reducedTargetIdx: Math.max(lastLineIndex, lastLineIndex + 1),
+            sourceBranch: String(movementAuthoritySourceBranch || forceReason || 'unknown'),
+            proofSource: String(movementAuthorityProofSource || 'none'),
+            blockerCategory: 'no_adjacent_match_hold',
+            recoveryChainBlocked: false,
+            noAdjacentMatchHold: true,
+            markerLockSuppressed:
+              String(lastAsrGuardReason || '').toLowerCase().includes('marker_lock') ||
+              alignmentEpisodes.isSnapSuppressedActive(),
+            observedAtMs: now,
+          };
           warnGuard('asr_live_no_adjacent_match_hold', [
             `current=${lastLineIndex}`,
             `target=${targetLine}`,
