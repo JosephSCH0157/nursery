@@ -933,6 +933,23 @@ export function buildAsrAccumulationSnapshotDiagnostic(args: {
   return `[ASR_ACCUMULATION_SNAPSHOT] commitCount=${Math.round(args.commitCount)} eventsSinceCommit=${Math.round(args.eventsSinceCommit)} finalsSinceCommit=${Math.round(args.finalsSinceCommit)} alignmentEpisodeCount=${Math.round(args.alignmentEpisodeCount)} activeEpisodeActions=${Math.round(args.activeEpisodeActions)} activeEpisodeDeltaSamples=${Math.round(args.activeEpisodeDeltaSamples)} activeEpisodeReasonChain=${Math.round(args.activeEpisodeReasonChain)} guardEventsCount=${Math.round(args.guardEventsCount)} strongHitsCount=${Math.round(args.strongHitsCount)} evidenceEntriesCount=${Math.round(args.evidenceEntriesCount)} consistencyEntriesCount=${Math.round(args.consistencyEntriesCount)} bridgeBlockMapSize=${Math.round(args.bridgeBlockMapSize)} bridgeTrapMapSize=${Math.round(args.bridgeTrapMapSize)} logBufferEntryCount=${Math.round(args.logBufferEntryCount)} logBufferDroppedCount=${Math.round(args.logBufferDroppedCount)} visualGovernorHoldAgeMs=${Math.round(args.visualGovernorHoldAgeMs)} noProgressStreak=${Math.round(args.noProgressStreak)} lostForwardWallStreak=${Math.round(args.lostForwardWallStreak)} targetDebtPx=${Math.round(args.targetDebtPx)} distanceToMaxScrollTop=${Math.round(args.distanceToMaxScrollTop)} currentLineIdx=${Math.round(args.currentLineIdx)} requestedTargetIdx=${Math.round(args.requestedTargetIdx)}`;
 }
 
+export function buildAsrScrollPinnedBottomLockSummaryDiagnostic(args: {
+  currentLineIdx: number;
+  requestedTargetIdx: number;
+  targetDebtPx: number;
+  distanceToMaxScrollTop: number;
+  terminalClampActive: boolean;
+  pinned: boolean;
+  pocketState: string;
+  markerLockState: string;
+  selectedAuthority: string;
+  noProgressStreak: number;
+  visualGovernorHoldAgeMs: number;
+  lastGuardReason: string;
+}): string {
+  return `[ASR_SCROLL_PINNED_BOTTOM_LOCK_SUMMARY] currentLineIdx=${Math.round(args.currentLineIdx)} requestedTargetIdx=${Math.round(args.requestedTargetIdx)} targetDebtPx=${Math.round(args.targetDebtPx)} distanceToMaxScrollTop=${Math.round(args.distanceToMaxScrollTop)} terminalClampActive=${args.terminalClampActive ? 1 : 0} pinned=${args.pinned ? 1 : 0} pocketState=${args.pocketState || 'unknown'} markerLockState=${args.markerLockState || 'unknown'} selectedAuthority=${args.selectedAuthority || 'unknown'} noProgressStreak=${Math.round(args.noProgressStreak)} visualGovernorHoldAgeMs=${Math.round(args.visualGovernorHoldAgeMs)} lastGuardReason=${args.lastGuardReason || 'none'}`;
+}
+
 export function buildAsrLiveScrollStalledDiagnostic(args: {
   currentLineIdx: number;
   requestedTargetIdx: number | null;
