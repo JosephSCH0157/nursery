@@ -1,9 +1,10 @@
 // src/features/asr/asr-log-buffer.ts
-var DEFAULT_MAX_ENTRIES = 5e4;
+var DEFAULT_MAX_ENTRIES = 15e4;
 var DEFAULT_PROGRESS_EVERY = 250;
 var MAX_STRING_LEN = 2e3;
 var DEFAULT_MIN_STEP_PX = 6;
 var BIG_DEBT_MIN_STEP_THRESHOLD_PX = 120;
+var DEFAULT_LINE_BUCKET_SIZE = 25;
 var TRACKED_SUMMARY_FAMILIES = /* @__PURE__ */ new Set([
   "ASR_VISUAL_ACTUATOR_APPLIED",
   "ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF",
@@ -130,6 +131,174 @@ function getEntryFieldNumber(entry, key) {
 function getEntryFieldString(entry, key) {
   return parseFieldString(entry.stringLine, key) ?? parsePayloadString(entry.payload, key);
 }
+function resolveSummaryLineIdx(entry) {
+  if (entry.currentLineIdx != null) return Math.max(0, entry.currentLineIdx);
+  if (entry.committedLineIdx != null) return Math.max(0, entry.committedLineIdx);
+  if (entry.nextSpeakableLineIdx != null) return Math.max(0, entry.nextSpeakableLineIdx);
+  const targetLineIdx = getEntryFieldNumber(entry, "targetLineIdx");
+  return targetLineIdx != null ? Math.max(0, Math.floor(targetLineIdx)) : null;
+}
+function isCommitEntry(entry) {
+  if (entry.tag.includes("COMMIT")) return true;
+  return /\bcommit(LineIdx|Index|Target|TargetIdx)?=/.test(entry.stringLine);
+}
+function incrementMapCount(map, key) {
+  const safeKey = String(key || "").trim();
+  if (!safeKey) return;
+  map[safeKey] = (map[safeKey] || 0) + 1;
+}
+function getOrCreateRunPhaseSummary(summaries, lineIdx) {
+  const bucketStart = Math.floor(Math.max(0, lineIdx) / DEFAULT_LINE_BUCKET_SIZE) * DEFAULT_LINE_BUCKET_SIZE;
+  const existing = summaries.get(bucketStart);
+  if (existing) return existing;
+  const created = {
+    lineStart: bucketStart,
+    lineEnd: bucketStart + DEFAULT_LINE_BUCKET_SIZE - 1,
+    entryCount: 0,
+    commitCount: 0,
+    commitDeltaSum: 0,
+    commitDeltaCount: 0,
+    bridgeCommitCount: 0,
+    cueBridgeCommitCount: 0,
+    starvationDetectedCount: 0,
+    rescueCount: 0,
+    liveStrictBridgeLandingHoldCount: 0,
+    unsafeTargetCount: 0,
+    debtBelowLineHeightCount: 0,
+    markerErrorLineTooHighCount: 0,
+    readerComfortRescueAppliedCount: 0,
+    readerComfortRescueBlockedCount: 0,
+    safeLivePocketCorrectionAppliedCount: 0,
+    safeLivePocketCorrectionBlockedCount: 0,
+    inPocketCount: 0,
+    belowPocketCount: 0,
+    abovePocketCount: 0,
+    belowPocketSamples: [],
+    maxBelowPocketPx: 0,
+    terminalClampCount: 0,
+    visualActuatorClampReasons: {},
+    actualMovedPxSum: 0,
+    actualMovedPxCount: 0
+  };
+  summaries.set(bucketStart, created);
+  return created;
+}
+function updateRunPhaseSummary(summary, entry) {
+  summary.entryCount += 1;
+  if (isCommitEntry(entry)) {
+    summary.commitCount += 1;
+    const currentLineIdx = entry.currentLineIdx ?? getEntryFieldNumber(entry, "currentLineIdx");
+    const committedLineIdx = entry.committedLineIdx ?? getEntryFieldNumber(entry, "committedLineIdx") ?? getEntryFieldNumber(entry, "targetLineIdx");
+    if (currentLineIdx != null && committedLineIdx != null) {
+      summary.commitDeltaSum += Math.max(0, committedLineIdx - currentLineIdx);
+      summary.commitDeltaCount += 1;
+    }
+  }
+  const lowerTag = entry.tag.toLowerCase();
+  const lowerLine = entry.stringLine.toLowerCase();
+  if (lowerTag.includes("bridge_commit") || lowerLine.includes("bridge_commit")) {
+    summary.bridgeCommitCount += 1;
+  }
+  if (entry.tag === "ASR_CUE_BRIDGE_COMMIT" || lowerLine.includes("cue_bridge_commit")) {
+    summary.cueBridgeCommitCount += 1;
+  }
+  if (entry.tag === "ASR_STARVATION_DETECTED") {
+    summary.starvationDetectedCount += 1;
+  }
+  if (lowerTag.includes("rescue") || /\brescue\b/.test(lowerLine)) {
+    summary.rescueCount += 1;
+  }
+  if (lowerLine.includes("live_strict_bridge_stale_landing_hold") || lowerLine.includes("live_strict_bridge_landing_hold") || entry.tag === "ASR_LIVE_BRIDGE_COMPLETION_HELD") {
+    summary.liveStrictBridgeLandingHoldCount += 1;
+  }
+  if (getEntryFieldString(entry, "deniedReason") === "unsafe_target" || getEntryFieldString(entry, "unsafeTargetReason") === "unsafe_target") {
+    summary.unsafeTargetCount += 1;
+  }
+  if (getEntryFieldString(entry, "reason") === "debt_below_line_height" || lowerLine.includes("reason=debt_below_line_height")) {
+    summary.debtBelowLineHeightCount += 1;
+  }
+  if (getEntryFieldString(entry, "reason") === "marker_error_line_too_high" || lowerLine.includes("reason=marker_error_line_too_high")) {
+    summary.markerErrorLineTooHighCount += 1;
+  }
+  if (entry.tag === "ASR_READER_COMFORT_RESCUE_APPLIED") {
+    summary.readerComfortRescueAppliedCount += 1;
+  }
+  if (entry.tag === "ASR_READER_COMFORT_RESCUE_BLOCKED") {
+    summary.readerComfortRescueBlockedCount += 1;
+  }
+  if (entry.tag === "ASR_SAFE_LIVE_POCKET_CORRECTION_APPLIED") {
+    summary.safeLivePocketCorrectionAppliedCount += 1;
+  }
+  if (entry.tag === "ASR_SAFE_LIVE_POCKET_CORRECTION_BLOCKED") {
+    summary.safeLivePocketCorrectionBlockedCount += 1;
+  }
+  const pocketHealth = getEntryFieldString(entry, "pocketHealth");
+  if (pocketHealth === "inPocket") summary.inPocketCount += 1;
+  else if (pocketHealth === "belowPocket") summary.belowPocketCount += 1;
+  else if (pocketHealth === "abovePocket") summary.abovePocketCount += 1;
+  const belowPocketPx = getEntryFieldNumber(entry, "belowPocketPx");
+  if (belowPocketPx != null && belowPocketPx >= 0) {
+    const rounded = Math.round(belowPocketPx);
+    summary.belowPocketSamples.push(rounded);
+    summary.maxBelowPocketPx = Math.max(summary.maxBelowPocketPx, rounded);
+  }
+  const terminalClampActive = getEntryFieldNumber(entry, "terminalClamp");
+  const deniedReason = getEntryFieldString(entry, "deniedReason");
+  const blockedReason = getEntryFieldString(entry, "blockedReason");
+  if (terminalClampActive === 1 || deniedReason === "terminal_clamp" || deniedReason === "terminal_near_end" || blockedReason === "terminal_clamp") {
+    summary.terminalClampCount += 1;
+  }
+  const clampReason = getEntryFieldString(entry, "clampReason") ?? getEntryFieldString(entry, "blockedReason");
+  if (entry.tag === "ASR_VISUAL_ACTUATOR_APPLIED" || entry.tag === "ASR_VISUAL_DEBT_CATCHUP_BLOCKED") {
+    incrementMapCount(summary.visualActuatorClampReasons, clampReason);
+  }
+  const actualMovedPx = getEntryFieldNumber(entry, "actualMovedPx") ?? getEntryFieldNumber(entry, "appliedDeltaPx") ?? getEntryFieldNumber(entry, "movedPx");
+  if (actualMovedPx != null) {
+    summary.actualMovedPxSum += actualMovedPx;
+    summary.actualMovedPxCount += 1;
+  }
+}
+function finalizeRunPhaseSummaries(summaries) {
+  const ordered = Array.from(summaries.values()).sort((a, b) => a.lineStart - b.lineStart);
+  return ordered.map((summary) => {
+    const belowPocketSamples = summary.belowPocketSamples.slice().sort((a, b) => a - b);
+    let medianBelowPocketPx = 0;
+    if (belowPocketSamples.length > 0) {
+      const mid = Math.floor(belowPocketSamples.length / 2);
+      medianBelowPocketPx = belowPocketSamples.length % 2 === 0 ? Math.round((belowPocketSamples[mid - 1] + belowPocketSamples[mid]) / 2) : belowPocketSamples[mid];
+    }
+    return {
+      tag: "ASR_RUN_PHASE_SUMMARY",
+      lineStart: summary.lineStart,
+      lineEnd: summary.lineEnd,
+      lineRange: `${summary.lineStart}-${summary.lineEnd}`,
+      bucketSize: DEFAULT_LINE_BUCKET_SIZE,
+      entryCount: summary.entryCount,
+      commitCount: summary.commitCount,
+      averageCommitDelta: summary.commitDeltaCount > 0 ? Number((summary.commitDeltaSum / summary.commitDeltaCount).toFixed(3)) : 0,
+      bridgeCommitCount: summary.bridgeCommitCount,
+      cueBridgeCommitCount: summary.cueBridgeCommitCount,
+      starvationDetectedCount: summary.starvationDetectedCount,
+      rescueCount: summary.rescueCount,
+      liveStrictBridgeLandingHoldCount: summary.liveStrictBridgeLandingHoldCount,
+      unsafeTargetCount: summary.unsafeTargetCount,
+      debtBelowLineHeightCount: summary.debtBelowLineHeightCount,
+      markerErrorLineTooHighCount: summary.markerErrorLineTooHighCount,
+      readerComfortRescueAppliedCount: summary.readerComfortRescueAppliedCount,
+      readerComfortRescueBlockedCount: summary.readerComfortRescueBlockedCount,
+      safeLivePocketCorrectionAppliedCount: summary.safeLivePocketCorrectionAppliedCount,
+      safeLivePocketCorrectionBlockedCount: summary.safeLivePocketCorrectionBlockedCount,
+      inPocketCount: summary.inPocketCount,
+      belowPocketCount: summary.belowPocketCount,
+      abovePocketCount: summary.abovePocketCount,
+      medianBelowPocketPx,
+      maxBelowPocketPx: summary.maxBelowPocketPx,
+      terminalClampCount: summary.terminalClampCount,
+      visualActuatorClampReasons: summary.visualActuatorClampReasons,
+      averageActualMovedPx: summary.actualMovedPxCount > 0 ? Number((summary.actualMovedPxSum / summary.actualMovedPxCount).toFixed(3)) : 0
+    };
+  });
+}
 function computeInterestScore(entry) {
   const targetDebtPx = getEntryFieldNumber(entry, "targetDebtPx");
   if (targetDebtPx != null) return Math.abs(targetDebtPx);
@@ -218,6 +387,8 @@ function createAsrLogBuffer(options = {}) {
   const maxEntries = Math.max(1, Math.floor(options.maxEntries ?? DEFAULT_MAX_ENTRIES));
   const progressEvery = Math.max(1, Math.floor(options.progressEvery ?? DEFAULT_PROGRESS_EVERY));
   const entries = [];
+  const runPhaseSummaries = /* @__PURE__ */ new Map();
+  let lastKnownSummaryLineIdx = null;
   let droppedCount = 0;
   let writeIndex = 0;
   let capturedCount = 0;
@@ -248,6 +419,15 @@ function createAsrLogBuffer(options = {}) {
     return entries.slice(writeIndex).concat(entries.slice(0, writeIndex));
   }
   function append(entry) {
+    let lineIdx = resolveSummaryLineIdx(entry);
+    if (lineIdx != null) {
+      lastKnownSummaryLineIdx = lineIdx;
+    } else if (entry.tag === "ASR_STARVATION_DETECTED" && lastKnownSummaryLineIdx != null) {
+      lineIdx = lastKnownSummaryLineIdx;
+    }
+    if (lineIdx != null) {
+      updateRunPhaseSummary(getOrCreateRunPhaseSummary(runPhaseSummaries, lineIdx), entry);
+    }
     if (entries.length < maxEntries) {
       entries.push(entry);
     } else {
@@ -277,9 +457,9 @@ function createAsrLogBuffer(options = {}) {
       payload,
       runKey: parseFieldString(line, "runKey") ?? (payload && typeof payload === "object" ? String(payload.runKey ?? "") || null : null),
       runGeneration: parseFieldNumber(line, "runGeneration") ?? (payload && typeof payload === "object" ? Number(payload.runGeneration ?? NaN) || null : null),
-      currentLineIdx: parseFieldNumber(line, "currentLineIdx") ?? parseFieldNumber(line, "current") ?? null,
-      committedLineIdx: parseFieldNumber(line, "committedLineIdx") ?? parseFieldNumber(line, "commitIndex") ?? null,
-      nextSpeakableLineIdx: parseFieldNumber(line, "nextSpeakableLineIdx") ?? null,
+      currentLineIdx: parseFieldNumber(line, "currentLineIdx") ?? parseFieldNumber(line, "current") ?? parsePayloadNumber(payload, "currentLineIdx") ?? parsePayloadNumber(payload, "current") ?? null,
+      committedLineIdx: parseFieldNumber(line, "committedLineIdx") ?? parseFieldNumber(line, "commitIndex") ?? parsePayloadNumber(payload, "committedLineIdx") ?? parsePayloadNumber(payload, "commitIndex") ?? null,
+      nextSpeakableLineIdx: parseFieldNumber(line, "nextSpeakableLineIdx") ?? parsePayloadNumber(payload, "nextSpeakableLineIdx") ?? null,
       scrollTop: parseFieldNumber(line, "scrollTop") ?? parseFieldNumber(line, "currentScrollTop") ?? parseFieldNumber(line, "beforeScrollTop") ?? null,
       targetScrollTop: parseFieldNumber(line, "targetScrollTop") ?? null
     });
@@ -287,6 +467,8 @@ function createAsrLogBuffer(options = {}) {
   }
   function clear() {
     entries.length = 0;
+    runPhaseSummaries.clear();
+    lastKnownSummaryLineIdx = null;
     droppedCount = 0;
     writeIndex = 0;
     capturedCount = 0;
@@ -303,6 +485,7 @@ function createAsrLogBuffer(options = {}) {
       droppedCount,
       tagCounts,
       tagSummaries,
+      runPhaseSummaries: finalizeRunPhaseSummaries(runPhaseSummaries),
       entries: orderedEntries
     };
   }
@@ -350,7 +533,8 @@ function createAsrLogBuffer(options = {}) {
       firstTag: ordered[0]?.tag ?? null,
       lastTag: ordered[ordered.length - 1]?.tag ?? null,
       tagCounts: buildTagCounts(ordered),
-      tagSummaries: buildTagSummaries(ordered)
+      tagSummaries: buildTagSummaries(ordered),
+      runPhaseSummaries: finalizeRunPhaseSummaries(runPhaseSummaries)
     };
   }
   return {
@@ -2690,6 +2874,16 @@ var ASR_DEBUG_NOISY_LABELS = /* @__PURE__ */ new Set([
   "[ASR threshold] (mode-side diagnostic; not driver scorer)"
 ]);
 var asrDebugLastAt = /* @__PURE__ */ new Map();
+var ASR_DEBUG_TEXT_PREVIEW_MAX = 96;
+function summarizeDebugText(value) {
+  const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  const preview = text.length > ASR_DEBUG_TEXT_PREVIEW_MAX ? `${text.slice(0, ASR_DEBUG_TEXT_PREVIEW_MAX)}...` : text;
+  return {
+    length: text.length,
+    tokens: text ? text.split(/\s+/).filter(Boolean).length : 0,
+    preview
+  };
+}
 function updateAsrDebugConfig(state2) {
   const snapshot = {
     engine: state2.engine,
@@ -2895,11 +3089,14 @@ var AsrMode = class {
   emitTranscript(detail) {
     if (!this.shouldEmitTx()) return;
     const currentState = getSpeechStore().get();
+    const textSummary = summarizeDebugText(detail.text);
     logAsrDebug("[ASR cfg]", { useInterimResults: currentState.interim });
     logAsrDebug("[ASR event]", {
       final: detail.final,
-      len: typeof detail.text === "string" ? detail.text.trim().length : 0,
-      text: detail.text
+      partial: detail.partial,
+      len: textSummary.length,
+      tokens: textSummary.tokens,
+      preview: textSummary.preview
     });
     const now = performance.now();
     if (now - this.lastTxAt < this.TX_MIN_INTERVAL_MS && !detail.final) return;
