@@ -1517,6 +1517,85 @@ export function buildAsrApprovedVisualSmoothingRebasedDiagnostic(args: {
   return `[ASR_APPROVED_VISUAL_SMOOTHING_REBASED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} previousTargetScrollTop=${Math.round(args.previousTargetScrollTop)} approvedTargetScrollTop=${Math.round(args.approvedTargetScrollTop)} correctionPx=${Math.round(args.correctionPx)} previousReason=${args.previousReason || 'unknown'} smoothingReason=${args.smoothingReason || 'unknown'} rebaseReason=${args.rebaseReason || 'unknown'}`;
 }
 
+function buildAsrPocketWallDiagnostic(
+  tag: 'ASR_POCKET_WALL_EVALUATED' | 'ASR_POCKET_WALL_CAPPED' | 'ASR_POCKET_WALL_BYPASSED',
+  args: {
+    reason: string;
+    proposedTop: number;
+    cappedTop: number;
+    currentTop: number;
+    lineHeightPx: number;
+    authoritativeLineIdx: number;
+    candidateLineIdx: number;
+    lastVerifiedCommitLineIdx: number;
+    lastVerifiedCommitAgeMs: number;
+    hasFreshVerifiedForwardCommit: boolean;
+    pocketTop: number;
+    pocketBottom: number;
+    tolerancePx: number;
+    sourceAuthority: string;
+  },
+): string {
+  return `[${tag}] reason=${args.reason || 'unknown'} proposedTop=${Math.round(args.proposedTop)} cappedTop=${Math.round(args.cappedTop)} currentTop=${Math.round(args.currentTop)} lineHeightPx=${Math.round(args.lineHeightPx)} authoritativeLineIdx=${Math.round(args.authoritativeLineIdx)} candidateLineIdx=${Math.round(args.candidateLineIdx)} lastVerifiedCommitLineIdx=${Math.round(args.lastVerifiedCommitLineIdx)} lastVerifiedCommitAgeMs=${Math.round(args.lastVerifiedCommitAgeMs)} hasFreshVerifiedForwardCommit=${args.hasFreshVerifiedForwardCommit ? 1 : 0} pocketTop=${Math.round(args.pocketTop)} pocketBottom=${Math.round(args.pocketBottom)} tolerancePx=${Math.round(args.tolerancePx)} sourceAuthority=${args.sourceAuthority || 'unknown'}`;
+}
+
+export function buildAsrPocketWallEvaluatedDiagnostic(args: {
+  reason: string;
+  proposedTop: number;
+  cappedTop: number;
+  currentTop: number;
+  lineHeightPx: number;
+  authoritativeLineIdx: number;
+  candidateLineIdx: number;
+  lastVerifiedCommitLineIdx: number;
+  lastVerifiedCommitAgeMs: number;
+  hasFreshVerifiedForwardCommit: boolean;
+  pocketTop: number;
+  pocketBottom: number;
+  tolerancePx: number;
+  sourceAuthority: string;
+}): string {
+  return buildAsrPocketWallDiagnostic('ASR_POCKET_WALL_EVALUATED', args);
+}
+
+export function buildAsrPocketWallCappedDiagnostic(args: {
+  reason: string;
+  proposedTop: number;
+  cappedTop: number;
+  currentTop: number;
+  lineHeightPx: number;
+  authoritativeLineIdx: number;
+  candidateLineIdx: number;
+  lastVerifiedCommitLineIdx: number;
+  lastVerifiedCommitAgeMs: number;
+  hasFreshVerifiedForwardCommit: boolean;
+  pocketTop: number;
+  pocketBottom: number;
+  tolerancePx: number;
+  sourceAuthority: string;
+}): string {
+  return buildAsrPocketWallDiagnostic('ASR_POCKET_WALL_CAPPED', args);
+}
+
+export function buildAsrPocketWallBypassedDiagnostic(args: {
+  reason: string;
+  proposedTop: number;
+  cappedTop: number;
+  currentTop: number;
+  lineHeightPx: number;
+  authoritativeLineIdx: number;
+  candidateLineIdx: number;
+  lastVerifiedCommitLineIdx: number;
+  lastVerifiedCommitAgeMs: number;
+  hasFreshVerifiedForwardCommit: boolean;
+  pocketTop: number;
+  pocketBottom: number;
+  tolerancePx: number;
+  sourceAuthority: string;
+}): string {
+  return buildAsrPocketWallDiagnostic('ASR_POCKET_WALL_BYPASSED', args);
+}
+
 export function buildAsrAcceptedLocalLagReconciledDiagnostic(args: {
   currentLineIdx: number;
   committedLineIdx: number;

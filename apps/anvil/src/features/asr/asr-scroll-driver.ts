@@ -35,6 +35,9 @@ import {
   buildAsrLowPocketFreezeFarTargetReconciledDiagnostic,
   buildAsrApprovedVisualSmoothingBypassedDiagnostic,
   buildAsrApprovedVisualSmoothingRebasedDiagnostic,
+  buildAsrPocketWallBypassedDiagnostic,
+  buildAsrPocketWallCappedDiagnostic,
+  buildAsrPocketWallEvaluatedDiagnostic,
   buildAsrAcceptedLocalLagReconciledDiagnostic,
   buildAsrAcceptedLocalLagBlockedDiagnostic,
   buildAsrReaderZoneSummaryDiagnostic,
@@ -372,6 +375,9 @@ const ASR_APPROVED_VISUAL_GLIDE_MAX_MS = 180;
 const ASR_ACCEPTED_LOCAL_LAG_LOCAL_WINDOW_LINES = 3;
 const ASR_READER_ZONE_BUCKET_LINES = 25;
 const ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE = 1;
+const ASR_POCKET_WALL_FRESH_COMMIT_MAX_AGE_MS = 1200;
+const ASR_POCKET_WALL_TOLERANCE_MAX_PX = 12;
+const ASR_POCKET_WALL_NOISE_DELTA_PX = 0.5;
 const ASR_BRIDGE_HOLD_READABILITY_RESCUE_DEFAULT = false;
 const ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MIN_STALL_MS = 420;
 const ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_REPEAT_COUNT = 2;
@@ -3055,9 +3061,249 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
   }
 
+  const resolveAsrPocketWallAuthoritativeLine = (): {
+    authoritativeLineIdx: number;
+    sourceAuthority: string;
+  } => {
+    const lastVerifiedCommitLineIdx =
+      Number.isFinite(lastFreshProofLine) && lastFreshProofLine >= 0
+        ? Math.max(0, Math.floor(Number(lastFreshProofLine)))
+        : -1;
+    if (lastVerifiedCommitLineIdx >= 0) {
+      return {
+        authoritativeLineIdx: lastVerifiedCommitLineIdx,
+        sourceAuthority: 'last_verified_commit_line',
+      };
+    }
+    const acceptedLocalLineIdx =
+      Number.isFinite(lastResolvedAllowedTargetIdx) &&
+      lastResolvedAllowedTargetIdx >= 0 &&
+      lastResolvedAllowedTargetIdx <= lastLineIndex + 1
+        ? Math.max(0, Math.floor(Number(lastResolvedAllowedTargetIdx)))
+        : -1;
+    if (acceptedLocalLineIdx >= 0) {
+      return {
+        authoritativeLineIdx: acceptedLocalLineIdx,
+        sourceAuthority: 'accepted_local_line',
+      };
+    }
+    const strongConfirmedLineIdx =
+      Number.isFinite(lastStrongConfirmedSpokenLine) && lastStrongConfirmedSpokenLine >= 0
+        ? Math.max(0, Math.floor(Number(lastStrongConfirmedSpokenLine)))
+        : -1;
+    if (strongConfirmedLineIdx >= 0) {
+      return {
+        authoritativeLineIdx: strongConfirmedLineIdx,
+        sourceAuthority: 'strong_confirmed_spoken_line',
+      };
+    }
+    return {
+      authoritativeLineIdx: Math.max(0, Math.floor(Number(lastLineIndex) || 0)),
+      sourceAuthority: 'current_committed_line',
+    };
+  };
+
+  const evaluateAsrPocketWall = (input: {
+    scroller: HTMLElement;
+    currentTop: number;
+    proposedTop: number;
+    candidateLineIdx?: number | null;
+    sourceAuthority: string;
+    proofSource?: string;
+    sourceBranch?: string;
+    forceReason?: string;
+    terminalClampActive?: boolean;
+    lineHeightHintPx?: number;
+  }): {
+    effectiveTop: number;
+    reason: string;
+  } => {
+    const currentTop = Number.isFinite(input.currentTop) ? Number(input.currentTop) : 0;
+    const proposedTop = Number.isFinite(input.proposedTop) ? Number(input.proposedTop) : currentTop;
+    const { authoritativeLineIdx, sourceAuthority } = resolveAsrPocketWallAuthoritativeLine();
+    const candidateLineIdx = Number.isFinite(input.candidateLineIdx as number)
+      ? Math.max(0, Math.floor(Number(input.candidateLineIdx)))
+      : authoritativeLineIdx;
+    const lastVerifiedCommitLineIdx =
+      Number.isFinite(lastFreshProofLine) && lastFreshProofLine >= 0
+        ? Math.max(0, Math.floor(Number(lastFreshProofLine)))
+        : -1;
+    const lastVerifiedCommitAgeMs =
+      lastForwardCommitAt > 0 ? Math.max(0, Date.now() - lastForwardCommitAt) : Number.POSITIVE_INFINITY;
+    const normalizedGuardReason = String(lastAsrGuardReason || '').trim().toLowerCase();
+    const normalizedHudGuard = String(lastAsrHudGuardText || '').trim().toLowerCase();
+    const normalizedProofSource = String(input.proofSource || '').trim().toLowerCase();
+    const normalizedSourceBranch = String(input.sourceBranch || '').trim().toLowerCase();
+    const normalizedForceReason = String(input.forceReason || '').trim().toLowerCase();
+    const normalizedSourceAuthority = String(input.sourceAuthority || sourceAuthority || 'unknown').trim().toLowerCase();
+    const ambiguousWallLockActive = [normalizedGuardReason, normalizedHudGuard].some((value) =>
+      value.includes('strict forward needs local proof') ||
+      value.includes('rescue requires adjacent local proof') ||
+      value.includes('adjacent speech proof required') ||
+      value.includes('far low-confidence candidate ignored'),
+    );
+    const invalidUnlockState =
+      ambiguousWallLockActive ||
+      normalizedGuardReason.includes('no_match') ||
+      normalizedGuardReason.includes('contradiction') ||
+      normalizedHudGuard.includes('offscript') ||
+      normalizedProofSource.includes('nomatch') ||
+      normalizedSourceBranch.includes('offscript') ||
+      normalizedSourceBranch.includes('contradiction') ||
+      normalizedForceReason.includes('offscript') ||
+      normalizedForceReason.includes('contradiction');
+    const proofOwnedForwardSignal =
+      isProofOwnedPrimaryForceReason(normalizedForceReason) ||
+      isAdjacentProofOwnedForceReason(normalizedForceReason) ||
+      isAdjacentProofOwnedForceReason(normalizedProofSource) ||
+      isAdjacentProofOwnedForceReason(normalizedSourceBranch) ||
+      isAdjacentProofHoldBypassSource(normalizedProofSource) ||
+      isAdjacentProofHoldBypassSource(normalizedSourceBranch) ||
+      isMovementAuthorityProofBranch(normalizedProofSource) ||
+      isMovementAuthorityProofBranch(normalizedSourceBranch) ||
+      isMovementAuthorityProofBranch(normalizedForceReason) ||
+      normalizedSourceAuthority.includes('accepted_commit');
+    const hasFreshVerifiedForwardCommit =
+      !invalidUnlockState &&
+      candidateLineIdx > authoritativeLineIdx &&
+      lastVerifiedCommitAgeMs <= ASR_POCKET_WALL_FRESH_COMMIT_MAX_AGE_MS &&
+      proofOwnedForwardSignal;
+    const authoritativeLineEl = getLineElementByIndex(input.scroller, authoritativeLineIdx);
+    const lineHeightPx = clamp(
+      Number.isFinite(Number(input.lineHeightHintPx))
+        ? Number(input.lineHeightHintPx)
+        : Math.max(
+          Number(authoritativeLineEl?.clientHeight || 0),
+          Number(authoritativeLineEl?.offsetHeight || 0),
+          Number(authoritativeLineEl?.getBoundingClientRect?.().height || 0),
+          24,
+        ),
+      12,
+      320,
+    );
+    const viewportHeight = Math.max(1, Number(input.scroller.clientHeight || 0));
+    const maxScrollTop = Math.max(0, Number(input.scroller.scrollHeight || 0) - viewportHeight);
+    const markerPctRaw =
+      typeof (window as any).__TP_MARKER_PCT === 'number'
+        ? Number((window as any).__TP_MARKER_PCT)
+        : 0.4;
+    const markerPct = clamp(markerPctRaw, 0.05, 0.95);
+    const markerY = viewportHeight * markerPct;
+    const pocketTop = markerY + (ASR_READER_POCKET_PREFERRED_TOP_LINES * lineHeightPx);
+    const pocketBottom = markerY + (ASR_READER_POCKET_PREFERRED_BOTTOM_LINES * lineHeightPx);
+    const tolerancePx = Math.min(ASR_POCKET_WALL_TOLERANCE_MAX_PX, Math.max(1, lineHeightPx * 0.25));
+    const authoritativeLineTop = Number(authoritativeLineEl?.offsetTop || 0);
+    const authoritativeLineCenterContent = authoritativeLineTop + (Math.max(1, lineHeightPx) * 0.5);
+    const maxPocketSafeTop = clamp(
+      authoritativeLineCenterContent - (pocketTop - tolerancePx),
+      0,
+      maxScrollTop,
+    );
+    let effectiveTop = proposedTop;
+    let pocketWallReason = 'forward_write_within_wall';
+    if (!(proposedTop > currentTop + ASR_POCKET_WALL_NOISE_DELTA_PX)) {
+      pocketWallReason = proposedTop < currentTop - ASR_POCKET_WALL_NOISE_DELTA_PX
+        ? 'backward_correction_allowed'
+        : 'non_forward_or_tiny_step';
+    } else if (input.terminalClampActive) {
+      pocketWallReason = 'terminal_clamp_bypassed';
+    } else if (!authoritativeLineEl) {
+      pocketWallReason = 'authoritative_line_unavailable';
+    } else if (proposedTop <= maxPocketSafeTop + ASR_POCKET_WALL_NOISE_DELTA_PX) {
+      pocketWallReason = 'forward_write_within_wall';
+    } else if (hasFreshVerifiedForwardCommit) {
+      pocketWallReason = 'fresh_verified_forward_commit';
+    } else {
+      effectiveTop = Math.max(currentTop, maxPocketSafeTop);
+      pocketWallReason =
+        effectiveTop <= currentTop + ASR_POCKET_WALL_NOISE_DELTA_PX
+          ? 'wall_locked_tiny_or_noisy_delta'
+          : (invalidUnlockState ? 'wall_locked_guard_state' : 'wall_locked_no_fresh_verified_commit');
+    }
+    const diagnosticPayload = {
+      reason: pocketWallReason,
+      proposedTop,
+      cappedTop: effectiveTop,
+      currentTop,
+      lineHeightPx,
+      authoritativeLineIdx,
+      candidateLineIdx,
+      lastVerifiedCommitLineIdx,
+      lastVerifiedCommitAgeMs: Number.isFinite(lastVerifiedCommitAgeMs) ? lastVerifiedCommitAgeMs : -1,
+      hasFreshVerifiedForwardCommit,
+      pocketTop,
+      pocketBottom,
+      tolerancePx,
+      sourceAuthority: input.sourceAuthority || sourceAuthority,
+    };
+    emitDevDiagnostic(
+      'ASR_POCKET_WALL_EVALUATED',
+      'info',
+      buildAsrPocketWallEvaluatedDiagnostic(diagnosticPayload),
+      {
+        minMs: 300,
+        signature: [
+          diagnosticPayload.sourceAuthority,
+          authoritativeLineIdx,
+          candidateLineIdx,
+          Math.round(proposedTop / 12),
+          Math.round(effectiveTop / 12),
+          pocketWallReason,
+        ].join('|'),
+      },
+    );
+    if (effectiveTop < proposedTop - ASR_POCKET_WALL_NOISE_DELTA_PX) {
+      emitDevDiagnostic(
+        'ASR_POCKET_WALL_CAPPED',
+        'warn',
+        buildAsrPocketWallCappedDiagnostic(diagnosticPayload),
+        {
+          minMs: 250,
+          signature: [
+            diagnosticPayload.sourceAuthority,
+            authoritativeLineIdx,
+            candidateLineIdx,
+            Math.round(proposedTop / 12),
+            Math.round(effectiveTop / 12),
+            pocketWallReason,
+          ].join('|'),
+        },
+      );
+    } else {
+      emitDevDiagnostic(
+        'ASR_POCKET_WALL_BYPASSED',
+        'info',
+        buildAsrPocketWallBypassedDiagnostic(diagnosticPayload),
+        {
+          minMs: 500,
+          signature: [
+            diagnosticPayload.sourceAuthority,
+            authoritativeLineIdx,
+            candidateLineIdx,
+            pocketWallReason,
+          ].join('|'),
+        },
+      );
+    }
+    return {
+      effectiveTop,
+      reason: pocketWallReason,
+    };
+  };
+
   function applyScrollWithHybridGuard(
     targetTop: number,
-    opts: { scroller?: HTMLElement | null; reason?: string; source?: string },
+    opts: {
+      scroller?: HTMLElement | null;
+      reason?: string;
+      source?: string;
+      candidateLineIdx?: number | null;
+      sourceAuthority?: string;
+      proofSource?: string;
+      sourceBranch?: string;
+      forceReason?: string;
+      terminalClampActive?: boolean;
+    },
   ): number {
     const scroller = opts.scroller ?? getScroller();
     const reason = opts.reason ?? 'asr';
@@ -3110,8 +3356,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       } catch {}
       return currentTop;
     }
+    const pocketWall = evaluateAsrPocketWall({
+      scroller,
+      currentTop,
+      proposedTop: targetTop,
+      candidateLineIdx:
+        opts.candidateLineIdx ??
+        approvedVisualGlideState?.nextSpeakableLineIdx ??
+        approvedVisualGlideState?.committedLineIdx ??
+        lastResolvedAllowedTargetIdx,
+      sourceAuthority: opts.sourceAuthority || reason,
+      proofSource: opts.proofSource,
+      sourceBranch: opts.sourceBranch,
+      forceReason: opts.forceReason,
+      terminalClampActive: opts.terminalClampActive === true,
+    });
     const payload = { ...opts, scroller };
-    const appliedTop = applyCanonicalScrollTop(targetTop, { ...payload, source });
+    const appliedTop = applyCanonicalScrollTop(pocketWall.effectiveTop, { ...payload, source });
     scheduleAsrWriteCheck(scroller, currentTop, reason, targetTop, source);
     return appliedTop;
   }
@@ -3351,7 +3612,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       } catch {}
       return null;
     }
-    const applied = applyCanonicalScrollTop(cappedScrollTop, {
+    const pocketWall = evaluateAsrPocketWall({
+      scroller: input.scroller,
+      currentTop: currentScrollTop,
+      proposedTop: cappedScrollTop,
+      candidateLineIdx: targetLineIdx,
+      sourceAuthority: input.authoritySource,
+      lineHeightHintPx: lineHeightPx,
+    });
+    const applied = applyCanonicalScrollTop(pocketWall.effectiveTop, {
       scroller: input.scroller,
       reason: input.authoritySource,
       source: input.source,
@@ -3670,7 +3939,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const applyDirect = (reason: string) => {
       emitBypass(reason);
       stopGlide(`approved-visual-direct:${reason}`);
-      const appliedTop = applyCanonicalScrollTop(args.approvedTargetScrollTop, {
+      const pocketWall = evaluateAsrPocketWall({
+        scroller: args.scroller,
+        currentTop: args.currentScrollTop,
+        proposedTop: args.approvedTargetScrollTop,
+        candidateLineIdx: args.nextSpeakableLineIdx,
+        sourceAuthority: args.authority,
+        lineHeightHintPx: lineHeightPx,
+      });
+      const appliedTop = applyCanonicalScrollTop(pocketWall.effectiveTop, {
         scroller: args.scroller,
         reason: args.smoothingReason,
         source: 'asr-follow',
@@ -3767,7 +4044,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       args.currentScrollTop,
       args.approvedTargetScrollTop,
     );
-    const steppedTop = applyCanonicalScrollTop(steppedTargetTop, {
+    const steppedPocketWall = evaluateAsrPocketWall({
+      scroller: args.scroller,
+      currentTop: args.currentScrollTop,
+      proposedTop: steppedTargetTop,
+      candidateLineIdx: args.nextSpeakableLineIdx,
+      sourceAuthority: args.authority,
+      lineHeightHintPx: lineHeightPx,
+    });
+    const steppedTop = applyCanonicalScrollTop(steppedPocketWall.effectiveTop, {
       scroller: args.scroller,
       reason: `${args.smoothingReason}:glide-step`,
       source: 'asr-follow',
@@ -14535,7 +14820,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let afterScrollTop = beforeScrollTop;
     let appliedDeltaPx = 0;
     if (move > 0) {
-      const applied = applyScrollWithHybridGuard(current + move, { scroller, reason: 'asr-tick' });
+      const applied = applyScrollWithHybridGuard(current + move, {
+        scroller,
+        reason: 'asr-tick',
+        candidateLineIdx:
+          Number.isFinite(resolvedCommand.allowedTargetIdx as number)
+            ? Math.max(0, Math.floor(Number(resolvedCommand.allowedTargetIdx)))
+            : (
+              Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx as number)
+                ? Math.max(0, Math.floor(Number(liveAsrCommitteeAcceptedCommitTargetIdx)))
+                : lastLineIndex
+            ),
+        sourceAuthority: String(liveTickSelectedAuthority || 'asr-tick'),
+        terminalClampActive: atScrollLimit,
+      });
       appliedTopPx = applied;
       lastKnownScrollTop = applied;
       afterScrollTop = applied;
@@ -23731,11 +24029,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           });
           const applied = leadPressureCapped
             ? leadPressureCapped.appliedTop
-            : applyCanonicalScrollTop(correctedTop, {
-              scroller: args.scroller,
-              reason: 'asr4-pocket-drift-authority',
-              source: 'asr-follow',
-            });
+            : applyCanonicalScrollTop(
+              evaluateAsrPocketWall({
+                scroller: args.scroller,
+                currentTop: beforeScrollTop,
+                proposedTop: correctedTop,
+                candidateLineIdx: args.state.targetLine ?? args.state.committedLine,
+                sourceAuthority: 'asr4-pocket-drift-authority',
+                lineHeightHintPx: args.state.lineHeightPx,
+                terminalClampActive: args.state.terminalClampActive,
+              }).effectiveTop,
+              {
+                scroller: args.scroller,
+                reason: 'asr4-pocket-drift-authority',
+                source: 'asr-follow',
+              },
+            );
           afterScrollTop = Number.isFinite(applied) ? Number(applied) : Number(args.scroller.scrollTop || beforeScrollTop);
           movedPx = Math.round(afterScrollTop - beforeScrollTop);
           if (Math.abs(movedPx) >= 1) {
@@ -24367,11 +24676,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           });
           const applied = leadPressureCapped
             ? leadPressureCapped.appliedTop
-            : applyCanonicalScrollTop(correctedTop, {
-              scroller: args.scroller,
-              reason: 'asr4-visual-recovery-authority',
-              source: 'asr-commit',
-            });
+            : applyCanonicalScrollTop(
+              evaluateAsrPocketWall({
+                scroller: args.scroller,
+                currentTop: currentScrollTop,
+                proposedTop: correctedTop,
+                candidateLineIdx: localVisualTargetLine,
+                sourceAuthority: 'asr4-visual-recovery-authority',
+                lineHeightHintPx: clamp(resolveMotionLineHeightPx(targetLineEl), 12, 320),
+              }).effectiveTop,
+              {
+                scroller: args.scroller,
+                reason: 'asr4-visual-recovery-authority',
+                source: 'asr-commit',
+              },
+            );
           afterScrollTop =
             finiteNumberOrNull('asr4.visualRecovery.markerLock.afterTop', Number.isFinite(applied) ? applied : args.scroller.scrollTop, {
               lineIdx: localVisualTargetLine,
@@ -24408,11 +24727,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             });
             const applied = leadPressureCapped
               ? leadPressureCapped.appliedTop
-              : applyCanonicalScrollTop(desiredTop, {
-                scroller: args.scroller,
-                reason: 'asr4-visual-recovery-authority',
-                source: 'asr-commit',
-              });
+              : applyCanonicalScrollTop(
+                evaluateAsrPocketWall({
+                  scroller: args.scroller,
+                  currentTop: currentScrollTop,
+                  proposedTop: desiredTop,
+                  candidateLineIdx: localVisualTargetLine,
+                  sourceAuthority: 'asr4-visual-recovery-authority',
+                  lineHeightHintPx: clamp(resolveMotionLineHeightPx(getLineElementByIndex(args.scroller, localVisualTargetLine)), 12, 320),
+                }).effectiveTop,
+                {
+                  scroller: args.scroller,
+                  reason: 'asr4-visual-recovery-authority',
+                  source: 'asr-commit',
+                },
+              );
             afterScrollTop =
               finiteNumberOrNull('asr4.visualRecovery.directWrite.afterTop', Number.isFinite(applied) ? applied : args.scroller.scrollTop, {
                 lineIdx: localVisualTargetLine,
