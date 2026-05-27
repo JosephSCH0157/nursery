@@ -1,4 +1,7 @@
-import { decideAsrVisualDebtCatchup } from '../../src/features/asr/asr-visual-debt-catchup';
+import {
+  decideAsrVisualDebtCatchup,
+  evaluateAcceptedLocalLagWindow,
+} from '../../src/features/asr/asr-visual-debt-catchup';
 
 describe('ASR visual debt catch-up gate', () => {
   const makeInput = (overrides: Partial<Parameters<typeof decideAsrVisualDebtCatchup>[0]> = {}) => ({
@@ -83,5 +86,36 @@ describe('ASR visual debt catch-up gate', () => {
 
     expect(decision.allowed).toBe(false);
     expect(decision.blockedReason).toBe('terminal_clamp');
+  });
+
+  test('accepted local lag window treats FO-style local ordering drift as coherent enough', () => {
+    const result = evaluateAcceptedLocalLagWindow({
+      currentLine: 155,
+      committedLine: 157,
+      acceptedLine: 156,
+      targetLine: 156,
+      nextSpeakableLine: 157,
+      localWindowLines: 3,
+    });
+
+    expect(result.withinLocalWindow).toBe(true);
+    expect(result.lineDeltaCurrentToCommitted).toBe(2);
+    expect(result.lineDeltaCurrentToTarget).toBe(1);
+    expect(result.lineDeltaCommittedToTarget).toBe(-1);
+    expect(result.maxSemanticDistance).toBe(2);
+  });
+
+  test('accepted local lag window still rejects true far semantic jumps', () => {
+    const result = evaluateAcceptedLocalLagWindow({
+      currentLine: 155,
+      committedLine: 157,
+      acceptedLine: 160,
+      targetLine: 160,
+      nextSpeakableLine: 160,
+      localWindowLines: 3,
+    });
+
+    expect(result.withinLocalWindow).toBe(false);
+    expect(result.maxSemanticDistance).toBe(5);
   });
 });

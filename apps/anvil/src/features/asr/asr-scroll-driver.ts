@@ -35,6 +35,9 @@ import {
   buildAsrLowPocketFreezeFarTargetReconciledDiagnostic,
   buildAsrApprovedVisualSmoothingBypassedDiagnostic,
   buildAsrApprovedVisualSmoothingRebasedDiagnostic,
+  buildAsrAcceptedLocalLagReconciledDiagnostic,
+  buildAsrAcceptedLocalLagBlockedDiagnostic,
+  buildAsrReaderZoneSummaryDiagnostic,
   buildAsr4VisualRecoveryAuthorityAppliedDiagnostic,
   buildAsr4VisualRecoveryStateDiagnostic,
   buildAsr4FreshTailVetoDiagnostic,
@@ -151,6 +154,7 @@ import {
   shouldStopForVisualDeadband,
 } from './asr-visual-follow';
 import { decideAsrVisualDebtCatchup } from './asr-visual-debt-catchup';
+import { evaluateAcceptedLocalLagWindow } from './asr-visual-debt-catchup';
 import { decideAcceptedLocalLagVisualCatchup } from './asr-live-pocket-maintenance';
 import { clearOnlyMatchingBridgeBlockToken, shouldReleaseEarlyBridgeTrap } from './asr-bridge-trap';
 import { decideAsrActuatorRecoveryGear } from './asr-diagnostic-gates';
@@ -365,6 +369,8 @@ const ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_MIN_PX = 18;
 const ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_MAX_LINES = 0.9;
 const ASR_APPROVED_VISUAL_GLIDE_MIN_MS = 110;
 const ASR_APPROVED_VISUAL_GLIDE_MAX_MS = 180;
+const ASR_ACCEPTED_LOCAL_LAG_LOCAL_WINDOW_LINES = 3;
+const ASR_READER_ZONE_BUCKET_LINES = 25;
 const ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE = 1;
 const ASR_BRIDGE_HOLD_READABILITY_RESCUE_DEFAULT = false;
 const ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MIN_STALL_MS = 420;
@@ -3869,6 +3875,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastResolvedPocketState = 'in_preferred_pocket';
   let lastAsrAccumulationSnapshotAt = 0;
   let lastAsrAccumulationSnapshotCommitCount = -1;
+  type ReaderZoneSummaryAccumulator = {
+    bucketStartLineIdx: number;
+    bucketEndLineIdx: number;
+    timeInPocketMs: number;
+    timeBelowPocketMs: number;
+    maxBelowPocketPx: number;
+    readerWaitTimeMs: number;
+    negativeErrorZeroVelocityMs: number;
+    visualCorrectionCount: number;
+    blockedCorrectionCount: number;
+    recoveryCount: number;
+    terminalClampCount: number;
+    blockedReasonCounts: Map<string, number>;
+    authoritySourceCounts: Map<string, number>;
+    dirty: boolean;
+    lastTerminalClampActive: boolean;
+  };
+  const readerZoneSummaries = new Map<number, ReaderZoneSummaryAccumulator>();
   let lastAsrBackendSpeechActive = false;
   let lastAsrBackendTranscriptAgeMs = -1;
   let lastAsrBackendAudioAgeMs = -1;
@@ -5633,6 +5657,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         );
       } catch {}
     }
+    emitReaderZoneSummariesIfNeeded();
     lastAsrAccumulationSnapshotAt = args.nowTs;
     lastAsrAccumulationSnapshotCommitCount = commitCount;
   };
@@ -11848,20 +11873,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const actualMovedPx = Number.isFinite(input.actualMovedPx as number)
       ? Math.round(Number(input.actualMovedPx))
       : 0;
+    const normalizedReason =
+      input.reason === 'precondition_terminal_clamp'
+        ? 'precondition_terminal_clamp'
+        : input.reason;
     const signature = [
       input.source,
-      input.reason,
+      normalizedReason,
       input.currentLineIdx,
       input.committedLineIdx,
       input.nextSpeakableLineIdx,
-      Math.round(input.currentScrollTop),
-      Math.round(input.targetScrollTop),
-      Math.round(input.visualErrorPx),
+      normalizedReason === 'precondition_terminal_clamp' ? -1 : Math.round(input.currentScrollTop),
+      normalizedReason === 'precondition_terminal_clamp' ? -1 : Math.round(input.targetScrollTop),
+      normalizedReason === 'precondition_terminal_clamp' ? -1 : Math.round(input.visualErrorPx),
       actualMovedPx,
     ].join('|');
     const nowTs = Date.now();
     if (
-      nowTs - lastAsrSafeLivePocketCorrectionBlockedAt < 1200 &&
+      nowTs - lastAsrSafeLivePocketCorrectionBlockedAt < (normalizedReason === 'precondition_terminal_clamp' ? 1800 : 1200) &&
       signature === lastAsrSafeLivePocketCorrectionBlockedSignature
     ) {
       return;
@@ -11881,6 +11910,117 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       : 0;
     const explicitCooldownRemaining = Math.max(0, asr4PocketDriftCooldownUntilMs - nowTs);
     return Math.max(recentVisualRecoveryRemaining, explicitCooldownRemaining);
+  };
+  const bumpReaderZoneReasonCount = (counts: Map<string, number>, value: string) => {
+    const key = String(value || 'none').trim() || 'none';
+    counts.set(key, (counts.get(key) || 0) + 1);
+  };
+  const getDominantReaderZoneReason = (counts: Map<string, number>) => {
+    let bestKey = 'none';
+    let bestCount = -1;
+    counts.forEach((count, key) => {
+      if (count > bestCount) {
+        bestCount = count;
+        bestKey = key;
+      }
+    });
+    return bestKey;
+  };
+  const getReaderZoneSummaryAccumulator = (lineIdx: number): ReaderZoneSummaryAccumulator => {
+    const safeLineIdx = Math.max(0, Math.floor(Number(lineIdx) || 0));
+    const bucketStartLineIdx = Math.floor(safeLineIdx / ASR_READER_ZONE_BUCKET_LINES) * ASR_READER_ZONE_BUCKET_LINES;
+    let existing = readerZoneSummaries.get(bucketStartLineIdx);
+    if (existing) return existing;
+    existing = {
+      bucketStartLineIdx,
+      bucketEndLineIdx: bucketStartLineIdx + ASR_READER_ZONE_BUCKET_LINES - 1,
+      timeInPocketMs: 0,
+      timeBelowPocketMs: 0,
+      maxBelowPocketPx: 0,
+      readerWaitTimeMs: 0,
+      negativeErrorZeroVelocityMs: 0,
+      visualCorrectionCount: 0,
+      blockedCorrectionCount: 0,
+      recoveryCount: 0,
+      terminalClampCount: 0,
+      blockedReasonCounts: new Map<string, number>(),
+      authoritySourceCounts: new Map<string, number>(),
+      dirty: false,
+      lastTerminalClampActive: false,
+    };
+    readerZoneSummaries.set(bucketStartLineIdx, existing);
+    return existing;
+  };
+  const noteReaderZoneSample = (args: {
+    lineIdx: number;
+    sampleMs: number;
+    pocketState: string;
+    belowPocketPx: number;
+    targetDebtPx: number;
+    appliedDeltaPx: number;
+    blockedReason: string;
+    authoritySource: string;
+    recoveryApplied: boolean;
+    terminalClampActive: boolean;
+  }) => {
+    const zone = getReaderZoneSummaryAccumulator(args.lineIdx);
+    const sampleMs = clamp(Math.round(Number(args.sampleMs || 0)), 0, 2000);
+    const pocketState = String(args.pocketState || 'unknown').toLowerCase();
+    const belowPocketPx = Math.max(0, Math.round(Number(args.belowPocketPx || 0)));
+    const appliedDeltaPx = Math.max(0, Math.round(Number(args.appliedDeltaPx || 0)));
+    const targetDebtPx = Number.isFinite(args.targetDebtPx) ? Number(args.targetDebtPx) : 0;
+    if (sampleMs > 0) {
+      if (pocketState === 'inpocket' || pocketState === 'in_pocket' || pocketState === 'inpocketreading' || pocketState === 'inpocket_reading') {
+        zone.timeInPocketMs += sampleMs;
+      } else if (pocketState.includes('inpocket')) {
+        zone.timeInPocketMs += sampleMs;
+      }
+      if (belowPocketPx > 0 || pocketState.includes('below') || pocketState.includes('bottom')) {
+        zone.timeBelowPocketMs += sampleMs;
+        if (appliedDeltaPx <= Math.max(1, Math.round(Math.abs(targetDebtPx) * 0.1))) {
+          zone.readerWaitTimeMs += sampleMs;
+        }
+      }
+      if (targetDebtPx < 0 && appliedDeltaPx <= 0) {
+        zone.negativeErrorZeroVelocityMs += sampleMs;
+      }
+    }
+    zone.maxBelowPocketPx = Math.max(zone.maxBelowPocketPx, belowPocketPx);
+    if (appliedDeltaPx > 0) zone.visualCorrectionCount += 1;
+    if (args.recoveryApplied) zone.recoveryCount += 1;
+    if (args.terminalClampActive && !zone.lastTerminalClampActive) zone.terminalClampCount += 1;
+    zone.lastTerminalClampActive = !!args.terminalClampActive;
+    if (String(args.blockedReason || 'none') !== 'none') {
+      zone.blockedCorrectionCount += 1;
+      bumpReaderZoneReasonCount(zone.blockedReasonCounts, args.blockedReason);
+    }
+    bumpReaderZoneReasonCount(zone.authoritySourceCounts, args.authoritySource);
+    zone.dirty = true;
+  };
+  const emitReaderZoneSummariesIfNeeded = () => {
+    readerZoneSummaries.forEach((zone) => {
+      if (!zone.dirty) return;
+      try {
+        console.warn(
+          buildAsrReaderZoneSummaryDiagnostic({
+            bucketStartLineIdx: zone.bucketStartLineIdx,
+            bucketEndLineIdx: zone.bucketEndLineIdx,
+            timeInPocketMs: zone.timeInPocketMs,
+            timeBelowPocketMs: zone.timeBelowPocketMs,
+            maxBelowPocketPx: zone.maxBelowPocketPx,
+            readerWaitTimeMs: zone.readerWaitTimeMs,
+            negativeErrorZeroVelocityMs: zone.negativeErrorZeroVelocityMs,
+            visualCorrectionCount: zone.visualCorrectionCount,
+            blockedCorrectionCount: zone.blockedCorrectionCount,
+            recoveryCount: zone.recoveryCount,
+            terminalClampCount: zone.terminalClampCount,
+            dominantBlockedReason: getDominantReaderZoneReason(zone.blockedReasonCounts),
+            dominantAuthoritySource: getDominantReaderZoneReason(zone.authoritySourceCounts),
+          }),
+        );
+      } catch {}
+      zone.dirty = false;
+    });
   };
 
   const emitReaderComfortRescueBlocked = (input: {
@@ -12584,7 +12724,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           'warn',
           `[ASR_BOTTOM_LOCK_RELEASE] markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} preferredBandTop=${Math.round(preferredBandTop)} preferredBandBottom=${Math.round(preferredBandBottom)} toleratedBandBottom=${Math.round(toleratedBandBottom)} deltaLines=${Number.isFinite(pocketDeltaLines) ? pocketDeltaLines.toFixed(2) : 'NaN'} pocketOffsetPx=${Number.isFinite(pocketOffsetPx) ? Math.round(pocketOffsetPx) : -1} pxps=${Math.round(comfortNudgePxps)} proofSource=${String(liveAsrBridgeVisualComfortProofSource || 'live_follow_tick')} authority=${String(liveAsrVisualEnvelopeLeashAuthority || (semanticProofHealthy ? 'proof' : 'none'))} bridgeBlocked=${bridgeHoldContextActive ? 1 : 0} reason=${bottomLockReleaseReason}`,
           {
-            minMs: 500,
+            minMs: 1500,
             signature: [
               Math.round(markerY / 8),
               Math.round(nextLineY / 8),
@@ -13880,6 +14020,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx as number)
         ? Math.max(0, Math.floor(Number(liveAsrCommitteeAcceptedCommitTargetIdx)))
         : visualDebtCatchupCurrentLine;
+    const visualDebtCatchupAcceptedLine =
+      Number.isFinite(resolvedCommand.allowedTargetIdx as number)
+        ? Math.max(0, Math.floor(Number(resolvedCommand.allowedTargetIdx)))
+        : visualDebtCatchupCommittedLine;
+    const visualDebtCatchupNextSpeakableLine =
+      Number.isFinite(liveAsrVisualPursuitLineIdx as number)
+        ? Math.max(0, Math.floor(Number(liveAsrVisualPursuitLineIdx)))
+        : visualDebtCatchupAcceptedLine;
     const visualDebtCatchupMarkerLockActive =
       String(liveAsrCommitteeMarkerLockState || '').toLowerCase().includes('marker_lock');
     const visualDebtCatchupSafetyThresholdPx = Math.min(
@@ -13913,6 +14061,111 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     visualDebtCatchupAllowed = visualDebtCatchupDecision.allowed;
     visualDebtCatchupBlockedReason = visualDebtCatchupDecision.blockedReason;
     visualDebtCatchupDecisionReason = visualDebtCatchupDecision.decisionReason;
+    const acceptedLocalLagWindow = evaluateAcceptedLocalLagWindow({
+      currentLine: visualDebtCatchupCurrentLine,
+      committedLine: visualDebtCatchupCommittedLine,
+      acceptedLine: visualDebtCatchupAcceptedLine,
+      targetLine: visualDebtCatchupTargetLine,
+      nextSpeakableLine: visualDebtCatchupNextSpeakableLine,
+      localWindowLines: ASR_ACCEPTED_LOCAL_LAG_LOCAL_WINDOW_LINES,
+    });
+    const acceptedLocalLagCoherenceReason = acceptedLocalLagWindow.coherenceReason;
+    const acceptedLocalLagCanReconcile =
+      visualDebtCatchupBlockedReason === 'incoherent_current_commit_lines' &&
+      actuatorSpeechFresh &&
+      significantVisualDebtActive &&
+      !visualDebtCatchupExistingMoveSufficient &&
+      resolvedCommand.movementAllowed &&
+      resolvedCommand.cappedTargetSafe &&
+      !actuatorNoMatchOrOffscript &&
+      !hardContradictionActive &&
+      !atScrollLimit &&
+      acceptedLocalLagWindow.withinLocalWindow &&
+      err >= Math.max(ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX, safeResolverLineHeightPx * 0.5) &&
+      Math.abs(move) <= Math.max(Math.round(safeResolverLineHeightPx * 0.5), effectiveMinStepPx);
+    if (acceptedLocalLagCanReconcile) {
+      visualDebtCatchupAllowed = true;
+      visualDebtCatchupBlockedReason = '';
+      visualDebtCatchupDecisionReason = 'accepted_local_lag_reconciled';
+      if (isDevMode()) {
+        emitDevDiagnostic(
+          'ASR_ACCEPTED_LOCAL_LAG_RECONCILED',
+          'warn',
+          buildAsrAcceptedLocalLagReconciledDiagnostic({
+            currentLineIdx: visualDebtCatchupCurrentLine,
+            committedLineIdx: visualDebtCatchupCommittedLine,
+            acceptedLineIdx: visualDebtCatchupAcceptedLine,
+            targetLineIdx: visualDebtCatchupTargetLine,
+            nextSpeakableLineIdx: visualDebtCatchupNextSpeakableLine,
+            currentScrollTop: beforeScrollTop,
+            targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop,
+            proposedScrollTop: beforeScrollTop + visualDebtCatchupProposedMovePx,
+            actualMovedPx: 0,
+            lineDeltaCurrentToCommitted: acceptedLocalLagWindow.lineDeltaCurrentToCommitted,
+            lineDeltaCurrentToTarget: acceptedLocalLagWindow.lineDeltaCurrentToTarget,
+            lineDeltaCommittedToTarget: acceptedLocalLagWindow.lineDeltaCommittedToTarget,
+            lineDeltaCommittedToAccepted: acceptedLocalLagWindow.lineDeltaCommittedToAccepted,
+            lineDeltaToNextSpeakable: acceptedLocalLagWindow.lineDeltaToNextSpeakable,
+            blockedReason: 'incoherent_current_commit_lines',
+            coherenceReason: acceptedLocalLagCoherenceReason,
+            speechFresh: actuatorSpeechFresh,
+            terminalClampActive: atScrollLimit,
+            correctionPx: visualDebtCatchupProposedMovePx,
+            movementAllowed: resolvedCommand.movementAllowed,
+            authoritySource: String(liveTickSelectedAuthority || 'none'),
+          }),
+          {
+            minMs: 500,
+            signature: [
+              visualDebtCatchupCurrentLine,
+              visualDebtCatchupCommittedLine,
+              visualDebtCatchupAcceptedLine,
+              visualDebtCatchupNextSpeakableLine,
+              Math.round(visualDebtCatchupProposedMovePx / 12),
+            ].join('|'),
+          },
+        );
+      }
+    } else if (visualDebtCatchupBlockedReason === 'incoherent_current_commit_lines' && isDevMode()) {
+      emitDevDiagnostic(
+        'ASR_ACCEPTED_LOCAL_LAG_BLOCKED',
+        'info',
+        buildAsrAcceptedLocalLagBlockedDiagnostic({
+          currentLineIdx: visualDebtCatchupCurrentLine,
+          committedLineIdx: visualDebtCatchupCommittedLine,
+          acceptedLineIdx: visualDebtCatchupAcceptedLine,
+          targetLineIdx: visualDebtCatchupTargetLine,
+          nextSpeakableLineIdx: visualDebtCatchupNextSpeakableLine,
+          currentScrollTop: beforeScrollTop,
+          targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop,
+          proposedScrollTop: beforeScrollTop + visualDebtCatchupProposedMovePx,
+          actualMovedPx: 0,
+          lineDeltaCurrentToCommitted: acceptedLocalLagWindow.lineDeltaCurrentToCommitted,
+          lineDeltaCurrentToTarget: acceptedLocalLagWindow.lineDeltaCurrentToTarget,
+          lineDeltaCommittedToTarget: acceptedLocalLagWindow.lineDeltaCommittedToTarget,
+          lineDeltaCommittedToAccepted: acceptedLocalLagWindow.lineDeltaCommittedToAccepted,
+          lineDeltaToNextSpeakable: acceptedLocalLagWindow.lineDeltaToNextSpeakable,
+          blockedReason: 'incoherent_current_commit_lines',
+          coherenceReason: acceptedLocalLagCoherenceReason,
+          speechFresh: actuatorSpeechFresh,
+          terminalClampActive: atScrollLimit,
+          correctionPx: visualDebtCatchupProposedMovePx,
+          movementAllowed: resolvedCommand.movementAllowed,
+          authoritySource: String(liveTickSelectedAuthority || 'none'),
+        }),
+        {
+          minMs: 750,
+          signature: [
+            visualDebtCatchupCurrentLine,
+            visualDebtCatchupCommittedLine,
+            visualDebtCatchupAcceptedLine,
+            visualDebtCatchupNextSpeakableLine,
+            actuatorSpeechFresh ? 1 : 0,
+            atScrollLimit ? 1 : 0,
+          ].join('|'),
+        },
+      );
+    }
     if (significantVisualDebtActive) {
       try {
         console.info(buildAsrVisualDebtCatchupEvaluationSeenDiagnostic({
@@ -13943,21 +14196,37 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       } catch {}
       if (!visualDebtCatchupAllowed) {
         try {
-          console.warn(buildAsrVisualDebtCatchupBlockedDiagnostic({
-            debtPx: arithmeticTargetDebtPx,
-            lineHeightPx: safeResolverLineHeightPx,
-            proposedMovePx: visualDebtCatchupProposedMovePx,
+          emitDevDiagnostic(
+            'ASR_VISUAL_DEBT_CATCHUP_BLOCKED',
+            'warn',
+            buildAsrVisualDebtCatchupBlockedDiagnostic({
+              debtPx: arithmeticTargetDebtPx,
+              lineHeightPx: safeResolverLineHeightPx,
+              proposedMovePx: visualDebtCatchupProposedMovePx,
             blockedReason: visualDebtCatchupBlockedReason,
             postCommitGapMs,
             requiredGapMs: visualDebtCatchupDecision.requiredGapMs,
             reducedGapEligible: visualDebtCatchupDecision.reducedGapEligible,
             recentSafeCommitAgeMs: visualDebtCatchupDecision.recentSafeCommitAgeMs,
             consecutiveDebtObservations: liveAsrVisualDebtCatchupObservationCount,
-            currentLineIdx: visualDebtCatchupCurrentLine,
-            committedLineIdx: visualDebtCatchupCommittedLine,
-            targetLineIdx: visualDebtCatchupTargetLine,
-            decisionReason: visualDebtCatchupDecisionReason,
-          }));
+              currentLineIdx: visualDebtCatchupCurrentLine,
+              committedLineIdx: visualDebtCatchupCommittedLine,
+              targetLineIdx: visualDebtCatchupTargetLine,
+              decisionReason: visualDebtCatchupDecisionReason,
+            }),
+            {
+              minMs: visualDebtCatchupBlockedReason === 'terminal_clamp' ? 1800 : 500,
+              signature: [
+                visualDebtCatchupCurrentLine,
+                visualDebtCatchupCommittedLine,
+                visualDebtCatchupTargetLine ?? -1,
+                visualDebtCatchupBlockedReason,
+                visualDebtCatchupBlockedReason === 'terminal_clamp'
+                  ? 'terminal'
+                  : Math.round((Number(arithmeticTargetDebtPx) || 0) / 12),
+              ].join('|'),
+            },
+          );
         } catch {}
       }
     } else if (liveAsrFollowMode && Number.isFinite(arithmeticTargetDebtPx)) {
@@ -14998,6 +15267,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
+      noteReaderZoneSample({
+        lineIdx: lastLineIndex,
+        sampleMs: frameDtMs,
+        pocketState: lastResolvedPocketState,
+        belowPocketPx: Math.max(0, Number.isFinite(arithmeticTargetDebtPx) ? Number(arithmeticTargetDebtPx) : 0),
+        targetDebtPx: arithmeticTargetDebtPx,
+        appliedDeltaPx,
+        blockedReason:
+          atScrollLimit ? 'terminal_clamp'
+            : (!visualDebtCatchupAllowed && visualDebtCatchupBlockedReason ? visualDebtCatchupBlockedReason
+              : 'none'),
+        authoritySource: String(lastAsrSelectedAuthority || liveTickSelectedAuthority || 'none'),
+        recoveryApplied:
+          liveScrollStallRecoveryApplied ||
+          (visualDebtCatchupAllowed && appliedDeltaPx > 0) ||
+          (resolvedCommand.finalGear === 'recovery' && appliedDeltaPx > 0),
+        terminalClampActive: atScrollLimit,
+      });
       emitAccumulationSnapshotIfNeeded({
         nowTs: freshnessNowTs,
         targetDebtPx: arithmeticTargetDebtPx,
@@ -23160,7 +23447,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     if (isDevMode()) {
       try {
-        console.warn(
+        emitDevDiagnostic(
+          'ASR4_POCKET_DRIFT_AUTHORITY_APPLIED',
+          'warn',
           buildAsr4PocketDriftAuthorityAppliedDiagnostic({
             currentLine: args.state.currentLine,
             committedLine: args.state.committedLine,
@@ -23179,6 +23468,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             movementAllowed,
             reason: args.state.terminalClampActive ? 'terminal_clamp_suppressed' : 'pocket_drift_below_marker',
           }),
+          {
+            minMs: args.state.terminalClampActive || !movementAllowed ? 1800 : 500,
+            signature: [
+              args.state.currentLine,
+              args.state.committedLine,
+              args.state.targetLine ?? -1,
+              authorityAction,
+              movementAllowed ? 1 : 0,
+              args.state.terminalClampActive ? 1 : 0,
+              Math.round(args.state.belowPocketPx / 12),
+            ].join('|'),
+          },
         );
       } catch (error) {
         try {

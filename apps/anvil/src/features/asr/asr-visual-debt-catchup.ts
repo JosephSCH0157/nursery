@@ -33,6 +33,78 @@ export interface DecideAsrVisualDebtCatchupResult {
   currentCommittedCoherent: boolean;
 }
 
+export interface EvaluateAcceptedLocalLagWindowInput {
+  currentLine: number;
+  committedLine: number;
+  acceptedLine: number;
+  targetLine: number | null;
+  nextSpeakableLine: number;
+  localWindowLines: number;
+}
+
+export interface EvaluateAcceptedLocalLagWindowResult {
+  withinLocalWindow: boolean;
+  lineDeltaCurrentToCommitted: number;
+  lineDeltaCurrentToTarget: number;
+  lineDeltaCommittedToTarget: number;
+  lineDeltaCommittedToAccepted: number;
+  lineDeltaToNextSpeakable: number;
+  maxSemanticDistance: number;
+  coherenceReason: string;
+}
+
+export function evaluateAcceptedLocalLagWindow(
+  input: EvaluateAcceptedLocalLagWindowInput,
+): EvaluateAcceptedLocalLagWindowResult {
+  const lineDeltaCurrentToCommitted = input.committedLine - input.currentLine;
+  const targetLine =
+    input.targetLine != null && Number.isFinite(input.targetLine)
+      ? Math.floor(input.targetLine)
+      : input.acceptedLine;
+  const lineDeltaCurrentToTarget = targetLine - input.currentLine;
+  const lineDeltaCommittedToTarget = targetLine - input.committedLine;
+  const lineDeltaCommittedToAccepted = input.acceptedLine - input.committedLine;
+  const lineDeltaToNextSpeakable = input.nextSpeakableLine - input.currentLine;
+  const semanticLines = [
+    input.currentLine,
+    input.committedLine,
+    input.acceptedLine,
+    input.nextSpeakableLine,
+    targetLine,
+  ].filter((line) => Number.isFinite(line));
+  const semanticMin = semanticLines.length > 0 ? Math.min(...semanticLines) : input.currentLine;
+  const semanticMax = semanticLines.length > 0 ? Math.max(...semanticLines) : input.currentLine;
+  const maxSemanticDistance = semanticMax - semanticMin;
+  const forwardSafe =
+    input.committedLine >= input.currentLine &&
+    input.acceptedLine >= input.currentLine &&
+    input.nextSpeakableLine >= input.currentLine &&
+    targetLine >= input.currentLine;
+  const withinLocalWindow =
+    forwardSafe &&
+    maxSemanticDistance <= input.localWindowLines &&
+    semanticMax <= input.currentLine + input.localWindowLines;
+  const coherenceReason = [
+    `current_to_committed=${lineDeltaCurrentToCommitted}`,
+    `current_to_target=${lineDeltaCurrentToTarget}`,
+    `committed_to_target=${lineDeltaCommittedToTarget}`,
+    `committed_to_accepted=${lineDeltaCommittedToAccepted}`,
+    `to_next_speakable=${lineDeltaToNextSpeakable}`,
+    `max_semantic_distance=${maxSemanticDistance}`,
+  ].join(',');
+
+  return {
+    withinLocalWindow,
+    lineDeltaCurrentToCommitted,
+    lineDeltaCurrentToTarget,
+    lineDeltaCommittedToTarget,
+    lineDeltaCommittedToAccepted,
+    lineDeltaToNextSpeakable,
+    maxSemanticDistance,
+    coherenceReason,
+  };
+}
+
 export function decideAsrVisualDebtCatchup(
   input: DecideAsrVisualDebtCatchupInput,
 ): DecideAsrVisualDebtCatchupResult {

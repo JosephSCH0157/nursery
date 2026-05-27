@@ -15,6 +15,9 @@ import {
   buildAsrLowPocketFreezeFarTargetReconciledDiagnostic,
   buildAsrApprovedVisualSmoothingBypassedDiagnostic,
   buildAsrApprovedVisualSmoothingRebasedDiagnostic,
+  buildAsrAcceptedLocalLagReconciledDiagnostic,
+  buildAsrAcceptedLocalLagBlockedDiagnostic,
+  buildAsrReaderZoneSummaryDiagnostic,
   buildAsr4VisualRecoveryAuthorityAppliedDiagnostic,
   buildAsr4VisualRecoveryStateDiagnostic,
   buildAsr4FreshTailVetoDiagnostic,
@@ -649,6 +652,85 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR_APPROVED_VISUAL_SMOOTHING_REBASED] authority=safe_live_pocket_correction currentLineIdx=155 committedLineIdx=157 nextSpeakableLineIdx=157 currentScrollTop=11046 previousTargetScrollTop=11102 approvedTargetScrollTop=11148 correctionPx=102 previousReason=safe-live-pocket-correction smoothingReason=asr-low-pocket-freeze-far-target-reconcile rebaseReason=newer_approved_target',
+    );
+  });
+
+  test('builds accepted local lag reconciled diagnostic with expected fields', () => {
+    const line = buildAsrAcceptedLocalLagReconciledDiagnostic({
+      currentLineIdx: 185,
+      committedLineIdx: 187,
+      acceptedLineIdx: 186,
+      targetLineIdx: 186,
+      nextSpeakableLineIdx: 186,
+      currentScrollTop: 13082,
+      targetScrollTop: 13177,
+      proposedScrollTop: 13138,
+      actualMovedPx: 0,
+      lineDeltaCurrentToCommitted: 2,
+      lineDeltaCurrentToTarget: 1,
+      lineDeltaCommittedToTarget: -1,
+      lineDeltaCommittedToAccepted: -1,
+      lineDeltaToNextSpeakable: 1,
+      blockedReason: 'incoherent_current_commit_lines',
+      coherenceReason: 'current_to_committed=2,current_to_target=1,committed_to_target=-1,committed_to_accepted=-1,to_next_speakable=1,max_semantic_distance=2',
+      speechFresh: true,
+      terminalClampActive: false,
+      correctionPx: 56,
+      movementAllowed: true,
+      authoritySource: 'live_follow',
+    });
+    expect(line).toBe(
+      '[ASR_ACCEPTED_LOCAL_LAG_RECONCILED] currentLineIdx=185 committedLineIdx=187 acceptedLineIdx=186 targetLineIdx=186 nextSpeakableLineIdx=186 currentScrollTop=13082 targetScrollTop=13177 proposedScrollTop=13138 actualMovedPx=0 lineDeltaCurrentToCommitted=2 lineDeltaCurrentToTarget=1 lineDeltaCommittedToTarget=-1 lineDeltaCommittedToAccepted=-1 lineDeltaToNextSpeakable=1 blockedReason=incoherent_current_commit_lines coherenceReason=current_to_committed=2,current_to_target=1,committed_to_target=-1,committed_to_accepted=-1,to_next_speakable=1,max_semantic_distance=2 speechFresh=1 terminalClampActive=0 correctionPx=56 movementAllowed=1 authoritySource=live_follow',
+    );
+  });
+
+  test('builds accepted local lag blocked diagnostic with expected fields', () => {
+    const line = buildAsrAcceptedLocalLagBlockedDiagnostic({
+      currentLineIdx: 185,
+      committedLineIdx: 187,
+      acceptedLineIdx: 188,
+      targetLineIdx: 186,
+      nextSpeakableLineIdx: 188,
+      currentScrollTop: 13082,
+      targetScrollTop: 13177,
+      proposedScrollTop: 13138,
+      actualMovedPx: 0,
+      lineDeltaCurrentToCommitted: 2,
+      lineDeltaCurrentToTarget: 1,
+      lineDeltaCommittedToTarget: -1,
+      lineDeltaCommittedToAccepted: 1,
+      lineDeltaToNextSpeakable: 3,
+      blockedReason: 'incoherent_current_commit_lines',
+      coherenceReason: 'current_to_committed=2,current_to_target=1,committed_to_target=-1,committed_to_accepted=1,to_next_speakable=3,max_semantic_distance=3',
+      speechFresh: true,
+      terminalClampActive: false,
+      correctionPx: 56,
+      movementAllowed: true,
+      authoritySource: 'live_follow',
+    });
+    expect(line).toBe(
+      '[ASR_ACCEPTED_LOCAL_LAG_BLOCKED] currentLineIdx=185 committedLineIdx=187 acceptedLineIdx=188 targetLineIdx=186 nextSpeakableLineIdx=188 currentScrollTop=13082 targetScrollTop=13177 proposedScrollTop=13138 actualMovedPx=0 lineDeltaCurrentToCommitted=2 lineDeltaCurrentToTarget=1 lineDeltaCommittedToTarget=-1 lineDeltaCommittedToAccepted=1 lineDeltaToNextSpeakable=3 blockedReason=incoherent_current_commit_lines coherenceReason=current_to_committed=2,current_to_target=1,committed_to_target=-1,committed_to_accepted=1,to_next_speakable=3,max_semantic_distance=3 speechFresh=1 terminalClampActive=0 correctionPx=56 movementAllowed=1 authoritySource=live_follow',
+    );
+  });
+
+  test('builds reader zone summary diagnostic with expected fields', () => {
+    const line = buildAsrReaderZoneSummaryDiagnostic({
+      bucketStartLineIdx: 150,
+      bucketEndLineIdx: 174,
+      timeInPocketMs: 2200,
+      timeBelowPocketMs: 4800,
+      maxBelowPocketPx: 103,
+      readerWaitTimeMs: 3100,
+      negativeErrorZeroVelocityMs: 450,
+      visualCorrectionCount: 12,
+      blockedCorrectionCount: 5,
+      recoveryCount: 4,
+      terminalClampCount: 1,
+      dominantBlockedReason: 'incoherent_current_commit_lines',
+      dominantAuthoritySource: 'stall_recovery',
+    });
+    expect(line).toBe(
+      '[ASR_READER_ZONE_SUMMARY] bucketStartLineIdx=150 bucketEndLineIdx=174 timeInPocketMs=2200 timeBelowPocketMs=4800 maxBelowPocketPx=103 readerWaitTimeMs=3100 negativeErrorZeroVelocityMs=450 visualCorrectionCount=12 blockedCorrectionCount=5 recoveryCount=4 terminalClampCount=1 dominantBlockedReason=incoherent_current_commit_lines dominantAuthoritySource=stall_recovery',
     );
   });
 

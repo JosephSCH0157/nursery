@@ -1508,3 +1508,75 @@ export function buildAsrApprovedVisualSmoothingRebasedDiagnostic(args: {
 }): string {
   return `[ASR_APPROVED_VISUAL_SMOOTHING_REBASED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} previousTargetScrollTop=${Math.round(args.previousTargetScrollTop)} approvedTargetScrollTop=${Math.round(args.approvedTargetScrollTop)} correctionPx=${Math.round(args.correctionPx)} previousReason=${args.previousReason || 'unknown'} smoothingReason=${args.smoothingReason || 'unknown'} rebaseReason=${args.rebaseReason || 'unknown'}`;
 }
+
+export function buildAsrAcceptedLocalLagReconciledDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  acceptedLineIdx: number;
+  targetLineIdx: number | null;
+  nextSpeakableLineIdx: number;
+  currentScrollTop: number;
+  targetScrollTop: number;
+  proposedScrollTop: number;
+  actualMovedPx: number;
+  lineDeltaCurrentToCommitted: number;
+  lineDeltaCurrentToTarget: number;
+  lineDeltaCommittedToTarget: number;
+  lineDeltaCommittedToAccepted: number;
+  lineDeltaToNextSpeakable: number;
+  blockedReason: string;
+  coherenceReason: string;
+  speechFresh: boolean;
+  terminalClampActive: boolean;
+  correctionPx: number;
+  movementAllowed: boolean;
+  authoritySource: string;
+}): string {
+  const targetLineIdx = Number.isFinite(args.targetLineIdx as number) ? Math.round(Number(args.targetLineIdx)) : -1;
+  return `[ASR_ACCEPTED_LOCAL_LAG_RECONCILED] currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} acceptedLineIdx=${Math.round(args.acceptedLineIdx)} targetLineIdx=${targetLineIdx} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} proposedScrollTop=${Math.round(args.proposedScrollTop)} actualMovedPx=${Math.round(args.actualMovedPx)} lineDeltaCurrentToCommitted=${Math.round(args.lineDeltaCurrentToCommitted)} lineDeltaCurrentToTarget=${Math.round(args.lineDeltaCurrentToTarget)} lineDeltaCommittedToTarget=${Math.round(args.lineDeltaCommittedToTarget)} lineDeltaCommittedToAccepted=${Math.round(args.lineDeltaCommittedToAccepted)} lineDeltaToNextSpeakable=${Math.round(args.lineDeltaToNextSpeakable)} blockedReason=${args.blockedReason || 'none'} coherenceReason=${args.coherenceReason || 'none'} speechFresh=${args.speechFresh ? 1 : 0} terminalClampActive=${args.terminalClampActive ? 1 : 0} correctionPx=${Math.round(args.correctionPx)} movementAllowed=${args.movementAllowed ? 1 : 0} authoritySource=${args.authoritySource || 'unknown'}`;
+}
+
+export function buildAsrAcceptedLocalLagBlockedDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  acceptedLineIdx: number;
+  targetLineIdx: number | null;
+  nextSpeakableLineIdx: number;
+  currentScrollTop: number;
+  targetScrollTop: number;
+  proposedScrollTop: number;
+  actualMovedPx: number;
+  lineDeltaCurrentToCommitted: number;
+  lineDeltaCurrentToTarget: number;
+  lineDeltaCommittedToTarget: number;
+  lineDeltaCommittedToAccepted: number;
+  lineDeltaToNextSpeakable: number;
+  blockedReason: string;
+  coherenceReason: string;
+  speechFresh: boolean;
+  terminalClampActive: boolean;
+  correctionPx: number;
+  movementAllowed: boolean;
+  authoritySource: string;
+}): string {
+  const targetLineIdx = Number.isFinite(args.targetLineIdx as number) ? Math.round(Number(args.targetLineIdx)) : -1;
+  return `[ASR_ACCEPTED_LOCAL_LAG_BLOCKED] currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} acceptedLineIdx=${Math.round(args.acceptedLineIdx)} targetLineIdx=${targetLineIdx} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} proposedScrollTop=${Math.round(args.proposedScrollTop)} actualMovedPx=${Math.round(args.actualMovedPx)} lineDeltaCurrentToCommitted=${Math.round(args.lineDeltaCurrentToCommitted)} lineDeltaCurrentToTarget=${Math.round(args.lineDeltaCurrentToTarget)} lineDeltaCommittedToTarget=${Math.round(args.lineDeltaCommittedToTarget)} lineDeltaCommittedToAccepted=${Math.round(args.lineDeltaCommittedToAccepted)} lineDeltaToNextSpeakable=${Math.round(args.lineDeltaToNextSpeakable)} blockedReason=${args.blockedReason || 'none'} coherenceReason=${args.coherenceReason || 'none'} speechFresh=${args.speechFresh ? 1 : 0} terminalClampActive=${args.terminalClampActive ? 1 : 0} correctionPx=${Math.round(args.correctionPx)} movementAllowed=${args.movementAllowed ? 1 : 0} authoritySource=${args.authoritySource || 'unknown'}`;
+}
+
+export function buildAsrReaderZoneSummaryDiagnostic(args: {
+  bucketStartLineIdx: number;
+  bucketEndLineIdx: number;
+  timeInPocketMs: number;
+  timeBelowPocketMs: number;
+  maxBelowPocketPx: number;
+  readerWaitTimeMs: number;
+  negativeErrorZeroVelocityMs: number;
+  visualCorrectionCount: number;
+  blockedCorrectionCount: number;
+  recoveryCount: number;
+  terminalClampCount: number;
+  dominantBlockedReason: string;
+  dominantAuthoritySource: string;
+}): string {
+  return `[ASR_READER_ZONE_SUMMARY] bucketStartLineIdx=${Math.round(args.bucketStartLineIdx)} bucketEndLineIdx=${Math.round(args.bucketEndLineIdx)} timeInPocketMs=${Math.round(args.timeInPocketMs)} timeBelowPocketMs=${Math.round(args.timeBelowPocketMs)} maxBelowPocketPx=${Math.round(args.maxBelowPocketPx)} readerWaitTimeMs=${Math.round(args.readerWaitTimeMs)} negativeErrorZeroVelocityMs=${Math.round(args.negativeErrorZeroVelocityMs)} visualCorrectionCount=${Math.round(args.visualCorrectionCount)} blockedCorrectionCount=${Math.round(args.blockedCorrectionCount)} recoveryCount=${Math.round(args.recoveryCount)} terminalClampCount=${Math.round(args.terminalClampCount)} dominantBlockedReason=${args.dominantBlockedReason || 'none'} dominantAuthoritySource=${args.dominantAuthoritySource || 'none'}`;
+}
