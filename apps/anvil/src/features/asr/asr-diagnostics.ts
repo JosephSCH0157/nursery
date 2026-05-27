@@ -1312,7 +1312,11 @@ export function buildAsr4VisualRecoveryAuthorityAppliedDiagnostic(args: {
   targetPreservedForEasing: boolean;
   visualSnapSuppressed: boolean;
   liveScrollStalled: boolean;
-  authorityAction: 'force_marker_lock_correction' | 'force_safe_direct_write' | 'freeze_far_visual_target';
+  authorityAction:
+    | 'force_marker_lock_correction'
+    | 'force_safe_direct_write'
+    | 'freeze_far_visual_target'
+    | 'lead_pressure_capped_forward_step';
   movementAllowed: boolean;
   reason: string;
 }): string {
@@ -1383,7 +1387,11 @@ export function buildAsr4PocketDriftAuthorityAppliedDiagnostic(args: {
   consecutiveBelowPocketCount: number;
   cooldownActive: boolean;
   terminalClampActive: boolean;
-  authorityAction: 'force_marker_lock_to_pocket' | 'suppress_terminal_clamp' | 'freeze_far_target';
+  authorityAction:
+    | 'force_marker_lock_to_pocket'
+    | 'suppress_terminal_clamp'
+    | 'freeze_far_target'
+    | 'lead_pressure_capped_forward_step';
   movementAllowed: boolean;
   reason: 'pocket_drift_below_marker' | 'terminal_clamp_suppressed';
 }): string {

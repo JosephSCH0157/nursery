@@ -3124,6 +3124,284 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let preservedAsrAuthorityTargetTop: number | null = null;
   let preservedAsrAuthorityTargetReason = 'none';
   let preservedAsrAuthorityTargetSourcePath = 'none';
+  let asrVisualAuthorityLeadPressureCapReadyLogged = false;
+  let lastAuthorityMatchBestIdx = -1;
+  let lastAuthorityMatchBestSim = Number.NaN;
+  const formatAsrVisualAuthorityLeadPressureDiagnostic = (
+    tag:
+      | 'ASR_VISUAL_AUTHORITY_LEAD_PRESSURE_CAP_READY'
+      | 'ASR_VISUAL_AUTHORITY_LEAD_PRESSURE_EVALUATED'
+      | 'ASR_VISUAL_AUTHORITY_LEAD_PRESSURE_CAPPED'
+      | 'ASR_VISUAL_AUTHORITY_LEAD_PRESSURE_BYPASSED',
+    payload: {
+      authoritySource: string;
+      currentScrollTop: number;
+      proposedScrollTop: number;
+      resultingScrollTop: number;
+      targetScrollTop: number;
+      proposedDeltaPx: number;
+      cappedDeltaPx: number;
+      lineHeightPx: number;
+      currentLineIdx: number;
+      committedLineIdx: number;
+      targetLineIdx: number;
+      matchBestIdx: number;
+      matchBestSim: number;
+      speechFresh: boolean;
+      speakableLead: number;
+      renderedLead: number;
+      leadState: string;
+      readerPressureDetected: boolean;
+      decision: string;
+      reason: string;
+    },
+  ) =>
+    `[${tag}] authoritySource=${payload.authoritySource} currentScrollTop=${Math.round(payload.currentScrollTop)} proposedScrollTop=${Math.round(payload.proposedScrollTop)} resultingScrollTop=${Math.round(payload.resultingScrollTop)} targetScrollTop=${Math.round(payload.targetScrollTop)} proposedDeltaPx=${Math.round(payload.proposedDeltaPx)} cappedDeltaPx=${Math.round(payload.cappedDeltaPx)} lineHeightPx=${Math.round(payload.lineHeightPx)} currentLineIdx=${payload.currentLineIdx} committedLineIdx=${payload.committedLineIdx} targetLineIdx=${payload.targetLineIdx} matchBestIdx=${payload.matchBestIdx} matchBestSim=${Number.isFinite(payload.matchBestSim) ? payload.matchBestSim.toFixed(3) : 'NaN'} speechFresh=${payload.speechFresh ? 1 : 0} speakableLead=${payload.speakableLead} renderedLead=${payload.renderedLead} leadState=${payload.leadState} readerPressureDetected=${payload.readerPressureDetected ? 1 : 0} decision=${payload.decision} reason=${payload.reason}`;
+  const ensureAsrVisualAuthorityLeadPressureCapReady = () => {
+    if (asrVisualAuthorityLeadPressureCapReadyLogged) return;
+    asrVisualAuthorityLeadPressureCapReadyLogged = true;
+    try {
+      console.warn(
+        formatAsrVisualAuthorityLeadPressureDiagnostic(
+          'ASR_VISUAL_AUTHORITY_LEAD_PRESSURE_CAP_READY',
+          {
+            authoritySource: 'asr4-pocket-drift-authority|asr4-visual-recovery-authority',
+            currentScrollTop: 0,
+            proposedScrollTop: 0,
+            resultingScrollTop: 0,
+            targetScrollTop: 0,
+            proposedDeltaPx: 0,
+            cappedDeltaPx: 0,
+            lineHeightPx: 0,
+            currentLineIdx: -1,
+            committedLineIdx: -1,
+            targetLineIdx: -1,
+            matchBestIdx: -1,
+            matchBestSim: Number.NaN,
+            speechFresh: false,
+            speakableLead: 0,
+            renderedLead: 0,
+            leadState: 'ready',
+            readerPressureDetected: false,
+            decision: 'ready',
+            reason: 'authority_cap_installed',
+          },
+        ),
+      );
+    } catch {}
+  };
+  const evaluateAsrVisualAuthorityLeadPressure = (input: {
+    authoritySource: 'asr4-pocket-drift-authority' | 'asr4-visual-recovery-authority';
+    source: 'asr-follow' | 'asr-commit';
+    scroller: HTMLElement;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    targetLineIdx: number | null;
+    currentScrollTop: number;
+    proposedScrollTop: number;
+    targetScrollTop?: number | null;
+    lineHeightPx: number;
+    maxScrollTop: number;
+  }): null | {
+    appliedTop: number;
+    movedPx: number;
+    authorityAction: 'lead_pressure_capped_forward_step';
+  } => {
+    ensureAsrVisualAuthorityLeadPressureCapReady();
+    const nowTs = Date.now();
+    const currentScrollTop = Number.isFinite(input.currentScrollTop) ? Number(input.currentScrollTop) : 0;
+    const proposedScrollTop = Number.isFinite(input.proposedScrollTop) ? Number(input.proposedScrollTop) : currentScrollTop;
+    const targetScrollTop = Number.isFinite(input.targetScrollTop as number)
+      ? Number(input.targetScrollTop)
+      : proposedScrollTop;
+    const lineHeightPx = clamp(Number.isFinite(input.lineHeightPx) ? Number(input.lineHeightPx) : 24, 12, 320);
+    const proposedDeltaPx = proposedScrollTop - currentScrollTop;
+    const currentLineIdx = Math.max(0, Math.floor(Number(input.currentLineIdx) || 0));
+    const committedLineIdx = Math.max(0, Math.floor(Number(input.committedLineIdx) || currentLineIdx));
+    const targetLineIdx = Number.isFinite(input.targetLineIdx as number)
+      ? Math.max(0, Math.floor(Number(input.targetLineIdx)))
+      : committedLineIdx;
+    const matchBestIdx = Number.isFinite(lastAuthorityMatchBestIdx)
+      ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx)))
+      : -1;
+    const matchBestSim = Number.isFinite(lastAuthorityMatchBestSim)
+      ? Number(lastAuthorityMatchBestSim)
+      : Number.NaN;
+    const confirmedSpoken = Math.max(
+      0,
+      lastStrongConfirmedSpokenLine,
+      Number.isFinite(lastFreshProofLine) ? Math.max(0, lastFreshProofLine) : 0,
+    );
+    const speechFresh =
+      asrRuntimeSpeechRunningActual ||
+      hasRecentActualSpeech(nowTs) ||
+      hasRecentVadSpeechNow(nowTs) ||
+      (lastFinalTranscriptAt > 0 && (nowTs - lastFinalTranscriptAt) <= 1200);
+    const semanticAheadIdx = Math.max(
+      currentLineIdx,
+      committedLineIdx,
+      targetLineIdx,
+      matchBestIdx >= 0 ? matchBestIdx : currentLineIdx,
+    );
+    const speakableLead = Math.max(0, countSpeakableDistanceAhead(confirmedSpoken, semanticAheadIdx));
+    const renderedLead = Math.max(0, semanticAheadIdx - confirmedSpoken);
+    const leadState = classifyVisualLead({
+      speakableLead,
+      renderedLead,
+      softLeadStart: ASR_VISUAL_SOFT_LEAD_START,
+      hardLeadStart: ASR_VISUAL_HARD_LEAD_START,
+    }).leadState;
+    const semanticDeltaLines = Math.max(
+      0,
+      matchBestIdx >= 0 ? Math.abs(matchBestIdx - currentLineIdx) : 0,
+      Math.abs(committedLineIdx - currentLineIdx),
+      Math.abs(targetLineIdx - currentLineIdx),
+    );
+    const readerPressureDetected =
+      leadState === 'ahead' ||
+      leadState === 'far_ahead' ||
+      speakableLead >= 1 ||
+      renderedLead >= 1;
+    const multiLineSemanticJump = semanticDeltaLines >= 2;
+    const highVisualPressure =
+      proposedDeltaPx > (lineHeightPx * 0.9) ||
+      (proposedDeltaPx / Math.max(1, lineHeightPx)) >= 1;
+    const shouldCap =
+      proposedDeltaPx > 0.5 &&
+      speechFresh &&
+      multiLineSemanticJump &&
+      readerPressureDetected &&
+      highVisualPressure;
+    const capLines =
+      leadState === 'far_ahead' || speakableLead >= 2 || renderedLead >= 3
+        ? 0.5
+        : 0.75;
+    const cappedScrollTop = clamp(currentScrollTop + Math.min(proposedDeltaPx, lineHeightPx * capLines), 0, input.maxScrollTop);
+    const evaluatedDecision = shouldCap ? 'cap_forward_step' : 'allow_full_write';
+    const evaluatedReason =
+      !Number.isFinite(proposedDeltaPx) || proposedDeltaPx <= 0.5
+        ? 'non_forward_or_tiny_step'
+        : !speechFresh
+          ? 'speech_not_fresh'
+          : !multiLineSemanticJump
+            ? 'not_multi_line_semantic_jump'
+            : !readerPressureDetected
+              ? 'reader_pressure_not_detected'
+              : !highVisualPressure
+                ? 'visual_pressure_below_cap_threshold'
+                : 'fresh_semantic_lead_pressure_detected';
+    try {
+      console.warn(
+        formatAsrVisualAuthorityLeadPressureDiagnostic(
+          'ASR_VISUAL_AUTHORITY_LEAD_PRESSURE_EVALUATED',
+          {
+            authoritySource: input.authoritySource,
+            currentScrollTop,
+            proposedScrollTop,
+            resultingScrollTop: shouldCap ? cappedScrollTop : proposedScrollTop,
+            targetScrollTop,
+            proposedDeltaPx,
+            cappedDeltaPx: shouldCap ? cappedScrollTop - currentScrollTop : proposedDeltaPx,
+            lineHeightPx,
+            currentLineIdx,
+            committedLineIdx,
+            targetLineIdx,
+            matchBestIdx,
+            matchBestSim,
+            speechFresh,
+            speakableLead,
+            renderedLead,
+            leadState,
+            readerPressureDetected,
+            decision: evaluatedDecision,
+            reason: evaluatedReason,
+          },
+        ),
+      );
+    } catch {}
+    if (!shouldCap || cappedScrollTop >= proposedScrollTop - 0.5) {
+      try {
+        console.warn(
+          formatAsrVisualAuthorityLeadPressureDiagnostic(
+            'ASR_VISUAL_AUTHORITY_LEAD_PRESSURE_BYPASSED',
+            {
+              authoritySource: input.authoritySource,
+              currentScrollTop,
+              proposedScrollTop,
+              resultingScrollTop: proposedScrollTop,
+              targetScrollTop,
+              proposedDeltaPx,
+              cappedDeltaPx: proposedDeltaPx,
+              lineHeightPx,
+              currentLineIdx,
+              committedLineIdx,
+              targetLineIdx,
+              matchBestIdx,
+              matchBestSim,
+              speechFresh,
+              speakableLead,
+              renderedLead,
+              leadState,
+              readerPressureDetected,
+              decision: 'allow_full_write',
+              reason: shouldCap ? 'proposed_step_already_within_cap' : evaluatedReason,
+            },
+          ),
+        );
+      } catch {}
+      return null;
+    }
+    const applied = applyCanonicalScrollTop(cappedScrollTop, {
+      scroller: input.scroller,
+      reason: input.authoritySource,
+      source: input.source,
+    });
+    const appliedTop = Number.isFinite(applied)
+      ? Number(applied)
+      : Number(input.scroller.scrollTop || cappedScrollTop);
+    asr4VisualRecoveryLastDirectWriteBlocked = true;
+    asr4VisualRecoveryLastTargetPreservedForEasing = true;
+    preservedAsrAuthorityTargetTop = targetScrollTop;
+    preservedAsrAuthorityTargetReason = `${input.authoritySource}:lead_pressure_capped`;
+    preservedAsrAuthorityTargetSourcePath = input.authoritySource;
+    pursuitTargetTop = targetScrollTop;
+    ensurePursuitActive();
+    try {
+      console.warn(
+        formatAsrVisualAuthorityLeadPressureDiagnostic(
+          'ASR_VISUAL_AUTHORITY_LEAD_PRESSURE_CAPPED',
+          {
+            authoritySource: input.authoritySource,
+            currentScrollTop,
+            proposedScrollTop,
+            resultingScrollTop: appliedTop,
+            targetScrollTop,
+            proposedDeltaPx,
+            cappedDeltaPx: appliedTop - currentScrollTop,
+            lineHeightPx,
+            currentLineIdx,
+            committedLineIdx,
+            targetLineIdx,
+            matchBestIdx,
+            matchBestSim,
+            speechFresh,
+            speakableLead,
+            renderedLead,
+            leadState,
+            readerPressureDetected,
+            decision: 'cap_forward_step',
+            reason: 'fresh_semantic_lead_pressure_capped',
+          },
+        ),
+      );
+    } catch {}
+    return {
+      appliedTop,
+      movedPx: Math.round(appliedTop - currentScrollTop),
+      authorityAction: 'lead_pressure_capped_forward_step',
+    };
+  };
+  ensureAsrVisualAuthorityLeadPressureCapReady();
   const maybeExpireStalePreservedRecoveryTarget = (args: {
     previousTargetScrollTop: number;
     pocketTargetScrollTop: number;
@@ -23403,13 +23681,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     applied: boolean;
     afterScrollTop: number;
     movedPx: number;
-    authorityAction: 'force_marker_lock_to_pocket' | 'suppress_terminal_clamp' | 'freeze_far_target';
+    authorityAction:
+      | 'force_marker_lock_to_pocket'
+      | 'suppress_terminal_clamp'
+      | 'freeze_far_target'
+      | 'lead_pressure_capped_forward_step';
     movementAllowed: boolean;
   } => {
     const beforeScrollTop = Number(args.state.currentScrollTop || 0);
     let afterScrollTop = beforeScrollTop;
     let movedPx = 0;
-    let authorityAction: 'force_marker_lock_to_pocket' | 'suppress_terminal_clamp' | 'freeze_far_target' =
+    let authorityAction:
+      | 'force_marker_lock_to_pocket'
+      | 'suppress_terminal_clamp'
+      | 'freeze_far_target'
+      | 'lead_pressure_capped_forward_step' =
       'freeze_far_target';
     let movementAllowed = false;
     if (args.state.terminalClampActive) {
@@ -23428,15 +23714,32 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const maxTop = Math.max(0, (args.scroller.scrollHeight || 0) - args.scroller.clientHeight);
         const correctedTop = clamp(beforeScrollTop + (rowCenter - args.state.markerTopPx), 0, maxTop);
         if (Math.abs(correctedTop - beforeScrollTop) > 0.5) {
-          const applied = applyCanonicalScrollTop(correctedTop, {
-            scroller: args.scroller,
-            reason: 'asr4-pocket-drift-authority',
+          const leadPressureCapped = evaluateAsrVisualAuthorityLeadPressure({
+            authoritySource: 'asr4-pocket-drift-authority',
             source: 'asr-follow',
+            scroller: args.scroller,
+            currentLineIdx: args.state.currentLine,
+            committedLineIdx: args.state.committedLine,
+            targetLineIdx: args.state.targetLine,
+            currentScrollTop: beforeScrollTop,
+            proposedScrollTop: correctedTop,
+            targetScrollTop: Number.isFinite(args.state.targetScrollTop as number)
+              ? Number(args.state.targetScrollTop)
+              : correctedTop,
+            lineHeightPx: args.state.lineHeightPx,
+            maxScrollTop: maxTop,
           });
+          const applied = leadPressureCapped
+            ? leadPressureCapped.appliedTop
+            : applyCanonicalScrollTop(correctedTop, {
+              scroller: args.scroller,
+              reason: 'asr4-pocket-drift-authority',
+              source: 'asr-follow',
+            });
           afterScrollTop = Number.isFinite(applied) ? Number(applied) : Number(args.scroller.scrollTop || beforeScrollTop);
           movedPx = Math.round(afterScrollTop - beforeScrollTop);
           if (Math.abs(movedPx) >= 1) {
-            authorityAction = 'force_marker_lock_to_pocket';
+            authorityAction = leadPressureCapped?.authorityAction || 'force_marker_lock_to_pocket';
             movementAllowed = true;
             lastMoveAt = Date.now();
             lastKnownScrollTop = afterScrollTop;
@@ -24003,7 +24306,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     applied: boolean;
     afterScrollTop: number;
     movedPx: number;
-    authorityAction: 'force_marker_lock_correction' | 'force_safe_direct_write' | 'freeze_far_visual_target';
+    authorityAction:
+      | 'force_marker_lock_correction'
+      | 'force_safe_direct_write'
+      | 'freeze_far_visual_target'
+      | 'lead_pressure_capped_forward_step';
     movementAllowed: boolean;
   } => {
     const currentLine = Math.max(0, Math.floor(args.currentLine));
@@ -24018,7 +24325,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const farVisualTarget =
       committedLine > currentLine + 1 ||
       (targetLine != null && targetLine > currentLine + 1);
-    let authorityAction: 'force_marker_lock_correction' | 'force_safe_direct_write' | 'freeze_far_visual_target' =
+    let authorityAction:
+      | 'force_marker_lock_correction'
+      | 'force_safe_direct_write'
+      | 'freeze_far_visual_target'
+      | 'lead_pressure_capped_forward_step' =
       'freeze_far_visual_target';
     let movementAllowed = false;
     let afterScrollTop = Number.isFinite(args.afterScrollTop) ? Number(args.afterScrollTop) : Number(args.beforeScrollTop);
@@ -24041,11 +24352,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const deltaPx = Math.round(rowTop - markerY);
         const correctedTop = clamp(currentScrollTop + deltaPx, 0, maxTop);
         if (Math.abs(correctedTop - currentScrollTop) > 0.5) {
-          const applied = applyCanonicalScrollTop(correctedTop, {
-            scroller: args.scroller,
-            reason: 'asr4-visual-recovery-authority',
+          const leadPressureCapped = evaluateAsrVisualAuthorityLeadPressure({
+            authoritySource: 'asr4-visual-recovery-authority',
             source: 'asr-commit',
+            scroller: args.scroller,
+            currentLineIdx: currentLine,
+            committedLineIdx: committedLine,
+            targetLineIdx: targetLine,
+            currentScrollTop,
+            proposedScrollTop: correctedTop,
+            targetScrollTop: correctedTop,
+            lineHeightPx: clamp(resolveMotionLineHeightPx(targetLineEl), 12, 320),
+            maxScrollTop: maxTop,
           });
+          const applied = leadPressureCapped
+            ? leadPressureCapped.appliedTop
+            : applyCanonicalScrollTop(correctedTop, {
+              scroller: args.scroller,
+              reason: 'asr4-visual-recovery-authority',
+              source: 'asr-commit',
+            });
           afterScrollTop =
             finiteNumberOrNull('asr4.visualRecovery.markerLock.afterTop', Number.isFinite(applied) ? applied : args.scroller.scrollTop, {
               lineIdx: localVisualTargetLine,
@@ -24053,7 +24379,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             }) ?? afterScrollTop;
           movedPx = Math.round(afterScrollTop - args.beforeScrollTop);
           if (Math.abs(movedPx) >= 1) {
-            authorityAction = 'force_marker_lock_correction';
+            authorityAction = leadPressureCapped?.authorityAction || 'force_marker_lock_correction';
             movementAllowed = true;
             lastMoveAt = Date.now();
             lastKnownScrollTop = afterScrollTop;
@@ -24067,11 +24393,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (Number.isFinite(fallbackTop as number)) {
           const desiredTop = clamp(Number(fallbackTop), 0, maxTop);
           if (Math.abs(desiredTop - currentScrollTop) > 0.5) {
-            const applied = applyCanonicalScrollTop(desiredTop, {
-              scroller: args.scroller,
-              reason: 'asr4-visual-recovery-authority',
+            const leadPressureCapped = evaluateAsrVisualAuthorityLeadPressure({
+              authoritySource: 'asr4-visual-recovery-authority',
               source: 'asr-commit',
+              scroller: args.scroller,
+              currentLineIdx: currentLine,
+              committedLineIdx: committedLine,
+              targetLineIdx: targetLine,
+              currentScrollTop,
+              proposedScrollTop: desiredTop,
+              targetScrollTop: desiredTop,
+              lineHeightPx: clamp(resolveMotionLineHeightPx(getLineElementByIndex(args.scroller, localVisualTargetLine)), 12, 320),
+              maxScrollTop: maxTop,
             });
+            const applied = leadPressureCapped
+              ? leadPressureCapped.appliedTop
+              : applyCanonicalScrollTop(desiredTop, {
+                scroller: args.scroller,
+                reason: 'asr4-visual-recovery-authority',
+                source: 'asr-commit',
+              });
             afterScrollTop =
               finiteNumberOrNull('asr4.visualRecovery.directWrite.afterTop', Number.isFinite(applied) ? applied : args.scroller.scrollTop, {
                 lineIdx: localVisualTargetLine,
@@ -24079,7 +24420,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               }) ?? afterScrollTop;
             movedPx = Math.round(afterScrollTop - args.beforeScrollTop);
             if (Math.abs(movedPx) >= 1) {
-              authorityAction = 'force_safe_direct_write';
+              authorityAction = leadPressureCapped?.authorityAction || 'force_safe_direct_write';
               movementAllowed = true;
               lastMoveAt = Date.now();
               lastKnownScrollTop = afterScrollTop;
@@ -24997,6 +25338,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     if (incomingMatch) {
       noMatch = false;
+      lastAuthorityMatchBestIdx = Number.isFinite(Number((incomingMatch as any).bestIdx))
+        ? Math.max(0, Math.floor(Number((incomingMatch as any).bestIdx)))
+        : lastAuthorityMatchBestIdx;
+      lastAuthorityMatchBestSim = Number.isFinite(Number((incomingMatch as any).bestSim))
+        ? Number((incomingMatch as any).bestSim)
+        : lastAuthorityMatchBestSim;
     }
     if (noMatch && !incomingMatch) {
       lastRescueNoMatchAt = now;
