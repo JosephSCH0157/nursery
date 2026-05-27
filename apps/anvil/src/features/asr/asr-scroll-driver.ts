@@ -35,9 +35,12 @@ import {
   buildAsrLowPocketFreezeFarTargetReconciledDiagnostic,
   buildAsrApprovedVisualSmoothingBypassedDiagnostic,
   buildAsrApprovedVisualSmoothingRebasedDiagnostic,
+  buildAsrHoldForwardWriteSuppressedDiagnostic,
+  buildAsrNoSafeTargetForwardSuppressedDiagnostic,
   buildAsrPocketWallBypassedDiagnostic,
   buildAsrPocketWallCappedDiagnostic,
   buildAsrPocketWallEvaluatedDiagnostic,
+  buildAsrSameLineOvershootCappedDiagnostic,
   buildAsrAcceptedLocalLagReconciledDiagnostic,
   buildAsrAcceptedLocalLagBlockedDiagnostic,
   buildAsrReaderZoneSummaryDiagnostic,
@@ -3107,6 +3110,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     scroller: HTMLElement;
     currentTop: number;
     proposedTop: number;
+    targetScrollTop?: number | null;
+    currentLineIdx?: number | null;
+    committedLineIdx?: number | null;
+    nextSpeakableLineIdx?: number | null;
+    allowedTargetIdx?: number | null;
+    selectedAuthority?: string;
+    authorityReason?: string;
     candidateLineIdx?: number | null;
     sourceAuthority: string;
     proofSource?: string;
@@ -3117,6 +3127,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   }): {
     effectiveTop: number;
     reason: string;
+    tolerancePx: number;
+    hasFreshVerifiedForwardCommit: boolean;
   } => {
     const currentTop = Number.isFinite(input.currentTop) ? Number(input.currentTop) : 0;
     const proposedTop = Number.isFinite(input.proposedTop) ? Number(input.proposedTop) : currentTop;
@@ -3132,10 +3144,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastForwardCommitAt > 0 ? Math.max(0, Date.now() - lastForwardCommitAt) : Number.POSITIVE_INFINITY;
     const normalizedGuardReason = String(lastAsrGuardReason || '').trim().toLowerCase();
     const normalizedHudGuard = String(lastAsrHudGuardText || '').trim().toLowerCase();
+    const normalizedAuthorityReason = String(input.authorityReason || '').trim().toLowerCase();
     const normalizedProofSource = String(input.proofSource || '').trim().toLowerCase();
     const normalizedSourceBranch = String(input.sourceBranch || '').trim().toLowerCase();
     const normalizedForceReason = String(input.forceReason || '').trim().toLowerCase();
     const normalizedSourceAuthority = String(input.sourceAuthority || sourceAuthority || 'unknown').trim().toLowerCase();
+    const normalizedSelectedAuthority = String(input.selectedAuthority || '').trim().toLowerCase();
     const ambiguousWallLockActive = [normalizedGuardReason, normalizedHudGuard].some((value) =>
       value.includes('strict forward needs local proof') ||
       value.includes('rescue requires adjacent local proof') ||
@@ -3168,6 +3182,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       candidateLineIdx > authoritativeLineIdx &&
       lastVerifiedCommitAgeMs <= ASR_POCKET_WALL_FRESH_COMMIT_MAX_AGE_MS &&
       proofOwnedForwardSignal;
+    const targetScrollTop = Number.isFinite(input.targetScrollTop as number)
+      ? Number(input.targetScrollTop)
+      : Number.NaN;
+    const currentLineIdx = Number.isFinite(input.currentLineIdx as number)
+      ? Math.max(0, Math.floor(Number(input.currentLineIdx)))
+      : Math.max(0, Math.floor(Number(lastLineIndex) || 0));
+    const committedLineIdx = Number.isFinite(input.committedLineIdx as number)
+      ? Math.max(0, Math.floor(Number(input.committedLineIdx)))
+      : currentLineIdx;
+    const nextSpeakableLineIdx = Number.isFinite(input.nextSpeakableLineIdx as number)
+      ? Math.max(0, Math.floor(Number(input.nextSpeakableLineIdx)))
+      : candidateLineIdx;
+    const allowedTargetIdx = Number.isFinite(input.allowedTargetIdx as number)
+      ? Math.floor(Number(input.allowedTargetIdx))
+      : Math.floor(Number(lastResolvedAllowedTargetIdx));
+    const sameLineVisualCorrection =
+      currentLineIdx === committedLineIdx &&
+      committedLineIdx === nextSpeakableLineIdx;
+    const noSafeTargetForwardLocked =
+      allowedTargetIdx === -1 ||
+      normalizedAuthorityReason === 'no_safe_allowed_target';
     const authoritativeLineEl = getLineElementByIndex(input.scroller, authoritativeLineIdx);
     const lineHeightPx = clamp(
       Number.isFinite(Number(input.lineHeightHintPx))
@@ -3207,18 +3242,36 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         : 'non_forward_or_tiny_step';
     } else if (input.terminalClampActive) {
       pocketWallReason = 'terminal_clamp_bypassed';
-    } else if (!authoritativeLineEl) {
-      pocketWallReason = 'authoritative_line_unavailable';
-    } else if (proposedTop <= maxPocketSafeTop + ASR_POCKET_WALL_NOISE_DELTA_PX) {
-      pocketWallReason = 'forward_write_within_wall';
-    } else if (hasFreshVerifiedForwardCommit) {
-      pocketWallReason = 'fresh_verified_forward_commit';
+    } else if (normalizedSelectedAuthority === 'hold') {
+      effectiveTop = currentTop;
+      pocketWallReason = 'hold_forward_write_suppressed';
+    } else if (noSafeTargetForwardLocked && !hasFreshVerifiedForwardCommit) {
+      effectiveTop = currentTop;
+      pocketWallReason = 'no_safe_target_forward_suppressed';
     } else {
-      effectiveTop = Math.max(currentTop, maxPocketSafeTop);
-      pocketWallReason =
-        effectiveTop <= currentTop + ASR_POCKET_WALL_NOISE_DELTA_PX
-          ? 'wall_locked_tiny_or_noisy_delta'
-          : (invalidUnlockState ? 'wall_locked_guard_state' : 'wall_locked_no_fresh_verified_commit');
+      if (Number.isFinite(targetScrollTop) && !hasFreshVerifiedForwardCommit) {
+        const boundedTargetTop = Math.max(currentTop, targetScrollTop + tolerancePx);
+        if (effectiveTop > boundedTargetTop + ASR_POCKET_WALL_NOISE_DELTA_PX) {
+          effectiveTop = boundedTargetTop;
+          pocketWallReason = sameLineVisualCorrection
+            ? 'same_line_overshoot_capped'
+            : 'target_overshoot_capped';
+        }
+      }
+      if (!authoritativeLineEl) {
+        pocketWallReason =
+          pocketWallReason === 'forward_write_within_wall' && hasFreshVerifiedForwardCommit
+            ? 'fresh_verified_forward_commit'
+            : (pocketWallReason === 'forward_write_within_wall' ? 'authoritative_line_unavailable' : pocketWallReason);
+      } else if (effectiveTop > maxPocketSafeTop + ASR_POCKET_WALL_NOISE_DELTA_PX && !hasFreshVerifiedForwardCommit) {
+        effectiveTop = Math.max(currentTop, maxPocketSafeTop);
+        pocketWallReason =
+          effectiveTop <= currentTop + ASR_POCKET_WALL_NOISE_DELTA_PX
+            ? 'wall_locked_tiny_or_noisy_delta'
+            : (invalidUnlockState ? 'wall_locked_guard_state' : 'wall_locked_no_fresh_verified_commit');
+      } else if (hasFreshVerifiedForwardCommit) {
+        pocketWallReason = 'fresh_verified_forward_commit';
+      }
     }
     const diagnosticPayload = {
       reason: pocketWallReason,
@@ -3252,7 +3305,56 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ].join('|'),
       },
     );
-    if (effectiveTop < proposedTop - ASR_POCKET_WALL_NOISE_DELTA_PX) {
+    if (pocketWallReason === 'hold_forward_write_suppressed') {
+      emitDevDiagnostic(
+        'ASR_HOLD_FORWARD_WRITE_SUPPRESSED',
+        'warn',
+        buildAsrHoldForwardWriteSuppressedDiagnostic(diagnosticPayload),
+        {
+          minMs: 250,
+          signature: [
+            diagnosticPayload.sourceAuthority,
+            authoritativeLineIdx,
+            candidateLineIdx,
+            Math.round(proposedTop / 12),
+            pocketWallReason,
+          ].join('|'),
+        },
+      );
+    } else if (pocketWallReason === 'same_line_overshoot_capped') {
+      emitDevDiagnostic(
+        'ASR_SAME_LINE_OVERSHOOT_CAPPED',
+        'warn',
+        buildAsrSameLineOvershootCappedDiagnostic(diagnosticPayload),
+        {
+          minMs: 250,
+          signature: [
+            diagnosticPayload.sourceAuthority,
+            currentLineIdx,
+            committedLineIdx,
+            nextSpeakableLineIdx,
+            Math.round(proposedTop / 12),
+            Math.round(effectiveTop / 12),
+          ].join('|'),
+        },
+      );
+    } else if (pocketWallReason === 'no_safe_target_forward_suppressed') {
+      emitDevDiagnostic(
+        'ASR_NO_SAFE_TARGET_FORWARD_SUPPRESSED',
+        'warn',
+        buildAsrNoSafeTargetForwardSuppressedDiagnostic(diagnosticPayload),
+        {
+          minMs: 250,
+          signature: [
+            diagnosticPayload.sourceAuthority,
+            authoritativeLineIdx,
+            candidateLineIdx,
+            normalizedAuthorityReason || 'none',
+            Math.round(proposedTop / 12),
+          ].join('|'),
+        },
+      );
+    } else if (effectiveTop < proposedTop - ASR_POCKET_WALL_NOISE_DELTA_PX) {
       emitDevDiagnostic(
         'ASR_POCKET_WALL_CAPPED',
         'warn',
@@ -3288,6 +3390,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return {
       effectiveTop,
       reason: pocketWallReason,
+      tolerancePx,
+      hasFreshVerifiedForwardCommit,
     };
   };
 
@@ -3297,6 +3401,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       scroller?: HTMLElement | null;
       reason?: string;
       source?: string;
+      targetScrollTop?: number | null;
+      currentLineIdx?: number | null;
+      committedLineIdx?: number | null;
+      nextSpeakableLineIdx?: number | null;
+      allowedTargetIdx?: number | null;
+      selectedAuthority?: string;
+      authorityReason?: string;
       candidateLineIdx?: number | null;
       sourceAuthority?: string;
       proofSource?: string;
@@ -3360,6 +3471,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       scroller,
       currentTop,
       proposedTop: targetTop,
+      targetScrollTop: opts.targetScrollTop ?? approvedVisualGlideState?.targetTop,
+      currentLineIdx: opts.currentLineIdx ?? approvedVisualGlideState?.currentLineIdx,
+      committedLineIdx: opts.committedLineIdx ?? approvedVisualGlideState?.committedLineIdx,
+      nextSpeakableLineIdx: opts.nextSpeakableLineIdx ?? approvedVisualGlideState?.nextSpeakableLineIdx,
+      allowedTargetIdx: opts.allowedTargetIdx ?? lastResolvedAllowedTargetIdx,
+      selectedAuthority: opts.selectedAuthority,
+      authorityReason: opts.authorityReason,
       candidateLineIdx:
         opts.candidateLineIdx ??
         approvedVisualGlideState?.nextSpeakableLineIdx ??
@@ -3616,6 +3734,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       scroller: input.scroller,
       currentTop: currentScrollTop,
       proposedTop: cappedScrollTop,
+      targetScrollTop,
+      currentLineIdx,
+      committedLineIdx,
+      nextSpeakableLineIdx: targetLineIdx,
+      allowedTargetIdx: targetLineIdx,
+      selectedAuthority: input.authoritySource,
       candidateLineIdx: targetLineIdx,
       sourceAuthority: input.authoritySource,
       lineHeightHintPx: lineHeightPx,
@@ -3943,6 +4067,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         scroller: args.scroller,
         currentTop: args.currentScrollTop,
         proposedTop: args.approvedTargetScrollTop,
+        targetScrollTop: args.approvedTargetScrollTop,
+        currentLineIdx: args.currentLineIdx,
+        committedLineIdx: args.committedLineIdx,
+        nextSpeakableLineIdx: args.nextSpeakableLineIdx,
+        allowedTargetIdx: args.nextSpeakableLineIdx,
+        selectedAuthority: args.authority,
         candidateLineIdx: args.nextSpeakableLineIdx,
         sourceAuthority: args.authority,
         lineHeightHintPx: lineHeightPx,
@@ -4048,6 +4178,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       scroller: args.scroller,
       currentTop: args.currentScrollTop,
       proposedTop: steppedTargetTop,
+      targetScrollTop: args.approvedTargetScrollTop,
+      currentLineIdx: args.currentLineIdx,
+      committedLineIdx: args.committedLineIdx,
+      nextSpeakableLineIdx: args.nextSpeakableLineIdx,
+      allowedTargetIdx: args.nextSpeakableLineIdx,
+      selectedAuthority: args.authority,
       candidateLineIdx: args.nextSpeakableLineIdx,
       sourceAuthority: args.authority,
       lineHeightHintPx: lineHeightPx,
@@ -14823,6 +14959,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const applied = applyScrollWithHybridGuard(current + move, {
         scroller,
         reason: 'asr-tick',
+        targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : (current + move),
+        currentLineIdx: lastLineIndex,
+        committedLineIdx:
+          Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx as number)
+            ? Math.max(0, Math.floor(Number(liveAsrCommitteeAcceptedCommitTargetIdx)))
+            : lastLineIndex,
+        nextSpeakableLineIdx:
+          Number.isFinite(liveAsrVisualPursuitLineIdx as number)
+            ? Math.max(0, Math.floor(Number(liveAsrVisualPursuitLineIdx)))
+            : lastLineIndex,
+        allowedTargetIdx:
+          Number.isFinite(resolvedCommand.allowedTargetIdx as number)
+            ? Math.floor(Number(resolvedCommand.allowedTargetIdx))
+            : -1,
+        selectedAuthority: String(liveTickSelectedAuthority || 'unknown'),
+        authorityReason: String(liveTickAuthorityReason || 'unknown'),
         candidateLineIdx:
           Number.isFinite(resolvedCommand.allowedTargetIdx as number)
             ? Math.max(0, Math.floor(Number(resolvedCommand.allowedTargetIdx)))
@@ -24034,6 +24186,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 scroller: args.scroller,
                 currentTop: beforeScrollTop,
                 proposedTop: correctedTop,
+                targetScrollTop: Number.isFinite(args.state.targetScrollTop as number)
+                  ? Number(args.state.targetScrollTop)
+                  : correctedTop,
+                currentLineIdx: args.state.currentLine,
+                committedLineIdx: args.state.committedLine,
+                nextSpeakableLineIdx: args.state.targetLine ?? args.state.committedLine,
+                allowedTargetIdx: args.state.targetLine ?? -1,
+                selectedAuthority: 'asr4-pocket-drift-authority',
                 candidateLineIdx: args.state.targetLine ?? args.state.committedLine,
                 sourceAuthority: 'asr4-pocket-drift-authority',
                 lineHeightHintPx: args.state.lineHeightPx,
@@ -24681,6 +24841,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 scroller: args.scroller,
                 currentTop: currentScrollTop,
                 proposedTop: correctedTop,
+                targetScrollTop: correctedTop,
+                currentLineIdx: currentLine,
+                committedLineIdx: committedLine,
+                nextSpeakableLineIdx: localVisualTargetLine,
+                allowedTargetIdx: localVisualTargetLine,
+                selectedAuthority: 'asr4-visual-recovery-authority',
                 candidateLineIdx: localVisualTargetLine,
                 sourceAuthority: 'asr4-visual-recovery-authority',
                 lineHeightHintPx: clamp(resolveMotionLineHeightPx(targetLineEl), 12, 320),
@@ -24732,6 +24898,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                   scroller: args.scroller,
                   currentTop: currentScrollTop,
                   proposedTop: desiredTop,
+                  targetScrollTop: desiredTop,
+                  currentLineIdx: currentLine,
+                  committedLineIdx: committedLine,
+                  nextSpeakableLineIdx: localVisualTargetLine,
+                  allowedTargetIdx: localVisualTargetLine,
+                  selectedAuthority: 'asr4-visual-recovery-authority',
                   candidateLineIdx: localVisualTargetLine,
                   sourceAuthority: 'asr4-visual-recovery-authority',
                   lineHeightHintPx: clamp(resolveMotionLineHeightPx(getLineElementByIndex(args.scroller, localVisualTargetLine)), 12, 320),
@@ -30773,6 +30945,110 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       previousHoldReason: args.previousHoldReason ?? null,
     });
   };
+  const debugApplyScrollWithHybridGuard = (args: {
+    beforeScrollTop: number;
+    proposedTop: number;
+    targetScrollTop?: number | null;
+    currentLineIdx?: number;
+    committedLineIdx?: number;
+    nextSpeakableLineIdx?: number;
+    allowedTargetIdx?: number | null;
+    selectedAuthority?: string;
+    authorityReason?: string;
+    proofSource?: string;
+    sourceBranch?: string;
+    forceReason?: string;
+    lastVerifiedCommitLineIdx?: number;
+    lastVerifiedCommitAgeMs?: number;
+    terminalClampActive?: boolean;
+  }) => {
+    const scroller = getScroller();
+    if (!scroller) {
+      return {
+        appliedTop: Number.isFinite(args.beforeScrollTop) ? Number(args.beforeScrollTop) : 0,
+        effectiveTop: Number.isFinite(args.beforeScrollTop) ? Number(args.beforeScrollTop) : 0,
+        beforeScrollTop: Number.isFinite(args.beforeScrollTop) ? Number(args.beforeScrollTop) : 0,
+      };
+    }
+    const previousState = {
+      lastLineIndex,
+      lastResolvedAllowedTargetIdx,
+      lastFreshProofLine,
+      lastForwardCommitAt,
+      lastAsrGuardReason,
+      lastAsrHudGuardText,
+    };
+    const beforeScrollTop = Number.isFinite(args.beforeScrollTop) ? Number(args.beforeScrollTop) : Number(scroller.scrollTop || 0);
+    try {
+      scroller.scrollTop = beforeScrollTop;
+    } catch {}
+    if (Number.isFinite(args.currentLineIdx as number)) {
+      lastLineIndex = Math.max(0, Math.floor(Number(args.currentLineIdx)));
+    }
+    if (args.allowedTargetIdx != null && Number.isFinite(args.allowedTargetIdx as number)) {
+      lastResolvedAllowedTargetIdx = Math.floor(Number(args.allowedTargetIdx));
+    } else if (args.allowedTargetIdx === -1) {
+      lastResolvedAllowedTargetIdx = -1;
+    }
+    if (Number.isFinite(args.lastVerifiedCommitLineIdx as number)) {
+      lastFreshProofLine = Math.max(0, Math.floor(Number(args.lastVerifiedCommitLineIdx)));
+    }
+    if (Number.isFinite(args.lastVerifiedCommitAgeMs as number)) {
+      lastForwardCommitAt = Date.now() - Math.max(0, Number(args.lastVerifiedCommitAgeMs));
+    }
+    lastAsrGuardReason = String(args.authorityReason || 'none');
+    lastAsrHudGuardText = 'none';
+    const evaluation = evaluateAsrPocketWall({
+      scroller,
+      currentTop: beforeScrollTop,
+      proposedTop: Number.isFinite(args.proposedTop) ? Number(args.proposedTop) : beforeScrollTop,
+      targetScrollTop: Number.isFinite(args.targetScrollTop as number) ? Number(args.targetScrollTop) : null,
+      currentLineIdx: Number.isFinite(args.currentLineIdx as number) ? Number(args.currentLineIdx) : lastLineIndex,
+      committedLineIdx: Number.isFinite(args.committedLineIdx as number) ? Number(args.committedLineIdx) : lastLineIndex,
+      nextSpeakableLineIdx: Number.isFinite(args.nextSpeakableLineIdx as number) ? Number(args.nextSpeakableLineIdx) : lastLineIndex,
+      allowedTargetIdx: args.allowedTargetIdx ?? lastResolvedAllowedTargetIdx,
+      selectedAuthority: args.selectedAuthority,
+      authorityReason: args.authorityReason,
+      candidateLineIdx: Number.isFinite(args.nextSpeakableLineIdx as number) ? Number(args.nextSpeakableLineIdx) : lastLineIndex,
+      sourceAuthority: String(args.selectedAuthority || 'debug'),
+      proofSource: args.proofSource,
+      sourceBranch: args.sourceBranch,
+      forceReason: args.forceReason,
+      terminalClampActive: !!args.terminalClampActive,
+    });
+    const appliedTop = applyScrollWithHybridGuard(Number.isFinite(args.proposedTop) ? Number(args.proposedTop) : beforeScrollTop, {
+      scroller,
+      reason: 'asr-debug-pocket-wall',
+      source: 'asr-follow',
+      targetScrollTop: Number.isFinite(args.targetScrollTop as number) ? Number(args.targetScrollTop) : null,
+      currentLineIdx: Number.isFinite(args.currentLineIdx as number) ? Number(args.currentLineIdx) : lastLineIndex,
+      committedLineIdx: Number.isFinite(args.committedLineIdx as number) ? Number(args.committedLineIdx) : lastLineIndex,
+      nextSpeakableLineIdx: Number.isFinite(args.nextSpeakableLineIdx as number) ? Number(args.nextSpeakableLineIdx) : lastLineIndex,
+      allowedTargetIdx: args.allowedTargetIdx ?? lastResolvedAllowedTargetIdx,
+      selectedAuthority: args.selectedAuthority,
+      authorityReason: args.authorityReason,
+      candidateLineIdx: Number.isFinite(args.nextSpeakableLineIdx as number) ? Number(args.nextSpeakableLineIdx) : lastLineIndex,
+      sourceAuthority: String(args.selectedAuthority || 'debug'),
+      proofSource: args.proofSource,
+      sourceBranch: args.sourceBranch,
+      forceReason: args.forceReason,
+      terminalClampActive: !!args.terminalClampActive,
+    });
+    lastLineIndex = previousState.lastLineIndex;
+    lastResolvedAllowedTargetIdx = previousState.lastResolvedAllowedTargetIdx;
+    lastFreshProofLine = previousState.lastFreshProofLine;
+    lastForwardCommitAt = previousState.lastForwardCommitAt;
+    lastAsrGuardReason = previousState.lastAsrGuardReason;
+    lastAsrHudGuardText = previousState.lastAsrHudGuardText;
+    return {
+      beforeScrollTop,
+      effectiveTop: evaluation.effectiveTop,
+      appliedTop,
+      reason: evaluation.reason,
+      tolerancePx: evaluation.tolerancePx,
+      hasFreshVerifiedForwardCommit: evaluation.hasFreshVerifiedForwardCommit,
+    };
+  };
   const getLastLineIndex = () => lastLineIndex;
   const getStats = (): AsrScrollDriverStats => ({
     lastIngestAt,
@@ -30791,6 +31067,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     __debugSeedPendingSpeakableBridge: debugSeedPendingSpeakableBridge,
     __debugObserveAsr4VisualRecoveryCommit: debugObserveAsr4VisualRecoveryCommit,
     __debugObserveAsr4PocketDrift: debugObserveAsr4PocketDrift,
+    __debugApplyScrollWithHybridGuard: debugApplyScrollWithHybridGuard,
   } as AsrScrollDriver & {
     __debugSeedPendingSpeakableBridge(args: {
       semanticFrom: number;
@@ -30842,6 +31119,30 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       movedPx: number;
       consecutiveBelowPocketCount: number;
       state: ReturnType<typeof computeAsr4PocketDriftState>;
+    };
+    __debugApplyScrollWithHybridGuard(args: {
+      beforeScrollTop: number;
+      proposedTop: number;
+      targetScrollTop?: number | null;
+      currentLineIdx?: number;
+      committedLineIdx?: number;
+      nextSpeakableLineIdx?: number;
+      allowedTargetIdx?: number | null;
+      selectedAuthority?: string;
+      authorityReason?: string;
+      proofSource?: string;
+      sourceBranch?: string;
+      forceReason?: string;
+      lastVerifiedCommitLineIdx?: number;
+      lastVerifiedCommitAgeMs?: number;
+      terminalClampActive?: boolean;
+    }): {
+      beforeScrollTop: number;
+      effectiveTop: number;
+      appliedTop: number;
+      reason: string;
+      tolerancePx: number;
+      hasFreshVerifiedForwardCommit: boolean;
     };
   };
   try { (driver as any).__instanceId = driverInstanceId; } catch {}

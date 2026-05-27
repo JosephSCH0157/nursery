@@ -1518,7 +1518,13 @@ export function buildAsrApprovedVisualSmoothingRebasedDiagnostic(args: {
 }
 
 function buildAsrPocketWallDiagnostic(
-  tag: 'ASR_POCKET_WALL_EVALUATED' | 'ASR_POCKET_WALL_CAPPED' | 'ASR_POCKET_WALL_BYPASSED',
+  tag:
+    | 'ASR_POCKET_WALL_EVALUATED'
+    | 'ASR_POCKET_WALL_CAPPED'
+    | 'ASR_POCKET_WALL_BYPASSED'
+    | 'ASR_HOLD_FORWARD_WRITE_SUPPRESSED'
+    | 'ASR_SAME_LINE_OVERSHOOT_CAPPED'
+    | 'ASR_NO_SAFE_TARGET_FORWARD_SUPPRESSED',
   args: {
     reason: string;
     proposedTop: number;
@@ -1594,6 +1600,63 @@ export function buildAsrPocketWallBypassedDiagnostic(args: {
   sourceAuthority: string;
 }): string {
   return buildAsrPocketWallDiagnostic('ASR_POCKET_WALL_BYPASSED', args);
+}
+
+export function buildAsrHoldForwardWriteSuppressedDiagnostic(args: {
+  reason: string;
+  proposedTop: number;
+  cappedTop: number;
+  currentTop: number;
+  lineHeightPx: number;
+  authoritativeLineIdx: number;
+  candidateLineIdx: number;
+  lastVerifiedCommitLineIdx: number;
+  lastVerifiedCommitAgeMs: number;
+  hasFreshVerifiedForwardCommit: boolean;
+  pocketTop: number;
+  pocketBottom: number;
+  tolerancePx: number;
+  sourceAuthority: string;
+}): string {
+  return buildAsrPocketWallDiagnostic('ASR_HOLD_FORWARD_WRITE_SUPPRESSED', args);
+}
+
+export function buildAsrSameLineOvershootCappedDiagnostic(args: {
+  reason: string;
+  proposedTop: number;
+  cappedTop: number;
+  currentTop: number;
+  lineHeightPx: number;
+  authoritativeLineIdx: number;
+  candidateLineIdx: number;
+  lastVerifiedCommitLineIdx: number;
+  lastVerifiedCommitAgeMs: number;
+  hasFreshVerifiedForwardCommit: boolean;
+  pocketTop: number;
+  pocketBottom: number;
+  tolerancePx: number;
+  sourceAuthority: string;
+}): string {
+  return buildAsrPocketWallDiagnostic('ASR_SAME_LINE_OVERSHOOT_CAPPED', args);
+}
+
+export function buildAsrNoSafeTargetForwardSuppressedDiagnostic(args: {
+  reason: string;
+  proposedTop: number;
+  cappedTop: number;
+  currentTop: number;
+  lineHeightPx: number;
+  authoritativeLineIdx: number;
+  candidateLineIdx: number;
+  lastVerifiedCommitLineIdx: number;
+  lastVerifiedCommitAgeMs: number;
+  hasFreshVerifiedForwardCommit: boolean;
+  pocketTop: number;
+  pocketBottom: number;
+  tolerancePx: number;
+  sourceAuthority: string;
+}): string {
+  return buildAsrPocketWallDiagnostic('ASR_NO_SAFE_TARGET_FORWARD_SUPPRESSED', args);
 }
 
 export function buildAsrAcceptedLocalLagReconciledDiagnostic(args: {
