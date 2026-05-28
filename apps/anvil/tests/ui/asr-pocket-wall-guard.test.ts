@@ -1,5 +1,6 @@
 /** @jest-environment jsdom */
 
+import { ASR_LANE_ASR2 } from '../../src/dev/dev-state';
 import { createAsrScrollDriver } from '../../src/features/asr/asr-scroll-driver';
 
 describe('ASR pocket wall live visual guard', () => {
@@ -67,6 +68,7 @@ describe('ASR pocket wall live visual guard', () => {
     consoleWarnSpy.mockRestore();
     delete (window as any).__tpStore;
     delete (window as any).__TP_MARKER_PCT;
+    delete (window as any).__tpAsrRuntimeStatus;
     window.history.replaceState({}, '', '/');
   });
 
@@ -98,6 +100,7 @@ describe('ASR pocket wall live visual guard', () => {
   });
 
   test('unchanged line indexes with proposedTop above target caps to target tolerance', () => {
+    (window as any).__tpAsrRuntimeStatus = { activeAsrLane: ASR_LANE_ASR2 };
     const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
       __debugApplyScrollWithHybridGuard(args: any): any;
     };

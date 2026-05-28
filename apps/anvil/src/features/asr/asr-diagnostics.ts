@@ -1517,6 +1517,80 @@ export function buildAsrApprovedVisualSmoothingRebasedDiagnostic(args: {
   return `[ASR_APPROVED_VISUAL_SMOOTHING_REBASED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} previousTargetScrollTop=${Math.round(args.previousTargetScrollTop)} approvedTargetScrollTop=${Math.round(args.approvedTargetScrollTop)} correctionPx=${Math.round(args.correctionPx)} previousReason=${args.previousReason || 'unknown'} smoothingReason=${args.smoothingReason || 'unknown'} rebaseReason=${args.rebaseReason || 'unknown'}`;
 }
 
+export function buildAsrProfileSelectedDiagnostic(args: {
+  lane: string;
+  profile: string;
+  speechFreshMaxAgeMs: number;
+  responseFreshMaxAgeMs: number;
+  multiStepConfirmMinDelta: number;
+  multiStepConfirmHits: number;
+  backtrackHoldMs: number;
+}): string {
+  return `[ASR_PROFILE_SELECTED] lane=${args.lane || 'unknown'} profile=${args.profile || 'unknown'} speechFreshMaxAgeMs=${Math.round(args.speechFreshMaxAgeMs)} responseFreshMaxAgeMs=${Math.round(args.responseFreshMaxAgeMs)} multiStepConfirmMinDelta=${Math.round(args.multiStepConfirmMinDelta)} multiStepConfirmHits=${Math.round(args.multiStepConfirmHits)} backtrackHoldMs=${Math.round(args.backtrackHoldMs)}`;
+}
+
+export function buildAsrHighAccuracyProfileActiveDiagnostic(args: {
+  lane: string;
+  profile: string;
+  reason: string;
+}): string {
+  return `[ASR_HIGH_ACCURACY_PROFILE_ACTIVE] lane=${args.lane || 'unknown'} profile=${args.profile || 'unknown'} reason=${args.reason || 'selected'}`;
+}
+
+export function buildAsrStandardLargeJumpHeldDiagnostic(args: {
+  currentLineIdx: number;
+  proposedLineIdx: number;
+  bestIdx: number;
+  delta: number;
+  hasLocalProof: boolean;
+  confirmHits: number;
+  confirmHitsRequired: number;
+  reason: string;
+}): string {
+  return `[ASR_STANDARD_LARGE_JUMP_HELD] currentLineIdx=${Math.round(args.currentLineIdx)} proposedLineIdx=${Math.round(args.proposedLineIdx)} bestIdx=${Math.round(args.bestIdx)} delta=${Math.round(args.delta)} hasLocalProof=${args.hasLocalProof ? 1 : 0} confirmHits=${Math.round(args.confirmHits)} confirmHitsRequired=${Math.round(args.confirmHitsRequired)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrStandardBacktrackInstabilityHeldDiagnostic(args: {
+  currentLineIdx: number;
+  proposedLineIdx: number;
+  bestIdx: number;
+  previousBestIdx: number;
+  instabilityAgeMs: number;
+  holdMs: number;
+  reason: string;
+}): string {
+  return `[ASR_STANDARD_BACKTRACK_INSTABILITY_HELD] currentLineIdx=${Math.round(args.currentLineIdx)} proposedLineIdx=${Math.round(args.proposedLineIdx)} bestIdx=${Math.round(args.bestIdx)} previousBestIdx=${Math.round(args.previousBestIdx)} instabilityAgeMs=${Math.round(args.instabilityAgeMs)} holdMs=${Math.round(args.holdMs)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrStandardStaleCommitBlockedDiagnostic(args: {
+  transcriptSeq: number;
+  responseAgeMs: number;
+  lastSpeechAgeMs: number;
+  lastAudioChunkAgeMs: number;
+  speechFresh: boolean;
+  speechActive: boolean;
+  currentLineIdx: number;
+  proposedLineIdx: number;
+  committedLineIdx: number;
+  reason: string;
+}): string {
+  return `[ASR_STANDARD_STALE_COMMIT_BLOCKED] transcriptSeq=${Number.isFinite(args.transcriptSeq) ? Math.round(args.transcriptSeq) : -1} responseAgeMs=${Number.isFinite(args.responseAgeMs) ? Math.round(args.responseAgeMs) : -1} lastSpeechAgeMs=${Number.isFinite(args.lastSpeechAgeMs) ? Math.round(args.lastSpeechAgeMs) : -1} lastAudioChunkAgeMs=${Number.isFinite(args.lastAudioChunkAgeMs) ? Math.round(args.lastAudioChunkAgeMs) : -1} speechFresh=${args.speechFresh ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} currentLineIdx=${Math.round(args.currentLineIdx)} proposedLineIdx=${Math.round(args.proposedLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrStandardVisualReleaseSuppressedDiagnostic(args: {
+  authority: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentTop: number;
+  proposedTop: number;
+  cappedTop: number;
+  targetScrollTop: number;
+  reason: string;
+}): string {
+  return `[ASR_STANDARD_VISUAL_RELEASE_SUPPRESSED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentTop=${Math.round(args.currentTop)} proposedTop=${Math.round(args.proposedTop)} cappedTop=${Math.round(args.cappedTop)} targetScrollTop=${Math.round(args.targetScrollTop)} reason=${args.reason || 'unknown'}`;
+}
+
 function buildAsrPocketWallDiagnostic(
   tag:
     | 'ASR_POCKET_WALL_EVALUATED'

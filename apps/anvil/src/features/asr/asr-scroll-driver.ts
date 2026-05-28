@@ -1,6 +1,7 @@
 import { computeLineSimilarityFromTokens, normTokens, type MatchResult } from '../../speech/matcher';
 import { speechStore } from '../../state/speech-store';
 import { getAsrSettings } from '../speech/speech-store';
+import { ASR_LANE_ASR1, ASR_LANE_ASR2 } from '../../dev/dev-state';
 import {
   ASR_MANUAL_ANCHOR_EVENT,
   normalizeManualAnchorTargetIndex,
@@ -36,14 +37,20 @@ import {
   buildAsrApprovedVisualSmoothingBypassedDiagnostic,
   buildAsrApprovedVisualSmoothingRebasedDiagnostic,
   buildAsrCommitFreshnessEvaluatedDiagnostic,
+  buildAsrHighAccuracyProfileActiveDiagnostic,
   buildAsrHoldForwardWriteSuppressedDiagnostic,
   buildAsrNoSafeTargetForwardSuppressedDiagnostic,
   buildAsrPendingResponseInvalidatedDiagnostic,
   buildAsrPocketWallBypassedDiagnostic,
   buildAsrPocketWallCappedDiagnostic,
   buildAsrPocketWallEvaluatedDiagnostic,
+  buildAsrProfileSelectedDiagnostic,
   buildAsrSameLineOvershootCappedDiagnostic,
   buildAsrSilenceCommitSuppressedDiagnostic,
+  buildAsrStandardBacktrackInstabilityHeldDiagnostic,
+  buildAsrStandardLargeJumpHeldDiagnostic,
+  buildAsrStandardStaleCommitBlockedDiagnostic,
+  buildAsrStandardVisualReleaseSuppressedDiagnostic,
   buildAsrStaleTranscriptCommitSuppressedDiagnostic,
   buildAsrAcceptedLocalLagReconciledDiagnostic,
   buildAsrAcceptedLocalLagBlockedDiagnostic,
@@ -356,6 +363,9 @@ const ASR_VISUAL_FOLLOW_READER_HIGH_LEAD_PXPS = 4;
 const ASR_COMMIT_FRESH_SPEECH_MAX_AGE_MS = 1200;
 const ASR_COMMIT_FRESH_AUDIO_MAX_AGE_MS = 1500;
 const ASR_COMMIT_FRESH_RESPONSE_MAX_AGE_MS = 1800;
+const ASR_STANDARD_COMMIT_FRESH_SPEECH_MAX_AGE_MS = 900;
+const ASR_STANDARD_COMMIT_FRESH_AUDIO_MAX_AGE_MS = 1200;
+const ASR_STANDARD_COMMIT_FRESH_RESPONSE_MAX_AGE_MS = 900;
 const ASR_READER_POCKET_PREFERRED_TOP_LINES = 0.5;
 const ASR_READER_POCKET_PREFERRED_BOTTOM_LINES = 2.0;
 const ASR_READER_POCKET_PREFERRED_SETTLE_BOTTOM_LINES = 1.5;
@@ -542,6 +552,60 @@ const DELTA_MIN_SIM_LARGE = 0.45;
 const LARGE_DELTA_CONFIRM_HITS = 2;
 const LARGE_DELTA_CONFIRM_WINDOW_MS = 1500;
 const LARGE_DELTA_CONFIRM_SPREAD = 6;
+const ASR_STANDARD_MULTI_STEP_CONFIRM_MIN_DELTA = 2;
+const ASR_STANDARD_MULTI_STEP_CONFIRM_HITS = 2;
+const ASR_STANDARD_MULTI_STEP_CONFIRM_WINDOW_MS = 1400;
+const ASR_STANDARD_MULTI_STEP_CONFIRM_SPREAD = 1;
+const ASR_STANDARD_BACKTRACK_INSTABILITY_HOLD_MS = 1800;
+const ASR_STANDARD_VISUAL_RELEASE_AUTHORITIES = new Set([
+  'comfort_nudge',
+  'preferred_lower_rail_release',
+  'pocket_authority',
+  'asr4-pocket-drift-authority',
+  'asr4-visual-recovery-authority',
+  'live_follow_target',
+  'approved_visual_smoothing',
+]);
+type AsrControllerProfileId = 'standard' | 'high_accuracy';
+type AsrControllerProfile = {
+  id: AsrControllerProfileId;
+  lane: string;
+  speechFreshMaxAgeMs: number;
+  audioFreshMaxAgeMs: number;
+  responseFreshMaxAgeMs: number;
+  multiStepConfirmMinDelta: number;
+  multiStepConfirmHits: number;
+  multiStepConfirmWindowMs: number;
+  multiStepConfirmSpread: number;
+  backtrackInstabilityHoldMs: number;
+  suppressVisualReleaseWithoutFreshProof: boolean;
+};
+const ASR_STANDARD_CONTROLLER_PROFILE: AsrControllerProfile = {
+  id: 'standard',
+  lane: ASR_LANE_ASR1,
+  speechFreshMaxAgeMs: ASR_STANDARD_COMMIT_FRESH_SPEECH_MAX_AGE_MS,
+  audioFreshMaxAgeMs: ASR_STANDARD_COMMIT_FRESH_AUDIO_MAX_AGE_MS,
+  responseFreshMaxAgeMs: ASR_STANDARD_COMMIT_FRESH_RESPONSE_MAX_AGE_MS,
+  multiStepConfirmMinDelta: ASR_STANDARD_MULTI_STEP_CONFIRM_MIN_DELTA,
+  multiStepConfirmHits: ASR_STANDARD_MULTI_STEP_CONFIRM_HITS,
+  multiStepConfirmWindowMs: ASR_STANDARD_MULTI_STEP_CONFIRM_WINDOW_MS,
+  multiStepConfirmSpread: ASR_STANDARD_MULTI_STEP_CONFIRM_SPREAD,
+  backtrackInstabilityHoldMs: ASR_STANDARD_BACKTRACK_INSTABILITY_HOLD_MS,
+  suppressVisualReleaseWithoutFreshProof: true,
+};
+const ASR_HIGH_ACCURACY_CONTROLLER_PROFILE: AsrControllerProfile = {
+  id: 'high_accuracy',
+  lane: ASR_LANE_ASR2,
+  speechFreshMaxAgeMs: ASR_COMMIT_FRESH_SPEECH_MAX_AGE_MS,
+  audioFreshMaxAgeMs: ASR_COMMIT_FRESH_AUDIO_MAX_AGE_MS,
+  responseFreshMaxAgeMs: ASR_COMMIT_FRESH_RESPONSE_MAX_AGE_MS,
+  multiStepConfirmMinDelta: DELTA_LARGE_MIN_LINES,
+  multiStepConfirmHits: LARGE_DELTA_CONFIRM_HITS,
+  multiStepConfirmWindowMs: LARGE_DELTA_CONFIRM_WINDOW_MS,
+  multiStepConfirmSpread: LARGE_DELTA_CONFIRM_SPREAD,
+  backtrackInstabilityHoldMs: 0,
+  suppressVisualReleaseWithoutFreshProof: false,
+};
 const OVERSHOOT_RISK_DELTA_LINES = 30;
 const OVERSHOOT_RISK_WINDOW_MS = 3500;
 const OVERSHOOT_RISK_MIN_SIM = 0.4;
@@ -3210,6 +3274,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const noSafeTargetForwardLocked =
       allowedTargetIdx === -1 ||
       normalizedAuthorityReason === 'no_safe_allowed_target';
+    const standardVisualReleaseSuppressed =
+      isStandardAsrProfile() &&
+      activeAsrControllerProfile.suppressVisualReleaseWithoutFreshProof &&
+      ASR_STANDARD_VISUAL_RELEASE_AUTHORITIES.has(normalizedSourceAuthority) &&
+      !hasFreshVerifiedForwardCommit &&
+      sameLineVisualCorrection;
     const authoritativeLineEl = getLineElementByIndex(input.scroller, authoritativeLineIdx);
     const lineHeightPx = clamp(
       Number.isFinite(Number(input.lineHeightHintPx))
@@ -3255,6 +3325,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     } else if (noSafeTargetForwardLocked && !hasFreshVerifiedForwardCommit) {
       effectiveTop = currentTop;
       pocketWallReason = 'no_safe_target_forward_suppressed';
+    } else if (standardVisualReleaseSuppressed) {
+      effectiveTop = currentTop;
+      pocketWallReason = 'standard_visual_release_suppressed';
     } else {
       if (Number.isFinite(targetScrollTop) && !hasFreshVerifiedForwardCommit) {
         const boundedTargetTop = Math.max(currentTop, targetScrollTop + tolerancePx);
@@ -3357,6 +3430,31 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             authoritativeLineIdx,
             candidateLineIdx,
             normalizedAuthorityReason || 'none',
+            Math.round(proposedTop / 12),
+          ].join('|'),
+        },
+      );
+    } else if (pocketWallReason === 'standard_visual_release_suppressed') {
+      emitDevDiagnostic(
+        'ASR_STANDARD_VISUAL_RELEASE_SUPPRESSED',
+        'warn',
+        buildAsrStandardVisualReleaseSuppressedDiagnostic({
+          authority: input.sourceAuthority || sourceAuthority,
+          currentLineIdx,
+          committedLineIdx,
+          nextSpeakableLineIdx,
+          currentTop,
+          proposedTop,
+          cappedTop: effectiveTop,
+          targetScrollTop: Number.isFinite(targetScrollTop) ? targetScrollTop : currentTop,
+          reason: pocketWallReason,
+        }),
+        {
+          minMs: 250,
+          signature: [
+            diagnosticPayload.sourceAuthority,
+            currentLineIdx,
+            committedLineIdx,
             Math.round(proposedTop / 12),
           ].join('|'),
         },
@@ -4684,6 +4782,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let backendLivenessTimer: ReturnType<typeof setInterval> | null = null;
   let lastSpeechRunningActualAtMs = 0;
   let lastRuntimeSpeechAt = 0;
+  let activeAsrLane = ASR_LANE_ASR1;
+  let activeAsrControllerProfile: AsrControllerProfile = ASR_STANDARD_CONTROLLER_PROFILE;
+  let standardForwardJumpConfirm: { idx: number; ts: number; hits: number } | null = null;
+  let lastObservedProfileBestIdx = -1;
+  let lastStandardBacktrackInstabilityAt = 0;
+  let lastStandardBacktrackFromIdx = -1;
+  let lastStandardBacktrackToIdx = -1;
   const resetDeadScreenAutopsyWindow = () => {
     deadScreenAutopsyEmittedInWindow = false;
     deadScreenSuppressedForwardProofCountInWindow = 0;
@@ -4770,6 +4875,226 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return Math.max(0, Math.floor(raw));
   };
   const normalizeRunKey = (value: unknown): string => String(value || '').trim();
+  const normalizeAsrLane = (value: unknown): string =>
+    String(value || '').trim().toUpperCase() === ASR_LANE_ASR2
+      ? ASR_LANE_ASR2
+      : ASR_LANE_ASR1;
+  const resolveAsrControllerProfile = (lane: string): AsrControllerProfile =>
+    lane === ASR_LANE_ASR2
+      ? ASR_HIGH_ACCURACY_CONTROLLER_PROFILE
+      : ASR_STANDARD_CONTROLLER_PROFILE;
+  const emitAsrControllerProfileSelected = (
+    profile: AsrControllerProfile,
+    reason: 'init' | 'runtime-status' | 'debug',
+  ) => {
+    emitDevDiagnostic(
+      'ASR_PROFILE_SELECTED',
+      'info',
+      buildAsrProfileSelectedDiagnostic({
+        lane: profile.lane,
+        profile: profile.id,
+        speechFreshMaxAgeMs: profile.speechFreshMaxAgeMs,
+        responseFreshMaxAgeMs: profile.responseFreshMaxAgeMs,
+        multiStepConfirmMinDelta: profile.multiStepConfirmMinDelta,
+        multiStepConfirmHits: profile.multiStepConfirmHits,
+        backtrackHoldMs: profile.backtrackInstabilityHoldMs,
+      }),
+      {
+        minMs: 250,
+        signature: `${profile.lane}|${profile.id}|${reason}`,
+      },
+    );
+    if (profile.id === 'high_accuracy') {
+      emitDevDiagnostic(
+        'ASR_HIGH_ACCURACY_PROFILE_ACTIVE',
+        'info',
+        buildAsrHighAccuracyProfileActiveDiagnostic({
+          lane: profile.lane,
+          profile: profile.id,
+          reason,
+        }),
+        {
+          minMs: 250,
+          signature: `${profile.lane}|${reason}`,
+        },
+      );
+    }
+  };
+  const setActiveAsrLaneProfile = (laneRaw: unknown, reason: 'init' | 'runtime-status' | 'debug') => {
+    const nextLane = normalizeAsrLane(laneRaw);
+    const nextProfile = resolveAsrControllerProfile(nextLane);
+    const changed = activeAsrLane !== nextLane || activeAsrControllerProfile.id !== nextProfile.id;
+    activeAsrLane = nextLane;
+    activeAsrControllerProfile = nextProfile;
+    if (changed || reason === 'init') {
+      emitAsrControllerProfileSelected(nextProfile, reason);
+    }
+  };
+  const isStandardAsrProfile = () => activeAsrControllerProfile.id === 'standard';
+  const hasStandardLocalForwardProof = (args: {
+    currentLineIdx: number;
+    proposedLineIdx: number;
+    proofSource?: string;
+    sourceBranch?: string;
+    forceReason?: string;
+  }): boolean => {
+    const delta = Math.max(0, args.proposedLineIdx - args.currentLineIdx);
+    if (delta <= 1) return true;
+    const proofSource = String(args.proofSource || '').trim().toLowerCase();
+    const sourceBranch = String(args.sourceBranch || '').trim().toLowerCase();
+    const forceReason = String(args.forceReason || '').trim().toLowerCase();
+    return (
+      isProofOwnedPrimaryForceReason(forceReason) ||
+      isAdjacentProofOwnedForceReason(proofSource) ||
+      isAdjacentProofOwnedForceReason(sourceBranch) ||
+      isAdjacentProofOwnedForceReason(forceReason) ||
+      isMovementAuthorityProofBranch(proofSource) ||
+      isMovementAuthorityProofBranch(sourceBranch) ||
+      isMovementAuthorityProofBranch(forceReason) ||
+      isAdjacentProofHoldBypassSource(proofSource) ||
+      isAdjacentProofHoldBypassSource(sourceBranch)
+    );
+  };
+  const noteProfileBestIdxMotion = (bestIdx: number, cursorLine: number, now: number) => {
+    if (!Number.isFinite(bestIdx) || bestIdx < 0) return;
+    const safeBestIdx = Math.max(0, Math.floor(bestIdx));
+    const previousBestIdx = lastObservedProfileBestIdx;
+    if (
+      isStandardAsrProfile() &&
+      previousBestIdx >= 0 &&
+      safeBestIdx < previousBestIdx &&
+      safeBestIdx <= cursorLine
+    ) {
+      lastStandardBacktrackInstabilityAt = now;
+      lastStandardBacktrackFromIdx = previousBestIdx;
+      lastStandardBacktrackToIdx = safeBestIdx;
+    }
+    lastObservedProfileBestIdx = safeBestIdx;
+  };
+  const confirmStandardForwardJump = (targetLine: number, now: number): { confirmed: boolean; hits: number } => {
+    if (!standardForwardJumpConfirm) {
+      standardForwardJumpConfirm = { idx: targetLine, ts: now, hits: 1 };
+      return { confirmed: false, hits: 1 };
+    }
+    const withinWindow =
+      now - standardForwardJumpConfirm.ts <= activeAsrControllerProfile.multiStepConfirmWindowMs;
+    const withinBand =
+      Math.abs(targetLine - standardForwardJumpConfirm.idx) <= activeAsrControllerProfile.multiStepConfirmSpread;
+    if (!withinWindow || !withinBand) {
+      standardForwardJumpConfirm = { idx: targetLine, ts: now, hits: 1 };
+      return { confirmed: false, hits: 1 };
+    }
+    standardForwardJumpConfirm.hits += 1;
+    standardForwardJumpConfirm.ts = now;
+    if (standardForwardJumpConfirm.hits >= activeAsrControllerProfile.multiStepConfirmHits) {
+      const hits = standardForwardJumpConfirm.hits;
+      standardForwardJumpConfirm = null;
+      return { confirmed: true, hits };
+    }
+    return { confirmed: false, hits: standardForwardJumpConfirm.hits };
+  };
+  const evaluateAsrProfileForwardGuard = (input: {
+    currentLineIdx: number;
+    proposedLineIdx: number;
+    bestIdx?: number | null;
+    proofSource?: string;
+    sourceBranch?: string;
+    forceReason?: string;
+    nowMs?: number;
+    updateBestMotion?: boolean;
+  }): {
+    allow: boolean;
+    reason: string;
+    profileId: AsrControllerProfileId;
+    confirmHits: number;
+    confirmHitsRequired: number;
+    instabilityAgeMs: number;
+    previousBestIdx: number;
+    hasLocalProof: boolean;
+  } => {
+    const currentLineIdx = Math.max(0, Math.floor(Number(input.currentLineIdx) || 0));
+    const proposedLineIdx = Math.max(0, Math.floor(Number(input.proposedLineIdx) || 0));
+    const bestIdx = Number.isFinite(input.bestIdx as number)
+      ? Math.max(0, Math.floor(Number(input.bestIdx)))
+      : proposedLineIdx;
+    const now = Number.isFinite(input.nowMs as number) ? Number(input.nowMs) : Date.now();
+    if (input.updateBestMotion !== false) {
+      noteProfileBestIdxMotion(bestIdx, currentLineIdx, now);
+    }
+    const delta = proposedLineIdx - currentLineIdx;
+    const hasLocalProof = hasStandardLocalForwardProof({
+      currentLineIdx,
+      proposedLineIdx,
+      proofSource: input.proofSource,
+      sourceBranch: input.sourceBranch,
+      forceReason: input.forceReason,
+    });
+    if (!isStandardAsrProfile() || delta <= 0) {
+      if (delta <= 1) standardForwardJumpConfirm = null;
+      return {
+        allow: true,
+        reason: delta <= 0 ? 'non_forward_profile_ok' : 'high_accuracy_profile_ok',
+        profileId: activeAsrControllerProfile.id,
+        confirmHits: standardForwardJumpConfirm?.hits ?? 0,
+        confirmHitsRequired: activeAsrControllerProfile.multiStepConfirmHits,
+        instabilityAgeMs:
+          lastStandardBacktrackInstabilityAt > 0
+            ? Math.max(0, now - lastStandardBacktrackInstabilityAt)
+            : Number.POSITIVE_INFINITY,
+        previousBestIdx: lastObservedProfileBestIdx,
+        hasLocalProof,
+      };
+    }
+    const instabilityAgeMs =
+      lastStandardBacktrackInstabilityAt > 0
+        ? Math.max(0, now - lastStandardBacktrackInstabilityAt)
+        : Number.POSITIVE_INFINITY;
+    if (
+      lastStandardBacktrackInstabilityAt > 0 &&
+      instabilityAgeMs <= activeAsrControllerProfile.backtrackInstabilityHoldMs &&
+      !hasLocalProof
+    ) {
+      return {
+        allow: false,
+        reason: 'standard_backtrack_instability_hold',
+        profileId: activeAsrControllerProfile.id,
+        confirmHits: standardForwardJumpConfirm?.hits ?? 0,
+        confirmHitsRequired: activeAsrControllerProfile.multiStepConfirmHits,
+        instabilityAgeMs,
+        previousBestIdx: lastStandardBacktrackFromIdx,
+        hasLocalProof,
+      };
+    }
+    if (delta >= activeAsrControllerProfile.multiStepConfirmMinDelta) {
+      const confirmation = confirmStandardForwardJump(proposedLineIdx, now);
+      if (!hasLocalProof || !confirmation.confirmed) {
+        return {
+          allow: false,
+          reason: !hasLocalProof
+            ? 'standard_large_jump_requires_local_proof'
+            : 'standard_large_jump_confirmation_pending',
+          profileId: activeAsrControllerProfile.id,
+          confirmHits: confirmation.hits,
+          confirmHitsRequired: activeAsrControllerProfile.multiStepConfirmHits,
+          instabilityAgeMs,
+          previousBestIdx: lastObservedProfileBestIdx,
+          hasLocalProof,
+        };
+      }
+    } else {
+      standardForwardJumpConfirm = null;
+    }
+    return {
+      allow: true,
+      reason: 'standard_forward_profile_ok',
+      profileId: activeAsrControllerProfile.id,
+      confirmHits: standardForwardJumpConfirm?.hits ?? 0,
+      confirmHitsRequired: activeAsrControllerProfile.multiStepConfirmHits,
+      instabilityAgeMs,
+      previousBestIdx: lastObservedProfileBestIdx,
+      hasLocalProof,
+    };
+  };
 
   const readWindowRunGeneration = (): number | null => {
     if (typeof window === 'undefined') return null;
@@ -4996,6 +5321,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
 
   const noteRuntimeSpeechState = (detail: unknown) => {
+    const activeAsrLaneRaw = (detail as { activeAsrLane?: unknown } | null | undefined)?.activeAsrLane;
+    if (activeAsrLaneRaw !== undefined) {
+      setActiveAsrLaneProfile(activeAsrLaneRaw, 'runtime-status');
+    }
     const recognizerAttachedRaw = (detail as { recognizerAttached?: unknown } | null | undefined)?.recognizerAttached;
     if (typeof recognizerAttachedRaw === 'boolean') {
       if (recognizerAttachedRaw && !asrRuntimeRecognizerAttached) {
@@ -7141,6 +7470,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
   try { window.addEventListener('tp:asr:silence', silenceHandler as EventListener); } catch {}
   try { window.addEventListener('tp:vad', vadHandler as EventListener); } catch {}
+  setActiveAsrLaneProfile((window as any).__tpAsrRuntimeStatus?.activeAsrLane, 'init');
   noteRuntimeSpeechState((window as any).__tpAsrRuntimeStatus);
   try { window.addEventListener('tp:asr:runtime-status', runtimeStatusHandler as EventListener); } catch {}
   try { window.addEventListener('tp:asr:audio-chunk', audioChunkHandler as EventListener); } catch {}
@@ -12911,7 +13241,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ? (
         hasRecentActualSpeech(now) &&
         hasRecentVadSpeechNow(now) &&
-        lastSpeechAgeMs <= ASR_COMMIT_FRESH_SPEECH_MAX_AGE_MS
+        lastSpeechAgeMs <= activeAsrControllerProfile.speechFreshMaxAgeMs
       )
       : !!input.transcriptSpeechFresh;
     const speechActive = input.transcriptSpeechActive == null
@@ -12953,11 +13283,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       reason = 'reader_silence_commit_blocked';
     } else if (
       Number.isFinite(lastAudioChunkAgeMs) &&
-      lastAudioChunkAgeMs > ASR_COMMIT_FRESH_AUDIO_MAX_AGE_MS
+      lastAudioChunkAgeMs > activeAsrControllerProfile.audioFreshMaxAgeMs
     ) {
       allow = false;
       reason = 'audio_chunk_stale';
-    } else if (responseAgeMs > ASR_COMMIT_FRESH_RESPONSE_MAX_AGE_MS) {
+    } else if (responseAgeMs > activeAsrControllerProfile.responseFreshMaxAgeMs) {
       allow = false;
       reason = 'response_stale';
     }
@@ -12997,6 +13327,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           signature: `${currentLineIdx}|${proposedLineIdx}|${reason}|${transcriptSeq}`,
         },
       );
+      if (
+        isStandardAsrProfile() &&
+        proposedLineIdx > committedLineIdx &&
+        (
+          reason === 'reader_silence_commit_blocked' ||
+          reason === 'audio_chunk_stale' ||
+          reason === 'response_stale' ||
+          reason === 'stale_response_invalidated' ||
+          reason === 'stale_run_identity'
+        )
+      ) {
+        emitDevDiagnostic(
+          'ASR_STANDARD_STALE_COMMIT_BLOCKED',
+          'warn',
+          buildAsrStandardStaleCommitBlockedDiagnostic(payload),
+          {
+            minMs: 150,
+            signature: `${currentLineIdx}|${proposedLineIdx}|${reason}|${transcriptSeq}|standard`,
+          },
+        );
+      }
     }
     return { allow, reason, transcriptSeq, responseAgeMs, lastSpeechAgeMs, lastAudioChunkAgeMs, speechFresh, speechActive };
   };
@@ -21960,6 +22311,75 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
       }
       const confirmDelta = targetLine - lastLineIndex;
+      const profileForwardGuard = evaluateAsrProfileForwardGuard({
+        currentLineIdx: lastLineIndex,
+        proposedLineIdx: targetLine,
+        bestIdx: targetLine,
+        proofSource: pendingProofSource || movementAuthorityProofSource || 'none',
+        sourceBranch: pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown',
+        forceReason,
+        nowMs: now,
+        updateBestMotion: false,
+      });
+      if (!profileForwardGuard.allow) {
+        if (profileForwardGuard.reason === 'standard_backtrack_instability_hold') {
+          emitDevDiagnostic(
+            'ASR_STANDARD_BACKTRACK_INSTABILITY_HELD',
+            'warn',
+            buildAsrStandardBacktrackInstabilityHeldDiagnostic({
+              currentLineIdx: lastLineIndex,
+              proposedLineIdx: targetLine,
+              bestIdx: targetLine,
+              previousBestIdx: profileForwardGuard.previousBestIdx,
+              instabilityAgeMs: profileForwardGuard.instabilityAgeMs,
+              holdMs: activeAsrControllerProfile.backtrackInstabilityHoldMs,
+              reason: profileForwardGuard.reason,
+            }),
+            {
+              minMs: 150,
+              signature: `${lastLineIndex}|${targetLine}|${profileForwardGuard.reason}|${profileForwardGuard.previousBestIdx}`,
+            },
+          );
+          warnGuard('standard_backtrack_instability_hold', [
+            `current=${lastLineIndex}`,
+            `best=${targetLine}`,
+            `previousBest=${profileForwardGuard.previousBestIdx}`,
+            `instabilityAgeMs=${Math.round(profileForwardGuard.instabilityAgeMs)}`,
+            `holdMs=${activeAsrControllerProfile.backtrackInstabilityHoldMs}`,
+          ]);
+          emitHudStatus('standard_backtrack_instability_hold', 'Hold: waiting for stable local forward proof');
+          return;
+        }
+        emitDevDiagnostic(
+          'ASR_STANDARD_LARGE_JUMP_HELD',
+          'warn',
+          buildAsrStandardLargeJumpHeldDiagnostic({
+            currentLineIdx: lastLineIndex,
+            proposedLineIdx: targetLine,
+            bestIdx: targetLine,
+            delta: confirmDelta,
+            hasLocalProof: profileForwardGuard.hasLocalProof,
+            confirmHits: profileForwardGuard.confirmHits,
+            confirmHitsRequired: profileForwardGuard.confirmHitsRequired,
+            reason: profileForwardGuard.reason,
+          }),
+          {
+            minMs: 150,
+            signature: `${lastLineIndex}|${targetLine}|${profileForwardGuard.reason}|${profileForwardGuard.confirmHits}`,
+          },
+        );
+        warnGuard('standard_large_jump_held', [
+          `current=${lastLineIndex}`,
+          `best=${targetLine}`,
+          `delta=${confirmDelta}`,
+          `confirmHits=${profileForwardGuard.confirmHits}`,
+          `need=${profileForwardGuard.confirmHitsRequired}`,
+          `localProof=${profileForwardGuard.hasLocalProof ? 1 : 0}`,
+          `reason=${profileForwardGuard.reason}`,
+        ]);
+        emitHudStatus('standard_large_jump_held', 'Hold: Standard lane waiting for local repeat proof');
+        return;
+      }
       if (confirmDelta < DELTA_LARGE_MIN_LINES && largeDeltaConfirm) {
         largeDeltaConfirm = null;
       }
@@ -27624,6 +28044,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     const rawBestSim = conf;
     const candidateIdx = Number.isFinite(rawIdx) ? Math.max(0, Math.floor(rawIdx)) : -1;
+    noteProfileBestIdxMotion(candidateIdx, cursorLine, now);
     const confirmingCurrentLine = candidateIdx >= 0 && candidateIdx === cursorLine;
     const stickAdjust = confirmingCurrentLine ? thresholds.stickinessDelta : 0;
     const effectiveThresholdForPending = clamp(requiredThreshold - stickAdjust, 0, 1);
@@ -31455,6 +31876,34 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       transcriptRunGeneration: args.transcriptRunGeneration,
     });
   };
+  const debugEvaluateProfileForwardGuard = (args: {
+    lane?: string;
+    currentLineIdx: number;
+    proposedLineIdx: number;
+    bestIdx?: number | null;
+    previousBestIdx?: number | null;
+    proofSource?: string;
+    sourceBranch?: string;
+    forceReason?: string;
+    nowMs?: number;
+  }) => {
+    if (args.lane) {
+      setActiveAsrLaneProfile(args.lane, 'debug');
+    }
+    if (Number.isFinite(args.previousBestIdx as number)) {
+      lastObservedProfileBestIdx = Math.max(0, Math.floor(Number(args.previousBestIdx)));
+    }
+    const result = evaluateAsrProfileForwardGuard({
+      currentLineIdx: args.currentLineIdx,
+      proposedLineIdx: args.proposedLineIdx,
+      bestIdx: args.bestIdx,
+      proofSource: args.proofSource,
+      sourceBranch: args.sourceBranch,
+      forceReason: args.forceReason,
+      nowMs: args.nowMs,
+    });
+    return result;
+  };
   const getLastLineIndex = () => lastLineIndex;
   const getStats = (): AsrScrollDriverStats => ({
     lastIngestAt,
@@ -31475,6 +31924,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     __debugObserveAsr4PocketDrift: debugObserveAsr4PocketDrift,
     __debugApplyScrollWithHybridGuard: debugApplyScrollWithHybridGuard,
     __debugEvaluateForwardCommitFreshness: debugEvaluateForwardCommitFreshness,
+    __debugEvaluateProfileForwardGuard: debugEvaluateProfileForwardGuard,
   } as AsrScrollDriver & {
     __debugSeedPendingSpeakableBridge(args: {
       semanticFrom: number;
@@ -31575,6 +32025,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastAudioChunkAgeMs: number;
       speechFresh: boolean;
       speechActive: boolean;
+    };
+    __debugEvaluateProfileForwardGuard(args: {
+      lane?: string;
+      currentLineIdx: number;
+      proposedLineIdx: number;
+      bestIdx?: number | null;
+      previousBestIdx?: number | null;
+      proofSource?: string;
+      sourceBranch?: string;
+      forceReason?: string;
+      nowMs?: number;
+    }): {
+      allow: boolean;
+      reason: string;
+      profileId: AsrControllerProfileId;
+      confirmHits: number;
+      confirmHitsRequired: number;
+      instabilityAgeMs: number;
+      previousBestIdx: number;
+      hasLocalProof: boolean;
     };
   };
   try { (driver as any).__instanceId = driverInstanceId; } catch {}
