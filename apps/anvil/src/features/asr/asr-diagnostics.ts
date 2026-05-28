@@ -1591,6 +1591,78 @@ export function buildAsrStandardVisualReleaseSuppressedDiagnostic(args: {
   return `[ASR_STANDARD_VISUAL_RELEASE_SUPPRESSED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentTop=${Math.round(args.currentTop)} proposedTop=${Math.round(args.proposedTop)} cappedTop=${Math.round(args.cappedTop)} targetScrollTop=${Math.round(args.targetScrollTop)} reason=${args.reason || 'unknown'}`;
 }
 
+export function buildAsrVisualTargetOvershootDetectedDiagnostic(args: {
+  authority: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentTop: number;
+  targetScrollTop: number;
+  overshootPx: number;
+  tolerancePx: number;
+  reason: string;
+}): string {
+  return `[ASR_VISUAL_TARGET_OVERSHOOT_DETECTED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentTop=${Math.round(args.currentTop)} targetScrollTop=${Math.round(args.targetScrollTop)} overshootPx=${Math.round(args.overshootPx)} tolerancePx=${Math.round(args.tolerancePx)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrVisualForwardOvershootSuppressedDiagnostic(args: {
+  authority: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentTop: number;
+  proposedTop: number;
+  targetScrollTop: number;
+  tolerancePx: number;
+  reason: string;
+}): string {
+  return `[ASR_VISUAL_FORWARD_OVERSHOOT_SUPPRESSED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentTop=${Math.round(args.currentTop)} proposedTop=${Math.round(args.proposedTop)} targetScrollTop=${Math.round(args.targetScrollTop)} tolerancePx=${Math.round(args.tolerancePx)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrVisualTargetBoundedStepDiagnostic(args: {
+  authority: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentTop: number;
+  proposedTop: number;
+  boundedTop: number;
+  targetScrollTop: number;
+  tolerancePx: number;
+  reason: string;
+}): string {
+  return `[ASR_VISUAL_TARGET_BOUNDED_STEP] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentTop=${Math.round(args.currentTop)} proposedTop=${Math.round(args.proposedTop)} boundedTop=${Math.round(args.boundedTop)} targetScrollTop=${Math.round(args.targetScrollTop)} tolerancePx=${Math.round(args.tolerancePx)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrVisualRecenterPullbackAppliedDiagnostic(args: {
+  authority: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  beforeTop: number;
+  afterTop: number;
+  targetScrollTop: number;
+  pullbackPx: number;
+  tolerancePx: number;
+  reason: string;
+}): string {
+  return `[ASR_VISUAL_RECENTER_PULLBACK_APPLIED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} beforeTop=${Math.round(args.beforeTop)} afterTop=${Math.round(args.afterTop)} targetScrollTop=${Math.round(args.targetScrollTop)} pullbackPx=${Math.round(args.pullbackPx)} tolerancePx=${Math.round(args.tolerancePx)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrVisualRecenterPullbackBlockedDiagnostic(args: {
+  authority: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentTop: number;
+  targetScrollTop: number;
+  overshootPx: number;
+  tolerancePx: number;
+  reason: string;
+}): string {
+  return `[ASR_VISUAL_RECENTER_PULLBACK_BLOCKED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentTop=${Math.round(args.currentTop)} targetScrollTop=${Math.round(args.targetScrollTop)} overshootPx=${Math.round(args.overshootPx)} tolerancePx=${Math.round(args.tolerancePx)} reason=${args.reason || 'unknown'}`;
+}
+
 function buildAsrPocketWallDiagnostic(
   tag:
     | 'ASR_POCKET_WALL_EVALUATED'
