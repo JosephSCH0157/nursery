@@ -1292,7 +1292,7 @@ export function buildAsr4VisualRecoveryStateDiagnostic(args: {
   authorityAction: 'observe_only' | 'force_marker_lock_correction' | 'force_safe_direct_write' | 'freeze_far_visual_target';
   movementAllowed: boolean;
   reason: string;
-  suppressedReason?: 'none' | 'not_needed_in_pocket' | 'suppressed_already_ahead';
+  suppressedReason?: 'none' | 'not_needed_in_pocket' | 'suppressed_already_ahead' | 'reader_overrun_hold';
 }): string {
   const targetLine = Number.isFinite(args.targetLine as number)
     ? Math.round(Number(args.targetLine))
@@ -1324,6 +1324,28 @@ export function buildAsr4VisualRecoveryAuthorityAppliedDiagnostic(args: {
     ? Math.round(Number(args.targetLine))
     : -1;
   return `[ASR4_VISUAL_RECOVERY_AUTHORITY_APPLIED] currentLine=${Math.round(args.currentLine)} committedLine=${Math.round(args.committedLine)} targetLine=${targetLine} beforeScrollTop=${Math.round(args.beforeScrollTop)} afterScrollTop=${Math.round(args.afterScrollTop)} movedPx=${Math.round(args.movedPx)} consecutiveNoMoveCommits=${Math.round(args.consecutiveNoMoveCommits)} directWriteBlocked=${args.directWriteBlocked ? 1 : 0} targetPreservedForEasing=${args.targetPreservedForEasing ? 1 : 0} visualSnapSuppressed=${args.visualSnapSuppressed ? 1 : 0} liveScrollStalled=${args.liveScrollStalled ? 1 : 0} authorityAction=${args.authorityAction} movementAllowed=${args.movementAllowed ? 1 : 0} reason=${args.reason}`;
+}
+
+export function buildAsrReaderOverrunHoldDiagnostic(args: {
+  lane: string;
+  authority: 'asr4-pocket-drift-authority' | 'asr4-visual-recovery-authority';
+  currentLine: number;
+  committedLine: number;
+  targetLine: number | null;
+  currentScrollTop: number;
+  markerTopPx: number;
+  currentLineCenterPx: number;
+  currentLineDistanceFromMarkerPx: number;
+  aboveMarkerLines: number;
+  holdBufferLines: number;
+  semanticWindowLocal: boolean;
+  holdActive: boolean;
+  reason: string;
+}): string {
+  const targetLine = Number.isFinite(args.targetLine as number)
+    ? Math.round(Number(args.targetLine))
+    : -1;
+  return `[ASR_READER_OVERRUN_HOLD] lane=${args.lane || 'unknown'} authority=${args.authority} currentLine=${Math.round(args.currentLine)} committedLine=${Math.round(args.committedLine)} targetLine=${targetLine} currentScrollTop=${Math.round(args.currentScrollTop)} markerTopPx=${Math.round(args.markerTopPx)} currentLineCenterPx=${Math.round(args.currentLineCenterPx)} currentLineDistanceFromMarkerPx=${Math.round(args.currentLineDistanceFromMarkerPx)} aboveMarkerLines=${Number.isFinite(args.aboveMarkerLines) ? Number(args.aboveMarkerLines).toFixed(2) : 'na'} holdBufferLines=${Number(args.holdBufferLines).toFixed(2)} semanticWindowLocal=${args.semanticWindowLocal ? 1 : 0} holdActive=${args.holdActive ? 1 : 0} reason=${args.reason || 'unknown'}`;
 }
 
 export function buildAsr4PocketDriftStateDiagnostic(args: {

@@ -79,7 +79,7 @@ describe('ASR visual landing recenter', () => {
 
     expect(result.afterTop).toBe(104);
     expect(result.clampReason).toBe('min_step_floor');
-    expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_VISUAL_TARGET_BOUNDED_STEP'))).toBe(true);
+    expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_VISUAL_TARGET_BOUNDED_STEP'))).toBe(false);
 
     driver.dispose();
   });

@@ -34,6 +34,7 @@ import {
   buildAsrLowPocketDeadbandReconciledDiagnostic,
   buildAsrLowPocketFreezeFarTargetBlockedDiagnostic,
   buildAsrLowPocketFreezeFarTargetReconciledDiagnostic,
+  buildAsrReaderOverrunHoldDiagnostic,
   buildAsrApprovedVisualSmoothingBypassedDiagnostic,
   buildAsrApprovedVisualSmoothingRebasedDiagnostic,
   buildAsrCommitFreshnessEvaluatedDiagnostic,
@@ -400,6 +401,7 @@ const ASR_APPROVED_VISUAL_GLIDE_MAX_MS = 180;
 const ASR_ACCEPTED_LOCAL_LAG_LOCAL_WINDOW_LINES = 3;
 const ASR_READER_ZONE_BUCKET_LINES = 25;
 const ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE = 1;
+const ASR1_READER_OVERRUN_HOLD_BUFFER_LINES = 3;
 const ASR_POCKET_WALL_FRESH_COMMIT_MAX_AGE_MS = 1200;
 const ASR_POCKET_WALL_TOLERANCE_MAX_PX = 12;
 const ASR_POCKET_WALL_NOISE_DELTA_PX = 0.5;
@@ -3837,11 +3839,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const currentTop = Number.isFinite(input.currentTop) ? Number(input.currentTop) : 0;
     const targetFinite = Number.isFinite(input.targetScrollTop as number);
     const targetTop = targetFinite ? Number(input.targetScrollTop) : currentTop;
+    const remainingForwardDebtPx =
+      targetFinite && targetTop >= currentTop
+        ? Math.max(0, targetTop - currentTop)
+        : Number.POSITIVE_INFINITY;
     const flooredMovePx = Math.max(
       Math.max(0, Number(input.requestedMovePx) || 0),
       Number(input.effectiveMinStepPx) || 0,
     );
-    const proposedTop = currentTop + flooredMovePx;
+    const proposedTop = currentTop + Math.min(flooredMovePx, remainingForwardDebtPx);
     const targetBounding = computeVisualTargetBounding({
       currentTop,
       proposedTop,
@@ -15750,7 +15756,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       Number.isFinite(arithmeticTargetDebtPx) ? arithmeticTargetDebtPx : Number.NaN;
     const clampReasonBeforeFloor = clampReason;
     if (!liveHardHold && move < effectiveMinStepPx) {
-      const floored = Math.min(err, effectiveMinStepPx);
+      const remainingVisualDebtPx = Math.max(
+        0,
+        Number.isFinite(arithmeticTargetDebtPx)
+          ? Math.min(err, arithmeticTargetDebtPx)
+          : err,
+      );
+      const floored = Math.min(remainingVisualDebtPx, effectiveMinStepPx);
       if (floored > move) {
         move = floored;
         clampReason = clampReason === 'none' ? 'min_step_floor' : clampReason;
@@ -25129,6 +25141,97 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     | 'stale_bridge_target'
     | 'unknown';
 
+  const evaluateLegacyReaderOverrunHold = (args: {
+    scroller: HTMLElement;
+    authority: 'asr4-pocket-drift-authority' | 'asr4-visual-recovery-authority';
+    currentLine: number;
+    committedLine: number;
+    targetLine: number | null;
+    currentScrollTop: number;
+  }) => {
+    const semanticWindowLocal =
+      args.committedLine <= args.currentLine + 1 &&
+      (args.targetLine == null || args.targetLine <= args.currentLine + 1);
+    const inactiveBase = {
+      lane: activeAsrLane,
+      authority: args.authority,
+      currentLine: args.currentLine,
+      committedLine: args.committedLine,
+      targetLine: args.targetLine,
+      currentScrollTop: args.currentScrollTop,
+      markerTopPx: Number.NaN,
+      currentLineCenterPx: Number.NaN,
+      currentLineDistanceFromMarkerPx: Number.NaN,
+      aboveMarkerLines: Number.NaN,
+      holdBufferLines: ASR1_READER_OVERRUN_HOLD_BUFFER_LINES,
+      semanticWindowLocal,
+      holdActive: false,
+      reason: activeAsrLane === ASR_LANE_ASR1 ? 'unresolved' : 'lane_not_legacy_asr1',
+    };
+    if (activeAsrLane !== ASR_LANE_ASR1) {
+      return inactiveBase;
+    }
+    if (!semanticWindowLocal) {
+      return {
+        ...inactiveBase,
+        reason: 'semantic_target_outside_local_window',
+      };
+    }
+    const lineEl = getLineElementByIndex(args.scroller, args.currentLine);
+    const lineHeightPx = clamp(resolveMotionLineHeightPx(lineEl), 12, 320);
+    const viewportHeight = Math.max(1, Number(args.scroller.clientHeight || 0));
+    const markerPctRaw =
+      typeof (window as any).__TP_MARKER_PCT === 'number'
+        ? Number((window as any).__TP_MARKER_PCT)
+        : 0.4;
+    const markerTopPx = viewportHeight * clamp(markerPctRaw, 0.05, 0.95);
+    const currentLineTopPx = Number((lineEl as any)?.offsetTop || 0) - Number(args.currentScrollTop || 0);
+    const currentLineCenterPx = currentLineTopPx + (lineHeightPx * 0.5);
+    const currentLineDistanceFromMarkerPx = currentLineCenterPx - markerTopPx;
+    const aboveMarkerLines =
+      Number.isFinite(currentLineDistanceFromMarkerPx) && lineHeightPx > 0
+        ? Math.max(0, -currentLineDistanceFromMarkerPx) / lineHeightPx
+        : Number.NaN;
+    const holdActive =
+      Number.isFinite(aboveMarkerLines) &&
+      aboveMarkerLines > 0 &&
+      aboveMarkerLines <= ASR1_READER_OVERRUN_HOLD_BUFFER_LINES;
+    return {
+      ...inactiveBase,
+      markerTopPx,
+      currentLineCenterPx,
+      currentLineDistanceFromMarkerPx,
+      aboveMarkerLines,
+      holdActive,
+      reason: holdActive
+        ? 'current_line_within_reader_overrun_buffer'
+        : (Number.isFinite(aboveMarkerLines) && aboveMarkerLines > ASR1_READER_OVERRUN_HOLD_BUFFER_LINES
+          ? 'reader_overrun_buffer_exhausted'
+          : 'current_line_not_above_marker'),
+    };
+  };
+
+  const emitLegacyReaderOverrunHold = (
+    hold: ReturnType<typeof evaluateLegacyReaderOverrunHold>,
+  ) => {
+    if (!isDevMode() || !hold.holdActive) return;
+    emitDevDiagnostic(
+      'ASR_READER_OVERRUN_HOLD',
+      'info',
+      buildAsrReaderOverrunHoldDiagnostic(hold),
+      {
+        minMs: 400,
+        signature: [
+          hold.authority,
+          hold.currentLine,
+          hold.committedLine,
+          hold.targetLine ?? -1,
+          Math.round((Number.isFinite(hold.aboveMarkerLines) ? hold.aboveMarkerLines : -1) * 4),
+        ].join('|'),
+      },
+    );
+  };
+
   const computeAsr4PocketDriftState = (args: {
     scroller: HTMLElement;
     currentLine: number;
@@ -25479,6 +25582,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   }) => {
     const state = computeAsr4PocketDriftState(args);
     emitAsr4PocketDriftState(state);
+    const readerOverrunHold = evaluateLegacyReaderOverrunHold({
+      scroller: args.scroller,
+      authority: 'asr4-pocket-drift-authority',
+      currentLine: args.currentLine,
+      committedLine: args.committedLine,
+      targetLine: args.targetLine,
+      currentScrollTop: state.currentScrollTop,
+    });
+    if (readerOverrunHold.holdActive) {
+      emitLegacyReaderOverrunHold(readerOverrunHold);
+      return {
+        applied: false,
+        afterScrollTop: state.currentScrollTop,
+        movedPx: state.movedPx,
+        consecutiveBelowPocketCount: asr4PocketDriftConsecutiveBelowPocketCount,
+        state,
+      };
+    }
     const previousHoldReason = String(args.previousHoldReason || '');
     const nextSpeakableLineIdx = Number.isFinite(args.nextSpeakableLineIdx as number)
       ? Math.max(0, Math.floor(Number(args.nextSpeakableLineIdx)))
@@ -26238,10 +26359,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       scrollReason: 'asr4_visual_recovery_probe',
       reason: 'accepted_commit_visible_scroll_stalled',
     });
+    const readerOverrunHold = evaluateLegacyReaderOverrunHold({
+      scroller: args.scroller,
+      authority: 'asr4-visual-recovery-authority',
+      currentLine: args.currentLine,
+      committedLine: args.committedLine,
+      targetLine: args.targetLine,
+      currentScrollTop: args.afterScrollTop,
+    });
     const visualRecoverySuppressedReason =
-      pocketState.pocketHealth === 'inPocket'
+      readerOverrunHold.holdActive
+        ? 'reader_overrun_hold'
+        : (pocketState.pocketHealth === 'inPocket'
         ? 'not_needed_in_pocket'
-        : (pocketState.pocketHealth === 'abovePocket' ? 'suppressed_already_ahead' : 'none');
+        : (pocketState.pocketHealth === 'abovePocket' ? 'suppressed_already_ahead' : 'none'));
     const plannedAction =
       shouldApplyAuthority && visualRecoverySuppressedReason === 'none'
         ? ((args.committedLine > args.currentLine + 1 ||
@@ -26282,6 +26413,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
+    }
+    if (readerOverrunHold.holdActive) {
+      emitLegacyReaderOverrunHold(readerOverrunHold);
     }
     if (!shouldApplyAuthority || visualRecoverySuppressedReason !== 'none') {
       asrMarkerLockRecoveryDominanceStreak = 0;

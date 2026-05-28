@@ -13,6 +13,7 @@ import {
   buildAsrLowPocketDeadbandReconciledDiagnostic,
   buildAsrLowPocketFreezeFarTargetBlockedDiagnostic,
   buildAsrLowPocketFreezeFarTargetReconciledDiagnostic,
+  buildAsrReaderOverrunHoldDiagnostic,
   buildAsrApprovedVisualSmoothingBypassedDiagnostic,
   buildAsrApprovedVisualSmoothingRebasedDiagnostic,
   buildAsrAcceptedLocalLagReconciledDiagnostic,
@@ -550,6 +551,28 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR_LOW_POCKET_DEADBAND_RECONCILED] currentLineIdx=155 committedLineIdx=157 currentScrollTop=11046 targetScrollTop=11046 belowPocketPx=89 activeLineDistanceFromMarkerPx=106 previousHoldReason=existing_target_within_deadband correctionPx=84 observations=3',
+    );
+  });
+
+  test('builds reader overrun hold diagnostic with expected fields', () => {
+    const line = buildAsrReaderOverrunHoldDiagnostic({
+      lane: 'ASR1_CURRENT',
+      authority: 'asr4-pocket-drift-authority',
+      currentLine: 155,
+      committedLine: 156,
+      targetLine: 156,
+      currentScrollTop: 11046,
+      markerTopPx: 268,
+      currentLineCenterPx: 180,
+      currentLineDistanceFromMarkerPx: -88,
+      aboveMarkerLines: 1.25,
+      holdBufferLines: 3,
+      semanticWindowLocal: true,
+      holdActive: true,
+      reason: 'current_line_within_reader_overrun_buffer',
+    });
+    expect(line).toBe(
+      '[ASR_READER_OVERRUN_HOLD] lane=ASR1_CURRENT authority=asr4-pocket-drift-authority currentLine=155 committedLine=156 targetLine=156 currentScrollTop=11046 markerTopPx=268 currentLineCenterPx=180 currentLineDistanceFromMarkerPx=-88 aboveMarkerLines=1.25 holdBufferLines=3.00 semanticWindowLocal=1 holdActive=1 reason=current_line_within_reader_overrun_buffer',
     );
   });
 
