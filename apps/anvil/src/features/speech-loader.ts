@@ -232,6 +232,11 @@ type DeferredAsrScriptEndStop = {
   markerReachedAt: number | null;
   completionDelayMs: number;
   completionReason: 'marker-reached' | 'marker-timeout' | 'no-target';
+  endGraceStartedAt: number | null;
+  endGraceUntil: number | null;
+  endGraceReason: string | null;
+  pendingResponseSeen: boolean;
+  lastExtensionReason: string | null;
 };
 
 declare global {
@@ -289,6 +294,13 @@ declare global {
     __tpAsrStallLast?: AsrStallPayload;
     __tpAsrStallAutoRestartLast?: AsrStallAutoRestartPayload;
     __tpAsrRuntimeStatus?: AsrRuntimeStatusPayload;
+    __tpAsrEndGrace?: {
+      active: boolean;
+      startedAt: number;
+      until: number;
+      lastSpeakableLineIndex: number | null;
+      reason: string;
+    } | null;
   }
 }
 
@@ -379,6 +391,10 @@ const ASR_SCRIPT_END_CONFIRM_MIN_SHARED_TOKENS = 2;
 const ASR_SCRIPT_END_MARKER_WAIT_MAX_MS = 4000;
 const ASR_SCRIPT_END_MARKER_POLL_MS = 16;
 const ASR_SCRIPT_END_POSTROLL_MS = 500;
+const ASR_END_GRACE_MS = 6000;
+const ASR_END_GRACE_EXTENSION_MS = 1000;
+const ASR_END_GRACE_POLL_MS = 100;
+const ASR_END_GRACE_SPEECH_FRESH_MS = 1200;
 const ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX = 12;
 const ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX = 48;
 const ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO = 0.35;
@@ -754,6 +770,59 @@ function cancelDeferredAsrScriptEndStop(reason: string): void {
     } catch {}
   }
   deferredAsrScriptEndStop = null;
+  try { (window as any).__tpAsrEndGrace = null; } catch {}
+}
+
+function setAsrEndGraceState(
+  active: boolean,
+  detail?: {
+    startedAt?: number;
+    until?: number;
+    lastSpeakableLineIndex?: number | null;
+    reason?: string;
+  },
+): void {
+  try {
+    (window as any).__tpAsrEndGrace = active
+      ? {
+          active: true,
+          startedAt: Number(detail?.startedAt || Date.now()),
+          until: Number(detail?.until || Date.now()),
+          lastSpeakableLineIndex:
+            detail?.lastSpeakableLineIndex == null ? null : Math.max(0, Math.floor(Number(detail.lastSpeakableLineIndex))),
+          reason: String(detail?.reason || 'end-grace'),
+        }
+      : null;
+  } catch {}
+}
+
+function getPendingWhisperWork(): { requestsInFlight: number; queueDepth: number; hasPending: boolean } {
+  try {
+    const detail = ((window as any).__tpAiActivity || {}) as Record<string, unknown>;
+    const requestsInFlight = Math.max(0, Math.floor(Number(detail.requestsInFlight) || 0));
+    const queueDepth = Math.max(0, Math.floor(Number(detail.queueDepth) || 0));
+    return {
+      requestsInFlight,
+      queueDepth,
+      hasPending: requestsInFlight > 0 || queueDepth > 0,
+    };
+  } catch {
+    return { requestsInFlight: 0, queueDepth: 0, hasPending: false };
+  }
+}
+
+function isAsrEndGraceSpeechFresh(): { speechFresh: boolean; speechActive: boolean } {
+  const now = Date.now();
+  const lastSpeechTs = Math.max(
+    Number(lastRecognizerOnResultTs || 0),
+    Number(lastResultTs || 0),
+    Number(lastAsrIngestTs || 0),
+  );
+  const speechFresh = lastSpeechTs > 0 && Math.max(0, now - lastSpeechTs) <= ASR_END_GRACE_SPEECH_FRESH_MS;
+  return {
+    speechFresh: speechRunningActual || speechFresh,
+    speechActive: !!speechRunningActual,
+  };
 }
 
 function shouldSuppressAsrScriptEndAutoStop(session = getSession()): boolean {
@@ -884,6 +953,70 @@ function scheduleDeferredAsrScriptEndStop(delayMs: number): void {
       return;
     }
     if (deferred.markerReachedAt != null) {
+      const pendingWhisper = getPendingWhisperWork();
+      const speechState = isAsrEndGraceSpeechFresh();
+      if (deferred.endGraceStartedAt == null) {
+        const now = Date.now();
+        deferred.endGraceStartedAt = now;
+        deferred.endGraceUntil = now + ASR_END_GRACE_MS;
+        deferred.endGraceReason = 'terminal_line_reached';
+        deferred.pendingResponseSeen = pendingWhisper.hasPending;
+        setAsrEndGraceState(true, {
+          startedAt: deferred.endGraceStartedAt,
+          until: deferred.endGraceUntil,
+          lastSpeakableLineIndex: deferred.pending.lastSpeakableLineIndex,
+          reason: deferred.endGraceReason,
+        });
+        try {
+          console.info(`[ASR_END_GRACE_STARTED] lineIndex=${deferred.pending.lineIndex ?? -1} lastSpeakableLineIndex=${deferred.pending.lastSpeakableLineIndex ?? -1} graceMs=${ASR_END_GRACE_MS} speechFresh=${speechState.speechFresh ? 1 : 0} speechActive=${speechState.speechActive ? 1 : 0} requestsInFlight=${pendingWhisper.requestsInFlight} queueDepth=${pendingWhisper.queueDepth} reason=${deferred.endGraceReason}`);
+        } catch {}
+      }
+      if (pendingWhisper.hasPending) {
+        deferred.pendingResponseSeen = true;
+      }
+      const extensionReason =
+        pendingWhisper.hasPending ? 'pending_whisper_response' : (speechState.speechFresh ? 'speech_fresh' : '');
+      if (extensionReason) {
+        const nextUntil = Math.max(Number(deferred.endGraceUntil || 0), Date.now() + ASR_END_GRACE_EXTENSION_MS);
+        if (nextUntil > Number(deferred.endGraceUntil || 0) + 50) {
+          deferred.endGraceUntil = nextUntil;
+          deferred.lastExtensionReason = extensionReason;
+          setAsrEndGraceState(true, {
+            startedAt: deferred.endGraceStartedAt,
+            until: deferred.endGraceUntil,
+            lastSpeakableLineIndex: deferred.pending.lastSpeakableLineIndex,
+            reason: extensionReason,
+          });
+          try {
+            console.info(`[ASR_END_GRACE_EXTENDED] lineIndex=${deferred.pending.lineIndex ?? -1} lastSpeakableLineIndex=${deferred.pending.lastSpeakableLineIndex ?? -1} untilMs=${Math.round(deferred.endGraceUntil)} speechFresh=${speechState.speechFresh ? 1 : 0} speechActive=${speechState.speechActive ? 1 : 0} requestsInFlight=${pendingWhisper.requestsInFlight} queueDepth=${pendingWhisper.queueDepth} reason=${extensionReason}`);
+          } catch {}
+        }
+      }
+      if (
+        deferred.pendingResponseSeen &&
+        !pendingWhisper.hasPending &&
+        !speechState.speechFresh
+      ) {
+        deferred.pendingResponseSeen = false;
+        try {
+          console.info(`[ASR_END_GRACE_FLUSHED] lineIndex=${deferred.pending.lineIndex ?? -1} lastSpeakableLineIndex=${deferred.pending.lastSpeakableLineIndex ?? -1} speechFresh=${speechState.speechFresh ? 1 : 0} speechActive=${speechState.speechActive ? 1 : 0} requestsInFlight=${pendingWhisper.requestsInFlight} queueDepth=${pendingWhisper.queueDepth} reason=pending_responses_drained`);
+        } catch {}
+      }
+      if (
+        Date.now() < Number(deferred.endGraceUntil || 0) ||
+        speechState.speechFresh ||
+        pendingWhisper.hasPending
+      ) {
+        setAsrEndGraceState(true, {
+          startedAt: deferred.endGraceStartedAt || Date.now(),
+          until: Number(deferred.endGraceUntil || Date.now()),
+          lastSpeakableLineIndex: deferred.pending.lastSpeakableLineIndex,
+          reason: deferred.lastExtensionReason || deferred.endGraceReason || 'end-grace',
+        });
+        scheduleDeferredAsrScriptEndStop(ASR_END_GRACE_POLL_MS);
+        return;
+      }
+      setAsrEndGraceState(false);
       deferredAsrScriptEndStop = null;
       const stopIntent = {
         source: 'asr-script-end',
@@ -932,6 +1065,9 @@ function scheduleDeferredAsrScriptEndStop(delayMs: number): void {
           });
         } catch {}
       }
+      try {
+        console.info(`[ASR_END_GRACE_COMPLETED] lineIndex=${deferred.pending.lineIndex ?? -1} lastSpeakableLineIndex=${deferred.pending.lastSpeakableLineIndex ?? -1} graceElapsedMs=${Math.max(0, Date.now() - Number(deferred.endGraceStartedAt || deferred.startedAt))} speechFresh=${speechState.speechFresh ? 1 : 0} speechActive=${speechState.speechActive ? 1 : 0} requestsInFlight=${pendingWhisper.requestsInFlight} queueDepth=${pendingWhisper.queueDepth} reason=grace_elapsed_and_drained`);
+      } catch {}
       return;
     }
     if (deferred.targetLine == null) {
@@ -1001,7 +1137,7 @@ function finalizePendingAsrScriptEndStop(
   lastAsrScriptEndStopKey = pending.dedupeKey;
   pendingAsrScriptEndStop = null;
   cancelDeferredAsrScriptEndStop('replaced');
-      deferredAsrScriptEndStop = {
+  deferredAsrScriptEndStop = {
     pending,
     evidence,
     targetLine: pending.lastSpeakableLineIndex ?? pending.lineIndex,
@@ -1009,6 +1145,11 @@ function finalizePendingAsrScriptEndStop(
     markerReachedAt: null,
     completionDelayMs: ASR_SCRIPT_END_POSTROLL_MS,
     completionReason: 'marker-reached',
+    endGraceStartedAt: null,
+    endGraceUntil: null,
+    endGraceReason: null,
+    pendingResponseSeen: false,
+    lastExtensionReason: null,
   };
   emitHudSnapshot('script-end-marker-wait', { force: true });
   if (isDevMode() && shouldLogTag('ASR:script-end-marker-wait', 2, 250)) {
@@ -3934,7 +4075,18 @@ function ensureAsrDriverLifecycleHooks(): void {
       syncAsrDriverFromBlocks('script-rendered', { mode, allowCreate });
     }
   };
-  const onSessionStop = () => {
+  const onSessionStop = (event: Event) => {
+    const detail = (event as CustomEvent | undefined)?.detail || {};
+    const userInitiated =
+      String(detail?.reason || '').toLowerCase() === 'user' ||
+      String(detail?.source || '').toLowerCase() === 'user' ||
+      detail?.manual === true;
+    if (userInitiated && deferredAsrScriptEndStop) {
+      try {
+        console.info(`[ASR_END_GRACE_CANCELLED_BY_USER] lineIndex=${deferredAsrScriptEndStop.pending.lineIndex ?? -1} lastSpeakableLineIndex=${deferredAsrScriptEndStop.pending.lastSpeakableLineIndex ?? -1} reason=user_stop`);
+      } catch {}
+    }
+    setAsrEndGraceState(false);
     lastAsrScriptEndStopKey = '';
     clearPendingAsrScriptEnd('session-stop');
     cancelDeferredAsrScriptEndStop('session-stop');

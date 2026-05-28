@@ -7261,6 +7261,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return true;
   };
 
+  const resolveAsrEndGraceTerminalLine = (): number | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const detail = (window as any).__tpAsrEndGrace;
+      if (!detail || detail.active !== true) return null;
+      const raw = Number(detail.lastSpeakableLineIndex);
+      return Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : null;
+    } catch {
+      return null;
+    }
+  };
+
   const findNextSpeakableWithinBridge = (
     cursorLine: number,
     maxLookahead = DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES,
@@ -12897,7 +12909,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       : lastTranscriptSeq;
     const speechFresh = input.transcriptSpeechFresh == null
       ? (
-        !asrSilenceActive &&
         hasRecentActualSpeech(now) &&
         hasRecentVadSpeechNow(now) &&
         lastSpeechAgeMs <= ASR_COMMIT_FRESH_SPEECH_MAX_AGE_MS
@@ -12940,7 +12951,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     } else if (!speechFresh || !speechActive) {
       allow = false;
       reason = 'reader_silence_commit_blocked';
-    } else if (lastAudioChunkAgeMs > ASR_COMMIT_FRESH_AUDIO_MAX_AGE_MS) {
+    } else if (
+      Number.isFinite(lastAudioChunkAgeMs) &&
+      lastAudioChunkAgeMs > ASR_COMMIT_FRESH_AUDIO_MAX_AGE_MS
+    ) {
       allow = false;
       reason = 'audio_chunk_stale';
     } else if (responseAgeMs > ASR_COMMIT_FRESH_RESPONSE_MAX_AGE_MS) {
@@ -22812,6 +22826,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
       const prevLineIndex = lastLineIndex;
       const modeNow = getScrollMode();
+      const endGraceTerminalLine = resolveAsrEndGraceTerminalLine();
+      if (
+        endGraceTerminalLine != null &&
+        modeNow === 'asr' &&
+        targetLine > endGraceTerminalLine
+      ) {
+        warnGuard('asr_end_grace_terminal_cap', [
+          `current=${prevLineIndex}`,
+          `requested=${targetLine}`,
+          `capped=${endGraceTerminalLine}`,
+          pendingProofSource ? `proofSource=${pendingProofSource}` : '',
+          pendingSourceBranch ? `sourceBranch=${pendingSourceBranch}` : '',
+        ]);
+        targetLine = endGraceTerminalLine;
+      }
       if (targetLine > prevLineIndex && modeNow === 'asr') {
         const commitFreshness = evaluateForwardCommitFreshness({
           currentLineIdx: prevLineIndex,
@@ -25989,9 +26018,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastTranscriptSpeechAgeMs = transcriptSpeechAgeMs;
     lastTranscriptAudioAgeMs = transcriptAudioAgeMs;
     lastTranscriptSpeechFresh =
-      !asrSilenceActive &&
       runtimeSpeechFreshNow &&
       vadSpeechFreshNow &&
+      asrRuntimeSpeechRunningActual &&
       transcriptSpeechAgeMs <= ASR_COMMIT_FRESH_SPEECH_MAX_AGE_MS;
     lastTranscriptSpeechActive = !!asrRuntimeSpeechRunningActual;
     const permissiveMatcher = isPermissiveAsrMatcherEnabled();

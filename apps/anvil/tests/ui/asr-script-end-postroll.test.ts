@@ -2,6 +2,21 @@
 
 let closingLineTop = 380;
 
+async function advanceUntil(
+  predicate: () => boolean,
+  options?: { stepMs?: number; timeoutMs?: number },
+): Promise<void> {
+  const stepMs = options?.stepMs ?? 100;
+  const timeoutMs = options?.timeoutMs ?? 12000;
+  let elapsed = 0;
+  while (elapsed < timeoutMs) {
+    if (predicate()) return;
+    await jest.advanceTimersByTimeAsync(stepMs);
+    elapsed += stepMs;
+  }
+  expect(predicate()).toBe(true);
+}
+
 function installAsrTerminalDom(): void {
   document.body.innerHTML = `
     <button id="recBtn" type="button">Start speech sync</button>
@@ -89,11 +104,13 @@ describe('ASR script-end postroll', () => {
 
   afterEach(() => {
     delete (window as any).__tpStore;
+    delete (window as any).__tpAiActivity;
+    delete (window as any).__tpAsrEndGrace;
     jest.useRealTimers();
     jest.restoreAllMocks();
   });
 
-  test('waits for the terminal line to reach the marker before stopping', async () => {
+  test('terminal line reached does not immediately stop ASR and completes after end grace', async () => {
     const { appStore } = await import('../../src/state/app-store');
     const { initSession, setSessionPhase } = await import('../../src/state/session');
     const { installSpeech } = await import('../../src/features/speech-loader');
@@ -101,6 +118,7 @@ describe('ASR script-end postroll', () => {
     initSession();
     (window as any).__tpStore = appStore;
     appStore.set('scrollMode', 'asr' as any);
+    appStore.set('session.asrArmed', true);
 
     installSpeech();
     setSessionPhase('live');
@@ -134,15 +152,17 @@ describe('ASR script-end postroll', () => {
 
     closingLineTop = 140;
 
-    await jest.advanceTimersByTimeAsync(32);
+    await advanceUntil(() => Boolean((window as any).__tpAsrEndGrace?.active), {
+      stepMs: 50,
+      timeoutMs: 1500,
+    });
     expect(appStore.get('session.phase')).toBe('live');
     expect(stopSpy).not.toHaveBeenCalled();
 
-    await jest.advanceTimersByTimeAsync(460);
-    expect(appStore.get('session.phase')).toBe('live');
-    expect(stopSpy).not.toHaveBeenCalled();
-
-    await jest.advanceTimersByTimeAsync(60);
+    await advanceUntil(() => appStore.get('session.phase') === 'wrap', {
+      stepMs: 100,
+      timeoutMs: 9000,
+    });
     expect(appStore.get('session.phase')).toBe('wrap');
     expect(stopSpy).toHaveBeenCalledTimes(1);
 
@@ -156,5 +176,179 @@ describe('ASR script-end postroll', () => {
     expect(detail.markerWaitMs).toBeGreaterThanOrEqual(0);
 
     window.removeEventListener('tp:session:stop', stopSpy as EventListener);
+  });
+
+  test('grace extends while speech is active and fresh', async () => {
+    const { appStore } = await import('../../src/state/app-store');
+    const { initSession, setSessionPhase } = await import('../../src/state/session');
+    const { installSpeech } = await import('../../src/features/speech-loader');
+
+    initSession();
+    (window as any).__tpStore = appStore;
+    appStore.set('scrollMode', 'asr' as any);
+    appStore.set('session.asrArmed', true);
+
+    installSpeech();
+    setSessionPhase('live');
+
+    const stopSpy = jest.fn();
+    window.addEventListener('tp:session:stop', stopSpy as EventListener);
+
+    window.dispatchEvent(new CustomEvent('tp:asr:script-end', {
+      detail: {
+        mode: 'asr',
+        lineIndex: 1,
+        lastSpeakableLineIndex: 1,
+        runKey: 'script-end-grace-extend-test',
+      },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', {
+      detail: {
+        text: 'Closing line',
+        final: true,
+        isFinal: true,
+        currentIdx: 1,
+        line: 1,
+        mode: 'asr',
+        source: 'test',
+      },
+    }));
+
+    closingLineTop = 140;
+    await advanceUntil(() => Boolean((window as any).__tpAsrEndGrace?.active), {
+      stepMs: 50,
+      timeoutMs: 1500,
+    });
+    await jest.advanceTimersByTimeAsync(5000);
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', {
+      detail: {
+        text: 'Closing line continued',
+        final: true,
+        isFinal: true,
+        currentIdx: 1,
+        line: 1,
+        mode: 'asr',
+        source: 'test',
+      },
+    }));
+
+    await jest.advanceTimersByTimeAsync(600);
+    expect(appStore.get('session.phase')).toBe('live');
+    expect(stopSpy).not.toHaveBeenCalled();
+
+    await advanceUntil(() => appStore.get('session.phase') === 'wrap', {
+      stepMs: 100,
+      timeoutMs: 3500,
+    });
+    expect(appStore.get('session.phase')).toBe('wrap');
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener('tp:session:stop', stopSpy as EventListener);
+  });
+
+  test('grace waits for pending Whisper response before stopping', async () => {
+    const { appStore } = await import('../../src/state/app-store');
+    const { initSession, setSessionPhase } = await import('../../src/state/session');
+    const { installSpeech } = await import('../../src/features/speech-loader');
+
+    initSession();
+    (window as any).__tpStore = appStore;
+    appStore.set('scrollMode', 'asr' as any);
+    appStore.set('session.asrArmed', true);
+    (window as any).__tpAiActivity = { requestsInFlight: 1, queueDepth: 0 };
+
+    installSpeech();
+    setSessionPhase('live');
+
+    const stopSpy = jest.fn();
+    window.addEventListener('tp:session:stop', stopSpy as EventListener);
+
+    window.dispatchEvent(new CustomEvent('tp:asr:script-end', {
+      detail: {
+        mode: 'asr',
+        lineIndex: 1,
+        lastSpeakableLineIndex: 1,
+        runKey: 'script-end-pending-whisper-test',
+      },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', {
+      detail: {
+        text: 'Closing line',
+        final: true,
+        isFinal: true,
+        currentIdx: 1,
+        line: 1,
+        mode: 'asr',
+        source: 'test',
+      },
+    }));
+
+    closingLineTop = 140;
+    await advanceUntil(() => Boolean((window as any).__tpAsrEndGrace?.active), {
+      stepMs: 50,
+      timeoutMs: 1500,
+    });
+    await jest.advanceTimersByTimeAsync(6400);
+    expect(appStore.get('session.phase')).toBe('live');
+    expect(stopSpy).not.toHaveBeenCalled();
+
+    (window as any).__tpAiActivity = { requestsInFlight: 0, queueDepth: 0 };
+    await advanceUntil(() => appStore.get('session.phase') === 'wrap', {
+      stepMs: 100,
+      timeoutMs: 3500,
+    });
+    expect(appStore.get('session.phase')).toBe('wrap');
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener('tp:session:stop', stopSpy as EventListener);
+  });
+
+  test('user stop cancels grace immediately', async () => {
+    const { appStore } = await import('../../src/state/app-store');
+    const { initSession, setSessionPhase } = await import('../../src/state/session');
+    const { installSpeech } = await import('../../src/features/speech-loader');
+
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+
+    initSession();
+    (window as any).__tpStore = appStore;
+    appStore.set('scrollMode', 'asr' as any);
+    appStore.set('session.asrArmed', true);
+
+    installSpeech();
+    setSessionPhase('live');
+
+    window.dispatchEvent(new CustomEvent('tp:asr:script-end', {
+      detail: {
+        mode: 'asr',
+        lineIndex: 1,
+        lastSpeakableLineIndex: 1,
+        runKey: 'script-end-cancel-test',
+      },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:speech:transcript', {
+      detail: {
+        text: 'Closing line',
+        final: true,
+        isFinal: true,
+        currentIdx: 1,
+        line: 1,
+        mode: 'asr',
+        source: 'test',
+      },
+    }));
+
+    closingLineTop = 140;
+    await advanceUntil(() => Boolean((window as any).__tpAsrEndGrace?.active), {
+      stepMs: 50,
+      timeoutMs: 1500,
+    });
+    window.dispatchEvent(new CustomEvent('tp:session:stop', {
+      detail: { reason: 'user', source: 'user', mode: 'asr' },
+    }));
+
+    expect(infoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_END_GRACE_CANCELLED_BY_USER'))).toBe(true);
+    expect((window as any).__tpAsrEndGrace ?? null).toBeNull();
+    infoSpy.mockRestore();
   });
 });
