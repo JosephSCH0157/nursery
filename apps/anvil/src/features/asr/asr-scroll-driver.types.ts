@@ -23,6 +23,10 @@ export type TranscriptDetail = {
   runKey?: string | null;
   runGeneration?: number | null;
   speechRunningActual?: boolean;
+  transcriptSeq?: number | null;
+  receivedAtMs?: number | null;
+  responseCreatedAtMs?: number | null;
+  responseAgeMs?: number | null;
 };
 
 export type PendingMatch = {
@@ -64,6 +68,14 @@ export type PendingMatch = {
   starvationMs?: number;
   provenSpeakablePath?: boolean;
   transcriptSource?: string;
+  transcriptSeq?: number | null;
+  transcriptReceivedAtMs?: number | null;
+  transcriptResponseAgeMs?: number | null;
+  transcriptSpeechAgeMs?: number | null;
+  transcriptAudioAgeMs?: number | null;
+  transcriptSpeechFresh?: boolean;
+  transcriptSpeechActive?: boolean;
+  transcriptAuthorityEpoch?: number | null;
 };
 
 export type AsrEventSnapshot = {

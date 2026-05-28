@@ -1659,6 +1659,98 @@ export function buildAsrNoSafeTargetForwardSuppressedDiagnostic(args: {
   return buildAsrPocketWallDiagnostic('ASR_NO_SAFE_TARGET_FORWARD_SUPPRESSED', args);
 }
 
+function buildAsrCommitFreshnessDiagnostic(
+  tag:
+    | 'ASR_STALE_TRANSCRIPT_COMMIT_SUPPRESSED'
+    | 'ASR_SILENCE_COMMIT_SUPPRESSED'
+    | 'ASR_PENDING_RESPONSE_INVALIDATED'
+    | 'ASR_COMMIT_FRESHNESS_EVALUATED',
+  args: {
+    transcriptSeq: number;
+    responseAgeMs: number;
+    lastSpeechAgeMs: number;
+    lastAudioChunkAgeMs: number;
+    speechFresh: boolean;
+    speechActive: boolean;
+    sessionPhase: string;
+    asrRunning: boolean;
+    currentLineIdx: number;
+    proposedLineIdx: number;
+    committedLineIdx: number;
+    reason: string;
+  },
+): string {
+  return `[${tag}] transcriptSeq=${Number.isFinite(args.transcriptSeq) ? Math.round(args.transcriptSeq) : -1} responseAgeMs=${Number.isFinite(args.responseAgeMs) ? Math.round(args.responseAgeMs) : -1} lastSpeechAgeMs=${Number.isFinite(args.lastSpeechAgeMs) ? Math.round(args.lastSpeechAgeMs) : -1} lastAudioChunkAgeMs=${Number.isFinite(args.lastAudioChunkAgeMs) ? Math.round(args.lastAudioChunkAgeMs) : -1} speechFresh=${args.speechFresh ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} sessionPhase=${args.sessionPhase || 'unknown'} asrRunning=${args.asrRunning ? 1 : 0} currentLineIdx=${Math.round(args.currentLineIdx)} proposedLineIdx=${Math.round(args.proposedLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrStaleTranscriptCommitSuppressedDiagnostic(args: {
+  transcriptSeq: number;
+  responseAgeMs: number;
+  lastSpeechAgeMs: number;
+  lastAudioChunkAgeMs: number;
+  speechFresh: boolean;
+  speechActive: boolean;
+  sessionPhase: string;
+  asrRunning: boolean;
+  currentLineIdx: number;
+  proposedLineIdx: number;
+  committedLineIdx: number;
+  reason: string;
+}): string {
+  return buildAsrCommitFreshnessDiagnostic('ASR_STALE_TRANSCRIPT_COMMIT_SUPPRESSED', args);
+}
+
+export function buildAsrSilenceCommitSuppressedDiagnostic(args: {
+  transcriptSeq: number;
+  responseAgeMs: number;
+  lastSpeechAgeMs: number;
+  lastAudioChunkAgeMs: number;
+  speechFresh: boolean;
+  speechActive: boolean;
+  sessionPhase: string;
+  asrRunning: boolean;
+  currentLineIdx: number;
+  proposedLineIdx: number;
+  committedLineIdx: number;
+  reason: string;
+}): string {
+  return buildAsrCommitFreshnessDiagnostic('ASR_SILENCE_COMMIT_SUPPRESSED', args);
+}
+
+export function buildAsrPendingResponseInvalidatedDiagnostic(args: {
+  transcriptSeq: number;
+  responseAgeMs: number;
+  lastSpeechAgeMs: number;
+  lastAudioChunkAgeMs: number;
+  speechFresh: boolean;
+  speechActive: boolean;
+  sessionPhase: string;
+  asrRunning: boolean;
+  currentLineIdx: number;
+  proposedLineIdx: number;
+  committedLineIdx: number;
+  reason: string;
+}): string {
+  return buildAsrCommitFreshnessDiagnostic('ASR_PENDING_RESPONSE_INVALIDATED', args);
+}
+
+export function buildAsrCommitFreshnessEvaluatedDiagnostic(args: {
+  transcriptSeq: number;
+  responseAgeMs: number;
+  lastSpeechAgeMs: number;
+  lastAudioChunkAgeMs: number;
+  speechFresh: boolean;
+  speechActive: boolean;
+  sessionPhase: string;
+  asrRunning: boolean;
+  currentLineIdx: number;
+  proposedLineIdx: number;
+  committedLineIdx: number;
+  reason: string;
+}): string {
+  return buildAsrCommitFreshnessDiagnostic('ASR_COMMIT_FRESHNESS_EVALUATED', args);
+}
+
 export function buildAsrAcceptedLocalLagReconciledDiagnostic(args: {
   currentLineIdx: number;
   committedLineIdx: number;
