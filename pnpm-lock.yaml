@@ -98,13 +98,13 @@ importers:
         specifier: ^1.56.1
         version: 1.58.2
       prettier:
-        specifier: ^3.3.0
+        specifier: ^3.8.1
         version: 3.8.1
       puppeteer:
         specifier: ^24.38.0
         version: 24.40.0(typescript@5.9.3)
       ts-jest:
-        specifier: ^29.2.5
+        specifier: ^29.4.6
         version: 29.4.6(@babel/core@7.29.0)(@jest/transform@30.3.0)(@jest/types@30.3.0)(babel-jest@30.3.0(@babel/core@7.29.0))(esbuild@0.27.4)(jest-util@30.3.0)(jest@30.3.0(@types/node@24.12.0))(typescript@5.9.3)
       typescript:
         specifier: ^5.9.3
@@ -168,7 +168,7 @@ importers:
         specifier: ^0.1.1675465747
         version: 0.1.1675465747
       '@mediapipe/tasks-vision':
-        specifier: ^0.10.22
+        specifier: ^0.10.34
         version: 0.10.34
       react:
         specifier: ^19.2.0
@@ -343,10 +343,10 @@ importers:
     dependencies:
       react:
         specifier: ^19.2.0
-        version: 19.2.5
+        version: 19.2.4
       react-dom:
         specifier: ^19.2.0
-        version: 19.2.4(react@19.2.5)
+        version: 19.2.4(react@19.2.4)
     devDependencies:
       '@types/react':
         specifier: ^19.2.5
@@ -3518,10 +3518,6 @@ packages:
 
   react@19.2.4:
     resolution: {integrity: sha512-9nfp2hYpCwOjAN+8TZFGhtWEwgvWHXqESH8qT89AT/lWklpLON22Lc8pEtnpsZz7VmawabSU0gCjnj8aC0euHQ==}
-    engines: {node: '>=0.10.0'}
-
-  react@19.2.5:
-    resolution: {integrity: sha512-llUJLzz1zTUBrskt2pwZgLq59AemifIftw4aB7JxOqf1HY2FDaGDxgwpAPVzHU1kdWabH7FauP4i1oEeer2WCA==}
     engines: {node: '>=0.10.0'}
 
   read-cmd-shim@6.0.0:
@@ -7888,11 +7884,6 @@ snapshots:
       react: 19.2.4
       scheduler: 0.27.0
 
-  react-dom@19.2.4(react@19.2.5):
-    dependencies:
-      react: 19.2.5
-      scheduler: 0.27.0
-
   react-is@18.3.1: {}
 
   react-refresh@0.18.0: {}
@@ -7912,8 +7903,6 @@ snapshots:
       react-dom: 19.2.4(react@19.2.4)
 
   react@19.2.4: {}
-
-  react@19.2.5: {}
 
   read-cmd-shim@6.0.0: {}
 
