@@ -1729,6 +1729,12 @@ let lastSummaryToastKey = '';
 let lastSummaryToastAt = 0;
 const nanGuardLastAt = new Map<string, number>();
 const frameDiagnosticLastSeen = new Map<string, { ts: number; signature: string }>();
+const coalescedDiagnosticState = new Map<string, {
+  signature: string;
+  emittedAt: number;
+  suppressedCount: number;
+  suppressedSince: number;
+}>();
 
 function markRunSummaryReported(runKey: string | null | undefined): boolean {
   const key = String(runKey || '').trim();
@@ -1781,6 +1787,65 @@ function emitDevDiagnostic(
     const fn = (console as any)[level] || console.log;
     fn(message);
   } catch {}
+}
+
+function flushCoalescedDiagnosticSummary(
+  key: string,
+  level: 'log' | 'info' | 'warn' | 'debug',
+  state: {
+    signature: string;
+    emittedAt: number;
+    suppressedCount: number;
+    suppressedSince: number;
+  },
+): void {
+  if (state.suppressedCount <= 0) return;
+  emitDevDiagnostic(
+    `${key}:COALESCED`,
+    level,
+    `[ASR_DIAG_COALESCED] key=${key} suppressedCount=${state.suppressedCount} durationMs=${Math.max(0, Date.now() - state.suppressedSince)} signature=${state.signature}`,
+    {
+      minMs: 0,
+      signature: `${key}|${state.signature}|${state.suppressedCount}|${state.suppressedSince}`,
+      requireDev: true,
+    },
+  );
+}
+
+function emitCoalescedDevDiagnostic(
+  key: string,
+  level: 'log' | 'info' | 'warn' | 'debug',
+  message: string,
+  signature: string,
+  opts?: {
+    minMs?: number;
+    requireDev?: boolean;
+  },
+): void {
+  if (opts?.requireDev !== false && !isDevMode()) return;
+  const throttleMs = Math.max(0, Number(opts?.minMs ?? LOG_THROTTLE_MS));
+  const now = Date.now();
+  const normalizedSignature = String(signature || message);
+  const existing = coalescedDiagnosticState.get(key);
+  if (existing && existing.signature === normalizedSignature && (now - existing.emittedAt) < throttleMs) {
+    existing.suppressedCount += 1;
+    if (existing.suppressedSince <= 0) existing.suppressedSince = now;
+    return;
+  }
+  if (existing) {
+    flushCoalescedDiagnosticSummary(key, level, existing);
+  }
+  coalescedDiagnosticState.set(key, {
+    signature: normalizedSignature,
+    emittedAt: now,
+    suppressedCount: 0,
+    suppressedSince: 0,
+  });
+  emitDevDiagnostic(key, level, message, {
+    minMs: 0,
+    signature: `${normalizedSignature}|${now}`,
+    requireDev: opts?.requireDev,
+  });
 }
 
 function warnGuard(reason: string, parts: Array<string | number | null | undefined>) {
@@ -3387,21 +3452,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       tolerancePx,
       sourceAuthority: input.sourceAuthority || sourceAuthority,
     };
-    emitDevDiagnostic(
+    emitCoalescedDevDiagnostic(
       'ASR_POCKET_WALL_EVALUATED',
       'info',
       buildAsrPocketWallEvaluatedDiagnostic(diagnosticPayload),
-      {
-        minMs: 300,
-        signature: [
-          diagnosticPayload.sourceAuthority,
-          authoritativeLineIdx,
-          candidateLineIdx,
-          Math.round(proposedTop / 12),
-          Math.round(effectiveTop / 12),
-          pocketWallReason,
-        ].join('|'),
-      },
+      [
+        diagnosticPayload.sourceAuthority,
+        authoritativeLineIdx,
+        candidateLineIdx,
+        Math.round(proposedTop / 12),
+        Math.round(effectiveTop / 12),
+        pocketWallReason,
+      ].join('|'),
+      { minMs: 1000 },
     );
     if (pocketWallReason === 'hold_forward_write_suppressed') {
       emitDevDiagnostic(
@@ -15044,7 +15107,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ? Math.max(0, nowTs - liveAsrReaderTooLowSinceMs)
           : 0;
       try {
-        console.warn(
+        emitCoalescedDevDiagnostic(
+          'ASR_VISUAL_RECOVERY_BOOST_PATH_PROOF',
+          'warn',
           buildAsrVisualRecoveryBoostPathProofDiagnostic({
             authority: liveTickSelectedAuthority,
             reason: liveTickAuthorityReason,
@@ -15056,6 +15121,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             insidePreferredSettleBand: insidePreferredSettleZone,
             insideToleratedBand: insideTolerated,
           }),
+          [
+            liveTickSelectedAuthority,
+            liveTickAuthorityReason,
+            visualRecoveryBoostSpeechFresh ? 1 : 0,
+            semanticProofHealthy ? 1 : 0,
+            visualRecoveryBoostBridgeBlocked ? 1 : 0,
+            Math.round(targetDebtPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Math.round(visualRecoveryBoostLowStateAgeMs / 500),
+            insidePreferredSettleZone ? 1 : 0,
+            insideTolerated ? 1 : 0,
+          ].join('|'),
+          { minMs: 1200 },
         );
       } catch {}
       const visualRecoveryBoostDecision = decideAsrVisualRecoveryBoost({
@@ -15221,8 +15298,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const comfortOnlyHoldActive = liveHardHold && !visualGovernorHoldActive;
       if (!comfortOnlyHoldActive) {
         try {
-          console.warn(
+          emitCoalescedDevDiagnostic(
+            'ASR_VISUAL_FOLLOW_TARGET',
+            'warn',
             `[ASR_VISUAL_FOLLOW_TARGET] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} desiredMarkerLineIdx=${lastLineIndex} targetScrollTop=${Math.round(pursuitTargetTop || current)} currentScrollTop=${Math.round(current)} deltaPx=${Math.round(err)} deltaLines=${deltaLinesApprox.toFixed(2)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=live_follow_tick`,
+            [
+              lastLineIndex,
+              Math.round((pursuitTargetTop || current) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+              Math.round(current / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+              Math.round(err / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+              speakableLead,
+              renderedLead,
+              'live_follow_tick',
+            ].join('|'),
+            { minMs: 1200 },
           );
           alignmentEpisodes.noteFollow({
             deltaLines: deltaLinesApprox,
@@ -15230,8 +15319,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             targetDeltaPx: err,
             velocityPxps: maxVelForErr,
           });
-          console.warn(
+          emitCoalescedDevDiagnostic(
+            'ASR_VISUAL_FOLLOW_VELOCITY',
+            'warn',
             `[ASR_VISUAL_FOLLOW_VELOCITY] pxps=${Math.round(maxVelForErr)} deltaPx=${Math.round(err)} deltaLines=${deltaLinesApprox.toFixed(2)} capped=${maxVelForErr < resolveMaxVel(err) ? 1 : 0} capReason=${leadState === 'far_ahead' ? 'governor_hold' : 'follow_cap'} leadState=${leadState} speechFresh=${hasRecentActualSpeech(Date.now()) ? 1 : 0} proofSource=live_follow_tick`,
+            [
+              Math.round(maxVelForErr / 10),
+              Math.round(err / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+              leadState,
+              maxVelForErr < resolveMaxVel(err) ? 1 : 0,
+              hasRecentActualSpeech(Date.now()) ? 1 : 0,
+              'live_follow_tick',
+            ].join('|'),
+            { minMs: 1200 },
           );
           if (readerPaceHold) {
             console.warn(
@@ -16766,7 +16866,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ? Array.from(liveTickCandidateAuthorities)
         : [liveTickSelectedAuthority || liveTickBaseAuthority];
       try {
-        console.warn(
+        const authorityTargetScrollTop =
+          Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop;
+        emitCoalescedDevDiagnostic(
+          'ASR_SCROLL_AUTHORITY_SELECTED',
+          'warn',
           buildAsrScrollAuthoritySelectedDiagnostic({
             tickId: liveAsrAuthorityTraceTickId,
             currentLineIdx: lastLineIndex,
@@ -16775,10 +16879,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             selectedAuthority: liveTickSelectedAuthority,
             candidateAuthorities,
             beforeScrollTop,
-            targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop,
+            targetScrollTop: authorityTargetScrollTop,
             afterScrollTop,
             reason: liveTickAuthorityReason,
           }),
+          [
+            lastLineIndex,
+            liveAsrVisualPursuitLineIdx ?? lastLineIndex,
+            liveTickSelectedAuthority,
+            liveTickAuthorityReason,
+            Math.round(beforeScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Math.round(authorityTargetScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Math.round(afterScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            candidateAuthorities.join(','),
+          ].join('|'),
+          { minMs: 800 },
         );
       } catch {}
       if (liveTickConflictingAuthorities.size > 0) {
@@ -17037,8 +17152,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } catch {}
       }
       try {
-        console.warn(
+        emitCoalescedDevDiagnostic(
+          'ASR_VISUAL_ACTUATOR_APPLIED',
+          'warn',
           `[ASR_VISUAL_ACTUATOR_APPLIED] requestedPxps=${Math.round(requestedPxps)} appliedPxps=${Math.round(appliedPxps)} frameDtMs=${frameDtMs} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} beforeScrollTop=${Math.round(beforeScrollTop)} afterScrollTop=${Math.round(afterScrollTop)} targetScrollTop=${Math.round(pursuitTargetTop ?? beforeScrollTop)} targetDebtPx=${Number.isFinite(liveAsrActuatorTargetDebtPx) ? Math.round(liveAsrActuatorTargetDebtPx) : -1} source=tick_controller clampReason=${clampReasonOut} writerKind=pixel reason=${liveAsrActuatorReason} maxScrollTop=${Math.round(maxScrollTop)} distanceToMaxScrollTop=${Math.round(distanceToMaxScrollTop)} atScrollLimit=${atScrollLimit ? 1 : 0} scrollHeight=${Math.round(scroller.scrollHeight || 0)} clientHeight=${Math.round(scroller.clientHeight || 0)}`,
+          [
+            liveAsrActuatorReason,
+            clampReasonOut,
+            Math.round(beforeScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Math.round(afterScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Math.round((pursuitTargetTop ?? beforeScrollTop) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Math.round(requestedDeltaPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Math.round(appliedDeltaPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Math.round(requestedPxps / 10),
+            Math.round(appliedPxps / 10),
+            atScrollLimit ? 1 : 0,
+          ].join('|'),
+          { minMs: 1000 },
         );
       } catch {}
       liveAsrPreviousActuatorGear = gear;
@@ -17048,8 +17178,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         Math.round(appliedDeltaPx) === DEFAULT_MIN_STEP_PX &&
         clampReasonOut === 'min_step_floor';
       try {
-        console.warn(
+        emitCoalescedDevDiagnostic(
+          'ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF',
+          'warn',
           `[ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF] appliedDeltaPx=${Math.round(appliedDeltaPx)} targetDebtPx=${Number.isFinite(liveAsrActuatorTargetDebtPx) ? Math.round(liveAsrActuatorTargetDebtPx) : -1} clampReason=${clampReasonOut} shouldEmitChairperson=${shouldEmitChairperson ? 1 : 0}`,
+          [
+            Math.round(appliedDeltaPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Number.isFinite(liveAsrActuatorTargetDebtPx) ? Math.round(Number(liveAsrActuatorTargetDebtPx) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX) : -1,
+            clampReasonOut,
+            shouldEmitChairperson ? 1 : 0,
+          ].join('|'),
+          { minMs: 1200 },
         );
       } catch {}
       if (shouldEmitChairperson) {
@@ -17476,8 +17615,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               `[ASR_VISUAL_SNAP_SUPPRESSED] commitLineIdx=${committedLineIdx} targetScrollTop=${Math.round(afterTopValue)} currentScrollTop=${Math.round(currentScrollTop)} reason=live_target_follow_motor`,
             );
             alignmentEpisodes.noteSnapSuppressed({ reason: 'live_target_follow_motor' });
-            console.warn(
+            emitCoalescedDevDiagnostic(
+              'ASR_VISUAL_FOLLOW_TARGET',
+              'warn',
               `[ASR_VISUAL_FOLLOW_TARGET] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${committedLineIdx} desiredMarkerLineIdx=${committedLineIdx} targetScrollTop=${Math.round(afterTopValue)} currentScrollTop=${Math.round(currentScrollTop)} deltaPx=${deltaPx} deltaLines=${deltaLines.toFixed(2)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=snap_suppressed`,
+              [
+                lastLineIndex,
+                committedLineIdx,
+                Math.round(afterTopValue / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+                Math.round(currentScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+                Math.round(deltaPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+                speakableLead,
+                renderedLead,
+                'snap_suppressed',
+              ].join('|'),
+              { minMs: 600 },
             );
             alignmentEpisodes.noteFollow({
               deltaLines,
@@ -17496,8 +17648,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             const pxps = absDelta >= ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX
               ? ASR_VISUAL_FOLLOW_MAX_PXPS
               : (absDelta >= ASR_VISUAL_FOLLOW_SLOW_ZONE_PX ? ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS : ASR_VISUAL_FOLLOW_MIN_PXPS);
-            console.warn(
+            emitCoalescedDevDiagnostic(
+              'ASR_VISUAL_FOLLOW_VELOCITY',
+              'warn',
               `[ASR_VISUAL_FOLLOW_VELOCITY] pxps=${pxps} deltaPx=${deltaPx} deltaLines=${deltaLines.toFixed(2)} capped=1 capReason=snap_suppressed leadState=${leadState} speechFresh=${liveAsrMode ? 1 : 0} proofSource=marker_lock`,
+              [
+                Math.round(pxps / 10),
+                Math.round(deltaPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+                leadState,
+                liveAsrMode ? 1 : 0,
+                'snap_suppressed',
+              ].join('|'),
+              { minMs: 600 },
             );
           } catch {}
           return afterTopValue;
