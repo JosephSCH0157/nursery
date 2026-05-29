@@ -237,6 +237,7 @@ import {
   NAN_GUARD_THROTTLE_MS,
   SUMMARY_TOAST_DEDUPE_MS,
 } from './asr-scroll-driver.constants';
+import { evaluateAsrTerminalScriptHold } from './asr-terminal-script-hold';
 import type {
   AsrBlockCorpusEntry,
   AsrBlockMatch,
@@ -8104,6 +8105,82 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
   };
 
+  const resolveTerminalScriptHoldState = (args: {
+    scroller: HTMLElement;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    acceptedCommitTargetIdx: number;
+    requestedTargetIdx: number;
+    currentScrollTop: number;
+    maxScrollTop: number;
+    distanceToMaxScrollTop: number;
+    targetDebtPx: number;
+    terminalClampActive: boolean;
+  }) => {
+    const lastSpeakableLineIdx = resolveAsrEndGraceTerminalLine() ?? findLastSpeakableLineIndex();
+    const terminalLineEl =
+      lastSpeakableLineIdx >= 0
+        ? getLineElementByIndex(args.scroller, lastSpeakableLineIdx)
+        : null;
+    return evaluateAsrTerminalScriptHold({
+      terminalClampActive: args.terminalClampActive,
+      currentLineIdx: args.currentLineIdx,
+      committedLineIdx: args.committedLineIdx,
+      acceptedCommitTargetIdx: args.acceptedCommitTargetIdx,
+      requestedTargetIdx: args.requestedTargetIdx,
+      lastSpeakableLineIdx,
+      currentScrollTop: args.currentScrollTop,
+      maxScrollTop: args.maxScrollTop,
+      distanceToMaxScrollTop: args.distanceToMaxScrollTop,
+      targetDebtPx: args.targetDebtPx,
+      scrollerClientHeight: Number(args.scroller.clientHeight || 0),
+      markerPct:
+        typeof (window as any).__TP_MARKER_PCT === 'number'
+          ? Number((window as any).__TP_MARKER_PCT)
+          : 0.4,
+      terminalLineOffsetTop: Number.isFinite(Number((terminalLineEl as any)?.offsetTop))
+        ? Number((terminalLineEl as any).offsetTop)
+        : null,
+      terminalLineHeightPx: resolveMotionLineHeightPx(terminalLineEl),
+      nearEndWindowLines: 1,
+      markerTolerancePx: Math.max(1, resolveMotionLineHeightPx(terminalLineEl) * ASR_VISUAL_MARKER_ERROR_TOLERANCE_LINES),
+    });
+  };
+
+  const holdAtTerminalScriptEnd = (args: {
+    state: ReturnType<typeof resolveTerminalScriptHoldState>;
+    reason: string;
+  }): void => {
+    const holdLineIdx = Math.max(0, args.state.holdLineIdx);
+    maybeEmitScriptEndEvent(holdLineIdx, args.reason || 'terminal-script-hold');
+    emitCoalescedDevDiagnostic(
+      'ASR_TERMINAL_SCRIPT_HOLD',
+      'warn',
+      `[ASR_TERMINAL_SCRIPT_HOLD] reason=${args.reason} holdLineIdx=${holdLineIdx} lastSpeakableLineIdx=${args.state.lastSpeakableLineIdx} currentResolvedLineIdx=${args.state.currentResolvedLineIdx} currentScrollTop=${Math.round(args.state.currentScrollTop)} maxScrollTop=${Math.round(args.state.maxScrollTop)} distanceToMaxScrollTop=${Math.round(args.state.distanceToMaxScrollTop)} targetDebtPx=${Number.isFinite(args.state.targetDebtPx) ? Math.round(args.state.targetDebtPx) : -1} terminalLineDistanceFromMarkerPx=${Number.isFinite(args.state.terminalLineDistanceFromMarkerPx) ? Math.round(args.state.terminalLineDistanceFromMarkerPx) : -1} paddingAdequate=${args.state.paddingAdequate ? 1 : 0} physicallySatisfiable=${args.state.physicallySatisfiable ? 1 : 0} physicallyUnsatisfiableDebtPx=${Math.round(args.state.physicallyUnsatisfiableDebtPx)}`,
+      [
+        holdLineIdx,
+        args.state.lastSpeakableLineIdx,
+        args.reason,
+        Math.round(args.state.maxScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+        args.state.paddingAdequate ? 1 : 0,
+        args.state.physicallySatisfiable ? 1 : 0,
+      ].join('|'),
+      { minMs: 4000 },
+    );
+    noteReaderZoneSample({
+      lineIdx: holdLineIdx,
+      sampleMs: 0,
+      pocketState: 'terminal_script_hold',
+      belowPocketPx: Math.max(0, Number.isFinite(args.state.targetDebtPx) ? Number(args.state.targetDebtPx) : 0),
+      targetDebtPx: args.state.targetDebtPx,
+      appliedDeltaPx: 0,
+      blockedReason: 'terminal_script_hold',
+      authoritySource: 'terminal_script_hold',
+      recoveryApplied: false,
+      terminalClampActive: true,
+    });
+  };
+
   const findNextSpeakableWithinBridge = (
     cursorLine: number,
     maxLookahead = DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES,
@@ -15552,6 +15629,57 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             : 'clear'
         );
     const arithmeticTargetDebtPx = Number.isFinite(liveAsrActuatorTargetDebtPx) ? liveAsrActuatorTargetDebtPx : Number.NaN;
+    const terminalScriptHoldState = resolveTerminalScriptHoldState({
+      scroller,
+      currentLineIdx: lastLineIndex,
+      committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+      acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+      requestedTargetIdx:
+        Number.isFinite(liveAsrVisualPursuitLineIdx as number)
+          ? Math.max(
+            Math.max(-1, Math.floor(Number(liveAsrVisualPursuitLineIdx))),
+            Math.max(-1, Math.floor(Number(liveAsrCommitteeRequestedTargetIdx))),
+          )
+          : Math.max(-1, Math.floor(Number(liveAsrCommitteeRequestedTargetIdx))),
+      currentScrollTop: beforeScrollTop,
+      maxScrollTop,
+      distanceToMaxScrollTop,
+      targetDebtPx: arithmeticTargetDebtPx,
+      terminalClampActive: atScrollLimit,
+    });
+    if (terminalScriptHoldState.active) {
+      holdAtTerminalScriptEnd({
+        state: terminalScriptHoldState,
+        reason: terminalScriptHoldState.physicallySatisfiable
+          ? 'terminal_script_hold'
+          : 'terminal_script_hold_unsatisfiable_marker_debt',
+      });
+      liveHardHold = true;
+      pursuitVel = 0;
+      pursuitTargetTop = null;
+      preservedAsrAuthorityTargetTop = null;
+      preservedAsrAuthorityTargetReason = 'terminal_script_hold';
+      preservedAsrAuthorityTargetSourcePath = 'terminal_script_hold';
+      liveAsrActuatorReason = 'terminal_script_hold';
+      lastAsrSelectedAuthority = 'terminal_script_hold';
+      liveAsrVisualPursuitLineIdx = Math.max(0, terminalScriptHoldState.holdLineIdx);
+      liveAsrVisualDebtCatchupObservationCount = 0;
+      liveAsrVisualDebtCatchupLastDebtPx = Number.NaN;
+      liveAsrActuatorMismatchStreak = 0;
+      liveAsrPreviousActuatorGear = 'hold';
+      liveAsrReaderComfortRescueRepeatCount = 0;
+      asrLowPocketDeadbandObservationCount = 0;
+      asr4PocketDriftConsecutiveBelowPocketCount = 0;
+      lastAsrResolvedAuthoritySignature = '';
+      asr4VisualRecoveryLastAuthoritySignature = '';
+      asr4PocketDriftLastAuthoritySignature = '';
+      try {
+        (window as any).__tpLiveAsrGovernorHold = true;
+      } catch {}
+      emitPursuitHud(0, 0, null, beforeScrollTop);
+      window.requestAnimationFrame(tickController);
+      return;
+    }
     const resolverLineHeightPx = resolveMotionLineHeightPx(
       getLineElementByIndex(scroller, Math.max(0, liveAsrCommitteeAcceptedCommitTargetIdx)) ||
       getLineElementByIndex(scroller, Math.max(0, liveAsrCommitteeRequestedTargetIdx)) ||
