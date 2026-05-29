@@ -125,6 +125,16 @@ describe('ASR live commit motion', () => {
     window.history.replaceState({}, '', '/');
   });
 
+  test('does not throw when booting with a detached recognizer runtime snapshot', () => {
+    (window as any).__tpAsrRuntimeStatus = {
+      recognizerAttached: false,
+      speechRunningActual: false,
+    };
+
+    const driver = createAsrScrollDriver();
+    driver.dispose();
+  });
+
   test('guard telemetry emits one structured ASR_GUARD without the legacy duplicate line', async () => {
     const driver = createAsrScrollDriver();
 

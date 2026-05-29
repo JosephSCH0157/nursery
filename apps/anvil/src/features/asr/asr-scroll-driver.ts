@@ -13570,7 +13570,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return now;
   };
 
-  const getCommitFreshnessDiagnosticPayload = (args: {
+  function getCommitFreshnessDiagnosticPayload(args: {
     transcriptSeq?: number | null;
     responseAgeMs?: number | null;
     lastSpeechAgeMs?: number | null;
@@ -13581,25 +13581,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     proposedLineIdx: number;
     committedLineIdx: number;
     reason: string;
-  }) => ({
-    transcriptSeq: Number.isFinite(args.transcriptSeq as number) ? Math.floor(Number(args.transcriptSeq)) : -1,
-    responseAgeMs: Number.isFinite(args.responseAgeMs as number) ? Number(args.responseAgeMs) : Number.POSITIVE_INFINITY,
-    lastSpeechAgeMs: Number.isFinite(args.lastSpeechAgeMs as number) ? Number(args.lastSpeechAgeMs) : Number.POSITIVE_INFINITY,
-    lastAudioChunkAgeMs: Number.isFinite(args.lastAudioChunkAgeMs as number) ? Number(args.lastAudioChunkAgeMs) : Number.POSITIVE_INFINITY,
-    speechFresh: !!args.speechFresh,
-    speechActive: !!args.speechActive,
-    sessionPhase: isSessionLivePhase() ? 'live' : String(getSessionPhase() || 'unknown'),
-    asrRunning: getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed(),
-    currentLineIdx: Math.max(0, Math.floor(Number(args.currentLineIdx) || 0)),
-    proposedLineIdx: Math.max(0, Math.floor(Number(args.proposedLineIdx) || 0)),
-    committedLineIdx: Math.max(0, Math.floor(Number(args.committedLineIdx) || 0)),
-    reason: String(args.reason || 'unknown'),
-  });
+  }) {
+    return {
+      transcriptSeq: Number.isFinite(args.transcriptSeq as number) ? Math.floor(Number(args.transcriptSeq)) : -1,
+      responseAgeMs: Number.isFinite(args.responseAgeMs as number) ? Number(args.responseAgeMs) : Number.POSITIVE_INFINITY,
+      lastSpeechAgeMs: Number.isFinite(args.lastSpeechAgeMs as number) ? Number(args.lastSpeechAgeMs) : Number.POSITIVE_INFINITY,
+      lastAudioChunkAgeMs: Number.isFinite(args.lastAudioChunkAgeMs as number) ? Number(args.lastAudioChunkAgeMs) : Number.POSITIVE_INFINITY,
+      speechFresh: !!args.speechFresh,
+      speechActive: !!args.speechActive,
+      sessionPhase: isSessionLivePhase() ? 'live' : String(getSessionPhase() || 'unknown'),
+      asrRunning: getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed(),
+      currentLineIdx: Math.max(0, Math.floor(Number(args.currentLineIdx) || 0)),
+      proposedLineIdx: Math.max(0, Math.floor(Number(args.proposedLineIdx) || 0)),
+      committedLineIdx: Math.max(0, Math.floor(Number(args.committedLineIdx) || 0)),
+      reason: String(args.reason || 'unknown'),
+    };
+  }
 
-  const invalidatePendingResponseAuthority = (
+  function invalidatePendingResponseAuthority(
     reason: string,
     overrides?: Partial<ReturnType<typeof getCommitFreshnessDiagnosticPayload>>,
-  ) => {
+  ) {
     commitAuthorityEpoch += 1;
     lastCommitAuthorityInvalidatedAt = Date.now();
     lastCommitAuthorityInvalidationReason = String(reason || 'unknown');
@@ -13628,7 +13630,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         signature: `${reason}|${Math.max(0, lastLineIndex)}|${commitAuthorityEpoch}`,
       },
     );
-  };
+  }
 
   const evaluateForwardCommitFreshness = (input: {
     currentLineIdx: number;
