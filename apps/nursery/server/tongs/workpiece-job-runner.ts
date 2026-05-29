@@ -986,9 +986,6 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const transcriptPreflightDiagnostic = error instanceof TranscriptAudioPreflightError
-        ? error.diagnostic
-        : null;
       if (!message.includes("already sealed")) {
         // ignore seal races / non-fatal failures
       }
@@ -1180,6 +1177,9 @@ async function tickRunner(deps: RunnerDeps, state: RunnerState): Promise<void> {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const transcriptPreflightDiagnostic = error instanceof TranscriptAudioPreflightError
+        ? error.diagnostic
+        : null;
       console.error("[workpiece-job-runner] job failed", {
         job_id: job.id,
         job_type: job.job_type,

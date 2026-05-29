@@ -59,7 +59,6 @@ type Next = (err?: unknown) => void;
 const DEFAULT_TRANSCRIBE_MODEL = "gpt-4o-transcribe-diarize";
 const DEFAULT_CHAT_FALLBACK_MODEL = "gpt-4o-mini";
 const ALLOWED_MEDIA_EXTENSIONS = new Set([".mp4", ".webm", ".mov", ".wav", ".mp3", ".m4a"]);
-const VIDEO_MEDIA_EXTENSIONS = new Set([".mp4", ".webm", ".mov"]);
 const MAX_TRANSCRIBE_SOURCE_BYTES = 256 * 1024 * 1024;
 const MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES = 25 * 1024 * 1024;
 const CANONICAL_MEDIA_FETCH_TIMEOUT_MS = 60_000;
@@ -85,6 +84,26 @@ type HammerAudioPolishProgressRecord = {
   failedPhase: HammerAudioPolishPhase | null;
   errorMessage: string | null;
   updatedAt: string;
+};
+
+type TranscriptUploadPreparedSuccess = {
+  ok: true;
+  fileBytes: Buffer;
+  contentType: string;
+  sourceLabel: string;
+  backend: "direct_source" | "local_ffmpeg" | "forge_ffmpeg_service";
+  serviceRequestId: string | null;
+  outputFormat: string | null;
+  outputSampleRate: number | null;
+  outputChannels: number | null;
+  transcodeApplied: boolean;
+  transcodeReason: string;
+};
+
+type TranscriptUploadPreparedFailure = {
+  ok: false;
+  message: string;
+  detail?: unknown;
 };
 
 const hammerAudioPolishProgressByKey = new Map<string, HammerAudioPolishProgressRecord>();
@@ -485,23 +504,7 @@ async function prepareTranscriptUploadMedia(args: {
   extension: string;
   stageTimer: HammerTranscriptStageTimer;
   forceTranscode?: boolean;
-}): Promise<{
-  ok: true;
-  fileBytes: Buffer;
-  contentType: string;
-  sourceLabel: string;
-  backend: "direct_source" | "local_ffmpeg" | "forge_ffmpeg_service";
-  serviceRequestId: string | null;
-  outputFormat: string | null;
-  outputSampleRate: number | null;
-  outputChannels: number | null;
-  transcodeApplied: boolean;
-  transcodeReason: string;
-} | {
-  ok: false;
-  message: string;
-  detail?: unknown;
-}> {
+}): Promise<TranscriptUploadPreparedSuccess | TranscriptUploadPreparedFailure> {
   const transcodeReason = args.forceTranscode
     ? "forced_by_mode"
     : args.contentType.toLowerCase().startsWith("video/")
@@ -532,17 +535,7 @@ async function prepareTranscriptUploadMedia(args: {
     };
   }
 
-  const transcodeWithForge = async (): Promise<{
-    ok: true;
-    fileBytes: Buffer;
-    contentType: string;
-    sourceLabel: string;
-    backend: "forge_ffmpeg_service";
-    serviceRequestId: string | null;
-    outputFormat: string | null;
-    outputSampleRate: number | null;
-    outputChannels: number | null;
-  } | { ok: false; message: string; detail?: unknown }> => {
+  const transcodeWithForge = async (): Promise<TranscriptUploadPreparedSuccess | TranscriptUploadPreparedFailure> => {
     const forgeClient = readHammerForgeFfmpegClientConfig();
     if (!forgeClient) {
       return {
@@ -599,17 +592,7 @@ async function prepareTranscriptUploadMedia(args: {
     }
   };
 
-  const transcodeWithLocalFfmpeg = async (): Promise<{
-    ok: true;
-    fileBytes: Buffer;
-    contentType: string;
-    sourceLabel: string;
-    backend: "local_ffmpeg";
-    serviceRequestId: null;
-    outputFormat: string;
-    outputSampleRate: number;
-    outputChannels: number;
-  } | { ok: false; message: string; detail?: unknown }> => {
+  const transcodeWithLocalFfmpeg = async (): Promise<TranscriptUploadPreparedSuccess | TranscriptUploadPreparedFailure> => {
     const mediaRuntime = detectHammerMediaRuntime();
     const ffmpegBin = readTrimmed(mediaRuntime.ffmpeg.ffmpeg_bin);
     if (!ffmpegBin) {
