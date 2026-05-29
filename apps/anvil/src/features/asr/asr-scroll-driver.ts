@@ -3551,6 +3551,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastAsrLivePocketMaintenanceCallsiteSignature = '';
   let lastAsrSafeLivePocketCorrectionBlockedAt = 0;
   let lastAsrSafeLivePocketCorrectionBlockedSignature = '';
+  let liveAsrTerminalScriptHoldActive = false;
   let asr4VisualRecoveryConsecutiveNoMoveCommits = 0;
   let asrMarkerLockRecoveryDominanceStreak = 0;
   let asr4VisualRecoveryLastDirectWriteBlocked = false;
@@ -11415,6 +11416,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const shouldKeepLiveAsrPocketMaintenanceActive = (nowTs: number) => {
     if (getScrollMode() !== 'asr' || !isSessionLivePhase() || !isSessionAsrArmed()) return false;
     if (lastLineIndex < 0) return false;
+    if (liveAsrTerminalScriptHoldActive) return false;
     if (asrRuntimeSpeechRunningActual) return true;
     if (hasRecentActualSpeech(nowTs) || hasRecentVadSpeechNow(nowTs)) return true;
     if (lastFinalTranscriptAt > 0 && (nowTs - lastFinalTranscriptAt) <= 1800) return true;
@@ -11949,13 +11951,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const viewportHeight = Math.max(1, Number(scroller.clientHeight || 0));
       const markerY = viewportHeight * markerPct;
       const totalLines = getTotalLines();
+      const nextSpeakableCandidateIdx = findNextSpeakableLineIndex({
+        startIndex: Math.max(0, lastLineIndex),
+        maxLookahead: Math.max(1, totalLines),
+        totalLines,
+        getLineText: getLineTextAt,
+      });
       const nextSpeakableLineIdx =
-        findNextSpeakableLineIndex({
-          startIndex: Math.max(0, lastLineIndex),
-          maxLookahead: Math.max(1, totalLines),
-          totalLines,
-          getLineText: getLineTextAt,
-        }) ?? lastLineIndex;
+        nextSpeakableCandidateIdx ?? lastLineIndex;
       const currentVisual = resolveLineVisualTelemetry(scroller, lastLineIndex);
       const nextVisual = resolveLineVisualTelemetry(scroller, nextSpeakableLineIdx);
       const nextSpeakableEl = getLineElementByIndex(scroller, nextSpeakableLineIdx);
@@ -12078,6 +12081,80 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       liveAsrCommitteeVisualGovernorState = visualGovernorHoldActive || liveHardHold
         ? 'hard_hold_active'
         : 'inactive';
+      const lastSpeakableLineIdx = findLastSpeakableLineIndex();
+      const currentAtFinalSpeakable =
+        lastSpeakableLineIdx >= 0 &&
+        lastLineIndex >= lastSpeakableLineIdx;
+      const committedAtFinalSpeakable =
+        lastSpeakableLineIdx >= 0 &&
+        lastCommittedLine >= lastSpeakableLineIdx;
+      const nextAtFinalSpeakable =
+        lastSpeakableLineIdx >= 0 &&
+        nextSpeakableLineIdx >= lastSpeakableLineIdx;
+      const noFurtherSpeakableTarget =
+        nextSpeakableCandidateIdx == null ||
+        nextSpeakableLineIdx <= lastLineIndex;
+      const terminalScriptHoldActiveForTick =
+        pocketAuthorityTerminalClampActive &&
+        (
+          (currentAtFinalSpeakable && committedAtFinalSpeakable && nextAtFinalSpeakable) ||
+          noFurtherSpeakableTarget
+        );
+      if (terminalScriptHoldActiveForTick) {
+        const terminalScriptHoldReason =
+          Number.isFinite(targetDebtPx) && targetDebtPx > tolerancePx
+            ? 'terminal_script_hold_unsatisfiable_marker_debt'
+            : 'terminal_script_hold';
+        const terminalScriptHoldJustEntered = !liveAsrTerminalScriptHoldActive;
+        liveAsrTerminalScriptHoldActive = true;
+        liveAsrVisualPursuitLineIdx = nextSpeakableLineIdx;
+        liveAsrActuatorMismatchStreak = 0;
+        lastAsrSelectedAuthority = 'terminal_script_hold';
+        lastAsrResolvedAuthoritySignature = '';
+        pursuitTargetTop = current;
+        pursuitVel = 0;
+        pursuitActive = false;
+        if (terminalScriptHoldJustEntered) {
+          const holdSignature = [
+            lastLineIndex,
+            lastCommittedLine,
+            nextSpeakableLineIdx,
+            lastSpeakableLineIdx,
+            Math.round(current / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Math.round(maxScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            terminalScriptHoldReason,
+          ].join('|');
+          if (shouldEmitFrameDiagnostic('ASR_TERMINAL_SCRIPT_HOLD_ENTERED', holdSignature, 2000)) {
+            try {
+              console.warn(
+                `[ASR_TERMINAL_SCRIPT_HOLD_ENTERED] currentLineIdx=${lastLineIndex} committedLineIdx=${lastCommittedLine} nextSpeakableLineIdx=${nextSpeakableLineIdx} lastSpeakableLineIdx=${lastSpeakableLineIdx} currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(current)} maxScrollTop=${Math.round(maxScrollTop)} targetDebtPx=${Number.isFinite(targetDebtPx) ? Math.round(Math.max(0, targetDebtPx)) : -1} terminalClampActive=1 noFurtherSpeakableTarget=${noFurtherSpeakableTarget ? 1 : 0} reason=${terminalScriptHoldReason}`,
+              );
+            } catch {}
+            try {
+              console.warn(
+                buildAsrScrollAuthoritySelectedDiagnostic({
+                  tickId: ++liveAsrScrollAuthorityTickId,
+                  currentLineIdx: lastLineIndex,
+                  committedLineIdx: lastCommittedLine,
+                  nextSpeakableLineIdx,
+                  selectedAuthority: 'terminal_script_hold',
+                  candidateAuthorities: ['terminal_script_hold'],
+                  beforeScrollTop: current,
+                  targetScrollTop: current,
+                  afterScrollTop: current,
+                  reason: terminalScriptHoldReason,
+                }),
+              );
+            } catch {}
+          }
+        }
+        emitPursuitHud(0, 0, current, current);
+        window.requestAnimationFrame(tickController);
+        return;
+      }
+      if (liveAsrTerminalScriptHoldActive) {
+        liveAsrTerminalScriptHoldActive = false;
+      }
       liveAsrAuthorityTraceTickId = ++liveAsrScrollAuthorityTickId;
       let lowerRailHoldRejectedReason = '';
       let holdBandRejectedReason = '';
@@ -28208,6 +28285,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     pendingMatch = null;
     pendingSpeakableBridgeState = null;
+    liveAsrTerminalScriptHoldActive = false;
     lastAsr4ShadowSnapshot = null;
     earlyBridgeTrapHoldCountByKey.clear();
     liveBridgeDownstreamBlockUntilByKey.clear();
@@ -28220,6 +28298,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastAsrLiveScrollStallSignature = '';
     lastAsrLiveScrollStallLoggedAt = 0;
     lastAsrLiveScrollStallRecoveryAt = 0;
+    liveAsrTerminalScriptHoldActive = false;
     asr4VisualRecoveryConsecutiveNoMoveCommits = 0;
     asr4VisualRecoveryLastDirectWriteBlocked = false;
     asr4VisualRecoveryLastTargetPreservedForEasing = false;

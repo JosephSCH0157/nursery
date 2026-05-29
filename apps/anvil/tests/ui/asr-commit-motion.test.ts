@@ -2994,6 +2994,80 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('terminal clamp on final speakable line enters terminal_script_hold and skips bottom-lock actuator path', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const maxScrollTop = Math.max(0, Number(scroller.scrollHeight || 0) - Number(scroller.clientHeight || 0));
+    scroller.scrollTop = maxScrollTop;
+
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(3);
+    driver.ingest('Neon ads hum above the aisle.', true, {
+      currentIdx: 3,
+      matchId: 'terminal-script-hold-final-line',
+      match: { bestIdx: 3, bestSim: 0.93, topScores: [{ idx: 3, score: 0.93 }] },
+    });
+
+    await jest.advanceTimersByTimeAsync(200);
+
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const holdEntered = lines.filter((l) => l.includes('ASR_TERMINAL_SCRIPT_HOLD_ENTERED'));
+    expect(holdEntered.length).toBe(1);
+    const selectedLine = lines.find((l) => l.includes('ASR_SCROLL_AUTHORITY_SELECTED')) || '';
+    expect(selectedLine).toContain('selectedAuthority=terminal_script_hold');
+    expect(selectedLine).toContain('candidateAuthorities=[terminal_script_hold]');
+    expect(lines.some((l) => l.includes('selectedAuthority=bottom_lock_release'))).toBe(false);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_RECOVERY_BOOST_APPLIED'))).toBe(false);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_ACTUATOR_APPLIED'))).toBe(false);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('after runtime stop at terminal clamp, follow/actuator/authority diagnostics do not keep repeating', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const maxScrollTop = Math.max(0, Number(scroller.scrollHeight || 0) - Number(scroller.clientHeight || 0));
+    scroller.scrollTop = maxScrollTop;
+
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(3);
+    driver.ingest('Neon ads hum above the aisle.', true, {
+      currentIdx: 3,
+      matchId: 'terminal-script-hold-stop-suppression',
+      match: { bestIdx: 3, bestSim: 0.91, topScores: [{ idx: 3, score: 0.91 }] },
+    });
+
+    await jest.advanceTimersByTimeAsync(220);
+
+    const countToken = (token: string) =>
+      warnSpy.mock.calls.map((c) => String(c[0] || '')).filter((line) => line.includes(token)).length;
+
+    const baselineFollow = countToken('ASR_VISUAL_FOLLOW_TARGET');
+    const baselineActuator = countToken('ASR_VISUAL_ACTUATOR_APPLIED');
+    const baselineAuthority = countToken('ASR_SCROLL_AUTHORITY_SELECTED');
+
+    window.dispatchEvent(
+      new CustomEvent('tp:asr:runtime-status', {
+        detail: {
+          speechRunningActual: false,
+          speechRunning: false,
+          source: 'jest-stop',
+        },
+      }),
+    );
+    window.dispatchEvent(new Event('tp:asr:silence'));
+
+    await jest.advanceTimersByTimeAsync(600);
+
+    expect(countToken('ASR_VISUAL_FOLLOW_TARGET')).toBe(baselineFollow);
+    expect(countToken('ASR_VISUAL_ACTUATOR_APPLIED')).toBe(baselineActuator);
+    expect(countToken('ASR_SCROLL_AUTHORITY_SELECTED')).toBe(baselineAuthority);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('safe low-pocket adjacent commit applies safe live pocket correction instead of marker-lock recovery easing', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;
