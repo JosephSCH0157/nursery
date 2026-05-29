@@ -377,19 +377,19 @@ const ASR_READER_POCKET_PREFERRED_BOTTOM_LINES = 2.0;
 const ASR_READER_POCKET_PREFERRED_SETTLE_BOTTOM_LINES = 1.5;
 const ASR_READER_POCKET_TOLERATED_TOP_LINES = -0.5;
 const ASR_READER_POCKET_TOLERATED_BOTTOM_LINES = 2.5;
-const ASR_READER_COMFORT_NUDGE_PXPS = 10;
-const ASR_READER_COMFORT_BOTTOM_DRIFT_NUDGE_PXPS = 14;
-const ASR_READER_COMFORT_BOTTOM_DRIFT_WINDOW_MS = 1200;
+const ASR_READER_COMFORT_NUDGE_PXPS = 12;
+const ASR_READER_COMFORT_BOTTOM_DRIFT_NUDGE_PXPS = 16;
+const ASR_READER_COMFORT_BOTTOM_DRIFT_WINDOW_MS = 850;
 const ASR_READER_COMFORT_RESCUE_MIN_BELOW_POCKET_LINES = 0.3;
 const ASR_READER_COMFORT_RESCUE_BOTTOM_VIEWPORT_RATIO = 0.76;
-const ASR_READER_COMFORT_RESCUE_REPEAT_COUNT = 2;
-const ASR_READER_COMFORT_RESCUE_MAX_STEP_LINES = 0.9;
-const ASR_READER_COMFORT_RESCUE_COOLDOWN_MS = 650;
-const ASR_READER_COMFORT_RESCUE_MIN_CORRECTION_GAP_MS = 280;
-const ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX = 24;
-const ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_OBSERVATIONS = 3;
-const ASR_LOW_POCKET_DEADBAND_RECONCILE_SEVERE_LINES = 0.5;
-const ASR_LOW_POCKET_DEADBAND_RECONCILE_MAX_STEP_LINES = 1.5;
+const ASR_READER_COMFORT_RESCUE_REPEAT_COUNT = 1;
+const ASR_READER_COMFORT_RESCUE_MAX_STEP_LINES = 0.55;
+const ASR_READER_COMFORT_RESCUE_COOLDOWN_MS = 420;
+const ASR_READER_COMFORT_RESCUE_MIN_CORRECTION_GAP_MS = 180;
+const ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX = 16;
+const ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_OBSERVATIONS = 2;
+const ASR_LOW_POCKET_DEADBAND_RECONCILE_SEVERE_LINES = 0.35;
+const ASR_LOW_POCKET_DEADBAND_RECONCILE_MAX_STEP_LINES = 0.75;
 const ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX = 0.5;
 const ASR_APPROVED_VISUAL_GLIDE_MIN_PX = 18;
 const ASR_APPROVED_VISUAL_GLIDE_MAX_LINES = 1.25;
@@ -13924,7 +13924,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       getLineElementByIndex(input.scroller, Math.max(0, input.committedLineIdx)) ||
       getLineElementByIndex(input.scroller, Math.max(0, input.currentLineIdx)),
     ), 12, 320);
-    const maxStepPx = Math.max(12, Math.round(lineHeightPx * ASR_READER_COMFORT_RESCUE_MAX_STEP_LINES));
+    const maxStepPx = Math.min(
+      Math.max(12, Math.round(lineHeightPx * ASR_READER_COMFORT_RESCUE_MAX_STEP_LINES)),
+      Math.max(18, Math.round(Math.max(
+        input.belowPocketPx,
+        Math.max(0, input.targetScrollTop - input.currentScrollTop),
+      ) * 0.45)),
+    );
     const desiredDeltaPx = clamp(
       Math.max(
         input.belowPocketPx,
@@ -13946,13 +13952,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       };
     }
     const boundedTargetTop = clamp(input.currentScrollTop + desiredDeltaPx, 0, maxTop);
-    const appliedTop = applyCanonicalScrollTop(boundedTargetTop, {
+    const rendered = applyApprovedVisualCorrection({
       scroller: input.scroller,
-      reason: 'asr-reader-comfort-rescue',
-      source: 'asr',
+      currentScrollTop: input.currentScrollTop,
+      approvedTargetScrollTop: boundedTargetTop,
+      authority: 'reader_comfort_rescue',
+      currentLineIdx: input.currentLineIdx,
+      committedLineIdx: input.committedLineIdx,
+      nextSpeakableLineIdx: input.targetLineIdx,
+      visualErrorPx: input.visualDebtPx,
+      smoothingReason: 'asr-reader-comfort-rescue',
+      severeBypassReason:
+        input.belowPocketPx >= Math.max(96, lineHeightPx * 2)
+          ? 'severe_rescue'
+          : null,
     });
     const afterScrollTop =
-      finiteNumberOrNull('readerComfortRescue.afterTop', Number.isFinite(appliedTop) ? appliedTop : input.scroller.scrollTop, {
+      finiteNumberOrNull('readerComfortRescue.afterTop', Number.isFinite(rendered.afterScrollTop) ? rendered.afterScrollTop : input.scroller.scrollTop, {
         lineIdx: input.targetLineIdx,
         reason: input.reason,
       }) ?? input.currentScrollTop;
@@ -13985,7 +14001,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     preservedAsrAuthorityTargetTop = null;
     preservedAsrAuthorityTargetReason = 'reader_comfort_rescue_applied';
     preservedAsrAuthorityTargetSourcePath = 'reader_comfort_rescue_applied';
-    pursuitTargetTop = afterScrollTop;
+    pursuitTargetTop = rendered.renderMode === 'glide' ? boundedTargetTop : afterScrollTop;
     pursuitVel = 0;
     try {
       console.warn(buildAsrReaderComfortRescueAppliedDiagnostic({
@@ -25772,8 +25788,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX,
       state.lineHeightPx * ASR_LOW_POCKET_DEADBAND_RECONCILE_SEVERE_LINES,
     );
+    const sameTargetNotClosing =
+      previousHoldReason === 'existing_target_within_deadband' ||
+      state.suppressedReason === 'target_preserved_but_not_closing';
     const evaluateLowPocketDeadband =
-      previousHoldReason === 'existing_target_within_deadband' &&
+      sameTargetNotClosing &&
       state.belowPocketPx > ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX &&
       Math.abs(state.movedPx) <= ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX;
     if (evaluateLowPocketDeadband) {
@@ -25801,6 +25820,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const boundedCorrectionPx = Math.min(
       state.belowPocketPx,
       Math.max(12, state.lineHeightPx * ASR_LOW_POCKET_DEADBAND_RECONCILE_MAX_STEP_LINES),
+      Math.max(18, Math.round(state.belowPocketPx * 0.45)),
     );
     const nowTs = Date.now();
     const speechFresh =
@@ -25890,7 +25910,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                   targetScrollTop: state.targetScrollTop,
                   belowPocketPx: state.belowPocketPx,
                   activeLineDistanceFromMarkerPx: state.activeLineDistanceFromMarkerPx,
-                  previousHoldReason,
+                  previousHoldReason: state.suppressedReason === 'target_preserved_but_not_closing'
+                    ? 'target_preserved_but_not_closing'
+                    : previousHoldReason,
                   correctionPx: movedPx,
                   observations: lowPocketDeadbandObservations,
                 }),
@@ -25930,7 +25952,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             targetScrollTop: state.targetScrollTop,
             belowPocketPx: state.belowPocketPx,
             activeLineDistanceFromMarkerPx: state.activeLineDistanceFromMarkerPx,
-            previousHoldReason,
+            previousHoldReason: state.suppressedReason === 'target_preserved_but_not_closing'
+              ? 'target_preserved_but_not_closing'
+              : previousHoldReason,
             correctionPx: boundedCorrectionPx,
             observations: lowPocketDeadbandObservations,
             reason: blockedReason || 'unknown',
