@@ -62246,6 +62246,616 @@ var init_asr_scroll_driver = __esm({
   }
 });
 
+// src/features/asr/asr-log-buffer.ts
+function detectEnabled(win) {
+  const host = win;
+  if (host.__TP_DEV === true || host.__TP_DEV1 === true || host.__tpDevMode === true || host.__ASR_DIAGNOSTIC_PROOF__ || host.__ASR_INIT_IMPL__ || host.__asrLogBufferInstalled === true) {
+    return true;
+  }
+  try {
+    const params = new URLSearchParams(win.location.search || "");
+    if (params.get("dev") === "1") return true;
+    if (params.get("asr_log_buffer") === "1") return true;
+  } catch {
+  }
+  try {
+    if (win.localStorage?.getItem("tp_dev_mode") === "1") return true;
+    if (win.localStorage?.getItem("asr_log_buffer") === "1") return true;
+  } catch {
+  }
+  return false;
+}
+function extractTextArg(args) {
+  for (const arg of args) {
+    if (typeof arg === "string" && arg.trim()) return arg;
+  }
+  return "";
+}
+function extractPayloadArg(args) {
+  for (const arg of args) {
+    if (arg && typeof arg === "object") return arg;
+  }
+  return null;
+}
+function truncateString(value) {
+  return value.length > MAX_STRING_LEN ? `${value.slice(0, MAX_STRING_LEN)}\u2026` : value;
+}
+function sanitizeValue(value, depth = 0, seen = /* @__PURE__ */ new WeakSet()) {
+  if (value == null) return value;
+  if (typeof value === "string") return truncateString(value);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "bigint") return String(value);
+  if (typeof value === "function") return "[Function]";
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: truncateString(value.message || ""),
+      stack: truncateString(value.stack || "")
+    };
+  }
+  if (typeof Blob !== "undefined" && value instanceof Blob) {
+    return { type: "Blob", size: value.size, mime: value.type || "" };
+  }
+  if (value instanceof ArrayBuffer) {
+    return { type: "ArrayBuffer", byteLength: value.byteLength };
+  }
+  if (ArrayBuffer.isView(value)) {
+    return {
+      type: Object.prototype.toString.call(value).slice(8, -1),
+      byteLength: value.byteLength
+    };
+  }
+  if (typeof Element !== "undefined" && value instanceof Element) {
+    return {
+      type: "Element",
+      tagName: value.tagName,
+      id: value.id || "",
+      className: value.className || ""
+    };
+  }
+  if (typeof value === "object") {
+    if (seen.has(value)) return "[Circular]";
+    seen.add(value);
+    if (depth >= 4) return "[MaxDepth]";
+    if (Array.isArray(value)) {
+      return value.slice(0, 50).map((item) => sanitizeValue(item, depth + 1, seen));
+    }
+    const out = {};
+    const entries = Object.entries(value).slice(0, 50);
+    for (const [key, item] of entries) {
+      out[key] = sanitizeValue(item, depth + 1, seen);
+    }
+    return out;
+  }
+  try {
+    return truncateString(String(value));
+  } catch {
+    return "[Unserializable]";
+  }
+}
+function extractTag(line) {
+  const bracket = line.match(/^\s*\[([^\]]+)\]/);
+  if (bracket) return bracket[1];
+  const token = line.match(/\b(ASR_[A-Z0-9_]+)\b/);
+  return token ? token[1] : "ASR";
+}
+function parseFieldNumber(line, key) {
+  const match = line.match(new RegExp(`${key}=(-?\\d+(?:\\.\\d+)?)`));
+  if (!match) return null;
+  const num2 = Number(match[1]);
+  return Number.isFinite(num2) ? num2 : null;
+}
+function parseFieldString(line, key) {
+  const match = line.match(new RegExp(`${key}=([^\\s]+)`));
+  return match ? match[1] : null;
+}
+function parsePayloadNumber(payload, key) {
+  if (!payload || typeof payload !== "object") return null;
+  const num2 = Number(payload[key]);
+  return Number.isFinite(num2) ? num2 : null;
+}
+function parsePayloadString(payload, key) {
+  if (!payload || typeof payload !== "object") return null;
+  const value = payload[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+function getTrackedSummaryFamily(tag) {
+  if (tag.startsWith("ASR_VISUAL_FOLLOW_")) return "ASR_VISUAL_FOLLOW_*";
+  return TRACKED_SUMMARY_FAMILIES.has(tag) ? tag : null;
+}
+function getEntryFieldNumber(entry, key) {
+  return parseFieldNumber(entry.stringLine, key) ?? parsePayloadNumber(entry.payload, key);
+}
+function getEntryFieldString(entry, key) {
+  return parseFieldString(entry.stringLine, key) ?? parsePayloadString(entry.payload, key);
+}
+function resolveSummaryLineIdx(entry) {
+  if (entry.currentLineIdx != null) return Math.max(0, entry.currentLineIdx);
+  if (entry.committedLineIdx != null) return Math.max(0, entry.committedLineIdx);
+  if (entry.nextSpeakableLineIdx != null) return Math.max(0, entry.nextSpeakableLineIdx);
+  const targetLineIdx = getEntryFieldNumber(entry, "targetLineIdx");
+  return targetLineIdx != null ? Math.max(0, Math.floor(targetLineIdx)) : null;
+}
+function isCommitEntry(entry) {
+  if (entry.tag.includes("COMMIT")) return true;
+  return /\bcommit(LineIdx|Index|Target|TargetIdx)?=/.test(entry.stringLine);
+}
+function incrementMapCount(map, key) {
+  const safeKey = String(key || "").trim();
+  if (!safeKey) return;
+  map[safeKey] = (map[safeKey] || 0) + 1;
+}
+function getOrCreateRunPhaseSummary(summaries, lineIdx) {
+  const bucketStart = Math.floor(Math.max(0, lineIdx) / DEFAULT_LINE_BUCKET_SIZE) * DEFAULT_LINE_BUCKET_SIZE;
+  const existing = summaries.get(bucketStart);
+  if (existing) return existing;
+  const created = {
+    lineStart: bucketStart,
+    lineEnd: bucketStart + DEFAULT_LINE_BUCKET_SIZE - 1,
+    entryCount: 0,
+    commitCount: 0,
+    commitDeltaSum: 0,
+    commitDeltaCount: 0,
+    bridgeCommitCount: 0,
+    cueBridgeCommitCount: 0,
+    starvationDetectedCount: 0,
+    rescueCount: 0,
+    liveStrictBridgeLandingHoldCount: 0,
+    unsafeTargetCount: 0,
+    debtBelowLineHeightCount: 0,
+    markerErrorLineTooHighCount: 0,
+    readerComfortRescueAppliedCount: 0,
+    readerComfortRescueBlockedCount: 0,
+    safeLivePocketCorrectionAppliedCount: 0,
+    safeLivePocketCorrectionBlockedCount: 0,
+    inPocketCount: 0,
+    belowPocketCount: 0,
+    abovePocketCount: 0,
+    belowPocketSamples: [],
+    maxBelowPocketPx: 0,
+    terminalClampCount: 0,
+    visualActuatorClampReasons: {},
+    actualMovedPxSum: 0,
+    actualMovedPxCount: 0
+  };
+  summaries.set(bucketStart, created);
+  return created;
+}
+function updateRunPhaseSummary(summary, entry) {
+  summary.entryCount += 1;
+  if (isCommitEntry(entry)) {
+    summary.commitCount += 1;
+    const currentLineIdx = entry.currentLineIdx ?? getEntryFieldNumber(entry, "currentLineIdx");
+    const committedLineIdx = entry.committedLineIdx ?? getEntryFieldNumber(entry, "committedLineIdx") ?? getEntryFieldNumber(entry, "targetLineIdx");
+    if (currentLineIdx != null && committedLineIdx != null) {
+      summary.commitDeltaSum += Math.max(0, committedLineIdx - currentLineIdx);
+      summary.commitDeltaCount += 1;
+    }
+  }
+  const lowerTag = entry.tag.toLowerCase();
+  const lowerLine = entry.stringLine.toLowerCase();
+  if (lowerTag.includes("bridge_commit") || lowerLine.includes("bridge_commit")) {
+    summary.bridgeCommitCount += 1;
+  }
+  if (entry.tag === "ASR_CUE_BRIDGE_COMMIT" || lowerLine.includes("cue_bridge_commit")) {
+    summary.cueBridgeCommitCount += 1;
+  }
+  if (entry.tag === "ASR_STARVATION_DETECTED") {
+    summary.starvationDetectedCount += 1;
+  }
+  if (lowerTag.includes("rescue") || /\brescue\b/.test(lowerLine)) {
+    summary.rescueCount += 1;
+  }
+  if (lowerLine.includes("live_strict_bridge_stale_landing_hold") || lowerLine.includes("live_strict_bridge_landing_hold") || entry.tag === "ASR_LIVE_BRIDGE_COMPLETION_HELD") {
+    summary.liveStrictBridgeLandingHoldCount += 1;
+  }
+  if (getEntryFieldString(entry, "deniedReason") === "unsafe_target" || getEntryFieldString(entry, "unsafeTargetReason") === "unsafe_target") {
+    summary.unsafeTargetCount += 1;
+  }
+  if (getEntryFieldString(entry, "reason") === "debt_below_line_height" || lowerLine.includes("reason=debt_below_line_height")) {
+    summary.debtBelowLineHeightCount += 1;
+  }
+  if (getEntryFieldString(entry, "reason") === "marker_error_line_too_high" || lowerLine.includes("reason=marker_error_line_too_high")) {
+    summary.markerErrorLineTooHighCount += 1;
+  }
+  if (entry.tag === "ASR_READER_COMFORT_RESCUE_APPLIED") {
+    summary.readerComfortRescueAppliedCount += 1;
+  }
+  if (entry.tag === "ASR_READER_COMFORT_RESCUE_BLOCKED") {
+    summary.readerComfortRescueBlockedCount += 1;
+  }
+  if (entry.tag === "ASR_SAFE_LIVE_POCKET_CORRECTION_APPLIED") {
+    summary.safeLivePocketCorrectionAppliedCount += 1;
+  }
+  if (entry.tag === "ASR_SAFE_LIVE_POCKET_CORRECTION_BLOCKED") {
+    summary.safeLivePocketCorrectionBlockedCount += 1;
+  }
+  const pocketHealth = getEntryFieldString(entry, "pocketHealth");
+  if (pocketHealth === "inPocket") summary.inPocketCount += 1;
+  else if (pocketHealth === "belowPocket") summary.belowPocketCount += 1;
+  else if (pocketHealth === "abovePocket") summary.abovePocketCount += 1;
+  const belowPocketPx = getEntryFieldNumber(entry, "belowPocketPx");
+  if (belowPocketPx != null && belowPocketPx >= 0) {
+    const rounded = Math.round(belowPocketPx);
+    summary.belowPocketSamples.push(rounded);
+    summary.maxBelowPocketPx = Math.max(summary.maxBelowPocketPx, rounded);
+  }
+  const terminalClampActive = getEntryFieldNumber(entry, "terminalClamp");
+  const deniedReason = getEntryFieldString(entry, "deniedReason");
+  const blockedReason = getEntryFieldString(entry, "blockedReason");
+  if (terminalClampActive === 1 || deniedReason === "terminal_clamp" || deniedReason === "terminal_near_end" || blockedReason === "terminal_clamp") {
+    summary.terminalClampCount += 1;
+  }
+  const clampReason = getEntryFieldString(entry, "clampReason") ?? getEntryFieldString(entry, "blockedReason");
+  if (entry.tag === "ASR_VISUAL_ACTUATOR_APPLIED" || entry.tag === "ASR_VISUAL_DEBT_CATCHUP_BLOCKED") {
+    incrementMapCount(summary.visualActuatorClampReasons, clampReason);
+  }
+  const actualMovedPx = getEntryFieldNumber(entry, "actualMovedPx") ?? getEntryFieldNumber(entry, "appliedDeltaPx") ?? getEntryFieldNumber(entry, "movedPx");
+  if (actualMovedPx != null) {
+    summary.actualMovedPxSum += actualMovedPx;
+    summary.actualMovedPxCount += 1;
+  }
+}
+function finalizeRunPhaseSummaries(summaries) {
+  const ordered = Array.from(summaries.values()).sort((a, b) => a.lineStart - b.lineStart);
+  return ordered.map((summary) => {
+    const belowPocketSamples = summary.belowPocketSamples.slice().sort((a, b) => a - b);
+    let medianBelowPocketPx = 0;
+    if (belowPocketSamples.length > 0) {
+      const mid = Math.floor(belowPocketSamples.length / 2);
+      medianBelowPocketPx = belowPocketSamples.length % 2 === 0 ? Math.round((belowPocketSamples[mid - 1] + belowPocketSamples[mid]) / 2) : belowPocketSamples[mid];
+    }
+    return {
+      tag: "ASR_RUN_PHASE_SUMMARY",
+      lineStart: summary.lineStart,
+      lineEnd: summary.lineEnd,
+      lineRange: `${summary.lineStart}-${summary.lineEnd}`,
+      bucketSize: DEFAULT_LINE_BUCKET_SIZE,
+      entryCount: summary.entryCount,
+      commitCount: summary.commitCount,
+      averageCommitDelta: summary.commitDeltaCount > 0 ? Number((summary.commitDeltaSum / summary.commitDeltaCount).toFixed(3)) : 0,
+      bridgeCommitCount: summary.bridgeCommitCount,
+      cueBridgeCommitCount: summary.cueBridgeCommitCount,
+      starvationDetectedCount: summary.starvationDetectedCount,
+      rescueCount: summary.rescueCount,
+      liveStrictBridgeLandingHoldCount: summary.liveStrictBridgeLandingHoldCount,
+      unsafeTargetCount: summary.unsafeTargetCount,
+      debtBelowLineHeightCount: summary.debtBelowLineHeightCount,
+      markerErrorLineTooHighCount: summary.markerErrorLineTooHighCount,
+      readerComfortRescueAppliedCount: summary.readerComfortRescueAppliedCount,
+      readerComfortRescueBlockedCount: summary.readerComfortRescueBlockedCount,
+      safeLivePocketCorrectionAppliedCount: summary.safeLivePocketCorrectionAppliedCount,
+      safeLivePocketCorrectionBlockedCount: summary.safeLivePocketCorrectionBlockedCount,
+      inPocketCount: summary.inPocketCount,
+      belowPocketCount: summary.belowPocketCount,
+      abovePocketCount: summary.abovePocketCount,
+      medianBelowPocketPx,
+      maxBelowPocketPx: summary.maxBelowPocketPx,
+      terminalClampCount: summary.terminalClampCount,
+      visualActuatorClampReasons: summary.visualActuatorClampReasons,
+      averageActualMovedPx: summary.actualMovedPxCount > 0 ? Number((summary.actualMovedPxSum / summary.actualMovedPxCount).toFixed(3)) : 0
+    };
+  });
+}
+function computeInterestScore(entry) {
+  const targetDebtPx = getEntryFieldNumber(entry, "targetDebtPx");
+  if (targetDebtPx != null) return Math.abs(targetDebtPx);
+  const visualErrorPx = getEntryFieldNumber(entry, "visualErrorPx");
+  if (visualErrorPx != null) return Math.abs(visualErrorPx);
+  const deltaPx = getEntryFieldNumber(entry, "deltaPx");
+  if (deltaPx != null) return Math.abs(deltaPx);
+  if (entry.targetScrollTop != null && entry.scrollTop != null) {
+    return Math.abs(entry.targetScrollTop - entry.scrollTop);
+  }
+  return 0;
+}
+function buildTagCounts(entries) {
+  const tagCounts = {};
+  for (const entry of entries) {
+    tagCounts[entry.tag] = (tagCounts[entry.tag] || 0) + 1;
+  }
+  return tagCounts;
+}
+function buildTagSummaries(entries) {
+  const summaries = {};
+  const maxInterestScores = /* @__PURE__ */ new Map();
+  const minStepStreaks = /* @__PURE__ */ new Map();
+  for (const entry of entries) {
+    const family = getTrackedSummaryFamily(entry.tag);
+    if (!family) continue;
+    if (!summaries[family]) {
+      summaries[family] = {
+        family,
+        count: 0,
+        firstTs: null,
+        lastTs: null,
+        sampledCount: 0,
+        droppedCount: 0,
+        lastSample: null,
+        maxInterestSample: null,
+        maxTargetDebtPx: null,
+        minStepFloorCount: 0,
+        bigDebtMinStepCount: 0,
+        largestRepeatedMinStepStreak: 0,
+        lastMinStepSample: null
+      };
+      maxInterestScores.set(family, Number.NEGATIVE_INFINITY);
+      minStepStreaks.set(family, 0);
+    }
+    const summary = summaries[family];
+    summary.count += 1;
+    summary.firstTs = summary.firstTs ?? entry.ts;
+    summary.lastTs = entry.ts;
+    summary.lastSample = entry;
+    const targetDebtPx = getEntryFieldNumber(entry, "targetDebtPx");
+    if (targetDebtPx != null && (summary.maxTargetDebtPx == null || targetDebtPx > summary.maxTargetDebtPx)) {
+      summary.maxTargetDebtPx = targetDebtPx;
+    }
+    const interestScore = computeInterestScore(entry);
+    if (interestScore >= (maxInterestScores.get(family) ?? Number.NEGATIVE_INFINITY)) {
+      maxInterestScores.set(family, interestScore);
+      summary.maxInterestSample = entry;
+    }
+    const appliedDeltaPx = getEntryFieldNumber(entry, "appliedDeltaPx");
+    const clampReason = getEntryFieldString(entry, "clampReason");
+    const isMinStepFloor = Math.round(appliedDeltaPx ?? Number.NaN) === DEFAULT_MIN_STEP_PX2 && clampReason === "min_step_floor";
+    if (isMinStepFloor) {
+      const nextStreak = (minStepStreaks.get(family) || 0) + 1;
+      minStepStreaks.set(family, nextStreak);
+      summary.minStepFloorCount += 1;
+      summary.lastMinStepSample = entry;
+      summary.largestRepeatedMinStepStreak = Math.max(summary.largestRepeatedMinStepStreak, nextStreak);
+      if ((targetDebtPx ?? Number.NEGATIVE_INFINITY) >= BIG_DEBT_MIN_STEP_THRESHOLD_PX) {
+        summary.bigDebtMinStepCount += 1;
+      }
+    } else {
+      minStepStreaks.set(family, 0);
+    }
+  }
+  return summaries;
+}
+function isAsrDiagnosticLine(line) {
+  if (!line) return false;
+  if (line.includes("[ASR_LOG_PROGRESS]")) return false;
+  if (/^\s*\[ASR[^\]]*\]/.test(line)) return true;
+  if (/\bASR_[A-Z0-9_]+\b/.test(line)) return true;
+  return /^\s*\[ASR\]/.test(line);
+}
+function createAsrLogBuffer(options = {}) {
+  const maxEntries = Math.max(1, Math.floor(options.maxEntries ?? DEFAULT_MAX_ENTRIES));
+  const progressEvery = Math.max(1, Math.floor(options.progressEvery ?? DEFAULT_PROGRESS_EVERY));
+  const entries = [];
+  const runPhaseSummaries = /* @__PURE__ */ new Map();
+  let lastKnownSummaryLineIdx = null;
+  let droppedCount = 0;
+  let writeIndex = 0;
+  let capturedCount = 0;
+  const now3 = options.now ?? (() => /* @__PURE__ */ new Date());
+  const performanceNow = options.performanceNow ?? (() => {
+    try {
+      return performance.now();
+    } catch {
+      return -1;
+    }
+  });
+  const href = options.href ?? (() => {
+    try {
+      return window.location.href;
+    } catch {
+      return "";
+    }
+  });
+  const userAgent = options.userAgent ?? (() => {
+    try {
+      return navigator.userAgent;
+    } catch {
+      return "";
+    }
+  });
+  function getOrderedEntries() {
+    if (entries.length < maxEntries || writeIndex === 0) return entries.slice();
+    return entries.slice(writeIndex).concat(entries.slice(0, writeIndex));
+  }
+  function append(entry) {
+    let lineIdx = resolveSummaryLineIdx(entry);
+    if (lineIdx != null) {
+      lastKnownSummaryLineIdx = lineIdx;
+    } else if (entry.tag === "ASR_STARVATION_DETECTED" && lastKnownSummaryLineIdx != null) {
+      lineIdx = lastKnownSummaryLineIdx;
+    }
+    if (lineIdx != null) {
+      updateRunPhaseSummary(getOrCreateRunPhaseSummary(runPhaseSummaries, lineIdx), entry);
+    }
+    if (entries.length < maxEntries) {
+      entries.push(entry);
+    } else {
+      entries[writeIndex] = entry;
+      writeIndex = (writeIndex + 1) % maxEntries;
+      droppedCount += 1;
+    }
+    capturedCount += 1;
+    if (capturedCount % progressEvery === 0) {
+      try {
+        options.progressConsole?.(`[ASR_LOG_PROGRESS] ${capturedCount} entries captured`);
+      } catch {
+      }
+    }
+  }
+  function captureConsoleCall(method, args) {
+    const line = extractTextArg(args);
+    if (!isAsrDiagnosticLine(line)) return false;
+    const payload = sanitizeValue(extractPayloadArg(args));
+    append({
+      ts: now3().toISOString(),
+      performanceNowMs: performanceNow(),
+      method,
+      tag: extractTag(line),
+      message: line,
+      stringLine: line,
+      payload,
+      runKey: parseFieldString(line, "runKey") ?? (payload && typeof payload === "object" ? String(payload.runKey ?? "") || null : null),
+      runGeneration: parseFieldNumber(line, "runGeneration") ?? (payload && typeof payload === "object" ? Number(payload.runGeneration ?? NaN) || null : null),
+      currentLineIdx: parseFieldNumber(line, "currentLineIdx") ?? parseFieldNumber(line, "current") ?? parsePayloadNumber(payload, "currentLineIdx") ?? parsePayloadNumber(payload, "current") ?? null,
+      committedLineIdx: parseFieldNumber(line, "committedLineIdx") ?? parseFieldNumber(line, "commitIndex") ?? parsePayloadNumber(payload, "committedLineIdx") ?? parsePayloadNumber(payload, "commitIndex") ?? null,
+      nextSpeakableLineIdx: parseFieldNumber(line, "nextSpeakableLineIdx") ?? parsePayloadNumber(payload, "nextSpeakableLineIdx") ?? null,
+      scrollTop: parseFieldNumber(line, "scrollTop") ?? parseFieldNumber(line, "currentScrollTop") ?? parseFieldNumber(line, "beforeScrollTop") ?? null,
+      targetScrollTop: parseFieldNumber(line, "targetScrollTop") ?? null
+    });
+    return true;
+  }
+  function clear() {
+    entries.length = 0;
+    runPhaseSummaries.clear();
+    lastKnownSummaryLineIdx = null;
+    droppedCount = 0;
+    writeIndex = 0;
+    capturedCount = 0;
+  }
+  function exportObject() {
+    const orderedEntries = getOrderedEntries();
+    const tagCounts = buildTagCounts(orderedEntries);
+    const tagSummaries = buildTagSummaries(orderedEntries);
+    return {
+      exportedAt: now3().toISOString(),
+      href: href(),
+      userAgent: userAgent(),
+      entryCount: orderedEntries.length,
+      droppedCount,
+      tagCounts,
+      tagSummaries,
+      runPhaseSummaries: finalizeRunPhaseSummaries(runPhaseSummaries),
+      entries: orderedEntries
+    };
+  }
+  async function copy() {
+    const exported = exportObject();
+    const text = JSON.stringify(exported, null, 2);
+    if (options.copyText) {
+      await options.copyText(text);
+    } else if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    }
+    return exported;
+  }
+  function download() {
+    const exported = exportObject();
+    const text = JSON.stringify(exported, null, 2);
+    const stamp = exported.exportedAt.replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+    const filename = `asr-log-${stamp}.json`;
+    if (options.downloadText) {
+      options.downloadText(filename, text);
+      return exported;
+    }
+    try {
+      const blob = new Blob([text], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+      return exported;
+    } catch {
+      return null;
+    }
+  }
+  function summary() {
+    const ordered = getOrderedEntries();
+    return {
+      entryCount: ordered.length,
+      droppedCount,
+      maxEntries,
+      progressEvery,
+      firstTag: ordered[0]?.tag ?? null,
+      lastTag: ordered[ordered.length - 1]?.tag ?? null,
+      tagCounts: buildTagCounts(ordered),
+      tagSummaries: buildTagSummaries(ordered),
+      runPhaseSummaries: finalizeRunPhaseSummaries(runPhaseSummaries)
+    };
+  }
+  return {
+    captureConsoleCall,
+    clear,
+    exportObject,
+    copy,
+    download,
+    summary,
+    get entries() {
+      return getOrderedEntries();
+    },
+    get droppedCount() {
+      return droppedCount;
+    },
+    get maxEntries() {
+      return maxEntries;
+    }
+  };
+}
+function installAsrLogBuffer(win = window) {
+  if (typeof win === "undefined") return;
+  if (!detectEnabled(win)) return;
+  const bindHelpers = (host, buffer2) => {
+    host.__ASR_LOG_BUFFER__ = buffer2;
+    host.__copyAsrLog = () => buffer2.copy();
+    host.__downloadAsrLog = () => buffer2.download();
+    host.__clearAsrLog = () => buffer2.clear();
+    host.__getAsrLogSummary = () => buffer2.summary();
+  };
+  const globalHost = typeof globalThis === "object" && globalThis ? globalThis : null;
+  const existingBuffer = win.__ASR_LOG_BUFFER__ || globalHost?.__ASR_LOG_BUFFER__;
+  if (win.__asrLogBufferInstalled && existingBuffer) {
+    bindHelpers(win, existingBuffer);
+    if (globalHost && globalHost !== win) {
+      bindHelpers(globalHost, existingBuffer);
+    }
+    return;
+  }
+  win.__asrLogBufferInstalled = true;
+  const orig = {
+    log: console.log.bind(console),
+    info: console.info.bind(console),
+    warn: console.warn.bind(console),
+    debug: console.debug.bind(console)
+  };
+  const buffer = createAsrLogBuffer({
+    progressConsole: (line) => orig.info(line)
+  });
+  const wrap = (method) => (...args) => {
+    if (buffer.captureConsoleCall(method, args)) return;
+    orig[method](...args);
+  };
+  console.log = wrap("log");
+  console.info = wrap("info");
+  console.warn = wrap("warn");
+  console.debug = wrap("debug");
+  bindHelpers(win, buffer);
+  if (globalHost && globalHost !== win) {
+    bindHelpers(globalHost, buffer);
+  }
+}
+var DEFAULT_MAX_ENTRIES, DEFAULT_PROGRESS_EVERY, MAX_STRING_LEN, DEFAULT_MIN_STEP_PX2, BIG_DEBT_MIN_STEP_THRESHOLD_PX, DEFAULT_LINE_BUCKET_SIZE, TRACKED_SUMMARY_FAMILIES;
+var init_asr_log_buffer = __esm({
+  "src/features/asr/asr-log-buffer.ts"() {
+    "use strict";
+    DEFAULT_MAX_ENTRIES = 15e4;
+    DEFAULT_PROGRESS_EVERY = 250;
+    MAX_STRING_LEN = 2e3;
+    DEFAULT_MIN_STEP_PX2 = 6;
+    BIG_DEBT_MIN_STEP_THRESHOLD_PX = 120;
+    DEFAULT_LINE_BUCKET_SIZE = 25;
+    TRACKED_SUMMARY_FAMILIES = /* @__PURE__ */ new Set([
+      "ASR_VISUAL_ACTUATOR_APPLIED",
+      "ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF",
+      "ASR_READER_COMFORT_HOLD",
+      "ASR_READER_COMFORT_NUDGE",
+      "ASR_SCROLL_AUTHORITY_SELECTED",
+      "ASR_VISUAL_FOLLOW_*"
+    ]);
+  }
+});
+
 // src/recording/recording-settings.ts
 function readRawSettings() {
   try {
@@ -65144,6 +65754,95 @@ function _showToast(msg) {
   try {
     window.toasts?.show?.(msg);
   } catch {
+  }
+}
+function resetAsrDriverCreateBlockedDiagnostics() {
+  asrDriverCreateBlockedBySignature.clear();
+}
+function emitAsrDriverCreateBlockedSummary(signature) {
+  if (!isDevMode5()) return;
+  const entry = asrDriverCreateBlockedBySignature.get(signature);
+  if (!entry || entry.suppressedCount <= 0) return;
+  const now3 = Date.now();
+  if (entry.suppressedCount < ASR_DRIVER_CREATE_BLOCKED_SUMMARY_EVERY && now3 - entry.lastSummaryAt < 1e3) {
+    return;
+  }
+  entry.lastSummaryAt = now3;
+  try {
+    console.debug("[ASR] driver create blocked (suppressed)", {
+      signature,
+      suppressedCount: entry.suppressedCount,
+      ...entry.payload
+    });
+  } catch {
+  }
+  entry.suppressedCount = 0;
+}
+function reportAsrDriverCreateBlocked(payload) {
+  if (!isDevMode5()) return;
+  const signature = [
+    payload.reason,
+    payload.mode,
+    payload.sessionPhase,
+    payload.blocksReady ? "1" : "0",
+    payload.backendReady ? "1" : "0",
+    payload.phaseAllowsAsrDriver ? "1" : "0",
+    payload.running ? "1" : "0",
+    payload.asrSessionIntentActive ? "1" : "0"
+  ].join("|");
+  const existing = asrDriverCreateBlockedBySignature.get(signature);
+  if (!existing) {
+    try {
+      console.debug("[ASR] driver create blocked", payload);
+    } catch {
+    }
+    asrDriverCreateBlockedBySignature.set(signature, {
+      suppressedCount: 0,
+      lastSummaryAt: 0,
+      payload
+    });
+    if (asrDriverCreateBlockedBySignature.size > 64) {
+      asrDriverCreateBlockedBySignature.clear();
+      asrDriverCreateBlockedBySignature.set(signature, {
+        suppressedCount: 0,
+        lastSummaryAt: 0,
+        payload
+      });
+    }
+    return;
+  }
+  existing.payload = payload;
+  existing.suppressedCount += 1;
+  if (existing.suppressedCount >= ASR_DRIVER_CREATE_BLOCKED_SUMMARY_EVERY) {
+    emitAsrDriverCreateBlockedSummary(signature);
+  }
+}
+function shouldAllowAsrDriverCreateAttempt(mode, session = getSession()) {
+  if (!isAsrLikeMode(mode)) return false;
+  const phase = String(session.phase || "").toLowerCase();
+  return running || asrSessionIntentActive || phase === "preroll" || phase === "live";
+}
+function disarmAsrSessionState(reason) {
+  if (typeof window === "undefined") return;
+  const store3 = window.__tpStore;
+  if (!store3 || typeof store3.set !== "function") return;
+  try {
+    store3.set("session.asrDesired", false);
+  } catch {
+  }
+  try {
+    store3.set("session.asrArmed", false);
+  } catch {
+  }
+  try {
+    store3.set("session.asrReady", false);
+  } catch {
+  }
+  if (isDevMode5() && shouldLogTag("ASR:session-disarm", 2, 300)) {
+    try {
+      console.debug("[ASR] session disarmed", { reason });
+    } catch {
+    }
   }
 }
 function inRehearsal() {
@@ -68111,23 +68810,20 @@ function shouldCreateAsrDriver(mode, reason) {
   const blocksReady = blocks.ready && blocks.count > 0;
   const backendReady = canAttachAsrBackend();
   const session = getSession();
-  const phaseAllowsAsrDriver = mode !== "asr" || running || asrSessionIntentActive || session.phase === "preroll" || session.phase === "live";
+  const phaseAllowsAsrDriver = shouldAllowAsrDriverCreateAttempt(mode, session);
   const allowed = isAsrLikeMode(mode) && blocksReady && backendReady && phaseAllowsAsrDriver;
-  if (!allowed && isDevMode5()) {
-    try {
-      console.debug("[ASR] driver create blocked", {
-        reason,
-        mode,
-        blocksReady,
-        blockCount: blocks.count,
-        backendReady,
-        phaseAllowsAsrDriver,
-        sessionPhase: session.phase,
-        running,
-        asrSessionIntentActive
-      });
-    } catch {
-    }
+  if (!allowed) {
+    reportAsrDriverCreateBlocked({
+      reason,
+      mode,
+      blocksReady,
+      blockCount: blocks.count,
+      backendReady,
+      phaseAllowsAsrDriver,
+      sessionPhase: String(session.phase || "idle").toLowerCase(),
+      running,
+      asrSessionIntentActive
+    });
   }
   return allowed;
 }
@@ -68504,8 +69200,7 @@ function ensureAsrDriverLifecycleHooks() {
     const detail = event?.detail || {};
     const mode = String(detail.mode || detail.nextMode || getScrollMode4() || "").toLowerCase();
     const session2 = getSession();
-    const phase = String(session2.phase || "").toLowerCase();
-    const allowCreate = phase === "preroll" || phase === "live" || session2.asrDesired || session2.asrArmed;
+    const allowCreate = shouldAllowAsrDriverCreateAttempt(mode, session2);
     if (isAsrLikeMode(mode)) {
       attachAsrScrollDriver({ reason: "scroll-mode", mode, allowCreate });
       syncAsrDriverFromBlocks("scroll-mode", { mode, allowCreate });
@@ -68535,8 +69230,7 @@ function ensureAsrDriverLifecycleHooks() {
     const detail = event?.detail || {};
     const mode = String(getScrollMode4() || "").toLowerCase();
     const session2 = getSession();
-    const phase = String(session2.phase || "").toLowerCase();
-    const allowCreate = phase === "preroll" || phase === "live" || session2.asrDesired || session2.asrArmed;
+    const allowCreate = shouldAllowAsrDriverCreateAttempt(mode, session2);
     if (detail && typeof detail.blockCount === "number") {
       try {
         window.__tpAsrBlockCount = Math.max(0, Math.floor(detail.blockCount));
@@ -68552,8 +69246,7 @@ function ensureAsrDriverLifecycleHooks() {
   const onScriptRendered = () => {
     const mode = String(getScrollMode4() || "").toLowerCase();
     const session2 = getSession();
-    const phase = String(session2.phase || "").toLowerCase();
-    const allowCreate = phase === "preroll" || phase === "live" || session2.asrDesired || session2.asrArmed;
+    const allowCreate = shouldAllowAsrDriverCreateAttempt(mode, session2);
     const wantsAsrDriver = allowCreate || !!asrScrollDriver;
     if (!wantsAsrDriver) return;
     try {
@@ -68580,6 +69273,8 @@ function ensureAsrDriverLifecycleHooks() {
     asrSessionIntentActive = false;
     resetAsrInterimStabilizer();
     clearAsrRunKey("lifecycle-session-stop");
+    disarmAsrSessionState("session-stop");
+    resetAsrDriverCreateBlockedDiagnostics();
     emitHudSnapshot("session-stop", { force: true });
   };
   const onSessionPhase = (event) => {
@@ -68591,6 +69286,8 @@ function ensureAsrDriverLifecycleHooks() {
       asrSessionIntentActive = false;
       resetAsrInterimStabilizer();
       clearAsrRunKey(`phase-${phase}`);
+      disarmAsrSessionState(`phase-${phase}`);
+      resetAsrDriverCreateBlockedDiagnostics();
     }
     emitHudSnapshot(`session-phase:${phase || "unknown"}`);
   };
@@ -68657,7 +69354,7 @@ function ensureAsrDriverLifecycleHooks() {
   const initialMode = String(getScrollMode4() || "").toLowerCase();
   const session = getSession();
   const initialPhase = String(session.phase || "").toLowerCase();
-  const allowBootstrapCreate = initialPhase === "preroll" || initialPhase === "live" || session.asrDesired || session.asrArmed;
+  const allowBootstrapCreate = shouldAllowAsrDriverCreateAttempt(initialMode, session);
   if (allowBootstrapCreate || !!asrScrollDriver) {
     attachAsrScrollDriver({ reason: "bootstrap", mode: initialMode, allowCreate: allowBootstrapCreate });
     syncAsrDriverFromBlocks("bootstrap", { mode: initialMode, allowCreate: allowBootstrapCreate });
@@ -68687,6 +69384,8 @@ function ensureSessionStopHooked() {
     asrSessionIntentActive = false;
     resetAsrInterimStabilizer();
     clearAsrRunKey("session-stop-hook");
+    disarmAsrSessionState("session-stop-hook");
+    resetAsrDriverCreateBlockedDiagnostics();
     detachAsrScrollDriver();
     const detail = event?.detail || {};
     const mode = typeof detail.mode === "string" && detail.mode ? detail.mode : lastScrollMode || getScrollMode4();
@@ -69287,11 +69986,13 @@ async function startSpeechBackendForSession(info) {
   }
 }
 function stopSpeechBackendForSession(reason) {
+  resetAsrDriverCreateBlockedDiagnostics();
   suppressRecognizerAutoRestart = true;
   suppressAsrStallAutoRestart(`stop:${String(reason || "unspecified")}`);
   clearLifecycleRestartTimer();
   stopAsrHeartbeat();
   asrSessionIntentActive = false;
+  disarmAsrSessionState(`stop:${String(reason || "unspecified")}`);
   resetAsrInterimStabilizer();
   clearAsrRunKey(`stop:${String(reason || "unspecified")}`);
   if (!running && !rec) {
@@ -69366,6 +70067,10 @@ function stopSpeechBackendForSession(reason) {
   emitAsrRuntimeStatus(`stop:${String(reason || "unspecified")}`);
 }
 function installSpeech() {
+  try {
+    installAsrLogBuffer(window);
+  } catch {
+  }
   ensureAsrDriverLifecycleHooks();
   startAsrHeartbeat();
   activeAsrLane = readActiveAsrLane();
@@ -69462,7 +70167,7 @@ function installSpeech() {
     }
   })();
 }
-var running, rec, lastScrollMode, lastResultTs, speechRunningActual, lastRecognizerOnResultTs, lastRecognizerAttachedTs, lastAsrIngestTs, lastAsrCommitTs, lastAsrCommitCount, lastRecognizerLifecycleEvent, lastRecognizerLifecycleAt, lastAsrStallClass, speechWatchdogTimer, asrHeartbeatTimer, activeRecognizer, lastStartedSpeechEngine, lastRequestedSpeechEngine, activeAsrLane, currentActualSpeechEngine, currentFallbackReason, currentAsrState, pendingManualRestartCount, lifecycleRestartTimer, lastLifecycleRestartAt, suppressRecognizerAutoRestart, lastHudSnapshotFingerprint, lastHudSnapshotAt, asrStallEpisodeId, asrStallEpisodeRestarted, asrStallAttemptCountThisEpisode, lastAsrStallEpisodeClass, lastAsrStallAutoRestartAt, suppressAsrStallAutoRestartUntil, lastAsrStallRescueAt, lastMatcherStallCommitCount, lastMatcherStallCommitStableSince, lastAsrScriptEndStopKey, pendingAsrScriptEndStop, deferredAsrScriptEndStop, deferredAsrScriptEndStopTimer, WATCHDOG_INTERVAL_MS, WATCHDOG_THRESHOLD_MS, ASR_WATCHDOG_THRESHOLD_MS, ASR_HEARTBEAT_INTERVAL_MS, ASR_STALL_SPEECH_THRESHOLD_MS, ASR_DEAF_RECOGNIZER_MS, ASR_STALL_MATCHER_THRESHOLD_MS, ASR_STALL_MATCHER_STABLE_COMMIT_MS, DIRECT_MATCHER_MULTI_LINE_MIN_LINES, DIRECT_MATCHER_MULTI_LINE_MAX_LINES, DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES, DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD, ASR_STALL_AUTORESTART_COOLDOWN_MS, ASR_STALL_AUTORESTART_SUPPRESS_MS, ASR_STALL_RESCUE_COOLDOWN_MS, LIFECYCLE_RESTART_DELAY_MS, LIFECYCLE_RESTART_COOLDOWN_MS, HUD_SNAPSHOT_THROTTLE_MS, ASR_SCRIPT_END_CONFIRM_MAX_WAIT_MS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_MEANINGFUL_TOKENS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_TOKENS, ASR_SCRIPT_END_MARKER_WAIT_MAX_MS, ASR_SCRIPT_END_MARKER_POLL_MS, ASR_SCRIPT_END_POSTROLL_MS, ASR_END_GRACE_MS, ASR_END_GRACE_EXTENSION_MS, ASR_END_GRACE_POLL_MS, ASR_END_GRACE_SPEECH_FRESH_MS, ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO, ASR_SCRIPT_END_STOPWORDS, speechStoreShimmed, speechStoreSubscribed, latestSpeechStoreState, fallbackTranscriptMatchSeq, __asrLastInterimText, __asrLastInterimAt, __asrInterimRepeatCount, CUE_LINE_BRACKET_RE2, CUE_LINE_WORD_RE2, SPEAKER_TAG_ONLY_RE2, NOTE_TAG_ONLY_RE2, NOTE_INLINE_BLOCK_RE2, SPEAKER_SLOTS, SPEAKER_NAME_SELECTORS, DEFAULT_SPEAKER_LABELS, LOWER_GUARDS, RAISE_GUARDS, summaryListenerAttached, ASR_LAYOUT_READY_MAX_MS, pendingLayoutReady, TRANSCRIPT_EVENT_OPTIONS, asrScrollDriver, transcriptListener, sessionStopHooked, asrBrainLogged, asrDriverLifecycleHooked, asrSessionIntentActive, asrRunCounter, activeAsrRunKey, asrRunGeneration, lastAsrBlockSyncAt, lastAsrBlockSyncLogAt, lastAsrSyncLogAtByType, lastAsrSyncFingerprintByType, ASR_LIVE_BLOCK_SYNC_THROTTLE_MS, ASR_BLOCK_SYNC_LOG_THROTTLE_MS, ASR_SYNC_LOG_THROTTLE_MS, ASR_BLOCK_SYNC_UNCHANGED_LOG_THROTTLE_MS, lastAsrBlockSyncCompleteFingerprint, lastAsrBlockSyncUnchangedAt;
+var running, rec, lastScrollMode, lastResultTs, speechRunningActual, lastRecognizerOnResultTs, lastRecognizerAttachedTs, lastAsrIngestTs, lastAsrCommitTs, lastAsrCommitCount, lastRecognizerLifecycleEvent, lastRecognizerLifecycleAt, lastAsrStallClass, speechWatchdogTimer, asrHeartbeatTimer, activeRecognizer, lastStartedSpeechEngine, lastRequestedSpeechEngine, activeAsrLane, currentActualSpeechEngine, currentFallbackReason, currentAsrState, pendingManualRestartCount, lifecycleRestartTimer, lastLifecycleRestartAt, suppressRecognizerAutoRestart, lastHudSnapshotFingerprint, lastHudSnapshotAt, asrStallEpisodeId, asrStallEpisodeRestarted, asrStallAttemptCountThisEpisode, lastAsrStallEpisodeClass, lastAsrStallAutoRestartAt, suppressAsrStallAutoRestartUntil, lastAsrStallRescueAt, lastMatcherStallCommitCount, lastMatcherStallCommitStableSince, lastAsrScriptEndStopKey, pendingAsrScriptEndStop, deferredAsrScriptEndStop, asrDriverCreateBlockedBySignature, ASR_DRIVER_CREATE_BLOCKED_SUMMARY_EVERY, deferredAsrScriptEndStopTimer, WATCHDOG_INTERVAL_MS, WATCHDOG_THRESHOLD_MS, ASR_WATCHDOG_THRESHOLD_MS, ASR_HEARTBEAT_INTERVAL_MS, ASR_STALL_SPEECH_THRESHOLD_MS, ASR_DEAF_RECOGNIZER_MS, ASR_STALL_MATCHER_THRESHOLD_MS, ASR_STALL_MATCHER_STABLE_COMMIT_MS, DIRECT_MATCHER_MULTI_LINE_MIN_LINES, DIRECT_MATCHER_MULTI_LINE_MAX_LINES, DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES, DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD, ASR_STALL_AUTORESTART_COOLDOWN_MS, ASR_STALL_AUTORESTART_SUPPRESS_MS, ASR_STALL_RESCUE_COOLDOWN_MS, LIFECYCLE_RESTART_DELAY_MS, LIFECYCLE_RESTART_COOLDOWN_MS, HUD_SNAPSHOT_THROTTLE_MS, ASR_SCRIPT_END_CONFIRM_MAX_WAIT_MS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_MEANINGFUL_TOKENS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_TOKENS, ASR_SCRIPT_END_MARKER_WAIT_MAX_MS, ASR_SCRIPT_END_MARKER_POLL_MS, ASR_SCRIPT_END_POSTROLL_MS, ASR_END_GRACE_MS, ASR_END_GRACE_EXTENSION_MS, ASR_END_GRACE_POLL_MS, ASR_END_GRACE_SPEECH_FRESH_MS, ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO, ASR_SCRIPT_END_STOPWORDS, speechStoreShimmed, speechStoreSubscribed, latestSpeechStoreState, fallbackTranscriptMatchSeq, __asrLastInterimText, __asrLastInterimAt, __asrInterimRepeatCount, CUE_LINE_BRACKET_RE2, CUE_LINE_WORD_RE2, SPEAKER_TAG_ONLY_RE2, NOTE_TAG_ONLY_RE2, NOTE_INLINE_BLOCK_RE2, SPEAKER_SLOTS, SPEAKER_NAME_SELECTORS, DEFAULT_SPEAKER_LABELS, LOWER_GUARDS, RAISE_GUARDS, summaryListenerAttached, ASR_LAYOUT_READY_MAX_MS, pendingLayoutReady, TRANSCRIPT_EVENT_OPTIONS, asrScrollDriver, transcriptListener, sessionStopHooked, asrBrainLogged, asrDriverLifecycleHooked, asrSessionIntentActive, asrRunCounter, activeAsrRunKey, asrRunGeneration, lastAsrBlockSyncAt, lastAsrBlockSyncLogAt, lastAsrSyncLogAtByType, lastAsrSyncFingerprintByType, ASR_LIVE_BLOCK_SYNC_THROTTLE_MS, ASR_BLOCK_SYNC_LOG_THROTTLE_MS, ASR_SYNC_LOG_THROTTLE_MS, ASR_BLOCK_SYNC_UNCHANGED_LOG_THROTTLE_MS, lastAsrBlockSyncCompleteFingerprint, lastAsrBlockSyncUnchangedAt;
 var init_speech_loader = __esm({
   "src/features/speech-loader.ts"() {
     "use strict";
@@ -69471,6 +70176,7 @@ var init_speech_loader = __esm({
     init_boot_trace();
     init_dev_log();
     init_asr_scroll_driver();
+    init_asr_log_buffer();
     init_recorderRegistry();
     init_asr_block_store();
     init_scroller();
@@ -69527,6 +70233,8 @@ var init_speech_loader = __esm({
     lastAsrScriptEndStopKey = "";
     pendingAsrScriptEndStop = null;
     deferredAsrScriptEndStop = null;
+    asrDriverCreateBlockedBySignature = /* @__PURE__ */ new Map();
+    ASR_DRIVER_CREATE_BLOCKED_SUMMARY_EVERY = 20;
     deferredAsrScriptEndStopTimer = null;
     WATCHDOG_INTERVAL_MS = 5e3;
     WATCHDOG_THRESHOLD_MS = 15e3;
@@ -78809,6 +79517,28 @@ var init_ready_script_loading = __esm({
 });
 
 // src/features/scripts-store.ts
+function isScriptSyncDebugEnabled() {
+  try {
+    const w3 = window;
+    if (w3.__tpScriptSyncDebug === true) return true;
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.get("script_sync_debug") === "1") return true;
+  } catch {
+  }
+  try {
+    if (window.localStorage?.getItem("tp_script_sync_debug") === "1") return true;
+  } catch {
+  }
+  return false;
+}
+function scriptStoreLog(...args) {
+  if (!isScriptSyncDebugEnabled()) return;
+  debugLog(...args);
+}
+function scriptStoreHud(event, payload) {
+  if (!isScriptSyncDebugEnabled()) return;
+  hudLog(event, payload);
+}
 function shortUserId(value) {
   const userId = String(value ?? "").trim();
   if (!userId) return "Unknown";
@@ -78917,7 +79647,7 @@ var init_scripts_store = __esm({
     ScriptStore = {
       list() {
         const all2 = Array.from(scriptsById.values());
-        debugLog("[SCRIPT-STORE] list size", all2.length, all2.map((r) => r.id));
+        scriptStoreLog("[SCRIPT-STORE] list size", all2.length, all2.map((r) => r.id));
         return all2.map((rec2) => ({
           id: rec2.id,
           title: rec2.title,
@@ -79039,11 +79769,11 @@ var init_scripts_store = __esm({
       syncMapped(entries) {
         const fingerprint = computeFingerprint(entries);
         if (fingerprint && fingerprint === lastMappedFingerprint) {
-          debugLog("[SCRIPT-STORE] syncMapped skipped (unchanged)", { fingerprint, count: entries.length });
+          scriptStoreLog("[SCRIPT-STORE] syncMapped skipped (unchanged)", { fingerprint, count: entries.length });
           return;
         }
         lastMappedFingerprint = fingerprint;
-        debugLog("[SCRIPT-STORE] syncMapped entries", entries);
+        scriptStoreLog("[SCRIPT-STORE] syncMapped entries", entries);
         for (const [id, rec2] of scriptsById.entries()) {
           if (rec2.source === "mapped" && !entries.some((entry) => entry.id === id)) {
             scriptsById.delete(id);
@@ -79063,18 +79793,18 @@ var init_scripts_store = __esm({
           });
         }
         const ids = Array.from(scriptsById.keys());
-        debugLog("[SCRIPT-STORE] scriptsById size after sync", scriptsById.size, ids);
-        hudLog("script-store:syncMapped", { size: scriptsById.size, ids });
+        scriptStoreLog("[SCRIPT-STORE] scriptsById size after sync", scriptsById.size, ids);
+        scriptStoreHud("script-store:syncMapped", { size: scriptsById.size, ids });
         emitScriptsUpdated();
       },
       syncReady(entries) {
         const fingerprint = computeReadyFingerprint(entries);
         if (fingerprint && fingerprint === lastReadyFingerprint) {
-          debugLog("[SCRIPT-STORE] syncReady skipped (unchanged)", { fingerprint, count: entries.length });
+          scriptStoreLog("[SCRIPT-STORE] syncReady skipped (unchanged)", { fingerprint, count: entries.length });
           return;
         }
         lastReadyFingerprint = fingerprint;
-        debugLog("[SCRIPT-STORE] syncReady entries", entries);
+        scriptStoreLog("[SCRIPT-STORE] syncReady entries", entries);
         for (const [id, rec2] of scriptsById.entries()) {
           if (rec2.source === "ready" && !entries.some((entry) => entry.id === id)) {
             scriptsById.delete(id);
@@ -79094,8 +79824,8 @@ var init_scripts_store = __esm({
           });
         }
         const ids = Array.from(scriptsById.keys());
-        debugLog("[SCRIPT-STORE] scriptsById size after ready sync", scriptsById.size, ids);
-        hudLog("script-store:syncReady", { size: scriptsById.size, ids });
+        scriptStoreLog("[SCRIPT-STORE] scriptsById size after ready sync", scriptsById.size, ids);
+        scriptStoreHud("script-store:syncReady", { size: scriptsById.size, ids });
         emitScriptsUpdated();
       }
     };
@@ -89293,6 +90023,24 @@ var init_script_selection = __esm({
 });
 
 // src/ui/script-editor.ts
+function isScriptSyncDebugEnabled2() {
+  try {
+    const w3 = window;
+    if (w3.__tpScriptSyncDebug === true) return true;
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.get("script_sync_debug") === "1") return true;
+  } catch {
+  }
+  try {
+    if (window.localStorage?.getItem("tp_script_sync_debug") === "1") return true;
+  } catch {
+  }
+  return false;
+}
+function scriptEditorLog(...args) {
+  if (!isScriptSyncDebugEnabled2()) return;
+  debugLog(...args);
+}
 function getSidebarSelect() {
   return document.getElementById(SIDEBAR_ID);
 }
@@ -89307,7 +90055,7 @@ function gatherScriptEntries() {
 }
 function syncSelectFromStore(select, role, entries) {
   if (!select) {
-    debugLog("[SCRIPT-EDITOR] syncSelectFromStore: missing select", { role });
+    scriptEditorLog("[SCRIPT-EDITOR] syncSelectFromStore: missing select", { role });
     return;
   }
   const previous = select.value;
@@ -89316,7 +90064,7 @@ function syncSelectFromStore(select, role, entries) {
       select.setAttribute("aria-busy", "false");
     } catch {
     }
-    debugLog("[SCRIPT-EDITOR] syncSelectFromStore", {
+    scriptEditorLog("[SCRIPT-EDITOR] syncSelectFromStore", {
       role,
       entries: entries.length,
       value: select.value
@@ -89326,7 +90074,7 @@ function syncSelectFromStore(select, role, entries) {
     }
   };
   if (role === "sidebar" && (previous === OPEN_SETTINGS_COMMAND || previous === OPEN_NURSERY_STORAGE_COMMAND)) {
-    debugLog("[SCRIPT-EDITOR] syncSelectFromStore: sentinel command consumed, reverting", {
+    scriptEditorLog("[SCRIPT-EDITOR] syncSelectFromStore: sentinel command consumed, reverting", {
       role,
       entries: entries.length,
       value: previous,
@@ -89407,7 +90155,7 @@ function wireSidebarHandlers() {
   const select = getSidebarSelect();
   if (!select) return;
   select.addEventListener("change", () => {
-    debugLog("[SCRIPT-EDITOR] sidebar change", { value: select.value });
+    scriptEditorLog("[SCRIPT-EDITOR] sidebar change", { value: select.value });
     const selected = select.selectedOptions && select.selectedOptions[0] || (select.options.length ? select.options[select.selectedIndex] : null);
     const settingsLink = !!selected?.dataset?.settingsLink || select.value === OPEN_SETTINGS_COMMAND;
     const nurseryLink = !!selected?.dataset?.nurseryLink || select.value === OPEN_NURSERY_STORAGE_COMMAND;
@@ -89458,7 +90206,7 @@ async function handleLoadClick() {
   loadInFlight = true;
   const w3 = window;
   const id = getActiveScriptId();
-  debugLog("[SCRIPT-EDITOR] Load click", { id });
+  scriptEditorLog("[SCRIPT-EDITOR] Load click", { id });
   if (!id) {
     loadInFlight = false;
     return;
@@ -89501,7 +90249,7 @@ function installScriptEditor() {
   g2.__tpInit = g2.__tpInit || {};
   if (g2.__tpInit.scriptSidebarWired) {
     try {
-      console.debug("[SCRIPT-EDITOR] already bound");
+      if (isScriptSyncDebugEnabled2()) console.debug("[SCRIPT-EDITOR] already bound");
     } catch {
     }
     return;
@@ -89516,7 +90264,7 @@ function installScriptEditor() {
   wireSidebarHandlers();
   wireLoadButton();
   try {
-    console.debug("[SCRIPT-EDITOR] wiring complete");
+    if (isScriptSyncDebugEnabled2()) console.debug("[SCRIPT-EDITOR] wiring complete");
   } catch {
   }
 }
@@ -91173,598 +91921,6 @@ var init_typography = __esm({
   "src/features/typography.ts"() {
     "use strict";
     init_typographyStore();
-  }
-});
-
-// src/features/asr/asr-log-buffer.ts
-function detectEnabled(win) {
-  try {
-    const params = new URLSearchParams(win.location.search || "");
-    if (params.get("dev") === "1") return true;
-    if (params.get("asr_log_buffer") === "1") return true;
-  } catch {
-  }
-  try {
-    if (win.localStorage?.getItem("tp_dev_mode") === "1") return true;
-    if (win.localStorage?.getItem("asr_log_buffer") === "1") return true;
-  } catch {
-  }
-  return false;
-}
-function extractTextArg(args) {
-  for (const arg of args) {
-    if (typeof arg === "string" && arg.trim()) return arg;
-  }
-  return "";
-}
-function extractPayloadArg(args) {
-  for (const arg of args) {
-    if (arg && typeof arg === "object") return arg;
-  }
-  return null;
-}
-function truncateString(value) {
-  return value.length > MAX_STRING_LEN ? `${value.slice(0, MAX_STRING_LEN)}\u2026` : value;
-}
-function sanitizeValue(value, depth = 0, seen = /* @__PURE__ */ new WeakSet()) {
-  if (value == null) return value;
-  if (typeof value === "string") return truncateString(value);
-  if (typeof value === "number" || typeof value === "boolean") return value;
-  if (typeof value === "bigint") return String(value);
-  if (typeof value === "function") return "[Function]";
-  if (value instanceof Error) {
-    return {
-      name: value.name,
-      message: truncateString(value.message || ""),
-      stack: truncateString(value.stack || "")
-    };
-  }
-  if (typeof Blob !== "undefined" && value instanceof Blob) {
-    return { type: "Blob", size: value.size, mime: value.type || "" };
-  }
-  if (value instanceof ArrayBuffer) {
-    return { type: "ArrayBuffer", byteLength: value.byteLength };
-  }
-  if (ArrayBuffer.isView(value)) {
-    return {
-      type: Object.prototype.toString.call(value).slice(8, -1),
-      byteLength: value.byteLength
-    };
-  }
-  if (typeof Element !== "undefined" && value instanceof Element) {
-    return {
-      type: "Element",
-      tagName: value.tagName,
-      id: value.id || "",
-      className: value.className || ""
-    };
-  }
-  if (typeof value === "object") {
-    if (seen.has(value)) return "[Circular]";
-    seen.add(value);
-    if (depth >= 4) return "[MaxDepth]";
-    if (Array.isArray(value)) {
-      return value.slice(0, 50).map((item) => sanitizeValue(item, depth + 1, seen));
-    }
-    const out = {};
-    const entries = Object.entries(value).slice(0, 50);
-    for (const [key, item] of entries) {
-      out[key] = sanitizeValue(item, depth + 1, seen);
-    }
-    return out;
-  }
-  try {
-    return truncateString(String(value));
-  } catch {
-    return "[Unserializable]";
-  }
-}
-function extractTag(line) {
-  const bracket = line.match(/^\s*\[([^\]]+)\]/);
-  if (bracket) return bracket[1];
-  const token = line.match(/\b(ASR_[A-Z0-9_]+)\b/);
-  return token ? token[1] : "ASR";
-}
-function parseFieldNumber(line, key) {
-  const match = line.match(new RegExp(`${key}=(-?\\d+(?:\\.\\d+)?)`));
-  if (!match) return null;
-  const num2 = Number(match[1]);
-  return Number.isFinite(num2) ? num2 : null;
-}
-function parseFieldString(line, key) {
-  const match = line.match(new RegExp(`${key}=([^\\s]+)`));
-  return match ? match[1] : null;
-}
-function parsePayloadNumber(payload, key) {
-  if (!payload || typeof payload !== "object") return null;
-  const num2 = Number(payload[key]);
-  return Number.isFinite(num2) ? num2 : null;
-}
-function parsePayloadString(payload, key) {
-  if (!payload || typeof payload !== "object") return null;
-  const value = payload[key];
-  return typeof value === "string" && value.trim() ? value : null;
-}
-function getTrackedSummaryFamily(tag) {
-  if (tag.startsWith("ASR_VISUAL_FOLLOW_")) return "ASR_VISUAL_FOLLOW_*";
-  return TRACKED_SUMMARY_FAMILIES.has(tag) ? tag : null;
-}
-function getEntryFieldNumber(entry, key) {
-  return parseFieldNumber(entry.stringLine, key) ?? parsePayloadNumber(entry.payload, key);
-}
-function getEntryFieldString(entry, key) {
-  return parseFieldString(entry.stringLine, key) ?? parsePayloadString(entry.payload, key);
-}
-function resolveSummaryLineIdx(entry) {
-  if (entry.currentLineIdx != null) return Math.max(0, entry.currentLineIdx);
-  if (entry.committedLineIdx != null) return Math.max(0, entry.committedLineIdx);
-  if (entry.nextSpeakableLineIdx != null) return Math.max(0, entry.nextSpeakableLineIdx);
-  const targetLineIdx = getEntryFieldNumber(entry, "targetLineIdx");
-  return targetLineIdx != null ? Math.max(0, Math.floor(targetLineIdx)) : null;
-}
-function isCommitEntry(entry) {
-  if (entry.tag.includes("COMMIT")) return true;
-  return /\bcommit(LineIdx|Index|Target|TargetIdx)?=/.test(entry.stringLine);
-}
-function incrementMapCount(map, key) {
-  const safeKey = String(key || "").trim();
-  if (!safeKey) return;
-  map[safeKey] = (map[safeKey] || 0) + 1;
-}
-function getOrCreateRunPhaseSummary(summaries, lineIdx) {
-  const bucketStart = Math.floor(Math.max(0, lineIdx) / DEFAULT_LINE_BUCKET_SIZE) * DEFAULT_LINE_BUCKET_SIZE;
-  const existing = summaries.get(bucketStart);
-  if (existing) return existing;
-  const created = {
-    lineStart: bucketStart,
-    lineEnd: bucketStart + DEFAULT_LINE_BUCKET_SIZE - 1,
-    entryCount: 0,
-    commitCount: 0,
-    commitDeltaSum: 0,
-    commitDeltaCount: 0,
-    bridgeCommitCount: 0,
-    cueBridgeCommitCount: 0,
-    starvationDetectedCount: 0,
-    rescueCount: 0,
-    liveStrictBridgeLandingHoldCount: 0,
-    unsafeTargetCount: 0,
-    debtBelowLineHeightCount: 0,
-    markerErrorLineTooHighCount: 0,
-    readerComfortRescueAppliedCount: 0,
-    readerComfortRescueBlockedCount: 0,
-    safeLivePocketCorrectionAppliedCount: 0,
-    safeLivePocketCorrectionBlockedCount: 0,
-    inPocketCount: 0,
-    belowPocketCount: 0,
-    abovePocketCount: 0,
-    belowPocketSamples: [],
-    maxBelowPocketPx: 0,
-    terminalClampCount: 0,
-    visualActuatorClampReasons: {},
-    actualMovedPxSum: 0,
-    actualMovedPxCount: 0
-  };
-  summaries.set(bucketStart, created);
-  return created;
-}
-function updateRunPhaseSummary(summary, entry) {
-  summary.entryCount += 1;
-  if (isCommitEntry(entry)) {
-    summary.commitCount += 1;
-    const currentLineIdx = entry.currentLineIdx ?? getEntryFieldNumber(entry, "currentLineIdx");
-    const committedLineIdx = entry.committedLineIdx ?? getEntryFieldNumber(entry, "committedLineIdx") ?? getEntryFieldNumber(entry, "targetLineIdx");
-    if (currentLineIdx != null && committedLineIdx != null) {
-      summary.commitDeltaSum += Math.max(0, committedLineIdx - currentLineIdx);
-      summary.commitDeltaCount += 1;
-    }
-  }
-  const lowerTag = entry.tag.toLowerCase();
-  const lowerLine = entry.stringLine.toLowerCase();
-  if (lowerTag.includes("bridge_commit") || lowerLine.includes("bridge_commit")) {
-    summary.bridgeCommitCount += 1;
-  }
-  if (entry.tag === "ASR_CUE_BRIDGE_COMMIT" || lowerLine.includes("cue_bridge_commit")) {
-    summary.cueBridgeCommitCount += 1;
-  }
-  if (entry.tag === "ASR_STARVATION_DETECTED") {
-    summary.starvationDetectedCount += 1;
-  }
-  if (lowerTag.includes("rescue") || /\brescue\b/.test(lowerLine)) {
-    summary.rescueCount += 1;
-  }
-  if (lowerLine.includes("live_strict_bridge_stale_landing_hold") || lowerLine.includes("live_strict_bridge_landing_hold") || entry.tag === "ASR_LIVE_BRIDGE_COMPLETION_HELD") {
-    summary.liveStrictBridgeLandingHoldCount += 1;
-  }
-  if (getEntryFieldString(entry, "deniedReason") === "unsafe_target" || getEntryFieldString(entry, "unsafeTargetReason") === "unsafe_target") {
-    summary.unsafeTargetCount += 1;
-  }
-  if (getEntryFieldString(entry, "reason") === "debt_below_line_height" || lowerLine.includes("reason=debt_below_line_height")) {
-    summary.debtBelowLineHeightCount += 1;
-  }
-  if (getEntryFieldString(entry, "reason") === "marker_error_line_too_high" || lowerLine.includes("reason=marker_error_line_too_high")) {
-    summary.markerErrorLineTooHighCount += 1;
-  }
-  if (entry.tag === "ASR_READER_COMFORT_RESCUE_APPLIED") {
-    summary.readerComfortRescueAppliedCount += 1;
-  }
-  if (entry.tag === "ASR_READER_COMFORT_RESCUE_BLOCKED") {
-    summary.readerComfortRescueBlockedCount += 1;
-  }
-  if (entry.tag === "ASR_SAFE_LIVE_POCKET_CORRECTION_APPLIED") {
-    summary.safeLivePocketCorrectionAppliedCount += 1;
-  }
-  if (entry.tag === "ASR_SAFE_LIVE_POCKET_CORRECTION_BLOCKED") {
-    summary.safeLivePocketCorrectionBlockedCount += 1;
-  }
-  const pocketHealth = getEntryFieldString(entry, "pocketHealth");
-  if (pocketHealth === "inPocket") summary.inPocketCount += 1;
-  else if (pocketHealth === "belowPocket") summary.belowPocketCount += 1;
-  else if (pocketHealth === "abovePocket") summary.abovePocketCount += 1;
-  const belowPocketPx = getEntryFieldNumber(entry, "belowPocketPx");
-  if (belowPocketPx != null && belowPocketPx >= 0) {
-    const rounded = Math.round(belowPocketPx);
-    summary.belowPocketSamples.push(rounded);
-    summary.maxBelowPocketPx = Math.max(summary.maxBelowPocketPx, rounded);
-  }
-  const terminalClampActive = getEntryFieldNumber(entry, "terminalClamp");
-  const deniedReason = getEntryFieldString(entry, "deniedReason");
-  const blockedReason = getEntryFieldString(entry, "blockedReason");
-  if (terminalClampActive === 1 || deniedReason === "terminal_clamp" || deniedReason === "terminal_near_end" || blockedReason === "terminal_clamp") {
-    summary.terminalClampCount += 1;
-  }
-  const clampReason = getEntryFieldString(entry, "clampReason") ?? getEntryFieldString(entry, "blockedReason");
-  if (entry.tag === "ASR_VISUAL_ACTUATOR_APPLIED" || entry.tag === "ASR_VISUAL_DEBT_CATCHUP_BLOCKED") {
-    incrementMapCount(summary.visualActuatorClampReasons, clampReason);
-  }
-  const actualMovedPx = getEntryFieldNumber(entry, "actualMovedPx") ?? getEntryFieldNumber(entry, "appliedDeltaPx") ?? getEntryFieldNumber(entry, "movedPx");
-  if (actualMovedPx != null) {
-    summary.actualMovedPxSum += actualMovedPx;
-    summary.actualMovedPxCount += 1;
-  }
-}
-function finalizeRunPhaseSummaries(summaries) {
-  const ordered = Array.from(summaries.values()).sort((a, b) => a.lineStart - b.lineStart);
-  return ordered.map((summary) => {
-    const belowPocketSamples = summary.belowPocketSamples.slice().sort((a, b) => a - b);
-    let medianBelowPocketPx = 0;
-    if (belowPocketSamples.length > 0) {
-      const mid = Math.floor(belowPocketSamples.length / 2);
-      medianBelowPocketPx = belowPocketSamples.length % 2 === 0 ? Math.round((belowPocketSamples[mid - 1] + belowPocketSamples[mid]) / 2) : belowPocketSamples[mid];
-    }
-    return {
-      tag: "ASR_RUN_PHASE_SUMMARY",
-      lineStart: summary.lineStart,
-      lineEnd: summary.lineEnd,
-      lineRange: `${summary.lineStart}-${summary.lineEnd}`,
-      bucketSize: DEFAULT_LINE_BUCKET_SIZE,
-      entryCount: summary.entryCount,
-      commitCount: summary.commitCount,
-      averageCommitDelta: summary.commitDeltaCount > 0 ? Number((summary.commitDeltaSum / summary.commitDeltaCount).toFixed(3)) : 0,
-      bridgeCommitCount: summary.bridgeCommitCount,
-      cueBridgeCommitCount: summary.cueBridgeCommitCount,
-      starvationDetectedCount: summary.starvationDetectedCount,
-      rescueCount: summary.rescueCount,
-      liveStrictBridgeLandingHoldCount: summary.liveStrictBridgeLandingHoldCount,
-      unsafeTargetCount: summary.unsafeTargetCount,
-      debtBelowLineHeightCount: summary.debtBelowLineHeightCount,
-      markerErrorLineTooHighCount: summary.markerErrorLineTooHighCount,
-      readerComfortRescueAppliedCount: summary.readerComfortRescueAppliedCount,
-      readerComfortRescueBlockedCount: summary.readerComfortRescueBlockedCount,
-      safeLivePocketCorrectionAppliedCount: summary.safeLivePocketCorrectionAppliedCount,
-      safeLivePocketCorrectionBlockedCount: summary.safeLivePocketCorrectionBlockedCount,
-      inPocketCount: summary.inPocketCount,
-      belowPocketCount: summary.belowPocketCount,
-      abovePocketCount: summary.abovePocketCount,
-      medianBelowPocketPx,
-      maxBelowPocketPx: summary.maxBelowPocketPx,
-      terminalClampCount: summary.terminalClampCount,
-      visualActuatorClampReasons: summary.visualActuatorClampReasons,
-      averageActualMovedPx: summary.actualMovedPxCount > 0 ? Number((summary.actualMovedPxSum / summary.actualMovedPxCount).toFixed(3)) : 0
-    };
-  });
-}
-function computeInterestScore(entry) {
-  const targetDebtPx = getEntryFieldNumber(entry, "targetDebtPx");
-  if (targetDebtPx != null) return Math.abs(targetDebtPx);
-  const visualErrorPx = getEntryFieldNumber(entry, "visualErrorPx");
-  if (visualErrorPx != null) return Math.abs(visualErrorPx);
-  const deltaPx = getEntryFieldNumber(entry, "deltaPx");
-  if (deltaPx != null) return Math.abs(deltaPx);
-  if (entry.targetScrollTop != null && entry.scrollTop != null) {
-    return Math.abs(entry.targetScrollTop - entry.scrollTop);
-  }
-  return 0;
-}
-function buildTagCounts(entries) {
-  const tagCounts = {};
-  for (const entry of entries) {
-    tagCounts[entry.tag] = (tagCounts[entry.tag] || 0) + 1;
-  }
-  return tagCounts;
-}
-function buildTagSummaries(entries) {
-  const summaries = {};
-  const maxInterestScores = /* @__PURE__ */ new Map();
-  const minStepStreaks = /* @__PURE__ */ new Map();
-  for (const entry of entries) {
-    const family = getTrackedSummaryFamily(entry.tag);
-    if (!family) continue;
-    if (!summaries[family]) {
-      summaries[family] = {
-        family,
-        count: 0,
-        firstTs: null,
-        lastTs: null,
-        sampledCount: 0,
-        droppedCount: 0,
-        lastSample: null,
-        maxInterestSample: null,
-        maxTargetDebtPx: null,
-        minStepFloorCount: 0,
-        bigDebtMinStepCount: 0,
-        largestRepeatedMinStepStreak: 0,
-        lastMinStepSample: null
-      };
-      maxInterestScores.set(family, Number.NEGATIVE_INFINITY);
-      minStepStreaks.set(family, 0);
-    }
-    const summary = summaries[family];
-    summary.count += 1;
-    summary.firstTs = summary.firstTs ?? entry.ts;
-    summary.lastTs = entry.ts;
-    summary.lastSample = entry;
-    const targetDebtPx = getEntryFieldNumber(entry, "targetDebtPx");
-    if (targetDebtPx != null && (summary.maxTargetDebtPx == null || targetDebtPx > summary.maxTargetDebtPx)) {
-      summary.maxTargetDebtPx = targetDebtPx;
-    }
-    const interestScore = computeInterestScore(entry);
-    if (interestScore >= (maxInterestScores.get(family) ?? Number.NEGATIVE_INFINITY)) {
-      maxInterestScores.set(family, interestScore);
-      summary.maxInterestSample = entry;
-    }
-    const appliedDeltaPx = getEntryFieldNumber(entry, "appliedDeltaPx");
-    const clampReason = getEntryFieldString(entry, "clampReason");
-    const isMinStepFloor = Math.round(appliedDeltaPx ?? Number.NaN) === DEFAULT_MIN_STEP_PX2 && clampReason === "min_step_floor";
-    if (isMinStepFloor) {
-      const nextStreak = (minStepStreaks.get(family) || 0) + 1;
-      minStepStreaks.set(family, nextStreak);
-      summary.minStepFloorCount += 1;
-      summary.lastMinStepSample = entry;
-      summary.largestRepeatedMinStepStreak = Math.max(summary.largestRepeatedMinStepStreak, nextStreak);
-      if ((targetDebtPx ?? Number.NEGATIVE_INFINITY) >= BIG_DEBT_MIN_STEP_THRESHOLD_PX) {
-        summary.bigDebtMinStepCount += 1;
-      }
-    } else {
-      minStepStreaks.set(family, 0);
-    }
-  }
-  return summaries;
-}
-function isAsrDiagnosticLine(line) {
-  if (!line) return false;
-  if (line.includes("[ASR_LOG_PROGRESS]")) return false;
-  if (/^\s*\[ASR[^\]]*\]/.test(line)) return true;
-  if (/\bASR_[A-Z0-9_]+\b/.test(line)) return true;
-  return /^\s*\[ASR\]/.test(line);
-}
-function createAsrLogBuffer(options = {}) {
-  const maxEntries = Math.max(1, Math.floor(options.maxEntries ?? DEFAULT_MAX_ENTRIES));
-  const progressEvery = Math.max(1, Math.floor(options.progressEvery ?? DEFAULT_PROGRESS_EVERY));
-  const entries = [];
-  const runPhaseSummaries = /* @__PURE__ */ new Map();
-  let lastKnownSummaryLineIdx = null;
-  let droppedCount = 0;
-  let writeIndex = 0;
-  let capturedCount = 0;
-  const now3 = options.now ?? (() => /* @__PURE__ */ new Date());
-  const performanceNow = options.performanceNow ?? (() => {
-    try {
-      return performance.now();
-    } catch {
-      return -1;
-    }
-  });
-  const href = options.href ?? (() => {
-    try {
-      return window.location.href;
-    } catch {
-      return "";
-    }
-  });
-  const userAgent = options.userAgent ?? (() => {
-    try {
-      return navigator.userAgent;
-    } catch {
-      return "";
-    }
-  });
-  function getOrderedEntries() {
-    if (entries.length < maxEntries || writeIndex === 0) return entries.slice();
-    return entries.slice(writeIndex).concat(entries.slice(0, writeIndex));
-  }
-  function append(entry) {
-    let lineIdx = resolveSummaryLineIdx(entry);
-    if (lineIdx != null) {
-      lastKnownSummaryLineIdx = lineIdx;
-    } else if (entry.tag === "ASR_STARVATION_DETECTED" && lastKnownSummaryLineIdx != null) {
-      lineIdx = lastKnownSummaryLineIdx;
-    }
-    if (lineIdx != null) {
-      updateRunPhaseSummary(getOrCreateRunPhaseSummary(runPhaseSummaries, lineIdx), entry);
-    }
-    if (entries.length < maxEntries) {
-      entries.push(entry);
-    } else {
-      entries[writeIndex] = entry;
-      writeIndex = (writeIndex + 1) % maxEntries;
-      droppedCount += 1;
-    }
-    capturedCount += 1;
-    if (capturedCount % progressEvery === 0) {
-      try {
-        options.progressConsole?.(`[ASR_LOG_PROGRESS] ${capturedCount} entries captured`);
-      } catch {
-      }
-    }
-  }
-  function captureConsoleCall(method, args) {
-    const line = extractTextArg(args);
-    if (!isAsrDiagnosticLine(line)) return false;
-    const payload = sanitizeValue(extractPayloadArg(args));
-    append({
-      ts: now3().toISOString(),
-      performanceNowMs: performanceNow(),
-      method,
-      tag: extractTag(line),
-      message: line,
-      stringLine: line,
-      payload,
-      runKey: parseFieldString(line, "runKey") ?? (payload && typeof payload === "object" ? String(payload.runKey ?? "") || null : null),
-      runGeneration: parseFieldNumber(line, "runGeneration") ?? (payload && typeof payload === "object" ? Number(payload.runGeneration ?? NaN) || null : null),
-      currentLineIdx: parseFieldNumber(line, "currentLineIdx") ?? parseFieldNumber(line, "current") ?? parsePayloadNumber(payload, "currentLineIdx") ?? parsePayloadNumber(payload, "current") ?? null,
-      committedLineIdx: parseFieldNumber(line, "committedLineIdx") ?? parseFieldNumber(line, "commitIndex") ?? parsePayloadNumber(payload, "committedLineIdx") ?? parsePayloadNumber(payload, "commitIndex") ?? null,
-      nextSpeakableLineIdx: parseFieldNumber(line, "nextSpeakableLineIdx") ?? parsePayloadNumber(payload, "nextSpeakableLineIdx") ?? null,
-      scrollTop: parseFieldNumber(line, "scrollTop") ?? parseFieldNumber(line, "currentScrollTop") ?? parseFieldNumber(line, "beforeScrollTop") ?? null,
-      targetScrollTop: parseFieldNumber(line, "targetScrollTop") ?? null
-    });
-    return true;
-  }
-  function clear() {
-    entries.length = 0;
-    runPhaseSummaries.clear();
-    lastKnownSummaryLineIdx = null;
-    droppedCount = 0;
-    writeIndex = 0;
-    capturedCount = 0;
-  }
-  function exportObject() {
-    const orderedEntries = getOrderedEntries();
-    const tagCounts = buildTagCounts(orderedEntries);
-    const tagSummaries = buildTagSummaries(orderedEntries);
-    return {
-      exportedAt: now3().toISOString(),
-      href: href(),
-      userAgent: userAgent(),
-      entryCount: orderedEntries.length,
-      droppedCount,
-      tagCounts,
-      tagSummaries,
-      runPhaseSummaries: finalizeRunPhaseSummaries(runPhaseSummaries),
-      entries: orderedEntries
-    };
-  }
-  async function copy() {
-    const exported = exportObject();
-    const text = JSON.stringify(exported, null, 2);
-    if (options.copyText) {
-      await options.copyText(text);
-    } else if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-    }
-    return exported;
-  }
-  function download() {
-    const exported = exportObject();
-    const text = JSON.stringify(exported, null, 2);
-    const stamp = exported.exportedAt.replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
-    const filename = `asr-log-${stamp}.json`;
-    if (options.downloadText) {
-      options.downloadText(filename, text);
-      return exported;
-    }
-    try {
-      const blob = new Blob([text], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
-      return exported;
-    } catch {
-      return null;
-    }
-  }
-  function summary() {
-    const ordered = getOrderedEntries();
-    return {
-      entryCount: ordered.length,
-      droppedCount,
-      maxEntries,
-      progressEvery,
-      firstTag: ordered[0]?.tag ?? null,
-      lastTag: ordered[ordered.length - 1]?.tag ?? null,
-      tagCounts: buildTagCounts(ordered),
-      tagSummaries: buildTagSummaries(ordered),
-      runPhaseSummaries: finalizeRunPhaseSummaries(runPhaseSummaries)
-    };
-  }
-  return {
-    captureConsoleCall,
-    clear,
-    exportObject,
-    copy,
-    download,
-    summary,
-    get entries() {
-      return getOrderedEntries();
-    },
-    get droppedCount() {
-      return droppedCount;
-    },
-    get maxEntries() {
-      return maxEntries;
-    }
-  };
-}
-function installAsrLogBuffer(win = window) {
-  if (typeof win === "undefined") return;
-  if (!detectEnabled(win)) return;
-  if (win.__asrLogBufferInstalled) return;
-  win.__asrLogBufferInstalled = true;
-  const orig = {
-    log: console.log.bind(console),
-    info: console.info.bind(console),
-    warn: console.warn.bind(console),
-    debug: console.debug.bind(console)
-  };
-  const buffer = createAsrLogBuffer({
-    progressConsole: (line) => orig.info(line)
-  });
-  const wrap = (method) => (...args) => {
-    if (buffer.captureConsoleCall(method, args)) return;
-    orig[method](...args);
-  };
-  console.log = wrap("log");
-  console.info = wrap("info");
-  console.warn = wrap("warn");
-  console.debug = wrap("debug");
-  win.__ASR_LOG_BUFFER__ = buffer;
-  win.__copyAsrLog = () => buffer.copy();
-  win.__downloadAsrLog = () => buffer.download();
-  win.__clearAsrLog = () => buffer.clear();
-  win.__getAsrLogSummary = () => buffer.summary();
-}
-var DEFAULT_MAX_ENTRIES, DEFAULT_PROGRESS_EVERY, MAX_STRING_LEN, DEFAULT_MIN_STEP_PX2, BIG_DEBT_MIN_STEP_THRESHOLD_PX, DEFAULT_LINE_BUCKET_SIZE, TRACKED_SUMMARY_FAMILIES;
-var init_asr_log_buffer = __esm({
-  "src/features/asr/asr-log-buffer.ts"() {
-    "use strict";
-    DEFAULT_MAX_ENTRIES = 15e4;
-    DEFAULT_PROGRESS_EVERY = 250;
-    MAX_STRING_LEN = 2e3;
-    DEFAULT_MIN_STEP_PX2 = 6;
-    BIG_DEBT_MIN_STEP_THRESHOLD_PX = 120;
-    DEFAULT_LINE_BUCKET_SIZE = 25;
-    TRACKED_SUMMARY_FAMILIES = /* @__PURE__ */ new Set([
-      "ASR_VISUAL_ACTUATOR_APPLIED",
-      "ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF",
-      "ASR_READER_COMFORT_HOLD",
-      "ASR_READER_COMFORT_NUDGE",
-      "ASR_SCROLL_AUTHORITY_SELECTED",
-      "ASR_VISUAL_FOLLOW_*"
-    ]);
   }
 });
 
