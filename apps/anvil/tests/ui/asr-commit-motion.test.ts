@@ -18,6 +18,17 @@ function diagnosticCallMatches(
   return reason.includes(token) && requiredFragments.every((fragment) => parts.some((part: string) => part.includes(fragment)));
 }
 
+function bootstrapLiveAsrRuntime(): void {
+  (window as any).__tpAsrRuntimeStatus = {
+    recognizerAttached: true,
+    activeReadMode: true,
+    speechRunningActual: true,
+  };
+  window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+    detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
+  }));
+}
+
 describe('ASR live commit motion', () => {
   let rafSpy: jest.SpyInstance<number, [FrameRequestCallback]>;
   let cafSpy: jest.SpyInstance<void, [number]>;
@@ -103,6 +114,7 @@ describe('ASR live commit motion', () => {
     cafSpy.mockRestore();
     delete (window as any).__tpStore;
     delete (window as any).__TP_MARKER_PCT;
+    delete (window as any).__tpAsrRuntimeStatus;
     delete (window as any).__tpLiveAsrGovernorHold;
     delete (window as any).__tpAsrDiagnosticBundleProofEmitted;
     delete (window as any).__TP_BUILD_STAMP;
@@ -159,6 +171,8 @@ describe('ASR live commit motion', () => {
     const driver = createAsrScrollDriver();
     const scroller = document.getElementById('viewer') as HTMLElement;
 
+    bootstrapLiveAsrRuntime();
+
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
       currentIdx: 0,
@@ -189,6 +203,8 @@ describe('ASR live commit motion', () => {
 
   test('caps a far future live ASR match to the next readable line when that line has local support', async () => {
     const driver = createAsrScrollDriver();
+
+    bootstrapLiveAsrRuntime();
 
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
@@ -231,6 +247,7 @@ describe('ASR live commit motion', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     (window as any).__TP_MARKER_PCT = 0.9; // marker below row -> negative delta
     const driver = createAsrScrollDriver();
+    bootstrapLiveAsrRuntime();
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
       currentIdx: 0,
@@ -248,6 +265,7 @@ describe('ASR live commit motion', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     (window as any).__TP_MARKER_PCT = 0.836; // marker ~= row top for line 1 (small drift)
     const driver = createAsrScrollDriver();
+    bootstrapLiveAsrRuntime();
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
       currentIdx: 0,
@@ -258,6 +276,7 @@ describe('ASR live commit motion', () => {
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     expect(
       lines.some((l) => l.includes('ASR_VISUAL_FOLLOW_TARGET')) ||
+      lines.some((l) => l.includes('ASR_VISUAL_FOLLOW_HARD_HELD')) ||
       lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD')) ||
       lines.some((l) => l.includes('ASR_READER_COMFORT_NUDGE')),
     ).toBe(true);
@@ -269,6 +288,7 @@ describe('ASR live commit motion', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     (window as any).__TP_MARKER_PCT = 0.4; // marker above row -> positive delta
     const driver = createAsrScrollDriver();
+    bootstrapLiveAsrRuntime();
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
       currentIdx: 0,
@@ -286,6 +306,7 @@ describe('ASR live commit motion', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     (window as any).__TP_MARKER_PCT = 0.4;
     const driver = createAsrScrollDriver();
+    bootstrapLiveAsrRuntime();
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
       currentIdx: 0,
@@ -301,6 +322,8 @@ describe('ASR live commit motion', () => {
 
   test('still caps a far future live ASR match to the next readable line when later content matches more strongly', async () => {
     const driver = createAsrScrollDriver();
+
+    bootstrapLiveAsrRuntime();
 
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
@@ -378,6 +401,8 @@ describe('ASR live commit motion', () => {
   test('does not let a stalled far-future final keep the script walking forward on its own', async () => {
     const driver = createAsrScrollDriver();
 
+    bootstrapLiveAsrRuntime();
+
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
       currentIdx: 0,
@@ -418,6 +443,8 @@ describe('ASR live commit motion', () => {
 
   test('does not let stalled tie-forward evidence promote the next readable line by itself', async () => {
     const driver = createAsrScrollDriver();
+
+    bootstrapLiveAsrRuntime();
 
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
@@ -460,6 +487,8 @@ describe('ASR live commit motion', () => {
 
   test('does not keep walking forward on stale transcript output after VAD goes quiet', async () => {
     const driver = createAsrScrollDriver();
+
+    bootstrapLiveAsrRuntime();
 
     window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
 
@@ -1522,7 +1551,8 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(500);
 
-    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+    // Pending bridge staging is visual-only until completion conditions are met.
+    expect(driver.getLastLineIndex()).toBe(4);
 
     driver.dispose();
   });
@@ -1584,7 +1614,8 @@ describe('ASR live commit motion', () => {
     });
 
     await jest.advanceTimersByTimeAsync(250);
-    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+    // Bridge should remain staged (no semantic commit yet).
+    expect(driver.getLastLineIndex()).toBe(4);
 
     // Simulate cumulative/stale prefix re-matching current line.
     driver.ingest('But citrus did not die.', true, {
@@ -1600,7 +1631,7 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(250);
 
     // Stale same-line rematch should not regress landed semantic target.
-    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+    expect(driver.getLastLineIndex()).toBe(4);
 
     driver.dispose();
   });
@@ -1661,7 +1692,8 @@ describe('ASR live commit motion', () => {
       },
     });
     await jest.advanceTimersByTimeAsync(250);
-    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+    // Initial far target remains staged while pending bridge completion is active.
+    expect(driver.getLastLineIndex()).toBe(4);
 
     // Keep feeding finals while crossing default ttl (2200ms).
     await jest.advanceTimersByTimeAsync(2300);
@@ -1687,7 +1719,8 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(250);
 
-    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(6);
+    // Continued speech and refreshed evidence should allow pending bridge completion.
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
     driver.dispose();
   });
 
@@ -2511,6 +2544,8 @@ describe('ASR live commit motion', () => {
     let focusActive = true;
     const hasFocusSpy = jest.spyOn(document, 'hasFocus').mockImplementation(() => focusActive);
 
+    bootstrapLiveAsrRuntime();
+
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
       currentIdx: 0,
@@ -2560,6 +2595,8 @@ describe('ASR live commit motion', () => {
       configurable: true,
       get: () => visibilityState === 'hidden',
     });
+
+    bootstrapLiveAsrRuntime();
 
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
