@@ -6,6 +6,8 @@ describe('ASR log buffer', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
     window.localStorage.clear();
+    delete (window as any).__TP_DEV;
+    delete (window as any).__ASR_DIAGNOSTIC_PROOF__;
     delete (window as any).__ASR_LOG_BUFFER__;
     delete (window as any).__copyAsrLog;
     delete (window as any).__downloadAsrLog;
@@ -194,5 +196,14 @@ describe('ASR log buffer', () => {
     expect(buffer.entries).toHaveLength(0);
     warnSpy.mockRestore();
     infoSpy.mockRestore();
+  });
+
+  test('installer exposes download helper in dev diagnostic mode', () => {
+    (window as any).__TP_DEV = true;
+
+    installAsrLogBuffer(window as any);
+
+    expect(typeof (window as any).__downloadAsrLog).toBe('function');
+    expect(typeof (window as any).__copyAsrLog).toBe('function');
   });
 });

@@ -10,6 +10,7 @@ import {
   type AsrScrollDriver,
   type AsrScrollDriverStats,
 } from '../features/asr/asr-scroll-driver';
+import { installAsrLogBuffer } from '../features/asr/asr-log-buffer';
 import { isSessionRecording } from '../recording/recorderRegistry';
 import { getAsrBlockElements, getAsrBlockIndex } from '../scroll/asr-block-store';
 import {
@@ -365,6 +366,113 @@ let lastMatcherStallCommitStableSince = 0;
 let lastAsrScriptEndStopKey = '';
 let pendingAsrScriptEndStop: PendingAsrScriptEndStop | null = null;
 let deferredAsrScriptEndStop: DeferredAsrScriptEndStop | null = null;
+
+type AsrDriverCreateBlockedEntry = {
+  suppressedCount: number;
+  lastSummaryAt: number;
+  payload: Record<string, unknown>;
+};
+
+const asrDriverCreateBlockedBySignature = new Map<string, AsrDriverCreateBlockedEntry>();
+const ASR_DRIVER_CREATE_BLOCKED_SUMMARY_EVERY = 20;
+
+function resetAsrDriverCreateBlockedDiagnostics(): void {
+  asrDriverCreateBlockedBySignature.clear();
+}
+
+function emitAsrDriverCreateBlockedSummary(signature: string): void {
+  if (!isDevMode()) return;
+  const entry = asrDriverCreateBlockedBySignature.get(signature);
+  if (!entry || entry.suppressedCount <= 0) return;
+  const now = Date.now();
+  if (
+    entry.suppressedCount < ASR_DRIVER_CREATE_BLOCKED_SUMMARY_EVERY &&
+    now - entry.lastSummaryAt < 1000
+  ) {
+    return;
+  }
+  entry.lastSummaryAt = now;
+  try {
+    console.debug('[ASR] driver create blocked (suppressed)', {
+      signature,
+      suppressedCount: entry.suppressedCount,
+      ...entry.payload,
+    });
+  } catch {}
+  entry.suppressedCount = 0;
+}
+
+function reportAsrDriverCreateBlocked(payload: {
+  reason: string;
+  mode: string;
+  blocksReady: boolean;
+  blockCount: number;
+  backendReady: boolean;
+  phaseAllowsAsrDriver: boolean;
+  sessionPhase: string;
+  running: boolean;
+  asrSessionIntentActive: boolean;
+}): void {
+  if (!isDevMode()) return;
+  const signature = [
+    payload.reason,
+    payload.mode,
+    payload.sessionPhase,
+    payload.blocksReady ? '1' : '0',
+    payload.backendReady ? '1' : '0',
+    payload.phaseAllowsAsrDriver ? '1' : '0',
+    payload.running ? '1' : '0',
+    payload.asrSessionIntentActive ? '1' : '0',
+  ].join('|');
+  const existing = asrDriverCreateBlockedBySignature.get(signature);
+  if (!existing) {
+    try {
+      console.debug('[ASR] driver create blocked', payload);
+    } catch {}
+    asrDriverCreateBlockedBySignature.set(signature, {
+      suppressedCount: 0,
+      lastSummaryAt: 0,
+      payload,
+    });
+    if (asrDriverCreateBlockedBySignature.size > 64) {
+      asrDriverCreateBlockedBySignature.clear();
+      asrDriverCreateBlockedBySignature.set(signature, {
+        suppressedCount: 0,
+        lastSummaryAt: 0,
+        payload,
+      });
+    }
+    return;
+  }
+  existing.payload = payload;
+  existing.suppressedCount += 1;
+  if (existing.suppressedCount >= ASR_DRIVER_CREATE_BLOCKED_SUMMARY_EVERY) {
+    emitAsrDriverCreateBlockedSummary(signature);
+  }
+}
+
+function shouldAllowAsrDriverCreateAttempt(mode: string, session = getSession()): boolean {
+  if (!isAsrLikeMode(mode)) return false;
+  const phase = String(session.phase || '').toLowerCase();
+  return (
+    running ||
+    asrSessionIntentActive ||
+    phase === 'preroll' ||
+    phase === 'live'
+  );
+}
+
+function disarmAsrSessionState(reason: string): void {
+  if (typeof window === 'undefined') return;
+  const store = window.__tpStore;
+  if (!store || typeof store.set !== 'function') return;
+  try { store.set('session.asrDesired' as any, false as any); } catch {}
+  try { store.set('session.asrArmed' as any, false as any); } catch {}
+  try { store.set('session.asrReady' as any, false as any); } catch {}
+  if (isDevMode() && shouldLogTag('ASR:session-disarm', 2, 300)) {
+    try { console.debug('[ASR] session disarmed', { reason }); } catch {}
+  }
+}
 let deferredAsrScriptEndStopTimer: number | null = null;
 
 const WATCHDOG_INTERVAL_MS = 5000;
@@ -3607,27 +3715,20 @@ function shouldCreateAsrDriver(mode: string, reason: string): boolean {
   const blocksReady = blocks.ready && blocks.count > 0;
   const backendReady = canAttachAsrBackend();
   const session = getSession();
-  const phaseAllowsAsrDriver =
-    mode !== 'asr' ||
-    running ||
-    asrSessionIntentActive ||
-    session.phase === 'preroll' ||
-    session.phase === 'live';
+  const phaseAllowsAsrDriver = shouldAllowAsrDriverCreateAttempt(mode, session);
   const allowed = isAsrLikeMode(mode) && blocksReady && backendReady && phaseAllowsAsrDriver;
-  if (!allowed && isDevMode()) {
-    try {
-      console.debug('[ASR] driver create blocked', {
-        reason,
-        mode,
-        blocksReady,
-        blockCount: blocks.count,
-        backendReady,
-        phaseAllowsAsrDriver,
-        sessionPhase: session.phase,
-        running,
-        asrSessionIntentActive,
-      });
-    } catch {}
+  if (!allowed) {
+    reportAsrDriverCreateBlocked({
+      reason,
+      mode,
+      blocksReady,
+      blockCount: blocks.count,
+      backendReady,
+      phaseAllowsAsrDriver,
+      sessionPhase: String(session.phase || 'idle').toLowerCase(),
+      running,
+      asrSessionIntentActive,
+    });
   }
   return allowed;
 }
@@ -4009,12 +4110,7 @@ function ensureAsrDriverLifecycleHooks(): void {
     const detail = (event as CustomEvent)?.detail || {};
     const mode = String(detail.mode || detail.nextMode || getScrollMode() || '').toLowerCase();
     const session = getSession();
-    const phase = String(session.phase || '').toLowerCase();
-    const allowCreate =
-      phase === 'preroll' ||
-      phase === 'live' ||
-      session.asrDesired ||
-      session.asrArmed;
+    const allowCreate = shouldAllowAsrDriverCreateAttempt(mode, session);
     if (isAsrLikeMode(mode)) {
       attachAsrScrollDriver({ reason: 'scroll-mode', mode, allowCreate });
       syncAsrDriverFromBlocks('scroll-mode', { mode, allowCreate });
@@ -4044,12 +4140,7 @@ function ensureAsrDriverLifecycleHooks(): void {
     const detail = (event as CustomEvent)?.detail || {};
     const mode = String(getScrollMode() || '').toLowerCase();
     const session = getSession();
-    const phase = String(session.phase || '').toLowerCase();
-    const allowCreate =
-      phase === 'preroll' ||
-      phase === 'live' ||
-      session.asrDesired ||
-      session.asrArmed;
+    const allowCreate = shouldAllowAsrDriverCreateAttempt(mode, session);
     if (detail && typeof detail.blockCount === 'number') {
       try { (window as any).__tpAsrBlockCount = Math.max(0, Math.floor(detail.blockCount)); } catch {}
       try { (window as any).__tpAsrBlocksReady = true; } catch {}
@@ -4059,12 +4150,7 @@ function ensureAsrDriverLifecycleHooks(): void {
   const onScriptRendered = () => {
     const mode = String(getScrollMode() || '').toLowerCase();
     const session = getSession();
-    const phase = String(session.phase || '').toLowerCase();
-    const allowCreate =
-      phase === 'preroll' ||
-      phase === 'live' ||
-      session.asrDesired ||
-      session.asrArmed;
+    const allowCreate = shouldAllowAsrDriverCreateAttempt(mode, session);
     const wantsAsrDriver = allowCreate || !!asrScrollDriver;
     if (!wantsAsrDriver) return;
     try {
@@ -4093,6 +4179,8 @@ function ensureAsrDriverLifecycleHooks(): void {
     asrSessionIntentActive = false;
     resetAsrInterimStabilizer();
     clearAsrRunKey('lifecycle-session-stop');
+    disarmAsrSessionState('session-stop');
+    resetAsrDriverCreateBlockedDiagnostics();
     emitHudSnapshot('session-stop', { force: true });
   };
   const onSessionPhase = (event: Event) => {
@@ -4104,6 +4192,8 @@ function ensureAsrDriverLifecycleHooks(): void {
       asrSessionIntentActive = false;
       resetAsrInterimStabilizer();
       clearAsrRunKey(`phase-${phase}`);
+      disarmAsrSessionState(`phase-${phase}`);
+      resetAsrDriverCreateBlockedDiagnostics();
     }
     emitHudSnapshot(`session-phase:${phase || 'unknown'}`);
   };
@@ -4174,11 +4264,7 @@ function ensureAsrDriverLifecycleHooks(): void {
   const initialMode = String(getScrollMode() || '').toLowerCase();
   const session = getSession();
   const initialPhase = String(session.phase || '').toLowerCase();
-  const allowBootstrapCreate =
-    initialPhase === 'preroll' ||
-    initialPhase === 'live' ||
-    session.asrDesired ||
-    session.asrArmed;
+  const allowBootstrapCreate = shouldAllowAsrDriverCreateAttempt(initialMode, session);
   if (allowBootstrapCreate || !!asrScrollDriver) {
     attachAsrScrollDriver({ reason: 'bootstrap', mode: initialMode, allowCreate: allowBootstrapCreate });
     syncAsrDriverFromBlocks('bootstrap', { mode: initialMode, allowCreate: allowBootstrapCreate });
@@ -4207,6 +4293,8 @@ function ensureSessionStopHooked(): void {
     asrSessionIntentActive = false;
     resetAsrInterimStabilizer();
     clearAsrRunKey('session-stop-hook');
+    disarmAsrSessionState('session-stop-hook');
+    resetAsrDriverCreateBlockedDiagnostics();
     detachAsrScrollDriver();
     const detail = (event as CustomEvent)?.detail || {};
     const mode = typeof detail.mode === 'string' && detail.mode
@@ -4743,11 +4831,13 @@ export async function startSpeechBackendForSession(info?: { reason?: string; mod
 }
 
 export function stopSpeechBackendForSession(reason?: string): void {
+  resetAsrDriverCreateBlockedDiagnostics();
   suppressRecognizerAutoRestart = true;
   suppressAsrStallAutoRestart(`stop:${String(reason || 'unspecified')}`);
   clearLifecycleRestartTimer();
   stopAsrHeartbeat();
   asrSessionIntentActive = false;
+  disarmAsrSessionState(`stop:${String(reason || 'unspecified')}`);
   resetAsrInterimStabilizer();
   clearAsrRunKey(`stop:${String(reason || 'unspecified')}`);
   if (!running && !rec) {
@@ -4787,6 +4877,7 @@ export function stopSpeechBackendForSession(reason?: string): void {
 }
 
 export function installSpeech(): void {
+  try { installAsrLogBuffer(window as any); } catch {}
   ensureAsrDriverLifecycleHooks();
   startAsrHeartbeat();
   activeAsrLane = readActiveAsrLane();

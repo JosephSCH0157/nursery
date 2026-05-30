@@ -113,6 +113,24 @@ const TRACKED_SUMMARY_FAMILIES = new Set<string>([
 ]);
 
 function detectEnabled(win: Window): boolean {
+  const host = win as Window & {
+    __TP_DEV?: unknown;
+    __TP_DEV1?: unknown;
+    __tpDevMode?: unknown;
+    __ASR_DIAGNOSTIC_PROOF__?: unknown;
+    __ASR_INIT_IMPL__?: unknown;
+    __asrLogBufferInstalled?: unknown;
+  };
+  if (
+    host.__TP_DEV === true ||
+    host.__TP_DEV1 === true ||
+    host.__tpDevMode === true ||
+    host.__ASR_DIAGNOSTIC_PROOF__ ||
+    host.__ASR_INIT_IMPL__ ||
+    host.__asrLogBufferInstalled === true
+  ) {
+    return true;
+  }
   try {
     const params = new URLSearchParams(win.location.search || '');
     if (params.get('dev') === '1') return true;
