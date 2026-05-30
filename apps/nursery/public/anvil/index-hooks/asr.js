@@ -1,10 +1,22 @@
 // src/features/asr/asr-log-buffer.ts
 var DEFAULT_MAX_ENTRIES = 15e4;
-var DEFAULT_PROGRESS_EVERY = 250;
+var DEFAULT_PROGRESS_EVERY = 1e4;
 var MAX_STRING_LEN = 2e3;
 var DEFAULT_MIN_STEP_PX = 6;
 var BIG_DEBT_MIN_STEP_THRESHOLD_PX = 120;
 var DEFAULT_LINE_BUCKET_SIZE = 25;
+var NOISY_ASR_TAG_COALESCE_SAMPLE_EVERY = 120;
+var NOISY_ASR_TAG_COALESCE_MIN_MS = 2500;
+var NOISY_ASR_TAGS = /* @__PURE__ */ new Set([
+  "ASR_LIVE_POCKET_MAINTENANCE_CALLSITE_REACHED",
+  "ASR_POCKET_WALL_EVALUATED",
+  "ASR_LOW_POCKET_DEADBAND_BLOCKED",
+  "ASR_VISUAL_RECOVERY_BOOST_BLOCKED",
+  "ASR_VISUAL_DEBT_CATCHUP_EVALUATION_SEEN",
+  "ASR_LEAD_AWARE_PURSUIT_CAP",
+  "ASR_READER_PRESSURE_REDUCED",
+  "ASR_VISUAL_AUTHORITY_LEAD_PRESSURE_EVALUATED"
+]);
 var TRACKED_SUMMARY_FAMILIES = /* @__PURE__ */ new Set([
   "ASR_VISUAL_ACTUATOR_APPLIED",
   "ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF",
@@ -396,6 +408,7 @@ function createAsrLogBuffer(options = {}) {
   let droppedCount = 0;
   let writeIndex = 0;
   let capturedCount = 0;
+  const noisyTagState = /* @__PURE__ */ new Map();
   const now = options.now ?? (() => /* @__PURE__ */ new Date());
   const performanceNow = options.performanceNow ?? (() => {
     try {
@@ -447,15 +460,48 @@ function createAsrLogBuffer(options = {}) {
       }
     }
   }
+  function buildNoisyCoalesceKey(tag, line) {
+    const reason = parseFieldString(line, "reason") || "none";
+    const authority = parseFieldString(line, "authority") || "none";
+    const callsiteReason = parseFieldString(line, "callsiteReason") || "none";
+    const blockedReason = parseFieldString(line, "blockedReason") || "none";
+    const finalDecision = parseFieldString(line, "finalDecision") || "none";
+    const decisionReason = parseFieldString(line, "decisionReason") || "none";
+    const leadState = parseFieldString(line, "leadState") || "none";
+    const idx = parseFieldNumber(line, "currentLineIdx") ?? parseFieldNumber(line, "current") ?? -1;
+    const debtBucketRaw = parseFieldNumber(line, "targetDebtPx") ?? parseFieldNumber(line, "debtPx") ?? -1;
+    const debtBucket = debtBucketRaw >= 0 ? Math.round(debtBucketRaw / 25) : -1;
+    return [tag, reason, authority, callsiteReason, blockedReason, finalDecision, decisionReason, leadState, idx, debtBucket].join("|");
+  }
+  function shouldCoalesceNoisyTag(tag, line) {
+    if (!NOISY_ASR_TAGS.has(tag)) return false;
+    const nowMs = Date.now();
+    const nextKey = buildNoisyCoalesceKey(tag, line);
+    const prev = noisyTagState.get(tag);
+    if (!prev || prev.key !== nextKey) {
+      noisyTagState.set(tag, { key: nextKey, suppressed: 0, lastEmitAt: nowMs });
+      return false;
+    }
+    prev.suppressed += 1;
+    const shouldSample = prev.suppressed % NOISY_ASR_TAG_COALESCE_SAMPLE_EVERY === 0;
+    const shouldTimeSample = nowMs - prev.lastEmitAt >= NOISY_ASR_TAG_COALESCE_MIN_MS;
+    if (!shouldSample && !shouldTimeSample) {
+      return true;
+    }
+    prev.lastEmitAt = nowMs;
+    return false;
+  }
   function captureConsoleCall(method, args) {
     const line = extractTextArg(args);
     if (!isAsrDiagnosticLine(line)) return false;
+    const tag = extractTag(line);
+    if (shouldCoalesceNoisyTag(tag, line)) return true;
     const payload = sanitizeValue(extractPayloadArg(args));
     append({
       ts: now().toISOString(),
       performanceNowMs: performanceNow(),
       method,
-      tag: extractTag(line),
+      tag,
       message: line,
       stringLine: line,
       payload,
@@ -2599,6 +2645,9 @@ function emitScrollIntent(intent) {
 // src/scroll/scroller.ts
 var displayScrollChannel = null;
 var scrollEventTrackerInstalled = false;
+var lastScrollSyncSignature = "";
+var lastScrollSyncEmitAt = 0;
+var suppressedScrollSyncCount = 0;
 function shouldLogScrollWrite() {
   if (typeof window === "undefined") return false;
   try {
@@ -2751,14 +2800,41 @@ function isDevScrollSync() {
   if (typeof window === "undefined") return false;
   try {
     const w = window;
-    if (w.__tpScrollDebug || w.__tpScrollSyncDebug) return true;
-    if (w.__TP_DEV || w.__TP_DEV1 || w.__tpDevMode) return true;
-    if (w.localStorage?.getItem("tp_dev_mode") === "1") return true;
+    if (w.__tpScrollSyncDebug === true || w.__tpScrollDebug === true) return true;
+    if (w.localStorage?.getItem("tp_scroll_sync_debug") === "1") return true;
     const params = new URLSearchParams(window.location.search || "");
-    if (params.has("scrollDebug") || params.has("dev") || params.has("debug")) return true;
+    if (params.has("scrollSyncDebug") || params.has("scrollDebug")) return true;
   } catch {
   }
   return false;
+}
+function emitCoalescedScrollSyncLog(payload) {
+  if (!isDevScrollSync()) return;
+  const signature = `${payload.reason || "none"}|${payload.top}|${payload.scroller}`;
+  const now = Date.now();
+  if (signature === lastScrollSyncSignature) {
+    suppressedScrollSyncCount += 1;
+    if (suppressedScrollSyncCount < 120 && now - lastScrollSyncEmitAt < 2e3) {
+      return;
+    }
+    try {
+      console.debug("[SCROLL_SYNC]", {
+        ...payload,
+        suppressedCount: suppressedScrollSyncCount
+      });
+    } catch {
+    }
+    suppressedScrollSyncCount = 0;
+    lastScrollSyncEmitAt = now;
+    return;
+  }
+  lastScrollSyncSignature = signature;
+  suppressedScrollSyncCount = 0;
+  lastScrollSyncEmitAt = now;
+  try {
+    console.debug("[SCROLL_SYNC]", payload);
+  } catch {
+  }
 }
 function applyCanonicalScrollTop(topPx, opts = {}) {
   const scroller = opts.scroller || resolveActiveScroller(getPrimaryScroller(), getScriptRoot() || getFallbackScroller());
@@ -2826,16 +2902,11 @@ function applyCanonicalScrollTop(topPx, opts = {}) {
     }
   } catch {
   }
-  if (isDevScrollSync()) {
-    try {
-      console.debug("[SCROLL_SYNC]", {
-        top: Math.round(target),
-        scroller: describeElement(scroller),
-        reason: opts.reason
-      });
-    } catch {
-    }
-  }
+  emitCoalescedScrollSyncLog({
+    top: Math.round(target),
+    scroller: describeElement(scroller),
+    reason: opts.reason
+  });
   return target;
 }
 if (typeof window !== "undefined") {

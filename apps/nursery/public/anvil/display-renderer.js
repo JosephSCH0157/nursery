@@ -166,6 +166,9 @@ function getAsrBlockIndex() {
 // src/scroll/scroller.ts
 var displayScrollChannel = null;
 var scrollEventTrackerInstalled = false;
+var lastScrollSyncSignature = "";
+var lastScrollSyncEmitAt = 0;
+var suppressedScrollSyncCount = 0;
 function shouldLogScrollWrite() {
   if (typeof window === "undefined") return false;
   try {
@@ -353,14 +356,41 @@ function isDevScrollSync() {
   if (typeof window === "undefined") return false;
   try {
     const w2 = window;
-    if (w2.__tpScrollDebug || w2.__tpScrollSyncDebug) return true;
-    if (w2.__TP_DEV || w2.__TP_DEV1 || w2.__tpDevMode) return true;
-    if (w2.localStorage?.getItem("tp_dev_mode") === "1") return true;
+    if (w2.__tpScrollSyncDebug === true || w2.__tpScrollDebug === true) return true;
+    if (w2.localStorage?.getItem("tp_scroll_sync_debug") === "1") return true;
     const params = new URLSearchParams(window.location.search || "");
-    if (params.has("scrollDebug") || params.has("dev") || params.has("debug")) return true;
+    if (params.has("scrollSyncDebug") || params.has("scrollDebug")) return true;
   } catch {
   }
   return false;
+}
+function emitCoalescedScrollSyncLog(payload) {
+  if (!isDevScrollSync()) return;
+  const signature = `${payload.reason || "none"}|${payload.top}|${payload.scroller}`;
+  const now2 = Date.now();
+  if (signature === lastScrollSyncSignature) {
+    suppressedScrollSyncCount += 1;
+    if (suppressedScrollSyncCount < 120 && now2 - lastScrollSyncEmitAt < 2e3) {
+      return;
+    }
+    try {
+      console.debug("[SCROLL_SYNC]", {
+        ...payload,
+        suppressedCount: suppressedScrollSyncCount
+      });
+    } catch {
+    }
+    suppressedScrollSyncCount = 0;
+    lastScrollSyncEmitAt = now2;
+    return;
+  }
+  lastScrollSyncSignature = signature;
+  suppressedScrollSyncCount = 0;
+  lastScrollSyncEmitAt = now2;
+  try {
+    console.debug("[SCROLL_SYNC]", payload);
+  } catch {
+  }
 }
 function applyCanonicalScrollTop(topPx, opts = {}) {
   const scroller = opts.scroller || resolveActiveScroller(getPrimaryScroller(), getScriptRoot() || getFallbackScroller());
@@ -428,16 +458,11 @@ function applyCanonicalScrollTop(topPx, opts = {}) {
     }
   } catch {
   }
-  if (isDevScrollSync()) {
-    try {
-      console.debug("[SCROLL_SYNC]", {
-        top: Math.round(target),
-        scroller: describeElement(scroller),
-        reason: opts.reason
-      });
-    } catch {
-    }
-  }
+  emitCoalescedScrollSyncLog({
+    top: Math.round(target),
+    scroller: describeElement(scroller),
+    reason: opts.reason
+  });
   return target;
 }
 if (typeof window !== "undefined") {

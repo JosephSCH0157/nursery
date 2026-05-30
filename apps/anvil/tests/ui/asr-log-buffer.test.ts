@@ -87,6 +87,26 @@ describe('ASR log buffer', () => {
     ]);
   });
 
+  test('default progress interval is sparse for long reads', () => {
+    const buffer = createAsrLogBuffer();
+    const summary = buffer.summary();
+    expect(summary.progressEvery).toBe(10000);
+  });
+
+  test('coalesces noisy high-frequency ASR tags by default', async () => {
+    const buffer = createAsrLogBuffer();
+    for (let i = 0; i < 500; i += 1) {
+      buffer.captureConsoleCall('warn', [
+        '[ASR_LOW_POCKET_DEADBAND_BLOCKED] currentLineIdx=155 committedLineIdx=157 currentScrollTop=11046 targetScrollTop=11046 belowPocketPx=89 activeLineDistanceFromMarkerPx=106 previousHoldReason=existing_target_within_deadband correctionPx=84 observations=2 reason=unsafe_target',
+      ]);
+    }
+
+    const exported = await buffer.copy();
+    const lowPocketEntries = exported.entries.filter((entry) => entry.tag === 'ASR_LOW_POCKET_DEADBAND_BLOCKED');
+    expect(lowPocketEntries.length).toBeLessThan(40);
+    expect(lowPocketEntries.length).toBeGreaterThan(0);
+  });
+
   test('exported summaries preserve actuator and chairperson investigation details', async () => {
     const buffer = createAsrLogBuffer({
       now: (() => {

@@ -106,11 +106,23 @@ type BufferOptions = {
 };
 
 const DEFAULT_MAX_ENTRIES = 150000;
-const DEFAULT_PROGRESS_EVERY = 250;
+const DEFAULT_PROGRESS_EVERY = 10000;
 const MAX_STRING_LEN = 2000;
 const DEFAULT_MIN_STEP_PX = 6;
 const BIG_DEBT_MIN_STEP_THRESHOLD_PX = 120;
 const DEFAULT_LINE_BUCKET_SIZE = 25;
+const NOISY_ASR_TAG_COALESCE_SAMPLE_EVERY = 120;
+const NOISY_ASR_TAG_COALESCE_MIN_MS = 2500;
+const NOISY_ASR_TAGS = new Set<string>([
+  'ASR_LIVE_POCKET_MAINTENANCE_CALLSITE_REACHED',
+  'ASR_POCKET_WALL_EVALUATED',
+  'ASR_LOW_POCKET_DEADBAND_BLOCKED',
+  'ASR_VISUAL_RECOVERY_BOOST_BLOCKED',
+  'ASR_VISUAL_DEBT_CATCHUP_EVALUATION_SEEN',
+  'ASR_LEAD_AWARE_PURSUIT_CAP',
+  'ASR_READER_PRESSURE_REDUCED',
+  'ASR_VISUAL_AUTHORITY_LEAD_PRESSURE_EVALUATED',
+]);
 const TRACKED_SUMMARY_FAMILIES = new Set<string>([
   'ASR_VISUAL_ACTUATOR_APPLIED',
   'ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF',
@@ -613,6 +625,7 @@ export function createAsrLogBuffer(options: BufferOptions = {}) {
   let droppedCount = 0;
   let writeIndex = 0;
   let capturedCount = 0;
+  const noisyTagState = new Map<string, { key: string; suppressed: number; lastEmitAt: number }>();
 
   const now = options.now ?? (() => new Date());
   const performanceNow = options.performanceNow ?? (() => {
@@ -653,15 +666,50 @@ export function createAsrLogBuffer(options: BufferOptions = {}) {
     }
   }
 
+  function buildNoisyCoalesceKey(tag: string, line: string): string {
+    const reason = parseFieldString(line, 'reason') || 'none';
+    const authority = parseFieldString(line, 'authority') || 'none';
+    const callsiteReason = parseFieldString(line, 'callsiteReason') || 'none';
+    const blockedReason = parseFieldString(line, 'blockedReason') || 'none';
+    const finalDecision = parseFieldString(line, 'finalDecision') || 'none';
+    const decisionReason = parseFieldString(line, 'decisionReason') || 'none';
+    const leadState = parseFieldString(line, 'leadState') || 'none';
+    const idx = parseFieldNumber(line, 'currentLineIdx') ?? parseFieldNumber(line, 'current') ?? -1;
+    const debtBucketRaw = parseFieldNumber(line, 'targetDebtPx') ?? parseFieldNumber(line, 'debtPx') ?? -1;
+    const debtBucket = debtBucketRaw >= 0 ? Math.round(debtBucketRaw / 25) : -1;
+    return [tag, reason, authority, callsiteReason, blockedReason, finalDecision, decisionReason, leadState, idx, debtBucket].join('|');
+  }
+
+  function shouldCoalesceNoisyTag(tag: string, line: string): boolean {
+    if (!NOISY_ASR_TAGS.has(tag)) return false;
+    const nowMs = Date.now();
+    const nextKey = buildNoisyCoalesceKey(tag, line);
+    const prev = noisyTagState.get(tag);
+    if (!prev || prev.key !== nextKey) {
+      noisyTagState.set(tag, { key: nextKey, suppressed: 0, lastEmitAt: nowMs });
+      return false;
+    }
+    prev.suppressed += 1;
+    const shouldSample = prev.suppressed % NOISY_ASR_TAG_COALESCE_SAMPLE_EVERY === 0;
+    const shouldTimeSample = nowMs - prev.lastEmitAt >= NOISY_ASR_TAG_COALESCE_MIN_MS;
+    if (!shouldSample && !shouldTimeSample) {
+      return true;
+    }
+    prev.lastEmitAt = nowMs;
+    return false;
+  }
+
   function captureConsoleCall(method: ConsoleMethod, args: unknown[]): boolean {
     const line = extractTextArg(args);
     if (!isAsrDiagnosticLine(line)) return false;
+    const tag = extractTag(line);
+    if (shouldCoalesceNoisyTag(tag, line)) return true;
     const payload = sanitizeValue(extractPayloadArg(args));
     append({
       ts: now().toISOString(),
       performanceNowMs: performanceNow(),
       method,
-      tag: extractTag(line),
+      tag,
       message: line,
       stringLine: line,
       payload,
