@@ -366,6 +366,10 @@ let lastMatcherStallCommitStableSince = 0;
 let lastAsrScriptEndStopKey = '';
 let pendingAsrScriptEndStop: PendingAsrScriptEndStop | null = null;
 let deferredAsrScriptEndStop: DeferredAsrScriptEndStop | null = null;
+let lastEmittedFinalTranscriptNorm = '';
+let lastEmittedFinalTranscriptAt = 0;
+let matcherSummaryCount = 0;
+let matcherFallbackSummaryCount = 0;
 
 type AsrDriverCreateBlockedEntry = {
   suppressedCount: number;
@@ -506,6 +510,9 @@ const ASR_END_GRACE_SPEECH_FRESH_MS = 1200;
 const ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX = 12;
 const ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX = 48;
 const ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO = 0.35;
+const ASR_FINAL_NOVELTY_MIN_RATIO = 0.18;
+const ASR_FINAL_NOVELTY_MIN_OVERLAP_RATIO = 0.6;
+const ASR_FINAL_NOVELTY_DEDUP_WINDOW_MS = 2500;
 const ASR_SCRIPT_END_STOPWORDS = new Set([
   'the',
   'and',
@@ -1827,6 +1834,45 @@ function emitTranscriptEvent(payload: TranscriptPayload): void {
   try { window.dispatchEvent(new CustomEvent('tp:speech:transcript', { detail: payload })); } catch {}
 }
 
+function normalizeTranscriptForNovelty(text: string): string[] {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s']/g, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function computeSuffixPrefixOverlap(prevTokens: string[], nextTokens: string[]): number {
+  const max = Math.min(prevTokens.length, nextTokens.length);
+  for (let overlap = max; overlap > 0; overlap -= 1) {
+    let ok = true;
+    for (let idx = 0; idx < overlap; idx += 1) {
+      if (prevTokens[prevTokens.length - overlap + idx] !== nextTokens[idx]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return overlap;
+  }
+  return 0;
+}
+
+function shouldSuppressDuplicateFinalTranscript(nextText: string, nowMs: number): boolean {
+  if (!lastEmittedFinalTranscriptNorm) return false;
+  if (nowMs - lastEmittedFinalTranscriptAt > ASR_FINAL_NOVELTY_DEDUP_WINDOW_MS) return false;
+  const prevTokens = lastEmittedFinalTranscriptNorm.split(' ').filter(Boolean);
+  const nextTokens = normalizeTranscriptForNovelty(nextText);
+  if (!prevTokens.length || !nextTokens.length) return false;
+  const sameText = prevTokens.join(' ') === nextTokens.join(' ');
+  if (sameText) return true;
+
+  const overlap = computeSuffixPrefixOverlap(prevTokens, nextTokens);
+  const overlapRatio = overlap / Math.max(1, Math.min(prevTokens.length, nextTokens.length));
+  const noveltyRatio = Math.max(0, (nextTokens.length - overlap) / Math.max(1, nextTokens.length));
+  return overlapRatio >= ASR_FINAL_NOVELTY_MIN_OVERLAP_RATIO && noveltyRatio < ASR_FINAL_NOVELTY_MIN_RATIO;
+}
+
 function logTranscriptEmitDebug(payload: TranscriptPayload): void {
   try {
     const textRaw = typeof payload.text === 'string' ? payload.text : '';
@@ -1860,6 +1906,14 @@ function logTranscriptEmitDebug(payload: TranscriptPayload): void {
     const matchReason = typeof matchObj?.reason === 'string' ? matchObj.reason : null;
     const matchVia = typeof matchObj?.via === 'string' ? matchObj.via : null;
     const matchFallbackUsed = matchObj?.fallbackUsed === true;
+    const primaryBypassReason = typeof matchObj?.primaryBypassReason === 'string'
+      ? matchObj.primaryBypassReason
+      : null;
+    matcherSummaryCount += 1;
+    if (matchFallbackUsed) matcherFallbackSummaryCount += 1;
+    const matcherFallbackRatio = matcherSummaryCount > 0
+      ? Number((matcherFallbackSummaryCount / matcherSummaryCount).toFixed(3))
+      : 0;
     const blockSnapshot = getAsrBlockSnapshot();
     const scriptHash = (() => {
       try {
@@ -1879,6 +1933,8 @@ function logTranscriptEmitDebug(payload: TranscriptPayload): void {
       matchReason,
       matchVia,
       matchFallbackUsed,
+      primaryBypassReason,
+      matcherFallbackRatio,
       topLevelBestIdx,
       topLevelBestSim,
       scriptHash,
@@ -2454,6 +2510,9 @@ function deriveFallbackMatch(payload: TranscriptPayload): Record<string, unknown
     } catch {}
     const directResult = deriveDirectMatcherResult(transcript, speechStoreState);
     if (directResult) {
+      if (typeof directResult.primaryBypassReason !== 'string') {
+        directResult.primaryBypassReason = unavailableResult?.reason || 'backend_unavailable_or_untrusted';
+      }
       if (isDevMode() && shouldLogTag('ASR:matcher-fallback-direct', 2, 1500)) {
         try {
           console.info('[ASR] matcher fallback switched to direct matcher', {
@@ -2599,6 +2658,23 @@ function routeTranscript(input: string | (Partial<TranscriptPayload> & { text?: 
     const normalizedMode = String(payload.mode || '').toLowerCase();
     const asrLike = normalizedMode === 'asr' || normalizedMode === 'hybrid';
     const promotedFinal = rawFinal || (asrLike ? shouldPromoteInterimToFinal(text) : false);
+    if (promotedFinal && asrLike) {
+      const nowMs = Date.now();
+      if (shouldSuppressDuplicateFinalTranscript(text, nowMs)) {
+        try {
+          console.info('[ASR] suppressed duplicate final transcript window', {
+            mode: normalizedMode,
+            dedupWindowMs: ASR_FINAL_NOVELTY_DEDUP_WINDOW_MS,
+          });
+        } catch {}
+        return;
+      }
+      const normalizedFinal = normalizeTranscriptForNovelty(text).join(' ');
+      if (normalizedFinal) {
+        lastEmittedFinalTranscriptNorm = normalizedFinal;
+        lastEmittedFinalTranscriptAt = nowMs;
+      }
+    }
     if (rawFinal) {
       resetAsrInterimStabilizer();
     }

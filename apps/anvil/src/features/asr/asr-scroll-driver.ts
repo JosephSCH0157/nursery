@@ -388,10 +388,17 @@ const ASR_READER_COMFORT_RESCUE_MAX_STEP_LINES = 0.55;
 const ASR_READER_COMFORT_RESCUE_COOLDOWN_MS = 420;
 const ASR_READER_COMFORT_RESCUE_MIN_CORRECTION_GAP_MS = 180;
 const ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX = 16;
-const ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_OBSERVATIONS = 2;
-const ASR_LOW_POCKET_DEADBAND_RECONCILE_SEVERE_LINES = 0.35;
+const ASR_LOW_POCKET_DEADBAND_RECONCILE_FAST_MIN_OBSERVATIONS = 2;
+const ASR_LOW_POCKET_DEADBAND_RECONCILE_FAST_LINES = 0.5;
+const ASR_LOW_POCKET_DEADBAND_RECONCILE_SLOW_MIN_OBSERVATIONS = 3;
+const ASR_LOW_POCKET_DEADBAND_RECONCILE_SLOW_LINES = 0.35;
 const ASR_LOW_POCKET_DEADBAND_RECONCILE_MAX_STEP_LINES = 0.75;
 const ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX = 0.5;
+const ASR_PURSUE_TARGET_GRACE_MS = 900;
+const ASR_PURSUE_TARGET_GRACE_MAX_SEMANTIC_DISTANCE = 1;
+const ASR_PURSUE_PLATEAU_MIN_FRAMES = 4;
+const ASR_PURSUE_PLATEAU_MIN_PXPS = 12;
+const ASR_PURSUE_PLATEAU_MAX_STEP_PX = 24;
 const ASR_APPROVED_VISUAL_GLIDE_MIN_PX = 18;
 const ASR_APPROVED_VISUAL_GLIDE_MAX_LINES = 1.25;
 const ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_RATIO = 0.55;
@@ -5228,6 +5235,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let asr4VisualRecoveryLastAppliedAt = 0;
   let asr4PocketDriftConsecutiveBelowPocketCount = 0;
   let asrLowPocketDeadbandObservationCount = 0;
+  let lastLocalPursuitTargetTop: number | null = null;
+  let lastLocalPursuitTargetLineIdx = -1;
+  let lastLocalPursuitTargetAt = 0;
+  let pursuitPlateauSignature = '';
+  let pursuitPlateauFrameCount = 0;
   let asr4PocketDriftCooldownUntilMs = 0;
   let asr4PocketDriftLastAuthoritySignature = '';
   let lastAsrReaderComfortRescueAt = 0;
@@ -14259,6 +14271,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
 
     if (pursuitTargetTop == null) {
+      const graceTargetStillFresh =
+        lastLocalPursuitTargetTop != null
+        && Number.isFinite(lastLocalPursuitTargetTop)
+        && (wallNow - lastLocalPursuitTargetAt) <= ASR_PURSUE_TARGET_GRACE_MS
+        && lastLocalPursuitTargetLineIdx >= 0
+        && lastLocalPursuitTargetLineIdx <= (lastLineIndex + ASR_PURSUE_TARGET_GRACE_MAX_SEMANTIC_DISTANCE);
+      if (graceTargetStillFresh) {
+        pursuitTargetTop = Math.max(current, Number(lastLocalPursuitTargetTop));
+      }
       if (liveAsrFollowMode && keepLivePocketMaintenanceActive) {
         emitLivePocketMaintenanceCallsiteReached({
           nowTs: wallNow,
@@ -14266,9 +14287,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           markerTopPx: lastAsrMarkerY,
           callsiteReason: 'tick_keep_alive_without_target',
           skippedBeforeEvaluation: false,
-          skippedReason: 'none',
+          skippedReason: graceTargetStillFresh ? 'target_grace_cache' : 'none',
         });
-        pursuitTargetTop = current;
+        if (pursuitTargetTop == null) {
+          pursuitTargetTop = current;
+        }
       } else {
         emitLivePocketMaintenanceCallsiteReached({
           nowTs: wallNow,
@@ -14286,6 +14309,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
     if (pursuitTargetTop < current) {
       pursuitTargetTop = current;
+    }
+
+    if (
+      Number.isFinite(pursuitTargetTop as number)
+      && liveAsrVisualPursuitLineIdx != null
+      && Number.isFinite(liveAsrVisualPursuitLineIdx)
+      && liveAsrVisualPursuitLineIdx >= 0
+      && liveAsrVisualPursuitLineIdx <= (lastLineIndex + ASR_PURSUE_TARGET_GRACE_MAX_SEMANTIC_DISTANCE)
+    ) {
+      lastLocalPursuitTargetTop = Number(pursuitTargetTop);
+      lastLocalPursuitTargetLineIdx = Math.max(0, Math.floor(Number(liveAsrVisualPursuitLineIdx)));
+      lastLocalPursuitTargetAt = wallNow;
     }
 
     let err = pursuitTargetTop - current;
@@ -15615,6 +15650,34 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       maxVelForErr = Math.min(maxVelForErr, microPursuitCapPxPerSec);
     }
     let desiredVel = Math.min(maxVelForErr, Math.max(0, err * DEFAULT_PURSUE_KP));
+    const plateauSignature = [
+      Math.round(err / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+      Math.round((Number(pursuitTargetTop) - current) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+      Math.round(current / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+      Math.round(pursuitVel / 4),
+    ].join('|');
+    if (plateauSignature === pursuitPlateauSignature) {
+      pursuitPlateauFrameCount += 1;
+    } else {
+      pursuitPlateauSignature = plateauSignature;
+      pursuitPlateauFrameCount = 1;
+    }
+    const plateauRecoveryActive =
+      liveAsrFollowMode
+      && keepLivePocketMaintenanceActive
+      && !liveHardHold
+      && pursuitPlateauFrameCount >= ASR_PURSUE_PLATEAU_MIN_FRAMES
+      && Number.isFinite(err)
+      && err > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX;
+    if (plateauRecoveryActive) {
+      const plateauMinStepPx = clamp(err * 0.08, 1, ASR_PURSUE_PLATEAU_MAX_STEP_PX);
+      const plateauMinPxps = clamp(
+        plateauMinStepPx / Math.max(0.016, dt),
+        ASR_PURSUE_PLATEAU_MIN_PXPS,
+        Math.max(ASR_PURSUE_PLATEAU_MIN_PXPS, maxVelForErr),
+      );
+      desiredVel = Math.max(desiredVel, plateauMinPxps);
+    }
     let pursuitVelBefore = pursuitVel;
     const baseAccelCap = maxAccelPxPerSec2 * dt;
     let actuatorBoostActive =
@@ -25979,9 +26042,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const nextSpeakableLineIdx = Number.isFinite(args.nextSpeakableLineIdx as number)
       ? Math.max(0, Math.floor(Number(args.nextSpeakableLineIdx)))
       : state.targetLine;
-    const severeBelowPocketPx = Math.max(
+    const fastBelowPocketPx = Math.max(
       ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX,
-      state.lineHeightPx * ASR_LOW_POCKET_DEADBAND_RECONCILE_SEVERE_LINES,
+      state.lineHeightPx * ASR_LOW_POCKET_DEADBAND_RECONCILE_FAST_LINES,
+    );
+    const slowBelowPocketPx = Math.max(
+      ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX,
+      state.lineHeightPx * ASR_LOW_POCKET_DEADBAND_RECONCILE_SLOW_LINES,
     );
     const sameTargetNotClosing =
       previousHoldReason === 'existing_target_within_deadband' ||
@@ -26051,16 +26118,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let emittedFreezeFarTargetBlockedDiagnostic = false;
     if (evaluateLowPocketDeadband) {
       let blockedReason = '';
+      const satisfiesFastWindow =
+        lowPocketDeadbandObservations >= ASR_LOW_POCKET_DEADBAND_RECONCILE_FAST_MIN_OBSERVATIONS
+        && state.belowPocketPx >= fastBelowPocketPx;
+      const satisfiesSlowWindow =
+        lowPocketDeadbandObservations >= ASR_LOW_POCKET_DEADBAND_RECONCILE_SLOW_MIN_OBSERVATIONS
+        && state.belowPocketPx >= slowBelowPocketPx;
       if (state.terminalClampActive) {
         blockedReason = 'terminal_clamp';
       } else if (!state.localSafeTarget) {
         blockedReason = 'unsafe_target';
       } else if (state.cooldownActive || state.asr4VisualRecoveryRecentlyApplied) {
         blockedReason = 'cooldown_active';
-      } else if (
-        lowPocketDeadbandObservations < ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_OBSERVATIONS &&
-        state.belowPocketPx < severeBelowPocketPx
-      ) {
+      } else if (!(satisfiesFastWindow || satisfiesSlowWindow)) {
         blockedReason = 'awaiting_repeat_observations';
       }
       if (!blockedReason) {
@@ -27651,7 +27721,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       noteNoMatchGap(now, 'explicit_no_match', snippet);
       return;
     }
-    if (isFinal) {
+    if (isFinal && incomingMatch) {
       emitReaderLineMarkerError({
         event: 'speech_final_accepted',
         matchBestIdx: Number.isFinite(Number(incomingMatch.bestIdx))
