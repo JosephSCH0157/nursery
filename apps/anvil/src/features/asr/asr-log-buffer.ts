@@ -85,6 +85,14 @@ type InstallWindow = Window & typeof globalThis & {
   __asrLogBufferInstalled?: boolean;
 };
 
+type AsrLogInstallHost = {
+  __ASR_LOG_BUFFER__?: any;
+  __copyAsrLog?: () => Promise<AsrLogExport> | AsrLogExport;
+  __downloadAsrLog?: () => AsrLogExport | null;
+  __clearAsrLog?: () => void;
+  __getAsrLogSummary?: () => Record<string, unknown>;
+};
+
 type BufferOptions = {
   maxEntries?: number;
   progressEvery?: number;
@@ -780,7 +788,24 @@ export function createAsrLogBuffer(options: BufferOptions = {}) {
 export function installAsrLogBuffer(win: InstallWindow = window as InstallWindow): void {
   if (typeof win === 'undefined') return;
   if (!detectEnabled(win)) return;
-  if (win.__asrLogBufferInstalled) return;
+  const bindHelpers = (host: AsrLogInstallHost, buffer: ReturnType<typeof createAsrLogBuffer>) => {
+    host.__ASR_LOG_BUFFER__ = buffer;
+    host.__copyAsrLog = () => buffer.copy();
+    host.__downloadAsrLog = () => buffer.download();
+    host.__clearAsrLog = () => buffer.clear();
+    host.__getAsrLogSummary = () => buffer.summary();
+  };
+  const globalHost = (typeof globalThis === 'object' && globalThis)
+    ? (globalThis as unknown as AsrLogInstallHost)
+    : null;
+  const existingBuffer = (win.__ASR_LOG_BUFFER__ || globalHost?.__ASR_LOG_BUFFER__) as ReturnType<typeof createAsrLogBuffer> | undefined;
+  if (win.__asrLogBufferInstalled && existingBuffer) {
+    bindHelpers(win, existingBuffer);
+    if (globalHost && globalHost !== (win as unknown as AsrLogInstallHost)) {
+      bindHelpers(globalHost, existingBuffer);
+    }
+    return;
+  }
   win.__asrLogBufferInstalled = true;
 
   const orig = {
@@ -804,9 +829,8 @@ export function installAsrLogBuffer(win: InstallWindow = window as InstallWindow
   console.warn = wrap('warn');
   console.debug = wrap('debug');
 
-  win.__ASR_LOG_BUFFER__ = buffer;
-  win.__copyAsrLog = () => buffer.copy();
-  win.__downloadAsrLog = () => buffer.download();
-  win.__clearAsrLog = () => buffer.clear();
-  win.__getAsrLogSummary = () => buffer.summary();
+  bindHelpers(win, buffer);
+  if (globalHost && globalHost !== (win as unknown as AsrLogInstallHost)) {
+    bindHelpers(globalHost, buffer);
+  }
 }

@@ -18,6 +18,24 @@ let loadInFlight = false;
 let lastLoadTs = 0;
 let sidebarAbort: AbortController | null = null;
 
+function isScriptSyncDebugEnabled(): boolean {
+  try {
+    const w = window as any;
+    if (w.__tpScriptSyncDebug === true) return true;
+    const params = new URLSearchParams(window.location.search || '');
+    if (params.get('script_sync_debug') === '1') return true;
+  } catch {}
+  try {
+    if (window.localStorage?.getItem('tp_script_sync_debug') === '1') return true;
+  } catch {}
+  return false;
+}
+
+function scriptEditorLog(...args: any[]): void {
+  if (!isScriptSyncDebugEnabled()) return;
+  debugLog(...args);
+}
+
 function getSidebarSelect(): HTMLSelectElement | null {
   return document.getElementById(SIDEBAR_ID) as HTMLSelectElement | null;
 }
@@ -51,14 +69,14 @@ function gatherScriptEntries(): ScriptEntry[] {
 
 function syncSelectFromStore(select: HTMLSelectElement | null, role: SelectRole, entries: ScriptEntry[]): void {
   if (!select) {
-    debugLog('[SCRIPT-EDITOR] syncSelectFromStore: missing select', { role });
+    scriptEditorLog('[SCRIPT-EDITOR] syncSelectFromStore: missing select', { role });
     return;
   }
   const previous = select.value;
 
   const finishSync = () => {
     try { select.setAttribute('aria-busy', 'false'); } catch {}
-    debugLog('[SCRIPT-EDITOR] syncSelectFromStore', {
+    scriptEditorLog('[SCRIPT-EDITOR] syncSelectFromStore', {
       role,
       entries: entries.length,
       value: select.value,
@@ -74,7 +92,7 @@ function syncSelectFromStore(select: HTMLSelectElement | null, role: SelectRole,
   };
 
   if (role === 'sidebar' && (previous === OPEN_SETTINGS_COMMAND || previous === OPEN_NURSERY_STORAGE_COMMAND)) {
-    debugLog('[SCRIPT-EDITOR] syncSelectFromStore: sentinel command consumed, reverting', {
+    scriptEditorLog('[SCRIPT-EDITOR] syncSelectFromStore: sentinel command consumed, reverting', {
       role,
       entries: entries.length,
       value: previous,
@@ -177,7 +195,7 @@ function wireSidebarHandlers(): void {
   const select = getSidebarSelect();
   if (!select) return;
   select.addEventListener('change', () => {
-    debugLog('[SCRIPT-EDITOR] sidebar change', { value: select.value });
+    scriptEditorLog('[SCRIPT-EDITOR] sidebar change', { value: select.value });
     const selected =
       (select.selectedOptions && select.selectedOptions[0]) ||
       (select.options.length ? select.options[select.selectedIndex] : null);
@@ -222,7 +240,7 @@ async function handleLoadClick(): Promise<void> {
   loadInFlight = true;
   const w = window as any;
   const id = getActiveScriptId();
-  debugLog('[SCRIPT-EDITOR] Load click', { id });
+  scriptEditorLog('[SCRIPT-EDITOR] Load click', { id });
   if (!id) {
     loadInFlight = false;
     return;
@@ -256,7 +274,7 @@ function installScriptEditor(): void {
   const g = window as any;
   g.__tpInit = g.__tpInit || {};
   if (g.__tpInit.scriptSidebarWired) {
-    try { console.debug('[SCRIPT-EDITOR] already bound'); } catch {}
+    try { if (isScriptSyncDebugEnabled()) console.debug('[SCRIPT-EDITOR] already bound'); } catch {}
     return;
   }
   g.__tpInit.scriptSidebarWired = true;
@@ -269,7 +287,7 @@ function installScriptEditor(): void {
   wireSidebarHandlers();
   wireLoadButton();
 
-  try { console.debug('[SCRIPT-EDITOR] wiring complete'); } catch {}
+  try { if (isScriptSyncDebugEnabled()) console.debug('[SCRIPT-EDITOR] wiring complete'); } catch {}
 }
 
 if (typeof document !== 'undefined') {

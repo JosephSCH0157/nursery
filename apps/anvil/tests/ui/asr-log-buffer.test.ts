@@ -206,4 +206,20 @@ describe('ASR log buffer', () => {
     expect(typeof (window as any).__downloadAsrLog).toBe('function');
     expect(typeof (window as any).__copyAsrLog).toBe('function');
   });
+
+  test('installer backfills helpers when already installed flag is set', () => {
+    (window as any).__TP_DEV = true;
+    installAsrLogBuffer(window as any);
+    const existingBuffer = (window as any).__ASR_LOG_BUFFER__;
+
+    delete (window as any).__downloadAsrLog;
+    delete (window as any).__copyAsrLog;
+    (window as any).__asrLogBufferInstalled = true;
+    (window as any).__ASR_LOG_BUFFER__ = existingBuffer;
+
+    installAsrLogBuffer(window as any);
+
+    expect(typeof (window as any).__downloadAsrLog).toBe('function');
+    expect(typeof (window as any).__copyAsrLog).toBe('function');
+  });
 });

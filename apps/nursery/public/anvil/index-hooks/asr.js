@@ -562,7 +562,22 @@ function createAsrLogBuffer(options = {}) {
 function installAsrLogBuffer(win = window) {
   if (typeof win === "undefined") return;
   if (!detectEnabled(win)) return;
-  if (win.__asrLogBufferInstalled) return;
+  const bindHelpers = (host, buffer2) => {
+    host.__ASR_LOG_BUFFER__ = buffer2;
+    host.__copyAsrLog = () => buffer2.copy();
+    host.__downloadAsrLog = () => buffer2.download();
+    host.__clearAsrLog = () => buffer2.clear();
+    host.__getAsrLogSummary = () => buffer2.summary();
+  };
+  const globalHost = typeof globalThis === "object" && globalThis ? globalThis : null;
+  const existingBuffer = win.__ASR_LOG_BUFFER__ || globalHost?.__ASR_LOG_BUFFER__;
+  if (win.__asrLogBufferInstalled && existingBuffer) {
+    bindHelpers(win, existingBuffer);
+    if (globalHost && globalHost !== win) {
+      bindHelpers(globalHost, existingBuffer);
+    }
+    return;
+  }
   win.__asrLogBufferInstalled = true;
   const orig = {
     log: console.log.bind(console),
@@ -581,11 +596,10 @@ function installAsrLogBuffer(win = window) {
   console.info = wrap("info");
   console.warn = wrap("warn");
   console.debug = wrap("debug");
-  win.__ASR_LOG_BUFFER__ = buffer;
-  win.__copyAsrLog = () => buffer.copy();
-  win.__downloadAsrLog = () => buffer.download();
-  win.__clearAsrLog = () => buffer.clear();
-  win.__getAsrLogSummary = () => buffer.summary();
+  bindHelpers(win, buffer);
+  if (globalHost && globalHost !== win) {
+    bindHelpers(globalHost, buffer);
+  }
 }
 
 // src/features/asr/asr-diagnostics.ts
