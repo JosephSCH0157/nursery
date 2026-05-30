@@ -14,6 +14,10 @@ var TRACKED_SUMMARY_FAMILIES = /* @__PURE__ */ new Set([
   "ASR_VISUAL_FOLLOW_*"
 ]);
 function detectEnabled(win) {
+  const host = win;
+  if (host.__TP_DEV === true || host.__TP_DEV1 === true || host.__tpDevMode === true || host.__ASR_DIAGNOSTIC_PROOF__ || host.__ASR_INIT_IMPL__ || host.__asrLogBufferInstalled === true) {
+    return true;
+  }
   try {
     const params = new URLSearchParams(win.location.search || "");
     if (params.get("dev") === "1") return true;
