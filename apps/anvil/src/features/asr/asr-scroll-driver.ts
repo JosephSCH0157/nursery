@@ -8974,6 +8974,66 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return resolveLineVisualTelemetry(scroller, lineIndex).band;
   };
 
+  const emitReaderLineMarkerError = (args: {
+    event: 'speech_final_accepted' | 'commit_accepted';
+    matchBestIdx?: number | null;
+    matchBestSim?: number | null;
+    reason?: string;
+    source?: string;
+    correctionRequested?: boolean;
+  }): void => {
+    const scroller = getScroller();
+    if (!scroller) return;
+    const currentLineIdx = Math.max(0, Number.isFinite(lastLineIndex) ? Math.floor(lastLineIndex) : 0);
+    const committedLineIdx =
+      lastCommitIndex != null && Number.isFinite(lastCommitIndex)
+        ? Math.max(0, Math.floor(lastCommitIndex))
+        : currentLineIdx;
+    const matchBestIdx =
+      Number.isFinite(args.matchBestIdx as number)
+        ? Math.max(0, Math.floor(Number(args.matchBestIdx)))
+        : (Number.isFinite(lastAuthorityMatchBestIdx)
+            ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx)))
+            : currentLineIdx);
+    const matchBestSim =
+      Number.isFinite(args.matchBestSim as number)
+        ? Number(args.matchBestSim)
+        : (Number.isFinite(lastAuthorityMatchBestSim) ? Number(lastAuthorityMatchBestSim) : Number.NaN);
+    const telemetry = resolveLineVisualTelemetry(scroller, matchBestIdx);
+    const markerY = Number.isFinite(telemetry.markerYInViewport)
+      ? Number(telemetry.markerYInViewport)
+      : Number.NaN;
+    const matchedLineViewportY = Number.isFinite(telemetry.lineCenterInViewport)
+      ? Number(telemetry.lineCenterInViewport)
+      : Number.NaN;
+    const markerErrorPx =
+      Number.isFinite(matchedLineViewportY) && Number.isFinite(markerY)
+        ? matchedLineViewportY - markerY
+        : Number.NaN;
+    const lineEl = getLineElementByIndex(scroller, matchBestIdx);
+    const lineHeightPx = lineEl ? clamp(resolveMotionLineHeightPx(lineEl), 12, 320) : Number.NaN;
+    const correctionRequested =
+      typeof args.correctionRequested === 'boolean'
+        ? args.correctionRequested
+        : (Number.isFinite(markerErrorPx) && Number.isFinite(lineHeightPx)
+            ? Math.abs(markerErrorPx) > lineHeightPx
+            : false);
+    const scrollTop = Number(scroller.scrollTop || 0);
+    const targetScrollTop = Number.isFinite(pursuitTargetTop as number)
+      ? Number(pursuitTargetTop)
+      : Number.NaN;
+    const markerYOut = Number.isFinite(markerY) ? Math.round(markerY) : -1;
+    const matchedLineViewportYOut = Number.isFinite(matchedLineViewportY) ? Math.round(matchedLineViewportY) : -1;
+    const markerErrorPxOut = Number.isFinite(markerErrorPx) ? Math.round(markerErrorPx) : -1;
+    const targetScrollTopOut = Number.isFinite(targetScrollTop) ? Math.round(targetScrollTop) : -1;
+    const matchBestSimOut = Number.isFinite(matchBestSim) ? matchBestSim.toFixed(3) : 'NaN';
+    try {
+      console.warn(
+        `[ASR_READER_LINE_MARKER_ERROR] event=${args.event} matchBestIdx=${matchBestIdx} matchBestSim=${matchBestSimOut} committedLineIdx=${committedLineIdx} currentLineIdx=${currentLineIdx} markerY=${markerYOut} matchedLineViewportY=${matchedLineViewportYOut} markerErrorPx=${markerErrorPxOut} scrollTop=${Math.round(scrollTop)} targetScrollTop=${targetScrollTopOut} reason=${args.reason || 'none'} source=${args.source || 'unknown'} correctionRequested=${correctionRequested ? 1 : 0}`,
+      );
+    } catch {}
+  };
+
   const buildEarlyBridgeTrapKey = (
     current: number,
     requestedTarget: number,
@@ -10645,6 +10705,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       console.warn(
         `[ASR_LIVE_FINAL_COMMIT] current=${current} target=${reducedTarget} semanticTarget=${semanticTargetRaw} visualTarget=${visualTarget} authority=${args.authority || 'unknown'} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} eligibleAtMs=${eligibleAtMs} committedAtMs=${commitTs} waitAfterEligibilityMs=${waitAfterEligibilityMs} thresholdMs=${thresholdMs} bypassedBlockers=${args.bypassedBlockers || 'none'} finalAuthority=1 hardContradiction=0 reason=${args.reason}`,
       );
+      emitReaderLineMarkerError({
+        event: 'commit_accepted',
+        matchBestIdx: Number.isFinite(lastAuthorityMatchBestIdx) ? lastAuthorityMatchBestIdx : requestedTarget,
+        matchBestSim: Number.isFinite(lastAuthorityMatchBestSim) ? lastAuthorityMatchBestSim : Number.NaN,
+        reason: args.reason,
+        source: args.sourceBranch || args.proofSource || 'unknown',
+      });
       if (lateDiscovered) {
         console.warn(
           `[ASR_LIVE_ELIGIBILITY_LATE_DISCOVERED] current=${current} target=${reducedTarget} stallMs=${actualDelayMs} reason=${args.reason} sourceBranch=${args.sourceBranch || 'unknown'}`,
@@ -27583,6 +27650,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       emitHudStatus('no_match', 'No match');
       noteNoMatchGap(now, 'explicit_no_match', snippet);
       return;
+    }
+    if (isFinal) {
+      emitReaderLineMarkerError({
+        event: 'speech_final_accepted',
+        matchBestIdx: Number.isFinite(Number(incomingMatch.bestIdx))
+          ? Math.max(0, Math.floor(Number(incomingMatch.bestIdx)))
+          : null,
+        matchBestSim: Number.isFinite(Number(incomingMatch.bestSim))
+          ? Number(incomingMatch.bestSim)
+          : null,
+        reason: 'speech_final_accepted',
+        source: transcriptSource || 'unknown',
+      });
     }
     const matchId = rawMatchId as string;
     lastMatchId = matchId;
