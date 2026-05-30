@@ -5352,6 +5352,37 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let postAdjacentCommitVisualRecoverySnapSuppressed = false;
   let postAdjacentCommitVisualRecoveryMovedPx = 0;
   let postAdjacentCommitVisualRecoveryLastBlockedReason = '';
+  const emitAdjacentPromotionTrace = (input: {
+    stage: string;
+    decision: string;
+    currentLineIdx: number;
+    candidateLineIdx: number;
+    confidence?: number;
+    isAdjacent?: boolean;
+    proofOwned?: boolean;
+    starvationState?: string;
+    sustainedReadState?: string;
+    pendingBridgeState?: string;
+    contradictionState?: string;
+    stalePrefixState?: string;
+    sourceBranch?: string;
+    proofSource?: string;
+    forceReason?: string;
+    matchId?: string;
+  }): void => {
+    try {
+      const delta = Math.max(0, input.candidateLineIdx - input.currentLineIdx);
+      const confidence = typeof input.confidence === 'number'
+        ? input.confidence
+        : Number.NaN;
+      const message = `[ASR_ADJ_PROMOTION_TRACE] stage=${input.stage} decision=${input.decision} currentLineIdx=${input.currentLineIdx} candidateLineIdx=${input.candidateLineIdx} delta=${delta} confidence=${formatLogScore(confidence)} isAdjacent=${input.isAdjacent === true ? 1 : 0} proofOwned=${input.proofOwned === true ? 1 : 0} starvationState=${input.starvationState || 'n/a'} sustainedReadState=${input.sustainedReadState || 'n/a'} pendingBridgeState=${input.pendingBridgeState || 'none'} contradictionState=${input.contradictionState || 'none'} stalePrefixState=${input.stalePrefixState || 'none'} sourceBranch=${input.sourceBranch || 'unknown'} proofSource=${input.proofSource || 'none'} forceReason=${input.forceReason || 'none'} matchId=${input.matchId || 'none'}`;
+      console.info(message);
+      const runtimeProcess = (globalThis as any)?.process;
+      if (runtimeProcess?.stderr?.write) {
+        runtimeProcess.stderr.write(`${message}\n`);
+      }
+    } catch {}
+  };
   const clearRecoveryLandingHold = (
     reason: string,
     now: number,
@@ -19277,6 +19308,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         reason: string,
         extraParts: string[] = [],
       ) => {
+        emitAdjacentPromotionTrace({
+          stage: 'starvation_reconcile_skip',
+          decision: reason,
+          currentLineIdx: lastLineIndex,
+          candidateLineIdx: starvationFutureSpeechReconcileCandidateIdx,
+          confidence: starvationFutureSpeechReconcileCandidateSim,
+          isAdjacent: starvationFutureSpeechReconcileCandidateIdx === lastLineIndex + 1,
+          proofOwned: true,
+          starvationState: `stallMs=${starvationFutureSpeechReconcileMs};noCommitMs=${starvationFutureSpeechReconcileNoCommitMs}`,
+          sustainedReadState: 'n/a',
+          pendingBridgeState: pendingSpeakableBridgeState ? 'pending' : 'none',
+          contradictionState: reason === 'backward_contradiction' ? 'backward' : 'none',
+          stalePrefixState: liveSpeechForwardPushStalePrefixIgnored ? 'ignored' : 'none',
+          sourceBranch: 'starvation_future_speech_reconcile',
+          proofSource: 'pending_evaluation',
+          forceReason,
+          matchId,
+        });
         warnGuard('starvation_future_speech_reconcile_skip', [
           `current=${lastLineIndex}`,
           `bestIdx=${starvationFutureSpeechReconcileCandidateIdx}`,
@@ -19630,6 +19679,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           now,
         });
         if (governorDecision.hold) {
+          emitAdjacentPromotionTrace({
+            stage: 'starvation_reconcile_return',
+            decision: `forward_governor_hold:${governorDecision.reason || 'forward_governor_hold'}`,
+            currentLineIdx: lastLineIndex,
+            candidateLineIdx: starvationFutureSpeechReconcileAppliedTarget,
+            confidence: conf,
+            isAdjacent: starvationFutureSpeechReconcileAppliedTarget === lastLineIndex + 1,
+            proofOwned: true,
+            starvationState: `stallMs=${starvationFutureSpeechReconcileTarget.starvationMs}`,
+            sustainedReadState: 'n/a',
+            pendingBridgeState: pendingSpeakableBridgeState ? 'pending' : 'none',
+            contradictionState: 'none',
+            stalePrefixState: liveSpeechForwardPushStalePrefixIgnored ? 'ignored' : 'none',
+            sourceBranch: 'starvation_future_speech_reconcile',
+            proofSource: starvationFutureSpeechReconcileTarget.proofSource,
+            forceReason,
+            matchId,
+          });
           try {
             console.warn(
               `[ASR_FORWARD_GOVERNOR_HELD] current=${lastLineIndex} target=${starvationFutureSpeechReconcileAppliedTarget} bestIdx=${line} bestSim=${formatLogScore(conf)} speakableLead=${governorDecision.speakableLead} renderedLead=${governorDecision.renderedLead} maxComfortLeadSpeakable=${ASR_FORWARD_GOVERNOR_MAX_COMFORT_LEAD_SPEAKABLE} maxHardLeadSpeakable=${ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE} reason=${governorDecision.reason || 'forward_governor_hold'} proofSource=${starvationFutureSpeechReconcileTarget.proofSource || 'none'}`,
@@ -19660,6 +19727,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           proofSource: starvationFutureSpeechReconcileTarget.proofSource,
           starvationMs: starvationFutureSpeechReconcileTarget.starvationMs,
           provenSpeakablePath: true,
+        });
+        emitAdjacentPromotionTrace({
+          stage: 'starvation_reconcile_admitted',
+          decision: 'adopt_pending_match',
+          currentLineIdx: lastLineIndex,
+          candidateLineIdx: starvationFutureSpeechReconcileAppliedTarget,
+          confidence: Math.max(conf, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM),
+          isAdjacent: starvationFutureSpeechReconcileAppliedTarget === lastLineIndex + 1,
+          proofOwned: true,
+          starvationState: `stallMs=${starvationFutureSpeechReconcileTarget.starvationMs}`,
+          sustainedReadState: 'n/a',
+          pendingBridgeState: pendingSpeakableBridgeState ? 'pending' : 'none',
+          contradictionState: 'none',
+          stalePrefixState: liveSpeechForwardPushStalePrefixIgnored ? 'ignored' : 'none',
+          sourceBranch: 'starvation_future_speech_reconcile',
+          proofSource: starvationFutureSpeechReconcileTarget.proofSource,
+          forceReason: 'starvation_future_speech_reconcile',
+          matchId,
         });
         schedulePending();
         return;
@@ -19775,6 +19860,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           now,
         });
         if (governorDecision.hold) {
+          emitAdjacentPromotionTrace({
+            stage: 'proof_owned_return',
+            decision: `forward_governor_hold:${governorDecision.reason || 'forward_governor_hold'}`,
+            currentLineIdx: lastLineIndex,
+            candidateLineIdx: liveSpeechForwardPushTarget,
+            confidence: conf,
+            isAdjacent: liveSpeechForwardPushTarget === lastLineIndex + 1,
+            proofOwned: true,
+            starvationState: `stallMs=${liveSpeechForwardPushStallMs}`,
+            sustainedReadState: 'n/a',
+            pendingBridgeState: pendingSpeakableBridgeState ? 'pending' : 'none',
+            contradictionState: liveSpeechForwardPushBackwardContradictionOverriddenByTail ? 'tail_overridden' : (liveSpeechForwardPushContradictionBlocks ? 'blocked' : 'none'),
+            stalePrefixState: liveSpeechForwardPushStalePrefixIgnored ? 'ignored' : 'none',
+            sourceBranch: 'pending-proof-owned-pre-hold',
+            proofSource: liveSpeechForwardPushProofSource,
+            forceReason,
+            matchId,
+          });
           try {
             console.warn(
               `[ASR_FORWARD_GOVERNOR_HELD] current=${lastLineIndex} target=${liveSpeechForwardPushTarget} bestIdx=${line} bestSim=${formatLogScore(conf)} speakableLead=${governorDecision.speakableLead} renderedLead=${governorDecision.renderedLead} maxComfortLeadSpeakable=${ASR_FORWARD_GOVERNOR_MAX_COMFORT_LEAD_SPEAKABLE} maxHardLeadSpeakable=${ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE} reason=${governorDecision.reason || 'forward_governor_hold'} proofSource=${liveSpeechForwardPushProofSource || 'none'}`,
@@ -19846,6 +19949,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           searchWindowTo: liveSpeechForwardPushTarget,
           cueBridgeNudgeDelta: Math.max(1, liveSpeechForwardPushTarget - lastLineIndex),
           liveForwardGuardActive: undefined,
+        });
+        emitAdjacentPromotionTrace({
+          stage: 'proof_owned_admitted',
+          decision: 'adopt_pending_match',
+          currentLineIdx: lastLineIndex,
+          candidateLineIdx: liveSpeechForwardPushTarget,
+          confidence: proofOwnedCommitSim,
+          isAdjacent: liveSpeechForwardPushTarget === lastLineIndex + 1,
+          proofOwned: true,
+          starvationState: `stallMs=${liveSpeechForwardPushStallMs}`,
+          sustainedReadState: 'n/a',
+          pendingBridgeState: pendingSpeakableBridgeState ? 'pending' : 'none',
+          contradictionState: liveSpeechForwardPushBackwardContradictionOverriddenByTail ? 'tail_overridden' : (liveSpeechForwardPushContradictionBlocks ? 'blocked' : 'none'),
+          stalePrefixState: liveSpeechForwardPushStalePrefixIgnored ? 'ignored' : 'none',
+          sourceBranch: 'pending-proof-owned-pre-hold',
+          proofSource: liveSpeechForwardPushProofSource,
+          forceReason: 'live_strict_proof_owned_commit',
+          matchId: proofOwnedMatchId,
         });
         schedulePending();
         return;
@@ -22287,9 +22408,53 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           count + (repeatedHoldReasons.has(String(entry?.reason || '')) ? 1 : 0), 0);
         const sustainedThresholdMs = repeatedHoldCount > 2 ? 600 : 900;
         if (!liveStrictFollow || !sustainedSpeech || !proofAuthority || stallMs < sustainedThresholdMs) {
+          emitAdjacentPromotionTrace({
+            stage: 'sustained_read_return',
+            decision: !liveStrictFollow
+              ? 'not_live_strict_follow'
+              : (!sustainedSpeech
+                ? 'no_sustained_speech'
+                : (!proofAuthority
+                  ? 'no_proof_authority'
+                  : 'stall_below_threshold')),
+            currentLineIdx: lastLineIndex,
+            candidateLineIdx: bridgeCandidate,
+            confidence: conf,
+            isAdjacent: bridgeCandidate === lastLineIndex + 1,
+            proofOwned: proofAuthority,
+            starvationState: `stallMs=${stallMs}`,
+            sustainedReadState: `thresholdMs=${sustainedThresholdMs};hold=${args.sourceHoldReason}`,
+            pendingBridgeState: pendingSpeakableBridgeState ? 'pending' : 'none',
+            contradictionState: contradictionActiveEffective ? contradictionKind : 'none',
+            stalePrefixState: args.stalePrefixIgnored ? 'ignored' : 'none',
+            sourceBranch: args.sourceBranch,
+            proofSource: args.proofSource,
+            forceReason,
+            matchId,
+          });
           return { applied: false, target: bridgeCandidate };
         }
         if (!transcriptGrowing || contradictionActiveEffective || !safeAdjacent) {
+          emitAdjacentPromotionTrace({
+            stage: 'sustained_read_return',
+            decision: !transcriptGrowing
+              ? 'transcript_not_growing'
+              : (contradictionActiveEffective ? 'contradiction_active' : 'no_safe_adjacent'),
+            currentLineIdx: lastLineIndex,
+            candidateLineIdx: bridgeCandidate,
+            confidence: conf,
+            isAdjacent: bridgeCandidate === lastLineIndex + 1,
+            proofOwned: proofAuthority,
+            starvationState: `stallMs=${stallMs}`,
+            sustainedReadState: `thresholdMs=${sustainedThresholdMs};hold=${args.sourceHoldReason}`,
+            pendingBridgeState: pendingSpeakableBridgeState ? 'pending' : 'none',
+            contradictionState: contradictionActiveEffective ? contradictionKind : 'none',
+            stalePrefixState: args.stalePrefixIgnored ? 'ignored' : 'none',
+            sourceBranch: args.sourceBranch,
+            proofSource: args.proofSource,
+            forceReason,
+            matchId,
+          });
           try {
             const blockedReason = !transcriptGrowing
               ? 'transcript_not_growing'
@@ -22319,6 +22484,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           safeAdjacent,
         });
         if (bridgeTrapEscapeDecision.shouldAllow) {
+          emitAdjacentPromotionTrace({
+            stage: 'sustained_read_admitted',
+            decision: bridgeTrapEscapeDecision.reason || 'bridge_trap_escape',
+            currentLineIdx: lastLineIndex,
+            candidateLineIdx: bridgeCandidate,
+            confidence: conf,
+            isAdjacent: bridgeCandidate === lastLineIndex + 1,
+            proofOwned: proofAuthority,
+            starvationState: `stallMs=${stallMs}`,
+            sustainedReadState: `thresholdMs=${sustainedThresholdMs};hold=${args.sourceHoldReason}`,
+            pendingBridgeState: pendingSpeakableBridgeState ? 'pending' : 'none',
+            contradictionState: contradictionActiveEffective ? contradictionKind : 'none',
+            stalePrefixState: args.stalePrefixIgnored ? 'ignored' : 'none',
+            sourceBranch: args.sourceBranch,
+            proofSource: args.proofSource,
+            forceReason,
+            matchId,
+          });
           try {
             console.warn(
               buildAsrBridgeTrapDetectedDiagnostic({
@@ -22337,6 +22520,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           return { applied: true, target: bridgeCandidate, reason: bridgeTrapEscapeDecision.reason || 'bridge_trap_escape' };
         }
         if (args.requestedTarget > lastLineIndex + 1 || bridgeCandidate > lastLineIndex + 1) {
+          emitAdjacentPromotionTrace({
+            stage: 'sustained_read_return',
+            decision: 'staged_bridge_requires_adjacent_progress',
+            currentLineIdx: lastLineIndex,
+            candidateLineIdx: bridgeCandidate,
+            confidence: conf,
+            isAdjacent: bridgeCandidate === lastLineIndex + 1,
+            proofOwned: proofAuthority,
+            starvationState: `stallMs=${stallMs}`,
+            sustainedReadState: `thresholdMs=${sustainedThresholdMs};hold=${args.sourceHoldReason}`,
+            pendingBridgeState: pendingSpeakableBridgeState ? 'pending' : 'none',
+            contradictionState: contradictionActiveEffective ? contradictionKind : 'none',
+            stalePrefixState: args.stalePrefixIgnored ? 'ignored' : 'none',
+            sourceBranch: args.sourceBranch,
+            proofSource: args.proofSource,
+            forceReason,
+            matchId,
+          });
           try {
             console.warn(
               `[ASR_SUSTAINED_READ_BRIDGE_COMMIT_BLOCKED] current=${lastLineIndex} requestedTarget=${args.requestedTarget} bridgeCandidate=${bridgeCandidate} sourceBranch=${args.sourceBranch || 'unknown'} proofSource=${args.proofSource || 'none'} renderedDelta=${Math.max(0, args.requestedTarget - lastLineIndex)} reason=staged_bridge_requires_adjacent_progress`,
@@ -22345,6 +22546,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           return { applied: false, target: bridgeCandidate };
         }
         try {
+          emitAdjacentPromotionTrace({
+            stage: 'sustained_read_admitted',
+            decision: 'sustained_read_adjacent_step',
+            currentLineIdx: lastLineIndex,
+            candidateLineIdx: bridgeCandidate,
+            confidence: conf,
+            isAdjacent: bridgeCandidate === lastLineIndex + 1,
+            proofOwned: proofAuthority,
+            starvationState: `stallMs=${stallMs}`,
+            sustainedReadState: `thresholdMs=${sustainedThresholdMs};hold=${args.sourceHoldReason}`,
+            pendingBridgeState: pendingSpeakableBridgeState ? 'pending' : 'none',
+            contradictionState: contradictionActiveEffective ? contradictionKind : 'none',
+            stalePrefixState: args.stalePrefixIgnored ? 'ignored' : 'none',
+            sourceBranch: args.sourceBranch,
+            proofSource: args.proofSource,
+            forceReason,
+            matchId,
+          });
           console.warn(`[ASR_SUSTAINED_READ_STEP] current=${lastLineIndex} target=${bridgeCandidate} originalRequestedTarget=${args.requestedTarget} sourceHoldReason=${args.sourceHoldReason} stallMs=${Math.round(stallMs)} speechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} transcriptGrowing=1 tailProofUsed=${args.tailProofUsed ? 1 : 0} authority=${args.authority} sourceBranch=${args.sourceBranch || 'unknown'} proofSource=${args.proofSource || 'none'} reducedToAdjacent=${args.requestedTarget > bridgeCandidate ? 1 : 0} bridgeSafe=1 skippedIgnorableLines=[${skippedIgnorableLines.join(',')}] reason=sustained_read_adjacent_step neighborhoodEvidence=${args.neighborhoodEvidence ? 1 : 0} thresholdMs=${sustainedThresholdMs} actualDelayMs=${Math.round(stallMs)}`);
           alignmentEpisodes.noteStallDelay(stallMs, String(args.sourceHoldReason || 'sustained_read_adjacent_step'));
         } catch {}
@@ -22447,6 +22666,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           alreadyUsedInEpisode: adjacentRecoveryCatchupUsedInEpisode,
         });
         if (!catchupDecision.allow) {
+          emitAdjacentPromotionTrace({
+            stage: 'adjacent_recovery_return',
+            decision: catchupDecision.reason || 'adjacent_recovery_blocked',
+            currentLineIdx: lastLineIndex,
+            candidateLineIdx: commitTarget,
+            confidence: conf,
+            isAdjacent: commitTarget === lastLineIndex + 1,
+            proofOwned: movementAuthority === 'proof' || movementAuthority === 'reconcile',
+            starvationState: `stallMs=${Math.max(0, now - lastCommitTime)}`,
+            sustainedReadState: `hold=${args.sourceHoldReason}`,
+            pendingBridgeState: pendingSpeakableBridgeState ? 'pending' : 'none',
+            contradictionState: hardContradiction ? 'hard' : 'none',
+            stalePrefixState: liveSpeechForwardPushStalePrefixIgnored ? 'ignored' : 'none',
+            sourceBranch: pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown',
+            proofSource: pendingProofSource || movementAuthorityProofSource || 'none',
+            forceReason,
+            matchId,
+          });
           try {
             console.warn(
               buildAsrAdjacentRecoveryCatchupBlockedDiagnostic({
@@ -22471,6 +22708,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           return { applied: false, target: commitTarget };
         }
         adjacentRecoveryCatchupUsedInEpisode = true;
+        emitAdjacentPromotionTrace({
+          stage: 'adjacent_recovery_admitted',
+          decision: 'bounded_adjacent_recovery_catchup',
+          currentLineIdx: lastLineIndex,
+          candidateLineIdx: commitTarget,
+          confidence: conf,
+          isAdjacent: commitTarget === lastLineIndex + 1,
+          proofOwned: movementAuthority === 'proof' || movementAuthority === 'reconcile',
+          starvationState: `stallMs=${Math.max(0, now - lastCommitTime)}`,
+          sustainedReadState: `hold=${args.sourceHoldReason}`,
+          pendingBridgeState: pendingSpeakableBridgeState ? 'pending' : 'none',
+          contradictionState: hardContradiction ? 'hard' : 'none',
+          stalePrefixState: liveSpeechForwardPushStalePrefixIgnored ? 'ignored' : 'none',
+          sourceBranch: pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown',
+          proofSource: pendingProofSource || movementAuthorityProofSource || 'none',
+          forceReason,
+          matchId,
+        });
         try {
           console.warn(
             buildAsrAdjacentRecoveryCatchupAllowedDiagnostic({
@@ -22571,6 +22826,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           recoveryLandingHoldToLine >= 0 ? `holdTo=${recoveryLandingHoldToLine}` : '',
           recoveryLandingHoldArmedAt > 0 ? `holdAgeMs=${Math.max(0, now - recoveryLandingHoldArmedAt)}` : '',
         ]);
+        emitAdjacentPromotionTrace({
+          stage: 'recovery_chain_return',
+          decision: 'recovery_chain_blocked',
+          currentLineIdx: lastLineIndex,
+          candidateLineIdx: targetLine,
+          confidence: conf,
+          isAdjacent: targetLine === lastLineIndex + 1,
+          proofOwned: movementAuthority === 'proof' || movementAuthority === 'reconcile',
+          starvationState: `stallMs=${Math.max(0, now - lastCommitTime)}`,
+          sustainedReadState: 'hold=recovery_chain_blocked',
+          pendingBridgeState: recoveryLandingHoldSource || (pendingSpeakableBridgeState ? 'pending' : 'none'),
+          contradictionState: strictBackwardContradictionForCommit ? 'backward' : 'none',
+          stalePrefixState: liveSpeechForwardPushStalePrefixIgnored ? 'ignored' : 'none',
+          sourceBranch: pendingSourceBranch || movementAuthoritySourceBranch || forceReason || 'unknown',
+          proofSource: pendingProofSource || movementAuthorityProofSource || 'none',
+          forceReason,
+          matchId,
+        });
         return;
         }
         }
@@ -24010,6 +24283,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             forceReason ? `forceReason=${forceReason}` : '',
             snippet ? `clue="${snippet}"` : '',
           ]);
+          emitAdjacentPromotionTrace({
+            stage: 'adjacent_admission_return',
+            decision: 'no_direct_adjacent_match',
+            currentLineIdx: lastLineIndex,
+            candidateLineIdx: targetLine,
+            confidence: Number.isFinite(directAdjacentSim) ? directAdjacentSim : conf,
+            isAdjacent: targetLine === lastLineIndex + 1,
+            proofOwned: directAdjacentAnyBypassEligible || movementAuthority === 'proof' || movementAuthority === 'reconcile',
+            starvationState: `stallMs=${Math.max(0, now - lastForwardCommitAt)}`,
+            sustainedReadState: 'hold=asr_live_no_adjacent_match_hold',
+            pendingBridgeState: pendingSpeakableBridgeState ? 'pending' : 'none',
+            contradictionState: strictBackwardContradictionForCommit ? 'backward' : 'none',
+            stalePrefixState:
+              (!!directAdjacentTailProgressionProof?.stalePrefixIgnored || !!liveSpeechForwardPushStalePrefixIgnored)
+                ? 'ignored'
+                : 'none',
+            sourceBranch: movementAuthoritySourceBranch || 'unknown',
+            proofSource: movementAuthorityProofSource || 'none',
+            forceReason,
+            matchId,
+          });
           emitHudStatus('asr_live_no_adjacent_match_hold', 'Hold: waiting for direct adjacent ASR match');
           emitSafeTargetHeld({
             current: lastLineIndex,
@@ -24172,6 +24466,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           transcriptRunGeneration: pendingRunGeneration,
         });
         if (!commitFreshness.allow) {
+          emitAdjacentPromotionTrace({
+            stage: 'terminal_return',
+            decision: `commit_freshness_blocked:${commitFreshness.reason}`,
+            currentLineIdx: prevLineIndex,
+            candidateLineIdx: targetLine,
+            confidence: conf,
+            isAdjacent: targetLine === prevLineIndex + 1,
+            proofOwned: movementAuthority === 'proof' || movementAuthority === 'reconcile',
+            starvationState: `stallMs=${Math.max(0, now - lastForwardCommitAt)}`,
+            sustainedReadState: forceReason || 'n/a',
+            pendingBridgeState: pendingSpeakableBridgeState ? 'pending' : 'none',
+            contradictionState: strictBackwardContradictionForCommit ? 'backward' : 'none',
+            stalePrefixState: liveSpeechForwardPushStalePrefixIgnored ? 'ignored' : 'none',
+            sourceBranch: pendingSourceBranch || movementAuthoritySourceBranch || 'unknown',
+            proofSource: pendingProofSource || movementAuthorityProofSource || 'none',
+            forceReason,
+            matchId,
+          });
           clearPendingSpeakableBridge('commit_freshness_blocked', [
             `reason=${commitFreshness.reason}`,
             `target=${targetLine}`,
@@ -24197,6 +24509,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         terminalBridgeBlockRecord.until > Date.now() &&
         !pendingBridgeCompletionBypass
       ) {
+        emitAdjacentPromotionTrace({
+          stage: 'terminal_return',
+          decision: 'bridge_final_commit_aborted',
+          currentLineIdx: prevLineIndex,
+          candidateLineIdx: targetLine,
+          confidence: conf,
+          isAdjacent: targetLine === prevLineIndex + 1,
+          proofOwned: movementAuthority === 'proof' || movementAuthority === 'reconcile',
+          starvationState: `stallMs=${Math.max(0, now - lastForwardCommitAt)}`,
+          sustainedReadState: forceReason || 'n/a',
+          pendingBridgeState: pendingBridgeCompletionBypass ? 'completion_bypass' : 'bridge_block_token',
+          contradictionState: strictBackwardContradictionForCommit ? 'backward' : 'none',
+          stalePrefixState: liveSpeechForwardPushStalePrefixIgnored ? 'ignored' : 'none',
+          sourceBranch: movementAuthoritySourceBranch || pendingSourceBranch || 'unknown',
+          proofSource: movementAuthorityProofSource || pendingProofSource || 'none',
+          forceReason,
+          matchId,
+        });
         try {
           console.warn(
             `[ASR_LIVE_BRIDGE_FINAL_COMMIT_ABORTED] current=${prevLineIndex} target=${targetLine} renderedDelta=${terminalRenderedDelta} sourceBranch=${movementAuthoritySourceBranch || pendingSourceBranch || 'unknown'} proofSource=${movementAuthorityProofSource || pendingProofSource || 'none'} blockReason=bridge_block_token runGeneration=${runGenerationForTerminalCommit}`,
@@ -24248,6 +24578,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           } catch {}
         } else {
           deadScreenTerminalCommitSuppressedByVisualGovernor = true;
+          emitAdjacentPromotionTrace({
+            stage: 'terminal_return',
+            decision: 'visual_governor_hard_hold',
+            currentLineIdx: prevLineIndex,
+            candidateLineIdx: targetLine,
+            confidence: conf,
+            isAdjacent: targetLine === prevLineIndex + 1,
+            proofOwned: movementAuthority === 'proof' || movementAuthority === 'reconcile',
+            starvationState: `stallMs=${Math.max(0, now - lastForwardCommitAt)}`,
+            sustainedReadState: forceReason || 'n/a',
+            pendingBridgeState: pendingSpeakableBridgeState ? 'pending' : 'none',
+            contradictionState: strictBackwardContradictionForCommit ? 'backward' : 'none',
+            stalePrefixState: liveSpeechForwardPushStalePrefixIgnored ? 'ignored' : 'none',
+            sourceBranch: movementAuthoritySourceBranch || 'unknown',
+            proofSource: movementAuthorityProofSource || 'none',
+            forceReason,
+            matchId,
+          });
           try {
             console.warn(
               `[ASR_TERMINAL_COMMIT_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${prevLineIndex} target=${targetLine} bestIdx=${Math.max(prevLineIndex, Math.floor(Number(line) || targetLine))} speakableLead=${speakableLead} renderedLead=${renderedLead} proofSource=${movementAuthorityProofSource || 'none'} sourceBranch=${movementAuthoritySourceBranch || 'unknown'} reason=visual_governor_hard_hold`,
