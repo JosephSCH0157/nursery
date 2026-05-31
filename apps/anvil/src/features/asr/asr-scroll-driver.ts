@@ -24470,6 +24470,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           const terminalSourceBranch = pendingSourceBranch || movementAuthoritySourceBranch || '';
           const terminalProofSource = pendingProofSource || movementAuthorityProofSource || '';
           const terminalForceReason = forceReason || '';
+          const terminalCandidateLineIdx = Number.isFinite(line as number)
+            ? Math.max(0, Math.floor(Number(line)))
+            : targetLine;
+          const targetSpeakable = isSpeakableScriptLine(targetLine);
           const responseStale =
             Number.isFinite(commitFreshness.responseAgeMs) &&
             commitFreshness.responseAgeMs > activeAsrControllerProfile.responseFreshMaxAgeMs;
@@ -24495,6 +24499,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               String(terminalSourceBranch).toLowerCase().includes('sustained_read') ||
               String(terminalForceReason).toLowerCase().includes('sustained_read')
             );
+          const directAdjacentGuardFalseByDesign =
+            !directAdjacentGuardEligible &&
+            requestedTargetLine !== targetLine;
+          const directAdjacentGuardStaleExpectation =
+            !directAdjacentGuardEligible &&
+            requestedTargetLine === targetLine &&
+            terminalCandidateLineIdx !== targetLine;
+          const directAdjacentGuardReason = directAdjacentGuardEligible
+            ? 'eligible'
+            : directAdjacentGuardFalseByDesign
+              ? 'target_reduced_before_terminal'
+              : directAdjacentGuardStaleExpectation
+                ? 'candidate_target_mismatch'
+                : terminalCandidateLineIdx < targetLine
+                  ? 'candidate_behind_terminal_target'
+                  : 'candidate_ahead_terminal_target';
           const readerSilenceAdjacentSafeBypass =
             commitFreshness.reason === 'reader_silence_commit_blocked' &&
             terminalDelta === 1 &&
@@ -24511,11 +24531,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           const pendingBridgeStateForTrace = pendingSpeakableBridgeState
             ? `pending:${pendingSpeakableBridgeState.semanticFrom}->${pendingSpeakableBridgeState.semanticTarget}`
             : 'none';
+          const pendingBridgeSourceForTrace = pendingSpeakableBridgeState
+            ? `${pendingSpeakableBridgeState.sourceBranch || 'unknown'}|${pendingSpeakableBridgeState.proofSource || 'none'}`
+            : 'none';
+          const visualCapStateForTrace = bridgeReducedVisualCashInHoldSnapshot
+            ? `active:${bridgeReducedVisualCashInHoldSnapshot.blockerCategory || 'unknown'}:${bridgeReducedVisualCashInHoldSnapshot.reducedTargetIdx}`
+            : 'none';
           try {
             const terminalDecisionReason = readerSilenceAdjacentSafeBypass
               ? 'reader_silence_adjacent_safe_bypassed'
               : commitFreshness.reason;
-            const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${targetLine} delta=${terminalDelta} authority=${movementAuthority || 'none'} sourceBranch=${terminalSourceBranch || 'unknown'} proofSource=${terminalProofSource || 'none'} forceReason=${terminalForceReason || 'none'} asrRuntimeSpeechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0} hasRecentVadSpeech=${hasRecentVadSpeech ? 1 : 0} asrSilenceActive=${asrSilenceActive ? 1 : 0} directAdjacentGuardEligible=${directAdjacentGuardEligible ? 1 : 0} pendingBridgeState=${pendingBridgeStateForTrace} pendingBridgeFarTargetBlocked=${pendingBridgeFarTargetBlocked ? 1 : 0} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} safeAuthority=${terminalSafeAuthority ? 1 : 0} bypassApplied=${readerSilenceAdjacentSafeBypass ? 1 : 0} decisionReason=${terminalDecisionReason}`;
+            const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${targetLine} delta=${terminalDelta} candidateBestLineIdx=${terminalCandidateLineIdx} requestedTargetLineIdx=${requestedTargetLine} authority=${movementAuthority || 'none'} sourceBranch=${terminalSourceBranch || 'unknown'} proofSource=${terminalProofSource || 'none'} forceReason=${terminalForceReason || 'none'} asrRuntimeSpeechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0} hasRecentVadSpeech=${hasRecentVadSpeech ? 1 : 0} asrSilenceActive=${asrSilenceActive ? 1 : 0} directAdjacentGuardEligible=${directAdjacentGuardEligible ? 1 : 0} directAdjacentGuardReason=${directAdjacentGuardReason} guardFalseByDesign=${directAdjacentGuardFalseByDesign ? 1 : 0} guardStaleExpectation=${directAdjacentGuardStaleExpectation ? 1 : 0} pendingBridgeState=${pendingBridgeStateForTrace} pendingBridgeSource=${pendingBridgeSourceForTrace} pendingBridgeFarTargetBlocked=${pendingBridgeFarTargetBlocked ? 1 : 0} visualCapState=${visualCapStateForTrace} targetSpeakable=${targetSpeakable ? 1 : 0} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} safeAuthority=${terminalSafeAuthority ? 1 : 0} bypassApplied=${readerSilenceAdjacentSafeBypass ? 1 : 0} decisionReason=${terminalDecisionReason}`;
             console.info(terminalEligibilityMessage);
             const runtimeProcess = (globalThis as any)?.process;
             if (runtimeProcess?.stderr?.write) {
