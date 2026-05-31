@@ -20677,38 +20677,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
         targetLine = continuityLine;
       }
-      const preAuthorityBridgeIntentProofSource = String(pendingProofSource || '').toLowerCase();
-      const preAuthorityHasStrictLandingProof =
-        strictSpeakableBridgeProofForAdjacent ||
-        preAuthorityBridgeIntentProofSource.includes('strict_speakable_bridge_landing');
-      if (
-        !pendingSpeakableBridgeState &&
-        targetLine > lastLineIndex + 1 &&
-        Number.isFinite(starvationFutureSpeechReconcileTargetLine) &&
-        (starvationFutureSpeechReconcileTargetLine as number) > lastLineIndex + 1 &&
-        preAuthorityHasStrictLandingProof
-      ) {
-        const visualSingleStepTarget = Math.max(lastLineIndex + 1, resolveForwardSpeakableTarget(
-          lastLineIndex,
-          targetLine,
-          DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS,
-        ));
-        const nextRunKey = String(pendingRunKey || summaryRunKey || '').trim();
-        const nextRunGeneration =
-          normalizeRunGeneration(pendingRunGeneration) ?? resolveActiveRunGeneration();
-        pendingSpeakableBridgeState = {
-          semanticFrom: lastLineIndex,
-          semanticTarget: targetLine,
-          visualCurrent: visualSingleStepTarget,
-          visualReducedTarget: visualSingleStepTarget,
-          skippedVisibleRows: Math.max(1, targetLine - visualSingleStepTarget),
-          proofSource: String(pendingProofSource || 'strict_speakable_bridge_landing'),
-          sourceBranch: 'movement_authority_starvation_reconcile_single_step',
-          createdAtMs: now,
-          runKey: nextRunKey,
-          runGeneration: nextRunGeneration,
-        };
-      }
       let pendingSpeakableBridgeCompletion = false;
       let semanticCommitTargetLine: number | null = null;
       let visualPursuitTargetLine: number | null = null;
@@ -24774,9 +24742,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           });
           const preservedByStarvationBridgeReduction =
             commitFreshness.reason === 'reader_silence_commit_blocked' &&
+            pendingSpeakableBridgeCompletion &&
             !!pendingSpeakableBridgeState &&
             pendingSpeakableBridgeState.semanticFrom === prevLineIndex &&
             pendingSpeakableBridgeState.semanticTarget > prevLineIndex + 1 &&
+            pendingSpeakableBridgeState.semanticTarget === terminalSemanticCommitTargetLine &&
+            terminalVisualPursuitTargetLine === freshnessProposedLineIdx &&
+            terminalFreshnessTargetLine === freshnessProposedLineIdx &&
+            String(forceReason || '').toLowerCase().includes('pending_speakable_bridge_complete') &&
+            !isRunIdentityStale({
+              runKey: pendingRunKey || undefined,
+              runGeneration: pendingRunGeneration,
+            }) &&
             String(pendingSpeakableBridgeState.sourceBranch || '').includes('movement_authority_starvation_reconcile_single_step');
           if (!preservedByStarvationBridgeReduction) {
             clearPendingSpeakableBridge('commit_freshness_blocked', [
