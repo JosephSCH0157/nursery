@@ -1050,7 +1050,7 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
-  test('diagnoses why visible bridge pending completion mode does not arm in the failing path', async () => {
+  test('diagnoses why armed pending bridge completion still blocks under reader silence freshness gate', async () => {
     const scroller = document.getElementById('viewer') as HTMLElement;
     const script = document.getElementById('script') as HTMLElement;
     script.innerHTML = `
@@ -1115,8 +1115,8 @@ describe('ASR live commit motion', () => {
           line.includes('ASR_TERMINAL_ELIGIBILITY_TRACE') &&
           line.includes('requestedTargetLineIdx=7')) || '';
 
-    expect(traceLine).toContain('pendingBridgeCompletionMode=0');
-    expect(traceLine).toContain('pendingBridgeState=none');
+    expect(traceLine).toContain('pendingBridgeCompletionMode=1');
+    expect(traceLine).toContain('pendingBridgeState=pending:4->7');
     expect(traceLine).toContain('candidateLineIdx=5');
     expect(traceLine).toContain('requestedTargetLineIdx=7');
     expect(traceLine).toContain('directAdjacentGuardReason=target_reduced_before_terminal');

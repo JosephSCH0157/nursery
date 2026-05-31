@@ -20677,6 +20677,38 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
         targetLine = continuityLine;
       }
+      const preAuthorityBridgeIntentProofSource = String(pendingProofSource || '').toLowerCase();
+      const preAuthorityHasStrictLandingProof =
+        strictSpeakableBridgeProofForAdjacent ||
+        preAuthorityBridgeIntentProofSource.includes('strict_speakable_bridge_landing');
+      if (
+        !pendingSpeakableBridgeState &&
+        targetLine > lastLineIndex + 1 &&
+        Number.isFinite(starvationFutureSpeechReconcileTargetLine) &&
+        (starvationFutureSpeechReconcileTargetLine as number) > lastLineIndex + 1 &&
+        preAuthorityHasStrictLandingProof
+      ) {
+        const visualSingleStepTarget = Math.max(lastLineIndex + 1, resolveForwardSpeakableTarget(
+          lastLineIndex,
+          targetLine,
+          DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS,
+        ));
+        const nextRunKey = String(pendingRunKey || summaryRunKey || '').trim();
+        const nextRunGeneration =
+          normalizeRunGeneration(pendingRunGeneration) ?? resolveActiveRunGeneration();
+        pendingSpeakableBridgeState = {
+          semanticFrom: lastLineIndex,
+          semanticTarget: targetLine,
+          visualCurrent: visualSingleStepTarget,
+          visualReducedTarget: visualSingleStepTarget,
+          skippedVisibleRows: Math.max(1, targetLine - visualSingleStepTarget),
+          proofSource: String(pendingProofSource || 'strict_speakable_bridge_landing'),
+          sourceBranch: 'movement_authority_starvation_reconcile_single_step',
+          createdAtMs: now,
+          runKey: nextRunKey,
+          runGeneration: nextRunGeneration,
+        };
+      }
       let pendingSpeakableBridgeCompletion = false;
       let semanticCommitTargetLine: number | null = null;
       let visualPursuitTargetLine: number | null = null;
@@ -21210,6 +21242,70 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           movementAuthorityReason = 'starvation_reconcile_single_step';
           movementAuthoritySourceBranch = 'movement_authority_starvation_reconcile_single_step';
           bypassDownstreamVeto = false;
+          const bridgeIntentSemanticTarget = Math.max(
+            reconcileTarget,
+            Number.isFinite(movementAuthorityDecision?.target as number)
+              ? Math.max(0, Math.floor(Number(movementAuthorityDecision.target)))
+              : 0,
+            Number.isFinite(line as number)
+              ? Math.max(0, Math.floor(Number(line)))
+              : 0,
+          );
+          const preservePendingBridgeIntent =
+            !pendingSpeakableBridgeCompletion &&
+            bridgeIntentSemanticTarget > singleStepTarget;
+          if (preservePendingBridgeIntent) {
+            const nextRunKey = String(pendingRunKey || summaryRunKey || '').trim();
+            const nextRunGeneration =
+              normalizeRunGeneration(pendingRunGeneration) ?? resolveActiveRunGeneration();
+            if (
+              pendingSpeakableBridgeState &&
+              pendingSpeakableBridgeState.semanticFrom === lastLineIndex
+            ) {
+              pendingSpeakableBridgeState = {
+                ...pendingSpeakableBridgeState,
+                semanticTarget: Math.max(
+                  pendingSpeakableBridgeState.semanticTarget,
+                  bridgeIntentSemanticTarget,
+                ),
+                visualCurrent: singleStepTarget,
+                visualReducedTarget: singleStepTarget,
+                skippedVisibleRows: Math.max(
+                  0,
+                  Math.max(
+                    pendingSpeakableBridgeState.semanticTarget,
+                    bridgeIntentSemanticTarget,
+                  ) - singleStepTarget,
+                ),
+                proofSource: String(
+                  movementAuthorityProofSource ||
+                  pendingSpeakableBridgeState.proofSource ||
+                  pendingProofSource ||
+                  'strict_speakable_bridge_landing',
+                ),
+                sourceBranch: 'movement_authority_starvation_reconcile_single_step',
+                runKey: nextRunKey,
+                runGeneration: nextRunGeneration,
+              };
+            } else if (!pendingSpeakableBridgeState) {
+              pendingSpeakableBridgeState = {
+                semanticFrom: lastLineIndex,
+                semanticTarget: bridgeIntentSemanticTarget,
+                visualCurrent: singleStepTarget,
+                visualReducedTarget: singleStepTarget,
+                skippedVisibleRows: Math.max(1, bridgeIntentSemanticTarget - singleStepTarget),
+                proofSource: String(
+                  movementAuthorityProofSource ||
+                  pendingProofSource ||
+                  'strict_speakable_bridge_landing',
+                ),
+                sourceBranch: 'movement_authority_starvation_reconcile_single_step',
+                createdAtMs: now,
+                runKey: nextRunKey,
+                runGeneration: nextRunGeneration,
+              };
+            }
+          }
         }
       }
       const forcedReconcileLikeCommit =
@@ -24628,11 +24724,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             forceReason,
             matchId,
           });
-          clearPendingSpeakableBridge('commit_freshness_blocked', [
-            `reason=${commitFreshness.reason}`,
-            `target=${freshnessProposedLineIdx}`,
-            `current=${prevLineIndex}`,
-          ]);
+          const preservedByStarvationBridgeReduction =
+            commitFreshness.reason === 'reader_silence_commit_blocked' &&
+            !!pendingSpeakableBridgeState &&
+            pendingSpeakableBridgeState.semanticFrom === prevLineIndex &&
+            pendingSpeakableBridgeState.semanticTarget > prevLineIndex + 1 &&
+            String(pendingSpeakableBridgeState.sourceBranch || '').includes('movement_authority_starvation_reconcile_single_step');
+          if (!preservedByStarvationBridgeReduction) {
+            clearPendingSpeakableBridge('commit_freshness_blocked', [
+              `reason=${commitFreshness.reason}`,
+              `target=${freshnessProposedLineIdx}`,
+              `current=${prevLineIndex}`,
+            ]);
+          }
           return;
           }
         }
