@@ -1050,7 +1050,7 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
-  test('diagnoses why armed pending bridge completion still blocks under reader silence freshness gate', async () => {
+  test('diagnoses why armed pending bridge completion can bypass reader silence with fresh authority', async () => {
     const scroller = document.getElementById('viewer') as HTMLElement;
     const script = document.getElementById('script') as HTMLElement;
     script.innerHTML = `
@@ -1121,8 +1121,11 @@ describe('ASR live commit motion', () => {
     expect(traceLine).toContain('requestedTargetLineIdx=7');
     expect(traceLine).toContain('directAdjacentGuardReason=target_reduced_before_terminal');
     expect(traceLine).toContain('sourceBranch=movement_authority_starvation_reconcile_single_step');
-    expect(traceLine).toContain('decisionReason=reader_silence_commit_blocked');
-    expect(driver.getLastLineIndex()).toBe(4);
+    expect(traceLine).toContain('responseStale=0');
+    expect(traceLine).toContain('audioChunkStale=0');
+    expect(traceLine).toContain('bypassApplied=1');
+    expect(traceLine).toContain('decisionReason=reader_silence_adjacent_safe_bypassed');
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
 
     driver.dispose();
   });

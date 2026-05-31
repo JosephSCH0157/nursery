@@ -24633,19 +24633,50 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 : terminalCandidateLineIdx < freshnessProposedLineIdx
                   ? 'candidate_behind_terminal_target'
                   : 'candidate_ahead_terminal_target';
-          const readerSilenceAdjacentSafeBypass =
+          const pendingBridgeStateCurrentAndValid =
+            !!pendingSpeakableBridgeState &&
+            pendingSpeakableBridgeState.semanticFrom === prevLineIndex &&
+            pendingSpeakableBridgeState.semanticTarget > prevLineIndex + 1 &&
+            pendingSpeakableBridgeState.semanticTarget >= Math.max(
+              prevLineIndex,
+              Math.floor(Number(semanticCommitTargetLine ?? freshnessProposedLineIdx) || freshnessProposedLineIdx),
+            );
+          const runIdentityCurrent = !isRunIdentityStale({
+            runKey: pendingRunKey || undefined,
+            runGeneration: pendingRunGeneration,
+          });
+          const authorityEpochCurrent =
+            pendingTranscriptAuthorityEpoch == null ||
+            !Number.isFinite(pendingTranscriptAuthorityEpoch as number) ||
+            Number(pendingTranscriptAuthorityEpoch) === commitAuthorityEpoch;
+          const responseAuthorityCurrent =
+            authorityEpochCurrent &&
+            !(
+              lastCommitAuthorityInvalidatedAt > 0 &&
+              Number.isFinite(pendingTranscriptReceivedAtMs as number) &&
+              Number(pendingTranscriptReceivedAtMs) <= lastCommitAuthorityInvalidatedAt
+            );
+          const visualCapActiveForPendingBridge =
+            pendingBridgeFarTargetBlocked &&
+            freshnessProposedLineIdx === prevLineIndex + 1 &&
+            Number.isFinite(visualPursuitTargetLine as number) &&
+            Math.floor(Number(visualPursuitTargetLine)) === freshnessProposedLineIdx &&
+            Number.isFinite(freshnessTargetLine as number) &&
+            Math.floor(Number(freshnessTargetLine)) === freshnessProposedLineIdx;
+          const readerSilencePendingBridgeCompletionBypass =
             commitFreshness.reason === 'reader_silence_commit_blocked' &&
+            pendingSpeakableBridgeCompletion &&
             terminalDelta === 1 &&
             freshnessProposedLineIdx === prevLineIndex + 1 &&
-            directAdjacentGuardEligible &&
-            asrRuntimeSpeechRunningActual &&
-            runtimeSpeechFresh &&
-            hasRecentVadSpeech &&
-            asrSilenceActive &&
+            pendingBridgeStateCurrentAndValid &&
+            runIdentityCurrent &&
+            visualCapActiveForPendingBridge &&
             !responseStale &&
             !audioChunkStale &&
-            !pendingBridgeFarTargetBlocked &&
+            responseAuthorityCurrent &&
             terminalSafeAuthority;
+          const readerSilenceBypassApplied =
+            readerSilencePendingBridgeCompletionBypass;
           const pendingBridgeStateForTrace = pendingSpeakableBridgeState
             ? `pending:${pendingSpeakableBridgeState.semanticFrom}->${pendingSpeakableBridgeState.semanticTarget}`
             : 'none';
@@ -24656,7 +24687,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             ? `active:${bridgeReducedVisualCashInHoldSnapshot.blockerCategory || 'unknown'}:${bridgeReducedVisualCashInHoldSnapshot.reducedTargetIdx}`
             : 'none';
           try {
-            const terminalDecisionReason = readerSilenceAdjacentSafeBypass
+            const terminalDecisionReason = readerSilenceBypassApplied
               ? 'reader_silence_adjacent_safe_bypassed'
               : commitFreshness.reason;
             const terminalSemanticCommitTargetLine = pendingSpeakableBridgeCompletion
@@ -24679,14 +24710,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             const freshnessTargetSource = pendingBridgeCompletionMode
               ? 'visual_pursuit_target'
               : 'target_line';
-            const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${freshnessProposedLineIdx} delta=${terminalDelta} candidateBestLineIdx=${terminalCandidateLineIdx} requestedTargetLineIdx=${requestedTargetLine} semanticCommitTargetLine=${terminalSemanticCommitTargetLine} visualPursuitTargetLine=${terminalVisualPursuitTargetLine} freshnessTargetLine=${terminalFreshnessTargetLine} lastLineIndexUpdateSource=${lastLineIndexUpdateSource} scrollTargetSource=${scrollTargetSource} freshnessTargetSource=${freshnessTargetSource} pendingBridgeCompletionMode=${pendingBridgeCompletionMode} authority=${movementAuthority || 'none'} sourceBranch=${terminalSourceBranch || 'unknown'} proofSource=${terminalProofSource || 'none'} forceReason=${terminalForceReason || 'none'} asrRuntimeSpeechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0} hasRecentVadSpeech=${hasRecentVadSpeech ? 1 : 0} asrSilenceActive=${asrSilenceActive ? 1 : 0} directAdjacentGuardEligible=${directAdjacentGuardEligible ? 1 : 0} directAdjacentGuardReason=${directAdjacentGuardReason} guardFalseByDesign=${directAdjacentGuardFalseByDesign ? 1 : 0} guardStaleExpectation=${directAdjacentGuardStaleExpectation ? 1 : 0} pendingBridgeState=${pendingBridgeStateForTrace} pendingBridgeSource=${pendingBridgeSourceForTrace} pendingBridgeFarTargetBlocked=${pendingBridgeFarTargetBlocked ? 1 : 0} visualCapState=${visualCapStateForTrace} targetSpeakable=${targetSpeakable ? 1 : 0} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} safeAuthority=${terminalSafeAuthority ? 1 : 0} bypassApplied=${readerSilenceAdjacentSafeBypass ? 1 : 0} decisionReason=${terminalDecisionReason}`;
+            const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${freshnessProposedLineIdx} delta=${terminalDelta} candidateBestLineIdx=${terminalCandidateLineIdx} requestedTargetLineIdx=${requestedTargetLine} semanticCommitTargetLine=${terminalSemanticCommitTargetLine} visualPursuitTargetLine=${terminalVisualPursuitTargetLine} freshnessTargetLine=${terminalFreshnessTargetLine} lastLineIndexUpdateSource=${lastLineIndexUpdateSource} scrollTargetSource=${scrollTargetSource} freshnessTargetSource=${freshnessTargetSource} pendingBridgeCompletionMode=${pendingBridgeCompletionMode} authority=${movementAuthority || 'none'} sourceBranch=${terminalSourceBranch || 'unknown'} proofSource=${terminalProofSource || 'none'} forceReason=${terminalForceReason || 'none'} asrRuntimeSpeechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0} hasRecentVadSpeech=${hasRecentVadSpeech ? 1 : 0} asrSilenceActive=${asrSilenceActive ? 1 : 0} directAdjacentGuardEligible=${directAdjacentGuardEligible ? 1 : 0} directAdjacentGuardReason=${directAdjacentGuardReason} guardFalseByDesign=${directAdjacentGuardFalseByDesign ? 1 : 0} guardStaleExpectation=${directAdjacentGuardStaleExpectation ? 1 : 0} pendingBridgeState=${pendingBridgeStateForTrace} pendingBridgeSource=${pendingBridgeSourceForTrace} pendingBridgeFarTargetBlocked=${pendingBridgeFarTargetBlocked ? 1 : 0} visualCapState=${visualCapStateForTrace} pendingBridgeStateCurrent=${pendingBridgeStateCurrentAndValid ? 1 : 0} targetSpeakable=${targetSpeakable ? 1 : 0} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} safeAuthority=${terminalSafeAuthority ? 1 : 0} authorityEpochCurrent=${authorityEpochCurrent ? 1 : 0} runIdentityCurrent=${runIdentityCurrent ? 1 : 0} bypassApplied=${readerSilenceBypassApplied ? 1 : 0} decisionReason=${terminalDecisionReason}`;
             console.info(terminalEligibilityMessage);
             const runtimeProcess = (globalThis as any)?.process;
             if (runtimeProcess?.stderr?.write) {
               runtimeProcess.stderr.write(`${terminalEligibilityMessage}\n`);
             }
           } catch {}
-          if (readerSilenceAdjacentSafeBypass) {
+          if (readerSilenceBypassApplied) {
             emitAdjacentPromotionTrace({
               stage: 'terminal_allow',
               decision: 'reader_silence_adjacent_safe_bypassed',
