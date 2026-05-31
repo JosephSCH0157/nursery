@@ -20678,6 +20678,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         targetLine = continuityLine;
       }
       let pendingSpeakableBridgeCompletion = false;
+      let semanticCommitTargetLine: number | null = null;
+      let visualPursuitTargetLine: number | null = null;
+      let freshnessTargetLine: number | null = null;
       const pendingBridgeState = pendingSpeakableBridgeState;
       if (pendingBridgeState) {
         const pendingBridgeAgeMs = Math.max(0, now - pendingBridgeState.createdAtMs);
@@ -20801,6 +20804,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               targetLine,
             );
             targetLine = bridgeSemanticTarget;
+            semanticCommitTargetLine = bridgeSemanticTarget;
+            visualPursuitTargetLine = bridgeSemanticTarget;
+            freshnessTargetLine = bridgeSemanticTarget;
             pendingSpeakableBridgeCompletion = true;
             proofOwnedForceBypass = true;
             forceReason = 'pending_speakable_bridge_complete';
@@ -20870,6 +20876,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
       }
       const requestedTargetLine = targetLine;
+      if (pendingSpeakableBridgeCompletion) {
+        // For pending bridge completion, keep semantic target sticky while
+        // visual/freshness targets continue through existing reduction logic.
+        if (semanticCommitTargetLine == null || semanticCommitTargetLine < targetLine) {
+          semanticCommitTargetLine = targetLine;
+        }
+        visualPursuitTargetLine = targetLine;
+        freshnessTargetLine = targetLine;
+      }
       const movementAuthorityStarvationMs = Math.max(0, now - lastForwardCommitAt);
       const movementAuthorityNoCommitMs = Math.max(0, now - lastCommitTime);
       const movementAuthorityFinalTranscriptAgeMs =
@@ -24449,9 +24464,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         targetLine = endGraceTerminalLine;
       }
       if (targetLine > prevLineIndex && modeNow === 'asr') {
+        if (pendingSpeakableBridgeCompletion) {
+          visualPursuitTargetLine = targetLine;
+          freshnessTargetLine = targetLine;
+        }
+        const freshnessProposedLineIdx = pendingSpeakableBridgeCompletion
+          ? Math.max(prevLineIndex, Math.floor(Number(freshnessTargetLine ?? targetLine) || targetLine))
+          : targetLine;
         const commitFreshness = evaluateForwardCommitFreshness({
           currentLineIdx: prevLineIndex,
-          proposedLineIdx: targetLine,
+          proposedLineIdx: freshnessProposedLineIdx,
           committedLineIdx: lastLineIndex,
           transcriptSource: pendingTranscriptSource,
           transcriptSeq: pendingTranscriptSeq,
@@ -24466,14 +24488,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           transcriptRunGeneration: pendingRunGeneration,
         });
         if (!commitFreshness.allow) {
-          const terminalDelta = Math.max(0, targetLine - prevLineIndex);
+          const terminalDelta = Math.max(0, freshnessProposedLineIdx - prevLineIndex);
           const terminalSourceBranch = pendingSourceBranch || movementAuthoritySourceBranch || '';
           const terminalProofSource = pendingProofSource || movementAuthorityProofSource || '';
           const terminalForceReason = forceReason || '';
           const terminalCandidateLineIdx = Number.isFinite(line as number)
             ? Math.max(0, Math.floor(Number(line)))
-            : targetLine;
-          const targetSpeakable = isSpeakableScriptLine(targetLine);
+            : freshnessProposedLineIdx;
+          const targetSpeakable = isSpeakableScriptLine(freshnessProposedLineIdx);
           const responseStale =
             Number.isFinite(commitFreshness.responseAgeMs) &&
             commitFreshness.responseAgeMs > activeAsrControllerProfile.responseFreshMaxAgeMs;
@@ -24501,24 +24523,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             );
           const directAdjacentGuardFalseByDesign =
             !directAdjacentGuardEligible &&
-            requestedTargetLine !== targetLine;
+            requestedTargetLine !== freshnessProposedLineIdx;
           const directAdjacentGuardStaleExpectation =
             !directAdjacentGuardEligible &&
-            requestedTargetLine === targetLine &&
-            terminalCandidateLineIdx !== targetLine;
+            requestedTargetLine === freshnessProposedLineIdx &&
+            terminalCandidateLineIdx !== freshnessProposedLineIdx;
           const directAdjacentGuardReason = directAdjacentGuardEligible
             ? 'eligible'
             : directAdjacentGuardFalseByDesign
               ? 'target_reduced_before_terminal'
               : directAdjacentGuardStaleExpectation
                 ? 'candidate_target_mismatch'
-                : terminalCandidateLineIdx < targetLine
+                : terminalCandidateLineIdx < freshnessProposedLineIdx
                   ? 'candidate_behind_terminal_target'
                   : 'candidate_ahead_terminal_target';
           const readerSilenceAdjacentSafeBypass =
             commitFreshness.reason === 'reader_silence_commit_blocked' &&
             terminalDelta === 1 &&
-            targetLine === prevLineIndex + 1 &&
+            freshnessProposedLineIdx === prevLineIndex + 1 &&
             directAdjacentGuardEligible &&
             asrRuntimeSpeechRunningActual &&
             runtimeSpeechFresh &&
@@ -24541,7 +24563,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             const terminalDecisionReason = readerSilenceAdjacentSafeBypass
               ? 'reader_silence_adjacent_safe_bypassed'
               : commitFreshness.reason;
-            const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${targetLine} delta=${terminalDelta} candidateBestLineIdx=${terminalCandidateLineIdx} requestedTargetLineIdx=${requestedTargetLine} authority=${movementAuthority || 'none'} sourceBranch=${terminalSourceBranch || 'unknown'} proofSource=${terminalProofSource || 'none'} forceReason=${terminalForceReason || 'none'} asrRuntimeSpeechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0} hasRecentVadSpeech=${hasRecentVadSpeech ? 1 : 0} asrSilenceActive=${asrSilenceActive ? 1 : 0} directAdjacentGuardEligible=${directAdjacentGuardEligible ? 1 : 0} directAdjacentGuardReason=${directAdjacentGuardReason} guardFalseByDesign=${directAdjacentGuardFalseByDesign ? 1 : 0} guardStaleExpectation=${directAdjacentGuardStaleExpectation ? 1 : 0} pendingBridgeState=${pendingBridgeStateForTrace} pendingBridgeSource=${pendingBridgeSourceForTrace} pendingBridgeFarTargetBlocked=${pendingBridgeFarTargetBlocked ? 1 : 0} visualCapState=${visualCapStateForTrace} targetSpeakable=${targetSpeakable ? 1 : 0} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} safeAuthority=${terminalSafeAuthority ? 1 : 0} bypassApplied=${readerSilenceAdjacentSafeBypass ? 1 : 0} decisionReason=${terminalDecisionReason}`;
+            const terminalSemanticCommitTargetLine = pendingSpeakableBridgeCompletion
+              ? Math.max(prevLineIndex, Math.floor(Number(semanticCommitTargetLine ?? targetLine) || targetLine))
+              : freshnessProposedLineIdx;
+            const terminalVisualPursuitTargetLine = pendingSpeakableBridgeCompletion
+              ? Math.max(prevLineIndex, Math.floor(Number(visualPursuitTargetLine ?? freshnessProposedLineIdx) || freshnessProposedLineIdx))
+              : freshnessProposedLineIdx;
+            const terminalFreshnessTargetLine = Math.max(
+              prevLineIndex,
+              Math.floor(Number(freshnessTargetLine ?? freshnessProposedLineIdx) || freshnessProposedLineIdx),
+            );
+            const pendingBridgeCompletionMode = pendingSpeakableBridgeCompletion ? 1 : 0;
+            const lastLineIndexUpdateSource = pendingBridgeCompletionMode
+              ? 'semantic_commit_target'
+              : 'target_line';
+            const scrollTargetSource = pendingBridgeCompletionMode
+              ? 'visual_pursuit_target'
+              : 'target_line';
+            const freshnessTargetSource = pendingBridgeCompletionMode
+              ? 'visual_pursuit_target'
+              : 'target_line';
+            const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${freshnessProposedLineIdx} delta=${terminalDelta} candidateBestLineIdx=${terminalCandidateLineIdx} requestedTargetLineIdx=${requestedTargetLine} semanticCommitTargetLine=${terminalSemanticCommitTargetLine} visualPursuitTargetLine=${terminalVisualPursuitTargetLine} freshnessTargetLine=${terminalFreshnessTargetLine} lastLineIndexUpdateSource=${lastLineIndexUpdateSource} scrollTargetSource=${scrollTargetSource} freshnessTargetSource=${freshnessTargetSource} pendingBridgeCompletionMode=${pendingBridgeCompletionMode} authority=${movementAuthority || 'none'} sourceBranch=${terminalSourceBranch || 'unknown'} proofSource=${terminalProofSource || 'none'} forceReason=${terminalForceReason || 'none'} asrRuntimeSpeechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0} hasRecentVadSpeech=${hasRecentVadSpeech ? 1 : 0} asrSilenceActive=${asrSilenceActive ? 1 : 0} directAdjacentGuardEligible=${directAdjacentGuardEligible ? 1 : 0} directAdjacentGuardReason=${directAdjacentGuardReason} guardFalseByDesign=${directAdjacentGuardFalseByDesign ? 1 : 0} guardStaleExpectation=${directAdjacentGuardStaleExpectation ? 1 : 0} pendingBridgeState=${pendingBridgeStateForTrace} pendingBridgeSource=${pendingBridgeSourceForTrace} pendingBridgeFarTargetBlocked=${pendingBridgeFarTargetBlocked ? 1 : 0} visualCapState=${visualCapStateForTrace} targetSpeakable=${targetSpeakable ? 1 : 0} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} safeAuthority=${terminalSafeAuthority ? 1 : 0} bypassApplied=${readerSilenceAdjacentSafeBypass ? 1 : 0} decisionReason=${terminalDecisionReason}`;
             console.info(terminalEligibilityMessage);
             const runtimeProcess = (globalThis as any)?.process;
             if (runtimeProcess?.stderr?.write) {
@@ -24553,7 +24595,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               stage: 'terminal_allow',
               decision: 'reader_silence_adjacent_safe_bypassed',
               currentLineIdx: prevLineIndex,
-              candidateLineIdx: targetLine,
+              candidateLineIdx: freshnessProposedLineIdx,
               confidence: conf,
               isAdjacent: true,
               proofOwned: movementAuthority === 'proof' || movementAuthority === 'reconcile',
@@ -24572,9 +24614,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             stage: 'terminal_return',
             decision: `commit_freshness_blocked:${commitFreshness.reason}`,
             currentLineIdx: prevLineIndex,
-            candidateLineIdx: targetLine,
+            candidateLineIdx: freshnessProposedLineIdx,
             confidence: conf,
-            isAdjacent: targetLine === prevLineIndex + 1,
+            isAdjacent: freshnessProposedLineIdx === prevLineIndex + 1,
             proofOwned: movementAuthority === 'proof' || movementAuthority === 'reconcile',
             starvationState: `stallMs=${Math.max(0, now - lastForwardCommitAt)}`,
             sustainedReadState: forceReason || 'n/a',
@@ -24588,11 +24630,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           });
           clearPendingSpeakableBridge('commit_freshness_blocked', [
             `reason=${commitFreshness.reason}`,
-            `target=${targetLine}`,
+            `target=${freshnessProposedLineIdx}`,
             `current=${prevLineIndex}`,
           ]);
           return;
           }
+        }
+        if (pendingSpeakableBridgeCompletion) {
+          // Keep visual pursuit and subsequent scroll calculations bound to
+          // reduced target, while semantic cursor update is deferred to commit.
+          targetLine = freshnessProposedLineIdx;
+          visualPursuitTargetLine = freshnessProposedLineIdx;
+          freshnessTargetLine = freshnessProposedLineIdx;
         }
       }
       const runGenerationForTerminalCommit = lastFinalTranscriptRunGeneration ?? -1;
@@ -25535,14 +25584,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         return;
         }
       }
-      lastLineIndex = Math.max(lastLineIndex, targetLine);
+      const pendingBridgeCompletionMode = pendingSpeakableBridgeCompletion;
+      const effectiveSemanticCommitTargetLine = pendingBridgeCompletionMode
+        ? Math.max(lastLineIndex, Math.floor(Number(semanticCommitTargetLine ?? targetLine) || targetLine))
+        : targetLine;
+      const effectiveVisualPursuitTargetLine = pendingBridgeCompletionMode
+        ? Math.max(lastLineIndex, Math.floor(Number(visualPursuitTargetLine ?? targetLine) || targetLine))
+        : targetLine;
+      lastLineIndex = Math.max(lastLineIndex, effectiveSemanticCommitTargetLine);
       const cursorIndex = lastLineIndex;
-      if (targetLine > prevLineIndex && movementAuthority !== 'none') {
+      if (effectiveSemanticCommitTargetLine > prevLineIndex && movementAuthority !== 'none') {
         adjacentRecoveryCatchupUsedInEpisode = false;
         alignmentEpisodes.begin({
           currentLine: prevLineIndex,
           requestedTarget: line,
-          acceptedCommitTarget: targetLine,
+          acceptedCommitTarget: effectiveSemanticCommitTargetLine,
           proofSource: movementAuthorityProofSource || 'none',
           authorityPath: movementAuthoritySourceBranch || 'unknown',
           sourceHoldReason: String(forceReason || pendingSourceBranch || 'none'),
@@ -25554,8 +25610,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         });
         warnGuard('movement_authority_commit', [
           `current=${prevLineIndex}`,
-          `target=${targetLine}`,
-          `commitTargetLine=${targetLine}`,
+          `target=${effectiveVisualPursuitTargetLine}`,
+          `commitTargetLine=${effectiveSemanticCommitTargetLine}`,
           `authority=${movementAuthority}`,
           `reason=${movementAuthorityReason}`,
           movementAuthorityProofSource
@@ -25587,12 +25643,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       else {
         jumpHistory.push(now);
       }
-      noteCommit(prevLineIndex, targetLine, now);
+      noteCommit(prevLineIndex, effectiveSemanticCommitTargetLine, now);
       const recoveryLikeCommitForHold =
         isAsrRecoverySource(pendingSourceBranch, forceReason, matchId) ||
         String(matchId || '').trim().toLowerCase().includes('recovery');
       const recoveryHoldShouldArm =
-        targetLine > prevLineIndex &&
+        effectiveSemanticCommitTargetLine > prevLineIndex &&
         recoveryLikeCommitForHold &&
         (
           line > prevLineIndex + 1 ||
@@ -25602,11 +25658,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         recoveryLandingHoldActive = true;
         recoveryLandingHoldArmedAt = now;
         recoveryLandingHoldFromLine = prevLineIndex;
-        recoveryLandingHoldToLine = targetLine;
+        recoveryLandingHoldToLine = effectiveSemanticCommitTargetLine;
         recoveryLandingHoldSource = String(pendingSourceBranch || forceReason || '').trim();
       }
       if (
-        targetLine > prevLineIndex &&
+        effectiveSemanticCommitTargetLine > prevLineIndex &&
         (
           isAsrRecoverySource(pendingSourceBranch, forceReason, matchId) ||
           (
@@ -25641,48 +25697,48 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
       }
       if (pendingSpeakableBridgeState) {
-        if (targetLine >= pendingSpeakableBridgeState.semanticTarget) {
+        if (effectiveSemanticCommitTargetLine >= pendingSpeakableBridgeState.semanticTarget) {
           clearPendingSpeakableBridge('semantic_target_committed', [
-            `commitTarget=${targetLine}`,
+            `commitTarget=${effectiveSemanticCommitTargetLine}`,
           ]);
           if (
             recoveryLandingHoldActive &&
             recoveryLandingHoldSource.includes('pending_speakable_bridge_complete') &&
             recoveryLandingHoldToLine >= 0 &&
-            targetLine >= recoveryLandingHoldToLine
+            effectiveSemanticCommitTargetLine >= recoveryLandingHoldToLine
           ) {
             clearRecoveryLandingHold(
               'pending_bridge_semantic_target_committed',
               now,
               prevLineIndex,
-              targetLine,
+              effectiveSemanticCommitTargetLine,
             );
           }
-        } else if (targetLine !== pendingSpeakableBridgeState.semanticFrom) {
+        } else if (effectiveSemanticCommitTargetLine !== pendingSpeakableBridgeState.semanticFrom) {
           clearPendingSpeakableBridge('commit_target_diverged', [
-            `commitTarget=${targetLine}`,
+            `commitTarget=${effectiveSemanticCommitTargetLine}`,
           ]);
         }
       }
-      if (targetLine > prevLineIndex && strictTargetHasFreshProof) {
-        lastFreshProofLine = targetLine;
-      } else if (targetLine > prevLineIndex && lastFreshProofLine < 0) {
+      if (effectiveSemanticCommitTargetLine > prevLineIndex && strictTargetHasFreshProof) {
+        lastFreshProofLine = effectiveSemanticCommitTargetLine;
+      } else if (effectiveSemanticCommitTargetLine > prevLineIndex && lastFreshProofLine < 0) {
         lastFreshProofLine = Math.max(0, prevLineIndex);
       }
-      if (liveStrictFollow && targetLine > prevLineIndex) {
+      if (liveStrictFollow && effectiveSemanticCommitTargetLine > prevLineIndex) {
         liveProgressHeuristics.lastAdvanceAtMs = now;
-        liveProgressHeuristics.lastAcceptedForwardIndex = targetLine;
+        liveProgressHeuristics.lastAcceptedForwardIndex = effectiveSemanticCommitTargetLine;
         liveProgressHeuristics.consecutiveNoAdvanceFrames = 0;
         liveProgressHeuristics.estimatedBehindByLines = 0;
       }
       if (liveStrictProofCommit) {
         liveProgressHeuristics.lastStrongSyncAtMs = now;
-        lastStrongConfirmedSpokenLine = Math.max(lastStrongConfirmedSpokenLine, targetLine);
+        lastStrongConfirmedSpokenLine = Math.max(lastStrongConfirmedSpokenLine, effectiveSemanticCommitTargetLine);
         if (liveStrictSpeculativeStepUsed) {
           liveStrictSpeculativeStepUsed = false;
           warnGuard('live_strict_local_proof_ok', [
             `current=${prevLineIndex}`,
-            `target=${targetLine}`,
+            `target=${effectiveSemanticCommitTargetLine}`,
             'source=proof-commit',
             'latch=reset',
           ]);
@@ -25691,17 +25747,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (
         isRecoveryModeActive() &&
         alignmentSkepticModeActive &&
-        targetLine === prevLineIndex + 1 &&
+        effectiveSemanticCommitTargetLine === prevLineIndex + 1 &&
         strictLocalAdjacentProofForCommit
       ) {
         alignmentSkepticAdjacentCommitHits += 1;
         if (alignmentSkepticAdjacentCommitHits >= ALIGNMENT_SKEPTIC_ADJACENT_COMMIT_HITS) {
           clearAlignmentSkepticMode('adjacent_local_proof_commits', now);
         }
-      } else if (isRecoveryModeActive() && alignmentSkepticModeActive && targetLine > prevLineIndex) {
+      } else if (isRecoveryModeActive() && alignmentSkepticModeActive && effectiveSemanticCommitTargetLine > prevLineIndex) {
         alignmentSkepticAdjacentCommitHits = 0;
       }
-      closeAmbiguityHold(now, 'commit', prevLineIndex, targetLine, conf);
+      closeAmbiguityHold(now, 'commit', prevLineIndex, effectiveSemanticCommitTargetLine, conf);
       if (forwardDelta >= OVERSHOOT_RISK_DELTA_LINES) {
         overshootRiskUntil = now + OVERSHOOT_RISK_WINDOW_MS;
         logDev('overshoot risk', { delta: forwardDelta, until: overshootRiskUntil });
