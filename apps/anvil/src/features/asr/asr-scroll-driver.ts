@@ -24467,23 +24467,81 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         });
         if (!commitFreshness.allow) {
           const terminalDelta = Math.max(0, targetLine - prevLineIndex);
+          const terminalSourceBranch = pendingSourceBranch || movementAuthoritySourceBranch || '';
+          const terminalProofSource = pendingProofSource || movementAuthorityProofSource || '';
+          const terminalForceReason = forceReason || '';
           const responseStale =
             Number.isFinite(commitFreshness.responseAgeMs) &&
             commitFreshness.responseAgeMs > activeAsrControllerProfile.responseFreshMaxAgeMs;
           const audioChunkStale =
             Number.isFinite(commitFreshness.lastAudioChunkAgeMs) &&
             commitFreshness.lastAudioChunkAgeMs > activeAsrControllerProfile.audioFreshMaxAgeMs;
+          const pendingBridgeFarTargetBlocked =
+            !!pendingSpeakableBridgeState &&
+            pendingSpeakableBridgeState.semanticTarget > prevLineIndex + 1;
+          const terminalSafeAuthority =
+            (movementAuthority === 'proof' || movementAuthority === 'reconcile') &&
+            (
+              isProofOwnedPrimaryForceReason(terminalForceReason) ||
+              isAdjacentProofOwnedForceReason(terminalProofSource) ||
+              isAdjacentProofOwnedForceReason(terminalSourceBranch) ||
+              isAdjacentProofOwnedForceReason(terminalForceReason) ||
+              isMovementAuthorityProofBranch(terminalProofSource) ||
+              isMovementAuthorityProofBranch(terminalSourceBranch) ||
+              isMovementAuthorityProofBranch(terminalForceReason) ||
+              isAsrRecoverySource(terminalSourceBranch, terminalForceReason, matchId) ||
+              isRecoveryLandingHoldSource(terminalSourceBranch, terminalForceReason) ||
+              String(terminalProofSource).toLowerCase().includes('sustained_read') ||
+              String(terminalSourceBranch).toLowerCase().includes('sustained_read') ||
+              String(terminalForceReason).toLowerCase().includes('sustained_read')
+            );
+          const readerSilenceAdjacentSafeBypass =
+            commitFreshness.reason === 'reader_silence_commit_blocked' &&
+            terminalDelta === 1 &&
+            targetLine === prevLineIndex + 1 &&
+            directAdjacentGuardEligible &&
+            asrRuntimeSpeechRunningActual &&
+            runtimeSpeechFresh &&
+            hasRecentVadSpeech &&
+            asrSilenceActive &&
+            !responseStale &&
+            !audioChunkStale &&
+            !pendingBridgeFarTargetBlocked &&
+            terminalSafeAuthority;
           const pendingBridgeStateForTrace = pendingSpeakableBridgeState
             ? `pending:${pendingSpeakableBridgeState.semanticFrom}->${pendingSpeakableBridgeState.semanticTarget}`
             : 'none';
           try {
-            const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${targetLine} delta=${terminalDelta} authority=${movementAuthority || 'none'} sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || 'unknown'} proofSource=${pendingProofSource || movementAuthorityProofSource || 'none'} forceReason=${forceReason || 'none'} asrRuntimeSpeechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0} hasRecentVadSpeech=${hasRecentVadSpeech ? 1 : 0} asrSilenceActive=${asrSilenceActive ? 1 : 0} directAdjacentGuardEligible=${directAdjacentGuardEligible ? 1 : 0} pendingBridgeState=${pendingBridgeStateForTrace} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} decisionReason=${commitFreshness.reason}`;
+            const terminalDecisionReason = readerSilenceAdjacentSafeBypass
+              ? 'reader_silence_adjacent_safe_bypassed'
+              : commitFreshness.reason;
+            const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${targetLine} delta=${terminalDelta} authority=${movementAuthority || 'none'} sourceBranch=${terminalSourceBranch || 'unknown'} proofSource=${terminalProofSource || 'none'} forceReason=${terminalForceReason || 'none'} asrRuntimeSpeechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0} hasRecentVadSpeech=${hasRecentVadSpeech ? 1 : 0} asrSilenceActive=${asrSilenceActive ? 1 : 0} directAdjacentGuardEligible=${directAdjacentGuardEligible ? 1 : 0} pendingBridgeState=${pendingBridgeStateForTrace} pendingBridgeFarTargetBlocked=${pendingBridgeFarTargetBlocked ? 1 : 0} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} safeAuthority=${terminalSafeAuthority ? 1 : 0} bypassApplied=${readerSilenceAdjacentSafeBypass ? 1 : 0} decisionReason=${terminalDecisionReason}`;
             console.info(terminalEligibilityMessage);
             const runtimeProcess = (globalThis as any)?.process;
             if (runtimeProcess?.stderr?.write) {
               runtimeProcess.stderr.write(`${terminalEligibilityMessage}\n`);
             }
           } catch {}
+          if (readerSilenceAdjacentSafeBypass) {
+            emitAdjacentPromotionTrace({
+              stage: 'terminal_allow',
+              decision: 'reader_silence_adjacent_safe_bypassed',
+              currentLineIdx: prevLineIndex,
+              candidateLineIdx: targetLine,
+              confidence: conf,
+              isAdjacent: true,
+              proofOwned: movementAuthority === 'proof' || movementAuthority === 'reconcile',
+              starvationState: `stallMs=${Math.max(0, now - lastForwardCommitAt)}`,
+              sustainedReadState: forceReason || 'n/a',
+              pendingBridgeState: pendingBridgeStateForTrace,
+              contradictionState: strictBackwardContradictionForCommit ? 'backward' : 'none',
+              stalePrefixState: liveSpeechForwardPushStalePrefixIgnored ? 'ignored' : 'none',
+              sourceBranch: terminalSourceBranch || 'unknown',
+              proofSource: terminalProofSource || 'none',
+              forceReason,
+              matchId,
+            });
+          } else {
           emitAdjacentPromotionTrace({
             stage: 'terminal_return',
             decision: `commit_freshness_blocked:${commitFreshness.reason}`,
@@ -24508,6 +24566,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `current=${prevLineIndex}`,
           ]);
           return;
+          }
         }
       }
       const runGenerationForTerminalCommit = lastFinalTranscriptRunGeneration ?? -1;
