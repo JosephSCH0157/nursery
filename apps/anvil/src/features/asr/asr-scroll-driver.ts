@@ -24466,6 +24466,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           transcriptRunGeneration: pendingRunGeneration,
         });
         if (!commitFreshness.allow) {
+          const terminalDelta = Math.max(0, targetLine - prevLineIndex);
+          const responseStale =
+            Number.isFinite(commitFreshness.responseAgeMs) &&
+            commitFreshness.responseAgeMs > activeAsrControllerProfile.responseFreshMaxAgeMs;
+          const audioChunkStale =
+            Number.isFinite(commitFreshness.lastAudioChunkAgeMs) &&
+            commitFreshness.lastAudioChunkAgeMs > activeAsrControllerProfile.audioFreshMaxAgeMs;
+          const pendingBridgeStateForTrace = pendingSpeakableBridgeState
+            ? `pending:${pendingSpeakableBridgeState.semanticFrom}->${pendingSpeakableBridgeState.semanticTarget}`
+            : 'none';
+          try {
+            const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${targetLine} delta=${terminalDelta} authority=${movementAuthority || 'none'} sourceBranch=${pendingSourceBranch || movementAuthoritySourceBranch || 'unknown'} proofSource=${pendingProofSource || movementAuthorityProofSource || 'none'} forceReason=${forceReason || 'none'} asrRuntimeSpeechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0} hasRecentVadSpeech=${hasRecentVadSpeech ? 1 : 0} asrSilenceActive=${asrSilenceActive ? 1 : 0} directAdjacentGuardEligible=${directAdjacentGuardEligible ? 1 : 0} pendingBridgeState=${pendingBridgeStateForTrace} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} decisionReason=${commitFreshness.reason}`;
+            console.info(terminalEligibilityMessage);
+            const runtimeProcess = (globalThis as any)?.process;
+            if (runtimeProcess?.stderr?.write) {
+              runtimeProcess.stderr.write(`${terminalEligibilityMessage}\n`);
+            }
+          } catch {}
           emitAdjacentPromotionTrace({
             stage: 'terminal_return',
             decision: `commit_freshness_blocked:${commitFreshness.reason}`,
