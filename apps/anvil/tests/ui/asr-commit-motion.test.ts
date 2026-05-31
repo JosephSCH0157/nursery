@@ -18,6 +18,17 @@ function diagnosticCallMatches(
   return reason.includes(token) && requiredFragments.every((fragment) => parts.some((part: string) => part.includes(fragment)));
 }
 
+function extractTraceField(line: string, key: string): string {
+  const match = line.match(new RegExp(`(?:^|\\s)${key}=([^\\s]+)`));
+  return match ? String(match[1] || '') : '';
+}
+
+function extractTraceFieldNumber(line: string, key: string): number {
+  const raw = extractTraceField(line, key);
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : Number.NaN;
+}
+
 function bootstrapLiveAsrRuntime(): void {
   (window as any).__tpAsrRuntimeStatus = {
     recognizerAttached: true,
@@ -881,6 +892,237 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(250);
 
     expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+
+    driver.dispose();
+  });
+
+  test('deterministically arms pending bridge completion mode and preserves semantic-vs-visual split', async () => {
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const script = document.getElementById('script') as HTMLElement;
+    script.innerHTML = `
+      <div class="line" data-line="0" style="line-height:24px;">Different climates.</div>
+      <div class="line" data-line="1" style="line-height:24px;">Different strengths.</div>
+      <div class="line" data-line="2" style="line-height:24px;">For decades, Florida wore the crown.</div>
+      <div class="line" data-line="3" style="line-height:24px;">Not because California was weak.</div>
+      <div class="line" data-line="4" style="line-height:24px;">But citrus did not die.</div>
+      <div class="line" data-line="5" style="line-height:24px;">[beat]</div>
+      <div class="line" data-line="6" style="line-height:24px;"></div>
+      <div class="line" data-line="7" style="line-height:24px;">Growers moved south.</div>
+      <div class="line" data-line="8" style="line-height:24px;">They replanted.</div>
+    `;
+    const metrics = Array.from({ length: 9 }, (_, idx) => ({
+      top: idx * 360,
+      height: 236,
+    }));
+    Array.from(script.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+      const metric = metrics[idx];
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: metric.top,
+          left: 0,
+          right: 800,
+          bottom: metric.top + metric.height,
+          width: 800,
+          height: metric.height,
+        }),
+      });
+    });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 5200 });
+    scroller.scrollTop = 0;
+
+    const driver = createAsrScrollDriver({ runKey: 'pending-bridge-mode', runGeneration: 77 });
+    const debugDriver = driver as typeof driver & {
+      __debugSeedPendingSpeakableBridge: (args: {
+        semanticFrom: number;
+        semanticTarget: number;
+        visualCurrent?: number;
+        visualReducedTarget?: number;
+        skippedVisibleRows?: number;
+        proofSource?: string;
+        sourceBranch?: string;
+        ageMs?: number;
+        runKey?: string | null;
+        runGeneration?: number | null;
+      }) => void;
+    };
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: {
+        speechRunningActual: true,
+        runKey: 'pending-bridge-mode',
+        runGeneration: 77,
+      },
+    }));
+
+    driver.setLastLineIndex(4);
+
+    // First attempt: keep silence active to force a terminal freshness block while
+    // completion mode is active, so the trace carries all split-source fields.
+    debugDriver.__debugSeedPendingSpeakableBridge({
+      semanticFrom: 4,
+      semanticTarget: 7,
+      visualCurrent: 5,
+      visualReducedTarget: 5,
+      ageMs: 1200,
+      runKey: 'pending-bridge-mode',
+      runGeneration: 77,
+      proofSource: 'debug_seed',
+      sourceBranch: 'debug_seed_pending_bridge',
+    });
+
+    driver.ingest('Growers moved south.', true, {
+      currentIdx: 4,
+      runKey: 'pending-bridge-mode',
+      runGeneration: 77,
+      responseAgeMs: 5000,
+      matchId: 'pending-bridge-force-mode-trace',
+      match: {
+        bestIdx: 7,
+        bestSim: 0.9,
+        topScores: [{ idx: 7, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+
+    const infoLines = consoleInfoSpy.mock.calls.map((c) => String(c[0] || ''));
+    const splitTrace =
+      [...infoLines]
+        .reverse()
+        .find((line) =>
+          line.includes('ASR_TERMINAL_ELIGIBILITY_TRACE') &&
+          line.includes('pendingBridgeCompletionMode=1')) || '';
+
+    expect(splitTrace).toContain('pendingBridgeCompletionMode=1');
+    expect(splitTrace).toContain('freshnessTargetSource=visual_pursuit_target');
+    expect(splitTrace).toContain('scrollTargetSource=visual_pursuit_target');
+    expect(splitTrace).toContain('lastLineIndexUpdateSource=semantic_commit_target');
+
+    const semanticTarget = extractTraceFieldNumber(splitTrace, 'semanticCommitTargetLine');
+    const visualTarget = extractTraceFieldNumber(splitTrace, 'visualPursuitTargetLine');
+    const freshnessTarget = extractTraceFieldNumber(splitTrace, 'freshnessTargetLine');
+    expect(semanticTarget).toBeGreaterThan(visualTarget);
+    expect(freshnessTarget).toBe(visualTarget);
+
+    // Second attempt: reseed and clear silence so commit can be accepted.
+    debugDriver.__debugSeedPendingSpeakableBridge({
+      semanticFrom: 4,
+      semanticTarget: 7,
+      visualCurrent: 5,
+      visualReducedTarget: 5,
+      ageMs: 1200,
+      runKey: 'pending-bridge-mode',
+      runGeneration: 77,
+      proofSource: 'debug_seed',
+      sourceBranch: 'debug_seed_pending_bridge',
+    });
+    window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: false } }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:audio-chunk', { detail: { ts: Date.now() } }));
+
+    driver.ingest('Growers moved south.', true, {
+      currentIdx: 4,
+      runKey: 'pending-bridge-mode',
+      runGeneration: 77,
+      matchId: 'pending-bridge-force-mode-commit',
+      match: {
+        bestIdx: 7,
+        bestSim: 0.9,
+        topScores: [{ idx: 7, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(7);
+    expect(scroller.scrollTop).toBeLessThan(metrics[7].top);
+    expect(
+      consoleWarnSpy.mock.calls.some((call) =>
+        diagnosticCallMatches(call, 'movement_authority_commit', [
+          'target=5',
+          'commitTargetLine=7',
+        ]),
+      ),
+    ).toBe(true);
+
+    driver.dispose();
+  });
+
+  test('diagnoses why visible bridge pending completion mode does not arm in the failing path', async () => {
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const script = document.getElementById('script') as HTMLElement;
+    script.innerHTML = `
+      <div class="line" data-line="0" style="line-height:24px;">Different climates.</div>
+      <div class="line" data-line="1" style="line-height:24px;">Different strengths.</div>
+      <div class="line" data-line="2" style="line-height:24px;">For decades, Florida wore the crown.</div>
+      <div class="line" data-line="3" style="line-height:24px;">Not because California was weak.</div>
+      <div class="line" data-line="4" style="line-height:24px;">But citrus did not die.</div>
+      <div class="line" data-line="5" style="line-height:24px;">[beat]</div>
+      <div class="line" data-line="6" style="line-height:24px;"></div>
+      <div class="line" data-line="7" style="line-height:24px;">Growers moved south.</div>
+      <div class="line" data-line="8" style="line-height:24px;">They replanted.</div>
+    `;
+    const metrics = Array.from({ length: 9 }, (_, idx) => ({
+      top: idx * 360,
+      height: 236,
+    }));
+    Array.from(script.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+      const metric = metrics[idx];
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: metric.top,
+          left: 0,
+          right: 800,
+          bottom: metric.top + metric.height,
+          width: 800,
+          height: metric.height,
+        }),
+      });
+    });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 5200 });
+    scroller.scrollTop = 0;
+
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    driver.setLastLineIndex(4);
+    await jest.advanceTimersByTimeAsync(3600);
+
+    driver.ingest('Growers moved south.', true, {
+      currentIdx: 4,
+      matchId: 'visible-bridge-step-cap',
+      match: {
+        bestIdx: 7,
+        bestSim: 0.9,
+        topScores: [{ idx: 7, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+
+    const infoLines = consoleInfoSpy.mock.calls.map((c) => String(c[0] || ''));
+    const traceLine =
+      [...infoLines]
+        .reverse()
+        .find((line) =>
+          line.includes('ASR_TERMINAL_ELIGIBILITY_TRACE') &&
+          line.includes('requestedTargetLineIdx=7')) || '';
+
+    expect(traceLine).toContain('pendingBridgeCompletionMode=0');
+    expect(traceLine).toContain('pendingBridgeState=none');
+    expect(traceLine).toContain('candidateLineIdx=5');
+    expect(traceLine).toContain('requestedTargetLineIdx=7');
+    expect(traceLine).toContain('directAdjacentGuardReason=target_reduced_before_terminal');
+    expect(traceLine).toContain('sourceBranch=movement_authority_starvation_reconcile_single_step');
+    expect(traceLine).toContain('decisionReason=reader_silence_commit_blocked');
+    expect(driver.getLastLineIndex()).toBe(4);
 
     driver.dispose();
   });
