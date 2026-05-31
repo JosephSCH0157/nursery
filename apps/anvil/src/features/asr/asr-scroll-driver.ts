@@ -24633,14 +24633,31 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 : terminalCandidateLineIdx < freshnessProposedLineIdx
                   ? 'candidate_behind_terminal_target'
                   : 'candidate_ahead_terminal_target';
+          const terminalSemanticCommitTargetLine = pendingSpeakableBridgeCompletion
+            ? Math.max(prevLineIndex, Math.floor(Number(semanticCommitTargetLine ?? targetLine) || targetLine))
+            : freshnessProposedLineIdx;
+          const terminalVisualPursuitTargetLine = pendingSpeakableBridgeCompletion
+            ? Math.max(prevLineIndex, Math.floor(Number(visualPursuitTargetLine ?? freshnessProposedLineIdx) || freshnessProposedLineIdx))
+            : freshnessProposedLineIdx;
+          const terminalFreshnessTargetLine = Math.max(
+            prevLineIndex,
+            Math.floor(Number(freshnessTargetLine ?? freshnessProposedLineIdx) || freshnessProposedLineIdx),
+          );
+          const pendingBridgeCompletionMode = pendingSpeakableBridgeCompletion ? 1 : 0;
+          const lastLineIndexUpdateSource = pendingBridgeCompletionMode
+            ? 'semantic_commit_target'
+            : 'target_line';
+          const scrollTargetSource = pendingBridgeCompletionMode
+            ? 'visual_pursuit_target'
+            : 'target_line';
+          const freshnessTargetSource = pendingBridgeCompletionMode
+            ? 'visual_pursuit_target'
+            : 'target_line';
           const pendingBridgeStateCurrentAndValid =
             !!pendingSpeakableBridgeState &&
             pendingSpeakableBridgeState.semanticFrom === prevLineIndex &&
             pendingSpeakableBridgeState.semanticTarget > prevLineIndex + 1 &&
-            pendingSpeakableBridgeState.semanticTarget >= Math.max(
-              prevLineIndex,
-              Math.floor(Number(semanticCommitTargetLine ?? freshnessProposedLineIdx) || freshnessProposedLineIdx),
-            );
+            pendingSpeakableBridgeState.semanticTarget === terminalSemanticCommitTargetLine;
           const runIdentityCurrent = !isRunIdentityStale({
             runKey: pendingRunKey || undefined,
             runGeneration: pendingRunGeneration,
@@ -24663,13 +24680,33 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             Math.floor(Number(visualPursuitTargetLine)) === freshnessProposedLineIdx &&
             Number.isFinite(freshnessTargetLine as number) &&
             Math.floor(Number(freshnessTargetLine)) === freshnessProposedLineIdx;
+          const explicitPendingCompletionLineage =
+            String(terminalForceReason || '').toLowerCase().includes('pending_speakable_bridge_complete');
+          const explicitStarvationBridgeLineage =
+            String(terminalSourceBranch || '').toLowerCase().includes('movement_authority_starvation_reconcile_single_step') &&
+            String(pendingSpeakableBridgeState?.sourceBranch || '').toLowerCase().includes('movement_authority_starvation_reconcile_single_step');
+          const lineageQualifiedForPendingBridgeBypass =
+            explicitPendingCompletionLineage ||
+            explicitStarvationBridgeLineage;
+          const disallowedPendingBridgeBypassPath =
+            liveAsrVisualGovernorHardHold ||
+            deadScreenTerminalCommitSuppressedByVisualGovernor ||
+            /startup|dead_screen|governor|comfort|bottom_lock|pocket|marker_lock/.test(
+              `${String(terminalSourceBranch || '')}|${String(terminalProofSource || '')}|${String(terminalForceReason || '')}`.toLowerCase(),
+            );
           const readerSilencePendingBridgeCompletionBypass =
             commitFreshness.reason === 'reader_silence_commit_blocked' &&
             pendingSpeakableBridgeCompletion &&
+            pendingBridgeCompletionMode === 1 &&
             terminalDelta === 1 &&
             freshnessProposedLineIdx === prevLineIndex + 1 &&
             pendingBridgeStateCurrentAndValid &&
             runIdentityCurrent &&
+            lineageQualifiedForPendingBridgeBypass &&
+            !disallowedPendingBridgeBypassPath &&
+            terminalSemanticCommitTargetLine === pendingSpeakableBridgeState?.semanticTarget &&
+            terminalVisualPursuitTargetLine === freshnessProposedLineIdx &&
+            terminalFreshnessTargetLine === freshnessProposedLineIdx &&
             visualCapActiveForPendingBridge &&
             !responseStale &&
             !audioChunkStale &&
@@ -24690,27 +24727,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             const terminalDecisionReason = readerSilenceBypassApplied
               ? 'reader_silence_adjacent_safe_bypassed'
               : commitFreshness.reason;
-            const terminalSemanticCommitTargetLine = pendingSpeakableBridgeCompletion
-              ? Math.max(prevLineIndex, Math.floor(Number(semanticCommitTargetLine ?? targetLine) || targetLine))
-              : freshnessProposedLineIdx;
-            const terminalVisualPursuitTargetLine = pendingSpeakableBridgeCompletion
-              ? Math.max(prevLineIndex, Math.floor(Number(visualPursuitTargetLine ?? freshnessProposedLineIdx) || freshnessProposedLineIdx))
-              : freshnessProposedLineIdx;
-            const terminalFreshnessTargetLine = Math.max(
-              prevLineIndex,
-              Math.floor(Number(freshnessTargetLine ?? freshnessProposedLineIdx) || freshnessProposedLineIdx),
-            );
-            const pendingBridgeCompletionMode = pendingSpeakableBridgeCompletion ? 1 : 0;
-            const lastLineIndexUpdateSource = pendingBridgeCompletionMode
-              ? 'semantic_commit_target'
-              : 'target_line';
-            const scrollTargetSource = pendingBridgeCompletionMode
-              ? 'visual_pursuit_target'
-              : 'target_line';
-            const freshnessTargetSource = pendingBridgeCompletionMode
-              ? 'visual_pursuit_target'
-              : 'target_line';
-            const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${freshnessProposedLineIdx} delta=${terminalDelta} candidateBestLineIdx=${terminalCandidateLineIdx} requestedTargetLineIdx=${requestedTargetLine} semanticCommitTargetLine=${terminalSemanticCommitTargetLine} visualPursuitTargetLine=${terminalVisualPursuitTargetLine} freshnessTargetLine=${terminalFreshnessTargetLine} lastLineIndexUpdateSource=${lastLineIndexUpdateSource} scrollTargetSource=${scrollTargetSource} freshnessTargetSource=${freshnessTargetSource} pendingBridgeCompletionMode=${pendingBridgeCompletionMode} authority=${movementAuthority || 'none'} sourceBranch=${terminalSourceBranch || 'unknown'} proofSource=${terminalProofSource || 'none'} forceReason=${terminalForceReason || 'none'} asrRuntimeSpeechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0} hasRecentVadSpeech=${hasRecentVadSpeech ? 1 : 0} asrSilenceActive=${asrSilenceActive ? 1 : 0} directAdjacentGuardEligible=${directAdjacentGuardEligible ? 1 : 0} directAdjacentGuardReason=${directAdjacentGuardReason} guardFalseByDesign=${directAdjacentGuardFalseByDesign ? 1 : 0} guardStaleExpectation=${directAdjacentGuardStaleExpectation ? 1 : 0} pendingBridgeState=${pendingBridgeStateForTrace} pendingBridgeSource=${pendingBridgeSourceForTrace} pendingBridgeFarTargetBlocked=${pendingBridgeFarTargetBlocked ? 1 : 0} visualCapState=${visualCapStateForTrace} pendingBridgeStateCurrent=${pendingBridgeStateCurrentAndValid ? 1 : 0} targetSpeakable=${targetSpeakable ? 1 : 0} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} safeAuthority=${terminalSafeAuthority ? 1 : 0} authorityEpochCurrent=${authorityEpochCurrent ? 1 : 0} runIdentityCurrent=${runIdentityCurrent ? 1 : 0} bypassApplied=${readerSilenceBypassApplied ? 1 : 0} decisionReason=${terminalDecisionReason}`;
+            const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${freshnessProposedLineIdx} delta=${terminalDelta} candidateBestLineIdx=${terminalCandidateLineIdx} requestedTargetLineIdx=${requestedTargetLine} semanticCommitTargetLine=${terminalSemanticCommitTargetLine} visualPursuitTargetLine=${terminalVisualPursuitTargetLine} freshnessTargetLine=${terminalFreshnessTargetLine} lastLineIndexUpdateSource=${lastLineIndexUpdateSource} scrollTargetSource=${scrollTargetSource} freshnessTargetSource=${freshnessTargetSource} pendingBridgeCompletionMode=${pendingBridgeCompletionMode} authority=${movementAuthority || 'none'} sourceBranch=${terminalSourceBranch || 'unknown'} proofSource=${terminalProofSource || 'none'} forceReason=${terminalForceReason || 'none'} asrRuntimeSpeechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0} hasRecentVadSpeech=${hasRecentVadSpeech ? 1 : 0} asrSilenceActive=${asrSilenceActive ? 1 : 0} directAdjacentGuardEligible=${directAdjacentGuardEligible ? 1 : 0} directAdjacentGuardReason=${directAdjacentGuardReason} guardFalseByDesign=${directAdjacentGuardFalseByDesign ? 1 : 0} guardStaleExpectation=${directAdjacentGuardStaleExpectation ? 1 : 0} pendingBridgeState=${pendingBridgeStateForTrace} pendingBridgeSource=${pendingBridgeSourceForTrace} pendingBridgeFarTargetBlocked=${pendingBridgeFarTargetBlocked ? 1 : 0} visualCapState=${visualCapStateForTrace} pendingBridgeStateCurrent=${pendingBridgeStateCurrentAndValid ? 1 : 0} lineagePendingComplete=${explicitPendingCompletionLineage ? 1 : 0} lineageStarvationBridge=${explicitStarvationBridgeLineage ? 1 : 0} bypassPathDisallowed=${disallowedPendingBridgeBypassPath ? 1 : 0} targetSpeakable=${targetSpeakable ? 1 : 0} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} safeAuthority=${terminalSafeAuthority ? 1 : 0} authorityEpochCurrent=${authorityEpochCurrent ? 1 : 0} runIdentityCurrent=${runIdentityCurrent ? 1 : 0} bypassApplied=${readerSilenceBypassApplied ? 1 : 0} decisionReason=${terminalDecisionReason}`;
             console.info(terminalEligibilityMessage);
             const runtimeProcess = (globalThis as any)?.process;
             if (runtimeProcess?.stderr?.write) {
