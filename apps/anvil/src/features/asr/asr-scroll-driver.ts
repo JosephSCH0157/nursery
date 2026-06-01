@@ -3322,12 +3322,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const currentTop = Number.isFinite(input.currentTop) ? Number(input.currentTop) : 0;
     const requestedProposedTop = Number.isFinite(input.proposedTop) ? Number(input.proposedTop) : currentTop;
     const boundedReleaseTop = Number.isFinite(input.releaseBoundedTargetTop as number)
-      ? Math.max(currentTop, Number(input.releaseBoundedTargetTop))
+      ? clamp(Math.max(currentTop, Number(input.releaseBoundedTargetTop)), currentTop, Math.max(currentTop, Number(input.scroller.scrollHeight || 0) - Number(input.scroller.clientHeight || 0)))
       : Number.NaN;
-    const proposedTop =
-      input.releaseFreshVerifiedForwardCommit && Number.isFinite(boundedReleaseTop)
-        ? Math.min(requestedProposedTop, boundedReleaseTop)
-        : requestedProposedTop;
+    const releaseTopForward =
+      input.releaseFreshVerifiedForwardCommit &&
+      Number.isFinite(boundedReleaseTop) &&
+      boundedReleaseTop > currentTop + ASR_POCKET_WALL_NOISE_DELTA_PX;
+    const proposedTop = releaseTopForward ? boundedReleaseTop : requestedProposedTop;
+    const proposedTopSource = releaseTopForward ? 'post_semantic_release_bounded' : 'normal_requested';
     const resolvedAuthoritative = resolveAsrPocketWallAuthoritativeLine();
     const authoritativeLineIdx =
       input.releaseFreshVerifiedForwardCommit && Number.isFinite(input.releaseAuthoritativeLineIdx as number)
@@ -3513,6 +3515,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       pocketBottom,
       tolerancePx,
       sourceAuthority: input.sourceAuthority || sourceAuthority,
+      proposedTopSource,
     };
     lastAsrPocketWallTickId = activeAsrAuthorityTraceTickId;
     lastAsrPocketWallReason = pocketWallReason;
@@ -35548,6 +35551,90 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastVadSpeechAt = previousState.lastVadSpeechAt;
     return result;
   };
+  const debugEvaluateAsrPocketWall = (args: {
+    currentTop: number;
+    proposedTop: number;
+    targetScrollTop?: number | null;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    nextSpeakableLineIdx: number;
+    allowedTargetIdx?: number | null;
+    selectedAuthority?: string;
+    authorityReason?: string;
+    candidateLineIdx?: number | null;
+    sourceAuthority: string;
+    releaseFreshVerifiedForwardCommit?: boolean;
+    releaseAuthoritativeLineIdx?: number | null;
+    releaseBoundedTargetTop?: number | null;
+  }) => {
+    const scroller = getScroller();
+    if (!scroller) {
+      throw new Error('Scroller unavailable for debugEvaluateAsrPocketWall');
+    }
+    const releaseTopForward =
+      args.releaseFreshVerifiedForwardCommit === true &&
+      Number.isFinite(args.releaseBoundedTargetTop as number) &&
+      Number(args.releaseBoundedTargetTop) > args.currentTop + ASR_POCKET_WALL_NOISE_DELTA_PX;
+    const proposedTopUsed = releaseTopForward
+      ? clamp(
+          Math.max(args.currentTop, Number(args.releaseBoundedTargetTop)),
+          args.currentTop,
+          Math.max(
+            args.currentTop,
+            Number(scroller.scrollHeight || 0) - Number(scroller.clientHeight || 0),
+          ),
+        )
+      : args.proposedTop;
+    const proposedTopSource = releaseTopForward ? 'post_semantic_release_bounded' : 'normal_requested';
+    const evaluation = evaluateAsrPocketWall({
+      scroller,
+      currentTop: args.currentTop,
+      proposedTop: args.proposedTop,
+      targetScrollTop: args.targetScrollTop,
+      currentLineIdx: args.currentLineIdx,
+      committedLineIdx: args.committedLineIdx,
+      nextSpeakableLineIdx: args.nextSpeakableLineIdx,
+      allowedTargetIdx: args.allowedTargetIdx,
+      selectedAuthority: args.selectedAuthority,
+      authorityReason: args.authorityReason,
+      candidateLineIdx: args.candidateLineIdx,
+      sourceAuthority: args.sourceAuthority,
+      releaseFreshVerifiedForwardCommit: args.releaseFreshVerifiedForwardCommit === true,
+      releaseAuthoritativeLineIdx: args.releaseAuthoritativeLineIdx,
+      releaseBoundedTargetTop: args.releaseBoundedTargetTop,
+    });
+    return {
+      ...evaluation,
+      diagnostic: buildAsrPocketWallEvaluatedDiagnostic({
+        reason: lastAsrPocketWallReason || 'unknown',
+        proposedTop: proposedTopUsed,
+        cappedTop: Number.isFinite(lastAsrPocketWallCappedTop as number)
+          ? Number(lastAsrPocketWallCappedTop)
+          : evaluation.effectiveTop,
+        currentTop: args.currentTop,
+        lineHeightPx: Math.max(
+          12,
+          Number(getLineElementByIndex(scroller, Math.max(0, args.currentLineIdx))?.clientHeight || 24),
+        ),
+        authoritativeLineIdx: Number.isFinite(lastAsrPocketWallAuthoritativeLineIdx as number)
+          ? Number(lastAsrPocketWallAuthoritativeLineIdx)
+          : args.currentLineIdx,
+        candidateLineIdx: Number.isFinite(args.candidateLineIdx as number) ? Number(args.candidateLineIdx) : args.currentLineIdx,
+        lastVerifiedCommitLineIdx: Number.isFinite(lastAsrPocketWallLastVerifiedCommitLineIdx as number)
+          ? Number(lastAsrPocketWallLastVerifiedCommitLineIdx)
+          : -1,
+        lastVerifiedCommitAgeMs: 0,
+        hasFreshVerifiedForwardCommit: lastAsrPocketWallHasFreshVerifiedForwardCommit === true,
+        pocketTop: 0,
+        pocketBottom: 0,
+        tolerancePx: 0,
+        sourceAuthority: args.sourceAuthority,
+        proposedTopSource,
+      }),
+      proposedTopUsed,
+      proposedTopSource,
+    };
+  };
   const debugEvaluateProfileForwardGuard = (args: {
     lane?: string;
     currentLineIdx: number;
@@ -35601,6 +35688,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     __debugEvaluatePostSemanticCommitVisualFollowDiagnostic: debugEvaluatePostSemanticCommitVisualFollowDiagnostic,
     __debugArmPostSemanticCommitVisualRelease: debugArmPostSemanticCommitVisualRelease,
     __debugConsumePostSemanticCommitVisualRelease: debugConsumePostSemanticCommitVisualRelease,
+    __debugEvaluateAsrPocketWall: debugEvaluateAsrPocketWall,
     __debugEvaluateProfileForwardGuard: debugEvaluateProfileForwardGuard,
   } as AsrScrollDriver & {
     __debugSeedPendingSpeakableBridge(args: {
@@ -35840,6 +35928,30 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       forceFreshVerifiedForwardCommit: boolean;
       markerY: number;
       currentLineViewportY: number;
+    };
+    __debugEvaluateAsrPocketWall(args: {
+      currentTop: number;
+      proposedTop: number;
+      targetScrollTop?: number | null;
+      currentLineIdx: number;
+      committedLineIdx: number;
+      nextSpeakableLineIdx: number;
+      allowedTargetIdx?: number | null;
+      selectedAuthority?: string;
+      authorityReason?: string;
+      candidateLineIdx?: number | null;
+      sourceAuthority: string;
+      releaseFreshVerifiedForwardCommit?: boolean;
+      releaseAuthoritativeLineIdx?: number | null;
+      releaseBoundedTargetTop?: number | null;
+    }): {
+      effectiveTop: number;
+      reason: string;
+      tolerancePx: number;
+      hasFreshVerifiedForwardCommit: boolean;
+      diagnostic: string;
+      proposedTopUsed: number;
+      proposedTopSource: 'post_semantic_release_bounded' | 'normal_requested';
     };
     __debugEvaluateProfileForwardGuard(args: {
       lane?: string;

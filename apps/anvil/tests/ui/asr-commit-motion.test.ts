@@ -134,6 +134,30 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     markerY: number;
     currentLineViewportY: number;
   };
+  __debugEvaluateAsrPocketWall: (args: {
+    currentTop: number;
+    proposedTop: number;
+    targetScrollTop?: number | null;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    nextSpeakableLineIdx: number;
+    allowedTargetIdx?: number | null;
+    selectedAuthority?: string;
+    authorityReason?: string;
+    candidateLineIdx?: number | null;
+    sourceAuthority: string;
+    releaseFreshVerifiedForwardCommit?: boolean;
+    releaseAuthoritativeLineIdx?: number | null;
+    releaseBoundedTargetTop?: number | null;
+  }) => {
+    effectiveTop: number;
+    reason: string;
+    tolerancePx: number;
+    hasFreshVerifiedForwardCommit: boolean;
+    diagnostic: string;
+    proposedTopUsed: number;
+    proposedTopSource: 'post_semantic_release_bounded' | 'normal_requested';
+  };
 };
 
 describe('ASR live commit motion', () => {
@@ -1142,6 +1166,61 @@ describe('ASR live commit motion', () => {
       accepted: false,
       rejectReason: 'stale_authority',
     });
+
+    driver.dispose();
+  });
+
+  test('pocket wall uses bounded post-semantic release target when it is forward and requested target is smaller', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluateAsrPocketWall({
+      currentTop: 82,
+      proposedTop: 88,
+      targetScrollTop: 104,
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      nextSpeakableLineIdx: 2,
+      selectedAuthority: 'pocket_authority',
+      candidateLineIdx: 2,
+      sourceAuthority: 'pocket_authority',
+      releaseFreshVerifiedForwardCommit: true,
+      releaseAuthoritativeLineIdx: 2,
+      releaseBoundedTargetTop: 150,
+    });
+
+    expect(result.proposedTopUsed).toBe(150);
+    expect(result.proposedTopSource).toBe('post_semantic_release_bounded');
+    expect(result.effectiveTop).toBe(150);
+    expect(result.hasFreshVerifiedForwardCommit).toBe(true);
+    expect(result.diagnostic).toContain('proposedTop=150');
+    expect(result.diagnostic).toContain('proposedTopSource=post_semantic_release_bounded');
+
+    driver.dispose();
+  });
+
+  test('pocket wall ignores non-forward bounded release target and keeps normal requested target', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluateAsrPocketWall({
+      currentTop: 82,
+      proposedTop: 88,
+      targetScrollTop: 104,
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      nextSpeakableLineIdx: 2,
+      selectedAuthority: 'pocket_authority',
+      candidateLineIdx: 2,
+      sourceAuthority: 'pocket_authority',
+      releaseFreshVerifiedForwardCommit: true,
+      releaseAuthoritativeLineIdx: 2,
+      releaseBoundedTargetTop: 82,
+    });
+
+    expect(result.proposedTopUsed).toBe(88);
+    expect(result.proposedTopSource).toBe('normal_requested');
+    expect(result.effectiveTop).toBe(88);
+    expect(result.diagnostic).toContain('proposedTop=88');
+    expect(result.diagnostic).toContain('proposedTopSource=normal_requested');
 
     driver.dispose();
   });

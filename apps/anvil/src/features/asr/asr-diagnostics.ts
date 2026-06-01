@@ -1847,9 +1847,10 @@ function buildAsrPocketWallDiagnostic(
     pocketBottom: number;
     tolerancePx: number;
     sourceAuthority: string;
+    proposedTopSource?: string;
   },
 ): string {
-  return `[${tag}] reason=${args.reason || 'unknown'} proposedTop=${Math.round(args.proposedTop)} cappedTop=${Math.round(args.cappedTop)} currentTop=${Math.round(args.currentTop)} lineHeightPx=${Math.round(args.lineHeightPx)} authoritativeLineIdx=${Math.round(args.authoritativeLineIdx)} candidateLineIdx=${Math.round(args.candidateLineIdx)} lastVerifiedCommitLineIdx=${Math.round(args.lastVerifiedCommitLineIdx)} lastVerifiedCommitAgeMs=${Math.round(args.lastVerifiedCommitAgeMs)} hasFreshVerifiedForwardCommit=${args.hasFreshVerifiedForwardCommit ? 1 : 0} pocketTop=${Math.round(args.pocketTop)} pocketBottom=${Math.round(args.pocketBottom)} tolerancePx=${Math.round(args.tolerancePx)} sourceAuthority=${args.sourceAuthority || 'unknown'}`;
+  return `[${tag}] reason=${args.reason || 'unknown'} proposedTop=${Math.round(args.proposedTop)} cappedTop=${Math.round(args.cappedTop)} currentTop=${Math.round(args.currentTop)} lineHeightPx=${Math.round(args.lineHeightPx)} authoritativeLineIdx=${Math.round(args.authoritativeLineIdx)} candidateLineIdx=${Math.round(args.candidateLineIdx)} lastVerifiedCommitLineIdx=${Math.round(args.lastVerifiedCommitLineIdx)} lastVerifiedCommitAgeMs=${Math.round(args.lastVerifiedCommitAgeMs)} hasFreshVerifiedForwardCommit=${args.hasFreshVerifiedForwardCommit ? 1 : 0} pocketTop=${Math.round(args.pocketTop)} pocketBottom=${Math.round(args.pocketBottom)} tolerancePx=${Math.round(args.tolerancePx)} sourceAuthority=${args.sourceAuthority || 'unknown'} proposedTopSource=${args.proposedTopSource || 'normal_requested'}`;
 }
 
 export function buildAsrPocketWallEvaluatedDiagnostic(args: {
@@ -1867,6 +1868,7 @@ export function buildAsrPocketWallEvaluatedDiagnostic(args: {
   pocketBottom: number;
   tolerancePx: number;
   sourceAuthority: string;
+  proposedTopSource?: string;
 }): string {
   return buildAsrPocketWallDiagnostic('ASR_POCKET_WALL_EVALUATED', args);
 }
