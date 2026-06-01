@@ -88,6 +88,48 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     deltaScrollTop: number;
     line: string;
   };
+  __debugArmPostSemanticCommitVisualRelease: (args: {
+    previousSemanticLineIdx: number;
+    newSemanticLineIdx: number;
+    nowMs?: number;
+    speechLive?: boolean;
+    transcriptFresh?: boolean;
+    noMatchOrOffscript?: boolean;
+    staleAuthority?: boolean;
+    generationMismatch?: boolean;
+    bridgeContextActive?: boolean;
+  }) => {
+    armed: boolean;
+    pending: boolean;
+    previousSemanticLineIdx: number;
+    newSemanticLineIdx: number;
+  };
+  __debugConsumePostSemanticCommitVisualRelease: (args: {
+    currentTop: number;
+    proposedTop: number;
+    lineHeightPx: number;
+    maxScrollTop: number;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    nextSpeakableLineIdx: number;
+    selectedAuthority: string;
+    nowMs?: number;
+    bridgeContextActive?: boolean;
+    terminalClampActive?: boolean;
+    noMatchOrOffscript?: boolean;
+    speechLive?: boolean;
+    transcriptFresh?: boolean;
+    staleAuthority?: boolean;
+    generationMismatch?: boolean;
+  }) => null | {
+    accepted: boolean;
+    rejectReason: string;
+    previousSemanticLineIdx: number;
+    newSemanticLineIdx: number;
+    boundedTargetScrollTop: number;
+    authoritativeLineIdx: number;
+    forceFreshVerifiedForwardCommit: boolean;
+  };
 };
 
 describe('ASR live commit motion', () => {
@@ -927,6 +969,171 @@ describe('ASR live commit motion', () => {
     });
     expect(result?.line).toContain('ASR_POST_COMMIT_VISUAL_FOLLOW_OK');
     expect(result?.line).toContain('selectedAuthority=pocket_authority');
+
+    driver.dispose();
+  });
+
+  test('fresh semantic +1 commit arms one post-commit visual release token and consumes it once', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const armed = driver.__debugArmPostSemanticCommitVisualRelease({
+      previousSemanticLineIdx: 6,
+      newSemanticLineIdx: 7,
+      speechLive: true,
+      transcriptFresh: true,
+    });
+    expect(armed).toMatchObject({
+      armed: true,
+      pending: true,
+      previousSemanticLineIdx: 6,
+      newSemanticLineIdx: 7,
+    });
+
+    const first = driver.__debugConsumePostSemanticCommitVisualRelease({
+      currentTop: 217,
+      proposedTop: 512,
+      lineHeightPx: 236,
+      maxScrollTop: 5000,
+      currentLineIdx: 7,
+      committedLineIdx: 7,
+      nextSpeakableLineIdx: 7,
+      selectedAuthority: 'bottom_lock_release',
+      speechLive: true,
+      transcriptFresh: true,
+    });
+    expect(first).toMatchObject({
+      accepted: true,
+      rejectReason: 'none',
+      previousSemanticLineIdx: 6,
+      newSemanticLineIdx: 7,
+      authoritativeLineIdx: 7,
+      forceFreshVerifiedForwardCommit: true,
+    });
+    expect(first?.boundedTargetScrollTop).toBe(453);
+
+    const second = driver.__debugConsumePostSemanticCommitVisualRelease({
+      currentTop: 217,
+      proposedTop: 512,
+      lineHeightPx: 236,
+      maxScrollTop: 5000,
+      currentLineIdx: 7,
+      committedLineIdx: 7,
+      nextSpeakableLineIdx: 7,
+      selectedAuthority: 'bottom_lock_release',
+      speechLive: true,
+      transcriptFresh: true,
+    });
+    expect(second).toBeNull();
+
+    driver.dispose();
+  });
+
+  test('post-commit visual release stands down in bridge or stale quiet blocked contexts', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    expect(driver.__debugArmPostSemanticCommitVisualRelease({
+      previousSemanticLineIdx: 3,
+      newSemanticLineIdx: 4,
+      bridgeContextActive: true,
+      speechLive: true,
+      transcriptFresh: true,
+    })).toMatchObject({ armed: false, pending: false });
+
+    expect(driver.__debugArmPostSemanticCommitVisualRelease({
+      previousSemanticLineIdx: 3,
+      newSemanticLineIdx: 4,
+      speechLive: false,
+      transcriptFresh: true,
+    })).toMatchObject({ armed: false, pending: false });
+
+    expect(driver.__debugArmPostSemanticCommitVisualRelease({
+      previousSemanticLineIdx: 3,
+      newSemanticLineIdx: 4,
+      speechLive: true,
+      transcriptFresh: false,
+    })).toMatchObject({ armed: false, pending: false });
+
+    const armed = driver.__debugArmPostSemanticCommitVisualRelease({
+      previousSemanticLineIdx: 10,
+      newSemanticLineIdx: 11,
+      speechLive: true,
+      transcriptFresh: true,
+    });
+    expect(armed.armed).toBe(true);
+
+    expect(driver.__debugConsumePostSemanticCommitVisualRelease({
+      currentTop: 100,
+      proposedTop: 180,
+      lineHeightPx: 60,
+      maxScrollTop: 1000,
+      currentLineIdx: 11,
+      committedLineIdx: 11,
+      nextSpeakableLineIdx: 11,
+      selectedAuthority: 'pocket_authority',
+      bridgeContextActive: true,
+      speechLive: true,
+      transcriptFresh: true,
+    })).toMatchObject({
+      accepted: false,
+      rejectReason: 'bridge_context_active',
+    });
+
+    driver.dispose();
+  });
+
+  test('post-commit visual release blocks backward or unbounded stale-authority cases', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    expect(driver.__debugArmPostSemanticCommitVisualRelease({
+      previousSemanticLineIdx: 5,
+      newSemanticLineIdx: 6,
+      speechLive: true,
+      transcriptFresh: true,
+    }).armed).toBe(true);
+
+    expect(driver.__debugConsumePostSemanticCommitVisualRelease({
+      currentTop: 220,
+      proposedTop: 180,
+      lineHeightPx: 80,
+      maxScrollTop: 1000,
+      currentLineIdx: 6,
+      committedLineIdx: 6,
+      nextSpeakableLineIdx: 6,
+      selectedAuthority: 'comfort_nudge',
+      speechLive: true,
+      transcriptFresh: true,
+    })).toMatchObject({
+      accepted: false,
+      rejectReason: 'no_bounded_forward_step',
+    });
+
+    expect(driver.__debugArmPostSemanticCommitVisualRelease({
+      previousSemanticLineIdx: 8,
+      newSemanticLineIdx: 9,
+      speechLive: true,
+      transcriptFresh: true,
+    }).armed).toBe(true);
+
+    const staleAuthority = driver.__debugConsumePostSemanticCommitVisualRelease({
+      currentTop: 200,
+      proposedTop: 500,
+      lineHeightPx: 100,
+      maxScrollTop: 1000,
+      currentLineIdx: 9,
+      committedLineIdx: 9,
+      nextSpeakableLineIdx: 9,
+      selectedAuthority: 'preferred_lower_rail_release',
+      speechLive: true,
+      transcriptFresh: true,
+      staleAuthority: true,
+    });
+    expect(staleAuthority).toMatchObject({
+      accepted: false,
+      rejectReason: 'stale_authority',
+    });
 
     driver.dispose();
   });
