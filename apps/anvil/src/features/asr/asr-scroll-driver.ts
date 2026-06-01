@@ -5340,6 +5340,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastStallRecoveryOverrideAt = 0;
   let lastStallRecoveryOverrideHintAt = 0;
   let lastStallRecoveryOverrideHintTarget = -1;
+  let lastLiveForwardGuardHintAt = 0;
+  let lastLiveForwardGuardHintTarget = -1;
   let liveStrictSpeculativeStepUsed = false;
   let liveStrictForwardClusterCursor = -1;
   let liveStrictForwardClusterLine = -1;
@@ -5738,6 +5740,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastStallRecoveryOverrideAt = 0;
     lastStallRecoveryOverrideHintAt = 0;
     lastStallRecoveryOverrideHintTarget = -1;
+    lastLiveForwardGuardHintAt = 0;
+    lastLiveForwardGuardHintTarget = -1;
     lastStaleLandingRelaxationAt = 0;
     liveAsrVisualDebtCatchupCooldownUntilMs = 0;
     liveAsrVisualDebtCatchupObservationCount = 0;
@@ -6102,6 +6106,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let pendingSeq = 0;
 
     const adoptPendingMatch = (next: PendingMatch) => {
+      if (next.liveForwardGuardActive && Number.isFinite(next.line)) {
+        lastLiveForwardGuardHintAt = Date.now();
+        lastLiveForwardGuardHintTarget = Math.max(0, Math.floor(Number(next.line)));
+      }
       pendingMatch = {
         ...next,
         transcriptSeq:
@@ -9701,6 +9709,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       String(args.bypassedBlockers || '').includes('bridge') ||
       String(args.bypassedBlockers || '').includes('visual_cap') ||
       sourceBranch.includes('bridge');
+    const stageNow = Date.now();
+    const recentStallRecoveryOverrideHint =
+      safeTarget === safeCurrent + 1 &&
+      lastStallRecoveryOverrideHintTarget === safeTarget &&
+      stageNow - lastStallRecoveryOverrideHintAt <= 800;
+    const stageGovernorAdjacentBypass =
+      safeTarget === safeCurrent + 1 &&
+      recentStallRecoveryOverrideHint;
     const holdReason =
       (safeCurrent >= confirmedSpoken && speakableLead > ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE)
         ? 'beyond_hard_lead'
@@ -9709,7 +9725,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           : ((safeCurrent >= confirmedSpoken && msSinceLastCommit < thresholdMs)
             ? 'rate_limited'
             : ''));
-    if (holdReason) {
+    if (holdReason && !stageGovernorAdjacentBypass) {
       const nowTs = Date.now();
       const runtimeSpeechFresh = asrRuntimeSpeechRunningActual || hasRecentActualSpeech(nowTs);
       const finalPacketFresh = lastFinalTranscriptAt > 0 && nowTs - lastFinalTranscriptAt <= 1800;
@@ -9737,11 +9753,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       } catch {}
       return false;
     }
-    const recentStallRecoveryOverrideHint =
-      safeTarget === safeCurrent + 1 &&
-      lastStallRecoveryOverrideHintTarget === safeTarget &&
-      Date.now() - lastStallRecoveryOverrideHintAt <= 800;
-    if ((forcedReason === 'stall_recovery_override' || recentStallRecoveryOverrideHint) && safeTarget === safeCurrent + 1) {
+    if (recentStallRecoveryOverrideHint && safeTarget === safeCurrent + 1) {
       const commitNow = Date.now();
       lastLineIndex = safeTarget;
       lastCommittedLine = safeTarget;
@@ -10787,16 +10799,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       !completionNoMatchOrOffscript &&
       !hardContradiction &&
       completionProofSourceAllowed;
-    if (!accepted && completionAdjacentProgressionLaneEligible) {
-      accepted = true;
-      semanticCompletionBypassLane = 'adjacent_safe_semantic_progression';
-      blockedReasonBeforeBypass = 'threshold_gate';
-      try {
-        console.warn(
-          `[ASR_ADJACENT_SAFE_SEMANTIC_BYPASS] adjacentProgressionLane=${semanticCompletionBypassLane} originalMatchBestIdx=${originalMatchBestIdx} reducedSemanticTargetLine=${reducedTarget} currentLineIdx=${current} proposedCommitLine=${completionProposedCommitLine} proofSource=${args.proofSource || 'none'} blockedReasonBeforeBypass=${blockedReasonBeforeBypass} speechFresh=${completionSpeechFresh ? 1 : 0} responseFresh=${completionResponseFresh ? 1 : 0} audioFresh=${completionAudioFresh ? 1 : 0}`,
-        );
-      } catch {}
-    }
     if (liveAsrVisualGovernorHardHold) {
       const farAheadEscapeDecision = shouldAllowFarAheadHardHoldAdjacentEscape({
         liveAsrVisualGovernorHardHold: true,
@@ -10955,6 +10957,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const committedSourceBranchLower = String(args.sourceBranch || '').toLowerCase();
     const committedProofSourceLower = String(args.proofSource || '').toLowerCase();
     const committedAuthorityLower = String(args.authority || '').toLowerCase();
+    if (
+      reducedTarget === current + 1 &&
+      committedSourceBranchLower.includes('rescue_hold') &&
+      committedProofSourceLower.includes('adjacent_release') &&
+      completionSpeechFresh &&
+      completionResponseFresh &&
+      !completionStaleResponseInvalidated &&
+      !completionNoMatchOrOffscript &&
+      !hardContradiction
+    ) {
+      lastStallRecoveryOverrideHintAt = commitTs;
+      lastStallRecoveryOverrideHintTarget = reducedTarget;
+    }
     const committedBridgeRecoveryLike =
       reducedTarget > current + 1 ||
       semanticTargetRaw > current + 1 ||
@@ -33532,6 +33547,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastStallRecoveryOverrideAt = 0;
     lastStallRecoveryOverrideHintAt = 0;
     lastStallRecoveryOverrideHintTarget = -1;
+    lastLiveForwardGuardHintAt = 0;
+    lastLiveForwardGuardHintTarget = -1;
     _postCommitReadabilitySeq += 1;
     try {
       unsubscribe();
