@@ -308,10 +308,10 @@ describe('ASR live commit motion', () => {
       match: { bestIdx: 1, bestSim: 0.9, topScores: [{ idx: 1, score: 0.9 }] },
     });
 
-    await jest.advanceTimersByTimeAsync(120);
+    await jest.advanceTimersByTimeAsync(320);
 
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    const authorityLine = lines.find((l) => l.includes('ASR_CURRENT_POCKET_AUTHORITY')) || '';
+    const authorityLine = lines.find((l) => l.includes('ASR_CURRENT_POCKET_AUTHORITY') && l.includes('desiredLineYMode=')) || '';
 
     expect(authorityLine).toContain('visualAnchorLineIdx=');
     expect(authorityLine).toContain('visualAnchorSource=');

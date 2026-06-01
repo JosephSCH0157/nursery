@@ -14520,15 +14520,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const hasCurrentLineAnchor =
         Number.isFinite(lastLineIndex) &&
         Math.floor(Number(lastLineIndex)) >= 0;
-      const visualAnchorLineIdx = hasConfirmedSpokenAnchor
-        ? Math.max(0, Math.floor(Number(lastStrongConfirmedSpokenLine)))
-        : (hasCurrentLineAnchor
-          ? Math.max(0, Math.floor(Number(lastLineIndex)))
-          : Math.max(0, nextSpeakableLineIdx));
-      const visualAnchorSource = hasConfirmedSpokenAnchor
-        ? 'confirmed_spoken'
-        : (hasCurrentLineAnchor ? 'current_line' : 'next_speakable_fallback');
-      const visualAnchorVisual = resolveLineVisualTelemetry(scroller, visualAnchorLineIdx);
       const nextSpeakableEl = getLineElementByIndex(scroller, nextSpeakableLineIdx);
       const measuredLineHeightPx = clamp(
         Number.isFinite(Number(nextSpeakableEl?.clientHeight))
@@ -14585,6 +14576,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             String(liveAsrBridgeVisualComfortProofSource || '').toLowerCase().includes('bridge')
           )
         );
+      const ordinaryLiveMarkerLandingActive =
+        liveAsrFollowMode &&
+        !bridgeHoldContextActive;
+      const visualAnchorLineIdx = ordinaryLiveMarkerLandingActive
+        ? (hasConfirmedSpokenAnchor
+          ? Math.max(0, Math.floor(Number(lastStrongConfirmedSpokenLine)))
+          : (hasCurrentLineAnchor
+            ? Math.max(0, Math.floor(Number(lastLineIndex)))
+            : Math.max(0, nextSpeakableLineIdx)))
+        : Math.max(0, nextSpeakableLineIdx);
+      const visualAnchorSource = ordinaryLiveMarkerLandingActive
+        ? (hasConfirmedSpokenAnchor
+          ? 'confirmed_spoken'
+          : (hasCurrentLineAnchor ? 'current_line' : 'next_speakable_fallback'))
+        : 'next_speakable_pending_bridge';
+      const visualAnchorVisual = resolveLineVisualTelemetry(scroller, visualAnchorLineIdx);
       liveAsrCommitteeBridgeHoldContextActive = bridgeHoldContextActive;
       liveAsrCommitteePendingBridgeStateActive = !!pendingSpeakableBridgeState;
       previousAcceptedCommitTargetIdx = liveAsrCommitteeAcceptedCommitTargetIdx;
@@ -14623,7 +14630,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const visualAnchorLineY = Number.isFinite(visualAnchorVisual.lineCenterInViewport)
         ? Number(visualAnchorVisual.lineCenterInViewport)
         : nextLineY;
-      const desiredLineYMode: 'marker' | 'read_ahead' = liveAsrFollowMode ? 'marker' : 'read_ahead';
+      const desiredLineYMode: 'marker' | 'read_ahead' = ordinaryLiveMarkerLandingActive
+        ? 'marker'
+        : 'read_ahead';
       const desiredReadAheadPx = desiredLineYMode === 'marker'
         ? 0
         : ASR_VISUAL_MARKER_ERROR_DESIRED_READ_AHEAD_LINES * measuredLineHeightPx;
