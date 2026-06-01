@@ -5134,6 +5134,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   // the line the reader is actually speaking is centred at markerY, even when the
   // visual governor has held semantic commits behind that position.
   let lastAcceptedMatchedLineIdx = -1;
+  let lastAcceptedMatchedLineSim = Number.NaN;
+  let lastAcceptedMatchedAt = 0;
   let liveAsrVisualGovernorHardHold = false;
   let liveAsrVisualGovernorHardHoldSinceMs = 0;
   let deadScreenAutopsyEmittedInWindow = false;
@@ -14547,6 +14549,32 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const preferredSettleBottom = markerY + (ASR_READER_POCKET_PREFERRED_SETTLE_BOTTOM_LINES * measuredLineHeightPx);
       const toleratedBandTop = markerY + (ASR_READER_POCKET_TOLERATED_TOP_LINES * measuredLineHeightPx);
       const toleratedBandBottom = markerY + (ASR_READER_POCKET_TOLERATED_BOTTOM_LINES * measuredLineHeightPx);
+      const acceptedAnchorLineIdx = hasAcceptedMatchAnchor
+        ? Math.max(0, Math.floor(Number(lastAcceptedMatchedLineIdx)))
+        : -1;
+      const acceptedAnchorDeltaFromCurrent = acceptedAnchorLineIdx - Math.max(0, Math.floor(Number(lastLineIndex) || 0));
+      const acceptedAnchorLocalAdjacent =
+        acceptedAnchorLineIdx >= 0 &&
+        acceptedAnchorDeltaFromCurrent >= 0 &&
+        acceptedAnchorDeltaFromCurrent <= 1;
+      const acceptedAnchorStrongConfidence =
+        Number.isFinite(lastAcceptedMatchedLineSim) &&
+        lastAcceptedMatchedLineSim >= DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM;
+      const acceptedAnchorFresh =
+        lastAcceptedMatchedAt > 0 &&
+        (nowTs - lastAcceptedMatchedAt) <= 1800;
+      const acceptedAnchorVisual = acceptedAnchorLineIdx >= 0
+        ? resolveLineVisualTelemetry(scroller, acceptedAnchorLineIdx)
+        : null;
+      const acceptedAnchorLineY = Number.isFinite(acceptedAnchorVisual?.lineCenterInViewport as number)
+        ? Number(acceptedAnchorVisual?.lineCenterInViewport)
+        : Number.NaN;
+      const acceptedAnchorVisualDebtAbsPx = Number.isFinite(acceptedAnchorLineY)
+        ? Math.abs(acceptedAnchorLineY - markerY)
+        : Number.NaN;
+      const acceptedAnchorLowDebt =
+        Number.isFinite(acceptedAnchorVisualDebtAbsPx) &&
+        acceptedAnchorVisualDebtAbsPx <= (measuredLineHeightPx * 6);
       const nextLineY = Number.isFinite(nextVisual.lineCenterInViewport) ? nextVisual.lineCenterInViewport : Number.NaN;
       const insidePreferred =
         Number.isFinite(nextLineY) &&
@@ -14591,9 +14619,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const ordinaryLiveMarkerLandingActive =
         liveAsrFollowMode &&
         !bridgeHoldContextActive;
+      const acceptedAnchorHoldOrRecoveryContextActive =
+        visualGovernorHoldActive ||
+        liveHardHold ||
+        readerPaceHold ||
+        liveAsrRecoveryBoostMinStepPx > 0 ||
+        liveAsrRecoveryBoostMaxStepPx > 0 ||
+        postAdjacentCommitRecoveryMinStepPx > 0 ||
+        postAdjacentCommitRecoveryMaxStepPx > 0;
+      const acceptedMatchAnchorEligible =
+        ordinaryLiveMarkerLandingActive &&
+        hasAcceptedMatchAnchor &&
+        acceptedAnchorLocalAdjacent &&
+        acceptedAnchorStrongConfidence &&
+        acceptedAnchorFresh &&
+        !acceptedAnchorHoldOrRecoveryContextActive &&
+        acceptedAnchorLowDebt;
       const visualAnchorLineIdx = ordinaryLiveMarkerLandingActive
-        ? (hasAcceptedMatchAnchor
-          ? Math.max(0, Math.floor(Number(lastAcceptedMatchedLineIdx)))
+        ? (acceptedMatchAnchorEligible
+          ? acceptedAnchorLineIdx
           : (hasConfirmedSpokenAnchor
             ? Math.max(0, Math.floor(Number(lastStrongConfirmedSpokenLine)))
             : (hasCurrentLineAnchor
@@ -14601,7 +14645,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               : Math.max(0, nextSpeakableLineIdx))))
         : Math.max(0, nextSpeakableLineIdx);
       const visualAnchorSource = ordinaryLiveMarkerLandingActive
-        ? (hasAcceptedMatchAnchor
+        ? (acceptedMatchAnchorEligible
           ? 'accepted_match'
           : (hasConfirmedSpokenAnchor
             ? 'confirmed_spoken'
@@ -15101,6 +15145,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           Math.round(visualErrorPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
           Math.round(current / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
         ].join('|');
+        const matchBestIdxForGeometry = Number.isFinite(lastAuthorityMatchBestIdx)
+          ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx)))
+          : -1;
+        const matchBestVisual = matchBestIdxForGeometry >= 0
+          ? resolveLineVisualTelemetry(scroller, matchBestIdxForGeometry)
+          : null;
+        const matchedLineViewportY = Number.isFinite(matchBestVisual?.lineCenterInViewport as number)
+          ? Number(matchBestVisual?.lineCenterInViewport)
+          : Number.NaN;
         const markerLandingGeometrySignature = [
           visualAnchorLineIdx,
           visualAnchorSource,
@@ -15109,11 +15162,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           Math.round(desiredLineY / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
           Math.round((visualAnchorLineY || 0) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
           lastAcceptedMatchedLineIdx,
+          acceptedMatchAnchorEligible ? 1 : 0,
+          matchBestIdxForGeometry,
         ].join('|');
         if (shouldEmitFrameDiagnostic('ASR_MARKER_LANDING_GEOMETRY', markerLandingGeometrySignature, 250)) {
           try {
             console.warn(
-              `[ASR_MARKER_LANDING_GEOMETRY] currentLineIdx=${lastLineIndex} nextSpeakableLineIdx=${nextSpeakableLineIdx} visualAnchorLineIdx=${visualAnchorLineIdx} visualAnchorSource=${visualAnchorSource} lastAcceptedMatchedLineIdx=${lastAcceptedMatchedLineIdx} desiredLineYMode=${desiredLineYMode} markerY=${Math.round(markerY)} desiredLineY=${Math.round(desiredLineY)} visualAnchorLineY=${Math.round(visualAnchorLineY)} visualErrorPx=${Math.round(visualErrorPx)}`,
+              `[ASR_MARKER_LANDING_GEOMETRY] currentLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} nextSpeakableLineIdx=${nextSpeakableLineIdx} matchBestIdx=${matchBestIdxForGeometry} visualAnchorLineIdx=${visualAnchorLineIdx} visualAnchorSource=${visualAnchorSource} acceptedMatchAnchorEligible=${acceptedMatchAnchorEligible ? 1 : 0} lastAcceptedMatchedLineIdx=${lastAcceptedMatchedLineIdx} desiredLineYMode=${desiredLineYMode} markerY=${Math.round(markerY)} desiredLineY=${Math.round(desiredLineY)} visualAnchorLineY=${Math.round(visualAnchorLineY)} matchedLineViewportY=${Math.round(matchedLineViewportY)} visualErrorPx=${Math.round(visualErrorPx)}`,
             );
           } catch {}
         }
@@ -26004,7 +26059,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (liveStrictProofCommit) {
         liveProgressHeuristics.lastStrongSyncAtMs = now;
         lastStrongConfirmedSpokenLine = Math.max(lastStrongConfirmedSpokenLine, effectiveSemanticCommitTargetLine);
-        lastAcceptedMatchedLineIdx = Math.max(lastAcceptedMatchedLineIdx, effectiveSemanticCommitTargetLine);
+        if (lastAcceptedMatchedLineIdx < effectiveSemanticCommitTargetLine) {
+          lastAcceptedMatchedLineIdx = effectiveSemanticCommitTargetLine;
+          lastAcceptedMatchedLineSim = Number.NaN;
+          lastAcceptedMatchedAt = now;
+        }
         if (liveStrictSpeculativeStepUsed) {
           liveStrictSpeculativeStepUsed = false;
           warnGuard('live_strict_local_proof_ok', [
@@ -28452,7 +28511,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ? Number((incomingMatch as any).bestSim)
           : -1;
         if (freshBestIdx >= 0 && freshBestSim >= DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM) {
-          lastAcceptedMatchedLineIdx = Math.max(lastAcceptedMatchedLineIdx, freshBestIdx);
+          lastAcceptedMatchedLineIdx = freshBestIdx;
+          lastAcceptedMatchedLineSim = freshBestSim;
+          lastAcceptedMatchedAt = now;
         }
       }
     }
@@ -33321,6 +33382,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastFreshProofLine = lastLineIndex;
     lastStrongConfirmedSpokenLine = lastLineIndex;
     lastAcceptedMatchedLineIdx = lastLineIndex;
+    lastAcceptedMatchedLineSim = Number.NaN;
+    lastAcceptedMatchedAt = Date.now();
     _postCommitReadabilitySeq += 1;
     lastSeekTs = 0;
     lastSameLineNudgeTs = 0;

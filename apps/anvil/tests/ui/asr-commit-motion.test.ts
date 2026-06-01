@@ -329,18 +329,21 @@ describe('ASR live commit motion', () => {
     // With bestIdx=1 differing from currentLineIdx=0 the anchor should prefer
     // the accepted match over the committed position.
     expect(visualAnchorSource).toBe('accepted_match');
+    const acceptedEligible = extractTraceFieldNumber(geometryLine, 'acceptedMatchAnchorEligible');
+    expect(acceptedEligible).toBe(1);
 
     warnSpy.mockRestore();
     driver.dispose();
   });
 
-  test('live ASR visual anchor follows accepted match bestIdx ahead of currentLineIdx', async () => {
+  test('live ASR gates accepted-match anchor when match bestIdx jumps ahead of local window', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     (window as any).__TP_MARKER_PCT = 0.4;
     const driver = createAsrScrollDriver();
     bootstrapLiveAsrRuntime();
 
     // currentLineIdx=0, but ASR has matched line 3 strongly.
+    // This should remain semantic evidence only and not become the visual anchor.
     driver.setLastLineIndex(0);
     driver.ingest('Some line that matches ahead of current position.', true, {
       currentIdx: 0,
@@ -355,7 +358,13 @@ describe('ASR live commit motion', () => {
     expect(geometryLine).not.toBe('');
 
     const visualAnchorSource = extractTraceField(geometryLine, 'visualAnchorSource');
-    expect(visualAnchorSource).toBe('accepted_match');
+    expect(visualAnchorSource).not.toBe('accepted_match');
+
+    const acceptedEligible = extractTraceFieldNumber(geometryLine, 'acceptedMatchAnchorEligible');
+    expect(acceptedEligible).toBe(0);
+
+    const visualAnchorLineIdx = extractTraceFieldNumber(geometryLine, 'visualAnchorLineIdx');
+    expect(visualAnchorLineIdx).toBe(0);
 
     const lastAcceptedMatchedLineIdx = extractTraceFieldNumber(geometryLine, 'lastAcceptedMatchedLineIdx');
     expect(lastAcceptedMatchedLineIdx).toBe(3);
