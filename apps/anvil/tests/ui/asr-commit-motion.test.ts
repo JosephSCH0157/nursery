@@ -295,6 +295,42 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('live ASR marker landing uses marker-mode desired line and visual anchor diagnostics', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (window as any).__TP_MARKER_PCT = 0.4;
+    const driver = createAsrScrollDriver();
+    bootstrapLiveAsrRuntime();
+
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'marker-anchor-mode',
+      match: { bestIdx: 1, bestSim: 0.9, topScores: [{ idx: 1, score: 0.9 }] },
+    });
+
+    await jest.advanceTimersByTimeAsync(120);
+
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const authorityLine = lines.find((l) => l.includes('ASR_CURRENT_POCKET_AUTHORITY')) || '';
+
+    expect(authorityLine).toContain('visualAnchorLineIdx=');
+    expect(authorityLine).toContain('visualAnchorSource=');
+    expect(authorityLine).toContain('desiredLineYMode=marker');
+
+    const markerY = extractTraceFieldNumber(authorityLine, 'markerY');
+    const desiredLineY = extractTraceFieldNumber(authorityLine, 'desiredLineY');
+    expect(Number.isFinite(markerY)).toBe(true);
+    expect(Number.isFinite(desiredLineY)).toBe(true);
+    expect(desiredLineY).toBe(markerY);
+
+    const visualAnchorSource = extractTraceField(authorityLine, 'visualAnchorSource');
+    expect(['confirmed_spoken', 'current_line', 'next_speakable_fallback']).toContain(visualAnchorSource);
+    expect(visualAnchorSource).not.toBe('next_speakable_fallback');
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
   test('live ASR suppresses hard marker-lock snap for positive drift and uses follow diagnostics', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     (window as any).__TP_MARKER_PCT = 0.4; // marker above row -> positive delta

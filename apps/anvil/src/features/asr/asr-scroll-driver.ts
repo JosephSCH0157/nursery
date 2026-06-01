@@ -14514,6 +14514,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }) ?? lastLineIndex;
       const currentVisual = resolveLineVisualTelemetry(scroller, lastLineIndex);
       const nextVisual = resolveLineVisualTelemetry(scroller, nextSpeakableLineIdx);
+      const hasConfirmedSpokenAnchor =
+        Number.isFinite(lastStrongConfirmedSpokenLine) &&
+        Math.floor(Number(lastStrongConfirmedSpokenLine)) >= 0;
+      const hasCurrentLineAnchor =
+        Number.isFinite(lastLineIndex) &&
+        Math.floor(Number(lastLineIndex)) >= 0;
+      const visualAnchorLineIdx = hasConfirmedSpokenAnchor
+        ? Math.max(0, Math.floor(Number(lastStrongConfirmedSpokenLine)))
+        : (hasCurrentLineAnchor
+          ? Math.max(0, Math.floor(Number(lastLineIndex)))
+          : Math.max(0, nextSpeakableLineIdx));
+      const visualAnchorSource = hasConfirmedSpokenAnchor
+        ? 'confirmed_spoken'
+        : (hasCurrentLineAnchor ? 'current_line' : 'next_speakable_fallback');
+      const visualAnchorVisual = resolveLineVisualTelemetry(scroller, visualAnchorLineIdx);
       const nextSpeakableEl = getLineElementByIndex(scroller, nextSpeakableLineIdx);
       const measuredLineHeightPx = clamp(
         Number.isFinite(Number(nextSpeakableEl?.clientHeight))
@@ -14605,11 +14620,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         Number.isFinite(nextLineY) && Number.isFinite(measuredLineHeightPx) && measuredLineHeightPx > 0
           ? (nextLineY - preferredBandBottom) / measuredLineHeightPx
           : Number.NaN;
-      const desiredReadAheadPx = ASR_VISUAL_MARKER_ERROR_DESIRED_READ_AHEAD_LINES * measuredLineHeightPx;
+      const visualAnchorLineY = Number.isFinite(visualAnchorVisual.lineCenterInViewport)
+        ? Number(visualAnchorVisual.lineCenterInViewport)
+        : nextLineY;
+      const desiredLineYMode: 'marker' | 'read_ahead' = liveAsrFollowMode ? 'marker' : 'read_ahead';
+      const desiredReadAheadPx = desiredLineYMode === 'marker'
+        ? 0
+        : ASR_VISUAL_MARKER_ERROR_DESIRED_READ_AHEAD_LINES * measuredLineHeightPx;
       const desiredLineY = markerY + desiredReadAheadPx;
       const tolerancePx = Math.max(1, ASR_VISUAL_MARKER_ERROR_TOLERANCE_LINES * measuredLineHeightPx);
       const holdTolerancePx = Math.max(1, Math.min(tolerancePx, 0.20 * measuredLineHeightPx, 12));
-      const visualErrorPx = Number.isFinite(nextLineY) ? (nextLineY - desiredLineY) : Number.NaN;
+      const visualErrorPx = Number.isFinite(visualAnchorLineY) ? (visualAnchorLineY - desiredLineY) : Number.NaN;
       const visualErrorAbsPx = Number.isFinite(visualErrorPx) ? Math.abs(visualErrorPx) : Number.NaN;
       const visualErrorWithinTolerance =
         Number.isFinite(visualErrorAbsPx) &&
@@ -14709,7 +14730,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           emitDevDiagnostic(
             'ASR_CURRENT_POCKET_AUTHORITY',
             'warn',
-            `[ASR_CURRENT_POCKET_AUTHORITY] markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} preferredBandTop=${Math.round(preferredBandTop)} preferredSettleBottom=${Math.round(preferredSettleBottom)} preferredBandBottom=${Math.round(preferredBandBottom)} currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(desiredTopFromCurrent)} pocketZone=${liveTickAuthorityPocketZone} action=${authorityAction} reason=${authorityReason} desiredLineY=${Math.round(desiredLineY)} visualErrorPx=${Math.round(visualErrorPx)} tolerancePx=${Math.round(tolerancePx)}`,
+            `[ASR_CURRENT_POCKET_AUTHORITY] markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} visualAnchorLineIdx=${visualAnchorLineIdx} visualAnchorLineY=${Math.round(visualAnchorLineY)} visualAnchorSource=${visualAnchorSource} desiredLineYMode=${desiredLineYMode} preferredBandTop=${Math.round(preferredBandTop)} preferredSettleBottom=${Math.round(preferredSettleBottom)} preferredBandBottom=${Math.round(preferredBandBottom)} currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(desiredTopFromCurrent)} pocketZone=${liveTickAuthorityPocketZone} action=${authorityAction} reason=${authorityReason} desiredLineY=${Math.round(desiredLineY)} visualErrorPx=${Math.round(visualErrorPx)} tolerancePx=${Math.round(tolerancePx)}`,
             {
               minMs: 500,
               signature: [
@@ -15063,7 +15084,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 committedLineIdx: lastLineIndex,
                 nextSpeakableLineIdx,
                 markerY,
-                actualNextSpeakableLineY: nextLineY,
+                actualNextSpeakableLineY: visualAnchorLineY,
                 desiredLineY,
                 desiredReadAheadPx,
                 visualErrorPx,
