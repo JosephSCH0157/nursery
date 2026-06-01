@@ -77,6 +77,7 @@ import {
   buildAsrPostCommitVisualFollowBlockedDiagnostic,
   buildAsrPostCommitVisualFollowOkDiagnostic,
   buildAsrPostCommitVisualFollowReleaseDiagnostic,
+  buildAsrPostCommitVisualReleaseTokenStateDiagnostic,
   buildAsrDiagnosticBundleProofDiagnostic,
   buildAsrStaleRecoveryTargetExpiredDiagnostic,
   buildAsrAdjacentRecoveryCatchupAllowedDiagnostic,
@@ -5561,6 +5562,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     postSemanticCommitVisualReleaseTranscriptRunKey = null;
     postSemanticCommitVisualReleaseTranscriptRunGeneration = null;
   };
+  const emitPostSemanticCommitVisualReleaseTokenState = (args: {
+    event: 'armed' | 'rejected' | 'accepted' | 'consumed' | 'stood_down';
+    previousSemanticLineIdx: number;
+    newSemanticLineIdx: number;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    sessionLive: boolean;
+    asrMode: boolean;
+    speechLive: boolean;
+    transcriptFresh: boolean;
+    noMatch: boolean;
+    bridgeActive: boolean;
+    pendingBridgeActive: boolean;
+    proposedTargetScrollTop?: number | null;
+    rejectReason?: string | null;
+  }) => {
+    try {
+      console.info(buildAsrPostCommitVisualReleaseTokenStateDiagnostic(args));
+    } catch {}
+  };
   const isSameLineFinalNudgeForceReason = (value: unknown): boolean => {
     const normalized = String(value || '').trim().toLowerCase();
     return (
@@ -6413,10 +6434,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     newSemanticLineIdx: number;
     bridgeContextActive: boolean;
   }) => {
-    if (args.bridgeContextActive) {
-      clearPostSemanticCommitVisualRelease();
-      return false;
-    }
     const speechLive =
       asrRuntimeSpeechRunningActual ||
       (asrRuntimeSpeechSeen && asrRuntimeSpeechEverTrue && hasRecentActualSpeech(args.now)) ||
@@ -6428,6 +6445,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const noMatchOrOffscript =
       String(lastAsrGuardReason || '').toLowerCase().includes('no_match') ||
       String(lastAsrHudGuardText || '').toLowerCase().includes('offscript');
+    const asrModeLive = getScrollMode() === 'asr';
+    const sessionLive = isSessionLivePhase() && isSessionAsrArmed();
+    if (args.bridgeContextActive) {
+      emitPostSemanticCommitVisualReleaseTokenState({
+        event: 'stood_down',
+        previousSemanticLineIdx: args.previousSemanticLineIdx,
+        newSemanticLineIdx: args.newSemanticLineIdx,
+        currentLineIdx: Math.max(0, lastLineIndex),
+        committedLineIdx: Math.max(0, lastLineIndex),
+        sessionLive,
+        asrMode: asrModeLive,
+        speechLive,
+        transcriptFresh,
+        noMatch: noMatchOrOffscript,
+        bridgeActive: true,
+        pendingBridgeActive: !!pendingSpeakableBridgeState,
+        rejectReason: 'bridge_context_active',
+      });
+      clearPostSemanticCommitVisualRelease();
+      return false;
+    }
     const authorityCurrent =
       (
         Number.isFinite(commitAuthorityEpoch) &&
@@ -6444,14 +6482,35 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       });
     if (
       args.newSemanticLineIdx !== args.previousSemanticLineIdx + 1 ||
-      !isSessionLivePhase() ||
-      !isSessionAsrArmed() ||
-      getScrollMode() !== 'asr' ||
+      !sessionLive ||
+      !asrModeLive ||
       !speechLive ||
       !transcriptFresh ||
       noMatchOrOffscript ||
       !authorityCurrent
     ) {
+      let rejectReason = 'authority_not_current';
+      if (args.newSemanticLineIdx !== args.previousSemanticLineIdx + 1) rejectReason = 'non_adjacent_semantic_commit';
+      else if (!sessionLive) rejectReason = 'session_not_live';
+      else if (!asrModeLive) rejectReason = 'asr_mode_inactive';
+      else if (!speechLive) rejectReason = 'speech_not_live';
+      else if (!transcriptFresh) rejectReason = 'transcript_stale';
+      else if (noMatchOrOffscript) rejectReason = 'no_match_or_offscript';
+      emitPostSemanticCommitVisualReleaseTokenState({
+        event: 'stood_down',
+        previousSemanticLineIdx: args.previousSemanticLineIdx,
+        newSemanticLineIdx: args.newSemanticLineIdx,
+        currentLineIdx: Math.max(0, lastLineIndex),
+        committedLineIdx: Math.max(0, lastLineIndex),
+        sessionLive,
+        asrMode: asrModeLive,
+        speechLive,
+        transcriptFresh,
+        noMatch: noMatchOrOffscript,
+        bridgeActive: false,
+        pendingBridgeActive: !!pendingSpeakableBridgeState,
+        rejectReason,
+      });
       clearPostSemanticCommitVisualRelease();
       return false;
     }
@@ -6465,6 +6524,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     postSemanticCommitVisualReleaseTranscriptRunKey = lastFinalTranscriptRunKey || null;
     postSemanticCommitVisualReleaseTranscriptRunGeneration =
       Number.isFinite(lastFinalTranscriptRunGeneration as number) ? Number(lastFinalTranscriptRunGeneration) : null;
+    emitPostSemanticCommitVisualReleaseTokenState({
+      event: 'armed',
+      previousSemanticLineIdx: args.previousSemanticLineIdx,
+      newSemanticLineIdx: args.newSemanticLineIdx,
+      currentLineIdx: Math.max(0, lastLineIndex),
+      committedLineIdx: Math.max(0, lastLineIndex),
+      sessionLive,
+      asrMode: asrModeLive,
+      speechLive,
+      transcriptFresh,
+      noMatch: noMatchOrOffscript,
+      bridgeActive: false,
+      pendingBridgeActive: !!pendingSpeakableBridgeState,
+    });
     return true;
   };
 
@@ -6494,10 +6567,54 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const nowMs = Number.isFinite(args.nowMs as number) ? Number(args.nowMs) : Date.now();
     const previousSemanticLineIdx = postSemanticCommitVisualReleasePreviousLineIdx;
     const newSemanticLineIdx = postSemanticCommitVisualReleaseNewLineIdx;
+    const speechLive =
+      asrRuntimeSpeechRunningActual ||
+      (asrRuntimeSpeechSeen && asrRuntimeSpeechEverTrue && hasRecentActualSpeech(nowMs)) ||
+      (asrVadSeen && hasRecentVadSpeechNow(nowMs));
+    const transcriptFresh =
+      lastTranscriptSpeechFresh === true &&
+      Number.isFinite(lastTranscriptResponseAgeMs) &&
+      Number(lastTranscriptResponseAgeMs) <= activeAsrControllerProfile.responseFreshMaxAgeMs;
+    const noMatch = !!args.noMatchOrOffscript;
+    const sessionLive = isSessionLivePhase() && isSessionAsrArmed();
+    const asrMode = getScrollMode() === 'asr';
+    const bridgeActive = !!args.bridgeContextActive;
     let accepted = false;
     let rejectReason = 'not_armed';
     let boundedTargetScrollTop = Number.isFinite(args.currentTop) ? Number(args.currentTop) : 0;
     const clearAndReturn = () => {
+      emitPostSemanticCommitVisualReleaseTokenState({
+        event: accepted ? 'accepted' : 'rejected',
+        previousSemanticLineIdx,
+        newSemanticLineIdx,
+        currentLineIdx: Math.max(0, Math.floor(Number(args.currentLineIdx) || 0)),
+        committedLineIdx: Math.max(0, Math.floor(Number(args.committedLineIdx) || 0)),
+        sessionLive,
+        asrMode,
+        speechLive,
+        transcriptFresh,
+        noMatch,
+        bridgeActive,
+        pendingBridgeActive: !!pendingSpeakableBridgeState,
+        proposedTargetScrollTop: args.proposedTop,
+        rejectReason,
+      });
+      emitPostSemanticCommitVisualReleaseTokenState({
+        event: 'consumed',
+        previousSemanticLineIdx,
+        newSemanticLineIdx,
+        currentLineIdx: Math.max(0, Math.floor(Number(args.currentLineIdx) || 0)),
+        committedLineIdx: Math.max(0, Math.floor(Number(args.committedLineIdx) || 0)),
+        sessionLive,
+        asrMode,
+        speechLive,
+        transcriptFresh,
+        noMatch,
+        bridgeActive,
+        pendingBridgeActive: !!pendingSpeakableBridgeState,
+        proposedTargetScrollTop: args.proposedTop,
+        rejectReason,
+      });
       const result = {
         accepted,
         rejectReason,
@@ -6522,18 +6639,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       rejectReason = 'bridge_context_active';
       return clearAndReturn();
     }
-    const speechLive =
-      asrRuntimeSpeechRunningActual ||
-      (asrRuntimeSpeechSeen && asrRuntimeSpeechEverTrue && hasRecentActualSpeech(nowMs)) ||
-      (asrVadSeen && hasRecentVadSpeechNow(nowMs));
     if (!speechLive) {
       rejectReason = 'speech_not_live';
       return clearAndReturn();
     }
-    const transcriptFresh =
-      lastTranscriptSpeechFresh === true &&
-      Number.isFinite(lastTranscriptResponseAgeMs) &&
-      Number(lastTranscriptResponseAgeMs) <= activeAsrControllerProfile.responseFreshMaxAgeMs;
     if (!transcriptFresh) {
       rejectReason = 'transcript_stale';
       return clearAndReturn();

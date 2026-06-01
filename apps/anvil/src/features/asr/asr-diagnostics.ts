@@ -144,6 +144,25 @@ export function buildAsrPostCommitVisualFollowReleaseDiagnostic(args: {
   return `[ASR_POST_COMMIT_VISUAL_FOLLOW_RELEASE] previousSemanticLineIdx=${Math.round(args.previousSemanticLineIdx)} newSemanticLineIdx=${Math.round(args.newSemanticLineIdx)} beforeScrollTop=${Math.round(args.beforeScrollTop)} proposedTargetScrollTop=${Math.round(args.proposedTargetScrollTop)} boundedTargetScrollTop=${Math.round(args.boundedTargetScrollTop)} afterScrollTop=${Math.round(args.afterScrollTop)} deltaScrollTop=${Math.round(args.deltaScrollTop)} selectedAuthority=${args.selectedAuthority || 'none'} releaseAccepted=${args.releaseAccepted ? 1 : 0} rejectReason=${args.rejectReason || 'none'}`;
 }
 
+export function buildAsrPostCommitVisualReleaseTokenStateDiagnostic(args: {
+  event: 'armed' | 'rejected' | 'accepted' | 'consumed' | 'stood_down';
+  previousSemanticLineIdx: number;
+  newSemanticLineIdx: number;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  sessionLive: boolean;
+  asrMode: boolean;
+  speechLive: boolean;
+  transcriptFresh: boolean;
+  noMatch: boolean;
+  bridgeActive: boolean;
+  pendingBridgeActive: boolean;
+  proposedTargetScrollTop?: number | null;
+  rejectReason?: string | null;
+}): string {
+  return `[ASR_POST_COMMIT_VISUAL_RELEASE_TOKEN_STATE] event=${args.event} previousSemanticLineIdx=${Math.round(args.previousSemanticLineIdx)} newSemanticLineIdx=${Math.round(args.newSemanticLineIdx)} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} sessionLive=${args.sessionLive ? 1 : 0} asrMode=${args.asrMode ? 1 : 0} speechLive=${args.speechLive ? 1 : 0} transcriptFresh=${args.transcriptFresh ? 1 : 0} noMatch=${args.noMatch ? 1 : 0} bridgeActive=${args.bridgeActive ? 1 : 0} pendingBridgeActive=${args.pendingBridgeActive ? 1 : 0} proposedTargetScrollTop=${Number.isFinite(args.proposedTargetScrollTop as number) ? Math.round(Number(args.proposedTargetScrollTop)) : -1} rejectReason=${args.rejectReason || 'none'}`;
+}
+
 export function buildAsrFocusLossTranscriptQuarantinedDiagnostic(args: {
   focusState: string;
   generation: number;
