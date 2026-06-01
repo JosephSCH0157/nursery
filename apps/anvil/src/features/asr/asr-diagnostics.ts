@@ -78,6 +78,57 @@ export function buildAsrStabilizerCommitCandidateDiagnostic(args: {
   return `[ASR_STABILIZER_COMMIT_CANDIDATE] currentLineIdx=${Math.round(args.currentLineIdx)} proposedAdjacentCommitTarget=${proposedAdjacentCommitTarget} action=${args.action} reason=${args.reason} rawMatchBestIdx=${rawMatchBestIdx} speechLive=${args.speechLive ? 1 : 0} transcriptFresh=${args.transcriptFresh ? 1 : 0} noMatch=${args.noMatch ? 1 : 0} accepted=${args.accepted ? 1 : 0} rejectReason=${args.rejectReason || 'none'}`;
 }
 
+export function buildAsrPostCommitVisualFollowBlockedDiagnostic(args: {
+  previousSemanticLineIdx: number;
+  newSemanticLineIdx: number;
+  committedLineIdx: number;
+  currentLineIdx: number;
+  nextSpeakableLineIdx: number;
+  visualAnchorSource: string;
+  visualAnchorLineIdx: number;
+  authoritativeLineIdx: number;
+  lastVerifiedCommitLineIdx: number;
+  hasFreshVerifiedForwardCommit: boolean;
+  proposedTargetScrollTop: number;
+  cappedTargetScrollTop: number;
+  selectedAuthority: string;
+  beforeScrollTop: number;
+  afterScrollTop: number;
+  deltaScrollTop: number;
+  blockerReason: string;
+  pocketWallReason?: string;
+  leadPressureReason?: string;
+  markerY: number;
+  currentLineViewportY?: number;
+  activeLineViewportY?: number;
+}): string {
+  return `[ASR_POST_COMMIT_VISUAL_FOLLOW_BLOCKED] previousSemanticLineIdx=${Math.round(args.previousSemanticLineIdx)} newSemanticLineIdx=${Math.round(args.newSemanticLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} currentLineIdx=${Math.round(args.currentLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} visualAnchorSource=${args.visualAnchorSource || 'none'} visualAnchorLineIdx=${Math.round(args.visualAnchorLineIdx)} authoritativeLineIdx=${Math.round(args.authoritativeLineIdx)} lastVerifiedCommitLineIdx=${Math.round(args.lastVerifiedCommitLineIdx)} hasFreshVerifiedForwardCommit=${args.hasFreshVerifiedForwardCommit ? 1 : 0} proposedTargetScrollTop=${Math.round(args.proposedTargetScrollTop)} cappedTargetScrollTop=${Math.round(args.cappedTargetScrollTop)} selectedAuthority=${args.selectedAuthority || 'none'} beforeScrollTop=${Math.round(args.beforeScrollTop)} afterScrollTop=${Math.round(args.afterScrollTop)} deltaScrollTop=${Math.round(args.deltaScrollTop)} blockerReason=${args.blockerReason || 'unknown'} pocketWallReason=${args.pocketWallReason || 'none'} leadPressureReason=${args.leadPressureReason || 'none'} markerY=${Math.round(args.markerY)} currentLineViewportY=${Number.isFinite(args.currentLineViewportY as number) ? Math.round(Number(args.currentLineViewportY)) : -1} activeLineViewportY=${Number.isFinite(args.activeLineViewportY as number) ? Math.round(Number(args.activeLineViewportY)) : -1}`;
+}
+
+export function buildAsrPostCommitVisualFollowOkDiagnostic(args: {
+  previousSemanticLineIdx: number;
+  newSemanticLineIdx: number;
+  committedLineIdx: number;
+  currentLineIdx: number;
+  nextSpeakableLineIdx: number;
+  visualAnchorSource: string;
+  visualAnchorLineIdx: number;
+  authoritativeLineIdx: number;
+  lastVerifiedCommitLineIdx: number;
+  hasFreshVerifiedForwardCommit: boolean;
+  proposedTargetScrollTop: number;
+  cappedTargetScrollTop: number;
+  selectedAuthority: string;
+  beforeScrollTop: number;
+  afterScrollTop: number;
+  deltaScrollTop: number;
+  markerY: number;
+  currentLineViewportY?: number;
+  activeLineViewportY?: number;
+}): string {
+  return `[ASR_POST_COMMIT_VISUAL_FOLLOW_OK] previousSemanticLineIdx=${Math.round(args.previousSemanticLineIdx)} newSemanticLineIdx=${Math.round(args.newSemanticLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} currentLineIdx=${Math.round(args.currentLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} visualAnchorSource=${args.visualAnchorSource || 'none'} visualAnchorLineIdx=${Math.round(args.visualAnchorLineIdx)} authoritativeLineIdx=${Math.round(args.authoritativeLineIdx)} lastVerifiedCommitLineIdx=${Math.round(args.lastVerifiedCommitLineIdx)} hasFreshVerifiedForwardCommit=${args.hasFreshVerifiedForwardCommit ? 1 : 0} proposedTargetScrollTop=${Math.round(args.proposedTargetScrollTop)} cappedTargetScrollTop=${Math.round(args.cappedTargetScrollTop)} selectedAuthority=${args.selectedAuthority || 'none'} beforeScrollTop=${Math.round(args.beforeScrollTop)} afterScrollTop=${Math.round(args.afterScrollTop)} deltaScrollTop=${Math.round(args.deltaScrollTop)} markerY=${Math.round(args.markerY)} currentLineViewportY=${Number.isFinite(args.currentLineViewportY as number) ? Math.round(Number(args.currentLineViewportY)) : -1} activeLineViewportY=${Number.isFinite(args.activeLineViewportY as number) ? Math.round(Number(args.activeLineViewportY)) : -1}`;
+}
+
 export function buildAsrFocusLossTranscriptQuarantinedDiagnostic(args: {
   focusState: string;
   generation: number;

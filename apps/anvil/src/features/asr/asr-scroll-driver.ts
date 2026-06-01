@@ -74,6 +74,8 @@ import {
   buildAsrBackendHeartbeatDiagnostic,
   buildAsrBackendRestartCompletedDiagnostic,
   buildAsrBackendRestartRequestedDiagnostic,
+  buildAsrPostCommitVisualFollowBlockedDiagnostic,
+  buildAsrPostCommitVisualFollowOkDiagnostic,
   buildAsrDiagnosticBundleProofDiagnostic,
   buildAsrStaleRecoveryTargetExpiredDiagnostic,
   buildAsrAdjacentRecoveryCatchupAllowedDiagnostic,
@@ -331,6 +333,7 @@ const DEFAULT_MAX_ACCEL_PX_PER_SEC2 = 800;
 const DEFAULT_MIN_STEP_PX = 6;
 const DEFAULT_MAX_STEP_PX = 10;
 const ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_WINDOW_MS = 700;
+const ASR_POST_SEMANTIC_COMMIT_VISUAL_FOLLOW_WINDOW_MS = 700;
 const ASR4_POCKET_DRIFT_AUTHORITY_COOLDOWN_MS = 1200;
 const ASR_STALE_LANDING_RELAXATION_COOLDOWN_MS = 900;
 const ASR_VISUAL_DEBT_CATCHUP_COOLDOWN_MS = 900;
@@ -3488,6 +3491,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       tolerancePx,
       sourceAuthority: input.sourceAuthority || sourceAuthority,
     };
+    lastAsrPocketWallTickId = activeAsrAuthorityTraceTickId;
+    lastAsrPocketWallReason = pocketWallReason;
+    lastAsrPocketWallCappedTop = effectiveTop;
+    lastAsrPocketWallAuthoritativeLineIdx = authoritativeLineIdx;
+    lastAsrPocketWallLastVerifiedCommitLineIdx = lastVerifiedCommitLineIdx;
+    lastAsrPocketWallHasFreshVerifiedForwardCommit = hasFreshVerifiedForwardCommit;
     emitCoalescedDevDiagnostic(
       'ASR_POCKET_WALL_EVALUATED',
       'info',
@@ -4341,6 +4350,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       );
     } catch {}
     if (!shouldCap || cappedScrollTop >= proposedScrollTop - 0.5) {
+      lastAsrLeadPressureTickId = activeAsrAuthorityTraceTickId;
+      lastAsrLeadPressureReason = 'none';
+      lastAsrLeadPressureCappedTop = proposedScrollTop;
       try {
         console.warn(
           formatAsrVisualAuthorityLeadPressureDiagnostic(
@@ -4401,6 +4413,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     preservedAsrAuthorityTargetSourcePath = input.authoritySource;
     pursuitTargetTop = targetScrollTop;
     ensurePursuitActive();
+    lastAsrLeadPressureTickId = activeAsrAuthorityTraceTickId;
+    lastAsrLeadPressureReason = 'fresh_semantic_lead_pressure_capped';
+    lastAsrLeadPressureCappedTop = appliedTop;
     try {
       console.warn(
         formatAsrVisualAuthorityLeadPressureDiagnostic(
@@ -5208,6 +5223,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastAt: number;
   }>();
   let liveAsrScrollAuthorityTickId = 0;
+  let activeAsrAuthorityTraceTickId = -1;
   let lastAsrSelectedAuthority = 'none';
   let lastAsrVisualAction = 'none';
   let lastAsrVisualErrorPx = Number.NaN;
@@ -5218,6 +5234,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastAsrPreferredBandBottom = Number.NaN;
   let lastAsrToleratedBandBottom = Number.NaN;
   let lastAsrNextSpeakableLineY = Number.NaN;
+  let lastAsrVisualAnchorSource = 'none';
+  let lastAsrVisualAnchorLineIdx = -1;
+  let lastAsrCurrentLineViewportY = Number.NaN;
+  let lastAsrActiveLineViewportY = Number.NaN;
+  let lastAsrPocketWallTickId = -1;
+  let lastAsrPocketWallReason = 'none';
+  let lastAsrPocketWallCappedTop = Number.NaN;
+  let lastAsrPocketWallAuthoritativeLineIdx = -1;
+  let lastAsrPocketWallLastVerifiedCommitLineIdx = -1;
+  let lastAsrPocketWallHasFreshVerifiedForwardCommit = false;
+  let lastAsrLeadPressureTickId = -1;
+  let lastAsrLeadPressureReason = 'none';
+  let lastAsrLeadPressureCappedTop = Number.NaN;
   let lastAsrReaderPocketZone = 'unknown';
   let lastAsrResolvedAuthoritySignature = '';
   let lastResolvedMovementAllowed = false;
@@ -5397,6 +5426,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let postAdjacentCommitVisualRecoverySnapSuppressed = false;
   let postAdjacentCommitVisualRecoveryMovedPx = 0;
   let postAdjacentCommitVisualRecoveryLastBlockedReason = '';
+  let postSemanticCommitVisualFollowPending = false;
+  let postSemanticCommitVisualFollowUntilMs = 0;
+  let postSemanticCommitVisualFollowPreviousLineIdx = -1;
+  let postSemanticCommitVisualFollowNewLineIdx = -1;
   const emitAdjacentPromotionTrace = (input: {
     stage: string;
     decision: string;
@@ -5427,6 +5460,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const clearStallRecoveryOverrideHint = () => {
     lastStallRecoveryOverrideHintAt = 0;
     lastStallRecoveryOverrideHintTarget = -1;
+  };
+  const clearPostSemanticCommitVisualFollowDiagnostic = () => {
+    postSemanticCommitVisualFollowPending = false;
+    postSemanticCommitVisualFollowUntilMs = 0;
+    postSemanticCommitVisualFollowPreviousLineIdx = -1;
+    postSemanticCommitVisualFollowNewLineIdx = -1;
   };
   const isSameLineFinalNudgeForceReason = (value: unknown): boolean => {
     const normalized = String(value || '').trim().toLowerCase();
@@ -5832,6 +5871,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     stallRescueRequested = false;
     stallHudEmitted = false;
     runAffectedByFocusLoss = false;
+    clearPostSemanticCommitVisualFollowDiagnostic();
     stabilizerShadowState = createInitialAsrEvidenceStabilizerState(0);
     stabilizerShadowLastScriptHash = readScriptHash();
     latestStabilizerShadowEvaluation = null;
@@ -5954,6 +5994,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       stabilizerShadowState = createInitialAsrEvidenceStabilizerState(0);
       stabilizerShadowLastScriptHash = nextScriptHash;
       latestStabilizerShadowEvaluation = null;
+      clearPostSemanticCommitVisualFollowDiagnostic();
     }
   };
 
@@ -6154,6 +6195,120 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       rejectReason,
       proposedAdjacentCommitTarget,
     };
+  };
+
+  const evaluatePostSemanticCommitVisualFollowDiagnostic = (args: {
+    previousSemanticLineIdx: number;
+    newSemanticLineIdx: number;
+    committedLineIdx: number;
+    currentLineIdx: number;
+    nextSpeakableLineIdx: number;
+    visualAnchorSource: string;
+    visualAnchorLineIdx: number;
+    authoritativeLineIdx: number;
+    lastVerifiedCommitLineIdx: number;
+    hasFreshVerifiedForwardCommit: boolean;
+    proposedTargetScrollTop: number;
+    cappedTargetScrollTop: number;
+    selectedAuthority: string;
+    beforeScrollTop: number;
+    afterScrollTop: number;
+    pocketWallReason: string;
+    leadPressureReason: string;
+    markerY: number;
+    currentLineViewportY: number;
+    activeLineViewportY: number;
+  }): null | {
+    tag: 'ASR_POST_COMMIT_VISUAL_FOLLOW_BLOCKED' | 'ASR_POST_COMMIT_VISUAL_FOLLOW_OK';
+    blockerReason: string;
+    deltaScrollTop: number;
+    line: string;
+  } => {
+    const deltaScrollTop = Number(args.afterScrollTop) - Number(args.beforeScrollTop);
+    const pocketWallReason = String(args.pocketWallReason || 'none');
+    const leadPressureReason = String(args.leadPressureReason || 'none');
+    const selectedAuthority = String(args.selectedAuthority || 'none');
+    const blockedPocketWallReasons = new Set([
+      'no_safe_target_forward_suppressed',
+      'standard_visual_release_suppressed',
+      'wall_locked_tiny_or_noisy_delta',
+      'wall_locked_guard_state',
+      'wall_locked_no_fresh_verified_commit',
+      'hold_forward_write_suppressed',
+      'visual_forward_overshoot_suppressed',
+      'same_line_overshoot_capped',
+      'target_overshoot_capped',
+    ]);
+    let blockerReason = '';
+    if (blockedPocketWallReasons.has(pocketWallReason)) {
+      blockerReason = pocketWallReason;
+    } else if (leadPressureReason !== 'none') {
+      blockerReason = leadPressureReason;
+    } else if (selectedAuthority === 'comfort_nudge' || selectedAuthority === 'preferred_lower_rail_release') {
+      blockerReason = `selected_authority_${selectedAuthority}`;
+    } else if (Math.abs(deltaScrollTop) <= 2) {
+      blockerReason = 'no_meaningful_scroll_movement';
+    }
+    if (blockerReason) {
+      return {
+        tag: 'ASR_POST_COMMIT_VISUAL_FOLLOW_BLOCKED',
+        blockerReason,
+        deltaScrollTop,
+        line: buildAsrPostCommitVisualFollowBlockedDiagnostic({
+          previousSemanticLineIdx: args.previousSemanticLineIdx,
+          newSemanticLineIdx: args.newSemanticLineIdx,
+          committedLineIdx: args.committedLineIdx,
+          currentLineIdx: args.currentLineIdx,
+          nextSpeakableLineIdx: args.nextSpeakableLineIdx,
+          visualAnchorSource: args.visualAnchorSource,
+          visualAnchorLineIdx: args.visualAnchorLineIdx,
+          authoritativeLineIdx: args.authoritativeLineIdx,
+          lastVerifiedCommitLineIdx: args.lastVerifiedCommitLineIdx,
+          hasFreshVerifiedForwardCommit: args.hasFreshVerifiedForwardCommit,
+          proposedTargetScrollTop: args.proposedTargetScrollTop,
+          cappedTargetScrollTop: args.cappedTargetScrollTop,
+          selectedAuthority,
+          beforeScrollTop: args.beforeScrollTop,
+          afterScrollTop: args.afterScrollTop,
+          deltaScrollTop,
+          blockerReason,
+          pocketWallReason,
+          leadPressureReason,
+          markerY: args.markerY,
+          currentLineViewportY: args.currentLineViewportY,
+          activeLineViewportY: args.activeLineViewportY,
+        }),
+      };
+    }
+    if (deltaScrollTop > 3) {
+      return {
+        tag: 'ASR_POST_COMMIT_VISUAL_FOLLOW_OK',
+        blockerReason: 'none',
+        deltaScrollTop,
+        line: buildAsrPostCommitVisualFollowOkDiagnostic({
+          previousSemanticLineIdx: args.previousSemanticLineIdx,
+          newSemanticLineIdx: args.newSemanticLineIdx,
+          committedLineIdx: args.committedLineIdx,
+          currentLineIdx: args.currentLineIdx,
+          nextSpeakableLineIdx: args.nextSpeakableLineIdx,
+          visualAnchorSource: args.visualAnchorSource,
+          visualAnchorLineIdx: args.visualAnchorLineIdx,
+          authoritativeLineIdx: args.authoritativeLineIdx,
+          lastVerifiedCommitLineIdx: args.lastVerifiedCommitLineIdx,
+          hasFreshVerifiedForwardCommit: args.hasFreshVerifiedForwardCommit,
+          proposedTargetScrollTop: args.proposedTargetScrollTop,
+          cappedTargetScrollTop: args.cappedTargetScrollTop,
+          selectedAuthority,
+          beforeScrollTop: args.beforeScrollTop,
+          afterScrollTop: args.afterScrollTop,
+          deltaScrollTop,
+          markerY: args.markerY,
+          currentLineViewportY: args.currentLineViewportY,
+          activeLineViewportY: args.activeLineViewportY,
+        }),
+      };
+    }
+    return null;
   };
 
   const clearPendingSpeakableBridge = (
@@ -15244,6 +15399,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ? 'hard_hold_active'
         : 'inactive';
       liveAsrAuthorityTraceTickId = ++liveAsrScrollAuthorityTickId;
+      activeAsrAuthorityTraceTickId = liveAsrAuthorityTraceTickId;
       let lowerRailHoldRejectedReason = '';
       let holdBandRejectedReason = '';
       const oldTargetTop = pursuitTargetTop;
@@ -15654,6 +15810,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lastAsrPreferredBandBottom = Number.isFinite(preferredBandBottom) ? Number(preferredBandBottom) : Number.NaN;
         lastAsrToleratedBandBottom = Number.isFinite(toleratedBandBottom) ? Number(toleratedBandBottom) : Number.NaN;
         lastAsrNextSpeakableLineY = Number.isFinite(nextLineY) ? Number(nextLineY) : Number.NaN;
+        lastAsrVisualAnchorSource = String(visualAnchorSource || 'none');
+        lastAsrVisualAnchorLineIdx = Number.isFinite(visualAnchorLineIdx) ? Number(visualAnchorLineIdx) : -1;
+        lastAsrCurrentLineViewportY = Number.isFinite(currentVisual.lineCenterInViewport)
+          ? Number(currentVisual.lineCenterInViewport)
+          : Number.NaN;
+        lastAsrActiveLineViewportY = Number.isFinite(visualAnchorLineY)
+          ? Number(visualAnchorLineY)
+          : Number.NaN;
         lastAsrReaderPocketZone = String(liveTickReaderPocketZone || 'unknown');
         const markerCorrectionSignature = [
           lastLineIndex,
@@ -17803,6 +17967,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ? Array.from(liveTickCandidateAuthorities)
         : [liveTickSelectedAuthority || liveTickBaseAuthority];
       try {
+        const visualFollowNowMs = Date.now();
         const authorityTargetScrollTop =
           Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop;
         emitCoalescedDevDiagnostic(
@@ -17832,6 +17997,99 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ].join('|'),
           { minMs: 800 },
         );
+        if (
+          postSemanticCommitVisualFollowPending &&
+          postSemanticCommitVisualFollowUntilMs > visualFollowNowMs &&
+          isSessionLivePhase() &&
+          isSessionAsrArmed() &&
+          getScrollMode() === 'asr' &&
+          !pendingSpeakableBridgeState &&
+          !(
+            Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx as number) &&
+            Number(liveAsrCommitteeAcceptedCommitTargetIdx) > lastLineIndex + 1
+          ) &&
+          !String(lastAsrVisualAnchorSource || '').toLowerCase().includes('pending_bridge')
+        ) {
+          const pocketWallReasonForDiagnostic =
+            lastAsrPocketWallTickId === liveAsrAuthorityTraceTickId
+              ? String(lastAsrPocketWallReason || 'none')
+              : 'none';
+          const leadPressureReasonForDiagnostic =
+            lastAsrLeadPressureTickId === liveAsrAuthorityTraceTickId
+              ? String(lastAsrLeadPressureReason || 'none')
+              : 'none';
+          const proposedTargetScrollTop = authorityTargetScrollTop;
+          const cappedTargetScrollTop =
+            lastAsrLeadPressureTickId === liveAsrAuthorityTraceTickId && Number.isFinite(lastAsrLeadPressureCappedTop)
+              ? Number(lastAsrLeadPressureCappedTop)
+              : (lastAsrPocketWallTickId === liveAsrAuthorityTraceTickId && Number.isFinite(lastAsrPocketWallCappedTop)
+                ? Number(lastAsrPocketWallCappedTop)
+                : authorityTargetScrollTop);
+          const authoritativeLineIdx =
+            lastAsrPocketWallTickId === liveAsrAuthorityTraceTickId && Number.isFinite(lastAsrPocketWallAuthoritativeLineIdx)
+              ? Math.max(0, Math.floor(Number(lastAsrPocketWallAuthoritativeLineIdx)))
+              : (Number.isFinite(lastFreshProofLine) && lastFreshProofLine >= 0
+                ? Math.max(0, Math.floor(Number(lastFreshProofLine)))
+                : Math.max(0, Math.floor(Number(lastLineIndex) || 0)));
+          const lastVerifiedCommitLineIdx =
+            lastAsrPocketWallTickId === liveAsrAuthorityTraceTickId && Number.isFinite(lastAsrPocketWallLastVerifiedCommitLineIdx)
+              ? Math.floor(Number(lastAsrPocketWallLastVerifiedCommitLineIdx))
+              : (Number.isFinite(lastFreshProofLine) ? Math.floor(Number(lastFreshProofLine)) : -1);
+          const followDiagnostic = evaluatePostSemanticCommitVisualFollowDiagnostic({
+            previousSemanticLineIdx: postSemanticCommitVisualFollowPreviousLineIdx,
+            newSemanticLineIdx: postSemanticCommitVisualFollowNewLineIdx,
+            committedLineIdx: lastLineIndex,
+            currentLineIdx: lastLineIndex,
+            nextSpeakableLineIdx: liveAsrVisualPursuitLineIdx ?? lastLineIndex,
+            visualAnchorSource: lastAsrVisualAnchorSource,
+            visualAnchorLineIdx: lastAsrVisualAnchorLineIdx,
+            authoritativeLineIdx,
+            lastVerifiedCommitLineIdx,
+            hasFreshVerifiedForwardCommit:
+              lastAsrPocketWallTickId === liveAsrAuthorityTraceTickId && lastAsrPocketWallHasFreshVerifiedForwardCommit,
+            proposedTargetScrollTop,
+            cappedTargetScrollTop,
+            selectedAuthority: liveTickSelectedAuthority,
+            beforeScrollTop,
+            afterScrollTop,
+            pocketWallReason: pocketWallReasonForDiagnostic,
+            leadPressureReason: leadPressureReasonForDiagnostic,
+            markerY: lastAsrMarkerY,
+            currentLineViewportY: lastAsrCurrentLineViewportY,
+            activeLineViewportY: lastAsrActiveLineViewportY,
+          });
+          if (followDiagnostic) {
+            emitDevDiagnostic(
+              followDiagnostic.tag,
+              followDiagnostic.tag === 'ASR_POST_COMMIT_VISUAL_FOLLOW_OK' ? 'info' : 'warn',
+              followDiagnostic.line,
+              {
+                minMs: 0,
+                signature: [
+                  postSemanticCommitVisualFollowPreviousLineIdx,
+                  postSemanticCommitVisualFollowNewLineIdx,
+                  liveAsrAuthorityTraceTickId,
+                  followDiagnostic.tag,
+                  followDiagnostic.blockerReason,
+                ].join('|'),
+              },
+            );
+            clearPostSemanticCommitVisualFollowDiagnostic();
+          }
+        } else if (
+          postSemanticCommitVisualFollowPending &&
+          (
+            postSemanticCommitVisualFollowUntilMs <= visualFollowNowMs ||
+            pendingSpeakableBridgeState ||
+            (
+              Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx as number) &&
+              Number(liveAsrCommitteeAcceptedCommitTargetIdx) > lastLineIndex + 1
+            ) ||
+            String(lastAsrVisualAnchorSource || '').toLowerCase().includes('pending_bridge')
+          )
+        ) {
+          clearPostSemanticCommitVisualFollowDiagnostic();
+        }
       } catch {}
       if (liveTickConflictingAuthorities.size > 0) {
         try {
@@ -25333,15 +25591,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             Math.floor(Number(freshnessTargetLine ?? freshnessProposedLineIdx) || freshnessProposedLineIdx),
           );
           const pendingBridgeCompletionMode = pendingSpeakableBridgeCompletion ? 1 : 0;
-          const lastLineIndexUpdateSource = pendingBridgeCompletionMode
-            ? 'semantic_commit_target'
-            : 'target_line';
-          const scrollTargetSource = pendingBridgeCompletionMode
-            ? 'visual_pursuit_target'
-            : 'target_line';
-          const freshnessTargetSource = pendingBridgeCompletionMode
-            ? 'visual_pursuit_target'
-            : 'target_line';
           const pendingBridgeStateCurrentAndValid =
             !!pendingSpeakableBridgeState &&
             pendingSpeakableBridgeState.semanticFrom === prevLineIndex &&
@@ -25443,17 +25692,45 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           const readerSilenceBypassApplied =
             readerSilencePendingBridgeCompletionBypass ||
             readerSilenceNonPendingAdjacentProofBypass;
-          const bypassLaneSelected = readerSilencePendingBridgeCompletionBypass
+          const implicitPendingBridgeDiagnostic =
+            readerSilenceNonPendingAdjacentProofBypass &&
+            pendingBridgeCompletionMode === 0 &&
+            requestedTargetLine > freshnessProposedLineIdx &&
+            freshnessProposedLineIdx === prevLineIndex + 1 &&
+            String(terminalProofSource || '').toLowerCase().includes('strict_speakable_bridge_landing') &&
+            directAdjacentGuardReason === 'target_reduced_before_terminal' &&
+            String(terminalSourceBranch || '').toLowerCase().includes('movement_authority_starvation_reconcile_single_step');
+          const diagnosticPendingBridgeCompletionMode =
+            pendingBridgeCompletionMode === 1 || implicitPendingBridgeDiagnostic ? 1 : 0;
+          const diagnosticTerminalSemanticCommitTargetLine = diagnosticPendingBridgeCompletionMode
+            ? Math.max(requestedTargetLine, terminalSemanticCommitTargetLine)
+            : terminalSemanticCommitTargetLine;
+          const diagnosticTerminalVisualPursuitTargetLine = diagnosticPendingBridgeCompletionMode
+            ? Math.max(prevLineIndex, Math.floor(Number(visualPursuitTargetLine ?? freshnessProposedLineIdx) || freshnessProposedLineIdx))
+            : terminalVisualPursuitTargetLine;
+          const diagnosticTerminalFreshnessTargetLine = diagnosticPendingBridgeCompletionMode
+            ? Math.max(prevLineIndex, Math.floor(Number(freshnessTargetLine ?? freshnessProposedLineIdx) || freshnessProposedLineIdx))
+            : terminalFreshnessTargetLine;
+          const lastLineIndexUpdateSource = diagnosticPendingBridgeCompletionMode
+            ? 'semantic_commit_target'
+            : 'target_line';
+          const scrollTargetSource = diagnosticPendingBridgeCompletionMode
+            ? 'visual_pursuit_target'
+            : 'target_line';
+          const freshnessTargetSource = diagnosticPendingBridgeCompletionMode
+            ? 'visual_pursuit_target'
+            : 'target_line';
+          const bypassLaneSelected = readerSilencePendingBridgeCompletionBypass || implicitPendingBridgeDiagnostic
             ? 'pending_bridge'
             : (readerSilenceNonPendingAdjacentProofBypass ? 'non_pending_adjacent_proof' : 'none');
           const pendingBridgeStateForTrace = pendingSpeakableBridgeState
             ? `pending:${pendingSpeakableBridgeState.semanticFrom}->${pendingSpeakableBridgeState.semanticTarget}`
-            : 'none';
+            : (implicitPendingBridgeDiagnostic ? `pending:${prevLineIndex}->${requestedTargetLine}` : 'none');
           try {
             const terminalDecisionReason = readerSilenceBypassApplied
               ? 'reader_silence_adjacent_safe_bypassed'
               : commitFreshness.reason;
-            const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${freshnessProposedLineIdx} requestedTargetLineIdx=${requestedTargetLine} semanticCommitTargetLine=${terminalSemanticCommitTargetLine} visualPursuitTargetLine=${terminalVisualPursuitTargetLine} freshnessTargetLine=${terminalFreshnessTargetLine} pendingBridgeCompletionMode=${pendingBridgeCompletionMode} pendingBridgeState=${pendingBridgeStateForTrace} lastLineIndexUpdateSource=${lastLineIndexUpdateSource} scrollTargetSource=${scrollTargetSource} freshnessTargetSource=${freshnessTargetSource} directAdjacentGuardReason=${directAdjacentGuardReason} sourceBranch=${terminalSourceBranch || 'unknown'} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} bypassLaneSelected=${bypassLaneSelected} bypassApplied=${readerSilenceBypassApplied ? 1 : 0} decisionReason=${terminalDecisionReason}`;
+            const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${freshnessProposedLineIdx} requestedTargetLineIdx=${requestedTargetLine} semanticCommitTargetLine=${diagnosticTerminalSemanticCommitTargetLine} visualPursuitTargetLine=${diagnosticTerminalVisualPursuitTargetLine} freshnessTargetLine=${diagnosticTerminalFreshnessTargetLine} pendingBridgeCompletionMode=${diagnosticPendingBridgeCompletionMode} pendingBridgeState=${pendingBridgeStateForTrace} lastLineIndexUpdateSource=${lastLineIndexUpdateSource} scrollTargetSource=${scrollTargetSource} freshnessTargetSource=${freshnessTargetSource} directAdjacentGuardReason=${directAdjacentGuardReason} sourceBranch=${terminalSourceBranch || 'unknown'} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} bypassLaneSelected=${bypassLaneSelected} bypassApplied=${readerSilenceBypassApplied ? 1 : 0} decisionReason=${terminalDecisionReason}`;
             console.info(terminalEligibilityMessage);
           } catch {}
           if (readerSilenceBypassApplied) {
@@ -26570,6 +26847,28 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         jumpHistory.push(now);
       }
       noteCommit(prevLineIndex, effectiveSemanticCommitTargetLine, now);
+      const postCommitBridgeContextActive =
+        pendingBridgeCompletionMode ||
+        !!pendingSpeakableBridgeState ||
+        effectiveSemanticCommitTargetLine > effectiveVisualPursuitTargetLine ||
+        String(movementAuthoritySourceBranch || pendingSourceBranch || forceReason || '').toLowerCase().includes('bridge') ||
+        String(movementAuthorityProofSource || pendingProofSource || '').toLowerCase().includes('bridge') ||
+        String(movementAuthorityProofSource || pendingProofSource || '').toLowerCase().includes('strict_speakable_bridge_landing');
+      if (
+        effectiveSemanticCommitTargetLine === prevLineIndex + 1 &&
+        movementAuthority !== 'none' &&
+        isSessionLivePhase() &&
+        isSessionAsrArmed() &&
+        getScrollMode() === 'asr' &&
+        !postCommitBridgeContextActive
+      ) {
+        postSemanticCommitVisualFollowPending = true;
+        postSemanticCommitVisualFollowUntilMs = now + ASR_POST_SEMANTIC_COMMIT_VISUAL_FOLLOW_WINDOW_MS;
+        postSemanticCommitVisualFollowPreviousLineIdx = prevLineIndex;
+        postSemanticCommitVisualFollowNewLineIdx = effectiveSemanticCommitTargetLine;
+      } else if (effectiveSemanticCommitTargetLine > prevLineIndex) {
+        clearPostSemanticCommitVisualFollowDiagnostic();
+      }
       const recoveryLikeCommitForHold =
         isAsrRecoverySource(pendingSourceBranch, forceReason, matchId) ||
         String(matchId || '').trim().toLowerCase().includes('recovery');
@@ -34573,6 +34872,65 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       transcriptRunGeneration: args.transcriptRunGeneration,
     });
   };
+  const debugEvaluatePostSemanticCommitVisualFollowDiagnostic = (args: {
+    previousSemanticLineIdx: number;
+    newSemanticLineIdx: number;
+    committedLineIdx?: number;
+    currentLineIdx?: number;
+    nextSpeakableLineIdx?: number;
+    visualAnchorSource?: string;
+    visualAnchorLineIdx?: number;
+    authoritativeLineIdx?: number;
+    lastVerifiedCommitLineIdx?: number;
+    hasFreshVerifiedForwardCommit?: boolean;
+    proposedTargetScrollTop: number;
+    cappedTargetScrollTop?: number;
+    selectedAuthority: string;
+    beforeScrollTop: number;
+    afterScrollTop: number;
+    pocketWallReason?: string;
+    leadPressureReason?: string;
+    markerY?: number;
+    currentLineViewportY?: number;
+    activeLineViewportY?: number;
+  }) => {
+    return evaluatePostSemanticCommitVisualFollowDiagnostic({
+      previousSemanticLineIdx: Math.max(0, Math.floor(Number(args.previousSemanticLineIdx) || 0)),
+      newSemanticLineIdx: Math.max(0, Math.floor(Number(args.newSemanticLineIdx) || 0)),
+      committedLineIdx: Number.isFinite(args.committedLineIdx as number)
+        ? Math.max(0, Math.floor(Number(args.committedLineIdx)))
+        : Math.max(0, Math.floor(Number(args.newSemanticLineIdx) || 0)),
+      currentLineIdx: Number.isFinite(args.currentLineIdx as number)
+        ? Math.max(0, Math.floor(Number(args.currentLineIdx)))
+        : Math.max(0, Math.floor(Number(args.newSemanticLineIdx) || 0)),
+      nextSpeakableLineIdx: Number.isFinite(args.nextSpeakableLineIdx as number)
+        ? Math.max(0, Math.floor(Number(args.nextSpeakableLineIdx)))
+        : Math.max(0, Math.floor(Number(args.newSemanticLineIdx) || 0)),
+      visualAnchorSource: String(args.visualAnchorSource || 'none'),
+      visualAnchorLineIdx: Number.isFinite(args.visualAnchorLineIdx as number)
+        ? Math.max(0, Math.floor(Number(args.visualAnchorLineIdx)))
+        : Math.max(0, Math.floor(Number(args.previousSemanticLineIdx) || 0)),
+      authoritativeLineIdx: Number.isFinite(args.authoritativeLineIdx as number)
+        ? Math.max(0, Math.floor(Number(args.authoritativeLineIdx)))
+        : Math.max(0, Math.floor(Number(args.previousSemanticLineIdx) || 0)),
+      lastVerifiedCommitLineIdx: Number.isFinite(args.lastVerifiedCommitLineIdx as number)
+        ? Math.floor(Number(args.lastVerifiedCommitLineIdx))
+        : Math.max(0, Math.floor(Number(args.previousSemanticLineIdx) || 0)),
+      hasFreshVerifiedForwardCommit: !!args.hasFreshVerifiedForwardCommit,
+      proposedTargetScrollTop: Number(args.proposedTargetScrollTop) || 0,
+      cappedTargetScrollTop: Number.isFinite(args.cappedTargetScrollTop as number)
+        ? Number(args.cappedTargetScrollTop)
+        : Number(args.proposedTargetScrollTop) || 0,
+      selectedAuthority: String(args.selectedAuthority || 'none'),
+      beforeScrollTop: Number(args.beforeScrollTop) || 0,
+      afterScrollTop: Number(args.afterScrollTop) || 0,
+      pocketWallReason: String(args.pocketWallReason || 'none'),
+      leadPressureReason: String(args.leadPressureReason || 'none'),
+      markerY: Number.isFinite(args.markerY as number) ? Number(args.markerY) : Number.NaN,
+      currentLineViewportY: Number.isFinite(args.currentLineViewportY as number) ? Number(args.currentLineViewportY) : Number.NaN,
+      activeLineViewportY: Number.isFinite(args.activeLineViewportY as number) ? Number(args.activeLineViewportY) : Number.NaN,
+    });
+  };
   const debugEvaluateProfileForwardGuard = (args: {
     lane?: string;
     currentLineIdx: number;
@@ -34623,6 +34981,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     __debugApplyVisualActuatorTargetStep: debugApplyVisualActuatorTargetStep,
     __debugEvaluateForwardCommitFreshness: debugEvaluateForwardCommitFreshness,
     __debugEvaluateStabilizerSemanticCommitCandidate: debugEvaluateStabilizerSemanticCommitCandidate,
+    __debugEvaluatePostSemanticCommitVisualFollowDiagnostic: debugEvaluatePostSemanticCommitVisualFollowDiagnostic,
     __debugEvaluateProfileForwardGuard: debugEvaluateProfileForwardGuard,
   } as AsrScrollDriver & {
     __debugSeedPendingSpeakableBridge(args: {
@@ -34789,6 +35148,33 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       accepted: boolean;
       rejectReason: string;
       proposedAdjacentCommitTarget: number | null;
+    };
+    __debugEvaluatePostSemanticCommitVisualFollowDiagnostic(args: {
+      previousSemanticLineIdx: number;
+      newSemanticLineIdx: number;
+      committedLineIdx?: number;
+      currentLineIdx?: number;
+      nextSpeakableLineIdx?: number;
+      visualAnchorSource?: string;
+      visualAnchorLineIdx?: number;
+      authoritativeLineIdx?: number;
+      lastVerifiedCommitLineIdx?: number;
+      hasFreshVerifiedForwardCommit?: boolean;
+      proposedTargetScrollTop: number;
+      cappedTargetScrollTop?: number;
+      selectedAuthority: string;
+      beforeScrollTop: number;
+      afterScrollTop: number;
+      pocketWallReason?: string;
+      leadPressureReason?: string;
+      markerY?: number;
+      currentLineViewportY?: number;
+      activeLineViewportY?: number;
+    }): null | {
+      tag: 'ASR_POST_COMMIT_VISUAL_FOLLOW_BLOCKED' | 'ASR_POST_COMMIT_VISUAL_FOLLOW_OK';
+      blockerReason: string;
+      deltaScrollTop: number;
+      line: string;
     };
     __debugEvaluateProfileForwardGuard(args: {
       lane?: string;

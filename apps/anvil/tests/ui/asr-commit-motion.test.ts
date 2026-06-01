@@ -61,6 +61,33 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     rejectReason: string;
     proposedAdjacentCommitTarget: number | null;
   };
+  __debugEvaluatePostSemanticCommitVisualFollowDiagnostic: (args: {
+    previousSemanticLineIdx: number;
+    newSemanticLineIdx: number;
+    committedLineIdx?: number;
+    currentLineIdx?: number;
+    nextSpeakableLineIdx?: number;
+    visualAnchorSource?: string;
+    visualAnchorLineIdx?: number;
+    authoritativeLineIdx?: number;
+    lastVerifiedCommitLineIdx?: number;
+    hasFreshVerifiedForwardCommit?: boolean;
+    proposedTargetScrollTop: number;
+    cappedTargetScrollTop?: number;
+    selectedAuthority: string;
+    beforeScrollTop: number;
+    afterScrollTop: number;
+    pocketWallReason?: string;
+    leadPressureReason?: string;
+    markerY?: number;
+    currentLineViewportY?: number;
+    activeLineViewportY?: number;
+  }) => null | {
+    tag: 'ASR_POST_COMMIT_VISUAL_FOLLOW_BLOCKED' | 'ASR_POST_COMMIT_VISUAL_FOLLOW_OK';
+    blockerReason: string;
+    deltaScrollTop: number;
+    line: string;
+  };
 };
 
 describe('ASR live commit motion', () => {
@@ -827,6 +854,83 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('post-semantic visual follow diagnostic reports blocked pocket-wall follow after +1 semantic commit', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluatePostSemanticCommitVisualFollowDiagnostic({
+      previousSemanticLineIdx: 2,
+      newSemanticLineIdx: 3,
+      committedLineIdx: 3,
+      currentLineIdx: 3,
+      nextSpeakableLineIdx: 3,
+      visualAnchorSource: 'confirmed_spoken',
+      visualAnchorLineIdx: 1,
+      authoritativeLineIdx: 1,
+      lastVerifiedCommitLineIdx: 1,
+      hasFreshVerifiedForwardCommit: false,
+      proposedTargetScrollTop: 308,
+      cappedTargetScrollTop: 82,
+      selectedAuthority: 'comfort_nudge',
+      beforeScrollTop: 82,
+      afterScrollTop: 82,
+      pocketWallReason: 'standard_visual_release_suppressed',
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      markerY: 393,
+      currentLineViewportY: 548,
+      activeLineViewportY: 616,
+    });
+
+    expect(result).toMatchObject({
+      tag: 'ASR_POST_COMMIT_VISUAL_FOLLOW_BLOCKED',
+      blockerReason: 'standard_visual_release_suppressed',
+      deltaScrollTop: 0,
+    });
+    expect(result?.line).toContain('ASR_POST_COMMIT_VISUAL_FOLLOW_BLOCKED');
+    expect(result?.line).toContain('previousSemanticLineIdx=2');
+    expect(result?.line).toContain('newSemanticLineIdx=3');
+    expect(result?.line).toContain('selectedAuthority=comfort_nudge');
+    expect(result?.line).toContain('pocketWallReason=standard_visual_release_suppressed');
+
+    driver.dispose();
+  });
+
+  test('post-semantic visual follow diagnostic reports ok when follow moves meaningfully after +1 semantic commit', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluatePostSemanticCommitVisualFollowDiagnostic({
+      previousSemanticLineIdx: 1,
+      newSemanticLineIdx: 2,
+      committedLineIdx: 2,
+      currentLineIdx: 2,
+      nextSpeakableLineIdx: 2,
+      visualAnchorSource: 'current_line',
+      visualAnchorLineIdx: 2,
+      authoritativeLineIdx: 2,
+      lastVerifiedCommitLineIdx: 2,
+      hasFreshVerifiedForwardCommit: true,
+      proposedTargetScrollTop: 160,
+      cappedTargetScrollTop: 160,
+      selectedAuthority: 'pocket_authority',
+      beforeScrollTop: 100,
+      afterScrollTop: 112,
+      pocketWallReason: 'fresh_verified_forward_commit',
+      leadPressureReason: 'none',
+      markerY: 393,
+      currentLineViewportY: 432,
+      activeLineViewportY: 432,
+    });
+
+    expect(result).toMatchObject({
+      tag: 'ASR_POST_COMMIT_VISUAL_FOLLOW_OK',
+      blockerReason: 'none',
+      deltaScrollTop: 12,
+    });
+    expect(result?.line).toContain('ASR_POST_COMMIT_VISUAL_FOLLOW_OK');
+    expect(result?.line).toContain('selectedAuthority=pocket_authority');
+
+    driver.dispose();
+  });
+
   test('allows a single-step stall recovery override under starvation when live-forward is guard-held', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const driver = createAsrScrollDriver();
@@ -1385,10 +1489,10 @@ describe('ASR live commit motion', () => {
     const infoLines = consoleInfoSpy.mock.calls.map((c) => String(c[0] || ''));
     const traceLine =
       [...infoLines]
-        .reverse()
         .find((line) =>
           line.includes('ASR_TERMINAL_ELIGIBILITY_TRACE') &&
-          line.includes('requestedTargetLineIdx=7')) || '';
+          line.includes('requestedTargetLineIdx=7') &&
+          line.includes('pendingBridgeCompletionMode=1')) || '';
 
     expect(traceLine).toContain('pendingBridgeCompletionMode=1');
     expect(traceLine).toContain('pendingBridgeState=pending:4->7');
