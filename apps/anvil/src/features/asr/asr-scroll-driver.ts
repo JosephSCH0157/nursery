@@ -5377,10 +5377,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         : Number.NaN;
       const message = `[ASR_ADJ_PROMOTION_TRACE] stage=${input.stage} decision=${input.decision} currentLineIdx=${input.currentLineIdx} candidateLineIdx=${input.candidateLineIdx} delta=${delta} confidence=${formatLogScore(confidence)} isAdjacent=${input.isAdjacent === true ? 1 : 0} proofOwned=${input.proofOwned === true ? 1 : 0} starvationState=${input.starvationState || 'n/a'} sustainedReadState=${input.sustainedReadState || 'n/a'} pendingBridgeState=${input.pendingBridgeState || 'none'} contradictionState=${input.contradictionState || 'none'} stalePrefixState=${input.stalePrefixState || 'none'} sourceBranch=${input.sourceBranch || 'unknown'} proofSource=${input.proofSource || 'none'} forceReason=${input.forceReason || 'none'} matchId=${input.matchId || 'none'}`;
       console.info(message);
-      const runtimeProcess = (globalThis as any)?.process;
-      if (runtimeProcess?.stderr?.write) {
-        runtimeProcess.stderr.write(`${message}\n`);
-      }
     } catch {}
   };
   const clearRecoveryLandingHold = (
@@ -21350,12 +21346,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         // Keep semantic cursor anchored until pending bridge completion criteria are met.
         targetLine = lastLineIndex;
         warnGuard('asr_pending_bridge_lifecycle_stage_hold', [
-          `semanticFrom=${pendingSpeakableBridgeState.semanticFrom}`,
           `semanticTarget=${pendingSpeakableBridgeState.semanticTarget}`,
           `visualReducedTarget=${pendingSpeakableBridgeState.visualReducedTarget}`,
-          `skippedVisibleRows=${pendingSpeakableBridgeState.skippedVisibleRows}`,
-          `proofSource=${pendingSpeakableBridgeState.proofSource || 'unknown'}`,
-          `sourceBranch=${pendingSpeakableBridgeState.sourceBranch || 'unknown'}`,
           'reason=pending_lifecycle_stage_before_terminal',
         ]);
       }
@@ -24766,25 +24758,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           const readerSilenceBypassApplied =
             readerSilencePendingBridgeCompletionBypass ||
             readerSilenceNonPendingAdjacentProofBypass;
+          const bypassLaneSelected = readerSilencePendingBridgeCompletionBypass
+            ? 'pending_bridge'
+            : (readerSilenceNonPendingAdjacentProofBypass ? 'non_pending_adjacent_proof' : 'none');
           const pendingBridgeStateForTrace = pendingSpeakableBridgeState
             ? `pending:${pendingSpeakableBridgeState.semanticFrom}->${pendingSpeakableBridgeState.semanticTarget}`
-            : 'none';
-          const pendingBridgeSourceForTrace = pendingSpeakableBridgeState
-            ? `${pendingSpeakableBridgeState.sourceBranch || 'unknown'}|${pendingSpeakableBridgeState.proofSource || 'none'}`
-            : 'none';
-          const visualCapStateForTrace = bridgeReducedVisualCashInHoldSnapshot
-            ? `active:${bridgeReducedVisualCashInHoldSnapshot.blockerCategory || 'unknown'}:${bridgeReducedVisualCashInHoldSnapshot.reducedTargetIdx}`
             : 'none';
           try {
             const terminalDecisionReason = readerSilenceBypassApplied
               ? 'reader_silence_adjacent_safe_bypassed'
               : commitFreshness.reason;
-            const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${freshnessProposedLineIdx} delta=${terminalDelta} candidateBestLineIdx=${terminalCandidateLineIdx} requestedTargetLineIdx=${requestedTargetLine} semanticCommitTargetLine=${terminalSemanticCommitTargetLine} visualPursuitTargetLine=${terminalVisualPursuitTargetLine} freshnessTargetLine=${terminalFreshnessTargetLine} lastLineIndexUpdateSource=${lastLineIndexUpdateSource} scrollTargetSource=${scrollTargetSource} freshnessTargetSource=${freshnessTargetSource} pendingBridgeCompletionMode=${pendingBridgeCompletionMode} authority=${movementAuthority || 'none'} sourceBranch=${terminalSourceBranch || 'unknown'} proofSource=${terminalProofSource || 'none'} forceReason=${terminalForceReason || 'none'} asrRuntimeSpeechRunningActual=${asrRuntimeSpeechRunningActual ? 1 : 0} runtimeSpeechFresh=${runtimeSpeechFresh ? 1 : 0} hasRecentVadSpeech=${hasRecentVadSpeech ? 1 : 0} asrSilenceActive=${asrSilenceActive ? 1 : 0} directAdjacentGuardEligible=${directAdjacentGuardEligible ? 1 : 0} directAdjacentGuardReason=${directAdjacentGuardReason} guardFalseByDesign=${directAdjacentGuardFalseByDesign ? 1 : 0} guardStaleExpectation=${directAdjacentGuardStaleExpectation ? 1 : 0} pendingBridgeState=${pendingBridgeStateForTrace} pendingBridgeSource=${pendingBridgeSourceForTrace} pendingBridgeFarTargetBlocked=${pendingBridgeFarTargetBlocked ? 1 : 0} visualCapState=${visualCapStateForTrace} pendingBridgeStateCurrent=${pendingBridgeStateCurrentAndValid ? 1 : 0} lineagePendingComplete=${explicitPendingCompletionLineage ? 1 : 0} lineageStarvationBridge=${explicitStarvationBridgeLineage ? 1 : 0} bypassPathDisallowed=${disallowedPendingBridgeBypassPath ? 1 : 0} nonPendingBypassPathDisallowed=${disallowedNonPendingBypassPathEffective ? 1 : 0} startupFreshAdjacentEarlyAllowed=${startupFreshAdjacentEarlyAllowed ? 1 : 0} nonPendingProofOwnedLineage=${nonPendingProofOwnedLineage ? 1 : 0} nonPendingBypassApplied=${readerSilenceNonPendingAdjacentProofBypass ? 1 : 0} targetSpeakable=${targetSpeakable ? 1 : 0} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} safeAuthority=${terminalSafeAuthority ? 1 : 0} authorityEpochCurrent=${authorityEpochCurrent ? 1 : 0} runIdentityCurrent=${runIdentityCurrent ? 1 : 0} bypassApplied=${readerSilenceBypassApplied ? 1 : 0} decisionReason=${terminalDecisionReason}`;
+            const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${freshnessProposedLineIdx} requestedTargetLineIdx=${requestedTargetLine} semanticCommitTargetLine=${terminalSemanticCommitTargetLine} visualPursuitTargetLine=${terminalVisualPursuitTargetLine} freshnessTargetLine=${terminalFreshnessTargetLine} pendingBridgeCompletionMode=${pendingBridgeCompletionMode} pendingBridgeState=${pendingBridgeStateForTrace} bypassLaneSelected=${bypassLaneSelected} bypassApplied=${readerSilenceBypassApplied ? 1 : 0} decisionReason=${terminalDecisionReason}`;
             console.info(terminalEligibilityMessage);
-            const runtimeProcess = (globalThis as any)?.process;
-            if (runtimeProcess?.stderr?.write) {
-              runtimeProcess.stderr.write(`${terminalEligibilityMessage}\n`);
-            }
           } catch {}
           if (readerSilenceBypassApplied) {
             emitAdjacentPromotionTrace({
