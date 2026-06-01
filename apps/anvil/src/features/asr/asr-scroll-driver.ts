@@ -4145,6 +4145,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     const releaseDecision = opts.allowPostSemanticCommitVisualRelease
       ? evaluatePostSemanticCommitVisualRelease({
+          scroller,
           currentTop,
           proposedTop: targetTop,
           lineHeightPx: Math.max(
@@ -4208,14 +4209,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           newSemanticLineIdx: releaseDecision.newSemanticLineIdx,
           beforeScrollTop: currentTop,
           proposedTargetScrollTop: targetTop,
+          releaseDesiredTargetScrollTop: releaseDecision.releaseDesiredTargetScrollTop,
           boundedTargetScrollTop: releaseDecision.accepted
             ? releaseDecision.boundedTargetScrollTop
             : currentTop,
+          releaseStepPx: releaseDecision.releaseStepPx,
           afterScrollTop: Number.isFinite(appliedTop) ? Number(appliedTop) : currentTop,
           deltaScrollTop: (Number.isFinite(appliedTop) ? Number(appliedTop) : currentTop) - currentTop,
           selectedAuthority: String(opts.selectedAuthority || opts.sourceAuthority || 'none'),
           releaseAccepted: releaseDecision.accepted,
           rejectReason: releaseDecision.rejectReason,
+          markerY: releaseDecision.markerY,
+          currentLineViewportY: releaseDecision.currentLineViewportY,
         }));
       } catch {}
     }
@@ -6543,6 +6548,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
   const evaluatePostSemanticCommitVisualRelease = (args: {
     nowMs?: number;
+    scroller: HTMLElement | null;
     currentTop: number;
     proposedTop: number;
     lineHeightPx: number;
@@ -6559,9 +6565,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     rejectReason: string;
     previousSemanticLineIdx: number;
     newSemanticLineIdx: number;
+    releaseDesiredTargetScrollTop: number;
     boundedTargetScrollTop: number;
+    releaseStepPx: number;
     authoritativeLineIdx: number;
     forceFreshVerifiedForwardCommit: boolean;
+    markerY: number;
+    currentLineViewportY: number;
   } => {
     if (!postSemanticCommitVisualReleasePending) return null;
     const nowMs = Number.isFinite(args.nowMs as number) ? Number(args.nowMs) : Date.now();
@@ -6581,7 +6591,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const bridgeActive = !!args.bridgeContextActive;
     let accepted = false;
     let rejectReason = 'not_armed';
+    let releaseDesiredTargetScrollTop = Number.isFinite(args.currentTop) ? Number(args.currentTop) : 0;
     let boundedTargetScrollTop = Number.isFinite(args.currentTop) ? Number(args.currentTop) : 0;
+    let releaseStepPx = clamp(
+      Number.isFinite(args.lineHeightPx) ? Number(args.lineHeightPx) : DEFAULT_MIN_STEP_PX,
+      DEFAULT_MIN_STEP_PX,
+      320,
+    );
+    let markerY = Number.NaN;
+    let currentLineViewportY = Number.NaN;
     const clearAndReturn = () => {
       emitPostSemanticCommitVisualReleaseTokenState({
         event: accepted ? 'accepted' : 'rejected',
@@ -6620,9 +6638,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         rejectReason,
         previousSemanticLineIdx,
         newSemanticLineIdx,
+        releaseDesiredTargetScrollTop,
         boundedTargetScrollTop,
+        releaseStepPx,
         authoritativeLineIdx: newSemanticLineIdx,
         forceFreshVerifiedForwardCommit: accepted,
+        markerY,
+        currentLineViewportY,
       };
       clearPostSemanticCommitVisualRelease();
       return result;
@@ -6688,13 +6710,46 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     const currentTop = Number.isFinite(args.currentTop) ? Number(args.currentTop) : 0;
     const proposedTop = Number.isFinite(args.proposedTop) ? Number(args.proposedTop) : currentTop;
-    const boundedStepPx = clamp(
-      Number.isFinite(args.lineHeightPx) ? Number(args.lineHeightPx) : DEFAULT_MIN_STEP_PX,
+    const scroller = args.scroller;
+    const committedLineEl =
+      getLineElementByIndex(scroller, Math.max(0, newSemanticLineIdx)) ||
+      getLineElementByIndex(scroller, Math.max(0, Math.floor(Number(args.committedLineIdx) || 0))) ||
+      getLineElementByIndex(scroller, Math.max(0, Math.floor(Number(args.currentLineIdx) || 0)));
+    const resolvedLineHeightPx = resolveLineHeightPx(committedLineEl);
+    releaseStepPx = clamp(
+      Number.isFinite(resolvedLineHeightPx) && resolvedLineHeightPx > 1
+        ? resolvedLineHeightPx
+        : (Number.isFinite(args.lineHeightPx) ? Number(args.lineHeightPx) : DEFAULT_MIN_STEP_PX),
       DEFAULT_MIN_STEP_PX,
       320,
     );
+    if (scroller && committedLineEl) {
+      try {
+        const scrollerRect = scroller.getBoundingClientRect();
+        const lineRect = committedLineEl.getBoundingClientRect();
+        markerY = Number(scroller.clientHeight || 0) * clamp(
+          typeof (window as any).__TP_MARKER_PCT === 'number'
+            ? Number((window as any).__TP_MARKER_PCT)
+            : POST_COMMIT_ACTIVE_TARGET_RATIO,
+          POST_COMMIT_ACTIVE_MIN_RATIO,
+          POST_COMMIT_ACTIVE_MAX_RATIO,
+        );
+        currentLineViewportY = (lineRect.top - scrollerRect.top) + (lineRect.height * 0.5);
+      } catch {
+        markerY = Number.NaN;
+        currentLineViewportY = Number.NaN;
+      }
+    }
+    const computedDesiredTop = computeLineTargetTop(scroller, committedLineEl);
+    releaseDesiredTargetScrollTop = Number.isFinite(computedDesiredTop as number)
+      ? Number(computedDesiredTop)
+      : proposedTop;
+    if (!(releaseDesiredTargetScrollTop > currentTop + 0.5)) {
+      rejectReason = 'desired_target_not_forward';
+      return clearAndReturn();
+    }
     boundedTargetScrollTop = clamp(
-      Math.min(proposedTop, currentTop + boundedStepPx),
+      Math.min(releaseDesiredTargetScrollTop, currentTop + releaseStepPx),
       currentTop,
       Math.max(currentTop, Number.isFinite(args.maxScrollTop) ? Number(args.maxScrollTop) : currentTop),
     );
@@ -35464,6 +35519,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     const result = evaluatePostSemanticCommitVisualRelease({
       nowMs,
+      scroller: getScroller(),
       currentTop: args.currentTop,
       proposedTop: args.proposedTop,
       lineHeightPx: args.lineHeightPx,
@@ -35778,8 +35834,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       previousSemanticLineIdx: number;
       newSemanticLineIdx: number;
       boundedTargetScrollTop: number;
+      releaseDesiredTargetScrollTop: number;
+      releaseStepPx: number;
       authoritativeLineIdx: number;
       forceFreshVerifiedForwardCommit: boolean;
+      markerY: number;
+      currentLineViewportY: number;
     };
     __debugEvaluateProfileForwardGuard(args: {
       lane?: string;

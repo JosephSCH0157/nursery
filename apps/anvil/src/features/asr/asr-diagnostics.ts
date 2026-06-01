@@ -134,14 +134,18 @@ export function buildAsrPostCommitVisualFollowReleaseDiagnostic(args: {
   newSemanticLineIdx: number;
   beforeScrollTop: number;
   proposedTargetScrollTop: number;
+  releaseDesiredTargetScrollTop: number;
   boundedTargetScrollTop: number;
+  releaseStepPx: number;
   afterScrollTop: number;
   deltaScrollTop: number;
   selectedAuthority: string;
   releaseAccepted: boolean;
   rejectReason: string;
+  markerY: number;
+  currentLineViewportY: number;
 }): string {
-  return `[ASR_POST_COMMIT_VISUAL_FOLLOW_RELEASE] previousSemanticLineIdx=${Math.round(args.previousSemanticLineIdx)} newSemanticLineIdx=${Math.round(args.newSemanticLineIdx)} beforeScrollTop=${Math.round(args.beforeScrollTop)} proposedTargetScrollTop=${Math.round(args.proposedTargetScrollTop)} boundedTargetScrollTop=${Math.round(args.boundedTargetScrollTop)} afterScrollTop=${Math.round(args.afterScrollTop)} deltaScrollTop=${Math.round(args.deltaScrollTop)} selectedAuthority=${args.selectedAuthority || 'none'} releaseAccepted=${args.releaseAccepted ? 1 : 0} rejectReason=${args.rejectReason || 'none'}`;
+  return `[ASR_POST_COMMIT_VISUAL_FOLLOW_RELEASE] previousSemanticLineIdx=${Math.round(args.previousSemanticLineIdx)} newSemanticLineIdx=${Math.round(args.newSemanticLineIdx)} beforeScrollTop=${Math.round(args.beforeScrollTop)} proposedTargetScrollTop=${Math.round(args.proposedTargetScrollTop)} releaseDesiredTargetScrollTop=${Math.round(args.releaseDesiredTargetScrollTop)} boundedTargetScrollTop=${Math.round(args.boundedTargetScrollTop)} releaseStepPx=${Math.round(args.releaseStepPx)} afterScrollTop=${Math.round(args.afterScrollTop)} deltaScrollTop=${Math.round(args.deltaScrollTop)} selectedAuthority=${args.selectedAuthority || 'none'} releaseAccepted=${args.releaseAccepted ? 1 : 0} rejectReason=${args.rejectReason || 'none'} markerY=${Math.round(args.markerY)} currentLineViewportY=${Number.isFinite(args.currentLineViewportY as number) ? Math.round(Number(args.currentLineViewportY)) : -1}`;
 }
 
 export function buildAsrPostCommitVisualReleaseTokenStateDiagnostic(args: {

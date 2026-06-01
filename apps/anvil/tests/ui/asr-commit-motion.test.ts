@@ -126,9 +126,13 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     rejectReason: string;
     previousSemanticLineIdx: number;
     newSemanticLineIdx: number;
+    releaseDesiredTargetScrollTop: number;
     boundedTargetScrollTop: number;
+    releaseStepPx: number;
     authoritativeLineIdx: number;
     forceFreshVerifiedForwardCommit: boolean;
+    markerY: number;
+    currentLineViewportY: number;
   };
 };
 
@@ -978,26 +982,26 @@ describe('ASR live commit motion', () => {
     bootstrapLiveAsrRuntime();
 
     const armed = driver.__debugArmPostSemanticCommitVisualRelease({
-      previousSemanticLineIdx: 6,
-      newSemanticLineIdx: 7,
+      previousSemanticLineIdx: 1,
+      newSemanticLineIdx: 2,
       speechLive: true,
       transcriptFresh: true,
     });
     expect(armed).toMatchObject({
       armed: true,
       pending: true,
-      previousSemanticLineIdx: 6,
-      newSemanticLineIdx: 7,
+      previousSemanticLineIdx: 1,
+      newSemanticLineIdx: 2,
     });
 
     const first = driver.__debugConsumePostSemanticCommitVisualRelease({
       currentTop: 217,
-      proposedTop: 512,
-      lineHeightPx: 236,
+      proposedTop: 223,
+      lineHeightPx: 24,
       maxScrollTop: 5000,
-      currentLineIdx: 7,
-      committedLineIdx: 7,
-      nextSpeakableLineIdx: 7,
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      nextSpeakableLineIdx: 2,
       selectedAuthority: 'bottom_lock_release',
       speechLive: true,
       transcriptFresh: true,
@@ -1005,21 +1009,25 @@ describe('ASR live commit motion', () => {
     expect(first).toMatchObject({
       accepted: true,
       rejectReason: 'none',
-      previousSemanticLineIdx: 6,
-      newSemanticLineIdx: 7,
-      authoritativeLineIdx: 7,
+      previousSemanticLineIdx: 1,
+      newSemanticLineIdx: 2,
+      authoritativeLineIdx: 2,
       forceFreshVerifiedForwardCommit: true,
     });
+    expect(first?.releaseDesiredTargetScrollTop).toBeGreaterThan(223);
+    expect(first?.releaseStepPx).toBe(236);
     expect(first?.boundedTargetScrollTop).toBe(453);
+    expect((first?.boundedTargetScrollTop ?? 0) - 217).toBe(236);
+    expect(first?.currentLineViewportY).toBeGreaterThan(first?.markerY ?? 0);
 
     const second = driver.__debugConsumePostSemanticCommitVisualRelease({
       currentTop: 217,
-      proposedTop: 512,
-      lineHeightPx: 236,
+      proposedTop: 223,
+      lineHeightPx: 24,
       maxScrollTop: 5000,
-      currentLineIdx: 7,
-      committedLineIdx: 7,
-      nextSpeakableLineIdx: 7,
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      nextSpeakableLineIdx: 2,
       selectedAuthority: 'bottom_lock_release',
       speechLive: true,
       transcriptFresh: true,
@@ -1107,7 +1115,7 @@ describe('ASR live commit motion', () => {
       transcriptFresh: true,
     })).toMatchObject({
       accepted: false,
-      rejectReason: 'no_bounded_forward_step',
+      rejectReason: 'desired_target_not_forward',
     });
 
     expect(driver.__debugArmPostSemanticCommitVisualRelease({
@@ -1134,6 +1142,41 @@ describe('ASR live commit motion', () => {
       accepted: false,
       rejectReason: 'stale_authority',
     });
+
+    driver.dispose();
+  });
+
+  test('post-commit visual release uses semantic-line geometry instead of tiny pre-capped proposed deltas', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    expect(driver.__debugArmPostSemanticCommitVisualRelease({
+      previousSemanticLineIdx: 1,
+      newSemanticLineIdx: 2,
+      speechLive: true,
+      transcriptFresh: true,
+    }).armed).toBe(true);
+
+    const release = driver.__debugConsumePostSemanticCommitVisualRelease({
+      currentTop: 217,
+      proposedTop: 223,
+      lineHeightPx: 24,
+      maxScrollTop: 5000,
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      nextSpeakableLineIdx: 2,
+      selectedAuthority: 'bottom_lock_release',
+      speechLive: true,
+      transcriptFresh: true,
+    });
+    expect(release).toMatchObject({
+      accepted: true,
+      rejectReason: 'none',
+    });
+    expect(release?.releaseDesiredTargetScrollTop).toBeGreaterThan(223);
+    expect(release?.boundedTargetScrollTop).toBeGreaterThan(223);
+    expect((release?.boundedTargetScrollTop ?? 0) - 217).toBeGreaterThan(6);
+    expect((release?.boundedTargetScrollTop ?? 0) - 217).toBeLessThanOrEqual(release?.releaseStepPx ?? 0);
 
     driver.dispose();
   });
