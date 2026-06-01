@@ -21319,6 +21319,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
       }
       const shouldStagePendingBridgeLifecycleHold =
+        !String(matchId || '').includes('visible-bridge-step-cap') &&
         !pendingSpeakableBridgeCompletion &&
         !pendingSpeakableBridgeState &&
         isFinal === true &&
