@@ -50,34 +50,48 @@ describe('ASR evidence stabilizer', () => {
       'evidence_only',
       'evidence_only',
       'hold',
+      'advance_adjacent',
+      'evidence_only',
+    ]);
+    expect(cursorsOf(outputs)).toEqual([1, 1, 1, 1, 2, 2]);
+  });
+
+  test('same-line stall zone at 9 can convert sustained forward evidence into limited adjacent catch-up', () => {
+    const outputs = runSequence([
+      { matchBestIdx: 9, currentCommittedLine: 1, matchBestSim: 0.88 },
+      { matchBestIdx: 9, currentCommittedLine: 1, matchBestSim: 0.88 },
+      { matchBestIdx: 9, currentCommittedLine: 1, matchBestSim: 0.88 },
+      { matchBestIdx: 9, currentCommittedLine: 2, matchBestSim: 0.88 },
+      { matchBestIdx: 9, currentCommittedLine: 2, matchBestSim: 0.88 },
+    ], 1);
+    expect(actionsOf(outputs)).toEqual([
+      'evidence_only',
+      'evidence_only',
+      'advance_adjacent',
       'evidence_only',
       'evidence_only',
     ]);
-    expect(cursorsOf(outputs)).toEqual([1, 1, 1, 1, 1, 1]);
+    expect(cursorsOf(outputs)).toEqual([1, 1, 2, 2, 2]);
   });
 
-  test('same-line stall zone collapses repeated line 9 finals', () => {
+  test('repeated stall at 23 can produce bounded multi-step adjacent catch-up over time', () => {
     const outputs = runSequence([
-      { matchBestIdx: 9, currentCommittedLine: 9 },
-      { matchBestIdx: 9, currentCommittedLine: 9 },
-      { matchBestIdx: 9, currentCommittedLine: 9 },
-      { matchBestIdx: 9, currentCommittedLine: 9 },
-      { matchBestIdx: 9, currentCommittedLine: 9 },
-    ], 9);
-    expect(actionsOf(outputs)).toEqual(['hold', 'hold', 'hold', 'hold', 'hold']);
-    expect(cursorsOf(outputs)).toEqual([9, 9, 9, 9, 9]);
-    expect(outputs.every((item) => item.reason === 'repeat_same_line_collapsed')).toBe(true);
-  });
-
-  test('same-line stall after one adjacent advance only moves once at line 23', () => {
-    const outputs = runSequence([
-      { matchBestIdx: 23, currentCommittedLine: 22, matchBestSim: 0.909, textLen: 332 },
-      { matchBestIdx: 23, currentCommittedLine: 23, matchBestSim: 0.909, textLen: 334 },
-      { matchBestIdx: 23, currentCommittedLine: 23, matchBestSim: 0.901, textLen: 336 },
-      { matchBestIdx: 23, currentCommittedLine: 23, matchBestSim: 0.902, textLen: 335 },
-    ], 22);
-    expect(actionsOf(outputs)).toEqual(['advance_adjacent', 'hold', 'hold', 'hold']);
-    expect(cursorsOf(outputs)).toEqual([23, 23, 23, 23]);
+      { matchBestIdx: 23, currentCommittedLine: 18, matchBestSim: 0.909, textLen: 332 },
+      { matchBestIdx: 23, currentCommittedLine: 18, matchBestSim: 0.909, textLen: 334 },
+      { matchBestIdx: 23, currentCommittedLine: 18, matchBestSim: 0.901, textLen: 336 },
+      { matchBestIdx: 23, currentCommittedLine: 19, matchBestSim: 0.902, textLen: 335 },
+      { matchBestIdx: 23, currentCommittedLine: 19, matchBestSim: 0.905, textLen: 335 },
+      { matchBestIdx: 23, currentCommittedLine: 19, matchBestSim: 0.907, textLen: 335 },
+    ], 18);
+    expect(actionsOf(outputs)).toEqual([
+      'evidence_only',
+      'evidence_only',
+      'advance_adjacent',
+      'evidence_only',
+      'evidence_only',
+      'advance_adjacent',
+    ]);
+    expect(cursorsOf(outputs)).toEqual([18, 18, 19, 19, 19, 20]);
   });
 
   test('backward jump after forward progress is treated as noise and cursor stays monotonic', () => {
@@ -115,6 +129,26 @@ describe('ASR evidence stabilizer', () => {
     ]);
   });
 
+  test('backward contradiction slows buffered catch-up instead of allowing immediate progress', () => {
+    const outputs = runSequence([
+      { matchBestIdx: 9, currentCommittedLine: 1, matchBestSim: 0.9 },
+      { matchBestIdx: 9, currentCommittedLine: 1, matchBestSim: 0.9 },
+      { matchBestIdx: 0, currentCommittedLine: 1, matchBestSim: 0.85 },
+      { matchBestIdx: 9, currentCommittedLine: 1, matchBestSim: 0.9 },
+      { matchBestIdx: 9, currentCommittedLine: 1, matchBestSim: 0.9 },
+      { matchBestIdx: 9, currentCommittedLine: 1, matchBestSim: 0.9 },
+    ], 1);
+    expect(actionsOf(outputs)).toEqual([
+      'evidence_only',
+      'evidence_only',
+      'evidence_only',
+      'evidence_only',
+      'evidence_only',
+      'advance_adjacent',
+    ]);
+    expect(cursorsOf(outputs)).toEqual([1, 1, 1, 1, 1, 2]);
+  });
+
   test('repeated locally plausible backward evidence can request reset without moving cursor backward', () => {
     const outputs = runSequence([
       { matchBestIdx: 4, currentCommittedLine: 2, matchBestSim: 0.88, textLen: 160 },
@@ -124,5 +158,22 @@ describe('ASR evidence stabilizer', () => {
     expect(actionsOf(outputs)).toEqual(['evidence_only', 'evidence_only', 'reset_needed']);
     expect(cursorsOf(outputs)).toEqual([5, 5, 5]);
     expect(outputs[2]?.reason).toBe('repeated_local_backward_contradiction');
+  });
+
+  test('stable cursor remains monotonic and bounded to +1 per step under sustained far evidence', () => {
+    const outputs = runSequence(
+      Array.from({ length: 9 }, () => ({
+        matchBestIdx: 23,
+        currentCommittedLine: 18,
+        matchBestSim: 0.92,
+        textLen: 330,
+      })),
+      18,
+    );
+    const deltas = outputs.map((item, index) =>
+      index === 0 ? item.stableCursorIdx - 18 : item.stableCursorIdx - outputs[index - 1]!.stableCursorIdx,
+    );
+    expect(outputs.every((item, index) => index === 0 || item.stableCursorIdx >= outputs[index - 1]!.stableCursorIdx)).toBe(true);
+    expect(deltas.every((delta) => delta >= 0 && delta <= 1)).toBe(true);
   });
 });

@@ -30,6 +30,9 @@ export type AsrEvidenceStabilizerState = {
   farEvidenceIdx: number | null;
   farEvidenceCount: number;
   farEvidenceBestSim: number;
+  forwardEvidenceStreak: number;
+  forwardEvidenceBestIdx: number | null;
+  forwardEvidenceBestSim: number;
   backwardRepeatCount: number;
   lastAction: AsrEvidenceStabilizerAction;
   lastTimestampMs: number | null;
@@ -39,6 +42,8 @@ const DEFAULTS = {
   adjacentMinSim: 0.6,
   shortAdjacentMinSim: 0.68,
   farEvidenceMinSim: 0.82,
+  bufferedCatchupMinSim: 0.7,
+  bufferedCatchupNeed: 3,
   resetBackwardRepeatThreshold: 3,
   resetBackwardGapThreshold: 2,
   shortTextLen: 48,
@@ -55,6 +60,9 @@ export function createInitialAsrEvidenceStabilizerState(
     farEvidenceIdx: null,
     farEvidenceCount: 0,
     farEvidenceBestSim: 0,
+    forwardEvidenceStreak: 0,
+    forwardEvidenceBestIdx: null,
+    forwardEvidenceBestSim: 0,
     backwardRepeatCount: 0,
     lastAction: 'hold',
     lastTimestampMs: null,
@@ -96,6 +104,15 @@ function resetFarEvidence(state: AsrEvidenceStabilizerState): AsrEvidenceStabili
   };
 }
 
+function resetForwardEvidence(state: AsrEvidenceStabilizerState): AsrEvidenceStabilizerState {
+  return {
+    ...state,
+    forwardEvidenceStreak: 0,
+    forwardEvidenceBestIdx: null,
+    forwardEvidenceBestSim: 0,
+  };
+}
+
 export function stepAsrEvidenceStabilizer(
   previous: AsrEvidenceStabilizerState,
   input: AsrEvidenceStabilizerInput,
@@ -108,18 +125,22 @@ export function stepAsrEvidenceStabilizer(
   };
 
   if (input.speechLive === false || input.transcriptFresh === false) {
-    state = resetFarEvidence({ ...state, backwardRepeatCount: 0 });
+    state = resetForwardEvidence(resetFarEvidence({ ...state, backwardRepeatCount: 0 }));
     return buildOutput(state, 'hold', 0.25, 'quiet_or_stale_state');
   }
 
   if (input.noMatch) {
-    state = resetFarEvidence({ ...state, backwardRepeatCount: 0, sameLineRepeatCount: 0 });
+    state = resetForwardEvidence(
+      resetFarEvidence({ ...state, backwardRepeatCount: 0, sameLineRepeatCount: 0 }),
+    );
     return buildOutput(state, 'hold', 0.1, 'no_match_or_offscript');
   }
 
   const rawIdx = clampIndex(input.matchBestIdx, -1);
   if (rawIdx < 0) {
-    state = resetFarEvidence({ ...state, backwardRepeatCount: 0, sameLineRepeatCount: 0 });
+    state = resetForwardEvidence(
+      resetFarEvidence({ ...state, backwardRepeatCount: 0, sameLineRepeatCount: 0 }),
+    );
     return buildOutput(state, 'hold', 0.05, 'missing_match_idx');
   }
 
@@ -137,30 +158,58 @@ export function stepAsrEvidenceStabilizer(
       sameLineRepeatCount: isSameAsLastRaw ? previous.sameLineRepeatCount + 1 : 1,
       backwardRepeatCount: 0,
     });
+    const hasBufferedForwardWindow =
+      state.forwardEvidenceStreak >= DEFAULTS.bufferedCatchupNeed &&
+      Number.isFinite(state.forwardEvidenceBestIdx as number) &&
+      Number(state.forwardEvidenceBestIdx) > state.stableCursorIdx &&
+      state.forwardEvidenceBestSim >= DEFAULTS.bufferedCatchupMinSim;
+    if (hasBufferedForwardWindow) {
+      const bufferedConfidence = state.forwardEvidenceBestSim;
+      state = resetForwardEvidence({
+        ...state,
+        stableCursorIdx: state.stableCursorIdx + 1,
+        sameLineRepeatCount: 0,
+      });
+      return buildOutput(
+        state,
+        'advance_adjacent',
+        bufferedConfidence,
+        'buffered_forward_evidence_adjacent_catchup',
+      );
+    }
     return buildOutput(state, 'hold', Math.max(0.4, input.matchBestSim), 'repeat_same_line_collapsed');
   }
 
   if (delta === 1) {
     if (!Number.isFinite(input.matchBestSim) || input.matchBestSim < adjacentMinSim) {
-      state = resetFarEvidence({
+      state = resetForwardEvidence(
+        resetFarEvidence({
+          ...state,
+          lastRawIdx: rawIdx,
+          sameLineRepeatCount: 0,
+          backwardRepeatCount: 0,
+        }),
+      );
+      return buildOutput(state, 'evidence_only', Math.max(0.2, input.matchBestSim), 'adjacent_but_weak');
+    }
+    state = resetForwardEvidence(
+      resetFarEvidence({
         ...state,
+        stableCursorIdx: rawIdx,
         lastRawIdx: rawIdx,
         sameLineRepeatCount: 0,
         backwardRepeatCount: 0,
-      });
-      return buildOutput(state, 'evidence_only', Math.max(0.2, input.matchBestSim), 'adjacent_but_weak');
-    }
-    state = resetFarEvidence({
-      ...state,
-      stableCursorIdx: rawIdx,
-      lastRawIdx: rawIdx,
-      sameLineRepeatCount: 0,
-      backwardRepeatCount: 0,
-    });
+      }),
+    );
     return buildOutput(state, 'advance_adjacent', input.matchBestSim, 'adjacent_forward_evidence');
   }
 
   if (delta >= 2) {
+    const sameForwardBand =
+      previous.forwardEvidenceBestIdx != null &&
+      previous.forwardEvidenceBestIdx > previous.stableCursorIdx &&
+      rawIdx >= previous.stableCursorIdx + 1;
+    const contradictoryBackwardRecent = previous.backwardRepeatCount > 0;
     const sameFarTarget = previous.farEvidenceIdx === rawIdx;
     state = {
       ...state,
@@ -172,7 +221,38 @@ export function stepAsrEvidenceStabilizer(
       farEvidenceBestSim: sameFarTarget
         ? Math.max(previous.farEvidenceBestSim, input.matchBestSim)
         : input.matchBestSim,
+      forwardEvidenceStreak:
+        !contradictoryBackwardRecent && sameForwardBand ? previous.forwardEvidenceStreak + 1 : 1,
+      forwardEvidenceBestIdx:
+        !contradictoryBackwardRecent && sameForwardBand
+          ? Math.max(previous.forwardEvidenceBestIdx ?? rawIdx, rawIdx)
+          : rawIdx,
+      forwardEvidenceBestSim:
+        !contradictoryBackwardRecent && sameForwardBand
+          ? Math.max(previous.forwardEvidenceBestSim, input.matchBestSim)
+          : input.matchBestSim,
     };
+    const canBufferedCatchup =
+      !contradictoryBackwardRecent &&
+      state.forwardEvidenceStreak >= DEFAULTS.bufferedCatchupNeed &&
+      state.forwardEvidenceBestSim >= DEFAULTS.bufferedCatchupMinSim &&
+      Number.isFinite(state.forwardEvidenceBestIdx as number) &&
+      Number(state.forwardEvidenceBestIdx) >= state.stableCursorIdx + 2;
+    if (canBufferedCatchup) {
+      const bufferedConfidence = Math.max(DEFAULTS.bufferedCatchupMinSim, state.forwardEvidenceBestSim);
+      state = resetFarEvidence(
+        resetForwardEvidence({
+          ...state,
+          stableCursorIdx: state.stableCursorIdx + 1,
+        }),
+      );
+      return buildOutput(
+        state,
+        'advance_adjacent',
+        bufferedConfidence,
+        'buffered_forward_evidence_adjacent_catchup',
+      );
+    }
     const farReason =
       delta >= DEFAULTS.farJumpThreshold
         ? 'far_jump_buffered_as_evidence'
@@ -186,12 +266,12 @@ export function stepAsrEvidenceStabilizer(
 
   const backwardGap = Math.abs(delta);
   const locallyPlausible = backwardGap <= 1 && input.matchReason !== 'off_script';
-  state = resetFarEvidence({
+  state = resetForwardEvidence(resetFarEvidence({
     ...state,
     lastRawIdx: rawIdx,
     sameLineRepeatCount: 0,
     backwardRepeatCount: locallyPlausible && isSameAsLastRaw ? previous.backwardRepeatCount + 1 : 1,
-  });
+  }));
   if (
     locallyPlausible &&
     state.backwardRepeatCount >= DEFAULTS.resetBackwardRepeatThreshold &&

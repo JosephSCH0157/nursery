@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 function parseArgs(argv) {
   const args = {
@@ -8,6 +9,7 @@ function parseArgs(argv) {
     json: null,
     outJson: null,
     outCsv: null,
+    compareStabilizer: false,
     pretty: false,
     positional: [],
   };
@@ -17,6 +19,7 @@ function parseArgs(argv) {
     else if (part === '--json') args.json = argv[++i] ?? null;
     else if (part === '--out-json') args.outJson = argv[++i] ?? null;
     else if (part === '--out-csv') args.outCsv = argv[++i] ?? null;
+    else if (part === '--compare-stabilizer') args.compareStabilizer = true;
     else if (part === '--pretty') args.pretty = true;
     else args.positional.push(part);
   }
@@ -329,6 +332,26 @@ function assessProgressHealth(finals, monotonicity, stalls, chunkQuality) {
   };
 }
 
+export async function compareWithEvidenceStabilizer(finals, injectedStabilizerModule = null) {
+  if (injectedStabilizerModule?.compareAsrTraceFinalsWithStabilizer) {
+    return injectedStabilizerModule.compareAsrTraceFinalsWithStabilizer(
+      finals,
+      injectedStabilizerModule,
+    );
+  }
+  const comparisonModule = await import(
+    pathToFileURL(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src/features/asr/asr-trace-analyzer-comparison.ts'),
+    ).href
+  );
+  const stabilizerModule = await import(
+    pathToFileURL(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src/features/asr/asr-evidence-stabilizer.ts'),
+    ).href
+  );
+  return comparisonModule.compareAsrTraceFinalsWithStabilizer(finals, stabilizerModule);
+}
+
 function formatDuration(ms) {
   if (!Number.isFinite(ms)) return 'n/a';
   if (ms < 1000) return `${ms}ms`;
@@ -384,6 +407,28 @@ function printReport(result) {
     const warn = result.textWarnings.performance[0];
     lines.push(`top perf warning: ${warn.category} ${formatDuration(warn.durationMs)}`);
   }
+  if (result.stabilizerComparison) {
+    lines.push(`stabilizer advances: ${result.stabilizerComparison.counts.advance_adjacent}`);
+    lines.push(`stabilizer holds: ${result.stabilizerComparison.counts.hold}`);
+    lines.push(`stabilizer evidence_only: ${result.stabilizerComparison.counts.evidence_only}`);
+    lines.push(`stabilizer reset_needed: ${result.stabilizerComparison.counts.reset_needed}`);
+    lines.push(`highest stableCursorIdx: ${result.stabilizerComparison.highestStableCursorIdx}`);
+    lines.push(`proposed adjacent commits: ${result.stabilizerComparison.proposedAdjacentCommitCount}`);
+    lines.push(
+      `proposed commit sequence: ${
+        result.stabilizerComparison.proposedAdjacentCommitSequence.length
+          ? result.stabilizerComparison.proposedAdjacentCommitSequence.join(' -> ')
+          : 'none'
+      }`,
+    );
+    lines.push(
+      `every proposed commit monotonic and +1 bounded: ${
+        result.stabilizerComparison.everyProposedCommitMonotonicAndBounded ? 'yes' : 'no'
+      }`,
+    );
+    lines.push(`stable cursor monotonic: ${result.stabilizerComparison.monotonic ? 'yes' : 'no'}`);
+    lines.push(`any stable advance > +1: ${result.stabilizerComparison.anyAdvanceOverOne ? 'yes' : 'no'}`);
+  }
   lines.push('top stall zones:');
   for (const zone of result.stalls.slice(0, 5)) {
     lines.push(
@@ -393,11 +438,12 @@ function printReport(result) {
   return lines.join('\n');
 }
 
-function main() {
-  const args = parseArgs(process.argv.slice(2));
+export async function analyzeAsrTrace(argv, options = {}) {
+  const args = parseArgs(argv);
   if (!args.text && !args.json) {
-    console.error('Usage: node tools/analyze_asr_trace.mjs --text <log.txt> --json <trace.json> [--out-json file] [--out-csv file]');
-    process.exit(1);
+    throw new Error(
+      'Usage: node tools/analyze_asr_trace.mjs --text <log.txt> --json <trace.json> [--compare-stabilizer] [--out-json file] [--out-csv file]',
+    );
   }
 
   const textParsed = args.text ? parseTextLog(readUtf8(args.text)) : { finals: [], warnings: [], geometry: [] };
@@ -438,6 +484,9 @@ function main() {
   const stalls = analyzeStalls(finals);
   const chunkQuality = analyzeChunkQuality(finals);
   const progress = assessProgressHealth(finals, monotonicity, stalls, chunkQuality);
+  const stabilizerComparison = args.compareStabilizer
+    ? await compareWithEvidenceStabilizer(finals, options.stabilizerModule ?? null)
+    : null;
 
   const result = {
     label: path.basename(args.text ?? args.json),
@@ -456,6 +505,7 @@ function main() {
     stalls,
     chunkQuality,
     progress,
+    stabilizerComparison,
     textWarnings: {
       performance: textParsed.warnings.filter((item) => item.type === 'performance_warning'),
       parsing: textParsed.warnings.filter((item) => item.type === 'parse_warning'),
@@ -463,14 +513,20 @@ function main() {
     },
   };
 
+  return { args, result };
+}
+
+async function main() {
+  const { args, result } = await analyzeAsrTrace(process.argv.slice(2));
+
   if (args.outJson) {
     fs.writeFileSync(args.outJson, `${JSON.stringify(result, null, args.pretty ? 2 : 0)}\n`, 'utf8');
   }
   if (args.outCsv) {
-    fs.writeFileSync(args.outCsv, `${buildCsv(finals)}\n`, 'utf8');
+    fs.writeFileSync(args.outCsv, `${buildCsv(result.finals)}\n`, 'utf8');
   }
 
   console.log(printReport(result));
 }
 
-main();
+await main();
