@@ -15085,6 +15085,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           Math.round(visualErrorPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
           Math.round(current / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
         ].join('|');
+        const markerLandingGeometrySignature = [
+          visualAnchorLineIdx,
+          visualAnchorSource,
+          desiredLineYMode,
+          Math.round(markerY / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+          Math.round(desiredLineY / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+          Math.round((visualAnchorLineY || 0) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+        ].join('|');
+        if (shouldEmitFrameDiagnostic('ASR_MARKER_LANDING_GEOMETRY', markerLandingGeometrySignature, 250)) {
+          try {
+            console.warn(
+              `[ASR_MARKER_LANDING_GEOMETRY] currentLineIdx=${lastLineIndex} nextSpeakableLineIdx=${nextSpeakableLineIdx} visualAnchorLineIdx=${visualAnchorLineIdx} visualAnchorSource=${visualAnchorSource} desiredLineYMode=${desiredLineYMode} markerY=${Math.round(markerY)} desiredLineY=${Math.round(desiredLineY)} visualAnchorLineY=${Math.round(visualAnchorLineY)} visualErrorPx=${Math.round(visualErrorPx)}`,
+            );
+          } catch {}
+        }
         if (shouldEmitFrameDiagnostic('ASR_VISUAL_MARKER_ERROR_CORRECTION', markerCorrectionSignature, 350)) {
           try {
             console.warn(

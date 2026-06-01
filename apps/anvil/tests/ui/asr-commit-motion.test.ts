@@ -311,19 +311,19 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(320);
 
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    const authorityLine = lines.find((l) => l.includes('ASR_CURRENT_POCKET_AUTHORITY') && l.includes('desiredLineYMode=')) || '';
+    const geometryLine = lines.find((l) => l.includes('ASR_MARKER_LANDING_GEOMETRY')) || '';
 
-    expect(authorityLine).toContain('visualAnchorLineIdx=');
-    expect(authorityLine).toContain('visualAnchorSource=');
-    expect(authorityLine).toContain('desiredLineYMode=marker');
+    expect(geometryLine).toContain('visualAnchorLineIdx=');
+    expect(geometryLine).toContain('visualAnchorSource=');
+    expect(geometryLine).toContain('desiredLineYMode=marker');
 
-    const markerY = extractTraceFieldNumber(authorityLine, 'markerY');
-    const desiredLineY = extractTraceFieldNumber(authorityLine, 'desiredLineY');
+    const markerY = extractTraceFieldNumber(geometryLine, 'markerY');
+    const desiredLineY = extractTraceFieldNumber(geometryLine, 'desiredLineY');
     expect(Number.isFinite(markerY)).toBe(true);
     expect(Number.isFinite(desiredLineY)).toBe(true);
     expect(desiredLineY).toBe(markerY);
 
-    const visualAnchorSource = extractTraceField(authorityLine, 'visualAnchorSource');
+    const visualAnchorSource = extractTraceField(geometryLine, 'visualAnchorSource');
     expect(['confirmed_spoken', 'current_line', 'next_speakable_fallback']).toContain(visualAnchorSource);
     expect(visualAnchorSource).not.toBe('next_speakable_fallback');
 
