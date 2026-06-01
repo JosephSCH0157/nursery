@@ -25,6 +25,7 @@ import {
   ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION,
   buildAsrHudNoTargetDetail,
   buildAsrAudioChunkStaleDiagnostic,
+  buildAsrStabilizerShadowDiagnostic,
   buildAsrFocusLossTranscriptAcceptedDiagnostic,
   buildAsrFocusLossTranscriptQuarantinedDiagnostic,
   buildAsr4RecoveryBudgetAuthorityAppliedDiagnostic,
@@ -118,6 +119,11 @@ import {
   buildAsrVisualMarkerErrorCorrectionDiagnostic,
   type AsrActuatorGear,
 } from './asr-diagnostics';
+import {
+  createInitialAsrEvidenceStabilizerState,
+  stepAsrEvidenceStabilizer,
+  type AsrEvidenceStabilizerState,
+} from './asr-evidence-stabilizer';
 import { resolveAsrScrollAuthority } from './asr-authority-resolver';
 import { AsrAlignmentEpisodeTracker } from './asr-alignment-episodes';
 import { decideStaleRecoveryTargetExpiry } from './asr-visual-target-arbitration';
@@ -358,6 +364,7 @@ const ASR_STARTUP_SHORT_MEMORY_MAX_RUN_AGE_MS = 15000;
 const ASR_STARTUP_SHORT_MEMORY_MIN_ADJACENT_SIM = 0.52;
 const ASR_STARTUP_SHORT_MEMORY_MIN_TAIL_WORDS = 4;
 const ASR_FAR_AHEAD_HOLD_ADJ_ESCAPE_TIMEOUT_MS = 2000;
+const ENABLE_ASR_STABILIZER_SHADOW = true;
 const ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS = 14;
 const ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS = 700;
 const ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS = 1200;
@@ -5136,6 +5143,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastAcceptedMatchedLineIdx = -1;
   let lastAcceptedMatchedLineSim = Number.NaN;
   let lastAcceptedMatchedAt = 0;
+  let stabilizerShadowState: AsrEvidenceStabilizerState = createInitialAsrEvidenceStabilizerState(0);
+  let stabilizerShadowLastScriptHash = '';
   let liveAsrVisualGovernorHardHold = false;
   let liveAsrVisualGovernorHardHoldSinceMs = 0;
   let deadScreenAutopsyEmittedInWindow = false;
@@ -5801,6 +5810,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     stallRescueRequested = false;
     stallHudEmitted = false;
     runAffectedByFocusLoss = false;
+    stabilizerShadowState = createInitialAsrEvidenceStabilizerState(0);
+    stabilizerShadowLastScriptHash = readScriptHash();
     guardEvents.length = 0;
     try {
       console.info('[ASR_RUN_TIMER_RESET]', {
@@ -5906,6 +5917,103 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const activeRunKey = resolveActiveRunKey();
     if (transcriptRunKey && activeRunKey && transcriptRunKey !== activeRunKey) return true;
     return false;
+  };
+
+  const maybeResetStabilizerShadowForScriptChange = () => {
+    if (!ENABLE_ASR_STABILIZER_SHADOW) return;
+    const nextScriptHash = readScriptHash();
+    if (!nextScriptHash) return;
+    if (!stabilizerShadowLastScriptHash) {
+      stabilizerShadowLastScriptHash = nextScriptHash;
+      return;
+    }
+    if (nextScriptHash !== stabilizerShadowLastScriptHash) {
+      stabilizerShadowState = createInitialAsrEvidenceStabilizerState(0);
+      stabilizerShadowLastScriptHash = nextScriptHash;
+    }
+  };
+
+  const emitStabilizerShadowDiagnostic = (args: {
+    now: number;
+    matchBestIdx: number | null;
+    matchBestSim: number;
+    textLen: number;
+    noMatch: boolean;
+    matchReason: string;
+    runtimeCurrentLineIdx: number | null;
+    runtimeAcceptedCommitTargetIdx: number | null;
+  }) => {
+    if (!ENABLE_ASR_STABILIZER_SHADOW) return;
+    maybeResetStabilizerShadowForScriptChange();
+    const previousStableCursorIdx = stabilizerShadowState.stableCursorIdx;
+    const speechLive =
+      asrRuntimeSpeechRunningActual ||
+      hasRecentActualSpeech(args.now) ||
+      hasRecentVadSpeechNow(args.now);
+    const transcriptFresh =
+      lastTranscriptPacketAt > 0 &&
+      Math.max(0, args.now - lastTranscriptPacketAt) <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS;
+    const next = stepAsrEvidenceStabilizer(stabilizerShadowState, {
+      timestampMs: args.now,
+      matchBestIdx: args.matchBestIdx,
+      matchBestSim: args.matchBestSim,
+      textLen: args.textLen,
+      noMatch: args.noMatch,
+      matchReason: args.matchReason,
+      currentCommittedLine: Math.max(
+        0,
+        Number.isFinite(args.runtimeCurrentLineIdx as number)
+          ? Math.floor(Number(args.runtimeCurrentLineIdx))
+          : lastLineIndex,
+      ),
+      speechLive,
+      transcriptFresh,
+    });
+    stabilizerShadowState = next.state;
+    const proposedAdjacentCommitTarget =
+      next.output.action === 'advance_adjacent' ? next.output.stableCursorIdx : null;
+    const runtimeCurrentLineIdx = Number.isFinite(args.runtimeCurrentLineIdx as number)
+      ? Math.max(0, Math.floor(Number(args.runtimeCurrentLineIdx)))
+      : null;
+    const runtimeAcceptedCommitTargetIdx = Number.isFinite(args.runtimeAcceptedCommitTargetIdx as number)
+      ? Math.max(0, Math.floor(Number(args.runtimeAcceptedCommitTargetIdx)))
+      : null;
+    try {
+      console.info(buildAsrStabilizerShadowDiagnostic({
+        rawMatchBestIdx: args.matchBestIdx,
+        runtimeCurrentLineIdx,
+        runtimeAcceptedCommitTargetIdx,
+        previousStableCursorIdx,
+        stableCursorIdx: next.output.stableCursorIdx,
+        action: next.output.action,
+        reason: next.output.reason,
+        proposedAdjacentCommitTarget,
+        proposedTargetIsBoundedPlusOne:
+          proposedAdjacentCommitTarget != null
+            ? proposedAdjacentCommitTarget === previousStableCursorIdx + 1
+            : true,
+        rawMatchWasFarJump:
+          Number.isFinite(args.matchBestIdx as number) &&
+          Number(args.matchBestIdx) >= previousStableCursorIdx + 3,
+        heldDueToNoMatchOrQuietOrStale:
+          next.output.action === 'hold' &&
+          (
+            next.output.reason === 'no_match_or_offscript' ||
+            next.output.reason === 'quiet_or_stale_state'
+          ),
+        runtimeDifferentFromStable:
+          runtimeCurrentLineIdx != null && runtimeCurrentLineIdx !== next.output.stableCursorIdx,
+        runtimeDifferentFromProposed:
+          proposedAdjacentCommitTarget != null &&
+          runtimeAcceptedCommitTargetIdx != null &&
+          runtimeAcceptedCommitTargetIdx !== proposedAdjacentCommitTarget,
+        noMatch: args.noMatch,
+        speechLive,
+        transcriptFresh,
+      }));
+    } catch {
+      // ignore shadow logging failures
+    }
   };
 
   const clearPendingSpeakableBridge = (
@@ -28906,10 +29014,52 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       packetMatchBestSim: incomingMatch ? Number((incomingMatch as any).bestSim) : null,
     });
     if (explicitNoMatch) {
+      const shadowMatchBestIdx = Number.isFinite(Number((incomingMatch as any)?.bestIdx))
+        ? Math.max(0, Math.floor(Number((incomingMatch as any).bestIdx)))
+        : null;
+      const shadowMatchBestSim = Number.isFinite(Number((incomingMatch as any)?.bestSim))
+        ? Number((incomingMatch as any).bestSim)
+        : Number.NaN;
+      if (isFinal) {
+        emitStabilizerShadowDiagnostic({
+          now,
+          matchBestIdx: shadowMatchBestIdx,
+          matchBestSim: shadowMatchBestSim,
+          textLen: compacted.length,
+          noMatch: true,
+          matchReason: 'no_match',
+          runtimeCurrentLineIdx: currentCursorIndex,
+          runtimeAcceptedCommitTargetIdx:
+            Number.isFinite(lastCommitTargetLine as number) && lastCommitTargetLine >= 0
+              ? lastCommitTargetLine
+              : null,
+        });
+      }
       const snippet = formatLogSnippet(compacted, 60);
       emitHudStatus('no_match', 'No match');
       noteNoMatchGap(now, 'explicit_no_match', snippet);
       return;
+    }
+    if (isFinal) {
+      const shadowMatchBestIdx = Number.isFinite(Number(incomingMatch?.bestIdx))
+        ? Math.max(0, Math.floor(Number(incomingMatch?.bestIdx)))
+        : null;
+      const shadowMatchBestSim = Number.isFinite(Number(incomingMatch?.bestSim))
+        ? Number(incomingMatch?.bestSim)
+        : Number.NaN;
+      emitStabilizerShadowDiagnostic({
+        now,
+        matchBestIdx: shadowMatchBestIdx,
+        matchBestSim: shadowMatchBestSim,
+        textLen: compacted.length,
+        noMatch: false,
+        matchReason: 'direct_matcher',
+        runtimeCurrentLineIdx: currentCursorIndex,
+        runtimeAcceptedCommitTargetIdx:
+          Number.isFinite(lastCommitTargetLine as number) && lastCommitTargetLine >= 0
+            ? lastCommitTargetLine
+            : null,
+      });
     }
     if (isFinal && incomingMatch) {
       emitReaderLineMarkerError({

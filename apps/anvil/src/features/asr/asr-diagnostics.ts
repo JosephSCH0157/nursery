@@ -28,6 +28,35 @@ export function buildAsrAudioChunkStaleDiagnostic(args: {
   return `[ASR_AUDIO_CHUNK_STALE] ageMs=${Math.round(args.ageMs)} thresholdMs=${args.thresholdMs} recognizerAttached=${args.recognizerAttached ? 1 : 0} speechActive=${args.speechActive ? 1 : 0}`;
 }
 
+export function buildAsrStabilizerShadowDiagnostic(args: {
+  rawMatchBestIdx: number | null;
+  runtimeCurrentLineIdx: number | null;
+  runtimeAcceptedCommitTargetIdx: number | null;
+  previousStableCursorIdx: number;
+  stableCursorIdx: number;
+  action: 'hold' | 'advance_adjacent' | 'evidence_only' | 'reset_needed';
+  reason: string;
+  proposedAdjacentCommitTarget: number | null;
+  proposedTargetIsBoundedPlusOne: boolean;
+  rawMatchWasFarJump: boolean;
+  heldDueToNoMatchOrQuietOrStale: boolean;
+  runtimeDifferentFromStable: boolean;
+  runtimeDifferentFromProposed: boolean;
+  noMatch: boolean;
+  speechLive: boolean;
+  transcriptFresh: boolean;
+}): string {
+  const rawMatchBestIdx = Number.isFinite(args.rawMatchBestIdx as number) ? Math.round(Number(args.rawMatchBestIdx)) : -1;
+  const runtimeCurrentLineIdx = Number.isFinite(args.runtimeCurrentLineIdx as number) ? Math.round(Number(args.runtimeCurrentLineIdx)) : -1;
+  const runtimeAcceptedCommitTargetIdx = Number.isFinite(args.runtimeAcceptedCommitTargetIdx as number)
+    ? Math.round(Number(args.runtimeAcceptedCommitTargetIdx))
+    : -1;
+  const proposedAdjacentCommitTarget = Number.isFinite(args.proposedAdjacentCommitTarget as number)
+    ? Math.round(Number(args.proposedAdjacentCommitTarget))
+    : -1;
+  return `[ASR_STABILIZER_SHADOW] rawMatchBestIdx=${rawMatchBestIdx} runtimeCurrentLineIdx=${runtimeCurrentLineIdx} runtimeAcceptedCommitTargetIdx=${runtimeAcceptedCommitTargetIdx} previousStableCursorIdx=${Math.round(args.previousStableCursorIdx)} stableCursorIdx=${Math.round(args.stableCursorIdx)} action=${args.action} reason=${args.reason} proposedAdjacentCommitTarget=${proposedAdjacentCommitTarget} proposedTargetBounded=${args.proposedTargetIsBoundedPlusOne ? 1 : 0} rawFarJump=${args.rawMatchWasFarJump ? 1 : 0} heldDueToNoMatchOrQuietOrStale=${args.heldDueToNoMatchOrQuietOrStale ? 1 : 0} runtimeDifferentFromStable=${args.runtimeDifferentFromStable ? 1 : 0} runtimeDifferentFromProposed=${args.runtimeDifferentFromProposed ? 1 : 0} noMatch=${args.noMatch ? 1 : 0} speechLive=${args.speechLive ? 1 : 0} transcriptFresh=${args.transcriptFresh ? 1 : 0}`;
+}
+
 export function buildAsrFocusLossTranscriptQuarantinedDiagnostic(args: {
   focusState: string;
   generation: number;
