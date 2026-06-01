@@ -40,6 +40,29 @@ function bootstrapLiveAsrRuntime(): void {
   }));
 }
 
+type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
+  __debugEvaluateStabilizerSemanticCommitCandidate: (args: {
+    currentLineIdx: number;
+    action: 'hold' | 'advance_adjacent' | 'evidence_only' | 'reset_needed';
+    reason?: string;
+    proposedAdjacentCommitTarget?: number | null;
+    proposedTargetIsBoundedPlusOne?: boolean;
+    rawMatchBestIdx?: number | null;
+    speechLive?: boolean;
+    transcriptFresh?: boolean;
+    noMatch?: boolean;
+    transcriptReceivedAtMs?: number | null;
+    transcriptAuthorityEpoch?: number | null;
+    transcriptRunKey?: string | null;
+    transcriptRunGeneration?: number | null;
+    invalidateReason?: string;
+  }) => {
+    accepted: boolean;
+    rejectReason: string;
+    proposedAdjacentCommitTarget: number | null;
+  };
+};
+
 describe('ASR live commit motion', () => {
   let rafSpy: jest.SpyInstance<number, [FrameRequestCallback]>;
   let cafSpy: jest.SpyInstance<void, [number]>;
@@ -665,6 +688,141 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(200);
 
     expect(driver.getLastLineIndex()).toBe(1);
+
+    driver.dispose();
+  });
+
+  test('stabilizer adjacent semantic candidate can commit +1 when strict runtime proof would otherwise hold', async () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    bootstrapLiveAsrRuntime();
+
+    const result = driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'advance_adjacent',
+      reason: 'buffered_forward_evidence_adjacent_catchup',
+      proposedAdjacentCommitTarget: 2,
+      proposedTargetIsBoundedPlusOne: true,
+      rawMatchBestIdx: 3,
+      speechLive: true,
+      transcriptFresh: true,
+      noMatch: false,
+    });
+
+    expect(result).toMatchObject({
+      accepted: true,
+      rejectReason: 'none',
+      proposedAdjacentCommitTarget: 2,
+    });
+
+    driver.dispose();
+  });
+
+  test('stabilizer semantic candidate rejects non-advance actions and unbounded targets', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'evidence_only',
+      proposedAdjacentCommitTarget: 2,
+      rawMatchBestIdx: 3,
+    })).toMatchObject({ accepted: false, rejectReason: 'action_evidence_only' });
+
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'hold',
+      proposedAdjacentCommitTarget: 2,
+      rawMatchBestIdx: 1,
+    })).toMatchObject({ accepted: false, rejectReason: 'action_hold' });
+
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'advance_adjacent',
+      proposedAdjacentCommitTarget: 3,
+      proposedTargetIsBoundedPlusOne: false,
+      rawMatchBestIdx: 3,
+    })).toMatchObject({ accepted: false, rejectReason: 'unbounded_proposed_target' });
+
+    driver.dispose();
+  });
+
+  test('stabilizer semantic candidate rejects quiet stale noMatch and stopped sessions', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'advance_adjacent',
+      proposedAdjacentCommitTarget: 2,
+      speechLive: false,
+      rawMatchBestIdx: 3,
+    })).toMatchObject({ accepted: false, rejectReason: 'speech_not_live' });
+
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'advance_adjacent',
+      proposedAdjacentCommitTarget: 2,
+      transcriptFresh: false,
+      rawMatchBestIdx: 3,
+    })).toMatchObject({ accepted: false, rejectReason: 'transcript_stale' });
+
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'advance_adjacent',
+      proposedAdjacentCommitTarget: 2,
+      noMatch: true,
+      rawMatchBestIdx: 3,
+    })).toMatchObject({ accepted: false, rejectReason: 'no_match' });
+
+    const originalStore = (window as any).__tpStore;
+    (window as any).__tpStore = {
+      get(key: string) {
+        if (key === 'scrollMode') return 'asr';
+        if (key === 'session.phase') return 'stopped';
+        if (key === 'session.asrArmed') return true;
+        return undefined;
+      },
+    };
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'advance_adjacent',
+      proposedAdjacentCommitTarget: 2,
+      rawMatchBestIdx: 3,
+    })).toMatchObject({ accepted: false, rejectReason: 'session_not_live' });
+    (window as any).__tpStore = originalStore;
+
+    driver.dispose();
+  });
+
+  test('stabilizer semantic candidate rejects generation mismatch and stale response invalidation', () => {
+    const driver = createAsrScrollDriver({ runKey: 'stabilizer-debug', runGeneration: 7 }) as DebugAsrDriver;
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: {
+        speechRunningActual: true,
+        recognizerAttached: true,
+        activeReadMode: true,
+        runKey: 'stabilizer-debug',
+        runGeneration: 7,
+      },
+    }));
+
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'advance_adjacent',
+      proposedAdjacentCommitTarget: 2,
+      rawMatchBestIdx: 3,
+      transcriptRunKey: 'stabilizer-debug',
+      transcriptRunGeneration: 6,
+    })).toMatchObject({ accepted: false, rejectReason: 'stale_run_identity' });
+
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'advance_adjacent',
+      proposedAdjacentCommitTarget: 2,
+      rawMatchBestIdx: 3,
+      invalidateReason: 'test_stale_response_invalidated',
+      transcriptReceivedAtMs: Date.now() - 1,
+    })).toMatchObject({ accepted: false, rejectReason: 'stale_response_invalidated' });
 
     driver.dispose();
   });

@@ -57,6 +57,27 @@ export function buildAsrStabilizerShadowDiagnostic(args: {
   return `[ASR_STABILIZER_SHADOW] rawMatchBestIdx=${rawMatchBestIdx} runtimeCurrentLineIdx=${runtimeCurrentLineIdx} runtimeAcceptedCommitTargetIdx=${runtimeAcceptedCommitTargetIdx} previousStableCursorIdx=${Math.round(args.previousStableCursorIdx)} stableCursorIdx=${Math.round(args.stableCursorIdx)} action=${args.action} reason=${args.reason} proposedAdjacentCommitTarget=${proposedAdjacentCommitTarget} proposedTargetBounded=${args.proposedTargetIsBoundedPlusOne ? 1 : 0} rawFarJump=${args.rawMatchWasFarJump ? 1 : 0} heldDueToNoMatchOrQuietOrStale=${args.heldDueToNoMatchOrQuietOrStale ? 1 : 0} runtimeDifferentFromStable=${args.runtimeDifferentFromStable ? 1 : 0} runtimeDifferentFromProposed=${args.runtimeDifferentFromProposed ? 1 : 0} noMatch=${args.noMatch ? 1 : 0} speechLive=${args.speechLive ? 1 : 0} transcriptFresh=${args.transcriptFresh ? 1 : 0}`;
 }
 
+export function buildAsrStabilizerCommitCandidateDiagnostic(args: {
+  currentLineIdx: number;
+  proposedAdjacentCommitTarget: number | null;
+  action: 'hold' | 'advance_adjacent' | 'evidence_only' | 'reset_needed';
+  reason: string;
+  rawMatchBestIdx: number | null;
+  speechLive: boolean;
+  transcriptFresh: boolean;
+  noMatch: boolean;
+  accepted: boolean;
+  rejectReason: string;
+}): string {
+  const rawMatchBestIdx = Number.isFinite(args.rawMatchBestIdx as number)
+    ? Math.round(Number(args.rawMatchBestIdx))
+    : -1;
+  const proposedAdjacentCommitTarget = Number.isFinite(args.proposedAdjacentCommitTarget as number)
+    ? Math.round(Number(args.proposedAdjacentCommitTarget))
+    : -1;
+  return `[ASR_STABILIZER_COMMIT_CANDIDATE] currentLineIdx=${Math.round(args.currentLineIdx)} proposedAdjacentCommitTarget=${proposedAdjacentCommitTarget} action=${args.action} reason=${args.reason} rawMatchBestIdx=${rawMatchBestIdx} speechLive=${args.speechLive ? 1 : 0} transcriptFresh=${args.transcriptFresh ? 1 : 0} noMatch=${args.noMatch ? 1 : 0} accepted=${args.accepted ? 1 : 0} rejectReason=${args.rejectReason || 'none'}`;
+}
+
 export function buildAsrFocusLossTranscriptQuarantinedDiagnostic(args: {
   focusState: string;
   generation: number;

@@ -25,6 +25,7 @@ import {
   ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION,
   buildAsrHudNoTargetDetail,
   buildAsrAudioChunkStaleDiagnostic,
+  buildAsrStabilizerCommitCandidateDiagnostic,
   buildAsrStabilizerShadowDiagnostic,
   buildAsrFocusLossTranscriptAcceptedDiagnostic,
   buildAsrFocusLossTranscriptQuarantinedDiagnostic,
@@ -122,6 +123,8 @@ import {
 import {
   createInitialAsrEvidenceStabilizerState,
   stepAsrEvidenceStabilizer,
+  type AsrEvidenceStabilizerAction,
+  type AsrEvidenceStabilizerOutput,
   type AsrEvidenceStabilizerState,
 } from './asr-evidence-stabilizer';
 import { resolveAsrScrollAuthority } from './asr-authority-resolver';
@@ -273,6 +276,23 @@ export type { AsrScrollDriver, AsrScrollDriverStats } from './asr-scroll-driver.
 
 // ASR Training rule: matching should be permissive; committing should be conservative.
 
+type StabilizerShadowEvaluation = {
+  previousStableCursorIdx: number;
+  output: AsrEvidenceStabilizerOutput;
+  action: AsrEvidenceStabilizerAction;
+  reason: string;
+  rawMatchBestIdx: number | null;
+  runtimeCurrentLineIdx: number | null;
+  runtimeAcceptedCommitTargetIdx: number | null;
+  proposedAdjacentCommitTarget: number | null;
+  proposedTargetIsBoundedPlusOne: boolean;
+  rawMatchWasFarJump: boolean;
+  heldDueToNoMatchOrQuietOrStale: boolean;
+  noMatch: boolean;
+  speechLive: boolean;
+  transcriptFresh: boolean;
+};
+
 type BridgeReducedVisualCashInHoldSnapshot = {
   currentLineIdx: number;
   requestedTargetIdx: number;
@@ -365,6 +385,7 @@ const ASR_STARTUP_SHORT_MEMORY_MIN_ADJACENT_SIM = 0.52;
 const ASR_STARTUP_SHORT_MEMORY_MIN_TAIL_WORDS = 4;
 const ASR_FAR_AHEAD_HOLD_ADJ_ESCAPE_TIMEOUT_MS = 2000;
 const ENABLE_ASR_STABILIZER_SHADOW = true;
+const ENABLE_ASR_STABILIZER_SEMANTIC_CANDIDATE = true;
 const ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS = 14;
 const ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS = 700;
 const ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS = 1200;
@@ -5145,6 +5166,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastAcceptedMatchedAt = 0;
   let stabilizerShadowState: AsrEvidenceStabilizerState = createInitialAsrEvidenceStabilizerState(0);
   let stabilizerShadowLastScriptHash = '';
+  let latestStabilizerShadowEvaluation: StabilizerShadowEvaluation | null = null;
   let liveAsrVisualGovernorHardHold = false;
   let liveAsrVisualGovernorHardHoldSinceMs = 0;
   let deadScreenAutopsyEmittedInWindow = false;
@@ -5812,6 +5834,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     runAffectedByFocusLoss = false;
     stabilizerShadowState = createInitialAsrEvidenceStabilizerState(0);
     stabilizerShadowLastScriptHash = readScriptHash();
+    latestStabilizerShadowEvaluation = null;
     guardEvents.length = 0;
     try {
       console.info('[ASR_RUN_TIMER_RESET]', {
@@ -5930,10 +5953,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (nextScriptHash !== stabilizerShadowLastScriptHash) {
       stabilizerShadowState = createInitialAsrEvidenceStabilizerState(0);
       stabilizerShadowLastScriptHash = nextScriptHash;
+      latestStabilizerShadowEvaluation = null;
     }
   };
 
-  const emitStabilizerShadowDiagnostic = (args: {
+  const evaluateStabilizerShadow = (args: {
     now: number;
     matchBestIdx: number | null;
     matchBestSim: number;
@@ -5942,8 +5966,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     matchReason: string;
     runtimeCurrentLineIdx: number | null;
     runtimeAcceptedCommitTargetIdx: number | null;
-  }) => {
-    if (!ENABLE_ASR_STABILIZER_SHADOW) return;
+  }): StabilizerShadowEvaluation | null => {
+    if (!ENABLE_ASR_STABILIZER_SHADOW) return null;
     maybeResetStabilizerShadowForScriptChange();
     const previousStableCursorIdx = stabilizerShadowState.stableCursorIdx;
     const speechLive =
@@ -5978,42 +6002,158 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const runtimeAcceptedCommitTargetIdx = Number.isFinite(args.runtimeAcceptedCommitTargetIdx as number)
       ? Math.max(0, Math.floor(Number(args.runtimeAcceptedCommitTargetIdx)))
       : null;
+    return {
+      previousStableCursorIdx,
+      output: next.output,
+      action: next.output.action,
+      reason: next.output.reason,
+      rawMatchBestIdx: args.matchBestIdx,
+      runtimeCurrentLineIdx,
+      runtimeAcceptedCommitTargetIdx,
+      proposedAdjacentCommitTarget,
+      proposedTargetIsBoundedPlusOne:
+        proposedAdjacentCommitTarget != null
+          ? proposedAdjacentCommitTarget === previousStableCursorIdx + 1
+          : true,
+      rawMatchWasFarJump:
+        Number.isFinite(args.matchBestIdx as number) &&
+        Number(args.matchBestIdx) >= previousStableCursorIdx + 3,
+      heldDueToNoMatchOrQuietOrStale:
+        next.output.action === 'hold' &&
+        (
+          next.output.reason === 'no_match_or_offscript' ||
+          next.output.reason === 'quiet_or_stale_state'
+        ),
+      noMatch: args.noMatch,
+      speechLive,
+      transcriptFresh,
+    };
+  };
+
+  const emitStabilizerShadowDiagnostic = (evaluation: StabilizerShadowEvaluation | null) => {
+    if (!evaluation) return;
     try {
       console.info(buildAsrStabilizerShadowDiagnostic({
-        rawMatchBestIdx: args.matchBestIdx,
-        runtimeCurrentLineIdx,
-        runtimeAcceptedCommitTargetIdx,
-        previousStableCursorIdx,
-        stableCursorIdx: next.output.stableCursorIdx,
-        action: next.output.action,
-        reason: next.output.reason,
-        proposedAdjacentCommitTarget,
-        proposedTargetIsBoundedPlusOne:
-          proposedAdjacentCommitTarget != null
-            ? proposedAdjacentCommitTarget === previousStableCursorIdx + 1
-            : true,
-        rawMatchWasFarJump:
-          Number.isFinite(args.matchBestIdx as number) &&
-          Number(args.matchBestIdx) >= previousStableCursorIdx + 3,
-        heldDueToNoMatchOrQuietOrStale:
-          next.output.action === 'hold' &&
-          (
-            next.output.reason === 'no_match_or_offscript' ||
-            next.output.reason === 'quiet_or_stale_state'
-          ),
+        rawMatchBestIdx: evaluation.rawMatchBestIdx,
+        runtimeCurrentLineIdx: evaluation.runtimeCurrentLineIdx,
+        runtimeAcceptedCommitTargetIdx: evaluation.runtimeAcceptedCommitTargetIdx,
+        previousStableCursorIdx: evaluation.previousStableCursorIdx,
+        stableCursorIdx: evaluation.output.stableCursorIdx,
+        action: evaluation.action,
+        reason: evaluation.reason,
+        proposedAdjacentCommitTarget: evaluation.proposedAdjacentCommitTarget,
+        proposedTargetIsBoundedPlusOne: evaluation.proposedTargetIsBoundedPlusOne,
+        rawMatchWasFarJump: evaluation.rawMatchWasFarJump,
+        heldDueToNoMatchOrQuietOrStale: evaluation.heldDueToNoMatchOrQuietOrStale,
         runtimeDifferentFromStable:
-          runtimeCurrentLineIdx != null && runtimeCurrentLineIdx !== next.output.stableCursorIdx,
+          evaluation.runtimeCurrentLineIdx != null &&
+          evaluation.runtimeCurrentLineIdx !== evaluation.output.stableCursorIdx,
         runtimeDifferentFromProposed:
-          proposedAdjacentCommitTarget != null &&
-          runtimeAcceptedCommitTargetIdx != null &&
-          runtimeAcceptedCommitTargetIdx !== proposedAdjacentCommitTarget,
-        noMatch: args.noMatch,
-        speechLive,
-        transcriptFresh,
+          evaluation.proposedAdjacentCommitTarget != null &&
+          evaluation.runtimeAcceptedCommitTargetIdx != null &&
+          evaluation.runtimeAcceptedCommitTargetIdx !== evaluation.proposedAdjacentCommitTarget,
+        noMatch: evaluation.noMatch,
+        speechLive: evaluation.speechLive,
+        transcriptFresh: evaluation.transcriptFresh,
       }));
     } catch {
       // ignore shadow logging failures
     }
+  };
+
+  const evaluateStabilizerSemanticCommitCandidate = (args: {
+    currentLineIdx: number;
+    evaluation: StabilizerShadowEvaluation | null;
+    transcriptReceivedAtMs?: number | null;
+    transcriptAuthorityEpoch?: number | null;
+    transcriptRunKey?: string | null;
+    transcriptRunGeneration?: number | null;
+  }) => {
+    const currentLineIdx = Math.max(0, Math.floor(Number(args.currentLineIdx) || 0));
+    const evaluation = args.evaluation;
+    let accepted = false;
+    let rejectReason = 'disabled';
+    let proposedAdjacentCommitTarget: number | null = null;
+    if (!ENABLE_ASR_STABILIZER_SEMANTIC_CANDIDATE) {
+      rejectReason = 'feature_disabled';
+    } else if (!evaluation) {
+      rejectReason = 'no_stabilizer_evaluation';
+    } else {
+      proposedAdjacentCommitTarget = evaluation.proposedAdjacentCommitTarget;
+      if (evaluation.action !== 'advance_adjacent') {
+        rejectReason = `action_${evaluation.action}`;
+      } else if (proposedAdjacentCommitTarget == null) {
+        rejectReason = 'missing_proposed_target';
+      } else if (!evaluation.proposedTargetIsBoundedPlusOne) {
+        rejectReason = 'unbounded_proposed_target';
+      } else if (proposedAdjacentCommitTarget !== currentLineIdx + 1) {
+        rejectReason = 'not_runtime_adjacent';
+      } else if (
+        Number.isFinite(evaluation.rawMatchBestIdx as number) &&
+        Number(evaluation.rawMatchBestIdx) > currentLineIdx + 2
+      ) {
+        rejectReason = 'raw_far_jump_guard';
+      } else if (!evaluation.speechLive) {
+        rejectReason = 'speech_not_live';
+      } else if (!evaluation.transcriptFresh) {
+        rejectReason = 'transcript_stale';
+      } else if (evaluation.noMatch) {
+        rejectReason = 'no_match';
+      } else if (!isSessionLivePhase()) {
+        rejectReason = 'session_not_live';
+      } else if (getScrollMode() !== 'asr' || !isSessionAsrArmed()) {
+        rejectReason = 'asr_not_running';
+      } else if (
+        args.transcriptAuthorityEpoch != null &&
+        Number.isFinite(args.transcriptAuthorityEpoch as number) &&
+        Number(args.transcriptAuthorityEpoch) !== commitAuthorityEpoch
+      ) {
+        rejectReason = 'stale_response_invalidated';
+      } else if (
+        lastCommitAuthorityInvalidatedAt > 0 &&
+        Number.isFinite(args.transcriptReceivedAtMs as number) &&
+        Number(args.transcriptReceivedAtMs) <= lastCommitAuthorityInvalidatedAt
+      ) {
+        rejectReason = 'stale_response_invalidated';
+      } else if (isRunIdentityStale({
+        runKey: args.transcriptRunKey || undefined,
+        runGeneration: args.transcriptRunGeneration,
+      })) {
+        rejectReason = 'stale_run_identity';
+      } else if (pendingSpeakableBridgeState) {
+        rejectReason = 'pending_bridge_active';
+      } else {
+        accepted = true;
+        rejectReason = 'none';
+      }
+    }
+    if (evaluation) {
+      emitDevDiagnostic(
+        'ASR_STABILIZER_COMMIT_CANDIDATE',
+        accepted ? 'info' : 'warn',
+        buildAsrStabilizerCommitCandidateDiagnostic({
+          currentLineIdx,
+          proposedAdjacentCommitTarget,
+          action: evaluation.action,
+          reason: evaluation.reason,
+          rawMatchBestIdx: evaluation.rawMatchBestIdx,
+          speechLive: evaluation.speechLive,
+          transcriptFresh: evaluation.transcriptFresh,
+          noMatch: evaluation.noMatch,
+          accepted,
+          rejectReason,
+        }),
+        {
+          minMs: 80,
+          signature: `${currentLineIdx}|${proposedAdjacentCommitTarget ?? -1}|${evaluation.action}|${accepted ? 1 : 0}|${rejectReason}`,
+        },
+      );
+    }
+    return {
+      accepted,
+      rejectReason,
+      proposedAdjacentCommitTarget,
+    };
   };
 
   const clearPendingSpeakableBridge = (
@@ -21186,6 +21326,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       let semanticCommitTargetLine: number | null = null;
       let visualPursuitTargetLine: number | null = null;
       let freshnessTargetLine: number | null = null;
+      let stabilizerSemanticCommitCandidateActive = false;
       const pendingBridgeState = pendingSpeakableBridgeState;
       if (pendingBridgeState) {
         const pendingBridgeAgeMs = Math.max(0, now - pendingBridgeState.createdAtMs);
@@ -23582,7 +23723,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         strictNoProofForward &&
         strictSpeculativeSource;
       if (strictNoProofForward && !strictSpeculativeSource) {
-        if (bypassDownstreamVeto) {
+        const stabilizerCandidate = evaluateStabilizerSemanticCommitCandidate({
+          currentLineIdx: lastLineIndex,
+          evaluation: latestStabilizerShadowEvaluation,
+          transcriptReceivedAtMs: pendingTranscriptReceivedAtMs,
+          transcriptAuthorityEpoch: pendingTranscriptAuthorityEpoch,
+          transcriptRunKey: pendingRunKey,
+          transcriptRunGeneration: pendingRunGeneration,
+        });
+        if (stabilizerCandidate.accepted && stabilizerCandidate.proposedAdjacentCommitTarget != null) {
+          const stabilizerTargetLine = Math.max(
+            lastLineIndex + 1,
+            Math.floor(Number(stabilizerCandidate.proposedAdjacentCommitTarget)),
+          );
+          semanticCommitTargetLine = stabilizerTargetLine;
+          visualPursuitTargetLine = lastLineIndex;
+          freshnessTargetLine = stabilizerTargetLine;
+          stabilizerSemanticCommitCandidateActive = true;
+          targetLine = stabilizerTargetLine;
+          forceReason = 'stabilizer_adjacent_semantic_candidate';
+        } else if (bypassDownstreamVeto) {
           emitMovementAuthorityVetoBypassed(
             'live_strict_speculative_latch_hold',
             targetLine,
@@ -25085,10 +25245,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (pendingSpeakableBridgeCompletion) {
           visualPursuitTargetLine = targetLine;
           freshnessTargetLine = targetLine;
+        } else if (stabilizerSemanticCommitCandidateActive) {
+          freshnessTargetLine = Math.max(
+            prevLineIndex,
+            Math.floor(Number(semanticCommitTargetLine ?? targetLine) || targetLine),
+          );
         }
         const freshnessProposedLineIdx = pendingSpeakableBridgeCompletion
           ? Math.max(prevLineIndex, Math.floor(Number(freshnessTargetLine ?? targetLine) || targetLine))
-          : targetLine;
+          : stabilizerSemanticCommitCandidateActive
+            ? Math.max(prevLineIndex, Math.floor(Number(freshnessTargetLine ?? semanticCommitTargetLine ?? targetLine) || targetLine))
+            : targetLine;
         const commitFreshness = evaluateForwardCommitFreshness({
           currentLineIdx: prevLineIndex,
           proposedLineIdx: freshnessProposedLineIdx,
@@ -25286,7 +25453,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             const terminalDecisionReason = readerSilenceBypassApplied
               ? 'reader_silence_adjacent_safe_bypassed'
               : commitFreshness.reason;
-            const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${freshnessProposedLineIdx} requestedTargetLineIdx=${requestedTargetLine} semanticCommitTargetLine=${terminalSemanticCommitTargetLine} visualPursuitTargetLine=${terminalVisualPursuitTargetLine} freshnessTargetLine=${terminalFreshnessTargetLine} pendingBridgeCompletionMode=${pendingBridgeCompletionMode} pendingBridgeState=${pendingBridgeStateForTrace} bypassLaneSelected=${bypassLaneSelected} bypassApplied=${readerSilenceBypassApplied ? 1 : 0} decisionReason=${terminalDecisionReason}`;
+            const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${freshnessProposedLineIdx} requestedTargetLineIdx=${requestedTargetLine} semanticCommitTargetLine=${terminalSemanticCommitTargetLine} visualPursuitTargetLine=${terminalVisualPursuitTargetLine} freshnessTargetLine=${terminalFreshnessTargetLine} pendingBridgeCompletionMode=${pendingBridgeCompletionMode} pendingBridgeState=${pendingBridgeStateForTrace} lastLineIndexUpdateSource=${lastLineIndexUpdateSource} scrollTargetSource=${scrollTargetSource} freshnessTargetSource=${freshnessTargetSource} directAdjacentGuardReason=${directAdjacentGuardReason} sourceBranch=${terminalSourceBranch || 'unknown'} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} bypassLaneSelected=${bypassLaneSelected} bypassApplied=${readerSilenceBypassApplied ? 1 : 0} decisionReason=${terminalDecisionReason}`;
             console.info(terminalEligibilityMessage);
           } catch {}
           if (readerSilenceBypassApplied) {
@@ -26342,10 +26509,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const pendingBridgeCompletionMode = pendingSpeakableBridgeCompletion;
       const effectiveSemanticCommitTargetLine = pendingBridgeCompletionMode
         ? Math.max(lastLineIndex, Math.floor(Number(semanticCommitTargetLine ?? targetLine) || targetLine))
-        : targetLine;
+        : stabilizerSemanticCommitCandidateActive
+          ? Math.max(lastLineIndex, Math.floor(Number(semanticCommitTargetLine ?? targetLine) || targetLine))
+          : targetLine;
       const effectiveVisualPursuitTargetLine = pendingBridgeCompletionMode
         ? Math.max(lastLineIndex, Math.floor(Number(visualPursuitTargetLine ?? targetLine) || targetLine))
-        : targetLine;
+        : stabilizerSemanticCommitCandidateActive
+          ? Math.max(0, Math.floor(Number(visualPursuitTargetLine ?? prevLineIndex) || prevLineIndex))
+          : targetLine;
       lastLineIndex = Math.max(lastLineIndex, effectiveSemanticCommitTargetLine);
       const cursorIndex = lastLineIndex;
       if (effectiveSemanticCommitTargetLine > prevLineIndex && movementAuthority !== 'none') {
@@ -29021,7 +29192,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ? Number((incomingMatch as any).bestSim)
         : Number.NaN;
       if (isFinal) {
-        emitStabilizerShadowDiagnostic({
+        latestStabilizerShadowEvaluation = evaluateStabilizerShadow({
           now,
           matchBestIdx: shadowMatchBestIdx,
           matchBestSim: shadowMatchBestSim,
@@ -29034,6 +29205,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               ? lastCommitTargetLine
               : null,
         });
+        emitStabilizerShadowDiagnostic(latestStabilizerShadowEvaluation);
       }
       const snippet = formatLogSnippet(compacted, 60);
       emitHudStatus('no_match', 'No match');
@@ -29047,7 +29219,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const shadowMatchBestSim = Number.isFinite(Number(incomingMatch?.bestSim))
         ? Number(incomingMatch?.bestSim)
         : Number.NaN;
-      emitStabilizerShadowDiagnostic({
+      latestStabilizerShadowEvaluation = evaluateStabilizerShadow({
         now,
         matchBestIdx: shadowMatchBestIdx,
         matchBestSim: shadowMatchBestSim,
@@ -29060,6 +29232,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             ? lastCommitTargetLine
             : null,
       });
+      emitStabilizerShadowDiagnostic(latestStabilizerShadowEvaluation);
     }
     if (isFinal && incomingMatch) {
       emitReaderLineMarkerError({
@@ -34345,6 +34518,61 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       transcriptRunGeneration: args.transcriptRunGeneration,
     });
   };
+  const debugEvaluateStabilizerSemanticCommitCandidate = (args: {
+    currentLineIdx: number;
+    action: AsrEvidenceStabilizerAction;
+    reason?: string;
+    proposedAdjacentCommitTarget?: number | null;
+    proposedTargetIsBoundedPlusOne?: boolean;
+    rawMatchBestIdx?: number | null;
+    speechLive?: boolean;
+    transcriptFresh?: boolean;
+    noMatch?: boolean;
+    transcriptReceivedAtMs?: number | null;
+    transcriptAuthorityEpoch?: number | null;
+    transcriptRunKey?: string | null;
+    transcriptRunGeneration?: number | null;
+    invalidateReason?: string;
+  }) => {
+    if (args.invalidateReason) {
+      invalidatePendingResponseAuthority(String(args.invalidateReason));
+    }
+    const proposedAdjacentCommitTarget = Number.isFinite(args.proposedAdjacentCommitTarget as number)
+      ? Math.floor(Number(args.proposedAdjacentCommitTarget))
+      : null;
+    return evaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: args.currentLineIdx,
+      evaluation: {
+        previousStableCursorIdx: Math.max(0, Math.floor(Number(args.currentLineIdx) || 0)),
+        output: {
+          stableCursorIdx: proposedAdjacentCommitTarget ?? Math.max(0, Math.floor(Number(args.currentLineIdx) || 0)),
+          confidence: 0.9,
+          action: args.action,
+          reason: args.reason || 'debug',
+        },
+        action: args.action,
+        reason: args.reason || 'debug',
+        rawMatchBestIdx: Number.isFinite(args.rawMatchBestIdx as number)
+          ? Math.floor(Number(args.rawMatchBestIdx))
+          : null,
+        runtimeCurrentLineIdx: Math.max(0, Math.floor(Number(args.currentLineIdx) || 0)),
+        runtimeAcceptedCommitTargetIdx: null,
+        proposedAdjacentCommitTarget,
+        proposedTargetIsBoundedPlusOne: args.proposedTargetIsBoundedPlusOne !== false,
+        rawMatchWasFarJump:
+          proposedAdjacentCommitTarget != null &&
+          proposedAdjacentCommitTarget >= Math.max(0, Math.floor(Number(args.currentLineIdx) || 0)) + 3,
+        heldDueToNoMatchOrQuietOrStale: false,
+        noMatch: !!args.noMatch,
+        speechLive: args.speechLive !== false,
+        transcriptFresh: args.transcriptFresh !== false,
+      },
+      transcriptReceivedAtMs: args.transcriptReceivedAtMs,
+      transcriptAuthorityEpoch: args.transcriptAuthorityEpoch,
+      transcriptRunKey: args.transcriptRunKey,
+      transcriptRunGeneration: args.transcriptRunGeneration,
+    });
+  };
   const debugEvaluateProfileForwardGuard = (args: {
     lane?: string;
     currentLineIdx: number;
@@ -34394,6 +34622,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     __debugApplyScrollWithHybridGuard: debugApplyScrollWithHybridGuard,
     __debugApplyVisualActuatorTargetStep: debugApplyVisualActuatorTargetStep,
     __debugEvaluateForwardCommitFreshness: debugEvaluateForwardCommitFreshness,
+    __debugEvaluateStabilizerSemanticCommitCandidate: debugEvaluateStabilizerSemanticCommitCandidate,
     __debugEvaluateProfileForwardGuard: debugEvaluateProfileForwardGuard,
   } as AsrScrollDriver & {
     __debugSeedPendingSpeakableBridge(args: {
@@ -34520,6 +34749,46 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastAudioChunkAgeMs: number;
       speechFresh: boolean;
       speechActive: boolean;
+    };
+    __debugEvaluateStabilizerSemanticCommitCandidate(args: {
+      currentLineIdx: number;
+      action: AsrEvidenceStabilizerAction;
+      reason?: string;
+      proposedAdjacentCommitTarget?: number | null;
+      proposedTargetIsBoundedPlusOne?: boolean;
+      rawMatchBestIdx?: number | null;
+      speechLive?: boolean;
+      transcriptFresh?: boolean;
+      noMatch?: boolean;
+      transcriptReceivedAtMs?: number | null;
+      transcriptAuthorityEpoch?: number | null;
+      transcriptRunKey?: string | null;
+      transcriptRunGeneration?: number | null;
+      invalidateReason?: string;
+    }): {
+      accepted: boolean;
+      rejectReason: string;
+      proposedAdjacentCommitTarget: number | null;
+    };
+    __debugEvaluateStabilizerSemanticCommitCandidate(args: {
+      currentLineIdx: number;
+      action: AsrEvidenceStabilizerAction;
+      reason?: string;
+      proposedAdjacentCommitTarget?: number | null;
+      proposedTargetIsBoundedPlusOne?: boolean;
+      rawMatchBestIdx?: number | null;
+      speechLive?: boolean;
+      transcriptFresh?: boolean;
+      noMatch?: boolean;
+      transcriptReceivedAtMs?: number | null;
+      transcriptAuthorityEpoch?: number | null;
+      transcriptRunKey?: string | null;
+      transcriptRunGeneration?: number | null;
+      invalidateReason?: string;
+    }): {
+      accepted: boolean;
+      rejectReason: string;
+      proposedAdjacentCommitTarget: number | null;
     };
     __debugEvaluateProfileForwardGuard(args: {
       lane?: string;
