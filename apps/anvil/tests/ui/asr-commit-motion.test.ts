@@ -324,8 +324,41 @@ describe('ASR live commit motion', () => {
     expect(desiredLineY).toBe(markerY);
 
     const visualAnchorSource = extractTraceField(geometryLine, 'visualAnchorSource');
-    expect(['confirmed_spoken', 'current_line', 'next_speakable_fallback']).toContain(visualAnchorSource);
+    expect(['accepted_match', 'confirmed_spoken', 'current_line', 'next_speakable_fallback']).toContain(visualAnchorSource);
     expect(visualAnchorSource).not.toBe('next_speakable_fallback');
+    // With bestIdx=1 differing from currentLineIdx=0 the anchor should prefer
+    // the accepted match over the committed position.
+    expect(visualAnchorSource).toBe('accepted_match');
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('live ASR visual anchor follows accepted match bestIdx ahead of currentLineIdx', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (window as any).__TP_MARKER_PCT = 0.4;
+    const driver = createAsrScrollDriver();
+    bootstrapLiveAsrRuntime();
+
+    // currentLineIdx=0, but ASR has matched line 3 strongly.
+    driver.setLastLineIndex(0);
+    driver.ingest('Some line that matches ahead of current position.', true, {
+      currentIdx: 0,
+      matchId: 'accepted-match-ahead',
+      match: { bestIdx: 3, bestSim: 0.88, topScores: [{ idx: 3, score: 0.88 }] },
+    });
+
+    await jest.advanceTimersByTimeAsync(320);
+
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const geometryLine = lines.find((l) => l.includes('ASR_MARKER_LANDING_GEOMETRY')) || '';
+    expect(geometryLine).not.toBe('');
+
+    const visualAnchorSource = extractTraceField(geometryLine, 'visualAnchorSource');
+    expect(visualAnchorSource).toBe('accepted_match');
+
+    const lastAcceptedMatchedLineIdx = extractTraceFieldNumber(geometryLine, 'lastAcceptedMatchedLineIdx');
+    expect(lastAcceptedMatchedLineIdx).toBe(3);
 
     warnSpy.mockRestore();
     driver.dispose();

@@ -5128,6 +5128,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastCommitTargetLine = -1;
   let lastCommitTranscriptNormSnapshot = '';
   let lastStrongConfirmedSpokenLine = 0;
+  // Tracks the bestIdx of the most recently accepted strong speech-final match.
+  // Updated on final ingest with !noMatch and bestSim >= threshold.
+  // Used as the primary visual anchor in ordinary live marker-landing mode so that
+  // the line the reader is actually speaking is centred at markerY, even when the
+  // visual governor has held semantic commits behind that position.
+  let lastAcceptedMatchedLineIdx = -1;
   let liveAsrVisualGovernorHardHold = false;
   let liveAsrVisualGovernorHardHoldSinceMs = 0;
   let deadScreenAutopsyEmittedInWindow = false;
@@ -14520,6 +14526,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const hasCurrentLineAnchor =
         Number.isFinite(lastLineIndex) &&
         Math.floor(Number(lastLineIndex)) >= 0;
+      // Fresh accepted match anchor: highest-priority in ordinary live mode.
+      // Updated on final ingest with !noMatch and bestSim >= threshold — leads
+      // semantic commits when the visual governor holds them back.
+      const hasAcceptedMatchAnchor =
+        Number.isFinite(lastAcceptedMatchedLineIdx) &&
+        Math.floor(Number(lastAcceptedMatchedLineIdx)) >= 0;
       const nextSpeakableEl = getLineElementByIndex(scroller, nextSpeakableLineIdx);
       const measuredLineHeightPx = clamp(
         Number.isFinite(Number(nextSpeakableEl?.clientHeight))
@@ -14580,16 +14592,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveAsrFollowMode &&
         !bridgeHoldContextActive;
       const visualAnchorLineIdx = ordinaryLiveMarkerLandingActive
-        ? (hasConfirmedSpokenAnchor
-          ? Math.max(0, Math.floor(Number(lastStrongConfirmedSpokenLine)))
-          : (hasCurrentLineAnchor
-            ? Math.max(0, Math.floor(Number(lastLineIndex)))
-            : Math.max(0, nextSpeakableLineIdx)))
+        ? (hasAcceptedMatchAnchor
+          ? Math.max(0, Math.floor(Number(lastAcceptedMatchedLineIdx)))
+          : (hasConfirmedSpokenAnchor
+            ? Math.max(0, Math.floor(Number(lastStrongConfirmedSpokenLine)))
+            : (hasCurrentLineAnchor
+              ? Math.max(0, Math.floor(Number(lastLineIndex)))
+              : Math.max(0, nextSpeakableLineIdx))))
         : Math.max(0, nextSpeakableLineIdx);
       const visualAnchorSource = ordinaryLiveMarkerLandingActive
-        ? (hasConfirmedSpokenAnchor
-          ? 'confirmed_spoken'
-          : (hasCurrentLineAnchor ? 'current_line' : 'next_speakable_fallback'))
+        ? (hasAcceptedMatchAnchor
+          ? 'accepted_match'
+          : (hasConfirmedSpokenAnchor
+            ? 'confirmed_spoken'
+            : (hasCurrentLineAnchor ? 'current_line' : 'next_speakable_fallback')))
         : 'next_speakable_pending_bridge';
       const visualAnchorVisual = resolveLineVisualTelemetry(scroller, visualAnchorLineIdx);
       liveAsrCommitteeBridgeHoldContextActive = bridgeHoldContextActive;
@@ -15092,11 +15108,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           Math.round(markerY / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
           Math.round(desiredLineY / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
           Math.round((visualAnchorLineY || 0) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+          lastAcceptedMatchedLineIdx,
         ].join('|');
         if (shouldEmitFrameDiagnostic('ASR_MARKER_LANDING_GEOMETRY', markerLandingGeometrySignature, 250)) {
           try {
             console.warn(
-              `[ASR_MARKER_LANDING_GEOMETRY] currentLineIdx=${lastLineIndex} nextSpeakableLineIdx=${nextSpeakableLineIdx} visualAnchorLineIdx=${visualAnchorLineIdx} visualAnchorSource=${visualAnchorSource} desiredLineYMode=${desiredLineYMode} markerY=${Math.round(markerY)} desiredLineY=${Math.round(desiredLineY)} visualAnchorLineY=${Math.round(visualAnchorLineY)} visualErrorPx=${Math.round(visualErrorPx)}`,
+              `[ASR_MARKER_LANDING_GEOMETRY] currentLineIdx=${lastLineIndex} nextSpeakableLineIdx=${nextSpeakableLineIdx} visualAnchorLineIdx=${visualAnchorLineIdx} visualAnchorSource=${visualAnchorSource} lastAcceptedMatchedLineIdx=${lastAcceptedMatchedLineIdx} desiredLineYMode=${desiredLineYMode} markerY=${Math.round(markerY)} desiredLineY=${Math.round(desiredLineY)} visualAnchorLineY=${Math.round(visualAnchorLineY)} visualErrorPx=${Math.round(visualErrorPx)}`,
             );
           } catch {}
         }
@@ -25987,6 +26004,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (liveStrictProofCommit) {
         liveProgressHeuristics.lastStrongSyncAtMs = now;
         lastStrongConfirmedSpokenLine = Math.max(lastStrongConfirmedSpokenLine, effectiveSemanticCommitTargetLine);
+        lastAcceptedMatchedLineIdx = Math.max(lastAcceptedMatchedLineIdx, effectiveSemanticCommitTargetLine);
         if (liveStrictSpeculativeStepUsed) {
           liveStrictSpeculativeStepUsed = false;
           warnGuard('live_strict_local_proof_ok', [
@@ -28424,6 +28442,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastAuthorityMatchBestSim = Number.isFinite(Number((incomingMatch as any).bestSim))
         ? Number((incomingMatch as any).bestSim)
         : lastAuthorityMatchBestSim;
+      // Track the latest accepted strong speech-final match for visual anchor use.
+      // Only update on finals so interim jitter doesn't thrash the anchor.
+      if (isFinal) {
+        const freshBestIdx = Number.isFinite(Number((incomingMatch as any).bestIdx))
+          ? Math.max(0, Math.floor(Number((incomingMatch as any).bestIdx)))
+          : -1;
+        const freshBestSim = Number.isFinite(Number((incomingMatch as any).bestSim))
+          ? Number((incomingMatch as any).bestSim)
+          : -1;
+        if (freshBestIdx >= 0 && freshBestSim >= DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM) {
+          lastAcceptedMatchedLineIdx = Math.max(lastAcceptedMatchedLineIdx, freshBestIdx);
+        }
+      }
     }
     if (noMatch && !incomingMatch) {
       lastRescueNoMatchAt = now;
@@ -33289,6 +33320,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastCommittedLine = lastLineIndex;
     lastFreshProofLine = lastLineIndex;
     lastStrongConfirmedSpokenLine = lastLineIndex;
+    lastAcceptedMatchedLineIdx = lastLineIndex;
     _postCommitReadabilitySeq += 1;
     lastSeekTs = 0;
     lastSameLineNudgeTs = 0;
