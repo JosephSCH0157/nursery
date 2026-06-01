@@ -120,7 +120,6 @@ export function stepAsrEvidenceStabilizer(
   const committedLine = clampIndex(input.currentCommittedLine, previous.stableCursorIdx);
   let state: AsrEvidenceStabilizerState = {
     ...previous,
-    stableCursorIdx: Math.max(previous.stableCursorIdx, committedLine),
     lastTimestampMs: Number.isFinite(input.timestampMs) ? input.timestampMs : previous.lastTimestampMs,
   };
 

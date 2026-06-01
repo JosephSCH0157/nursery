@@ -176,4 +176,35 @@ describe('ASR evidence stabilizer', () => {
     expect(outputs.every((item, index) => index === 0 || item.stableCursorIdx >= outputs[index - 1]!.stableCursorIdx)).toBe(true);
     expect(deltas.every((delta) => delta >= 0 && delta <= 1)).toBe(true);
   });
+
+  test('live-shadow-style sequence keeps adjacent advances bounded to exactly +1', () => {
+    const outputs = runSequence([
+      { matchBestIdx: 1, currentCommittedLine: 0, speechLive: false, transcriptFresh: false, matchBestSim: 0.92 },
+      { matchBestIdx: 7, currentCommittedLine: 0, matchBestSim: 0.91 },
+      { matchBestIdx: 7, currentCommittedLine: 0, matchBestSim: 0.91 },
+      { matchBestIdx: 3, currentCommittedLine: 1, matchBestSim: 0.86 },
+      { matchBestIdx: 12, currentCommittedLine: 5, matchBestSim: 0.9 },
+      { matchBestIdx: 12, currentCommittedLine: 5, matchBestSim: 0.9 },
+      { matchBestIdx: 12, currentCommittedLine: 5, matchBestSim: 0.9 },
+      { matchBestIdx: 18, currentCommittedLine: 11, matchBestSim: 0.92 },
+      { matchBestIdx: 18, currentCommittedLine: 11, matchBestSim: 0.92 },
+      { matchBestIdx: 18, currentCommittedLine: 11, matchBestSim: 0.92 },
+    ]);
+    expect(outputs.map((item) => ({
+      action: item.action,
+      stableCursorIdx: item.stableCursorIdx,
+      reason: item.reason,
+    }))).toEqual([
+      { action: 'hold', stableCursorIdx: 0, reason: 'quiet_or_stale_state' },
+      { action: 'evidence_only', stableCursorIdx: 0, reason: 'far_jump_buffered_as_evidence' },
+      { action: 'evidence_only', stableCursorIdx: 0, reason: 'far_jump_buffered_as_evidence' },
+      { action: 'advance_adjacent', stableCursorIdx: 1, reason: 'buffered_forward_evidence_adjacent_catchup' },
+      { action: 'evidence_only', stableCursorIdx: 1, reason: 'far_jump_buffered_as_evidence' },
+      { action: 'evidence_only', stableCursorIdx: 1, reason: 'far_jump_buffered_as_evidence' },
+      { action: 'advance_adjacent', stableCursorIdx: 2, reason: 'buffered_forward_evidence_adjacent_catchup' },
+      { action: 'evidence_only', stableCursorIdx: 2, reason: 'far_jump_buffered_as_evidence' },
+      { action: 'evidence_only', stableCursorIdx: 2, reason: 'far_jump_buffered_as_evidence' },
+      { action: 'advance_adjacent', stableCursorIdx: 3, reason: 'buffered_forward_evidence_adjacent_catchup' },
+    ]);
+  });
 });

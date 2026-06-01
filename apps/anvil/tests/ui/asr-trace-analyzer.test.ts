@@ -85,4 +85,29 @@ describe('ASR trace analyzer comparison mode', () => {
       return item.proposedAdjacentCommitTarget === item.previousStableCursorIdx + 1;
     })).toBe(true);
   });
+
+  test('every advance_adjacent step remains exactly +1 bounded in comparison mode', () => {
+    const summary = compareAsrTraceFinalsWithStabilizer(
+      [
+        { order: 1, ts: '2026-06-01T00:00:01.000Z', matchBestIdx: 1, matchBestSim: 0.91, textLen: 180, noMatch: false, matchReason: 'direct_matcher' },
+        { order: 2, ts: '2026-06-01T00:00:02.000Z', matchBestIdx: 7, matchBestSim: 0.91, textLen: 240, noMatch: false, matchReason: 'direct_matcher' },
+        { order: 3, ts: '2026-06-01T00:00:03.000Z', matchBestIdx: 7, matchBestSim: 0.91, textLen: 240, noMatch: false, matchReason: 'direct_matcher' },
+        { order: 4, ts: '2026-06-01T00:00:04.000Z', matchBestIdx: 7, matchBestSim: 0.91, textLen: 240, noMatch: false, matchReason: 'direct_matcher' },
+        { order: 5, ts: '2026-06-01T00:00:05.000Z', matchBestIdx: 12, matchBestSim: 0.93, textLen: 260, noMatch: false, matchReason: 'direct_matcher' },
+        { order: 6, ts: '2026-06-01T00:00:06.000Z', matchBestIdx: 12, matchBestSim: 0.93, textLen: 260, noMatch: false, matchReason: 'direct_matcher' },
+        { order: 7, ts: '2026-06-01T00:00:07.000Z', matchBestIdx: 12, matchBestSim: 0.93, textLen: 260, noMatch: false, matchReason: 'direct_matcher' },
+      ],
+      {
+        createInitialAsrEvidenceStabilizerState,
+        stepAsrEvidenceStabilizer,
+      },
+    );
+    const adjacentSteps = summary.steps.filter((item) => item.action === 'advance_adjacent');
+    expect(adjacentSteps.length).toBeGreaterThan(0);
+    expect(adjacentSteps.every((item) =>
+      item.stableCursorIdx - item.previousStableCursorIdx === 1 &&
+      item.proposedAdjacentCommitTarget === item.stableCursorIdx &&
+      item.proposedTargetIsBoundedPlusOne === true,
+    )).toBe(true);
+  });
 });
