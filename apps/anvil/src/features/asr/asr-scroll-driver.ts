@@ -5338,6 +5338,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastBadCursorOnCueLogAt = 0;
   let lastAutoCueSkipAt = 0;
   let lastStallRecoveryOverrideAt = 0;
+  let lastStallRecoveryOverrideHintAt = 0;
+  let lastStallRecoveryOverrideHintTarget = -1;
   let liveStrictSpeculativeStepUsed = false;
   let liveStrictForwardClusterCursor = -1;
   let liveStrictForwardClusterLine = -1;
@@ -5734,6 +5736,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastStarvationWarnAt = 0;
     lastStarvationRelockAt = 0;
     lastStallRecoveryOverrideAt = 0;
+    lastStallRecoveryOverrideHintAt = 0;
+    lastStallRecoveryOverrideHintTarget = -1;
     lastStaleLandingRelaxationAt = 0;
     liveAsrVisualDebtCatchupCooldownUntilMs = 0;
     liveAsrVisualDebtCatchupObservationCount = 0;
@@ -9670,8 +9674,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       0,
       1,
     );
-    const forcedReason = String(args.forceReason || 'live_safe_terminal_commit');
+    const proofSource = String(args.proofSource || 'none');
     const sourceBranch = String(args.sourceBranch || 'live_safe_terminal_commit');
+    const forcedReason = String(args.forceReason || 'live_safe_terminal_commit');
     const semanticTarget = Math.max(safeCurrent, Math.floor(Number(args.semanticTarget ?? safeTarget) || safeTarget));
     const visualTarget = Math.max(safeCurrent, Math.floor(Number(args.visualTarget ?? semanticTarget) || semanticTarget));
     const confirmedSpoken = Math.max(
@@ -9691,7 +9696,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const thresholdMs = ahead
       ? ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_AHEAD_MS
       : ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_COMFORTABLE_MS;
-    const proofSource = String(args.proofSource || 'none');
     const bridgeLike =
       semanticTarget > safeCurrent + 1 ||
       String(args.bypassedBlockers || '').includes('bridge') ||
@@ -9733,6 +9737,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       } catch {}
       return false;
     }
+    const recentStallRecoveryOverrideHint =
+      safeTarget === safeCurrent + 1 &&
+      lastStallRecoveryOverrideHintTarget === safeTarget &&
+      Date.now() - lastStallRecoveryOverrideHintAt <= 800;
+    if ((forcedReason === 'stall_recovery_override' || recentStallRecoveryOverrideHint) && safeTarget === safeCurrent + 1) {
+      const commitNow = Date.now();
+      lastLineIndex = safeTarget;
+      lastCommittedLine = safeTarget;
+      lastFreshProofLine = Math.max(lastFreshProofLine, safeTarget);
+      matchAnchorIdx = safeTarget;
+      setCurrentIndex(safeTarget, 'live-safe-terminal-direct');
+      lastForwardCommitAt = commitNow;
+      noteCommit(safeCurrent, safeTarget, commitNow);
+      try {
+        console.warn(
+          `[ASR_ADJACENT_SAFE_SEMANTIC_BYPASS] adjacentProgressionLane=staged_adjacent_terminal_commit originalMatchBestIdx=${Number.isFinite(args.bestIdx) ? Math.max(0, Math.floor(Number(args.bestIdx))) : -1} reducedSemanticTargetLine=${safeTarget} currentLineIdx=${safeCurrent} proposedCommitLine=${safeTarget} proofSource=${proofSource} blockedReasonBeforeBypass=pending_commit_path_hold speechFresh=1 responseFresh=1 audioFresh=1`,
+        );
+      } catch {}
+      return true;
+    }
     adoptPendingMatch({
       line: safeTarget,
       conf: commitSim,
@@ -9750,6 +9774,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       searchWindowTo: safeTarget,
       lostMode: false,
       cueBridgeNudgeDelta: Math.max(1, safeTarget - safeCurrent),
+      liveForwardGuardActive: undefined,
     });
     lastLiveSafeTerminalShieldAt = Date.now();
     lastLiveSafeTerminalShieldLine = safeTarget;
@@ -10108,6 +10133,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     );
     let thresholdMs = repeatedHoldCount > 2 ? 600 : 900;
     const actualDelayMs = Math.max(0, Math.round(Number(args.noCommitMs ?? args.stallMs ?? 0)));
+    let semanticCompletionBypassLane = 'none';
+    let blockedReasonBeforeBypass = 'none';
     const hasAuthority = args.authority === 'proof' || args.authority === 'reconcile';
     const sourceBranchLowerEarly = String(args.sourceBranch || 'unknown').toLowerCase();
     const bypassedBlockersLowerEarly = String(args.bypassedBlockers || 'none').toLowerCase();
@@ -10224,12 +10251,76 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         originalTargetIndex: requestedTarget,
         skippedRows: args.skippedIgnorableLines || [],
       });
-      if (adjacentReductionDecision.shouldReduce) {
+      const stagedResponseAgeMs =
+        lastTranscriptReceivedAtMs > 0 ? Math.max(0, commitTs - lastTranscriptReceivedAtMs) : Number.POSITIVE_INFINITY;
+      const stagedAudioAgeMs =
+        lastAudioChunkAt > 0 ? Math.max(0, commitTs - lastAudioChunkAt) : Number.POSITIVE_INFINITY;
+      const stagedResponseFresh =
+        Number.isFinite(stagedResponseAgeMs) &&
+        stagedResponseAgeMs <= activeAsrControllerProfile.responseFreshMaxAgeMs;
+      const stagedAudioFresh =
+        Number.isFinite(stagedAudioAgeMs) &&
+        stagedAudioAgeMs <= activeAsrControllerProfile.audioFreshMaxAgeMs;
+      const stagedAudioFreshOrUnavailable =
+        !Number.isFinite(stagedAudioAgeMs) ||
+        stagedAudioAgeMs === Number.POSITIVE_INFINITY ||
+        stagedAudioFresh;
+      const stagedSpeechFresh =
+        asrRuntimeSpeechRunningActual ||
+        !!args.speechRunningActual ||
+        hasRecentActualSpeech(commitTs) ||
+        hasRecentVadSpeechNow(commitTs);
+      const stagedRunIdentityFresh = !isRunIdentityStale();
+      const stagedStaleResponseInvalidated =
+        lastCommitAuthorityInvalidatedAt > 0 &&
+        lastTranscriptReceivedAtMs > 0 &&
+        lastTranscriptReceivedAtMs <= lastCommitAuthorityInvalidatedAt;
+      const stagedNoMatchOrOffscript =
+        explicitNoMatchForLeashEarly ||
+        String(lastAsrGuardReason || '').toLowerCase().includes('no_match') ||
+        String(lastAsrHudGuardText || '').toLowerCase().includes('offscript');
+      const stagedProofSourceLower = String(args.proofSource || 'none').toLowerCase();
+      const stagedSourceBranchLower = String(args.sourceBranch || 'unknown').toLowerCase();
+      const stagedAdjacentProofAllowed =
+        stagedProofSourceLower.includes('live_strict_local_proof_ok') ||
+        stagedProofSourceLower.includes('live_strict_rescue_tail_progression_proof') ||
+        stagedProofSourceLower.includes('strict_adjacent_tail_progression') ||
+        stagedProofSourceLower.includes('adjacent_rescue_proofed') ||
+        stagedSourceBranchLower.includes('sustained_read') ||
+        stagedSourceBranchLower.includes('starvation_future_speech_reconcile') ||
+        stagedSourceBranchLower.includes('movement_authority_starvation_reconcile_single_step') ||
+        stagedSourceBranchLower.includes('stage_before_semantic_commit') ||
+        stagedSourceBranchLower.includes('live_bridge_single_step_policy');
+      const stagedPendingBridgeCompatible =
+        !pendingSpeakableBridgeState ||
+        String(pendingSpeakableBridgeState.sourceBranch || '').toLowerCase().includes('movement_authority_starvation_reconcile_single_step') ||
+        String(pendingSpeakableBridgeState.sourceBranch || '').toLowerCase().includes('starvation_future_speech_reconcile');
+      const stagedAdjacentProgressionLaneEligible =
+        bridgeReducedTarget === current + 1 &&
+        stagedPendingBridgeCompatible &&
+        stagedSpeechFresh &&
+        stagedResponseFresh &&
+        stagedAudioFreshOrUnavailable &&
+        stagedRunIdentityFresh &&
+        !stagedStaleResponseInvalidated &&
+        !stagedNoMatchOrOffscript &&
+        !hardContradiction &&
+        stagedAdjacentProofAllowed;
+      if (adjacentReductionDecision.shouldReduce || stagedAdjacentProgressionLaneEligible) {
         try {
           console.warn(
-            `[ASR_LIVE_BRIDGE_REDUCED_TO_ADJACENT] current=${current} requested=${requestedTarget} target=${bridgeReducedTarget} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=live_bridge_single_step_policy`,
+            `[ASR_LIVE_BRIDGE_REDUCED_TO_ADJACENT] current=${current} requested=${requestedTarget} target=${bridgeReducedTarget} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=${adjacentReductionDecision.shouldReduce ? 'live_bridge_single_step_policy' : 'adjacent_safe_semantic_progression_lane'}`,
           );
         } catch {}
+        if (!adjacentReductionDecision.shouldReduce && stagedAdjacentProgressionLaneEligible) {
+          semanticCompletionBypassLane = 'adjacent_safe_semantic_progression';
+          blockedReasonBeforeBypass = 'staged_bridge_non_adjacent_guard';
+          try {
+            console.warn(
+              `[ASR_ADJACENT_SAFE_SEMANTIC_BYPASS] adjacentProgressionLane=${semanticCompletionBypassLane} originalMatchBestIdx=${Number.isFinite(lastAuthorityMatchBestIdx) ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx))) : -1} reducedSemanticTargetLine=${bridgeReducedTarget} currentLineIdx=${current} proposedCommitLine=${bridgeReducedTarget} proofSource=${args.proofSource || 'none'} blockedReasonBeforeBypass=${blockedReasonBeforeBypass} speechFresh=${stagedSpeechFresh ? 1 : 0} responseFresh=${stagedResponseFresh ? 1 : 0} audioFresh=${stagedAudioFresh ? 1 : 0}`,
+            );
+          } catch {}
+        }
         reducedTarget = bridgeReducedTarget;
       } else {
         const stagedBridgeRepeated = bridgeBlockUntil > commitTs;
@@ -10575,7 +10666,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     } else {
       liveEligibilityFirstSeenByKey.delete(eligibilityKey);
     }
-    const accepted = gatePassCore && (earlyBridgeTrapReleaseActive || actualDelayMs >= thresholdMs);
+    let accepted = gatePassCore && (earlyBridgeTrapReleaseActive || actualDelayMs >= thresholdMs);
     const liveSpeechFresh =
       hasRecentActualSpeech(commitTs) || hasRecentVadSpeechNow(commitTs) || !!args.speechRunningActual;
     if (accepted && reducedTarget > current) {
@@ -10637,6 +10728,75 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       liveAsrBridgeVisualRecoveryDeltaLines > ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES;
     let farAheadAdjacentEscapeApplied = false;
     let farAheadAdjacentEscapeReason = '';
+    const originalMatchBestIdx = Number.isFinite(lastAuthorityMatchBestIdx)
+      ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx)))
+      : -1;
+    const completionResponseAgeMs =
+      lastTranscriptReceivedAtMs > 0 ? Math.max(0, commitTs - lastTranscriptReceivedAtMs) : Number.POSITIVE_INFINITY;
+    const completionAudioAgeMs =
+      lastAudioChunkAt > 0 ? Math.max(0, commitTs - lastAudioChunkAt) : Number.POSITIVE_INFINITY;
+    const completionResponseFresh =
+      Number.isFinite(completionResponseAgeMs) &&
+      completionResponseAgeMs <= activeAsrControllerProfile.responseFreshMaxAgeMs;
+    const completionAudioFresh =
+      Number.isFinite(completionAudioAgeMs) &&
+      completionAudioAgeMs <= activeAsrControllerProfile.audioFreshMaxAgeMs;
+    const completionAudioFreshOrUnavailable =
+      !Number.isFinite(completionAudioAgeMs) ||
+      completionAudioAgeMs === Number.POSITIVE_INFINITY ||
+      completionAudioFresh;
+    const completionSpeechFresh =
+      asrRuntimeSpeechRunningActual ||
+      !!args.speechRunningActual ||
+      hasRecentActualSpeech(commitTs) ||
+      hasRecentVadSpeechNow(commitTs);
+    const completionRunIdentityFresh = !isRunIdentityStale();
+    const completionStaleResponseInvalidated =
+      lastCommitAuthorityInvalidatedAt > 0 &&
+      lastTranscriptReceivedAtMs > 0 &&
+      lastTranscriptReceivedAtMs <= lastCommitAuthorityInvalidatedAt;
+    const completionNoMatchOrOffscript =
+      explicitNoMatchForLeashEarly ||
+      String(lastAsrGuardReason || '').toLowerCase().includes('no_match') ||
+      String(lastAsrHudGuardText || '').toLowerCase().includes('offscript');
+    const completionProofSourceAllowed =
+      proofSourceLower.includes('live_strict_local_proof_ok') ||
+      proofSourceLower.includes('live_strict_rescue_tail_progression_proof') ||
+      proofSourceLower.includes('strict_adjacent_tail_progression') ||
+      proofSourceLower.includes('adjacent_rescue_proofed') ||
+      sourceBranchLowerForLeash.includes('sustained_read') ||
+      sourceBranchLowerForLeash.includes('starvation_future_speech_reconcile') ||
+      sourceBranchLowerForLeash.includes('movement_authority_starvation_reconcile_single_step') ||
+      sourceBranchLowerForLeash.includes('stage_before_semantic_commit') ||
+      sourceBranchLowerForLeash.includes('live_bridge_single_step_policy');
+    const completionPendingBridgeCompatible =
+      !pendingSpeakableBridgeState ||
+      String(pendingSpeakableBridgeState.sourceBranch || '').toLowerCase().includes('movement_authority_starvation_reconcile_single_step') ||
+      String(pendingSpeakableBridgeState.sourceBranch || '').toLowerCase().includes('starvation_future_speech_reconcile');
+    const completionProposedCommitLine = reducedTarget;
+    const completionAdjacentOnly = completionProposedCommitLine === current + 1;
+    const completionAdjacentProgressionLaneEligible =
+      gatePassCore &&
+      completionAdjacentOnly &&
+      completionPendingBridgeCompatible &&
+      completionSpeechFresh &&
+      completionResponseFresh &&
+      completionAudioFreshOrUnavailable &&
+      completionRunIdentityFresh &&
+      !completionStaleResponseInvalidated &&
+      !completionNoMatchOrOffscript &&
+      !hardContradiction &&
+      completionProofSourceAllowed;
+    if (!accepted && completionAdjacentProgressionLaneEligible) {
+      accepted = true;
+      semanticCompletionBypassLane = 'adjacent_safe_semantic_progression';
+      blockedReasonBeforeBypass = 'threshold_gate';
+      try {
+        console.warn(
+          `[ASR_ADJACENT_SAFE_SEMANTIC_BYPASS] adjacentProgressionLane=${semanticCompletionBypassLane} originalMatchBestIdx=${originalMatchBestIdx} reducedSemanticTargetLine=${reducedTarget} currentLineIdx=${current} proposedCommitLine=${completionProposedCommitLine} proofSource=${args.proofSource || 'none'} blockedReasonBeforeBypass=${blockedReasonBeforeBypass} speechFresh=${completionSpeechFresh ? 1 : 0} responseFresh=${completionResponseFresh ? 1 : 0} audioFresh=${completionAudioFresh ? 1 : 0}`,
+        );
+      } catch {}
+    }
     if (liveAsrVisualGovernorHardHold) {
       const farAheadEscapeDecision = shouldAllowFarAheadHardHoldAdjacentEscape({
         liveAsrVisualGovernorHardHold: true,
@@ -10708,6 +10868,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveAsrVisualSuppressionLoopCount = 0;
         liveAsrVisualSuppressionKey = '';
       } else {
+        blockedReasonBeforeBypass = 'visual_governor_hard_hold';
+        if (completionAdjacentProgressionLaneEligible) {
+          accepted = true;
+          semanticCompletionBypassLane = 'adjacent_safe_semantic_progression';
+          try {
+            console.warn(
+              `[ASR_ADJACENT_SAFE_SEMANTIC_BYPASS] adjacentProgressionLane=${semanticCompletionBypassLane} originalMatchBestIdx=${originalMatchBestIdx} reducedSemanticTargetLine=${reducedTarget} currentLineIdx=${current} proposedCommitLine=${completionProposedCommitLine} proofSource=${args.proofSource || 'none'} blockedReasonBeforeBypass=${blockedReasonBeforeBypass} speechFresh=${completionSpeechFresh ? 1 : 0} responseFresh=${completionResponseFresh ? 1 : 0} audioFresh=${completionAudioFresh ? 1 : 0}`,
+            );
+          } catch {}
+        }
+      }
+      if (visualGovernorHoldDecision.shouldHold && semanticCompletionBypassLane === 'none') {
         deadScreenTerminalCommitSuppressedByVisualGovernor = true;
         const suppressionKey = `${current}->${reducedTarget}`;
         if (liveAsrVisualSuppressionKey === suppressionKey) {
@@ -10751,7 +10923,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         );
       }
       console.warn(
-        `[ASR_LIVE_FINAL_COMMIT] current=${current} target=${reducedTarget} semanticTarget=${semanticTargetRaw} visualTarget=${visualTarget} authority=${args.authority || 'unknown'} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} eligibleAtMs=${eligibleAtMs} committedAtMs=${commitTs} waitAfterEligibilityMs=${waitAfterEligibilityMs} thresholdMs=${thresholdMs} bypassedBlockers=${args.bypassedBlockers || 'none'} finalAuthority=1 hardContradiction=0 reason=${args.reason}`,
+        `[ASR_LIVE_FINAL_COMMIT] current=${current} target=${reducedTarget} semanticTarget=${semanticTargetRaw} visualTarget=${visualTarget} authority=${args.authority || 'unknown'} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} eligibleAtMs=${eligibleAtMs} committedAtMs=${commitTs} waitAfterEligibilityMs=${waitAfterEligibilityMs} thresholdMs=${thresholdMs} bypassedBlockers=${args.bypassedBlockers || 'none'} finalAuthority=1 hardContradiction=0 adjacentProgressionLane=${semanticCompletionBypassLane} originalMatchBestIdx=${originalMatchBestIdx} reducedSemanticTargetLine=${reducedTarget} proposedCommitLine=${completionProposedCommitLine} blockedReasonBeforeBypass=${blockedReasonBeforeBypass} speechFresh=${completionSpeechFresh ? 1 : 0} responseFresh=${completionResponseFresh ? 1 : 0} audioFresh=${completionAudioFresh ? 1 : 0} reason=${args.reason}`,
       );
       emitReaderLineMarkerError({
         event: 'commit_accepted',
@@ -10882,7 +11054,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         target: terminal.target,
         proofSource: proofSource || 'live_safe_terminal_commit',
         sourceBranch: sourceBranch || holdReason,
-        forceReason: 'live_safe_terminal_commit',
+        forceReason: forceReason || 'live_safe_terminal_commit',
         clue: clue || getLineTextAt(terminal.target),
       });
     };
@@ -20006,6 +20178,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           Math.max(0, now - lastCommitTime) >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
           Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
         if (oldWouldHaveUsedStallOverride && asrRuntimeSpeechRunningActual) {
+          lastStallRecoveryOverrideHintAt = now;
+          lastStallRecoveryOverrideHintTarget = liveSpeechForwardPushTarget;
           try {
             console.warn(
               `ASR_STALL_RECOVERY_OVERRIDE current=${lastLineIndex} requested=${line} committed=${liveSpeechForwardPushTarget} reason=stall_recovery_override`,
@@ -22160,6 +22334,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             now - lastStallRecoveryOverrideAt >= DEFAULT_STARVATION_COMMIT_GAP_MS;
           if (!stallRecoveryOverrideEligible) return false;
           lastStallRecoveryOverrideAt = now;
+          lastStallRecoveryOverrideHintAt = now;
+          lastStallRecoveryOverrideHintTarget = liveStepTarget;
           const overrideSim = Math.max(
             conf,
             DEFAULT_MULTI_JUMP_MIN_SIM,
@@ -25813,6 +25989,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           deadScreenNoCommitMs >= 1000 &&
           (deadScreenGovernorHoldAgeMs >= 600 || deadScreenGlobalHold) &&
           commitDeltaLines <= ASR_LIVE_VISUAL_BRIDGE_STEP_MAX_LINES;
+        const deadScreenAdjacentSemanticBypassEligible =
+          !deadScreenReleaseEligible &&
+          !deadScreenTargetCueOnly &&
+          !deadScreenNoMatchActive &&
+          !strictBackwardContradictionForCommit &&
+          deadScreenFinalCommitEligible &&
+          deadScreenAcceptedCommitTargetIdx === targetLine &&
+          targetLine === prevLineIndex + 1 &&
+          (deadScreenSpeechFresh || runtimeSpeechFresh || deadScreenFinalPacketFresh) &&
+          (
+            String(deadScreenSourceBranch || '').toLowerCase().includes('starvation') ||
+            String(deadScreenSourceBranch || '').toLowerCase().includes('reconcile') ||
+            String(deadScreenSourceBranch || '').toLowerCase().includes('rescue_hold') ||
+            String(deadScreenProofSource || '').toLowerCase().includes('adjacent_release') ||
+            String(deadScreenProofSource || '').toLowerCase().includes('tail_progression') ||
+            deadScreenTerminalCommitSuppressedByVisualGovernor
+          );
         const deadScreenEscapeDecision = decideAsrVisualGovernorDeadScreenEscape({
           movedPx: commitMovedPx,
           currentLineIdx: prevLineIndex,
@@ -25845,6 +26038,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           try {
             console.warn(
               `[ASR_GOVERNOR_DEAD_SCREEN_RELEASED] current=${prevLineIndex} target=${targetLine} holdAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)} noCommitMs=${Math.round(deadScreenNoCommitMs)} speakableLead=${deadScreenSpeakableLead} renderedLead=${deadScreenRenderedLead} sourceBranch=${deadScreenSourceBranch} proofSource=${deadScreenProofSource} reason=adjacent_safe_release`,
+            );
+          } catch {}
+        } else if (deadScreenAdjacentSemanticBypassEligible) {
+          liveAsrVisualGovernorHardHold = false;
+          liveAsrVisualGovernorHardHoldSinceMs = 0;
+          deadScreenTerminalCommitSuppressedByVisualGovernor = false;
+          try {
+            console.warn(
+              `[ASR_ADJACENT_SAFE_SEMANTIC_BYPASS] adjacentProgressionLane=dead_screen_adjacent_release originalMatchBestIdx=${Number.isFinite(line) ? Math.max(0, Math.floor(Number(line))) : -1} reducedSemanticTargetLine=${targetLine} currentLineIdx=${prevLineIndex} proposedCommitLine=${targetLine} proofSource=${deadScreenProofSource || 'none'} blockedReasonBeforeBypass=visual_governor_dead_screen_hold speechFresh=${deadScreenSpeechFresh ? 1 : 0} responseFresh=${deadScreenTranscriptFresh ? 1 : 0} audioFresh=${deadScreenAudioBackendFresh ? 1 : 0}`,
+            );
+            console.warn(
+              `[ASR_GOVERNOR_DEAD_SCREEN_RELEASED] current=${prevLineIndex} target=${targetLine} holdAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)} noCommitMs=${Math.round(deadScreenNoCommitMs)} speakableLead=${deadScreenSpeakableLead} renderedLead=${deadScreenRenderedLead} sourceBranch=${deadScreenSourceBranch} proofSource=${deadScreenProofSource} reason=adjacent_semantic_bypass`,
             );
           } catch {}
         } else if (deadScreenEscapeEligible) {
@@ -33325,6 +33530,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     liveAsrVisualDebtCatchupObservationCount = 0;
     liveAsrVisualDebtCatchupLastDebtPx = Number.NaN;
     lastStallRecoveryOverrideAt = 0;
+    lastStallRecoveryOverrideHintAt = 0;
+    lastStallRecoveryOverrideHintTarget = -1;
     _postCommitReadabilitySeq += 1;
     try {
       unsubscribe();

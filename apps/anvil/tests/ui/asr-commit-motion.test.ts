@@ -670,6 +670,7 @@ describe('ASR live commit motion', () => {
   });
 
   test('allows a single-step stall recovery override under starvation when live-forward is guard-held', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const driver = createAsrScrollDriver();
 
     window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
@@ -711,7 +712,45 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(200);
 
+    const warnLines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     expect(driver.getLastLineIndex()).toBe(2);
+    expect(warnLines.some((l) => l.includes('ASR_ADJACENT_SAFE_SEMANTIC_BYPASS'))).toBe(true);
+    warnSpy.mockRestore();
+
+    driver.dispose();
+  });
+
+  test('raw far target cannot commit directly and remains reduced to adjacent-safe progression', async () => {
+    const driver = createAsrScrollDriver();
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'raw-far-prime',
+      match: { bestIdx: 1, bestSim: 0.9, topScores: [{ idx: 1, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(200);
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    await jest.advanceTimersByTimeAsync(2200);
+
+    driver.ingest('The seats remember every early shift. Neon ads hum above the aisle.', true, {
+      currentIdx: 1,
+      matchId: 'raw-far-no-direct-commit',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.9,
+        topScores: [{ idx: 3, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+
+    expect(driver.getLastLineIndex()).toBeLessThanOrEqual(2);
+    expect(driver.getLastLineIndex()).not.toBe(3);
 
     driver.dispose();
   });
@@ -4195,7 +4234,42 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(200);
     expect(driver.getLastLineIndex()).toBe(1);
+    const warnLines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(warnLines.some((l) => l.includes('ASR_ADJACENT_SAFE_SEMANTIC_BYPASS'))).toBe(false);
     warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('stale_response_invalidated still blocks semantic commit freshness', async () => {
+    const driver = createAsrScrollDriver() as typeof createAsrScrollDriver extends (...args: any[]) => infer T
+      ? T & {
+          __debugEvaluateForwardCommitFreshness: (args: {
+            currentLineIdx: number;
+            proposedLineIdx: number;
+            committedLineIdx?: number;
+            transcriptSpeechFresh?: boolean | null;
+            transcriptSpeechActive?: boolean | null;
+            transcriptResponseAgeMs?: number | null;
+            transcriptAudioAgeMs?: number | null;
+            invalidateReason?: string;
+          }) => { allow: boolean; reason: string };
+        }
+      : never;
+
+    const result = driver.__debugEvaluateForwardCommitFreshness({
+      currentLineIdx: 1,
+      committedLineIdx: 1,
+      proposedLineIdx: 2,
+      transcriptSpeechFresh: true,
+      transcriptSpeechActive: true,
+      transcriptResponseAgeMs: 0,
+      transcriptAudioAgeMs: 0,
+      invalidateReason: 'test_stale_response_invalidated',
+    });
+
+    expect(result.allow).toBe(false);
+    expect(result.reason).toBe('stale_response_invalidated');
+
     driver.dispose();
   });
 });
