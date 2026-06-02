@@ -4600,6 +4600,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     markerY: number;
     currentLineViewportY: number;
     escapeApplied: boolean;
+    asrSilenceActive: boolean;
+    visualRecoverySilenceBlocked: boolean;
+    trueVisualSilence: boolean;
+    silenceActiveAgeMs: number;
+    lastSilenceStartAgeMs: number;
     quietOrStaleReason: string;
     speechLive: boolean;
     transcriptFresh: boolean;
@@ -4607,8 +4612,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     visualRecoveryFresh: boolean;
     lastFinalAgeMs: number;
     lastSpeechAgeMs: number;
+    lastTranscriptAgeMs: number;
     lastSemanticProgressAgeMs: number;
     lastVisualProgressAgeMs: number;
+    recentFinalDuringSilence: boolean;
+    recentSpeechDuringSilence: boolean;
     staleForSemanticCommit: boolean;
     staleForVisualRecovery: boolean;
     rejectReason: string;
@@ -4628,6 +4636,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const sessionLive = getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed();
     const lastFinalAgeMs =
       lastFinalTranscriptAt > 0 ? Math.max(0, nowMs - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
+    const lastTranscriptAgeMs =
+      lastTranscriptReceivedAtMs > 0 ? Math.max(0, nowMs - lastTranscriptReceivedAtMs) : Number.POSITIVE_INFINITY;
     const lastSpeechAgeMs = Math.min(
       lastRuntimeSpeechAt > 0 ? Math.max(0, nowMs - lastRuntimeSpeechAt) : Number.POSITIVE_INFINITY,
       lastVadSpeechAt > 0 ? Math.max(0, nowMs - lastVadSpeechAt) : Number.POSITIVE_INFINITY,
@@ -4651,7 +4661,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       hasRecentVadSpeechNow(nowMs) ||
       (lastFinalTranscriptAt > 0 && (nowMs - lastFinalTranscriptAt) <= 1200);
     const speechLive = speechFresh;
-    const visualRecoveryFresh = speechLive && finalFresh && !asrSilenceActive;
+    const recentFinalDuringSilence = asrSilenceActive && finalFresh;
+    const recentSpeechDuringSilence =
+      asrSilenceActive &&
+      (asrRuntimeSpeechRunningActual ||
+        hasRecentActualSpeech(nowMs) ||
+        hasRecentVadSpeechNow(nowMs) ||
+        lastSpeechAgeMs <= ASR_VISUAL_DEADLOCK_SPEECH_FRESH_MAX_AGE_MS);
+    const trueVisualSilence =
+      asrSilenceActive &&
+      !recentFinalDuringSilence &&
+      !recentSpeechDuringSilence;
+    const visualRecoverySilenceBlocked = trueVisualSilence;
+    const silenceActiveAgeMs = asrSilenceActive
+      ? (lastAsrSilenceStartAt > 0 ? Math.max(0, nowMs - lastAsrSilenceStartAt) : Number.POSITIVE_INFINITY)
+      : 0;
+    const lastSilenceStartAgeMs =
+      lastAsrSilenceStartAt > 0 ? Math.max(0, nowMs - lastAsrSilenceStartAt) : Number.POSITIVE_INFINITY;
+    const visualRecoveryFresh = speechLive && finalFresh && !visualRecoverySilenceBlocked;
     const staleForSemanticCommit = !transcriptFresh;
     const staleForVisualRecovery = !visualRecoveryFresh;
     const noMatchOrOffscript =
@@ -4711,7 +4738,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (!sessionLive) rejectReason = 'session_not_live';
       else if (!visualRecoveryFresh || !speechLive) {
         rejectReason = 'quiet_or_stale_state';
-        if (asrSilenceActive) quietOrStaleReason = 'silence_active';
+        if (visualRecoverySilenceBlocked) quietOrStaleReason = 'silence_active';
+        else if (asrSilenceActive) quietOrStaleReason = 'silence_active_recovery_override';
         else if (!speechLive) quietOrStaleReason = 'speech_not_live';
         else if (!finalFresh) quietOrStaleReason = 'final_not_fresh';
         else if (!visualRecoveryFresh) quietOrStaleReason = 'visual_recovery_not_fresh';
@@ -4796,6 +4824,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         repeatCount: reportedRepeatCount,
         cooldownMs: reportedCooldownMs,
         escapeApplied,
+        asrSilenceActive,
+        visualRecoverySilenceBlocked,
+        trueVisualSilence,
+        silenceActiveAgeMs,
+        lastSilenceStartAgeMs,
         quietOrStaleReason,
         speechLive,
         transcriptFresh,
@@ -4803,8 +4836,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         visualRecoveryFresh,
         lastFinalAgeMs,
         lastSpeechAgeMs,
+        lastTranscriptAgeMs,
         lastSemanticProgressAgeMs,
         lastVisualProgressAgeMs,
+        recentFinalDuringSilence,
+        recentSpeechDuringSilence,
         staleForSemanticCommit,
         staleForVisualRecovery,
         rejectReason: escapeApplied ? 'none' : rejectReason,
@@ -4831,6 +4867,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       markerY,
       currentLineViewportY,
       escapeApplied,
+      asrSilenceActive,
+      visualRecoverySilenceBlocked,
+      trueVisualSilence,
+      silenceActiveAgeMs,
+      lastSilenceStartAgeMs,
       quietOrStaleReason,
       speechLive,
       transcriptFresh,
@@ -4838,8 +4879,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       visualRecoveryFresh,
       lastFinalAgeMs,
       lastSpeechAgeMs,
+      lastTranscriptAgeMs,
       lastSemanticProgressAgeMs,
       lastVisualProgressAgeMs,
+      recentFinalDuringSilence,
+      recentSpeechDuringSilence,
       staleForSemanticCommit,
       staleForVisualRecovery,
       rejectReason: escapeApplied ? 'none' : rejectReason,
@@ -5644,6 +5688,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const ASR_VISUAL_DEADLOCK_MIN_AHEAD_LINES = 2;
   const ASR_VISUAL_DEADLOCK_COOLDOWN_MS = 900;
   const ASR_VISUAL_DEADLOCK_FINAL_FRESH_MAX_AGE_MS = 1800;
+  const ASR_VISUAL_DEADLOCK_SPEECH_FRESH_MAX_AGE_MS = 1200;
   const ASR_VISUAL_DEADLOCK_REASONS = new Set([
     'wall_locked_guard_state',
     'wall_locked_tiny_or_noisy_delta',
@@ -5735,6 +5780,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastRescueSpeechAt = 0;
   let freshSpeechSinceCommit = false;
   let asrSilenceActive = true;
+  let lastAsrSilenceStartAt = Date.now();
+  let lastAsrSilenceEndAt = 0;
   let asrVadSeen = false;
   let asrVadSpeaking = false;
   let lastVadSpeechAt = 0;
@@ -9343,6 +9390,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const silenceHandler = (event: Event) => {
     const detail = (event as CustomEvent)?.detail || {};
     const silent = !!(detail && detail.silent);
+    const now = Date.now();
+    if (silent && !asrSilenceActive) {
+      lastAsrSilenceStartAt = now;
+    } else if (!silent && asrSilenceActive) {
+      lastAsrSilenceEndAt = now;
+    }
     asrSilenceActive = silent;
     if (silent) {
       clearEvidenceBuffer('silence');
@@ -36331,6 +36384,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       pendingSpeakableBridgeState,
       preservedAsrAuthorityTargetReason,
       preservedAsrAuthorityTargetSourcePath,
+      lastAsrSilenceStartAt,
+      lastAsrSilenceEndAt,
     };
     lastTranscriptSpeechFresh = args.transcriptFresh !== false;
     lastTranscriptResponseAgeMs = args.transcriptFresh === false ? 999999 : 0;
@@ -36356,6 +36411,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ? 'bridge_hold'
       : 'none';
     asrSilenceActive = args.silenceActive === true;
+    if (args.silenceActive === true) {
+      lastAsrSilenceStartAt = nowMs - (Number.isFinite(args.finalAgeMs as number) ? Math.max(0, Number(args.finalAgeMs)) : 500);
+    } else {
+      lastAsrSilenceEndAt = nowMs;
+    }
     asrRuntimeSpeechSeen = true;
     asrRuntimeSpeechEverTrue = true;
     asrRuntimeSpeechRunningActual = args.speechFresh !== false;
@@ -36416,6 +36476,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     pendingSpeakableBridgeState = previousState.pendingSpeakableBridgeState;
     preservedAsrAuthorityTargetReason = previousState.preservedAsrAuthorityTargetReason;
     preservedAsrAuthorityTargetSourcePath = previousState.preservedAsrAuthorityTargetSourcePath;
+    lastAsrSilenceStartAt = previousState.lastAsrSilenceStartAt;
+    lastAsrSilenceEndAt = previousState.lastAsrSilenceEndAt;
     return result;
   };
   const debugEvaluateProfileForwardGuard = (args: {
@@ -36810,6 +36872,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       markerY: number;
       currentLineViewportY: number;
       escapeApplied: boolean;
+      asrSilenceActive: boolean;
+      visualRecoverySilenceBlocked: boolean;
+      trueVisualSilence: boolean;
+      silenceActiveAgeMs: number;
+      lastSilenceStartAgeMs: number;
       quietOrStaleReason: string;
       speechLive: boolean;
       transcriptFresh: boolean;
@@ -36817,8 +36884,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       visualRecoveryFresh: boolean;
       lastFinalAgeMs: number;
       lastSpeechAgeMs: number;
+      lastTranscriptAgeMs: number;
       lastSemanticProgressAgeMs: number;
       lastVisualProgressAgeMs: number;
+      recentFinalDuringSilence: boolean;
+      recentSpeechDuringSilence: boolean;
       staleForSemanticCommit: boolean;
       staleForVisualRecovery: boolean;
       rejectReason: string;

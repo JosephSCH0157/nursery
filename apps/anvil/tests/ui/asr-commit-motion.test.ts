@@ -230,6 +230,11 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     markerY: number;
     currentLineViewportY: number;
     escapeApplied: boolean;
+    asrSilenceActive: boolean;
+    visualRecoverySilenceBlocked: boolean;
+    trueVisualSilence: boolean;
+    silenceActiveAgeMs: number;
+    lastSilenceStartAgeMs: number;
     quietOrStaleReason: string;
     speechLive: boolean;
     transcriptFresh: boolean;
@@ -237,8 +242,11 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     visualRecoveryFresh: boolean;
     lastFinalAgeMs: number;
     lastSpeechAgeMs: number;
+    lastTranscriptAgeMs: number;
     lastSemanticProgressAgeMs: number;
     lastVisualProgressAgeMs: number;
+    recentFinalDuringSilence: boolean;
+    recentSpeechDuringSilence: boolean;
     staleForSemanticCommit: boolean;
     staleForVisualRecovery: boolean;
     rejectReason: string;
@@ -1679,7 +1687,86 @@ describe('ASR live commit motion', () => {
       finalFresh: false,
     })).toMatchObject({
       escapeApplied: false,
+      asrSilenceActive: false,
+      trueVisualSilence: false,
       quietOrStaleReason: 'speech_not_live',
+      rejectReason: 'quiet_or_stale_state',
+    });
+
+    driver.dispose();
+  });
+
+  test('visual deadlock escape still blocks during true silence even if silence_active is set', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      speechFresh: false,
+      transcriptFresh: false,
+      finalFresh: false,
+      silenceActive: true,
+    });
+    driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      speechFresh: false,
+      transcriptFresh: false,
+      finalFresh: false,
+      silenceActive: true,
+    });
+    const result = driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      speechFresh: false,
+      transcriptFresh: false,
+      finalFresh: false,
+      silenceActive: true,
+    });
+
+    expect(result).toMatchObject({
+      escapeApplied: false,
+      asrSilenceActive: true,
+      visualRecoverySilenceBlocked: true,
+      trueVisualSilence: true,
+      quietOrStaleReason: 'silence_active',
       rejectReason: 'quiet_or_stale_state',
     });
 
@@ -1728,9 +1815,53 @@ describe('ASR live commit motion', () => {
     expect(third.transcriptFresh).toBe(false);
     expect(third.finalFresh).toBe(true);
     expect(third.visualRecoveryFresh).toBe(true);
+    expect(third.asrSilenceActive).toBe(false);
     expect(third.staleForSemanticCommit).toBe(true);
     expect(third.staleForVisualRecovery).toBe(false);
     expect(third.deltaScrollTop).toBeGreaterThan(0);
+
+    driver.dispose();
+  });
+
+  test('visual deadlock escape may recover during silence_active when recent finals and speech remain fresh', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const args = {
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+      finalFresh: true,
+      finalAgeMs: 300,
+      silenceActive: true,
+    } as const;
+
+    driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+    driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+    const result = driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+
+    expect(result.escapeApplied).toBe(true);
+    expect(result.asrSilenceActive).toBe(true);
+    expect(result.visualRecoverySilenceBlocked).toBe(false);
+    expect(result.trueVisualSilence).toBe(false);
+    expect(result.recentFinalDuringSilence).toBe(true);
+    expect(result.recentSpeechDuringSilence).toBe(true);
+    expect(result.visualRecoveryFresh).toBe(true);
+    expect(result.deltaScrollTop).toBeGreaterThan(0);
+    expect(result.deltaScrollTop).toBeLessThanOrEqual(68);
 
     driver.dispose();
   });
