@@ -136,9 +136,15 @@ export function shouldAllowPendingBridgeCompletion(input: {
     input.lastFinalTranscriptFresh;
   const bridgeDirectFreshProof =
     !!input.bridgeLandingProofOk && !input.bridgeLandingProofFromStaleTranscriptOnly;
+  const bridgeMissingLandingProof =
+    !input.bridgeLandingProofOk &&
+    !input.bridgeLandingProofFromStaleTranscriptOnly;
   const shouldAllow =
     bridgeFinalFresh &&
-    bridgeDirectFreshProof;
+    (
+      bridgeDirectFreshProof ||
+      (bridgeMissingLandingProof && input.pendingBridgeAgeMs >= 900)
+    );
   return {
     shouldAllow,
     reason: shouldAllow ? 'pending_speakable_bridge_complete' : 'await_fresh_direct_landing_proof',
