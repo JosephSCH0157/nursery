@@ -1983,6 +1983,34 @@ export function buildAsrNoSafeTargetForwardSuppressedDiagnostic(args: {
   return buildAsrPocketWallDiagnostic('ASR_NO_SAFE_TARGET_FORWARD_SUPPRESSED', args);
 }
 
+export function buildAsrVisualDeadlockEscapeDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  authoritativeLineIdx: number;
+  candidateLineIdx: number;
+  visualAnchorLineIdx: number;
+  selectedAuthority: string;
+  leadPressureReason: string;
+  pocketWallReason: string;
+  speakableLead: number;
+  renderedLead: number;
+  proposedScrollTop: number;
+  cappedScrollTop: number;
+  cappedDeltaPx: number;
+  beforeScrollTop: number;
+  boundedEscapeTargetScrollTop: number;
+  afterScrollTop: number;
+  deltaScrollTop: number;
+  markerY: number;
+  currentLineViewportY: number;
+  repeatCount: number;
+  cooldownMs: number;
+  escapeApplied: boolean;
+  rejectReason: string;
+}): string {
+  return `[ASR_VISUAL_DEADLOCK_ESCAPE] currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} authoritativeLineIdx=${Math.round(args.authoritativeLineIdx)} candidateLineIdx=${Math.round(args.candidateLineIdx)} visualAnchorLineIdx=${Math.round(args.visualAnchorLineIdx)} selectedAuthority=${args.selectedAuthority || 'unknown'} leadPressureReason=${args.leadPressureReason || 'none'} pocketWallReason=${args.pocketWallReason || 'none'} speakableLead=${Math.round(args.speakableLead)} renderedLead=${Math.round(args.renderedLead)} proposedScrollTop=${Math.round(args.proposedScrollTop)} cappedScrollTop=${Math.round(args.cappedScrollTop)} cappedDeltaPx=${Math.round(args.cappedDeltaPx)} beforeScrollTop=${Math.round(args.beforeScrollTop)} boundedEscapeTargetScrollTop=${Math.round(args.boundedEscapeTargetScrollTop)} afterScrollTop=${Math.round(args.afterScrollTop)} deltaScrollTop=${Math.round(args.deltaScrollTop)} markerY=${Number.isFinite(args.markerY) ? Math.round(args.markerY) : -1} currentLineViewportY=${Number.isFinite(args.currentLineViewportY) ? Math.round(args.currentLineViewportY) : -1} repeatCount=${Math.round(args.repeatCount)} cooldownMs=${Math.round(args.cooldownMs)} escapeApplied=${args.escapeApplied ? 1 : 0} rejectReason=${args.rejectReason || 'none'}`;
+}
+
 function buildAsrCommitFreshnessDiagnostic(
   tag:
     | 'ASR_STALE_TRANSCRIPT_COMMIT_SUPPRESSED'

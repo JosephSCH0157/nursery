@@ -197,6 +197,39 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     proposedTopUsed: number;
     proposedTopSource: 'post_semantic_release_bounded' | 'normal_requested';
   };
+  __debugEvaluateAsrVisualDeadlockEscape: (args: {
+    currentLineIdx: number;
+    committedLineIdx: number;
+    authoritativeLineIdx: number;
+    candidateLineIdx: number;
+    currentScrollTop: number;
+    proposedScrollTop: number;
+    cappedScrollTop: number;
+    lineHeightPx: number;
+    maxScrollTop: number;
+    speakableLead: number;
+    renderedLead: number;
+    leadPressureReason: string;
+    pocketWallReason: string;
+    cappedDeltaPx: number;
+    speechFresh?: boolean;
+    transcriptFresh?: boolean;
+    silenceActive?: boolean;
+    noMatchOrOffscript?: boolean;
+    contradiction?: boolean;
+    bridgeContextActive?: boolean;
+  }) => {
+    afterScrollTop: number;
+    deltaScrollTop: number;
+    boundedEscapeTargetScrollTop: number;
+    repeatCount: number;
+    cooldownMs: number;
+    visualAnchorLineIdx: number;
+    markerY: number;
+    currentLineViewportY: number;
+    escapeApplied: boolean;
+    rejectReason: string;
+  };
 };
 
 describe('ASR live commit motion', () => {
@@ -1523,6 +1556,205 @@ describe('ASR live commit motion', () => {
       selectedTargetScrollTop: 851,
     });
     expect((clamped?.selectedTargetScrollTop ?? 0)).toBeLessThanOrEqual(851);
+
+    driver.dispose();
+  });
+
+  test('visual deadlock escape applies one bounded forward semantic step after repeated capped wall-lock observations', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const baseArgs = {
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+    } as const;
+
+    const first = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
+    const second = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
+    const third = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
+
+    expect(first).toMatchObject({
+      escapeApplied: false,
+      rejectReason: 'repeat_threshold_not_met',
+      repeatCount: 1,
+    });
+    expect(second).toMatchObject({
+      escapeApplied: false,
+      rejectReason: 'repeat_threshold_not_met',
+      repeatCount: 2,
+    });
+    expect(third.escapeApplied).toBe(true);
+    expect(third.rejectReason).toBe('none');
+    expect(third.repeatCount).toBe(3);
+    expect(third.visualAnchorLineIdx).toBe(2);
+    expect(third.deltaScrollTop).toBeGreaterThan(0);
+    expect(third.deltaScrollTop).toBeLessThanOrEqual(68);
+    expect(third.boundedEscapeTargetScrollTop).toBe(third.afterScrollTop);
+
+    const cooldown = driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      currentScrollTop: third.afterScrollTop,
+      cappedScrollTop: third.afterScrollTop,
+      proposedScrollTop: third.afterScrollTop + 180,
+    });
+    expect(cooldown).toMatchObject({
+      escapeApplied: false,
+      rejectReason: 'cooldown_active',
+    });
+
+    driver.dispose();
+  });
+
+  test('visual deadlock escape stands down in bridge and quiet contexts', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      bridgeContextActive: true,
+      speechFresh: true,
+      transcriptFresh: true,
+    })).toMatchObject({
+      escapeApplied: false,
+      rejectReason: 'bridge_context_active',
+    });
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      speechFresh: false,
+      transcriptFresh: false,
+    })).toMatchObject({
+      escapeApplied: false,
+      rejectReason: 'quiet_or_stale_state',
+    });
+
+    driver.dispose();
+  });
+
+  test('visual deadlock escape refuses backward or non-forward bounded targets', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const args = {
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 1700,
+      proposedScrollTop: 1900,
+      cappedScrollTop: 1700,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_tiny_or_noisy_delta',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+    } as const;
+
+    driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+    driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+    const result = driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+
+    expect(result).toMatchObject({
+      escapeApplied: false,
+      rejectReason: 'bounded_target_not_forward',
+    });
+    expect(result.afterScrollTop).toBe(1700);
+    expect(result.deltaScrollTop).toBe(0);
+
+    driver.dispose();
+  });
+
+  test('visual deadlock escape requires a true wall-lock plus zero-movement cap signature', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 940,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 40,
+      speechFresh: true,
+      transcriptFresh: true,
+    })).toMatchObject({
+      escapeApplied: false,
+      rejectReason: 'capped_delta_not_zero',
+    });
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'healthy_pocket_follow',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+    })).toMatchObject({
+      escapeApplied: false,
+      rejectReason: 'pocket_wall_not_locked',
+    });
 
     driver.dispose();
   });
