@@ -134,6 +134,45 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     markerY: number;
     currentLineViewportY: number;
   };
+  __debugEvaluatePostReleaseAuthorityProtection: (args: {
+    nowMs?: number;
+    skipArm?: boolean;
+    clearAfter?: boolean;
+    releaseLineIdx: number;
+    protectedTargetScrollTop: number;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    competingAuthority: string;
+    competingTargetScrollTop: number;
+    currentScrollTop: number;
+    markerY: number;
+    currentLineViewportY: number;
+    maxScrollTop: number;
+    sessionLive?: boolean;
+    asrMode?: boolean;
+    speechFresh?: boolean;
+    semanticProofHealthy?: boolean;
+    bridgeContextActive?: boolean;
+    pendingBridgeActive?: boolean;
+    implicitPendingBridgeActive?: boolean;
+    bridgeTrapActive?: boolean;
+    reducedBridgeLandingActive?: boolean;
+    bridgeLifecycleDiagnosticActive?: boolean;
+    noMatchOrOffscript?: boolean;
+    hardContradiction?: boolean;
+    terminalClampActive?: boolean;
+  }) => null | {
+    releaseLineIdx: number;
+    protectedTargetScrollTop: number;
+    competingAuthority: string;
+    competingTargetScrollTop: number;
+    selectedTargetScrollTop: number;
+    protectionApplied: boolean;
+    rejectReason: string;
+    markerY: number;
+    currentLineViewportY: number;
+    scrollTop: number;
+  };
   __debugEvaluateAsrPocketWall: (args: {
     currentTop: number;
     proposedTop: number;
@@ -1256,6 +1295,234 @@ describe('ASR live commit motion', () => {
     expect(release?.boundedTargetScrollTop).toBeGreaterThan(223);
     expect((release?.boundedTargetScrollTop ?? 0) - 217).toBeGreaterThan(6);
     expect((release?.boundedTargetScrollTop ?? 0) - 217).toBeLessThanOrEqual(release?.releaseStepPx ?? 0);
+
+    driver.dispose();
+  });
+
+  test('post-release protection preserves semantic follow target against immediate lower-rail pullback', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'preferred_lower_rail_release',
+      competingTargetScrollTop: 715,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+    });
+
+    expect(result).toMatchObject({
+      protectionApplied: true,
+      rejectReason: 'none',
+      competingAuthority: 'preferred_lower_rail_release',
+      protectedTargetScrollTop: 851,
+      selectedTargetScrollTop: 851,
+    });
+
+    driver.dispose();
+  });
+
+  test('post-release protection prevents comfort nudge from replacing the forward semantic target while line stays below marker', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 757,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+    });
+
+    expect(result).toMatchObject({
+      protectionApplied: true,
+      rejectReason: 'none',
+      competingAuthority: 'comfort_nudge',
+      selectedTargetScrollTop: 851,
+    });
+
+    driver.dispose();
+  });
+
+  test('post-release protection expires after the short protection window', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluatePostReleaseAuthorityProtection({
+      nowMs: 2000,
+      clearAfter: false,
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 757,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+      sessionLive: true,
+      asrMode: true,
+      speechFresh: true,
+      semanticProofHealthy: true,
+    });
+    expect(result?.protectionApplied).toBe(true);
+
+    const expired = driver.__debugEvaluatePostReleaseAuthorityProtection({
+      nowMs: 2801,
+      skipArm: true,
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 757,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+      sessionLive: true,
+      asrMode: true,
+      speechFresh: true,
+      semanticProofHealthy: true,
+    });
+    expect(expired).toBeNull();
+    driver.dispose();
+  });
+
+  test('post-release protection does not apply in stale, quiet, no-match, stopped, or bridge contexts', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    expect(driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 757,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+      speechFresh: false,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'quiet' });
+
+    expect(driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 757,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+      semanticProofHealthy: false,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'stale' });
+
+    expect(driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 757,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+      noMatchOrOffscript: true,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'no_match_or_offscript' });
+
+    expect(driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 757,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+      sessionLive: false,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'session_not_live' });
+
+    expect(driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 920,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+      bridgeContextActive: true,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'bridge_active' });
+
+    expect(driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 757,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+      implicitPendingBridgeActive: true,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'bridge_active' });
+
+    driver.dispose();
+  });
+
+  test('post-release protection never allows backward or beyond-protected movement', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    expect(driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 17,
+      protectedTargetScrollTop: 1124,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      competingAuthority: 'pocket_authority',
+      competingTargetScrollTop: 1124,
+      currentScrollTop: 1170,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+    })).toMatchObject({
+      protectionApplied: false,
+      rejectReason: 'backward_or_non_forward',
+    });
+
+    const clamped = driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 830,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 860,
+    });
+    expect(clamped).toMatchObject({
+      protectionApplied: true,
+      selectedTargetScrollTop: 851,
+    });
+    expect((clamped?.selectedTargetScrollTop ?? 0)).toBeLessThanOrEqual(851);
 
     driver.dispose();
   });

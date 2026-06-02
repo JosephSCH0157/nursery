@@ -148,6 +148,21 @@ export function buildAsrPostCommitVisualFollowReleaseDiagnostic(args: {
   return `[ASR_POST_COMMIT_VISUAL_FOLLOW_RELEASE] previousSemanticLineIdx=${Math.round(args.previousSemanticLineIdx)} newSemanticLineIdx=${Math.round(args.newSemanticLineIdx)} beforeScrollTop=${Math.round(args.beforeScrollTop)} proposedTargetScrollTop=${Math.round(args.proposedTargetScrollTop)} releaseDesiredTargetScrollTop=${Math.round(args.releaseDesiredTargetScrollTop)} boundedTargetScrollTop=${Math.round(args.boundedTargetScrollTop)} releaseStepPx=${Math.round(args.releaseStepPx)} afterScrollTop=${Math.round(args.afterScrollTop)} deltaScrollTop=${Math.round(args.deltaScrollTop)} selectedAuthority=${args.selectedAuthority || 'none'} releaseAccepted=${args.releaseAccepted ? 1 : 0} rejectReason=${args.rejectReason || 'none'} markerY=${Math.round(args.markerY)} currentLineViewportY=${Number.isFinite(args.currentLineViewportY as number) ? Math.round(Number(args.currentLineViewportY)) : -1}`;
 }
 
+export function buildAsrPostReleaseAuthorityProtectedDiagnostic(args: {
+  releaseLineIdx: number;
+  protectedTargetScrollTop: number;
+  competingAuthority: string;
+  competingTargetScrollTop: number;
+  selectedTargetScrollTop: number;
+  protectionApplied: boolean;
+  rejectReason: string;
+  markerY: number;
+  currentLineViewportY: number;
+  scrollTop: number;
+}): string {
+  return `[ASR_POST_RELEASE_AUTHORITY_PROTECTED] releaseLineIdx=${Math.round(args.releaseLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)} competingAuthority=${args.competingAuthority || 'none'} competingTargetScrollTop=${Math.round(args.competingTargetScrollTop)} selectedTargetScrollTop=${Math.round(args.selectedTargetScrollTop)} protectionApplied=${args.protectionApplied ? 1 : 0} rejectReason=${args.rejectReason || 'none'} markerY=${Math.round(args.markerY)} currentLineViewportY=${Number.isFinite(args.currentLineViewportY as number) ? Math.round(Number(args.currentLineViewportY)) : -1} scrollTop=${Math.round(args.scrollTop)}`;
+}
+
 export function buildAsrPostCommitVisualReleaseTokenStateDiagnostic(args: {
   event: 'armed' | 'rejected' | 'accepted' | 'consumed' | 'stood_down';
   previousSemanticLineIdx: number;
