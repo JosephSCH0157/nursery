@@ -220,16 +220,33 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     noMatchOrOffscript?: boolean;
     contradiction?: boolean;
     bridgeContextActive?: boolean;
+    sessionLive?: boolean;
+    markerY?: number;
+    currentLineViewportY?: number;
+    matchedLineViewportY?: number;
+    matchedMarkerErrorPx?: number;
+    recentBottomDriftGuard?: boolean;
+    recentVisualDebtCatchupBlocked?: boolean;
+    lastVisualProgressAgeMs?: number;
   }) => {
     afterScrollTop: number;
     deltaScrollTop: number;
     boundedEscapeTargetScrollTop: number;
     repeatCount: number;
     cooldownMs: number;
+    recoveryMode: 'semantic_ahead' | 'visual_debt_flatline' | 'none';
     visualAnchorLineIdx: number;
+    semanticAheadLines: number;
     markerY: number;
     currentLineViewportY: number;
+    matchedLineViewportY: number;
+    visualDebtPx: number;
+    matchedMarkerErrorPx: number;
+    bottomDriftGuardRecent: boolean;
+    visualDebtCatchupBlockedRecent: boolean;
+    pursueFlatlineMs: number;
     escapeApplied: boolean;
+    recoveryApplied: boolean;
     asrSilenceActive: boolean;
     visualRecoverySilenceBlocked: boolean;
     trueVisualSilence: boolean;
@@ -1951,6 +1968,262 @@ describe('ASR live commit motion', () => {
       rejectReason: 'pocket_wall_not_locked',
     });
 
+    driver.dispose();
+  });
+
+  test('semantic_not_ahead still blocks the semantic-ahead path without visual-debt recovery signals', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const result = driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 1,
+      candidateLineIdx: 2,
+      currentScrollTop: 0,
+      proposedScrollTop: 180,
+      cappedScrollTop: 0,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 4,
+      renderedLead: 4,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+      finalFresh: true,
+      markerY: 390,
+      currentLineViewportY: 470,
+      matchedLineViewportY: 520,
+      matchedMarkerErrorPx: 130,
+      lastVisualProgressAgeMs: 1400,
+    });
+
+    expect(result).toMatchObject({
+      recoveryMode: 'none',
+      escapeApplied: false,
+      rejectReason: 'semantic_not_ahead',
+    });
+
+    driver.dispose();
+  });
+
+  test('visual-debt recovery applies a bounded step when semantic lead is short but geometry is far below marker', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const args = {
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 1,
+      candidateLineIdx: 2,
+      currentScrollTop: 0,
+      proposedScrollTop: 220,
+      cappedScrollTop: 0,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 4,
+      renderedLead: 4,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'standard_visual_release_suppressed',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+      finalFresh: true,
+      markerY: 390,
+      currentLineViewportY: 590,
+      matchedLineViewportY: 922,
+      matchedMarkerErrorPx: 532,
+      recentBottomDriftGuard: true,
+      lastVisualProgressAgeMs: 1400,
+    } as const;
+
+    const first = driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+    const second = driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+    const third = driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+
+    expect(first).toMatchObject({
+      recoveryMode: 'visual_debt_flatline',
+      escapeApplied: false,
+      rejectReason: 'repeat_threshold_not_met',
+    });
+    expect(third).toMatchObject({
+      recoveryMode: 'visual_debt_flatline',
+      escapeApplied: true,
+      recoveryApplied: true,
+      rejectReason: 'none',
+      semanticAheadLines: 1,
+      visualAnchorLineIdx: 2,
+      bottomDriftGuardRecent: true,
+      visualDebtCatchupBlockedRecent: false,
+    });
+    expect(third.deltaScrollTop).toBeGreaterThan(0);
+    expect(third.deltaScrollTop).toBeLessThanOrEqual(68);
+    expect(third.boundedEscapeTargetScrollTop).toBe(third.afterScrollTop);
+    expect(third.currentLineViewportY).toBe(590);
+    expect(third.matchedMarkerErrorPx).toBe(532);
+
+    driver.dispose();
+  });
+
+  test('visual-debt recovery accepts recent debt-catchup-blocked evidence and otherwise stands down', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const baseArgs = {
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 1,
+      candidateLineIdx: 2,
+      currentScrollTop: 0,
+      proposedScrollTop: 220,
+      cappedScrollTop: 0,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 4,
+      renderedLead: 4,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'standard_visual_release_suppressed',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+      finalFresh: true,
+      markerY: 390,
+      currentLineViewportY: 590,
+      matchedLineViewportY: 922,
+      matchedMarkerErrorPx: 532,
+      lastVisualProgressAgeMs: 1400,
+    } as const;
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs)).toMatchObject({
+      recoveryMode: 'none',
+      escapeApplied: false,
+      rejectReason: 'visual_debt_signal_missing',
+    });
+
+    driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      recentVisualDebtCatchupBlocked: true,
+    });
+    driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      recentVisualDebtCatchupBlocked: true,
+    });
+    const result = driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      recentVisualDebtCatchupBlocked: true,
+    });
+
+    expect(result).toMatchObject({
+      recoveryMode: 'visual_debt_flatline',
+      escapeApplied: true,
+      visualDebtCatchupBlockedRecent: true,
+      bottomDriftGuardRecent: false,
+    });
+
+    driver.dispose();
+  });
+
+  test('visual-debt recovery requires mature flatline/no-progress evidence', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 1,
+      candidateLineIdx: 2,
+      currentScrollTop: 0,
+      proposedScrollTop: 220,
+      cappedScrollTop: 0,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 4,
+      renderedLead: 4,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'standard_visual_release_suppressed',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+      finalFresh: true,
+      markerY: 390,
+      currentLineViewportY: 590,
+      matchedLineViewportY: 922,
+      matchedMarkerErrorPx: 532,
+      recentBottomDriftGuard: true,
+      lastVisualProgressAgeMs: 200,
+    })).toMatchObject({
+      recoveryMode: 'none',
+      escapeApplied: false,
+      rejectReason: 'flatline_not_mature',
+    });
+
+    driver.dispose();
+  });
+
+  test('visual-debt recovery stands down for noMatch, contradiction, bridge, silence, and stopped session contexts', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const baseArgs = {
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 1,
+      candidateLineIdx: 2,
+      currentScrollTop: 0,
+      proposedScrollTop: 220,
+      cappedScrollTop: 0,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 4,
+      renderedLead: 4,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'standard_visual_release_suppressed',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+      finalFresh: true,
+      markerY: 390,
+      currentLineViewportY: 590,
+      matchedLineViewportY: 922,
+      matchedMarkerErrorPx: 532,
+      recentBottomDriftGuard: true,
+      lastVisualProgressAgeMs: 1400,
+    } as const;
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      noMatchOrOffscript: true,
+    })).toMatchObject({ rejectReason: 'no_match_or_offscript' });
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      contradiction: true,
+    })).toMatchObject({ rejectReason: 'contradiction' });
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      bridgeContextActive: true,
+    })).toMatchObject({ rejectReason: 'bridge_context_active' });
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      silenceActive: true,
+      speechFresh: false,
+      transcriptFresh: false,
+      finalFresh: false,
+    })).toMatchObject({
+      visualRecoverySilenceBlocked: true,
+      rejectReason: 'quiet_or_stale_state',
+    });
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      sessionLive: false,
+    })).toMatchObject({
+      rejectReason: 'session_not_live',
+    });
     driver.dispose();
   });
 

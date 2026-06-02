@@ -4590,16 +4590,34 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     leadPressureReason: string;
     pocketWallReason: string;
     cappedDeltaPx: number;
+    markerYOverride?: number;
+    currentLineViewportYOverride?: number;
+    matchedLineViewportYOverride?: number;
+    matchedMarkerErrorPxOverride?: number;
+    recentBottomDriftGuardOverride?: boolean;
+    recentVisualDebtCatchupBlockedOverride?: boolean;
+    visualDebtCatchupBlockedReasonOverride?: string;
+    lastVisualProgressAgeMsOverride?: number;
+    sessionLiveOverride?: boolean;
   }): {
     afterScrollTop: number;
     deltaScrollTop: number;
     boundedEscapeTargetScrollTop: number;
     repeatCount: number;
     cooldownMs: number;
+    recoveryMode: 'semantic_ahead' | 'visual_debt_flatline' | 'none';
     visualAnchorLineIdx: number;
+    semanticAheadLines: number;
     markerY: number;
     currentLineViewportY: number;
+    matchedLineViewportY: number;
+    visualDebtPx: number;
+    matchedMarkerErrorPx: number;
+    bottomDriftGuardRecent: boolean;
+    visualDebtCatchupBlockedRecent: boolean;
+    pursueFlatlineMs: number;
     escapeApplied: boolean;
+    recoveryApplied: boolean;
     asrSilenceActive: boolean;
     visualRecoverySilenceBlocked: boolean;
     trueVisualSilence: boolean;
@@ -4631,9 +4649,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const visualAnchorLineEl = getLineElementByIndex(input.scroller, visualAnchorLineIdx);
     const markerTargetScrollTop = computeLineTargetTop(input.scroller, visualAnchorLineEl);
     const telemetry = resolveLineVisualTelemetry(input.scroller, visualAnchorLineIdx);
-    const markerY = Number.isFinite(telemetry.markerYInViewport) ? Number(telemetry.markerYInViewport) : Number.NaN;
-    const currentLineViewportY = Number.isFinite(telemetry.lineCenterInViewport) ? Number(telemetry.lineCenterInViewport) : Number.NaN;
-    const sessionLive = getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed();
+    const markerY = Number.isFinite(input.markerYOverride as number)
+      ? Number(input.markerYOverride)
+      : (Number.isFinite(telemetry.markerYInViewport) ? Number(telemetry.markerYInViewport) : Number.NaN);
+    const currentLineViewportY = Number.isFinite(input.currentLineViewportYOverride as number)
+      ? Number(input.currentLineViewportYOverride)
+      : (Number.isFinite(telemetry.lineCenterInViewport) ? Number(telemetry.lineCenterInViewport) : Number.NaN);
+    const matchedLineViewportY = Number.isFinite(input.matchedLineViewportYOverride as number)
+      ? Number(input.matchedLineViewportYOverride)
+      : (Number.isFinite(lastAsrMatchedLineViewportY) ? Number(lastAsrMatchedLineViewportY) : Number.NaN);
+    const matchedMarkerErrorPx = Number.isFinite(input.matchedMarkerErrorPxOverride as number)
+      ? Number(input.matchedMarkerErrorPxOverride)
+      : (Number.isFinite(lastAsrMatchedMarkerErrorPx) ? Number(lastAsrMatchedMarkerErrorPx) : Number.NaN);
+    const sessionLive =
+      typeof input.sessionLiveOverride === 'boolean'
+        ? input.sessionLiveOverride
+        : (getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed());
     const lastFinalAgeMs =
       lastFinalTranscriptAt > 0 ? Math.max(0, nowMs - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
     const lastTranscriptAgeMs =
@@ -4702,7 +4733,37 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       Number.isFinite(currentLineViewportY) &&
       Number.isFinite(markerY) &&
       currentLineViewportY > markerY + 0.5;
-    const qualifies =
+    const currentVisualDebtPx =
+      Number.isFinite(currentLineViewportY) && Number.isFinite(markerY)
+        ? Number(currentLineViewportY) - Number(markerY)
+        : Number.NaN;
+    const matchedVisualDebtLarge =
+      Number.isFinite(matchedMarkerErrorPx) &&
+      matchedMarkerErrorPx >= Math.max(ASR_VISUAL_DEBT_RECOVERY_MIN_MATCHED_DEBT_PX, Number(input.lineHeightPx) * 3);
+    const currentVisualDebtLarge =
+      Number.isFinite(currentVisualDebtPx) &&
+      currentVisualDebtPx >= Math.max(Number(input.lineHeightPx) * 2, ASR_VISUAL_DEBT_RECOVERY_MIN_CURRENT_DEBT_PX);
+    const bottomDriftGuardRecent =
+      typeof input.recentBottomDriftGuardOverride === 'boolean'
+        ? input.recentBottomDriftGuardOverride
+        : (lastAsrBottomDriftGuardAt > 0 && (nowMs - lastAsrBottomDriftGuardAt) <= ASR_VISUAL_DEBT_RECOVERY_RECENT_SIGNAL_MS);
+    const visualDebtCatchupBlockedRecent =
+      typeof input.recentVisualDebtCatchupBlockedOverride === 'boolean'
+        ? input.recentVisualDebtCatchupBlockedOverride
+        : (lastAsrVisualDebtCatchupBlockedAt > 0 && (nowMs - lastAsrVisualDebtCatchupBlockedAt) <= ASR_VISUAL_DEBT_RECOVERY_RECENT_SIGNAL_MS);
+    const lastVisualProgressAgeMsObserved =
+      Number.isFinite(input.lastVisualProgressAgeMsOverride as number)
+        ? Math.max(0, Number(input.lastVisualProgressAgeMsOverride))
+        : lastVisualProgressAgeMs;
+    const pursueFlatlineMs =
+      Number.isFinite(lastVisualProgressAgeMsObserved) &&
+      (
+        (Number.isFinite(markerTargetScrollTop as number) && Number(markerTargetScrollTop) > currentScrollTop + 0.5) ||
+        Number(input.proposedScrollTop) > currentScrollTop + 0.5
+      )
+        ? lastVisualProgressAgeMsObserved
+        : 0;
+    const semanticAheadQualifies =
       sessionLive &&
       visualRecoveryFresh &&
       !noMatchOrOffscript &&
@@ -4713,7 +4774,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       Number(input.cappedDeltaPx) <= 0.5 &&
       semanticAheadLines >= ASR_VISUAL_DEADLOCK_MIN_AHEAD_LINES &&
       (lineBelowMarker || visualDebtLarge);
+    const visualDebtQualifies =
+      sessionLive &&
+      visualRecoveryFresh &&
+      !noMatchOrOffscript &&
+      !contradictionActive &&
+      !bridgeLifecycleActive &&
+      currentLineIdx >= 0 &&
+      committedLineIdx >= 0 &&
+      (currentVisualDebtLarge || matchedVisualDebtLarge) &&
+      pursueFlatlineMs >= ASR_VISUAL_DEBT_RECOVERY_FLATLINE_MIN_MS &&
+      (bottomDriftGuardRecent || visualDebtCatchupBlockedRecent);
+    const qualifies = semanticAheadQualifies || visualDebtQualifies;
+    const recoveryMode: 'semantic_ahead' | 'visual_debt_flatline' | 'none' =
+      semanticAheadQualifies ? 'semantic_ahead' : (visualDebtQualifies ? 'visual_debt_flatline' : 'none');
     const repeatSignature = [
+      recoveryMode,
       currentLineIdx,
       committedLineIdx,
       authoritativeLineIdx,
@@ -4747,10 +4823,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       else if (noMatchOrOffscript) rejectReason = 'no_match_or_offscript';
       else if (contradictionActive) rejectReason = 'contradiction';
       else if (bridgeLifecycleActive) rejectReason = 'bridge_context_active';
-      else if (semanticAheadLines < ASR_VISUAL_DEADLOCK_MIN_AHEAD_LINES) rejectReason = 'semantic_not_ahead';
-      else if (!ASR_VISUAL_DEADLOCK_REASONS.has(String(input.pocketWallReason || ''))) rejectReason = 'pocket_wall_not_locked';
-      else if (Number(input.cappedDeltaPx) > 0.5) rejectReason = 'capped_delta_not_zero';
-      else rejectReason = 'not_deadlocked';
+      else if (semanticAheadLines >= ASR_VISUAL_DEADLOCK_MIN_AHEAD_LINES) {
+        if (!ASR_VISUAL_DEADLOCK_REASONS.has(String(input.pocketWallReason || ''))) rejectReason = 'pocket_wall_not_locked';
+        else if (Number(input.cappedDeltaPx) > 0.5) rejectReason = 'capped_delta_not_zero';
+        else rejectReason = 'not_deadlocked';
+      }
+      else if (!(currentVisualDebtLarge || matchedVisualDebtLarge)) rejectReason = 'semantic_not_ahead';
+      else if (!(bottomDriftGuardRecent || visualDebtCatchupBlockedRecent)) rejectReason = 'visual_debt_signal_missing';
+      else if (pursueFlatlineMs < ASR_VISUAL_DEBT_RECOVERY_FLATLINE_MIN_MS) rejectReason = 'flatline_not_mature';
+      else rejectReason = 'semantic_not_ahead';
     } else if (nowMs < lastAsrVisualDeadlockCooldownUntilMs) {
       rejectReason = 'cooldown_active';
     } else if (lastAsrVisualDeadlockRepeatCount < ASR_VISUAL_DEADLOCK_REPEAT_THRESHOLD) {
@@ -4784,7 +4865,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lastKnownScrollTop = afterScrollTop;
         markProgrammaticScroll();
         preservedAsrAuthorityTargetTop = boundedEscapeTargetScrollTop;
-        preservedAsrAuthorityTargetReason = 'visual_deadlock_escape';
+        preservedAsrAuthorityTargetReason =
+          recoveryMode === 'visual_debt_flatline' ? 'visual_debt_flatline' : 'visual_deadlock_escape';
         preservedAsrAuthorityTargetSourcePath = input.authoritySource;
         pursuitTargetTop = boundedEscapeTargetScrollTop;
         ensurePursuitActive();
@@ -4796,17 +4878,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     const deltaScrollTop = afterScrollTop - currentScrollTop;
     const escapeApplied = deltaScrollTop > 0.5;
+    const recoveryApplied = escapeApplied;
     const reportedRepeatCount = escapeApplied ? observedRepeatCount : lastAsrVisualDeadlockRepeatCount;
     const reportedCooldownMs = Math.max(0, lastAsrVisualDeadlockCooldownUntilMs - nowMs);
     emitCoalescedDevDiagnostic(
       'ASR_VISUAL_DEADLOCK_ESCAPE',
       escapeApplied ? 'warn' : 'info',
       buildAsrVisualDeadlockEscapeDiagnostic({
+        recoveryMode,
         currentLineIdx,
         committedLineIdx,
         authoritativeLineIdx,
         candidateLineIdx,
         visualAnchorLineIdx,
+        semanticAheadLines,
         selectedAuthority: input.authoritySource,
         leadPressureReason: String(input.leadPressureReason || 'none'),
         pocketWallReason: String(input.pocketWallReason || 'none'),
@@ -4815,15 +4900,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         proposedScrollTop: Number(input.proposedScrollTop) || currentScrollTop,
         cappedScrollTop: Number(input.cappedScrollTop) || currentScrollTop,
         cappedDeltaPx: Number(input.cappedDeltaPx) || 0,
+        targetScrollTop: Number.isFinite(markerTargetScrollTop as number) ? Number(markerTargetScrollTop) : currentScrollTop,
         beforeScrollTop: currentScrollTop,
         boundedEscapeTargetScrollTop,
         afterScrollTop,
         deltaScrollTop,
         markerY,
         currentLineViewportY,
+        matchedLineViewportY,
+        visualDebtPx: currentVisualDebtPx,
+        matchedMarkerErrorPx,
+        bottomDriftGuardRecent,
+        visualDebtCatchupBlockedRecent,
+        pursueFlatlineMs,
         repeatCount: reportedRepeatCount,
         cooldownMs: reportedCooldownMs,
         escapeApplied,
+        recoveryApplied,
         asrSilenceActive,
         visualRecoverySilenceBlocked,
         trueVisualSilence,
@@ -4863,10 +4956,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       boundedEscapeTargetScrollTop,
       repeatCount: reportedRepeatCount,
       cooldownMs: reportedCooldownMs,
+      recoveryMode,
       visualAnchorLineIdx,
+      semanticAheadLines,
       markerY,
       currentLineViewportY,
+      matchedLineViewportY,
+      visualDebtPx: currentVisualDebtPx,
+      matchedMarkerErrorPx,
+      bottomDriftGuardRecent,
+      visualDebtCatchupBlockedRecent,
+      pursueFlatlineMs,
       escapeApplied,
+      recoveryApplied,
       asrSilenceActive,
       visualRecoverySilenceBlocked,
       trueVisualSilence,
@@ -5675,6 +5777,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastAsrVisualAnchorLineIdx = -1;
   let lastAsrCurrentLineViewportY = Number.NaN;
   let lastAsrActiveLineViewportY = Number.NaN;
+  let lastAsrMatchedLineViewportY = Number.NaN;
+  let lastAsrMatchedMarkerErrorPx = Number.NaN;
   let lastAsrPocketWallTickId = -1;
   let lastAsrPocketWallReason = 'none';
   let lastAsrPocketWallCappedTop = Number.NaN;
@@ -5684,9 +5788,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastAsrLeadPressureTickId = -1;
   let lastAsrLeadPressureReason = 'none';
   let lastAsrLeadPressureCappedTop = Number.NaN;
+  let lastAsrBottomDriftGuardAt = 0;
+  let lastAsrVisualDebtCatchupBlockedAt = 0;
+  let lastAsrVisualDebtCatchupBlockedReason = 'none';
   const ASR_VISUAL_DEADLOCK_REPEAT_THRESHOLD = 3;
   const ASR_VISUAL_DEADLOCK_MIN_AHEAD_LINES = 2;
   const ASR_VISUAL_DEADLOCK_COOLDOWN_MS = 900;
+  const ASR_VISUAL_DEBT_RECOVERY_MIN_CURRENT_DEBT_PX = 160;
+  const ASR_VISUAL_DEBT_RECOVERY_MIN_MATCHED_DEBT_PX = 250;
+  const ASR_VISUAL_DEBT_RECOVERY_RECENT_SIGNAL_MS = 1500;
+  const ASR_VISUAL_DEBT_RECOVERY_FLATLINE_MIN_MS = 900;
   const ASR_VISUAL_DEADLOCK_FINAL_FRESH_MAX_AGE_MS = 1800;
   const ASR_VISUAL_DEADLOCK_SPEECH_FRESH_MAX_AGE_MS = 1200;
   const ASR_VISUAL_DEADLOCK_REASONS = new Set([
@@ -10510,6 +10621,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const markerErrorPxOut = Number.isFinite(markerErrorPx) ? Math.round(markerErrorPx) : -1;
     const targetScrollTopOut = Number.isFinite(targetScrollTop) ? Math.round(targetScrollTop) : -1;
     const matchBestSimOut = Number.isFinite(matchBestSim) ? matchBestSim.toFixed(3) : 'NaN';
+    lastAsrMatchedLineViewportY = matchedLineViewportY;
+    lastAsrMatchedMarkerErrorPx = markerErrorPx;
     try {
       console.warn(
         `[ASR_READER_LINE_MARKER_ERROR] event=${args.event} matchBestIdx=${matchBestIdx} matchBestSim=${matchBestSimOut} committedLineIdx=${committedLineIdx} currentLineIdx=${currentLineIdx} markerY=${markerYOut} matchedLineViewportY=${matchedLineViewportYOut} markerErrorPx=${markerErrorPxOut} scrollTop=${Math.round(scrollTop)} targetScrollTop=${targetScrollTopOut} reason=${args.reason || 'none'} source=${args.source || 'unknown'} correctionRequested=${correctionRequested ? 1 : 0}`,
@@ -16625,6 +16738,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             ? Math.max(0, nowTs - liveAsrReaderTooLowSinceMs)
             : 0;
         const bottomDriftActive = nextTooLow && driftAgeMs >= ASR_READER_COMFORT_BOTTOM_DRIFT_WINDOW_MS;
+        if (bottomDriftActive) {
+          lastAsrBottomDriftGuardAt = nowTs;
+        }
         comfortNudgePxps = bottomDriftActive
           ? ASR_READER_COMFORT_BOTTOM_DRIFT_NUDGE_PXPS
           : ASR_READER_COMFORT_NUDGE_PXPS;
@@ -18254,6 +18370,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }));
       } catch {}
       if (!visualDebtCatchupAllowed) {
+        lastAsrVisualDebtCatchupBlockedAt = freshnessNowTs;
+        lastAsrVisualDebtCatchupBlockedReason = visualDebtCatchupBlockedReason || 'blocked';
         try {
           emitDevDiagnostic(
             'ASR_VISUAL_DEBT_CATCHUP_BLOCKED',
@@ -35379,6 +35497,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastAsrReaderComfortRescueSignature = '';
     lastAsrReaderComfortRescueBlockedAt = 0;
     liveAsrReaderComfortRescueRepeatCount = 0;
+    lastAsrBottomDriftGuardAt = 0;
+    lastAsrVisualDebtCatchupBlockedAt = 0;
+    lastAsrVisualDebtCatchupBlockedReason = 'none';
+    lastAsrMatchedLineViewportY = Number.NaN;
+    lastAsrMatchedMarkerErrorPx = Number.NaN;
     lastStaleLandingRelaxationAt = 0;
     liveAsrVisualDebtCatchupCooldownUntilMs = 0;
     liveAsrVisualDebtCatchupObservationCount = 0;
@@ -36361,6 +36484,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     noMatchOrOffscript?: boolean;
     contradiction?: boolean;
     bridgeContextActive?: boolean;
+    sessionLive?: boolean;
+    markerY?: number;
+    currentLineViewportY?: number;
+    matchedLineViewportY?: number;
+    matchedMarkerErrorPx?: number;
+    recentBottomDriftGuard?: boolean;
+    recentVisualDebtCatchupBlocked?: boolean;
+    lastVisualProgressAgeMs?: number;
   }) => {
     const scroller = getScroller();
     if (!scroller) {
@@ -36386,6 +36517,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       preservedAsrAuthorityTargetSourcePath,
       lastAsrSilenceStartAt,
       lastAsrSilenceEndAt,
+      lastMoveAt,
+      lastAsrBottomDriftGuardAt,
+      lastAsrVisualDebtCatchupBlockedAt,
+      lastAsrVisualDebtCatchupBlockedReason,
+      lastAsrMatchedLineViewportY,
+      lastAsrMatchedMarkerErrorPx,
     };
     lastTranscriptSpeechFresh = args.transcriptFresh !== false;
     lastTranscriptResponseAgeMs = args.transcriptFresh === false ? 999999 : 0;
@@ -36442,6 +36579,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       : null;
     preservedAsrAuthorityTargetReason = args.bridgeContextActive ? 'bridge_lifecycle_debug' : '';
     preservedAsrAuthorityTargetSourcePath = args.bridgeContextActive ? 'bridge_lifecycle_debug' : '';
+    if (typeof args.recentBottomDriftGuard === 'boolean') {
+      lastAsrBottomDriftGuardAt = args.recentBottomDriftGuard ? nowMs : 0;
+    }
+    if (typeof args.recentVisualDebtCatchupBlocked === 'boolean') {
+      lastAsrVisualDebtCatchupBlockedAt = args.recentVisualDebtCatchupBlocked ? nowMs : 0;
+      lastAsrVisualDebtCatchupBlockedReason = args.recentVisualDebtCatchupBlocked ? 'debug_recent_visual_debt_blocked' : 'none';
+    }
+    if (Number.isFinite(args.lastVisualProgressAgeMs as number)) {
+      lastMoveAt = nowMs - Math.max(0, Number(args.lastVisualProgressAgeMs));
+    }
+    if (Number.isFinite(args.matchedLineViewportY as number)) {
+      lastAsrMatchedLineViewportY = Number(args.matchedLineViewportY);
+    }
+    if (Number.isFinite(args.matchedMarkerErrorPx as number)) {
+      lastAsrMatchedMarkerErrorPx = Number(args.matchedMarkerErrorPx);
+    }
     const result = evaluateAsrVisualDeadlockEscape({
       scroller,
       authoritySource: 'debug_deadlock_escape',
@@ -36459,6 +36612,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       leadPressureReason: args.leadPressureReason,
       pocketWallReason: args.pocketWallReason,
       cappedDeltaPx: args.cappedDeltaPx,
+      markerYOverride: args.markerY,
+      currentLineViewportYOverride: args.currentLineViewportY,
+      matchedLineViewportYOverride: args.matchedLineViewportY,
+      matchedMarkerErrorPxOverride: args.matchedMarkerErrorPx,
+      recentBottomDriftGuardOverride: args.recentBottomDriftGuard,
+      recentVisualDebtCatchupBlockedOverride: args.recentVisualDebtCatchupBlocked,
+      lastVisualProgressAgeMsOverride: args.lastVisualProgressAgeMs,
+      sessionLiveOverride: args.sessionLive,
     });
     lastTranscriptSpeechFresh = previousState.lastTranscriptSpeechFresh;
     lastTranscriptResponseAgeMs = previousState.lastTranscriptResponseAgeMs;
@@ -36478,6 +36639,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     preservedAsrAuthorityTargetSourcePath = previousState.preservedAsrAuthorityTargetSourcePath;
     lastAsrSilenceStartAt = previousState.lastAsrSilenceStartAt;
     lastAsrSilenceEndAt = previousState.lastAsrSilenceEndAt;
+    lastMoveAt = previousState.lastMoveAt;
+    lastAsrBottomDriftGuardAt = previousState.lastAsrBottomDriftGuardAt;
+    lastAsrVisualDebtCatchupBlockedAt = previousState.lastAsrVisualDebtCatchupBlockedAt;
+    lastAsrVisualDebtCatchupBlockedReason = previousState.lastAsrVisualDebtCatchupBlockedReason;
+    lastAsrMatchedLineViewportY = previousState.lastAsrMatchedLineViewportY;
+    lastAsrMatchedMarkerErrorPx = previousState.lastAsrMatchedMarkerErrorPx;
     return result;
   };
   const debugEvaluateProfileForwardGuard = (args: {
@@ -36862,16 +37029,33 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       noMatchOrOffscript?: boolean;
       contradiction?: boolean;
       bridgeContextActive?: boolean;
+      markerY?: number;
+      currentLineViewportY?: number;
+      matchedLineViewportY?: number;
+      matchedMarkerErrorPx?: number;
+      recentBottomDriftGuard?: boolean;
+      recentVisualDebtCatchupBlocked?: boolean;
+      lastVisualProgressAgeMs?: number;
+      sessionLive?: boolean;
     }): {
       afterScrollTop: number;
       deltaScrollTop: number;
       boundedEscapeTargetScrollTop: number;
       repeatCount: number;
       cooldownMs: number;
+      recoveryMode: 'semantic_ahead' | 'visual_debt_flatline' | 'none';
       visualAnchorLineIdx: number;
+      semanticAheadLines: number;
       markerY: number;
       currentLineViewportY: number;
+      matchedLineViewportY: number;
+      visualDebtPx: number;
+      matchedMarkerErrorPx: number;
+      bottomDriftGuardRecent: boolean;
+      visualDebtCatchupBlockedRecent: boolean;
+      pursueFlatlineMs: number;
       escapeApplied: boolean;
+      recoveryApplied: boolean;
       asrSilenceActive: boolean;
       visualRecoverySilenceBlocked: boolean;
       trueVisualSilence: boolean;
