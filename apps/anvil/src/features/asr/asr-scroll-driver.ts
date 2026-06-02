@@ -4600,6 +4600,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     markerY: number;
     currentLineViewportY: number;
     escapeApplied: boolean;
+    quietOrStaleReason: string;
+    speechLive: boolean;
+    transcriptFresh: boolean;
+    finalFresh: boolean;
+    visualRecoveryFresh: boolean;
+    lastFinalAgeMs: number;
+    lastSpeechAgeMs: number;
+    lastSemanticProgressAgeMs: number;
+    lastVisualProgressAgeMs: number;
+    staleForSemanticCommit: boolean;
+    staleForVisualRecovery: boolean;
     rejectReason: string;
   } => {
     const nowMs = Date.now();
@@ -4615,17 +4626,34 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const markerY = Number.isFinite(telemetry.markerYInViewport) ? Number(telemetry.markerYInViewport) : Number.NaN;
     const currentLineViewportY = Number.isFinite(telemetry.lineCenterInViewport) ? Number(telemetry.lineCenterInViewport) : Number.NaN;
     const sessionLive = getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed();
+    const lastFinalAgeMs =
+      lastFinalTranscriptAt > 0 ? Math.max(0, nowMs - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
+    const lastSpeechAgeMs = Math.min(
+      lastRuntimeSpeechAt > 0 ? Math.max(0, nowMs - lastRuntimeSpeechAt) : Number.POSITIVE_INFINITY,
+      lastVadSpeechAt > 0 ? Math.max(0, nowMs - lastVadSpeechAt) : Number.POSITIVE_INFINITY,
+    );
+    const lastSemanticProgressAgeMs =
+      lastCommitAt > 0 ? Math.max(0, nowMs - lastCommitAt) : Number.POSITIVE_INFINITY;
+    const lastVisualProgressAgeMs =
+      lastMoveAt > 0 ? Math.max(0, nowMs - lastMoveAt) : Number.POSITIVE_INFINITY;
     const transcriptFresh =
       lastTranscriptSpeechFresh === true &&
       Number.isFinite(lastTranscriptResponseAgeMs) &&
       Number(lastTranscriptResponseAgeMs) <= activeAsrControllerProfile.responseFreshMaxAgeMs &&
       lastFinalTranscriptAt > 0 &&
-      (nowMs - lastFinalTranscriptAt) <= 1800;
+      lastFinalAgeMs <= ASR_VISUAL_DEADLOCK_FINAL_FRESH_MAX_AGE_MS;
+    const finalFresh =
+      lastFinalTranscriptAt > 0 &&
+      lastFinalAgeMs <= ASR_VISUAL_DEADLOCK_FINAL_FRESH_MAX_AGE_MS;
     const speechFresh =
       asrRuntimeSpeechRunningActual ||
       hasRecentActualSpeech(nowMs) ||
       hasRecentVadSpeechNow(nowMs) ||
       (lastFinalTranscriptAt > 0 && (nowMs - lastFinalTranscriptAt) <= 1200);
+    const speechLive = speechFresh;
+    const visualRecoveryFresh = speechLive && finalFresh && !asrSilenceActive;
+    const staleForSemanticCommit = !transcriptFresh;
+    const staleForVisualRecovery = !visualRecoveryFresh;
     const noMatchOrOffscript =
       String(lastAsrGuardReason || '').toLowerCase().includes('no_match') ||
       String(lastAsrHudGuardText || '').toLowerCase().includes('offscript');
@@ -4649,9 +4677,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       currentLineViewportY > markerY + 0.5;
     const qualifies =
       sessionLive &&
-      speechFresh &&
-      transcriptFresh &&
-      !asrSilenceActive &&
+      visualRecoveryFresh &&
       !noMatchOrOffscript &&
       !contradictionActive &&
       !bridgeLifecycleActive &&
@@ -4680,9 +4706,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastAsrVisualDeadlockRepeatCount = 0;
     }
     let rejectReason = 'none';
+    let quietOrStaleReason = 'none';
     if (!qualifies) {
       if (!sessionLive) rejectReason = 'session_not_live';
-      else if (!speechFresh || !transcriptFresh || asrSilenceActive) rejectReason = 'quiet_or_stale_state';
+      else if (!visualRecoveryFresh || !speechLive) {
+        rejectReason = 'quiet_or_stale_state';
+        if (asrSilenceActive) quietOrStaleReason = 'silence_active';
+        else if (!speechLive) quietOrStaleReason = 'speech_not_live';
+        else if (!finalFresh) quietOrStaleReason = 'final_not_fresh';
+        else if (!visualRecoveryFresh) quietOrStaleReason = 'visual_recovery_not_fresh';
+      }
       else if (noMatchOrOffscript) rejectReason = 'no_match_or_offscript';
       else if (contradictionActive) rejectReason = 'contradiction';
       else if (bridgeLifecycleActive) rejectReason = 'bridge_context_active';
@@ -4763,6 +4796,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         repeatCount: reportedRepeatCount,
         cooldownMs: reportedCooldownMs,
         escapeApplied,
+        quietOrStaleReason,
+        speechLive,
+        transcriptFresh,
+        finalFresh,
+        visualRecoveryFresh,
+        lastFinalAgeMs,
+        lastSpeechAgeMs,
+        lastSemanticProgressAgeMs,
+        lastVisualProgressAgeMs,
+        staleForSemanticCommit,
+        staleForVisualRecovery,
         rejectReason: escapeApplied ? 'none' : rejectReason,
       }),
       [
@@ -4787,6 +4831,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       markerY,
       currentLineViewportY,
       escapeApplied,
+      quietOrStaleReason,
+      speechLive,
+      transcriptFresh,
+      finalFresh,
+      visualRecoveryFresh,
+      lastFinalAgeMs,
+      lastSpeechAgeMs,
+      lastSemanticProgressAgeMs,
+      lastVisualProgressAgeMs,
+      staleForSemanticCommit,
+      staleForVisualRecovery,
       rejectReason: escapeApplied ? 'none' : rejectReason,
     };
   };
@@ -5588,6 +5643,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const ASR_VISUAL_DEADLOCK_REPEAT_THRESHOLD = 3;
   const ASR_VISUAL_DEADLOCK_MIN_AHEAD_LINES = 2;
   const ASR_VISUAL_DEADLOCK_COOLDOWN_MS = 900;
+  const ASR_VISUAL_DEADLOCK_FINAL_FRESH_MAX_AGE_MS = 1800;
   const ASR_VISUAL_DEADLOCK_REASONS = new Set([
     'wall_locked_guard_state',
     'wall_locked_tiny_or_noisy_delta',
@@ -36246,6 +36302,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     cappedDeltaPx: number;
     speechFresh?: boolean;
     transcriptFresh?: boolean;
+    finalFresh?: boolean;
+    finalAgeMs?: number;
     silenceActive?: boolean;
     noMatchOrOffscript?: boolean;
     contradiction?: boolean;
@@ -36276,7 +36334,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     };
     lastTranscriptSpeechFresh = args.transcriptFresh !== false;
     lastTranscriptResponseAgeMs = args.transcriptFresh === false ? 999999 : 0;
-    lastFinalTranscriptAt = args.transcriptFresh === false ? 0 : nowMs;
+    if (args.finalFresh === false) {
+      lastFinalTranscriptAt = 0;
+    } else if (Number.isFinite(args.finalAgeMs as number)) {
+      lastFinalTranscriptAt = nowMs - Math.max(0, Number(args.finalAgeMs));
+    } else {
+      lastFinalTranscriptAt = nowMs;
+    }
     lastAsrGuardReason = args.noMatchOrOffscript
       ? 'no_match'
       : args.contradiction
@@ -36293,7 +36357,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       : 'none';
     asrSilenceActive = args.silenceActive === true;
     asrRuntimeSpeechSeen = true;
-    asrRuntimeSpeechEverTrue = args.speechFresh !== false;
+    asrRuntimeSpeechEverTrue = true;
     asrRuntimeSpeechRunningActual = args.speechFresh !== false;
     asrVadSeen = true;
     asrVadSpeaking = args.speechFresh !== false;
@@ -36730,6 +36794,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       cappedDeltaPx: number;
       speechFresh?: boolean;
       transcriptFresh?: boolean;
+      finalFresh?: boolean;
+      finalAgeMs?: number;
       silenceActive?: boolean;
       noMatchOrOffscript?: boolean;
       contradiction?: boolean;
@@ -36744,6 +36810,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       markerY: number;
       currentLineViewportY: number;
       escapeApplied: boolean;
+      quietOrStaleReason: string;
+      speechLive: boolean;
+      transcriptFresh: boolean;
+      finalFresh: boolean;
+      visualRecoveryFresh: boolean;
+      lastFinalAgeMs: number;
+      lastSpeechAgeMs: number;
+      lastSemanticProgressAgeMs: number;
+      lastVisualProgressAgeMs: number;
+      staleForSemanticCommit: boolean;
+      staleForVisualRecovery: boolean;
       rejectReason: string;
     };
     __debugEvaluateProfileForwardGuard(args: {

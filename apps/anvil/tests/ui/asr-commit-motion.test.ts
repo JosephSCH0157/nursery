@@ -214,6 +214,8 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     cappedDeltaPx: number;
     speechFresh?: boolean;
     transcriptFresh?: boolean;
+    finalFresh?: boolean;
+    finalAgeMs?: number;
     silenceActive?: boolean;
     noMatchOrOffscript?: boolean;
     contradiction?: boolean;
@@ -228,6 +230,17 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     markerY: number;
     currentLineViewportY: number;
     escapeApplied: boolean;
+    quietOrStaleReason: string;
+    speechLive: boolean;
+    transcriptFresh: boolean;
+    finalFresh: boolean;
+    visualRecoveryFresh: boolean;
+    lastFinalAgeMs: number;
+    lastSpeechAgeMs: number;
+    lastSemanticProgressAgeMs: number;
+    lastVisualProgressAgeMs: number;
+    staleForSemanticCommit: boolean;
+    staleForVisualRecovery: boolean;
     rejectReason: string;
   };
 };
@@ -1663,10 +1676,61 @@ describe('ASR live commit motion', () => {
       cappedDeltaPx: 0,
       speechFresh: false,
       transcriptFresh: false,
+      finalFresh: false,
     })).toMatchObject({
       escapeApplied: false,
+      quietOrStaleReason: 'speech_not_live',
       rejectReason: 'quiet_or_stale_state',
     });
+
+    driver.dispose();
+  });
+
+  test('visual deadlock escape may recover on recent finals even when semantic transcript freshness is stale', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const baseArgs = {
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: false,
+      finalFresh: true,
+      finalAgeMs: 400,
+    } as const;
+
+    const first = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
+    const second = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
+    const third = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
+
+    expect(first).toMatchObject({
+      escapeApplied: false,
+      transcriptFresh: false,
+      finalFresh: true,
+      visualRecoveryFresh: true,
+      staleForSemanticCommit: true,
+      staleForVisualRecovery: false,
+      rejectReason: 'repeat_threshold_not_met',
+    });
+    expect(third.escapeApplied).toBe(true);
+    expect(third.transcriptFresh).toBe(false);
+    expect(third.finalFresh).toBe(true);
+    expect(third.visualRecoveryFresh).toBe(true);
+    expect(third.staleForSemanticCommit).toBe(true);
+    expect(third.staleForVisualRecovery).toBe(false);
+    expect(third.deltaScrollTop).toBeGreaterThan(0);
 
     driver.dispose();
   });
