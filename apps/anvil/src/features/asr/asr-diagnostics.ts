@@ -190,6 +190,32 @@ export function buildAsrPostFloorAuthorityProtectedDiagnostic(args: {
   return `[ASR_POST_FLOOR_AUTHORITY_PROTECTED] protectionApplied=${args.protectionApplied ? 1 : 0} rejectReason=${args.rejectReason || 'none'} floorProtectedLineIdx=${Math.round(args.floorProtectedLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)} competingAuthority=${args.competingAuthority || 'none'} competingReason=${args.competingReason || 'none'} competingTargetScrollTop=${Math.round(args.competingTargetScrollTop)} selectedTargetBeforeProtection=${Math.round(args.selectedTargetBeforeProtection)} selectedTargetAfterProtection=${Math.round(args.selectedTargetAfterProtection)} currentScrollTop=${Math.round(args.currentScrollTop)} markerY=${Number.isFinite(args.markerY) ? Math.round(args.markerY) : -1} currentLineViewportY=${Number.isFinite(args.currentLineViewportY) ? Math.round(args.currentLineViewportY) : -1} matchedLineViewportY=${Number.isFinite(args.matchedLineViewportY) ? Math.round(args.matchedLineViewportY) : -1} visualDebtPx=${Number.isFinite(args.visualDebtPx) ? Math.round(args.visualDebtPx) : -1} matchedMarkerErrorPx=${Number.isFinite(args.matchedMarkerErrorPx) ? Math.round(args.matchedMarkerErrorPx) : -1} remainingProtectionMs=${Math.round(args.remainingProtectionMs)} visualRecoveryFresh=${args.visualRecoveryFresh ? 1 : 0} trueVisualSilence=${args.trueVisualSilence ? 1 : 0} noMatchOrOffscript=${args.noMatchOrOffscript ? 1 : 0} bridgeContextActive=${args.bridgeContextActive ? 1 : 0} hardContradiction=${args.hardContradiction ? 1 : 0} sessionLive=${args.sessionLive ? 1 : 0}`;
 }
 
+export function buildAsrPostFloorPocketWallProtectedDiagnostic(args: {
+  protectionApplied: boolean;
+  rejectReason: string;
+  sourceAuthority: string;
+  reasonBeforeProtection: string;
+  currentTop: number;
+  proposedTop: number;
+  cappedTopBeforeProtection: number;
+  cappedTopAfterProtection: number;
+  protectedTargetScrollTop: number;
+  floorProtectedLineIdx: number;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  visualDebtPx: number;
+  matchedMarkerErrorPx: number;
+  remainingProtectionMs: number;
+  visualRecoveryFresh: boolean;
+  trueVisualSilence: boolean;
+  noMatchOrOffscript: boolean;
+  bridgeContextActive: boolean;
+  hardContradiction: boolean;
+  sessionLive: boolean;
+}): string {
+  return `[ASR_POST_FLOOR_POCKET_WALL_PROTECTED] protectionApplied=${args.protectionApplied ? 1 : 0} rejectReason=${args.rejectReason || 'none'} sourceAuthority=${args.sourceAuthority || 'none'} reasonBeforeProtection=${args.reasonBeforeProtection || 'none'} currentTop=${Math.round(args.currentTop)} proposedTop=${Math.round(args.proposedTop)} cappedTopBeforeProtection=${Math.round(args.cappedTopBeforeProtection)} cappedTopAfterProtection=${Math.round(args.cappedTopAfterProtection)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)} floorProtectedLineIdx=${Math.round(args.floorProtectedLineIdx)} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} visualDebtPx=${Number.isFinite(args.visualDebtPx) ? Math.round(args.visualDebtPx) : -1} matchedMarkerErrorPx=${Number.isFinite(args.matchedMarkerErrorPx) ? Math.round(args.matchedMarkerErrorPx) : -1} remainingProtectionMs=${Math.round(args.remainingProtectionMs)} visualRecoveryFresh=${args.visualRecoveryFresh ? 1 : 0} trueVisualSilence=${args.trueVisualSilence ? 1 : 0} noMatchOrOffscript=${args.noMatchOrOffscript ? 1 : 0} bridgeContextActive=${args.bridgeContextActive ? 1 : 0} hardContradiction=${args.hardContradiction ? 1 : 0} sessionLive=${args.sessionLive ? 1 : 0}`;
+}
+
 export function buildAsrPostCommitVisualReleaseTokenStateDiagnostic(args: {
   event: 'armed' | 'rejected' | 'accepted' | 'consumed' | 'stood_down';
   previousSemanticLineIdx: number;

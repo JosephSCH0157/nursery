@@ -242,6 +242,16 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     releaseFreshVerifiedForwardCommit?: boolean;
     releaseAuthoritativeLineIdx?: number | null;
     releaseBoundedTargetTop?: number | null;
+    armPostFloorProtection?: boolean;
+    floorProtectedLineIdx?: number | null;
+    protectedTargetScrollTop?: number | null;
+    speechFresh?: boolean;
+    finalFresh?: boolean;
+    silenceActive?: boolean;
+    noMatchOrOffscript?: boolean;
+    contradiction?: boolean;
+    bridgeContextActive?: boolean;
+    matchedMarkerErrorPx?: number | null;
   }) => {
     effectiveTop: number;
     reason: string;
@@ -1836,6 +1846,208 @@ describe('ASR live commit motion', () => {
       currentLineIdx: 11,
       committedLineIdx: 11,
     })).toMatchObject({ protectionApplied: true, rejectReason: 'none' });
+
+    driver.dispose();
+  });
+
+  test('post-floor pocket wall protection prevents backward_correction_allowed from rolling below the protected floor target', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluateAsrPocketWall({
+      currentTop: 1056,
+      proposedTop: 1000,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      nextSpeakableLineIdx: 17,
+      candidateLineIdx: 17,
+      selectedAuthority: 'comfort_nudge',
+      authorityReason: 'below_tolerated_bottom',
+      sourceAuthority: 'comfort_nudge',
+      armPostFloorProtection: true,
+      floorProtectedLineIdx: 17,
+      protectedTargetScrollTop: 1056,
+      speechFresh: true,
+      finalFresh: true,
+      matchedMarkerErrorPx: 600,
+    });
+
+    expect(result).toMatchObject({
+      effectiveTop: 1056,
+      reason: 'post_floor_protected_follow',
+    });
+    expect(result.diagnostic).toContain('cappedTop=1056');
+
+    driver.dispose();
+  });
+
+  test('post-floor pocket wall rollback is allowed after protection expires or when recovery context is unsafe', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const expiredArm = driver.__debugEvaluatePostFloorAuthorityProtection({
+      nowMs: 2000,
+      clearAfter: false,
+      floorProtectedLineIdx: 17,
+      protectedTargetScrollTop: 1056,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      competingAuthority: 'comfort_nudge',
+      competingReason: 'below_tolerated_bottom',
+      competingTargetScrollTop: 988,
+      currentScrollTop: 1014,
+      markerY: 390,
+      currentLineViewportY: 568,
+      matchedLineViewportY: 990,
+      matchedMarkerErrorPx: 600,
+      maxScrollTop: 5000,
+    });
+    expect(expiredArm?.protectionApplied).toBe(true);
+
+    const expired = driver.__debugEvaluatePostFloorAuthorityProtection({
+      nowMs: 2801,
+      skipArm: true,
+      floorProtectedLineIdx: 17,
+      protectedTargetScrollTop: 1056,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      competingAuthority: 'comfort_nudge',
+      competingReason: 'below_tolerated_bottom',
+      competingTargetScrollTop: 988,
+      currentScrollTop: 1014,
+      markerY: 390,
+      currentLineViewportY: 568,
+      matchedLineViewportY: 990,
+      matchedMarkerErrorPx: 600,
+      maxScrollTop: 5000,
+    });
+    expect(expired).toBeNull();
+
+    expect(driver.__debugEvaluateAsrPocketWall({
+      currentTop: 1056,
+      proposedTop: 1000,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      nextSpeakableLineIdx: 17,
+      candidateLineIdx: 17,
+      selectedAuthority: 'comfort_nudge',
+      authorityReason: 'below_tolerated_bottom',
+      sourceAuthority: 'comfort_nudge',
+      armPostFloorProtection: false,
+      speechFresh: true,
+      finalFresh: true,
+      matchedMarkerErrorPx: 600,
+    })).toMatchObject({
+      effectiveTop: 1000,
+      reason: 'backward_correction_allowed',
+    });
+
+    expect(driver.__debugEvaluateAsrPocketWall({
+      currentTop: 1056,
+      proposedTop: 1000,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      nextSpeakableLineIdx: 17,
+      candidateLineIdx: 17,
+      selectedAuthority: 'comfort_nudge',
+      authorityReason: 'below_tolerated_bottom',
+      sourceAuthority: 'comfort_nudge',
+      armPostFloorProtection: true,
+      floorProtectedLineIdx: 17,
+      protectedTargetScrollTop: 1056,
+      speechFresh: true,
+      finalFresh: false,
+      matchedMarkerErrorPx: 600,
+    })).toMatchObject({
+      effectiveTop: 1000,
+      reason: 'backward_correction_allowed',
+    });
+
+    expect(driver.__debugEvaluateAsrPocketWall({
+      currentTop: 1056,
+      proposedTop: 1000,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      nextSpeakableLineIdx: 17,
+      candidateLineIdx: 17,
+      selectedAuthority: 'comfort_nudge',
+      authorityReason: 'below_tolerated_bottom',
+      sourceAuthority: 'comfort_nudge',
+      armPostFloorProtection: true,
+      floorProtectedLineIdx: 17,
+      protectedTargetScrollTop: 1056,
+      speechFresh: false,
+      finalFresh: false,
+      silenceActive: true,
+      matchedMarkerErrorPx: 600,
+    })).toMatchObject({
+      effectiveTop: 1000,
+      reason: 'backward_correction_allowed',
+    });
+
+    expect(driver.__debugEvaluateAsrPocketWall({
+      currentTop: 1056,
+      proposedTop: 1000,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      nextSpeakableLineIdx: 17,
+      candidateLineIdx: 17,
+      selectedAuthority: 'comfort_nudge',
+      authorityReason: 'below_tolerated_bottom',
+      sourceAuthority: 'comfort_nudge',
+      armPostFloorProtection: true,
+      floorProtectedLineIdx: 17,
+      protectedTargetScrollTop: 1056,
+      speechFresh: true,
+      finalFresh: true,
+      noMatchOrOffscript: true,
+      matchedMarkerErrorPx: 600,
+    })).toMatchObject({
+      effectiveTop: 1000,
+      reason: 'backward_correction_allowed',
+    });
+
+    expect(driver.__debugEvaluateAsrPocketWall({
+      currentTop: 1056,
+      proposedTop: 1000,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      nextSpeakableLineIdx: 17,
+      candidateLineIdx: 17,
+      selectedAuthority: 'comfort_nudge',
+      authorityReason: 'below_tolerated_bottom',
+      sourceAuthority: 'comfort_nudge',
+      armPostFloorProtection: true,
+      floorProtectedLineIdx: 17,
+      protectedTargetScrollTop: 1056,
+      speechFresh: true,
+      finalFresh: true,
+      bridgeContextActive: true,
+      matchedMarkerErrorPx: 600,
+    })).toMatchObject({
+      effectiveTop: 1000,
+      reason: 'backward_correction_allowed',
+    });
+
+    expect(driver.__debugEvaluateAsrPocketWall({
+      currentTop: 1056,
+      proposedTop: 1000,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      nextSpeakableLineIdx: 17,
+      candidateLineIdx: 17,
+      selectedAuthority: 'comfort_nudge',
+      authorityReason: 'below_tolerated_bottom',
+      sourceAuthority: 'comfort_nudge',
+      armPostFloorProtection: true,
+      floorProtectedLineIdx: 17,
+      protectedTargetScrollTop: 1056,
+      speechFresh: true,
+      finalFresh: true,
+      contradiction: true,
+      matchedMarkerErrorPx: 600,
+    })).toMatchObject({
+      effectiveTop: 1000,
+      reason: 'backward_correction_allowed',
+    });
 
     driver.dispose();
   });
