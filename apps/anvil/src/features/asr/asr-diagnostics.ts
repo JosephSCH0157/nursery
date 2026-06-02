@@ -2040,6 +2040,38 @@ export function buildAsrVisualDeadlockEscapeDiagnostic(args: {
   return `[ASR_VISUAL_DEADLOCK_ESCAPE] recoveryMode=${args.recoveryMode || 'semantic_ahead'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} authoritativeLineIdx=${Math.round(args.authoritativeLineIdx)} candidateLineIdx=${Math.round(args.candidateLineIdx)} visualAnchorLineIdx=${Math.round(args.visualAnchorLineIdx)} semanticAheadLines=${Math.round(args.semanticAheadLines)} selectedAuthority=${args.selectedAuthority || 'unknown'} leadPressureReason=${args.leadPressureReason || 'none'} pocketWallReason=${args.pocketWallReason || 'none'} speakableLead=${Math.round(args.speakableLead)} renderedLead=${Math.round(args.renderedLead)} proposedScrollTop=${Math.round(args.proposedScrollTop)} cappedScrollTop=${Math.round(args.cappedScrollTop)} cappedDeltaPx=${Math.round(args.cappedDeltaPx)} targetScrollTop=${Math.round(args.targetScrollTop)} beforeScrollTop=${Math.round(args.beforeScrollTop)} currentScrollTop=${Math.round(args.beforeScrollTop)} boundedEscapeTargetScrollTop=${Math.round(args.boundedEscapeTargetScrollTop)} boundedRecoveryTargetScrollTop=${Math.round(args.boundedEscapeTargetScrollTop)} afterScrollTop=${Math.round(args.afterScrollTop)} deltaScrollTop=${Math.round(args.deltaScrollTop)} markerY=${Number.isFinite(args.markerY) ? Math.round(args.markerY) : -1} currentLineViewportY=${Number.isFinite(args.currentLineViewportY) ? Math.round(args.currentLineViewportY) : -1} matchedLineViewportY=${Number.isFinite(args.matchedLineViewportY) ? Math.round(args.matchedLineViewportY) : -1} visualDebtPx=${Number.isFinite(args.visualDebtPx) ? Math.round(args.visualDebtPx) : -1} matchedMarkerErrorPx=${Number.isFinite(args.matchedMarkerErrorPx) ? Math.round(args.matchedMarkerErrorPx) : -1} bottomDriftGuardRecent=${args.bottomDriftGuardRecent ? 1 : 0} visualDebtCatchupBlockedRecent=${args.visualDebtCatchupBlockedRecent ? 1 : 0} pursueFlatlineMs=${Number.isFinite(args.pursueFlatlineMs) ? Math.round(args.pursueFlatlineMs) : -1} repeatCount=${Math.round(args.repeatCount)} cooldownMs=${Math.round(args.cooldownMs)} escapeApplied=${args.escapeApplied ? 1 : 0} recoveryApplied=${args.recoveryApplied ? 1 : 0} asrSilenceActive=${args.asrSilenceActive ? 1 : 0} visualRecoverySilenceBlocked=${args.visualRecoverySilenceBlocked ? 1 : 0} trueVisualSilence=${args.trueVisualSilence ? 1 : 0} silenceActiveAgeMs=${Number.isFinite(args.silenceActiveAgeMs) ? Math.round(args.silenceActiveAgeMs) : -1} lastSilenceStartAgeMs=${Number.isFinite(args.lastSilenceStartAgeMs) ? Math.round(args.lastSilenceStartAgeMs) : -1} quietOrStaleReason=${args.quietOrStaleReason || 'none'} speechLive=${args.speechLive ? 1 : 0} transcriptFresh=${args.transcriptFresh ? 1 : 0} finalFresh=${args.finalFresh ? 1 : 0} visualRecoveryFresh=${args.visualRecoveryFresh ? 1 : 0} lastFinalAgeMs=${Number.isFinite(args.lastFinalAgeMs) ? Math.round(args.lastFinalAgeMs) : -1} lastSpeechAgeMs=${Number.isFinite(args.lastSpeechAgeMs) ? Math.round(args.lastSpeechAgeMs) : -1} lastTranscriptAgeMs=${Number.isFinite(args.lastTranscriptAgeMs) ? Math.round(args.lastTranscriptAgeMs) : -1} lastSemanticProgressAgeMs=${Number.isFinite(args.lastSemanticProgressAgeMs) ? Math.round(args.lastSemanticProgressAgeMs) : -1} lastVisualProgressAgeMs=${Number.isFinite(args.lastVisualProgressAgeMs) ? Math.round(args.lastVisualProgressAgeMs) : -1} recentFinalDuringSilence=${args.recentFinalDuringSilence ? 1 : 0} recentSpeechDuringSilence=${args.recentSpeechDuringSilence ? 1 : 0} staleForSemanticCommit=${args.staleForSemanticCommit ? 1 : 0} staleForVisualRecovery=${args.staleForVisualRecovery ? 1 : 0} rejectReason=${args.rejectReason || 'none'}`;
 }
 
+export function buildAsrLeadPressureVisualDebtFloorDiagnostic(
+  tag: 'ASR_LEAD_PRESSURE_VISUAL_DEBT_FLOOR_EVALUATED' | 'ASR_LEAD_PRESSURE_VISUAL_DEBT_FLOOR_APPLIED',
+  args: {
+    currentLineIdx: number;
+    committedLineIdx: number;
+    authoritativeLineIdx: number;
+    visualAnchorLineIdx: number;
+    targetLineIdx: number;
+    selectedAuthority: string;
+    proposedScrollTop: number;
+    normalCappedScrollTop: number;
+    flooredScrollTop: number;
+    cappedDeltaPxBefore: number;
+    cappedDeltaPxAfter: number;
+    visualDebtPx: number;
+    matchedMarkerErrorPx: number;
+    markerY: number;
+    currentLineViewportY: number;
+    matchedLineViewportY: number;
+    bottomDriftGuardRecent: boolean;
+    visualDebtCatchupBlockedRecent: boolean;
+    lastVisualProgressAgeMs: number;
+    speakableLead: number;
+    renderedLead: number;
+    recoveryModeNearby: string;
+    floorApplied: boolean;
+    rejectReason: string;
+  },
+): string {
+  return `[${tag}] currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} authoritativeLineIdx=${Math.round(args.authoritativeLineIdx)} visualAnchorLineIdx=${Math.round(args.visualAnchorLineIdx)} targetLineIdx=${Math.round(args.targetLineIdx)} selectedAuthority=${args.selectedAuthority || 'unknown'} proposedScrollTop=${Math.round(args.proposedScrollTop)} normalCappedScrollTop=${Math.round(args.normalCappedScrollTop)} flooredScrollTop=${Math.round(args.flooredScrollTop)} cappedDeltaPxBefore=${Math.round(args.cappedDeltaPxBefore)} cappedDeltaPxAfter=${Math.round(args.cappedDeltaPxAfter)} visualDebtPx=${Number.isFinite(args.visualDebtPx) ? Math.round(args.visualDebtPx) : -1} matchedMarkerErrorPx=${Number.isFinite(args.matchedMarkerErrorPx) ? Math.round(args.matchedMarkerErrorPx) : -1} markerY=${Number.isFinite(args.markerY) ? Math.round(args.markerY) : -1} currentLineViewportY=${Number.isFinite(args.currentLineViewportY) ? Math.round(args.currentLineViewportY) : -1} matchedLineViewportY=${Number.isFinite(args.matchedLineViewportY) ? Math.round(args.matchedLineViewportY) : -1} bottomDriftGuardRecent=${args.bottomDriftGuardRecent ? 1 : 0} visualDebtCatchupBlockedRecent=${args.visualDebtCatchupBlockedRecent ? 1 : 0} lastVisualProgressAgeMs=${Number.isFinite(args.lastVisualProgressAgeMs) ? Math.round(args.lastVisualProgressAgeMs) : -1} speakableLead=${Math.round(args.speakableLead)} renderedLead=${Math.round(args.renderedLead)} recoveryModeNearby=${args.recoveryModeNearby || 'none'} floorApplied=${args.floorApplied ? 1 : 0} rejectReason=${args.rejectReason || 'none'}`;
+}
+
 function buildAsrCommitFreshnessDiagnostic(
   tag:
     | 'ASR_STALE_TRANSCRIPT_COMMIT_SUPPRESSED'

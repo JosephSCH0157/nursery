@@ -197,6 +197,48 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     proposedTopUsed: number;
     proposedTopSource: 'post_semantic_release_bounded' | 'normal_requested';
   };
+  __debugEvaluateAsrVisualAuthorityLeadPressure: (args: {
+    currentLineIdx: number;
+    committedLineIdx: number;
+    targetLineIdx: number;
+    currentScrollTop: number;
+    proposedScrollTop: number;
+    targetScrollTop?: number | null;
+    lineHeightPx: number;
+    maxScrollTop: number;
+    authoritySource?: 'asr4-pocket-drift-authority' | 'asr4-visual-recovery-authority';
+    speechFresh?: boolean;
+    finalFresh?: boolean;
+    silenceActive?: boolean;
+    noMatchOrOffscript?: boolean;
+    contradiction?: boolean;
+    bridgeContextActive?: boolean;
+    recentBottomDriftGuard?: boolean;
+    recentVisualDebtCatchupBlocked?: boolean;
+    lastVisualProgressAgeMs?: number;
+    markerY?: number;
+    currentLineViewportY?: number;
+    matchedLineViewportY?: number;
+    matchedMarkerErrorPx?: number;
+    sessionLive?: boolean;
+    spokenLineIdx?: number;
+    matchBestIdx?: number;
+    matchBestSim?: number;
+    normalCappedScrollTopOverride?: number;
+  }) => {
+    appliedTop: number;
+    movedPx: number;
+    authorityAction: 'lead_pressure_capped_forward_step';
+    floorApplied: boolean;
+    floorRejectReason: string;
+    flooredScrollTop: number;
+    recoveryModeNearby: 'semantic_ahead' | 'visual_debt_flatline' | 'none';
+    visualDebtPx: number;
+    matchedMarkerErrorPx: number;
+    bottomDriftGuardRecent: boolean;
+    visualDebtCatchupBlockedRecent: boolean;
+    lastVisualProgressAgeMs: number;
+  };
   __debugEvaluateAsrVisualDeadlockEscape: (args: {
     currentLineIdx: number;
     committedLineIdx: number;
@@ -2158,6 +2200,143 @@ describe('ASR live commit motion', () => {
       escapeApplied: false,
       rejectReason: 'flatline_not_mature',
     });
+
+    driver.dispose();
+  });
+
+  test('visual-debt floor applies when mature visual-debt recovery would otherwise cap to zero', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const result = driver.__debugEvaluateAsrVisualAuthorityLeadPressure({
+      currentLineIdx: 4,
+      committedLineIdx: 4,
+      targetLineIdx: 4,
+      currentScrollTop: 48,
+      proposedScrollTop: 308,
+      targetScrollTop: 308,
+      lineHeightPx: 56,
+      maxScrollTop: 5000,
+      speechFresh: true,
+      finalFresh: true,
+      recentBottomDriftGuard: true,
+      lastVisualProgressAgeMs: 1175,
+      markerY: 390,
+      currentLineViewportY: 650,
+      matchedLineViewportY: 990,
+      matchedMarkerErrorPx: 600,
+      spokenLineIdx: 0,
+      matchBestIdx: 9,
+      matchBestSim: 0.82,
+      normalCappedScrollTopOverride: 48,
+    });
+
+    expect(result).toMatchObject({
+      floorApplied: true,
+      floorRejectReason: 'none',
+      recoveryModeNearby: 'visual_debt_flatline',
+      bottomDriftGuardRecent: true,
+      visualDebtCatchupBlockedRecent: false,
+    });
+    expect(result.movedPx).toBeGreaterThan(0);
+    expect(result.movedPx).toBeLessThanOrEqual(56);
+    expect(result.appliedTop).toBe(result.flooredScrollTop);
+    expect(result.appliedTop).toBeGreaterThan(48);
+
+    driver.dispose();
+  });
+
+  test('visual-debt floor does not apply in immature line-2-like cap case', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const result = driver.__debugEvaluateAsrVisualAuthorityLeadPressure({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      targetLineIdx: 2,
+      currentScrollTop: 48,
+      proposedScrollTop: 172,
+      targetScrollTop: 172,
+      lineHeightPx: 56,
+      maxScrollTop: 5000,
+      speechFresh: true,
+      finalFresh: true,
+      recentBottomDriftGuard: false,
+      recentVisualDebtCatchupBlocked: false,
+      lastVisualProgressAgeMs: 2,
+      markerY: 390,
+      currentLineViewportY: 514,
+      matchedLineViewportY: 854,
+      matchedMarkerErrorPx: 464,
+      spokenLineIdx: 0,
+      matchBestIdx: 7,
+      matchBestSim: 0.78,
+      normalCappedScrollTopOverride: 48,
+    });
+
+    expect(result).toMatchObject({
+      floorApplied: false,
+      floorRejectReason: 'visual_debt_signal_missing',
+      recoveryModeNearby: 'none',
+    });
+    expect(result.movedPx).toBe(0);
+
+    driver.dispose();
+  });
+
+  test('visual-debt floor stands down for silence, noMatch, bridge, contradiction, and stopped session', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const baseArgs = {
+      currentLineIdx: 4,
+      committedLineIdx: 4,
+      targetLineIdx: 4,
+      currentScrollTop: 48,
+      proposedScrollTop: 308,
+      targetScrollTop: 308,
+      lineHeightPx: 56,
+      maxScrollTop: 5000,
+      speechFresh: true,
+      finalFresh: true,
+      recentBottomDriftGuard: true,
+      lastVisualProgressAgeMs: 1175,
+      markerY: 390,
+      currentLineViewportY: 650,
+      matchedLineViewportY: 990,
+      matchedMarkerErrorPx: 600,
+      spokenLineIdx: 0,
+      matchBestIdx: 9,
+      matchBestSim: 0.82,
+      normalCappedScrollTopOverride: 48,
+    } as const;
+
+    expect(driver.__debugEvaluateAsrVisualAuthorityLeadPressure({
+      ...baseArgs,
+      silenceActive: true,
+      speechFresh: false,
+      finalFresh: false,
+    })).toMatchObject({ floorApplied: false, floorRejectReason: 'true_visual_silence' });
+
+    expect(driver.__debugEvaluateAsrVisualAuthorityLeadPressure({
+      ...baseArgs,
+      noMatchOrOffscript: true,
+    })).toMatchObject({ floorApplied: false, floorRejectReason: 'no_match_or_offscript' });
+
+    expect(driver.__debugEvaluateAsrVisualAuthorityLeadPressure({
+      ...baseArgs,
+      bridgeContextActive: true,
+    })).toMatchObject({ floorApplied: false, floorRejectReason: 'bridge_context_active' });
+
+    expect(driver.__debugEvaluateAsrVisualAuthorityLeadPressure({
+      ...baseArgs,
+      contradiction: true,
+    })).toMatchObject({ floorApplied: false, floorRejectReason: 'contradiction' });
+
+    expect(driver.__debugEvaluateAsrVisualAuthorityLeadPressure({
+      ...baseArgs,
+      sessionLive: false,
+    })).toMatchObject({ floorApplied: false, floorRejectReason: 'session_not_live' });
 
     driver.dispose();
   });
