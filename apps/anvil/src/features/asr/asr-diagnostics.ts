@@ -163,6 +163,33 @@ export function buildAsrPostReleaseAuthorityProtectedDiagnostic(args: {
   return `[ASR_POST_RELEASE_AUTHORITY_PROTECTED] releaseLineIdx=${Math.round(args.releaseLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)} competingAuthority=${args.competingAuthority || 'none'} competingTargetScrollTop=${Math.round(args.competingTargetScrollTop)} selectedTargetScrollTop=${Math.round(args.selectedTargetScrollTop)} protectionApplied=${args.protectionApplied ? 1 : 0} rejectReason=${args.rejectReason || 'none'} markerY=${Math.round(args.markerY)} currentLineViewportY=${Number.isFinite(args.currentLineViewportY as number) ? Math.round(Number(args.currentLineViewportY)) : -1} scrollTop=${Math.round(args.scrollTop)}`;
 }
 
+export function buildAsrPostFloorAuthorityProtectedDiagnostic(args: {
+  protectionApplied: boolean;
+  rejectReason: string;
+  floorProtectedLineIdx: number;
+  protectedTargetScrollTop: number;
+  competingAuthority: string;
+  competingReason: string;
+  competingTargetScrollTop: number;
+  selectedTargetBeforeProtection: number;
+  selectedTargetAfterProtection: number;
+  currentScrollTop: number;
+  markerY: number;
+  currentLineViewportY: number;
+  matchedLineViewportY: number;
+  visualDebtPx: number;
+  matchedMarkerErrorPx: number;
+  remainingProtectionMs: number;
+  visualRecoveryFresh: boolean;
+  trueVisualSilence: boolean;
+  noMatchOrOffscript: boolean;
+  bridgeContextActive: boolean;
+  hardContradiction: boolean;
+  sessionLive: boolean;
+}): string {
+  return `[ASR_POST_FLOOR_AUTHORITY_PROTECTED] protectionApplied=${args.protectionApplied ? 1 : 0} rejectReason=${args.rejectReason || 'none'} floorProtectedLineIdx=${Math.round(args.floorProtectedLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)} competingAuthority=${args.competingAuthority || 'none'} competingReason=${args.competingReason || 'none'} competingTargetScrollTop=${Math.round(args.competingTargetScrollTop)} selectedTargetBeforeProtection=${Math.round(args.selectedTargetBeforeProtection)} selectedTargetAfterProtection=${Math.round(args.selectedTargetAfterProtection)} currentScrollTop=${Math.round(args.currentScrollTop)} markerY=${Number.isFinite(args.markerY) ? Math.round(args.markerY) : -1} currentLineViewportY=${Number.isFinite(args.currentLineViewportY) ? Math.round(args.currentLineViewportY) : -1} matchedLineViewportY=${Number.isFinite(args.matchedLineViewportY) ? Math.round(args.matchedLineViewportY) : -1} visualDebtPx=${Number.isFinite(args.visualDebtPx) ? Math.round(args.visualDebtPx) : -1} matchedMarkerErrorPx=${Number.isFinite(args.matchedMarkerErrorPx) ? Math.round(args.matchedMarkerErrorPx) : -1} remainingProtectionMs=${Math.round(args.remainingProtectionMs)} visualRecoveryFresh=${args.visualRecoveryFresh ? 1 : 0} trueVisualSilence=${args.trueVisualSilence ? 1 : 0} noMatchOrOffscript=${args.noMatchOrOffscript ? 1 : 0} bridgeContextActive=${args.bridgeContextActive ? 1 : 0} hardContradiction=${args.hardContradiction ? 1 : 0} sessionLive=${args.sessionLive ? 1 : 0}`;
+}
+
 export function buildAsrPostCommitVisualReleaseTokenStateDiagnostic(args: {
   event: 'armed' | 'rejected' | 'accepted' | 'consumed' | 'stood_down';
   previousSemanticLineIdx: number;

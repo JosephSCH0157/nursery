@@ -173,6 +173,60 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     currentLineViewportY: number;
     scrollTop: number;
   };
+  __debugEvaluatePostFloorAuthorityProtection: (args: {
+    nowMs?: number;
+    skipArm?: boolean;
+    clearAfter?: boolean;
+    floorProtectedLineIdx: number;
+    protectedTargetScrollTop: number;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    competingAuthority: string;
+    competingReason?: string;
+    competingTargetScrollTop: number;
+    currentScrollTop: number;
+    markerY: number;
+    currentLineViewportY: number;
+    matchedLineViewportY?: number;
+    matchedMarkerErrorPx?: number;
+    maxScrollTop: number;
+    sessionLive?: boolean;
+    asrMode?: boolean;
+    speechFresh?: boolean;
+    finalFresh?: boolean;
+    silenceActive?: boolean;
+    noMatchOrOffscript?: boolean;
+    bridgeContextActive?: boolean;
+    pendingBridgeActive?: boolean;
+    implicitPendingBridgeActive?: boolean;
+    bridgeTrapActive?: boolean;
+    reducedBridgeLandingActive?: boolean;
+    bridgeLifecycleDiagnosticActive?: boolean;
+    hardContradiction?: boolean;
+  }) => null | {
+    protectionApplied: boolean;
+    rejectReason: string;
+    floorProtectedLineIdx: number;
+    protectedTargetScrollTop: number;
+    competingAuthority: string;
+    competingReason: string;
+    competingTargetScrollTop: number;
+    selectedTargetBeforeProtection: number;
+    selectedTargetAfterProtection: number;
+    currentScrollTop: number;
+    markerY: number;
+    currentLineViewportY: number;
+    matchedLineViewportY: number;
+    visualDebtPx: number;
+    matchedMarkerErrorPx: number;
+    remainingProtectionMs: number;
+    visualRecoveryFresh: boolean;
+    trueVisualSilence: boolean;
+    noMatchOrOffscript: boolean;
+    bridgeContextActive: boolean;
+    hardContradiction: boolean;
+    sessionLive: boolean;
+  };
   __debugEvaluateAsrPocketWall: (args: {
     currentTop: number;
     proposedTop: number;
@@ -1636,6 +1690,152 @@ describe('ASR live commit motion', () => {
       selectedTargetScrollTop: 851,
     });
     expect((clamped?.selectedTargetScrollTop ?? 0)).toBeLessThanOrEqual(851);
+
+    driver.dispose();
+  });
+
+  test('post-floor protection preserves the floored target against immediate lower comfort nudge pullback', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluatePostFloorAuthorityProtection({
+      floorProtectedLineIdx: 10,
+      protectedTargetScrollTop: 308,
+      currentLineIdx: 10,
+      committedLineIdx: 10,
+      competingAuthority: 'comfort_nudge',
+      competingReason: 'below_tolerated_bottom',
+      competingTargetScrollTop: 240,
+      currentScrollTop: 252,
+      markerY: 390,
+      currentLineViewportY: 854,
+      matchedLineViewportY: 1058,
+      matchedMarkerErrorPx: 668,
+      maxScrollTop: 5000,
+    });
+
+    expect(result).toMatchObject({
+      protectionApplied: true,
+      rejectReason: 'none',
+      floorProtectedLineIdx: 10,
+      protectedTargetScrollTop: 308,
+      competingAuthority: 'comfort_nudge',
+      competingReason: 'below_tolerated_bottom',
+      selectedTargetBeforeProtection: 240,
+      selectedTargetAfterProtection: 308,
+    });
+
+    driver.dispose();
+  });
+
+  test('post-floor protection allows higher forward-safe targets and expires after the short window', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const higher = driver.__debugEvaluatePostFloorAuthorityProtection({
+      nowMs: 2000,
+      clearAfter: false,
+      floorProtectedLineIdx: 10,
+      protectedTargetScrollTop: 308,
+      currentLineIdx: 10,
+      committedLineIdx: 10,
+      competingAuthority: 'asr4-visual-recovery-authority',
+      competingReason: 'forward_safe_correction',
+      competingTargetScrollTop: 364,
+      currentScrollTop: 252,
+      markerY: 390,
+      currentLineViewportY: 854,
+      matchedLineViewportY: 1058,
+      matchedMarkerErrorPx: 668,
+      maxScrollTop: 5000,
+    });
+    expect(higher).toMatchObject({
+      protectionApplied: false,
+      rejectReason: 'none',
+      selectedTargetAfterProtection: 364,
+    });
+
+    const expired = driver.__debugEvaluatePostFloorAuthorityProtection({
+      nowMs: 2801,
+      skipArm: true,
+      floorProtectedLineIdx: 10,
+      protectedTargetScrollTop: 308,
+      currentLineIdx: 10,
+      committedLineIdx: 10,
+      competingAuthority: 'comfort_nudge',
+      competingReason: 'below_tolerated_bottom',
+      competingTargetScrollTop: 240,
+      currentScrollTop: 252,
+      markerY: 390,
+      currentLineViewportY: 854,
+      matchedLineViewportY: 1058,
+      matchedMarkerErrorPx: 668,
+      maxScrollTop: 5000,
+    });
+    expect(expired).toBeNull();
+
+    driver.dispose();
+  });
+
+  test('post-floor protection stands down for no-match, silence, bridge, contradiction, stopped, stale visual recovery, and line mismatch', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const baseArgs = {
+      floorProtectedLineIdx: 10,
+      protectedTargetScrollTop: 308,
+      currentLineIdx: 10,
+      committedLineIdx: 10,
+      competingAuthority: 'comfort_nudge',
+      competingReason: 'below_tolerated_bottom',
+      competingTargetScrollTop: 240,
+      currentScrollTop: 252,
+      markerY: 390,
+      currentLineViewportY: 854,
+      matchedLineViewportY: 1058,
+      matchedMarkerErrorPx: 668,
+      maxScrollTop: 5000,
+    } as const;
+
+    expect(driver.__debugEvaluatePostFloorAuthorityProtection({
+      ...baseArgs,
+      noMatchOrOffscript: true,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'no_match_or_offscript' });
+
+    expect(driver.__debugEvaluatePostFloorAuthorityProtection({
+      ...baseArgs,
+      silenceActive: true,
+      speechFresh: false,
+      finalFresh: false,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'true_visual_silence' });
+
+    expect(driver.__debugEvaluatePostFloorAuthorityProtection({
+      ...baseArgs,
+      bridgeContextActive: true,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'bridge_active' });
+
+    expect(driver.__debugEvaluatePostFloorAuthorityProtection({
+      ...baseArgs,
+      hardContradiction: true,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'contradiction' });
+
+    expect(driver.__debugEvaluatePostFloorAuthorityProtection({
+      ...baseArgs,
+      sessionLive: false,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'session_not_live' });
+
+    expect(driver.__debugEvaluatePostFloorAuthorityProtection({
+      ...baseArgs,
+      finalFresh: false,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'visual_recovery_not_fresh' });
+
+    expect(driver.__debugEvaluatePostFloorAuthorityProtection({
+      ...baseArgs,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'semantic_line_mismatch' });
+
+    expect(driver.__debugEvaluatePostFloorAuthorityProtection({
+      ...baseArgs,
+      currentLineIdx: 11,
+      committedLineIdx: 11,
+    })).toMatchObject({ protectionApplied: true, rejectReason: 'none' });
 
     driver.dispose();
   });
