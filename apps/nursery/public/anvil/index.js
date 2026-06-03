@@ -33612,6 +33612,9 @@ function buildAsrScrollAuthoritySelectedDiagnostic(args) {
 function buildAsrVisualControlRuntimeProofDiagnostic(args) {
   return `[ASR_VISUAL_CONTROL_RUNTIME_PROOF] chairpersonRuntime=${args.chairpersonRuntime ? 1 : 0} contractVersion=${args.contractVersion} shadowMode=${args.shadowMode ? 1 : 0} liveTargetOwnership=${args.liveTargetOwnership ? 1 : 0} moduleLoaded=${args.moduleLoaded ? 1 : 0} buildStamp=${args.buildStamp || "unknown"} emittedFrom=${args.emittedFrom || "unknown"} computeAsrVisualDecisionAvailable=${args.computeAsrVisualDecisionAvailable ? 1 : 0} diagnosticsSinkAvailable=${args.diagnosticsSinkAvailable ? 1 : 0} diagnosticsExportPathAvailable=${args.diagnosticsExportPathAvailable ? 1 : 0}`;
 }
+function buildAsrChairpersonFlagProofDiagnostic(args) {
+  return `[ASR_CHAIRPERSON_FLAG_PROOF] rawHref=${args.rawHref || "none"} rawSearch=${args.rawSearch || "none"} parsedQueryParams=${args.parsedQueryParams || "[]"} asrVisualChairpersonRaw=${args.rawChairpersonValue || "none"} asrVisualChairpersonOwnerRaw=${args.rawOwnerValue || "none"} resolvedShadowEnabled=${args.resolvedShadowEnabled ? 1 : 0} resolvedOwnerEnabled=${args.resolvedOwnerEnabled ? 1 : 0} ownerFlagSource=${args.ownerFlagSource || "default"} ownerDisabledReason=${args.ownerDisabledReason || "none"} devFlagReaderAvailable=${args.devFlagReaderAvailable ? 1 : 0} flagEvaluationLocation=${args.flagEvaluationLocation || "unknown"} driverCreationTimeFlagState=${args.driverCreationTimeFlagState || "unknown"} liveTickFlagState=${args.liveTickFlagState || "unknown"} importMetaDev=${args.importMetaDev || "unavailable"} importMetaMode=${args.importMetaMode || "unavailable"} ownerFlagReadFrom=${args.ownerFlagReadFrom || "default"}`;
+}
 function buildAsrVisualControlDecisionDiagnostic(args) {
   return `[ASR_VISUAL_CONTROL_DECISION] mode=${args.mode} controlIntent=${args.controlIntent || "none"} recoveryKind=${args.recoveryKind || "none"} isTrueVisualRecovery=${args.isTrueVisualRecovery ? 1 : 0} isForwardProtection=${args.isForwardProtection ? 1 : 0} semanticCursorLineIdx=${Math.round(args.semanticCursorLineIdx)} visualAnchorLineIdx=${Math.round(args.visualAnchorLineIdx)} anchorKind=${args.anchorKind || "none"} markerY=${Number.isFinite(args.markerY) ? Math.round(args.markerY) : -1} anchorViewportY=${Number.isFinite(args.anchorViewportY) ? Math.round(args.anchorViewportY) : -1} anchorGapPx=${Number.isFinite(args.anchorGapPx) ? Math.round(args.anchorGapPx) : -1} pocketBand=${args.pocketBand || "unknown"} targetScrollTop=${Math.round(args.targetScrollTop)} previousTargetScrollTop=${Math.round(args.previousTargetScrollTop)} backwardAllowed=${args.backwardAllowed ? 1 : 0} recoveryEpisodeActive=${args.recoveryEpisodeActive ? 1 : 0} protectedTargetScrollTop=${Number.isFinite(args.protectedTargetScrollTop) ? Math.round(args.protectedTargetScrollTop) : -1} maxVelocityPxps=${Math.round(args.maxVelocityPxps)} actuatorAppliedDeltaPx=${Math.round(args.actuatorAppliedDeltaPx)} reason=${args.reason || "none"} legacySelectedAuthority=${args.legacySelectedAuthority || "none"} legacySelectedTargetScrollTop=${Math.round(args.legacySelectedTargetScrollTop)} shadowDiffPx=${Math.round(args.shadowDiffPx)} backwardTargetRejected=${args.backwardTargetRejected ? 1 : 0} safeForwardTargetSuppressed=${args.safeForwardTargetSuppressed ? 1 : 0} ownershipActive=${args.ownershipActive ? 1 : 0}`;
 }
@@ -33917,6 +33920,121 @@ var init_asr_diagnostics = __esm({
     "use strict";
     ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION = "2026-05-18a";
     ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION = "2026-05-18a";
+  }
+});
+
+// src/features/asr/asr-chairperson-flags.ts
+function normalizeChairpersonFlagValue(value) {
+  if (value == null) return "";
+  return String(value).trim();
+}
+function isTruthyFlagValue(value) {
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "on" || normalized === "yes" || normalized === "enabled";
+}
+function isFalsyFlagValue(value) {
+  const normalized = value.trim().toLowerCase();
+  return normalized === "0" || normalized === "false" || normalized === "off" || normalized === "no" || normalized === "disabled";
+}
+function collectRuntimeConfig(globalScope) {
+  const direct = globalScope.__TP_RUNTIME_CONFIG__;
+  if (direct && typeof direct === "object") return direct;
+  const forgeConfig = globalScope.__forgeRuntimeConfig;
+  if (forgeConfig && typeof forgeConfig === "object") return forgeConfig;
+  const fallback = globalScope.__forgeConfig;
+  if (fallback && typeof fallback === "object") return fallback;
+  return {
+    asr_visual_chairperson: globalScope.__tpAsrVisualChairperson,
+    asr_visual_chairperson_owner: globalScope.__tpAsrVisualChairpersonOwner,
+    asr_visual_chairperson_shadow: globalScope.__tpAsrVisualChairpersonShadow
+  };
+}
+function readAsrChairpersonImportMetaEnvSnapshot() {
+  try {
+    const env = (0, eval)("import.meta.env");
+    if (env && typeof env === "object") {
+      return {
+        dev: normalizeChairpersonFlagValue(env.DEV) || "unavailable",
+        mode: normalizeChairpersonFlagValue(env.MODE) || "unavailable"
+      };
+    }
+  } catch {
+  }
+  return { dev: "unavailable", mode: "unavailable" };
+}
+function stringifyQueryParams(params) {
+  const pairs = [];
+  params.forEach((value, key) => {
+    pairs.push(`${key}:${value}`);
+  });
+  return JSON.stringify(pairs);
+}
+function summarizeChairpersonFlagState(state8) {
+  return [
+    `shadow=${state8.resolvedShadowEnabled ? 1 : 0}`,
+    `owner=${state8.resolvedOwnerEnabled ? 1 : 0}`,
+    `source=${state8.ownerFlagSource || "default"}`,
+    `disabled=${state8.ownerDisabledReason || "none"}`
+  ].join("|");
+}
+function resolveAsrChairpersonFlagState(args) {
+  const globalScope = args?.globalScope || (typeof window !== "undefined" ? window : null) || {};
+  const rawHref = typeof args?.href === "string" ? args.href : typeof location !== "undefined" ? String(location.href || "") : "";
+  const rawSearch = typeof args?.search === "string" ? args.search : typeof location !== "undefined" ? String(location.search || "") : "";
+  const params = new URLSearchParams(rawSearch || "");
+  const parsedQueryParams = stringifyQueryParams(params);
+  const rawChairpersonValue = normalizeChairpersonFlagValue(params.get("asr_visual_chairperson"));
+  const rawOwnerValue = normalizeChairpersonFlagValue(params.get("asr_visual_chairperson_owner"));
+  const rawShadowValue = normalizeChairpersonFlagValue(params.get("asr_visual_chairperson_shadow"));
+  const localStorageRef = args?.localStorage === void 0 ? typeof window !== "undefined" ? window.localStorage : null : args.localStorage;
+  const localStorageChairpersonValue = normalizeChairpersonFlagValue(localStorageRef?.getItem("asr_visual_chairperson"));
+  const localStorageOwnerValue = normalizeChairpersonFlagValue(localStorageRef?.getItem("asr_visual_chairperson_owner"));
+  const runtimeConfig = collectRuntimeConfig(globalScope);
+  const runtimeChairpersonValue = normalizeChairpersonFlagValue(runtimeConfig.asr_visual_chairperson);
+  const runtimeOwnerValue = normalizeChairpersonFlagValue(runtimeConfig.asr_visual_chairperson_owner);
+  let resolvedOwnerEnabled = false;
+  let ownerFlagSource = "default";
+  let ownerFlagReadFrom = "default";
+  let ownerDisabledReason = "no_owner_flag_present";
+  const evaluateOwnerSource = (source, value, readFrom) => {
+    if (!value) return false;
+    ownerFlagSource = `${source}=${value}`;
+    ownerFlagReadFrom = readFrom;
+    if (isTruthyFlagValue(value)) {
+      resolvedOwnerEnabled = true;
+      ownerDisabledReason = "none";
+      return true;
+    }
+    if (isFalsyFlagValue(value)) {
+      ownerDisabledReason = `${source}_explicit_false`;
+      return true;
+    }
+    ownerDisabledReason = `${source}_unrecognized_value`;
+    return true;
+  };
+  evaluateOwnerSource("url:asr_visual_chairperson", rawChairpersonValue, "url") || evaluateOwnerSource("url:asr_visual_chairperson_owner", rawOwnerValue, "url") || evaluateOwnerSource("localStorage:asr_visual_chairperson", localStorageChairpersonValue, "localStorage") || evaluateOwnerSource("localStorage:asr_visual_chairperson_owner", localStorageOwnerValue, "localStorage") || evaluateOwnerSource("runtime_config:asr_visual_chairperson", runtimeChairpersonValue, "runtime_config") || evaluateOwnerSource("runtime_config:asr_visual_chairperson_owner", runtimeOwnerValue, "runtime_config");
+  let resolvedShadowEnabled = true;
+  if (rawShadowValue) {
+    if (isFalsyFlagValue(rawShadowValue)) resolvedShadowEnabled = false;
+    else if (isTruthyFlagValue(rawShadowValue)) resolvedShadowEnabled = true;
+  }
+  return {
+    rawHref,
+    rawSearch,
+    parsedQueryParams,
+    rawChairpersonValue,
+    rawOwnerValue,
+    resolvedShadowEnabled,
+    resolvedOwnerEnabled,
+    ownerFlagSource,
+    ownerFlagReadFrom,
+    ownerDisabledReason,
+    devFlagReaderAvailable: typeof URLSearchParams === "function" && (!!localStorageRef || Object.keys(globalScope).length >= 0)
+  };
+}
+var init_asr_chairperson_flags = __esm({
+  "src/features/asr/asr-chairperson-flags.ts"() {
+    "use strict";
   }
 });
 
@@ -40731,6 +40849,10 @@ function createAsrScrollDriver(options = {}) {
   let lastAsrVisualChairDecisionTargetScrollTop = Number.NaN;
   let lastAsrVisualChairDecisionSignature = "";
   let lastAsrVisualChairRuntimeProofSignature = "";
+  const driverCreationChairpersonFlagState = resolveAsrChairpersonFlagState();
+  const driverCreationChairpersonFlagStateSummary = summarizeChairpersonFlagState(driverCreationChairpersonFlagState);
+  let firstLiveAsrVisualTickFlagStateSummary = "not_live_tick";
+  let didEmitFirstLiveAsrVisualTickFlagProof = false;
   let activeAsrVisualRecoveryEpisode = null;
   let postSemanticCommitVisualReleasePending = false;
   let postSemanticCommitVisualReleaseUntilMs = 0;
@@ -40753,29 +40875,9 @@ function createAsrScrollDriver(options = {}) {
     lastStallRecoveryOverrideHintAt = 0;
     lastStallRecoveryOverrideHintTarget = -1;
   };
-  const isAsrVisualChairpersonShadowEnabled = () => {
-    try {
-      const params = new URLSearchParams(String(location.search || ""));
-      if (params.get("asr_visual_chairperson_shadow") === "0") return false;
-    } catch {
-    }
-    return true;
-  };
-  const isAsrVisualChairpersonOwnershipEnabled = () => {
-    try {
-      const params = new URLSearchParams(String(location.search || ""));
-      if (params.get("asr_visual_chairperson") === "1" || params.get("asr_visual_chairperson_owner") === "1") {
-        return true;
-      }
-    } catch {
-    }
-    try {
-      if (window.localStorage?.getItem("asr_visual_chairperson") === "1") return true;
-      if (window.localStorage?.getItem("asr_visual_chairperson_owner") === "1") return true;
-    } catch {
-    }
-    return false;
-  };
+  const getAsrChairpersonFlagState = () => resolveAsrChairpersonFlagState();
+  const isAsrVisualChairpersonShadowEnabled = () => getAsrChairpersonFlagState().resolvedShadowEnabled;
+  const isAsrVisualChairpersonOwnershipEnabled = () => getAsrChairpersonFlagState().resolvedOwnerEnabled;
   const isAsrVisualDecisionComputerAvailable = () => typeof evaluateAsrVisualChairperson === "function";
   const isAsrVisualDiagnosticsSinkAvailable = () => {
     try {
@@ -40798,6 +40900,48 @@ function createAsrScrollDriver(options = {}) {
     } catch {
     }
     return "unknown";
+  };
+  const emitAsrChairpersonFlagProof = (flagEvaluationLocation, emittedFrom, liveTickFlagStateOverride) => {
+    const flagState = getAsrChairpersonFlagState();
+    const liveTickFlagState = liveTickFlagStateOverride || firstLiveAsrVisualTickFlagStateSummary || "not_live_tick";
+    const importMetaEnv = readAsrChairpersonImportMetaEnvSnapshot();
+    const signature = [
+      flagEvaluationLocation,
+      emittedFrom,
+      flagState.rawHref,
+      flagState.rawSearch,
+      flagState.ownerFlagSource,
+      flagState.ownerDisabledReason,
+      flagState.resolvedShadowEnabled ? 1 : 0,
+      flagState.resolvedOwnerEnabled ? 1 : 0,
+      driverCreationChairpersonFlagStateSummary,
+      liveTickFlagState,
+      importMetaEnv.dev,
+      importMetaEnv.mode
+    ].join("|");
+    emitDevDiagnostic(
+      "ASR_CHAIRPERSON_FLAG_PROOF",
+      "info",
+      buildAsrChairpersonFlagProofDiagnostic({
+        rawHref: flagState.rawHref,
+        rawSearch: flagState.rawSearch,
+        parsedQueryParams: flagState.parsedQueryParams,
+        rawChairpersonValue: flagState.rawChairpersonValue,
+        rawOwnerValue: flagState.rawOwnerValue,
+        resolvedShadowEnabled: flagState.resolvedShadowEnabled,
+        resolvedOwnerEnabled: flagState.resolvedOwnerEnabled,
+        ownerFlagSource: flagState.ownerFlagSource,
+        ownerDisabledReason: flagState.ownerDisabledReason,
+        devFlagReaderAvailable: flagState.devFlagReaderAvailable,
+        flagEvaluationLocation,
+        driverCreationTimeFlagState: driverCreationChairpersonFlagStateSummary,
+        liveTickFlagState,
+        importMetaDev: importMetaEnv.dev,
+        importMetaMode: importMetaEnv.mode,
+        ownerFlagReadFrom: flagState.ownerFlagReadFrom
+      }),
+      { minMs: 0, signature, requireDev: false }
+    );
   };
   const describeAsrVisualProtection = (reason) => {
     if (reason === "visual_debt") {
@@ -40824,11 +40968,13 @@ function createAsrScrollDriver(options = {}) {
     };
   };
   const emitAsrVisualChairRuntimeProof = (emittedFrom = "createAsrScrollDriver:init") => {
+    const flagState = getAsrChairpersonFlagState();
+    emitAsrChairpersonFlagProof("runtime_proof", emittedFrom);
     const signature = [
       ASR_VISUAL_CHAIRPERSON_VERSION,
       ASR_VISUAL_CHAIRPERSON_CONTRACT_VERSION,
-      isAsrVisualChairpersonShadowEnabled() ? 1 : 0,
-      isAsrVisualChairpersonOwnershipEnabled() ? 1 : 0,
+      flagState.resolvedShadowEnabled ? 1 : 0,
+      flagState.resolvedOwnerEnabled ? 1 : 0,
       getAsrVisualChairBuildStamp(),
       emittedFrom,
       isAsrVisualDecisionComputerAvailable() ? 1 : 0,
@@ -40843,8 +40989,8 @@ function createAsrScrollDriver(options = {}) {
       buildAsrVisualControlRuntimeProofDiagnostic({
         chairpersonRuntime: true,
         contractVersion: `${ASR_VISUAL_CHAIRPERSON_VERSION}|${ASR_VISUAL_CHAIRPERSON_CONTRACT_VERSION}`,
-        shadowMode: isAsrVisualChairpersonShadowEnabled(),
-        liveTargetOwnership: isAsrVisualChairpersonOwnershipEnabled(),
+        shadowMode: flagState.resolvedShadowEnabled,
+        liveTargetOwnership: flagState.resolvedOwnerEnabled,
         moduleLoaded: true,
         buildStamp: getAsrVisualChairBuildStamp(),
         emittedFrom,
@@ -43940,6 +44086,7 @@ function createAsrScrollDriver(options = {}) {
   } catch {
   }
   setActiveAsrLaneProfile(window.__tpAsrRuntimeStatus?.activeAsrLane, "init");
+  emitAsrChairpersonFlagProof("driver_creation", "createAsrScrollDriver:init");
   emitAsrVisualChairRuntimeProof("createAsrScrollDriver:init");
   noteRuntimeSpeechState(window.__tpAsrRuntimeStatus);
   try {
@@ -51505,6 +51652,16 @@ function createAsrScrollDriver(options = {}) {
       const candidateAuthorities = liveTickCandidateAuthorities.size > 0 ? Array.from(liveTickCandidateAuthorities) : [liveTickSelectedAuthority || liveTickBaseAuthority];
       try {
         const authorityTargetScrollTop = legacyChairSelectedTargetScrollTop;
+        const liveTickFlagState = getAsrChairpersonFlagState();
+        firstLiveAsrVisualTickFlagStateSummary = summarizeChairpersonFlagState(liveTickFlagState);
+        if (!didEmitFirstLiveAsrVisualTickFlagProof) {
+          emitAsrChairpersonFlagProof(
+            "first_live_asr_visual_tick",
+            "live_asr_visual_tick:first",
+            firstLiveAsrVisualTickFlagStateSummary
+          );
+          didEmitFirstLiveAsrVisualTickFlagProof = true;
+        }
         emitAsrVisualChairRuntimeProof("live_asr_visual_tick");
         syncActiveAsrVisualRecoveryEpisode(visualFollowNowMs, "tick_sync");
         if (visualChairpersonShadowEnabled || chairDecisionOutput) {
@@ -65714,6 +65871,7 @@ var init_asr_scroll_driver = __esm({
     init_scroll_writer();
     init_scroll_helpers();
     init_asr_diagnostics();
+    init_asr_chairperson_flags();
     init_asr_evidence_stabilizer();
     init_asr_authority_resolver();
     init_asr_alignment_episodes();
@@ -96516,6 +96674,31 @@ function mountAsrTopbarOnce(modeShim) {
 function initAsrFeature() {
   if (asrFeatureInitialized) return;
   asrFeatureInitialized = true;
+  try {
+    const flagState = resolveAsrChairpersonFlagState();
+    const importMetaEnv = readAsrChairpersonImportMetaEnvSnapshot();
+    console.info(
+      buildAsrChairpersonFlagProofDiagnostic({
+        rawHref: flagState.rawHref,
+        rawSearch: flagState.rawSearch,
+        parsedQueryParams: flagState.parsedQueryParams,
+        rawChairpersonValue: flagState.rawChairpersonValue,
+        rawOwnerValue: flagState.rawOwnerValue,
+        resolvedShadowEnabled: flagState.resolvedShadowEnabled,
+        resolvedOwnerEnabled: flagState.resolvedOwnerEnabled,
+        ownerFlagSource: flagState.ownerFlagSource,
+        ownerDisabledReason: flagState.ownerDisabledReason,
+        devFlagReaderAvailable: flagState.devFlagReaderAvailable,
+        flagEvaluationLocation: "app_boot",
+        driverCreationTimeFlagState: "not_created",
+        liveTickFlagState: summarizeChairpersonFlagState(flagState),
+        importMetaDev: importMetaEnv.dev,
+        importMetaMode: importMetaEnv.mode,
+        ownerFlagReadFrom: flagState.ownerFlagReadFrom
+      })
+    );
+  } catch {
+  }
   if (typeof window !== "undefined" && shouldEmitAsrInitProof()) {
     window.__ASR_INIT_IMPL__ = ASR_INIT_IMPL_PROOF_VERSION;
     window.__ASR_DIAGNOSTIC_PROOF__ = {
@@ -96559,6 +96742,7 @@ var init_asr = __esm({
     "use strict";
     init_asr_log_buffer();
     init_asr_diagnostics();
+    init_asr_chairperson_flags();
     init_asr_hotkeys();
     init_settings_asr();
     init_topbar_asr();

@@ -657,8 +657,121 @@ function installAsrLogBuffer(win = window) {
 }
 
 // src/features/asr/asr-diagnostics.ts
+function buildAsrChairpersonFlagProofDiagnostic(args) {
+  return `[ASR_CHAIRPERSON_FLAG_PROOF] rawHref=${args.rawHref || "none"} rawSearch=${args.rawSearch || "none"} parsedQueryParams=${args.parsedQueryParams || "[]"} asrVisualChairpersonRaw=${args.rawChairpersonValue || "none"} asrVisualChairpersonOwnerRaw=${args.rawOwnerValue || "none"} resolvedShadowEnabled=${args.resolvedShadowEnabled ? 1 : 0} resolvedOwnerEnabled=${args.resolvedOwnerEnabled ? 1 : 0} ownerFlagSource=${args.ownerFlagSource || "default"} ownerDisabledReason=${args.ownerDisabledReason || "none"} devFlagReaderAvailable=${args.devFlagReaderAvailable ? 1 : 0} flagEvaluationLocation=${args.flagEvaluationLocation || "unknown"} driverCreationTimeFlagState=${args.driverCreationTimeFlagState || "unknown"} liveTickFlagState=${args.liveTickFlagState || "unknown"} importMetaDev=${args.importMetaDev || "unavailable"} importMetaMode=${args.importMetaMode || "unavailable"} ownerFlagReadFrom=${args.ownerFlagReadFrom || "default"}`;
+}
 var ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION = "2026-05-18a";
 var ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION = "2026-05-18a";
+
+// src/features/asr/asr-chairperson-flags.ts
+function normalizeChairpersonFlagValue(value) {
+  if (value == null) return "";
+  return String(value).trim();
+}
+function isTruthyFlagValue(value) {
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "on" || normalized === "yes" || normalized === "enabled";
+}
+function isFalsyFlagValue(value) {
+  const normalized = value.trim().toLowerCase();
+  return normalized === "0" || normalized === "false" || normalized === "off" || normalized === "no" || normalized === "disabled";
+}
+function collectRuntimeConfig(globalScope) {
+  const direct = globalScope.__TP_RUNTIME_CONFIG__;
+  if (direct && typeof direct === "object") return direct;
+  const forgeConfig = globalScope.__forgeRuntimeConfig;
+  if (forgeConfig && typeof forgeConfig === "object") return forgeConfig;
+  const fallback = globalScope.__forgeConfig;
+  if (fallback && typeof fallback === "object") return fallback;
+  return {
+    asr_visual_chairperson: globalScope.__tpAsrVisualChairperson,
+    asr_visual_chairperson_owner: globalScope.__tpAsrVisualChairpersonOwner,
+    asr_visual_chairperson_shadow: globalScope.__tpAsrVisualChairpersonShadow
+  };
+}
+function readAsrChairpersonImportMetaEnvSnapshot() {
+  try {
+    const env = (0, eval)("import.meta.env");
+    if (env && typeof env === "object") {
+      return {
+        dev: normalizeChairpersonFlagValue(env.DEV) || "unavailable",
+        mode: normalizeChairpersonFlagValue(env.MODE) || "unavailable"
+      };
+    }
+  } catch {
+  }
+  return { dev: "unavailable", mode: "unavailable" };
+}
+function stringifyQueryParams(params) {
+  const pairs = [];
+  params.forEach((value, key) => {
+    pairs.push(`${key}:${value}`);
+  });
+  return JSON.stringify(pairs);
+}
+function summarizeChairpersonFlagState(state2) {
+  return [
+    `shadow=${state2.resolvedShadowEnabled ? 1 : 0}`,
+    `owner=${state2.resolvedOwnerEnabled ? 1 : 0}`,
+    `source=${state2.ownerFlagSource || "default"}`,
+    `disabled=${state2.ownerDisabledReason || "none"}`
+  ].join("|");
+}
+function resolveAsrChairpersonFlagState(args) {
+  const globalScope = args?.globalScope || (typeof window !== "undefined" ? window : null) || {};
+  const rawHref = typeof args?.href === "string" ? args.href : typeof location !== "undefined" ? String(location.href || "") : "";
+  const rawSearch = typeof args?.search === "string" ? args.search : typeof location !== "undefined" ? String(location.search || "") : "";
+  const params = new URLSearchParams(rawSearch || "");
+  const parsedQueryParams = stringifyQueryParams(params);
+  const rawChairpersonValue = normalizeChairpersonFlagValue(params.get("asr_visual_chairperson"));
+  const rawOwnerValue = normalizeChairpersonFlagValue(params.get("asr_visual_chairperson_owner"));
+  const rawShadowValue = normalizeChairpersonFlagValue(params.get("asr_visual_chairperson_shadow"));
+  const localStorageRef = args?.localStorage === void 0 ? typeof window !== "undefined" ? window.localStorage : null : args.localStorage;
+  const localStorageChairpersonValue = normalizeChairpersonFlagValue(localStorageRef?.getItem("asr_visual_chairperson"));
+  const localStorageOwnerValue = normalizeChairpersonFlagValue(localStorageRef?.getItem("asr_visual_chairperson_owner"));
+  const runtimeConfig = collectRuntimeConfig(globalScope);
+  const runtimeChairpersonValue = normalizeChairpersonFlagValue(runtimeConfig.asr_visual_chairperson);
+  const runtimeOwnerValue = normalizeChairpersonFlagValue(runtimeConfig.asr_visual_chairperson_owner);
+  let resolvedOwnerEnabled = false;
+  let ownerFlagSource = "default";
+  let ownerFlagReadFrom = "default";
+  let ownerDisabledReason = "no_owner_flag_present";
+  const evaluateOwnerSource = (source, value, readFrom) => {
+    if (!value) return false;
+    ownerFlagSource = `${source}=${value}`;
+    ownerFlagReadFrom = readFrom;
+    if (isTruthyFlagValue(value)) {
+      resolvedOwnerEnabled = true;
+      ownerDisabledReason = "none";
+      return true;
+    }
+    if (isFalsyFlagValue(value)) {
+      ownerDisabledReason = `${source}_explicit_false`;
+      return true;
+    }
+    ownerDisabledReason = `${source}_unrecognized_value`;
+    return true;
+  };
+  evaluateOwnerSource("url:asr_visual_chairperson", rawChairpersonValue, "url") || evaluateOwnerSource("url:asr_visual_chairperson_owner", rawOwnerValue, "url") || evaluateOwnerSource("localStorage:asr_visual_chairperson", localStorageChairpersonValue, "localStorage") || evaluateOwnerSource("localStorage:asr_visual_chairperson_owner", localStorageOwnerValue, "localStorage") || evaluateOwnerSource("runtime_config:asr_visual_chairperson", runtimeChairpersonValue, "runtime_config") || evaluateOwnerSource("runtime_config:asr_visual_chairperson_owner", runtimeOwnerValue, "runtime_config");
+  let resolvedShadowEnabled = true;
+  if (rawShadowValue) {
+    if (isFalsyFlagValue(rawShadowValue)) resolvedShadowEnabled = false;
+    else if (isTruthyFlagValue(rawShadowValue)) resolvedShadowEnabled = true;
+  }
+  return {
+    rawHref,
+    rawSearch,
+    parsedQueryParams,
+    rawChairpersonValue,
+    rawOwnerValue,
+    resolvedShadowEnabled,
+    resolvedOwnerEnabled,
+    ownerFlagSource,
+    ownerFlagReadFrom,
+    ownerDisabledReason,
+    devFlagReaderAvailable: typeof URLSearchParams === "function" && (!!localStorageRef || Object.keys(globalScope).length >= 0)
+  };
+}
 
 // src/state/appStore.ts
 function getAppStore() {
@@ -3515,6 +3628,31 @@ function mountAsrTopbarOnce(modeShim) {
 function initAsrFeature() {
   if (asrFeatureInitialized) return;
   asrFeatureInitialized = true;
+  try {
+    const flagState = resolveAsrChairpersonFlagState();
+    const importMetaEnv = readAsrChairpersonImportMetaEnvSnapshot();
+    console.info(
+      buildAsrChairpersonFlagProofDiagnostic({
+        rawHref: flagState.rawHref,
+        rawSearch: flagState.rawSearch,
+        parsedQueryParams: flagState.parsedQueryParams,
+        rawChairpersonValue: flagState.rawChairpersonValue,
+        rawOwnerValue: flagState.rawOwnerValue,
+        resolvedShadowEnabled: flagState.resolvedShadowEnabled,
+        resolvedOwnerEnabled: flagState.resolvedOwnerEnabled,
+        ownerFlagSource: flagState.ownerFlagSource,
+        ownerDisabledReason: flagState.ownerDisabledReason,
+        devFlagReaderAvailable: flagState.devFlagReaderAvailable,
+        flagEvaluationLocation: "app_boot",
+        driverCreationTimeFlagState: "not_created",
+        liveTickFlagState: summarizeChairpersonFlagState(flagState),
+        importMetaDev: importMetaEnv.dev,
+        importMetaMode: importMetaEnv.mode,
+        ownerFlagReadFrom: flagState.ownerFlagReadFrom
+      })
+    );
+  } catch {
+  }
   if (typeof window !== "undefined" && shouldEmitAsrInitProof()) {
     window.__ASR_INIT_IMPL__ = ASR_INIT_IMPL_PROOF_VERSION;
     window.__ASR_DIAGNOSTIC_PROOF__ = {
