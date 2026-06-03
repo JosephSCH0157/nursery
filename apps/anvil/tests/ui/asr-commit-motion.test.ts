@@ -484,6 +484,32 @@ describe('ASR live commit motion', () => {
     window.history.replaceState({}, '', '/');
   });
 
+  test('emits ASR_VISUAL_CONTROL_RUNTIME_PROOF at driver initialization with runtime capabilities', () => {
+    window.history.replaceState({}, '', '/?dev=1');
+    (window as any).__TP_BUILD_STAMP = 'asr-scroll-2026-06-03T18:05:00.000Z';
+    (window as any).__ASR_LOG_BUFFER__ = { installed: true };
+    (window as any).__copyAsrLog = () => ({});
+    const driver = createAsrScrollDriver({ runKey: 'chair-proof-run', runGeneration: 3 });
+
+    const lines = consoleInfoSpy.mock.calls.map((c) => String(c[0] || ''));
+    const proofLine = lines.find((line) => line.includes('ASR_VISUAL_CONTROL_RUNTIME_PROOF')) || '';
+    expect(proofLine).toContain('chairpersonRuntime=1');
+    expect(proofLine).toContain('contractVersion=asr-visual-chairperson-v1|asr-live-follow-control-v1');
+    expect(proofLine).toContain('shadowMode=1');
+    expect(proofLine).toContain('liveTargetOwnership=0');
+    expect(proofLine).toContain('moduleLoaded=1');
+    expect(proofLine).toContain('buildStamp=asr-scroll-2026-06-03T18:05:00.000Z');
+    expect(proofLine).toContain('emittedFrom=createAsrScrollDriver:init');
+    expect(proofLine).toContain('computeAsrVisualDecisionAvailable=1');
+    expect(proofLine).toContain('diagnosticsSinkAvailable=1');
+    expect(proofLine).toContain('diagnosticsExportPathAvailable=1');
+
+    driver.dispose();
+    delete (window as any).__ASR_LOG_BUFFER__;
+    delete (window as any).__copyAsrLog;
+    window.history.replaceState({}, '', '/');
+  });
+
   test('does not throw when booting with a detached recognizer runtime snapshot', () => {
     (window as any).__tpAsrRuntimeStatus = {
       recognizerAttached: false,

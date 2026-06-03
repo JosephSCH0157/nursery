@@ -357,6 +357,7 @@ const ASR_POST_SEMANTIC_COMMIT_VISUAL_FOLLOW_WINDOW_MS = 700;
 const ASR_POST_RELEASE_PROTECTED_FOLLOW_WINDOW_MS = 700;
 const ASR_POST_FLOOR_PROTECTED_WINDOW_MS = 700;
 const ASR_VISUAL_CHAIRPERSON_VERSION = 'asr-visual-chairperson-v1';
+const ASR_VISUAL_CHAIRPERSON_CONTRACT_VERSION = 'asr-live-follow-control-v1';
 const ASR_VISUAL_CHAIRPERSON_SETTLE_HOLD_MS = 700;
 const ASR4_POCKET_DRIFT_AUTHORITY_COOLDOWN_MS = 1200;
 const ASR_STALE_LANDING_RELAXATION_COOLDOWN_MS = 900;
@@ -6371,20 +6372,64 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     } catch {}
     return false;
   };
-  const emitAsrVisualChairRuntimeProof = () => {
-    const signature = `${ASR_VISUAL_CHAIRPERSON_VERSION}|${isAsrVisualChairpersonShadowEnabled() ? 1 : 0}|${isAsrVisualChairpersonOwnershipEnabled() ? 1 : 0}`;
+  const isAsrVisualDecisionComputerAvailable = (): boolean => typeof evaluateAsrVisualChairperson === 'function';
+  const isAsrVisualDiagnosticsSinkAvailable = (): boolean => {
+    try {
+      return !!(window as Window & typeof globalThis & { __ASR_LOG_BUFFER__?: unknown }).__ASR_LOG_BUFFER__;
+    } catch {}
+    return false;
+  };
+  const isAsrVisualDiagnosticsExportPathAvailable = (): boolean => {
+    try {
+      const host = window as Window & typeof globalThis & {
+        __copyAsrLog?: unknown;
+        __downloadAsrLog?: unknown;
+        __getAsrLogSummary?: unknown;
+      };
+      return (
+        typeof host.__copyAsrLog === 'function' ||
+        typeof host.__downloadAsrLog === 'function' ||
+        typeof host.__getAsrLogSummary === 'function'
+      );
+    } catch {}
+    return false;
+  };
+  const getAsrVisualChairBuildStamp = (): string => {
+    try {
+      return String((window as Window & typeof globalThis & { __TP_BUILD_STAMP?: unknown }).__TP_BUILD_STAMP || 'unknown');
+    } catch {}
+    return 'unknown';
+  };
+  const emitAsrVisualChairRuntimeProof = (emittedFrom = 'createAsrScrollDriver:init') => {
+    const signature = [
+      ASR_VISUAL_CHAIRPERSON_VERSION,
+      ASR_VISUAL_CHAIRPERSON_CONTRACT_VERSION,
+      isAsrVisualChairpersonShadowEnabled() ? 1 : 0,
+      isAsrVisualChairpersonOwnershipEnabled() ? 1 : 0,
+      getAsrVisualChairBuildStamp(),
+      emittedFrom,
+      isAsrVisualDecisionComputerAvailable() ? 1 : 0,
+      isAsrVisualDiagnosticsSinkAvailable() ? 1 : 0,
+      isAsrVisualDiagnosticsExportPathAvailable() ? 1 : 0,
+    ].join('|');
     if (lastAsrVisualChairRuntimeProofSignature === signature) return;
     lastAsrVisualChairRuntimeProofSignature = signature;
     emitDevDiagnostic(
       'ASR_VISUAL_CONTROL_RUNTIME_PROOF',
       'info',
       buildAsrVisualControlRuntimeProofDiagnostic({
-        version: ASR_VISUAL_CHAIRPERSON_VERSION,
-        shadowEnabled: isAsrVisualChairpersonShadowEnabled(),
-        ownershipEnabled: isAsrVisualChairpersonOwnershipEnabled(),
-        integrationPath: 'asr-scroll-driver',
+        chairpersonRuntime: true,
+        contractVersion: `${ASR_VISUAL_CHAIRPERSON_VERSION}|${ASR_VISUAL_CHAIRPERSON_CONTRACT_VERSION}`,
+        shadowMode: isAsrVisualChairpersonShadowEnabled(),
+        liveTargetOwnership: isAsrVisualChairpersonOwnershipEnabled(),
+        moduleLoaded: true,
+        buildStamp: getAsrVisualChairBuildStamp(),
+        emittedFrom,
+        computeAsrVisualDecisionAvailable: isAsrVisualDecisionComputerAvailable(),
+        diagnosticsSinkAvailable: isAsrVisualDiagnosticsSinkAvailable(),
+        diagnosticsExportPathAvailable: isAsrVisualDiagnosticsExportPathAvailable(),
       }),
-      { minMs: 250, signature },
+      { minMs: 0, signature, requireDev: false },
     );
   };
   const resolveActiveAsrVisualRecoveryEpisode = (nowMs: number): AsrRecoveryEpisode | null => {
@@ -10334,7 +10379,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   try { window.addEventListener('tp:asr:silence', silenceHandler as EventListener); } catch {}
   try { window.addEventListener('tp:vad', vadHandler as EventListener); } catch {}
   setActiveAsrLaneProfile((window as any).__tpAsrRuntimeStatus?.activeAsrLane, 'init');
-  emitAsrVisualChairRuntimeProof();
+  emitAsrVisualChairRuntimeProof('createAsrScrollDriver:init');
   noteRuntimeSpeechState((window as any).__tpAsrRuntimeStatus);
   try { window.addEventListener('tp:asr:runtime-status', runtimeStatusHandler as EventListener); } catch {}
   try { window.addEventListener('tp:asr:audio-chunk', audioChunkHandler as EventListener); } catch {}
@@ -19993,7 +20038,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const visualFollowNowMs = Date.now();
         const authorityTargetScrollTop =
           Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop;
-        emitAsrVisualChairRuntimeProof();
+        emitAsrVisualChairRuntimeProof('live_asr_visual_tick');
         syncActiveAsrVisualRecoveryEpisode(visualFollowNowMs, 'tick_sync');
         if (isAsrVisualChairpersonShadowEnabled()) {
           const previousChairMode = liveAsrVisualChairMode;

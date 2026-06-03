@@ -99,13 +99,19 @@ describe('ASR backend liveness diagnostics builders', () => {
   test('builds visual chairperson diagnostics', () => {
     expect(
       buildAsrVisualControlRuntimeProofDiagnostic({
-        version: 'asr-visual-chairperson-v1',
-        shadowEnabled: true,
-        ownershipEnabled: false,
-        integrationPath: 'asr-scroll-driver',
+        chairpersonRuntime: true,
+        contractVersion: 'asr-visual-chairperson-v1|asr-live-follow-control-v1',
+        shadowMode: true,
+        liveTargetOwnership: false,
+        moduleLoaded: true,
+        buildStamp: 'asr-scroll-2026-06-03T17:55:00.000Z',
+        emittedFrom: 'createAsrScrollDriver:init',
+        computeAsrVisualDecisionAvailable: true,
+        diagnosticsSinkAvailable: true,
+        diagnosticsExportPathAvailable: true,
       }),
     ).toBe(
-      '[ASR_VISUAL_CONTROL_RUNTIME_PROOF] version=asr-visual-chairperson-v1 shadowEnabled=1 ownershipEnabled=0 integrationPath=asr-scroll-driver',
+      '[ASR_VISUAL_CONTROL_RUNTIME_PROOF] chairpersonRuntime=1 contractVersion=asr-visual-chairperson-v1|asr-live-follow-control-v1 shadowMode=1 liveTargetOwnership=0 moduleLoaded=1 buildStamp=asr-scroll-2026-06-03T17:55:00.000Z emittedFrom=createAsrScrollDriver:init computeAsrVisualDecisionAvailable=1 diagnosticsSinkAvailable=1 diagnosticsExportPathAvailable=1',
     );
 
     expect(

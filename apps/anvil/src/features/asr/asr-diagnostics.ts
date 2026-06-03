@@ -651,12 +651,18 @@ export function buildAsrScrollAuthoritySelectedDiagnostic(args: {
 }
 
 export function buildAsrVisualControlRuntimeProofDiagnostic(args: {
-  version: string;
-  shadowEnabled: boolean;
-  ownershipEnabled: boolean;
-  integrationPath: string;
+  chairpersonRuntime: boolean;
+  contractVersion: string;
+  shadowMode: boolean;
+  liveTargetOwnership: boolean;
+  moduleLoaded: boolean;
+  buildStamp: string;
+  emittedFrom: string;
+  computeAsrVisualDecisionAvailable: boolean;
+  diagnosticsSinkAvailable: boolean;
+  diagnosticsExportPathAvailable: boolean;
 }): string {
-  return `[ASR_VISUAL_CONTROL_RUNTIME_PROOF] version=${args.version} shadowEnabled=${args.shadowEnabled ? 1 : 0} ownershipEnabled=${args.ownershipEnabled ? 1 : 0} integrationPath=${args.integrationPath}`;
+  return `[ASR_VISUAL_CONTROL_RUNTIME_PROOF] chairpersonRuntime=${args.chairpersonRuntime ? 1 : 0} contractVersion=${args.contractVersion} shadowMode=${args.shadowMode ? 1 : 0} liveTargetOwnership=${args.liveTargetOwnership ? 1 : 0} moduleLoaded=${args.moduleLoaded ? 1 : 0} buildStamp=${args.buildStamp || 'unknown'} emittedFrom=${args.emittedFrom || 'unknown'} computeAsrVisualDecisionAvailable=${args.computeAsrVisualDecisionAvailable ? 1 : 0} diagnosticsSinkAvailable=${args.diagnosticsSinkAvailable ? 1 : 0} diagnosticsExportPathAvailable=${args.diagnosticsExportPathAvailable ? 1 : 0}`;
 }
 
 export function buildAsrVisualControlDecisionDiagnostic(args: {

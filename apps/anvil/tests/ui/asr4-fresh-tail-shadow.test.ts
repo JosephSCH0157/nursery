@@ -187,6 +187,40 @@ describe('ASR4 fresh-tail shadow wiring', () => {
     driver.dispose();
   });
 
+  test('emits ASR_VISUAL_CONTROL_DECISION during live ASR ticks when shadow mode is enabled', async () => {
+    window.localStorage.setItem('asr_visual_chairperson_shadow', '1');
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 1,
+      matchId: 'chairperson-live-tick',
+      source: 'openai-whisper-bridge',
+      runKey: 'chairperson-live-tick',
+      runGeneration: 6,
+      speechRunningActual: true,
+      match: {
+        bestIdx: 1,
+        bestSim: 0.99,
+        topScores: [{ idx: 1, score: 0.99 }],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(80);
+
+    const lines = [
+      ...consoleInfoSpy.mock.calls.map((call) => String(call[0] || '')),
+      ...consoleWarnSpy.mock.calls.map((call) => String(call[0] || '')),
+    ];
+    const decisionLine = lines.find((line) => line.includes('ASR_VISUAL_CONTROL_DECISION')) || '';
+    expect(decisionLine).toContain('mode=');
+    expect(decisionLine).toContain('legacySelectedAuthority=');
+    expect(decisionLine).toContain('ownershipActive=0');
+
+    driver.dispose();
+    window.localStorage.removeItem('asr_visual_chairperson_shadow');
+  });
+
   test('previous-line rolling tail stays valid after legacy current line has advanced', async () => {
     const driver = createAsrScrollDriver();
     driver.setLastLineIndex(2);
