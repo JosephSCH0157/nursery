@@ -458,7 +458,8 @@ export function initScrollStripHud(opts: ScrollStripHudOptions) {
   function deriveRunningFromMode(detail: ScrollModeDetail): boolean {
     const mode = normalizeMode(detail.mode);
     if (mode === 'asr') {
-      // ASR lane movement is commit-driven and considered active while in live phase.
+      // ASR semantic advancement is commit-driven; bounded ASR-owned visual recovery
+      // may also run in live phase without advancing semantic cursor truth.
       return String(detail.phase || '').toLowerCase() === 'live';
     }
     if (mode === 'hybrid') {
