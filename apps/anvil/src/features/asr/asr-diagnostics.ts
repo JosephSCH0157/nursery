@@ -665,6 +665,27 @@ export function buildAsrVisualControlRuntimeProofDiagnostic(args: {
   return `[ASR_VISUAL_CONTROL_RUNTIME_PROOF] chairpersonRuntime=${args.chairpersonRuntime ? 1 : 0} contractVersion=${args.contractVersion} shadowMode=${args.shadowMode ? 1 : 0} liveTargetOwnership=${args.liveTargetOwnership ? 1 : 0} moduleLoaded=${args.moduleLoaded ? 1 : 0} buildStamp=${args.buildStamp || 'unknown'} emittedFrom=${args.emittedFrom || 'unknown'} computeAsrVisualDecisionAvailable=${args.computeAsrVisualDecisionAvailable ? 1 : 0} diagnosticsSinkAvailable=${args.diagnosticsSinkAvailable ? 1 : 0} diagnosticsExportPathAvailable=${args.diagnosticsExportPathAvailable ? 1 : 0}`;
 }
 
+export function buildAsrChairpersonFlagProofDiagnostic(args: {
+  rawHref: string;
+  rawSearch: string;
+  parsedQueryParams: string;
+  rawChairpersonValue: string;
+  rawOwnerValue: string;
+  resolvedShadowEnabled: boolean;
+  resolvedOwnerEnabled: boolean;
+  ownerFlagSource: string;
+  ownerDisabledReason: string;
+  devFlagReaderAvailable: boolean;
+  flagEvaluationLocation: string;
+  driverCreationTimeFlagState: string;
+  liveTickFlagState: string;
+  importMetaDev: string;
+  importMetaMode: string;
+  ownerFlagReadFrom: string;
+}): string {
+  return `[ASR_CHAIRPERSON_FLAG_PROOF] rawHref=${args.rawHref || 'none'} rawSearch=${args.rawSearch || 'none'} parsedQueryParams=${args.parsedQueryParams || '[]'} asrVisualChairpersonRaw=${args.rawChairpersonValue || 'none'} asrVisualChairpersonOwnerRaw=${args.rawOwnerValue || 'none'} resolvedShadowEnabled=${args.resolvedShadowEnabled ? 1 : 0} resolvedOwnerEnabled=${args.resolvedOwnerEnabled ? 1 : 0} ownerFlagSource=${args.ownerFlagSource || 'default'} ownerDisabledReason=${args.ownerDisabledReason || 'none'} devFlagReaderAvailable=${args.devFlagReaderAvailable ? 1 : 0} flagEvaluationLocation=${args.flagEvaluationLocation || 'unknown'} driverCreationTimeFlagState=${args.driverCreationTimeFlagState || 'unknown'} liveTickFlagState=${args.liveTickFlagState || 'unknown'} importMetaDev=${args.importMetaDev || 'unavailable'} importMetaMode=${args.importMetaMode || 'unavailable'} ownerFlagReadFrom=${args.ownerFlagReadFrom || 'default'}`;
+}
+
 export function buildAsrVisualControlDecisionDiagnostic(args: {
   mode: string;
   controlIntent: string;

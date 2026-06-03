@@ -224,7 +224,7 @@ describe('ASR4 fresh-tail shadow wiring', () => {
   });
 
   test('emits ASR_VISUAL_CONTROL_DECISION with ownershipActive=1 only when chairperson ownership is enabled', async () => {
-    window.localStorage.setItem('asr_visual_chairperson_owner', '1');
+    window.history.replaceState({}, '', '/?dev=1&asr_visual_chairperson_owner=true');
     const driver = createAsrScrollDriver();
     driver.setLastLineIndex(1);
 
@@ -250,11 +250,15 @@ describe('ASR4 fresh-tail shadow wiring', () => {
     ];
     const proofLine = lines.find((line) => line.includes('ASR_VISUAL_CONTROL_RUNTIME_PROOF')) || '';
     const decisionLine = lines.find((line) => line.includes('ASR_VISUAL_CONTROL_DECISION')) || '';
+    const flagProofLine = lines.find((line) => line.includes('ASR_CHAIRPERSON_FLAG_PROOF') && line.includes('flagEvaluationLocation=first_live_asr_visual_tick')) || '';
     expect(proofLine).toContain('liveTargetOwnership=1');
     expect(decisionLine).toContain('ownershipActive=1');
+    expect(flagProofLine).toContain('asrVisualChairpersonOwnerRaw=true');
+    expect(flagProofLine).toContain('resolvedOwnerEnabled=1');
+    expect(flagProofLine).toContain('ownerFlagReadFrom=url');
 
     driver.dispose();
-    window.localStorage.removeItem('asr_visual_chairperson_owner');
+    window.history.replaceState({}, '', '/');
   });
 
   test('previous-line rolling tail stays valid after legacy current line has advanced', async () => {

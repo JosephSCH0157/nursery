@@ -6,7 +6,13 @@ import { installAsrLogBuffer } from '../features/asr/asr-log-buffer';
 import {
   ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION,
   ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION,
+  buildAsrChairpersonFlagProofDiagnostic,
 } from '../features/asr/asr-diagnostics';
+import {
+  readAsrChairpersonImportMetaEnvSnapshot,
+  resolveAsrChairpersonFlagState,
+  summarizeChairpersonFlagState,
+} from '../features/asr/asr-chairperson-flags';
 import { installAsrHotkeys } from '../hotkeys/asr-hotkeys';
 import { ensureAsrSettingsWired } from '../ui/settings-asr';
 import { AsrTopbar } from '../ui/topbar-asr';
@@ -99,6 +105,30 @@ function mountAsrTopbarOnce(modeShim: LegacyAsrModeShim): void {
 export function initAsrFeature() {
   if (asrFeatureInitialized) return;
   asrFeatureInitialized = true;
+  try {
+    const flagState = resolveAsrChairpersonFlagState();
+    const importMetaEnv = readAsrChairpersonImportMetaEnvSnapshot();
+    console.info(
+      buildAsrChairpersonFlagProofDiagnostic({
+        rawHref: flagState.rawHref,
+        rawSearch: flagState.rawSearch,
+        parsedQueryParams: flagState.parsedQueryParams,
+        rawChairpersonValue: flagState.rawChairpersonValue,
+        rawOwnerValue: flagState.rawOwnerValue,
+        resolvedShadowEnabled: flagState.resolvedShadowEnabled,
+        resolvedOwnerEnabled: flagState.resolvedOwnerEnabled,
+        ownerFlagSource: flagState.ownerFlagSource,
+        ownerDisabledReason: flagState.ownerDisabledReason,
+        devFlagReaderAvailable: flagState.devFlagReaderAvailable,
+        flagEvaluationLocation: 'app_boot',
+        driverCreationTimeFlagState: 'not_created',
+        liveTickFlagState: summarizeChairpersonFlagState(flagState),
+        importMetaDev: importMetaEnv.dev,
+        importMetaMode: importMetaEnv.mode,
+        ownerFlagReadFrom: flagState.ownerFlagReadFrom,
+      }),
+    );
+  } catch {}
   if (typeof window !== 'undefined' && shouldEmitAsrInitProof()) {
     (window as any).__ASR_INIT_IMPL__ = ASR_INIT_IMPL_PROOF_VERSION;
     (window as any).__ASR_DIAGNOSTIC_PROOF__ = {

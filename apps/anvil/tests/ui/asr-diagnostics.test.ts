@@ -64,6 +64,7 @@ import {
   buildAsrVisualRecoveryBoostPathProofDiagnostic,
   buildAsrScrollAuthorityConflictDiagnostic,
   buildAsrScrollAuthoritySelectedDiagnostic,
+  buildAsrChairpersonFlagProofDiagnostic,
   buildAsrVisualControlDecisionDiagnostic,
   buildAsrVisualControlRuntimeProofDiagnostic,
   buildAsrRecoveryEpisodeStartedDiagnostic,
@@ -112,6 +113,29 @@ describe('ASR backend liveness diagnostics builders', () => {
       }),
     ).toBe(
       '[ASR_VISUAL_CONTROL_RUNTIME_PROOF] chairpersonRuntime=1 contractVersion=asr-visual-chairperson-v1|asr-live-follow-control-v1 shadowMode=1 liveTargetOwnership=0 moduleLoaded=1 buildStamp=asr-scroll-2026-06-03T17:55:00.000Z emittedFrom=createAsrScrollDriver:init computeAsrVisualDecisionAvailable=1 diagnosticsSinkAvailable=1 diagnosticsExportPathAvailable=1',
+    );
+
+    expect(
+      buildAsrChairpersonFlagProofDiagnostic({
+        rawHref: 'http://localhost:5173/?dev=1&asr_visual_chairperson=true',
+        rawSearch: '?dev=1&asr_visual_chairperson=true',
+        parsedQueryParams: '["dev:1","asr_visual_chairperson:true"]',
+        rawChairpersonValue: 'true',
+        rawOwnerValue: '',
+        resolvedShadowEnabled: true,
+        resolvedOwnerEnabled: true,
+        ownerFlagSource: 'url:asr_visual_chairperson=true',
+        ownerDisabledReason: 'none',
+        devFlagReaderAvailable: true,
+        flagEvaluationLocation: 'app_boot',
+        driverCreationTimeFlagState: 'not_created',
+        liveTickFlagState: 'shadow=1|owner=1|source=url:asr_visual_chairperson=true|disabled=none',
+        importMetaDev: 'true',
+        importMetaMode: 'development',
+        ownerFlagReadFrom: 'url',
+      }),
+    ).toBe(
+      '[ASR_CHAIRPERSON_FLAG_PROOF] rawHref=http://localhost:5173/?dev=1&asr_visual_chairperson=true rawSearch=?dev=1&asr_visual_chairperson=true parsedQueryParams=["dev:1","asr_visual_chairperson:true"] asrVisualChairpersonRaw=true asrVisualChairpersonOwnerRaw=none resolvedShadowEnabled=1 resolvedOwnerEnabled=1 ownerFlagSource=url:asr_visual_chairperson=true ownerDisabledReason=none devFlagReaderAvailable=1 flagEvaluationLocation=app_boot driverCreationTimeFlagState=not_created liveTickFlagState=shadow=1|owner=1|source=url:asr_visual_chairperson=true|disabled=none importMetaDev=true importMetaMode=development ownerFlagReadFrom=url',
     );
 
     expect(

@@ -528,6 +528,24 @@ describe('ASR live commit motion', () => {
     window.history.replaceState({}, '', '/');
   });
 
+  test('resolves chairperson ownership from query-string true values and emits flag proof', () => {
+    window.history.replaceState({}, '', '/?dev=1&asr_visual_chairperson=true');
+    (window as any).__TP_BUILD_STAMP = 'asr-scroll-2026-06-03T19:50:00.000Z';
+    const driver = createAsrScrollDriver({ runKey: 'chair-owner-query-run', runGeneration: 5 });
+
+    const lines = consoleInfoSpy.mock.calls.map((c) => String(c[0] || ''));
+    const proofLine = lines.find((line) => line.includes('ASR_VISUAL_CONTROL_RUNTIME_PROOF')) || '';
+    const flagProofLine = lines.find((line) => line.includes('ASR_CHAIRPERSON_FLAG_PROOF') && line.includes('flagEvaluationLocation=driver_creation')) || '';
+    expect(proofLine).toContain('liveTargetOwnership=1');
+    expect(flagProofLine).toContain('asrVisualChairpersonRaw=true');
+    expect(flagProofLine).toContain('resolvedOwnerEnabled=1');
+    expect(flagProofLine).toContain('ownerFlagReadFrom=url');
+    expect(flagProofLine).toContain('ownerFlagSource=url:asr_visual_chairperson=true');
+
+    driver.dispose();
+    window.history.replaceState({}, '', '/');
+  });
+
   test('does not throw when booting with a detached recognizer runtime snapshot', () => {
     (window as any).__tpAsrRuntimeStatus = {
       recognizerAttached: false,
