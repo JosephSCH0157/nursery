@@ -50935,12 +50935,103 @@ function createAsrScrollDriver(options = {}) {
       clampReason = clampReason === "none" ? "target_debt_cap" : clampReason;
     }
     if (accelLimited && clampReason === "none") clampReason = "accel_slew_limit";
+    const visualChairpersonShadowEnabled = isAsrVisualChairpersonShadowEnabled();
+    const visualChairpersonOwnershipEnabled = isAsrVisualChairpersonOwnershipEnabled();
+    const legacyChairSelectedAuthority = String(liveTickSelectedAuthority || liveTickBaseAuthority || "none");
+    const legacyChairSelectedReason = String(liveTickAuthorityReason || "unknown");
+    const legacyChairSelectedTargetScrollTop = Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop;
+    const visualFollowNowMs = Date.now();
+    let previousChairTargetScrollTop = Number.isFinite(lastAsrVisualChairDecisionTargetScrollTop) ? Number(lastAsrVisualChairDecisionTargetScrollTop) : beforeScrollTop;
+    let chairDecisionOutput = null;
+    if (visualChairpersonOwnershipEnabled) {
+      const semanticSnapshot = {
+        lineIdx: Math.max(
+          0,
+          Math.floor(
+            Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx) ? Number(liveAsrCommitteeAcceptedCommitTargetIdx) : Number(lastLineIndex)
+          )
+        ),
+        confidence: 1,
+        source: "validated_commit",
+        updatedAt: visualFollowNowMs
+      };
+      const chairMarkerY = Number.isFinite(lastAsrMarkerY) ? Number(lastAsrMarkerY) : Number(scroller.clientHeight || 0) * 0.4;
+      const chairPreferredBandTop = chairMarkerY + ASR_READER_POCKET_PREFERRED_TOP_LINES * safeResolverLineHeightPx;
+      const chairPreferredBandBottom = chairMarkerY + ASR_READER_POCKET_PREFERRED_BOTTOM_LINES * safeResolverLineHeightPx;
+      const chairToleratedBandBottom = chairMarkerY + ASR_READER_POCKET_TOLERATED_BOTTOM_LINES * safeResolverLineHeightPx;
+      const maintenanceActiveLineY = Number.isFinite(lastAsrNextSpeakableLineY) ? Number(lastAsrNextSpeakableLineY) : Number.NaN;
+      const currentLineViewportY = Number.isFinite(lastAsrCurrentLineViewportY) ? Number(lastAsrCurrentLineViewportY) : Number.isFinite(maintenanceActiveLineY) ? Number(maintenanceActiveLineY) : Number.NaN;
+      const matchedLineViewportY = Number.isFinite(lastAsrMatchedLineViewportY) ? Number(lastAsrMatchedLineViewportY) : Number.NaN;
+      const matchedAnchorLineIdx = Number.isFinite(lastAcceptedMatchedLineIdx) ? Math.max(0, Math.floor(Number(lastAcceptedMatchedLineIdx))) : -1;
+      const matchedAnchorCompatible = matchedAnchorLineIdx >= semanticSnapshot.lineIdx && matchedAnchorLineIdx <= semanticSnapshot.lineIdx + 1;
+      const effectiveVisualAnchorLineIdx = Number.isFinite(lastAsrVisualAnchorLineIdx) ? Math.max(0, Math.floor(Number(lastAsrVisualAnchorLineIdx))) : semanticSnapshot.lineIdx;
+      const effectiveAnchorKind = String(lastAsrVisualAnchorSource || "current_line");
+      const visualAnchor = {
+        anchorLineIdx: effectiveVisualAnchorLineIdx,
+        anchorKind: effectiveAnchorKind,
+        anchorViewportY: Number.isFinite(lastAsrActiveLineViewportY) ? Number(lastAsrActiveLineViewportY) : Number.isFinite(currentLineViewportY) ? currentLineViewportY : matchedLineViewportY,
+        anchorCompatibleWithSemantic: !(effectiveAnchorKind.includes("accepted_match") || effectiveAnchorKind.includes("confirmed_spoken")) || matchedAnchorCompatible,
+        matchedLineViewportY
+      };
+      const lastFinalAgeMs = lastFinalTranscriptAt > 0 ? Math.max(0, visualFollowNowMs - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
+      const finalFresh = lastFinalTranscriptAt > 0 && lastFinalAgeMs <= ASR_VISUAL_DEADLOCK_FINAL_FRESH_MAX_AGE_MS;
+      const recentFinalDuringSilence = asrSilenceActive && finalFresh;
+      const lastSpeechAgeMs = Math.min(
+        lastRuntimeSpeechAt > 0 ? Math.max(0, visualFollowNowMs - lastRuntimeSpeechAt) : Number.POSITIVE_INFINITY,
+        lastVadSpeechAt > 0 ? Math.max(0, visualFollowNowMs - lastVadSpeechAt) : Number.POSITIVE_INFINITY
+      );
+      const recentSpeechDuringSilence = asrSilenceActive && (asrRuntimeSpeechRunningActual || hasRecentActualSpeech(visualFollowNowMs) || hasRecentVadSpeechNow(visualFollowNowMs) || lastSpeechAgeMs <= ASR_VISUAL_DEADLOCK_SPEECH_FRESH_MAX_AGE_MS);
+      const trueVisualSilence = asrSilenceActive && !recentFinalDuringSilence && !recentSpeechDuringSilence;
+      const chairBridgeContextActive = !!pendingSpeakableBridgeState || hasBridgeLifecycleContextText(
+        legacyChairSelectedAuthority,
+        legacyChairSelectedReason,
+        lastAsrVisualAnchorSource,
+        lastAsrGuardReason,
+        lastAsrHudGuardText
+      );
+      chairDecisionOutput = evaluateAsrVisualChairperson({
+        nowMs: visualFollowNowMs,
+        currentScrollTop: beforeScrollTop,
+        maxScrollTop,
+        lineHeightPx: safeResolverLineHeightPx,
+        markerY: chairMarkerY,
+        preferredBandTop: chairPreferredBandTop,
+        preferredBandBottom: chairPreferredBandBottom,
+        toleratedBandBottom: chairToleratedBandBottom,
+        semanticSnapshot,
+        visualAnchor,
+        currentLineIdx: lastLineIndex,
+        committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+        selectedTargetScrollTop: legacyChairSelectedTargetScrollTop,
+        selectedAuthority: legacyChairSelectedAuthority,
+        selectedReason: legacyChairSelectedReason,
+        speechFresh: asrRuntimeSpeechRunningActual || hasRecentActualSpeech(visualFollowNowMs) || hasRecentVadSpeechNow(visualFollowNowMs) || lastFinalTranscriptAt > 0 && visualFollowNowMs - lastFinalTranscriptAt <= 1200,
+        finalFresh,
+        sessionLive: isSessionLivePhase() && isSessionAsrArmed(),
+        asrMode: getScrollMode3() === "asr",
+        noMatchOrOffscript: actuatorNoMatchOrOffscript,
+        hardContradiction: hardContradictionActive,
+        bridgeContextActive: chairBridgeContextActive,
+        trueVisualSilence,
+        previousMode: liveAsrVisualChairMode,
+        previousTargetScrollTop: previousChairTargetScrollTop,
+        settleUntilMs: liveAsrVisualChairSettleUntilMs,
+        activeRecoveryEpisode: resolveActiveAsrVisualRecoveryEpisode(visualFollowNowMs)
+      });
+      if (visualChairpersonOwnershipEnabled) {
+        pursuitTargetTop = chairDecisionOutput.decision.targetScrollTop;
+        liveAsrActuatorReason = chairDecisionOutput.decision.reason;
+        lastAsrSelectedAuthority = chairDecisionOutput.decision.authority;
+      }
+    }
     let afterScrollTop = beforeScrollTop;
     let appliedDeltaPx = 0;
     const committedLineIdxForActuator = Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx) ? Math.max(0, Math.floor(Number(liveAsrCommitteeAcceptedCommitTargetIdx))) : lastLineIndex;
     const nextSpeakableLineIdxForActuator = Number.isFinite(liveAsrVisualPursuitLineIdx) ? Math.max(0, Math.floor(Number(liveAsrVisualPursuitLineIdx))) : lastLineIndex;
     const allowedTargetIdxForActuator = Number.isFinite(resolvedCommand.allowedTargetIdx) ? Math.floor(Number(resolvedCommand.allowedTargetIdx)) : -1;
     const targetScrollTopForActuator = Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : Number.NaN;
+    const actuatorAuthorityForTick = visualChairpersonOwnershipEnabled && chairDecisionOutput ? String(chairDecisionOutput.decision.authority) : String(liveTickSelectedAuthority || "asr-tick");
+    const actuatorAuthorityReasonForTick = visualChairpersonOwnershipEnabled && chairDecisionOutput ? String(chairDecisionOutput.decision.reason) : String(liveTickAuthorityReason || "unknown");
     const canAttemptVisualRecenterPullback = Number.isFinite(targetScrollTopForActuator) && beforeScrollTop > targetScrollTopForActuator + getVisualTargetTolerancePx(safeResolverLineHeightPx);
     if (move > 0 || canAttemptVisualRecenterPullback) {
       const actuatorStep = applyVisualActuatorTargetStep({
@@ -50953,8 +51044,8 @@ function createAsrScrollDriver(options = {}) {
         currentLineIdx: lastLineIndex,
         committedLineIdx: committedLineIdxForActuator,
         nextSpeakableLineIdx: nextSpeakableLineIdxForActuator,
-        authority: String(liveTickSelectedAuthority || "asr-tick"),
-        authorityReason: String(liveTickAuthorityReason || "unknown"),
+        authority: actuatorAuthorityForTick,
+        authorityReason: actuatorAuthorityReasonForTick,
         allowedTargetIdx: allowedTargetIdxForActuator,
         terminalClampActive: atScrollLimit,
         noMatchOrOffscript: actuatorNoMatchOrOffscript,
@@ -51413,14 +51504,12 @@ function createAsrScrollDriver(options = {}) {
       }
       const candidateAuthorities = liveTickCandidateAuthorities.size > 0 ? Array.from(liveTickCandidateAuthorities) : [liveTickSelectedAuthority || liveTickBaseAuthority];
       try {
-        const visualFollowNowMs = Date.now();
-        const authorityTargetScrollTop = Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop;
+        const authorityTargetScrollTop = legacyChairSelectedTargetScrollTop;
         emitAsrVisualChairRuntimeProof("live_asr_visual_tick");
         syncActiveAsrVisualRecoveryEpisode(visualFollowNowMs, "tick_sync");
-        if (isAsrVisualChairpersonShadowEnabled()) {
+        if (visualChairpersonShadowEnabled || chairDecisionOutput) {
           const previousChairMode = liveAsrVisualChairMode;
-          const previousChairTargetScrollTop = Number.isFinite(lastAsrVisualChairDecisionTargetScrollTop) ? Number(lastAsrVisualChairDecisionTargetScrollTop) : beforeScrollTop;
-          const semanticSnapshot = {
+          let semanticSnapshot = {
             lineIdx: Math.max(
               0,
               Math.floor(
@@ -51441,59 +51530,62 @@ function createAsrScrollDriver(options = {}) {
           const matchedAnchorCompatible = matchedAnchorLineIdx >= semanticSnapshot.lineIdx && matchedAnchorLineIdx <= semanticSnapshot.lineIdx + 1;
           const effectiveVisualAnchorLineIdx = Number.isFinite(lastAsrVisualAnchorLineIdx) ? Math.max(0, Math.floor(Number(lastAsrVisualAnchorLineIdx))) : semanticSnapshot.lineIdx;
           const effectiveAnchorKind = String(lastAsrVisualAnchorSource || "current_line");
-          const visualAnchor = {
+          let visualAnchor = {
             anchorLineIdx: effectiveVisualAnchorLineIdx,
             anchorKind: effectiveAnchorKind,
             anchorViewportY: Number.isFinite(lastAsrActiveLineViewportY) ? Number(lastAsrActiveLineViewportY) : Number.isFinite(currentLineViewportY) ? currentLineViewportY : matchedLineViewportY,
             anchorCompatibleWithSemantic: !(effectiveAnchorKind.includes("accepted_match") || effectiveAnchorKind.includes("confirmed_spoken")) || matchedAnchorCompatible,
             matchedLineViewportY
           };
-          const lastFinalAgeMs = lastFinalTranscriptAt > 0 ? Math.max(0, visualFollowNowMs - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
-          const finalFresh = lastFinalTranscriptAt > 0 && lastFinalAgeMs <= ASR_VISUAL_DEADLOCK_FINAL_FRESH_MAX_AGE_MS;
-          const recentFinalDuringSilence = asrSilenceActive && finalFresh;
-          const lastSpeechAgeMs = Math.min(
-            lastRuntimeSpeechAt > 0 ? Math.max(0, visualFollowNowMs - lastRuntimeSpeechAt) : Number.POSITIVE_INFINITY,
-            lastVadSpeechAt > 0 ? Math.max(0, visualFollowNowMs - lastVadSpeechAt) : Number.POSITIVE_INFINITY
-          );
-          const recentSpeechDuringSilence = asrSilenceActive && (asrRuntimeSpeechRunningActual || hasRecentActualSpeech(visualFollowNowMs) || hasRecentVadSpeechNow(visualFollowNowMs) || lastSpeechAgeMs <= ASR_VISUAL_DEADLOCK_SPEECH_FRESH_MAX_AGE_MS);
-          const trueVisualSilence = asrSilenceActive && !recentFinalDuringSilence && !recentSpeechDuringSilence;
-          const chairBridgeContextActive = !!pendingSpeakableBridgeState || hasBridgeLifecycleContextText(
-            liveTickSelectedAuthority,
-            liveTickAuthorityReason,
-            lastAsrVisualAnchorSource,
-            lastAsrGuardReason,
-            lastAsrHudGuardText
-          );
-          const chairDecision = evaluateAsrVisualChairperson({
-            nowMs: visualFollowNowMs,
-            currentScrollTop: beforeScrollTop,
-            maxScrollTop,
-            lineHeightPx: safeResolverLineHeightPx,
-            markerY: chairMarkerY,
-            preferredBandTop: chairPreferredBandTop,
-            preferredBandBottom: chairPreferredBandBottom,
-            toleratedBandBottom: chairToleratedBandBottom,
-            semanticSnapshot,
-            visualAnchor,
-            currentLineIdx: lastLineIndex,
-            committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
-            selectedTargetScrollTop: authorityTargetScrollTop,
-            selectedAuthority: liveTickSelectedAuthority,
-            selectedReason: liveTickAuthorityReason,
-            speechFresh: asrRuntimeSpeechRunningActual || hasRecentActualSpeech(visualFollowNowMs) || hasRecentVadSpeechNow(visualFollowNowMs) || lastFinalTranscriptAt > 0 && visualFollowNowMs - lastFinalTranscriptAt <= 1200,
-            finalFresh,
-            sessionLive: isSessionLivePhase() && isSessionAsrArmed(),
-            asrMode: getScrollMode3() === "asr",
-            noMatchOrOffscript: actuatorNoMatchOrOffscript,
-            hardContradiction: hardContradictionActive,
-            bridgeContextActive: chairBridgeContextActive,
-            trueVisualSilence,
-            previousMode: previousChairMode,
-            previousTargetScrollTop: previousChairTargetScrollTop,
-            settleUntilMs: liveAsrVisualChairSettleUntilMs,
-            activeRecoveryEpisode: activeAsrVisualRecoveryEpisode
-          });
-          if ((previousChairMode === "recover" || previousChairMode === "settle") && chairDecision.decision.mode === "track") {
+          let chairDecision = chairDecisionOutput;
+          if (!chairDecision) {
+            const lastFinalAgeMs = lastFinalTranscriptAt > 0 ? Math.max(0, visualFollowNowMs - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
+            const finalFresh = lastFinalTranscriptAt > 0 && lastFinalAgeMs <= ASR_VISUAL_DEADLOCK_FINAL_FRESH_MAX_AGE_MS;
+            const recentFinalDuringSilence = asrSilenceActive && finalFresh;
+            const lastSpeechAgeMs = Math.min(
+              lastRuntimeSpeechAt > 0 ? Math.max(0, visualFollowNowMs - lastRuntimeSpeechAt) : Number.POSITIVE_INFINITY,
+              lastVadSpeechAt > 0 ? Math.max(0, visualFollowNowMs - lastVadSpeechAt) : Number.POSITIVE_INFINITY
+            );
+            const recentSpeechDuringSilence = asrSilenceActive && (asrRuntimeSpeechRunningActual || hasRecentActualSpeech(visualFollowNowMs) || hasRecentVadSpeechNow(visualFollowNowMs) || lastSpeechAgeMs <= ASR_VISUAL_DEADLOCK_SPEECH_FRESH_MAX_AGE_MS);
+            const trueVisualSilence = asrSilenceActive && !recentFinalDuringSilence && !recentSpeechDuringSilence;
+            const chairBridgeContextActive = !!pendingSpeakableBridgeState || hasBridgeLifecycleContextText(
+              legacyChairSelectedAuthority,
+              legacyChairSelectedReason,
+              lastAsrVisualAnchorSource,
+              lastAsrGuardReason,
+              lastAsrHudGuardText
+            );
+            chairDecision = evaluateAsrVisualChairperson({
+              nowMs: visualFollowNowMs,
+              currentScrollTop: beforeScrollTop,
+              maxScrollTop,
+              lineHeightPx: safeResolverLineHeightPx,
+              markerY: chairMarkerY,
+              preferredBandTop: chairPreferredBandTop,
+              preferredBandBottom: chairPreferredBandBottom,
+              toleratedBandBottom: chairToleratedBandBottom,
+              semanticSnapshot,
+              visualAnchor,
+              currentLineIdx: lastLineIndex,
+              committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+              selectedTargetScrollTop: authorityTargetScrollTop,
+              selectedAuthority: legacyChairSelectedAuthority,
+              selectedReason: legacyChairSelectedReason,
+              speechFresh: asrRuntimeSpeechRunningActual || hasRecentActualSpeech(visualFollowNowMs) || hasRecentVadSpeechNow(visualFollowNowMs) || lastFinalTranscriptAt > 0 && visualFollowNowMs - lastFinalTranscriptAt <= 1200,
+              finalFresh,
+              sessionLive: isSessionLivePhase() && isSessionAsrArmed(),
+              asrMode: getScrollMode3() === "asr",
+              noMatchOrOffscript: actuatorNoMatchOrOffscript,
+              hardContradiction: hardContradictionActive,
+              bridgeContextActive: chairBridgeContextActive,
+              trueVisualSilence,
+              previousMode: previousChairMode,
+              previousTargetScrollTop: previousChairTargetScrollTop,
+              settleUntilMs: liveAsrVisualChairSettleUntilMs,
+              activeRecoveryEpisode: activeAsrVisualRecoveryEpisode
+            });
+          }
+          if (chairDecision && ((previousChairMode === "recover" || previousChairMode === "settle") && chairDecision.decision.mode === "track")) {
             emitDevDiagnostic(
               "ASR_SETTLE_COMPLETE",
               "info",
@@ -51510,102 +51602,104 @@ function createAsrScrollDriver(options = {}) {
               }
             );
           }
-          if (chairDecision.decision.mode === "settle" && previousChairMode !== "settle") {
+          if (chairDecision?.decision.mode === "settle" && previousChairMode !== "settle") {
             liveAsrVisualChairSettleUntilMs = visualFollowNowMs + ASR_VISUAL_CHAIRPERSON_SETTLE_HOLD_MS;
-          } else if (chairDecision.decision.mode !== "settle" && liveAsrVisualChairSettleUntilMs <= visualFollowNowMs) {
+          } else if (chairDecision?.decision.mode !== "settle" && liveAsrVisualChairSettleUntilMs <= visualFollowNowMs) {
             liveAsrVisualChairSettleUntilMs = 0;
           }
-          liveAsrVisualChairMode = chairDecision.decision.mode;
-          lastAsrVisualChairDecisionTargetScrollTop = chairDecision.decision.targetScrollTop;
-          const chairDecisionSignature = [
-            chairDecision.decision.mode,
-            semanticSnapshot.lineIdx,
-            visualAnchor.anchorLineIdx,
-            chairDecision.pocketBand,
-            Math.round(chairDecision.decision.targetScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
-            Math.round(beforeScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
-            chairDecision.decision.backwardAllowed ? 1 : 0,
-            chairDecision.backwardTargetRejected ? 1 : 0,
-            chairDecision.safeForwardTargetSuppressed ? 1 : 0,
-            isAsrVisualChairpersonOwnershipEnabled() ? 1 : 0
-          ].join("|");
-          if (lastAsrVisualChairDecisionSignature !== chairDecisionSignature) {
-            emitCoalescedDevDiagnostic(
-              "ASR_VISUAL_CONTROL_DECISION",
-              chairDecision.decision.mode === "recover" ? "warn" : "info",
-              buildAsrVisualControlDecisionDiagnostic({
-                mode: chairDecision.decision.mode,
-                controlIntent: chairDecision.decision.controlIntent,
-                recoveryKind: chairDecision.decision.recoveryKind,
-                isTrueVisualRecovery: chairDecision.decision.isTrueVisualRecovery,
-                isForwardProtection: chairDecision.decision.isForwardProtection,
-                semanticCursorLineIdx: semanticSnapshot.lineIdx,
-                visualAnchorLineIdx: visualAnchor.anchorLineIdx,
-                anchorKind: visualAnchor.anchorKind,
-                markerY: chairMarkerY,
-                anchorViewportY: visualAnchor.anchorViewportY,
-                anchorGapPx: chairDecision.anchorGapPx,
-                pocketBand: chairDecision.pocketBand,
-                targetScrollTop: chairDecision.decision.targetScrollTop,
-                previousTargetScrollTop: previousChairTargetScrollTop,
-                backwardAllowed: chairDecision.decision.backwardAllowed,
-                recoveryEpisodeActive: !!activeAsrVisualRecoveryEpisode,
-                protectedTargetScrollTop: activeAsrVisualRecoveryEpisode?.protectedTargetScrollTop ?? Number.NaN,
-                maxVelocityPxps: chairDecision.decision.maxVelocityPxps,
-                actuatorAppliedDeltaPx: appliedDeltaPx,
-                reason: chairDecision.decision.reason,
-                legacySelectedAuthority: liveTickSelectedAuthority,
-                legacySelectedTargetScrollTop: authorityTargetScrollTop,
-                shadowDiffPx: chairDecision.decision.targetScrollTop - authorityTargetScrollTop,
-                backwardTargetRejected: chairDecision.backwardTargetRejected,
-                safeForwardTargetSuppressed: chairDecision.safeForwardTargetSuppressed,
-                ownershipActive: isAsrVisualChairpersonOwnershipEnabled()
-              }),
-              chairDecisionSignature,
-              { minMs: 120 }
-            );
-            lastAsrVisualChairDecisionSignature = chairDecisionSignature;
-          }
-          if (chairDecision.backwardTargetRejected) {
-            emitDevDiagnostic(
-              "ASR_BACKWARD_TARGET_REJECTED",
-              "warn",
-              buildAsrBackwardTargetRejectedDiagnostic({
-                mode: chairDecision.decision.mode,
-                legacyAuthority: liveTickSelectedAuthority,
-                legacyTargetScrollTop: authorityTargetScrollTop,
-                correctedTargetScrollTop: chairDecision.decision.targetScrollTop,
-                currentScrollTop: beforeScrollTop,
-                reason: chairDecision.decision.reason
-              }),
-              {
-                minMs: 120,
-                signature: `${chairDecision.decision.mode}|${liveTickSelectedAuthority}|${Math.round(authorityTargetScrollTop / 12)}|${Math.round(beforeScrollTop / 12)}`
-              }
-            );
-          }
-          if (chairDecision.decision.mode === "recover" && afterScrollTop > beforeScrollTop + 0.5 && authorityTargetScrollTop >= chairDecision.decision.targetScrollTop - 0.5) {
-            emitDevDiagnostic(
-              "ASR_RECOVERY_STEP_APPLIED",
-              "warn",
-              buildAsrRecoveryStepAppliedDiagnostic({
-                mode: chairDecision.decision.mode,
-                authority: chairDecision.decision.authority,
-                controlIntent: chairDecision.decision.controlIntent,
-                recoveryKind: chairDecision.decision.recoveryKind,
-                isTrueVisualRecovery: chairDecision.decision.isTrueVisualRecovery,
-                isForwardProtection: chairDecision.decision.isForwardProtection,
-                currentScrollTop: beforeScrollTop,
-                targetScrollTop: authorityTargetScrollTop,
-                appliedDeltaPx,
-                minForwardStepPx: chairDecision.minForwardStepPx,
-                reason: chairDecision.decision.reason
-              }),
-              {
-                minMs: 120,
-                signature: `${chairDecision.decision.authority}|${Math.round(beforeScrollTop / 12)}|${Math.round(authorityTargetScrollTop / 12)}|${Math.round(appliedDeltaPx / 12)}`
-              }
-            );
+          if (chairDecision) {
+            liveAsrVisualChairMode = chairDecision.decision.mode;
+            lastAsrVisualChairDecisionTargetScrollTop = chairDecision.decision.targetScrollTop;
+            const chairDecisionSignature = [
+              chairDecision.decision.mode,
+              semanticSnapshot.lineIdx,
+              visualAnchor.anchorLineIdx,
+              chairDecision.pocketBand,
+              Math.round(chairDecision.decision.targetScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+              Math.round(beforeScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+              chairDecision.decision.backwardAllowed ? 1 : 0,
+              chairDecision.backwardTargetRejected ? 1 : 0,
+              chairDecision.safeForwardTargetSuppressed ? 1 : 0,
+              visualChairpersonOwnershipEnabled ? 1 : 0
+            ].join("|");
+            if (lastAsrVisualChairDecisionSignature !== chairDecisionSignature) {
+              emitCoalescedDevDiagnostic(
+                "ASR_VISUAL_CONTROL_DECISION",
+                chairDecision.decision.mode === "recover" ? "warn" : "info",
+                buildAsrVisualControlDecisionDiagnostic({
+                  mode: chairDecision.decision.mode,
+                  controlIntent: chairDecision.decision.controlIntent,
+                  recoveryKind: chairDecision.decision.recoveryKind,
+                  isTrueVisualRecovery: chairDecision.decision.isTrueVisualRecovery,
+                  isForwardProtection: chairDecision.decision.isForwardProtection,
+                  semanticCursorLineIdx: semanticSnapshot.lineIdx,
+                  visualAnchorLineIdx: visualAnchor.anchorLineIdx,
+                  anchorKind: visualAnchor.anchorKind,
+                  markerY: chairMarkerY,
+                  anchorViewportY: visualAnchor.anchorViewportY,
+                  anchorGapPx: chairDecision.anchorGapPx,
+                  pocketBand: chairDecision.pocketBand,
+                  targetScrollTop: chairDecision.decision.targetScrollTop,
+                  previousTargetScrollTop: previousChairTargetScrollTop,
+                  backwardAllowed: chairDecision.decision.backwardAllowed,
+                  recoveryEpisodeActive: !!activeAsrVisualRecoveryEpisode,
+                  protectedTargetScrollTop: activeAsrVisualRecoveryEpisode?.protectedTargetScrollTop ?? Number.NaN,
+                  maxVelocityPxps: chairDecision.decision.maxVelocityPxps,
+                  actuatorAppliedDeltaPx: appliedDeltaPx,
+                  reason: chairDecision.decision.reason,
+                  legacySelectedAuthority: legacyChairSelectedAuthority,
+                  legacySelectedTargetScrollTop: authorityTargetScrollTop,
+                  shadowDiffPx: chairDecision.decision.targetScrollTop - authorityTargetScrollTop,
+                  backwardTargetRejected: chairDecision.backwardTargetRejected,
+                  safeForwardTargetSuppressed: chairDecision.safeForwardTargetSuppressed,
+                  ownershipActive: visualChairpersonOwnershipEnabled
+                }),
+                chairDecisionSignature,
+                { minMs: 120 }
+              );
+              lastAsrVisualChairDecisionSignature = chairDecisionSignature;
+            }
+            if (chairDecision.backwardTargetRejected) {
+              emitDevDiagnostic(
+                "ASR_BACKWARD_TARGET_REJECTED",
+                "warn",
+                buildAsrBackwardTargetRejectedDiagnostic({
+                  mode: chairDecision.decision.mode,
+                  legacyAuthority: legacyChairSelectedAuthority,
+                  legacyTargetScrollTop: authorityTargetScrollTop,
+                  correctedTargetScrollTop: chairDecision.decision.targetScrollTop,
+                  currentScrollTop: beforeScrollTop,
+                  reason: chairDecision.decision.reason
+                }),
+                {
+                  minMs: 120,
+                  signature: `${chairDecision.decision.mode}|${legacyChairSelectedAuthority}|${Math.round(authorityTargetScrollTop / 12)}|${Math.round(beforeScrollTop / 12)}`
+                }
+              );
+            }
+            if (chairDecision.decision.mode === "recover" && afterScrollTop > beforeScrollTop + 0.5 && authorityTargetScrollTop >= chairDecision.decision.targetScrollTop - 0.5) {
+              emitDevDiagnostic(
+                "ASR_RECOVERY_STEP_APPLIED",
+                "warn",
+                buildAsrRecoveryStepAppliedDiagnostic({
+                  mode: chairDecision.decision.mode,
+                  authority: chairDecision.decision.authority,
+                  controlIntent: chairDecision.decision.controlIntent,
+                  recoveryKind: chairDecision.decision.recoveryKind,
+                  isTrueVisualRecovery: chairDecision.decision.isTrueVisualRecovery,
+                  isForwardProtection: chairDecision.decision.isForwardProtection,
+                  currentScrollTop: beforeScrollTop,
+                  targetScrollTop: authorityTargetScrollTop,
+                  appliedDeltaPx,
+                  minForwardStepPx: chairDecision.minForwardStepPx,
+                  reason: chairDecision.decision.reason
+                }),
+                {
+                  minMs: 120,
+                  signature: `${chairDecision.decision.authority}|${Math.round(beforeScrollTop / 12)}|${Math.round(authorityTargetScrollTop / 12)}|${Math.round(appliedDeltaPx / 12)}`
+                }
+              );
+            }
           }
         }
         emitCoalescedDevDiagnostic(
