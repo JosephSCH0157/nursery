@@ -650,6 +650,101 @@ export function buildAsrScrollAuthoritySelectedDiagnostic(args: {
   return `[ASR_SCROLL_AUTHORITY_SELECTED] tickId=${args.tickId} currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} selectedAuthority=${args.selectedAuthority} candidateAuthorities=[${args.candidateAuthorities.join(',')}] beforeScrollTop=${Math.round(args.beforeScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} afterScrollTop=${Math.round(args.afterScrollTop)} reason=${args.reason}`;
 }
 
+export function buildAsrVisualControlRuntimeProofDiagnostic(args: {
+  version: string;
+  shadowEnabled: boolean;
+  ownershipEnabled: boolean;
+  integrationPath: string;
+}): string {
+  return `[ASR_VISUAL_CONTROL_RUNTIME_PROOF] version=${args.version} shadowEnabled=${args.shadowEnabled ? 1 : 0} ownershipEnabled=${args.ownershipEnabled ? 1 : 0} integrationPath=${args.integrationPath}`;
+}
+
+export function buildAsrVisualControlDecisionDiagnostic(args: {
+  mode: string;
+  semanticCursorLineIdx: number;
+  visualAnchorLineIdx: number;
+  anchorKind: string;
+  markerY: number;
+  anchorViewportY: number;
+  anchorGapPx: number;
+  pocketBand: string;
+  targetScrollTop: number;
+  previousTargetScrollTop: number;
+  backwardAllowed: boolean;
+  recoveryEpisodeActive: boolean;
+  protectedTargetScrollTop: number;
+  maxVelocityPxps: number;
+  actuatorAppliedDeltaPx: number;
+  reason: string;
+  legacySelectedAuthority: string;
+  legacySelectedTargetScrollTop: number;
+  shadowDiffPx: number;
+  backwardTargetRejected: boolean;
+  safeForwardTargetSuppressed: boolean;
+  ownershipActive: boolean;
+}): string {
+  return `[ASR_VISUAL_CONTROL_DECISION] mode=${args.mode} semanticCursorLineIdx=${Math.round(args.semanticCursorLineIdx)} visualAnchorLineIdx=${Math.round(args.visualAnchorLineIdx)} anchorKind=${args.anchorKind || 'none'} markerY=${Number.isFinite(args.markerY) ? Math.round(args.markerY) : -1} anchorViewportY=${Number.isFinite(args.anchorViewportY) ? Math.round(args.anchorViewportY) : -1} anchorGapPx=${Number.isFinite(args.anchorGapPx) ? Math.round(args.anchorGapPx) : -1} pocketBand=${args.pocketBand || 'unknown'} targetScrollTop=${Math.round(args.targetScrollTop)} previousTargetScrollTop=${Math.round(args.previousTargetScrollTop)} backwardAllowed=${args.backwardAllowed ? 1 : 0} recoveryEpisodeActive=${args.recoveryEpisodeActive ? 1 : 0} protectedTargetScrollTop=${Number.isFinite(args.protectedTargetScrollTop) ? Math.round(args.protectedTargetScrollTop) : -1} maxVelocityPxps=${Math.round(args.maxVelocityPxps)} actuatorAppliedDeltaPx=${Math.round(args.actuatorAppliedDeltaPx)} reason=${args.reason || 'none'} legacySelectedAuthority=${args.legacySelectedAuthority || 'none'} legacySelectedTargetScrollTop=${Math.round(args.legacySelectedTargetScrollTop)} shadowDiffPx=${Math.round(args.shadowDiffPx)} backwardTargetRejected=${args.backwardTargetRejected ? 1 : 0} safeForwardTargetSuppressed=${args.safeForwardTargetSuppressed ? 1 : 0} ownershipActive=${args.ownershipActive ? 1 : 0}`;
+}
+
+export function buildAsrRecoveryEpisodeStartedDiagnostic(args: {
+  reason: string;
+  protectedLineIdx: number;
+  protectedTargetScrollTop: number;
+  expiresInMs: number;
+}): string {
+  return `[ASR_RECOVERY_EPISODE_STARTED] reason=${args.reason} protectedLineIdx=${Math.round(args.protectedLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)} expiresInMs=${Math.max(0, Math.round(args.expiresInMs))}`;
+}
+
+export function buildAsrRecoveryEpisodeExtendedDiagnostic(args: {
+  reason: string;
+  protectedLineIdx: number;
+  protectedTargetScrollTop: number;
+  expiresInMs: number;
+}): string {
+  return `[ASR_RECOVERY_EPISODE_EXTENDED] reason=${args.reason} protectedLineIdx=${Math.round(args.protectedLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)} expiresInMs=${Math.max(0, Math.round(args.expiresInMs))}`;
+}
+
+export function buildAsrRecoveryEpisodeEndedDiagnostic(args: {
+  reason: string;
+  protectedLineIdx: number;
+  protectedTargetScrollTop: number;
+}): string {
+  return `[ASR_RECOVERY_EPISODE_ENDED] reason=${args.reason} protectedLineIdx=${Math.round(args.protectedLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)}`;
+}
+
+export function buildAsrBackwardTargetRejectedDiagnostic(args: {
+  mode: string;
+  legacyAuthority: string;
+  legacyTargetScrollTop: number;
+  correctedTargetScrollTop: number;
+  currentScrollTop: number;
+  reason: string;
+}): string {
+  return `[ASR_BACKWARD_TARGET_REJECTED] mode=${args.mode} legacyAuthority=${args.legacyAuthority || 'none'} legacyTargetScrollTop=${Math.round(args.legacyTargetScrollTop)} correctedTargetScrollTop=${Math.round(args.correctedTargetScrollTop)} currentScrollTop=${Math.round(args.currentScrollTop)} reason=${args.reason || 'none'}`;
+}
+
+export function buildAsrRecoveryStepAppliedDiagnostic(args: {
+  mode: string;
+  authority: string;
+  currentScrollTop: number;
+  targetScrollTop: number;
+  appliedDeltaPx: number;
+  minForwardStepPx: number;
+  reason: string;
+}): string {
+  return `[ASR_RECOVERY_STEP_APPLIED] mode=${args.mode} authority=${args.authority} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} minForwardStepPx=${Math.round(args.minForwardStepPx)} reason=${args.reason || 'none'}`;
+}
+
+export function buildAsrSettleCompleteDiagnostic(args: {
+  previousMode: string;
+  nextMode: string;
+  anchorLineIdx: number;
+  targetScrollTop: number;
+  reason: string;
+}): string {
+  return `[ASR_SETTLE_COMPLETE] previousMode=${args.previousMode} nextMode=${args.nextMode} anchorLineIdx=${Math.round(args.anchorLineIdx)} targetScrollTop=${Math.round(args.targetScrollTop)} reason=${args.reason || 'none'}`;
+}
+
 export function buildAsrScrollAuthorityConflictDiagnostic(args: {
   tickId: number;
   authorities: string[];

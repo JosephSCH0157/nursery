@@ -124,6 +124,14 @@ import {
   buildAsrVisualGovernorDeadScreenEscapeCommitDiagnostic,
   buildAsrScrollAuthorityConflictDiagnostic,
   buildAsrScrollAuthoritySelectedDiagnostic,
+  buildAsrVisualControlDecisionDiagnostic,
+  buildAsrVisualControlRuntimeProofDiagnostic,
+  buildAsrRecoveryEpisodeStartedDiagnostic,
+  buildAsrRecoveryEpisodeExtendedDiagnostic,
+  buildAsrRecoveryEpisodeEndedDiagnostic,
+  buildAsrBackwardTargetRejectedDiagnostic,
+  buildAsrRecoveryStepAppliedDiagnostic,
+  buildAsrSettleCompleteDiagnostic,
   buildProofOwnedPrimaryCommitGuardBaseParts,
   buildRecoverySkipNonAdjacentTargetGuardBaseParts,
   buildAsrVisualMarkerErrorCorrectionDiagnostic,
@@ -198,6 +206,7 @@ import { decideAsrVisualDebtCatchup } from './asr-visual-debt-catchup';
 import { evaluateAcceptedLocalLagWindow } from './asr-visual-debt-catchup';
 import { decideAcceptedLocalLagVisualCatchup } from './asr-live-pocket-maintenance';
 import { clearOnlyMatchingBridgeBlockToken, shouldReleaseEarlyBridgeTrap } from './asr-bridge-trap';
+import { evaluateAsrVisualChairperson } from './asr-visual-chairperson';
 import { decideAsrActuatorRecoveryGear } from './asr-diagnostic-gates';
 import { shouldEmitAsrVisualGovernorDeadScreenAutopsy } from './asr-diagnostic-gates';
 import { decideAsrVisualGovernorDeadScreenEscape } from './asr-diagnostic-gates';
@@ -261,12 +270,16 @@ import type {
   AsrBlockMatch,
   AsrCommit,
   AsrCommitMoveDeps,
+  AsrRecoveryEpisode,
   AsrEventSnapshot,
+  AsrSemanticSnapshot,
   AsrMoveResult,
   AsrMovementAuthorityContext,
   AsrMovementAuthorityDecision,
   AsrScrollDriver,
   AsrScrollDriverStats,
+  AsrVisualAnchor,
+  AsrVisualMode,
   ConsistencyEntry,
   ConsistencyResult,
   CueBridgeScanResult,
@@ -343,6 +356,8 @@ const ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_WINDOW_MS = 700;
 const ASR_POST_SEMANTIC_COMMIT_VISUAL_FOLLOW_WINDOW_MS = 700;
 const ASR_POST_RELEASE_PROTECTED_FOLLOW_WINDOW_MS = 700;
 const ASR_POST_FLOOR_PROTECTED_WINDOW_MS = 700;
+const ASR_VISUAL_CHAIRPERSON_VERSION = 'asr-visual-chairperson-v1';
+const ASR_VISUAL_CHAIRPERSON_SETTLE_HOLD_MS = 700;
 const ASR4_POCKET_DRIFT_AUTHORITY_COOLDOWN_MS = 1200;
 const ASR_STALE_LANDING_RELAXATION_COOLDOWN_MS = 900;
 const ASR_VISUAL_DEBT_CATCHUP_COOLDOWN_MS = 900;
@@ -6291,6 +6306,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let postFloorProtectedFollowUntilMs = 0;
   let postFloorProtectedFollowLineIdx = -1;
   let postFloorProtectedFollowTargetScrollTop = Number.NaN;
+  let liveAsrVisualChairMode: AsrVisualMode = 'hold';
+  let liveAsrVisualChairSettleUntilMs = 0;
+  let lastAsrVisualChairDecisionTargetScrollTop = Number.NaN;
+  let lastAsrVisualChairDecisionSignature = '';
+  let lastAsrVisualChairRuntimeProofSignature = '';
+  let activeAsrVisualRecoveryEpisode: AsrRecoveryEpisode | null = null;
   let postSemanticCommitVisualReleasePending = false;
   let postSemanticCommitVisualReleaseUntilMs = 0;
   let postSemanticCommitVisualReleasePreviousLineIdx = -1;
@@ -6330,6 +6351,120 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastStallRecoveryOverrideHintAt = 0;
     lastStallRecoveryOverrideHintTarget = -1;
   };
+  const isAsrVisualChairpersonShadowEnabled = (): boolean => {
+    try {
+      const params = new URLSearchParams(String(location.search || ''));
+      if (params.get('asr_visual_chairperson_shadow') === '0') return false;
+    } catch {}
+    return true;
+  };
+  const isAsrVisualChairpersonOwnershipEnabled = (): boolean => {
+    try {
+      const params = new URLSearchParams(String(location.search || ''));
+      if (params.get('asr_visual_chairperson') === '1' || params.get('asr_visual_chairperson_owner') === '1') {
+        return true;
+      }
+    } catch {}
+    try {
+      if (window.localStorage?.getItem('asr_visual_chairperson') === '1') return true;
+      if (window.localStorage?.getItem('asr_visual_chairperson_owner') === '1') return true;
+    } catch {}
+    return false;
+  };
+  const emitAsrVisualChairRuntimeProof = () => {
+    const signature = `${ASR_VISUAL_CHAIRPERSON_VERSION}|${isAsrVisualChairpersonShadowEnabled() ? 1 : 0}|${isAsrVisualChairpersonOwnershipEnabled() ? 1 : 0}`;
+    if (lastAsrVisualChairRuntimeProofSignature === signature) return;
+    lastAsrVisualChairRuntimeProofSignature = signature;
+    emitDevDiagnostic(
+      'ASR_VISUAL_CONTROL_RUNTIME_PROOF',
+      'info',
+      buildAsrVisualControlRuntimeProofDiagnostic({
+        version: ASR_VISUAL_CHAIRPERSON_VERSION,
+        shadowEnabled: isAsrVisualChairpersonShadowEnabled(),
+        ownershipEnabled: isAsrVisualChairpersonOwnershipEnabled(),
+        integrationPath: 'asr-scroll-driver',
+      }),
+      { minMs: 250, signature },
+    );
+  };
+  const resolveActiveAsrVisualRecoveryEpisode = (nowMs: number): AsrRecoveryEpisode | null => {
+    const floorActive = postFloorProtectedFollowUntilMs > nowMs && Number.isFinite(postFloorProtectedFollowTargetScrollTop);
+    const releaseActive = postReleaseProtectedFollowUntilMs > nowMs && Number.isFinite(postReleaseProtectedFollowTargetScrollTop);
+    if (!floorActive && !releaseActive) return null;
+    if (floorActive && (!releaseActive || postFloorProtectedFollowUntilMs >= postReleaseProtectedFollowUntilMs)) {
+      return {
+        startedAt: Math.max(0, nowMs - Math.max(0, postFloorProtectedFollowUntilMs - ASR_POST_FLOOR_PROTECTED_WINDOW_MS)),
+        expiresAt: postFloorProtectedFollowUntilMs,
+        protectedLineIdx: Math.max(0, Math.floor(Number(postFloorProtectedFollowLineIdx) || 0)),
+        protectedTargetScrollTop: Number(postFloorProtectedFollowTargetScrollTop),
+        reason: 'visual_debt',
+      };
+    }
+    return {
+      startedAt: Math.max(0, nowMs - Math.max(0, postReleaseProtectedFollowUntilMs - ASR_POST_RELEASE_PROTECTED_FOLLOW_WINDOW_MS)),
+      expiresAt: postReleaseProtectedFollowUntilMs,
+      protectedLineIdx: Math.max(0, Math.floor(Number(postReleaseProtectedFollowReleaseLineIdx) || 0)),
+      protectedTargetScrollTop: Number(postReleaseProtectedFollowTargetScrollTop),
+      reason: 'semantic_ahead',
+    };
+  };
+  const syncActiveAsrVisualRecoveryEpisode = (nowMs: number, endReason = 'none') => {
+    const nextEpisode = resolveActiveAsrVisualRecoveryEpisode(nowMs);
+    const previousEpisode = activeAsrVisualRecoveryEpisode;
+    if (!nextEpisode && previousEpisode) {
+      emitDevDiagnostic(
+        'ASR_RECOVERY_EPISODE_ENDED',
+        'info',
+        buildAsrRecoveryEpisodeEndedDiagnostic({
+          reason: endReason || previousEpisode.reason,
+          protectedLineIdx: previousEpisode.protectedLineIdx,
+          protectedTargetScrollTop: previousEpisode.protectedTargetScrollTop,
+        }),
+        {
+          minMs: 120,
+          signature: `${previousEpisode.reason}|${previousEpisode.protectedLineIdx}|${Math.round(previousEpisode.protectedTargetScrollTop / 12)}|end`,
+        },
+      );
+      activeAsrVisualRecoveryEpisode = null;
+      return;
+    }
+    if (!nextEpisode) {
+      activeAsrVisualRecoveryEpisode = null;
+      return;
+    }
+    const signature = `${nextEpisode.reason}|${nextEpisode.protectedLineIdx}|${Math.round(nextEpisode.protectedTargetScrollTop / 12)}|${Math.round(nextEpisode.expiresAt / 100)}`;
+    if (!previousEpisode) {
+      emitDevDiagnostic(
+        'ASR_RECOVERY_EPISODE_STARTED',
+        'warn',
+        buildAsrRecoveryEpisodeStartedDiagnostic({
+          reason: nextEpisode.reason,
+          protectedLineIdx: nextEpisode.protectedLineIdx,
+          protectedTargetScrollTop: nextEpisode.protectedTargetScrollTop,
+          expiresInMs: Math.max(0, nextEpisode.expiresAt - nowMs),
+        }),
+        { minMs: 120, signature },
+      );
+    } else if (
+      previousEpisode.reason !== nextEpisode.reason ||
+      previousEpisode.protectedLineIdx !== nextEpisode.protectedLineIdx ||
+      Math.abs(previousEpisode.protectedTargetScrollTop - nextEpisode.protectedTargetScrollTop) > 0.5 ||
+      previousEpisode.expiresAt !== nextEpisode.expiresAt
+    ) {
+      emitDevDiagnostic(
+        'ASR_RECOVERY_EPISODE_EXTENDED',
+        'warn',
+        buildAsrRecoveryEpisodeExtendedDiagnostic({
+          reason: nextEpisode.reason,
+          protectedLineIdx: nextEpisode.protectedLineIdx,
+          protectedTargetScrollTop: nextEpisode.protectedTargetScrollTop,
+          expiresInMs: Math.max(0, nextEpisode.expiresAt - nowMs),
+        }),
+        { minMs: 120, signature },
+      );
+    }
+    activeAsrVisualRecoveryEpisode = nextEpisode;
+  };
   const clearPostSemanticCommitVisualFollowDiagnostic = () => {
     postSemanticCommitVisualFollowPending = false;
     postSemanticCommitVisualFollowUntilMs = 0;
@@ -6340,11 +6475,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     postReleaseProtectedFollowUntilMs = 0;
     postReleaseProtectedFollowReleaseLineIdx = -1;
     postReleaseProtectedFollowTargetScrollTop = Number.NaN;
+    syncActiveAsrVisualRecoveryEpisode(Date.now(), 'post_release_cleared');
   };
   const clearPostFloorProtectedFollow = () => {
     postFloorProtectedFollowUntilMs = 0;
     postFloorProtectedFollowLineIdx = -1;
     postFloorProtectedFollowTargetScrollTop = Number.NaN;
+    syncActiveAsrVisualRecoveryEpisode(Date.now(), 'post_floor_cleared');
   };
   const armPostReleaseProtectedFollow = (args: {
     nowMs: number;
@@ -6358,6 +6495,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     postReleaseProtectedFollowUntilMs = args.nowMs + ASR_POST_RELEASE_PROTECTED_FOLLOW_WINDOW_MS;
     postReleaseProtectedFollowReleaseLineIdx = Math.max(0, Math.floor(Number(args.releaseLineIdx)));
     postReleaseProtectedFollowTargetScrollTop = Number(args.protectedTargetScrollTop);
+    syncActiveAsrVisualRecoveryEpisode(args.nowMs, 'post_release_armed');
   };
   const armPostFloorProtectedFollow = (args: {
     nowMs: number;
@@ -6371,6 +6509,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     postFloorProtectedFollowUntilMs = args.nowMs + ASR_POST_FLOOR_PROTECTED_WINDOW_MS;
     postFloorProtectedFollowLineIdx = Math.max(0, Math.floor(Number(args.floorProtectedLineIdx)));
     postFloorProtectedFollowTargetScrollTop = Number(args.protectedTargetScrollTop);
+    syncActiveAsrVisualRecoveryEpisode(args.nowMs, 'post_floor_armed');
   };
   const hasBridgeLifecycleContextText = (...values: Array<unknown>): boolean => {
     const haystack = values
@@ -10195,6 +10334,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   try { window.addEventListener('tp:asr:silence', silenceHandler as EventListener); } catch {}
   try { window.addEventListener('tp:vad', vadHandler as EventListener); } catch {}
   setActiveAsrLaneProfile((window as any).__tpAsrRuntimeStatus?.activeAsrLane, 'init');
+  emitAsrVisualChairRuntimeProof();
   noteRuntimeSpeechState((window as any).__tpAsrRuntimeStatus);
   try { window.addEventListener('tp:asr:runtime-status', runtimeStatusHandler as EventListener); } catch {}
   try { window.addEventListener('tp:asr:audio-chunk', audioChunkHandler as EventListener); } catch {}
@@ -19853,6 +19993,255 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const visualFollowNowMs = Date.now();
         const authorityTargetScrollTop =
           Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop;
+        emitAsrVisualChairRuntimeProof();
+        syncActiveAsrVisualRecoveryEpisode(visualFollowNowMs, 'tick_sync');
+        if (isAsrVisualChairpersonShadowEnabled()) {
+          const previousChairMode = liveAsrVisualChairMode;
+          const previousChairTargetScrollTop =
+            Number.isFinite(lastAsrVisualChairDecisionTargetScrollTop)
+              ? Number(lastAsrVisualChairDecisionTargetScrollTop)
+              : beforeScrollTop;
+          const semanticSnapshot: AsrSemanticSnapshot = {
+            lineIdx: Math.max(
+              0,
+              Math.floor(
+                Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx as number)
+                  ? Number(liveAsrCommitteeAcceptedCommitTargetIdx)
+                  : Number(lastLineIndex),
+              ),
+            ),
+            confidence: 1,
+            source: 'validated_commit',
+            updatedAt: visualFollowNowMs,
+          };
+          const chairMarkerY =
+            Number.isFinite(lastAsrMarkerY)
+              ? Number(lastAsrMarkerY)
+              : (Number(scroller.clientHeight || 0) * 0.4);
+          const chairPreferredBandTop = chairMarkerY + (ASR_READER_POCKET_PREFERRED_TOP_LINES * safeResolverLineHeightPx);
+          const chairPreferredBandBottom = chairMarkerY + (ASR_READER_POCKET_PREFERRED_BOTTOM_LINES * safeResolverLineHeightPx);
+          const chairToleratedBandBottom = chairMarkerY + (ASR_READER_POCKET_TOLERATED_BOTTOM_LINES * safeResolverLineHeightPx);
+          const currentLineViewportY =
+            Number.isFinite(lastAsrCurrentLineViewportY)
+              ? Number(lastAsrCurrentLineViewportY)
+              : (
+                Number.isFinite(maintenanceActiveLineY)
+                  ? Number(maintenanceActiveLineY)
+                  : Number.NaN
+              );
+          const matchedLineViewportY =
+            Number.isFinite(lastAsrMatchedLineViewportY)
+              ? Number(lastAsrMatchedLineViewportY)
+              : Number.NaN;
+          const matchedAnchorLineIdx =
+            Number.isFinite(lastAcceptedMatchedLineIdx)
+              ? Math.max(0, Math.floor(Number(lastAcceptedMatchedLineIdx)))
+              : -1;
+          const matchedAnchorCompatible =
+            matchedAnchorLineIdx >= semanticSnapshot.lineIdx &&
+            matchedAnchorLineIdx <= semanticSnapshot.lineIdx + 1;
+          const effectiveVisualAnchorLineIdx =
+            Number.isFinite(lastAsrVisualAnchorLineIdx)
+              ? Math.max(0, Math.floor(Number(lastAsrVisualAnchorLineIdx)))
+              : semanticSnapshot.lineIdx;
+          const effectiveAnchorKind = String(lastAsrVisualAnchorSource || 'current_line');
+          const visualAnchor: AsrVisualAnchor = {
+            anchorLineIdx: effectiveVisualAnchorLineIdx,
+            anchorKind: effectiveAnchorKind,
+            anchorViewportY:
+              Number.isFinite(lastAsrActiveLineViewportY)
+                ? Number(lastAsrActiveLineViewportY)
+                : (
+                  Number.isFinite(currentLineViewportY)
+                    ? currentLineViewportY
+                    : matchedLineViewportY
+                ),
+            anchorCompatibleWithSemantic:
+              !(
+                effectiveAnchorKind.includes('accepted_match') ||
+                effectiveAnchorKind.includes('confirmed_spoken')
+              ) || matchedAnchorCompatible,
+            matchedLineViewportY,
+          };
+          const lastFinalAgeMs =
+            lastFinalTranscriptAt > 0 ? Math.max(0, visualFollowNowMs - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
+          const finalFresh =
+            lastFinalTranscriptAt > 0 &&
+            lastFinalAgeMs <= ASR_VISUAL_DEADLOCK_FINAL_FRESH_MAX_AGE_MS;
+          const recentFinalDuringSilence = asrSilenceActive && finalFresh;
+          const lastSpeechAgeMs = Math.min(
+            lastRuntimeSpeechAt > 0 ? Math.max(0, visualFollowNowMs - lastRuntimeSpeechAt) : Number.POSITIVE_INFINITY,
+            lastVadSpeechAt > 0 ? Math.max(0, visualFollowNowMs - lastVadSpeechAt) : Number.POSITIVE_INFINITY,
+          );
+          const recentSpeechDuringSilence =
+            asrSilenceActive &&
+            (
+              asrRuntimeSpeechRunningActual ||
+              hasRecentActualSpeech(visualFollowNowMs) ||
+              hasRecentVadSpeechNow(visualFollowNowMs) ||
+              lastSpeechAgeMs <= ASR_VISUAL_DEADLOCK_SPEECH_FRESH_MAX_AGE_MS
+            );
+          const trueVisualSilence =
+            asrSilenceActive &&
+            !recentFinalDuringSilence &&
+            !recentSpeechDuringSilence;
+          const chairBridgeContextActive =
+            !!pendingSpeakableBridgeState ||
+            hasBridgeLifecycleContextText(
+              liveTickSelectedAuthority,
+              liveTickAuthorityReason,
+              lastAsrVisualAnchorSource,
+              lastAsrGuardReason,
+              lastAsrHudGuardText,
+            );
+          const chairDecision = evaluateAsrVisualChairperson({
+            nowMs: visualFollowNowMs,
+            currentScrollTop: beforeScrollTop,
+            maxScrollTop,
+            lineHeightPx: safeResolverLineHeightPx,
+            markerY: chairMarkerY,
+            preferredBandTop: chairPreferredBandTop,
+            preferredBandBottom: chairPreferredBandBottom,
+            toleratedBandBottom: chairToleratedBandBottom,
+            semanticSnapshot,
+            visualAnchor,
+            currentLineIdx: lastLineIndex,
+            committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+            selectedTargetScrollTop: authorityTargetScrollTop,
+            selectedAuthority: liveTickSelectedAuthority,
+            selectedReason: liveTickAuthorityReason,
+            speechFresh:
+              asrRuntimeSpeechRunningActual ||
+              hasRecentActualSpeech(visualFollowNowMs) ||
+              hasRecentVadSpeechNow(visualFollowNowMs) ||
+              (lastFinalTranscriptAt > 0 && (visualFollowNowMs - lastFinalTranscriptAt) <= 1200),
+            finalFresh,
+            sessionLive: isSessionLivePhase() && isSessionAsrArmed(),
+            asrMode: getScrollMode() === 'asr',
+            noMatchOrOffscript: actuatorNoMatchOrOffscript,
+            hardContradiction: hardContradictionActive,
+            bridgeContextActive: chairBridgeContextActive,
+            trueVisualSilence,
+            previousMode: previousChairMode,
+            previousTargetScrollTop: previousChairTargetScrollTop,
+            settleUntilMs: liveAsrVisualChairSettleUntilMs,
+            activeRecoveryEpisode: activeAsrVisualRecoveryEpisode,
+          });
+          if (
+            (previousChairMode === 'recover' || previousChairMode === 'settle') &&
+            chairDecision.decision.mode === 'track'
+          ) {
+            emitDevDiagnostic(
+              'ASR_SETTLE_COMPLETE',
+              'info',
+              buildAsrSettleCompleteDiagnostic({
+                previousMode: previousChairMode,
+                nextMode: chairDecision.decision.mode,
+                anchorLineIdx: chairDecision.decision.anchorLineIdx,
+                targetScrollTop: chairDecision.decision.targetScrollTop,
+                reason: chairDecision.decision.reason,
+              }),
+              {
+                minMs: 120,
+                signature: `${chairDecision.decision.anchorLineIdx}|${Math.round(chairDecision.decision.targetScrollTop / 12)}|${chairDecision.decision.mode}`,
+              },
+            );
+          }
+          if (chairDecision.decision.mode === 'settle' && previousChairMode !== 'settle') {
+            liveAsrVisualChairSettleUntilMs = visualFollowNowMs + ASR_VISUAL_CHAIRPERSON_SETTLE_HOLD_MS;
+          } else if (chairDecision.decision.mode !== 'settle' && liveAsrVisualChairSettleUntilMs <= visualFollowNowMs) {
+            liveAsrVisualChairSettleUntilMs = 0;
+          }
+          liveAsrVisualChairMode = chairDecision.decision.mode;
+          lastAsrVisualChairDecisionTargetScrollTop = chairDecision.decision.targetScrollTop;
+          const chairDecisionSignature = [
+            chairDecision.decision.mode,
+            semanticSnapshot.lineIdx,
+            visualAnchor.anchorLineIdx,
+            chairDecision.pocketBand,
+            Math.round(chairDecision.decision.targetScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Math.round(beforeScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            chairDecision.decision.backwardAllowed ? 1 : 0,
+            chairDecision.backwardTargetRejected ? 1 : 0,
+            chairDecision.safeForwardTargetSuppressed ? 1 : 0,
+            isAsrVisualChairpersonOwnershipEnabled() ? 1 : 0,
+          ].join('|');
+          if (lastAsrVisualChairDecisionSignature !== chairDecisionSignature) {
+            emitCoalescedDevDiagnostic(
+              'ASR_VISUAL_CONTROL_DECISION',
+              chairDecision.decision.mode === 'recover' ? 'warn' : 'info',
+              buildAsrVisualControlDecisionDiagnostic({
+                mode: chairDecision.decision.mode,
+                semanticCursorLineIdx: semanticSnapshot.lineIdx,
+                visualAnchorLineIdx: visualAnchor.anchorLineIdx,
+                anchorKind: visualAnchor.anchorKind,
+                markerY: chairMarkerY,
+                anchorViewportY: visualAnchor.anchorViewportY,
+                anchorGapPx: chairDecision.anchorGapPx,
+                pocketBand: chairDecision.pocketBand,
+                targetScrollTop: chairDecision.decision.targetScrollTop,
+                previousTargetScrollTop: previousChairTargetScrollTop,
+                backwardAllowed: chairDecision.decision.backwardAllowed,
+                recoveryEpisodeActive: !!activeAsrVisualRecoveryEpisode,
+                protectedTargetScrollTop:
+                  activeAsrVisualRecoveryEpisode?.protectedTargetScrollTop ?? Number.NaN,
+                maxVelocityPxps: chairDecision.decision.maxVelocityPxps,
+                actuatorAppliedDeltaPx: appliedDeltaPx,
+                reason: chairDecision.decision.reason,
+                legacySelectedAuthority: liveTickSelectedAuthority,
+                legacySelectedTargetScrollTop: authorityTargetScrollTop,
+                shadowDiffPx: chairDecision.decision.targetScrollTop - authorityTargetScrollTop,
+                backwardTargetRejected: chairDecision.backwardTargetRejected,
+                safeForwardTargetSuppressed: chairDecision.safeForwardTargetSuppressed,
+                ownershipActive: isAsrVisualChairpersonOwnershipEnabled(),
+              }),
+              chairDecisionSignature,
+              { minMs: 120 },
+            );
+            lastAsrVisualChairDecisionSignature = chairDecisionSignature;
+          }
+          if (chairDecision.backwardTargetRejected) {
+            emitDevDiagnostic(
+              'ASR_BACKWARD_TARGET_REJECTED',
+              'warn',
+              buildAsrBackwardTargetRejectedDiagnostic({
+                mode: chairDecision.decision.mode,
+                legacyAuthority: liveTickSelectedAuthority,
+                legacyTargetScrollTop: authorityTargetScrollTop,
+                correctedTargetScrollTop: chairDecision.decision.targetScrollTop,
+                currentScrollTop: beforeScrollTop,
+                reason: chairDecision.decision.reason,
+              }),
+              {
+                minMs: 120,
+                signature: `${chairDecision.decision.mode}|${liveTickSelectedAuthority}|${Math.round(authorityTargetScrollTop / 12)}|${Math.round(beforeScrollTop / 12)}`,
+              },
+            );
+          }
+          if (
+            chairDecision.decision.mode === 'recover' &&
+            afterScrollTop > beforeScrollTop + 0.5 &&
+            authorityTargetScrollTop >= chairDecision.decision.targetScrollTop - 0.5
+          ) {
+            emitDevDiagnostic(
+              'ASR_RECOVERY_STEP_APPLIED',
+              'warn',
+              buildAsrRecoveryStepAppliedDiagnostic({
+                mode: chairDecision.decision.mode,
+                authority: chairDecision.decision.authority,
+                currentScrollTop: beforeScrollTop,
+                targetScrollTop: authorityTargetScrollTop,
+                appliedDeltaPx,
+                minForwardStepPx: chairDecision.minForwardStepPx,
+                reason: chairDecision.decision.reason,
+              }),
+              {
+                minMs: 120,
+                signature: `${chairDecision.decision.authority}|${Math.round(beforeScrollTop / 12)}|${Math.round(authorityTargetScrollTop / 12)}|${Math.round(appliedDeltaPx / 12)}`,
+              },
+            );
+          }
+        }
         emitCoalescedDevDiagnostic(
           'ASR_SCROLL_AUTHORITY_SELECTED',
           'warn',

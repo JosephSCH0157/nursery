@@ -64,6 +64,14 @@ import {
   buildAsrVisualRecoveryBoostPathProofDiagnostic,
   buildAsrScrollAuthorityConflictDiagnostic,
   buildAsrScrollAuthoritySelectedDiagnostic,
+  buildAsrVisualControlDecisionDiagnostic,
+  buildAsrVisualControlRuntimeProofDiagnostic,
+  buildAsrRecoveryEpisodeStartedDiagnostic,
+  buildAsrRecoveryEpisodeExtendedDiagnostic,
+  buildAsrRecoveryEpisodeEndedDiagnostic,
+  buildAsrBackwardTargetRejectedDiagnostic,
+  buildAsrRecoveryStepAppliedDiagnostic,
+  buildAsrSettleCompleteDiagnostic,
   buildAsrStaleLandingRelaxedForFreshForwardAnchorDiagnostic,
   buildAsrStaleRecoveryTargetExpiredDiagnostic,
   buildAsrVisualMarkerErrorCorrectionDiagnostic,
@@ -88,6 +96,119 @@ import {
 } from '../../src/features/asr/asr-authority-resolver';
 
 describe('ASR backend liveness diagnostics builders', () => {
+  test('builds visual chairperson diagnostics', () => {
+    expect(
+      buildAsrVisualControlRuntimeProofDiagnostic({
+        version: 'asr-visual-chairperson-v1',
+        shadowEnabled: true,
+        ownershipEnabled: false,
+        integrationPath: 'asr-scroll-driver',
+      }),
+    ).toBe(
+      '[ASR_VISUAL_CONTROL_RUNTIME_PROOF] version=asr-visual-chairperson-v1 shadowEnabled=1 ownershipEnabled=0 integrationPath=asr-scroll-driver',
+    );
+
+    expect(
+      buildAsrVisualControlDecisionDiagnostic({
+        mode: 'recover',
+        semanticCursorLineIdx: 8,
+        visualAnchorLineIdx: 7,
+        anchorKind: 'confirmed_spoken',
+        markerY: 390,
+        anchorViewportY: 612,
+        anchorGapPx: 222,
+        pocketBand: 'recovery',
+        targetScrollTop: 512,
+        previousTargetScrollTop: 430,
+        backwardAllowed: false,
+        recoveryEpisodeActive: true,
+        protectedTargetScrollTop: 512,
+        maxVelocityPxps: 220,
+        actuatorAppliedDeltaPx: 42,
+        reason: 'visual_debt',
+        legacySelectedAuthority: 'comfort_nudge',
+        legacySelectedTargetScrollTop: 376,
+        shadowDiffPx: 136,
+        backwardTargetRejected: true,
+        safeForwardTargetSuppressed: true,
+        ownershipActive: false,
+      }),
+    ).toBe(
+      '[ASR_VISUAL_CONTROL_DECISION] mode=recover semanticCursorLineIdx=8 visualAnchorLineIdx=7 anchorKind=confirmed_spoken markerY=390 anchorViewportY=612 anchorGapPx=222 pocketBand=recovery targetScrollTop=512 previousTargetScrollTop=430 backwardAllowed=0 recoveryEpisodeActive=1 protectedTargetScrollTop=512 maxVelocityPxps=220 actuatorAppliedDeltaPx=42 reason=visual_debt legacySelectedAuthority=comfort_nudge legacySelectedTargetScrollTop=376 shadowDiffPx=136 backwardTargetRejected=1 safeForwardTargetSuppressed=1 ownershipActive=0',
+    );
+
+    expect(
+      buildAsrRecoveryEpisodeStartedDiagnostic({
+        reason: 'visual_debt',
+        protectedLineIdx: 8,
+        protectedTargetScrollTop: 512,
+        expiresInMs: 700,
+      }),
+    ).toBe(
+      '[ASR_RECOVERY_EPISODE_STARTED] reason=visual_debt protectedLineIdx=8 protectedTargetScrollTop=512 expiresInMs=700',
+    );
+
+    expect(
+      buildAsrRecoveryEpisodeExtendedDiagnostic({
+        reason: 'semantic_ahead',
+        protectedLineIdx: 9,
+        protectedTargetScrollTop: 648,
+        expiresInMs: 540,
+      }),
+    ).toBe(
+      '[ASR_RECOVERY_EPISODE_EXTENDED] reason=semantic_ahead protectedLineIdx=9 protectedTargetScrollTop=648 expiresInMs=540',
+    );
+
+    expect(
+      buildAsrRecoveryEpisodeEndedDiagnostic({
+        reason: 'post_floor_cleared',
+        protectedLineIdx: 8,
+        protectedTargetScrollTop: 512,
+      }),
+    ).toBe(
+      '[ASR_RECOVERY_EPISODE_ENDED] reason=post_floor_cleared protectedLineIdx=8 protectedTargetScrollTop=512',
+    );
+
+    expect(
+      buildAsrBackwardTargetRejectedDiagnostic({
+        mode: 'recover',
+        legacyAuthority: 'comfort_nudge',
+        legacyTargetScrollTop: 376,
+        correctedTargetScrollTop: 430,
+        currentScrollTop: 430,
+        reason: 'visual_debt',
+      }),
+    ).toBe(
+      '[ASR_BACKWARD_TARGET_REJECTED] mode=recover legacyAuthority=comfort_nudge legacyTargetScrollTop=376 correctedTargetScrollTop=430 currentScrollTop=430 reason=visual_debt',
+    );
+
+    expect(
+      buildAsrRecoveryStepAppliedDiagnostic({
+        mode: 'recover',
+        authority: 'recover_visual_debt',
+        currentScrollTop: 430,
+        targetScrollTop: 512,
+        appliedDeltaPx: 42,
+        minForwardStepPx: 28,
+        reason: 'visual_debt',
+      }),
+    ).toBe(
+      '[ASR_RECOVERY_STEP_APPLIED] mode=recover authority=recover_visual_debt currentScrollTop=430 targetScrollTop=512 appliedDeltaPx=42 minForwardStepPx=28 reason=visual_debt',
+    );
+
+    expect(
+      buildAsrSettleCompleteDiagnostic({
+        previousMode: 'recover',
+        nextMode: 'track',
+        anchorLineIdx: 8,
+        targetScrollTop: 512,
+        reason: 'recovery_episode_settle',
+      }),
+    ).toBe(
+      '[ASR_SETTLE_COMPLETE] previousMode=recover nextMode=track anchorLineIdx=8 targetScrollTop=512 reason=recovery_episode_settle',
+    );
+  });
+
   test('builds stale-landing relaxation diagnostic with bounded forward context', () => {
     const line = buildAsrStaleLandingRelaxedForFreshForwardAnchorDiagnostic({
       currentLine: 13,
