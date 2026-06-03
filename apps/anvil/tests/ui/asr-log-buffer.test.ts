@@ -6,6 +6,8 @@ describe('ASR log buffer', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
     window.localStorage.clear();
+    delete (window as any).__TP_DEV;
+    delete (window as any).__ASR_DIAGNOSTIC_PROOF__;
     delete (window as any).__ASR_LOG_BUFFER__;
     delete (window as any).__copyAsrLog;
     delete (window as any).__downloadAsrLog;
@@ -83,6 +85,26 @@ describe('ASR log buffer', () => {
       '[ASR_LOG_PROGRESS] 2 entries captured',
       '[ASR_LOG_PROGRESS] 4 entries captured',
     ]);
+  });
+
+  test('default progress interval is sparse for long reads', () => {
+    const buffer = createAsrLogBuffer();
+    const summary = buffer.summary();
+    expect(summary.progressEvery).toBe(10000);
+  });
+
+  test('coalesces noisy high-frequency ASR tags by default', async () => {
+    const buffer = createAsrLogBuffer();
+    for (let i = 0; i < 500; i += 1) {
+      buffer.captureConsoleCall('warn', [
+        '[ASR_LOW_POCKET_DEADBAND_BLOCKED] currentLineIdx=155 committedLineIdx=157 currentScrollTop=11046 targetScrollTop=11046 belowPocketPx=89 activeLineDistanceFromMarkerPx=106 previousHoldReason=existing_target_within_deadband correctionPx=84 observations=2 reason=unsafe_target',
+      ]);
+    }
+
+    const exported = await buffer.copy();
+    const lowPocketEntries = exported.entries.filter((entry) => entry.tag === 'ASR_LOW_POCKET_DEADBAND_BLOCKED');
+    expect(lowPocketEntries.length).toBeLessThan(40);
+    expect(lowPocketEntries.length).toBeGreaterThan(0);
   });
 
   test('exported summaries preserve actuator and chairperson investigation details', async () => {
@@ -194,5 +216,30 @@ describe('ASR log buffer', () => {
     expect(buffer.entries).toHaveLength(0);
     warnSpy.mockRestore();
     infoSpy.mockRestore();
+  });
+
+  test('installer exposes download helper in dev diagnostic mode', () => {
+    (window as any).__TP_DEV = true;
+
+    installAsrLogBuffer(window as any);
+
+    expect(typeof (window as any).__downloadAsrLog).toBe('function');
+    expect(typeof (window as any).__copyAsrLog).toBe('function');
+  });
+
+  test('installer backfills helpers when already installed flag is set', () => {
+    (window as any).__TP_DEV = true;
+    installAsrLogBuffer(window as any);
+    const existingBuffer = (window as any).__ASR_LOG_BUFFER__;
+
+    delete (window as any).__downloadAsrLog;
+    delete (window as any).__copyAsrLog;
+    (window as any).__asrLogBufferInstalled = true;
+    (window as any).__ASR_LOG_BUFFER__ = existingBuffer;
+
+    installAsrLogBuffer(window as any);
+
+    expect(typeof (window as any).__downloadAsrLog).toBe('function');
+    expect(typeof (window as any).__copyAsrLog).toBe('function');
   });
 });

@@ -41,6 +41,19 @@ const ASR_DEBUG_NOISY_LABELS = new Set([
   '[ASR threshold] (mode-side diagnostic; not driver scorer)',
 ]);
 const asrDebugLastAt = new Map<string, number>();
+const ASR_DEBUG_TEXT_PREVIEW_MAX = 96;
+
+function summarizeDebugText(value: unknown): { length: number; tokens: number; preview: string } {
+  const text = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+  const preview = text.length > ASR_DEBUG_TEXT_PREVIEW_MAX
+    ? `${text.slice(0, ASR_DEBUG_TEXT_PREVIEW_MAX)}...`
+    : text;
+  return {
+    length: text.length,
+    tokens: text ? text.split(/\s+/).filter(Boolean).length : 0,
+    preview,
+  };
+}
 
 function updateAsrDebugConfig(state: SpeechState): AsrDebugConfig {
   const snapshot: AsrDebugConfig = {
@@ -277,11 +290,14 @@ export class AsrMode {
   private emitTranscript(detail: Omit<TranscriptEvent, 'timestamp'>): void {
     if (!this.shouldEmitTx()) return;
     const currentState = getSpeechStore().get();
+    const textSummary = summarizeDebugText(detail.text);
     logAsrDebug('[ASR cfg]', { useInterimResults: currentState.interim });
     logAsrDebug('[ASR event]', {
       final: detail.final,
-      len: typeof detail.text === 'string' ? detail.text.trim().length : 0,
-      text: detail.text,
+      partial: detail.partial,
+      len: textSummary.length,
+      tokens: textSummary.tokens,
+      preview: textSummary.preview,
     });
     const now = performance.now();
     if (now - this.lastTxAt < this.TX_MIN_INTERVAL_MS && !detail.final) return; // throttle partials

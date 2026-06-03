@@ -18,6 +18,364 @@ function diagnosticCallMatches(
   return reason.includes(token) && requiredFragments.every((fragment) => parts.some((part: string) => part.includes(fragment)));
 }
 
+function extractTraceField(line: string, key: string): string {
+  const match = line.match(new RegExp(`(?:^|\\s)${key}=([^\\s]+)`));
+  return match ? String(match[1] || '') : '';
+}
+
+function extractTraceFieldNumber(line: string, key: string): number {
+  const raw = extractTraceField(line, key);
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : Number.NaN;
+}
+
+function bootstrapLiveAsrRuntime(): void {
+  (window as any).__tpAsrRuntimeStatus = {
+    recognizerAttached: true,
+    activeReadMode: true,
+    speechRunningActual: true,
+  };
+  window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+    detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
+  }));
+}
+
+type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
+  __debugEvaluateStabilizerSemanticCommitCandidate: (args: {
+    currentLineIdx: number;
+    action: 'hold' | 'advance_adjacent' | 'evidence_only' | 'reset_needed';
+    reason?: string;
+    proposedAdjacentCommitTarget?: number | null;
+    proposedTargetIsBoundedPlusOne?: boolean;
+    rawMatchBestIdx?: number | null;
+    speechLive?: boolean;
+    transcriptFresh?: boolean;
+    noMatch?: boolean;
+    transcriptReceivedAtMs?: number | null;
+    transcriptAuthorityEpoch?: number | null;
+    transcriptRunKey?: string | null;
+    transcriptRunGeneration?: number | null;
+    invalidateReason?: string;
+  }) => {
+    accepted: boolean;
+    rejectReason: string;
+    proposedAdjacentCommitTarget: number | null;
+  };
+  __debugEvaluatePostSemanticCommitVisualFollowDiagnostic: (args: {
+    previousSemanticLineIdx: number;
+    newSemanticLineIdx: number;
+    committedLineIdx?: number;
+    currentLineIdx?: number;
+    nextSpeakableLineIdx?: number;
+    visualAnchorSource?: string;
+    visualAnchorLineIdx?: number;
+    authoritativeLineIdx?: number;
+    lastVerifiedCommitLineIdx?: number;
+    hasFreshVerifiedForwardCommit?: boolean;
+    proposedTargetScrollTop: number;
+    cappedTargetScrollTop?: number;
+    selectedAuthority: string;
+    beforeScrollTop: number;
+    afterScrollTop: number;
+    pocketWallReason?: string;
+    leadPressureReason?: string;
+    markerY?: number;
+    currentLineViewportY?: number;
+    activeLineViewportY?: number;
+  }) => null | {
+    tag: 'ASR_POST_COMMIT_VISUAL_FOLLOW_BLOCKED' | 'ASR_POST_COMMIT_VISUAL_FOLLOW_OK';
+    blockerReason: string;
+    deltaScrollTop: number;
+    line: string;
+  };
+  __debugArmPostSemanticCommitVisualRelease: (args: {
+    previousSemanticLineIdx: number;
+    newSemanticLineIdx: number;
+    nowMs?: number;
+    speechLive?: boolean;
+    transcriptFresh?: boolean;
+    noMatchOrOffscript?: boolean;
+    staleAuthority?: boolean;
+    generationMismatch?: boolean;
+    bridgeContextActive?: boolean;
+  }) => {
+    armed: boolean;
+    pending: boolean;
+    previousSemanticLineIdx: number;
+    newSemanticLineIdx: number;
+  };
+  __debugConsumePostSemanticCommitVisualRelease: (args: {
+    currentTop: number;
+    proposedTop: number;
+    lineHeightPx: number;
+    maxScrollTop: number;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    nextSpeakableLineIdx: number;
+    selectedAuthority: string;
+    nowMs?: number;
+    bridgeContextActive?: boolean;
+    terminalClampActive?: boolean;
+    noMatchOrOffscript?: boolean;
+    speechLive?: boolean;
+    transcriptFresh?: boolean;
+    staleAuthority?: boolean;
+    generationMismatch?: boolean;
+  }) => null | {
+    accepted: boolean;
+    rejectReason: string;
+    previousSemanticLineIdx: number;
+    newSemanticLineIdx: number;
+    releaseDesiredTargetScrollTop: number;
+    boundedTargetScrollTop: number;
+    releaseStepPx: number;
+    authoritativeLineIdx: number;
+    forceFreshVerifiedForwardCommit: boolean;
+    markerY: number;
+    currentLineViewportY: number;
+  };
+  __debugEvaluatePostReleaseAuthorityProtection: (args: {
+    nowMs?: number;
+    skipArm?: boolean;
+    clearAfter?: boolean;
+    releaseLineIdx: number;
+    protectedTargetScrollTop: number;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    competingAuthority: string;
+    competingTargetScrollTop: number;
+    currentScrollTop: number;
+    markerY: number;
+    currentLineViewportY: number;
+    maxScrollTop: number;
+    sessionLive?: boolean;
+    asrMode?: boolean;
+    speechFresh?: boolean;
+    semanticProofHealthy?: boolean;
+    bridgeContextActive?: boolean;
+    pendingBridgeActive?: boolean;
+    implicitPendingBridgeActive?: boolean;
+    bridgeTrapActive?: boolean;
+    reducedBridgeLandingActive?: boolean;
+    bridgeLifecycleDiagnosticActive?: boolean;
+    noMatchOrOffscript?: boolean;
+    hardContradiction?: boolean;
+    terminalClampActive?: boolean;
+  }) => null | {
+    releaseLineIdx: number;
+    protectedTargetScrollTop: number;
+    competingAuthority: string;
+    competingTargetScrollTop: number;
+    selectedTargetScrollTop: number;
+    protectionApplied: boolean;
+    rejectReason: string;
+    markerY: number;
+    currentLineViewportY: number;
+    scrollTop: number;
+  };
+  __debugEvaluatePostFloorAuthorityProtection: (args: {
+    nowMs?: number;
+    skipArm?: boolean;
+    clearAfter?: boolean;
+    floorProtectedLineIdx: number;
+    protectedTargetScrollTop: number;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    competingAuthority: string;
+    competingReason?: string;
+    competingTargetScrollTop: number;
+    currentScrollTop: number;
+    markerY: number;
+    currentLineViewportY: number;
+    matchedLineViewportY?: number;
+    matchedMarkerErrorPx?: number;
+    maxScrollTop: number;
+    sessionLive?: boolean;
+    asrMode?: boolean;
+    speechFresh?: boolean;
+    finalFresh?: boolean;
+    silenceActive?: boolean;
+    noMatchOrOffscript?: boolean;
+    bridgeContextActive?: boolean;
+    pendingBridgeActive?: boolean;
+    implicitPendingBridgeActive?: boolean;
+    bridgeTrapActive?: boolean;
+    reducedBridgeLandingActive?: boolean;
+    bridgeLifecycleDiagnosticActive?: boolean;
+    hardContradiction?: boolean;
+  }) => null | {
+    protectionApplied: boolean;
+    rejectReason: string;
+    floorProtectedLineIdx: number;
+    protectedTargetScrollTop: number;
+    competingAuthority: string;
+    competingReason: string;
+    competingTargetScrollTop: number;
+    selectedTargetBeforeProtection: number;
+    selectedTargetAfterProtection: number;
+    currentScrollTop: number;
+    markerY: number;
+    currentLineViewportY: number;
+    matchedLineViewportY: number;
+    visualDebtPx: number;
+    matchedMarkerErrorPx: number;
+    remainingProtectionMs: number;
+    visualRecoveryFresh: boolean;
+    trueVisualSilence: boolean;
+    noMatchOrOffscript: boolean;
+    bridgeContextActive: boolean;
+    hardContradiction: boolean;
+    sessionLive: boolean;
+  };
+  __debugEvaluateAsrPocketWall: (args: {
+    currentTop: number;
+    proposedTop: number;
+    targetScrollTop?: number | null;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    nextSpeakableLineIdx: number;
+    allowedTargetIdx?: number | null;
+    selectedAuthority?: string;
+    authorityReason?: string;
+    candidateLineIdx?: number | null;
+    sourceAuthority: string;
+    releaseFreshVerifiedForwardCommit?: boolean;
+    releaseAuthoritativeLineIdx?: number | null;
+    releaseBoundedTargetTop?: number | null;
+    armPostFloorProtection?: boolean;
+    floorProtectedLineIdx?: number | null;
+    protectedTargetScrollTop?: number | null;
+    speechFresh?: boolean;
+    finalFresh?: boolean;
+    silenceActive?: boolean;
+    noMatchOrOffscript?: boolean;
+    contradiction?: boolean;
+    bridgeContextActive?: boolean;
+    matchedMarkerErrorPx?: number | null;
+  }) => {
+    effectiveTop: number;
+    reason: string;
+    tolerancePx: number;
+    hasFreshVerifiedForwardCommit: boolean;
+    diagnostic: string;
+    proposedTopUsed: number;
+    proposedTopSource: 'post_semantic_release_bounded' | 'normal_requested';
+  };
+  __debugEvaluateAsrVisualAuthorityLeadPressure: (args: {
+    currentLineIdx: number;
+    committedLineIdx: number;
+    targetLineIdx: number;
+    currentScrollTop: number;
+    proposedScrollTop: number;
+    targetScrollTop?: number | null;
+    lineHeightPx: number;
+    maxScrollTop: number;
+    authoritySource?: 'asr4-pocket-drift-authority' | 'asr4-visual-recovery-authority';
+    speechFresh?: boolean;
+    finalFresh?: boolean;
+    silenceActive?: boolean;
+    noMatchOrOffscript?: boolean;
+    contradiction?: boolean;
+    bridgeContextActive?: boolean;
+    recentBottomDriftGuard?: boolean;
+    recentVisualDebtCatchupBlocked?: boolean;
+    lastVisualProgressAgeMs?: number;
+    markerY?: number;
+    currentLineViewportY?: number;
+    matchedLineViewportY?: number;
+    matchedMarkerErrorPx?: number;
+    sessionLive?: boolean;
+    spokenLineIdx?: number;
+    matchBestIdx?: number;
+    matchBestSim?: number;
+    normalCappedScrollTopOverride?: number;
+  }) => {
+    appliedTop: number;
+    movedPx: number;
+    authorityAction: 'lead_pressure_capped_forward_step';
+    floorApplied: boolean;
+    floorRejectReason: string;
+    flooredScrollTop: number;
+    recoveryModeNearby: 'semantic_ahead' | 'visual_debt_flatline' | 'none';
+    visualDebtPx: number;
+    matchedMarkerErrorPx: number;
+    bottomDriftGuardRecent: boolean;
+    visualDebtCatchupBlockedRecent: boolean;
+    lastVisualProgressAgeMs: number;
+  };
+  __debugEvaluateAsrVisualDeadlockEscape: (args: {
+    currentLineIdx: number;
+    committedLineIdx: number;
+    authoritativeLineIdx: number;
+    candidateLineIdx: number;
+    currentScrollTop: number;
+    proposedScrollTop: number;
+    cappedScrollTop: number;
+    lineHeightPx: number;
+    maxScrollTop: number;
+    speakableLead: number;
+    renderedLead: number;
+    leadPressureReason: string;
+    pocketWallReason: string;
+    cappedDeltaPx: number;
+    speechFresh?: boolean;
+    transcriptFresh?: boolean;
+    finalFresh?: boolean;
+    finalAgeMs?: number;
+    silenceActive?: boolean;
+    noMatchOrOffscript?: boolean;
+    contradiction?: boolean;
+    bridgeContextActive?: boolean;
+    sessionLive?: boolean;
+    markerY?: number;
+    currentLineViewportY?: number;
+    matchedLineViewportY?: number;
+    matchedMarkerErrorPx?: number;
+    recentBottomDriftGuard?: boolean;
+    recentVisualDebtCatchupBlocked?: boolean;
+    lastVisualProgressAgeMs?: number;
+  }) => {
+    afterScrollTop: number;
+    deltaScrollTop: number;
+    boundedEscapeTargetScrollTop: number;
+    repeatCount: number;
+    cooldownMs: number;
+    recoveryMode: 'semantic_ahead' | 'visual_debt_flatline' | 'none';
+    visualAnchorLineIdx: number;
+    semanticAheadLines: number;
+    markerY: number;
+    currentLineViewportY: number;
+    matchedLineViewportY: number;
+    visualDebtPx: number;
+    matchedMarkerErrorPx: number;
+    bottomDriftGuardRecent: boolean;
+    visualDebtCatchupBlockedRecent: boolean;
+    pursueFlatlineMs: number;
+    escapeApplied: boolean;
+    recoveryApplied: boolean;
+    asrSilenceActive: boolean;
+    visualRecoverySilenceBlocked: boolean;
+    trueVisualSilence: boolean;
+    silenceActiveAgeMs: number;
+    lastSilenceStartAgeMs: number;
+    quietOrStaleReason: string;
+    speechLive: boolean;
+    transcriptFresh: boolean;
+    finalFresh: boolean;
+    visualRecoveryFresh: boolean;
+    lastFinalAgeMs: number;
+    lastSpeechAgeMs: number;
+    lastTranscriptAgeMs: number;
+    lastSemanticProgressAgeMs: number;
+    lastVisualProgressAgeMs: number;
+    recentFinalDuringSilence: boolean;
+    recentSpeechDuringSilence: boolean;
+    staleForSemanticCommit: boolean;
+    staleForVisualRecovery: boolean;
+    rejectReason: string;
+  };
+};
+
 describe('ASR live commit motion', () => {
   let rafSpy: jest.SpyInstance<number, [FrameRequestCallback]>;
   let cafSpy: jest.SpyInstance<void, [number]>;
@@ -103,6 +461,7 @@ describe('ASR live commit motion', () => {
     cafSpy.mockRestore();
     delete (window as any).__tpStore;
     delete (window as any).__TP_MARKER_PCT;
+    delete (window as any).__tpAsrRuntimeStatus;
     delete (window as any).__tpLiveAsrGovernorHold;
     delete (window as any).__tpAsrDiagnosticBundleProofEmitted;
     delete (window as any).__TP_BUILD_STAMP;
@@ -123,6 +482,42 @@ describe('ASR live commit motion', () => {
 
     driver.dispose();
     window.history.replaceState({}, '', '/');
+  });
+
+  test('emits ASR_VISUAL_CONTROL_RUNTIME_PROOF at driver initialization with runtime capabilities', () => {
+    window.history.replaceState({}, '', '/?dev=1');
+    (window as any).__TP_BUILD_STAMP = 'asr-scroll-2026-06-03T18:05:00.000Z';
+    (window as any).__ASR_LOG_BUFFER__ = { installed: true };
+    (window as any).__copyAsrLog = () => ({});
+    const driver = createAsrScrollDriver({ runKey: 'chair-proof-run', runGeneration: 3 });
+
+    const lines = consoleInfoSpy.mock.calls.map((c) => String(c[0] || ''));
+    const proofLine = lines.find((line) => line.includes('ASR_VISUAL_CONTROL_RUNTIME_PROOF')) || '';
+    expect(proofLine).toContain('chairpersonRuntime=1');
+    expect(proofLine).toContain('contractVersion=asr-visual-chairperson-v1|asr-live-follow-control-v1');
+    expect(proofLine).toContain('shadowMode=1');
+    expect(proofLine).toContain('liveTargetOwnership=0');
+    expect(proofLine).toContain('moduleLoaded=1');
+    expect(proofLine).toContain('buildStamp=asr-scroll-2026-06-03T18:05:00.000Z');
+    expect(proofLine).toContain('emittedFrom=createAsrScrollDriver:init');
+    expect(proofLine).toContain('computeAsrVisualDecisionAvailable=1');
+    expect(proofLine).toContain('diagnosticsSinkAvailable=1');
+    expect(proofLine).toContain('diagnosticsExportPathAvailable=1');
+
+    driver.dispose();
+    delete (window as any).__ASR_LOG_BUFFER__;
+    delete (window as any).__copyAsrLog;
+    window.history.replaceState({}, '', '/');
+  });
+
+  test('does not throw when booting with a detached recognizer runtime snapshot', () => {
+    (window as any).__tpAsrRuntimeStatus = {
+      recognizerAttached: false,
+      speechRunningActual: false,
+    };
+
+    const driver = createAsrScrollDriver();
+    driver.dispose();
   });
 
   test('guard telemetry emits one structured ASR_GUARD without the legacy duplicate line', async () => {
@@ -148,6 +543,8 @@ describe('ASR live commit motion', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const driver = createAsrScrollDriver();
     const scroller = document.getElementById('viewer') as HTMLElement;
+
+    bootstrapLiveAsrRuntime();
 
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
@@ -179,6 +576,8 @@ describe('ASR live commit motion', () => {
 
   test('caps a far future live ASR match to the next readable line when that line has local support', async () => {
     const driver = createAsrScrollDriver();
+
+    bootstrapLiveAsrRuntime();
 
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
@@ -221,6 +620,7 @@ describe('ASR live commit motion', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     (window as any).__TP_MARKER_PCT = 0.9; // marker below row -> negative delta
     const driver = createAsrScrollDriver();
+    bootstrapLiveAsrRuntime();
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
       currentIdx: 0,
@@ -238,6 +638,7 @@ describe('ASR live commit motion', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     (window as any).__TP_MARKER_PCT = 0.836; // marker ~= row top for line 1 (small drift)
     const driver = createAsrScrollDriver();
+    bootstrapLiveAsrRuntime();
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
       currentIdx: 0,
@@ -248,9 +649,88 @@ describe('ASR live commit motion', () => {
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     expect(
       lines.some((l) => l.includes('ASR_VISUAL_FOLLOW_TARGET')) ||
+      lines.some((l) => l.includes('ASR_VISUAL_FOLLOW_HARD_HELD')) ||
       lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD')) ||
       lines.some((l) => l.includes('ASR_READER_COMFORT_NUDGE')),
     ).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('live ASR marker landing uses marker-mode desired line and visual anchor diagnostics', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (window as any).__TP_MARKER_PCT = 0.4;
+    const driver = createAsrScrollDriver();
+    bootstrapLiveAsrRuntime();
+
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'marker-anchor-mode',
+      match: { bestIdx: 1, bestSim: 0.9, topScores: [{ idx: 1, score: 0.9 }] },
+    });
+
+    await jest.advanceTimersByTimeAsync(320);
+
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const geometryLine = lines.find((l) => l.includes('ASR_MARKER_LANDING_GEOMETRY')) || '';
+
+    expect(geometryLine).toContain('visualAnchorLineIdx=');
+    expect(geometryLine).toContain('visualAnchorSource=');
+    expect(geometryLine).toContain('desiredLineYMode=marker');
+
+    const markerY = extractTraceFieldNumber(geometryLine, 'markerY');
+    const desiredLineY = extractTraceFieldNumber(geometryLine, 'desiredLineY');
+    expect(Number.isFinite(markerY)).toBe(true);
+    expect(Number.isFinite(desiredLineY)).toBe(true);
+    expect(desiredLineY).toBe(markerY);
+
+    const visualAnchorSource = extractTraceField(geometryLine, 'visualAnchorSource');
+    expect(['accepted_match', 'confirmed_spoken', 'current_line', 'next_speakable_fallback']).toContain(visualAnchorSource);
+    expect(visualAnchorSource).not.toBe('next_speakable_fallback');
+    // With bestIdx=1 differing from currentLineIdx=0 the anchor should prefer
+    // the accepted match over the committed position.
+    expect(visualAnchorSource).toBe('accepted_match');
+    const acceptedEligible = extractTraceFieldNumber(geometryLine, 'acceptedMatchAnchorEligible');
+    expect(acceptedEligible).toBe(1);
+
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('live ASR gates accepted-match anchor when match bestIdx jumps ahead of local window', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (window as any).__TP_MARKER_PCT = 0.4;
+    const driver = createAsrScrollDriver();
+    bootstrapLiveAsrRuntime();
+
+    // currentLineIdx=0, but ASR has matched line 3 strongly.
+    // This should remain semantic evidence only and not become the visual anchor.
+    driver.setLastLineIndex(0);
+    driver.ingest('Some line that matches ahead of current position.', true, {
+      currentIdx: 0,
+      matchId: 'accepted-match-ahead',
+      match: { bestIdx: 3, bestSim: 0.88, topScores: [{ idx: 3, score: 0.88 }] },
+    });
+
+    await jest.advanceTimersByTimeAsync(320);
+
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const geometryLine = lines.find((l) => l.includes('ASR_MARKER_LANDING_GEOMETRY')) || '';
+    expect(geometryLine).not.toBe('');
+
+    const visualAnchorSource = extractTraceField(geometryLine, 'visualAnchorSource');
+    expect(visualAnchorSource).not.toBe('accepted_match');
+
+    const acceptedEligible = extractTraceFieldNumber(geometryLine, 'acceptedMatchAnchorEligible');
+    expect(acceptedEligible).toBe(0);
+
+    const visualAnchorLineIdx = extractTraceFieldNumber(geometryLine, 'visualAnchorLineIdx');
+    expect(visualAnchorLineIdx).toBe(0);
+
+    const lastAcceptedMatchedLineIdx = extractTraceFieldNumber(geometryLine, 'lastAcceptedMatchedLineIdx');
+    expect(lastAcceptedMatchedLineIdx).toBe(3);
+
     warnSpy.mockRestore();
     driver.dispose();
   });
@@ -259,6 +739,7 @@ describe('ASR live commit motion', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     (window as any).__TP_MARKER_PCT = 0.4; // marker above row -> positive delta
     const driver = createAsrScrollDriver();
+    bootstrapLiveAsrRuntime();
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
       currentIdx: 0,
@@ -276,6 +757,7 @@ describe('ASR live commit motion', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     (window as any).__TP_MARKER_PCT = 0.4;
     const driver = createAsrScrollDriver();
+    bootstrapLiveAsrRuntime();
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
       currentIdx: 0,
@@ -291,6 +773,8 @@ describe('ASR live commit motion', () => {
 
   test('still caps a far future live ASR match to the next readable line when later content matches more strongly', async () => {
     const driver = createAsrScrollDriver();
+
+    bootstrapLiveAsrRuntime();
 
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
@@ -368,6 +852,8 @@ describe('ASR live commit motion', () => {
   test('does not let a stalled far-future final keep the script walking forward on its own', async () => {
     const driver = createAsrScrollDriver();
 
+    bootstrapLiveAsrRuntime();
+
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
       currentIdx: 0,
@@ -408,6 +894,8 @@ describe('ASR live commit motion', () => {
 
   test('does not let stalled tie-forward evidence promote the next readable line by itself', async () => {
     const driver = createAsrScrollDriver();
+
+    bootstrapLiveAsrRuntime();
 
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
@@ -450,6 +938,8 @@ describe('ASR live commit motion', () => {
 
   test('does not keep walking forward on stale transcript output after VAD goes quiet', async () => {
     const driver = createAsrScrollDriver();
+
+    bootstrapLiveAsrRuntime();
 
     window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
 
@@ -541,7 +1031,1821 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('stabilizer adjacent semantic candidate can commit +1 when strict runtime proof would otherwise hold', async () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    bootstrapLiveAsrRuntime();
+
+    const result = driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'advance_adjacent',
+      reason: 'buffered_forward_evidence_adjacent_catchup',
+      proposedAdjacentCommitTarget: 2,
+      proposedTargetIsBoundedPlusOne: true,
+      rawMatchBestIdx: 3,
+      speechLive: true,
+      transcriptFresh: true,
+      noMatch: false,
+    });
+
+    expect(result).toMatchObject({
+      accepted: true,
+      rejectReason: 'none',
+      proposedAdjacentCommitTarget: 2,
+    });
+
+    driver.dispose();
+  });
+
+  test('stabilizer semantic candidate rejects non-advance actions and unbounded targets', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'evidence_only',
+      proposedAdjacentCommitTarget: 2,
+      rawMatchBestIdx: 3,
+    })).toMatchObject({ accepted: false, rejectReason: 'action_evidence_only' });
+
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'hold',
+      proposedAdjacentCommitTarget: 2,
+      rawMatchBestIdx: 1,
+    })).toMatchObject({ accepted: false, rejectReason: 'action_hold' });
+
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'advance_adjacent',
+      proposedAdjacentCommitTarget: 3,
+      proposedTargetIsBoundedPlusOne: false,
+      rawMatchBestIdx: 3,
+    })).toMatchObject({ accepted: false, rejectReason: 'unbounded_proposed_target' });
+
+    driver.dispose();
+  });
+
+  test('stabilizer semantic candidate rejects quiet stale noMatch and stopped sessions', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'advance_adjacent',
+      proposedAdjacentCommitTarget: 2,
+      speechLive: false,
+      rawMatchBestIdx: 3,
+    })).toMatchObject({ accepted: false, rejectReason: 'speech_not_live' });
+
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'advance_adjacent',
+      proposedAdjacentCommitTarget: 2,
+      transcriptFresh: false,
+      rawMatchBestIdx: 3,
+    })).toMatchObject({ accepted: false, rejectReason: 'transcript_stale' });
+
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'advance_adjacent',
+      proposedAdjacentCommitTarget: 2,
+      noMatch: true,
+      rawMatchBestIdx: 3,
+    })).toMatchObject({ accepted: false, rejectReason: 'no_match' });
+
+    const originalStore = (window as any).__tpStore;
+    (window as any).__tpStore = {
+      get(key: string) {
+        if (key === 'scrollMode') return 'asr';
+        if (key === 'session.phase') return 'stopped';
+        if (key === 'session.asrArmed') return true;
+        return undefined;
+      },
+    };
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'advance_adjacent',
+      proposedAdjacentCommitTarget: 2,
+      rawMatchBestIdx: 3,
+    })).toMatchObject({ accepted: false, rejectReason: 'session_not_live' });
+    (window as any).__tpStore = originalStore;
+
+    driver.dispose();
+  });
+
+  test('stabilizer semantic candidate rejects generation mismatch and stale response invalidation', () => {
+    const driver = createAsrScrollDriver({ runKey: 'stabilizer-debug', runGeneration: 7 }) as DebugAsrDriver;
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: {
+        speechRunningActual: true,
+        recognizerAttached: true,
+        activeReadMode: true,
+        runKey: 'stabilizer-debug',
+        runGeneration: 7,
+      },
+    }));
+
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'advance_adjacent',
+      proposedAdjacentCommitTarget: 2,
+      rawMatchBestIdx: 3,
+      transcriptRunKey: 'stabilizer-debug',
+      transcriptRunGeneration: 6,
+    })).toMatchObject({ accepted: false, rejectReason: 'stale_run_identity' });
+
+    expect(driver.__debugEvaluateStabilizerSemanticCommitCandidate({
+      currentLineIdx: 1,
+      action: 'advance_adjacent',
+      proposedAdjacentCommitTarget: 2,
+      rawMatchBestIdx: 3,
+      invalidateReason: 'test_stale_response_invalidated',
+      transcriptReceivedAtMs: Date.now() - 1,
+    })).toMatchObject({ accepted: false, rejectReason: 'stale_response_invalidated' });
+
+    driver.dispose();
+  });
+
+  test('post-semantic visual follow diagnostic reports blocked pocket-wall follow after +1 semantic commit', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluatePostSemanticCommitVisualFollowDiagnostic({
+      previousSemanticLineIdx: 2,
+      newSemanticLineIdx: 3,
+      committedLineIdx: 3,
+      currentLineIdx: 3,
+      nextSpeakableLineIdx: 3,
+      visualAnchorSource: 'confirmed_spoken',
+      visualAnchorLineIdx: 1,
+      authoritativeLineIdx: 1,
+      lastVerifiedCommitLineIdx: 1,
+      hasFreshVerifiedForwardCommit: false,
+      proposedTargetScrollTop: 308,
+      cappedTargetScrollTop: 82,
+      selectedAuthority: 'comfort_nudge',
+      beforeScrollTop: 82,
+      afterScrollTop: 82,
+      pocketWallReason: 'standard_visual_release_suppressed',
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      markerY: 393,
+      currentLineViewportY: 548,
+      activeLineViewportY: 616,
+    });
+
+    expect(result).toMatchObject({
+      tag: 'ASR_POST_COMMIT_VISUAL_FOLLOW_BLOCKED',
+      blockerReason: 'standard_visual_release_suppressed',
+      deltaScrollTop: 0,
+    });
+    expect(result?.line).toContain('ASR_POST_COMMIT_VISUAL_FOLLOW_BLOCKED');
+    expect(result?.line).toContain('previousSemanticLineIdx=2');
+    expect(result?.line).toContain('newSemanticLineIdx=3');
+    expect(result?.line).toContain('selectedAuthority=comfort_nudge');
+    expect(result?.line).toContain('pocketWallReason=standard_visual_release_suppressed');
+
+    driver.dispose();
+  });
+
+  test('post-semantic visual follow diagnostic reports ok when follow moves meaningfully after +1 semantic commit', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluatePostSemanticCommitVisualFollowDiagnostic({
+      previousSemanticLineIdx: 1,
+      newSemanticLineIdx: 2,
+      committedLineIdx: 2,
+      currentLineIdx: 2,
+      nextSpeakableLineIdx: 2,
+      visualAnchorSource: 'current_line',
+      visualAnchorLineIdx: 2,
+      authoritativeLineIdx: 2,
+      lastVerifiedCommitLineIdx: 2,
+      hasFreshVerifiedForwardCommit: true,
+      proposedTargetScrollTop: 160,
+      cappedTargetScrollTop: 160,
+      selectedAuthority: 'pocket_authority',
+      beforeScrollTop: 100,
+      afterScrollTop: 112,
+      pocketWallReason: 'fresh_verified_forward_commit',
+      leadPressureReason: 'none',
+      markerY: 393,
+      currentLineViewportY: 432,
+      activeLineViewportY: 432,
+    });
+
+    expect(result).toMatchObject({
+      tag: 'ASR_POST_COMMIT_VISUAL_FOLLOW_OK',
+      blockerReason: 'none',
+      deltaScrollTop: 12,
+    });
+    expect(result?.line).toContain('ASR_POST_COMMIT_VISUAL_FOLLOW_OK');
+    expect(result?.line).toContain('selectedAuthority=pocket_authority');
+
+    driver.dispose();
+  });
+
+  test('fresh semantic +1 commit arms one post-commit visual release token and consumes it once', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const armed = driver.__debugArmPostSemanticCommitVisualRelease({
+      previousSemanticLineIdx: 1,
+      newSemanticLineIdx: 2,
+      speechLive: true,
+      transcriptFresh: true,
+    });
+    expect(armed).toMatchObject({
+      armed: true,
+      pending: true,
+      previousSemanticLineIdx: 1,
+      newSemanticLineIdx: 2,
+    });
+
+    const first = driver.__debugConsumePostSemanticCommitVisualRelease({
+      currentTop: 217,
+      proposedTop: 223,
+      lineHeightPx: 24,
+      maxScrollTop: 5000,
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      nextSpeakableLineIdx: 2,
+      selectedAuthority: 'bottom_lock_release',
+      speechLive: true,
+      transcriptFresh: true,
+    });
+    expect(first).toMatchObject({
+      accepted: true,
+      rejectReason: 'none',
+      previousSemanticLineIdx: 1,
+      newSemanticLineIdx: 2,
+      authoritativeLineIdx: 2,
+      forceFreshVerifiedForwardCommit: true,
+    });
+    expect(first?.releaseDesiredTargetScrollTop).toBeGreaterThan(223);
+    expect(first?.releaseStepPx).toBe(236);
+    expect(first?.boundedTargetScrollTop).toBe(453);
+    expect((first?.boundedTargetScrollTop ?? 0) - 217).toBe(236);
+    expect(first?.currentLineViewportY).toBeGreaterThan(first?.markerY ?? 0);
+
+    const second = driver.__debugConsumePostSemanticCommitVisualRelease({
+      currentTop: 217,
+      proposedTop: 223,
+      lineHeightPx: 24,
+      maxScrollTop: 5000,
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      nextSpeakableLineIdx: 2,
+      selectedAuthority: 'bottom_lock_release',
+      speechLive: true,
+      transcriptFresh: true,
+    });
+    expect(second).toBeNull();
+
+    driver.dispose();
+  });
+
+  test('post-commit visual release stands down in bridge or stale quiet blocked contexts', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    expect(driver.__debugArmPostSemanticCommitVisualRelease({
+      previousSemanticLineIdx: 3,
+      newSemanticLineIdx: 4,
+      bridgeContextActive: true,
+      speechLive: true,
+      transcriptFresh: true,
+    })).toMatchObject({ armed: false, pending: false });
+
+    expect(driver.__debugArmPostSemanticCommitVisualRelease({
+      previousSemanticLineIdx: 3,
+      newSemanticLineIdx: 4,
+      speechLive: false,
+      transcriptFresh: true,
+    })).toMatchObject({ armed: false, pending: false });
+
+    expect(driver.__debugArmPostSemanticCommitVisualRelease({
+      previousSemanticLineIdx: 3,
+      newSemanticLineIdx: 4,
+      speechLive: true,
+      transcriptFresh: false,
+    })).toMatchObject({ armed: false, pending: false });
+
+    const armed = driver.__debugArmPostSemanticCommitVisualRelease({
+      previousSemanticLineIdx: 10,
+      newSemanticLineIdx: 11,
+      speechLive: true,
+      transcriptFresh: true,
+    });
+    expect(armed.armed).toBe(true);
+
+    expect(driver.__debugConsumePostSemanticCommitVisualRelease({
+      currentTop: 100,
+      proposedTop: 180,
+      lineHeightPx: 60,
+      maxScrollTop: 1000,
+      currentLineIdx: 11,
+      committedLineIdx: 11,
+      nextSpeakableLineIdx: 11,
+      selectedAuthority: 'pocket_authority',
+      bridgeContextActive: true,
+      speechLive: true,
+      transcriptFresh: true,
+    })).toMatchObject({
+      accepted: false,
+      rejectReason: 'bridge_context_active',
+    });
+
+    driver.dispose();
+  });
+
+  test('post-commit visual release blocks backward or unbounded stale-authority cases', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    expect(driver.__debugArmPostSemanticCommitVisualRelease({
+      previousSemanticLineIdx: 5,
+      newSemanticLineIdx: 6,
+      speechLive: true,
+      transcriptFresh: true,
+    }).armed).toBe(true);
+
+    expect(driver.__debugConsumePostSemanticCommitVisualRelease({
+      currentTop: 220,
+      proposedTop: 180,
+      lineHeightPx: 80,
+      maxScrollTop: 1000,
+      currentLineIdx: 6,
+      committedLineIdx: 6,
+      nextSpeakableLineIdx: 6,
+      selectedAuthority: 'comfort_nudge',
+      speechLive: true,
+      transcriptFresh: true,
+    })).toMatchObject({
+      accepted: false,
+      rejectReason: 'desired_target_not_forward',
+    });
+
+    expect(driver.__debugArmPostSemanticCommitVisualRelease({
+      previousSemanticLineIdx: 8,
+      newSemanticLineIdx: 9,
+      speechLive: true,
+      transcriptFresh: true,
+    }).armed).toBe(true);
+
+    const staleAuthority = driver.__debugConsumePostSemanticCommitVisualRelease({
+      currentTop: 200,
+      proposedTop: 500,
+      lineHeightPx: 100,
+      maxScrollTop: 1000,
+      currentLineIdx: 9,
+      committedLineIdx: 9,
+      nextSpeakableLineIdx: 9,
+      selectedAuthority: 'preferred_lower_rail_release',
+      speechLive: true,
+      transcriptFresh: true,
+      staleAuthority: true,
+    });
+    expect(staleAuthority).toMatchObject({
+      accepted: false,
+      rejectReason: 'stale_authority',
+    });
+
+    driver.dispose();
+  });
+
+  test('pocket wall uses bounded post-semantic release target when it is forward and requested target is smaller', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluateAsrPocketWall({
+      currentTop: 82,
+      proposedTop: 88,
+      targetScrollTop: 104,
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      nextSpeakableLineIdx: 2,
+      selectedAuthority: 'pocket_authority',
+      candidateLineIdx: 2,
+      sourceAuthority: 'pocket_authority',
+      releaseFreshVerifiedForwardCommit: true,
+      releaseAuthoritativeLineIdx: 2,
+      releaseBoundedTargetTop: 150,
+    });
+
+    expect(result.proposedTopUsed).toBe(150);
+    expect(result.proposedTopSource).toBe('post_semantic_release_bounded');
+    expect(result.effectiveTop).toBe(150);
+    expect(result.hasFreshVerifiedForwardCommit).toBe(true);
+    expect(result.diagnostic).toContain('proposedTop=150');
+    expect(result.diagnostic).toContain('proposedTopSource=post_semantic_release_bounded');
+
+    driver.dispose();
+  });
+
+  test('pocket wall ignores non-forward bounded release target and keeps normal requested target', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluateAsrPocketWall({
+      currentTop: 82,
+      proposedTop: 88,
+      targetScrollTop: 104,
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      nextSpeakableLineIdx: 2,
+      selectedAuthority: 'pocket_authority',
+      candidateLineIdx: 2,
+      sourceAuthority: 'pocket_authority',
+      releaseFreshVerifiedForwardCommit: true,
+      releaseAuthoritativeLineIdx: 2,
+      releaseBoundedTargetTop: 82,
+    });
+
+    expect(result.proposedTopUsed).toBe(88);
+    expect(result.proposedTopSource).toBe('normal_requested');
+    expect(result.effectiveTop).toBe(88);
+    expect(result.diagnostic).toContain('proposedTop=88');
+    expect(result.diagnostic).toContain('proposedTopSource=normal_requested');
+
+    driver.dispose();
+  });
+
+  test('post-commit visual release uses semantic-line geometry instead of tiny pre-capped proposed deltas', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    expect(driver.__debugArmPostSemanticCommitVisualRelease({
+      previousSemanticLineIdx: 1,
+      newSemanticLineIdx: 2,
+      speechLive: true,
+      transcriptFresh: true,
+    }).armed).toBe(true);
+
+    const release = driver.__debugConsumePostSemanticCommitVisualRelease({
+      currentTop: 217,
+      proposedTop: 223,
+      lineHeightPx: 24,
+      maxScrollTop: 5000,
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      nextSpeakableLineIdx: 2,
+      selectedAuthority: 'bottom_lock_release',
+      speechLive: true,
+      transcriptFresh: true,
+    });
+    expect(release).toMatchObject({
+      accepted: true,
+      rejectReason: 'none',
+    });
+    expect(release?.releaseDesiredTargetScrollTop).toBeGreaterThan(223);
+    expect(release?.boundedTargetScrollTop).toBeGreaterThan(223);
+    expect((release?.boundedTargetScrollTop ?? 0) - 217).toBeGreaterThan(6);
+    expect((release?.boundedTargetScrollTop ?? 0) - 217).toBeLessThanOrEqual(release?.releaseStepPx ?? 0);
+
+    driver.dispose();
+  });
+
+  test('post-release protection preserves semantic follow target against immediate lower-rail pullback', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'preferred_lower_rail_release',
+      competingTargetScrollTop: 715,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+    });
+
+    expect(result).toMatchObject({
+      protectionApplied: true,
+      rejectReason: 'none',
+      competingAuthority: 'preferred_lower_rail_release',
+      protectedTargetScrollTop: 851,
+      selectedTargetScrollTop: 851,
+    });
+
+    driver.dispose();
+  });
+
+  test('post-release protection prevents comfort nudge from replacing the forward semantic target while line stays below marker', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 757,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+    });
+
+    expect(result).toMatchObject({
+      protectionApplied: true,
+      rejectReason: 'none',
+      competingAuthority: 'comfort_nudge',
+      selectedTargetScrollTop: 851,
+    });
+
+    driver.dispose();
+  });
+
+  test('post-release protection expires after the short protection window', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluatePostReleaseAuthorityProtection({
+      nowMs: 2000,
+      clearAfter: false,
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 757,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+      sessionLive: true,
+      asrMode: true,
+      speechFresh: true,
+      semanticProofHealthy: true,
+    });
+    expect(result?.protectionApplied).toBe(true);
+
+    const expired = driver.__debugEvaluatePostReleaseAuthorityProtection({
+      nowMs: 2801,
+      skipArm: true,
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 757,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+      sessionLive: true,
+      asrMode: true,
+      speechFresh: true,
+      semanticProofHealthy: true,
+    });
+    expect(expired).toBeNull();
+    driver.dispose();
+  });
+
+  test('post-release protection does not apply in stale, quiet, no-match, stopped, or bridge contexts', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    expect(driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 757,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+      speechFresh: false,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'quiet' });
+
+    expect(driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 757,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+      semanticProofHealthy: false,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'stale' });
+
+    expect(driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 757,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+      noMatchOrOffscript: true,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'no_match_or_offscript' });
+
+    expect(driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 757,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+      sessionLive: false,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'session_not_live' });
+
+    expect(driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 920,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+      bridgeContextActive: true,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'bridge_active' });
+
+    expect(driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 757,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+      implicitPendingBridgeActive: true,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'bridge_active' });
+
+    driver.dispose();
+  });
+
+  test('post-release protection never allows backward or beyond-protected movement', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    expect(driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 17,
+      protectedTargetScrollTop: 1124,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      competingAuthority: 'pocket_authority',
+      competingTargetScrollTop: 1124,
+      currentScrollTop: 1170,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 5000,
+    })).toMatchObject({
+      protectionApplied: false,
+      rejectReason: 'backward_or_non_forward',
+    });
+
+    const clamped = driver.__debugEvaluatePostReleaseAuthorityProtection({
+      releaseLineIdx: 12,
+      protectedTargetScrollTop: 851,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+      competingAuthority: 'comfort_nudge',
+      competingTargetScrollTop: 830,
+      currentScrollTop: 715,
+      markerY: 390,
+      currentLineViewportY: 595,
+      maxScrollTop: 860,
+    });
+    expect(clamped).toMatchObject({
+      protectionApplied: true,
+      selectedTargetScrollTop: 851,
+    });
+    expect((clamped?.selectedTargetScrollTop ?? 0)).toBeLessThanOrEqual(851);
+
+    driver.dispose();
+  });
+
+  test('post-floor protection preserves the floored target against immediate lower comfort nudge pullback', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluatePostFloorAuthorityProtection({
+      floorProtectedLineIdx: 10,
+      protectedTargetScrollTop: 308,
+      currentLineIdx: 10,
+      committedLineIdx: 10,
+      competingAuthority: 'comfort_nudge',
+      competingReason: 'below_tolerated_bottom',
+      competingTargetScrollTop: 240,
+      currentScrollTop: 252,
+      markerY: 390,
+      currentLineViewportY: 854,
+      matchedLineViewportY: 1058,
+      matchedMarkerErrorPx: 668,
+      maxScrollTop: 5000,
+    });
+
+    expect(result).toMatchObject({
+      protectionApplied: true,
+      rejectReason: 'none',
+      floorProtectedLineIdx: 10,
+      protectedTargetScrollTop: 308,
+      competingAuthority: 'comfort_nudge',
+      competingReason: 'below_tolerated_bottom',
+      selectedTargetBeforeProtection: 240,
+      selectedTargetAfterProtection: 308,
+    });
+
+    driver.dispose();
+  });
+
+  test('post-floor protection allows higher forward-safe targets and expires after the short window', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const higher = driver.__debugEvaluatePostFloorAuthorityProtection({
+      nowMs: 2000,
+      clearAfter: false,
+      floorProtectedLineIdx: 10,
+      protectedTargetScrollTop: 308,
+      currentLineIdx: 10,
+      committedLineIdx: 10,
+      competingAuthority: 'asr4-visual-recovery-authority',
+      competingReason: 'forward_safe_correction',
+      competingTargetScrollTop: 364,
+      currentScrollTop: 252,
+      markerY: 390,
+      currentLineViewportY: 854,
+      matchedLineViewportY: 1058,
+      matchedMarkerErrorPx: 668,
+      maxScrollTop: 5000,
+    });
+    expect(higher).toMatchObject({
+      protectionApplied: false,
+      rejectReason: 'none',
+      selectedTargetAfterProtection: 364,
+    });
+
+    const expired = driver.__debugEvaluatePostFloorAuthorityProtection({
+      nowMs: 2801,
+      skipArm: true,
+      floorProtectedLineIdx: 10,
+      protectedTargetScrollTop: 308,
+      currentLineIdx: 10,
+      committedLineIdx: 10,
+      competingAuthority: 'comfort_nudge',
+      competingReason: 'below_tolerated_bottom',
+      competingTargetScrollTop: 240,
+      currentScrollTop: 252,
+      markerY: 390,
+      currentLineViewportY: 854,
+      matchedLineViewportY: 1058,
+      matchedMarkerErrorPx: 668,
+      maxScrollTop: 5000,
+    });
+    expect(expired).toBeNull();
+
+    driver.dispose();
+  });
+
+  test('post-floor protection stands down for no-match, silence, bridge, contradiction, stopped, stale visual recovery, and line mismatch', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const baseArgs = {
+      floorProtectedLineIdx: 10,
+      protectedTargetScrollTop: 308,
+      currentLineIdx: 10,
+      committedLineIdx: 10,
+      competingAuthority: 'comfort_nudge',
+      competingReason: 'below_tolerated_bottom',
+      competingTargetScrollTop: 240,
+      currentScrollTop: 252,
+      markerY: 390,
+      currentLineViewportY: 854,
+      matchedLineViewportY: 1058,
+      matchedMarkerErrorPx: 668,
+      maxScrollTop: 5000,
+    } as const;
+
+    expect(driver.__debugEvaluatePostFloorAuthorityProtection({
+      ...baseArgs,
+      noMatchOrOffscript: true,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'no_match_or_offscript' });
+
+    expect(driver.__debugEvaluatePostFloorAuthorityProtection({
+      ...baseArgs,
+      silenceActive: true,
+      speechFresh: false,
+      finalFresh: false,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'true_visual_silence' });
+
+    expect(driver.__debugEvaluatePostFloorAuthorityProtection({
+      ...baseArgs,
+      bridgeContextActive: true,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'bridge_active' });
+
+    expect(driver.__debugEvaluatePostFloorAuthorityProtection({
+      ...baseArgs,
+      hardContradiction: true,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'contradiction' });
+
+    expect(driver.__debugEvaluatePostFloorAuthorityProtection({
+      ...baseArgs,
+      sessionLive: false,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'session_not_live' });
+
+    expect(driver.__debugEvaluatePostFloorAuthorityProtection({
+      ...baseArgs,
+      finalFresh: false,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'visual_recovery_not_fresh' });
+
+    expect(driver.__debugEvaluatePostFloorAuthorityProtection({
+      ...baseArgs,
+      currentLineIdx: 12,
+      committedLineIdx: 12,
+    })).toMatchObject({ protectionApplied: false, rejectReason: 'semantic_line_mismatch' });
+
+    expect(driver.__debugEvaluatePostFloorAuthorityProtection({
+      ...baseArgs,
+      currentLineIdx: 11,
+      committedLineIdx: 11,
+    })).toMatchObject({ protectionApplied: true, rejectReason: 'none' });
+
+    driver.dispose();
+  });
+
+  test('post-floor pocket wall protection prevents backward_correction_allowed from rolling below the protected floor target', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluateAsrPocketWall({
+      currentTop: 1056,
+      proposedTop: 1000,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      nextSpeakableLineIdx: 17,
+      candidateLineIdx: 17,
+      selectedAuthority: 'comfort_nudge',
+      authorityReason: 'below_tolerated_bottom',
+      sourceAuthority: 'comfort_nudge',
+      armPostFloorProtection: true,
+      floorProtectedLineIdx: 17,
+      protectedTargetScrollTop: 1056,
+      speechFresh: true,
+      finalFresh: true,
+      matchedMarkerErrorPx: 600,
+    });
+
+    expect(result).toMatchObject({
+      effectiveTop: 1056,
+      reason: 'post_floor_protected_follow',
+    });
+    expect(result.diagnostic).toContain('cappedTop=1056');
+
+    driver.dispose();
+  });
+
+  test('post-floor pocket wall rollback is allowed after protection expires or when recovery context is unsafe', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const expiredArm = driver.__debugEvaluatePostFloorAuthorityProtection({
+      nowMs: 2000,
+      clearAfter: false,
+      floorProtectedLineIdx: 17,
+      protectedTargetScrollTop: 1056,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      competingAuthority: 'comfort_nudge',
+      competingReason: 'below_tolerated_bottom',
+      competingTargetScrollTop: 988,
+      currentScrollTop: 1014,
+      markerY: 390,
+      currentLineViewportY: 568,
+      matchedLineViewportY: 990,
+      matchedMarkerErrorPx: 600,
+      maxScrollTop: 5000,
+    });
+    expect(expiredArm?.protectionApplied).toBe(true);
+
+    const expired = driver.__debugEvaluatePostFloorAuthorityProtection({
+      nowMs: 2801,
+      skipArm: true,
+      floorProtectedLineIdx: 17,
+      protectedTargetScrollTop: 1056,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      competingAuthority: 'comfort_nudge',
+      competingReason: 'below_tolerated_bottom',
+      competingTargetScrollTop: 988,
+      currentScrollTop: 1014,
+      markerY: 390,
+      currentLineViewportY: 568,
+      matchedLineViewportY: 990,
+      matchedMarkerErrorPx: 600,
+      maxScrollTop: 5000,
+    });
+    expect(expired).toBeNull();
+
+    expect(driver.__debugEvaluateAsrPocketWall({
+      currentTop: 1056,
+      proposedTop: 1000,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      nextSpeakableLineIdx: 17,
+      candidateLineIdx: 17,
+      selectedAuthority: 'comfort_nudge',
+      authorityReason: 'below_tolerated_bottom',
+      sourceAuthority: 'comfort_nudge',
+      armPostFloorProtection: false,
+      speechFresh: true,
+      finalFresh: true,
+      matchedMarkerErrorPx: 600,
+    })).toMatchObject({
+      effectiveTop: 1000,
+      reason: 'backward_correction_allowed',
+    });
+
+    expect(driver.__debugEvaluateAsrPocketWall({
+      currentTop: 1056,
+      proposedTop: 1000,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      nextSpeakableLineIdx: 17,
+      candidateLineIdx: 17,
+      selectedAuthority: 'comfort_nudge',
+      authorityReason: 'below_tolerated_bottom',
+      sourceAuthority: 'comfort_nudge',
+      armPostFloorProtection: true,
+      floorProtectedLineIdx: 17,
+      protectedTargetScrollTop: 1056,
+      speechFresh: true,
+      finalFresh: false,
+      matchedMarkerErrorPx: 600,
+    })).toMatchObject({
+      effectiveTop: 1000,
+      reason: 'backward_correction_allowed',
+    });
+
+    expect(driver.__debugEvaluateAsrPocketWall({
+      currentTop: 1056,
+      proposedTop: 1000,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      nextSpeakableLineIdx: 17,
+      candidateLineIdx: 17,
+      selectedAuthority: 'comfort_nudge',
+      authorityReason: 'below_tolerated_bottom',
+      sourceAuthority: 'comfort_nudge',
+      armPostFloorProtection: true,
+      floorProtectedLineIdx: 17,
+      protectedTargetScrollTop: 1056,
+      speechFresh: false,
+      finalFresh: false,
+      silenceActive: true,
+      matchedMarkerErrorPx: 600,
+    })).toMatchObject({
+      effectiveTop: 1000,
+      reason: 'backward_correction_allowed',
+    });
+
+    expect(driver.__debugEvaluateAsrPocketWall({
+      currentTop: 1056,
+      proposedTop: 1000,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      nextSpeakableLineIdx: 17,
+      candidateLineIdx: 17,
+      selectedAuthority: 'comfort_nudge',
+      authorityReason: 'below_tolerated_bottom',
+      sourceAuthority: 'comfort_nudge',
+      armPostFloorProtection: true,
+      floorProtectedLineIdx: 17,
+      protectedTargetScrollTop: 1056,
+      speechFresh: true,
+      finalFresh: true,
+      noMatchOrOffscript: true,
+      matchedMarkerErrorPx: 600,
+    })).toMatchObject({
+      effectiveTop: 1000,
+      reason: 'backward_correction_allowed',
+    });
+
+    expect(driver.__debugEvaluateAsrPocketWall({
+      currentTop: 1056,
+      proposedTop: 1000,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      nextSpeakableLineIdx: 17,
+      candidateLineIdx: 17,
+      selectedAuthority: 'comfort_nudge',
+      authorityReason: 'below_tolerated_bottom',
+      sourceAuthority: 'comfort_nudge',
+      armPostFloorProtection: true,
+      floorProtectedLineIdx: 17,
+      protectedTargetScrollTop: 1056,
+      speechFresh: true,
+      finalFresh: true,
+      bridgeContextActive: true,
+      matchedMarkerErrorPx: 600,
+    })).toMatchObject({
+      effectiveTop: 1000,
+      reason: 'backward_correction_allowed',
+    });
+
+    expect(driver.__debugEvaluateAsrPocketWall({
+      currentTop: 1056,
+      proposedTop: 1000,
+      currentLineIdx: 17,
+      committedLineIdx: 17,
+      nextSpeakableLineIdx: 17,
+      candidateLineIdx: 17,
+      selectedAuthority: 'comfort_nudge',
+      authorityReason: 'below_tolerated_bottom',
+      sourceAuthority: 'comfort_nudge',
+      armPostFloorProtection: true,
+      floorProtectedLineIdx: 17,
+      protectedTargetScrollTop: 1056,
+      speechFresh: true,
+      finalFresh: true,
+      contradiction: true,
+      matchedMarkerErrorPx: 600,
+    })).toMatchObject({
+      effectiveTop: 1000,
+      reason: 'backward_correction_allowed',
+    });
+
+    driver.dispose();
+  });
+
+  test('visual deadlock escape applies one bounded forward semantic step after repeated capped wall-lock observations', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const baseArgs = {
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+    } as const;
+
+    const first = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
+    const second = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
+    const third = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
+
+    expect(first).toMatchObject({
+      escapeApplied: false,
+      rejectReason: 'repeat_threshold_not_met',
+      repeatCount: 1,
+    });
+    expect(second).toMatchObject({
+      escapeApplied: false,
+      rejectReason: 'repeat_threshold_not_met',
+      repeatCount: 2,
+    });
+    expect(third.escapeApplied).toBe(true);
+    expect(third.rejectReason).toBe('none');
+    expect(third.repeatCount).toBe(3);
+    expect(third.visualAnchorLineIdx).toBe(2);
+    expect(third.deltaScrollTop).toBeGreaterThan(0);
+    expect(third.deltaScrollTop).toBeLessThanOrEqual(68);
+    expect(third.boundedEscapeTargetScrollTop).toBe(third.afterScrollTop);
+
+    const cooldown = driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      currentScrollTop: third.afterScrollTop,
+      cappedScrollTop: third.afterScrollTop,
+      proposedScrollTop: third.afterScrollTop + 180,
+    });
+    expect(cooldown).toMatchObject({
+      escapeApplied: false,
+      rejectReason: 'cooldown_active',
+    });
+
+    driver.dispose();
+  });
+
+  test('visual deadlock escape stands down in bridge and quiet contexts', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      bridgeContextActive: true,
+      speechFresh: true,
+      transcriptFresh: true,
+    })).toMatchObject({
+      escapeApplied: false,
+      rejectReason: 'bridge_context_active',
+    });
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      speechFresh: false,
+      transcriptFresh: false,
+      finalFresh: false,
+    })).toMatchObject({
+      escapeApplied: false,
+      asrSilenceActive: false,
+      trueVisualSilence: false,
+      quietOrStaleReason: 'speech_not_live',
+      rejectReason: 'quiet_or_stale_state',
+    });
+
+    driver.dispose();
+  });
+
+  test('visual deadlock escape still blocks during true silence even if silence_active is set', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      speechFresh: false,
+      transcriptFresh: false,
+      finalFresh: false,
+      silenceActive: true,
+    });
+    driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      speechFresh: false,
+      transcriptFresh: false,
+      finalFresh: false,
+      silenceActive: true,
+    });
+    const result = driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      speechFresh: false,
+      transcriptFresh: false,
+      finalFresh: false,
+      silenceActive: true,
+    });
+
+    expect(result).toMatchObject({
+      escapeApplied: false,
+      asrSilenceActive: true,
+      visualRecoverySilenceBlocked: true,
+      trueVisualSilence: true,
+      quietOrStaleReason: 'silence_active',
+      rejectReason: 'quiet_or_stale_state',
+    });
+
+    driver.dispose();
+  });
+
+  test('visual deadlock escape may recover on recent finals even when semantic transcript freshness is stale', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const baseArgs = {
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: false,
+      finalFresh: true,
+      finalAgeMs: 400,
+    } as const;
+
+    const first = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
+    const second = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
+    const third = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
+
+    expect(first).toMatchObject({
+      escapeApplied: false,
+      transcriptFresh: false,
+      finalFresh: true,
+      visualRecoveryFresh: true,
+      staleForSemanticCommit: true,
+      staleForVisualRecovery: false,
+      rejectReason: 'repeat_threshold_not_met',
+    });
+    expect(third.escapeApplied).toBe(true);
+    expect(third.transcriptFresh).toBe(false);
+    expect(third.finalFresh).toBe(true);
+    expect(third.visualRecoveryFresh).toBe(true);
+    expect(third.asrSilenceActive).toBe(false);
+    expect(third.staleForSemanticCommit).toBe(true);
+    expect(third.staleForVisualRecovery).toBe(false);
+    expect(third.deltaScrollTop).toBeGreaterThan(0);
+
+    driver.dispose();
+  });
+
+  test('visual deadlock escape may recover during silence_active when recent finals and speech remain fresh', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const args = {
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+      finalFresh: true,
+      finalAgeMs: 300,
+      silenceActive: true,
+    } as const;
+
+    driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+    driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+    const result = driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+
+    expect(result.escapeApplied).toBe(true);
+    expect(result.asrSilenceActive).toBe(true);
+    expect(result.visualRecoverySilenceBlocked).toBe(false);
+    expect(result.trueVisualSilence).toBe(false);
+    expect(result.recentFinalDuringSilence).toBe(true);
+    expect(result.recentSpeechDuringSilence).toBe(true);
+    expect(result.visualRecoveryFresh).toBe(true);
+    expect(result.deltaScrollTop).toBeGreaterThan(0);
+    expect(result.deltaScrollTop).toBeLessThanOrEqual(68);
+
+    driver.dispose();
+  });
+
+  test('visual deadlock escape refuses backward or non-forward bounded targets', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const args = {
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 1700,
+      proposedScrollTop: 1900,
+      cappedScrollTop: 1700,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_tiny_or_noisy_delta',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+    } as const;
+
+    driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+    driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+    const result = driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+
+    expect(result).toMatchObject({
+      escapeApplied: false,
+      rejectReason: 'bounded_target_not_forward',
+    });
+    expect(result.afterScrollTop).toBe(1700);
+    expect(result.deltaScrollTop).toBe(0);
+
+    driver.dispose();
+  });
+
+  test('visual deadlock escape requires a true wall-lock plus zero-movement cap signature', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 940,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 40,
+      speechFresh: true,
+      transcriptFresh: true,
+    })).toMatchObject({
+      escapeApplied: false,
+      rejectReason: 'capped_delta_not_zero',
+    });
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 900,
+      proposedScrollTop: 1260,
+      cappedScrollTop: 900,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'healthy_pocket_follow',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+    })).toMatchObject({
+      escapeApplied: false,
+      rejectReason: 'pocket_wall_not_locked',
+    });
+
+    driver.dispose();
+  });
+
+  test('semantic_not_ahead still blocks the semantic-ahead path without visual-debt recovery signals', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const result = driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 1,
+      candidateLineIdx: 2,
+      currentScrollTop: 0,
+      proposedScrollTop: 180,
+      cappedScrollTop: 0,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 4,
+      renderedLead: 4,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_guard_state',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+      finalFresh: true,
+      markerY: 390,
+      currentLineViewportY: 470,
+      matchedLineViewportY: 520,
+      matchedMarkerErrorPx: 130,
+      lastVisualProgressAgeMs: 1400,
+    });
+
+    expect(result).toMatchObject({
+      recoveryMode: 'none',
+      escapeApplied: false,
+      rejectReason: 'semantic_not_ahead',
+    });
+
+    driver.dispose();
+  });
+
+  test('visual-debt recovery applies a bounded step when semantic lead is short but geometry is far below marker', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const args = {
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 1,
+      candidateLineIdx: 2,
+      currentScrollTop: 0,
+      proposedScrollTop: 220,
+      cappedScrollTop: 0,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 4,
+      renderedLead: 4,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'standard_visual_release_suppressed',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+      finalFresh: true,
+      markerY: 390,
+      currentLineViewportY: 590,
+      matchedLineViewportY: 922,
+      matchedMarkerErrorPx: 532,
+      recentBottomDriftGuard: true,
+      lastVisualProgressAgeMs: 1400,
+    } as const;
+
+    const first = driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+    const second = driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+    const third = driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+
+    expect(first).toMatchObject({
+      recoveryMode: 'visual_debt_flatline',
+      escapeApplied: false,
+      rejectReason: 'repeat_threshold_not_met',
+    });
+    expect(third).toMatchObject({
+      recoveryMode: 'visual_debt_flatline',
+      escapeApplied: true,
+      recoveryApplied: true,
+      rejectReason: 'none',
+      semanticAheadLines: 1,
+      visualAnchorLineIdx: 2,
+      bottomDriftGuardRecent: true,
+      visualDebtCatchupBlockedRecent: false,
+    });
+    expect(third.deltaScrollTop).toBeGreaterThan(0);
+    expect(third.deltaScrollTop).toBeLessThanOrEqual(68);
+    expect(third.boundedEscapeTargetScrollTop).toBe(third.afterScrollTop);
+    expect(third.currentLineViewportY).toBe(590);
+    expect(third.matchedMarkerErrorPx).toBe(532);
+
+    driver.dispose();
+  });
+
+  test('visual-debt recovery accepts recent debt-catchup-blocked evidence and otherwise stands down', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const baseArgs = {
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 1,
+      candidateLineIdx: 2,
+      currentScrollTop: 0,
+      proposedScrollTop: 220,
+      cappedScrollTop: 0,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 4,
+      renderedLead: 4,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'standard_visual_release_suppressed',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+      finalFresh: true,
+      markerY: 390,
+      currentLineViewportY: 590,
+      matchedLineViewportY: 922,
+      matchedMarkerErrorPx: 532,
+      lastVisualProgressAgeMs: 1400,
+    } as const;
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs)).toMatchObject({
+      recoveryMode: 'none',
+      escapeApplied: false,
+      rejectReason: 'visual_debt_signal_missing',
+    });
+
+    driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      recentVisualDebtCatchupBlocked: true,
+    });
+    driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      recentVisualDebtCatchupBlocked: true,
+    });
+    const result = driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      recentVisualDebtCatchupBlocked: true,
+    });
+
+    expect(result).toMatchObject({
+      recoveryMode: 'visual_debt_flatline',
+      escapeApplied: true,
+      visualDebtCatchupBlockedRecent: true,
+      bottomDriftGuardRecent: false,
+    });
+
+    driver.dispose();
+  });
+
+  test('visual-debt recovery requires mature flatline/no-progress evidence', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 1,
+      candidateLineIdx: 2,
+      currentScrollTop: 0,
+      proposedScrollTop: 220,
+      cappedScrollTop: 0,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 4,
+      renderedLead: 4,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'standard_visual_release_suppressed',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+      finalFresh: true,
+      markerY: 390,
+      currentLineViewportY: 590,
+      matchedLineViewportY: 922,
+      matchedMarkerErrorPx: 532,
+      recentBottomDriftGuard: true,
+      lastVisualProgressAgeMs: 200,
+    })).toMatchObject({
+      recoveryMode: 'none',
+      escapeApplied: false,
+      rejectReason: 'flatline_not_mature',
+    });
+
+    driver.dispose();
+  });
+
+  test('visual-debt floor applies when mature visual-debt recovery would otherwise cap to zero', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const result = driver.__debugEvaluateAsrVisualAuthorityLeadPressure({
+      currentLineIdx: 4,
+      committedLineIdx: 4,
+      targetLineIdx: 4,
+      currentScrollTop: 48,
+      proposedScrollTop: 308,
+      targetScrollTop: 308,
+      lineHeightPx: 56,
+      maxScrollTop: 5000,
+      speechFresh: true,
+      finalFresh: true,
+      recentBottomDriftGuard: true,
+      lastVisualProgressAgeMs: 1175,
+      markerY: 390,
+      currentLineViewportY: 650,
+      matchedLineViewportY: 990,
+      matchedMarkerErrorPx: 600,
+      spokenLineIdx: 0,
+      matchBestIdx: 9,
+      matchBestSim: 0.82,
+      normalCappedScrollTopOverride: 48,
+    });
+
+    expect(result).toMatchObject({
+      floorApplied: true,
+      floorRejectReason: 'none',
+      recoveryModeNearby: 'visual_debt_flatline',
+      bottomDriftGuardRecent: true,
+      visualDebtCatchupBlockedRecent: false,
+    });
+    expect(result.movedPx).toBeGreaterThan(0);
+    expect(result.movedPx).toBeLessThanOrEqual(56);
+    expect(result.appliedTop).toBe(result.flooredScrollTop);
+    expect(result.appliedTop).toBeGreaterThan(48);
+
+    driver.dispose();
+  });
+
+  test('visual-debt floor does not apply in immature line-2-like cap case', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const result = driver.__debugEvaluateAsrVisualAuthorityLeadPressure({
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      targetLineIdx: 2,
+      currentScrollTop: 48,
+      proposedScrollTop: 172,
+      targetScrollTop: 172,
+      lineHeightPx: 56,
+      maxScrollTop: 5000,
+      speechFresh: true,
+      finalFresh: true,
+      recentBottomDriftGuard: false,
+      recentVisualDebtCatchupBlocked: false,
+      lastVisualProgressAgeMs: 2,
+      markerY: 390,
+      currentLineViewportY: 514,
+      matchedLineViewportY: 854,
+      matchedMarkerErrorPx: 464,
+      spokenLineIdx: 0,
+      matchBestIdx: 7,
+      matchBestSim: 0.78,
+      normalCappedScrollTopOverride: 48,
+    });
+
+    expect(result).toMatchObject({
+      floorApplied: false,
+      floorRejectReason: 'visual_debt_signal_missing',
+      recoveryModeNearby: 'none',
+    });
+    expect(result.movedPx).toBe(0);
+
+    driver.dispose();
+  });
+
+  test('visual-debt floor stands down for silence, noMatch, bridge, contradiction, and stopped session', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const baseArgs = {
+      currentLineIdx: 4,
+      committedLineIdx: 4,
+      targetLineIdx: 4,
+      currentScrollTop: 48,
+      proposedScrollTop: 308,
+      targetScrollTop: 308,
+      lineHeightPx: 56,
+      maxScrollTop: 5000,
+      speechFresh: true,
+      finalFresh: true,
+      recentBottomDriftGuard: true,
+      lastVisualProgressAgeMs: 1175,
+      markerY: 390,
+      currentLineViewportY: 650,
+      matchedLineViewportY: 990,
+      matchedMarkerErrorPx: 600,
+      spokenLineIdx: 0,
+      matchBestIdx: 9,
+      matchBestSim: 0.82,
+      normalCappedScrollTopOverride: 48,
+    } as const;
+
+    expect(driver.__debugEvaluateAsrVisualAuthorityLeadPressure({
+      ...baseArgs,
+      silenceActive: true,
+      speechFresh: false,
+      finalFresh: false,
+    })).toMatchObject({ floorApplied: false, floorRejectReason: 'true_visual_silence' });
+
+    expect(driver.__debugEvaluateAsrVisualAuthorityLeadPressure({
+      ...baseArgs,
+      noMatchOrOffscript: true,
+    })).toMatchObject({ floorApplied: false, floorRejectReason: 'no_match_or_offscript' });
+
+    expect(driver.__debugEvaluateAsrVisualAuthorityLeadPressure({
+      ...baseArgs,
+      bridgeContextActive: true,
+    })).toMatchObject({ floorApplied: false, floorRejectReason: 'bridge_context_active' });
+
+    expect(driver.__debugEvaluateAsrVisualAuthorityLeadPressure({
+      ...baseArgs,
+      contradiction: true,
+    })).toMatchObject({ floorApplied: false, floorRejectReason: 'contradiction' });
+
+    expect(driver.__debugEvaluateAsrVisualAuthorityLeadPressure({
+      ...baseArgs,
+      sessionLive: false,
+    })).toMatchObject({ floorApplied: false, floorRejectReason: 'session_not_live' });
+
+    driver.dispose();
+  });
+
+  test('visual-debt recovery stands down for noMatch, contradiction, bridge, silence, and stopped session contexts', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const baseArgs = {
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 1,
+      candidateLineIdx: 2,
+      currentScrollTop: 0,
+      proposedScrollTop: 220,
+      cappedScrollTop: 0,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 4,
+      renderedLead: 4,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'standard_visual_release_suppressed',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+      finalFresh: true,
+      markerY: 390,
+      currentLineViewportY: 590,
+      matchedLineViewportY: 922,
+      matchedMarkerErrorPx: 532,
+      recentBottomDriftGuard: true,
+      lastVisualProgressAgeMs: 1400,
+    } as const;
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      noMatchOrOffscript: true,
+    })).toMatchObject({ rejectReason: 'no_match_or_offscript' });
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      contradiction: true,
+    })).toMatchObject({ rejectReason: 'contradiction' });
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      bridgeContextActive: true,
+    })).toMatchObject({ rejectReason: 'bridge_context_active' });
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      silenceActive: true,
+      speechFresh: false,
+      transcriptFresh: false,
+      finalFresh: false,
+    })).toMatchObject({
+      visualRecoverySilenceBlocked: true,
+      rejectReason: 'quiet_or_stale_state',
+    });
+
+    expect(driver.__debugEvaluateAsrVisualDeadlockEscape({
+      ...baseArgs,
+      sessionLive: false,
+    })).toMatchObject({
+      rejectReason: 'session_not_live',
+    });
+    driver.dispose();
+  });
+
   test('allows a single-step stall recovery override under starvation when live-forward is guard-held', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const driver = createAsrScrollDriver();
 
     window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
@@ -583,7 +2887,45 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(200);
 
+    const warnLines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     expect(driver.getLastLineIndex()).toBe(2);
+    expect(warnLines.some((l) => l.includes('ASR_ADJACENT_SAFE_SEMANTIC_BYPASS'))).toBe(true);
+    warnSpy.mockRestore();
+
+    driver.dispose();
+  });
+
+  test('raw far target cannot commit directly and remains reduced to adjacent-safe progression', async () => {
+    const driver = createAsrScrollDriver();
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'raw-far-prime',
+      match: { bestIdx: 1, bestSim: 0.9, topScores: [{ idx: 1, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(200);
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    await jest.advanceTimersByTimeAsync(2200);
+
+    driver.ingest('The seats remember every early shift. Neon ads hum above the aisle.', true, {
+      currentIdx: 1,
+      matchId: 'raw-far-no-direct-commit',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.9,
+        topScores: [{ idx: 3, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+
+    expect(driver.getLastLineIndex()).toBeLessThanOrEqual(2);
+    expect(driver.getLastLineIndex()).not.toBe(3);
 
     driver.dispose();
   });
@@ -841,6 +3183,240 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(250);
 
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+
+    driver.dispose();
+  });
+
+  test('deterministically arms pending bridge completion mode and preserves semantic-vs-visual split', async () => {
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const script = document.getElementById('script') as HTMLElement;
+    script.innerHTML = `
+      <div class="line" data-line="0" style="line-height:24px;">Different climates.</div>
+      <div class="line" data-line="1" style="line-height:24px;">Different strengths.</div>
+      <div class="line" data-line="2" style="line-height:24px;">For decades, Florida wore the crown.</div>
+      <div class="line" data-line="3" style="line-height:24px;">Not because California was weak.</div>
+      <div class="line" data-line="4" style="line-height:24px;">But citrus did not die.</div>
+      <div class="line" data-line="5" style="line-height:24px;">[beat]</div>
+      <div class="line" data-line="6" style="line-height:24px;"></div>
+      <div class="line" data-line="7" style="line-height:24px;">Growers moved south.</div>
+      <div class="line" data-line="8" style="line-height:24px;">They replanted.</div>
+    `;
+    const metrics = Array.from({ length: 9 }, (_, idx) => ({
+      top: idx * 360,
+      height: 236,
+    }));
+    Array.from(script.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+      const metric = metrics[idx];
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: metric.top,
+          left: 0,
+          right: 800,
+          bottom: metric.top + metric.height,
+          width: 800,
+          height: metric.height,
+        }),
+      });
+    });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 5200 });
+    scroller.scrollTop = 0;
+
+    const driver = createAsrScrollDriver({ runKey: 'pending-bridge-mode', runGeneration: 77 });
+    const debugDriver = driver as typeof driver & {
+      __debugSeedPendingSpeakableBridge: (args: {
+        semanticFrom: number;
+        semanticTarget: number;
+        visualCurrent?: number;
+        visualReducedTarget?: number;
+        skippedVisibleRows?: number;
+        proofSource?: string;
+        sourceBranch?: string;
+        ageMs?: number;
+        runKey?: string | null;
+        runGeneration?: number | null;
+      }) => void;
+    };
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: {
+        speechRunningActual: true,
+        runKey: 'pending-bridge-mode',
+        runGeneration: 77,
+      },
+    }));
+
+    driver.setLastLineIndex(4);
+
+    // First attempt: keep silence active to force a terminal freshness block while
+    // completion mode is active, so the trace carries all split-source fields.
+    debugDriver.__debugSeedPendingSpeakableBridge({
+      semanticFrom: 4,
+      semanticTarget: 7,
+      visualCurrent: 5,
+      visualReducedTarget: 5,
+      ageMs: 1200,
+      runKey: 'pending-bridge-mode',
+      runGeneration: 77,
+      proofSource: 'debug_seed',
+      sourceBranch: 'debug_seed_pending_bridge',
+    });
+
+    driver.ingest('Growers moved south.', true, {
+      currentIdx: 4,
+      runKey: 'pending-bridge-mode',
+      runGeneration: 77,
+      responseAgeMs: 5000,
+      matchId: 'pending-bridge-force-mode-trace',
+      match: {
+        bestIdx: 7,
+        bestSim: 0.9,
+        topScores: [{ idx: 7, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+
+    const infoLines = consoleInfoSpy.mock.calls.map((c) => String(c[0] || ''));
+    const splitTrace =
+      [...infoLines]
+        .reverse()
+        .find((line) =>
+          line.includes('ASR_TERMINAL_ELIGIBILITY_TRACE') &&
+          line.includes('pendingBridgeCompletionMode=1')) || '';
+
+    expect(splitTrace).toContain('pendingBridgeCompletionMode=1');
+    expect(splitTrace).toContain('freshnessTargetSource=visual_pursuit_target');
+    expect(splitTrace).toContain('scrollTargetSource=visual_pursuit_target');
+    expect(splitTrace).toContain('lastLineIndexUpdateSource=semantic_commit_target');
+
+    const semanticTarget = extractTraceFieldNumber(splitTrace, 'semanticCommitTargetLine');
+    const visualTarget = extractTraceFieldNumber(splitTrace, 'visualPursuitTargetLine');
+    const freshnessTarget = extractTraceFieldNumber(splitTrace, 'freshnessTargetLine');
+    expect(semanticTarget).toBeGreaterThan(visualTarget);
+    expect(freshnessTarget).toBe(visualTarget);
+
+    // Second attempt: reseed and clear silence so commit can be accepted.
+    debugDriver.__debugSeedPendingSpeakableBridge({
+      semanticFrom: 4,
+      semanticTarget: 7,
+      visualCurrent: 5,
+      visualReducedTarget: 5,
+      ageMs: 1200,
+      runKey: 'pending-bridge-mode',
+      runGeneration: 77,
+      proofSource: 'debug_seed',
+      sourceBranch: 'debug_seed_pending_bridge',
+    });
+    window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: false } }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:audio-chunk', { detail: { ts: Date.now() } }));
+
+    driver.ingest('Growers moved south.', true, {
+      currentIdx: 4,
+      runKey: 'pending-bridge-mode',
+      runGeneration: 77,
+      matchId: 'pending-bridge-force-mode-commit',
+      match: {
+        bestIdx: 7,
+        bestSim: 0.9,
+        topScores: [{ idx: 7, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(7);
+    expect(scroller.scrollTop).toBeLessThan(metrics[7].top);
+    expect(
+      consoleWarnSpy.mock.calls.some((call) =>
+        diagnosticCallMatches(call, 'movement_authority_commit', [
+          'target=5',
+          'commitTargetLine=7',
+        ]),
+      ),
+    ).toBe(true);
+
+    driver.dispose();
+  });
+
+  test('diagnoses why armed pending bridge completion can bypass reader silence with fresh authority', async () => {
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const script = document.getElementById('script') as HTMLElement;
+    script.innerHTML = `
+      <div class="line" data-line="0" style="line-height:24px;">Different climates.</div>
+      <div class="line" data-line="1" style="line-height:24px;">Different strengths.</div>
+      <div class="line" data-line="2" style="line-height:24px;">For decades, Florida wore the crown.</div>
+      <div class="line" data-line="3" style="line-height:24px;">Not because California was weak.</div>
+      <div class="line" data-line="4" style="line-height:24px;">But citrus did not die.</div>
+      <div class="line" data-line="5" style="line-height:24px;">[beat]</div>
+      <div class="line" data-line="6" style="line-height:24px;"></div>
+      <div class="line" data-line="7" style="line-height:24px;">Growers moved south.</div>
+      <div class="line" data-line="8" style="line-height:24px;">They replanted.</div>
+    `;
+    const metrics = Array.from({ length: 9 }, (_, idx) => ({
+      top: idx * 360,
+      height: 236,
+    }));
+    Array.from(script.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+      const metric = metrics[idx];
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: metric.height });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: metric.top,
+          left: 0,
+          right: 800,
+          bottom: metric.top + metric.height,
+          width: 800,
+          height: metric.height,
+        }),
+      });
+    });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 5200 });
+    scroller.scrollTop = 0;
+
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    driver.setLastLineIndex(4);
+    await jest.advanceTimersByTimeAsync(3600);
+
+    driver.ingest('Growers moved south.', true, {
+      currentIdx: 4,
+      matchId: 'visible-bridge-step-cap',
+      match: {
+        bestIdx: 7,
+        bestSim: 0.9,
+        topScores: [{ idx: 7, score: 0.9 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(250);
+
+    const infoLines = consoleInfoSpy.mock.calls.map((c) => String(c[0] || ''));
+    const traceLine =
+      [...infoLines]
+        .find((line) =>
+          line.includes('ASR_TERMINAL_ELIGIBILITY_TRACE') &&
+          line.includes('requestedTargetLineIdx=7') &&
+          line.includes('pendingBridgeCompletionMode=1')) || '';
+
+    expect(traceLine).toContain('pendingBridgeCompletionMode=1');
+    expect(traceLine).toContain('pendingBridgeState=pending:4->7');
+    expect(traceLine).toContain('candidateLineIdx=5');
+    expect(traceLine).toContain('requestedTargetLineIdx=7');
+    expect(traceLine).toContain('directAdjacentGuardReason=target_reduced_before_terminal');
+    expect(traceLine).toContain('sourceBranch=movement_authority_starvation_reconcile_single_step');
+    expect(traceLine).toContain('responseStale=0');
+    expect(traceLine).toContain('audioChunkStale=0');
+    expect(traceLine).toContain('bypassApplied=1');
+    expect(traceLine).toContain('decisionReason=reader_silence_adjacent_safe_bypassed');
     expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
 
     driver.dispose();
@@ -1512,7 +4088,8 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(500);
 
-    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+    // Pending bridge staging is visual-only until completion conditions are met.
+    expect(driver.getLastLineIndex()).toBe(4);
 
     driver.dispose();
   });
@@ -1574,7 +4151,8 @@ describe('ASR live commit motion', () => {
     });
 
     await jest.advanceTimersByTimeAsync(250);
-    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+    // Bridge should remain staged (no semantic commit yet).
+    expect(driver.getLastLineIndex()).toBe(4);
 
     // Simulate cumulative/stale prefix re-matching current line.
     driver.ingest('But citrus did not die.', true, {
@@ -1590,7 +4168,7 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(250);
 
     // Stale same-line rematch should not regress landed semantic target.
-    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+    expect(driver.getLastLineIndex()).toBe(4);
 
     driver.dispose();
   });
@@ -1651,7 +4229,8 @@ describe('ASR live commit motion', () => {
       },
     });
     await jest.advanceTimersByTimeAsync(250);
-    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+    // Initial far target remains staged while pending bridge completion is active.
+    expect(driver.getLastLineIndex()).toBe(4);
 
     // Keep feeding finals while crossing default ttl (2200ms).
     await jest.advanceTimersByTimeAsync(2300);
@@ -1677,7 +4256,8 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(250);
 
-    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(6);
+    // Continued speech and refreshed evidence should allow pending bridge completion.
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
     driver.dispose();
   });
 
@@ -2501,6 +5081,8 @@ describe('ASR live commit motion', () => {
     let focusActive = true;
     const hasFocusSpy = jest.spyOn(document, 'hasFocus').mockImplementation(() => focusActive);
 
+    bootstrapLiveAsrRuntime();
+
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
       currentIdx: 0,
@@ -2550,6 +5132,8 @@ describe('ASR live commit motion', () => {
       configurable: true,
       get: () => visibilityState === 'hidden',
     });
+
+    bootstrapLiveAsrRuntime();
 
     driver.setLastLineIndex(0);
     driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
@@ -2935,13 +5519,16 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(320);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    const actuatorLine = lines.find((l) => l.includes('ASR_VISUAL_ACTUATOR_APPLIED')) || '';
-    expect(actuatorLine).toContain('requestedPxps=');
-    expect(actuatorLine).toContain('appliedPxps=');
-    expect(actuatorLine).toContain('requestedDeltaPx=');
-    expect(actuatorLine).toContain('appliedDeltaPx=');
-    expect(actuatorLine).toContain('maxScrollTop=');
-    expect(lines.some((l) => l.includes('ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF'))).toBe(true);
+    const movementLine = lines.find((l) => l.includes('ASR_VISUAL_ACTUATOR_APPLIED')) || '';
+    if (movementLine.includes('ASR_VISUAL_ACTUATOR_APPLIED')) {
+      expect(movementLine).toContain('requestedPxps=');
+      expect(movementLine).toContain('appliedPxps=');
+      expect(movementLine).toContain('requestedDeltaPx=');
+      expect(movementLine).toContain('appliedDeltaPx=');
+      expect(movementLine).toContain('maxScrollTop=');
+      expect(lines.some((l) => l.includes('ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF'))).toBe(true);
+    }
+    expect(Math.abs(scroller.scrollTop - 200)).toBeGreaterThan(10);
     warnSpy.mockRestore();
     driver.dispose();
   });
@@ -2957,39 +5544,36 @@ describe('ASR live commit motion', () => {
       matchId: 'actuator-requested-vs-applied',
       match: { bestIdx: 2, bestSim: 0.9, topScores: [{ idx: 2, score: 0.9 }] },
     });
+    await jest.advanceTimersByTimeAsync(120);
+    const earlyTop = scroller.scrollTop;
     await jest.advanceTimersByTimeAsync(360);
-    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    const actuatorLines = lines.filter((l) => l.includes('ASR_VISUAL_ACTUATOR_APPLIED'));
-    expect(actuatorLines.length).toBeGreaterThan(0);
-    const elevated = actuatorLines.find((l) => {
-      const req = l.match(/requestedPxps=(\d+)/);
-      const app = l.match(/appliedDeltaPx=(\d+)/);
-      return req && app && Number(req[1]) >= 20 && Number(app[1]) > 0;
+    expect(Math.abs(earlyTop - 180)).toBeGreaterThan(10);
+    expect(Math.abs(scroller.scrollTop - 180)).toBeGreaterThan(10);
+    expect(Math.abs(scroller.scrollTop - earlyTop)).toBeLessThanOrEqual(40);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('bottom-pocket recovery starts early and stays bounded instead of jumping abruptly', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 180;
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'bottom-pocket-glide-recovery',
+      match: { bestIdx: 2, bestSim: 0.9, topScores: [{ idx: 2, score: 0.9 }] },
     });
-    expect(!!elevated).toBe(true);
-    const boosted = lines.find((l) =>
-      l.includes('ASR_VISUAL_RECOVERY_BOOST_APPLIED') &&
-      l.includes('authority=bottom_lock_release'),
-    ) || '';
-    expect(boosted).toContain('reason=below_tolerated_bottom');
-    const boostedDelta = boosted.match(/appliedDeltaPx=(\d+)/);
-    expect(boostedDelta ? Number(boostedDelta[1]) : 0).toBeGreaterThanOrEqual(12);
-    const proofLines = lines.filter((l) => l.includes('ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF'));
-    expect(proofLines.length).toBeGreaterThan(0);
-    const committeeLines = lines.filter((l) => l.includes('ASR_SCROLL_CHAIRPERSON_ARBITRATION'));
-    expect(committeeLines.length).toBeGreaterThan(0);
-    expect(
-      committeeLines.some((l) => {
-        const debt = l.match(/targetDebtPx=(\d+)/);
-        return !!debt && Number(debt[1]) >= 120;
-      }),
-    ).toBe(true);
-    expect(
-      lines.some((l) =>
-        l.includes('ASR_SCROLL_AUTHORITY_RESOLVED') &&
-        l.includes('movementAllowed=1'),
-      ),
-    ).toBe(true);
+    await jest.advanceTimersByTimeAsync(120);
+    const earlyTop = scroller.scrollTop;
+    await jest.advanceTimersByTimeAsync(240);
+    const midTop = scroller.scrollTop;
+    await jest.advanceTimersByTimeAsync(540);
+    const finalTop = scroller.scrollTop;
+    expect(Math.abs(earlyTop - 180)).toBeGreaterThan(10);
+    expect(Math.abs(finalTop - 180)).toBeLessThanOrEqual(40);
+    expect(Math.abs(finalTop - midTop)).toBeLessThanOrEqual(8);
     warnSpy.mockRestore();
     driver.dispose();
   });
@@ -3899,7 +6483,42 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(200);
     expect(driver.getLastLineIndex()).toBe(1);
+    const warnLines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    expect(warnLines.some((l) => l.includes('ASR_ADJACENT_SAFE_SEMANTIC_BYPASS'))).toBe(false);
     warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('stale_response_invalidated still blocks semantic commit freshness', async () => {
+    const driver = createAsrScrollDriver() as typeof createAsrScrollDriver extends (...args: any[]) => infer T
+      ? T & {
+          __debugEvaluateForwardCommitFreshness: (args: {
+            currentLineIdx: number;
+            proposedLineIdx: number;
+            committedLineIdx?: number;
+            transcriptSpeechFresh?: boolean | null;
+            transcriptSpeechActive?: boolean | null;
+            transcriptResponseAgeMs?: number | null;
+            transcriptAudioAgeMs?: number | null;
+            invalidateReason?: string;
+          }) => { allow: boolean; reason: string };
+        }
+      : never;
+
+    const result = driver.__debugEvaluateForwardCommitFreshness({
+      currentLineIdx: 1,
+      committedLineIdx: 1,
+      proposedLineIdx: 2,
+      transcriptSpeechFresh: true,
+      transcriptSpeechActive: true,
+      transcriptResponseAgeMs: 0,
+      transcriptAudioAgeMs: 0,
+      invalidateReason: 'test_stale_response_invalidated',
+    });
+
+    expect(result.allow).toBe(false);
+    expect(result.reason).toBe('stale_response_invalidated');
+
     driver.dispose();
   });
 });

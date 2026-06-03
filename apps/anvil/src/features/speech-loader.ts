@@ -10,6 +10,7 @@ import {
   type AsrScrollDriver,
   type AsrScrollDriverStats,
 } from '../features/asr/asr-scroll-driver';
+import { installAsrLogBuffer } from '../features/asr/asr-log-buffer';
 import { isSessionRecording } from '../recording/recorderRegistry';
 import { getAsrBlockElements, getAsrBlockIndex } from '../scroll/asr-block-store';
 import {
@@ -232,6 +233,11 @@ type DeferredAsrScriptEndStop = {
   markerReachedAt: number | null;
   completionDelayMs: number;
   completionReason: 'marker-reached' | 'marker-timeout' | 'no-target';
+  endGraceStartedAt: number | null;
+  endGraceUntil: number | null;
+  endGraceReason: string | null;
+  pendingResponseSeen: boolean;
+  lastExtensionReason: string | null;
 };
 
 declare global {
@@ -289,6 +295,13 @@ declare global {
     __tpAsrStallLast?: AsrStallPayload;
     __tpAsrStallAutoRestartLast?: AsrStallAutoRestartPayload;
     __tpAsrRuntimeStatus?: AsrRuntimeStatusPayload;
+    __tpAsrEndGrace?: {
+      active: boolean;
+      startedAt: number;
+      until: number;
+      lastSpeakableLineIndex: number | null;
+      reason: string;
+    } | null;
   }
 }
 
@@ -353,6 +366,117 @@ let lastMatcherStallCommitStableSince = 0;
 let lastAsrScriptEndStopKey = '';
 let pendingAsrScriptEndStop: PendingAsrScriptEndStop | null = null;
 let deferredAsrScriptEndStop: DeferredAsrScriptEndStop | null = null;
+let lastEmittedFinalTranscriptNorm = '';
+let lastEmittedFinalTranscriptAt = 0;
+let matcherSummaryCount = 0;
+let matcherFallbackSummaryCount = 0;
+
+type AsrDriverCreateBlockedEntry = {
+  suppressedCount: number;
+  lastSummaryAt: number;
+  payload: Record<string, unknown>;
+};
+
+const asrDriverCreateBlockedBySignature = new Map<string, AsrDriverCreateBlockedEntry>();
+const ASR_DRIVER_CREATE_BLOCKED_SUMMARY_EVERY = 20;
+
+function resetAsrDriverCreateBlockedDiagnostics(): void {
+  asrDriverCreateBlockedBySignature.clear();
+}
+
+function emitAsrDriverCreateBlockedSummary(signature: string): void {
+  if (!isDevMode()) return;
+  const entry = asrDriverCreateBlockedBySignature.get(signature);
+  if (!entry || entry.suppressedCount <= 0) return;
+  const now = Date.now();
+  if (
+    entry.suppressedCount < ASR_DRIVER_CREATE_BLOCKED_SUMMARY_EVERY &&
+    now - entry.lastSummaryAt < 1000
+  ) {
+    return;
+  }
+  entry.lastSummaryAt = now;
+  try {
+    console.debug('[ASR] driver create blocked (suppressed)', {
+      signature,
+      suppressedCount: entry.suppressedCount,
+      ...entry.payload,
+    });
+  } catch {}
+  entry.suppressedCount = 0;
+}
+
+function reportAsrDriverCreateBlocked(payload: {
+  reason: string;
+  mode: string;
+  blocksReady: boolean;
+  blockCount: number;
+  backendReady: boolean;
+  phaseAllowsAsrDriver: boolean;
+  sessionPhase: string;
+  running: boolean;
+  asrSessionIntentActive: boolean;
+}): void {
+  if (!isDevMode()) return;
+  const signature = [
+    payload.reason,
+    payload.mode,
+    payload.sessionPhase,
+    payload.blocksReady ? '1' : '0',
+    payload.backendReady ? '1' : '0',
+    payload.phaseAllowsAsrDriver ? '1' : '0',
+    payload.running ? '1' : '0',
+    payload.asrSessionIntentActive ? '1' : '0',
+  ].join('|');
+  const existing = asrDriverCreateBlockedBySignature.get(signature);
+  if (!existing) {
+    try {
+      console.debug('[ASR] driver create blocked', payload);
+    } catch {}
+    asrDriverCreateBlockedBySignature.set(signature, {
+      suppressedCount: 0,
+      lastSummaryAt: 0,
+      payload,
+    });
+    if (asrDriverCreateBlockedBySignature.size > 64) {
+      asrDriverCreateBlockedBySignature.clear();
+      asrDriverCreateBlockedBySignature.set(signature, {
+        suppressedCount: 0,
+        lastSummaryAt: 0,
+        payload,
+      });
+    }
+    return;
+  }
+  existing.payload = payload;
+  existing.suppressedCount += 1;
+  if (existing.suppressedCount >= ASR_DRIVER_CREATE_BLOCKED_SUMMARY_EVERY) {
+    emitAsrDriverCreateBlockedSummary(signature);
+  }
+}
+
+function shouldAllowAsrDriverCreateAttempt(mode: string, session = getSession()): boolean {
+  if (!isAsrLikeMode(mode)) return false;
+  const phase = String(session.phase || '').toLowerCase();
+  return (
+    running ||
+    asrSessionIntentActive ||
+    phase === 'preroll' ||
+    phase === 'live'
+  );
+}
+
+function disarmAsrSessionState(reason: string): void {
+  if (typeof window === 'undefined') return;
+  const store = window.__tpStore;
+  if (!store || typeof store.set !== 'function') return;
+  try { store.set('session.asrDesired' as any, false as any); } catch {}
+  try { store.set('session.asrArmed' as any, false as any); } catch {}
+  try { store.set('session.asrReady' as any, false as any); } catch {}
+  if (isDevMode() && shouldLogTag('ASR:session-disarm', 2, 300)) {
+    try { console.debug('[ASR] session disarmed', { reason }); } catch {}
+  }
+}
 let deferredAsrScriptEndStopTimer: number | null = null;
 
 const WATCHDOG_INTERVAL_MS = 5000;
@@ -379,9 +503,16 @@ const ASR_SCRIPT_END_CONFIRM_MIN_SHARED_TOKENS = 2;
 const ASR_SCRIPT_END_MARKER_WAIT_MAX_MS = 4000;
 const ASR_SCRIPT_END_MARKER_POLL_MS = 16;
 const ASR_SCRIPT_END_POSTROLL_MS = 500;
+const ASR_END_GRACE_MS = 6000;
+const ASR_END_GRACE_EXTENSION_MS = 1000;
+const ASR_END_GRACE_POLL_MS = 100;
+const ASR_END_GRACE_SPEECH_FRESH_MS = 1200;
 const ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX = 12;
 const ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX = 48;
 const ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO = 0.35;
+const ASR_FINAL_NOVELTY_MIN_RATIO = 0.18;
+const ASR_FINAL_NOVELTY_MIN_OVERLAP_RATIO = 0.6;
+const ASR_FINAL_NOVELTY_DEDUP_WINDOW_MS = 2500;
 const ASR_SCRIPT_END_STOPWORDS = new Set([
   'the',
   'and',
@@ -754,6 +885,59 @@ function cancelDeferredAsrScriptEndStop(reason: string): void {
     } catch {}
   }
   deferredAsrScriptEndStop = null;
+  try { (window as any).__tpAsrEndGrace = null; } catch {}
+}
+
+function setAsrEndGraceState(
+  active: boolean,
+  detail?: {
+    startedAt?: number;
+    until?: number;
+    lastSpeakableLineIndex?: number | null;
+    reason?: string;
+  },
+): void {
+  try {
+    (window as any).__tpAsrEndGrace = active
+      ? {
+          active: true,
+          startedAt: Number(detail?.startedAt || Date.now()),
+          until: Number(detail?.until || Date.now()),
+          lastSpeakableLineIndex:
+            detail?.lastSpeakableLineIndex == null ? null : Math.max(0, Math.floor(Number(detail.lastSpeakableLineIndex))),
+          reason: String(detail?.reason || 'end-grace'),
+        }
+      : null;
+  } catch {}
+}
+
+function getPendingWhisperWork(): { requestsInFlight: number; queueDepth: number; hasPending: boolean } {
+  try {
+    const detail = ((window as any).__tpAiActivity || {}) as Record<string, unknown>;
+    const requestsInFlight = Math.max(0, Math.floor(Number(detail.requestsInFlight) || 0));
+    const queueDepth = Math.max(0, Math.floor(Number(detail.queueDepth) || 0));
+    return {
+      requestsInFlight,
+      queueDepth,
+      hasPending: requestsInFlight > 0 || queueDepth > 0,
+    };
+  } catch {
+    return { requestsInFlight: 0, queueDepth: 0, hasPending: false };
+  }
+}
+
+function isAsrEndGraceSpeechFresh(): { speechFresh: boolean; speechActive: boolean } {
+  const now = Date.now();
+  const lastSpeechTs = Math.max(
+    Number(lastRecognizerOnResultTs || 0),
+    Number(lastResultTs || 0),
+    Number(lastAsrIngestTs || 0),
+  );
+  const speechFresh = lastSpeechTs > 0 && Math.max(0, now - lastSpeechTs) <= ASR_END_GRACE_SPEECH_FRESH_MS;
+  return {
+    speechFresh: speechRunningActual || speechFresh,
+    speechActive: !!speechRunningActual,
+  };
 }
 
 function shouldSuppressAsrScriptEndAutoStop(session = getSession()): boolean {
@@ -884,6 +1068,70 @@ function scheduleDeferredAsrScriptEndStop(delayMs: number): void {
       return;
     }
     if (deferred.markerReachedAt != null) {
+      const pendingWhisper = getPendingWhisperWork();
+      const speechState = isAsrEndGraceSpeechFresh();
+      if (deferred.endGraceStartedAt == null) {
+        const now = Date.now();
+        deferred.endGraceStartedAt = now;
+        deferred.endGraceUntil = now + ASR_END_GRACE_MS;
+        deferred.endGraceReason = 'terminal_line_reached';
+        deferred.pendingResponseSeen = pendingWhisper.hasPending;
+        setAsrEndGraceState(true, {
+          startedAt: deferred.endGraceStartedAt,
+          until: deferred.endGraceUntil,
+          lastSpeakableLineIndex: deferred.pending.lastSpeakableLineIndex,
+          reason: deferred.endGraceReason,
+        });
+        try {
+          console.info(`[ASR_END_GRACE_STARTED] lineIndex=${deferred.pending.lineIndex ?? -1} lastSpeakableLineIndex=${deferred.pending.lastSpeakableLineIndex ?? -1} graceMs=${ASR_END_GRACE_MS} speechFresh=${speechState.speechFresh ? 1 : 0} speechActive=${speechState.speechActive ? 1 : 0} requestsInFlight=${pendingWhisper.requestsInFlight} queueDepth=${pendingWhisper.queueDepth} reason=${deferred.endGraceReason}`);
+        } catch {}
+      }
+      if (pendingWhisper.hasPending) {
+        deferred.pendingResponseSeen = true;
+      }
+      const extensionReason =
+        pendingWhisper.hasPending ? 'pending_whisper_response' : (speechState.speechFresh ? 'speech_fresh' : '');
+      if (extensionReason) {
+        const nextUntil = Math.max(Number(deferred.endGraceUntil || 0), Date.now() + ASR_END_GRACE_EXTENSION_MS);
+        if (nextUntil > Number(deferred.endGraceUntil || 0) + 50) {
+          deferred.endGraceUntil = nextUntil;
+          deferred.lastExtensionReason = extensionReason;
+          setAsrEndGraceState(true, {
+            startedAt: deferred.endGraceStartedAt,
+            until: deferred.endGraceUntil,
+            lastSpeakableLineIndex: deferred.pending.lastSpeakableLineIndex,
+            reason: extensionReason,
+          });
+          try {
+            console.info(`[ASR_END_GRACE_EXTENDED] lineIndex=${deferred.pending.lineIndex ?? -1} lastSpeakableLineIndex=${deferred.pending.lastSpeakableLineIndex ?? -1} untilMs=${Math.round(deferred.endGraceUntil)} speechFresh=${speechState.speechFresh ? 1 : 0} speechActive=${speechState.speechActive ? 1 : 0} requestsInFlight=${pendingWhisper.requestsInFlight} queueDepth=${pendingWhisper.queueDepth} reason=${extensionReason}`);
+          } catch {}
+        }
+      }
+      if (
+        deferred.pendingResponseSeen &&
+        !pendingWhisper.hasPending &&
+        !speechState.speechFresh
+      ) {
+        deferred.pendingResponseSeen = false;
+        try {
+          console.info(`[ASR_END_GRACE_FLUSHED] lineIndex=${deferred.pending.lineIndex ?? -1} lastSpeakableLineIndex=${deferred.pending.lastSpeakableLineIndex ?? -1} speechFresh=${speechState.speechFresh ? 1 : 0} speechActive=${speechState.speechActive ? 1 : 0} requestsInFlight=${pendingWhisper.requestsInFlight} queueDepth=${pendingWhisper.queueDepth} reason=pending_responses_drained`);
+        } catch {}
+      }
+      if (
+        Date.now() < Number(deferred.endGraceUntil || 0) ||
+        speechState.speechFresh ||
+        pendingWhisper.hasPending
+      ) {
+        setAsrEndGraceState(true, {
+          startedAt: deferred.endGraceStartedAt || Date.now(),
+          until: Number(deferred.endGraceUntil || Date.now()),
+          lastSpeakableLineIndex: deferred.pending.lastSpeakableLineIndex,
+          reason: deferred.lastExtensionReason || deferred.endGraceReason || 'end-grace',
+        });
+        scheduleDeferredAsrScriptEndStop(ASR_END_GRACE_POLL_MS);
+        return;
+      }
+      setAsrEndGraceState(false);
       deferredAsrScriptEndStop = null;
       const stopIntent = {
         source: 'asr-script-end',
@@ -932,6 +1180,9 @@ function scheduleDeferredAsrScriptEndStop(delayMs: number): void {
           });
         } catch {}
       }
+      try {
+        console.info(`[ASR_END_GRACE_COMPLETED] lineIndex=${deferred.pending.lineIndex ?? -1} lastSpeakableLineIndex=${deferred.pending.lastSpeakableLineIndex ?? -1} graceElapsedMs=${Math.max(0, Date.now() - Number(deferred.endGraceStartedAt || deferred.startedAt))} speechFresh=${speechState.speechFresh ? 1 : 0} speechActive=${speechState.speechActive ? 1 : 0} requestsInFlight=${pendingWhisper.requestsInFlight} queueDepth=${pendingWhisper.queueDepth} reason=grace_elapsed_and_drained`);
+      } catch {}
       return;
     }
     if (deferred.targetLine == null) {
@@ -1001,7 +1252,7 @@ function finalizePendingAsrScriptEndStop(
   lastAsrScriptEndStopKey = pending.dedupeKey;
   pendingAsrScriptEndStop = null;
   cancelDeferredAsrScriptEndStop('replaced');
-      deferredAsrScriptEndStop = {
+  deferredAsrScriptEndStop = {
     pending,
     evidence,
     targetLine: pending.lastSpeakableLineIndex ?? pending.lineIndex,
@@ -1009,6 +1260,11 @@ function finalizePendingAsrScriptEndStop(
     markerReachedAt: null,
     completionDelayMs: ASR_SCRIPT_END_POSTROLL_MS,
     completionReason: 'marker-reached',
+    endGraceStartedAt: null,
+    endGraceUntil: null,
+    endGraceReason: null,
+    pendingResponseSeen: false,
+    lastExtensionReason: null,
   };
   emitHudSnapshot('script-end-marker-wait', { force: true });
   if (isDevMode() && shouldLogTag('ASR:script-end-marker-wait', 2, 250)) {
@@ -1578,6 +1834,45 @@ function emitTranscriptEvent(payload: TranscriptPayload): void {
   try { window.dispatchEvent(new CustomEvent('tp:speech:transcript', { detail: payload })); } catch {}
 }
 
+function normalizeTranscriptForNovelty(text: string): string[] {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s']/g, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function computeSuffixPrefixOverlap(prevTokens: string[], nextTokens: string[]): number {
+  const max = Math.min(prevTokens.length, nextTokens.length);
+  for (let overlap = max; overlap > 0; overlap -= 1) {
+    let ok = true;
+    for (let idx = 0; idx < overlap; idx += 1) {
+      if (prevTokens[prevTokens.length - overlap + idx] !== nextTokens[idx]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return overlap;
+  }
+  return 0;
+}
+
+function shouldSuppressDuplicateFinalTranscript(nextText: string, nowMs: number): boolean {
+  if (!lastEmittedFinalTranscriptNorm) return false;
+  if (nowMs - lastEmittedFinalTranscriptAt > ASR_FINAL_NOVELTY_DEDUP_WINDOW_MS) return false;
+  const prevTokens = lastEmittedFinalTranscriptNorm.split(' ').filter(Boolean);
+  const nextTokens = normalizeTranscriptForNovelty(nextText);
+  if (!prevTokens.length || !nextTokens.length) return false;
+  const sameText = prevTokens.join(' ') === nextTokens.join(' ');
+  if (sameText) return true;
+
+  const overlap = computeSuffixPrefixOverlap(prevTokens, nextTokens);
+  const overlapRatio = overlap / Math.max(1, Math.min(prevTokens.length, nextTokens.length));
+  const noveltyRatio = Math.max(0, (nextTokens.length - overlap) / Math.max(1, nextTokens.length));
+  return overlapRatio >= ASR_FINAL_NOVELTY_MIN_OVERLAP_RATIO && noveltyRatio < ASR_FINAL_NOVELTY_MIN_RATIO;
+}
+
 function logTranscriptEmitDebug(payload: TranscriptPayload): void {
   try {
     const textRaw = typeof payload.text === 'string' ? payload.text : '';
@@ -1611,6 +1906,14 @@ function logTranscriptEmitDebug(payload: TranscriptPayload): void {
     const matchReason = typeof matchObj?.reason === 'string' ? matchObj.reason : null;
     const matchVia = typeof matchObj?.via === 'string' ? matchObj.via : null;
     const matchFallbackUsed = matchObj?.fallbackUsed === true;
+    const primaryBypassReason = typeof matchObj?.primaryBypassReason === 'string'
+      ? matchObj.primaryBypassReason
+      : null;
+    matcherSummaryCount += 1;
+    if (matchFallbackUsed) matcherFallbackSummaryCount += 1;
+    const matcherFallbackRatio = matcherSummaryCount > 0
+      ? Number((matcherFallbackSummaryCount / matcherSummaryCount).toFixed(3))
+      : 0;
     const blockSnapshot = getAsrBlockSnapshot();
     const scriptHash = (() => {
       try {
@@ -1630,6 +1933,8 @@ function logTranscriptEmitDebug(payload: TranscriptPayload): void {
       matchReason,
       matchVia,
       matchFallbackUsed,
+      primaryBypassReason,
+      matcherFallbackRatio,
       topLevelBestIdx,
       topLevelBestSim,
       scriptHash,
@@ -2205,6 +2510,9 @@ function deriveFallbackMatch(payload: TranscriptPayload): Record<string, unknown
     } catch {}
     const directResult = deriveDirectMatcherResult(transcript, speechStoreState);
     if (directResult) {
+      if (typeof directResult.primaryBypassReason !== 'string') {
+        directResult.primaryBypassReason = unavailableResult?.reason || 'backend_unavailable_or_untrusted';
+      }
       if (isDevMode() && shouldLogTag('ASR:matcher-fallback-direct', 2, 1500)) {
         try {
           console.info('[ASR] matcher fallback switched to direct matcher', {
@@ -2350,6 +2658,23 @@ function routeTranscript(input: string | (Partial<TranscriptPayload> & { text?: 
     const normalizedMode = String(payload.mode || '').toLowerCase();
     const asrLike = normalizedMode === 'asr' || normalizedMode === 'hybrid';
     const promotedFinal = rawFinal || (asrLike ? shouldPromoteInterimToFinal(text) : false);
+    if (promotedFinal && asrLike) {
+      const nowMs = Date.now();
+      if (shouldSuppressDuplicateFinalTranscript(text, nowMs)) {
+        try {
+          console.info('[ASR] suppressed duplicate final transcript window', {
+            mode: normalizedMode,
+            dedupWindowMs: ASR_FINAL_NOVELTY_DEDUP_WINDOW_MS,
+          });
+        } catch {}
+        return;
+      }
+      const normalizedFinal = normalizeTranscriptForNovelty(text).join(' ');
+      if (normalizedFinal) {
+        lastEmittedFinalTranscriptNorm = normalizedFinal;
+        lastEmittedFinalTranscriptAt = nowMs;
+      }
+    }
     if (rawFinal) {
       resetAsrInterimStabilizer();
     }
@@ -3466,27 +3791,20 @@ function shouldCreateAsrDriver(mode: string, reason: string): boolean {
   const blocksReady = blocks.ready && blocks.count > 0;
   const backendReady = canAttachAsrBackend();
   const session = getSession();
-  const phaseAllowsAsrDriver =
-    mode !== 'asr' ||
-    running ||
-    asrSessionIntentActive ||
-    session.phase === 'preroll' ||
-    session.phase === 'live';
+  const phaseAllowsAsrDriver = shouldAllowAsrDriverCreateAttempt(mode, session);
   const allowed = isAsrLikeMode(mode) && blocksReady && backendReady && phaseAllowsAsrDriver;
-  if (!allowed && isDevMode()) {
-    try {
-      console.debug('[ASR] driver create blocked', {
-        reason,
-        mode,
-        blocksReady,
-        blockCount: blocks.count,
-        backendReady,
-        phaseAllowsAsrDriver,
-        sessionPhase: session.phase,
-        running,
-        asrSessionIntentActive,
-      });
-    } catch {}
+  if (!allowed) {
+    reportAsrDriverCreateBlocked({
+      reason,
+      mode,
+      blocksReady,
+      blockCount: blocks.count,
+      backendReady,
+      phaseAllowsAsrDriver,
+      sessionPhase: String(session.phase || 'idle').toLowerCase(),
+      running,
+      asrSessionIntentActive,
+    });
   }
   return allowed;
 }
@@ -3868,12 +4186,7 @@ function ensureAsrDriverLifecycleHooks(): void {
     const detail = (event as CustomEvent)?.detail || {};
     const mode = String(detail.mode || detail.nextMode || getScrollMode() || '').toLowerCase();
     const session = getSession();
-    const phase = String(session.phase || '').toLowerCase();
-    const allowCreate =
-      phase === 'preroll' ||
-      phase === 'live' ||
-      session.asrDesired ||
-      session.asrArmed;
+    const allowCreate = shouldAllowAsrDriverCreateAttempt(mode, session);
     if (isAsrLikeMode(mode)) {
       attachAsrScrollDriver({ reason: 'scroll-mode', mode, allowCreate });
       syncAsrDriverFromBlocks('scroll-mode', { mode, allowCreate });
@@ -3903,12 +4216,7 @@ function ensureAsrDriverLifecycleHooks(): void {
     const detail = (event as CustomEvent)?.detail || {};
     const mode = String(getScrollMode() || '').toLowerCase();
     const session = getSession();
-    const phase = String(session.phase || '').toLowerCase();
-    const allowCreate =
-      phase === 'preroll' ||
-      phase === 'live' ||
-      session.asrDesired ||
-      session.asrArmed;
+    const allowCreate = shouldAllowAsrDriverCreateAttempt(mode, session);
     if (detail && typeof detail.blockCount === 'number') {
       try { (window as any).__tpAsrBlockCount = Math.max(0, Math.floor(detail.blockCount)); } catch {}
       try { (window as any).__tpAsrBlocksReady = true; } catch {}
@@ -3918,12 +4226,7 @@ function ensureAsrDriverLifecycleHooks(): void {
   const onScriptRendered = () => {
     const mode = String(getScrollMode() || '').toLowerCase();
     const session = getSession();
-    const phase = String(session.phase || '').toLowerCase();
-    const allowCreate =
-      phase === 'preroll' ||
-      phase === 'live' ||
-      session.asrDesired ||
-      session.asrArmed;
+    const allowCreate = shouldAllowAsrDriverCreateAttempt(mode, session);
     const wantsAsrDriver = allowCreate || !!asrScrollDriver;
     if (!wantsAsrDriver) return;
     try {
@@ -3934,13 +4237,26 @@ function ensureAsrDriverLifecycleHooks(): void {
       syncAsrDriverFromBlocks('script-rendered', { mode, allowCreate });
     }
   };
-  const onSessionStop = () => {
+  const onSessionStop = (event: Event) => {
+    const detail = (event as CustomEvent | undefined)?.detail || {};
+    const userInitiated =
+      String(detail?.reason || '').toLowerCase() === 'user' ||
+      String(detail?.source || '').toLowerCase() === 'user' ||
+      detail?.manual === true;
+    if (userInitiated && deferredAsrScriptEndStop) {
+      try {
+        console.info(`[ASR_END_GRACE_CANCELLED_BY_USER] lineIndex=${deferredAsrScriptEndStop.pending.lineIndex ?? -1} lastSpeakableLineIndex=${deferredAsrScriptEndStop.pending.lastSpeakableLineIndex ?? -1} reason=user_stop`);
+      } catch {}
+    }
+    setAsrEndGraceState(false);
     lastAsrScriptEndStopKey = '';
     clearPendingAsrScriptEnd('session-stop');
     cancelDeferredAsrScriptEndStop('session-stop');
     asrSessionIntentActive = false;
     resetAsrInterimStabilizer();
     clearAsrRunKey('lifecycle-session-stop');
+    disarmAsrSessionState('session-stop');
+    resetAsrDriverCreateBlockedDiagnostics();
     emitHudSnapshot('session-stop', { force: true });
   };
   const onSessionPhase = (event: Event) => {
@@ -3952,6 +4268,8 @@ function ensureAsrDriverLifecycleHooks(): void {
       asrSessionIntentActive = false;
       resetAsrInterimStabilizer();
       clearAsrRunKey(`phase-${phase}`);
+      disarmAsrSessionState(`phase-${phase}`);
+      resetAsrDriverCreateBlockedDiagnostics();
     }
     emitHudSnapshot(`session-phase:${phase || 'unknown'}`);
   };
@@ -4022,11 +4340,7 @@ function ensureAsrDriverLifecycleHooks(): void {
   const initialMode = String(getScrollMode() || '').toLowerCase();
   const session = getSession();
   const initialPhase = String(session.phase || '').toLowerCase();
-  const allowBootstrapCreate =
-    initialPhase === 'preroll' ||
-    initialPhase === 'live' ||
-    session.asrDesired ||
-    session.asrArmed;
+  const allowBootstrapCreate = shouldAllowAsrDriverCreateAttempt(initialMode, session);
   if (allowBootstrapCreate || !!asrScrollDriver) {
     attachAsrScrollDriver({ reason: 'bootstrap', mode: initialMode, allowCreate: allowBootstrapCreate });
     syncAsrDriverFromBlocks('bootstrap', { mode: initialMode, allowCreate: allowBootstrapCreate });
@@ -4055,6 +4369,8 @@ function ensureSessionStopHooked(): void {
     asrSessionIntentActive = false;
     resetAsrInterimStabilizer();
     clearAsrRunKey('session-stop-hook');
+    disarmAsrSessionState('session-stop-hook');
+    resetAsrDriverCreateBlockedDiagnostics();
     detachAsrScrollDriver();
     const detail = (event as CustomEvent)?.detail || {};
     const mode = typeof detail.mode === 'string' && detail.mode
@@ -4591,11 +4907,13 @@ export async function startSpeechBackendForSession(info?: { reason?: string; mod
 }
 
 export function stopSpeechBackendForSession(reason?: string): void {
+  resetAsrDriverCreateBlockedDiagnostics();
   suppressRecognizerAutoRestart = true;
   suppressAsrStallAutoRestart(`stop:${String(reason || 'unspecified')}`);
   clearLifecycleRestartTimer();
   stopAsrHeartbeat();
   asrSessionIntentActive = false;
+  disarmAsrSessionState(`stop:${String(reason || 'unspecified')}`);
   resetAsrInterimStabilizer();
   clearAsrRunKey(`stop:${String(reason || 'unspecified')}`);
   if (!running && !rec) {
@@ -4635,6 +4953,7 @@ export function stopSpeechBackendForSession(reason?: string): void {
 }
 
 export function installSpeech(): void {
+  try { installAsrLogBuffer(window as any); } catch {}
   ensureAsrDriverLifecycleHooks();
   startAsrHeartbeat();
   activeAsrLane = readActiveAsrLane();

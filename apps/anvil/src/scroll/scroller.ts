@@ -1,5 +1,8 @@
 let displayScrollChannel: BroadcastChannel | null = null;
 let scrollEventTrackerInstalled = false;
+let lastScrollSyncSignature = '';
+let lastScrollSyncEmitAt = 0;
+let suppressedScrollSyncCount = 0;
 
 export type ScrollerRole = 'main' | 'display';
 
@@ -242,15 +245,45 @@ function isDevScrollSync(): boolean {
   if (typeof window === 'undefined') return false;
   try {
     const w = window as any;
-    if (w.__tpScrollDebug || w.__tpScrollSyncDebug) return true;
-    if (w.__TP_DEV || w.__TP_DEV1 || w.__tpDevMode) return true;
-    if (w.localStorage?.getItem('tp_dev_mode') === '1') return true;
+    if (w.__tpScrollSyncDebug === true || w.__tpScrollDebug === true) return true;
+    if (w.localStorage?.getItem('tp_scroll_sync_debug') === '1') return true;
     const params = new URLSearchParams(window.location.search || '');
-    if (params.has('scrollDebug') || params.has('dev') || params.has('debug')) return true;
+    if (params.has('scrollSyncDebug') || params.has('scrollDebug')) return true;
   } catch {
     // ignore
   }
   return false;
+}
+
+function emitCoalescedScrollSyncLog(payload: { top: number; scroller: string; reason?: string }): void {
+  if (!isDevScrollSync()) return;
+  const signature = `${payload.reason || 'none'}|${payload.top}|${payload.scroller}`;
+  const now = Date.now();
+  if (signature === lastScrollSyncSignature) {
+    suppressedScrollSyncCount += 1;
+    if (suppressedScrollSyncCount < 120 && now - lastScrollSyncEmitAt < 2000) {
+      return;
+    }
+    try {
+      console.debug('[SCROLL_SYNC]', {
+        ...payload,
+        suppressedCount: suppressedScrollSyncCount,
+      });
+    } catch {
+      // ignore
+    }
+    suppressedScrollSyncCount = 0;
+    lastScrollSyncEmitAt = now;
+    return;
+  }
+  lastScrollSyncSignature = signature;
+  suppressedScrollSyncCount = 0;
+  lastScrollSyncEmitAt = now;
+  try {
+    console.debug('[SCROLL_SYNC]', payload);
+  } catch {
+    // ignore
+  }
 }
 
 export function applyCanonicalScrollTop(
@@ -324,17 +357,11 @@ export function applyCanonicalScrollTop(
   } catch {
     // ignore display sync failures
   }
-  if (isDevScrollSync()) {
-    try {
-      console.debug('[SCROLL_SYNC]', {
-        top: Math.round(target),
-        scroller: describeElement(scroller),
-        reason: opts.reason,
-      });
-    } catch {
-      // ignore
-    }
-  }
+  emitCoalescedScrollSyncLog({
+    top: Math.round(target),
+    scroller: describeElement(scroller),
+    reason: opts.reason,
+  });
   return target;
 }
 

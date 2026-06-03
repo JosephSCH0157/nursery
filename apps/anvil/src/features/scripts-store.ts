@@ -45,6 +45,29 @@ const computeReadyFingerprint = (entries: ReadyScriptReference[]) =>
     .sort()
     .join('|');
 
+function isScriptSyncDebugEnabled(): boolean {
+  try {
+    const w = window as any;
+    if (w.__tpScriptSyncDebug === true) return true;
+    const params = new URLSearchParams(window.location.search || '');
+    if (params.get('script_sync_debug') === '1') return true;
+  } catch {}
+  try {
+    if (window.localStorage?.getItem('tp_script_sync_debug') === '1') return true;
+  } catch {}
+  return false;
+}
+
+function scriptStoreLog(...args: any[]): void {
+  if (!isScriptSyncDebugEnabled()) return;
+  debugLog(...args);
+}
+
+function scriptStoreHud(event: string, payload?: any): void {
+  if (!isScriptSyncDebugEnabled()) return;
+  hudLog(event, payload);
+}
+
 function shortUserId(value: string | null | undefined): string {
   const userId = String(value ?? "").trim();
   if (!userId) return "Unknown";
@@ -112,7 +135,7 @@ function emitScriptsUpdated(): void {
 export const ScriptStore = {
   list(): ScriptMeta[] {
     const all = Array.from(scriptsById.values());
-    debugLog('[SCRIPT-STORE] list size', all.length, all.map((r) => r.id));
+    scriptStoreLog('[SCRIPT-STORE] list size', all.length, all.map((r) => r.id));
     return all.map((rec) => ({
       id: rec.id,
       title: rec.title,
@@ -237,11 +260,11 @@ export const ScriptStore = {
   syncMapped(entries: { id: string; title: string; handle: FileSystemHandle }[]): void {
     const fingerprint = computeFingerprint(entries);
     if (fingerprint && fingerprint === lastMappedFingerprint) {
-      debugLog('[SCRIPT-STORE] syncMapped skipped (unchanged)', { fingerprint, count: entries.length });
+      scriptStoreLog('[SCRIPT-STORE] syncMapped skipped (unchanged)', { fingerprint, count: entries.length });
       return;
     }
     lastMappedFingerprint = fingerprint;
-    debugLog('[SCRIPT-STORE] syncMapped entries', entries);
+    scriptStoreLog('[SCRIPT-STORE] syncMapped entries', entries);
 
     for (const [id, rec] of scriptsById.entries()) {
       if (rec.source === 'mapped' && !entries.some((entry) => entry.id === id)) {
@@ -264,19 +287,19 @@ export const ScriptStore = {
       });
     }
     const ids = Array.from(scriptsById.keys());
-    debugLog('[SCRIPT-STORE] scriptsById size after sync', scriptsById.size, ids);
-    hudLog('script-store:syncMapped', { size: scriptsById.size, ids });
+    scriptStoreLog('[SCRIPT-STORE] scriptsById size after sync', scriptsById.size, ids);
+    scriptStoreHud('script-store:syncMapped', { size: scriptsById.size, ids });
     emitScriptsUpdated();
   },
 
   syncReady(entries: ReadyScriptReference[]): void {
     const fingerprint = computeReadyFingerprint(entries);
     if (fingerprint && fingerprint === lastReadyFingerprint) {
-      debugLog('[SCRIPT-STORE] syncReady skipped (unchanged)', { fingerprint, count: entries.length });
+      scriptStoreLog('[SCRIPT-STORE] syncReady skipped (unchanged)', { fingerprint, count: entries.length });
       return;
     }
     lastReadyFingerprint = fingerprint;
-    debugLog('[SCRIPT-STORE] syncReady entries', entries);
+    scriptStoreLog('[SCRIPT-STORE] syncReady entries', entries);
 
     for (const [id, rec] of scriptsById.entries()) {
       if (rec.source === 'ready' && !entries.some((entry) => entry.id === id)) {
@@ -299,8 +322,8 @@ export const ScriptStore = {
     }
 
     const ids = Array.from(scriptsById.keys());
-    debugLog('[SCRIPT-STORE] scriptsById size after ready sync', scriptsById.size, ids);
-    hudLog('script-store:syncReady', { size: scriptsById.size, ids });
+    scriptStoreLog('[SCRIPT-STORE] scriptsById size after ready sync', scriptsById.size, ids);
+    scriptStoreHud('script-store:syncReady', { size: scriptsById.size, ids });
     emitScriptsUpdated();
   },
 };

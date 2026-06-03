@@ -12,6 +12,7 @@ import {
   type HammerEditorStateSerializable,
 } from "../src/editor/hammerWorkspaceHistory";
 import { createDefaultHammerStudioRackState } from "../src/editor/hammerStudioRack";
+import { normalizeHammerVisualPlacementsState } from "../src/lib/hammerVisualPlacements";
 import { createDefaultVisualAnimation, createDefaultVisualGeometry, createDefaultVisualLane, createEmptyVisualTimelineState } from "../src/visuals/model/hammerVisualDefaults";
 import { deriveLegacyVisualPlacementsFromTimeline } from "../src/visuals/persistence/hammerVisualTimelineLegacyAdapter";
 import type { HammerVisualTimelineState } from "../src/visuals/model/hammerVisualTypes";
@@ -93,7 +94,10 @@ function baseVisualTimeline(): HammerVisualTimelineState {
 
 function baseState(): HammerEditorStateSerializable {
   const visualTimeline = baseVisualTimeline();
-  const visualPlacements = deriveLegacyVisualPlacementsFromTimeline(visualTimeline);
+  const visualPlacements = normalizeHammerVisualPlacementsState(
+    deriveLegacyVisualPlacementsFromTimeline(visualTimeline),
+  );
+  assert.ok(visualPlacements);
   for (const placement of visualPlacements.placements) {
     if (placement.authority_operation_id === undefined) {
       delete placement.authority_operation_id;

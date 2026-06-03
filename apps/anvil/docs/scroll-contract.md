@@ -22,8 +22,18 @@ When `scrollMode='asr'`:
 - No timed/hybrid/wpm motor may run.
 - No auto-intent flow may drive scroll.
 - No preroll event may trigger movement.
-- Movement trigger is ASR commit only.
+- Semantic cursor advancement is ASR commit-driven only.
 - ASR movement authority is single-lane: `speech-loader -> asr-scroll-driver` commit path.
+- ASR semantic cursor truth and ASR visual scroll target are separate concerns:
+	- semantic truth is owned by validated ASR commits
+	- visual target correction is allowed only to keep the trusted semantic line readable near the marker
+- Visual recovery/protection paths are ASR-owned and must never advance semantic cursor truth.
+- Visual recovery/protection paths must never chase raw matcher index (`matchBestIdx`) as scroll target.
+- Visual recovery/protection targets must derive from trusted current/committed semantic anchors.
+- Visual recovery must be forward-only or protective-hold only unless a trusted rollback/reanchor reason applies.
+- Visual recovery/protection movement must be bounded to a small safe step (about one line height or capped safe pixel delta).
+- Visual recovery/protection must stand down during noMatch/offscript, stopped/session mismatch, bridge lifecycle/pending/reduced bridge context, contradiction, true visual silence, stale visual recovery evidence, or focus-loss movement hold.
+- Recovery/protection diagnostics must prove why movement was allowed or blocked.
 - Lifecycle and transcript wiring are single-instance: repeated init/mode toggles must not stack duplicate subscriptions/listeners in the same window.
 - Auto-motor authority is single-lane: `scroll-router` owns `__tpAuto` enable/disable state; bridge modules must not toggle it.
 - Legacy namespace recognizer backend (`window.__tpSpeech.startRecognizer`) is compatibility-only and opt-in (`window.__tpAllowLegacySpeechNamespace===true` or `?legacySpeechNs=1`).
@@ -105,6 +115,78 @@ When `scrollMode='asr'`:
 - ASR anchor/cursor/evidence scans operate on speakable lines only; cue/tag/note-only render lines stay visible in UI but are excluded from ASR match domain.
 - Scroll target identity is canonical: resolve scroller via `getScrollerEl()`; for main role this must be `main#viewer.viewer` with `#viewer` fallback.
 
+### 2.1 ASR Bounded Visual Recovery Lanes
+
+Allowed ASR-owned visual correction paths include:
+
+- **Post-commit visual follow**
+	- After a validated semantic commit, ASR may perform bounded visual follow to keep the committed/current line near the marker.
+	- This does not create a new commit.
+- **Post-release protection**
+	- After a valid post-commit visual release, ASR may briefly preserve the accepted release target against lower competing authority targets.
+- **Visual-debt flatline recovery**
+	- When semantic indices are caught up or nearly caught up but geometry shows the trusted line is still far below the marker, ASR may apply a bounded visual correction toward the current/committed semantic anchor.
+- **Lead-pressure visual-debt floor**
+	- Lead-pressure capping remains globally active.
+	- If a mature visual-debt case would otherwise be capped to zero movement, ASR may apply a narrow forward floor toward the current/committed semantic anchor.
+- **Post-floor authority protection**
+	- After a visual-debt floor is applied, ASR may briefly preserve the floored target against lower competing authority targets.
+- **Post-floor pocket-wall protection**
+	- During active post-floor protection, pocket-wall backward correction must not roll below the protected floor target while the same/compatible semantic line remains active and visual debt remains large.
+- **Safe live pocket correction**
+	- ASR may apply narrow local correction when the trusted current/committed line is visually outside the acceptable marker pocket and safety gates pass.
+- **Bottom-drift / comfort corrections**
+	- ASR may apply bounded reader-comfort correction when the trusted semantic line drifts materially outside the marker pocket near viewport bottom, without advancing semantic truth.
+
+### 2.2 ASR Diagnostic Contract
+
+ASR diagnostics are part of the runtime contract. New ASR movement/recovery paths must emit enough information to prove:
+
+- which authority selected the target
+- which semantic line anchor was used
+- whether the target came from current/committed semantic truth rather than raw matcher output
+- whether movement was forward, backward, or held
+- whether the movement was bounded
+- whether safety gates passed or rejected
+- why a recovery/protection path applied or stood down
+- current marker geometry:
+	- markerY / markerOffset
+	- host height
+	- line height
+	- current line viewport Y
+	- matched/spoken line viewport Y
+	- visual debt
+	- marker error
+- relevant freshness state:
+	- visualRecoveryFresh
+	- transcript freshness
+	- final freshness
+	- speech freshness
+	- trueVisualSilence
+- relevant ASR lifecycle blockers:
+	- noMatch/offscript
+	- stopped/session mismatch
+	- bridge lifecycle
+	- contradiction
+	- focus loss
+
+Current important ASR visual diagnostics include:
+
+- `ASR_POST_COMMIT_VISUAL_FOLLOW_RELEASE`
+- `ASR_POST_RELEASE_AUTHORITY_PROTECTED`
+- `ASR_VISUAL_DEADLOCK_ESCAPE`
+- `ASR_LEAD_PRESSURE_VISUAL_DEBT_FLOOR_EVALUATED`
+- `ASR_LEAD_PRESSURE_VISUAL_DEBT_FLOOR_APPLIED`
+- `ASR_POST_FLOOR_AUTHORITY_PROTECTED`
+- `ASR_POST_FLOOR_POCKET_WALL_PROTECTED`
+- `ASR_VISUAL_AUTHORITY_LEAD_PRESSURE_CAPPED`
+- `ASR_POCKET_WALL_EVALUATED`
+- `ASR_READER_COMFORT_NUDGE`
+- `ASR_VISUAL_DEBT_CATCHUP_BLOCKED`
+- `ASR_SAFE_LIVE_POCKET_CORRECTION_APPLIED`
+- `ASR_PURSUE`
+- `ASR_READER_LINE_MARKER_ERROR`
+
 ## 3) Allowed Flows by Mode
 
 - `timed`: timed engine drives movement when `scrollEnabled=true`.
@@ -116,7 +198,7 @@ When `scrollMode='asr'`:
 - `hybrid`: while speech is active, off-script/no-match applies bounded slowdown/decay instead of immediate stop.
 - `hybrid`: sustained `hardNoMatch` during active speech (after short grace) must activate off-script slowdown/decay.
 - `hybrid`: off-script decay while speech is active keeps a non-zero velocity floor; hard stop remains silence-grace driven.
-- `asr`: commit-driven seek only; no motor lane.
+- `asr`: semantic advancement is commit-driven only; bounded ASR-owned visual recovery/protection may adjust readability target without advancing semantic truth; no motor lane.
 - `step`: discrete manual stepping only.
 - `rehearsal`: no programmatic movement; clamp behavior only.
 

@@ -85,6 +85,14 @@ type InstallWindow = Window & typeof globalThis & {
   __asrLogBufferInstalled?: boolean;
 };
 
+type AsrLogInstallHost = {
+  __ASR_LOG_BUFFER__?: any;
+  __copyAsrLog?: () => Promise<AsrLogExport> | AsrLogExport;
+  __downloadAsrLog?: () => AsrLogExport | null;
+  __clearAsrLog?: () => void;
+  __getAsrLogSummary?: () => Record<string, unknown>;
+};
+
 type BufferOptions = {
   maxEntries?: number;
   progressEvery?: number;
@@ -98,21 +106,59 @@ type BufferOptions = {
 };
 
 const DEFAULT_MAX_ENTRIES = 150000;
-const DEFAULT_PROGRESS_EVERY = 250;
+const DEFAULT_PROGRESS_EVERY = 10000;
 const MAX_STRING_LEN = 2000;
 const DEFAULT_MIN_STEP_PX = 6;
 const BIG_DEBT_MIN_STEP_THRESHOLD_PX = 120;
 const DEFAULT_LINE_BUCKET_SIZE = 25;
+const NOISY_ASR_TAG_COALESCE_SAMPLE_EVERY = 120;
+const NOISY_ASR_TAG_COALESCE_MIN_MS = 2500;
+const NOISY_ASR_TAGS = new Set<string>([
+  'ASR_LIVE_POCKET_MAINTENANCE_CALLSITE_REACHED',
+  'ASR_POCKET_WALL_EVALUATED',
+  'ASR_LOW_POCKET_DEADBAND_BLOCKED',
+  'ASR_VISUAL_RECOVERY_BOOST_BLOCKED',
+  'ASR_VISUAL_DEBT_CATCHUP_EVALUATION_SEEN',
+  'ASR_LEAD_AWARE_PURSUIT_CAP',
+  'ASR_READER_PRESSURE_REDUCED',
+  'ASR_VISUAL_AUTHORITY_LEAD_PRESSURE_EVALUATED',
+]);
 const TRACKED_SUMMARY_FAMILIES = new Set<string>([
   'ASR_VISUAL_ACTUATOR_APPLIED',
   'ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF',
   'ASR_READER_COMFORT_HOLD',
   'ASR_READER_COMFORT_NUDGE',
+  'ASR_POST_RELEASE_AUTHORITY_PROTECTED',
+  'ASR_POST_FLOOR_AUTHORITY_PROTECTED',
+  'ASR_POST_FLOOR_POCKET_WALL_PROTECTED',
   'ASR_SCROLL_AUTHORITY_SELECTED',
+  'ASR_VISUAL_CONTROL_DECISION',
+  'ASR_RECOVERY_EPISODE_*',
+  'ASR_BACKWARD_TARGET_REJECTED',
+  'ASR_RECOVERY_STEP_APPLIED',
+  'ASR_SETTLE_COMPLETE',
   'ASR_VISUAL_FOLLOW_*',
 ]);
 
 function detectEnabled(win: Window): boolean {
+  const host = win as Window & {
+    __TP_DEV?: unknown;
+    __TP_DEV1?: unknown;
+    __tpDevMode?: unknown;
+    __ASR_DIAGNOSTIC_PROOF__?: unknown;
+    __ASR_INIT_IMPL__?: unknown;
+    __asrLogBufferInstalled?: unknown;
+  };
+  if (
+    host.__TP_DEV === true ||
+    host.__TP_DEV1 === true ||
+    host.__tpDevMode === true ||
+    host.__ASR_DIAGNOSTIC_PROOF__ ||
+    host.__ASR_INIT_IMPL__ ||
+    host.__asrLogBufferInstalled === true
+  ) {
+    return true;
+  }
   try {
     const params = new URLSearchParams(win.location.search || '');
     if (params.get('dev') === '1') return true;
@@ -587,6 +633,7 @@ export function createAsrLogBuffer(options: BufferOptions = {}) {
   let droppedCount = 0;
   let writeIndex = 0;
   let capturedCount = 0;
+  const noisyTagState = new Map<string, { key: string; suppressed: number; lastEmitAt: number }>();
 
   const now = options.now ?? (() => new Date());
   const performanceNow = options.performanceNow ?? (() => {
@@ -627,15 +674,50 @@ export function createAsrLogBuffer(options: BufferOptions = {}) {
     }
   }
 
+  function buildNoisyCoalesceKey(tag: string, line: string): string {
+    const reason = parseFieldString(line, 'reason') || 'none';
+    const authority = parseFieldString(line, 'authority') || 'none';
+    const callsiteReason = parseFieldString(line, 'callsiteReason') || 'none';
+    const blockedReason = parseFieldString(line, 'blockedReason') || 'none';
+    const finalDecision = parseFieldString(line, 'finalDecision') || 'none';
+    const decisionReason = parseFieldString(line, 'decisionReason') || 'none';
+    const leadState = parseFieldString(line, 'leadState') || 'none';
+    const idx = parseFieldNumber(line, 'currentLineIdx') ?? parseFieldNumber(line, 'current') ?? -1;
+    const debtBucketRaw = parseFieldNumber(line, 'targetDebtPx') ?? parseFieldNumber(line, 'debtPx') ?? -1;
+    const debtBucket = debtBucketRaw >= 0 ? Math.round(debtBucketRaw / 25) : -1;
+    return [tag, reason, authority, callsiteReason, blockedReason, finalDecision, decisionReason, leadState, idx, debtBucket].join('|');
+  }
+
+  function shouldCoalesceNoisyTag(tag: string, line: string): boolean {
+    if (!NOISY_ASR_TAGS.has(tag)) return false;
+    const nowMs = Date.now();
+    const nextKey = buildNoisyCoalesceKey(tag, line);
+    const prev = noisyTagState.get(tag);
+    if (!prev || prev.key !== nextKey) {
+      noisyTagState.set(tag, { key: nextKey, suppressed: 0, lastEmitAt: nowMs });
+      return false;
+    }
+    prev.suppressed += 1;
+    const shouldSample = prev.suppressed % NOISY_ASR_TAG_COALESCE_SAMPLE_EVERY === 0;
+    const shouldTimeSample = nowMs - prev.lastEmitAt >= NOISY_ASR_TAG_COALESCE_MIN_MS;
+    if (!shouldSample && !shouldTimeSample) {
+      return true;
+    }
+    prev.lastEmitAt = nowMs;
+    return false;
+  }
+
   function captureConsoleCall(method: ConsoleMethod, args: unknown[]): boolean {
     const line = extractTextArg(args);
     if (!isAsrDiagnosticLine(line)) return false;
+    const tag = extractTag(line);
+    if (shouldCoalesceNoisyTag(tag, line)) return true;
     const payload = sanitizeValue(extractPayloadArg(args));
     append({
       ts: now().toISOString(),
       performanceNowMs: performanceNow(),
       method,
-      tag: extractTag(line),
+      tag,
       message: line,
       stringLine: line,
       payload,
@@ -762,7 +844,24 @@ export function createAsrLogBuffer(options: BufferOptions = {}) {
 export function installAsrLogBuffer(win: InstallWindow = window as InstallWindow): void {
   if (typeof win === 'undefined') return;
   if (!detectEnabled(win)) return;
-  if (win.__asrLogBufferInstalled) return;
+  const bindHelpers = (host: AsrLogInstallHost, buffer: ReturnType<typeof createAsrLogBuffer>) => {
+    host.__ASR_LOG_BUFFER__ = buffer;
+    host.__copyAsrLog = () => buffer.copy();
+    host.__downloadAsrLog = () => buffer.download();
+    host.__clearAsrLog = () => buffer.clear();
+    host.__getAsrLogSummary = () => buffer.summary();
+  };
+  const globalHost = (typeof globalThis === 'object' && globalThis)
+    ? (globalThis as unknown as AsrLogInstallHost)
+    : null;
+  const existingBuffer = (win.__ASR_LOG_BUFFER__ || globalHost?.__ASR_LOG_BUFFER__) as ReturnType<typeof createAsrLogBuffer> | undefined;
+  if (win.__asrLogBufferInstalled && existingBuffer) {
+    bindHelpers(win, existingBuffer);
+    if (globalHost && globalHost !== (win as unknown as AsrLogInstallHost)) {
+      bindHelpers(globalHost, existingBuffer);
+    }
+    return;
+  }
   win.__asrLogBufferInstalled = true;
 
   const orig = {
@@ -786,9 +885,8 @@ export function installAsrLogBuffer(win: InstallWindow = window as InstallWindow
   console.warn = wrap('warn');
   console.debug = wrap('debug');
 
-  win.__ASR_LOG_BUFFER__ = buffer;
-  win.__copyAsrLog = () => buffer.copy();
-  win.__downloadAsrLog = () => buffer.download();
-  win.__clearAsrLog = () => buffer.clear();
-  win.__getAsrLogSummary = () => buffer.summary();
+  bindHelpers(win, buffer);
+  if (globalHost && globalHost !== (win as unknown as AsrLogInstallHost)) {
+    bindHelpers(globalHost, buffer);
+  }
 }

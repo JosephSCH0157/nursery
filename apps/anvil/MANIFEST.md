@@ -14,7 +14,7 @@ If a behavior is confusing, start here before editing code.
 2. **One owner per truth.** If two modules can "own" the same state, we will eventually get split-brain.
 3. **Globals are views.** `window.*` exports are allowed only as thin wrappers around SSOT.
 4. **Dialects must translate.** Any subsystem with its own mode vocabulary must map into canonical types.
-5. **ASR is an isolated lane.** In `scrollMode='asr'`, scrolling is commit-driven only. No motor/auto-intent/tick-driven scrolling is allowed. Movement must come from ASR commit -> writer seek when the DOM is line-addressable, with pixel fallback when writer/block mapping or line-addressability is unavailable.
+5. **ASR is an isolated semantic + visual recovery lane.** In `scrollMode='asr'`, scrolling must remain owned by the ASR lane. Semantic advancement is commit-driven only: only validated ASR commits may advance cursor truth. Visual movement may occur through bounded ASR-owned recovery/protection paths when geometry proves the trusted semantic line is no longer readable near the marker. These visual paths must never advance semantic commits, never chase raw `matchBestIdx`, and must remain gated by live ASR safety checks.
 6. **Viewer is the canonical scroller.** Runtime scroll reads/writes must resolve through `getScrollerEl()` and target `main#viewer.viewer` (fallback `#viewer`) for main viewer role.
 
 ---
@@ -168,6 +168,98 @@ In `scrollMode='asr'`:
 - For short-final utterances inside the recent-forward window, strong forward candidates above floor may satisfy forced-evidence without requiring the general token/char minima.
 - Pixel `driveToLine` is fallback only when writer or block mapping is unavailable.
 - WebSpeech `onend` while ASR session is active must auto-restart recognizer; explicit stop must not auto-restart.
+
+### ASR Visual Authority and Recovery Invariants
+
+- ASR semantic cursor truth and ASR visual scroll target are separate concerns.
+  - Semantic truth is owned by validated ASR commits.
+  - Visual target correction is allowed only to keep the trusted semantic line readable near the marker.
+- Visual recovery paths must never advance semantic cursor truth.
+- Visual recovery paths must never use raw `matchBestIdx` as the scroll target.
+- Visual recovery targets must be derived from trusted current/committed semantic line anchors.
+- Visual recovery must be forward-only or protective-hold only unless an explicitly trusted rollback/reanchor reason applies.
+- Visual recovery must be bounded to a small safe step, normally one line-height or a capped safe pixel delta.
+- Visual recovery must stand down during:
+  - noMatch/offscript
+  - stopped/session mismatch
+  - bridge lifecycle / pending bridge / bridge trap / reduced bridge context
+  - contradiction
+  - true visual silence
+  - stale visual recovery evidence
+  - focus-loss movement hold
+- Recovery/protection diagnostics must prove why movement was allowed or blocked.
+
+### ASR Bounded Visual Recovery Lanes
+
+Allowed ASR-owned visual correction paths include:
+
+- **Post-commit visual follow**
+  - After a validated semantic commit, ASR may perform bounded visual follow to keep the committed/current line near the marker.
+  - This does not create a new commit.
+- **Post-release protection**
+  - After a valid post-commit visual release, ASR may briefly preserve the accepted release target against lower competing authority targets.
+- **Visual-debt flatline recovery**
+  - When semantic indices are caught up or nearly caught up but geometry shows the trusted line is still far below the marker, ASR may apply a bounded visual correction toward the current/committed semantic anchor.
+- **Lead-pressure visual-debt floor**
+  - Lead-pressure capping remains globally active.
+  - If a mature visual-debt case would otherwise be capped to zero movement, ASR may apply a narrow forward floor toward the current/committed semantic anchor.
+- **Post-floor authority protection**
+  - After a visual-debt floor is applied, ASR may briefly preserve the floored target against lower competing authority targets.
+- **Post-floor pocket-wall protection**
+  - During active post-floor protection, pocket-wall backward correction must not roll below the protected floor target while the same/compatible semantic line remains active and visual debt remains large.
+- **Safe live pocket correction**
+  - ASR may apply narrow local correction when the trusted current/committed line is visually outside the acceptable marker pocket and safety gates pass.
+- **Bottom-drift / comfort corrections**
+  - ASR may apply bounded reader-comfort correction when the trusted semantic line drifts materially outside the marker pocket near viewport bottom, without advancing semantic truth.
+
+### ASR Diagnostic Contract
+
+ASR diagnostics are part of the runtime contract. New ASR movement/recovery paths must emit enough information to prove:
+
+- which authority selected the target
+- which semantic line anchor was used
+- whether the target came from current/committed semantic truth rather than raw matcher output
+- whether movement was forward, backward, or held
+- whether the movement was bounded
+- whether safety gates passed or rejected
+- why a recovery/protection path applied or stood down
+- current marker geometry:
+  - markerY / markerOffset
+  - host height
+  - line height
+  - current line viewport Y
+  - matched/spoken line viewport Y
+  - visual debt
+  - marker error
+- relevant freshness state:
+  - visualRecoveryFresh
+  - transcript freshness
+  - final freshness
+  - speech freshness
+  - trueVisualSilence
+- relevant ASR lifecycle blockers:
+  - noMatch/offscript
+  - stopped/session mismatch
+  - bridge lifecycle
+  - contradiction
+  - focus loss
+
+Current important ASR visual diagnostics include:
+
+- `ASR_POST_COMMIT_VISUAL_FOLLOW_RELEASE`
+- `ASR_POST_RELEASE_AUTHORITY_PROTECTED`
+- `ASR_VISUAL_DEADLOCK_ESCAPE`
+- `ASR_LEAD_PRESSURE_VISUAL_DEBT_FLOOR_EVALUATED`
+- `ASR_LEAD_PRESSURE_VISUAL_DEBT_FLOOR_APPLIED`
+- `ASR_POST_FLOOR_AUTHORITY_PROTECTED`
+- `ASR_POST_FLOOR_POCKET_WALL_PROTECTED`
+- `ASR_VISUAL_AUTHORITY_LEAD_PRESSURE_CAPPED`
+- `ASR_POCKET_WALL_EVALUATED`
+- `ASR_READER_COMFORT_NUDGE`
+- `ASR_VISUAL_DEBT_CATCHUP_BLOCKED`
+- `ASR_SAFE_LIVE_POCKET_CORRECTION_APPLIED`
+- `ASR_PURSUE`
+- `ASR_READER_LINE_MARKER_ERROR`
 
 ### 1.4 Hybrid Mode Invariants (Matcher Readiness)
 
@@ -380,6 +472,12 @@ Primary modernization objective:
 - Centralize mode types + adapters into one module (SSOT)
 - Replace local unions with imported canonical types
 - Ensure only `index-app.ts` publishes scroll-related window globals
+
+Secondary modernization objective:
+- Formalize ASR semantic/visual authority separation.
+- Preserve semantic commit discipline while allowing bounded visual recovery.
+- Keep visual recovery paths ASR-owned, safety-gated, diagnostic-rich, and non-semantic-advancing.
+- Add session-level ASR run summaries so human-reader geometry metrics can be compared across runs.
 
 See `scroll-mode-ssot.md` for detailed Phase 1A tasks.
 See `docs/scroll-contract.md` for executable runtime boundaries and allowed/forbidden flows.

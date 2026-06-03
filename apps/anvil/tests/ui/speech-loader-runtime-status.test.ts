@@ -38,6 +38,8 @@ describe('speech loader runtime status', () => {
     delete (window as any).__tpStore;
     delete (window as any).__tpMic;
     delete (window as any).__tpAsrRuntimeStatus;
+    delete (window as any).__tpAsrBlocksReady;
+    delete (window as any).__tpAsrBlockCount;
     delete (window as any).SpeechRecognition;
     delete (window as any).webkitSpeechRecognition;
   });
@@ -46,6 +48,8 @@ describe('speech loader runtime status', () => {
     delete (window as any).__tpStore;
     delete (window as any).__tpMic;
     delete (window as any).__tpAsrRuntimeStatus;
+    delete (window as any).__tpAsrBlocksReady;
+    delete (window as any).__tpAsrBlockCount;
     delete (window as any).SpeechRecognition;
     delete (window as any).webkitSpeechRecognition;
     jest.restoreAllMocks();
@@ -215,5 +219,76 @@ describe('speech loader runtime status', () => {
     expect(statuses.some((status) => status.runtimePath === 'whisper-large-live')).toBe(true);
 
     stopSpeechBackendForSession('test-asr2-runtime-path');
+  });
+
+  test('coalesces repeated driver create blocked diagnostics by signature', async () => {
+    const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    localStorage.setItem('tp_dev_mode', '1');
+
+    const { appStore } = await import('../../src/state/app-store');
+    const { initSession } = await import('../../src/state/session');
+    initSession();
+    (window as any).__tpStore = appStore;
+    appStore.set('scrollMode', 'asr' as any);
+    appStore.set('session.phase', 'live' as any);
+    appStore.set('session.asrDesired', true as any);
+    appStore.set('session.asrArmed', true as any);
+    (window as any).__tpAsrBlocksReady = true;
+    (window as any).__tpAsrBlockCount = 24;
+
+    const { installSpeech } = await import('../../src/features/speech-loader');
+    installSpeech();
+
+    for (let i = 0; i < 30; i += 1) {
+      window.dispatchEvent(new CustomEvent('tp:scroll:mode', { detail: { mode: 'asr', reason: 'store-change' } }));
+    }
+
+    const blockedLogs = debugSpy.mock.calls.filter((call) => String(call[0] || '').includes('[ASR] driver create blocked'));
+
+    // Each unique create-block signature should log once, then aggregate repeats.
+    expect(blockedLogs.length).toBeLessThanOrEqual(4);
+  });
+
+  test('session stop disarms ASR create attempts and prevents blocked create spam', async () => {
+    const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    localStorage.setItem('tp_dev_mode', '1');
+
+    const { appStore } = await import('../../src/state/app-store');
+    const { initSession } = await import('../../src/state/session');
+    initSession();
+    (window as any).__tpStore = appStore;
+    appStore.set('scrollMode', 'asr' as any);
+    appStore.set('session.phase', 'live' as any);
+    appStore.set('session.asrDesired', true as any);
+    appStore.set('session.asrArmed', true as any);
+    (window as any).__tpAsrBlocksReady = true;
+    (window as any).__tpAsrBlockCount = 24;
+
+    const { installSpeech } = await import('../../src/features/speech-loader');
+    installSpeech();
+
+    for (let i = 0; i < 10; i += 1) {
+      window.dispatchEvent(new CustomEvent('tp:scroll:mode', { detail: { mode: 'asr', reason: 'store-change' } }));
+    }
+    expect(debugSpy.mock.calls.some((call) => String(call[0] || '').includes('[ASR] driver create blocked'))).toBe(true);
+
+    debugSpy.mockClear();
+    appStore.set('session.phase', 'wrap' as any);
+    window.dispatchEvent(new CustomEvent('tp:session:phase', { detail: { phase: 'wrap' } }));
+    window.dispatchEvent(new CustomEvent('tp:session:stop', { detail: { source: 'recBtn', reason: 'user' } }));
+
+    for (let i = 0; i < 15; i += 1) {
+      appStore.set('session.phase', 'wrap' as any);
+      window.dispatchEvent(new CustomEvent('tp:scroll:mode', { detail: { mode: 'asr', reason: 'store-change' } }));
+    }
+
+    const blockedAfterStop = debugSpy.mock.calls.filter((call) => String(call[0] || '').includes('[ASR] driver create blocked'));
+    const blockedSuppressedAfterStop = debugSpy.mock.calls.filter((call) => String(call[0] || '').includes('[ASR] driver create blocked (suppressed)'));
+    expect(blockedAfterStop.length).toBeLessThanOrEqual(2);
+    expect(blockedSuppressedAfterStop).toHaveLength(0);
+    expect(appStore.get('session.asrArmed')).toBe(false);
+    expect(appStore.get('session.asrDesired')).toBe(false);
   });
 });

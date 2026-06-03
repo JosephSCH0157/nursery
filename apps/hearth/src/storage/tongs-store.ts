@@ -1437,23 +1437,45 @@ export class TongsHearthStore implements HearthStore {
     }
 
     const snapshot = buildChatSnapshot(cache, workspaceId);
-    const firstTry = await commitChatSnapshot(workpieceId, snapshot, writtenBy);
+    let firstTry: { ok: true } | { ok: false; status: number };
+    try {
+      firstTry = await commitChatSnapshot(workpieceId, snapshot, writtenBy);
+    } catch (error) {
+      // Chat snapshot sync is best-effort; keep local chat history even when remote is unavailable.
+      console.warn("[hearth:tongs] chat snapshot sync request failed", error);
+      return;
+    }
     if (firstTry.ok) {
       loadedChatSnapshotByWorkpiece.add(workpieceId);
       return;
     }
     if (firstTry.status !== 404) {
-      throw new Error("chat_snapshot_sync_failed");
+      console.warn("[hearth:tongs] chat snapshot sync failed", {
+        workspaceId,
+        workpieceId,
+        status: firstTry.status,
+      });
+      return;
     }
 
     const replacementId = await createCradle(workspaceId, writtenBy);
     if (!replacementId) return;
     persistWorkpieceId(workspaceId, replacementId, cache);
-    const secondTry = await commitChatSnapshot(replacementId, snapshot, writtenBy);
+    let secondTry: { ok: true } | { ok: false; status: number };
+    try {
+      secondTry = await commitChatSnapshot(replacementId, snapshot, writtenBy);
+    } catch (error) {
+      console.warn("[hearth:tongs] chat snapshot replacement sync request failed", error);
+      return;
+    }
     if (secondTry.ok) {
       loadedChatSnapshotByWorkpiece.add(replacementId);
       return;
     }
-    throw new Error("chat_snapshot_sync_failed");
+    console.warn("[hearth:tongs] chat snapshot replacement sync failed", {
+      workspaceId,
+      replacementId,
+      status: secondTry.status,
+    });
   }
 }

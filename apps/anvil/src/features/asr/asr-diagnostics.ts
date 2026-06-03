@@ -28,6 +28,213 @@ export function buildAsrAudioChunkStaleDiagnostic(args: {
   return `[ASR_AUDIO_CHUNK_STALE] ageMs=${Math.round(args.ageMs)} thresholdMs=${args.thresholdMs} recognizerAttached=${args.recognizerAttached ? 1 : 0} speechActive=${args.speechActive ? 1 : 0}`;
 }
 
+export function buildAsrStabilizerShadowDiagnostic(args: {
+  rawMatchBestIdx: number | null;
+  runtimeCurrentLineIdx: number | null;
+  runtimeAcceptedCommitTargetIdx: number | null;
+  previousStableCursorIdx: number;
+  stableCursorIdx: number;
+  action: 'hold' | 'advance_adjacent' | 'evidence_only' | 'reset_needed';
+  reason: string;
+  proposedAdjacentCommitTarget: number | null;
+  proposedTargetIsBoundedPlusOne: boolean;
+  rawMatchWasFarJump: boolean;
+  heldDueToNoMatchOrQuietOrStale: boolean;
+  runtimeDifferentFromStable: boolean;
+  runtimeDifferentFromProposed: boolean;
+  noMatch: boolean;
+  speechLive: boolean;
+  transcriptFresh: boolean;
+}): string {
+  const rawMatchBestIdx = Number.isFinite(args.rawMatchBestIdx as number) ? Math.round(Number(args.rawMatchBestIdx)) : -1;
+  const runtimeCurrentLineIdx = Number.isFinite(args.runtimeCurrentLineIdx as number) ? Math.round(Number(args.runtimeCurrentLineIdx)) : -1;
+  const runtimeAcceptedCommitTargetIdx = Number.isFinite(args.runtimeAcceptedCommitTargetIdx as number)
+    ? Math.round(Number(args.runtimeAcceptedCommitTargetIdx))
+    : -1;
+  const proposedAdjacentCommitTarget = Number.isFinite(args.proposedAdjacentCommitTarget as number)
+    ? Math.round(Number(args.proposedAdjacentCommitTarget))
+    : -1;
+  return `[ASR_STABILIZER_SHADOW] rawMatchBestIdx=${rawMatchBestIdx} runtimeCurrentLineIdx=${runtimeCurrentLineIdx} runtimeAcceptedCommitTargetIdx=${runtimeAcceptedCommitTargetIdx} previousStableCursorIdx=${Math.round(args.previousStableCursorIdx)} stableCursorIdx=${Math.round(args.stableCursorIdx)} action=${args.action} reason=${args.reason} proposedAdjacentCommitTarget=${proposedAdjacentCommitTarget} proposedTargetBounded=${args.proposedTargetIsBoundedPlusOne ? 1 : 0} rawFarJump=${args.rawMatchWasFarJump ? 1 : 0} heldDueToNoMatchOrQuietOrStale=${args.heldDueToNoMatchOrQuietOrStale ? 1 : 0} runtimeDifferentFromStable=${args.runtimeDifferentFromStable ? 1 : 0} runtimeDifferentFromProposed=${args.runtimeDifferentFromProposed ? 1 : 0} noMatch=${args.noMatch ? 1 : 0} speechLive=${args.speechLive ? 1 : 0} transcriptFresh=${args.transcriptFresh ? 1 : 0}`;
+}
+
+export function buildAsrStabilizerCommitCandidateDiagnostic(args: {
+  currentLineIdx: number;
+  proposedAdjacentCommitTarget: number | null;
+  action: 'hold' | 'advance_adjacent' | 'evidence_only' | 'reset_needed';
+  reason: string;
+  rawMatchBestIdx: number | null;
+  speechLive: boolean;
+  transcriptFresh: boolean;
+  noMatch: boolean;
+  accepted: boolean;
+  rejectReason: string;
+}): string {
+  const rawMatchBestIdx = Number.isFinite(args.rawMatchBestIdx as number)
+    ? Math.round(Number(args.rawMatchBestIdx))
+    : -1;
+  const proposedAdjacentCommitTarget = Number.isFinite(args.proposedAdjacentCommitTarget as number)
+    ? Math.round(Number(args.proposedAdjacentCommitTarget))
+    : -1;
+  return `[ASR_STABILIZER_COMMIT_CANDIDATE] currentLineIdx=${Math.round(args.currentLineIdx)} proposedAdjacentCommitTarget=${proposedAdjacentCommitTarget} action=${args.action} reason=${args.reason} rawMatchBestIdx=${rawMatchBestIdx} speechLive=${args.speechLive ? 1 : 0} transcriptFresh=${args.transcriptFresh ? 1 : 0} noMatch=${args.noMatch ? 1 : 0} accepted=${args.accepted ? 1 : 0} rejectReason=${args.rejectReason || 'none'}`;
+}
+
+export function buildAsrPostCommitVisualFollowBlockedDiagnostic(args: {
+  previousSemanticLineIdx: number;
+  newSemanticLineIdx: number;
+  committedLineIdx: number;
+  currentLineIdx: number;
+  nextSpeakableLineIdx: number;
+  visualAnchorSource: string;
+  visualAnchorLineIdx: number;
+  authoritativeLineIdx: number;
+  lastVerifiedCommitLineIdx: number;
+  hasFreshVerifiedForwardCommit: boolean;
+  proposedTargetScrollTop: number;
+  cappedTargetScrollTop: number;
+  selectedAuthority: string;
+  beforeScrollTop: number;
+  afterScrollTop: number;
+  deltaScrollTop: number;
+  blockerReason: string;
+  pocketWallReason?: string;
+  leadPressureReason?: string;
+  markerY: number;
+  currentLineViewportY?: number;
+  activeLineViewportY?: number;
+}): string {
+  return `[ASR_POST_COMMIT_VISUAL_FOLLOW_BLOCKED] previousSemanticLineIdx=${Math.round(args.previousSemanticLineIdx)} newSemanticLineIdx=${Math.round(args.newSemanticLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} currentLineIdx=${Math.round(args.currentLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} visualAnchorSource=${args.visualAnchorSource || 'none'} visualAnchorLineIdx=${Math.round(args.visualAnchorLineIdx)} authoritativeLineIdx=${Math.round(args.authoritativeLineIdx)} lastVerifiedCommitLineIdx=${Math.round(args.lastVerifiedCommitLineIdx)} hasFreshVerifiedForwardCommit=${args.hasFreshVerifiedForwardCommit ? 1 : 0} proposedTargetScrollTop=${Math.round(args.proposedTargetScrollTop)} cappedTargetScrollTop=${Math.round(args.cappedTargetScrollTop)} selectedAuthority=${args.selectedAuthority || 'none'} beforeScrollTop=${Math.round(args.beforeScrollTop)} afterScrollTop=${Math.round(args.afterScrollTop)} deltaScrollTop=${Math.round(args.deltaScrollTop)} blockerReason=${args.blockerReason || 'unknown'} pocketWallReason=${args.pocketWallReason || 'none'} leadPressureReason=${args.leadPressureReason || 'none'} markerY=${Math.round(args.markerY)} currentLineViewportY=${Number.isFinite(args.currentLineViewportY as number) ? Math.round(Number(args.currentLineViewportY)) : -1} activeLineViewportY=${Number.isFinite(args.activeLineViewportY as number) ? Math.round(Number(args.activeLineViewportY)) : -1}`;
+}
+
+export function buildAsrPostCommitVisualFollowOkDiagnostic(args: {
+  previousSemanticLineIdx: number;
+  newSemanticLineIdx: number;
+  committedLineIdx: number;
+  currentLineIdx: number;
+  nextSpeakableLineIdx: number;
+  visualAnchorSource: string;
+  visualAnchorLineIdx: number;
+  authoritativeLineIdx: number;
+  lastVerifiedCommitLineIdx: number;
+  hasFreshVerifiedForwardCommit: boolean;
+  proposedTargetScrollTop: number;
+  cappedTargetScrollTop: number;
+  selectedAuthority: string;
+  beforeScrollTop: number;
+  afterScrollTop: number;
+  deltaScrollTop: number;
+  markerY: number;
+  currentLineViewportY?: number;
+  activeLineViewportY?: number;
+}): string {
+  return `[ASR_POST_COMMIT_VISUAL_FOLLOW_OK] previousSemanticLineIdx=${Math.round(args.previousSemanticLineIdx)} newSemanticLineIdx=${Math.round(args.newSemanticLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} currentLineIdx=${Math.round(args.currentLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} visualAnchorSource=${args.visualAnchorSource || 'none'} visualAnchorLineIdx=${Math.round(args.visualAnchorLineIdx)} authoritativeLineIdx=${Math.round(args.authoritativeLineIdx)} lastVerifiedCommitLineIdx=${Math.round(args.lastVerifiedCommitLineIdx)} hasFreshVerifiedForwardCommit=${args.hasFreshVerifiedForwardCommit ? 1 : 0} proposedTargetScrollTop=${Math.round(args.proposedTargetScrollTop)} cappedTargetScrollTop=${Math.round(args.cappedTargetScrollTop)} selectedAuthority=${args.selectedAuthority || 'none'} beforeScrollTop=${Math.round(args.beforeScrollTop)} afterScrollTop=${Math.round(args.afterScrollTop)} deltaScrollTop=${Math.round(args.deltaScrollTop)} markerY=${Math.round(args.markerY)} currentLineViewportY=${Number.isFinite(args.currentLineViewportY as number) ? Math.round(Number(args.currentLineViewportY)) : -1} activeLineViewportY=${Number.isFinite(args.activeLineViewportY as number) ? Math.round(Number(args.activeLineViewportY)) : -1}`;
+}
+
+export function buildAsrPostCommitVisualFollowReleaseDiagnostic(args: {
+  previousSemanticLineIdx: number;
+  newSemanticLineIdx: number;
+  beforeScrollTop: number;
+  proposedTargetScrollTop: number;
+  releaseDesiredTargetScrollTop: number;
+  boundedTargetScrollTop: number;
+  releaseStepPx: number;
+  afterScrollTop: number;
+  deltaScrollTop: number;
+  selectedAuthority: string;
+  releaseAccepted: boolean;
+  rejectReason: string;
+  markerY: number;
+  currentLineViewportY: number;
+}): string {
+  return `[ASR_POST_COMMIT_VISUAL_FOLLOW_RELEASE] previousSemanticLineIdx=${Math.round(args.previousSemanticLineIdx)} newSemanticLineIdx=${Math.round(args.newSemanticLineIdx)} beforeScrollTop=${Math.round(args.beforeScrollTop)} proposedTargetScrollTop=${Math.round(args.proposedTargetScrollTop)} releaseDesiredTargetScrollTop=${Math.round(args.releaseDesiredTargetScrollTop)} boundedTargetScrollTop=${Math.round(args.boundedTargetScrollTop)} releaseStepPx=${Math.round(args.releaseStepPx)} afterScrollTop=${Math.round(args.afterScrollTop)} deltaScrollTop=${Math.round(args.deltaScrollTop)} selectedAuthority=${args.selectedAuthority || 'none'} releaseAccepted=${args.releaseAccepted ? 1 : 0} rejectReason=${args.rejectReason || 'none'} markerY=${Math.round(args.markerY)} currentLineViewportY=${Number.isFinite(args.currentLineViewportY as number) ? Math.round(Number(args.currentLineViewportY)) : -1}`;
+}
+
+export function buildAsrPostReleaseAuthorityProtectedDiagnostic(args: {
+  releaseLineIdx: number;
+  protectedTargetScrollTop: number;
+  competingAuthority: string;
+  competingTargetScrollTop: number;
+  selectedTargetScrollTop: number;
+  protectionApplied: boolean;
+  rejectReason: string;
+  markerY: number;
+  currentLineViewportY: number;
+  scrollTop: number;
+}): string {
+  return `[ASR_POST_RELEASE_AUTHORITY_PROTECTED] releaseLineIdx=${Math.round(args.releaseLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)} competingAuthority=${args.competingAuthority || 'none'} competingTargetScrollTop=${Math.round(args.competingTargetScrollTop)} selectedTargetScrollTop=${Math.round(args.selectedTargetScrollTop)} protectionApplied=${args.protectionApplied ? 1 : 0} rejectReason=${args.rejectReason || 'none'} markerY=${Math.round(args.markerY)} currentLineViewportY=${Number.isFinite(args.currentLineViewportY as number) ? Math.round(Number(args.currentLineViewportY)) : -1} scrollTop=${Math.round(args.scrollTop)}`;
+}
+
+export function buildAsrPostFloorAuthorityProtectedDiagnostic(args: {
+  protectionApplied: boolean;
+  rejectReason: string;
+  floorProtectedLineIdx: number;
+  protectedTargetScrollTop: number;
+  competingAuthority: string;
+  competingReason: string;
+  competingTargetScrollTop: number;
+  selectedTargetBeforeProtection: number;
+  selectedTargetAfterProtection: number;
+  currentScrollTop: number;
+  markerY: number;
+  currentLineViewportY: number;
+  matchedLineViewportY: number;
+  visualDebtPx: number;
+  matchedMarkerErrorPx: number;
+  remainingProtectionMs: number;
+  visualRecoveryFresh: boolean;
+  trueVisualSilence: boolean;
+  noMatchOrOffscript: boolean;
+  bridgeContextActive: boolean;
+  hardContradiction: boolean;
+  sessionLive: boolean;
+}): string {
+  return `[ASR_POST_FLOOR_AUTHORITY_PROTECTED] protectionApplied=${args.protectionApplied ? 1 : 0} rejectReason=${args.rejectReason || 'none'} floorProtectedLineIdx=${Math.round(args.floorProtectedLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)} competingAuthority=${args.competingAuthority || 'none'} competingReason=${args.competingReason || 'none'} competingTargetScrollTop=${Math.round(args.competingTargetScrollTop)} selectedTargetBeforeProtection=${Math.round(args.selectedTargetBeforeProtection)} selectedTargetAfterProtection=${Math.round(args.selectedTargetAfterProtection)} currentScrollTop=${Math.round(args.currentScrollTop)} markerY=${Number.isFinite(args.markerY) ? Math.round(args.markerY) : -1} currentLineViewportY=${Number.isFinite(args.currentLineViewportY) ? Math.round(args.currentLineViewportY) : -1} matchedLineViewportY=${Number.isFinite(args.matchedLineViewportY) ? Math.round(args.matchedLineViewportY) : -1} visualDebtPx=${Number.isFinite(args.visualDebtPx) ? Math.round(args.visualDebtPx) : -1} matchedMarkerErrorPx=${Number.isFinite(args.matchedMarkerErrorPx) ? Math.round(args.matchedMarkerErrorPx) : -1} remainingProtectionMs=${Math.round(args.remainingProtectionMs)} visualRecoveryFresh=${args.visualRecoveryFresh ? 1 : 0} trueVisualSilence=${args.trueVisualSilence ? 1 : 0} noMatchOrOffscript=${args.noMatchOrOffscript ? 1 : 0} bridgeContextActive=${args.bridgeContextActive ? 1 : 0} hardContradiction=${args.hardContradiction ? 1 : 0} sessionLive=${args.sessionLive ? 1 : 0}`;
+}
+
+export function buildAsrPostFloorPocketWallProtectedDiagnostic(args: {
+  protectionApplied: boolean;
+  rejectReason: string;
+  sourceAuthority: string;
+  reasonBeforeProtection: string;
+  currentTop: number;
+  proposedTop: number;
+  cappedTopBeforeProtection: number;
+  cappedTopAfterProtection: number;
+  protectedTargetScrollTop: number;
+  floorProtectedLineIdx: number;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  visualDebtPx: number;
+  matchedMarkerErrorPx: number;
+  remainingProtectionMs: number;
+  visualRecoveryFresh: boolean;
+  trueVisualSilence: boolean;
+  noMatchOrOffscript: boolean;
+  bridgeContextActive: boolean;
+  hardContradiction: boolean;
+  sessionLive: boolean;
+}): string {
+  return `[ASR_POST_FLOOR_POCKET_WALL_PROTECTED] protectionApplied=${args.protectionApplied ? 1 : 0} rejectReason=${args.rejectReason || 'none'} sourceAuthority=${args.sourceAuthority || 'none'} reasonBeforeProtection=${args.reasonBeforeProtection || 'none'} currentTop=${Math.round(args.currentTop)} proposedTop=${Math.round(args.proposedTop)} cappedTopBeforeProtection=${Math.round(args.cappedTopBeforeProtection)} cappedTopAfterProtection=${Math.round(args.cappedTopAfterProtection)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)} floorProtectedLineIdx=${Math.round(args.floorProtectedLineIdx)} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} visualDebtPx=${Number.isFinite(args.visualDebtPx) ? Math.round(args.visualDebtPx) : -1} matchedMarkerErrorPx=${Number.isFinite(args.matchedMarkerErrorPx) ? Math.round(args.matchedMarkerErrorPx) : -1} remainingProtectionMs=${Math.round(args.remainingProtectionMs)} visualRecoveryFresh=${args.visualRecoveryFresh ? 1 : 0} trueVisualSilence=${args.trueVisualSilence ? 1 : 0} noMatchOrOffscript=${args.noMatchOrOffscript ? 1 : 0} bridgeContextActive=${args.bridgeContextActive ? 1 : 0} hardContradiction=${args.hardContradiction ? 1 : 0} sessionLive=${args.sessionLive ? 1 : 0}`;
+}
+
+export function buildAsrPostCommitVisualReleaseTokenStateDiagnostic(args: {
+  event: 'armed' | 'rejected' | 'accepted' | 'consumed' | 'stood_down';
+  previousSemanticLineIdx: number;
+  newSemanticLineIdx: number;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  sessionLive: boolean;
+  asrMode: boolean;
+  speechLive: boolean;
+  transcriptFresh: boolean;
+  noMatch: boolean;
+  bridgeActive: boolean;
+  pendingBridgeActive: boolean;
+  proposedTargetScrollTop?: number | null;
+  rejectReason?: string | null;
+}): string {
+  return `[ASR_POST_COMMIT_VISUAL_RELEASE_TOKEN_STATE] event=${args.event} previousSemanticLineIdx=${Math.round(args.previousSemanticLineIdx)} newSemanticLineIdx=${Math.round(args.newSemanticLineIdx)} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} sessionLive=${args.sessionLive ? 1 : 0} asrMode=${args.asrMode ? 1 : 0} speechLive=${args.speechLive ? 1 : 0} transcriptFresh=${args.transcriptFresh ? 1 : 0} noMatch=${args.noMatch ? 1 : 0} bridgeActive=${args.bridgeActive ? 1 : 0} pendingBridgeActive=${args.pendingBridgeActive ? 1 : 0} proposedTargetScrollTop=${Number.isFinite(args.proposedTargetScrollTop as number) ? Math.round(Number(args.proposedTargetScrollTop)) : -1} rejectReason=${args.rejectReason || 'none'}`;
+}
+
 export function buildAsrFocusLossTranscriptQuarantinedDiagnostic(args: {
   focusState: string;
   generation: number;
@@ -298,6 +505,78 @@ export function buildAsrVisualSettleBypassedForReadabilityDiagnostic(args: {
   return `[ASR_VISUAL_SETTLE_BYPASSED_FOR_READABILITY] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} targetLineIdx=${args.targetLineIdx} visualDebtPx=${Math.round(args.visualDebtPx)} belowPocketPx=${Math.round(args.belowPocketPx)} activeLineViewportRatio=${Number.isFinite(args.activeLineViewportRatio) ? args.activeLineViewportRatio.toFixed(3) : 'na'} distanceToBottomRailPx=${Math.round(args.distanceToBottomRailPx)} writerSettleActive=${args.writerSettleActive ? 1 : 0} visualRecoveryCooldownActive=${args.visualRecoveryCooldownActive ? 1 : 0} cooldownRemainingMs=${Math.round(args.cooldownRemainingMs)} debtBelowLineHeight=${args.debtBelowLineHeight ? 1 : 0} unsafeTargetReason=${args.unsafeTargetReason || 'none'} targetAcceptedLocal=${args.targetAcceptedLocal ? 1 : 0} repeatedBelowPocketCount=${Math.round(args.repeatedBelowPocketCount)} lastCorrectionAgeMs=${Math.round(args.lastCorrectionAgeMs)} actualMovedPx=${Math.round(args.actualMovedPx)} reason=${args.reason}`;
 }
 
+export function buildAsrBridgeReducedVisualCashInAppliedDiagnostic(args: {
+  currentLineIdx: number;
+  requestedTargetIdx: number;
+  reducedTargetIdx: number;
+  acceptedCommitTargetIdx: number;
+  previousAcceptedCommitTargetIdx: number;
+  bridgeCarry: number;
+  bridgeClamp: number;
+  blockerCategory: string;
+  recoveryChainBlocked: boolean;
+  noAdjacentMatchHold: boolean;
+  markerLockSuppressed: boolean;
+  repeatedObservationCount: number;
+  stallDelayMs: number;
+  visualDebtPx: number;
+  belowPocketPx: number;
+  actualMovedPx: number;
+  reason: string;
+}): string {
+  return `[ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_APPLIED] currentLineIdx=${args.currentLineIdx} requestedTargetIdx=${args.requestedTargetIdx} reducedTargetIdx=${args.reducedTargetIdx} acceptedCommitTargetIdx=${args.acceptedCommitTargetIdx} previousAcceptedCommitTargetIdx=${args.previousAcceptedCommitTargetIdx} bridgeCarry=${Math.round(args.bridgeCarry)} bridgeClamp=${Math.round(args.bridgeClamp)} blockerCategory=${args.blockerCategory || 'none'} recoveryChainBlocked=${args.recoveryChainBlocked ? 1 : 0} noAdjacentMatchHold=${args.noAdjacentMatchHold ? 1 : 0} markerLockSuppressed=${args.markerLockSuppressed ? 1 : 0} repeatedObservationCount=${Math.round(args.repeatedObservationCount)} stallDelayMs=${Math.round(args.stallDelayMs)} visualDebtPx=${Math.round(args.visualDebtPx)} belowPocketPx=${Math.round(args.belowPocketPx)} actualMovedPx=${Math.round(args.actualMovedPx)} reason=${args.reason}`;
+}
+
+export function buildAsrBridgeReducedVisualCashInBlockedDiagnostic(args: {
+  currentLineIdx: number;
+  requestedTargetIdx: number;
+  reducedTargetIdx: number;
+  acceptedCommitTargetIdx: number;
+  previousAcceptedCommitTargetIdx: number;
+  bridgeCarry: number;
+  bridgeClamp: number;
+  blockerCategory: string;
+  recoveryChainBlocked: boolean;
+  noAdjacentMatchHold: boolean;
+  markerLockSuppressed: boolean;
+  repeatedObservationCount: number;
+  stallDelayMs: number;
+  visualDebtPx: number;
+  belowPocketPx: number;
+  actualMovedPx: number;
+  reason: string;
+}): string {
+  return `[ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_BLOCKED] currentLineIdx=${args.currentLineIdx} requestedTargetIdx=${args.requestedTargetIdx} reducedTargetIdx=${args.reducedTargetIdx} acceptedCommitTargetIdx=${args.acceptedCommitTargetIdx} previousAcceptedCommitTargetIdx=${args.previousAcceptedCommitTargetIdx} bridgeCarry=${Math.round(args.bridgeCarry)} bridgeClamp=${Math.round(args.bridgeClamp)} blockerCategory=${args.blockerCategory || 'none'} recoveryChainBlocked=${args.recoveryChainBlocked ? 1 : 0} noAdjacentMatchHold=${args.noAdjacentMatchHold ? 1 : 0} markerLockSuppressed=${args.markerLockSuppressed ? 1 : 0} repeatedObservationCount=${Math.round(args.repeatedObservationCount)} stallDelayMs=${Math.round(args.stallDelayMs)} visualDebtPx=${Math.round(args.visualDebtPx)} belowPocketPx=${Math.round(args.belowPocketPx)} actualMovedPx=${Math.round(args.actualMovedPx)} reason=${args.reason}`;
+}
+
+export function buildAsrBridgeReducedVisualCashInEvaluatedDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  requestedTargetIdx: number;
+  semanticTargetIdx: number;
+  visualReducedTargetIdx: number;
+  acceptedCommitTargetIdx: number;
+  nextSpeakableLineIdx: number;
+  bridgeCarry: number;
+  bridgeClamp: number;
+  sourceBranch: string;
+  proofSource: string;
+  blockerCategory: string;
+  recoveryChainBlocked: boolean;
+  noAdjacentMatchHold: boolean;
+  markerLockSuppressed: boolean;
+  lastGuardReason: string;
+  lastSelectedAuthority: string;
+  lastVisualAction: string;
+  visualErrorPx: number;
+  belowPocketPx: number;
+  currentScrollTop: number;
+  targetScrollTop: number;
+  reason: string;
+}): string {
+  return `[ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_EVALUATED] currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} requestedTargetIdx=${args.requestedTargetIdx} semanticTargetIdx=${args.semanticTargetIdx} visualReducedTargetIdx=${args.visualReducedTargetIdx} acceptedCommitTargetIdx=${args.acceptedCommitTargetIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} bridgeCarry=${Math.round(args.bridgeCarry)} bridgeClamp=${Math.round(args.bridgeClamp)} sourceBranch=${args.sourceBranch || 'unknown'} proofSource=${args.proofSource || 'none'} blockerCategory=${args.blockerCategory || 'none'} recoveryChainBlocked=${args.recoveryChainBlocked ? 1 : 0} noAdjacentMatchHold=${args.noAdjacentMatchHold ? 1 : 0} markerLockSuppressed=${args.markerLockSuppressed ? 1 : 0} lastGuardReason=${args.lastGuardReason || 'none'} lastSelectedAuthority=${args.lastSelectedAuthority || 'none'} lastVisualAction=${args.lastVisualAction || 'none'} visualErrorPx=${Math.round(args.visualErrorPx)} belowPocketPx=${Math.round(args.belowPocketPx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} reason=${args.reason}`;
+}
+
 export function buildAsrStaleRecoveryTargetExpiredDiagnostic(args: {
   sourcePath: string;
   reason: string;
@@ -369,6 +648,127 @@ export function buildAsrScrollAuthoritySelectedDiagnostic(args: {
   reason: string;
 }): string {
   return `[ASR_SCROLL_AUTHORITY_SELECTED] tickId=${args.tickId} currentLineIdx=${args.currentLineIdx} committedLineIdx=${args.committedLineIdx} nextSpeakableLineIdx=${args.nextSpeakableLineIdx} selectedAuthority=${args.selectedAuthority} candidateAuthorities=[${args.candidateAuthorities.join(',')}] beforeScrollTop=${Math.round(args.beforeScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} afterScrollTop=${Math.round(args.afterScrollTop)} reason=${args.reason}`;
+}
+
+export function buildAsrVisualControlRuntimeProofDiagnostic(args: {
+  chairpersonRuntime: boolean;
+  contractVersion: string;
+  shadowMode: boolean;
+  liveTargetOwnership: boolean;
+  moduleLoaded: boolean;
+  buildStamp: string;
+  emittedFrom: string;
+  computeAsrVisualDecisionAvailable: boolean;
+  diagnosticsSinkAvailable: boolean;
+  diagnosticsExportPathAvailable: boolean;
+}): string {
+  return `[ASR_VISUAL_CONTROL_RUNTIME_PROOF] chairpersonRuntime=${args.chairpersonRuntime ? 1 : 0} contractVersion=${args.contractVersion} shadowMode=${args.shadowMode ? 1 : 0} liveTargetOwnership=${args.liveTargetOwnership ? 1 : 0} moduleLoaded=${args.moduleLoaded ? 1 : 0} buildStamp=${args.buildStamp || 'unknown'} emittedFrom=${args.emittedFrom || 'unknown'} computeAsrVisualDecisionAvailable=${args.computeAsrVisualDecisionAvailable ? 1 : 0} diagnosticsSinkAvailable=${args.diagnosticsSinkAvailable ? 1 : 0} diagnosticsExportPathAvailable=${args.diagnosticsExportPathAvailable ? 1 : 0}`;
+}
+
+export function buildAsrVisualControlDecisionDiagnostic(args: {
+  mode: string;
+  controlIntent: string;
+  recoveryKind: string;
+  isTrueVisualRecovery: boolean;
+  isForwardProtection: boolean;
+  semanticCursorLineIdx: number;
+  visualAnchorLineIdx: number;
+  anchorKind: string;
+  markerY: number;
+  anchorViewportY: number;
+  anchorGapPx: number;
+  pocketBand: string;
+  targetScrollTop: number;
+  previousTargetScrollTop: number;
+  backwardAllowed: boolean;
+  recoveryEpisodeActive: boolean;
+  protectedTargetScrollTop: number;
+  maxVelocityPxps: number;
+  actuatorAppliedDeltaPx: number;
+  reason: string;
+  legacySelectedAuthority: string;
+  legacySelectedTargetScrollTop: number;
+  shadowDiffPx: number;
+  backwardTargetRejected: boolean;
+  safeForwardTargetSuppressed: boolean;
+  ownershipActive: boolean;
+}): string {
+  return `[ASR_VISUAL_CONTROL_DECISION] mode=${args.mode} controlIntent=${args.controlIntent || 'none'} recoveryKind=${args.recoveryKind || 'none'} isTrueVisualRecovery=${args.isTrueVisualRecovery ? 1 : 0} isForwardProtection=${args.isForwardProtection ? 1 : 0} semanticCursorLineIdx=${Math.round(args.semanticCursorLineIdx)} visualAnchorLineIdx=${Math.round(args.visualAnchorLineIdx)} anchorKind=${args.anchorKind || 'none'} markerY=${Number.isFinite(args.markerY) ? Math.round(args.markerY) : -1} anchorViewportY=${Number.isFinite(args.anchorViewportY) ? Math.round(args.anchorViewportY) : -1} anchorGapPx=${Number.isFinite(args.anchorGapPx) ? Math.round(args.anchorGapPx) : -1} pocketBand=${args.pocketBand || 'unknown'} targetScrollTop=${Math.round(args.targetScrollTop)} previousTargetScrollTop=${Math.round(args.previousTargetScrollTop)} backwardAllowed=${args.backwardAllowed ? 1 : 0} recoveryEpisodeActive=${args.recoveryEpisodeActive ? 1 : 0} protectedTargetScrollTop=${Number.isFinite(args.protectedTargetScrollTop) ? Math.round(args.protectedTargetScrollTop) : -1} maxVelocityPxps=${Math.round(args.maxVelocityPxps)} actuatorAppliedDeltaPx=${Math.round(args.actuatorAppliedDeltaPx)} reason=${args.reason || 'none'} legacySelectedAuthority=${args.legacySelectedAuthority || 'none'} legacySelectedTargetScrollTop=${Math.round(args.legacySelectedTargetScrollTop)} shadowDiffPx=${Math.round(args.shadowDiffPx)} backwardTargetRejected=${args.backwardTargetRejected ? 1 : 0} safeForwardTargetSuppressed=${args.safeForwardTargetSuppressed ? 1 : 0} ownershipActive=${args.ownershipActive ? 1 : 0}`;
+}
+
+export function buildAsrRecoveryEpisodeStartedDiagnostic(args: {
+  reason: string;
+  controlIntent: string;
+  recoveryKind: string;
+  isTrueVisualRecovery: boolean;
+  isForwardProtection: boolean;
+  protectedLineIdx: number;
+  protectedTargetScrollTop: number;
+  expiresInMs: number;
+}): string {
+  return `[ASR_RECOVERY_EPISODE_STARTED] reason=${args.reason} controlIntent=${args.controlIntent || 'none'} recoveryKind=${args.recoveryKind || 'none'} isTrueVisualRecovery=${args.isTrueVisualRecovery ? 1 : 0} isForwardProtection=${args.isForwardProtection ? 1 : 0} protectedLineIdx=${Math.round(args.protectedLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)} expiresInMs=${Math.max(0, Math.round(args.expiresInMs))}`;
+}
+
+export function buildAsrRecoveryEpisodeExtendedDiagnostic(args: {
+  reason: string;
+  controlIntent: string;
+  recoveryKind: string;
+  isTrueVisualRecovery: boolean;
+  isForwardProtection: boolean;
+  protectedLineIdx: number;
+  protectedTargetScrollTop: number;
+  expiresInMs: number;
+}): string {
+  return `[ASR_RECOVERY_EPISODE_EXTENDED] reason=${args.reason} controlIntent=${args.controlIntent || 'none'} recoveryKind=${args.recoveryKind || 'none'} isTrueVisualRecovery=${args.isTrueVisualRecovery ? 1 : 0} isForwardProtection=${args.isForwardProtection ? 1 : 0} protectedLineIdx=${Math.round(args.protectedLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)} expiresInMs=${Math.max(0, Math.round(args.expiresInMs))}`;
+}
+
+export function buildAsrRecoveryEpisodeEndedDiagnostic(args: {
+  reason: string;
+  controlIntent: string;
+  recoveryKind: string;
+  isTrueVisualRecovery: boolean;
+  isForwardProtection: boolean;
+  protectedLineIdx: number;
+  protectedTargetScrollTop: number;
+}): string {
+  return `[ASR_RECOVERY_EPISODE_ENDED] reason=${args.reason} controlIntent=${args.controlIntent || 'none'} recoveryKind=${args.recoveryKind || 'none'} isTrueVisualRecovery=${args.isTrueVisualRecovery ? 1 : 0} isForwardProtection=${args.isForwardProtection ? 1 : 0} protectedLineIdx=${Math.round(args.protectedLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)}`;
+}
+
+export function buildAsrBackwardTargetRejectedDiagnostic(args: {
+  mode: string;
+  legacyAuthority: string;
+  legacyTargetScrollTop: number;
+  correctedTargetScrollTop: number;
+  currentScrollTop: number;
+  reason: string;
+}): string {
+  return `[ASR_BACKWARD_TARGET_REJECTED] mode=${args.mode} legacyAuthority=${args.legacyAuthority || 'none'} legacyTargetScrollTop=${Math.round(args.legacyTargetScrollTop)} correctedTargetScrollTop=${Math.round(args.correctedTargetScrollTop)} currentScrollTop=${Math.round(args.currentScrollTop)} reason=${args.reason || 'none'}`;
+}
+
+export function buildAsrRecoveryStepAppliedDiagnostic(args: {
+  mode: string;
+  authority: string;
+  controlIntent: string;
+  recoveryKind: string;
+  isTrueVisualRecovery: boolean;
+  isForwardProtection: boolean;
+  currentScrollTop: number;
+  targetScrollTop: number;
+  appliedDeltaPx: number;
+  minForwardStepPx: number;
+  reason: string;
+}): string {
+  return `[ASR_RECOVERY_STEP_APPLIED] mode=${args.mode} authority=${args.authority} controlIntent=${args.controlIntent || 'none'} recoveryKind=${args.recoveryKind || 'none'} isTrueVisualRecovery=${args.isTrueVisualRecovery ? 1 : 0} isForwardProtection=${args.isForwardProtection ? 1 : 0} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} minForwardStepPx=${Math.round(args.minForwardStepPx)} reason=${args.reason || 'none'}`;
+}
+
+export function buildAsrSettleCompleteDiagnostic(args: {
+  previousMode: string;
+  nextMode: string;
+  anchorLineIdx: number;
+  targetScrollTop: number;
+  reason: string;
+}): string {
+  return `[ASR_SETTLE_COMPLETE] previousMode=${args.previousMode} nextMode=${args.nextMode} anchorLineIdx=${Math.round(args.anchorLineIdx)} targetScrollTop=${Math.round(args.targetScrollTop)} reason=${args.reason || 'none'}`;
 }
 
 export function buildAsrScrollAuthorityConflictDiagnostic(args: {
@@ -861,6 +1261,23 @@ export function buildAsrAccumulationSnapshotDiagnostic(args: {
   return `[ASR_ACCUMULATION_SNAPSHOT] commitCount=${Math.round(args.commitCount)} eventsSinceCommit=${Math.round(args.eventsSinceCommit)} finalsSinceCommit=${Math.round(args.finalsSinceCommit)} alignmentEpisodeCount=${Math.round(args.alignmentEpisodeCount)} activeEpisodeActions=${Math.round(args.activeEpisodeActions)} activeEpisodeDeltaSamples=${Math.round(args.activeEpisodeDeltaSamples)} activeEpisodeReasonChain=${Math.round(args.activeEpisodeReasonChain)} guardEventsCount=${Math.round(args.guardEventsCount)} strongHitsCount=${Math.round(args.strongHitsCount)} evidenceEntriesCount=${Math.round(args.evidenceEntriesCount)} consistencyEntriesCount=${Math.round(args.consistencyEntriesCount)} bridgeBlockMapSize=${Math.round(args.bridgeBlockMapSize)} bridgeTrapMapSize=${Math.round(args.bridgeTrapMapSize)} logBufferEntryCount=${Math.round(args.logBufferEntryCount)} logBufferDroppedCount=${Math.round(args.logBufferDroppedCount)} visualGovernorHoldAgeMs=${Math.round(args.visualGovernorHoldAgeMs)} noProgressStreak=${Math.round(args.noProgressStreak)} lostForwardWallStreak=${Math.round(args.lostForwardWallStreak)} targetDebtPx=${Math.round(args.targetDebtPx)} distanceToMaxScrollTop=${Math.round(args.distanceToMaxScrollTop)} currentLineIdx=${Math.round(args.currentLineIdx)} requestedTargetIdx=${Math.round(args.requestedTargetIdx)}`;
 }
 
+export function buildAsrScrollPinnedBottomLockSummaryDiagnostic(args: {
+  currentLineIdx: number;
+  requestedTargetIdx: number;
+  targetDebtPx: number;
+  distanceToMaxScrollTop: number;
+  terminalClampActive: boolean;
+  pinned: boolean;
+  pocketState: string;
+  markerLockState: string;
+  selectedAuthority: string;
+  noProgressStreak: number;
+  visualGovernorHoldAgeMs: number;
+  lastGuardReason: string;
+}): string {
+  return `[ASR_SCROLL_PINNED_BOTTOM_LOCK_SUMMARY] currentLineIdx=${Math.round(args.currentLineIdx)} requestedTargetIdx=${Math.round(args.requestedTargetIdx)} targetDebtPx=${Math.round(args.targetDebtPx)} distanceToMaxScrollTop=${Math.round(args.distanceToMaxScrollTop)} terminalClampActive=${args.terminalClampActive ? 1 : 0} pinned=${args.pinned ? 1 : 0} pocketState=${args.pocketState || 'unknown'} markerLockState=${args.markerLockState || 'unknown'} selectedAuthority=${args.selectedAuthority || 'unknown'} noProgressStreak=${Math.round(args.noProgressStreak)} visualGovernorHoldAgeMs=${Math.round(args.visualGovernorHoldAgeMs)} lastGuardReason=${args.lastGuardReason || 'none'}`;
+}
+
 export function buildAsrLiveScrollStalledDiagnostic(args: {
   currentLineIdx: number;
   requestedTargetIdx: number | null;
@@ -1203,7 +1620,7 @@ export function buildAsr4VisualRecoveryStateDiagnostic(args: {
   authorityAction: 'observe_only' | 'force_marker_lock_correction' | 'force_safe_direct_write' | 'freeze_far_visual_target';
   movementAllowed: boolean;
   reason: string;
-  suppressedReason?: 'none' | 'not_needed_in_pocket' | 'suppressed_already_ahead';
+  suppressedReason?: 'none' | 'not_needed_in_pocket' | 'suppressed_already_ahead' | 'reader_overrun_hold';
 }): string {
   const targetLine = Number.isFinite(args.targetLine as number)
     ? Math.round(Number(args.targetLine))
@@ -1223,7 +1640,11 @@ export function buildAsr4VisualRecoveryAuthorityAppliedDiagnostic(args: {
   targetPreservedForEasing: boolean;
   visualSnapSuppressed: boolean;
   liveScrollStalled: boolean;
-  authorityAction: 'force_marker_lock_correction' | 'force_safe_direct_write' | 'freeze_far_visual_target';
+  authorityAction:
+    | 'force_marker_lock_correction'
+    | 'force_safe_direct_write'
+    | 'freeze_far_visual_target'
+    | 'lead_pressure_capped_forward_step';
   movementAllowed: boolean;
   reason: string;
 }): string {
@@ -1231,6 +1652,28 @@ export function buildAsr4VisualRecoveryAuthorityAppliedDiagnostic(args: {
     ? Math.round(Number(args.targetLine))
     : -1;
   return `[ASR4_VISUAL_RECOVERY_AUTHORITY_APPLIED] currentLine=${Math.round(args.currentLine)} committedLine=${Math.round(args.committedLine)} targetLine=${targetLine} beforeScrollTop=${Math.round(args.beforeScrollTop)} afterScrollTop=${Math.round(args.afterScrollTop)} movedPx=${Math.round(args.movedPx)} consecutiveNoMoveCommits=${Math.round(args.consecutiveNoMoveCommits)} directWriteBlocked=${args.directWriteBlocked ? 1 : 0} targetPreservedForEasing=${args.targetPreservedForEasing ? 1 : 0} visualSnapSuppressed=${args.visualSnapSuppressed ? 1 : 0} liveScrollStalled=${args.liveScrollStalled ? 1 : 0} authorityAction=${args.authorityAction} movementAllowed=${args.movementAllowed ? 1 : 0} reason=${args.reason}`;
+}
+
+export function buildAsrReaderOverrunHoldDiagnostic(args: {
+  lane: string;
+  authority: 'asr4-pocket-drift-authority' | 'asr4-visual-recovery-authority';
+  currentLine: number;
+  committedLine: number;
+  targetLine: number | null;
+  currentScrollTop: number;
+  markerTopPx: number;
+  currentLineCenterPx: number;
+  currentLineDistanceFromMarkerPx: number;
+  aboveMarkerLines: number;
+  holdBufferLines: number;
+  semanticWindowLocal: boolean;
+  holdActive: boolean;
+  reason: string;
+}): string {
+  const targetLine = Number.isFinite(args.targetLine as number)
+    ? Math.round(Number(args.targetLine))
+    : -1;
+  return `[ASR_READER_OVERRUN_HOLD] lane=${args.lane || 'unknown'} authority=${args.authority} currentLine=${Math.round(args.currentLine)} committedLine=${Math.round(args.committedLine)} targetLine=${targetLine} currentScrollTop=${Math.round(args.currentScrollTop)} markerTopPx=${Math.round(args.markerTopPx)} currentLineCenterPx=${Math.round(args.currentLineCenterPx)} currentLineDistanceFromMarkerPx=${Math.round(args.currentLineDistanceFromMarkerPx)} aboveMarkerLines=${Number.isFinite(args.aboveMarkerLines) ? Number(args.aboveMarkerLines).toFixed(2) : 'na'} holdBufferLines=${Number(args.holdBufferLines).toFixed(2)} semanticWindowLocal=${args.semanticWindowLocal ? 1 : 0} holdActive=${args.holdActive ? 1 : 0} reason=${args.reason || 'unknown'}`;
 }
 
 export function buildAsr4PocketDriftStateDiagnostic(args: {
@@ -1294,7 +1737,11 @@ export function buildAsr4PocketDriftAuthorityAppliedDiagnostic(args: {
   consecutiveBelowPocketCount: number;
   cooldownActive: boolean;
   terminalClampActive: boolean;
-  authorityAction: 'force_marker_lock_to_pocket' | 'suppress_terminal_clamp' | 'freeze_far_target';
+  authorityAction:
+    | 'force_marker_lock_to_pocket'
+    | 'suppress_terminal_clamp'
+    | 'freeze_far_target'
+    | 'lead_pressure_capped_forward_step';
   movementAllowed: boolean;
   reason: 'pocket_drift_below_marker' | 'terminal_clamp_suppressed';
 }): string {
@@ -1305,4 +1752,660 @@ export function buildAsr4PocketDriftAuthorityAppliedDiagnostic(args: {
     ? Math.round(Number(args.targetScrollTop))
     : -1;
   return `[ASR4_POCKET_DRIFT_AUTHORITY_APPLIED] currentLine=${Math.round(args.currentLine)} committedLine=${Math.round(args.committedLine)} targetLine=${targetLine} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${targetScrollTop} markerTopPx=${Math.round(args.markerTopPx)} activeLineTopPx=${Math.round(args.activeLineTopPx)} activeLineDistanceFromMarkerPx=${Math.round(args.activeLineDistanceFromMarkerPx)} belowPocketPx=${Math.round(args.belowPocketPx)} lineHeightPx=${Math.round(args.lineHeightPx)} consecutiveBelowPocketCount=${Math.round(args.consecutiveBelowPocketCount)} cooldownActive=${args.cooldownActive ? 1 : 0} terminalClampActive=${args.terminalClampActive ? 1 : 0} authorityAction=${args.authorityAction} movementAllowed=${args.movementAllowed ? 1 : 0} reason=${args.reason}`;
+}
+
+export function buildAsrLowPocketDeadbandReconciledDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  currentScrollTop: number;
+  targetScrollTop: number | null;
+  belowPocketPx: number;
+  activeLineDistanceFromMarkerPx: number;
+  previousHoldReason: string;
+  correctionPx: number;
+  observations: number;
+}): string {
+  const targetScrollTop = Number.isFinite(args.targetScrollTop as number)
+    ? Math.round(Number(args.targetScrollTop))
+    : -1;
+  return `[ASR_LOW_POCKET_DEADBAND_RECONCILED] currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${targetScrollTop} belowPocketPx=${Math.round(args.belowPocketPx)} activeLineDistanceFromMarkerPx=${Math.round(args.activeLineDistanceFromMarkerPx)} previousHoldReason=${args.previousHoldReason || 'unknown'} correctionPx=${Math.round(args.correctionPx)} observations=${Math.round(args.observations)}`;
+}
+
+export function buildAsrLowPocketDeadbandBlockedDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  currentScrollTop: number;
+  targetScrollTop: number | null;
+  belowPocketPx: number;
+  activeLineDistanceFromMarkerPx: number;
+  previousHoldReason: string;
+  correctionPx: number;
+  observations: number;
+  reason: string;
+}): string {
+  const targetScrollTop = Number.isFinite(args.targetScrollTop as number)
+    ? Math.round(Number(args.targetScrollTop))
+    : -1;
+  return `[ASR_LOW_POCKET_DEADBAND_BLOCKED] currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${targetScrollTop} belowPocketPx=${Math.round(args.belowPocketPx)} activeLineDistanceFromMarkerPx=${Math.round(args.activeLineDistanceFromMarkerPx)} previousHoldReason=${args.previousHoldReason || 'unknown'} correctionPx=${Math.round(args.correctionPx)} observations=${Math.round(args.observations)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrLowPocketFreezeFarTargetReconciledDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentScrollTop: number;
+  targetScrollTop: number | null;
+  proposedScrollTop: number;
+  belowPocketPx: number;
+  activeLineDistanceFromMarkerPx: number;
+  holdReason: string;
+  authorityAction: string;
+  farReason: string;
+  semanticDistance: number;
+  visualDistancePx: number;
+  movementAllowed: boolean;
+  correctionPx: number;
+}): string {
+  const targetScrollTop = Number.isFinite(args.targetScrollTop as number)
+    ? Math.round(Number(args.targetScrollTop))
+    : -1;
+  return `[ASR_LOW_POCKET_FREEZE_FAR_TARGET_RECONCILED] currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${targetScrollTop} proposedScrollTop=${Math.round(args.proposedScrollTop)} belowPocketPx=${Math.round(args.belowPocketPx)} activeLineDistanceFromMarkerPx=${Math.round(args.activeLineDistanceFromMarkerPx)} holdReason=${args.holdReason || 'unknown'} authorityAction=${args.authorityAction || 'unknown'} farReason=${args.farReason || 'unknown'} semanticDistance=${Math.round(args.semanticDistance)} visualDistancePx=${Math.round(args.visualDistancePx)} movementAllowed=${args.movementAllowed ? 1 : 0} correctionPx=${Math.round(args.correctionPx)}`;
+}
+
+export function buildAsrLowPocketFreezeFarTargetBlockedDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentScrollTop: number;
+  targetScrollTop: number | null;
+  proposedScrollTop: number;
+  belowPocketPx: number;
+  activeLineDistanceFromMarkerPx: number;
+  holdReason: string;
+  authorityAction: string;
+  farReason: string;
+  semanticDistance: number;
+  visualDistancePx: number;
+  movementAllowed: boolean;
+  correctionPx: number;
+  blockedReason: string;
+}): string {
+  const targetScrollTop = Number.isFinite(args.targetScrollTop as number)
+    ? Math.round(Number(args.targetScrollTop))
+    : -1;
+  return `[ASR_LOW_POCKET_FREEZE_FAR_TARGET_BLOCKED] currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${targetScrollTop} proposedScrollTop=${Math.round(args.proposedScrollTop)} belowPocketPx=${Math.round(args.belowPocketPx)} activeLineDistanceFromMarkerPx=${Math.round(args.activeLineDistanceFromMarkerPx)} holdReason=${args.holdReason || 'unknown'} authorityAction=${args.authorityAction || 'unknown'} farReason=${args.farReason || 'unknown'} semanticDistance=${Math.round(args.semanticDistance)} visualDistancePx=${Math.round(args.visualDistancePx)} movementAllowed=${args.movementAllowed ? 1 : 0} correctionPx=${Math.round(args.correctionPx)} blockedReason=${args.blockedReason || 'unknown'}`;
+}
+
+export function buildAsrApprovedVisualSmoothingBypassedDiagnostic(args: {
+  authority: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentScrollTop: number;
+  approvedTargetScrollTop: number;
+  correctionPx: number;
+  visualErrorPx: number;
+  smoothingReason: string;
+  bypassReason: string;
+}): string {
+  return `[ASR_APPROVED_VISUAL_SMOOTHING_BYPASSED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} approvedTargetScrollTop=${Math.round(args.approvedTargetScrollTop)} correctionPx=${Math.round(args.correctionPx)} visualErrorPx=${Math.round(args.visualErrorPx)} smoothingReason=${args.smoothingReason || 'unknown'} bypassReason=${args.bypassReason || 'unknown'}`;
+}
+
+export function buildAsrApprovedVisualSmoothingRebasedDiagnostic(args: {
+  authority: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentScrollTop: number;
+  previousTargetScrollTop: number;
+  approvedTargetScrollTop: number;
+  correctionPx: number;
+  previousReason: string;
+  smoothingReason: string;
+  rebaseReason: string;
+}): string {
+  return `[ASR_APPROVED_VISUAL_SMOOTHING_REBASED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} previousTargetScrollTop=${Math.round(args.previousTargetScrollTop)} approvedTargetScrollTop=${Math.round(args.approvedTargetScrollTop)} correctionPx=${Math.round(args.correctionPx)} previousReason=${args.previousReason || 'unknown'} smoothingReason=${args.smoothingReason || 'unknown'} rebaseReason=${args.rebaseReason || 'unknown'}`;
+}
+
+export function buildAsrProfileSelectedDiagnostic(args: {
+  lane: string;
+  profile: string;
+  speechFreshMaxAgeMs: number;
+  responseFreshMaxAgeMs: number;
+  multiStepConfirmMinDelta: number;
+  multiStepConfirmHits: number;
+  backtrackHoldMs: number;
+}): string {
+  return `[ASR_PROFILE_SELECTED] lane=${args.lane || 'unknown'} profile=${args.profile || 'unknown'} speechFreshMaxAgeMs=${Math.round(args.speechFreshMaxAgeMs)} responseFreshMaxAgeMs=${Math.round(args.responseFreshMaxAgeMs)} multiStepConfirmMinDelta=${Math.round(args.multiStepConfirmMinDelta)} multiStepConfirmHits=${Math.round(args.multiStepConfirmHits)} backtrackHoldMs=${Math.round(args.backtrackHoldMs)}`;
+}
+
+export function buildAsrHighAccuracyProfileActiveDiagnostic(args: {
+  lane: string;
+  profile: string;
+  reason: string;
+}): string {
+  return `[ASR_HIGH_ACCURACY_PROFILE_ACTIVE] lane=${args.lane || 'unknown'} profile=${args.profile || 'unknown'} reason=${args.reason || 'selected'}`;
+}
+
+export function buildAsrStandardLargeJumpHeldDiagnostic(args: {
+  currentLineIdx: number;
+  proposedLineIdx: number;
+  bestIdx: number;
+  delta: number;
+  hasLocalProof: boolean;
+  confirmHits: number;
+  confirmHitsRequired: number;
+  reason: string;
+}): string {
+  return `[ASR_STANDARD_LARGE_JUMP_HELD] currentLineIdx=${Math.round(args.currentLineIdx)} proposedLineIdx=${Math.round(args.proposedLineIdx)} bestIdx=${Math.round(args.bestIdx)} delta=${Math.round(args.delta)} hasLocalProof=${args.hasLocalProof ? 1 : 0} confirmHits=${Math.round(args.confirmHits)} confirmHitsRequired=${Math.round(args.confirmHitsRequired)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrStandardBacktrackInstabilityHeldDiagnostic(args: {
+  currentLineIdx: number;
+  proposedLineIdx: number;
+  bestIdx: number;
+  previousBestIdx: number;
+  instabilityAgeMs: number;
+  holdMs: number;
+  reason: string;
+}): string {
+  return `[ASR_STANDARD_BACKTRACK_INSTABILITY_HELD] currentLineIdx=${Math.round(args.currentLineIdx)} proposedLineIdx=${Math.round(args.proposedLineIdx)} bestIdx=${Math.round(args.bestIdx)} previousBestIdx=${Math.round(args.previousBestIdx)} instabilityAgeMs=${Math.round(args.instabilityAgeMs)} holdMs=${Math.round(args.holdMs)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrStandardStaleCommitBlockedDiagnostic(args: {
+  transcriptSeq: number;
+  responseAgeMs: number;
+  lastSpeechAgeMs: number;
+  lastAudioChunkAgeMs: number;
+  speechFresh: boolean;
+  speechActive: boolean;
+  currentLineIdx: number;
+  proposedLineIdx: number;
+  committedLineIdx: number;
+  reason: string;
+}): string {
+  return `[ASR_STANDARD_STALE_COMMIT_BLOCKED] transcriptSeq=${Number.isFinite(args.transcriptSeq) ? Math.round(args.transcriptSeq) : -1} responseAgeMs=${Number.isFinite(args.responseAgeMs) ? Math.round(args.responseAgeMs) : -1} lastSpeechAgeMs=${Number.isFinite(args.lastSpeechAgeMs) ? Math.round(args.lastSpeechAgeMs) : -1} lastAudioChunkAgeMs=${Number.isFinite(args.lastAudioChunkAgeMs) ? Math.round(args.lastAudioChunkAgeMs) : -1} speechFresh=${args.speechFresh ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} currentLineIdx=${Math.round(args.currentLineIdx)} proposedLineIdx=${Math.round(args.proposedLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrStandardVisualReleaseSuppressedDiagnostic(args: {
+  authority: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentTop: number;
+  proposedTop: number;
+  cappedTop: number;
+  targetScrollTop: number;
+  reason: string;
+}): string {
+  return `[ASR_STANDARD_VISUAL_RELEASE_SUPPRESSED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentTop=${Math.round(args.currentTop)} proposedTop=${Math.round(args.proposedTop)} cappedTop=${Math.round(args.cappedTop)} targetScrollTop=${Math.round(args.targetScrollTop)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrVisualTargetOvershootDetectedDiagnostic(args: {
+  authority: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentTop: number;
+  targetScrollTop: number;
+  overshootPx: number;
+  tolerancePx: number;
+  reason: string;
+}): string {
+  return `[ASR_VISUAL_TARGET_OVERSHOOT_DETECTED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentTop=${Math.round(args.currentTop)} targetScrollTop=${Math.round(args.targetScrollTop)} overshootPx=${Math.round(args.overshootPx)} tolerancePx=${Math.round(args.tolerancePx)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrVisualForwardOvershootSuppressedDiagnostic(args: {
+  authority: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentTop: number;
+  proposedTop: number;
+  targetScrollTop: number;
+  tolerancePx: number;
+  reason: string;
+}): string {
+  return `[ASR_VISUAL_FORWARD_OVERSHOOT_SUPPRESSED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentTop=${Math.round(args.currentTop)} proposedTop=${Math.round(args.proposedTop)} targetScrollTop=${Math.round(args.targetScrollTop)} tolerancePx=${Math.round(args.tolerancePx)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrVisualTargetBoundedStepDiagnostic(args: {
+  authority: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentTop: number;
+  proposedTop: number;
+  boundedTop: number;
+  targetScrollTop: number;
+  tolerancePx: number;
+  reason: string;
+}): string {
+  return `[ASR_VISUAL_TARGET_BOUNDED_STEP] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentTop=${Math.round(args.currentTop)} proposedTop=${Math.round(args.proposedTop)} boundedTop=${Math.round(args.boundedTop)} targetScrollTop=${Math.round(args.targetScrollTop)} tolerancePx=${Math.round(args.tolerancePx)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrVisualRecenterPullbackAppliedDiagnostic(args: {
+  authority: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  beforeTop: number;
+  afterTop: number;
+  targetScrollTop: number;
+  pullbackPx: number;
+  tolerancePx: number;
+  reason: string;
+}): string {
+  return `[ASR_VISUAL_RECENTER_PULLBACK_APPLIED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} beforeTop=${Math.round(args.beforeTop)} afterTop=${Math.round(args.afterTop)} targetScrollTop=${Math.round(args.targetScrollTop)} pullbackPx=${Math.round(args.pullbackPx)} tolerancePx=${Math.round(args.tolerancePx)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrVisualRecenterPullbackBlockedDiagnostic(args: {
+  authority: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  nextSpeakableLineIdx: number;
+  currentTop: number;
+  targetScrollTop: number;
+  overshootPx: number;
+  tolerancePx: number;
+  reason: string;
+}): string {
+  return `[ASR_VISUAL_RECENTER_PULLBACK_BLOCKED] authority=${args.authority || 'unknown'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentTop=${Math.round(args.currentTop)} targetScrollTop=${Math.round(args.targetScrollTop)} overshootPx=${Math.round(args.overshootPx)} tolerancePx=${Math.round(args.tolerancePx)} reason=${args.reason || 'unknown'}`;
+}
+
+function buildAsrPocketWallDiagnostic(
+  tag:
+    | 'ASR_POCKET_WALL_EVALUATED'
+    | 'ASR_POCKET_WALL_CAPPED'
+    | 'ASR_POCKET_WALL_BYPASSED'
+    | 'ASR_HOLD_FORWARD_WRITE_SUPPRESSED'
+    | 'ASR_SAME_LINE_OVERSHOOT_CAPPED'
+    | 'ASR_NO_SAFE_TARGET_FORWARD_SUPPRESSED',
+  args: {
+    reason: string;
+    proposedTop: number;
+    cappedTop: number;
+    currentTop: number;
+    lineHeightPx: number;
+    authoritativeLineIdx: number;
+    candidateLineIdx: number;
+    lastVerifiedCommitLineIdx: number;
+    lastVerifiedCommitAgeMs: number;
+    hasFreshVerifiedForwardCommit: boolean;
+    pocketTop: number;
+    pocketBottom: number;
+    tolerancePx: number;
+    sourceAuthority: string;
+    proposedTopSource?: string;
+  },
+): string {
+  return `[${tag}] reason=${args.reason || 'unknown'} proposedTop=${Math.round(args.proposedTop)} cappedTop=${Math.round(args.cappedTop)} currentTop=${Math.round(args.currentTop)} lineHeightPx=${Math.round(args.lineHeightPx)} authoritativeLineIdx=${Math.round(args.authoritativeLineIdx)} candidateLineIdx=${Math.round(args.candidateLineIdx)} lastVerifiedCommitLineIdx=${Math.round(args.lastVerifiedCommitLineIdx)} lastVerifiedCommitAgeMs=${Math.round(args.lastVerifiedCommitAgeMs)} hasFreshVerifiedForwardCommit=${args.hasFreshVerifiedForwardCommit ? 1 : 0} pocketTop=${Math.round(args.pocketTop)} pocketBottom=${Math.round(args.pocketBottom)} tolerancePx=${Math.round(args.tolerancePx)} sourceAuthority=${args.sourceAuthority || 'unknown'} proposedTopSource=${args.proposedTopSource || 'normal_requested'}`;
+}
+
+export function buildAsrPocketWallEvaluatedDiagnostic(args: {
+  reason: string;
+  proposedTop: number;
+  cappedTop: number;
+  currentTop: number;
+  lineHeightPx: number;
+  authoritativeLineIdx: number;
+  candidateLineIdx: number;
+  lastVerifiedCommitLineIdx: number;
+  lastVerifiedCommitAgeMs: number;
+  hasFreshVerifiedForwardCommit: boolean;
+  pocketTop: number;
+  pocketBottom: number;
+  tolerancePx: number;
+  sourceAuthority: string;
+  proposedTopSource?: string;
+}): string {
+  return buildAsrPocketWallDiagnostic('ASR_POCKET_WALL_EVALUATED', args);
+}
+
+export function buildAsrPocketWallCappedDiagnostic(args: {
+  reason: string;
+  proposedTop: number;
+  cappedTop: number;
+  currentTop: number;
+  lineHeightPx: number;
+  authoritativeLineIdx: number;
+  candidateLineIdx: number;
+  lastVerifiedCommitLineIdx: number;
+  lastVerifiedCommitAgeMs: number;
+  hasFreshVerifiedForwardCommit: boolean;
+  pocketTop: number;
+  pocketBottom: number;
+  tolerancePx: number;
+  sourceAuthority: string;
+}): string {
+  return buildAsrPocketWallDiagnostic('ASR_POCKET_WALL_CAPPED', args);
+}
+
+export function buildAsrPocketWallBypassedDiagnostic(args: {
+  reason: string;
+  proposedTop: number;
+  cappedTop: number;
+  currentTop: number;
+  lineHeightPx: number;
+  authoritativeLineIdx: number;
+  candidateLineIdx: number;
+  lastVerifiedCommitLineIdx: number;
+  lastVerifiedCommitAgeMs: number;
+  hasFreshVerifiedForwardCommit: boolean;
+  pocketTop: number;
+  pocketBottom: number;
+  tolerancePx: number;
+  sourceAuthority: string;
+}): string {
+  return buildAsrPocketWallDiagnostic('ASR_POCKET_WALL_BYPASSED', args);
+}
+
+export function buildAsrHoldForwardWriteSuppressedDiagnostic(args: {
+  reason: string;
+  proposedTop: number;
+  cappedTop: number;
+  currentTop: number;
+  lineHeightPx: number;
+  authoritativeLineIdx: number;
+  candidateLineIdx: number;
+  lastVerifiedCommitLineIdx: number;
+  lastVerifiedCommitAgeMs: number;
+  hasFreshVerifiedForwardCommit: boolean;
+  pocketTop: number;
+  pocketBottom: number;
+  tolerancePx: number;
+  sourceAuthority: string;
+}): string {
+  return buildAsrPocketWallDiagnostic('ASR_HOLD_FORWARD_WRITE_SUPPRESSED', args);
+}
+
+export function buildAsrSameLineOvershootCappedDiagnostic(args: {
+  reason: string;
+  proposedTop: number;
+  cappedTop: number;
+  currentTop: number;
+  lineHeightPx: number;
+  authoritativeLineIdx: number;
+  candidateLineIdx: number;
+  lastVerifiedCommitLineIdx: number;
+  lastVerifiedCommitAgeMs: number;
+  hasFreshVerifiedForwardCommit: boolean;
+  pocketTop: number;
+  pocketBottom: number;
+  tolerancePx: number;
+  sourceAuthority: string;
+}): string {
+  return buildAsrPocketWallDiagnostic('ASR_SAME_LINE_OVERSHOOT_CAPPED', args);
+}
+
+export function buildAsrNoSafeTargetForwardSuppressedDiagnostic(args: {
+  reason: string;
+  proposedTop: number;
+  cappedTop: number;
+  currentTop: number;
+  lineHeightPx: number;
+  authoritativeLineIdx: number;
+  candidateLineIdx: number;
+  lastVerifiedCommitLineIdx: number;
+  lastVerifiedCommitAgeMs: number;
+  hasFreshVerifiedForwardCommit: boolean;
+  pocketTop: number;
+  pocketBottom: number;
+  tolerancePx: number;
+  sourceAuthority: string;
+}): string {
+  return buildAsrPocketWallDiagnostic('ASR_NO_SAFE_TARGET_FORWARD_SUPPRESSED', args);
+}
+
+export function buildAsrVisualDeadlockEscapeDiagnostic(args: {
+  recoveryMode: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  authoritativeLineIdx: number;
+  candidateLineIdx: number;
+  visualAnchorLineIdx: number;
+  semanticAheadLines: number;
+  selectedAuthority: string;
+  leadPressureReason: string;
+  pocketWallReason: string;
+  speakableLead: number;
+  renderedLead: number;
+  proposedScrollTop: number;
+  cappedScrollTop: number;
+  cappedDeltaPx: number;
+  targetScrollTop: number;
+  beforeScrollTop: number;
+  boundedEscapeTargetScrollTop: number;
+  afterScrollTop: number;
+  deltaScrollTop: number;
+  markerY: number;
+  currentLineViewportY: number;
+  matchedLineViewportY: number;
+  visualDebtPx: number;
+  matchedMarkerErrorPx: number;
+  bottomDriftGuardRecent: boolean;
+  visualDebtCatchupBlockedRecent: boolean;
+  pursueFlatlineMs: number;
+  repeatCount: number;
+  cooldownMs: number;
+  escapeApplied: boolean;
+  recoveryApplied: boolean;
+  asrSilenceActive: boolean;
+  visualRecoverySilenceBlocked: boolean;
+  trueVisualSilence: boolean;
+  silenceActiveAgeMs: number;
+  lastSilenceStartAgeMs: number;
+  quietOrStaleReason: string;
+  speechLive: boolean;
+  transcriptFresh: boolean;
+  finalFresh: boolean;
+  visualRecoveryFresh: boolean;
+  lastFinalAgeMs: number;
+  lastSpeechAgeMs: number;
+  lastTranscriptAgeMs: number;
+  lastSemanticProgressAgeMs: number;
+  lastVisualProgressAgeMs: number;
+  recentFinalDuringSilence: boolean;
+  recentSpeechDuringSilence: boolean;
+  staleForSemanticCommit: boolean;
+  staleForVisualRecovery: boolean;
+  rejectReason: string;
+}): string {
+  return `[ASR_VISUAL_DEADLOCK_ESCAPE] recoveryMode=${args.recoveryMode || 'semantic_ahead'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} authoritativeLineIdx=${Math.round(args.authoritativeLineIdx)} candidateLineIdx=${Math.round(args.candidateLineIdx)} visualAnchorLineIdx=${Math.round(args.visualAnchorLineIdx)} semanticAheadLines=${Math.round(args.semanticAheadLines)} selectedAuthority=${args.selectedAuthority || 'unknown'} leadPressureReason=${args.leadPressureReason || 'none'} pocketWallReason=${args.pocketWallReason || 'none'} speakableLead=${Math.round(args.speakableLead)} renderedLead=${Math.round(args.renderedLead)} proposedScrollTop=${Math.round(args.proposedScrollTop)} cappedScrollTop=${Math.round(args.cappedScrollTop)} cappedDeltaPx=${Math.round(args.cappedDeltaPx)} targetScrollTop=${Math.round(args.targetScrollTop)} beforeScrollTop=${Math.round(args.beforeScrollTop)} currentScrollTop=${Math.round(args.beforeScrollTop)} boundedEscapeTargetScrollTop=${Math.round(args.boundedEscapeTargetScrollTop)} boundedRecoveryTargetScrollTop=${Math.round(args.boundedEscapeTargetScrollTop)} afterScrollTop=${Math.round(args.afterScrollTop)} deltaScrollTop=${Math.round(args.deltaScrollTop)} markerY=${Number.isFinite(args.markerY) ? Math.round(args.markerY) : -1} currentLineViewportY=${Number.isFinite(args.currentLineViewportY) ? Math.round(args.currentLineViewportY) : -1} matchedLineViewportY=${Number.isFinite(args.matchedLineViewportY) ? Math.round(args.matchedLineViewportY) : -1} visualDebtPx=${Number.isFinite(args.visualDebtPx) ? Math.round(args.visualDebtPx) : -1} matchedMarkerErrorPx=${Number.isFinite(args.matchedMarkerErrorPx) ? Math.round(args.matchedMarkerErrorPx) : -1} bottomDriftGuardRecent=${args.bottomDriftGuardRecent ? 1 : 0} visualDebtCatchupBlockedRecent=${args.visualDebtCatchupBlockedRecent ? 1 : 0} pursueFlatlineMs=${Number.isFinite(args.pursueFlatlineMs) ? Math.round(args.pursueFlatlineMs) : -1} repeatCount=${Math.round(args.repeatCount)} cooldownMs=${Math.round(args.cooldownMs)} escapeApplied=${args.escapeApplied ? 1 : 0} recoveryApplied=${args.recoveryApplied ? 1 : 0} asrSilenceActive=${args.asrSilenceActive ? 1 : 0} visualRecoverySilenceBlocked=${args.visualRecoverySilenceBlocked ? 1 : 0} trueVisualSilence=${args.trueVisualSilence ? 1 : 0} silenceActiveAgeMs=${Number.isFinite(args.silenceActiveAgeMs) ? Math.round(args.silenceActiveAgeMs) : -1} lastSilenceStartAgeMs=${Number.isFinite(args.lastSilenceStartAgeMs) ? Math.round(args.lastSilenceStartAgeMs) : -1} quietOrStaleReason=${args.quietOrStaleReason || 'none'} speechLive=${args.speechLive ? 1 : 0} transcriptFresh=${args.transcriptFresh ? 1 : 0} finalFresh=${args.finalFresh ? 1 : 0} visualRecoveryFresh=${args.visualRecoveryFresh ? 1 : 0} lastFinalAgeMs=${Number.isFinite(args.lastFinalAgeMs) ? Math.round(args.lastFinalAgeMs) : -1} lastSpeechAgeMs=${Number.isFinite(args.lastSpeechAgeMs) ? Math.round(args.lastSpeechAgeMs) : -1} lastTranscriptAgeMs=${Number.isFinite(args.lastTranscriptAgeMs) ? Math.round(args.lastTranscriptAgeMs) : -1} lastSemanticProgressAgeMs=${Number.isFinite(args.lastSemanticProgressAgeMs) ? Math.round(args.lastSemanticProgressAgeMs) : -1} lastVisualProgressAgeMs=${Number.isFinite(args.lastVisualProgressAgeMs) ? Math.round(args.lastVisualProgressAgeMs) : -1} recentFinalDuringSilence=${args.recentFinalDuringSilence ? 1 : 0} recentSpeechDuringSilence=${args.recentSpeechDuringSilence ? 1 : 0} staleForSemanticCommit=${args.staleForSemanticCommit ? 1 : 0} staleForVisualRecovery=${args.staleForVisualRecovery ? 1 : 0} rejectReason=${args.rejectReason || 'none'}`;
+}
+
+export function buildAsrLeadPressureVisualDebtFloorDiagnostic(
+  tag: 'ASR_LEAD_PRESSURE_VISUAL_DEBT_FLOOR_EVALUATED' | 'ASR_LEAD_PRESSURE_VISUAL_DEBT_FLOOR_APPLIED',
+  args: {
+    currentLineIdx: number;
+    committedLineIdx: number;
+    authoritativeLineIdx: number;
+    visualAnchorLineIdx: number;
+    targetLineIdx: number;
+    selectedAuthority: string;
+    proposedScrollTop: number;
+    normalCappedScrollTop: number;
+    flooredScrollTop: number;
+    cappedDeltaPxBefore: number;
+    cappedDeltaPxAfter: number;
+    visualDebtPx: number;
+    matchedMarkerErrorPx: number;
+    markerY: number;
+    currentLineViewportY: number;
+    matchedLineViewportY: number;
+    bottomDriftGuardRecent: boolean;
+    visualDebtCatchupBlockedRecent: boolean;
+    lastVisualProgressAgeMs: number;
+    speakableLead: number;
+    renderedLead: number;
+    recoveryModeNearby: string;
+    floorApplied: boolean;
+    rejectReason: string;
+  },
+): string {
+  return `[${tag}] currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} authoritativeLineIdx=${Math.round(args.authoritativeLineIdx)} visualAnchorLineIdx=${Math.round(args.visualAnchorLineIdx)} targetLineIdx=${Math.round(args.targetLineIdx)} selectedAuthority=${args.selectedAuthority || 'unknown'} proposedScrollTop=${Math.round(args.proposedScrollTop)} normalCappedScrollTop=${Math.round(args.normalCappedScrollTop)} flooredScrollTop=${Math.round(args.flooredScrollTop)} cappedDeltaPxBefore=${Math.round(args.cappedDeltaPxBefore)} cappedDeltaPxAfter=${Math.round(args.cappedDeltaPxAfter)} visualDebtPx=${Number.isFinite(args.visualDebtPx) ? Math.round(args.visualDebtPx) : -1} matchedMarkerErrorPx=${Number.isFinite(args.matchedMarkerErrorPx) ? Math.round(args.matchedMarkerErrorPx) : -1} markerY=${Number.isFinite(args.markerY) ? Math.round(args.markerY) : -1} currentLineViewportY=${Number.isFinite(args.currentLineViewportY) ? Math.round(args.currentLineViewportY) : -1} matchedLineViewportY=${Number.isFinite(args.matchedLineViewportY) ? Math.round(args.matchedLineViewportY) : -1} bottomDriftGuardRecent=${args.bottomDriftGuardRecent ? 1 : 0} visualDebtCatchupBlockedRecent=${args.visualDebtCatchupBlockedRecent ? 1 : 0} lastVisualProgressAgeMs=${Number.isFinite(args.lastVisualProgressAgeMs) ? Math.round(args.lastVisualProgressAgeMs) : -1} speakableLead=${Math.round(args.speakableLead)} renderedLead=${Math.round(args.renderedLead)} recoveryModeNearby=${args.recoveryModeNearby || 'none'} floorApplied=${args.floorApplied ? 1 : 0} rejectReason=${args.rejectReason || 'none'}`;
+}
+
+function buildAsrCommitFreshnessDiagnostic(
+  tag:
+    | 'ASR_STALE_TRANSCRIPT_COMMIT_SUPPRESSED'
+    | 'ASR_SILENCE_COMMIT_SUPPRESSED'
+    | 'ASR_PENDING_RESPONSE_INVALIDATED'
+    | 'ASR_COMMIT_FRESHNESS_EVALUATED',
+  args: {
+    transcriptSeq: number;
+    responseAgeMs: number;
+    lastSpeechAgeMs: number;
+    lastAudioChunkAgeMs: number;
+    speechFresh: boolean;
+    speechActive: boolean;
+    sessionPhase: string;
+    asrRunning: boolean;
+    currentLineIdx: number;
+    proposedLineIdx: number;
+    committedLineIdx: number;
+    reason: string;
+  },
+): string {
+  return `[${tag}] transcriptSeq=${Number.isFinite(args.transcriptSeq) ? Math.round(args.transcriptSeq) : -1} responseAgeMs=${Number.isFinite(args.responseAgeMs) ? Math.round(args.responseAgeMs) : -1} lastSpeechAgeMs=${Number.isFinite(args.lastSpeechAgeMs) ? Math.round(args.lastSpeechAgeMs) : -1} lastAudioChunkAgeMs=${Number.isFinite(args.lastAudioChunkAgeMs) ? Math.round(args.lastAudioChunkAgeMs) : -1} speechFresh=${args.speechFresh ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} sessionPhase=${args.sessionPhase || 'unknown'} asrRunning=${args.asrRunning ? 1 : 0} currentLineIdx=${Math.round(args.currentLineIdx)} proposedLineIdx=${Math.round(args.proposedLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} reason=${args.reason || 'unknown'}`;
+}
+
+export function buildAsrStaleTranscriptCommitSuppressedDiagnostic(args: {
+  transcriptSeq: number;
+  responseAgeMs: number;
+  lastSpeechAgeMs: number;
+  lastAudioChunkAgeMs: number;
+  speechFresh: boolean;
+  speechActive: boolean;
+  sessionPhase: string;
+  asrRunning: boolean;
+  currentLineIdx: number;
+  proposedLineIdx: number;
+  committedLineIdx: number;
+  reason: string;
+}): string {
+  return buildAsrCommitFreshnessDiagnostic('ASR_STALE_TRANSCRIPT_COMMIT_SUPPRESSED', args);
+}
+
+export function buildAsrSilenceCommitSuppressedDiagnostic(args: {
+  transcriptSeq: number;
+  responseAgeMs: number;
+  lastSpeechAgeMs: number;
+  lastAudioChunkAgeMs: number;
+  speechFresh: boolean;
+  speechActive: boolean;
+  sessionPhase: string;
+  asrRunning: boolean;
+  currentLineIdx: number;
+  proposedLineIdx: number;
+  committedLineIdx: number;
+  reason: string;
+}): string {
+  return buildAsrCommitFreshnessDiagnostic('ASR_SILENCE_COMMIT_SUPPRESSED', args);
+}
+
+export function buildAsrPendingResponseInvalidatedDiagnostic(args: {
+  transcriptSeq: number;
+  responseAgeMs: number;
+  lastSpeechAgeMs: number;
+  lastAudioChunkAgeMs: number;
+  speechFresh: boolean;
+  speechActive: boolean;
+  sessionPhase: string;
+  asrRunning: boolean;
+  currentLineIdx: number;
+  proposedLineIdx: number;
+  committedLineIdx: number;
+  reason: string;
+}): string {
+  return buildAsrCommitFreshnessDiagnostic('ASR_PENDING_RESPONSE_INVALIDATED', args);
+}
+
+export function buildAsrCommitFreshnessEvaluatedDiagnostic(args: {
+  transcriptSeq: number;
+  responseAgeMs: number;
+  lastSpeechAgeMs: number;
+  lastAudioChunkAgeMs: number;
+  speechFresh: boolean;
+  speechActive: boolean;
+  sessionPhase: string;
+  asrRunning: boolean;
+  currentLineIdx: number;
+  proposedLineIdx: number;
+  committedLineIdx: number;
+  reason: string;
+}): string {
+  return buildAsrCommitFreshnessDiagnostic('ASR_COMMIT_FRESHNESS_EVALUATED', args);
+}
+
+export function buildAsrAcceptedLocalLagReconciledDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  acceptedLineIdx: number;
+  targetLineIdx: number | null;
+  nextSpeakableLineIdx: number;
+  currentScrollTop: number;
+  targetScrollTop: number;
+  proposedScrollTop: number;
+  actualMovedPx: number;
+  lineDeltaCurrentToCommitted: number;
+  lineDeltaCurrentToTarget: number;
+  lineDeltaCommittedToTarget: number;
+  lineDeltaCommittedToAccepted: number;
+  lineDeltaToNextSpeakable: number;
+  blockedReason: string;
+  coherenceReason: string;
+  speechFresh: boolean;
+  terminalClampActive: boolean;
+  correctionPx: number;
+  movementAllowed: boolean;
+  authoritySource: string;
+}): string {
+  const targetLineIdx = Number.isFinite(args.targetLineIdx as number) ? Math.round(Number(args.targetLineIdx)) : -1;
+  return `[ASR_ACCEPTED_LOCAL_LAG_RECONCILED] currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} acceptedLineIdx=${Math.round(args.acceptedLineIdx)} targetLineIdx=${targetLineIdx} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} proposedScrollTop=${Math.round(args.proposedScrollTop)} actualMovedPx=${Math.round(args.actualMovedPx)} lineDeltaCurrentToCommitted=${Math.round(args.lineDeltaCurrentToCommitted)} lineDeltaCurrentToTarget=${Math.round(args.lineDeltaCurrentToTarget)} lineDeltaCommittedToTarget=${Math.round(args.lineDeltaCommittedToTarget)} lineDeltaCommittedToAccepted=${Math.round(args.lineDeltaCommittedToAccepted)} lineDeltaToNextSpeakable=${Math.round(args.lineDeltaToNextSpeakable)} blockedReason=${args.blockedReason || 'none'} coherenceReason=${args.coherenceReason || 'none'} speechFresh=${args.speechFresh ? 1 : 0} terminalClampActive=${args.terminalClampActive ? 1 : 0} correctionPx=${Math.round(args.correctionPx)} movementAllowed=${args.movementAllowed ? 1 : 0} authoritySource=${args.authoritySource || 'unknown'}`;
+}
+
+export function buildAsrAcceptedLocalLagBlockedDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  acceptedLineIdx: number;
+  targetLineIdx: number | null;
+  nextSpeakableLineIdx: number;
+  currentScrollTop: number;
+  targetScrollTop: number;
+  proposedScrollTop: number;
+  actualMovedPx: number;
+  lineDeltaCurrentToCommitted: number;
+  lineDeltaCurrentToTarget: number;
+  lineDeltaCommittedToTarget: number;
+  lineDeltaCommittedToAccepted: number;
+  lineDeltaToNextSpeakable: number;
+  blockedReason: string;
+  coherenceReason: string;
+  speechFresh: boolean;
+  terminalClampActive: boolean;
+  correctionPx: number;
+  movementAllowed: boolean;
+  authoritySource: string;
+}): string {
+  const targetLineIdx = Number.isFinite(args.targetLineIdx as number) ? Math.round(Number(args.targetLineIdx)) : -1;
+  return `[ASR_ACCEPTED_LOCAL_LAG_BLOCKED] currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} acceptedLineIdx=${Math.round(args.acceptedLineIdx)} targetLineIdx=${targetLineIdx} nextSpeakableLineIdx=${Math.round(args.nextSpeakableLineIdx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} proposedScrollTop=${Math.round(args.proposedScrollTop)} actualMovedPx=${Math.round(args.actualMovedPx)} lineDeltaCurrentToCommitted=${Math.round(args.lineDeltaCurrentToCommitted)} lineDeltaCurrentToTarget=${Math.round(args.lineDeltaCurrentToTarget)} lineDeltaCommittedToTarget=${Math.round(args.lineDeltaCommittedToTarget)} lineDeltaCommittedToAccepted=${Math.round(args.lineDeltaCommittedToAccepted)} lineDeltaToNextSpeakable=${Math.round(args.lineDeltaToNextSpeakable)} blockedReason=${args.blockedReason || 'none'} coherenceReason=${args.coherenceReason || 'none'} speechFresh=${args.speechFresh ? 1 : 0} terminalClampActive=${args.terminalClampActive ? 1 : 0} correctionPx=${Math.round(args.correctionPx)} movementAllowed=${args.movementAllowed ? 1 : 0} authoritySource=${args.authoritySource || 'unknown'}`;
+}
+
+export function buildAsrReaderZoneSummaryDiagnostic(args: {
+  bucketStartLineIdx: number;
+  bucketEndLineIdx: number;
+  timeInPocketMs: number;
+  timeBelowPocketMs: number;
+  maxBelowPocketPx: number;
+  readerWaitTimeMs: number;
+  negativeErrorZeroVelocityMs: number;
+  visualCorrectionCount: number;
+  blockedCorrectionCount: number;
+  recoveryCount: number;
+  terminalClampCount: number;
+  dominantBlockedReason: string;
+  dominantAuthoritySource: string;
+}): string {
+  return `[ASR_READER_ZONE_SUMMARY] bucketStartLineIdx=${Math.round(args.bucketStartLineIdx)} bucketEndLineIdx=${Math.round(args.bucketEndLineIdx)} timeInPocketMs=${Math.round(args.timeInPocketMs)} timeBelowPocketMs=${Math.round(args.timeBelowPocketMs)} maxBelowPocketPx=${Math.round(args.maxBelowPocketPx)} readerWaitTimeMs=${Math.round(args.readerWaitTimeMs)} negativeErrorZeroVelocityMs=${Math.round(args.negativeErrorZeroVelocityMs)} visualCorrectionCount=${Math.round(args.visualCorrectionCount)} blockedCorrectionCount=${Math.round(args.blockedCorrectionCount)} recoveryCount=${Math.round(args.recoveryCount)} terminalClampCount=${Math.round(args.terminalClampCount)} dominantBlockedReason=${args.dominantBlockedReason || 'none'} dominantAuthoritySource=${args.dominantAuthoritySource || 'none'}`;
 }

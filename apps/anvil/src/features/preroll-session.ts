@@ -15,7 +15,9 @@ import {
 function computeScrollAutoOnLive(rawMode?: string | undefined): boolean {
   try {
     const mode = normalizeScrollMode(rawMode ?? (appStore.get('scrollMode') as string | undefined));
-    // ASR live flow is commit-driven (not motor-driven), but this session flag
+    // ASR live semantic advancement is commit-driven (not motor-driven), while
+    // bounded ASR-owned visual recovery may run without semantic advancement.
+    // This session flag
     // must not disable ASR startup/gating during live.
     return mode === 'timed' || mode === 'wpm' || mode === 'hybrid' || mode === 'asr';
   } catch {

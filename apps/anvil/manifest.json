@@ -1,16 +1,19 @@
 {
   "schema": "forge.manifest.v1",
+  "manifest_revision": "2026-06-03-session-aware-draft",
   "workpiece_id": "9d3c2c8c-7a9e-4d1e-8d7a-1a2f9b4f4b10",
   "workspace_id": "2f4a7e1b-6b3a-4a7a-9f3b-8b8c3a6f2a11",
   "created_at": "2026-02-12T18:40:12.123Z",
-  "updated_at": "2026-02-12T18:55:01.004Z",
+  "updated_at": "2026-06-03T16:16:45.241Z",
   "status": "draft",
   "pointers": {
     "script_primary": "script/script.md",
     "script_format": "script/script.format.json",
     "script_sources": "script/script.sources.json",
     "assets_registry": "assets/assets.json",
-    "session_current": null,
+    "session_current": "sessions/current/session.json",
+    "session_latest_asr_log": "sessions/current/asr-log.json",
+    "session_latest_asr_summary": "sessions/current/asr-summary.json",
     "edit_current": null,
     "export_current": null,
     "publish_intent": null
@@ -32,6 +35,16 @@
     "tool": {
       "name": "tongs",
       "version": "0.1.0"
+    }
+  },
+  "workflow": {
+    "stage": "anvil_session_testing",
+    "current_tool": "anvil",
+    "next_expected_tool": "hammer",
+    "lanes": {
+      "ai": "forge-managed",
+      "session": "local-dev",
+      "recording": "disabled-by-settings"
     }
   },
   "files": {
@@ -109,6 +122,120 @@
         "lane": "forge-managed"
       },
       "updated_at": "2026-02-12T18:54:40.901Z"
+    },
+    "sessions/current/session.json": {
+      "type": "anvil_session",
+      "content_type": "application/json",
+      "bytes": null,
+      "hash": {
+        "algo": "sha256",
+        "value": null,
+        "status": "pending_write"
+      },
+      "written_by": {
+        "tool": "anvil",
+        "tool_version": "dev",
+        "lane": "local-dev"
+      },
+      "updated_at": "2026-06-03T16:16:45.241Z"
+    },
+    "sessions/current/asr-log.json": {
+      "type": "asr_diagnostic_log",
+      "content_type": "application/json",
+      "bytes": null,
+      "hash": {
+        "algo": "sha256",
+        "value": null,
+        "status": "pending_write"
+      },
+      "written_by": {
+        "tool": "anvil",
+        "tool_version": "dev",
+        "lane": "local-dev"
+      },
+      "updated_at": "2026-06-03T16:16:45.241Z"
+    },
+    "sessions/current/asr-summary.json": {
+      "type": "asr_run_summary",
+      "content_type": "application/json",
+      "bytes": null,
+      "hash": {
+        "algo": "sha256",
+        "value": null,
+        "status": "pending_write"
+      },
+      "written_by": {
+        "tool": "anvil",
+        "tool_version": "dev",
+        "lane": "local-dev"
+      },
+      "updated_at": "2026-06-03T16:16:45.241Z"
     }
+  },
+  "sessions": {
+    "current": {
+      "session_id": "local-asr-20260603-161645",
+      "tool": "anvil",
+      "tool_version": "dev",
+      "mode": "asr",
+      "phase": "completed_test_run",
+      "started_at": "2026-06-03T16:14:46.610Z",
+      "exported_at": "2026-06-03T16:16:45.241Z",
+      "recording": {
+        "enabled": false,
+        "reason": "disabled-by-settings"
+      },
+      "runtime": {
+        "build": "asr-scroll-2026-06-03T16:14:46.610Z",
+        "scroll_session_fingerprint": "scroll-session-v4-2026-02-10-a",
+        "ui_mode": "asr",
+        "brain_mode": "asr",
+        "clamp_mode": "follow",
+        "asr_enabled": true,
+        "auto_scroll": false,
+        "speech_source": "openai-whisper-bridge"
+      },
+      "geometry": {
+        "markerPct": 0.4,
+        "hostHeightPx": 983,
+        "markerOffsetPx": 393,
+        "lineHeightPx": 56
+      },
+      "script": {
+        "scriptHash": "953fe6d5",
+        "scriptSig": "52:0:2:134:134:135:5183",
+        "blockCount": 52,
+        "blockSource": "render",
+        "blockSchemaVersion": 1
+      },
+      "asr_log": {
+        "path": "sessions/current/asr-log.json",
+        "entryCount": 19440,
+        "droppedCount": 0
+      },
+      "asr_summary": {
+        "path": "sessions/current/asr-summary.json",
+        "metrics_status": "pending_analyzer",
+        "primary_human_metric": "matched_or_current_line_position_relative_to_marker",
+        "known_current_focus": [
+          "post_floor_protection",
+          "post_floor_pocket_wall_protection",
+          "visual_debt_floor",
+          "visual_debt_flatline_recovery",
+          "lead_pressure_zero_cap",
+          "pursue_flatline",
+          "bottom_drift_guard",
+          "reader_leash",
+          "adjacent_local_proof"
+        ]
+      }
+    }
+  },
+  "compatibility": {
+    "manifest_root_is_workpiece_custody": true,
+    "session_artifacts_are_referenced_not_embedded": true,
+    "anvil_asr_is_session_scoped": true,
+    "hammer_should_consume_session_outputs": true,
+    "quench_should_ignore_asr_diagnostics_by_default": true
   }
 }

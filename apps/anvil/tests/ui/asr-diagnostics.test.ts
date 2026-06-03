@@ -9,6 +9,16 @@ import {
   buildAsr4RecoveryBudgetAuthorityAppliedDiagnostic,
   buildAsr4PocketDriftAuthorityAppliedDiagnostic,
   buildAsr4PocketDriftStateDiagnostic,
+  buildAsrLowPocketDeadbandBlockedDiagnostic,
+  buildAsrLowPocketDeadbandReconciledDiagnostic,
+  buildAsrLowPocketFreezeFarTargetBlockedDiagnostic,
+  buildAsrLowPocketFreezeFarTargetReconciledDiagnostic,
+  buildAsrReaderOverrunHoldDiagnostic,
+  buildAsrApprovedVisualSmoothingBypassedDiagnostic,
+  buildAsrApprovedVisualSmoothingRebasedDiagnostic,
+  buildAsrAcceptedLocalLagReconciledDiagnostic,
+  buildAsrAcceptedLocalLagBlockedDiagnostic,
+  buildAsrReaderZoneSummaryDiagnostic,
   buildAsr4VisualRecoveryAuthorityAppliedDiagnostic,
   buildAsr4VisualRecoveryStateDiagnostic,
   buildAsr4FreshTailVetoDiagnostic,
@@ -19,6 +29,9 @@ import {
   buildAsrBackendHeartbeatDiagnostic,
   buildAsrBackendRestartCompletedDiagnostic,
   buildAsrBackendRestartRequestedDiagnostic,
+  buildAsrBridgeReducedVisualCashInEvaluatedDiagnostic,
+  buildAsrBridgeReducedVisualCashInAppliedDiagnostic,
+  buildAsrBridgeReducedVisualCashInBlockedDiagnostic,
   buildAsrBottomLockGeometryDiagnostic,
   buildAsrDelayedSuppressionAutopsyDiagnostic,
   buildAsrDiagnosticBundleProofDiagnostic,
@@ -51,6 +64,14 @@ import {
   buildAsrVisualRecoveryBoostPathProofDiagnostic,
   buildAsrScrollAuthorityConflictDiagnostic,
   buildAsrScrollAuthoritySelectedDiagnostic,
+  buildAsrVisualControlDecisionDiagnostic,
+  buildAsrVisualControlRuntimeProofDiagnostic,
+  buildAsrRecoveryEpisodeStartedDiagnostic,
+  buildAsrRecoveryEpisodeExtendedDiagnostic,
+  buildAsrRecoveryEpisodeEndedDiagnostic,
+  buildAsrBackwardTargetRejectedDiagnostic,
+  buildAsrRecoveryStepAppliedDiagnostic,
+  buildAsrSettleCompleteDiagnostic,
   buildAsrStaleLandingRelaxedForFreshForwardAnchorDiagnostic,
   buildAsrStaleRecoveryTargetExpiredDiagnostic,
   buildAsrVisualMarkerErrorCorrectionDiagnostic,
@@ -75,6 +96,145 @@ import {
 } from '../../src/features/asr/asr-authority-resolver';
 
 describe('ASR backend liveness diagnostics builders', () => {
+  test('builds visual chairperson diagnostics', () => {
+    expect(
+      buildAsrVisualControlRuntimeProofDiagnostic({
+        chairpersonRuntime: true,
+        contractVersion: 'asr-visual-chairperson-v1|asr-live-follow-control-v1',
+        shadowMode: true,
+        liveTargetOwnership: false,
+        moduleLoaded: true,
+        buildStamp: 'asr-scroll-2026-06-03T17:55:00.000Z',
+        emittedFrom: 'createAsrScrollDriver:init',
+        computeAsrVisualDecisionAvailable: true,
+        diagnosticsSinkAvailable: true,
+        diagnosticsExportPathAvailable: true,
+      }),
+    ).toBe(
+      '[ASR_VISUAL_CONTROL_RUNTIME_PROOF] chairpersonRuntime=1 contractVersion=asr-visual-chairperson-v1|asr-live-follow-control-v1 shadowMode=1 liveTargetOwnership=0 moduleLoaded=1 buildStamp=asr-scroll-2026-06-03T17:55:00.000Z emittedFrom=createAsrScrollDriver:init computeAsrVisualDecisionAvailable=1 diagnosticsSinkAvailable=1 diagnosticsExportPathAvailable=1',
+    );
+
+    expect(
+      buildAsrVisualControlDecisionDiagnostic({
+        mode: 'recover',
+        controlIntent: 'recover',
+        recoveryKind: 'visual_debt',
+        isTrueVisualRecovery: true,
+        isForwardProtection: false,
+        semanticCursorLineIdx: 8,
+        visualAnchorLineIdx: 7,
+        anchorKind: 'confirmed_spoken',
+        markerY: 390,
+        anchorViewportY: 612,
+        anchorGapPx: 222,
+        pocketBand: 'recovery',
+        targetScrollTop: 512,
+        previousTargetScrollTop: 430,
+        backwardAllowed: false,
+        recoveryEpisodeActive: true,
+        protectedTargetScrollTop: 512,
+        maxVelocityPxps: 220,
+        actuatorAppliedDeltaPx: 42,
+        reason: 'visual_debt',
+        legacySelectedAuthority: 'comfort_nudge',
+        legacySelectedTargetScrollTop: 376,
+        shadowDiffPx: 136,
+        backwardTargetRejected: true,
+        safeForwardTargetSuppressed: true,
+        ownershipActive: false,
+      }),
+    ).toBe(
+      '[ASR_VISUAL_CONTROL_DECISION] mode=recover controlIntent=recover recoveryKind=visual_debt isTrueVisualRecovery=1 isForwardProtection=0 semanticCursorLineIdx=8 visualAnchorLineIdx=7 anchorKind=confirmed_spoken markerY=390 anchorViewportY=612 anchorGapPx=222 pocketBand=recovery targetScrollTop=512 previousTargetScrollTop=430 backwardAllowed=0 recoveryEpisodeActive=1 protectedTargetScrollTop=512 maxVelocityPxps=220 actuatorAppliedDeltaPx=42 reason=visual_debt legacySelectedAuthority=comfort_nudge legacySelectedTargetScrollTop=376 shadowDiffPx=136 backwardTargetRejected=1 safeForwardTargetSuppressed=1 ownershipActive=0',
+    );
+
+    expect(
+      buildAsrRecoveryEpisodeStartedDiagnostic({
+        reason: 'visual_debt',
+        controlIntent: 'recover',
+        recoveryKind: 'visual_debt',
+        isTrueVisualRecovery: true,
+        isForwardProtection: false,
+        protectedLineIdx: 8,
+        protectedTargetScrollTop: 512,
+        expiresInMs: 700,
+      }),
+    ).toBe(
+      '[ASR_RECOVERY_EPISODE_STARTED] reason=visual_debt controlIntent=recover recoveryKind=visual_debt isTrueVisualRecovery=1 isForwardProtection=0 protectedLineIdx=8 protectedTargetScrollTop=512 expiresInMs=700',
+    );
+
+    expect(
+      buildAsrRecoveryEpisodeExtendedDiagnostic({
+        reason: 'semantic_ahead',
+        controlIntent: 'forward_protect',
+        recoveryKind: 'semantic_ahead',
+        isTrueVisualRecovery: false,
+        isForwardProtection: true,
+        protectedLineIdx: 9,
+        protectedTargetScrollTop: 648,
+        expiresInMs: 540,
+      }),
+    ).toBe(
+      '[ASR_RECOVERY_EPISODE_EXTENDED] reason=semantic_ahead controlIntent=forward_protect recoveryKind=semantic_ahead isTrueVisualRecovery=0 isForwardProtection=1 protectedLineIdx=9 protectedTargetScrollTop=648 expiresInMs=540',
+    );
+
+    expect(
+      buildAsrRecoveryEpisodeEndedDiagnostic({
+        reason: 'post_floor_cleared',
+        controlIntent: 'none',
+        recoveryKind: 'none',
+        isTrueVisualRecovery: false,
+        isForwardProtection: false,
+        protectedLineIdx: 8,
+        protectedTargetScrollTop: 512,
+      }),
+    ).toBe(
+      '[ASR_RECOVERY_EPISODE_ENDED] reason=post_floor_cleared controlIntent=none recoveryKind=none isTrueVisualRecovery=0 isForwardProtection=0 protectedLineIdx=8 protectedTargetScrollTop=512',
+    );
+
+    expect(
+      buildAsrBackwardTargetRejectedDiagnostic({
+        mode: 'recover',
+        legacyAuthority: 'comfort_nudge',
+        legacyTargetScrollTop: 376,
+        correctedTargetScrollTop: 430,
+        currentScrollTop: 430,
+        reason: 'visual_debt',
+      }),
+    ).toBe(
+      '[ASR_BACKWARD_TARGET_REJECTED] mode=recover legacyAuthority=comfort_nudge legacyTargetScrollTop=376 correctedTargetScrollTop=430 currentScrollTop=430 reason=visual_debt',
+    );
+
+    expect(
+      buildAsrRecoveryStepAppliedDiagnostic({
+        mode: 'recover',
+        authority: 'recover_visual_debt',
+        controlIntent: 'recover',
+        recoveryKind: 'visual_debt',
+        isTrueVisualRecovery: true,
+        isForwardProtection: false,
+        currentScrollTop: 430,
+        targetScrollTop: 512,
+        appliedDeltaPx: 42,
+        minForwardStepPx: 28,
+        reason: 'visual_debt',
+      }),
+    ).toBe(
+      '[ASR_RECOVERY_STEP_APPLIED] mode=recover authority=recover_visual_debt controlIntent=recover recoveryKind=visual_debt isTrueVisualRecovery=1 isForwardProtection=0 currentScrollTop=430 targetScrollTop=512 appliedDeltaPx=42 minForwardStepPx=28 reason=visual_debt',
+    );
+
+    expect(
+      buildAsrSettleCompleteDiagnostic({
+        previousMode: 'recover',
+        nextMode: 'track',
+        anchorLineIdx: 8,
+        targetScrollTop: 512,
+        reason: 'recovery_episode_settle',
+      }),
+    ).toBe(
+      '[ASR_SETTLE_COMPLETE] previousMode=recover nextMode=track anchorLineIdx=8 targetScrollTop=512 reason=recovery_episode_settle',
+    );
+  });
+
   test('builds stale-landing relaxation diagnostic with bounded forward context', () => {
     const line = buildAsrStaleLandingRelaxedForFreshForwardAnchorDiagnostic({
       currentLine: 13,
@@ -524,6 +684,226 @@ describe('ASR backend liveness diagnostics builders', () => {
     );
   });
 
+  test('builds low-pocket deadband reconciled diagnostic with expected fields', () => {
+    const line = buildAsrLowPocketDeadbandReconciledDiagnostic({
+      currentLineIdx: 155,
+      committedLineIdx: 157,
+      currentScrollTop: 11046,
+      targetScrollTop: 11046,
+      belowPocketPx: 89,
+      activeLineDistanceFromMarkerPx: 106,
+      previousHoldReason: 'existing_target_within_deadband',
+      correctionPx: 84,
+      observations: 3,
+    });
+    expect(line).toBe(
+      '[ASR_LOW_POCKET_DEADBAND_RECONCILED] currentLineIdx=155 committedLineIdx=157 currentScrollTop=11046 targetScrollTop=11046 belowPocketPx=89 activeLineDistanceFromMarkerPx=106 previousHoldReason=existing_target_within_deadband correctionPx=84 observations=3',
+    );
+  });
+
+  test('builds reader overrun hold diagnostic with expected fields', () => {
+    const line = buildAsrReaderOverrunHoldDiagnostic({
+      lane: 'ASR1_CURRENT',
+      authority: 'asr4-pocket-drift-authority',
+      currentLine: 155,
+      committedLine: 156,
+      targetLine: 156,
+      currentScrollTop: 11046,
+      markerTopPx: 268,
+      currentLineCenterPx: 180,
+      currentLineDistanceFromMarkerPx: -88,
+      aboveMarkerLines: 1.25,
+      holdBufferLines: 3,
+      semanticWindowLocal: true,
+      holdActive: true,
+      reason: 'current_line_within_reader_overrun_buffer',
+    });
+    expect(line).toBe(
+      '[ASR_READER_OVERRUN_HOLD] lane=ASR1_CURRENT authority=asr4-pocket-drift-authority currentLine=155 committedLine=156 targetLine=156 currentScrollTop=11046 markerTopPx=268 currentLineCenterPx=180 currentLineDistanceFromMarkerPx=-88 aboveMarkerLines=1.25 holdBufferLines=3.00 semanticWindowLocal=1 holdActive=1 reason=current_line_within_reader_overrun_buffer',
+    );
+  });
+
+  test('builds low-pocket deadband blocked diagnostic with expected fields', () => {
+    const line = buildAsrLowPocketDeadbandBlockedDiagnostic({
+      currentLineIdx: 155,
+      committedLineIdx: 157,
+      currentScrollTop: 11046,
+      targetScrollTop: 11046,
+      belowPocketPx: 89,
+      activeLineDistanceFromMarkerPx: 106,
+      previousHoldReason: 'existing_target_within_deadband',
+      correctionPx: 84,
+      observations: 2,
+      reason: 'unsafe_target',
+    });
+    expect(line).toBe(
+      '[ASR_LOW_POCKET_DEADBAND_BLOCKED] currentLineIdx=155 committedLineIdx=157 currentScrollTop=11046 targetScrollTop=11046 belowPocketPx=89 activeLineDistanceFromMarkerPx=106 previousHoldReason=existing_target_within_deadband correctionPx=84 observations=2 reason=unsafe_target',
+    );
+  });
+
+  test('builds low-pocket freeze-far-target reconciled diagnostic with expected fields', () => {
+    const line = buildAsrLowPocketFreezeFarTargetReconciledDiagnostic({
+      currentLineIdx: 155,
+      committedLineIdx: 157,
+      nextSpeakableLineIdx: 157,
+      currentScrollTop: 11046,
+      targetScrollTop: 11046,
+      proposedScrollTop: 11102,
+      belowPocketPx: 89,
+      activeLineDistanceFromMarkerPx: 106,
+      holdReason: 'existing_target_within_deadband',
+      authorityAction: 'freeze_far_target',
+      farReason: 'committed_line_far',
+      semanticDistance: 1,
+      visualDistancePx: 0,
+      movementAllowed: true,
+      correctionPx: 56,
+    });
+    expect(line).toBe(
+      '[ASR_LOW_POCKET_FREEZE_FAR_TARGET_RECONCILED] currentLineIdx=155 committedLineIdx=157 nextSpeakableLineIdx=157 currentScrollTop=11046 targetScrollTop=11046 proposedScrollTop=11102 belowPocketPx=89 activeLineDistanceFromMarkerPx=106 holdReason=existing_target_within_deadband authorityAction=freeze_far_target farReason=committed_line_far semanticDistance=1 visualDistancePx=0 movementAllowed=1 correctionPx=56',
+    );
+  });
+
+  test('builds low-pocket freeze-far-target blocked diagnostic with expected fields', () => {
+    const line = buildAsrLowPocketFreezeFarTargetBlockedDiagnostic({
+      currentLineIdx: 155,
+      committedLineIdx: 160,
+      nextSpeakableLineIdx: 160,
+      currentScrollTop: 11046,
+      targetScrollTop: 11046,
+      proposedScrollTop: 11102,
+      belowPocketPx: 89,
+      activeLineDistanceFromMarkerPx: 106,
+      holdReason: 'existing_target_within_deadband',
+      authorityAction: 'freeze_far_target',
+      farReason: 'target_line_far',
+      semanticDistance: 5,
+      visualDistancePx: 0,
+      movementAllowed: false,
+      correctionPx: 56,
+      blockedReason: 'semantic_distance_unsafe',
+    });
+    expect(line).toBe(
+      '[ASR_LOW_POCKET_FREEZE_FAR_TARGET_BLOCKED] currentLineIdx=155 committedLineIdx=160 nextSpeakableLineIdx=160 currentScrollTop=11046 targetScrollTop=11046 proposedScrollTop=11102 belowPocketPx=89 activeLineDistanceFromMarkerPx=106 holdReason=existing_target_within_deadband authorityAction=freeze_far_target farReason=target_line_far semanticDistance=5 visualDistancePx=0 movementAllowed=0 correctionPx=56 blockedReason=semantic_distance_unsafe',
+    );
+  });
+
+  test('builds approved visual smoothing bypassed diagnostic with expected fields', () => {
+    const line = buildAsrApprovedVisualSmoothingBypassedDiagnostic({
+      authority: 'low_pocket_deadband_reconcile',
+      currentLineIdx: 155,
+      committedLineIdx: 157,
+      nextSpeakableLineIdx: 157,
+      currentScrollTop: 11046,
+      approvedTargetScrollTop: 11102,
+      correctionPx: 56,
+      visualErrorPx: 106,
+      smoothingReason: 'asr-low-pocket-deadband-reconcile',
+      bypassReason: 'severe_rescue',
+    });
+    expect(line).toBe(
+      '[ASR_APPROVED_VISUAL_SMOOTHING_BYPASSED] authority=low_pocket_deadband_reconcile currentLineIdx=155 committedLineIdx=157 nextSpeakableLineIdx=157 currentScrollTop=11046 approvedTargetScrollTop=11102 correctionPx=56 visualErrorPx=106 smoothingReason=asr-low-pocket-deadband-reconcile bypassReason=severe_rescue',
+    );
+  });
+
+  test('builds approved visual smoothing rebased diagnostic with expected fields', () => {
+    const line = buildAsrApprovedVisualSmoothingRebasedDiagnostic({
+      authority: 'safe_live_pocket_correction',
+      currentLineIdx: 155,
+      committedLineIdx: 157,
+      nextSpeakableLineIdx: 157,
+      currentScrollTop: 11046,
+      previousTargetScrollTop: 11102,
+      approvedTargetScrollTop: 11148,
+      correctionPx: 102,
+      previousReason: 'safe-live-pocket-correction',
+      smoothingReason: 'asr-low-pocket-freeze-far-target-reconcile',
+      rebaseReason: 'newer_approved_target',
+    });
+    expect(line).toBe(
+      '[ASR_APPROVED_VISUAL_SMOOTHING_REBASED] authority=safe_live_pocket_correction currentLineIdx=155 committedLineIdx=157 nextSpeakableLineIdx=157 currentScrollTop=11046 previousTargetScrollTop=11102 approvedTargetScrollTop=11148 correctionPx=102 previousReason=safe-live-pocket-correction smoothingReason=asr-low-pocket-freeze-far-target-reconcile rebaseReason=newer_approved_target',
+    );
+  });
+
+  test('builds accepted local lag reconciled diagnostic with expected fields', () => {
+    const line = buildAsrAcceptedLocalLagReconciledDiagnostic({
+      currentLineIdx: 185,
+      committedLineIdx: 187,
+      acceptedLineIdx: 186,
+      targetLineIdx: 186,
+      nextSpeakableLineIdx: 186,
+      currentScrollTop: 13082,
+      targetScrollTop: 13177,
+      proposedScrollTop: 13138,
+      actualMovedPx: 0,
+      lineDeltaCurrentToCommitted: 2,
+      lineDeltaCurrentToTarget: 1,
+      lineDeltaCommittedToTarget: -1,
+      lineDeltaCommittedToAccepted: -1,
+      lineDeltaToNextSpeakable: 1,
+      blockedReason: 'incoherent_current_commit_lines',
+      coherenceReason: 'current_to_committed=2,current_to_target=1,committed_to_target=-1,committed_to_accepted=-1,to_next_speakable=1,max_semantic_distance=2',
+      speechFresh: true,
+      terminalClampActive: false,
+      correctionPx: 56,
+      movementAllowed: true,
+      authoritySource: 'live_follow',
+    });
+    expect(line).toBe(
+      '[ASR_ACCEPTED_LOCAL_LAG_RECONCILED] currentLineIdx=185 committedLineIdx=187 acceptedLineIdx=186 targetLineIdx=186 nextSpeakableLineIdx=186 currentScrollTop=13082 targetScrollTop=13177 proposedScrollTop=13138 actualMovedPx=0 lineDeltaCurrentToCommitted=2 lineDeltaCurrentToTarget=1 lineDeltaCommittedToTarget=-1 lineDeltaCommittedToAccepted=-1 lineDeltaToNextSpeakable=1 blockedReason=incoherent_current_commit_lines coherenceReason=current_to_committed=2,current_to_target=1,committed_to_target=-1,committed_to_accepted=-1,to_next_speakable=1,max_semantic_distance=2 speechFresh=1 terminalClampActive=0 correctionPx=56 movementAllowed=1 authoritySource=live_follow',
+    );
+  });
+
+  test('builds accepted local lag blocked diagnostic with expected fields', () => {
+    const line = buildAsrAcceptedLocalLagBlockedDiagnostic({
+      currentLineIdx: 185,
+      committedLineIdx: 187,
+      acceptedLineIdx: 188,
+      targetLineIdx: 186,
+      nextSpeakableLineIdx: 188,
+      currentScrollTop: 13082,
+      targetScrollTop: 13177,
+      proposedScrollTop: 13138,
+      actualMovedPx: 0,
+      lineDeltaCurrentToCommitted: 2,
+      lineDeltaCurrentToTarget: 1,
+      lineDeltaCommittedToTarget: -1,
+      lineDeltaCommittedToAccepted: 1,
+      lineDeltaToNextSpeakable: 3,
+      blockedReason: 'incoherent_current_commit_lines',
+      coherenceReason: 'current_to_committed=2,current_to_target=1,committed_to_target=-1,committed_to_accepted=1,to_next_speakable=3,max_semantic_distance=3',
+      speechFresh: true,
+      terminalClampActive: false,
+      correctionPx: 56,
+      movementAllowed: true,
+      authoritySource: 'live_follow',
+    });
+    expect(line).toBe(
+      '[ASR_ACCEPTED_LOCAL_LAG_BLOCKED] currentLineIdx=185 committedLineIdx=187 acceptedLineIdx=188 targetLineIdx=186 nextSpeakableLineIdx=188 currentScrollTop=13082 targetScrollTop=13177 proposedScrollTop=13138 actualMovedPx=0 lineDeltaCurrentToCommitted=2 lineDeltaCurrentToTarget=1 lineDeltaCommittedToTarget=-1 lineDeltaCommittedToAccepted=1 lineDeltaToNextSpeakable=3 blockedReason=incoherent_current_commit_lines coherenceReason=current_to_committed=2,current_to_target=1,committed_to_target=-1,committed_to_accepted=1,to_next_speakable=3,max_semantic_distance=3 speechFresh=1 terminalClampActive=0 correctionPx=56 movementAllowed=1 authoritySource=live_follow',
+    );
+  });
+
+  test('builds reader zone summary diagnostic with expected fields', () => {
+    const line = buildAsrReaderZoneSummaryDiagnostic({
+      bucketStartLineIdx: 150,
+      bucketEndLineIdx: 174,
+      timeInPocketMs: 2200,
+      timeBelowPocketMs: 4800,
+      maxBelowPocketPx: 103,
+      readerWaitTimeMs: 3100,
+      negativeErrorZeroVelocityMs: 450,
+      visualCorrectionCount: 12,
+      blockedCorrectionCount: 5,
+      recoveryCount: 4,
+      terminalClampCount: 1,
+      dominantBlockedReason: 'incoherent_current_commit_lines',
+      dominantAuthoritySource: 'stall_recovery',
+    });
+    expect(line).toBe(
+      '[ASR_READER_ZONE_SUMMARY] bucketStartLineIdx=150 bucketEndLineIdx=174 timeInPocketMs=2200 timeBelowPocketMs=4800 maxBelowPocketPx=103 readerWaitTimeMs=3100 negativeErrorZeroVelocityMs=450 visualCorrectionCount=12 blockedCorrectionCount=5 recoveryCount=4 terminalClampCount=1 dominantBlockedReason=incoherent_current_commit_lines dominantAuthoritySource=stall_recovery',
+    );
+  });
+
   test('builds proof-owned primary commit guard base parts with expected fields/order', () => {
     const parts = buildProofOwnedPrimaryCommitGuardBaseParts({
       current: 3,
@@ -936,6 +1316,83 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR_DELAYED_SUPPRESSION_AUTOPSY] episodeId=ae-22 runKey=run-1 runGeneration=7 currentLineIdx=23 committedLineIdx=23 requestedTargetIdx=25 acceptedCommitTargetIdx=24 nextSpeakableLineIdx=25 visualOutcome=delayed_until_starvation reasonChain=movement_authority_commit|asr_recovery_chain_blocked|live_asr_marker_lock_suppressed|superseded_by_new_commit actions=snap_suppressed stallDelayMs=2065 settleMs=2060 speechActive=1 transcriptAgeMs=841 audioAgeMs=634 finalPacketFresh=1 transcriptGrowing=0 lastGuardReason=asr_recovery_chain_blocked lastHudGuardText=Hold: waiting for direct adjacent ASR match lastSelectedAuthority=comfort_nudge lastVisualAction=snap_suppressed lastVisualErrorPx=17 markerY=390 actualNextSpeakableLineY=482 desiredLineY=467 tolerancePx=20 holdTolerancePx=12 currentScrollTop=1702 targetScrollTop=1791 deltaLinesSamples=none snapSuppressedInEpisode=1 supersededByNewCommit=1 blockerCategory=recovery_chain_blocked',
+    );
+  });
+
+  test('builds bridge-reduced visual cash-in diagnostics with expected fields', () => {
+    const evaluated = buildAsrBridgeReducedVisualCashInEvaluatedDiagnostic({
+      currentLineIdx: 157,
+      committedLineIdx: 158,
+      requestedTargetIdx: 160,
+      semanticTargetIdx: 160,
+      visualReducedTargetIdx: 158,
+      acceptedCommitTargetIdx: 158,
+      nextSpeakableLineIdx: 160,
+      bridgeCarry: 3,
+      bridgeClamp: 2,
+      sourceBranch: 'live_strict_bridge_stale_landing_hold',
+      proofSource: 'landing_lexical',
+      blockerCategory: 'recovery_chain_blocked',
+      recoveryChainBlocked: true,
+      noAdjacentMatchHold: false,
+      markerLockSuppressed: true,
+      lastGuardReason: 'live_strict_proof_owned_commit',
+      lastSelectedAuthority: 'hold',
+      lastVisualAction: 'hold',
+      visualErrorPx: 44,
+      belowPocketPx: 31,
+      currentScrollTop: 11341,
+      targetScrollTop: 11417,
+      reason: 'bridge_reduced_blocked_local_candidate',
+    });
+    expect(evaluated).toBe(
+      '[ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_EVALUATED] currentLineIdx=157 committedLineIdx=158 requestedTargetIdx=160 semanticTargetIdx=160 visualReducedTargetIdx=158 acceptedCommitTargetIdx=158 nextSpeakableLineIdx=160 bridgeCarry=3 bridgeClamp=2 sourceBranch=live_strict_bridge_stale_landing_hold proofSource=landing_lexical blockerCategory=recovery_chain_blocked recoveryChainBlocked=1 noAdjacentMatchHold=0 markerLockSuppressed=1 lastGuardReason=live_strict_proof_owned_commit lastSelectedAuthority=hold lastVisualAction=hold visualErrorPx=44 belowPocketPx=31 currentScrollTop=11341 targetScrollTop=11417 reason=bridge_reduced_blocked_local_candidate',
+    );
+
+    const applied = buildAsrBridgeReducedVisualCashInAppliedDiagnostic({
+      currentLineIdx: 157,
+      requestedTargetIdx: 160,
+      reducedTargetIdx: 158,
+      acceptedCommitTargetIdx: 158,
+      previousAcceptedCommitTargetIdx: 157,
+      bridgeCarry: 3,
+      bridgeClamp: 2,
+      blockerCategory: 'recovery_chain_blocked',
+      recoveryChainBlocked: true,
+      noAdjacentMatchHold: false,
+      markerLockSuppressed: true,
+      repeatedObservationCount: 3,
+      stallDelayMs: 3386,
+      visualDebtPx: 52,
+      belowPocketPx: 31,
+      actualMovedPx: 22,
+      reason: 'bridge_reduced_adjacent_recovery_chain_cash_in',
+    });
+    expect(applied).toBe(
+      '[ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_APPLIED] currentLineIdx=157 requestedTargetIdx=160 reducedTargetIdx=158 acceptedCommitTargetIdx=158 previousAcceptedCommitTargetIdx=157 bridgeCarry=3 bridgeClamp=2 blockerCategory=recovery_chain_blocked recoveryChainBlocked=1 noAdjacentMatchHold=0 markerLockSuppressed=1 repeatedObservationCount=3 stallDelayMs=3386 visualDebtPx=52 belowPocketPx=31 actualMovedPx=22 reason=bridge_reduced_adjacent_recovery_chain_cash_in',
+    );
+
+    const blocked = buildAsrBridgeReducedVisualCashInBlockedDiagnostic({
+      currentLineIdx: 169,
+      requestedTargetIdx: 171,
+      reducedTargetIdx: 170,
+      acceptedCommitTargetIdx: 170,
+      previousAcceptedCommitTargetIdx: 169,
+      bridgeCarry: 2,
+      bridgeClamp: 1,
+      blockerCategory: 'no_adjacent_match_hold',
+      recoveryChainBlocked: false,
+      noAdjacentMatchHold: true,
+      markerLockSuppressed: false,
+      repeatedObservationCount: 1,
+      stallDelayMs: 210,
+      visualDebtPx: 28,
+      belowPocketPx: 12,
+      actualMovedPx: 0,
+      reason: 'awaiting_repeat_or_short_delay',
+    });
+    expect(blocked).toBe(
+      '[ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_BLOCKED] currentLineIdx=169 requestedTargetIdx=171 reducedTargetIdx=170 acceptedCommitTargetIdx=170 previousAcceptedCommitTargetIdx=169 bridgeCarry=2 bridgeClamp=1 blockerCategory=no_adjacent_match_hold recoveryChainBlocked=0 noAdjacentMatchHold=1 markerLockSuppressed=0 repeatedObservationCount=1 stallDelayMs=210 visualDebtPx=28 belowPocketPx=12 actualMovedPx=0 reason=awaiting_repeat_or_short_delay',
     );
   });
 

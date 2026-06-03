@@ -23,6 +23,10 @@ export type TranscriptDetail = {
   runKey?: string | null;
   runGeneration?: number | null;
   speechRunningActual?: boolean;
+  transcriptSeq?: number | null;
+  receivedAtMs?: number | null;
+  responseCreatedAtMs?: number | null;
+  responseAgeMs?: number | null;
 };
 
 export type PendingMatch = {
@@ -64,6 +68,14 @@ export type PendingMatch = {
   starvationMs?: number;
   provenSpeakablePath?: boolean;
   transcriptSource?: string;
+  transcriptSeq?: number | null;
+  transcriptReceivedAtMs?: number | null;
+  transcriptResponseAgeMs?: number | null;
+  transcriptSpeechAgeMs?: number | null;
+  transcriptAudioAgeMs?: number | null;
+  transcriptSpeechFresh?: boolean;
+  transcriptSpeechActive?: boolean;
+  transcriptAuthorityEpoch?: number | null;
 };
 
 export type AsrEventSnapshot = {
@@ -235,6 +247,60 @@ export type AsrScrollDriverStats = {
   commitCount: number;
   eventsSinceCommit: number;
   finalsSinceCommit: number;
+};
+
+export type AsrVisualMode = 'track' | 'recover' | 'settle' | 'hold';
+
+export type AsrSemanticSnapshot = {
+  lineIdx: number;
+  confidence: number;
+  source: string;
+  updatedAt: number;
+};
+
+export type AsrVisualAnchor = {
+  anchorLineIdx: number;
+  anchorKind: string;
+  anchorViewportY: number;
+  anchorCompatibleWithSemantic: boolean;
+  matchedLineViewportY: number;
+};
+
+export type AsrRecoveryEpisode = {
+  startedAt: number;
+  expiresAt: number;
+  protectedLineIdx: number;
+  protectedTargetScrollTop: number;
+  reason: 'visual_debt' | 'semantic_ahead';
+};
+
+export type AsrVisualControlIntent =
+  | 'track'
+  | 'recover'
+  | 'forward_protect'
+  | 'settle'
+  | 'hold';
+
+export type AsrRecoveryKind = 'none' | 'visual_debt' | 'semantic_ahead';
+
+export type AsrScrollDecision = {
+  mode: AsrVisualMode;
+  anchorLineIdx: number;
+  authority:
+    | 'track_follow'
+    | 'recover_visual_debt'
+    | 'recover_semantic_ahead'
+    | 'settle_hold'
+    | 'hold';
+  targetScrollTop: number;
+  maxVelocityPxps: number;
+  backwardAllowed: boolean;
+  preserveUntilMs: number;
+  reason: string;
+  controlIntent: AsrVisualControlIntent;
+  recoveryKind: AsrRecoveryKind;
+  isTrueVisualRecovery: boolean;
+  isForwardProtection: boolean;
 };
 
 export interface AsrScrollDriver {

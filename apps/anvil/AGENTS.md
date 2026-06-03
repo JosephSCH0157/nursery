@@ -11,7 +11,8 @@ This file defines non-negotiable architecture rules for automated agents working
 ## Hard Constraints
 
 - In `scrollMode='asr'`, no motor/auto-intent/tick-driven scroll is allowed.
-- ASR scroll movement is commit-driven only.
+- ASR semantic cursor advancement is commit-driven only.
+- Bounded ASR-owned visual recovery/protection movement is allowed for readability, but must never advance semantic truth.
 - ASR commit path is writer-first (`seekToBlockAnimated`); pixel drive is fallback only when writer/block mapping is unavailable.
 - Hydration may not silently flip runtime mode to ASR unless ASR is already engaged or the user selected ASR in this session.
 - Hydration writes that affect scroll mode must be tagged/attributable for scroll-audit.
