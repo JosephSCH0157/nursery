@@ -223,6 +223,40 @@ describe('ASR4 fresh-tail shadow wiring', () => {
     window.localStorage.removeItem('asr_visual_chairperson_shadow');
   });
 
+  test('emits ASR_VISUAL_CONTROL_DECISION with ownershipActive=1 only when chairperson ownership is enabled', async () => {
+    window.localStorage.setItem('asr_visual_chairperson_owner', '1');
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 1,
+      matchId: 'chairperson-owner-live-tick',
+      source: 'openai-whisper-bridge',
+      runKey: 'chairperson-owner-live-tick',
+      runGeneration: 7,
+      speechRunningActual: true,
+      match: {
+        bestIdx: 1,
+        bestSim: 0.99,
+        topScores: [{ idx: 1, score: 0.99 }],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(80);
+
+    const lines = [
+      ...consoleInfoSpy.mock.calls.map((call) => String(call[0] || '')),
+      ...consoleWarnSpy.mock.calls.map((call) => String(call[0] || '')),
+    ];
+    const proofLine = lines.find((line) => line.includes('ASR_VISUAL_CONTROL_RUNTIME_PROOF')) || '';
+    const decisionLine = lines.find((line) => line.includes('ASR_VISUAL_CONTROL_DECISION')) || '';
+    expect(proofLine).toContain('liveTargetOwnership=1');
+    expect(decisionLine).toContain('ownershipActive=1');
+
+    driver.dispose();
+    window.localStorage.removeItem('asr_visual_chairperson_owner');
+  });
+
   test('previous-line rolling tail stays valid after legacy current line has advanced', async () => {
     const driver = createAsrScrollDriver();
     driver.setLastLineIndex(2);
