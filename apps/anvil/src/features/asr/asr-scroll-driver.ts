@@ -6400,6 +6400,30 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     } catch {}
     return 'unknown';
   };
+  const describeAsrVisualProtection = (reason: string) => {
+    if (reason === 'visual_debt') {
+      return {
+        controlIntent: 'recover',
+        recoveryKind: 'visual_debt',
+        isTrueVisualRecovery: true,
+        isForwardProtection: false,
+      } as const;
+    }
+    if (reason === 'semantic_ahead') {
+      return {
+        controlIntent: 'forward_protect',
+        recoveryKind: 'semantic_ahead',
+        isTrueVisualRecovery: false,
+        isForwardProtection: true,
+      } as const;
+    }
+    return {
+      controlIntent: 'none',
+      recoveryKind: 'none',
+      isTrueVisualRecovery: false,
+      isForwardProtection: false,
+    } as const;
+  };
   const emitAsrVisualChairRuntimeProof = (emittedFrom = 'createAsrScrollDriver:init') => {
     const signature = [
       ASR_VISUAL_CHAIRPERSON_VERSION,
@@ -6457,11 +6481,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const nextEpisode = resolveActiveAsrVisualRecoveryEpisode(nowMs);
     const previousEpisode = activeAsrVisualRecoveryEpisode;
     if (!nextEpisode && previousEpisode) {
+      const previousProtection = describeAsrVisualProtection(previousEpisode.reason);
       emitDevDiagnostic(
         'ASR_RECOVERY_EPISODE_ENDED',
         'info',
         buildAsrRecoveryEpisodeEndedDiagnostic({
           reason: endReason || previousEpisode.reason,
+          controlIntent: previousProtection.controlIntent,
+          recoveryKind: previousProtection.recoveryKind,
+          isTrueVisualRecovery: previousProtection.isTrueVisualRecovery,
+          isForwardProtection: previousProtection.isForwardProtection,
           protectedLineIdx: previousEpisode.protectedLineIdx,
           protectedTargetScrollTop: previousEpisode.protectedTargetScrollTop,
         }),
@@ -6478,12 +6507,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       return;
     }
     const signature = `${nextEpisode.reason}|${nextEpisode.protectedLineIdx}|${Math.round(nextEpisode.protectedTargetScrollTop / 12)}|${Math.round(nextEpisode.expiresAt / 100)}`;
+    const nextProtection = describeAsrVisualProtection(nextEpisode.reason);
     if (!previousEpisode) {
       emitDevDiagnostic(
         'ASR_RECOVERY_EPISODE_STARTED',
         'warn',
         buildAsrRecoveryEpisodeStartedDiagnostic({
           reason: nextEpisode.reason,
+          controlIntent: nextProtection.controlIntent,
+          recoveryKind: nextProtection.recoveryKind,
+          isTrueVisualRecovery: nextProtection.isTrueVisualRecovery,
+          isForwardProtection: nextProtection.isForwardProtection,
           protectedLineIdx: nextEpisode.protectedLineIdx,
           protectedTargetScrollTop: nextEpisode.protectedTargetScrollTop,
           expiresInMs: Math.max(0, nextEpisode.expiresAt - nowMs),
@@ -6501,6 +6535,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         'warn',
         buildAsrRecoveryEpisodeExtendedDiagnostic({
           reason: nextEpisode.reason,
+          controlIntent: nextProtection.controlIntent,
+          recoveryKind: nextProtection.recoveryKind,
+          isTrueVisualRecovery: nextProtection.isTrueVisualRecovery,
+          isForwardProtection: nextProtection.isForwardProtection,
           protectedLineIdx: nextEpisode.protectedLineIdx,
           protectedTargetScrollTop: nextEpisode.protectedTargetScrollTop,
           expiresInMs: Math.max(0, nextEpisode.expiresAt - nowMs),
@@ -20217,6 +20255,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               chairDecision.decision.mode === 'recover' ? 'warn' : 'info',
               buildAsrVisualControlDecisionDiagnostic({
                 mode: chairDecision.decision.mode,
+                controlIntent: chairDecision.decision.controlIntent,
+                recoveryKind: chairDecision.decision.recoveryKind,
+                isTrueVisualRecovery: chairDecision.decision.isTrueVisualRecovery,
+                isForwardProtection: chairDecision.decision.isForwardProtection,
                 semanticCursorLineIdx: semanticSnapshot.lineIdx,
                 visualAnchorLineIdx: visualAnchor.anchorLineIdx,
                 anchorKind: visualAnchor.anchorKind,
@@ -20274,6 +20316,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               buildAsrRecoveryStepAppliedDiagnostic({
                 mode: chairDecision.decision.mode,
                 authority: chairDecision.decision.authority,
+                controlIntent: chairDecision.decision.controlIntent,
+                recoveryKind: chairDecision.decision.recoveryKind,
+                isTrueVisualRecovery: chairDecision.decision.isTrueVisualRecovery,
+                isForwardProtection: chairDecision.decision.isForwardProtection,
                 currentScrollTop: beforeScrollTop,
                 targetScrollTop: authorityTargetScrollTop,
                 appliedDeltaPx,

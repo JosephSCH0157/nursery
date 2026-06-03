@@ -274,6 +274,15 @@ export type AsrRecoveryEpisode = {
   reason: 'visual_debt' | 'semantic_ahead';
 };
 
+export type AsrVisualControlIntent =
+  | 'track'
+  | 'recover'
+  | 'forward_protect'
+  | 'settle'
+  | 'hold';
+
+export type AsrRecoveryKind = 'none' | 'visual_debt' | 'semantic_ahead';
+
 export type AsrScrollDecision = {
   mode: AsrVisualMode;
   anchorLineIdx: number;
@@ -288,6 +297,10 @@ export type AsrScrollDecision = {
   backwardAllowed: boolean;
   preserveUntilMs: number;
   reason: string;
+  controlIntent: AsrVisualControlIntent;
+  recoveryKind: AsrRecoveryKind;
+  isTrueVisualRecovery: boolean;
+  isForwardProtection: boolean;
 };
 
 export interface AsrScrollDriver {

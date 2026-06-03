@@ -117,6 +117,10 @@ describe('ASR backend liveness diagnostics builders', () => {
     expect(
       buildAsrVisualControlDecisionDiagnostic({
         mode: 'recover',
+        controlIntent: 'recover',
+        recoveryKind: 'visual_debt',
+        isTrueVisualRecovery: true,
+        isForwardProtection: false,
         semanticCursorLineIdx: 8,
         visualAnchorLineIdx: 7,
         anchorKind: 'confirmed_spoken',
@@ -140,39 +144,51 @@ describe('ASR backend liveness diagnostics builders', () => {
         ownershipActive: false,
       }),
     ).toBe(
-      '[ASR_VISUAL_CONTROL_DECISION] mode=recover semanticCursorLineIdx=8 visualAnchorLineIdx=7 anchorKind=confirmed_spoken markerY=390 anchorViewportY=612 anchorGapPx=222 pocketBand=recovery targetScrollTop=512 previousTargetScrollTop=430 backwardAllowed=0 recoveryEpisodeActive=1 protectedTargetScrollTop=512 maxVelocityPxps=220 actuatorAppliedDeltaPx=42 reason=visual_debt legacySelectedAuthority=comfort_nudge legacySelectedTargetScrollTop=376 shadowDiffPx=136 backwardTargetRejected=1 safeForwardTargetSuppressed=1 ownershipActive=0',
+      '[ASR_VISUAL_CONTROL_DECISION] mode=recover controlIntent=recover recoveryKind=visual_debt isTrueVisualRecovery=1 isForwardProtection=0 semanticCursorLineIdx=8 visualAnchorLineIdx=7 anchorKind=confirmed_spoken markerY=390 anchorViewportY=612 anchorGapPx=222 pocketBand=recovery targetScrollTop=512 previousTargetScrollTop=430 backwardAllowed=0 recoveryEpisodeActive=1 protectedTargetScrollTop=512 maxVelocityPxps=220 actuatorAppliedDeltaPx=42 reason=visual_debt legacySelectedAuthority=comfort_nudge legacySelectedTargetScrollTop=376 shadowDiffPx=136 backwardTargetRejected=1 safeForwardTargetSuppressed=1 ownershipActive=0',
     );
 
     expect(
       buildAsrRecoveryEpisodeStartedDiagnostic({
         reason: 'visual_debt',
+        controlIntent: 'recover',
+        recoveryKind: 'visual_debt',
+        isTrueVisualRecovery: true,
+        isForwardProtection: false,
         protectedLineIdx: 8,
         protectedTargetScrollTop: 512,
         expiresInMs: 700,
       }),
     ).toBe(
-      '[ASR_RECOVERY_EPISODE_STARTED] reason=visual_debt protectedLineIdx=8 protectedTargetScrollTop=512 expiresInMs=700',
+      '[ASR_RECOVERY_EPISODE_STARTED] reason=visual_debt controlIntent=recover recoveryKind=visual_debt isTrueVisualRecovery=1 isForwardProtection=0 protectedLineIdx=8 protectedTargetScrollTop=512 expiresInMs=700',
     );
 
     expect(
       buildAsrRecoveryEpisodeExtendedDiagnostic({
         reason: 'semantic_ahead',
+        controlIntent: 'forward_protect',
+        recoveryKind: 'semantic_ahead',
+        isTrueVisualRecovery: false,
+        isForwardProtection: true,
         protectedLineIdx: 9,
         protectedTargetScrollTop: 648,
         expiresInMs: 540,
       }),
     ).toBe(
-      '[ASR_RECOVERY_EPISODE_EXTENDED] reason=semantic_ahead protectedLineIdx=9 protectedTargetScrollTop=648 expiresInMs=540',
+      '[ASR_RECOVERY_EPISODE_EXTENDED] reason=semantic_ahead controlIntent=forward_protect recoveryKind=semantic_ahead isTrueVisualRecovery=0 isForwardProtection=1 protectedLineIdx=9 protectedTargetScrollTop=648 expiresInMs=540',
     );
 
     expect(
       buildAsrRecoveryEpisodeEndedDiagnostic({
         reason: 'post_floor_cleared',
+        controlIntent: 'none',
+        recoveryKind: 'none',
+        isTrueVisualRecovery: false,
+        isForwardProtection: false,
         protectedLineIdx: 8,
         protectedTargetScrollTop: 512,
       }),
     ).toBe(
-      '[ASR_RECOVERY_EPISODE_ENDED] reason=post_floor_cleared protectedLineIdx=8 protectedTargetScrollTop=512',
+      '[ASR_RECOVERY_EPISODE_ENDED] reason=post_floor_cleared controlIntent=none recoveryKind=none isTrueVisualRecovery=0 isForwardProtection=0 protectedLineIdx=8 protectedTargetScrollTop=512',
     );
 
     expect(
@@ -192,6 +208,10 @@ describe('ASR backend liveness diagnostics builders', () => {
       buildAsrRecoveryStepAppliedDiagnostic({
         mode: 'recover',
         authority: 'recover_visual_debt',
+        controlIntent: 'recover',
+        recoveryKind: 'visual_debt',
+        isTrueVisualRecovery: true,
+        isForwardProtection: false,
         currentScrollTop: 430,
         targetScrollTop: 512,
         appliedDeltaPx: 42,
@@ -199,7 +219,7 @@ describe('ASR backend liveness diagnostics builders', () => {
         reason: 'visual_debt',
       }),
     ).toBe(
-      '[ASR_RECOVERY_STEP_APPLIED] mode=recover authority=recover_visual_debt currentScrollTop=430 targetScrollTop=512 appliedDeltaPx=42 minForwardStepPx=28 reason=visual_debt',
+      '[ASR_RECOVERY_STEP_APPLIED] mode=recover authority=recover_visual_debt controlIntent=recover recoveryKind=visual_debt isTrueVisualRecovery=1 isForwardProtection=0 currentScrollTop=430 targetScrollTop=512 appliedDeltaPx=42 minForwardStepPx=28 reason=visual_debt',
     );
 
     expect(

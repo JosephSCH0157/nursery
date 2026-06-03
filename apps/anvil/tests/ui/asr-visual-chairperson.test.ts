@@ -88,6 +88,10 @@ describe('ASR visual chairperson', () => {
     expect(result.decision.targetScrollTop).toBe(512);
     expect(result.backwardTargetRejected).toBe(true);
     expect(result.safeForwardTargetSuppressed).toBe(true);
+    expect(result.decision.controlIntent).toBe('recover');
+    expect(result.decision.recoveryKind).toBe('visual_debt');
+    expect(result.decision.isTrueVisualRecovery).toBe(true);
+    expect(result.decision.isForwardProtection).toBe(false);
   });
 
   test('tracks with backward comfort allowed inside pocket', () => {
@@ -113,5 +117,21 @@ describe('ASR visual chairperson', () => {
     expect(result.decision.mode).toBe('settle');
     expect(result.decision.targetScrollTop).toBe(512);
     expect(result.decision.backwardAllowed).toBe(false);
+  });
+
+  test('semantic_ahead stays in recover mode but emits forward-protection intent', () => {
+    const result = evaluate({
+      semanticSnapshot: buildSemantic(10),
+      visualAnchor: buildAnchor(8, 360, 'confirmed_spoken'),
+      selectedTargetScrollTop: 376,
+      previousMode: 'track',
+      activeRecoveryEpisode: null,
+    });
+    expect(result.decision.mode).toBe('recover');
+    expect(result.decision.reason).toBe('semantic_ahead');
+    expect(result.decision.controlIntent).toBe('forward_protect');
+    expect(result.decision.recoveryKind).toBe('semantic_ahead');
+    expect(result.decision.isTrueVisualRecovery).toBe(false);
+    expect(result.decision.isForwardProtection).toBe(true);
   });
 });

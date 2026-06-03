@@ -667,6 +667,10 @@ export function buildAsrVisualControlRuntimeProofDiagnostic(args: {
 
 export function buildAsrVisualControlDecisionDiagnostic(args: {
   mode: string;
+  controlIntent: string;
+  recoveryKind: string;
+  isTrueVisualRecovery: boolean;
+  isForwardProtection: boolean;
   semanticCursorLineIdx: number;
   visualAnchorLineIdx: number;
   anchorKind: string;
@@ -689,33 +693,45 @@ export function buildAsrVisualControlDecisionDiagnostic(args: {
   safeForwardTargetSuppressed: boolean;
   ownershipActive: boolean;
 }): string {
-  return `[ASR_VISUAL_CONTROL_DECISION] mode=${args.mode} semanticCursorLineIdx=${Math.round(args.semanticCursorLineIdx)} visualAnchorLineIdx=${Math.round(args.visualAnchorLineIdx)} anchorKind=${args.anchorKind || 'none'} markerY=${Number.isFinite(args.markerY) ? Math.round(args.markerY) : -1} anchorViewportY=${Number.isFinite(args.anchorViewportY) ? Math.round(args.anchorViewportY) : -1} anchorGapPx=${Number.isFinite(args.anchorGapPx) ? Math.round(args.anchorGapPx) : -1} pocketBand=${args.pocketBand || 'unknown'} targetScrollTop=${Math.round(args.targetScrollTop)} previousTargetScrollTop=${Math.round(args.previousTargetScrollTop)} backwardAllowed=${args.backwardAllowed ? 1 : 0} recoveryEpisodeActive=${args.recoveryEpisodeActive ? 1 : 0} protectedTargetScrollTop=${Number.isFinite(args.protectedTargetScrollTop) ? Math.round(args.protectedTargetScrollTop) : -1} maxVelocityPxps=${Math.round(args.maxVelocityPxps)} actuatorAppliedDeltaPx=${Math.round(args.actuatorAppliedDeltaPx)} reason=${args.reason || 'none'} legacySelectedAuthority=${args.legacySelectedAuthority || 'none'} legacySelectedTargetScrollTop=${Math.round(args.legacySelectedTargetScrollTop)} shadowDiffPx=${Math.round(args.shadowDiffPx)} backwardTargetRejected=${args.backwardTargetRejected ? 1 : 0} safeForwardTargetSuppressed=${args.safeForwardTargetSuppressed ? 1 : 0} ownershipActive=${args.ownershipActive ? 1 : 0}`;
+  return `[ASR_VISUAL_CONTROL_DECISION] mode=${args.mode} controlIntent=${args.controlIntent || 'none'} recoveryKind=${args.recoveryKind || 'none'} isTrueVisualRecovery=${args.isTrueVisualRecovery ? 1 : 0} isForwardProtection=${args.isForwardProtection ? 1 : 0} semanticCursorLineIdx=${Math.round(args.semanticCursorLineIdx)} visualAnchorLineIdx=${Math.round(args.visualAnchorLineIdx)} anchorKind=${args.anchorKind || 'none'} markerY=${Number.isFinite(args.markerY) ? Math.round(args.markerY) : -1} anchorViewportY=${Number.isFinite(args.anchorViewportY) ? Math.round(args.anchorViewportY) : -1} anchorGapPx=${Number.isFinite(args.anchorGapPx) ? Math.round(args.anchorGapPx) : -1} pocketBand=${args.pocketBand || 'unknown'} targetScrollTop=${Math.round(args.targetScrollTop)} previousTargetScrollTop=${Math.round(args.previousTargetScrollTop)} backwardAllowed=${args.backwardAllowed ? 1 : 0} recoveryEpisodeActive=${args.recoveryEpisodeActive ? 1 : 0} protectedTargetScrollTop=${Number.isFinite(args.protectedTargetScrollTop) ? Math.round(args.protectedTargetScrollTop) : -1} maxVelocityPxps=${Math.round(args.maxVelocityPxps)} actuatorAppliedDeltaPx=${Math.round(args.actuatorAppliedDeltaPx)} reason=${args.reason || 'none'} legacySelectedAuthority=${args.legacySelectedAuthority || 'none'} legacySelectedTargetScrollTop=${Math.round(args.legacySelectedTargetScrollTop)} shadowDiffPx=${Math.round(args.shadowDiffPx)} backwardTargetRejected=${args.backwardTargetRejected ? 1 : 0} safeForwardTargetSuppressed=${args.safeForwardTargetSuppressed ? 1 : 0} ownershipActive=${args.ownershipActive ? 1 : 0}`;
 }
 
 export function buildAsrRecoveryEpisodeStartedDiagnostic(args: {
   reason: string;
+  controlIntent: string;
+  recoveryKind: string;
+  isTrueVisualRecovery: boolean;
+  isForwardProtection: boolean;
   protectedLineIdx: number;
   protectedTargetScrollTop: number;
   expiresInMs: number;
 }): string {
-  return `[ASR_RECOVERY_EPISODE_STARTED] reason=${args.reason} protectedLineIdx=${Math.round(args.protectedLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)} expiresInMs=${Math.max(0, Math.round(args.expiresInMs))}`;
+  return `[ASR_RECOVERY_EPISODE_STARTED] reason=${args.reason} controlIntent=${args.controlIntent || 'none'} recoveryKind=${args.recoveryKind || 'none'} isTrueVisualRecovery=${args.isTrueVisualRecovery ? 1 : 0} isForwardProtection=${args.isForwardProtection ? 1 : 0} protectedLineIdx=${Math.round(args.protectedLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)} expiresInMs=${Math.max(0, Math.round(args.expiresInMs))}`;
 }
 
 export function buildAsrRecoveryEpisodeExtendedDiagnostic(args: {
   reason: string;
+  controlIntent: string;
+  recoveryKind: string;
+  isTrueVisualRecovery: boolean;
+  isForwardProtection: boolean;
   protectedLineIdx: number;
   protectedTargetScrollTop: number;
   expiresInMs: number;
 }): string {
-  return `[ASR_RECOVERY_EPISODE_EXTENDED] reason=${args.reason} protectedLineIdx=${Math.round(args.protectedLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)} expiresInMs=${Math.max(0, Math.round(args.expiresInMs))}`;
+  return `[ASR_RECOVERY_EPISODE_EXTENDED] reason=${args.reason} controlIntent=${args.controlIntent || 'none'} recoveryKind=${args.recoveryKind || 'none'} isTrueVisualRecovery=${args.isTrueVisualRecovery ? 1 : 0} isForwardProtection=${args.isForwardProtection ? 1 : 0} protectedLineIdx=${Math.round(args.protectedLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)} expiresInMs=${Math.max(0, Math.round(args.expiresInMs))}`;
 }
 
 export function buildAsrRecoveryEpisodeEndedDiagnostic(args: {
   reason: string;
+  controlIntent: string;
+  recoveryKind: string;
+  isTrueVisualRecovery: boolean;
+  isForwardProtection: boolean;
   protectedLineIdx: number;
   protectedTargetScrollTop: number;
 }): string {
-  return `[ASR_RECOVERY_EPISODE_ENDED] reason=${args.reason} protectedLineIdx=${Math.round(args.protectedLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)}`;
+  return `[ASR_RECOVERY_EPISODE_ENDED] reason=${args.reason} controlIntent=${args.controlIntent || 'none'} recoveryKind=${args.recoveryKind || 'none'} isTrueVisualRecovery=${args.isTrueVisualRecovery ? 1 : 0} isForwardProtection=${args.isForwardProtection ? 1 : 0} protectedLineIdx=${Math.round(args.protectedLineIdx)} protectedTargetScrollTop=${Math.round(args.protectedTargetScrollTop)}`;
 }
 
 export function buildAsrBackwardTargetRejectedDiagnostic(args: {
@@ -732,13 +748,17 @@ export function buildAsrBackwardTargetRejectedDiagnostic(args: {
 export function buildAsrRecoveryStepAppliedDiagnostic(args: {
   mode: string;
   authority: string;
+  controlIntent: string;
+  recoveryKind: string;
+  isTrueVisualRecovery: boolean;
+  isForwardProtection: boolean;
   currentScrollTop: number;
   targetScrollTop: number;
   appliedDeltaPx: number;
   minForwardStepPx: number;
   reason: string;
 }): string {
-  return `[ASR_RECOVERY_STEP_APPLIED] mode=${args.mode} authority=${args.authority} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} minForwardStepPx=${Math.round(args.minForwardStepPx)} reason=${args.reason || 'none'}`;
+  return `[ASR_RECOVERY_STEP_APPLIED] mode=${args.mode} authority=${args.authority} controlIntent=${args.controlIntent || 'none'} recoveryKind=${args.recoveryKind || 'none'} isTrueVisualRecovery=${args.isTrueVisualRecovery ? 1 : 0} isForwardProtection=${args.isForwardProtection ? 1 : 0} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} appliedDeltaPx=${Math.round(args.appliedDeltaPx)} minForwardStepPx=${Math.round(args.minForwardStepPx)} reason=${args.reason || 'none'}`;
 }
 
 export function buildAsrSettleCompleteDiagnostic(args: {

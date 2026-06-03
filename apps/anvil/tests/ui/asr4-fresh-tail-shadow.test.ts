@@ -214,6 +214,8 @@ describe('ASR4 fresh-tail shadow wiring', () => {
     ];
     const decisionLine = lines.find((line) => line.includes('ASR_VISUAL_CONTROL_DECISION')) || '';
     expect(decisionLine).toContain('mode=');
+    expect(decisionLine).toContain('controlIntent=');
+    expect(decisionLine).toContain('recoveryKind=');
     expect(decisionLine).toContain('legacySelectedAuthority=');
     expect(decisionLine).toContain('ownershipActive=0');
 

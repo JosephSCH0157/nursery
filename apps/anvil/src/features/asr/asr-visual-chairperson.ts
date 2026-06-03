@@ -1,8 +1,10 @@
 import type {
   AsrRecoveryEpisode,
+  AsrRecoveryKind,
   AsrScrollDecision,
   AsrSemanticSnapshot,
   AsrVisualAnchor,
+  AsrVisualControlIntent,
   AsrVisualMode,
 } from './asr-scroll-driver.types';
 
@@ -45,6 +47,52 @@ export type AsrVisualChairpersonOutput = {
   safeForwardTargetSuppressed: boolean;
   minForwardStepPx: number;
 };
+
+function describeProtection(reason: string, mode: AsrVisualMode): {
+  controlIntent: AsrVisualControlIntent;
+  recoveryKind: AsrRecoveryKind;
+  isTrueVisualRecovery: boolean;
+  isForwardProtection: boolean;
+} {
+  if (reason === 'visual_debt') {
+    return {
+      controlIntent: 'recover',
+      recoveryKind: 'visual_debt',
+      isTrueVisualRecovery: true,
+      isForwardProtection: false,
+    };
+  }
+  if (reason === 'semantic_ahead') {
+    return {
+      controlIntent: 'forward_protect',
+      recoveryKind: 'semantic_ahead',
+      isTrueVisualRecovery: false,
+      isForwardProtection: true,
+    };
+  }
+  if (mode === 'hold') {
+    return {
+      controlIntent: 'hold',
+      recoveryKind: 'none',
+      isTrueVisualRecovery: false,
+      isForwardProtection: false,
+    };
+  }
+  if (mode === 'settle') {
+    return {
+      controlIntent: 'settle',
+      recoveryKind: 'none',
+      isTrueVisualRecovery: false,
+      isForwardProtection: false,
+    };
+  }
+  return {
+    controlIntent: 'track',
+    recoveryKind: 'none',
+    isTrueVisualRecovery: false,
+    isForwardProtection: false,
+  };
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -176,6 +224,7 @@ export function evaluateAsrVisualChairperson(
     Number.isFinite(protectedTargetScrollTop) &&
     selectedTargetScrollTop < protectedTargetScrollTop - 0.5 &&
     targetScrollTop >= protectedTargetScrollTop - 0.5;
+  const protection = describeProtection(reason, mode);
 
   return {
     decision: {
@@ -187,6 +236,10 @@ export function evaluateAsrVisualChairperson(
       backwardAllowed,
       preserveUntilMs,
       reason,
+      controlIntent: protection.controlIntent,
+      recoveryKind: protection.recoveryKind,
+      isTrueVisualRecovery: protection.isTrueVisualRecovery,
+      isForwardProtection: protection.isForwardProtection,
     },
     pocketBand,
     anchorGapPx,
