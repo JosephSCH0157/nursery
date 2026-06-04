@@ -44,6 +44,7 @@
     "smoke:fast": "node tools/build_asr_smoke.mjs && node tools/asr_smoke.js && node tools/rec_smoke.js",
     "test:save-ci": "node tools/test_save_ci.js",
     "test:obs-scene-ci": "node tools/test_obs_scene_ci.js",
+    "test:asr-phase3-orchestrator-proof": "jest --config jest.config.cjs tests/ui/asr-phase3-orchestrator-proof.test.ts",
     "prepare": "husky && npm run build:compat",
     "build:speech": "node tools/esbuild-speech.mjs",
     "watch:speech": "node tools/esbuild-speech.mjs --watch",

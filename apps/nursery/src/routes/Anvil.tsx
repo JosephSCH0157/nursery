@@ -4,6 +4,7 @@ import { useLocation, useOutletContext } from "react-router-dom";
 import type { AppShellContext } from "./AppShell";
 import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 import { buildForgeRouteHref, parseForgeRouteContext } from "../lib/forge-route-context";
+import { appendAnvilDevFlagsToHref } from "../lib/anvil-dev-flags";
 import { resolveTongsRequestApiToken } from "@hearth/lib/tongs-fetch";
 import { tongsApiFetch, tongsApiRequest } from "../lib/tongs-api";
 import {
@@ -33,6 +34,19 @@ function appendEpisodeTitleParam(href: string, episodeTitle: string | null): str
   params.set("episode_title", normalizedTitle);
   const nextSearch = params.toString();
   return nextSearch ? `${pathname}?${nextSearch}` : pathname;
+}
+
+function finalizeAnvilLaunchHref(href: string, search: string, episodeTitle: string | null): string {
+  const withTitle = appendEpisodeTitleParam(href, episodeTitle);
+  try {
+    return appendAnvilDevFlagsToHref({
+      href: withTitle,
+      search,
+      storage: typeof window !== "undefined" ? window.localStorage : null,
+    });
+  } catch {
+    return withTitle;
+  }
 }
 
 export default function AnvilRoute() {
@@ -66,19 +80,21 @@ export default function AnvilRoute() {
     && !requestedWorkspaceKnown
     && (!shell.hasWorkspaceFetchSucceeded || shell.loadingWorkspaces),
   );
-  const anvilHomeHref = useMemo(() => appendEpisodeTitleParam(
+  const anvilHomeHref = useMemo(() => finalizeAnvilLaunchHref(
     buildForgeRouteHref(ANVIL_FULL_PAGE_URL, {
         search: location.search,
         workspaceId: resolvedWorkspaceId,
       }),
+    location.search,
     resolvedEpisodeTitle,
   ), [location.search, resolvedEpisodeTitle, resolvedWorkspaceId]);
-  const anvilHref = useMemo(() => appendEpisodeTitleParam(
+  const anvilHref = useMemo(() => finalizeAnvilLaunchHref(
     buildForgeRouteHref(ANVIL_FULL_PAGE_URL, {
         search: location.search,
         workspaceId: resolvedWorkspaceId,
         workpieceId: context.workpieceId,
       }),
+    location.search,
     resolvedEpisodeTitle,
   ), [context.workpieceId, location.search, resolvedEpisodeTitle, resolvedWorkspaceId]);
   const hasRequestedHandoff = Boolean(
