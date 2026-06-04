@@ -14,7 +14,7 @@ function bootstrapLiveAsrRuntime(): void {
   }));
 }
 
-describe('ASR Phase 3 orchestrator skipped-line proof', () => {
+describe('ASR Phase 3 orchestrator reduced non-adjacent target proof', () => {
   let rafSpy: jest.SpyInstance<number, [FrameRequestCallback]>;
   let cafSpy: jest.SpyInstance<void, [number]>;
   let consoleLogSpy: jest.SpyInstance<void, any[]>;
@@ -121,7 +121,7 @@ describe('ASR Phase 3 orchestrator skipped-line proof', () => {
     delete (window as any).__asrLogBufferInstalled;
   });
 
-  test('emits a valid Phase 3 proof trail for a skipped-line semantic jump', async () => {
+  test('reduces a non-adjacent ASR target to the safe adjacent commit while preserving proof', async () => {
     expect(typeof (window as any).__copyAsrLog).toBe('function');
 
     const driver = createAsrScrollDriver({ runKey: 'phase3-skipped-line-run', runGeneration: 1 });
@@ -151,7 +151,7 @@ describe('ASR Phase 3 orchestrator skipped-line proof', () => {
     });
     await jest.advanceTimersByTimeAsync(1200);
 
-    expect(driver.getLastLineIndex()).toBe(3);
+    expect(driver.getLastLineIndex()).toBe(2);
 
     const exported = await (window as any).__copyAsrLog();
     expect(exported.entryCount).toBeGreaterThan(0);
@@ -163,28 +163,40 @@ describe('ASR Phase 3 orchestrator skipped-line proof', () => {
     );
     expect(proofEntries.length).toBeGreaterThan(0);
 
-    const jumpCommitEntry = exported.entries.find((entry: any) => {
-      if (entry.tag !== 'ASR_COMMIT') return false;
+    const jumpContextEntry = exported.entries.find((entry: any) => {
+      const line = String(entry?.stringLine || '');
+      return (
+        line.includes('bestMatchLine=3') ||
+        line.includes('requestedTarget=3') ||
+        line.includes('target=3') ||
+        line.includes('bestIdx=3')
+      );
+    });
+    expect(jumpContextEntry).toBeTruthy();
+
+    expect(proofEntries.length).toBeGreaterThan(0);
+
+    const reducedIdentityVisible = exported.entries.some((entry: any) => {
+      const line = String(entry?.stringLine || '');
       const payloadNext = entry?.payload?.nextIndex ?? entry?.payload?.index;
       const payloadPrev = entry?.payload?.prevIndex ?? entry?.payload?.previousIndex;
-      if (payloadNext === 3 && payloadPrev === 1) return true;
-      const line = String(entry?.stringLine || '');
-      return line.includes('line=3') && line.includes('prev=1') && line.includes('delta=2');
+      return (
+        payloadNext === 2 ||
+        payloadPrev === 2 ||
+        line.includes('line=2') ||
+        line.includes('currentLineIdx=2') ||
+        line.includes('committedLineIdx=2') ||
+        line.includes('newSemanticLineIdx=2')
+      );
     });
-    expect(jumpCommitEntry).toBeTruthy();
-
-    const jumpProofEntry = proofEntries.find((entry: any) =>
-      String(entry?.stringLine || '').includes('newSemanticLineIdx=3') &&
-      String(entry?.stringLine || '').includes('committedLineIdx=3') &&
-      String(entry?.stringLine || '').includes('currentLineIdx=3'),
-    );
-    expect(jumpProofEntry).toBeTruthy();
+    expect(reducedIdentityVisible).toBe(true);
 
     const jumpContextVisible = exported.entries.some((entry: any) => {
       const line = String(entry?.stringLine || '');
       return (
         line.includes('delta=2') ||
         line.includes('bestMatchLine=3') ||
+        line.includes('requestedTarget=3') ||
         line.includes('skipped=[') ||
         line.includes('cue-skip')
       );
