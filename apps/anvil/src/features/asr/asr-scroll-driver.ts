@@ -4461,6 +4461,133 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lineHeightPx,
     };
   };
+  type AsrVisualOwnershipCandidate = {
+    authority: string;
+    targetScrollTop: number | null;
+    reason: string;
+    direction: 'forward' | 'backward' | 'hold';
+    priority: number;
+  };
+  type AsrVisualOwnershipDecision = {
+    selectedAuthority: string;
+    selectedTargetScrollTop: number | null;
+    selectedReason: string;
+    proposedCandidates: string;
+    rejectedAuthorities: string;
+    rejectionReasons: string;
+    movementBlockedReason: string;
+  };
+  const selectAsrVisualOwnershipCandidate = (args: {
+    candidates: AsrVisualOwnershipCandidate[];
+    currentScrollTop: number;
+    correctionRequested: boolean;
+    markerErrorPx: number;
+    lineHeightPx: number;
+    protectedForwardIntent: boolean;
+  }): AsrVisualOwnershipDecision => {
+    const proposedCandidates = args.candidates.length > 0
+      ? args.candidates.map((candidate) => {
+        const targetText = Number.isFinite(candidate.targetScrollTop as number)
+          ? String(Math.round(Number(candidate.targetScrollTop)))
+          : 'none';
+        return `${candidate.authority}:${targetText}:${candidate.reason}`;
+      }).join(',')
+      : 'none';
+    const rejectedAuthorities: string[] = [];
+    const rejectionReasons: string[] = [];
+    let selectedCandidate: AsrVisualOwnershipCandidate | null = null;
+    const sortedCandidates = [...args.candidates].sort((left, right) => {
+      if (right.priority !== left.priority) return right.priority - left.priority;
+      const leftTarget = Number.isFinite(left.targetScrollTop as number) ? Number(left.targetScrollTop) : args.currentScrollTop;
+      const rightTarget = Number.isFinite(right.targetScrollTop as number) ? Number(right.targetScrollTop) : args.currentScrollTop;
+      return rightTarget - leftTarget;
+    });
+    for (const candidate of sortedCandidates) {
+      const targetFinite = Number.isFinite(candidate.targetScrollTop as number);
+      const targetTop = targetFinite ? Number(candidate.targetScrollTop) : args.currentScrollTop;
+      if (!targetFinite && candidate.direction !== 'hold') {
+        rejectedAuthorities.push(candidate.authority);
+        rejectionReasons.push(`${candidate.authority}:invalid_target`);
+        continue;
+      }
+      if (
+        args.protectedForwardIntent &&
+        candidate.direction === 'backward' &&
+        targetTop < (args.currentScrollTop - ASR_POCKET_WALL_NOISE_DELTA_PX)
+      ) {
+        rejectedAuthorities.push(candidate.authority);
+        rejectionReasons.push(`${candidate.authority}:protected_forward_reader_intent`);
+        continue;
+      }
+      if (
+        args.correctionRequested &&
+        Number.isFinite(args.markerErrorPx) &&
+        Number.isFinite(args.lineHeightPx) &&
+        args.markerErrorPx > args.lineHeightPx &&
+        candidate.direction !== 'forward' &&
+        Math.abs(targetTop - args.currentScrollTop) <= ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX
+      ) {
+        rejectedAuthorities.push(candidate.authority);
+        rejectionReasons.push(`${candidate.authority}:stale_target_while_reader_below_marker`);
+        continue;
+      }
+      selectedCandidate = candidate;
+      break;
+    }
+    const fallbackTarget =
+      args.correctionRequested &&
+      Number.isFinite(args.markerErrorPx) &&
+      Number.isFinite(args.lineHeightPx) &&
+      args.markerErrorPx > args.lineHeightPx
+        ? Math.max(args.currentScrollTop, args.currentScrollTop + Math.max(1, Math.min(args.markerErrorPx, args.lineHeightPx * 0.5)))
+        : args.currentScrollTop;
+    const selectedAuthority = selectedCandidate?.authority || 'hold';
+    const selectedTargetScrollTop =
+      selectedCandidate?.targetScrollTop != null
+        ? selectedCandidate.targetScrollTop
+        : fallbackTarget;
+    let movementBlockedReason = 'none';
+    if (!selectedCandidate) {
+      movementBlockedReason = rejectedAuthorities.length > 0 ? 'all_candidates_rejected' : 'no_candidates';
+    } else if (
+      args.correctionRequested &&
+      Number.isFinite(args.markerErrorPx) &&
+      Number.isFinite(args.lineHeightPx) &&
+      args.markerErrorPx > args.lineHeightPx &&
+      Number.isFinite(selectedTargetScrollTop as number) &&
+      Math.abs(Number(selectedTargetScrollTop) - args.currentScrollTop) <= ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX
+    ) {
+      movementBlockedReason = 'stale_target_while_reader_below_marker';
+    }
+    return {
+      selectedAuthority,
+      selectedTargetScrollTop,
+      selectedReason: selectedCandidate?.reason || movementBlockedReason,
+      proposedCandidates,
+      rejectedAuthorities: rejectedAuthorities.length > 0 ? rejectedAuthorities.join(',') : 'none',
+      rejectionReasons: rejectionReasons.length > 0 ? rejectionReasons.join(',') : 'none',
+      movementBlockedReason,
+    };
+  };
+  const shouldSuppressAsrPursueZeroSuccess = (
+    scroller: HTMLElement | null,
+    target: number | null,
+    top: number,
+  ): boolean => {
+    const snapshot = computeReaderLineMarkerErrorSnapshot(scroller);
+    if (
+      !snapshot.correctionRequested ||
+      !Number.isFinite(snapshot.markerErrorPx) ||
+      !Number.isFinite(snapshot.lineHeightPx) ||
+      snapshot.markerErrorPx <= snapshot.lineHeightPx
+    ) {
+      return false;
+    }
+    if (!Number.isFinite(target as number)) {
+      return true;
+    }
+    return Math.abs(Number(target) - top) <= ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX;
+  };
   const emitAsrVisualTargetOwnershipTrace = (args: {
     phase: string;
     correctionRequested: boolean;
@@ -4476,10 +4603,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     markerErrorPx?: number | null;
     matchBestIdx?: number | null;
     matchBestSim?: number | null;
+    proposedCandidates?: string | null;
+    rejectedAuthorities?: string | null;
+    rejectionReasons?: string | null;
+    movementBlocked?: string | null;
   }) => {
     try {
       console.warn(
-        `[ASR_VISUAL_TARGET_OWNERSHIP_TRACE] phase=${args.phase} correctionRequested=${args.correctionRequested ? 1 : 0} proposedForwardTarget=${Number.isFinite(args.proposedForwardTarget as number) ? Math.round(Number(args.proposedForwardTarget)) : -1} selectedAuthority=${String(args.selectedAuthority || 'none')} selectedTargetScrollTop=${Number.isFinite(args.selectedTargetScrollTop as number) ? Math.round(Number(args.selectedTargetScrollTop)) : -1} previousPreservedTarget=${Number.isFinite(args.previousPreservedTarget as number) ? Math.round(Number(args.previousPreservedTarget)) : -1} appliedDeltaPx=${Math.round(Number(args.appliedDeltaPx || 0))} suppressedReason=${String(args.suppressedReason || 'none')} blockedByRecoveryPath=${String(args.blockedByRecoveryPath || 'none')} blockedByBackwardRecenter=${String(args.blockedByBackwardRecenter || 'none')} currentScrollTop=${Math.round(Number(args.currentScrollTop || 0))} markerErrorPx=${Number.isFinite(args.markerErrorPx as number) ? Math.round(Number(args.markerErrorPx)) : -1} matchBestIdx=${Number.isFinite(args.matchBestIdx as number) ? Math.round(Number(args.matchBestIdx)) : -1} matchBestSim=${Number.isFinite(args.matchBestSim as number) ? Number(args.matchBestSim).toFixed(3) : 'NaN'}`,
+        `[ASR_VISUAL_TARGET_OWNERSHIP_TRACE] phase=${args.phase} correctionRequested=${args.correctionRequested ? 1 : 0} proposedForwardTarget=${Number.isFinite(args.proposedForwardTarget as number) ? Math.round(Number(args.proposedForwardTarget)) : -1} selectedAuthority=${String(args.selectedAuthority || 'none')} selectedTargetScrollTop=${Number.isFinite(args.selectedTargetScrollTop as number) ? Math.round(Number(args.selectedTargetScrollTop)) : -1} previousPreservedTarget=${Number.isFinite(args.previousPreservedTarget as number) ? Math.round(Number(args.previousPreservedTarget)) : -1} appliedDeltaPx=${Math.round(Number(args.appliedDeltaPx || 0))} suppressedReason=${String(args.suppressedReason || 'none')} blockedByRecoveryPath=${String(args.blockedByRecoveryPath || 'none')} blockedByBackwardRecenter=${String(args.blockedByBackwardRecenter || 'none')} currentScrollTop=${Math.round(Number(args.currentScrollTop || 0))} markerErrorPx=${Number.isFinite(args.markerErrorPx as number) ? Math.round(Number(args.markerErrorPx)) : -1} matchBestIdx=${Number.isFinite(args.matchBestIdx as number) ? Math.round(Number(args.matchBestIdx)) : -1} matchBestSim=${Number.isFinite(args.matchBestSim as number) ? Number(args.matchBestSim).toFixed(3) : 'NaN'} proposedCandidates=${String(args.proposedCandidates || 'none')} rejectedAuthorities=${String(args.rejectedAuthorities || 'none')} rejectionReasons=${String(args.rejectionReasons || 'none')} movementBlocked=${String(args.movementBlocked || 'none')}`,
       );
     } catch {}
   };
@@ -17283,6 +17414,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let liveAsrCommitteePreferredLowerRailReleaseActive = false;
     let liveAsrCommitteePostAdjacentRecoveryPending = false;
     let liveAsrCommitteePostAdjacentRecoveryOpen = false;
+    let liveTickVisualOwnershipCandidates: AsrVisualOwnershipCandidate[] = [];
+    let liveTickVisualOwnershipDecision: AsrVisualOwnershipDecision | null = null;
+    let liveTickOwnershipSnapshot: ReturnType<typeof computeReaderLineMarkerErrorSnapshot> | null = null;
     let liveAsrAuthorityTraceTickId = -1;
     let liveTickAuthorityPocketZone = 'unknown';
     let liveTickReaderPocketZone = 'unknown';
@@ -17693,7 +17827,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             } catch {}
           }
         }
-        emitPursuitHud(0, 0, current, current);
+        if (!shouldSuppressAsrPursueZeroSuccess(scroller, current, current)) {
+          emitPursuitHud(0, 0, current, current);
+        }
         window.requestAnimationFrame(tickController);
         return;
       }
@@ -19052,7 +19188,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       try {
         (window as any).__tpLiveAsrGovernorHold = true;
       } catch {}
-      emitPursuitHud(0, 0, null, beforeScrollTop);
+      if (!shouldSuppressAsrPursueZeroSuccess(scroller, null, beforeScrollTop)) {
+        emitPursuitHud(0, 0, null, beforeScrollTop);
+      }
       window.requestAnimationFrame(tickController);
       return;
     }
@@ -19650,6 +19788,144 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       clampReason = clampReason === 'none' ? 'target_debt_cap' : clampReason;
     }
     if (accelLimited && clampReason === 'none') clampReason = 'accel_slew_limit';
+    if (liveAsrFollowMode) {
+      liveTickOwnershipSnapshot = computeReaderLineMarkerErrorSnapshot(scroller);
+      const provisionalSelectedTargetScrollTop =
+        Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop;
+      const provisionalSelectedReason = String(liveTickAuthorityReason || 'unknown');
+      const localSafeSemanticTarget =
+        Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx as number) &&
+        liveAsrCommitteeAcceptedCommitTargetIdx >= lastLineIndex &&
+        liveAsrCommitteeAcceptedCommitTargetIdx <= lastLineIndex + 1;
+      const protectedForwardIntent =
+        liveTickOwnershipSnapshot.correctionRequested &&
+        Number.isFinite(liveTickOwnershipSnapshot.matchBestSim) &&
+        liveTickOwnershipSnapshot.matchBestSim >= 0.78 &&
+        Number.isFinite(liveTickOwnershipSnapshot.matchBestIdx) &&
+        Math.abs(Number(liveTickOwnershipSnapshot.matchBestIdx) - Math.max(0, Math.floor(Number(lastLineIndex) || 0))) <= 1 &&
+        Number.isFinite(liveTickOwnershipSnapshot.markerErrorPx) &&
+        Number.isFinite(liveTickOwnershipSnapshot.lineHeightPx) &&
+        liveTickOwnershipSnapshot.markerErrorPx > liveTickOwnershipSnapshot.lineHeightPx &&
+        localSafeSemanticTarget;
+      const addOwnershipCandidate = (
+        authority: string,
+        targetScrollTop: number | null,
+        reason: string,
+        direction: 'forward' | 'backward' | 'hold',
+        priority: number,
+      ) => {
+        liveTickVisualOwnershipCandidates.push({
+          authority,
+          targetScrollTop: Number.isFinite(targetScrollTop as number) ? Number(targetScrollTop) : null,
+          reason,
+          direction,
+          priority,
+        });
+      };
+      if (liveTickOwnershipSnapshot.correctionRequested) {
+        addOwnershipCandidate(
+          'reader_marker_correction',
+          provisionalSelectedTargetScrollTop,
+          provisionalSelectedReason,
+          provisionalSelectedTargetScrollTop > beforeScrollTop ? 'forward' : 'hold',
+          70,
+        );
+      }
+      if (Number.isFinite(preservedAsrAuthorityTargetTop as number)) {
+        const preservedTop = Number(preservedAsrAuthorityTargetTop);
+        addOwnershipCandidate(
+          'preserved_forward_follow_target',
+          preservedTop,
+          preservedAsrAuthorityTargetReason || 'preserved_forward_follow_target',
+          preservedTop > beforeScrollTop ? 'forward' : (preservedTop < beforeScrollTop ? 'backward' : 'hold'),
+          preservedTop > beforeScrollTop ? 92 : 18,
+        );
+      }
+      if (liveAsrCommitteePreferredLowerRailReleaseActive) {
+        addOwnershipCandidate(
+          'preferred_lower_rail_release',
+          provisionalSelectedTargetScrollTop,
+          'preferred_lower_rail_not_settled',
+          provisionalSelectedTargetScrollTop > beforeScrollTop ? 'forward' : 'hold',
+          80,
+        );
+      }
+      if (liveAsrCommitteeBottomLockReleaseActive) {
+        addOwnershipCandidate(
+          'bottom_lock_release',
+          provisionalSelectedTargetScrollTop,
+          'below_preferred_bottom',
+          provisionalSelectedTargetScrollTop > beforeScrollTop ? 'forward' : 'hold',
+          82,
+        );
+      }
+      const asr4OwnershipState = computeAsr4PocketDriftState({
+        scroller,
+        currentLine: lastLineIndex,
+        committedLine: Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx as number)
+          ? Number(liveAsrCommitteeAcceptedCommitTargetIdx)
+          : lastLineIndex,
+        targetLine: Number.isFinite(liveAsrVisualPursuitLineIdx as number)
+          ? Number(liveAsrVisualPursuitLineIdx)
+          : lastLineIndex,
+        currentScrollTop: beforeScrollTop,
+        targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop,
+        movedPx: 0,
+        directWriteBlocked: false,
+        targetPreservedForEasing: preservedAsrAuthorityTargetTop != null,
+        visualSnapSuppressed: alignmentEpisodes.isSnapSuppressedActive(),
+        terminalClampActive: atScrollLimit,
+        followMode: 'live_asr_follow',
+        scrollReason: liveAsrActuatorReason || liveTickAuthorityReason || 'asr-tick',
+        reason: 'ownership_candidate',
+      });
+      if (
+        asr4OwnershipState.localSafeTarget &&
+        !asr4OwnershipState.terminalClampActive &&
+        !asr4OwnershipState.cooldownActive &&
+        asr4OwnershipState.belowPocketPx > Math.max(
+          ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX,
+          asr4OwnershipState.lineHeightPx * 0.5,
+        )
+      ) {
+        const boundedCorrectionPx = Math.min(
+          asr4OwnershipState.belowPocketPx,
+          Math.max(12, asr4OwnershipState.lineHeightPx * ASR_LOW_POCKET_DEADBAND_RECONCILE_MAX_STEP_LINES),
+          Math.max(18, Math.round(asr4OwnershipState.belowPocketPx * 0.45)),
+        );
+        addOwnershipCandidate(
+          'asr4_pocket_drift',
+          clamp(
+            beforeScrollTop + boundedCorrectionPx,
+            0,
+            Math.max(0, (scroller.scrollHeight || 0) - scroller.clientHeight),
+          ),
+          asr4OwnershipState.suppressedReason || 'below_pocket_reconcile',
+          'forward',
+          66,
+        );
+      }
+      if (
+        Number.isFinite(provisionalSelectedTargetScrollTop) &&
+        provisionalSelectedTargetScrollTop < beforeScrollTop - getVisualTargetTolerancePx(safeResolverLineHeightPx)
+      ) {
+        addOwnershipCandidate(
+          'bounded_pullback_recenter',
+          provisionalSelectedTargetScrollTop,
+          provisionalSelectedReason,
+          'backward',
+          protectedForwardIntent ? 8 : 20,
+        );
+      }
+      liveTickVisualOwnershipDecision = selectAsrVisualOwnershipCandidate({
+        candidates: liveTickVisualOwnershipCandidates,
+        currentScrollTop: beforeScrollTop,
+        correctionRequested: liveTickOwnershipSnapshot.correctionRequested,
+        markerErrorPx: liveTickOwnershipSnapshot.markerErrorPx,
+        lineHeightPx: liveTickOwnershipSnapshot.lineHeightPx,
+        protectedForwardIntent,
+      });
+    }
 
     const visualChairpersonShadowEnabled = isAsrVisualChairpersonShadowEnabled();
     const visualChairpersonOwnershipEnabled = isAsrVisualChairpersonOwnershipEnabled();
@@ -19799,6 +20075,64 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lastAsrSelectedAuthority = chairDecisionOutput.decision.authority;
       }
     }
+    if (liveAsrFollowMode && visualChairpersonOwnershipEnabled && chairDecisionOutput) {
+      liveTickVisualOwnershipCandidates.push({
+        authority: String(chairDecisionOutput.decision.authority || 'chairperson_ownership'),
+        targetScrollTop: Number.isFinite(chairDecisionOutput.decision.targetScrollTop as number)
+          ? Number(chairDecisionOutput.decision.targetScrollTop)
+          : beforeScrollTop,
+        reason: String(chairDecisionOutput.decision.reason || 'chairperson_ownership'),
+        direction:
+          Number(chairDecisionOutput.decision.targetScrollTop) > beforeScrollTop
+            ? 'forward'
+            : (
+              Number(chairDecisionOutput.decision.targetScrollTop) < beforeScrollTop
+                ? 'backward'
+                : 'hold'
+            ),
+        priority: 110,
+      });
+      liveTickVisualOwnershipDecision = selectAsrVisualOwnershipCandidate({
+        candidates: liveTickVisualOwnershipCandidates,
+        currentScrollTop: beforeScrollTop,
+        correctionRequested: !!liveTickOwnershipSnapshot?.correctionRequested,
+        markerErrorPx: Number.isFinite(liveTickOwnershipSnapshot?.markerErrorPx as number)
+          ? Number(liveTickOwnershipSnapshot?.markerErrorPx)
+          : Number.NaN,
+        lineHeightPx: Number.isFinite(liveTickOwnershipSnapshot?.lineHeightPx as number)
+          ? Number(liveTickOwnershipSnapshot?.lineHeightPx)
+          : Number.NaN,
+        protectedForwardIntent:
+          !!liveTickOwnershipSnapshot?.correctionRequested &&
+          Number.isFinite(liveTickOwnershipSnapshot?.matchBestSim as number) &&
+          Number(liveTickOwnershipSnapshot?.matchBestSim) >= 0.78 &&
+          Number.isFinite(liveTickOwnershipSnapshot?.markerErrorPx as number) &&
+          Number.isFinite(liveTickOwnershipSnapshot?.lineHeightPx as number) &&
+          Number(liveTickOwnershipSnapshot?.markerErrorPx) > Number(liveTickOwnershipSnapshot?.lineHeightPx),
+      });
+    }
+    if (liveAsrFollowMode && liveTickVisualOwnershipDecision) {
+      pursuitTargetTop =
+        Number.isFinite(liveTickVisualOwnershipDecision.selectedTargetScrollTop as number)
+          ? Number(liveTickVisualOwnershipDecision.selectedTargetScrollTop)
+          : beforeScrollTop;
+      liveTickSelectedAuthority = String(liveTickVisualOwnershipDecision.selectedAuthority || liveTickSelectedAuthority || 'hold');
+      liveTickAuthorityReason = String(liveTickVisualOwnershipDecision.selectedReason || liveTickAuthorityReason || 'unknown');
+      if (
+        Number.isFinite(pursuitTargetTop as number) &&
+        pursuitTargetTop > beforeScrollTop + ASR_POCKET_WALL_NOISE_DELTA_PX &&
+        (
+          liveTickSelectedAuthority === 'preserved_forward_follow_target' ||
+          liveTickSelectedAuthority === 'reader_marker_correction' ||
+          liveTickSelectedAuthority === 'bottom_lock_release' ||
+          liveTickSelectedAuthority === 'preferred_lower_rail_release'
+        )
+      ) {
+        preservedAsrAuthorityTargetTop = Number(pursuitTargetTop);
+        preservedAsrAuthorityTargetReason = liveTickAuthorityReason;
+        preservedAsrAuthorityTargetSourcePath = liveTickSelectedAuthority;
+      }
+    }
 
     let afterScrollTop = beforeScrollTop;
     let appliedDeltaPx = 0;
@@ -19922,7 +20256,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           currentScrollTop: afterScrollTop,
           targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : afterScrollTop,
           movedPx: Math.round(afterScrollTop - beforeScrollTop),
-          directWriteBlocked: false,
+          directWriteBlocked: liveTickVisualOwnershipCandidates.some((candidate) => candidate.authority === 'asr4_pocket_drift'),
           targetPreservedForEasing: preservedAsrAuthorityTargetTop != null,
           visualSnapSuppressed: alignmentEpisodes.isSnapSuppressedActive(),
           terminalClampActive: atScrollLimit,
@@ -19963,6 +20297,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         markerErrorPx: Number.isFinite(readerMarkerSnapshot.markerErrorPx) ? readerMarkerSnapshot.markerErrorPx : null,
         matchBestIdx: Number.isFinite(readerMarkerSnapshot.matchBestIdx) ? readerMarkerSnapshot.matchBestIdx : null,
         matchBestSim: Number.isFinite(readerMarkerSnapshot.matchBestSim) ? readerMarkerSnapshot.matchBestSim : null,
+        proposedCandidates: liveTickVisualOwnershipDecision?.proposedCandidates || 'none',
+        rejectedAuthorities: liveTickVisualOwnershipDecision?.rejectedAuthorities || 'none',
+        rejectionReasons: liveTickVisualOwnershipDecision?.rejectionReasons || 'none',
+        movementBlocked: liveTickVisualOwnershipDecision?.movementBlockedReason || 'none',
       });
     }
     if (liveAsrFollowMode) {
