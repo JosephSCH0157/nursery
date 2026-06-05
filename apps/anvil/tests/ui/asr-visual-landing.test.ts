@@ -225,4 +225,42 @@ describe('ASR visual landing recenter', () => {
 
     driver.dispose();
   });
+
+  test('backward pullback is blocked when local high-confidence speech is still below marker', () => {
+    const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
+      __debugApplyVisualActuatorTargetStep(args: any): any;
+    };
+
+    const result = driver.__debugApplyVisualActuatorTargetStep({
+      beforeScrollTop: 2400,
+      targetScrollTop: 2200,
+      requestedMovePx: 20,
+      effectiveMinStepPx: 34,
+      currentLineIdx: 5,
+      committedLineIdx: 5,
+      nextSpeakableLineIdx: 5,
+      authority: 'preferred_lower_rail_release',
+      authorityReason: 'preferred_lower_rail_not_settled',
+      allowedTargetIdx: 5,
+      lastVerifiedCommitLineIdx: 5,
+      lastVerifiedCommitAgeMs: 0,
+      lastAuthorityMatchBestIdx: 5,
+      lastAuthorityMatchBestSim: 0.91,
+      preservedTargetScrollTop: 2600,
+    });
+
+    expect(result.blockedPullback).toBe(true);
+    expect(result.afterTop).toBe(2400);
+
+    const traceLine = consoleWarnSpy.mock.calls
+      .map((call) => String(call[0] || ''))
+      .find((line) => line.includes('ASR_VISUAL_TARGET_OWNERSHIP_TRACE')) || '';
+    expect(traceLine).toContain('blockedByBackwardRecenter=');
+    expect(traceLine).toContain('blockedByBackwardRecenter=preserved_forward_target_ahead');
+    expect(traceLine).toContain('selectedAuthority=preferred_lower_rail_release');
+    expect(traceLine).toContain('selectedTargetScrollTop=2200');
+    expect(traceLine).toContain('previousPreservedTarget=2600');
+
+    driver.dispose();
+  });
 });
