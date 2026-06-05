@@ -461,6 +461,10 @@ const ASR_PURSUE_TARGET_GRACE_MAX_SEMANTIC_DISTANCE = 1;
 const ASR_PURSUE_PLATEAU_MIN_FRAMES = 4;
 const ASR_PURSUE_PLATEAU_MIN_PXPS = 12;
 const ASR_PURSUE_PLATEAU_MAX_STEP_PX = 24;
+const ASR_PURSUE_COALESCE_WINDOW_MS = 1500;
+const ASR_VISUAL_OWNERSHIP_TRACE_SUMMARY_MS = 2000;
+const ASR_VISUAL_OWNERSHIP_TRACE_PERIODIC_MS = 5000;
+const ASR_DIRECT_WRITE_BLOCKED_COALESCE_MS = 2000;
 const ASR_APPROVED_VISUAL_GLIDE_MIN_PX = 18;
 const ASR_APPROVED_VISUAL_GLIDE_MAX_LINES = 1.25;
 const ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_RATIO = 0.55;
@@ -1791,6 +1795,14 @@ const LIVE_STRICT_SPECULATIVE_FORCE_REASONS = new Set<string>([
   'stall_recovery_override',
 ]);
 let lastPursueHudAt = 0;
+let lastAsrPursuePayloadSignature = '';
+let lastAsrPursuePayloadAt = 0;
+let lastAsrPursueSuppressedCount = 0;
+let lastAsrPursueSuppressedSince = 0;
+const asrPursuitDiagnosticCounters = {
+  emitted: 0,
+  coalesced: 0,
+};
 const SUMMARY_MIN_DURATION_MS = 250;
 const DRIVER_ACTIVE_DISPOSE_MIN_MS = 2000;
 const MAX_REPORTED_RUN_KEYS = 128;
@@ -2068,6 +2080,30 @@ function emitPursuitHud(err: number, vel: number, target: number | null, top: nu
     target: Number.isFinite(target as number) ? Math.round(target as number) : target,
     top: Math.round(top),
   };
+  const signature = [
+    payload.err,
+    payload.velPxps,
+    payload.target,
+    payload.top,
+  ].join('|');
+  if (signature === lastAsrPursuePayloadSignature && (now - lastAsrPursuePayloadAt) < ASR_PURSUE_COALESCE_WINDOW_MS) {
+    lastAsrPursueSuppressedCount += 1;
+    if (lastAsrPursueSuppressedSince <= 0) lastAsrPursueSuppressedSince = now;
+    asrPursuitDiagnosticCounters.coalesced += 1;
+    return;
+  }
+  if (lastAsrPursueSuppressedCount > 0) {
+    try {
+      console.debug(
+        `[ASR_PURSUE_COALESCED] repeated=${lastAsrPursueSuppressedCount} durationMs=${Math.max(0, now - lastAsrPursueSuppressedSince)} signature=${lastAsrPursuePayloadSignature}`,
+      );
+    } catch {}
+  }
+  lastAsrPursuePayloadSignature = signature;
+  lastAsrPursuePayloadAt = now;
+  lastAsrPursueSuppressedCount = 0;
+  lastAsrPursueSuppressedSince = 0;
+  asrPursuitDiagnosticCounters.emitted += 1;
   try { (window as any).__tpHud?.log?.('ASR_PURSUE', payload); } catch {}
   try { (window as any).HUD?.log?.('ASR_PURSUE', payload); } catch {}
   try {
@@ -2930,6 +2966,12 @@ function scheduleCommitTruthProbe(
 }
 
 export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDriver {
+  asrPursuitDiagnosticCounters.emitted = 0;
+  asrPursuitDiagnosticCounters.coalesced = 0;
+  lastAsrPursuePayloadSignature = '';
+  lastAsrPursuePayloadAt = 0;
+  lastAsrPursueSuppressedCount = 0;
+  lastAsrPursueSuppressedSince = 0;
   bootTrace('ASRScrollDriver:create', {
     minLineAdvance: options.minLineAdvance,
     seekThrottleMs: options.seekThrottleMs,
@@ -4664,7 +4706,57 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     rejectedAuthorities?: string | null;
     rejectionReasons?: string | null;
     movementBlocked?: string | null;
+    lineHeightPx?: number | null;
   }) => {
+    const now = Date.now();
+    const lineHeightPx = Number.isFinite(args.lineHeightPx as number) ? Math.max(1, Number(args.lineHeightPx)) : 0;
+    const markerErrorPx = Number.isFinite(args.markerErrorPx as number) ? Math.abs(Number(args.markerErrorPx)) : 0;
+    const markerBucket =
+      lineHeightPx > 0
+        ? (markerErrorPx >= (lineHeightPx * 4) ? 4
+          : markerErrorPx >= (lineHeightPx * 2) ? 2
+            : markerErrorPx >= lineHeightPx ? 1
+              : 0)
+        : (markerErrorPx >= 480 ? 4 : markerErrorPx >= 240 ? 2 : markerErrorPx >= 120 ? 1 : 0);
+    const signature = [
+      args.phase,
+      args.selectedAuthority || 'none',
+      args.movementBlocked || 'none',
+      args.suppressedReason || 'none',
+      markerBucket,
+    ].join('|');
+    const changed =
+      signature !== lastAsrVisualOwnershipTraceSignature ||
+      markerBucket !== lastAsrVisualOwnershipTraceMarkerBucket;
+    const periodic = (now - lastAsrVisualOwnershipTraceAt) >= ASR_VISUAL_OWNERSHIP_TRACE_PERIODIC_MS;
+    if (!changed && !periodic) {
+      lastAsrVisualOwnershipTraceSuppressedCount += 1;
+      if (lastAsrVisualOwnershipTraceSuppressedSince <= 0) lastAsrVisualOwnershipTraceSuppressedSince = now;
+      asrDiagnosticSummaryCounters.ownershipTraceCoalesced += 1;
+      if ((now - lastAsrVisualOwnershipTraceSummaryAt) >= ASR_VISUAL_OWNERSHIP_TRACE_SUMMARY_MS) {
+        try {
+          console.info(
+            `[ASR_VISUAL_TARGET_OWNERSHIP_TRACE_SUMMARY] selectedAuthority=${String(args.selectedAuthority || 'none')} movementBlocked=${String(args.movementBlocked || 'none')} suppressedReason=${String(args.suppressedReason || 'none')} markerBucket=${markerBucket} repeated=${lastAsrVisualOwnershipTraceSuppressedCount} durationMs=${Math.max(0, now - lastAsrVisualOwnershipTraceSuppressedSince)}`,
+          );
+        } catch {}
+        lastAsrVisualOwnershipTraceSummaryAt = now;
+      }
+      return;
+    }
+    if (lastAsrVisualOwnershipTraceSuppressedCount > 0) {
+      try {
+        console.info(
+          `[ASR_VISUAL_TARGET_OWNERSHIP_TRACE_SUMMARY] selectedAuthority=${String(args.selectedAuthority || 'none')} movementBlocked=${String(args.movementBlocked || 'none')} suppressedReason=${String(args.suppressedReason || 'none')} markerBucket=${lastAsrVisualOwnershipTraceMarkerBucket} repeated=${lastAsrVisualOwnershipTraceSuppressedCount} durationMs=${Math.max(0, now - lastAsrVisualOwnershipTraceSuppressedSince)}`,
+        );
+      } catch {}
+    }
+    lastAsrVisualOwnershipTraceSignature = signature;
+    lastAsrVisualOwnershipTraceMarkerBucket = markerBucket;
+    lastAsrVisualOwnershipTraceAt = now;
+    lastAsrVisualOwnershipTraceSummaryAt = now;
+    lastAsrVisualOwnershipTraceSuppressedCount = 0;
+    lastAsrVisualOwnershipTraceSuppressedSince = 0;
+    asrDiagnosticSummaryCounters.ownershipTraceEmitted += 1;
     try {
       console.warn(
         `[ASR_VISUAL_TARGET_OWNERSHIP_TRACE] phase=${args.phase} correctionRequested=${args.correctionRequested ? 1 : 0} proposedForwardTarget=${Number.isFinite(args.proposedForwardTarget as number) ? Math.round(Number(args.proposedForwardTarget)) : -1} selectedAuthority=${String(args.selectedAuthority || 'none')} selectedTargetScrollTop=${Number.isFinite(args.selectedTargetScrollTop as number) ? Math.round(Number(args.selectedTargetScrollTop)) : -1} previousPreservedTarget=${Number.isFinite(args.previousPreservedTarget as number) ? Math.round(Number(args.previousPreservedTarget)) : -1} appliedDeltaPx=${Math.round(Number(args.appliedDeltaPx || 0))} suppressedReason=${String(args.suppressedReason || 'none')} blockedByRecoveryPath=${String(args.blockedByRecoveryPath || 'none')} blockedByBackwardRecenter=${String(args.blockedByBackwardRecenter || 'none')} currentScrollTop=${Math.round(Number(args.currentScrollTop || 0))} markerErrorPx=${Number.isFinite(args.markerErrorPx as number) ? Math.round(Number(args.markerErrorPx)) : -1} matchBestIdx=${Number.isFinite(args.matchBestIdx as number) ? Math.round(Number(args.matchBestIdx)) : -1} matchBestSim=${Number.isFinite(args.matchBestSim as number) ? Number(args.matchBestSim).toFixed(3) : 'NaN'} proposedCandidates=${String(args.proposedCandidates || 'none')} rejectedAuthorities=${String(args.rejectedAuthorities || 'none')} rejectionReasons=${String(args.rejectionReasons || 'none')} movementBlocked=${String(args.movementBlocked || 'none')}`,
@@ -4749,6 +4841,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       blockedByBackwardRecenter: reason,
       currentScrollTop: args.currentTop,
       markerErrorPx: activeLineDistanceFromMarkerPx,
+      lineHeightPx,
       matchBestIdx: Number.isFinite(lastAuthorityMatchBestIdx) ? Number(lastAuthorityMatchBestIdx) : null,
       matchBestSim: Number.isFinite(lastAuthorityMatchBestSim) ? Number(lastAuthorityMatchBestSim) : null,
     });
@@ -6471,6 +6564,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastAsrActiveLineViewportY = Number.NaN;
   let lastAsrMatchedLineViewportY = Number.NaN;
   let lastAsrMatchedMarkerErrorPx = Number.NaN;
+  let lastAsrChairpersonFlagProofSignature = '';
+  let lastAsrVisualOwnershipTraceSignature = '';
+  let lastAsrVisualOwnershipTraceAt = 0;
+  let lastAsrVisualOwnershipTraceSummaryAt = 0;
+  let lastAsrVisualOwnershipTraceSuppressedCount = 0;
+  let lastAsrVisualOwnershipTraceSuppressedSince = 0;
+  let lastAsrVisualOwnershipTraceMarkerBucket = -1;
+  let lastAsrDirectWriteBlockedSignature = '';
+  let lastAsrDirectWriteBlockedAt = 0;
+  let lastAsrDirectWriteBlockedSuppressedCount = 0;
+  let lastAsrDirectWriteBlockedSuppressedSince = 0;
+  const asrDiagnosticSummaryCounters = {
+    chairpersonFlagProofEmitted: 0,
+    ownershipTraceEmitted: 0,
+    ownershipTraceCoalesced: 0,
+    pursueEmitted: 0,
+    pursueCoalesced: 0,
+    directWriteBlockedEmitted: 0,
+    directWriteBlockedCoalesced: 0,
+    markerErrorEmitted: 0,
+  };
   let lastAsrPocketWallTickId = -1;
   let lastAsrPocketWallReason = 'none';
   let lastAsrPocketWallCappedTop = Number.NaN;
@@ -6781,8 +6895,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       'not_live_tick';
     const importMetaEnv = readAsrChairpersonImportMetaEnvSnapshot();
     const signature = [
-      flagEvaluationLocation,
-      emittedFrom,
       flagState.rawHref,
       flagState.rawSearch,
       flagState.ownerFlagSource,
@@ -6794,6 +6906,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       importMetaEnv.dev,
       importMetaEnv.mode,
     ].join('|');
+    if (signature === lastAsrChairpersonFlagProofSignature) return;
+    lastAsrChairpersonFlagProofSignature = signature;
+    asrDiagnosticSummaryCounters.chairpersonFlagProofEmitted += 1;
     emitDevDiagnostic(
       'ASR_CHAIRPERSON_FLAG_PROOF',
       'info',
@@ -11895,6 +12010,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const matchBestSimOut = Number.isFinite(matchBestSim) ? matchBestSim.toFixed(3) : 'NaN';
     lastAsrMatchedLineViewportY = matchedLineViewportY;
     lastAsrMatchedMarkerErrorPx = markerErrorPx;
+    asrDiagnosticSummaryCounters.markerErrorEmitted += 1;
     try {
       console.warn(
         `[ASR_READER_LINE_MARKER_ERROR] event=${args.event} matchBestIdx=${matchBestIdx} matchBestSim=${matchBestSimOut} committedLineIdx=${committedLineIdx} currentLineIdx=${currentLineIdx} markerY=${markerYOut} matchedLineViewportY=${matchedLineViewportYOut} markerErrorPx=${markerErrorPxOut} scrollTop=${Math.round(scrollTop)} targetScrollTop=${targetScrollTopOut} reason=${args.reason || 'none'} source=${args.source || 'unknown'} correctionRequested=${correctionRequested ? 1 : 0}`,
@@ -16043,6 +16159,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
   const emitSummary = (source: string) => {
     if (summaryEmitted) return;
+    if (lastAsrPursueSuppressedCount > 0) {
+      try {
+        console.debug(
+          `[ASR_PURSUE_COALESCED] repeated=${lastAsrPursueSuppressedCount} durationMs=${Math.max(0, Date.now() - lastAsrPursueSuppressedSince)} signature=${lastAsrPursuePayloadSignature}`,
+        );
+      } catch {}
+    }
+    if (lastAsrVisualOwnershipTraceSuppressedCount > 0) {
+      try {
+        console.info(
+          `[ASR_VISUAL_TARGET_OWNERSHIP_TRACE_SUMMARY] selectedAuthority=summary movementBlocked=summary suppressedReason=summary markerBucket=${lastAsrVisualOwnershipTraceMarkerBucket} repeated=${lastAsrVisualOwnershipTraceSuppressedCount} durationMs=${Math.max(0, Date.now() - lastAsrVisualOwnershipTraceSuppressedSince)}`,
+        );
+      } catch {}
+    }
+    if (lastAsrDirectWriteBlockedSuppressedCount > 0) {
+      try {
+        console.info(
+          `[ASR_DIRECT_WRITE_BLOCKED_SUMMARY] repeated=${lastAsrDirectWriteBlockedSuppressedCount} durationMs=${Math.max(0, Date.now() - lastAsrDirectWriteBlockedSuppressedSince)} signature=${lastAsrDirectWriteBlockedSignature}`,
+        );
+      } catch {}
+    }
     const runKey = String(summaryRunKey || '').trim();
     const duplicateRunSummary = runKey ? markRunSummaryReported(runKey) : false;
     if (duplicateRunSummary) {
@@ -16113,7 +16250,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       liveRunSummary,
       shortLivedSummary,
       endedRunKey: endedRunKey || undefined,
+      diagnosticCounters: {
+        ...asrDiagnosticSummaryCounters,
+        pursueEmitted: asrPursuitDiagnosticCounters.emitted,
+        pursueCoalesced: asrPursuitDiagnosticCounters.coalesced,
+        pursuePendingCoalesced: lastAsrPursueSuppressedCount,
+        ownershipPendingCoalesced: lastAsrVisualOwnershipTraceSuppressedCount,
+        directWriteBlockedPendingCoalesced: lastAsrDirectWriteBlockedSuppressedCount,
+      },
     };
+    try {
+      (window as any).__tpAsrDiagnosticSummary = summary.diagnosticCounters;
+    } catch {}
     if (isDevMode() && durationMs >= SUMMARY_MIN_DURATION_MS) {
       logDriverActive(`summary:${source}`);
       try { console.warn('ASR_SESSION_SUMMARY', summary); } catch {}
@@ -20346,8 +20494,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               : (liveTickVisualOwnershipCandidates.some((candidate) => candidate.authority === 'asr4_pocket_drift') &&
                 String(liveTickSelectedAuthority || '') !== 'asr4_pocket_drift') ? 'ownership_not_final'
                 : normalizeDirectWriteBlockedReason(asr4VisualRecoveryLastDirectWriteBlockedReason);
+    const shouldObserveAsr4PocketAfterWrite =
+      liveAsrFollowMode &&
+      (
+        isDevMode() ||
+        liveScrollStallDecision.active ||
+        Math.abs(appliedDeltaPx) <= ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX ||
+        asr4VisualRecoveryLastDirectWriteBlocked ||
+        preservedAsrAuthorityTargetTop != null
+      );
     const asr4PocketTickObservation =
-      liveAsrFollowMode
+      shouldObserveAsr4PocketAfterWrite
         ? observeAsr4PocketDrift({
           scroller,
           currentLine: lastLineIndex,
@@ -20447,6 +20604,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         blockedByBackwardRecenter: lastAsrBackwardRecenterBlockReason,
         currentScrollTop: beforeScrollTop,
         markerErrorPx: Number.isFinite(readerMarkerSnapshot.markerErrorPx) ? readerMarkerSnapshot.markerErrorPx : null,
+        lineHeightPx: Number.isFinite(readerMarkerSnapshot.lineHeightPx) ? readerMarkerSnapshot.lineHeightPx : null,
         matchBestIdx: Number.isFinite(readerMarkerSnapshot.matchBestIdx) ? readerMarkerSnapshot.matchBestIdx : null,
         matchBestSim: Number.isFinite(readerMarkerSnapshot.matchBestSim) ? readerMarkerSnapshot.matchBestSim : null,
         proposedCandidates: liveTickVisualOwnershipDecision?.proposedCandidates || 'none',
@@ -21923,14 +22081,55 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           : easedTargetScrollTop <= currentScrollTop + 0.5 ? 'min_delta'
             : 'duplicate_write_guard';
     }
-    try {
-      console.warn(
-        `[ASR_DIRECT_SCROLL_SUPPRESSED] reason=${input.reason} blockedReason=${asr4VisualRecoveryLastDirectWriteBlockedReason} requestedTargetScrollTop=${Math.round(requestedTargetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} deltaPx=${Math.round(deltaPx)} cappedDeltaPx=${Math.round(cappedDeltaPx)} eased=${requested ? 1 : 0} sourcePath=${input.sourcePath}`,
-      );
-      console.warn(
-        `[ASR_DIRECT_SCROLL_WRITE_BLOCKED] sourcePath=${input.sourcePath} reason=${input.reason} blockedReason=${asr4VisualRecoveryLastDirectWriteBlockedReason} previousTargetScrollTop=${Math.round(Number.isFinite(pursuitTargetTop as number) ? Number(pursuitTargetTop) : -1)} requestedTargetScrollTop=${Math.round(requestedTargetScrollTop)} effectiveTargetScrollTop=${Math.round(requestedTargetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} deltaPxToTarget=${Math.round(deltaPx)} directWriteBlocked=1`,
-      );
-    } catch {}
+    const directWriteBlockedSignature = [
+      input.sourcePath,
+      input.reason,
+      asr4VisualRecoveryLastDirectWriteBlockedReason,
+      Math.round(deltaPx / 12),
+      Math.round(cappedDeltaPx / 12),
+    ].join('|');
+    const directWriteBlockedNow = Date.now();
+    if (
+      directWriteBlockedSignature === lastAsrDirectWriteBlockedSignature &&
+      (directWriteBlockedNow - lastAsrDirectWriteBlockedAt) < ASR_DIRECT_WRITE_BLOCKED_COALESCE_MS
+    ) {
+      lastAsrDirectWriteBlockedSuppressedCount += 1;
+      if (lastAsrDirectWriteBlockedSuppressedSince <= 0) {
+        lastAsrDirectWriteBlockedSuppressedSince = directWriteBlockedNow;
+      }
+      asrDiagnosticSummaryCounters.directWriteBlockedCoalesced += 1;
+    } else {
+      lastAsrDirectWriteBlockedSignature = directWriteBlockedSignature;
+      lastAsrDirectWriteBlockedAt = directWriteBlockedNow;
+      lastAsrDirectWriteBlockedSuppressedCount = 0;
+      lastAsrDirectWriteBlockedSuppressedSince = 0;
+    }
+    asrDiagnosticSummaryCounters.directWriteBlockedEmitted += 1;
+    emitCoalescedDevDiagnostic(
+      'ASR_DIRECT_SCROLL_SUPPRESSED',
+      'warn',
+      `[ASR_DIRECT_SCROLL_SUPPRESSED] reason=${input.reason} blockedReason=${asr4VisualRecoveryLastDirectWriteBlockedReason} requestedTargetScrollTop=${Math.round(requestedTargetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} deltaPx=${Math.round(deltaPx)} cappedDeltaPx=${Math.round(cappedDeltaPx)} eased=${requested ? 1 : 0} sourcePath=${input.sourcePath}`,
+      [
+        input.sourcePath,
+        input.reason,
+        asr4VisualRecoveryLastDirectWriteBlockedReason,
+        Math.round(deltaPx / 12),
+        Math.round(cappedDeltaPx / 12),
+      ].join('|'),
+      { minMs: ASR_DIRECT_WRITE_BLOCKED_COALESCE_MS, requireDev: true },
+    );
+    emitCoalescedDevDiagnostic(
+      'ASR_DIRECT_SCROLL_WRITE_BLOCKED',
+      'warn',
+      `[ASR_DIRECT_SCROLL_WRITE_BLOCKED] sourcePath=${input.sourcePath} reason=${input.reason} blockedReason=${asr4VisualRecoveryLastDirectWriteBlockedReason} previousTargetScrollTop=${Math.round(Number.isFinite(pursuitTargetTop as number) ? Number(pursuitTargetTop) : -1)} requestedTargetScrollTop=${Math.round(requestedTargetScrollTop)} effectiveTargetScrollTop=${Math.round(requestedTargetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} deltaPxToTarget=${Math.round(deltaPx)} directWriteBlocked=1`,
+      [
+        input.sourcePath,
+        input.reason,
+        asr4VisualRecoveryLastDirectWriteBlockedReason,
+        Math.round(deltaPx / 12),
+      ].join('|'),
+      { minMs: ASR_DIRECT_WRITE_BLOCKED_COALESCE_MS, requireDev: true },
+    );
     if (!requested) {
       return {
         requested: false,
