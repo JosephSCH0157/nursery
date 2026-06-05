@@ -4588,6 +4588,40 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     return Math.abs(Number(target) - top) <= ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX;
   };
+  const resolveFinalAsrActuatorDebtPx = (
+    selectedTargetScrollTop: number | null,
+    beforeScrollTop: number,
+  ): number => {
+    if (!Number.isFinite(selectedTargetScrollTop as number)) return 0;
+    return Number(selectedTargetScrollTop) - Number(beforeScrollTop || 0);
+  };
+  const resolveAsrActuatorMovementBlockedReason = (args: {
+    selectedTargetScrollTop: number | null;
+    beforeScrollTop: number;
+    appliedDeltaPx: number;
+    requestedDeltaPx: number;
+    clampReason: string;
+    terminalClampActive: boolean;
+    hardSafetyBlocked: boolean;
+    directWriteBlocked: boolean;
+    staleDebtSource: boolean;
+    ownershipTargetChanged: boolean;
+    cooldownActive: boolean;
+  }): string => {
+    const finalTargetDebtPx = resolveFinalAsrActuatorDebtPx(args.selectedTargetScrollTop, args.beforeScrollTop);
+    const positiveDebt = finalTargetDebtPx > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX;
+    if (args.terminalClampActive) return 'scroll_limit';
+    if (args.hardSafetyBlocked) return 'safety_blocker';
+    if (!positiveDebt) return args.clampReason === 'none' ? 'none' : args.clampReason;
+    if (Math.abs(args.appliedDeltaPx) > 0.5) return 'none';
+    if (args.directWriteBlocked) return 'direct_write_blocked';
+    if (args.cooldownActive) return 'cooldown';
+    if (args.staleDebtSource) return 'stale_debt_source';
+    if (args.ownershipTargetChanged) return 'ownership_target_changed';
+    if (args.clampReason === 'min_step_floor' || args.requestedDeltaPx <= 0) return 'below_min_delta';
+    if (args.clampReason === 'max_step_cap' || args.clampReason === 'accel_slew_limit') return 'actuator_rate_limited';
+    return 'actuator_rate_limited';
+  };
   const emitAsrVisualTargetOwnershipTrace = (args: {
     phase: string;
     correctionRequested: boolean;
@@ -17417,6 +17451,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let liveTickVisualOwnershipCandidates: AsrVisualOwnershipCandidate[] = [];
     let liveTickVisualOwnershipDecision: AsrVisualOwnershipDecision | null = null;
     let liveTickOwnershipSnapshot: ReturnType<typeof computeReaderLineMarkerErrorSnapshot> | null = null;
+    let liveTickFinalTargetDebtPx = Number.NaN;
+    let liveTickStaleDebtSource = false;
+    let liveTickOwnershipTargetChanged = false;
+    let liveTickActuatorMovementBlockedReason = 'none';
     let liveAsrAuthorityTraceTickId = -1;
     let liveTickAuthorityPocketZone = 'unknown';
     let liveTickReaderPocketZone = 'unknown';
@@ -20133,9 +20171,48 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         preservedAsrAuthorityTargetSourcePath = liveTickSelectedAuthority;
       }
     }
+    const preOwnershipActuatorDebtPx = arithmeticTargetDebtPx;
+    liveTickFinalTargetDebtPx = resolveFinalAsrActuatorDebtPx(
+      Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop,
+      beforeScrollTop,
+    );
+    liveTickStaleDebtSource =
+      Number.isFinite(preOwnershipActuatorDebtPx) &&
+      (
+        (Math.sign(preOwnershipActuatorDebtPx) !== Math.sign(liveTickFinalTargetDebtPx) && Math.abs(liveTickFinalTargetDebtPx) > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX) ||
+        Math.abs(preOwnershipActuatorDebtPx - liveTickFinalTargetDebtPx) > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX
+      );
+    liveTickOwnershipTargetChanged =
+      Number.isFinite(preOwnershipActuatorDebtPx) &&
+      Math.abs(preOwnershipActuatorDebtPx - liveTickFinalTargetDebtPx) > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX;
+    liveAsrActuatorTargetDebtPx = liveTickFinalTargetDebtPx;
+    err = Number.isFinite(liveTickFinalTargetDebtPx) ? liveTickFinalTargetDebtPx : 0;
+    const finalForwardDebtPx = Math.max(0, Number.isFinite(liveTickFinalTargetDebtPx) ? liveTickFinalTargetDebtPx : 0);
+    if (!liveHardHold) {
+      if (move > err) {
+        move = Math.max(0, err);
+        clampReason = clampReason === 'none' ? 'target_debt_cap' : clampReason;
+      }
+      if (finalForwardDebtPx > 0 && move <= 0 && !atScrollLimit && !actuatorNoMatchOrOffscript && !hardContradictionActive) {
+        const revivedMovePx = Math.min(finalForwardDebtPx, Math.max(1, effectiveMinStepPx));
+        move = revivedMovePx;
+        requestedDeltaPx = Math.max(requestedDeltaPx, revivedMovePx);
+        requestedPxps = Math.max(requestedPxps, revivedMovePx / Math.max(dt, 0.001));
+        if (clampReason === 'none') {
+          clampReason = liveTickStaleDebtSource ? 'stale_debt_source' : 'ownership_target_changed';
+        }
+      }
+      if (move > err) {
+        move = Math.max(0, err);
+        clampReason = clampReason === 'none' ? 'target_debt_cap' : clampReason;
+      }
+    }
 
     let afterScrollTop = beforeScrollTop;
     let appliedDeltaPx = 0;
+    const actuatorTargetDebtPx = Number.isFinite(liveTickFinalTargetDebtPx)
+      ? liveTickFinalTargetDebtPx
+      : (Number.isFinite(liveAsrActuatorTargetDebtPx) ? liveAsrActuatorTargetDebtPx : arithmeticTargetDebtPx);
     const committedLineIdxForActuator =
       Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx as number)
         ? Math.max(0, Math.floor(Number(liveAsrCommitteeAcceptedCommitTargetIdx)))
@@ -20274,6 +20351,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lastAsrRecoveryPathBlockReason = 'asr4_pocket_drift_reconciled';
       }
     }
+    liveTickActuatorMovementBlockedReason = resolveAsrActuatorMovementBlockedReason({
+      selectedTargetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : null,
+      beforeScrollTop,
+      appliedDeltaPx,
+      requestedDeltaPx,
+      clampReason,
+      terminalClampActive: atScrollLimit,
+      hardSafetyBlocked: actuatorNoMatchOrOffscript || hardContradictionActive || liveHardHold,
+      directWriteBlocked:
+        !!asr4PocketTickObservation?.state?.directWriteBlocked ||
+        String(asr4PocketTickObservation?.state?.suppressedReason || '') === 'direct_write_blocked',
+      staleDebtSource: liveTickStaleDebtSource,
+      ownershipTargetChanged: liveTickOwnershipTargetChanged,
+      cooldownActive:
+        visualDebtCatchupCooldownActive ||
+        String(asr4PocketTickObservation?.state?.suppressedReason || '') === 'visual_recovery_cooldown',
+    });
+    if (liveTickVisualOwnershipDecision) {
+      liveTickVisualOwnershipDecision.movementBlockedReason = liveTickActuatorMovementBlockedReason;
+    }
     if (liveAsrFollowMode) {
       const readerMarkerSnapshot = computeReaderLineMarkerErrorSnapshot(scroller);
       emitAsrVisualTargetOwnershipTrace({
@@ -20300,7 +20397,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         proposedCandidates: liveTickVisualOwnershipDecision?.proposedCandidates || 'none',
         rejectedAuthorities: liveTickVisualOwnershipDecision?.rejectedAuthorities || 'none',
         rejectionReasons: liveTickVisualOwnershipDecision?.rejectionReasons || 'none',
-        movementBlocked: liveTickVisualOwnershipDecision?.movementBlockedReason || 'none',
+        movementBlocked: liveTickActuatorMovementBlockedReason || liveTickVisualOwnershipDecision?.movementBlockedReason || 'none',
       });
     }
     if (liveAsrFollowMode) {
@@ -21342,13 +21439,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             visualRecoveryBoostActive
               ? buildAsrVisualRecoveryBoostAppliedDiagnostic({
                 authority: liveTickSelectedAuthority,
-                targetDebtPx: liveAsrActuatorTargetDebtPx,
+                targetDebtPx: actuatorTargetDebtPx,
                 appliedDeltaPx,
                 reason: liveTickAuthorityReason,
               })
               : buildAsrVisualRecoveryBoostBlockedDiagnostic({
                 authority: liveTickSelectedAuthority,
-                targetDebtPx: liveAsrActuatorTargetDebtPx,
+                targetDebtPx: actuatorTargetDebtPx,
                 appliedDeltaPx,
                 reason: liveAsrRecoveryBoostBlockedReason || 'not_eligible',
               }),
@@ -21360,7 +21457,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           console.warn(
             buildAsrPostAdjacentCommitVisualRecoveryAppliedDiagnostic({
               authority: liveTickSelectedAuthority,
-              targetDebtPx: liveAsrActuatorTargetDebtPx,
+              targetDebtPx: actuatorTargetDebtPx,
               appliedDeltaPx,
               reason: 'fresh_adjacent_commit_sticky_landing',
             }),
@@ -21487,7 +21584,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               smoothingAuthority: resolvedCommand.smoothingAuthority,
               finalGear: resolvedCommand.finalGear,
               finalMinStepPx: resolvedCommand.finalMinStepPx,
-              targetDebtPx: arithmeticTargetDebtPx,
+              targetDebtPx: actuatorTargetDebtPx,
               appliedDeltaPx,
               clampReason: clampReasonOut,
               pocketState: resolvedCommand.pocketState,
@@ -21541,7 +21638,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                   : liveAsrCommitteeAcceptedCommitTargetIdx,
               acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
               cappedTargetIdx: liveAsrCommitteeDistanceCapTargetIdx,
-              targetDebtPx: arithmeticTargetDebtPx,
+              targetDebtPx: actuatorTargetDebtPx,
               appliedDeltaPx,
               selectedGear: gear,
               previousGear: liveAsrPreviousActuatorGear,
@@ -21567,7 +21664,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         emitCoalescedDevDiagnostic(
           'ASR_VISUAL_ACTUATOR_APPLIED',
           'warn',
-          `[ASR_VISUAL_ACTUATOR_APPLIED] requestedPxps=${Math.round(requestedPxps)} appliedPxps=${Math.round(appliedPxps)} frameDtMs=${frameDtMs} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} beforeScrollTop=${Math.round(beforeScrollTop)} afterScrollTop=${Math.round(afterScrollTop)} targetScrollTop=${Math.round(pursuitTargetTop ?? beforeScrollTop)} targetDebtPx=${Number.isFinite(liveAsrActuatorTargetDebtPx) ? Math.round(liveAsrActuatorTargetDebtPx) : -1} source=tick_controller clampReason=${clampReasonOut} writerKind=pixel reason=${liveAsrActuatorReason} maxScrollTop=${Math.round(maxScrollTop)} distanceToMaxScrollTop=${Math.round(distanceToMaxScrollTop)} atScrollLimit=${atScrollLimit ? 1 : 0} scrollHeight=${Math.round(scroller.scrollHeight || 0)} clientHeight=${Math.round(scroller.clientHeight || 0)}`,
+          `[ASR_VISUAL_ACTUATOR_APPLIED] requestedPxps=${Math.round(requestedPxps)} appliedPxps=${Math.round(appliedPxps)} frameDtMs=${frameDtMs} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} beforeScrollTop=${Math.round(beforeScrollTop)} afterScrollTop=${Math.round(afterScrollTop)} targetScrollTop=${Math.round(pursuitTargetTop ?? beforeScrollTop)} targetDebtPx=${Number.isFinite(actuatorTargetDebtPx) ? Math.round(actuatorTargetDebtPx) : -1} source=tick_controller clampReason=${clampReasonOut} writerKind=pixel reason=${liveAsrActuatorReason} maxScrollTop=${Math.round(maxScrollTop)} distanceToMaxScrollTop=${Math.round(distanceToMaxScrollTop)} atScrollLimit=${atScrollLimit ? 1 : 0} scrollHeight=${Math.round(scroller.scrollHeight || 0)} clientHeight=${Math.round(scroller.clientHeight || 0)}`,
           [
             liveAsrActuatorReason,
             clampReasonOut,
@@ -21585,18 +21682,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       } catch {}
       liveAsrPreviousActuatorGear = gear;
       const shouldEmitChairperson =
-        Number.isFinite(liveAsrActuatorTargetDebtPx) &&
-        Math.round(liveAsrActuatorTargetDebtPx) >= 120 &&
+        Number.isFinite(actuatorTargetDebtPx) &&
+        Math.round(actuatorTargetDebtPx) >= 120 &&
         Math.round(appliedDeltaPx) === DEFAULT_MIN_STEP_PX &&
         clampReasonOut === 'min_step_floor';
       try {
         emitCoalescedDevDiagnostic(
           'ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF',
           'warn',
-          `[ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF] appliedDeltaPx=${Math.round(appliedDeltaPx)} targetDebtPx=${Number.isFinite(liveAsrActuatorTargetDebtPx) ? Math.round(liveAsrActuatorTargetDebtPx) : -1} clampReason=${clampReasonOut} shouldEmitChairperson=${shouldEmitChairperson ? 1 : 0}`,
+          `[ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF] appliedDeltaPx=${Math.round(appliedDeltaPx)} targetDebtPx=${Number.isFinite(actuatorTargetDebtPx) ? Math.round(actuatorTargetDebtPx) : -1} clampReason=${clampReasonOut} shouldEmitChairperson=${shouldEmitChairperson ? 1 : 0}`,
           [
             Math.round(appliedDeltaPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
-            Number.isFinite(liveAsrActuatorTargetDebtPx) ? Math.round(Number(liveAsrActuatorTargetDebtPx) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX) : -1,
+            Number.isFinite(actuatorTargetDebtPx) ? Math.round(Number(actuatorTargetDebtPx) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX) : -1,
             clampReasonOut,
             shouldEmitChairperson ? 1 : 0,
           ].join('|'),
@@ -21623,7 +21720,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               hardSafetyState: liveAsrCommitteeHardSafetyState,
               safetyCapState: liveAsrCommitteeSafetyCapState,
               postAdjacentRecoveryState: liveAsrCommitteePostAdjacentRecoveryState,
-              targetDebtPx: arithmeticTargetDebtPx,
+              targetDebtPx: actuatorTargetDebtPx,
               appliedDeltaPx,
               clampReason: clampReasonOut,
               gear,
@@ -21637,8 +21734,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lineIdx: lastLineIndex,
         sampleMs: frameDtMs,
         pocketState: lastResolvedPocketState,
-        belowPocketPx: Math.max(0, Number.isFinite(arithmeticTargetDebtPx) ? Number(arithmeticTargetDebtPx) : 0),
-        targetDebtPx: arithmeticTargetDebtPx,
+        belowPocketPx: Math.max(0, Number.isFinite(actuatorTargetDebtPx) ? Number(actuatorTargetDebtPx) : 0),
+        targetDebtPx: actuatorTargetDebtPx,
         appliedDeltaPx,
         blockedReason:
           atScrollLimit ? 'terminal_clamp'
@@ -21653,7 +21750,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       });
       emitAccumulationSnapshotIfNeeded({
         nowTs: freshnessNowTs,
-        targetDebtPx: arithmeticTargetDebtPx,
+        targetDebtPx: actuatorTargetDebtPx,
         distanceToMaxScrollTop,
         currentLineIdx: lastLineIndex,
         requestedTargetIdx: liveAsrCommitteeRequestedTargetIdx,
@@ -21664,7 +21761,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         pinned:
           atScrollLimit &&
           Math.abs(appliedDeltaPx) <= 1 &&
-          arithmeticTargetDebtPx > 24,
+          actuatorTargetDebtPx > 24,
       });
       const mismatchFrame =
         !atScrollLimit &&
@@ -21675,7 +21772,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (liveAsrActuatorMismatchStreak >= 3) {
         try {
           console.warn(
-            `[ASR_VISUAL_ACTUATOR_MISMATCH] requestedPxps=${Math.round(requestedPxps)} appliedPxps=${Math.round(appliedPxps)} frameDtMs=${frameDtMs} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} beforeScrollTop=${Math.round(beforeScrollTop)} afterScrollTop=${Math.round(afterScrollTop)} targetScrollTop=${Math.round(pursuitTargetTop ?? beforeScrollTop)} targetDebtPx=${Number.isFinite(liveAsrActuatorTargetDebtPx) ? Math.round(liveAsrActuatorTargetDebtPx) : -1} source=tick_controller clampReason=${clampReasonOut} writerKind=pixel reason=${liveAsrActuatorReason} streak=${liveAsrActuatorMismatchStreak}`,
+            `[ASR_VISUAL_ACTUATOR_MISMATCH] requestedPxps=${Math.round(requestedPxps)} appliedPxps=${Math.round(appliedPxps)} frameDtMs=${frameDtMs} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} beforeScrollTop=${Math.round(beforeScrollTop)} afterScrollTop=${Math.round(afterScrollTop)} targetScrollTop=${Math.round(pursuitTargetTop ?? beforeScrollTop)} targetDebtPx=${Number.isFinite(actuatorTargetDebtPx) ? Math.round(actuatorTargetDebtPx) : -1} source=tick_controller clampReason=${clampReasonOut} writerKind=pixel reason=${liveAsrActuatorReason} streak=${liveAsrActuatorMismatchStreak}`,
           );
         } catch {}
       }
@@ -38101,6 +38198,98 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ...result,
     };
   };
+  const debugApplyFinalSelectedActuatorStep = (args: {
+    beforeScrollTop: number;
+    selectedTargetScrollTop: number;
+    staleActuatorDebtPx: number;
+    requestedMovePx: number;
+    effectiveMinStepPx: number;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    nextSpeakableLineIdx: number;
+    authority?: string;
+    authorityReason?: string;
+    allowedTargetIdx?: number | null;
+    terminalClampActive?: boolean;
+    noMatchOrOffscript?: boolean;
+    hardContradiction?: boolean;
+  }) => {
+    const scroller = getScroller();
+    if (!scroller) {
+      return {
+        finalTargetDebtPx: 0,
+        staleDebtSource: false,
+        afterTop: Number(args.beforeScrollTop) || 0,
+        appliedDeltaPx: 0,
+        movementBlocked: 'no_scroller',
+      };
+    }
+    const finalTargetDebtPx = resolveFinalAsrActuatorDebtPx(args.selectedTargetScrollTop, args.beforeScrollTop);
+    const staleDebtSource =
+      Number.isFinite(args.staleActuatorDebtPx) &&
+      Math.abs(Number(args.staleActuatorDebtPx) - finalTargetDebtPx) > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX;
+    const revivedRequestedMovePx =
+      Number.isFinite(args.requestedMovePx) && Number(args.requestedMovePx) > 0
+        ? Number(args.requestedMovePx)
+        : Math.max(1, Math.min(finalTargetDebtPx, Number(args.effectiveMinStepPx) || DEFAULT_MIN_STEP_PX));
+    if (args.terminalClampActive) {
+      const movementBlocked = resolveAsrActuatorMovementBlockedReason({
+        selectedTargetScrollTop: args.selectedTargetScrollTop,
+        beforeScrollTop: args.beforeScrollTop,
+        appliedDeltaPx: 0,
+        requestedDeltaPx: revivedRequestedMovePx,
+        clampReason: 'terminal_clamp_active',
+        terminalClampActive: true,
+        hardSafetyBlocked: !!args.noMatchOrOffscript || !!args.hardContradiction,
+        directWriteBlocked: false,
+        staleDebtSource,
+        ownershipTargetChanged: staleDebtSource,
+        cooldownActive: false,
+      });
+      return {
+        finalTargetDebtPx,
+        staleDebtSource,
+        afterTop: Number(args.beforeScrollTop) || 0,
+        appliedDeltaPx: 0,
+        movementBlocked,
+      };
+    }
+    const result = debugApplyVisualActuatorTargetStep({
+      beforeScrollTop: args.beforeScrollTop,
+      targetScrollTop: args.selectedTargetScrollTop,
+      requestedMovePx: revivedRequestedMovePx,
+      effectiveMinStepPx: args.effectiveMinStepPx,
+      currentLineIdx: args.currentLineIdx,
+      committedLineIdx: args.committedLineIdx,
+      nextSpeakableLineIdx: args.nextSpeakableLineIdx,
+      authority: args.authority,
+      authorityReason: args.authorityReason,
+      allowedTargetIdx: args.allowedTargetIdx,
+      terminalClampActive: !!args.terminalClampActive,
+      noMatchOrOffscript: !!args.noMatchOrOffscript,
+      hardContradiction: !!args.hardContradiction,
+    });
+    const movementBlocked = resolveAsrActuatorMovementBlockedReason({
+      selectedTargetScrollTop: args.selectedTargetScrollTop,
+      beforeScrollTop: args.beforeScrollTop,
+      appliedDeltaPx: result.appliedDeltaPx,
+      requestedDeltaPx: revivedRequestedMovePx,
+      clampReason: result.clampReason,
+      terminalClampActive: !!args.terminalClampActive,
+      hardSafetyBlocked: !!args.noMatchOrOffscript || !!args.hardContradiction,
+      directWriteBlocked: false,
+      staleDebtSource,
+      ownershipTargetChanged: staleDebtSource,
+      cooldownActive: false,
+    });
+    return {
+      finalTargetDebtPx,
+      staleDebtSource,
+      afterTop: result.afterTop,
+      appliedDeltaPx: result.appliedDeltaPx,
+      movementBlocked,
+    };
+  };
   const debugEvaluateForwardCommitFreshness = (args: {
     currentLineIdx: number;
     proposedLineIdx: number;
@@ -39240,6 +39429,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     __debugObserveAsr4PocketDrift: debugObserveAsr4PocketDrift,
     __debugApplyScrollWithHybridGuard: debugApplyScrollWithHybridGuard,
     __debugApplyVisualActuatorTargetStep: debugApplyVisualActuatorTargetStep,
+    __debugApplyFinalSelectedActuatorStep: debugApplyFinalSelectedActuatorStep,
     __debugEvaluateForwardCommitFreshness: debugEvaluateForwardCommitFreshness,
     __debugEvaluateStabilizerSemanticCommitCandidate: debugEvaluateStabilizerSemanticCommitCandidate,
     __debugEvaluatePostSemanticCommitVisualFollowDiagnostic: debugEvaluatePostSemanticCommitVisualFollowDiagnostic,
@@ -39355,6 +39545,28 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       tolerancePx: number;
       usedPullback: boolean;
       blockedPullback: boolean;
+    };
+    __debugApplyFinalSelectedActuatorStep(args: {
+      beforeScrollTop: number;
+      selectedTargetScrollTop: number;
+      staleActuatorDebtPx: number;
+      requestedMovePx: number;
+      effectiveMinStepPx: number;
+      currentLineIdx: number;
+      committedLineIdx: number;
+      nextSpeakableLineIdx: number;
+      authority?: string;
+      authorityReason?: string;
+      allowedTargetIdx?: number | null;
+      terminalClampActive?: boolean;
+      noMatchOrOffscript?: boolean;
+      hardContradiction?: boolean;
+    }): {
+      finalTargetDebtPx: number;
+      staleDebtSource: boolean;
+      afterTop: number;
+      appliedDeltaPx: number;
+      movementBlocked: string;
     };
     __debugEvaluateForwardCommitFreshness(args: {
       currentLineIdx: number;

@@ -52,6 +52,28 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     reason?: string;
     sourcePath?: string;
   }): void;
+  __debugApplyFinalSelectedActuatorStep(args: {
+    beforeScrollTop: number;
+    selectedTargetScrollTop: number;
+    staleActuatorDebtPx: number;
+    requestedMovePx: number;
+    effectiveMinStepPx: number;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    nextSpeakableLineIdx: number;
+    authority?: string;
+    authorityReason?: string;
+    allowedTargetIdx?: number | null;
+    terminalClampActive?: boolean;
+    noMatchOrOffscript?: boolean;
+    hardContradiction?: boolean;
+  }): {
+    finalTargetDebtPx: number;
+    staleDebtSource: boolean;
+    afterTop: number;
+    appliedDeltaPx: number;
+    movementBlocked: string;
+  };
 };
 
 describe('ASR visual contract', () => {
@@ -248,6 +270,51 @@ describe('ASR visual contract', () => {
     expect(traceLine).toContain('blockedByBackwardRecenter=preserved_forward_target_ahead');
     expect(traceLine).toContain('selectedAuthority=preferred_lower_rail_release');
     expect(traceLine).toContain('previousPreservedTarget=2600');
+
+    driver.dispose();
+  });
+
+  test('final actuator debt comes from the selected forward target and reports a real block reason on no-move frames', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const forwardResult = driver.__debugApplyFinalSelectedActuatorStep({
+      beforeScrollTop: 1226,
+      selectedTargetScrollTop: 1327,
+      staleActuatorDebtPx: -35,
+      requestedMovePx: 0,
+      effectiveMinStepPx: 34,
+      currentLineIdx: 24,
+      committedLineIdx: 24,
+      nextSpeakableLineIdx: 24,
+      authority: 'bottom_lock_release',
+      authorityReason: 'below_preferred_bottom',
+      allowedTargetIdx: 24,
+    });
+
+    expect(forwardResult.finalTargetDebtPx).toBe(101);
+    expect(forwardResult.staleDebtSource).toBe(true);
+    expect(forwardResult.appliedDeltaPx).toBeGreaterThan(0);
+    expect(forwardResult.afterTop).toBeGreaterThan(1226);
+
+    const blockedResult = driver.__debugApplyFinalSelectedActuatorStep({
+      beforeScrollTop: 1226,
+      selectedTargetScrollTop: 1327,
+      staleActuatorDebtPx: -35,
+      requestedMovePx: 0,
+      effectiveMinStepPx: 34,
+      currentLineIdx: 24,
+      committedLineIdx: 24,
+      nextSpeakableLineIdx: 24,
+      authority: 'bottom_lock_release',
+      authorityReason: 'below_preferred_bottom',
+      allowedTargetIdx: 24,
+      terminalClampActive: true,
+    });
+
+    expect(blockedResult.finalTargetDebtPx).toBe(101);
+    expect(blockedResult.appliedDeltaPx).toBe(0);
+    expect(blockedResult.movementBlocked).not.toBe('none');
+    expect(blockedResult.movementBlocked).toBe('scroll_limit');
 
     driver.dispose();
   });
