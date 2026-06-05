@@ -67,6 +67,8 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     terminalClampActive?: boolean;
     noMatchOrOffscript?: boolean;
     hardContradiction?: boolean;
+    directWriteBlocked?: boolean;
+    directWriteBlockedReason?: 'none' | 'cooldown' | 'min_delta' | 'no_writer' | 'stale_debt' | 'safety_blocker' | 'target_changed' | 'scroll_limit' | 'ownership_not_final' | 'duplicate_write_guard' | null;
   }): {
     finalTargetDebtPx: number;
     staleDebtSource: boolean;
@@ -315,6 +317,57 @@ describe('ASR visual contract', () => {
     expect(blockedResult.appliedDeltaPx).toBe(0);
     expect(blockedResult.movementBlocked).not.toBe('none');
     expect(blockedResult.movementBlocked).toBe('scroll_limit');
+
+    driver.dispose();
+  });
+
+  test('direct-write-blocked no-move frames report a specific blocker instead of none', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const blockedResult = driver.__debugApplyFinalSelectedActuatorStep({
+      beforeScrollTop: 6473,
+      selectedTargetScrollTop: 6562,
+      staleActuatorDebtPx: 89,
+      requestedMovePx: 34,
+      effectiveMinStepPx: 34,
+      currentLineIdx: 102,
+      committedLineIdx: 102,
+      nextSpeakableLineIdx: 102,
+      authority: 'preserved_forward_follow_target',
+      authorityReason: 'lead_pressure_capped',
+      allowedTargetIdx: 102,
+      directWriteBlocked: true,
+      directWriteBlockedReason: 'ownership_not_final',
+    });
+
+    expect(blockedResult.finalTargetDebtPx).toBe(89);
+    expect(blockedResult.appliedDeltaPx).toBe(0);
+    expect(blockedResult.movementBlocked).toBe('ownership_not_final');
+
+    driver.dispose();
+  });
+
+  test('stale alternate debt cannot flip final debt negative for the selected forward target', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugApplyFinalSelectedActuatorStep({
+      beforeScrollTop: 6802,
+      selectedTargetScrollTop: 7039,
+      staleActuatorDebtPx: -443,
+      requestedMovePx: 0,
+      effectiveMinStepPx: 34,
+      currentLineIdx: 104,
+      committedLineIdx: 104,
+      nextSpeakableLineIdx: 104,
+      authority: 'reader_marker_correction',
+      authorityReason: 'below_preferred_bottom',
+      allowedTargetIdx: 104,
+    });
+
+    expect(result.finalTargetDebtPx).toBe(237);
+    expect(result.staleDebtSource).toBe(true);
+    expect(result.appliedDeltaPx).toBeGreaterThan(0);
+    expect(result.movementBlocked).not.toBe('target_debt_cap');
 
     driver.dispose();
   });

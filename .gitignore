@@ -39,3 +39,4 @@ apps/hammer/src/editor/_tmp_*.txt
 
 # local ASR diagnostics dumps
 tmp_asr_*/
+.tmp/asr-log-*/
