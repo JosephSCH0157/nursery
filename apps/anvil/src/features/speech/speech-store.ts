@@ -1,5 +1,8 @@
 import { speechStore, type SpeechState } from '../../state/speech-store';
-import { installTsPrimaryMatcherNamespace } from '../../speech/ts-primary-matcher-provider';
+import {
+  emitTsPrimaryMatcherProviderDiagnostic,
+  ensureTsPrimaryMatcherNamespace,
+} from '../../speech/ts-primary-matcher-provider';
 export type { SpeechState } from '../../state/speech-store';
 
 type AsrSettingsPatch = Partial<SpeechState>;
@@ -135,7 +138,7 @@ if (typeof window !== 'undefined') {
   const win = window as any;
   const ns = win.__tpSpeech || {};
   if (shouldInstallTsPrimaryMatcher(ns)) {
-    installTsPrimaryMatcherNamespace(ns);
+    ensureTsPrimaryMatcherNamespace('speech_store_init');
   }
   ns.store = speechStore;
   if (ns.store && typeof ns.store.getState !== 'function' && typeof ns.store.get === 'function') {
@@ -147,5 +150,13 @@ if (typeof window !== 'undefined') {
   win.__tpSpeech = ns;
   if (isDevMode()) {
     win.__tpSpeechStore = speechStore;
+  }
+  const blocksReadyListenerKey = '__tpTsPrimaryMatcherBlocksReadyListenerInstalled';
+  if (!win[blocksReadyListenerKey]) {
+    win[blocksReadyListenerKey] = true;
+    window.addEventListener('tp:asr:blocks-ready', () => {
+      ensureTsPrimaryMatcherNamespace('blocks_ready');
+      emitTsPrimaryMatcherProviderDiagnostic('blocks_ready');
+    });
   }
 }

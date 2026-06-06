@@ -22,6 +22,7 @@ describe('speech-store TS-primary matcher namespace', () => {
 
   test('installs usable matchOne and matchBatch for TS-primary boot once blocks are ready', async () => {
     (window as any).__TP_TS_PRIMARY__ = true;
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     const { ensureSpeechGlobals } = await import('../../src/speech/backend-guard');
     ensureSpeechGlobals();
@@ -31,8 +32,10 @@ describe('speech-store TS-primary matcher namespace', () => {
       noMatch: true,
       reason: 'matcher_unavailable',
     }));
+    expect((window as any).__tpSpeech.__tpMatcherProvider).toBe('matcher_unavailable_stub');
 
     await import('../../src/features/speech/speech-store');
+    const { getTsPrimaryMatcherProviderStatus } = await import('../../src/speech/ts-primary-matcher-provider');
 
     const namespace = (window as any).__tpSpeech;
     expect(typeof namespace.matchOne).toBe('function');
@@ -46,6 +49,19 @@ describe('speech-store TS-primary matcher namespace', () => {
       provider: 'ts_primary_runtime',
       diagnostic: 'ts_primary_matcher_not_ready:block_elements_empty',
     }));
+    expect(getTsPrimaryMatcherProviderStatus('speech_store_init')).toEqual(expect.objectContaining({
+      hasWindowTpSpeech: true,
+      hasMatchOne: true,
+      hasMatchBatch: true,
+      matcherProviderKind: 'ts_primary_runtime',
+      isBackendGuardStub: false,
+      blocksReady: false,
+      blockCount: 0,
+      installAttempted: true,
+      installSucceeded: true,
+      overwrittenAfterInstall: false,
+      currentProviderSource: 'ts_primary_matcher_provider',
+    }));
 
     (window as any).scriptWords = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta'];
     (window as any).paraIndex = [
@@ -54,6 +70,11 @@ describe('speech-store TS-primary matcher namespace', () => {
     ];
     (window as any).__vParaIndex = ['alpha beta gamma', 'delta epsilon zeta'];
     (window as any).currentIndex = 0;
+    const rogueMatch = jest.fn(() => ({ noMatch: true, reason: 'rogue_override' }));
+    namespace.matchBatch = rogueMatch;
+    namespace.matchOne = rogueMatch;
+    namespace.__tpMatcherProvider = 'rogue_override';
+    namespace.__tpMatcherProviderSource = 'rogue_test';
 
     const blockEl = document.createElement('div');
     const { setAsrBlocks } = await import('../../src/scroll/asr-block-store');
@@ -64,6 +85,19 @@ describe('speech-store TS-primary matcher namespace', () => {
       source: 'render',
       units: [{ blockIdx: 0, unitStart: 0, unitEnd: 1, sentenceCount: 2, charCount: 32 }],
     });
+    expect(namespace.matchBatch).not.toBe(rogueMatch);
+    expect(namespace.matchOne).not.toBe(rogueMatch);
+    expect(namespace.__tpMatcherProvider).toBe('ts_primary_runtime');
+    expect(warnSpy.mock.calls.some((call) => String(call[0] || '').includes('TS_PRIMARY_MATCHER_PROVIDER_OVERWRITTEN'))).toBe(true);
+
+    expect(getTsPrimaryMatcherProviderStatus('blocks_ready')).toEqual(expect.objectContaining({
+      matcherProviderKind: 'ts_primary_runtime',
+      blocksReady: true,
+      blockCount: 1,
+      installSucceeded: true,
+      overwrittenAfterInstall: true,
+      currentProviderSource: 'ts_primary_matcher_provider',
+    }));
 
     const readyResult = namespace.matchOne('delta epsilon zeta', true);
     expect(readyResult).toEqual(expect.objectContaining({

@@ -40,6 +40,15 @@ describe('speech loader runtime status', () => {
     delete (window as any).__tpAsrRuntimeStatus;
     delete (window as any).__tpAsrBlocksReady;
     delete (window as any).__tpAsrBlockCount;
+    delete (window as any).__TP_TS_PRIMARY__;
+    delete (window as any).__TP_LAST_APPLIED_HASH;
+    delete (window as any).__tpSpeech;
+    delete (window as any).__tpMatcher;
+    delete (window as any).__tpEmitSpeech;
+    delete (window as any).scriptWords;
+    delete (window as any).paraIndex;
+    delete (window as any).__vParaIndex;
+    delete (window as any).currentIndex;
     delete (window as any).SpeechRecognition;
     delete (window as any).webkitSpeechRecognition;
   });
@@ -50,6 +59,15 @@ describe('speech loader runtime status', () => {
     delete (window as any).__tpAsrRuntimeStatus;
     delete (window as any).__tpAsrBlocksReady;
     delete (window as any).__tpAsrBlockCount;
+    delete (window as any).__TP_TS_PRIMARY__;
+    delete (window as any).__TP_LAST_APPLIED_HASH;
+    delete (window as any).__tpSpeech;
+    delete (window as any).__tpMatcher;
+    delete (window as any).__tpEmitSpeech;
+    delete (window as any).scriptWords;
+    delete (window as any).paraIndex;
+    delete (window as any).__vParaIndex;
+    delete (window as any).currentIndex;
     delete (window as any).SpeechRecognition;
     delete (window as any).webkitSpeechRecognition;
     jest.restoreAllMocks();
@@ -219,6 +237,94 @@ describe('speech loader runtime status', () => {
     expect(statuses.some((status) => status.runtimePath === 'whisper-large-live')).toBe(true);
 
     stopSpeechBackendForSession('test-asr2-runtime-path');
+  });
+
+  test('uses the canonical TS-primary matcher provider for transcript summaries once blocks are ready', async () => {
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (window as any).__TP_TS_PRIMARY__ = true;
+    (window as any).__TP_LAST_APPLIED_HASH = 'ts-primary-runtime-proof';
+    (window as any).scriptWords = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta'];
+    (window as any).paraIndex = [
+      { start: 0, end: 2, key: 'alpha beta gamma', line: 0 },
+      { start: 3, end: 5, key: 'delta epsilon zeta', line: 1 },
+    ];
+    (window as any).__vParaIndex = ['alpha beta gamma', 'delta epsilon zeta'];
+    (window as any).currentIndex = 0;
+
+    jest.doMock('../../src/features/asr/asr-scroll-driver', () => ({
+      createAsrScrollDriver: jest.fn(() => ({
+        getStats: () => ({
+          lastIngestAt: 0,
+          lastCommitAt: 0,
+          commitCount: 0,
+          eventsSinceCommit: 0,
+          finalsSinceCommit: 0,
+        }),
+        getLastLineIndex: () => 0,
+        setLastLineIndex: jest.fn(),
+        ingest: jest.fn(),
+        dispose: jest.fn(),
+      })),
+    }));
+
+    class MockSpeechRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = 'en-US';
+      onstart: ((ev: Event) => void) | null = null;
+      start = jest.fn(() => {
+        this.onstart?.(new Event('start'));
+      });
+      stop = jest.fn();
+      abort = jest.fn();
+    }
+    (window as any).SpeechRecognition = MockSpeechRecognition;
+
+    const { ensureSpeechGlobals } = await import('../../src/speech/backend-guard');
+    const { setAsrBlocks } = await import('../../src/scroll/asr-block-store');
+    ensureSpeechGlobals();
+    await import('../../src/features/speech/speech-store');
+    setAsrBlocks([document.createElement('div')], {
+      schemaVersion: 1,
+      blockCount: 1,
+      createdAt: Date.now(),
+      source: 'render',
+      units: [{ blockIdx: 0, unitStart: 0, unitEnd: 1, sentenceCount: 2, charCount: 32 }],
+    });
+
+    const { appStore } = await import('../../src/state/app-store');
+    const { initSession } = await import('../../src/state/session');
+    initSession();
+    (window as any).__tpStore = appStore;
+    (window as any).__tpMic = {
+      requestMic: jest.fn(),
+      releaseMic: jest.fn(),
+      isOpen: jest.fn(() => true),
+    };
+    appStore.set('scrollMode', 'asr' as any);
+    appStore.set('asr.engine', 'webspeech');
+
+    const { startSpeechBackendForSession, stopSpeechBackendForSession } = await import('../../src/features/speech-loader');
+    const ok = await startSpeechBackendForSession({ mode: 'asr', reason: 'test-ts-primary-canonical-summary' });
+    expect(ok).toBe(true);
+    expect(typeof (window as any).__tpEmitSpeech).toBe('function');
+
+    (window as any).__tpEmitSpeech('delta epsilon zeta', true);
+
+    const summaryCall = infoSpy.mock.calls.find((call) =>
+      String(call[0] || '').includes('[speech-loader] tp:speech:transcript emit summary'));
+    expect(summaryCall).toBeTruthy();
+    const summary = JSON.parse(String(summaryCall?.[1] || '{}'));
+    expect(summary).toEqual(expect.objectContaining({
+      matchReason: 'ts_primary_matcher',
+      matchVia: 'backend',
+      primaryBypassReason: null,
+      blockCount: 1,
+      scriptHash: 'ts-primary-runtime-proof',
+    }));
+
+    stopSpeechBackendForSession('test-ts-primary-canonical-summary');
   });
 
   test('coalesces repeated driver create blocked diagnostics by signature', async () => {

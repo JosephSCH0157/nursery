@@ -31286,6 +31286,124 @@ var init_matcher = __esm({
 });
 
 // src/speech/ts-primary-matcher-provider.ts
+function getRuntimeState() {
+  if (typeof window === "undefined") return null;
+  const win = window;
+  if (!win.__tpTsPrimaryMatcherProviderRuntime) {
+    win.__tpTsPrimaryMatcherProviderRuntime = {
+      installAttempted: false,
+      installSucceeded: false,
+      installSkippedReason: null,
+      overwrittenAfterInstall: false,
+      overwriteLogged: false,
+      installedMatchBatch: null,
+      installedMatchOne: null,
+      currentProviderSource: null,
+      emittedStages: {},
+      lastStatus: null
+    };
+  }
+  return win.__tpTsPrimaryMatcherProviderRuntime;
+}
+function getTpSpeechNamespace() {
+  if (typeof window === "undefined") return null;
+  const win = window;
+  if (!win.__tpSpeech || typeof win.__tpSpeech !== "object") return null;
+  return win.__tpSpeech;
+}
+function isBackendGuardStubFn(fn) {
+  return typeof fn === "function" && fn.__tpMatcherUnavailableStub === true;
+}
+function readScriptHash() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.__TP_LAST_APPLIED_HASH;
+    return typeof raw === "string" && raw ? raw : null;
+  } catch {
+    return null;
+  }
+}
+function getBlockSnapshot() {
+  const blockEls2 = getAsrBlockElements();
+  const blockMeta2 = getAsrBlockIndex();
+  const blockCount = Array.isArray(blockEls2) ? blockEls2.length : 0;
+  return {
+    blocksReady: !!blockMeta2 && blockCount > 0,
+    blockCount
+  };
+}
+function getMatcherProviderKind(ns) {
+  if (!ns || typeof ns !== "object") return "missing_namespace";
+  if (typeof ns.__tpMatcherProvider === "string" && ns.__tpMatcherProvider) {
+    return ns.__tpMatcherProvider;
+  }
+  if (isBackendGuardStubFn(ns.matchBatch) || isBackendGuardStubFn(ns.matchOne)) {
+    return "matcher_unavailable_stub";
+  }
+  if (typeof ns.matchBatch === "function" || typeof ns.matchOne === "function") {
+    return "custom_or_legacy";
+  }
+  return "missing_matcher";
+}
+function computeCurrentProviderSource(ns, runtime) {
+  if (!ns || typeof ns !== "object") return null;
+  if (typeof ns.__tpMatcherProviderSource === "string" && ns.__tpMatcherProviderSource) {
+    return ns.__tpMatcherProviderSource;
+  }
+  if (runtime?.installedMatchBatch && ns.matchBatch === runtime.installedMatchBatch) {
+    return PROVIDER_SOURCE;
+  }
+  if (isBackendGuardStubFn(ns.matchBatch) || isBackendGuardStubFn(ns.matchOne)) {
+    return "backend_guard_stub";
+  }
+  return null;
+}
+function hasProviderBeenOverwritten(ns, runtime) {
+  if (!ns || !runtime?.installSucceeded) return false;
+  if (runtime.installedMatchBatch && ns.matchBatch !== runtime.installedMatchBatch) return true;
+  if (runtime.installedMatchOne && ns.matchOne !== runtime.installedMatchOne) return true;
+  return false;
+}
+function buildStatus(stage) {
+  const runtime = getRuntimeState();
+  const ns = getTpSpeechNamespace();
+  const { blocksReady, blockCount } = getBlockSnapshot();
+  const overwrittenAfterInstall = Boolean(runtime?.overwrittenAfterInstall) || hasProviderBeenOverwritten(ns, runtime);
+  const status2 = {
+    stage,
+    hasWindowTpSpeech: !!ns,
+    hasMatchOne: typeof ns?.matchOne === "function",
+    hasMatchBatch: typeof ns?.matchBatch === "function",
+    matcherProviderKind: getMatcherProviderKind(ns),
+    isBackendGuardStub: isBackendGuardStubFn(ns?.matchBatch) || isBackendGuardStubFn(ns?.matchOne),
+    blocksReady,
+    blockCount,
+    scriptHash: readScriptHash(),
+    installAttempted: !!runtime?.installAttempted,
+    installSucceeded: !!runtime?.installSucceeded,
+    installSkippedReason: runtime?.installSkippedReason ?? null,
+    overwrittenAfterInstall,
+    currentProviderSource: computeCurrentProviderSource(ns, runtime)
+  };
+  if (runtime) {
+    runtime.lastStatus = status2;
+    runtime.currentProviderSource = status2.currentProviderSource;
+    if (overwrittenAfterInstall) runtime.overwrittenAfterInstall = true;
+  }
+  return status2;
+}
+function maybeEmitOverwriteDiagnostic(stage) {
+  const runtime = getRuntimeState();
+  const ns = getTpSpeechNamespace();
+  if (!runtime || !hasProviderBeenOverwritten(ns, runtime)) return;
+  runtime.overwrittenAfterInstall = true;
+  if (runtime.overwriteLogged) return;
+  runtime.overwriteLogged = true;
+  try {
+    console.warn(OVERWRITE_DIAGNOSTIC_TAG, buildStatus(stage));
+  } catch {
+  }
+}
 function isTsPrimaryBoot() {
   if (typeof window === "undefined") return false;
   try {
@@ -31413,18 +31531,68 @@ function runTsPrimaryMatch(textInput, arg1, arg2) {
     return createUnavailableResult("ts_primary_matcher_failed");
   }
 }
-function installTsPrimaryMatcherNamespace(ns) {
-  if (!isTsPrimaryBoot() || !ns || typeof ns !== "object") return false;
-  ns.matchBatch = (text, arg1, arg2) => runTsPrimaryMatch(text, arg1, arg2);
-  ns.matchOne = (text, arg1, arg2) => runTsPrimaryMatch(text, arg1, arg2);
+function createMatchBatchProvider() {
+  return (text, arg1, arg2) => runTsPrimaryMatch(text, arg1, arg2);
+}
+function createMatchOneProvider() {
+  return (text, arg1, arg2) => runTsPrimaryMatch(text, arg1, arg2);
+}
+function applyProvider(ns, stage) {
+  if (!ns || typeof ns !== "object") return false;
+  const runtime = getRuntimeState();
+  maybeEmitOverwriteDiagnostic(`${stage}:preinstall`);
+  const matchBatch2 = createMatchBatchProvider();
+  const matchOne = createMatchOneProvider();
+  ns.matchBatch = matchBatch2;
+  ns.matchOne = matchOne;
   ns.__tpMatcherProvider = PROVIDER_ID;
+  ns.__tpMatcherProviderSource = PROVIDER_SOURCE;
   ns.__tpMatcherDiagnostics = {
     provider: PROVIDER_ID,
-    installMode: "dynamic-runtime"
+    installMode: "dynamic-runtime",
+    installStage: stage
   };
+  if (runtime) {
+    runtime.installAttempted = true;
+    runtime.installSucceeded = true;
+    runtime.installSkippedReason = null;
+    runtime.installedMatchBatch = matchBatch2;
+    runtime.installedMatchOne = matchOne;
+    runtime.currentProviderSource = PROVIDER_SOURCE;
+  }
   return true;
 }
-var PROVIDER_ID, DIRECT_MATCHER_MULTI_LINE_MIN_LINES, DIRECT_MATCHER_MULTI_LINE_MAX_LINES, DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES, DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD;
+function ensureTsPrimaryMatcherNamespace(stage = "ensure") {
+  const runtime = getRuntimeState();
+  if (runtime) {
+    runtime.installAttempted = true;
+    runtime.installSkippedReason = null;
+  }
+  if (!isTsPrimaryBoot()) {
+    if (runtime) runtime.installSkippedReason = "not_ts_primary_boot";
+    return false;
+  }
+  if (typeof window === "undefined") {
+    if (runtime) runtime.installSkippedReason = "window_unavailable";
+    return false;
+  }
+  const win = window;
+  const ns = win.__tpSpeech = win.__tpSpeech || {};
+  return applyProvider(ns, stage);
+}
+function emitTsPrimaryMatcherProviderDiagnostic(stage) {
+  const runtime = getRuntimeState();
+  maybeEmitOverwriteDiagnostic(`${stage}:check`);
+  const status2 = buildStatus(stage);
+  if (runtime?.emittedStages?.[stage]) return status2;
+  if (runtime) runtime.emittedStages[stage] = true;
+  try {
+    console.info(STATUS_DIAGNOSTIC_TAG, status2);
+  } catch {
+  }
+  return status2;
+}
+var PROVIDER_ID, PROVIDER_SOURCE, OVERWRITE_DIAGNOSTIC_TAG, STATUS_DIAGNOSTIC_TAG, DIRECT_MATCHER_MULTI_LINE_MIN_LINES, DIRECT_MATCHER_MULTI_LINE_MAX_LINES, DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES, DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD;
 var init_ts_primary_matcher_provider = __esm({
   "src/speech/ts-primary-matcher-provider.ts"() {
     "use strict";
@@ -31433,6 +31601,9 @@ var init_ts_primary_matcher_provider = __esm({
     init_matcher_runtime_state();
     init_matcher();
     PROVIDER_ID = "ts_primary_runtime";
+    PROVIDER_SOURCE = "ts_primary_matcher_provider";
+    OVERWRITE_DIAGNOSTIC_TAG = "[TS_PRIMARY_MATCHER_PROVIDER_OVERWRITTEN]";
+    STATUS_DIAGNOSTIC_TAG = "[TS_PRIMARY_MATCHER_PROVIDER_STATUS]";
     DIRECT_MATCHER_MULTI_LINE_MIN_LINES = 2;
     DIRECT_MATCHER_MULTI_LINE_MAX_LINES = 5;
     DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES = 3;
@@ -31545,7 +31716,7 @@ var init_speech_store2 = __esm({
       const win = window;
       const ns = win.__tpSpeech || {};
       if (shouldInstallTsPrimaryMatcher(ns)) {
-        installTsPrimaryMatcherNamespace(ns);
+        ensureTsPrimaryMatcherNamespace("speech_store_init");
       }
       ns.store = speechStore;
       if (ns.store && typeof ns.store.getState !== "function" && typeof ns.store.get === "function") {
@@ -31557,6 +31728,14 @@ var init_speech_store2 = __esm({
       win.__tpSpeech = ns;
       if (isDevMode3()) {
         win.__tpSpeechStore = speechStore;
+      }
+      const blocksReadyListenerKey = "__tpTsPrimaryMatcherBlocksReadyListenerInstalled";
+      if (!win[blocksReadyListenerKey]) {
+        win[blocksReadyListenerKey] = true;
+        window.addEventListener("tp:asr:blocks-ready", () => {
+          ensureTsPrimaryMatcherNamespace("blocks_ready");
+          emitTsPrimaryMatcherProviderDiagnostic("blocks_ready");
+        });
       }
     }
   }
@@ -38513,6 +38692,7 @@ function scheduleCommitTruthProbe(scroller, payload) {
   runAfterAnimationFrames(logFn, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES);
 }
 function createAsrScrollDriver(options = {}) {
+  emitTsPrimaryMatcherProviderDiagnostic("asr_driver_creation");
   asrPursuitDiagnosticCounters.emitted = 0;
   asrPursuitDiagnosticCounters.coalesced = 0;
   lastAsrPursuePayloadSignature = "";
@@ -42045,7 +42225,7 @@ function createAsrScrollDriver(options = {}) {
     clearPostSemanticCommitVisualFollowDiagnostic();
     clearPostSemanticCommitVisualRelease();
     stabilizerShadowState = createInitialAsrEvidenceStabilizerState(0);
-    stabilizerShadowLastScriptHash = readScriptHash2();
+    stabilizerShadowLastScriptHash = readScriptHash3();
     latestStabilizerShadowEvaluation = null;
     guardEvents.length = 0;
     try {
@@ -42132,7 +42312,7 @@ function createAsrScrollDriver(options = {}) {
   };
   const maybeResetStabilizerShadowForScriptChange = () => {
     if (!ENABLE_ASR_STABILIZER_SHADOW) return;
-    const nextScriptHash = readScriptHash2();
+    const nextScriptHash = readScriptHash3();
     if (!nextScriptHash) return;
     if (!stabilizerShadowLastScriptHash) {
       stabilizerShadowLastScriptHash = nextScriptHash;
@@ -43687,7 +43867,7 @@ function createAsrScrollDriver(options = {}) {
       consistencyEntries.length = 0;
     }
   };
-  const readScriptHash2 = () => {
+  const readScriptHash3 = () => {
     try {
       return String(window.__TP_LAST_APPLIED_HASH || "");
     } catch {
@@ -43695,7 +43875,7 @@ function createAsrScrollDriver(options = {}) {
     }
   };
   if (!lastScriptHash) {
-    lastScriptHash = readScriptHash2();
+    lastScriptHash = readScriptHash3();
   }
   const publishSharedCursor = (index, reason) => {
     try {
@@ -43714,7 +43894,7 @@ function createAsrScrollDriver(options = {}) {
     const next = Math.max(0, Math.floor(nextIndex));
     const prevRaw = Number(window?.currentIndex ?? lastLineIndex ?? -1);
     const prev2 = Number.isFinite(prevRaw) ? Math.floor(prevRaw) : 0;
-    const scriptHash = readScriptHash2();
+    const scriptHash = readScriptHash3();
     const scriptHashChanged = !!scriptHash && scriptHash !== lastScriptHash;
     const isBackJump = next < prev2 - DEFAULT_BACKJUMP_BLOCK_LINES;
     const allowBackJump = CURSOR_BACKJUMP_ALLOWED_REASONS.has(String(reason || ""));
@@ -66999,6 +67179,7 @@ var init_asr_scroll_driver = __esm({
     init_asr_block_store();
     init_scroll_writer();
     init_scroll_helpers();
+    init_ts_primary_matcher_provider();
     init_asr_diagnostics();
     init_asr_chairperson_flags();
     init_asr_evidence_stabilizer();
@@ -68765,12 +68946,17 @@ function ensureSpeechGlobals() {
     win.__tpSpeech = {
       startRecognizer: async () => void 0,
       stopRecognizer: noop2,
-      matchBatch: matchBatchStub
+      matchBatch: matchBatchStub,
+      __tpMatcherProvider: "matcher_unavailable_stub",
+      __tpMatcherProviderSource: "backend_guard_stub"
     };
   } else {
-    if (!win.__tpSpeech.startRecognizer) win.__tpSpeech.startRecognizer = async () => void 0;
-    if (!win.__tpSpeech.stopRecognizer) win.__tpSpeech.stopRecognizer = noop2;
-    if (!win.__tpSpeech.matchBatch) win.__tpSpeech.matchBatch = matchBatchStub;
+    const speechNs = win.__tpSpeech;
+    if (!speechNs.startRecognizer) speechNs.startRecognizer = async () => void 0;
+    if (!speechNs.stopRecognizer) speechNs.stopRecognizer = noop2;
+    if (!speechNs.matchBatch) speechNs.matchBatch = matchBatchStub;
+    if (!speechNs.__tpMatcherProvider) speechNs.__tpMatcherProvider = "matcher_unavailable_stub";
+    if (!speechNs.__tpMatcherProviderSource) speechNs.__tpMatcherProviderSource = "backend_guard_stub";
   }
 }
 var matchBatchStub, noop2;
@@ -71430,7 +71616,7 @@ function subscribeSpeechStore(store3, fn) {
   return () => {
   };
 }
-function getTpSpeechNamespace() {
+function getTpSpeechNamespace2() {
   if (typeof window === "undefined") return null;
   const ns = window.__tpSpeech;
   if (!ns || typeof ns !== "object") return null;
@@ -71484,7 +71670,7 @@ function isLegacySpeechOrchestratorAllowed() {
 }
 function getTpSpeechStoreSnapshot() {
   try {
-    const ns = getTpSpeechNamespace();
+    const ns = getTpSpeechNamespace2();
     return getSpeechStoreState(ns?.store) ?? latestSpeechStoreState;
   } catch {
     return latestSpeechStoreState;
@@ -73027,7 +73213,7 @@ function hardResetSpeechEngine(reason) {
   } catch {
   }
   try {
-    getTpSpeechNamespace()?.stopRecognizer?.();
+    getTpSpeechNamespace2()?.stopRecognizer?.();
   } catch {
   }
   for (const recognizer of candidates) {
@@ -73310,7 +73496,7 @@ function deriveDirectMatcherResult(transcript, speechStoreState) {
 }
 function deriveFallbackMatch(payload) {
   const raw = payload;
-  const speechNs = getTpSpeechNamespace();
+  const speechNs = getTpSpeechNamespace2();
   const speechStoreState = getTpSpeechStoreSnapshot();
   if (raw?.match && typeof raw.match === "object") {
     return raw.match;
@@ -73503,6 +73689,11 @@ function routeTranscript(input, isFinal) {
     payload.isFinal = promotedFinal;
     const enriched = enrichTranscriptPayloadForAsr(payload);
     const eventFinal = Boolean(enriched.isFinal ?? enriched.final ?? promotedFinal);
+    if (eventFinal && !firstTranscriptFinalMatcherDiagnosticEmitted) {
+      firstTranscriptFinalMatcherDiagnosticEmitted = true;
+      ensureTsPrimaryMatcherNamespace("first_transcript_final");
+      emitTsPrimaryMatcherProviderDiagnostic("first_transcript_final");
+    }
     try {
       console.debug(
         "[ASR_ROUTE] keys=",
@@ -74323,7 +74514,7 @@ function canAttachAsrBackend() {
   }
   if (isLegacySpeechNamespaceAllowed()) {
     try {
-      const ns = getTpSpeechNamespace();
+      const ns = getTpSpeechNamespace2();
       if (typeof ns?.startRecognizer === "function") return true;
     } catch {
     }
@@ -75099,7 +75290,7 @@ function enforceRecognizerInterimCapture(mode, recognizer) {
   }
 }
 async function startBackendForSession(mode, reason) {
-  const speechNs = getTpSpeechNamespace();
+  const speechNs = getTpSpeechNamespace2();
   const allowLegacyNs = isLegacySpeechNamespaceAllowed();
   const allowLegacyOrchestrator = isLegacySpeechOrchestratorAllowed();
   const speechStoreState = getTpSpeechStoreSnapshot();
@@ -75378,6 +75569,8 @@ async function startBackendForSession(mode, reason) {
   return true;
 }
 async function startSpeechBackendForSession(info) {
+  ensureTsPrimaryMatcherNamespace("speech_backend_start");
+  emitTsPrimaryMatcherProviderDiagnostic("speech_backend_start");
   const mode = (info?.mode || getScrollMode4()).toLowerCase();
   bootTrace("speech-loader:live-path:enter", {
     reason: info?.reason || null,
@@ -75621,7 +75814,7 @@ function stopSpeechBackendForSession(reason) {
   } catch {
   }
   try {
-    getTpSpeechNamespace()?.stopRecognizer?.();
+    getTpSpeechNamespace2()?.stopRecognizer?.();
   } catch {
   }
   try {
@@ -75756,7 +75949,7 @@ function installSpeech() {
     }
   })();
 }
-var running, rec, lastScrollMode, lastResultTs, speechRunningActual, lastRecognizerOnResultTs, lastRecognizerAttachedTs, lastAsrIngestTs, lastAsrCommitTs, lastAsrCommitCount, lastRecognizerLifecycleEvent, lastRecognizerLifecycleAt, lastAsrStallClass, speechWatchdogTimer, asrHeartbeatTimer, activeRecognizer, lastStartedSpeechEngine, lastRequestedSpeechEngine, activeAsrLane, currentActualSpeechEngine, currentFallbackReason, currentAsrState, pendingManualRestartCount, lifecycleRestartTimer, lastLifecycleRestartAt, suppressRecognizerAutoRestart, lastHudSnapshotFingerprint, lastHudSnapshotAt, asrStallEpisodeId, asrStallEpisodeRestarted, asrStallAttemptCountThisEpisode, lastAsrStallEpisodeClass, lastAsrStallAutoRestartAt, suppressAsrStallAutoRestartUntil, lastAsrStallRescueAt, lastMatcherStallCommitCount, lastMatcherStallCommitStableSince, lastAsrScriptEndStopKey, pendingAsrScriptEndStop, deferredAsrScriptEndStop, lastEmittedFinalTranscriptNorm, lastEmittedFinalTranscriptAt, matcherSummaryCount, matcherFallbackSummaryCount, asrDriverCreateBlockedBySignature, ASR_DRIVER_CREATE_BLOCKED_SUMMARY_EVERY, deferredAsrScriptEndStopTimer, WATCHDOG_INTERVAL_MS, WATCHDOG_THRESHOLD_MS, ASR_WATCHDOG_THRESHOLD_MS, ASR_HEARTBEAT_INTERVAL_MS, ASR_STALL_SPEECH_THRESHOLD_MS, ASR_DEAF_RECOGNIZER_MS, ASR_STALL_MATCHER_THRESHOLD_MS, ASR_STALL_MATCHER_STABLE_COMMIT_MS, DIRECT_MATCHER_MULTI_LINE_MIN_LINES2, DIRECT_MATCHER_MULTI_LINE_MAX_LINES2, DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES2, DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD2, ASR_STALL_AUTORESTART_COOLDOWN_MS, ASR_STALL_AUTORESTART_SUPPRESS_MS, ASR_STALL_RESCUE_COOLDOWN_MS, LIFECYCLE_RESTART_DELAY_MS, LIFECYCLE_RESTART_COOLDOWN_MS, HUD_SNAPSHOT_THROTTLE_MS, ASR_SCRIPT_END_CONFIRM_MAX_WAIT_MS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_MEANINGFUL_TOKENS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_TOKENS, ASR_SCRIPT_END_MARKER_WAIT_MAX_MS, ASR_SCRIPT_END_MARKER_POLL_MS, ASR_SCRIPT_END_POSTROLL_MS, ASR_END_GRACE_MS, ASR_END_GRACE_EXTENSION_MS, ASR_END_GRACE_POLL_MS, ASR_END_GRACE_SPEECH_FRESH_MS, ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO, ASR_FINAL_NOVELTY_MIN_RATIO, ASR_FINAL_NOVELTY_MIN_OVERLAP_RATIO, ASR_FINAL_NOVELTY_DEDUP_WINDOW_MS, ASR_SCRIPT_END_STOPWORDS, speechStoreShimmed, speechStoreSubscribed, latestSpeechStoreState, fallbackTranscriptMatchSeq, __asrLastInterimText, __asrLastInterimAt, __asrInterimRepeatCount, CUE_LINE_BRACKET_RE2, CUE_LINE_WORD_RE2, SPEAKER_TAG_ONLY_RE2, NOTE_TAG_ONLY_RE2, NOTE_INLINE_BLOCK_RE2, SPEAKER_SLOTS, SPEAKER_NAME_SELECTORS, DEFAULT_SPEAKER_LABELS, LOWER_GUARDS, RAISE_GUARDS, summaryListenerAttached, ASR_LAYOUT_READY_MAX_MS, pendingLayoutReady, TRANSCRIPT_EVENT_OPTIONS, asrScrollDriver, transcriptListener, sessionStopHooked, asrBrainLogged, asrDriverLifecycleHooked, asrSessionIntentActive, asrRunCounter, activeAsrRunKey, asrRunGeneration, lastAsrBlockSyncAt, lastAsrBlockSyncLogAt, lastAsrSyncLogAtByType, lastAsrSyncFingerprintByType, ASR_LIVE_BLOCK_SYNC_THROTTLE_MS, ASR_BLOCK_SYNC_LOG_THROTTLE_MS, ASR_SYNC_LOG_THROTTLE_MS, ASR_BLOCK_SYNC_UNCHANGED_LOG_THROTTLE_MS, lastAsrBlockSyncCompleteFingerprint, lastAsrBlockSyncUnchangedAt;
+var running, rec, lastScrollMode, lastResultTs, speechRunningActual, lastRecognizerOnResultTs, lastRecognizerAttachedTs, lastAsrIngestTs, lastAsrCommitTs, lastAsrCommitCount, lastRecognizerLifecycleEvent, lastRecognizerLifecycleAt, lastAsrStallClass, speechWatchdogTimer, asrHeartbeatTimer, activeRecognizer, lastStartedSpeechEngine, lastRequestedSpeechEngine, activeAsrLane, currentActualSpeechEngine, currentFallbackReason, currentAsrState, pendingManualRestartCount, lifecycleRestartTimer, lastLifecycleRestartAt, suppressRecognizerAutoRestart, lastHudSnapshotFingerprint, lastHudSnapshotAt, asrStallEpisodeId, asrStallEpisodeRestarted, asrStallAttemptCountThisEpisode, lastAsrStallEpisodeClass, lastAsrStallAutoRestartAt, suppressAsrStallAutoRestartUntil, lastAsrStallRescueAt, lastMatcherStallCommitCount, lastMatcherStallCommitStableSince, lastAsrScriptEndStopKey, pendingAsrScriptEndStop, deferredAsrScriptEndStop, lastEmittedFinalTranscriptNorm, lastEmittedFinalTranscriptAt, matcherSummaryCount, matcherFallbackSummaryCount, firstTranscriptFinalMatcherDiagnosticEmitted, asrDriverCreateBlockedBySignature, ASR_DRIVER_CREATE_BLOCKED_SUMMARY_EVERY, deferredAsrScriptEndStopTimer, WATCHDOG_INTERVAL_MS, WATCHDOG_THRESHOLD_MS, ASR_WATCHDOG_THRESHOLD_MS, ASR_HEARTBEAT_INTERVAL_MS, ASR_STALL_SPEECH_THRESHOLD_MS, ASR_DEAF_RECOGNIZER_MS, ASR_STALL_MATCHER_THRESHOLD_MS, ASR_STALL_MATCHER_STABLE_COMMIT_MS, DIRECT_MATCHER_MULTI_LINE_MIN_LINES2, DIRECT_MATCHER_MULTI_LINE_MAX_LINES2, DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES2, DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD2, ASR_STALL_AUTORESTART_COOLDOWN_MS, ASR_STALL_AUTORESTART_SUPPRESS_MS, ASR_STALL_RESCUE_COOLDOWN_MS, LIFECYCLE_RESTART_DELAY_MS, LIFECYCLE_RESTART_COOLDOWN_MS, HUD_SNAPSHOT_THROTTLE_MS, ASR_SCRIPT_END_CONFIRM_MAX_WAIT_MS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_MEANINGFUL_TOKENS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_TOKENS, ASR_SCRIPT_END_MARKER_WAIT_MAX_MS, ASR_SCRIPT_END_MARKER_POLL_MS, ASR_SCRIPT_END_POSTROLL_MS, ASR_END_GRACE_MS, ASR_END_GRACE_EXTENSION_MS, ASR_END_GRACE_POLL_MS, ASR_END_GRACE_SPEECH_FRESH_MS, ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO, ASR_FINAL_NOVELTY_MIN_RATIO, ASR_FINAL_NOVELTY_MIN_OVERLAP_RATIO, ASR_FINAL_NOVELTY_DEDUP_WINDOW_MS, ASR_SCRIPT_END_STOPWORDS, speechStoreShimmed, speechStoreSubscribed, latestSpeechStoreState, fallbackTranscriptMatchSeq, __asrLastInterimText, __asrLastInterimAt, __asrInterimRepeatCount, CUE_LINE_BRACKET_RE2, CUE_LINE_WORD_RE2, SPEAKER_TAG_ONLY_RE2, NOTE_TAG_ONLY_RE2, NOTE_INLINE_BLOCK_RE2, SPEAKER_SLOTS, SPEAKER_NAME_SELECTORS, DEFAULT_SPEAKER_LABELS, LOWER_GUARDS, RAISE_GUARDS, summaryListenerAttached, ASR_LAYOUT_READY_MAX_MS, pendingLayoutReady, TRANSCRIPT_EVENT_OPTIONS, asrScrollDriver, transcriptListener, sessionStopHooked, asrBrainLogged, asrDriverLifecycleHooked, asrSessionIntentActive, asrRunCounter, activeAsrRunKey, asrRunGeneration, lastAsrBlockSyncAt, lastAsrBlockSyncLogAt, lastAsrSyncLogAtByType, lastAsrSyncFingerprintByType, ASR_LIVE_BLOCK_SYNC_THROTTLE_MS, ASR_BLOCK_SYNC_LOG_THROTTLE_MS, ASR_SYNC_LOG_THROTTLE_MS, ASR_BLOCK_SYNC_UNCHANGED_LOG_THROTTLE_MS, lastAsrBlockSyncCompleteFingerprint, lastAsrBlockSyncUnchangedAt;
 var init_speech_loader = __esm({
   "src/features/speech-loader.ts"() {
     "use strict";
@@ -75775,6 +75968,7 @@ var init_speech_loader = __esm({
     init_matcher_input();
     init_matcher_runtime_state();
     init_matcher();
+    init_ts_primary_matcher_provider();
     init_runtime_engine_selection();
     init_session();
     init_save_speaker_profiles_prompt();
@@ -75826,6 +76020,7 @@ var init_speech_loader = __esm({
     lastEmittedFinalTranscriptAt = 0;
     matcherSummaryCount = 0;
     matcherFallbackSummaryCount = 0;
+    firstTranscriptFinalMatcherDiagnosticEmitted = false;
     asrDriverCreateBlockedBySignature = /* @__PURE__ */ new Map();
     ASR_DRIVER_CREATE_BLOCKED_SUMMARY_EVERY = 20;
     deferredAsrScriptEndStopTimer = null;
@@ -84148,7 +84343,7 @@ async function finalizeChunkedRecordingUpload(workpieceId, uploadId, payload, ap
   const data = body?.data ?? null;
   return { status: response.status, body, ok: response.ok && isCommitAck(body), data };
 }
-function readScriptHash() {
+function readScriptHash2() {
   try {
     const raw = window.__TP_LAST_APPLIED_HASH;
     return readString7(raw);
@@ -84510,7 +84705,7 @@ async function commitRecordingBytesToTongs(input) {
   const thresholdExceeded = input.bytes.byteLength > mbToBytes(uploadConfig.largeUploadWarnMb);
   const sessionRunKey = readSessionRunKey(captureSessionId);
   const title = deriveRecordingTitleFromName(input.originalName);
-  const scriptHash = readScriptHash();
+  const scriptHash = readScriptHash2();
   const commitPathMode = strategy === "chunked" ? "recording-upload.chunked" : "commit-file.single";
   const emitUploadStatus = (phase, patch = {}) => {
     emitRecordingUploadStatus({
@@ -111107,6 +111302,7 @@ var init_index_app = __esm({
     "use strict";
     init_compat_ids();
     init_speech_store2();
+    init_ts_primary_matcher_provider();
     init_boot_trace();
     init_dev_log();
     init_diag_verbosity();
@@ -111306,6 +111502,7 @@ var init_index_app = __esm({
     } catch {
     }
     bootTrace("index-app.ts:module-eval:imports-ready");
+    emitTsPrimaryMatcherProviderDiagnostic("app_boot");
     installFatalGuards();
     bootTrace("index-app.ts:early:fatal-guards:done");
     try {

@@ -72,10 +72,15 @@ export function ensureSpeechGlobals(): void {
       startRecognizer: async () => undefined,
       stopRecognizer: noop,
       matchBatch: matchBatchStub,
-    };
+      __tpMatcherProvider: 'matcher_unavailable_stub',
+      __tpMatcherProviderSource: 'backend_guard_stub',
+    } as any;
   } else {
-    if (!win.__tpSpeech.startRecognizer) win.__tpSpeech.startRecognizer = async () => undefined;
-    if (!win.__tpSpeech.stopRecognizer) win.__tpSpeech.stopRecognizer = noop;
-    if (!win.__tpSpeech.matchBatch) win.__tpSpeech.matchBatch = matchBatchStub;
+    const speechNs = win.__tpSpeech as any;
+    if (!speechNs.startRecognizer) speechNs.startRecognizer = async () => undefined;
+    if (!speechNs.stopRecognizer) speechNs.stopRecognizer = noop;
+    if (!speechNs.matchBatch) speechNs.matchBatch = matchBatchStub;
+    if (!speechNs.__tpMatcherProvider) speechNs.__tpMatcherProvider = 'matcher_unavailable_stub';
+    if (!speechNs.__tpMatcherProviderSource) speechNs.__tpMatcherProviderSource = 'backend_guard_stub';
   }
 }

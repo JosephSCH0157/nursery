@@ -2393,10 +2393,131 @@ function matchBatch(spokenTokens, _scriptWords, paraIndex, vParaIndex, cfg, curr
 
 // src/speech/ts-primary-matcher-provider.ts
 var PROVIDER_ID = "ts_primary_runtime";
+var PROVIDER_SOURCE = "ts_primary_matcher_provider";
+var OVERWRITE_DIAGNOSTIC_TAG = "[TS_PRIMARY_MATCHER_PROVIDER_OVERWRITTEN]";
+var STATUS_DIAGNOSTIC_TAG = "[TS_PRIMARY_MATCHER_PROVIDER_STATUS]";
 var DIRECT_MATCHER_MULTI_LINE_MIN_LINES = 2;
 var DIRECT_MATCHER_MULTI_LINE_MAX_LINES = 5;
 var DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES = 3;
 var DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD = 10;
+function getRuntimeState() {
+  if (typeof window === "undefined") return null;
+  const win = window;
+  if (!win.__tpTsPrimaryMatcherProviderRuntime) {
+    win.__tpTsPrimaryMatcherProviderRuntime = {
+      installAttempted: false,
+      installSucceeded: false,
+      installSkippedReason: null,
+      overwrittenAfterInstall: false,
+      overwriteLogged: false,
+      installedMatchBatch: null,
+      installedMatchOne: null,
+      currentProviderSource: null,
+      emittedStages: {},
+      lastStatus: null
+    };
+  }
+  return win.__tpTsPrimaryMatcherProviderRuntime;
+}
+function getTpSpeechNamespace() {
+  if (typeof window === "undefined") return null;
+  const win = window;
+  if (!win.__tpSpeech || typeof win.__tpSpeech !== "object") return null;
+  return win.__tpSpeech;
+}
+function isBackendGuardStubFn(fn) {
+  return typeof fn === "function" && fn.__tpMatcherUnavailableStub === true;
+}
+function readScriptHash() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.__TP_LAST_APPLIED_HASH;
+    return typeof raw === "string" && raw ? raw : null;
+  } catch {
+    return null;
+  }
+}
+function getBlockSnapshot() {
+  const blockEls2 = getAsrBlockElements();
+  const blockMeta2 = getAsrBlockIndex();
+  const blockCount = Array.isArray(blockEls2) ? blockEls2.length : 0;
+  return {
+    blocksReady: !!blockMeta2 && blockCount > 0,
+    blockCount
+  };
+}
+function getMatcherProviderKind(ns) {
+  if (!ns || typeof ns !== "object") return "missing_namespace";
+  if (typeof ns.__tpMatcherProvider === "string" && ns.__tpMatcherProvider) {
+    return ns.__tpMatcherProvider;
+  }
+  if (isBackendGuardStubFn(ns.matchBatch) || isBackendGuardStubFn(ns.matchOne)) {
+    return "matcher_unavailable_stub";
+  }
+  if (typeof ns.matchBatch === "function" || typeof ns.matchOne === "function") {
+    return "custom_or_legacy";
+  }
+  return "missing_matcher";
+}
+function computeCurrentProviderSource(ns, runtime) {
+  if (!ns || typeof ns !== "object") return null;
+  if (typeof ns.__tpMatcherProviderSource === "string" && ns.__tpMatcherProviderSource) {
+    return ns.__tpMatcherProviderSource;
+  }
+  if (runtime?.installedMatchBatch && ns.matchBatch === runtime.installedMatchBatch) {
+    return PROVIDER_SOURCE;
+  }
+  if (isBackendGuardStubFn(ns.matchBatch) || isBackendGuardStubFn(ns.matchOne)) {
+    return "backend_guard_stub";
+  }
+  return null;
+}
+function hasProviderBeenOverwritten(ns, runtime) {
+  if (!ns || !runtime?.installSucceeded) return false;
+  if (runtime.installedMatchBatch && ns.matchBatch !== runtime.installedMatchBatch) return true;
+  if (runtime.installedMatchOne && ns.matchOne !== runtime.installedMatchOne) return true;
+  return false;
+}
+function buildStatus(stage) {
+  const runtime = getRuntimeState();
+  const ns = getTpSpeechNamespace();
+  const { blocksReady, blockCount } = getBlockSnapshot();
+  const overwrittenAfterInstall = Boolean(runtime?.overwrittenAfterInstall) || hasProviderBeenOverwritten(ns, runtime);
+  const status = {
+    stage,
+    hasWindowTpSpeech: !!ns,
+    hasMatchOne: typeof ns?.matchOne === "function",
+    hasMatchBatch: typeof ns?.matchBatch === "function",
+    matcherProviderKind: getMatcherProviderKind(ns),
+    isBackendGuardStub: isBackendGuardStubFn(ns?.matchBatch) || isBackendGuardStubFn(ns?.matchOne),
+    blocksReady,
+    blockCount,
+    scriptHash: readScriptHash(),
+    installAttempted: !!runtime?.installAttempted,
+    installSucceeded: !!runtime?.installSucceeded,
+    installSkippedReason: runtime?.installSkippedReason ?? null,
+    overwrittenAfterInstall,
+    currentProviderSource: computeCurrentProviderSource(ns, runtime)
+  };
+  if (runtime) {
+    runtime.lastStatus = status;
+    runtime.currentProviderSource = status.currentProviderSource;
+    if (overwrittenAfterInstall) runtime.overwrittenAfterInstall = true;
+  }
+  return status;
+}
+function maybeEmitOverwriteDiagnostic(stage) {
+  const runtime = getRuntimeState();
+  const ns = getTpSpeechNamespace();
+  if (!runtime || !hasProviderBeenOverwritten(ns, runtime)) return;
+  runtime.overwrittenAfterInstall = true;
+  if (runtime.overwriteLogged) return;
+  runtime.overwriteLogged = true;
+  try {
+    console.warn(OVERWRITE_DIAGNOSTIC_TAG, buildStatus(stage));
+  } catch {
+  }
+}
 function isTsPrimaryBoot() {
   if (typeof window === "undefined") return false;
   try {
@@ -2524,16 +2645,66 @@ function runTsPrimaryMatch(textInput, arg1, arg2) {
     return createUnavailableResult("ts_primary_matcher_failed");
   }
 }
-function installTsPrimaryMatcherNamespace(ns) {
-  if (!isTsPrimaryBoot() || !ns || typeof ns !== "object") return false;
-  ns.matchBatch = (text, arg1, arg2) => runTsPrimaryMatch(text, arg1, arg2);
-  ns.matchOne = (text, arg1, arg2) => runTsPrimaryMatch(text, arg1, arg2);
+function createMatchBatchProvider() {
+  return (text, arg1, arg2) => runTsPrimaryMatch(text, arg1, arg2);
+}
+function createMatchOneProvider() {
+  return (text, arg1, arg2) => runTsPrimaryMatch(text, arg1, arg2);
+}
+function applyProvider(ns, stage) {
+  if (!ns || typeof ns !== "object") return false;
+  const runtime = getRuntimeState();
+  maybeEmitOverwriteDiagnostic(`${stage}:preinstall`);
+  const matchBatch2 = createMatchBatchProvider();
+  const matchOne = createMatchOneProvider();
+  ns.matchBatch = matchBatch2;
+  ns.matchOne = matchOne;
   ns.__tpMatcherProvider = PROVIDER_ID;
+  ns.__tpMatcherProviderSource = PROVIDER_SOURCE;
   ns.__tpMatcherDiagnostics = {
     provider: PROVIDER_ID,
-    installMode: "dynamic-runtime"
+    installMode: "dynamic-runtime",
+    installStage: stage
   };
+  if (runtime) {
+    runtime.installAttempted = true;
+    runtime.installSucceeded = true;
+    runtime.installSkippedReason = null;
+    runtime.installedMatchBatch = matchBatch2;
+    runtime.installedMatchOne = matchOne;
+    runtime.currentProviderSource = PROVIDER_SOURCE;
+  }
   return true;
+}
+function ensureTsPrimaryMatcherNamespace(stage = "ensure") {
+  const runtime = getRuntimeState();
+  if (runtime) {
+    runtime.installAttempted = true;
+    runtime.installSkippedReason = null;
+  }
+  if (!isTsPrimaryBoot()) {
+    if (runtime) runtime.installSkippedReason = "not_ts_primary_boot";
+    return false;
+  }
+  if (typeof window === "undefined") {
+    if (runtime) runtime.installSkippedReason = "window_unavailable";
+    return false;
+  }
+  const win = window;
+  const ns = win.__tpSpeech = win.__tpSpeech || {};
+  return applyProvider(ns, stage);
+}
+function emitTsPrimaryMatcherProviderDiagnostic(stage) {
+  const runtime = getRuntimeState();
+  maybeEmitOverwriteDiagnostic(`${stage}:check`);
+  const status = buildStatus(stage);
+  if (runtime?.emittedStages?.[stage]) return status;
+  if (runtime) runtime.emittedStages[stage] = true;
+  try {
+    console.info(STATUS_DIAGNOSTIC_TAG, status);
+  } catch {
+  }
+  return status;
 }
 
 // src/features/speech/speech-store.ts
@@ -2638,7 +2809,7 @@ if (typeof window !== "undefined") {
   const win = window;
   const ns = win.__tpSpeech || {};
   if (shouldInstallTsPrimaryMatcher(ns)) {
-    installTsPrimaryMatcherNamespace(ns);
+    ensureTsPrimaryMatcherNamespace("speech_store_init");
   }
   ns.store = speechStore;
   if (ns.store && typeof ns.store.getState !== "function" && typeof ns.store.get === "function") {
@@ -2650,6 +2821,14 @@ if (typeof window !== "undefined") {
   win.__tpSpeech = ns;
   if (isDevMode()) {
     win.__tpSpeechStore = speechStore;
+  }
+  const blocksReadyListenerKey = "__tpTsPrimaryMatcherBlocksReadyListenerInstalled";
+  if (!win[blocksReadyListenerKey]) {
+    win[blocksReadyListenerKey] = true;
+    window.addEventListener("tp:asr:blocks-ready", () => {
+      ensureTsPrimaryMatcherNamespace("blocks_ready");
+      emitTsPrimaryMatcherProviderDiagnostic("blocks_ready");
+    });
   }
 }
 

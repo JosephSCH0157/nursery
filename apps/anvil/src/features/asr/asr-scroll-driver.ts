@@ -20,6 +20,7 @@ import {
 import { getAsrBlockElements } from '../../scroll/asr-block-store';
 import { isSeekAnimationActive, seekToBlockAnimated } from '../../scroll/scroll-writer';
 import { shouldLogScrollWrite } from '../../scroll/scroll-helpers';
+import { emitTsPrimaryMatcherProviderDiagnostic } from '../../speech/ts-primary-matcher-provider';
 import {
   ASR_DELAYED_SUPPRESSION_AUTOPSY_VERSION,
   ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION,
@@ -2969,6 +2970,7 @@ function scheduleCommitTruthProbe(
 }
 
 export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDriver {
+  emitTsPrimaryMatcherProviderDiagnostic('asr_driver_creation');
   asrPursuitDiagnosticCounters.emitted = 0;
   asrPursuitDiagnosticCounters.coalesced = 0;
   lastAsrPursuePayloadSignature = '';

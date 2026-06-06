@@ -71,6 +71,7 @@ try {
 // Compatibility helpers (ID aliases and tolerant $id()) must be installed very early
 import './boot/compat-ids';
 import './features/speech/speech-store';
+import { emitTsPrimaryMatcherProviderDiagnostic } from './speech/ts-primary-matcher-provider';
 import { bootTrace, bootTraceDumpToConsole } from './boot/boot-trace';
 import { shouldLogLevel } from './env/dev-log';
 import { shouldLogVerboseDiagnostic } from './env/diag-verbosity';
@@ -139,6 +140,7 @@ import { refreshEntitlements, setFreeEntitlements } from './forge/entitlements';
 import { initTopbarSessionStatus } from './ui/topbar-session-status';
 
 bootTrace('index-app.ts:module-eval:imports-ready');
+emitTsPrimaryMatcherProviderDiagnostic('app_boot');
 
 function showFatalFallback(): void {
   try {

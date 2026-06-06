@@ -28,6 +28,10 @@ import { getActiveAsrProfile } from '../asr/active-profile';
 import { prepareMatcherInput } from '../speech/matcher-input';
 import { getMatcherRuntimeState } from '../speech/matcher-runtime-state';
 import { matchBatch as runMatcherBatch, normTokens } from '../speech/matcher';
+import {
+  emitTsPrimaryMatcherProviderDiagnostic,
+  ensureTsPrimaryMatcherNamespace,
+} from '../speech/ts-primary-matcher-provider';
 import { resolveRuntimeSpeechEngine } from '../speech/runtime-engine-selection';
 import type { AppStore } from '../state/app-store';
 import { getSession, setSessionPhase } from '../state/session';
@@ -370,6 +374,7 @@ let lastEmittedFinalTranscriptNorm = '';
 let lastEmittedFinalTranscriptAt = 0;
 let matcherSummaryCount = 0;
 let matcherFallbackSummaryCount = 0;
+let firstTranscriptFinalMatcherDiagnosticEmitted = false;
 
 type AsrDriverCreateBlockedEntry = {
   suppressedCount: number;
@@ -2682,6 +2687,11 @@ function routeTranscript(input: string | (Partial<TranscriptPayload> & { text?: 
     payload.isFinal = promotedFinal;
     const enriched = enrichTranscriptPayloadForAsr(payload);
     const eventFinal = Boolean(enriched.isFinal ?? enriched.final ?? promotedFinal);
+    if (eventFinal && !firstTranscriptFinalMatcherDiagnosticEmitted) {
+      firstTranscriptFinalMatcherDiagnosticEmitted = true;
+      ensureTsPrimaryMatcherNamespace('first_transcript_final');
+      emitTsPrimaryMatcherProviderDiagnostic('first_transcript_final');
+    }
     try {
       console.debug(
         '[ASR_ROUTE] keys=',
@@ -4723,6 +4733,8 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
 }
 
 export async function startSpeechBackendForSession(info?: { reason?: string; mode?: string }): Promise<boolean> {
+  ensureTsPrimaryMatcherNamespace('speech_backend_start');
+  emitTsPrimaryMatcherProviderDiagnostic('speech_backend_start');
   const mode = (info?.mode || getScrollMode()).toLowerCase();
   bootTrace('speech-loader:live-path:enter', {
     reason: info?.reason || null,
