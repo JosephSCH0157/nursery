@@ -30930,6 +30930,516 @@ var init_speech_store = __esm({
   }
 });
 
+// src/speech/matcher-input.ts
+function stripMatcherMetaPhrases(text) {
+  let out = String(text || "");
+  for (const rx of META_PHRASES) {
+    rx.lastIndex = 0;
+    out = out.replace(rx, " ");
+  }
+  return out;
+}
+function prepareMatcherInput(text, tokenize) {
+  const scrubbed = stripMatcherMetaPhrases(text || "");
+  const spokenTokens = tokenize(scrubbed);
+  return {
+    scrubbed,
+    spokenTokens,
+    matchTokens: spokenTokens.slice(-MATCH_TOKEN_WINDOW)
+  };
+}
+var MATCH_TOKEN_WINDOW, META_PHRASES;
+var init_matcher_input = __esm({
+  "src/speech/matcher-input.ts"() {
+    "use strict";
+    MATCH_TOKEN_WINDOW = 18;
+    META_PHRASES = [
+      /\bit(?:'s| is) not keeping up\b/gi,
+      /\bit(?:'s| is) not moving\b/gi,
+      /\bit(?:'s| is) not scrolling\b/gi,
+      /\bhas(?:n't| not) moved\b/gi,
+      /\bokay so\b/gi,
+      /\byou know\b/gi,
+      /\bi think\b/gi,
+      /\blet(?:'s| us) see\b/gi,
+      /\bi(?:'m| am) going to\b/gi,
+      /\bim going to\b/gi,
+      /\bgoing to have to\b/gi,
+      /\bsend (?:you|u)\b/gi,
+      /\bscreenshots?\b/gi,
+      /\bchatgpt\b/gi,
+      /\bdev\b/gi,
+      /\blogs?\b/gi,
+      /\bdebug\b/gi
+    ];
+  }
+});
+
+// src/speech/matcher-runtime-state.ts
+function getMatcherRuntimeState(opts) {
+  if (typeof window === "undefined") return null;
+  const w3 = window;
+  const scriptWords = Array.isArray(w3.scriptWords) ? w3.scriptWords : [];
+  const paraIndex = Array.isArray(w3.paraIndex) ? w3.paraIndex : [];
+  const vParaIndex = Array.isArray(w3.__vParaIndex) ? w3.__vParaIndex : null;
+  const currentIndexRaw = typeof opts?.currentIndex === "number" ? opts.currentIndex : typeof w3.currentIndex === "number" ? w3.currentIndex : 0;
+  const currentIndex = Number.isFinite(Number(currentIndexRaw)) ? Math.max(0, Math.floor(Number(currentIndexRaw))) : 0;
+  const rawViterbiState = w3.__viterbiIPred;
+  const viterbiState = rawViterbiState && typeof rawViterbiState === "object" && Array.isArray(rawViterbiState.path) ? {
+    path: rawViterbiState.path.map((value) => Number(value)).filter((value) => Number.isFinite(value)),
+    pred: Number.isFinite(Number(rawViterbiState.pred)) ? Number(rawViterbiState.pred) : void 0
+  } : null;
+  return {
+    scriptWords,
+    paraIndex,
+    vParaIndex,
+    cfg: {
+      MATCH_WINDOW_AHEAD: typeof opts?.windowAhead === "number" ? opts.windowAhead : typeof w3.MATCH_WINDOW_AHEAD === "number" ? w3.MATCH_WINDOW_AHEAD : 240,
+      MATCH_WINDOW_BACK: typeof opts?.windowBack === "number" ? opts.windowBack : typeof w3.MATCH_WINDOW_BACK === "number" ? w3.MATCH_WINDOW_BACK : 40,
+      SIM_THRESHOLD: typeof w3.SIM_THRESHOLD === "number" ? w3.SIM_THRESHOLD : 0.46,
+      MAX_JUMP_AHEAD_WORDS: typeof w3.MAX_JUMP_AHEAD_WORDS === "number" ? w3.MAX_JUMP_AHEAD_WORDS : 18
+    },
+    currentIndex,
+    viterbiState
+  };
+}
+var init_matcher_runtime_state = __esm({
+  "src/speech/matcher-runtime-state.ts"() {
+    "use strict";
+  }
+});
+
+// src/speech/matcher.ts
+function combineTensAndOnes(tokens) {
+  if (!tokens.length) return tokens;
+  const combined = [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    const current2 = tokens[i];
+    const next = tokens[i + 1];
+    if (TENS_TOKENS.has(current2) && typeof next === "string" && ONES_TOKEN_RE.test(next)) {
+      combined.push(String(Number(current2) + Number(next)));
+      i += 1;
+      continue;
+    }
+    combined.push(current2);
+  }
+  return combined;
+}
+function normTokens(s) {
+  const normalized = String(s || "").toLowerCase().replace(/\[[^\]]+]/g, " ").replace(/\([^)]*\)/g, " ").replace(/&/g, " and ").replace(/%/g, " percent ").replace(/[\u2018\u2019\u201B\u2032]/g, "'").replace(/[\u201C\u201D\u201F\u2033]/g, '"').replace(/[\u2010-\u2015]/g, "-").replace(/[^a-z0-9\s'-]/g, " ").replace(/'/g, "").replace(/-/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized) return [];
+  const mappedTokens = normalized.split(" ").filter(Boolean).map((token) => NUMBER_TOKENS[token] ?? token).filter((token) => !FILLER_TOKENS.has(token));
+  return combineTensAndOnes(mappedTokens);
+}
+function getNgrams(tokens, n) {
+  const out = [];
+  for (let i = 0; i <= tokens.length - n; i++) out.push(tokens.slice(i, i + n).join(" "));
+  return out;
+}
+function cosineSimilarity(vec1, vec2) {
+  let dot = 0, n1 = 0, n2 = 0;
+  for (let i = 0; i < vec1.length; i++) {
+    dot += vec1[i] * vec2[i];
+    n1 += vec1[i] * vec1[i];
+    n2 += vec2[i] * vec2[i];
+  }
+  return n1 && n2 ? dot / (Math.sqrt(n1) * Math.sqrt(n2)) : 0;
+}
+function computeTFIDFSimilarity(tokens1, tokens2) {
+  const ngrams1 = getNgrams(tokens1, 2).concat(getNgrams(tokens1, 3));
+  const ngrams2 = getNgrams(tokens2, 2).concat(getNgrams(tokens2, 3));
+  const all2 = Array.from(/* @__PURE__ */ new Set([...ngrams1, ...ngrams2]));
+  const v1 = all2.map((ng) => ngrams1.filter((x) => x === ng).length);
+  const v2 = all2.map((ng) => ngrams2.filter((x) => x === ng).length);
+  return cosineSimilarity(v1, v2);
+}
+function computeJaccardSimilarity(tokens1, tokens2) {
+  const s1 = new Set(tokens1.map((t) => t.toLowerCase()));
+  const s2 = new Set(tokens2.map((t) => t.toLowerCase()));
+  const inter = new Set([...s1].filter((x) => s2.has(x)));
+  const union = /* @__PURE__ */ new Set([...s1, ...s2]);
+  return union.size ? inter.size / union.size : 0;
+}
+function computeLineSimilarityFromTokens(spokenTokens, scriptTokens) {
+  const tfidf = computeTFIDFSimilarity(spokenTokens, scriptTokens);
+  const jacc = computeJaccardSimilarity(spokenTokens, scriptTokens);
+  const containment = (() => {
+    if (!spokenTokens.length) return 0;
+    const s1 = new Set(spokenTokens);
+    const s2 = new Set(scriptTokens);
+    let hit = 0;
+    for (const tok of s1) {
+      if (s2.has(tok)) hit += 1;
+    }
+    return s1.size ? hit / s1.size : 0;
+  })();
+  const charsA = spokenTokens.join(" ");
+  const charsB = scriptTokens.join(" ");
+  const charF1 = (() => {
+    const setA = new Set(charsA.split(""));
+    const setB = new Set(charsB.split(""));
+    const inter = new Set([...setA].filter((x) => setB.has(x)));
+    const p = setA.size ? inter.size / setA.size : 0;
+    const r = setB.size ? inter.size / setB.size : 0;
+    return p + r > 0 ? 2 * p * r / (p + r) : 0;
+  })();
+  let score = 0.45 * tfidf + 0.25 * charF1 + 0.1 * jacc + 0.2 * containment;
+  if (scriptTokens.length < 5) score -= 0.12;
+  return Math.max(0, Math.min(1, score));
+}
+function matchBatch(spokenTokens, _scriptWords, paraIndex, vParaIndex, cfg, currentIndex, _viterbiState, opts) {
+  const batch = spokenTokens.slice(-Math.max(3, spokenTokens.length));
+  const scores = {};
+  const spanByIdx = {};
+  const overlapByIdx = {};
+  const overlapRatioByIdx = {};
+  const windowAhead = cfg.MATCH_WINDOW_AHEAD;
+  const curIdx = Number.isFinite(currentIndex) ? Math.floor(currentIndex) : 0;
+  const lastEntry = paraIndex.length ? paraIndex[paraIndex.length - 1] : null;
+  const lineCount = vParaIndex ? vParaIndex.length : typeof lastEntry?.line === "number" ? lastEntry.line + 1 : paraIndex.length;
+  const safeLineCount = Math.max(0, lineCount);
+  if (!safeLineCount) {
+    return {
+      bestIdx: -1,
+      bestSim: 0,
+      topScores: [],
+      bandStart: 0,
+      bandEnd: 0,
+      inBand: false
+    };
+  }
+  const bandStart = Math.max(0, curIdx - cfg.MATCH_WINDOW_BACK);
+  const bandEnd = Math.min(safeLineCount - 1, curIdx + windowAhead);
+  if (bandEnd < bandStart) {
+    return {
+      bestIdx: -1,
+      bestSim: 0,
+      topScores: [],
+      bandStart,
+      bandEnd,
+      inBand: false
+    };
+  }
+  const lineText = new Array(safeLineCount).fill(null);
+  const lineMeta = new Array(safeLineCount).fill(false);
+  const lineNonSpoken = new Array(safeLineCount).fill(false);
+  if (vParaIndex) {
+    for (let i = 0; i < safeLineCount; i++) {
+      const text = vParaIndex[i];
+      if (typeof text === "string" && text) lineText[i] = text;
+    }
+  }
+  for (let i = 0; i < paraIndex.length; i++) {
+    const entry = paraIndex[i];
+    const lineIdx = typeof entry?.line === "number" ? entry.line : i;
+    if (!Number.isFinite(lineIdx) || lineIdx < 0 || lineIdx >= safeLineCount) continue;
+    if (!lineText[lineIdx]) {
+      const text = entry?.key;
+      if (typeof text === "string" && text) lineText[lineIdx] = text;
+    }
+    if (entry?.isMeta) lineMeta[lineIdx] = true;
+    if (entry?.isNonSpoken) lineNonSpoken[lineIdx] = true;
+  }
+  const minTokenOverlap = Number.isFinite(opts?.minTokenOverlap) ? Math.max(0, Math.floor(Number(opts?.minTokenOverlap))) : 0;
+  const minTokenLen = Number.isFinite(opts?.minTokenLen) ? Math.max(1, Math.floor(Number(opts?.minTokenLen))) : 4;
+  const overlapTokens = minTokenOverlap ? batch.filter((token) => token.length >= minTokenLen) : null;
+  if (minTokenOverlap > 0 && (!overlapTokens || overlapTokens.length < minTokenOverlap)) {
+    return {
+      bestIdx: -1,
+      bestSim: 0,
+      topScores: [],
+      bandStart,
+      bandEnd,
+      inBand: false
+    };
+  }
+  const multiLineMax = Number.isFinite(opts?.multiLineMaxLines) ? Math.max(1, Math.floor(Number(opts?.multiLineMaxLines))) : 1;
+  const multiLineMin = Number.isFinite(opts?.multiLineMinLines) ? Math.max(1, Math.floor(Number(opts?.multiLineMinLines))) : 2;
+  const allowMultiLine = multiLineMax > 1 && multiLineMin <= multiLineMax;
+  for (let lineIdx = bandStart; lineIdx <= bandEnd; lineIdx++) {
+    const baseText = lineText[lineIdx];
+    if (!baseText) continue;
+    const baseTokens = normTokens(baseText);
+    if (!baseTokens.length) continue;
+    const baseMeta = lineMeta[lineIdx];
+    const baseNonSpoken = lineNonSpoken[lineIdx];
+    const updateScore = (scriptTokens, span, hasMeta, hasNonSpoken) => {
+      if (overlapTokens && overlapTokens.length) {
+        const scriptSet = new Set(scriptTokens);
+        let hits = 0;
+        for (const tok of overlapTokens) {
+          if (scriptSet.has(tok)) hits += 1;
+        }
+        if (hits < minTokenOverlap) return;
+        let sc2 = computeLineSimilarityFromTokens(batch, scriptTokens);
+        if (hasNonSpoken) sc2 = sc2 - 0.6;
+        else if (hasMeta) sc2 = sc2 * 0.5 - 0.2;
+        const prev3 = scores[lineIdx];
+        const ratio = overlapTokens.length ? hits / overlapTokens.length : 0;
+        if (!Number.isFinite(prev3) || sc2 > prev3) {
+          scores[lineIdx] = sc2;
+          spanByIdx[lineIdx] = span;
+          overlapByIdx[lineIdx] = hits;
+          overlapRatioByIdx[lineIdx] = ratio;
+        }
+        return;
+      }
+      let sc = computeLineSimilarityFromTokens(batch, scriptTokens);
+      if (hasNonSpoken) sc = sc - 0.6;
+      else if (hasMeta) sc = sc * 0.5 - 0.2;
+      const prev2 = scores[lineIdx];
+      if (!Number.isFinite(prev2) || sc > prev2) {
+        scores[lineIdx] = sc;
+        spanByIdx[lineIdx] = span;
+      }
+    };
+    updateScore(baseTokens, 1, baseMeta, baseNonSpoken);
+    if (!allowMultiLine) continue;
+    for (let span = Math.max(2, multiLineMin); span <= multiLineMax; span++) {
+      const end = lineIdx + span - 1;
+      if (end > bandEnd) break;
+      const parts = [];
+      let hasMeta = baseMeta;
+      let hasNonSpoken = baseNonSpoken;
+      for (let i = lineIdx; i <= end; i++) {
+        const text = lineText[i];
+        if (!text) {
+          parts.length = 0;
+          break;
+        }
+        parts.push(text);
+        if (lineMeta[i]) hasMeta = true;
+        if (lineNonSpoken[i]) hasNonSpoken = true;
+      }
+      if (!parts.length) continue;
+      const scriptTokens = normTokens(parts.join(" "));
+      if (!scriptTokens.length) continue;
+      updateScore(scriptTokens, span, hasMeta, hasNonSpoken);
+    }
+  }
+  const top = Object.entries(scores).sort(([, a], [, b]) => b - a).slice(0, 3).map(([idx, score]) => ({ idx: Number(idx), score: Number(score.toFixed(3)) }));
+  const best = top[0] || { idx: -1, score: 0 };
+  const inBand = best.idx >= bandStart && best.idx <= bandEnd;
+  const resolved = inBand ? best : { idx: -1, score: 0 };
+  return {
+    bestIdx: resolved.idx,
+    bestSim: resolved.score,
+    topScores: top,
+    bandStart,
+    bandEnd,
+    inBand,
+    bestSpan: resolved.idx >= 0 ? spanByIdx[resolved.idx] || 1 : void 0,
+    bestOverlap: resolved.idx >= 0 ? overlapByIdx[resolved.idx] : void 0,
+    bestOverlapRatio: resolved.idx >= 0 ? overlapRatioByIdx[resolved.idx] : void 0
+  };
+}
+var NUMBER_TOKENS, FILLER_TOKENS, TENS_TOKENS, ONES_TOKEN_RE;
+var init_matcher = __esm({
+  "src/speech/matcher.ts"() {
+    "use strict";
+    NUMBER_TOKENS = {
+      zero: "0",
+      oh: "0",
+      one: "1",
+      two: "2",
+      three: "3",
+      four: "4",
+      five: "5",
+      six: "6",
+      seven: "7",
+      eight: "8",
+      nine: "9",
+      ten: "10",
+      eleven: "11",
+      twelve: "12",
+      thirteen: "13",
+      fourteen: "14",
+      fifteen: "15",
+      sixteen: "16",
+      seventeen: "17",
+      eighteen: "18",
+      nineteen: "19",
+      twenty: "20",
+      thirty: "30",
+      forty: "40",
+      fifty: "50",
+      sixty: "60",
+      seventy: "70",
+      eighty: "80",
+      ninety: "90"
+    };
+    FILLER_TOKENS = /* @__PURE__ */ new Set([
+      "um",
+      "uh",
+      "erm",
+      "er",
+      "ah",
+      "hmm",
+      "mm",
+      "mmm",
+      "uhh",
+      "uhm"
+    ]);
+    TENS_TOKENS = /* @__PURE__ */ new Set(["20", "30", "40", "50", "60", "70", "80", "90"]);
+    ONES_TOKEN_RE = /^[0-9]$/;
+  }
+});
+
+// src/speech/ts-primary-matcher-provider.ts
+function isTsPrimaryBoot() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.__TP_TS_PRIMARY__ === true;
+  } catch {
+    return false;
+  }
+}
+function createUnavailableResult(diagnostic) {
+  return {
+    noMatch: true,
+    bestIdx: -1,
+    idx: -1,
+    topScores: [],
+    reason: "matcher_unavailable",
+    provider: PROVIDER_ID,
+    diagnostic
+  };
+}
+function normalizeTextInput(input) {
+  if (Array.isArray(input)) {
+    return input.map((part) => String(part ?? "")).join(" ").trim();
+  }
+  if (typeof input === "string") return input;
+  if (input && typeof input === "object") {
+    const text = input.text ?? input.transcript;
+    if (typeof text === "string") return text;
+  }
+  return String(input ?? "");
+}
+function normalizeMatchArgs(arg1, arg2) {
+  if (typeof arg1 === "boolean") {
+    return {
+      isFinal: arg1,
+      opts: arg2 && typeof arg2 === "object" ? arg2 : void 0
+    };
+  }
+  const opts = arg1 && typeof arg1 === "object" ? arg1 : void 0;
+  const isFinal = typeof opts?.isFinal === "boolean" ? Boolean(opts.isFinal) : false;
+  return { isFinal, opts };
+}
+function normalizeMatchResult(input) {
+  if (!input || typeof input !== "object") {
+    return createUnavailableResult("ts_primary_matcher_invalid_result");
+  }
+  const bestIdxRaw = input.bestIdx ?? input.idx;
+  const bestSimRaw = input.bestSim ?? input.sim;
+  const bestIdx = Number.isFinite(Number(bestIdxRaw)) ? Math.floor(Number(bestIdxRaw)) : -1;
+  const noMatch = input.noMatch === true || bestIdx < 0;
+  const bestSim = Number.isFinite(Number(bestSimRaw)) ? Number(bestSimRaw) : void 0;
+  return {
+    ...input,
+    bestIdx: noMatch ? -1 : bestIdx,
+    idx: noMatch ? -1 : bestIdx,
+    bestSim,
+    sim: bestSim,
+    topScores: Array.isArray(input.topScores) ? input.topScores : Array.isArray(input.candidates) ? input.candidates : [],
+    noMatch
+  };
+}
+function resolveMatcherAvailability(currentIndexOverride) {
+  const blockEls2 = getAsrBlockElements();
+  const blockMeta2 = getAsrBlockIndex();
+  const blockCount = Array.isArray(blockEls2) ? blockEls2.length : 0;
+  if (blockCount <= 0) {
+    return { ok: false, diagnostic: "ts_primary_matcher_not_ready:block_elements_empty", runtime: null };
+  }
+  if (!blockMeta2) {
+    return { ok: false, diagnostic: "ts_primary_matcher_not_ready:block_index_missing", runtime: null };
+  }
+  const runtime = getMatcherRuntimeState({ currentIndex: currentIndexOverride });
+  if (!runtime) {
+    return { ok: false, diagnostic: "ts_primary_matcher_not_ready:runtime_missing", runtime: null };
+  }
+  if (!Array.isArray(runtime.scriptWords) || runtime.scriptWords.length === 0) {
+    return { ok: false, diagnostic: "ts_primary_matcher_not_ready:script_words_missing", runtime };
+  }
+  if (!runtime.paraIndex.length && !(Array.isArray(runtime.vParaIndex) && runtime.vParaIndex.length > 0)) {
+    return { ok: false, diagnostic: "ts_primary_matcher_not_ready:line_index_missing", runtime };
+  }
+  return { ok: true, diagnostic: "ready", runtime };
+}
+function runTsPrimaryMatch(textInput, arg1, arg2) {
+  const text = normalizeTextInput(textInput);
+  const { opts } = normalizeMatchArgs(arg1, arg2);
+  const currentIndexOverride = Number.isFinite(Number(opts?.currentIdx ?? opts?.currentIndex)) ? Number(opts?.currentIdx ?? opts?.currentIndex) : null;
+  const availability = resolveMatcherAvailability(currentIndexOverride);
+  if (!availability.ok || !availability.runtime) {
+    return createUnavailableResult(availability.diagnostic);
+  }
+  const { matchTokens } = prepareMatcherInput(text, normTokens);
+  if (!matchTokens.length) {
+    return {
+      noMatch: true,
+      bestIdx: -1,
+      idx: -1,
+      topScores: [],
+      reason: "ts_primary_matcher_no_tokens",
+      provider: PROVIDER_ID,
+      currentIdx: availability.runtime.currentIndex
+    };
+  }
+  const adaptiveMultiLineMax = matchTokens.length <= DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD ? DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES : DIRECT_MATCHER_MULTI_LINE_MAX_LINES;
+  try {
+    const result = matchBatch(
+      matchTokens,
+      availability.runtime.scriptWords,
+      availability.runtime.paraIndex,
+      availability.runtime.vParaIndex,
+      availability.runtime.cfg,
+      availability.runtime.currentIndex,
+      availability.runtime.viterbiState ?? void 0,
+      {
+        multiLineMinLines: DIRECT_MATCHER_MULTI_LINE_MIN_LINES,
+        multiLineMaxLines: adaptiveMultiLineMax
+      }
+    );
+    return normalizeMatchResult({
+      ...result,
+      currentIdx: availability.runtime.currentIndex,
+      reason: "ts_primary_matcher",
+      provider: PROVIDER_ID
+    });
+  } catch {
+    return createUnavailableResult("ts_primary_matcher_failed");
+  }
+}
+function installTsPrimaryMatcherNamespace(ns) {
+  if (!isTsPrimaryBoot() || !ns || typeof ns !== "object") return false;
+  ns.matchBatch = (text, arg1, arg2) => runTsPrimaryMatch(text, arg1, arg2);
+  ns.matchOne = (text, arg1, arg2) => runTsPrimaryMatch(text, arg1, arg2);
+  ns.__tpMatcherProvider = PROVIDER_ID;
+  ns.__tpMatcherDiagnostics = {
+    provider: PROVIDER_ID,
+    installMode: "dynamic-runtime"
+  };
+  return true;
+}
+var PROVIDER_ID, DIRECT_MATCHER_MULTI_LINE_MIN_LINES, DIRECT_MATCHER_MULTI_LINE_MAX_LINES, DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES, DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD;
+var init_ts_primary_matcher_provider = __esm({
+  "src/speech/ts-primary-matcher-provider.ts"() {
+    "use strict";
+    init_asr_block_store();
+    init_matcher_input();
+    init_matcher_runtime_state();
+    init_matcher();
+    PROVIDER_ID = "ts_primary_runtime";
+    DIRECT_MATCHER_MULTI_LINE_MIN_LINES = 2;
+    DIRECT_MATCHER_MULTI_LINE_MAX_LINES = 5;
+    DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES = 3;
+    DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD = 10;
+  }
+});
+
 // src/features/speech/speech-store.ts
 function clampEndpoint(value) {
   if (value === void 0 || value === null) return void 0;
@@ -31017,16 +31527,26 @@ function installMatchOneCompat(ns) {
     }
   }
 }
+function shouldInstallTsPrimaryMatcher(ns) {
+  if (!ns || typeof ns !== "object") return false;
+  const existing = ns.matchBatch;
+  if (typeof existing !== "function") return true;
+  return existing.__tpMatcherUnavailableStub === true;
+}
 var MIN_ENDPOINT_MS, MAX_ENDPOINT_MS;
 var init_speech_store2 = __esm({
   "src/features/speech/speech-store.ts"() {
     "use strict";
     init_speech_store();
+    init_ts_primary_matcher_provider();
     MIN_ENDPOINT_MS = 100;
     MAX_ENDPOINT_MS = 9e5;
     if (typeof window !== "undefined") {
       const win = window;
       const ns = win.__tpSpeech || {};
+      if (shouldInstallTsPrimaryMatcher(ns)) {
+        installTsPrimaryMatcherNamespace(ns);
+      }
       ns.store = speechStore;
       if (ns.store && typeof ns.store.getState !== "function" && typeof ns.store.get === "function") {
         ns.store.getState = ns.store.get.bind(ns.store);
@@ -32738,282 +33258,6 @@ var init_asr_threshold_store = __esm({
     thresholdsDirty = false;
     applyDevOverrides();
     refreshEffectiveThresholds();
-  }
-});
-
-// src/speech/matcher.ts
-function combineTensAndOnes(tokens) {
-  if (!tokens.length) return tokens;
-  const combined = [];
-  for (let i = 0; i < tokens.length; i += 1) {
-    const current2 = tokens[i];
-    const next = tokens[i + 1];
-    if (TENS_TOKENS.has(current2) && typeof next === "string" && ONES_TOKEN_RE.test(next)) {
-      combined.push(String(Number(current2) + Number(next)));
-      i += 1;
-      continue;
-    }
-    combined.push(current2);
-  }
-  return combined;
-}
-function normTokens(s) {
-  const normalized = String(s || "").toLowerCase().replace(/\[[^\]]+]/g, " ").replace(/\([^)]*\)/g, " ").replace(/&/g, " and ").replace(/%/g, " percent ").replace(/[\u2018\u2019\u201B\u2032]/g, "'").replace(/[\u201C\u201D\u201F\u2033]/g, '"').replace(/[\u2010-\u2015]/g, "-").replace(/[^a-z0-9\s'-]/g, " ").replace(/'/g, "").replace(/-/g, " ").replace(/\s+/g, " ").trim();
-  if (!normalized) return [];
-  const mappedTokens = normalized.split(" ").filter(Boolean).map((token) => NUMBER_TOKENS[token] ?? token).filter((token) => !FILLER_TOKENS.has(token));
-  return combineTensAndOnes(mappedTokens);
-}
-function getNgrams(tokens, n) {
-  const out = [];
-  for (let i = 0; i <= tokens.length - n; i++) out.push(tokens.slice(i, i + n).join(" "));
-  return out;
-}
-function cosineSimilarity(vec1, vec2) {
-  let dot = 0, n1 = 0, n2 = 0;
-  for (let i = 0; i < vec1.length; i++) {
-    dot += vec1[i] * vec2[i];
-    n1 += vec1[i] * vec1[i];
-    n2 += vec2[i] * vec2[i];
-  }
-  return n1 && n2 ? dot / (Math.sqrt(n1) * Math.sqrt(n2)) : 0;
-}
-function computeTFIDFSimilarity(tokens1, tokens2) {
-  const ngrams1 = getNgrams(tokens1, 2).concat(getNgrams(tokens1, 3));
-  const ngrams2 = getNgrams(tokens2, 2).concat(getNgrams(tokens2, 3));
-  const all2 = Array.from(/* @__PURE__ */ new Set([...ngrams1, ...ngrams2]));
-  const v1 = all2.map((ng) => ngrams1.filter((x) => x === ng).length);
-  const v2 = all2.map((ng) => ngrams2.filter((x) => x === ng).length);
-  return cosineSimilarity(v1, v2);
-}
-function computeJaccardSimilarity(tokens1, tokens2) {
-  const s1 = new Set(tokens1.map((t) => t.toLowerCase()));
-  const s2 = new Set(tokens2.map((t) => t.toLowerCase()));
-  const inter = new Set([...s1].filter((x) => s2.has(x)));
-  const union = /* @__PURE__ */ new Set([...s1, ...s2]);
-  return union.size ? inter.size / union.size : 0;
-}
-function computeLineSimilarityFromTokens(spokenTokens, scriptTokens) {
-  const tfidf = computeTFIDFSimilarity(spokenTokens, scriptTokens);
-  const jacc = computeJaccardSimilarity(spokenTokens, scriptTokens);
-  const containment = (() => {
-    if (!spokenTokens.length) return 0;
-    const s1 = new Set(spokenTokens);
-    const s2 = new Set(scriptTokens);
-    let hit = 0;
-    for (const tok of s1) {
-      if (s2.has(tok)) hit += 1;
-    }
-    return s1.size ? hit / s1.size : 0;
-  })();
-  const charsA = spokenTokens.join(" ");
-  const charsB = scriptTokens.join(" ");
-  const charF1 = (() => {
-    const setA = new Set(charsA.split(""));
-    const setB = new Set(charsB.split(""));
-    const inter = new Set([...setA].filter((x) => setB.has(x)));
-    const p = setA.size ? inter.size / setA.size : 0;
-    const r = setB.size ? inter.size / setB.size : 0;
-    return p + r > 0 ? 2 * p * r / (p + r) : 0;
-  })();
-  let score = 0.45 * tfidf + 0.25 * charF1 + 0.1 * jacc + 0.2 * containment;
-  if (scriptTokens.length < 5) score -= 0.12;
-  return Math.max(0, Math.min(1, score));
-}
-function matchBatch(spokenTokens, _scriptWords, paraIndex, vParaIndex, cfg, currentIndex, _viterbiState, opts) {
-  const batch = spokenTokens.slice(-Math.max(3, spokenTokens.length));
-  const scores = {};
-  const spanByIdx = {};
-  const overlapByIdx = {};
-  const overlapRatioByIdx = {};
-  const windowAhead = cfg.MATCH_WINDOW_AHEAD;
-  const curIdx = Number.isFinite(currentIndex) ? Math.floor(currentIndex) : 0;
-  const lastEntry = paraIndex.length ? paraIndex[paraIndex.length - 1] : null;
-  const lineCount = vParaIndex ? vParaIndex.length : typeof lastEntry?.line === "number" ? lastEntry.line + 1 : paraIndex.length;
-  const safeLineCount = Math.max(0, lineCount);
-  if (!safeLineCount) {
-    return {
-      bestIdx: -1,
-      bestSim: 0,
-      topScores: [],
-      bandStart: 0,
-      bandEnd: 0,
-      inBand: false
-    };
-  }
-  const bandStart = Math.max(0, curIdx - cfg.MATCH_WINDOW_BACK);
-  const bandEnd = Math.min(safeLineCount - 1, curIdx + windowAhead);
-  if (bandEnd < bandStart) {
-    return {
-      bestIdx: -1,
-      bestSim: 0,
-      topScores: [],
-      bandStart,
-      bandEnd,
-      inBand: false
-    };
-  }
-  const lineText = new Array(safeLineCount).fill(null);
-  const lineMeta = new Array(safeLineCount).fill(false);
-  const lineNonSpoken = new Array(safeLineCount).fill(false);
-  if (vParaIndex) {
-    for (let i = 0; i < safeLineCount; i++) {
-      const text = vParaIndex[i];
-      if (typeof text === "string" && text) lineText[i] = text;
-    }
-  }
-  for (let i = 0; i < paraIndex.length; i++) {
-    const entry = paraIndex[i];
-    const lineIdx = typeof entry?.line === "number" ? entry.line : i;
-    if (!Number.isFinite(lineIdx) || lineIdx < 0 || lineIdx >= safeLineCount) continue;
-    if (!lineText[lineIdx]) {
-      const text = entry?.key;
-      if (typeof text === "string" && text) lineText[lineIdx] = text;
-    }
-    if (entry?.isMeta) lineMeta[lineIdx] = true;
-    if (entry?.isNonSpoken) lineNonSpoken[lineIdx] = true;
-  }
-  const minTokenOverlap = Number.isFinite(opts?.minTokenOverlap) ? Math.max(0, Math.floor(Number(opts?.minTokenOverlap))) : 0;
-  const minTokenLen = Number.isFinite(opts?.minTokenLen) ? Math.max(1, Math.floor(Number(opts?.minTokenLen))) : 4;
-  const overlapTokens = minTokenOverlap ? batch.filter((token) => token.length >= minTokenLen) : null;
-  if (minTokenOverlap > 0 && (!overlapTokens || overlapTokens.length < minTokenOverlap)) {
-    return {
-      bestIdx: -1,
-      bestSim: 0,
-      topScores: [],
-      bandStart,
-      bandEnd,
-      inBand: false
-    };
-  }
-  const multiLineMax = Number.isFinite(opts?.multiLineMaxLines) ? Math.max(1, Math.floor(Number(opts?.multiLineMaxLines))) : 1;
-  const multiLineMin = Number.isFinite(opts?.multiLineMinLines) ? Math.max(1, Math.floor(Number(opts?.multiLineMinLines))) : 2;
-  const allowMultiLine = multiLineMax > 1 && multiLineMin <= multiLineMax;
-  for (let lineIdx = bandStart; lineIdx <= bandEnd; lineIdx++) {
-    const baseText = lineText[lineIdx];
-    if (!baseText) continue;
-    const baseTokens = normTokens(baseText);
-    if (!baseTokens.length) continue;
-    const baseMeta = lineMeta[lineIdx];
-    const baseNonSpoken = lineNonSpoken[lineIdx];
-    const updateScore = (scriptTokens, span, hasMeta, hasNonSpoken) => {
-      if (overlapTokens && overlapTokens.length) {
-        const scriptSet = new Set(scriptTokens);
-        let hits = 0;
-        for (const tok of overlapTokens) {
-          if (scriptSet.has(tok)) hits += 1;
-        }
-        if (hits < minTokenOverlap) return;
-        let sc2 = computeLineSimilarityFromTokens(batch, scriptTokens);
-        if (hasNonSpoken) sc2 = sc2 - 0.6;
-        else if (hasMeta) sc2 = sc2 * 0.5 - 0.2;
-        const prev3 = scores[lineIdx];
-        const ratio = overlapTokens.length ? hits / overlapTokens.length : 0;
-        if (!Number.isFinite(prev3) || sc2 > prev3) {
-          scores[lineIdx] = sc2;
-          spanByIdx[lineIdx] = span;
-          overlapByIdx[lineIdx] = hits;
-          overlapRatioByIdx[lineIdx] = ratio;
-        }
-        return;
-      }
-      let sc = computeLineSimilarityFromTokens(batch, scriptTokens);
-      if (hasNonSpoken) sc = sc - 0.6;
-      else if (hasMeta) sc = sc * 0.5 - 0.2;
-      const prev2 = scores[lineIdx];
-      if (!Number.isFinite(prev2) || sc > prev2) {
-        scores[lineIdx] = sc;
-        spanByIdx[lineIdx] = span;
-      }
-    };
-    updateScore(baseTokens, 1, baseMeta, baseNonSpoken);
-    if (!allowMultiLine) continue;
-    for (let span = Math.max(2, multiLineMin); span <= multiLineMax; span++) {
-      const end = lineIdx + span - 1;
-      if (end > bandEnd) break;
-      const parts = [];
-      let hasMeta = baseMeta;
-      let hasNonSpoken = baseNonSpoken;
-      for (let i = lineIdx; i <= end; i++) {
-        const text = lineText[i];
-        if (!text) {
-          parts.length = 0;
-          break;
-        }
-        parts.push(text);
-        if (lineMeta[i]) hasMeta = true;
-        if (lineNonSpoken[i]) hasNonSpoken = true;
-      }
-      if (!parts.length) continue;
-      const scriptTokens = normTokens(parts.join(" "));
-      if (!scriptTokens.length) continue;
-      updateScore(scriptTokens, span, hasMeta, hasNonSpoken);
-    }
-  }
-  const top = Object.entries(scores).sort(([, a], [, b]) => b - a).slice(0, 3).map(([idx, score]) => ({ idx: Number(idx), score: Number(score.toFixed(3)) }));
-  const best = top[0] || { idx: -1, score: 0 };
-  const inBand = best.idx >= bandStart && best.idx <= bandEnd;
-  const resolved = inBand ? best : { idx: -1, score: 0 };
-  return {
-    bestIdx: resolved.idx,
-    bestSim: resolved.score,
-    topScores: top,
-    bandStart,
-    bandEnd,
-    inBand,
-    bestSpan: resolved.idx >= 0 ? spanByIdx[resolved.idx] || 1 : void 0,
-    bestOverlap: resolved.idx >= 0 ? overlapByIdx[resolved.idx] : void 0,
-    bestOverlapRatio: resolved.idx >= 0 ? overlapRatioByIdx[resolved.idx] : void 0
-  };
-}
-var NUMBER_TOKENS, FILLER_TOKENS, TENS_TOKENS, ONES_TOKEN_RE;
-var init_matcher = __esm({
-  "src/speech/matcher.ts"() {
-    "use strict";
-    NUMBER_TOKENS = {
-      zero: "0",
-      oh: "0",
-      one: "1",
-      two: "2",
-      three: "3",
-      four: "4",
-      five: "5",
-      six: "6",
-      seven: "7",
-      eight: "8",
-      nine: "9",
-      ten: "10",
-      eleven: "11",
-      twelve: "12",
-      thirteen: "13",
-      fourteen: "14",
-      fifteen: "15",
-      sixteen: "16",
-      seventeen: "17",
-      eighteen: "18",
-      nineteen: "19",
-      twenty: "20",
-      thirty: "30",
-      forty: "40",
-      fifty: "50",
-      sixty: "60",
-      seventy: "70",
-      eighty: "80",
-      ninety: "90"
-    };
-    FILLER_TOKENS = /* @__PURE__ */ new Set([
-      "um",
-      "uh",
-      "erm",
-      "er",
-      "ah",
-      "hmm",
-      "mm",
-      "mmm",
-      "uhh",
-      "uhm"
-    ]);
-    TENS_TOKENS = /* @__PURE__ */ new Set(["20", "30", "40", "50", "60", "70", "80", "90"]);
-    ONES_TOKEN_RE = /^[0-9]$/;
   }
 });
 
@@ -68539,6 +68783,7 @@ var init_backend_guard = __esm({
       topScores: [],
       reason: "matcher_unavailable"
     });
+    matchBatchStub.__tpMatcherUnavailableStub = true;
     noop2 = () => void 0;
   }
 });
@@ -70213,85 +70458,6 @@ var init_whisper_bridge = __esm({
         }
       }
     };
-  }
-});
-
-// src/speech/matcher-input.ts
-function stripMatcherMetaPhrases(text) {
-  let out = String(text || "");
-  for (const rx of META_PHRASES) {
-    rx.lastIndex = 0;
-    out = out.replace(rx, " ");
-  }
-  return out;
-}
-function prepareMatcherInput(text, tokenize) {
-  const scrubbed = stripMatcherMetaPhrases(text || "");
-  const spokenTokens = tokenize(scrubbed);
-  return {
-    scrubbed,
-    spokenTokens,
-    matchTokens: spokenTokens.slice(-MATCH_TOKEN_WINDOW)
-  };
-}
-var MATCH_TOKEN_WINDOW, META_PHRASES;
-var init_matcher_input = __esm({
-  "src/speech/matcher-input.ts"() {
-    "use strict";
-    MATCH_TOKEN_WINDOW = 18;
-    META_PHRASES = [
-      /\bit(?:'s| is) not keeping up\b/gi,
-      /\bit(?:'s| is) not moving\b/gi,
-      /\bit(?:'s| is) not scrolling\b/gi,
-      /\bhas(?:n't| not) moved\b/gi,
-      /\bokay so\b/gi,
-      /\byou know\b/gi,
-      /\bi think\b/gi,
-      /\blet(?:'s| us) see\b/gi,
-      /\bi(?:'m| am) going to\b/gi,
-      /\bim going to\b/gi,
-      /\bgoing to have to\b/gi,
-      /\bsend (?:you|u)\b/gi,
-      /\bscreenshots?\b/gi,
-      /\bchatgpt\b/gi,
-      /\bdev\b/gi,
-      /\blogs?\b/gi,
-      /\bdebug\b/gi
-    ];
-  }
-});
-
-// src/speech/matcher-runtime-state.ts
-function getMatcherRuntimeState(opts) {
-  if (typeof window === "undefined") return null;
-  const w3 = window;
-  const scriptWords = Array.isArray(w3.scriptWords) ? w3.scriptWords : [];
-  const paraIndex = Array.isArray(w3.paraIndex) ? w3.paraIndex : [];
-  const vParaIndex = Array.isArray(w3.__vParaIndex) ? w3.__vParaIndex : null;
-  const currentIndexRaw = typeof opts?.currentIndex === "number" ? opts.currentIndex : typeof w3.currentIndex === "number" ? w3.currentIndex : 0;
-  const currentIndex = Number.isFinite(Number(currentIndexRaw)) ? Math.max(0, Math.floor(Number(currentIndexRaw))) : 0;
-  const rawViterbiState = w3.__viterbiIPred;
-  const viterbiState = rawViterbiState && typeof rawViterbiState === "object" && Array.isArray(rawViterbiState.path) ? {
-    path: rawViterbiState.path.map((value) => Number(value)).filter((value) => Number.isFinite(value)),
-    pred: Number.isFinite(Number(rawViterbiState.pred)) ? Number(rawViterbiState.pred) : void 0
-  } : null;
-  return {
-    scriptWords,
-    paraIndex,
-    vParaIndex,
-    cfg: {
-      MATCH_WINDOW_AHEAD: typeof opts?.windowAhead === "number" ? opts.windowAhead : typeof w3.MATCH_WINDOW_AHEAD === "number" ? w3.MATCH_WINDOW_AHEAD : 240,
-      MATCH_WINDOW_BACK: typeof opts?.windowBack === "number" ? opts.windowBack : typeof w3.MATCH_WINDOW_BACK === "number" ? w3.MATCH_WINDOW_BACK : 40,
-      SIM_THRESHOLD: typeof w3.SIM_THRESHOLD === "number" ? w3.SIM_THRESHOLD : 0.46,
-      MAX_JUMP_AHEAD_WORDS: typeof w3.MAX_JUMP_AHEAD_WORDS === "number" ? w3.MAX_JUMP_AHEAD_WORDS : 18
-    },
-    currentIndex,
-    viterbiState
-  };
-}
-var init_matcher_runtime_state = __esm({
-  "src/speech/matcher-runtime-state.ts"() {
-    "use strict";
   }
 });
 
@@ -73098,7 +73264,7 @@ function deriveDirectMatcherResult(transcript, speechStoreState) {
   if (typeof window === "undefined") return null;
   const { matchTokens } = prepareMatcherInput(String(transcript || ""), normTokens);
   if (!matchTokens.length) return null;
-  const adaptiveMultiLineMax = matchTokens.length <= DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD ? DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES : DIRECT_MATCHER_MULTI_LINE_MAX_LINES;
+  const adaptiveMultiLineMax = matchTokens.length <= DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD2 ? DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES2 : DIRECT_MATCHER_MULTI_LINE_MAX_LINES2;
   const blockSnapshot = getAsrBlockSnapshot();
   if (!(blockSnapshot.ready && blockSnapshot.count > 0)) {
     return null;
@@ -73125,7 +73291,7 @@ function deriveDirectMatcherResult(transcript, speechStoreState) {
       currentIndex,
       viterbiState ?? void 0,
       {
-        multiLineMinLines: DIRECT_MATCHER_MULTI_LINE_MIN_LINES,
+        multiLineMinLines: DIRECT_MATCHER_MULTI_LINE_MIN_LINES2,
         multiLineMaxLines: adaptiveMultiLineMax
       }
     );
@@ -75590,7 +75756,7 @@ function installSpeech() {
     }
   })();
 }
-var running, rec, lastScrollMode, lastResultTs, speechRunningActual, lastRecognizerOnResultTs, lastRecognizerAttachedTs, lastAsrIngestTs, lastAsrCommitTs, lastAsrCommitCount, lastRecognizerLifecycleEvent, lastRecognizerLifecycleAt, lastAsrStallClass, speechWatchdogTimer, asrHeartbeatTimer, activeRecognizer, lastStartedSpeechEngine, lastRequestedSpeechEngine, activeAsrLane, currentActualSpeechEngine, currentFallbackReason, currentAsrState, pendingManualRestartCount, lifecycleRestartTimer, lastLifecycleRestartAt, suppressRecognizerAutoRestart, lastHudSnapshotFingerprint, lastHudSnapshotAt, asrStallEpisodeId, asrStallEpisodeRestarted, asrStallAttemptCountThisEpisode, lastAsrStallEpisodeClass, lastAsrStallAutoRestartAt, suppressAsrStallAutoRestartUntil, lastAsrStallRescueAt, lastMatcherStallCommitCount, lastMatcherStallCommitStableSince, lastAsrScriptEndStopKey, pendingAsrScriptEndStop, deferredAsrScriptEndStop, lastEmittedFinalTranscriptNorm, lastEmittedFinalTranscriptAt, matcherSummaryCount, matcherFallbackSummaryCount, asrDriverCreateBlockedBySignature, ASR_DRIVER_CREATE_BLOCKED_SUMMARY_EVERY, deferredAsrScriptEndStopTimer, WATCHDOG_INTERVAL_MS, WATCHDOG_THRESHOLD_MS, ASR_WATCHDOG_THRESHOLD_MS, ASR_HEARTBEAT_INTERVAL_MS, ASR_STALL_SPEECH_THRESHOLD_MS, ASR_DEAF_RECOGNIZER_MS, ASR_STALL_MATCHER_THRESHOLD_MS, ASR_STALL_MATCHER_STABLE_COMMIT_MS, DIRECT_MATCHER_MULTI_LINE_MIN_LINES, DIRECT_MATCHER_MULTI_LINE_MAX_LINES, DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES, DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD, ASR_STALL_AUTORESTART_COOLDOWN_MS, ASR_STALL_AUTORESTART_SUPPRESS_MS, ASR_STALL_RESCUE_COOLDOWN_MS, LIFECYCLE_RESTART_DELAY_MS, LIFECYCLE_RESTART_COOLDOWN_MS, HUD_SNAPSHOT_THROTTLE_MS, ASR_SCRIPT_END_CONFIRM_MAX_WAIT_MS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_MEANINGFUL_TOKENS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_TOKENS, ASR_SCRIPT_END_MARKER_WAIT_MAX_MS, ASR_SCRIPT_END_MARKER_POLL_MS, ASR_SCRIPT_END_POSTROLL_MS, ASR_END_GRACE_MS, ASR_END_GRACE_EXTENSION_MS, ASR_END_GRACE_POLL_MS, ASR_END_GRACE_SPEECH_FRESH_MS, ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO, ASR_FINAL_NOVELTY_MIN_RATIO, ASR_FINAL_NOVELTY_MIN_OVERLAP_RATIO, ASR_FINAL_NOVELTY_DEDUP_WINDOW_MS, ASR_SCRIPT_END_STOPWORDS, speechStoreShimmed, speechStoreSubscribed, latestSpeechStoreState, fallbackTranscriptMatchSeq, __asrLastInterimText, __asrLastInterimAt, __asrInterimRepeatCount, CUE_LINE_BRACKET_RE2, CUE_LINE_WORD_RE2, SPEAKER_TAG_ONLY_RE2, NOTE_TAG_ONLY_RE2, NOTE_INLINE_BLOCK_RE2, SPEAKER_SLOTS, SPEAKER_NAME_SELECTORS, DEFAULT_SPEAKER_LABELS, LOWER_GUARDS, RAISE_GUARDS, summaryListenerAttached, ASR_LAYOUT_READY_MAX_MS, pendingLayoutReady, TRANSCRIPT_EVENT_OPTIONS, asrScrollDriver, transcriptListener, sessionStopHooked, asrBrainLogged, asrDriverLifecycleHooked, asrSessionIntentActive, asrRunCounter, activeAsrRunKey, asrRunGeneration, lastAsrBlockSyncAt, lastAsrBlockSyncLogAt, lastAsrSyncLogAtByType, lastAsrSyncFingerprintByType, ASR_LIVE_BLOCK_SYNC_THROTTLE_MS, ASR_BLOCK_SYNC_LOG_THROTTLE_MS, ASR_SYNC_LOG_THROTTLE_MS, ASR_BLOCK_SYNC_UNCHANGED_LOG_THROTTLE_MS, lastAsrBlockSyncCompleteFingerprint, lastAsrBlockSyncUnchangedAt;
+var running, rec, lastScrollMode, lastResultTs, speechRunningActual, lastRecognizerOnResultTs, lastRecognizerAttachedTs, lastAsrIngestTs, lastAsrCommitTs, lastAsrCommitCount, lastRecognizerLifecycleEvent, lastRecognizerLifecycleAt, lastAsrStallClass, speechWatchdogTimer, asrHeartbeatTimer, activeRecognizer, lastStartedSpeechEngine, lastRequestedSpeechEngine, activeAsrLane, currentActualSpeechEngine, currentFallbackReason, currentAsrState, pendingManualRestartCount, lifecycleRestartTimer, lastLifecycleRestartAt, suppressRecognizerAutoRestart, lastHudSnapshotFingerprint, lastHudSnapshotAt, asrStallEpisodeId, asrStallEpisodeRestarted, asrStallAttemptCountThisEpisode, lastAsrStallEpisodeClass, lastAsrStallAutoRestartAt, suppressAsrStallAutoRestartUntil, lastAsrStallRescueAt, lastMatcherStallCommitCount, lastMatcherStallCommitStableSince, lastAsrScriptEndStopKey, pendingAsrScriptEndStop, deferredAsrScriptEndStop, lastEmittedFinalTranscriptNorm, lastEmittedFinalTranscriptAt, matcherSummaryCount, matcherFallbackSummaryCount, asrDriverCreateBlockedBySignature, ASR_DRIVER_CREATE_BLOCKED_SUMMARY_EVERY, deferredAsrScriptEndStopTimer, WATCHDOG_INTERVAL_MS, WATCHDOG_THRESHOLD_MS, ASR_WATCHDOG_THRESHOLD_MS, ASR_HEARTBEAT_INTERVAL_MS, ASR_STALL_SPEECH_THRESHOLD_MS, ASR_DEAF_RECOGNIZER_MS, ASR_STALL_MATCHER_THRESHOLD_MS, ASR_STALL_MATCHER_STABLE_COMMIT_MS, DIRECT_MATCHER_MULTI_LINE_MIN_LINES2, DIRECT_MATCHER_MULTI_LINE_MAX_LINES2, DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES2, DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD2, ASR_STALL_AUTORESTART_COOLDOWN_MS, ASR_STALL_AUTORESTART_SUPPRESS_MS, ASR_STALL_RESCUE_COOLDOWN_MS, LIFECYCLE_RESTART_DELAY_MS, LIFECYCLE_RESTART_COOLDOWN_MS, HUD_SNAPSHOT_THROTTLE_MS, ASR_SCRIPT_END_CONFIRM_MAX_WAIT_MS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_MEANINGFUL_TOKENS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_TOKENS, ASR_SCRIPT_END_MARKER_WAIT_MAX_MS, ASR_SCRIPT_END_MARKER_POLL_MS, ASR_SCRIPT_END_POSTROLL_MS, ASR_END_GRACE_MS, ASR_END_GRACE_EXTENSION_MS, ASR_END_GRACE_POLL_MS, ASR_END_GRACE_SPEECH_FRESH_MS, ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO, ASR_FINAL_NOVELTY_MIN_RATIO, ASR_FINAL_NOVELTY_MIN_OVERLAP_RATIO, ASR_FINAL_NOVELTY_DEDUP_WINDOW_MS, ASR_SCRIPT_END_STOPWORDS, speechStoreShimmed, speechStoreSubscribed, latestSpeechStoreState, fallbackTranscriptMatchSeq, __asrLastInterimText, __asrLastInterimAt, __asrInterimRepeatCount, CUE_LINE_BRACKET_RE2, CUE_LINE_WORD_RE2, SPEAKER_TAG_ONLY_RE2, NOTE_TAG_ONLY_RE2, NOTE_INLINE_BLOCK_RE2, SPEAKER_SLOTS, SPEAKER_NAME_SELECTORS, DEFAULT_SPEAKER_LABELS, LOWER_GUARDS, RAISE_GUARDS, summaryListenerAttached, ASR_LAYOUT_READY_MAX_MS, pendingLayoutReady, TRANSCRIPT_EVENT_OPTIONS, asrScrollDriver, transcriptListener, sessionStopHooked, asrBrainLogged, asrDriverLifecycleHooked, asrSessionIntentActive, asrRunCounter, activeAsrRunKey, asrRunGeneration, lastAsrBlockSyncAt, lastAsrBlockSyncLogAt, lastAsrSyncLogAtByType, lastAsrSyncFingerprintByType, ASR_LIVE_BLOCK_SYNC_THROTTLE_MS, ASR_BLOCK_SYNC_LOG_THROTTLE_MS, ASR_SYNC_LOG_THROTTLE_MS, ASR_BLOCK_SYNC_UNCHANGED_LOG_THROTTLE_MS, lastAsrBlockSyncCompleteFingerprint, lastAsrBlockSyncUnchangedAt;
 var init_speech_loader = __esm({
   "src/features/speech-loader.ts"() {
     "use strict";
@@ -75671,10 +75837,10 @@ var init_speech_loader = __esm({
     ASR_DEAF_RECOGNIZER_MS = 6e3;
     ASR_STALL_MATCHER_THRESHOLD_MS = 4500;
     ASR_STALL_MATCHER_STABLE_COMMIT_MS = 1500;
-    DIRECT_MATCHER_MULTI_LINE_MIN_LINES = 2;
-    DIRECT_MATCHER_MULTI_LINE_MAX_LINES = 5;
-    DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES = 3;
-    DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD = 10;
+    DIRECT_MATCHER_MULTI_LINE_MIN_LINES2 = 2;
+    DIRECT_MATCHER_MULTI_LINE_MAX_LINES2 = 5;
+    DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES2 = 3;
+    DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD2 = 10;
     ASR_STALL_AUTORESTART_COOLDOWN_MS = 15e3;
     ASR_STALL_AUTORESTART_SUPPRESS_MS = 3e4;
     ASR_STALL_RESCUE_COOLDOWN_MS = 2e3;
