@@ -1,4 +1,5 @@
 import { speechStore, type SpeechState } from '../../state/speech-store';
+import { installTsPrimaryMatcherNamespace } from '../../speech/ts-primary-matcher-provider';
 export type { SpeechState } from '../../state/speech-store';
 
 type AsrSettingsPatch = Partial<SpeechState>;
@@ -123,9 +124,19 @@ function installMatchOneCompat(ns: any): void {
   }
 }
 
+function shouldInstallTsPrimaryMatcher(ns: any): boolean {
+  if (!ns || typeof ns !== 'object') return false;
+  const existing = ns.matchBatch;
+  if (typeof existing !== 'function') return true;
+  return (existing as any).__tpMatcherUnavailableStub === true;
+}
+
 if (typeof window !== 'undefined') {
   const win = window as any;
   const ns = win.__tpSpeech || {};
+  if (shouldInstallTsPrimaryMatcher(ns)) {
+    installTsPrimaryMatcherNamespace(ns);
+  }
   ns.store = speechStore;
   if (ns.store && typeof ns.store.getState !== 'function' && typeof ns.store.get === 'function') {
     ns.store.getState = ns.store.get.bind(ns.store);

@@ -4,6 +4,7 @@ const matchBatchStub = () => ({
   topScores: [],
   reason: 'matcher_unavailable',
 } as const);
+(matchBatchStub as any).__tpMatcherUnavailableStub = true;
 const noop = () => undefined;
 
 function hasSearchFlag(name: string, aliases: string[] = []): boolean {
