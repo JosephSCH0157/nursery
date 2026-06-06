@@ -52,6 +52,33 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     reason?: string;
     sourcePath?: string;
   }): void;
+  __debugSelectVisualOwnershipCandidate(args: {
+    candidates: Array<{
+      authority: string;
+      targetScrollTop: number | null;
+      reason: string;
+      direction: 'forward' | 'backward' | 'hold';
+      priority: number;
+    }>;
+    currentScrollTop: number;
+    correctionRequested: boolean;
+    markerErrorPx: number;
+    lineHeightPx: number;
+    protectedForwardIntent: boolean;
+    suppressedReason?: string | null;
+    preservedStallFrames?: number;
+    preservedStallMs?: number;
+  }): {
+    selectedAuthority: string;
+    selectedTargetScrollTop: number | null;
+    selectedReason: string;
+    proposedCandidates: string;
+    rejectedAuthorities: string;
+    rejectionReasons: string;
+    movementBlockedReason: string;
+    expiredPreservedTarget: boolean;
+    preservedTargetYieldReason: string;
+  };
   __debugApplyFinalSelectedActuatorStep(args: {
     beforeScrollTop: number;
     selectedTargetScrollTop: number;
@@ -347,6 +374,67 @@ describe('ASR visual contract', () => {
     driver.dispose();
   });
 
+  test('stale preserved low target yields to reader-marker correction instead of starving the bottom pocket', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const decision = driver.__debugSelectVisualOwnershipCandidate({
+      currentScrollTop: 0,
+      correctionRequested: true,
+      markerErrorPx: 498,
+      lineHeightPx: 236,
+      protectedForwardIntent: true,
+      suppressedReason: 'target_preserved_but_not_closing',
+      preservedStallFrames: 4,
+      preservedStallMs: 320,
+      candidates: [
+        {
+          authority: 'preserved_forward_follow_target',
+          targetScrollTop: 36,
+          reason: 'stale_low_preserved_target',
+          direction: 'forward',
+          priority: 92,
+        },
+        {
+          authority: 'reader_marker_correction',
+          targetScrollTop: 104,
+          reason: 'reader_marker_correction',
+          direction: 'forward',
+          priority: 70,
+        },
+      ],
+    });
+
+    expect(decision.selectedAuthority).toBe('reader_marker_correction');
+    expect(decision.selectedTargetScrollTop).toBe(104);
+    expect(decision.selectedTargetScrollTop).not.toBe(36);
+    expect(decision.expiredPreservedTarget).toBe(true);
+    expect(decision.preservedTargetYieldReason).toBe('preserved_forward_target_yielded_to_reader_marker_correction');
+    expect(decision.rejectedAuthorities).toContain('preserved_forward_follow_target');
+    expect(decision.rejectionReasons).toContain(
+      'preserved_forward_follow_target:preserved_forward_target_yielded_to_reader_marker_correction',
+    );
+
+    const result = driver.__debugApplyFinalSelectedActuatorStep({
+      beforeScrollTop: 0,
+      selectedTargetScrollTop: 104,
+      staleActuatorDebtPx: -40,
+      requestedMovePx: 0,
+      effectiveMinStepPx: 34,
+      currentLineIdx: 1,
+      committedLineIdx: 1,
+      nextSpeakableLineIdx: 1,
+      authority: decision.selectedAuthority,
+      authorityReason: decision.selectedReason,
+      allowedTargetIdx: 1,
+    });
+
+    expect(result.finalTargetDebtPx).toBe(104);
+    expect(result.appliedDeltaPx).toBeGreaterThan(0);
+    expect(result.movementBlocked).toBe('none');
+
+    driver.dispose();
+  });
+
   test('stale alternate debt cannot flip final debt negative for the selected forward target', () => {
     const driver = createAsrScrollDriver() as DebugAsrDriver;
 
@@ -365,6 +453,31 @@ describe('ASR visual contract', () => {
     });
 
     expect(result.finalTargetDebtPx).toBe(237);
+    expect(result.staleDebtSource).toBe(true);
+    expect(result.appliedDeltaPx).toBeGreaterThan(0);
+    expect(result.movementBlocked).not.toBe('target_debt_cap');
+
+    driver.dispose();
+  });
+
+  test('final debt cap after preserved-target yield uses the selected forward target instead of stale alternate debt', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugApplyFinalSelectedActuatorStep({
+      beforeScrollTop: 520,
+      selectedTargetScrollTop: 647,
+      staleActuatorDebtPx: -280,
+      requestedMovePx: 400,
+      effectiveMinStepPx: 34,
+      currentLineIdx: 8,
+      committedLineIdx: 8,
+      nextSpeakableLineIdx: 8,
+      authority: 'reader_marker_correction',
+      authorityReason: 'preserved_forward_target_yielded_to_reader_marker_correction',
+      allowedTargetIdx: 8,
+    });
+
+    expect(result.finalTargetDebtPx).toBe(127);
     expect(result.staleDebtSource).toBe(true);
     expect(result.appliedDeltaPx).toBeGreaterThan(0);
     expect(result.movementBlocked).not.toBe('target_debt_cap');

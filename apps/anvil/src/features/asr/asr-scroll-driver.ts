@@ -465,6 +465,9 @@ const ASR_PURSUE_COALESCE_WINDOW_MS = 1500;
 const ASR_VISUAL_OWNERSHIP_TRACE_SUMMARY_MS = 2000;
 const ASR_VISUAL_OWNERSHIP_TRACE_PERIODIC_MS = 5000;
 const ASR_DIRECT_WRITE_BLOCKED_COALESCE_MS = 2000;
+const ASR_PRESERVED_TARGET_YIELD_MIN_ADVANTAGE_LINES = 0.25;
+const ASR_PRESERVED_TARGET_NOT_CLOSING_MAX_FRAMES = 3;
+const ASR_PRESERVED_TARGET_NOT_CLOSING_MAX_MS = 260;
 const ASR_APPROVED_VISUAL_GLIDE_MIN_PX = 18;
 const ASR_APPROVED_VISUAL_GLIDE_MAX_LINES = 1.25;
 const ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_RATIO = 0.55;
@@ -4377,6 +4380,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let preservedAsrAuthorityTargetTop: number | null = null;
   let preservedAsrAuthorityTargetReason = 'none';
   let preservedAsrAuthorityTargetSourcePath = 'none';
+  let preservedAsrAuthorityTargetNotClosingFrames = 0;
+  let preservedAsrAuthorityTargetNotClosingSinceMs = 0;
   let lastAsrBackwardRecenterBlockReason = 'none';
   let lastAsrRecoveryPathBlockReason = 'none';
   let asrVisualAuthorityLeadPressureCapReadyLogged = false;
@@ -4518,6 +4523,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     rejectedAuthorities: string;
     rejectionReasons: string;
     movementBlockedReason: string;
+    expiredPreservedTarget: boolean;
+    preservedTargetYieldReason: string;
   };
   const selectAsrVisualOwnershipCandidate = (args: {
     candidates: AsrVisualOwnershipCandidate[];
@@ -4526,6 +4533,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     markerErrorPx: number;
     lineHeightPx: number;
     protectedForwardIntent: boolean;
+    suppressedReason?: string | null;
+    preservedStallFrames?: number;
+    preservedStallMs?: number;
   }): AsrVisualOwnershipDecision => {
     const proposedCandidates = args.candidates.length > 0
       ? args.candidates.map((candidate) => {
@@ -4544,12 +4554,52 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const rightTarget = Number.isFinite(right.targetScrollTop as number) ? Number(right.targetScrollTop) : args.currentScrollTop;
       return rightTarget - leftTarget;
     });
+    const meaningfulForwardGapPx =
+      Number.isFinite(args.lineHeightPx)
+        ? Math.max(18, Number(args.lineHeightPx) * ASR_PRESERVED_TARGET_YIELD_MIN_ADVANTAGE_LINES)
+        : 18;
+    const preservedCandidate = sortedCandidates.find((candidate) =>
+      candidate.authority === 'preserved_forward_follow_target' &&
+      Number.isFinite(candidate.targetScrollTop as number),
+    ) || null;
+    const strongerForwardCandidate = sortedCandidates.find((candidate) =>
+      candidate.authority !== 'preserved_forward_follow_target' &&
+      candidate.direction === 'forward' &&
+      Number.isFinite(candidate.targetScrollTop as number) &&
+      Number(candidate.targetScrollTop) > args.currentScrollTop + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX,
+    ) || null;
+    const markerFarBelow =
+      args.correctionRequested &&
+      Number.isFinite(args.markerErrorPx) &&
+      Number.isFinite(args.lineHeightPx) &&
+      args.markerErrorPx > args.lineHeightPx;
+    const preservedNotClosingActive =
+      String(args.suppressedReason || 'none') === 'target_preserved_but_not_closing' ||
+      Math.max(0, Math.floor(Number(args.preservedStallFrames) || 0)) >= ASR_PRESERVED_TARGET_NOT_CLOSING_MAX_FRAMES ||
+      Math.max(0, Number(args.preservedStallMs) || 0) >= ASR_PRESERVED_TARGET_NOT_CLOSING_MAX_MS;
+    const preservedTargetYieldReason =
+      preservedCandidate &&
+      strongerForwardCandidate &&
+      markerFarBelow &&
+      args.protectedForwardIntent &&
+      preservedNotClosingActive &&
+      Number(strongerForwardCandidate.targetScrollTop) > (Number(preservedCandidate.targetScrollTop) + meaningfulForwardGapPx)
+        ? `preserved_forward_target_yielded_to_${strongerForwardCandidate.authority}`
+        : 'none';
     for (const candidate of sortedCandidates) {
       const targetFinite = Number.isFinite(candidate.targetScrollTop as number);
       const targetTop = targetFinite ? Number(candidate.targetScrollTop) : args.currentScrollTop;
       if (!targetFinite && candidate.direction !== 'hold') {
         rejectedAuthorities.push(candidate.authority);
         rejectionReasons.push(`${candidate.authority}:invalid_target`);
+        continue;
+      }
+      if (
+        candidate.authority === 'preserved_forward_follow_target' &&
+        preservedTargetYieldReason !== 'none'
+      ) {
+        rejectedAuthorities.push(candidate.authority);
+        rejectionReasons.push(`${candidate.authority}:${preservedTargetYieldReason}`);
         continue;
       }
       if (
@@ -4609,7 +4659,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       rejectedAuthorities: rejectedAuthorities.length > 0 ? rejectedAuthorities.join(',') : 'none',
       rejectionReasons: rejectionReasons.length > 0 ? rejectionReasons.join(',') : 'none',
       movementBlockedReason,
+      expiredPreservedTarget: preservedTargetYieldReason !== 'none',
+      preservedTargetYieldReason,
     };
+  };
+  const resetPreservedForwardTargetStallState = (): void => {
+    preservedAsrAuthorityTargetNotClosingFrames = 0;
+    preservedAsrAuthorityTargetNotClosingSinceMs = 0;
   };
   const shouldSuppressAsrPursueZeroSuccess = (
     scroller: HTMLElement | null,
@@ -19994,7 +20050,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       move = Math.max(move, visualDebtCatchupProposedMovePx);
       clampReason = 'visual_debt_catchup';
     }
-    if (move > err) {
+    if (!liveAsrFollowMode && move > err) {
       move = err;
       clampReason = clampReason === 'none' ? 'target_debt_cap' : clampReason;
     }
@@ -20116,6 +20172,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           66,
         );
       }
+      const preservedTargetNotClosingActive =
+        Number.isFinite(preservedAsrAuthorityTargetTop as number) &&
+        protectedForwardIntent &&
+        liveTickOwnershipSnapshot.correctionRequested &&
+        Number.isFinite(liveTickOwnershipSnapshot.markerErrorPx) &&
+        Number.isFinite(liveTickOwnershipSnapshot.lineHeightPx) &&
+        liveTickOwnershipSnapshot.markerErrorPx > liveTickOwnershipSnapshot.lineHeightPx &&
+        String(asr4OwnershipState.suppressedReason || 'none') === 'target_preserved_but_not_closing';
+      if (preservedTargetNotClosingActive) {
+        const now = Date.now();
+        preservedAsrAuthorityTargetNotClosingFrames += 1;
+        if (preservedAsrAuthorityTargetNotClosingSinceMs <= 0) {
+          preservedAsrAuthorityTargetNotClosingSinceMs = now;
+        }
+      } else {
+        resetPreservedForwardTargetStallState();
+      }
+      const preservedStallMs =
+        preservedAsrAuthorityTargetNotClosingSinceMs > 0
+          ? Math.max(0, Date.now() - preservedAsrAuthorityTargetNotClosingSinceMs)
+          : 0;
       if (
         Number.isFinite(provisionalSelectedTargetScrollTop) &&
         provisionalSelectedTargetScrollTop < beforeScrollTop - getVisualTargetTolerancePx(safeResolverLineHeightPx)
@@ -20135,7 +20212,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         markerErrorPx: liveTickOwnershipSnapshot.markerErrorPx,
         lineHeightPx: liveTickOwnershipSnapshot.lineHeightPx,
         protectedForwardIntent,
+        suppressedReason: asr4OwnershipState.suppressedReason,
+        preservedStallFrames: preservedAsrAuthorityTargetNotClosingFrames,
+        preservedStallMs,
       });
+      if (liveTickVisualOwnershipDecision.expiredPreservedTarget) {
+        preservedAsrAuthorityTargetTop = null;
+        preservedAsrAuthorityTargetReason = liveTickVisualOwnershipDecision.preservedTargetYieldReason;
+        preservedAsrAuthorityTargetSourcePath = 'expired_stale_preserved_forward_follow_target';
+        resetPreservedForwardTargetStallState();
+      }
     }
 
     const visualChairpersonShadowEnabled = isAsrVisualChairpersonShadowEnabled();
@@ -20342,6 +20428,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         preservedAsrAuthorityTargetTop = Number(pursuitTargetTop);
         preservedAsrAuthorityTargetReason = liveTickAuthorityReason;
         preservedAsrAuthorityTargetSourcePath = liveTickSelectedAuthority;
+        resetPreservedForwardTargetStallState();
       }
     }
     const preOwnershipActuatorDebtPx = arithmeticTargetDebtPx;
@@ -39711,12 +39798,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       preservedAsrAuthorityTargetTop = Number(args.targetScrollTop);
       preservedAsrAuthorityTargetReason = String(args.reason || 'debug_seed_preserved_follow_target');
       preservedAsrAuthorityTargetSourcePath = String(args.sourcePath || 'debug_seed_preserved_follow_target');
+      resetPreservedForwardTargetStallState();
       return;
     }
     preservedAsrAuthorityTargetTop = null;
     preservedAsrAuthorityTargetReason = String(args.reason || 'debug_clear_preserved_follow_target');
     preservedAsrAuthorityTargetSourcePath = String(args.sourcePath || 'debug_clear_preserved_follow_target');
+    resetPreservedForwardTargetStallState();
   };
+  const debugSelectVisualOwnershipCandidate = (args: {
+    candidates: AsrVisualOwnershipCandidate[];
+    currentScrollTop: number;
+    correctionRequested: boolean;
+    markerErrorPx: number;
+    lineHeightPx: number;
+    protectedForwardIntent: boolean;
+    suppressedReason?: string | null;
+    preservedStallFrames?: number;
+    preservedStallMs?: number;
+  }) => selectAsrVisualOwnershipCandidate(args);
   const getLastLineIndex = () => lastLineIndex;
   const getStats = (): AsrScrollDriverStats => ({
     lastIngestAt,
@@ -39749,6 +39849,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     __debugEvaluateAsrVisualAuthorityLeadPressure: debugEvaluateAsrVisualAuthorityLeadPressure,
     __debugEvaluateAsrVisualDeadlockEscape: debugEvaluateAsrVisualDeadlockEscape,
     __debugEvaluateProfileForwardGuard: debugEvaluateProfileForwardGuard,
+    __debugSelectVisualOwnershipCandidate: debugSelectVisualOwnershipCandidate,
     __debugSeedPreservedFollowTarget: debugSeedPreservedFollowTarget,
   } as AsrScrollDriver & {
     __debugSeedPendingSpeakableBridge(args: {
@@ -39878,6 +39979,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       appliedDeltaPx: number;
       movementBlocked: string;
     };
+    __debugSelectVisualOwnershipCandidate(args: {
+      candidates: AsrVisualOwnershipCandidate[];
+      currentScrollTop: number;
+      correctionRequested: boolean;
+      markerErrorPx: number;
+      lineHeightPx: number;
+      protectedForwardIntent: boolean;
+      suppressedReason?: string | null;
+      preservedStallFrames?: number;
+      preservedStallMs?: number;
+    }): AsrVisualOwnershipDecision;
     __debugEvaluateForwardCommitFreshness(args: {
       currentLineIdx: number;
       proposedLineIdx: number;
