@@ -650,6 +650,118 @@ describe('ASR TS-primary matcher proof', () => {
     driver.dispose();
   });
 
+  test('speech-stall stale backend evidence rejects as backend_evidence_stale before target mismatch', async () => {
+    bootstrapLongDom(40);
+    const { ensureSpeechGlobals } = await import('../../src/speech/backend-guard');
+    ensureSpeechGlobals();
+    await import('../../src/features/speech/speech-store');
+    const { createAsrScrollDriver } = await import('../../src/features/asr/asr-scroll-driver');
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
+    }));
+
+    driver.setLastLineIndex(7);
+    await jest.advanceTimersByTimeAsync(1200);
+    driver.ingest('Line 9 carries the spoken script content for test 9.', true, {
+      currentIdx: 7,
+      matchId: 'ts-primary-speech-stall-stale-age',
+      match: {
+        bestIdx: 9,
+        bestSim: 0.84,
+        topScores: [{ idx: 9, score: 0.84 }],
+        via: 'backend',
+        reason: 'ts_primary_matcher',
+        primaryBypassReason: null,
+      } as any,
+    });
+    await jest.advanceTimersByTimeAsync(6443);
+    dispatchSpeechStallRescue();
+    await jest.advanceTimersByTimeAsync(240);
+
+    const guardPayloads = getGuardPayloads(warnSpy);
+    const rejectedPayload = guardPayloads.find((payload) =>
+      payload.reason === 'live_strict_rescue_canonical_backend_rejected' &&
+      payload.parts.includes('source=stall:speech_stall'),
+    );
+    expect(rejectedPayload).toBeTruthy();
+    expect(rejectedPayload?.parts).toContain('rescueProofRejectedReason=backend_evidence_stale');
+    expect(rejectedPayload?.parts).toContain('matchBestIdx=9');
+    expect(rejectedPayload?.parts).toContain('rescueTargetIdx=9');
+    expect(rejectedPayload?.parts).toContain('promotedTargetIdx=8');
+
+    driver.dispose();
+  });
+
+  test('auto-stall stale-behind backend evidence still rejects as best_idx_not_forward', async () => {
+    bootstrapLongDom(12);
+    const { ensureSpeechGlobals } = await import('../../src/speech/backend-guard');
+    ensureSpeechGlobals();
+    await import('../../src/features/speech/speech-store');
+    const { createAsrScrollDriver } = await import('../../src/features/asr/asr-scroll-driver');
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
+    }));
+
+    driver.setLastLineIndex(0);
+    await jest.advanceTimersByTimeAsync(1200);
+    driver.ingest('Line 1 carries the spoken script content for test 1.', true, {
+      currentIdx: 0,
+      matchId: 'ts-primary-auto-stall-behind-1',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.73,
+        topScores: [{ idx: 1, score: 0.73 }],
+        via: 'backend',
+        reason: 'ts_primary_matcher',
+        primaryBypassReason: null,
+      } as any,
+    });
+    await jest.advanceTimersByTimeAsync(100);
+    driver.ingest('Line 1 carries the spoken script content for test 1.', false, {
+      currentIdx: 1,
+      matchId: 'ts-primary-auto-stall-behind-prime',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.73,
+        topScores: [{ idx: 1, score: 0.73 }],
+        via: 'backend',
+        reason: 'ts_primary_matcher',
+        primaryBypassReason: null,
+      } as any,
+    });
+    await jest.advanceTimersByTimeAsync(1200);
+
+    driver.ingest('Line 2 carries the spoken script content for test 2.', true, {
+      currentIdx: 1,
+      matchId: 'ts-primary-auto-stall-behind-2',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.79,
+        topScores: [{ idx: 1, score: 0.79 }],
+        via: 'backend',
+        reason: 'ts_primary_matcher',
+        primaryBypassReason: null,
+      } as any,
+    });
+    await jest.advanceTimersByTimeAsync(240);
+
+    const guardPayloads = getGuardPayloads(warnSpy);
+    const rejectedPayload = guardPayloads.find((payload) =>
+      payload.reason === 'live_strict_rescue_canonical_backend_rejected' &&
+      payload.parts.includes('source=auto-stall'),
+    );
+    expect(rejectedPayload).toBeTruthy();
+    expect(rejectedPayload?.parts).toContain('rescueProofRejectedReason=best_idx_not_forward');
+
+    driver.dispose();
+  });
+
   test('speech-stall backend evidence with a primary bypass stays rejected with a precise reason', async () => {
     bootstrapLongDom(40);
     const { ensureSpeechGlobals } = await import('../../src/speech/backend-guard');

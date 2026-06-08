@@ -15572,6 +15572,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           lastCanonicalBackendAdjacentEvidence
         )
         : lastCanonicalBackendAdjacentEvidence;
+    const strictCanonicalBackendEvidenceAgeMs =
+      lastTranscriptPacketAt > 0
+        ? Math.max(0, now - lastTranscriptPacketAt)
+        : -1;
     const strictAutoStallCanonicalAdjacentRejectedReason = (() => {
       if (!liveStrictFollow) return 'live_strict_follow_disabled';
       if (!strictCanonicalBackendRescueSourceAllowed) {
@@ -15579,6 +15583,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       if (deltaLines !== 1) return `delta_not_single_step:${deltaLines}`;
       if (!strictCanonicalBackendAdjacentEvidence) return 'no_canonical_backend_evidence';
+      if (
+        strictCanonicalBackendEvidenceAgeMs > DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS
+      ) {
+        return 'backend_evidence_stale';
+      }
       if (!strictCanonicalBackendAdjacentEvidence.eligible) {
         return strictCanonicalBackendAdjacentEvidence.rejectedReason || 'canonical_backend_not_eligible';
       }
@@ -15599,10 +15608,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       strictCanonicalBackendAdjacentEvidence &&
       !strictAutoStallCanonicalAdjacentEligible
     ) {
-      const backendEvidenceAgeMs =
-        lastTranscriptPacketAt > 0
-          ? Math.max(0, now - lastTranscriptPacketAt)
-          : -1;
       warnGuard('live_strict_rescue_canonical_backend_rejected', [
         `at=${cursorLine}`,
         `target=${targetLine}`,
@@ -15615,10 +15620,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         `primaryBypassReason=${strictCanonicalBackendAdjacentEvidence.rejectedReason?.startsWith('primary_bypass:')
           ? strictCanonicalBackendAdjacentEvidence.rejectedReason.slice('primary_bypass:'.length)
           : 'null'}`,
-        `backendEvidenceAgeMs=${backendEvidenceAgeMs}`,
+        `backendEvidenceAgeMs=${strictCanonicalBackendEvidenceAgeMs}`,
         'backendEvidencePresent=1',
         'adjacentStepEligible=0',
         `rescueProofRejectedReason=${strictAutoStallCanonicalAdjacentRejectedReason}`,
+        `promotedTargetIdx=${strictCanonicalBackendAdjacentEvidence.promotedTargetIdx}`,
+        `rescueTargetIdx=${targetLine}`,
+        `promotedTargetMismatchReason=${strictCanonicalBackendAdjacentEvidence.promotedTargetIdx !== targetLine ? 'promoted_target_mismatch' : 'none'}`,
         `allowedRescueSources=${strictCanonicalBackendAllowedRescueSources.join('|')}`,
       ]);
     }
@@ -16088,10 +16096,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         `primaryBypassReason=${strictCanonicalBackendAdjacentEvidence?.rejectedReason?.startsWith('primary_bypass:')
           ? strictCanonicalBackendAdjacentEvidence.rejectedReason.slice('primary_bypass:'.length)
           : 'null'}`,
-        `backendEvidenceAgeMs=${lastTranscriptPacketAt > 0 ? Math.max(0, now - lastTranscriptPacketAt) : -1}`,
+        `backendEvidenceAgeMs=${strictCanonicalBackendEvidenceAgeMs}`,
         `backendEvidencePresent=${strictCanonicalBackendAdjacentEvidence ? 1 : 0}`,
         `adjacentStepEligible=${strictAutoStallCanonicalAdjacentEligible ? 1 : 0}`,
         `rescueProofRejectedReason=${rescueProofRejectedReason}`,
+        `promotedTargetIdx=${strictCanonicalBackendAdjacentEvidence?.promotedTargetIdx ?? -1}`,
+        `rescueTargetIdx=${targetLine}`,
+        `promotedTargetMismatchReason=${strictCanonicalBackendAdjacentEvidence && strictCanonicalBackendAdjacentEvidence.promotedTargetIdx !== targetLine ? 'promoted_target_mismatch' : 'none'}`,
         `allowedRescueSources=${strictCanonicalBackendAllowedRescueSources.join('|')}`,
         targetText ? `line="${formatLogSnippet(targetText, 56)}"` : '',
       ]);

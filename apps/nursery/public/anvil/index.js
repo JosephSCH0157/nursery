@@ -48357,10 +48357,17 @@ function createAsrScrollDriver(options = {}) {
     const strictFinalEvidenceArriving = liveStrictFollow && finalsSinceCommit > 0;
     const strictClusterContradictionFresh = liveStrictFollow && liveStrictForwardClusterContradictionAt > 0 && now3 - liveStrictForwardClusterContradictionAt <= DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS;
     const strictNoMatchBlockActive = liveStrictFollow && lastRescueNoMatchAt > 0 && now3 - lastRescueNoMatchAt < DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS;
-    const strictCanonicalBackendAdjacentEvidence = reasonTag === "auto-stall" ? pendingCanonicalBackendAdjacentEvidenceForRescue || lastCanonicalBackendAdjacentEvidence : lastCanonicalBackendAdjacentEvidence;
+    const strictCanonicalBackendAllowedRescueSources = [
+      "auto-stall",
+      "stall:speech_stall"
+    ];
+    const strictCanonicalBackendRescueSourceAllowed = strictCanonicalBackendAllowedRescueSources.includes(reasonTag);
+    const strictCanonicalBackendAdjacentEvidence = strictCanonicalBackendRescueSourceAllowed ? pendingCanonicalBackendAdjacentEvidenceForRescue || lastCanonicalBackendAdjacentEvidence : lastCanonicalBackendAdjacentEvidence;
     const strictAutoStallCanonicalAdjacentRejectedReason = (() => {
       if (!liveStrictFollow) return "live_strict_follow_disabled";
-      if (reasonTag !== "auto-stall") return "rescue_source_not_auto_stall";
+      if (!strictCanonicalBackendRescueSourceAllowed) {
+        return `rescue_source_not_allowed:${reasonTag || "unknown"}`;
+      }
       if (deltaLines !== 1) return `delta_not_single_step:${deltaLines}`;
       if (!strictCanonicalBackendAdjacentEvidence) return "no_canonical_backend_evidence";
       if (!strictCanonicalBackendAdjacentEvidence.eligible) {
@@ -48376,7 +48383,8 @@ function createAsrScrollDriver(options = {}) {
       return null;
     })();
     const strictAutoStallCanonicalAdjacentEligible = strictAutoStallCanonicalAdjacentRejectedReason == null;
-    if (liveStrictFollow && reasonTag === "auto-stall" && strictCanonicalBackendAdjacentEvidence && !strictAutoStallCanonicalAdjacentEligible) {
+    if (liveStrictFollow && strictCanonicalBackendRescueSourceAllowed && strictCanonicalBackendAdjacentEvidence && !strictAutoStallCanonicalAdjacentEligible) {
+      const backendEvidenceAgeMs = lastTranscriptPacketAt > 0 ? Math.max(0, now3 - lastTranscriptPacketAt) : -1;
       warnGuard("live_strict_rescue_canonical_backend_rejected", [
         `at=${cursorLine}`,
         `target=${targetLine}`,
@@ -48387,12 +48395,14 @@ function createAsrScrollDriver(options = {}) {
         `matchBestIdx=${strictCanonicalBackendAdjacentEvidence.matchBestIdx}`,
         `matchBestSim=${formatLogScore(strictCanonicalBackendAdjacentEvidence.matchBestSim)}`,
         `primaryBypassReason=${strictCanonicalBackendAdjacentEvidence.rejectedReason?.startsWith("primary_bypass:") ? strictCanonicalBackendAdjacentEvidence.rejectedReason.slice("primary_bypass:".length) : "null"}`,
+        `backendEvidenceAgeMs=${backendEvidenceAgeMs}`,
         "backendEvidencePresent=1",
         "adjacentStepEligible=0",
-        `rescueProofRejectedReason=${strictAutoStallCanonicalAdjacentRejectedReason}`
+        `rescueProofRejectedReason=${strictAutoStallCanonicalAdjacentRejectedReason}`,
+        `allowedRescueSources=${strictCanonicalBackendAllowedRescueSources.join("|")}`
       ]);
     }
-    const strictAutoStallCanonicalPacketFreshForRescue = strictAutoStallCanonicalAdjacentEligible && reasonTag === "auto-stall" && !!pendingCanonicalBackendAdjacentEvidenceForRescue && lastTranscriptPacketAt > 0 && Math.max(0, now3 - lastTranscriptPacketAt) <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS;
+    const strictAutoStallCanonicalPacketFreshForRescue = strictAutoStallCanonicalAdjacentEligible && strictCanonicalBackendRescueSourceAllowed && !!pendingCanonicalBackendAdjacentEvidenceForRescue && lastTranscriptPacketAt > 0 && Math.max(0, now3 - lastTranscriptPacketAt) <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS;
     const strictTerminalDrainCandidate = liveStrictFollow && strictStarvationActive && strictFinalEvidenceArriving && !strictClusterContradictionFresh && !strictNoMatchBlockActive;
     const strictRescueProofTopScores = [];
     if (Number.isFinite(lastRescueMatchEvidenceLine) && Number.isFinite(lastRescueMatchEvidenceSim)) {
@@ -48741,9 +48751,11 @@ function createAsrScrollDriver(options = {}) {
         `matchBestIdx=${strictCanonicalBackendAdjacentEvidence?.matchBestIdx ?? -1}`,
         `matchBestSim=${formatLogScore(strictCanonicalBackendAdjacentEvidence?.matchBestSim ?? Number.NaN)}`,
         `primaryBypassReason=${strictCanonicalBackendAdjacentEvidence?.rejectedReason?.startsWith("primary_bypass:") ? strictCanonicalBackendAdjacentEvidence.rejectedReason.slice("primary_bypass:".length) : "null"}`,
+        `backendEvidenceAgeMs=${lastTranscriptPacketAt > 0 ? Math.max(0, now3 - lastTranscriptPacketAt) : -1}`,
         `backendEvidencePresent=${strictCanonicalBackendAdjacentEvidence ? 1 : 0}`,
         `adjacentStepEligible=${strictAutoStallCanonicalAdjacentEligible ? 1 : 0}`,
         `rescueProofRejectedReason=${rescueProofRejectedReason}`,
+        `allowedRescueSources=${strictCanonicalBackendAllowedRescueSources.join("|")}`,
         targetText ? `line="${formatLogSnippet(targetText, 56)}"` : ""
       ]);
       emitHudStatus(
