@@ -45,6 +45,44 @@ function bootstrapDom(): void {
   });
 }
 
+function bootstrapLongDom(lineCount = 16): void {
+  const lines = Array.from({ length: lineCount }, (_, idx) => {
+    return `<div class="line" data-line="${idx}" style="line-height:24px;">Line ${idx} carries the spoken script content for test ${idx}.</div>`;
+  }).join('');
+  document.body.innerHTML = `
+    <main id="viewer" class="viewer" style="overflow-y:auto">
+      <div id="script">${lines}</div>
+    </main>
+  `;
+  const scroller = document.getElementById('viewer') as HTMLElement;
+  Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 669 });
+  Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 9000 });
+  Object.defineProperty(scroller, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => ({ top: 0, left: 0, right: 800, bottom: 669, width: 800, height: 669 }),
+  });
+  scroller.scrollTop = 0;
+
+  Array.from(document.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+    const top = idx * 280;
+    const height = 220;
+    Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: top });
+    Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: height });
+    Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: height });
+    Object.defineProperty(lineEl, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        top,
+        left: 0,
+        right: 800,
+        bottom: top + height,
+        width: 800,
+        height,
+      }),
+    });
+  });
+}
+
 describe('ASR TS-primary matcher proof', () => {
   beforeEach(() => {
     jest.resetModules();
@@ -140,6 +178,78 @@ describe('ASR TS-primary matcher proof', () => {
     expect(driver.getLastLineIndex()).toBe(1);
     const warns = warnSpy.mock.calls.map((call) => String(call[0] || ''));
     expect(warns.some((line) => line.includes('asr_live_no_adjacent_match_hold'))).toBe(false);
+
+    driver.dispose();
+  });
+
+  test('canonical backend TS-primary evidence can promote a safe bounded forward step without no-adjacent hold', async () => {
+    bootstrapLongDom(18);
+    const { ensureSpeechGlobals } = await import('../../src/speech/backend-guard');
+    ensureSpeechGlobals();
+    await import('../../src/features/speech/speech-store');
+    const { createAsrScrollDriver } = await import('../../src/features/asr/asr-scroll-driver');
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
+    }));
+
+    driver.setLastLineIndex(10);
+    await jest.advanceTimersByTimeAsync(1200);
+    driver.ingest('Line 13 carries the spoken script content for test 13.', true, {
+      currentIdx: 10,
+      matchId: 'ts-primary-safe-forward-correction',
+      match: {
+        bestIdx: 13,
+        bestSim: 0.93,
+        topScores: [{ idx: 13, score: 0.93 }],
+        via: 'backend',
+        reason: 'ts_primary_matcher',
+        primaryBypassReason: null,
+      } as any,
+    });
+    await jest.advanceTimersByTimeAsync(240);
+
+    expect(driver.getLastLineIndex()).toBeGreaterThan(10);
+    const warnings = warnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(warnings.some((line) => line.includes('asr_live_no_adjacent_match_hold'))).toBe(false);
+
+    driver.dispose();
+  });
+
+  test('unsafe backend matcher evidence still keeps the no-adjacent hold active', async () => {
+    bootstrapLongDom(18);
+    const { ensureSpeechGlobals } = await import('../../src/speech/backend-guard');
+    ensureSpeechGlobals();
+    await import('../../src/features/speech/speech-store');
+    const { createAsrScrollDriver } = await import('../../src/features/asr/asr-scroll-driver');
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const driver = createAsrScrollDriver();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
+    }));
+
+    driver.setLastLineIndex(10);
+    await jest.advanceTimersByTimeAsync(1200);
+    driver.ingest('Line 13 carries the spoken script content for test 13.', true, {
+      currentIdx: 10,
+      matchId: 'ts-primary-unsafe-forward-correction',
+      match: {
+        bestIdx: 13,
+        bestSim: 0.48,
+        topScores: [{ idx: 13, score: 0.48 }],
+        via: 'backend',
+        reason: 'ts_primary_matcher',
+        primaryBypassReason: null,
+      } as any,
+    });
+    await jest.advanceTimersByTimeAsync(240);
+
+    expect(driver.getLastLineIndex()).toBeLessThan(13);
+    const warnings = warnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(warnings.some((line) => line.includes('asr_live_no_adjacent_match_hold'))).toBe(true);
 
     driver.dispose();
   });
