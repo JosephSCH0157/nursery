@@ -72,6 +72,11 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     visualAnchorSource?: string | null;
     matchedLineViewportY?: number | null;
     matchedMarkerErrorPx?: number | null;
+    readerMarkerCorrectionLeaseActive?: boolean;
+    readerMarkerCorrectionLeaseAgeMs?: number | null;
+    readerMarkerCorrectionLeaseReason?: string | null;
+    readerMarkerCorrectionLeaseReleasedReason?: string | null;
+    readerMarkerCorrectionLeaseMarkerErrorPxAtStart?: number | null;
   }): {
     beforeScrollTop: number;
     effectiveTop: number;
@@ -79,6 +84,10 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     reason: string;
     tolerancePx: number;
     hasFreshVerifiedForwardCommit: boolean;
+    targetSafetyReferenceSource: string;
+    unsafeTargetReason: string;
+    readerMarkerCorrectionLeaseActive: boolean;
+    readerMarkerCorrectionLeaseReleasedReason: string;
   };
   __debugSeedPreservedFollowTarget(args: {
     targetScrollTop: number | null;
@@ -101,6 +110,10 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     suppressedReason?: string | null;
     preservedStallFrames?: number;
     preservedStallMs?: number;
+    readerMarkerCorrectionLeaseActive?: boolean;
+    readerMarkerCorrectionLeaseAgeMs?: number;
+    readerMarkerCorrectionLeaseReason?: string | null;
+    preservedTargetClosingError?: boolean;
   }): {
     selectedAuthority: string;
     selectedTargetScrollTop: number | null;
@@ -637,6 +650,122 @@ describe('ASR visual contract', () => {
     expect(result.finalTargetDebtPx).toBe(104);
     expect(result.appliedDeltaPx).toBeGreaterThan(0);
     expect(result.movementBlocked).toBe('none');
+
+    driver.dispose();
+  });
+
+  test('reader-marker correction lease retains authority over preserved follow while marker error stays positive', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const decision = driver.__debugSelectVisualOwnershipCandidate({
+      currentScrollTop: 6,
+      correctionRequested: true,
+      markerErrorPx: 98,
+      lineHeightPx: 56,
+      protectedForwardIntent: true,
+      suppressedReason: 'target_preserved_but_not_closing',
+      preservedStallFrames: 1,
+      preservedStallMs: 60,
+      readerMarkerCorrectionLeaseActive: true,
+      readerMarkerCorrectionLeaseAgeMs: 120,
+      readerMarkerCorrectionLeaseReason: 'reader_marker_correction_safe_bounded',
+      preservedTargetClosingError: false,
+      candidates: [
+        {
+          authority: 'preserved_forward_follow_target',
+          targetScrollTop: 104,
+          reason: 'marker_error_line_too_low',
+          direction: 'forward',
+          priority: 92,
+        },
+        {
+          authority: 'reader_marker_correction',
+          targetScrollTop: 104,
+          reason: 'marker_error_line_too_low',
+          direction: 'forward',
+          priority: 70,
+        },
+      ],
+    });
+
+    expect(decision.selectedAuthority).toBe('reader_marker_correction');
+    expect(decision.rejectedAuthorities).toContain('preserved_forward_follow_target');
+    expect(decision.rejectionReasons).toContain(
+      'preserved_forward_follow_target:preserved_forward_target_yielded_to_reader_marker_correction',
+    );
+
+    driver.dispose();
+  });
+
+  test('active reader-marker correction lease keeps bounded spoken-match as the safety reference across preserved follow ticks', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugApplyScrollWithHybridGuard({
+      beforeScrollTop: 6,
+      proposedTop: 104,
+      targetScrollTop: 104,
+      currentLineIdx: 0,
+      committedLineIdx: 0,
+      nextSpeakableLineIdx: 0,
+      allowedTargetIdx: -1,
+      selectedAuthority: 'preserved_forward_follow_target',
+      authorityReason: 'marker_error_line_too_low',
+      matchBestIdx: 1,
+      matchBestSim: 0.693,
+      matchVia: 'backend',
+      matchReason: 'ts_primary_matcher',
+      primaryBypassReason: null,
+      visualAnchorLineIdx: 1,
+      visualAnchorSource: 'accepted_match',
+      matchedLineViewportY: 494,
+      matchedMarkerErrorPx: 98,
+      readerMarkerCorrectionLeaseActive: true,
+      readerMarkerCorrectionLeaseAgeMs: 120,
+      readerMarkerCorrectionLeaseReason: 'reader_marker_correction_safe_bounded',
+      readerMarkerCorrectionLeaseMarkerErrorPxAtStart: 104,
+    });
+
+    expect(result.reason).not.toBe('no_safe_target_forward_suppressed');
+    expect(result.targetSafetyReferenceSource).toBe('bounded_visual_spoken_match');
+    expect(result.unsafeTargetReason).not.toBe('reader_marker_correction_inactive');
+    expect(result.readerMarkerCorrectionLeaseActive).toBe(true);
+
+    driver.dispose();
+  });
+
+  test('stale reader-marker correction lease releases cleanly and allows conservative fallback again', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugApplyScrollWithHybridGuard({
+      beforeScrollTop: 6,
+      proposedTop: 104,
+      targetScrollTop: 104,
+      currentLineIdx: 1,
+      committedLineIdx: 1,
+      nextSpeakableLineIdx: 1,
+      allowedTargetIdx: -1,
+      selectedAuthority: 'preserved_forward_follow_target',
+      authorityReason: 'marker_error_line_too_low',
+      matchBestIdx: 1,
+      matchBestSim: 0.693,
+      matchVia: 'backend',
+      matchReason: 'ts_primary_matcher',
+      primaryBypassReason: null,
+      visualAnchorLineIdx: 1,
+      visualAnchorSource: 'accepted_match',
+      matchedLineViewportY: 494,
+      matchedMarkerErrorPx: 98,
+      readerMarkerCorrectionLeaseActive: true,
+      readerMarkerCorrectionLeaseAgeMs: 5000,
+      readerMarkerCorrectionLeaseReason: 'reader_marker_correction_safe_bounded',
+      readerMarkerCorrectionLeaseMarkerErrorPxAtStart: 104,
+    });
+
+    expect(result.reason).toBe('no_safe_target_forward_suppressed');
+    expect(result.targetSafetyReferenceSource).toBe('authoritative_line');
+    expect(result.unsafeTargetReason).toBe('reader_marker_correction_inactive');
+    expect(result.readerMarkerCorrectionLeaseActive).toBe(false);
+    expect(result.readerMarkerCorrectionLeaseReleasedReason).toBe('lease_stale');
 
     driver.dispose();
   });
