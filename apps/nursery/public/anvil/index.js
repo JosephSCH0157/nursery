@@ -41585,6 +41585,7 @@ function createAsrScrollDriver(options = {}) {
   let lastLiveForwardGuardHintTarget = -1;
   let lastObservedRescueBestSim = Number.NaN;
   let lastObservedRescueAdjacentCandidateSim = Number.NaN;
+  let lastCanonicalBackendAdjacentEvidence = null;
   let liveStrictSpeculativeStepUsed = false;
   let liveStrictForwardClusterCursor = -1;
   let liveStrictForwardClusterLine = -1;
@@ -48239,6 +48240,54 @@ function createAsrScrollDriver(options = {}) {
     const cursorDelta = Math.abs(lastRescueMatchEvidenceLine - safeCursor);
     if (landingDelta > maxDelta && cursorDelta > maxDelta) return false;
     return Number.isFinite(lastRescueMatchEvidenceSim) && lastRescueMatchEvidenceSim >= DEFAULT_RESCUE_MATCH_MIN_SIM;
+  };
+  const resolveCanonicalBackendAdjacentEvidence = (args) => {
+    const incomingMatch = args.incomingMatch;
+    if (!incomingMatch || !Number.isFinite(args.currentCursorIndex) || args.currentCursorIndex < 0) return null;
+    const matchVia = String(incomingMatch?.via || "").trim().toLowerCase();
+    const matchReason = String(incomingMatch?.reason || "").trim().toLowerCase();
+    const primaryBypassReasonRaw = incomingMatch?.primaryBypassReason;
+    const primaryBypassReason = typeof primaryBypassReasonRaw === "string" && primaryBypassReasonRaw.trim() ? primaryBypassReasonRaw.trim().toLowerCase() : null;
+    const bestIdx = Number.isFinite(Number(incomingMatch?.bestIdx)) ? Math.max(0, Math.floor(Number(incomingMatch.bestIdx))) : -1;
+    const bestSim = Number.isFinite(Number(incomingMatch?.bestSim)) ? Number(incomingMatch.bestSim) : Number.NaN;
+    const base = {
+      eligible: false,
+      source: "canonical_backend_ts_primary",
+      matchVia,
+      matchReason,
+      matchBestIdx: bestIdx,
+      matchBestSim: bestSim,
+      promotedTargetIdx: -1,
+      promotedScore: Number.isFinite(bestSim) ? bestSim : 0,
+      rejectedReason: null
+    };
+    if (matchVia !== "backend") return { ...base, rejectedReason: "match_via_not_backend" };
+    if (matchReason !== "ts_primary_matcher") return { ...base, rejectedReason: "match_reason_not_ts_primary" };
+    if (primaryBypassReason != null) return { ...base, rejectedReason: `primary_bypass:${primaryBypassReason}` };
+    if (!Number.isFinite(bestIdx) || bestIdx <= args.currentCursorIndex) {
+      return { ...base, rejectedReason: "best_idx_not_forward" };
+    }
+    if (!Number.isFinite(bestSim) || bestSim < Math.max(DEFAULT_RESCUE_MATCH_MIN_SIM, DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM)) {
+      return { ...base, rejectedReason: "confidence_below_adjacent_floor" };
+    }
+    const promotedTargetIdx = resolveForwardSpeakableTarget2(
+      Math.max(0, Math.floor(args.currentCursorIndex)),
+      bestIdx,
+      1
+    );
+    if (!Number.isFinite(promotedTargetIdx) || promotedTargetIdx <= args.currentCursorIndex) {
+      return { ...base, rejectedReason: "no_safe_forward_step" };
+    }
+    if (isIgnorableCueLineText(getLineTextAt(promotedTargetIdx))) {
+      return { ...base, rejectedReason: "promoted_target_ignorable" };
+    }
+    return {
+      ...base,
+      eligible: true,
+      promotedTargetIdx,
+      promotedScore: bestSim,
+      rejectedReason: null
+    };
   };
   function maybeScheduleStallCueRescue(reason) {
     if (disposed) return false;
@@ -58513,6 +58562,20 @@ function createAsrScrollDriver(options = {}) {
         const directAdjacentNoStaleVeto = !asrSilenceActive && runtimeSpeechFresh && hasRecentVadSpeech && asrRuntimeSpeechRunningActual;
         const directAdjacentProofOwnedBypassEligible = liveStrictFollow && directAdjacentGuardEligible && adjacentOrReducedToAdjacentTarget && (movementAuthority === "proof" || movementAuthority === "reconcile") && directAdjacentProofBranchSignal && directAdjacentProofOwnedForceSignal && directAdjacentNoStaleVeto;
         const directAdjacentAnyBypassEligible = directAdjacentFallbackProofOwned || directAdjacentAuthorityBypassEligible || directAdjacentProofOwnedBypassEligible;
+        const directAdjacentCanonicalBackendEvidence = lastCanonicalBackendAdjacentEvidence || void 0;
+        const directAdjacentEvidenceSource = directAdjacentCanonicalBackendEvidence?.eligible ? directAdjacentCanonicalBackendEvidence.source : "none";
+        const directAdjacentRejectedReason = (() => {
+          if (directAdjacentMatch) return "accepted_direct_adjacent_match";
+          if (directAdjacentAnyBypassEligible) return "accepted_by_existing_safe_bypass";
+          if (!directAdjacentCanonicalBackendEvidence) return "no_canonical_backend_evidence";
+          if (!directAdjacentCanonicalBackendEvidence.eligible) {
+            return directAdjacentCanonicalBackendEvidence.rejectedReason || "canonical_backend_not_eligible";
+          }
+          if (directAdjacentCanonicalBackendEvidence.promotedTargetIdx !== targetLine) {
+            return `promoted_target_mismatch:${directAdjacentCanonicalBackendEvidence.promotedTargetIdx}`;
+          }
+          return "canonical_backend_promoted_but_adjacent_sim_missing";
+        })();
         const speechStopCleanupCommitForGates = movementAuthorityReason === "speech_stop_cleanup_commit";
         if (liveStrictFollow && recoveryLandingHoldActive && forwardDelta > 0 && lastCommitIndex != null && !speechStopCleanupCommitForGates && !isProofOwnedPrimaryForceReason(forceReason)) {
           const sinceForwardCommitMs = Math.max(0, now3 - lastForwardCommitAt);
@@ -58592,6 +58655,13 @@ function createAsrScrollDriver(options = {}) {
                 `target=${targetLine}`,
                 Number.isFinite(directAdjacentSim) ? `adjacentSim=${formatLogScore(directAdjacentSim)}` : "adjacentSim=na",
                 `adjacentNeed=${formatLogScore(directAdjacentNeed)}`,
+                `evidenceSource=${directAdjacentEvidenceSource}`,
+                `matchVia=${directAdjacentCanonicalBackendEvidence?.matchVia || "unknown"}`,
+                `matchReason=${directAdjacentCanonicalBackendEvidence?.matchReason || "unknown"}`,
+                `matchBestIdx=${Number.isFinite(directAdjacentCanonicalBackendEvidence?.matchBestIdx) ? directAdjacentCanonicalBackendEvidence?.matchBestIdx : -1}`,
+                `acceptedCommitTargetIdx=${Math.max(lastLineIndex, lastLineIndex + 1)}`,
+                `requestedTargetIdx=${requestedTargetLine}`,
+                `adjacentProofRejectedReason=${directAdjacentRejectedReason}`,
                 `authority=${movementAuthority}`,
                 `sourceBranch=${movementAuthoritySourceBranch}`,
                 forceReason ? `forceReason=${forceReason}` : "",
@@ -61884,6 +61954,40 @@ function createAsrScrollDriver(options = {}) {
         }
       }
     }
+    const canonicalBackendAdjacentEvidence = resolveCanonicalBackendAdjacentEvidence({
+      currentCursorIndex,
+      incomingMatch
+    });
+    lastCanonicalBackendAdjacentEvidence = canonicalBackendAdjacentEvidence;
+    if (incomingMatch && canonicalBackendAdjacentEvidence?.eligible) {
+      const topScores2 = Array.isArray(incomingMatch.topScores) ? [...incomingMatch.topScores] : [];
+      const promotedTargetIdx = canonicalBackendAdjacentEvidence.promotedTargetIdx;
+      const promotedScore = canonicalBackendAdjacentEvidence.promotedScore;
+      const existingEntry = topScores2.find(
+        (entry) => Number.isFinite(Number(entry?.idx)) && Math.max(0, Math.floor(Number(entry.idx))) === promotedTargetIdx
+      );
+      if (existingEntry) {
+        if (!Number.isFinite(Number(existingEntry.score)) || Number(existingEntry.score) < promotedScore) {
+          existingEntry.score = promotedScore;
+        }
+      } else {
+        topScores2.push({ idx: promotedTargetIdx, score: promotedScore });
+      }
+      incomingMatch.topScores = topScores2;
+      incomingMatch.__tpCanonicalBackendAdjacentEvidence = canonicalBackendAdjacentEvidence;
+    } else if (incomingMatch && canonicalBackendAdjacentEvidence) {
+      incomingMatch.__tpCanonicalBackendAdjacentEvidence = canonicalBackendAdjacentEvidence;
+    }
+    if (incomingMatch) {
+      const observedTopScores = Array.isArray(incomingMatch.topScores) ? incomingMatch.topScores : [];
+      const observedAdjacentCandidate = observedTopScores.find(
+        (entry) => Number.isFinite(Number(entry?.idx)) && Math.max(0, Math.floor(Number(entry.idx))) === incomingAdjacentLine
+      );
+      const observedAdjacentSimRaw = Number(observedAdjacentCandidate?.score);
+      const observedBestSimRaw = Number(incomingMatch?.bestSim);
+      lastObservedRescueBestSim = Number.isFinite(observedBestSimRaw) ? observedBestSimRaw : Number.NaN;
+      lastObservedRescueAdjacentCandidateSim = Number.isFinite(observedAdjacentSimRaw) ? observedAdjacentSimRaw : Number.NaN;
+    }
     if (noMatch && !incomingMatch) {
       lastRescueNoMatchAt = now3;
     }
@@ -62644,8 +62748,13 @@ function createAsrScrollDriver(options = {}) {
     let conf = Number.isFinite(match.bestSim) ? match.bestSim : 0;
     if (Number.isFinite(rawIdx) && rawIdx >= 0 && Number.isFinite(conf) && conf >= DEFAULT_RESCUE_MATCH_MIN_SIM && !isIgnorableCueLineText(getLineTextAt(Math.max(0, Math.floor(rawIdx))))) {
       lastRescueMatchEvidenceAt = now3;
-      lastRescueMatchEvidenceLine = Math.max(0, Math.floor(rawIdx));
-      lastRescueMatchEvidenceSim = conf;
+      if (canonicalBackendAdjacentEvidence?.eligible) {
+        lastRescueMatchEvidenceLine = canonicalBackendAdjacentEvidence.promotedTargetIdx;
+        lastRescueMatchEvidenceSim = Math.max(conf, canonicalBackendAdjacentEvidence.promotedScore);
+      } else {
+        lastRescueMatchEvidenceLine = Math.max(0, Math.floor(rawIdx));
+        lastRescueMatchEvidenceSim = conf;
+      }
     }
     if (asrMode && blockWindowRange) {
       const inBlockWindow = Number.isFinite(rawIdx) && rawIdx >= blockWindowRange.startLine && rawIdx <= blockWindowRange.endLine && !isIgnorableCueLineText(getLineTextAt(rawIdx));
