@@ -96,12 +96,22 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     hardContradiction?: boolean;
     directWriteBlocked?: boolean;
     directWriteBlockedReason?: 'none' | 'cooldown' | 'min_delta' | 'no_writer' | 'stale_debt' | 'safety_blocker' | 'target_changed' | 'scroll_limit' | 'ownership_not_final' | 'duplicate_write_guard' | null;
+    ownershipNotFinalCandidatePresent?: boolean;
+    markerErrorPx?: number | null;
+    lineHeightPx?: number | null;
+    matchBestIdx?: number | null;
+    matchBestSim?: number | null;
+    matchVia?: string | null;
+    matchReason?: string | null;
+    primaryBypassReason?: string | null;
   }): {
     finalTargetDebtPx: number;
     staleDebtSource: boolean;
     afterTop: number;
     appliedDeltaPx: number;
     movementBlocked: string;
+    ownershipFinalizationRejectedReason: string;
+    semanticCommitHeldButVisualCorrectionAllowed: boolean;
   };
 };
 
@@ -370,6 +380,79 @@ describe('ASR visual contract', () => {
     expect(blockedResult.finalTargetDebtPx).toBe(89);
     expect(blockedResult.appliedDeltaPx).toBe(0);
     expect(blockedResult.movementBlocked).toBe('ownership_not_final');
+    expect(blockedResult.ownershipFinalizationRejectedReason).toBe('selected_authority_not_reader_marker_correction');
+    expect(blockedResult.semanticCommitHeldButVisualCorrectionAllowed).toBe(false);
+
+    driver.dispose();
+  });
+
+  test('safe reader-marker correction finalizes visual ownership instead of stalling on ownership_not_final', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugApplyFinalSelectedActuatorStep({
+      beforeScrollTop: 0,
+      selectedTargetScrollTop: 104,
+      staleActuatorDebtPx: -40,
+      requestedMovePx: 0,
+      effectiveMinStepPx: 34,
+      currentLineIdx: 8,
+      committedLineIdx: 8,
+      nextSpeakableLineIdx: 9,
+      authority: 'reader_marker_correction',
+      authorityReason: 'reader_marker_correction',
+      allowedTargetIdx: 9,
+      directWriteBlocked: true,
+      directWriteBlockedReason: 'ownership_not_final',
+      ownershipNotFinalCandidatePresent: true,
+      markerErrorPx: 56,
+      lineHeightPx: 24,
+      matchBestIdx: 12,
+      matchBestSim: 0.91,
+      matchVia: 'backend',
+      matchReason: 'ts_primary_matcher',
+      primaryBypassReason: null,
+    });
+
+    expect(result.finalTargetDebtPx).toBe(104);
+    expect(result.appliedDeltaPx).toBeGreaterThan(0);
+    expect(result.movementBlocked).toBe('none');
+    expect(result.ownershipFinalizationRejectedReason).toBe('none');
+    expect(result.semanticCommitHeldButVisualCorrectionAllowed).toBe(true);
+
+    driver.dispose();
+  });
+
+  test('reader-marker correction still stays blocked when canonical backend spoken proof is unsafe', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const blockedResult = driver.__debugApplyFinalSelectedActuatorStep({
+      beforeScrollTop: 0,
+      selectedTargetScrollTop: 104,
+      staleActuatorDebtPx: -40,
+      requestedMovePx: 0,
+      effectiveMinStepPx: 34,
+      currentLineIdx: 8,
+      committedLineIdx: 8,
+      nextSpeakableLineIdx: 9,
+      authority: 'reader_marker_correction',
+      authorityReason: 'reader_marker_correction',
+      allowedTargetIdx: 9,
+      directWriteBlocked: true,
+      directWriteBlockedReason: 'ownership_not_final',
+      ownershipNotFinalCandidatePresent: true,
+      markerErrorPx: 56,
+      lineHeightPx: 24,
+      matchBestIdx: 8,
+      matchBestSim: 0.91,
+      matchVia: 'backend',
+      matchReason: 'ts_primary_matcher',
+      primaryBypassReason: null,
+    });
+
+    expect(blockedResult.appliedDeltaPx).toBe(0);
+    expect(blockedResult.movementBlocked).toBe('ownership_not_final');
+    expect(blockedResult.ownershipFinalizationRejectedReason).toBe('best_idx_not_forward');
+    expect(blockedResult.semanticCommitHeldButVisualCorrectionAllowed).toBe(false);
 
     driver.dispose();
   });
