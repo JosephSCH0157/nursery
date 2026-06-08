@@ -15559,8 +15559,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       liveStrictFollow &&
       lastRescueNoMatchAt > 0 &&
       now - lastRescueNoMatchAt < DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS;
+    const strictCanonicalBackendAllowedRescueSources = [
+      'auto-stall',
+      'stall:speech_stall',
+    ];
+    const strictCanonicalBackendRescueSourceAllowed =
+      strictCanonicalBackendAllowedRescueSources.includes(reasonTag);
     const strictCanonicalBackendAdjacentEvidence =
-      reasonTag === 'auto-stall'
+      strictCanonicalBackendRescueSourceAllowed
         ? (
           pendingCanonicalBackendAdjacentEvidenceForRescue ||
           lastCanonicalBackendAdjacentEvidence
@@ -15568,7 +15574,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         : lastCanonicalBackendAdjacentEvidence;
     const strictAutoStallCanonicalAdjacentRejectedReason = (() => {
       if (!liveStrictFollow) return 'live_strict_follow_disabled';
-      if (reasonTag !== 'auto-stall') return 'rescue_source_not_auto_stall';
+      if (!strictCanonicalBackendRescueSourceAllowed) {
+        return `rescue_source_not_allowed:${reasonTag || 'unknown'}`;
+      }
       if (deltaLines !== 1) return `delta_not_single_step:${deltaLines}`;
       if (!strictCanonicalBackendAdjacentEvidence) return 'no_canonical_backend_evidence';
       if (!strictCanonicalBackendAdjacentEvidence.eligible) {
@@ -15587,10 +15595,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       strictAutoStallCanonicalAdjacentRejectedReason == null;
     if (
       liveStrictFollow &&
-      reasonTag === 'auto-stall' &&
+      strictCanonicalBackendRescueSourceAllowed &&
       strictCanonicalBackendAdjacentEvidence &&
       !strictAutoStallCanonicalAdjacentEligible
     ) {
+      const backendEvidenceAgeMs =
+        lastTranscriptPacketAt > 0
+          ? Math.max(0, now - lastTranscriptPacketAt)
+          : -1;
       warnGuard('live_strict_rescue_canonical_backend_rejected', [
         `at=${cursorLine}`,
         `target=${targetLine}`,
@@ -15603,14 +15615,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         `primaryBypassReason=${strictCanonicalBackendAdjacentEvidence.rejectedReason?.startsWith('primary_bypass:')
           ? strictCanonicalBackendAdjacentEvidence.rejectedReason.slice('primary_bypass:'.length)
           : 'null'}`,
+        `backendEvidenceAgeMs=${backendEvidenceAgeMs}`,
         'backendEvidencePresent=1',
         'adjacentStepEligible=0',
         `rescueProofRejectedReason=${strictAutoStallCanonicalAdjacentRejectedReason}`,
+        `allowedRescueSources=${strictCanonicalBackendAllowedRescueSources.join('|')}`,
       ]);
     }
     const strictAutoStallCanonicalPacketFreshForRescue =
       strictAutoStallCanonicalAdjacentEligible &&
-      reasonTag === 'auto-stall' &&
+      strictCanonicalBackendRescueSourceAllowed &&
       !!pendingCanonicalBackendAdjacentEvidenceForRescue &&
       lastTranscriptPacketAt > 0 &&
       Math.max(0, now - lastTranscriptPacketAt) <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS;
@@ -16074,9 +16088,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         `primaryBypassReason=${strictCanonicalBackendAdjacentEvidence?.rejectedReason?.startsWith('primary_bypass:')
           ? strictCanonicalBackendAdjacentEvidence.rejectedReason.slice('primary_bypass:'.length)
           : 'null'}`,
+        `backendEvidenceAgeMs=${lastTranscriptPacketAt > 0 ? Math.max(0, now - lastTranscriptPacketAt) : -1}`,
         `backendEvidencePresent=${strictCanonicalBackendAdjacentEvidence ? 1 : 0}`,
         `adjacentStepEligible=${strictAutoStallCanonicalAdjacentEligible ? 1 : 0}`,
         `rescueProofRejectedReason=${rescueProofRejectedReason}`,
+        `allowedRescueSources=${strictCanonicalBackendAllowedRescueSources.join('|')}`,
         targetText ? `line="${formatLogSnippet(targetText, 56)}"` : '',
       ]);
       emitHudStatus(
