@@ -368,6 +368,7 @@ const DEFAULT_DEADBAND_PX = 32;
 const DEFAULT_MAX_VEL_PX_PER_SEC = 470;
 const DEFAULT_MAX_VEL_MED_PX_PER_SEC = 170;
 const DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC = 240;
+const DEFAULT_READER_MARKER_VISUAL_SAFE_TARGET_MAX_LEAD_LINES = 3;
 const DEFAULT_MAX_ACCEL_PX_PER_SEC2 = 800;
 const DEFAULT_MIN_STEP_PX = 6;
 const DEFAULT_MAX_STEP_PX = 10;
@@ -3379,6 +3380,97 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       sourceAuthority: 'current_committed_line',
     };
   };
+  const resolveReaderMarkerCorrectionSafeTargetContext = (args: {
+    selectedAuthority: string;
+    sourceAuthority: string;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    authoritativeLineIdx: number;
+    targetScrollTop: number;
+    currentTop: number;
+    markerErrorPx: number;
+    lineHeightPx: number;
+    noMatchOrOffscript: boolean;
+    hardContradiction: boolean;
+  }): {
+    boundedVisualCatchupEligible: boolean;
+    targetSafetyReferenceLineIdx: number;
+    targetSafetyReferenceSource: string;
+    unsafeTargetReason: string;
+    semanticCommitHeldButVisualCatchupAllowed: boolean;
+  } => {
+    const normalizedSelectedAuthority = String(args.selectedAuthority || '').trim().toLowerCase();
+    const normalizedSourceAuthority = String(args.sourceAuthority || '').trim().toLowerCase();
+    const readerMarkerCorrectionActive =
+      normalizedSelectedAuthority === 'reader_marker_correction' ||
+      normalizedSourceAuthority.includes('reader_marker_correction');
+    if (!readerMarkerCorrectionActive) {
+      return {
+        boundedVisualCatchupEligible: false,
+        targetSafetyReferenceLineIdx: args.authoritativeLineIdx,
+        targetSafetyReferenceSource: 'authoritative_line',
+        unsafeTargetReason: 'reader_marker_correction_inactive',
+        semanticCommitHeldButVisualCatchupAllowed: false,
+      };
+    }
+    const matchVia = String(lastAuthorityMatchVia || '').trim().toLowerCase();
+    const matchReason = String(lastAuthorityMatchReason || '').trim().toLowerCase();
+    const primaryBypassReason =
+      typeof lastAuthorityPrimaryBypassReason === 'string' && lastAuthorityPrimaryBypassReason.trim()
+        ? lastAuthorityPrimaryBypassReason.trim().toLowerCase()
+        : null;
+    const matchBestIdx =
+      Number.isFinite(lastAuthorityMatchBestIdx)
+        ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx)))
+        : -1;
+    const matchBestSim =
+      Number.isFinite(lastAuthorityMatchBestSim)
+        ? Number(lastAuthorityMatchBestSim)
+        : Number.NaN;
+    const visualAnchorLineIdx =
+      Number.isFinite(lastAsrVisualAnchorLineIdx)
+        ? Math.max(0, Math.floor(Number(lastAsrVisualAnchorLineIdx)))
+        : Math.max(0, args.currentLineIdx);
+    const safetyBaseLineIdx = Math.max(
+      0,
+      Math.max(args.currentLineIdx, args.committedLineIdx),
+    );
+    const boundedVisualLeadBaseLineIdx = Math.max(safetyBaseLineIdx, visualAnchorLineIdx);
+    const boundedVisualReferenceLineIdx =
+      Number.isFinite(matchBestIdx) && matchBestIdx > safetyBaseLineIdx
+        ? Math.min(matchBestIdx, boundedVisualLeadBaseLineIdx + DEFAULT_READER_MARKER_VISUAL_SAFE_TARGET_MAX_LEAD_LINES)
+        : boundedVisualLeadBaseLineIdx;
+    const targetForward =
+      Number.isFinite(args.targetScrollTop) &&
+      Number(args.targetScrollTop) > Number(args.currentTop) + ASR_POCKET_WALL_NOISE_DELTA_PX;
+    const markerErrorPositive =
+      Number.isFinite(args.markerErrorPx) &&
+      Number.isFinite(args.lineHeightPx) &&
+      args.markerErrorPx > Math.max(18, args.lineHeightPx * 0.25, ASR_POCKET_WALL_NOISE_DELTA_PX);
+    let unsafeTargetReason = 'none';
+    if (matchVia !== 'backend') unsafeTargetReason = 'match_via_not_backend';
+    else if (matchReason !== 'ts_primary_matcher') unsafeTargetReason = 'match_reason_not_ts_primary';
+    else if (primaryBypassReason != null) unsafeTargetReason = `primary_bypass:${primaryBypassReason}`;
+    else if (args.noMatchOrOffscript) unsafeTargetReason = 'offscript_or_nomatch';
+    else if (args.hardContradiction) unsafeTargetReason = 'contradiction';
+    else if (!targetForward) unsafeTargetReason = 'target_not_forward';
+    else if (!markerErrorPositive) unsafeTargetReason = 'marker_error_not_material';
+    else if (!(Number.isFinite(matchBestIdx) && matchBestIdx > safetyBaseLineIdx)) unsafeTargetReason = 'match_best_not_forward_of_semantic_reference';
+    else if (!(Number.isFinite(matchBestSim) && matchBestSim >= DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM)) unsafeTargetReason = 'confidence_below_visual_safe_target_floor';
+    const boundedVisualCatchupEligible = unsafeTargetReason === 'none';
+    return {
+      boundedVisualCatchupEligible,
+      targetSafetyReferenceLineIdx: boundedVisualCatchupEligible
+        ? boundedVisualReferenceLineIdx
+        : args.authoritativeLineIdx,
+      targetSafetyReferenceSource: boundedVisualCatchupEligible
+        ? 'bounded_visual_spoken_match'
+        : 'authoritative_line',
+      unsafeTargetReason,
+      semanticCommitHeldButVisualCatchupAllowed:
+        boundedVisualCatchupEligible && boundedVisualReferenceLineIdx > args.authoritativeLineIdx,
+    };
+  };
 
   const evaluateAsrPocketWall = (input: {
     scroller: HTMLElement;
@@ -3494,18 +3586,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const allowedTargetIdx = Number.isFinite(input.allowedTargetIdx as number)
       ? Math.floor(Number(input.allowedTargetIdx))
       : Math.floor(Number(lastResolvedAllowedTargetIdx));
+    const matchedLineViewportY =
+      Number.isFinite(lastAsrMatchedLineViewportY)
+        ? Number(lastAsrMatchedLineViewportY)
+        : Number.NaN;
+    const markerPctRaw =
+      typeof (window as any).__TP_MARKER_PCT === 'number'
+        ? Number((window as any).__TP_MARKER_PCT)
+        : 0.4;
+    const markerPct = clamp(markerPctRaw, 0.05, 0.95);
+    const viewportHeight = Math.max(1, Number(input.scroller.clientHeight || 0));
+    const maxScrollTop = Math.max(0, Number(input.scroller.scrollHeight || 0) - viewportHeight);
+    const markerY = viewportHeight * markerPct;
     const sameLineVisualCorrection =
       currentLineIdx === committedLineIdx &&
       committedLineIdx === nextSpeakableLineIdx;
-    const noSafeTargetForwardLocked =
-      allowedTargetIdx === -1 ||
-      normalizedAuthorityReason === 'no_safe_allowed_target';
-    const standardVisualReleaseSuppressed =
-      isStandardAsrProfile() &&
-      activeAsrControllerProfile.suppressVisualReleaseWithoutFreshProof &&
-      ASR_STANDARD_VISUAL_RELEASE_AUTHORITIES.has(normalizedSourceAuthority) &&
-      !hasFreshVerifiedForwardCommit &&
-      sameLineVisualCorrection;
     const authoritativeLineEl = getLineElementByIndex(input.scroller, authoritativeLineIdx);
     const lineHeightPx = clamp(
       Number.isFinite(Number(input.lineHeightHintPx))
@@ -3519,14 +3614,51 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       12,
       320,
     );
-    const viewportHeight = Math.max(1, Number(input.scroller.clientHeight || 0));
-    const maxScrollTop = Math.max(0, Number(input.scroller.scrollHeight || 0) - viewportHeight);
-    const markerPctRaw =
-      typeof (window as any).__TP_MARKER_PCT === 'number'
-        ? Number((window as any).__TP_MARKER_PCT)
-        : 0.4;
-    const markerPct = clamp(markerPctRaw, 0.05, 0.95);
-    const markerY = viewportHeight * markerPct;
+    const markerErrorPx =
+      Number.isFinite(lastAsrMatchedMarkerErrorPx)
+        ? Number(lastAsrMatchedMarkerErrorPx)
+        : (
+          Number.isFinite(matchedLineViewportY)
+            ? matchedLineViewportY - markerY
+            : Number.NaN
+        );
+    const noMatchOrOffscript =
+      normalizedGuardReason.includes('no_match') ||
+      normalizedHudGuard.includes('offscript');
+    const hardContradiction =
+      normalizedGuardReason.includes('contradiction') ||
+      normalizedHudGuard.includes('contradiction');
+    const readerMarkerCorrectionSafeTargetContext = resolveReaderMarkerCorrectionSafeTargetContext({
+      selectedAuthority: normalizedSelectedAuthority,
+      sourceAuthority: normalizedSourceAuthority,
+      currentLineIdx,
+      committedLineIdx,
+      authoritativeLineIdx,
+      targetScrollTop,
+      currentTop,
+      markerErrorPx,
+      lineHeightPx,
+      noMatchOrOffscript,
+      hardContradiction,
+    });
+    const targetSafetyReferenceLineIdx = readerMarkerCorrectionSafeTargetContext.targetSafetyReferenceLineIdx;
+    const targetSafetyReferenceSource = readerMarkerCorrectionSafeTargetContext.targetSafetyReferenceSource;
+    const noSafeTargetForwardLocked =
+      (
+        allowedTargetIdx === -1 ||
+        normalizedAuthorityReason === 'no_safe_allowed_target'
+      ) &&
+      !readerMarkerCorrectionSafeTargetContext.boundedVisualCatchupEligible;
+    const standardVisualReleaseSuppressed =
+      isStandardAsrProfile() &&
+      activeAsrControllerProfile.suppressVisualReleaseWithoutFreshProof &&
+      ASR_STANDARD_VISUAL_RELEASE_AUTHORITIES.has(normalizedSourceAuthority) &&
+      !hasFreshVerifiedForwardCommit &&
+      sameLineVisualCorrection;
+    const targetSafetyReferenceLineEl = getLineElementByIndex(input.scroller, targetSafetyReferenceLineIdx);
+    const effectiveTargetSafetyLineEl =
+      targetSafetyReferenceLineEl ||
+      (readerMarkerCorrectionSafeTargetContext.boundedVisualCatchupEligible ? null : authoritativeLineEl);
     const pocketTop = markerY + (ASR_READER_POCKET_PREFERRED_TOP_LINES * lineHeightPx);
     const pocketBottom = markerY + (ASR_READER_POCKET_PREFERRED_BOTTOM_LINES * lineHeightPx);
     const tolerancePx = Math.min(ASR_POCKET_WALL_TOLERANCE_MAX_PX, Math.max(1, lineHeightPx * 0.25));
@@ -3536,7 +3668,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       targetScrollTop,
       lineHeightPx,
     });
-    const authoritativeLineTop = Number(authoritativeLineEl?.offsetTop || 0);
+    const authoritativeLineTop = Number(effectiveTargetSafetyLineEl?.offsetTop || 0);
     const authoritativeLineCenterContent = authoritativeLineTop + (Math.max(1, lineHeightPx) * 0.5);
     const maxPocketSafeTop = clamp(
       authoritativeLineCenterContent - (pocketTop - tolerancePx),
@@ -3573,7 +3705,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             : 'target_overshoot_capped';
         }
       }
-      if (!authoritativeLineEl) {
+      if (!effectiveTargetSafetyLineEl) {
         pocketWallReason =
           pocketWallReason === 'forward_write_within_wall' && hasFreshVerifiedForwardCommit
             ? 'fresh_verified_forward_commit'
@@ -3621,11 +3753,31 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       tolerancePx,
       sourceAuthority: input.sourceAuthority || sourceAuthority,
       proposedTopSource,
+      targetSafetyReferenceLineIdx,
+      targetSafetyReferenceSource,
+      unsafeTargetReason:
+        noSafeTargetForwardLocked
+          ? readerMarkerCorrectionSafeTargetContext.unsafeTargetReason
+          : 'none',
+      semanticCommitHeldButVisualCatchupAllowed:
+        readerMarkerCorrectionSafeTargetContext.semanticCommitHeldButVisualCatchupAllowed,
+      boundedVisualCatchupEligible:
+        readerMarkerCorrectionSafeTargetContext.boundedVisualCatchupEligible,
     };
     lastAsrPocketWallTickId = activeAsrAuthorityTraceTickId;
     lastAsrPocketWallReason = pocketWallReason;
     lastAsrPocketWallCappedTop = effectiveTop;
     lastAsrPocketWallAuthoritativeLineIdx = authoritativeLineIdx;
+    lastAsrPocketWallTargetSafetyReferenceLineIdx = targetSafetyReferenceLineIdx;
+    lastAsrPocketWallTargetSafetyReferenceSource = targetSafetyReferenceSource;
+    lastAsrPocketWallUnsafeTargetReason =
+      noSafeTargetForwardLocked
+        ? readerMarkerCorrectionSafeTargetContext.unsafeTargetReason
+        : 'none';
+    lastAsrPocketWallBoundedVisualCatchupEligible =
+      readerMarkerCorrectionSafeTargetContext.boundedVisualCatchupEligible;
+    lastAsrPocketWallSemanticCommitHeldButVisualCatchupAllowed =
+      readerMarkerCorrectionSafeTargetContext.semanticCommitHeldButVisualCatchupAllowed;
     lastAsrPocketWallLastVerifiedCommitLineIdx = lastVerifiedCommitLineIdx;
     lastAsrPocketWallHasFreshVerifiedForwardCommit = hasFreshVerifiedForwardCommit;
     if (postFloorPocketWallProtection) {
@@ -6848,6 +7000,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastAsrPocketWallReason = 'none';
   let lastAsrPocketWallCappedTop = Number.NaN;
   let lastAsrPocketWallAuthoritativeLineIdx = -1;
+  let lastAsrPocketWallTargetSafetyReferenceLineIdx = -1;
+  let lastAsrPocketWallTargetSafetyReferenceSource = 'none';
+  let lastAsrPocketWallUnsafeTargetReason = 'none';
+  let lastAsrPocketWallBoundedVisualCatchupEligible = false;
+  let lastAsrPocketWallSemanticCommitHeldButVisualCatchupAllowed = false;
   let lastAsrPocketWallLastVerifiedCommitLineIdx = -1;
   let lastAsrPocketWallHasFreshVerifiedForwardCommit = false;
   let lastAsrLeadPressureTickId = -1;
@@ -21209,7 +21366,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (shouldEmitFrameDiagnostic('ASR_LIVE_POCKET_MAINTENANCE_EVALUATED', maintenanceSignature, 350)) {
         try {
           console.info(
-            `[ASR_LIVE_POCKET_MAINTENANCE_EVALUATED] currentLineIdx=${lastLineIndex} committedLineIdx=${liveAsrCommitteeAcceptedCommitTargetIdx} nextSpeakableLineIdx=${maintenanceNextSpeakableLineIdx} targetLineIdx=${maintenanceTargetLineIdx} markerTopPx=${Number.isFinite(lastAsrMarkerY) ? Math.round(lastAsrMarkerY) : -1} activeLineTopPx=${Number.isFinite(maintenanceActiveLineY) ? Math.round(maintenanceActiveLineY) : -1} activeLineDistanceFromMarkerPx=${Number.isFinite(maintenanceActiveLineY) && Number.isFinite(lastAsrMarkerY) ? Math.round(maintenanceActiveLineY - lastAsrMarkerY) : -1} activeLineViewportRatio=${Number.isFinite(maintenanceActiveLineY) && Number(scroller.clientHeight || 0) > 0 ? (maintenanceActiveLineY / Number(scroller.clientHeight || 1)).toFixed(3) : 'NaN'} pocketHealth=${maintenancePocketHealth} belowPocketPx=${maintenanceBelowPocketPx} visualDebtPx=${Number.isFinite(arithmeticTargetDebtPx) ? Math.round(arithmeticTargetDebtPx) : -1} currentScrollTop=${Math.round(beforeScrollTop)} targetScrollTop=${Math.round(Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop)} sourcePath=${String(liveTickSelectedAuthority || 'none')} eligible=${maintenanceEligible ? 1 : 0} deniedReason=${maintenanceDeniedReason} noMatch=${actuatorNoMatchOrOffscript ? 1 : 0} offScript=${actuatorNoMatchOrOffscript ? 1 : 0} contradiction=${hardContradictionActive ? 1 : 0} farTarget=${liveAsrCommitteeAcceptedCommitTargetIdx > lastLineIndex + 1 ? 1 : 0} terminalClamp=${atScrollLimit ? 1 : 0} directWriteBlocked=${asr4VisualRecoveryLastDirectWriteBlocked ? 1 : 0} targetPreservedForEasing=${preservedAsrAuthorityTargetTop != null ? 1 : 0} actuatorApplied=${appliedDeltaPx > 0 ? 1 : 0} actualMovedPx=${Math.round(appliedDeltaPx)}`,
+            `[ASR_LIVE_POCKET_MAINTENANCE_EVALUATED] currentLineIdx=${lastLineIndex} committedLineIdx=${liveAsrCommitteeAcceptedCommitTargetIdx} nextSpeakableLineIdx=${maintenanceNextSpeakableLineIdx} targetLineIdx=${maintenanceTargetLineIdx} markerTopPx=${Number.isFinite(lastAsrMarkerY) ? Math.round(lastAsrMarkerY) : -1} activeLineTopPx=${Number.isFinite(maintenanceActiveLineY) ? Math.round(maintenanceActiveLineY) : -1} activeLineDistanceFromMarkerPx=${Number.isFinite(maintenanceActiveLineY) && Number.isFinite(lastAsrMarkerY) ? Math.round(maintenanceActiveLineY - lastAsrMarkerY) : -1} activeLineViewportRatio=${Number.isFinite(maintenanceActiveLineY) && Number(scroller.clientHeight || 0) > 0 ? (maintenanceActiveLineY / Number(scroller.clientHeight || 1)).toFixed(3) : 'NaN'} pocketHealth=${maintenancePocketHealth} belowPocketPx=${maintenanceBelowPocketPx} visualDebtPx=${Number.isFinite(arithmeticTargetDebtPx) ? Math.round(arithmeticTargetDebtPx) : -1} currentScrollTop=${Math.round(beforeScrollTop)} targetScrollTop=${Math.round(Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop)} sourcePath=${String(liveTickSelectedAuthority || 'none')} eligible=${maintenanceEligible ? 1 : 0} deniedReason=${maintenanceDeniedReason} noMatch=${actuatorNoMatchOrOffscript ? 1 : 0} offScript=${actuatorNoMatchOrOffscript ? 1 : 0} contradiction=${hardContradictionActive ? 1 : 0} farTarget=${liveAsrCommitteeAcceptedCommitTargetIdx > lastLineIndex + 1 ? 1 : 0} terminalClamp=${atScrollLimit ? 1 : 0} directWriteBlocked=${asr4VisualRecoveryLastDirectWriteBlocked ? 1 : 0} targetPreservedForEasing=${preservedAsrAuthorityTargetTop != null ? 1 : 0} actuatorApplied=${appliedDeltaPx > 0 ? 1 : 0} actualMovedPx=${Math.round(appliedDeltaPx)} matchBestIdx=${Number.isFinite(lastAuthorityMatchBestIdx) ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx))) : -1} visualAnchorLineIdx=${Number.isFinite(lastAsrVisualAnchorLineIdx) ? Math.max(0, Math.floor(Number(lastAsrVisualAnchorLineIdx))) : -1} matchedLineViewportY=${Number.isFinite(lastAsrMatchedLineViewportY) ? Math.round(Number(lastAsrMatchedLineViewportY)) : -1} visualAnchorLineY=${Number.isFinite(lastAsrActiveLineViewportY) ? Math.round(Number(lastAsrActiveLineViewportY)) : -1} targetSafetyReferenceLineIdx=${Number.isFinite(lastAsrPocketWallTargetSafetyReferenceLineIdx) ? Math.max(0, Math.floor(Number(lastAsrPocketWallTargetSafetyReferenceLineIdx))) : -1} targetSafetyReferenceSource=${String(lastAsrPocketWallTargetSafetyReferenceSource || 'none')} unsafeTargetReason=${String(lastAsrPocketWallUnsafeTargetReason || 'none')} semanticCommitHeldButVisualCatchupAllowed=${lastAsrPocketWallSemanticCommitHeldButVisualCatchupAllowed ? 1 : 0} boundedVisualCatchupEligible=${lastAsrPocketWallBoundedVisualCatchupEligible ? 1 : 0}`,
           );
         } catch {}
       }
@@ -38909,6 +39066,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastVerifiedCommitLineIdx?: number;
     lastVerifiedCommitAgeMs?: number;
     terminalClampActive?: boolean;
+    matchBestIdx?: number | null;
+    matchBestSim?: number | null;
+    matchVia?: string | null;
+    matchReason?: string | null;
+    primaryBypassReason?: string | null;
+    visualAnchorLineIdx?: number | null;
+    visualAnchorSource?: string | null;
+    matchedLineViewportY?: number | null;
+    matchedMarkerErrorPx?: number | null;
   }) => {
     const scroller = getScroller();
     if (!scroller) {
@@ -38925,6 +39091,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastForwardCommitAt,
       lastAsrGuardReason,
       lastAsrHudGuardText,
+      lastAuthorityMatchBestIdx,
+      lastAuthorityMatchBestSim,
+      lastAuthorityMatchVia,
+      lastAuthorityMatchReason,
+      lastAuthorityPrimaryBypassReason,
+      lastAsrVisualAnchorLineIdx,
+      lastAsrVisualAnchorSource,
+      lastAsrMatchedLineViewportY,
+      lastAsrMatchedMarkerErrorPx,
     };
     const beforeScrollTop = Number.isFinite(args.beforeScrollTop) ? Number(args.beforeScrollTop) : Number(scroller.scrollTop || 0);
     try {
@@ -38943,6 +39118,35 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     if (Number.isFinite(args.lastVerifiedCommitAgeMs as number)) {
       lastForwardCommitAt = Date.now() - Math.max(0, Number(args.lastVerifiedCommitAgeMs));
+    }
+    if (Number.isFinite(args.matchBestIdx as number)) {
+      lastAuthorityMatchBestIdx = Math.max(0, Math.floor(Number(args.matchBestIdx)));
+    }
+    if (Number.isFinite(args.matchBestSim as number)) {
+      lastAuthorityMatchBestSim = Number(args.matchBestSim);
+    }
+    if (typeof args.matchVia === 'string') {
+      lastAuthorityMatchVia = String(args.matchVia || '').trim().toLowerCase() || 'unknown';
+    }
+    if (typeof args.matchReason === 'string') {
+      lastAuthorityMatchReason = String(args.matchReason || '').trim().toLowerCase() || 'unknown';
+    }
+    if (typeof args.primaryBypassReason === 'string') {
+      lastAuthorityPrimaryBypassReason = String(args.primaryBypassReason || '').trim().toLowerCase() || null;
+    } else if (args.primaryBypassReason === null) {
+      lastAuthorityPrimaryBypassReason = null;
+    }
+    if (Number.isFinite(args.visualAnchorLineIdx as number)) {
+      lastAsrVisualAnchorLineIdx = Math.max(0, Math.floor(Number(args.visualAnchorLineIdx)));
+    }
+    if (typeof args.visualAnchorSource === 'string') {
+      lastAsrVisualAnchorSource = String(args.visualAnchorSource || 'none');
+    }
+    if (Number.isFinite(args.matchedLineViewportY as number)) {
+      lastAsrMatchedLineViewportY = Number(args.matchedLineViewportY);
+    }
+    if (Number.isFinite(args.matchedMarkerErrorPx as number)) {
+      lastAsrMatchedMarkerErrorPx = Number(args.matchedMarkerErrorPx);
     }
     lastAsrGuardReason = String(args.authorityReason || 'none');
     lastAsrHudGuardText = 'none';
@@ -38988,6 +39192,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastForwardCommitAt = previousState.lastForwardCommitAt;
     lastAsrGuardReason = previousState.lastAsrGuardReason;
     lastAsrHudGuardText = previousState.lastAsrHudGuardText;
+    lastAuthorityMatchBestIdx = previousState.lastAuthorityMatchBestIdx;
+    lastAuthorityMatchBestSim = previousState.lastAuthorityMatchBestSim;
+    lastAuthorityMatchVia = previousState.lastAuthorityMatchVia;
+    lastAuthorityMatchReason = previousState.lastAuthorityMatchReason;
+    lastAuthorityPrimaryBypassReason = previousState.lastAuthorityPrimaryBypassReason;
+    lastAsrVisualAnchorLineIdx = previousState.lastAsrVisualAnchorLineIdx;
+    lastAsrVisualAnchorSource = previousState.lastAsrVisualAnchorSource;
+    lastAsrMatchedLineViewportY = previousState.lastAsrMatchedLineViewportY;
+    lastAsrMatchedMarkerErrorPx = previousState.lastAsrMatchedMarkerErrorPx;
     return {
       beforeScrollTop,
       effectiveTop: evaluation.effectiveTop,
@@ -40495,6 +40708,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastVerifiedCommitLineIdx?: number;
       lastVerifiedCommitAgeMs?: number;
       terminalClampActive?: boolean;
+      matchBestIdx?: number | null;
+      matchBestSim?: number | null;
+      matchVia?: string | null;
+      matchReason?: string | null;
+      primaryBypassReason?: string | null;
+      visualAnchorLineIdx?: number | null;
+      visualAnchorSource?: string | null;
+      matchedLineViewportY?: number | null;
+      matchedMarkerErrorPx?: number | null;
     }): {
       beforeScrollTop: number;
       effectiveTop: number;

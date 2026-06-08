@@ -47,6 +47,39 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     afterTop: number;
     blockedPullback: boolean;
   };
+  __debugApplyScrollWithHybridGuard(args: {
+    beforeScrollTop: number;
+    proposedTop: number;
+    targetScrollTop?: number | null;
+    currentLineIdx?: number;
+    committedLineIdx?: number;
+    nextSpeakableLineIdx?: number;
+    allowedTargetIdx?: number | null;
+    selectedAuthority?: string;
+    authorityReason?: string;
+    proofSource?: string;
+    sourceBranch?: string;
+    forceReason?: string;
+    lastVerifiedCommitLineIdx?: number;
+    lastVerifiedCommitAgeMs?: number;
+    terminalClampActive?: boolean;
+    matchBestIdx?: number | null;
+    matchBestSim?: number | null;
+    matchVia?: string | null;
+    matchReason?: string | null;
+    primaryBypassReason?: string | null;
+    visualAnchorLineIdx?: number | null;
+    visualAnchorSource?: string | null;
+    matchedLineViewportY?: number | null;
+    matchedMarkerErrorPx?: number | null;
+  }): {
+    beforeScrollTop: number;
+    effectiveTop: number;
+    appliedTop: number;
+    reason: string;
+    tolerancePx: number;
+    hasFreshVerifiedForwardCommit: boolean;
+  };
   __debugSeedPreservedFollowTarget(args: {
     targetScrollTop: number | null;
     reason?: string;
@@ -453,6 +486,96 @@ describe('ASR visual contract', () => {
     expect(blockedResult.movementBlocked).toBe('ownership_not_final');
     expect(blockedResult.ownershipFinalizationRejectedReason).toBe('best_idx_not_forward');
     expect(blockedResult.semanticCommitHeldButVisualCorrectionAllowed).toBe(false);
+
+    driver.dispose();
+  });
+
+  test('reader-marker correction safe target is not suppressed early when canonical backend evidence is bounded and forward', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugApplyScrollWithHybridGuard({
+      beforeScrollTop: 0,
+      proposedTop: 104,
+      targetScrollTop: 104,
+      currentLineIdx: 0,
+      committedLineIdx: 0,
+      nextSpeakableLineIdx: 0,
+      allowedTargetIdx: -1,
+      selectedAuthority: 'reader_marker_correction',
+      authorityReason: 'marker_error_line_too_low',
+      matchBestIdx: 1,
+      matchBestSim: 0.693,
+      matchVia: 'backend',
+      matchReason: 'ts_primary_matcher',
+      primaryBypassReason: null,
+      visualAnchorLineIdx: 1,
+      visualAnchorSource: 'accepted_match',
+      matchedLineViewportY: 494,
+      matchedMarkerErrorPx: 104,
+    });
+
+    expect(result.reason).not.toBe('no_safe_target_forward_suppressed');
+    expect(result.effectiveTop).toBeGreaterThan(0);
+
+    driver.dispose();
+  });
+
+  test('late bounded spoken-match catch-up stays target-safe instead of collapsing to no-safe-target suppression', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugApplyScrollWithHybridGuard({
+      beforeScrollTop: 2075,
+      proposedTop: 2280,
+      targetScrollTop: 2280,
+      currentLineIdx: 30,
+      committedLineIdx: 30,
+      nextSpeakableLineIdx: 30,
+      allowedTargetIdx: -1,
+      selectedAuthority: 'reader_marker_correction',
+      authorityReason: 'marker_error_line_too_low',
+      matchBestIdx: 37,
+      matchBestSim: 0.675,
+      matchVia: 'backend',
+      matchReason: 'ts_primary_matcher',
+      primaryBypassReason: null,
+      visualAnchorLineIdx: 30,
+      visualAnchorSource: 'confirmed_spoken',
+      matchedLineViewportY: 867,
+      matchedMarkerErrorPx: 477,
+    });
+
+    expect(result.reason).not.toBe('no_safe_target_forward_suppressed');
+    expect(result.effectiveTop).toBeGreaterThan(2075);
+
+    driver.dispose();
+  });
+
+  test('reader-marker correction still suppresses unsafe low-confidence visual catch-up', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugApplyScrollWithHybridGuard({
+      beforeScrollTop: 150,
+      proposedTop: 172,
+      targetScrollTop: 172,
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      nextSpeakableLineIdx: 2,
+      allowedTargetIdx: -1,
+      selectedAuthority: 'reader_marker_correction',
+      authorityReason: 'marker_error_line_too_low',
+      matchBestIdx: 8,
+      matchBestSim: 0.3,
+      matchVia: 'backend',
+      matchReason: 'ts_primary_matcher',
+      primaryBypassReason: null,
+      visualAnchorLineIdx: 2,
+      visualAnchorSource: 'accepted_match',
+      matchedLineViewportY: 820,
+      matchedMarkerErrorPx: 430,
+    });
+
+    expect(result.reason).toBe('no_safe_target_forward_suppressed');
+    expect(result.effectiveTop).toBe(150);
 
     driver.dispose();
   });
