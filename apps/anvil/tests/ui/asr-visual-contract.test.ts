@@ -43,8 +43,14 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     lastAuthorityMatchBestIdx?: number | null;
     lastAuthorityMatchBestSim?: number | null;
     preservedTargetScrollTop?: number | null;
+    readerMarkerCorrectionLeaseActive?: boolean;
+    readerMarkerCorrectionLeaseAgeMs?: number | null;
+    readerMarkerCorrectionLeaseReason?: string | null;
+    readerMarkerCorrectionLeaseMarkerErrorPxAtStart?: number | null;
   }): {
     afterTop: number;
+    appliedDeltaPx: number;
+    clampReason: string;
     blockedPullback: boolean;
   };
   __debugApplyScrollWithHybridGuard(args: {
@@ -766,6 +772,35 @@ describe('ASR visual contract', () => {
     expect(result.unsafeTargetReason).toBe('reader_marker_correction_inactive');
     expect(result.readerMarkerCorrectionLeaseActive).toBe(false);
     expect(result.readerMarkerCorrectionLeaseReleasedReason).toBe('lease_stale');
+
+    driver.dispose();
+  });
+
+  test('leased reader-marker correction actuator applies a bounded forward step instead of a starvation nudge', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugApplyVisualActuatorTargetStep({
+      beforeScrollTop: 186,
+      targetScrollTop: 240,
+      requestedMovePx: 0,
+      effectiveMinStepPx: 6,
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      nextSpeakableLineIdx: 2,
+      authority: 'preserved_forward_follow_target',
+      authorityReason: 'marker_error_line_too_low',
+      allowedTargetIdx: 2,
+      lastAuthorityMatchBestIdx: 3,
+      lastAuthorityMatchBestSim: 0.64,
+      readerMarkerCorrectionLeaseActive: true,
+      readerMarkerCorrectionLeaseAgeMs: 34,
+      readerMarkerCorrectionLeaseReason: 'reader_marker_correction_retained_over_preserved',
+      readerMarkerCorrectionLeaseMarkerErrorPxAtStart: 72,
+    });
+
+    expect(result.appliedDeltaPx).toBeGreaterThan(6);
+    expect(result.afterTop).toBeGreaterThan(186);
+    expect(result.clampReason).toBe('leased_reader_correction_floor');
 
     driver.dispose();
   });

@@ -1724,6 +1724,7 @@ export function buildAsr4PocketDriftStateDiagnostic(args: {
   suppressedReason:
     | 'none'
     | 'easing_too_weak'
+    | 'leased_reader_correction_active'
     | 'target_preserved_but_not_closing'
     | 'marker_lock_suppressed'
     | 'direct_write_blocked'
