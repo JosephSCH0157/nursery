@@ -88,6 +88,20 @@ describe('ASR visual debt catch-up gate', () => {
     expect(decision.blockedReason).toBe('terminal_clamp');
   });
 
+  test('current-line bounded catch-up stays recent-safe eligible for the lease-style failure shape', () => {
+    const decision = decideAsrVisualDebtCatchup(makeInput({
+      currentLine: 30,
+      committedLine: 30,
+      targetLine: 30,
+      consecutiveDebtObservations: 4,
+      postCommitGapMs: 180,
+    }));
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.decisionReason).toBe('visual_only_recent_safe_commit_allowed');
+    expect(decision.reducedGapEligible).toBe(true);
+  });
+
   test('accepted local lag window treats FO-style local ordering drift as coherent enough', () => {
     const result = evaluateAcceptedLocalLagWindow({
       currentLine: 155,

@@ -53,6 +53,23 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     clampReason: string;
     blockedPullback: boolean;
   };
+  __debugEvaluateEffectiveTargetSafety(args: {
+    baseTargetSafe: boolean;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    allowedTargetIdx?: number | null;
+    nextSpeakableLineIdx?: number | null;
+    readerMarkerCorrectionLeaseActive?: boolean;
+    readerMarkerCorrectionLeaseAgeMs?: number | null;
+    readerMarkerCorrectionLeaseReason?: string | null;
+    readerMarkerCorrectionLeaseReleasedReason?: string | null;
+    unsafeTargetReason?: string | null;
+    boundedVisualCatchupEligible?: boolean;
+  }): {
+    effectiveTargetSafe: boolean;
+    boundedLeaseTargetSafe: boolean;
+    localWindowCoherent: boolean;
+  };
   __debugApplyScrollWithHybridGuard(args: {
     beforeScrollTop: number;
     proposedTop: number;
@@ -769,6 +786,77 @@ describe('ASR visual contract', () => {
     expect(result.targetSafetyReferenceSource).toBe('bounded_visual_spoken_match');
     expect(result.unsafeTargetReason).not.toBe('reader_marker_correction_inactive');
     expect(result.readerMarkerCorrectionLeaseActive).toBe(true);
+
+    driver.dispose();
+  });
+
+  test('bounded reader-marker correction lease is treated as canonically safe by downstream follow gates', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluateEffectiveTargetSafety({
+      baseTargetSafe: false,
+      currentLineIdx: 30,
+      committedLineIdx: 30,
+      allowedTargetIdx: 30,
+      nextSpeakableLineIdx: 30,
+      readerMarkerCorrectionLeaseActive: true,
+      readerMarkerCorrectionLeaseAgeMs: 24,
+      readerMarkerCorrectionLeaseReason: 'reader_marker_correction_safe_bounded',
+      unsafeTargetReason: 'none',
+      boundedVisualCatchupEligible: true,
+    });
+
+    expect(result.localWindowCoherent).toBe(true);
+    expect(result.boundedLeaseTargetSafe).toBe(true);
+    expect(result.effectiveTargetSafe).toBe(true);
+
+    driver.dispose();
+  });
+
+  test('bounded reader-marker correction override does not apply after lease release, unsafe proof, or far targets', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const releasedLease = driver.__debugEvaluateEffectiveTargetSafety({
+      baseTargetSafe: false,
+      currentLineIdx: 30,
+      committedLineIdx: 30,
+      allowedTargetIdx: 30,
+      nextSpeakableLineIdx: 30,
+      readerMarkerCorrectionLeaseActive: false,
+      readerMarkerCorrectionLeaseReleasedReason: 'visual_debt_closed',
+      unsafeTargetReason: 'none',
+      boundedVisualCatchupEligible: true,
+    });
+    expect(releasedLease.effectiveTargetSafe).toBe(false);
+
+    const unsafeReason = driver.__debugEvaluateEffectiveTargetSafety({
+      baseTargetSafe: false,
+      currentLineIdx: 30,
+      committedLineIdx: 30,
+      allowedTargetIdx: 30,
+      nextSpeakableLineIdx: 30,
+      readerMarkerCorrectionLeaseActive: true,
+      readerMarkerCorrectionLeaseAgeMs: 24,
+      readerMarkerCorrectionLeaseReason: 'reader_marker_correction_safe_bounded',
+      unsafeTargetReason: 'reader_marker_correction_inactive',
+      boundedVisualCatchupEligible: true,
+    });
+    expect(unsafeReason.effectiveTargetSafe).toBe(false);
+
+    const farTarget = driver.__debugEvaluateEffectiveTargetSafety({
+      baseTargetSafe: false,
+      currentLineIdx: 30,
+      committedLineIdx: 30,
+      allowedTargetIdx: 34,
+      nextSpeakableLineIdx: 30,
+      readerMarkerCorrectionLeaseActive: true,
+      readerMarkerCorrectionLeaseAgeMs: 24,
+      readerMarkerCorrectionLeaseReason: 'reader_marker_correction_safe_bounded',
+      unsafeTargetReason: 'none',
+      boundedVisualCatchupEligible: true,
+    });
+    expect(farTarget.localWindowCoherent).toBe(false);
+    expect(farTarget.effectiveTargetSafe).toBe(false);
 
     driver.dispose();
   });
