@@ -703,6 +703,40 @@ describe('ASR visual contract', () => {
     driver.dispose();
   });
 
+  test('active reader-marker correction lease reacquires reader authority from preserved follow when debt remains', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const decision = driver.__debugSelectVisualOwnershipCandidate({
+      currentScrollTop: 142,
+      correctionRequested: false,
+      markerErrorPx: 136,
+      lineHeightPx: 56,
+      protectedForwardIntent: true,
+      suppressedReason: 'leased_reader_correction_active',
+      preservedStallFrames: 2,
+      preservedStallMs: 120,
+      readerMarkerCorrectionLeaseActive: true,
+      readerMarkerCorrectionLeaseAgeMs: 180,
+      readerMarkerCorrectionLeaseReason: 'reader_marker_correction_retained_over_preserved',
+      preservedTargetClosingError: false,
+      candidates: [
+        {
+          authority: 'preserved_forward_follow_target',
+          targetScrollTop: 172,
+          reason: 'marker_error_line_too_low',
+          direction: 'forward',
+          priority: 92,
+        },
+      ],
+    });
+
+    expect(decision.selectedAuthority).toBe('reader_marker_correction');
+    expect(decision.selectedTargetScrollTop).toBe(172);
+    expect(decision.proposedCandidates).toContain('preserved_forward_follow_target:172:marker_error_line_too_low');
+
+    driver.dispose();
+  });
+
   test('active reader-marker correction lease keeps bounded spoken-match as the safety reference across preserved follow ticks', () => {
     const driver = createAsrScrollDriver() as DebugAsrDriver;
 

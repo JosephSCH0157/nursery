@@ -4813,6 +4813,95 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       )
     );
   };
+  const resolveLeasedReaderCorrectionDebtState = (args: {
+    authority?: string | null;
+    currentTop?: number | null;
+    targetScrollTop?: number | null;
+    lineHeightPx?: number | null;
+    markerErrorPx?: number | null;
+    matchedLineViewportY?: number | null;
+    markerY?: number | null;
+    matchedLineIdx?: number | null;
+    visualAnchorLineIdx?: number | null;
+    currentLineIdx?: number | null;
+  }): {
+    leaseActive: boolean;
+    effectiveMarkerErrorPxUsed: number;
+    leaseDebtRemaining: number;
+    matchedBelowMarker: boolean;
+    targetForward: boolean;
+    semanticAhead: boolean;
+  } => {
+    const lineHeightPx = Number.isFinite(args.lineHeightPx as number)
+      ? Math.max(1, Number(args.lineHeightPx))
+      : Number.NaN;
+    const currentTop = Number.isFinite(args.currentTop as number) ? Number(args.currentTop) : 0;
+    const targetScrollTop = Number.isFinite(args.targetScrollTop as number) ? Number(args.targetScrollTop) : currentTop;
+    const markerY = Number.isFinite(args.markerY as number) ? Number(args.markerY) : Number.NaN;
+    const matchedLineViewportY = Number.isFinite(args.matchedLineViewportY as number)
+      ? Number(args.matchedLineViewportY)
+      : (
+        Number.isFinite(lastAsrMatchedLineViewportY)
+          ? Number(lastAsrMatchedLineViewportY)
+          : Number.NaN
+      );
+    const effectiveMarkerErrorPxUsed = Number.isFinite(args.markerErrorPx as number)
+      ? Math.max(0, Number(args.markerErrorPx))
+      : (
+        Number.isFinite(lastAsrMatchedMarkerErrorPx)
+          ? Math.max(0, Number(lastAsrMatchedMarkerErrorPx))
+          : (
+            Number.isFinite(readerMarkerCorrectionLeaseMarkerErrorPxAtStart)
+              ? Math.max(0, Number(readerMarkerCorrectionLeaseMarkerErrorPxAtStart))
+              : Number.NaN
+          )
+      );
+    const matchedBelowMarker =
+      Number.isFinite(matchedLineViewportY) &&
+      Number.isFinite(markerY)
+        ? matchedLineViewportY > (markerY + Math.max(
+          ASR_READER_MARKER_CORRECTION_COMFORT_BAND_MIN_PX,
+          Number.isFinite(lineHeightPx) ? lineHeightPx * 0.35 : 18,
+        ))
+        : (
+          Number.isFinite(effectiveMarkerErrorPxUsed) &&
+          Number.isFinite(lineHeightPx) &&
+          effectiveMarkerErrorPxUsed > Math.max(
+            ASR_READER_MARKER_CORRECTION_COMFORT_BAND_MIN_PX,
+            lineHeightPx * 0.35,
+          )
+        );
+    const matchedLineIdx = Number.isFinite(args.matchedLineIdx as number)
+      ? Math.max(0, Math.floor(Number(args.matchedLineIdx)))
+      : (
+        Number.isFinite(lastAuthorityMatchBestIdx)
+          ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx)))
+          : -1
+      );
+    const visualAnchorLineIdx = Number.isFinite(args.visualAnchorLineIdx as number)
+      ? Math.max(0, Math.floor(Number(args.visualAnchorLineIdx)))
+      : (
+        Number.isFinite(lastAsrVisualAnchorLineIdx)
+          ? Math.max(0, Math.floor(Number(lastAsrVisualAnchorLineIdx)))
+          : Math.max(0, Math.floor(Number(args.currentLineIdx) || 0))
+      );
+    const semanticAhead = matchedLineIdx >= 0 && matchedLineIdx > visualAnchorLineIdx;
+    const targetForward = targetScrollTop > currentTop + ASR_POCKET_WALL_NOISE_DELTA_PX;
+    const leaseDebtRemaining = targetForward
+      ? Math.max(
+        Math.max(0, targetScrollTop - currentTop),
+        Number.isFinite(effectiveMarkerErrorPxUsed) ? Math.max(0, effectiveMarkerErrorPxUsed) : 0,
+      )
+      : (Number.isFinite(effectiveMarkerErrorPxUsed) ? Math.max(0, effectiveMarkerErrorPxUsed) : 0);
+    return {
+      leaseActive: isLeasedReaderCorrectionActivelyClosing(args),
+      effectiveMarkerErrorPxUsed,
+      leaseDebtRemaining,
+      matchedBelowMarker,
+      targetForward,
+      semanticAhead,
+    };
+  };
   type AsrVisualOwnershipCandidate = {
     authority: string;
     targetScrollTop: number | null;
@@ -4910,6 +4999,40 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       )
         ? `preserved_forward_target_yielded_to_${strongerForwardCandidate.authority}`
         : 'none';
+    const leasedReaderCorrectionCandidate =
+      args.readerMarkerCorrectionLeaseActive === true &&
+      preservedCandidate &&
+      Number.isFinite(preservedCandidate.targetScrollTop as number) &&
+      (
+        strongerForwardCandidate?.authority === 'reader_marker_correction'
+          ? strongerForwardCandidate
+          : {
+            authority: 'reader_marker_correction',
+            targetScrollTop: Number(preservedCandidate.targetScrollTop),
+            reason: String(preservedCandidate.reason || 'reader_marker_correction_lease_reacquired'),
+            direction: 'forward' as const,
+            priority: Math.max(95, Number(preservedCandidate.priority || 0) + 1),
+          }
+      );
+    const leaseDebtMaterial =
+      args.readerMarkerCorrectionLeaseActive === true &&
+      Number.isFinite(args.markerErrorPx) &&
+      Number.isFinite(args.lineHeightPx) &&
+      Number(args.markerErrorPx) > Math.max(
+        ASR_READER_MARKER_CORRECTION_COMFORT_BAND_MIN_PX,
+        Number(args.lineHeightPx) * 0.35,
+      );
+    if (
+      leasedReaderCorrectionCandidate &&
+      leaseDebtMaterial &&
+      !sortedCandidates.some((candidate) =>
+        candidate.authority === 'reader_marker_correction' &&
+        Number.isFinite(candidate.targetScrollTop as number) &&
+        Math.abs(Number(candidate.targetScrollTop) - Number(leasedReaderCorrectionCandidate.targetScrollTop)) <= ASR_POCKET_WALL_NOISE_DELTA_PX,
+      )
+    ) {
+      sortedCandidates.unshift(leasedReaderCorrectionCandidate);
+    }
     for (const candidate of sortedCandidates) {
       const targetFinite = Number.isFinite(candidate.targetScrollTop as number);
       const targetTop = targetFinite ? Number(candidate.targetScrollTop) : args.currentScrollTop;
@@ -4920,10 +5043,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       if (
         candidate.authority === 'preserved_forward_follow_target' &&
-        preservedTargetYieldReason !== 'none'
+        (
+          preservedTargetYieldReason !== 'none' ||
+          (
+            args.readerMarkerCorrectionLeaseActive === true &&
+            leaseDebtMaterial &&
+            args.preservedTargetClosingError !== true
+          )
+        )
       ) {
         rejectedAuthorities.push(candidate.authority);
-        rejectionReasons.push(`${candidate.authority}:${preservedTargetYieldReason}`);
+        rejectionReasons.push(`${candidate.authority}:${preservedTargetYieldReason !== 'none' ? preservedTargetYieldReason : 'leased_reader_correction_debt_active'}`);
         continue;
       }
       if (
@@ -5296,9 +5426,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     preservedPreemptedReaderCorrection?: boolean | null;
     readerCorrectionRetainedOverPreserved?: boolean | null;
     matchedLineViewportY?: number | null;
+    lastKnownMatchedLineViewportY?: number | null;
     visualAnchorLineY?: number | null;
     markerY?: number | null;
     currentScrollTopBeforeWrite?: number | null;
+    requestedDeltaPx?: number | null;
+    debtReducedThisFrame?: boolean | null;
+    consecutiveLeaseSuppressedFrames?: number | null;
+    effectiveMarkerErrorPxUsed?: number | null;
+    hardBlockerReason?: string | null;
+    targetNullWhileLeaseActive?: boolean | null;
+    leaseDebtRemaining?: number | null;
   }) => {
     const now = Date.now();
     const lineHeightPx = Number.isFinite(args.lineHeightPx as number) ? Math.max(1, Number(args.lineHeightPx)) : 0;
@@ -5351,7 +5489,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     asrDiagnosticSummaryCounters.ownershipTraceEmitted += 1;
     try {
       console.warn(
-        `[ASR_VISUAL_TARGET_OWNERSHIP_TRACE] phase=${args.phase} correctionRequested=${args.correctionRequested ? 1 : 0} proposedForwardTarget=${Number.isFinite(args.proposedForwardTarget as number) ? Math.round(Number(args.proposedForwardTarget)) : -1} selectedAuthority=${String(args.selectedAuthority || 'none')} selectedTargetScrollTop=${Number.isFinite(args.selectedTargetScrollTop as number) ? Math.round(Number(args.selectedTargetScrollTop)) : -1} previousPreservedTarget=${Number.isFinite(args.previousPreservedTarget as number) ? Math.round(Number(args.previousPreservedTarget)) : -1} appliedDeltaPx=${Math.round(Number(args.appliedDeltaPx || 0))} suppressedReason=${String(args.suppressedReason || 'none')} blockedByRecoveryPath=${String(args.blockedByRecoveryPath || 'none')} blockedByBackwardRecenter=${String(args.blockedByBackwardRecenter || 'none')} currentScrollTop=${Math.round(Number(args.currentScrollTop || 0))} beforeScrollTop=${Number.isFinite(args.currentScrollTopBeforeWrite as number) ? Math.round(Number(args.currentScrollTopBeforeWrite)) : Math.round(Number(args.currentScrollTop || 0))} markerErrorPx=${Number.isFinite(args.markerErrorPx as number) ? Math.round(Number(args.markerErrorPx)) : -1} matchBestIdx=${Number.isFinite(args.matchBestIdx as number) ? Math.round(Number(args.matchBestIdx)) : -1} matchBestSim=${Number.isFinite(args.matchBestSim as number) ? Number(args.matchBestSim).toFixed(3) : 'NaN'} visualAnchorLineIdx=${Number.isFinite(args.visualAnchorLineIdx as number) ? Math.round(Number(args.visualAnchorLineIdx)) : -1} visualAnchorSource=${String(args.visualAnchorSource || 'none')} acceptedMatchAnchorEligible=${args.acceptedMatchAnchorEligible === true ? 1 : 0} spokenAnchorEligible=${args.spokenAnchorEligible === true ? 1 : 0} spokenAnchorRejectedReason=${String(args.spokenAnchorRejectedReason || 'none')} ownershipFinalizationRejectedReason=${String(args.ownershipFinalizationRejectedReason || 'none')} pendingOwner=${String(args.pendingOwner || 'none')} requiredProofMissing=${String(args.requiredProofMissing || 'none')} semanticCommitHeldButVisualCorrectionAllowed=${args.semanticCommitHeldButVisualCorrectionAllowed === true ? 1 : 0} readerMarkerCorrectionLeaseActive=${args.readerMarkerCorrectionLeaseActive === true ? 1 : 0} readerMarkerCorrectionLeaseAgeMs=${Number.isFinite(args.readerMarkerCorrectionLeaseAgeMs as number) ? Math.round(Number(args.readerMarkerCorrectionLeaseAgeMs)) : -1} readerMarkerCorrectionLeaseReason=${String(args.readerMarkerCorrectionLeaseReason || 'none')} readerMarkerCorrectionLeaseReleasedReason=${String(args.readerMarkerCorrectionLeaseReleasedReason || 'none')} markerErrorPxAtLeaseStart=${Number.isFinite(args.markerErrorPxAtLeaseStart as number) ? Math.round(Number(args.markerErrorPxAtLeaseStart)) : -1} preservedTargetClosingError=${args.preservedTargetClosingError === true ? 1 : 0} preservedPreemptedReaderCorrection=${args.preservedPreemptedReaderCorrection === true ? 1 : 0} readerCorrectionRetainedOverPreserved=${args.readerCorrectionRetainedOverPreserved === true ? 1 : 0} markerY=${Number.isFinite(args.markerY as number) ? Math.round(Number(args.markerY)) : -1} visualAnchorLineY=${Number.isFinite(args.visualAnchorLineY as number) ? Math.round(Number(args.visualAnchorLineY)) : -1} matchedLineViewportY=${Number.isFinite(args.matchedLineViewportY as number) ? Math.round(Number(args.matchedLineViewportY)) : -1} proposedCandidates=${String(args.proposedCandidates || 'none')} rejectedAuthorities=${String(args.rejectedAuthorities || 'none')} rejectionReasons=${String(args.rejectionReasons || 'none')} movementBlocked=${String(args.movementBlocked || 'none')}`,
+        `[ASR_VISUAL_TARGET_OWNERSHIP_TRACE] phase=${args.phase} correctionRequested=${args.correctionRequested ? 1 : 0} proposedForwardTarget=${Number.isFinite(args.proposedForwardTarget as number) ? Math.round(Number(args.proposedForwardTarget)) : -1} selectedAuthority=${String(args.selectedAuthority || 'none')} selectedTargetScrollTop=${Number.isFinite(args.selectedTargetScrollTop as number) ? Math.round(Number(args.selectedTargetScrollTop)) : -1} previousPreservedTarget=${Number.isFinite(args.previousPreservedTarget as number) ? Math.round(Number(args.previousPreservedTarget)) : -1} requestedDeltaPx=${Number.isFinite(args.requestedDeltaPx as number) ? Math.round(Number(args.requestedDeltaPx)) : -1} appliedDeltaPx=${Math.round(Number(args.appliedDeltaPx || 0))} debtReducedThisFrame=${args.debtReducedThisFrame === true ? 1 : 0} consecutiveLeaseSuppressedFrames=${Number.isFinite(args.consecutiveLeaseSuppressedFrames as number) ? Math.round(Number(args.consecutiveLeaseSuppressedFrames)) : -1} suppressedReason=${String(args.suppressedReason || 'none')} blockedByRecoveryPath=${String(args.blockedByRecoveryPath || 'none')} blockedByBackwardRecenter=${String(args.blockedByBackwardRecenter || 'none')} hardBlockerReason=${String(args.hardBlockerReason || 'none')} currentScrollTop=${Math.round(Number(args.currentScrollTop || 0))} beforeScrollTop=${Number.isFinite(args.currentScrollTopBeforeWrite as number) ? Math.round(Number(args.currentScrollTopBeforeWrite)) : Math.round(Number(args.currentScrollTop || 0))} markerErrorPx=${Number.isFinite(args.markerErrorPx as number) ? Math.round(Number(args.markerErrorPx)) : -1} effectiveMarkerErrorPxUsed=${Number.isFinite(args.effectiveMarkerErrorPxUsed as number) ? Math.round(Number(args.effectiveMarkerErrorPxUsed)) : -1} matchBestIdx=${Number.isFinite(args.matchBestIdx as number) ? Math.round(Number(args.matchBestIdx)) : -1} matchBestSim=${Number.isFinite(args.matchBestSim as number) ? Number(args.matchBestSim).toFixed(3) : 'NaN'} visualAnchorLineIdx=${Number.isFinite(args.visualAnchorLineIdx as number) ? Math.round(Number(args.visualAnchorLineIdx)) : -1} visualAnchorSource=${String(args.visualAnchorSource || 'none')} acceptedMatchAnchorEligible=${args.acceptedMatchAnchorEligible === true ? 1 : 0} spokenAnchorEligible=${args.spokenAnchorEligible === true ? 1 : 0} spokenAnchorRejectedReason=${String(args.spokenAnchorRejectedReason || 'none')} ownershipFinalizationRejectedReason=${String(args.ownershipFinalizationRejectedReason || 'none')} pendingOwner=${String(args.pendingOwner || 'none')} requiredProofMissing=${String(args.requiredProofMissing || 'none')} semanticCommitHeldButVisualCorrectionAllowed=${args.semanticCommitHeldButVisualCorrectionAllowed === true ? 1 : 0} readerMarkerCorrectionLeaseActive=${args.readerMarkerCorrectionLeaseActive === true ? 1 : 0} readerMarkerCorrectionLeaseAgeMs=${Number.isFinite(args.readerMarkerCorrectionLeaseAgeMs as number) ? Math.round(Number(args.readerMarkerCorrectionLeaseAgeMs)) : -1} readerMarkerCorrectionLeaseReason=${String(args.readerMarkerCorrectionLeaseReason || 'none')} readerMarkerCorrectionLeaseReleasedReason=${String(args.readerMarkerCorrectionLeaseReleasedReason || 'none')} markerErrorPxAtLeaseStart=${Number.isFinite(args.markerErrorPxAtLeaseStart as number) ? Math.round(Number(args.markerErrorPxAtLeaseStart)) : -1} preservedTargetClosingError=${args.preservedTargetClosingError === true ? 1 : 0} preservedPreemptedReaderCorrection=${args.preservedPreemptedReaderCorrection === true ? 1 : 0} readerCorrectionRetainedOverPreserved=${args.readerCorrectionRetainedOverPreserved === true ? 1 : 0} markerY=${Number.isFinite(args.markerY as number) ? Math.round(Number(args.markerY)) : -1} visualAnchorLineY=${Number.isFinite(args.visualAnchorLineY as number) ? Math.round(Number(args.visualAnchorLineY)) : -1} matchedLineViewportY=${Number.isFinite(args.matchedLineViewportY as number) ? Math.round(Number(args.matchedLineViewportY)) : -1} lastKnownMatchedLineViewportY=${Number.isFinite(args.lastKnownMatchedLineViewportY as number) ? Math.round(Number(args.lastKnownMatchedLineViewportY)) : -1} targetNullWhileLeaseActive=${args.targetNullWhileLeaseActive === true ? 1 : 0} leaseDebtRemaining=${Number.isFinite(args.leaseDebtRemaining as number) ? Math.round(Number(args.leaseDebtRemaining)) : -1} proposedCandidates=${String(args.proposedCandidates || 'none')} rejectedAuthorities=${String(args.rejectedAuthorities || 'none')} rejectionReasons=${String(args.rejectionReasons || 'none')} movementBlocked=${String(args.movementBlocked || 'none')}`,
       );
     } catch {}
   };
@@ -7190,6 +7328,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let readerMarkerCorrectionLeaseReason = 'none';
   let readerMarkerCorrectionLeaseReleasedReason = 'none';
   let readerMarkerCorrectionLeaseMarkerErrorPxAtStart = Number.NaN;
+  let lastAsrLeaseDebtRemainingPx = 0;
+  let lastAsrLeaseEffectiveMarkerErrorPx = Number.NaN;
+  let lastAsrLeaseMatchedBelowMarker = false;
+  let lastAsrLeaseTargetNullWhileActive = false;
+  let consecutiveLeaseSuppressedFrames = 0;
   let lastAsrPocketWallLastVerifiedCommitLineIdx = -1;
   let lastAsrPocketWallHasFreshVerifiedForwardCommit = false;
   let lastAsrLeadPressureTickId = -1;
@@ -18264,6 +18407,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
 
     if (pursuitTargetTop == null) {
+      const earlyLeaseLineHeightPx = Math.max(
+        1,
+        Number(getLineElementByIndex(scroller, Math.max(0, lastLineIndex))?.clientHeight || 24),
+      );
+      const leaseDebtState = resolveLeasedReaderCorrectionDebtState({
+        authority: lastAsrSelectedAuthority,
+        currentTop: current,
+        targetScrollTop: preservedAsrAuthorityTargetTop,
+        lineHeightPx: earlyLeaseLineHeightPx,
+        markerErrorPx: Number.isFinite(lastAsrMatchedMarkerErrorPx) ? Number(lastAsrMatchedMarkerErrorPx) : Number.NaN,
+        matchedLineViewportY: lastAsrMatchedLineViewportY,
+        markerY: lastAsrMarkerY,
+        matchedLineIdx: lastAuthorityMatchBestIdx,
+        visualAnchorLineIdx: lastAsrVisualAnchorLineIdx,
+        currentLineIdx: lastLineIndex,
+      });
       const graceTargetStillFresh =
         lastLocalPursuitTargetTop != null
         && Number.isFinite(lastLocalPursuitTargetTop)
@@ -18283,7 +18442,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           skippedReason: graceTargetStillFresh ? 'target_grace_cache' : 'none',
         });
         if (pursuitTargetTop == null) {
-          pursuitTargetTop = current;
+          if (
+            leaseDebtState.leaseActive &&
+            leaseDebtState.targetForward &&
+            leaseDebtState.leaseDebtRemaining > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX &&
+            (leaseDebtState.matchedBelowMarker || leaseDebtState.semanticAhead)
+          ) {
+            pursuitTargetTop = Math.max(
+              current + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX + 1,
+              Number.isFinite(preservedAsrAuthorityTargetTop as number)
+                ? Number(preservedAsrAuthorityTargetTop)
+                : current + Math.min(
+                  Math.max(18, earlyLeaseLineHeightPx * 0.35),
+                  leaseDebtState.leaseDebtRemaining,
+                ),
+            );
+            lastAsrLeaseTargetNullWhileActive = false;
+          } else {
+            pursuitTargetTop = current;
+            lastAsrLeaseTargetNullWhileActive = leaseDebtState.leaseActive;
+          }
         }
       } else {
         emitLivePocketMaintenanceCallsiteReached({
@@ -18328,11 +18506,41 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     })) {
       const target = pursuitTargetTop;
       pursuitVel = 0;
-      if (liveAsrFollowMode && keepLivePocketMaintenanceActive) {
+      const earlyLeaseLineHeightPx = Math.max(
+        1,
+        Number(getLineElementByIndex(scroller, Math.max(0, lastLineIndex))?.clientHeight || 24),
+      );
+      const leaseDebtState = resolveLeasedReaderCorrectionDebtState({
+        authority: lastAsrSelectedAuthority,
+        currentTop: current,
+        targetScrollTop: pursuitTargetTop,
+        lineHeightPx: earlyLeaseLineHeightPx,
+        markerErrorPx: Number.isFinite(lastAsrMatchedMarkerErrorPx) ? Number(lastAsrMatchedMarkerErrorPx) : Number.NaN,
+        matchedLineViewportY: lastAsrMatchedLineViewportY,
+        markerY: lastAsrMarkerY,
+        matchedLineIdx: lastAuthorityMatchBestIdx,
+        visualAnchorLineIdx: lastAsrVisualAnchorLineIdx,
+        currentLineIdx: lastLineIndex,
+      });
+      if (
+        liveAsrFollowMode &&
+        keepLivePocketMaintenanceActive &&
+        leaseDebtState.leaseActive &&
+        leaseDebtState.leaseDebtRemaining > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX &&
+        (leaseDebtState.matchedBelowMarker || leaseDebtState.semanticAhead)
+      ) {
+        pursuitTargetTop = Math.max(
+          current + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX + 1,
+          Number.isFinite(target as number) ? Number(target) : current,
+        );
+        lastAsrLeaseTargetNullWhileActive = false;
+      } else if (liveAsrFollowMode && keepLivePocketMaintenanceActive) {
         pursuitTargetTop = current;
+        lastAsrLeaseTargetNullWhileActive = leaseDebtState.leaseActive;
       } else {
         pursuitActive = false;
         pursuitTargetTop = null;
+        lastAsrLeaseTargetNullWhileActive = leaseDebtState.leaseActive;
       }
       if (
         preservedAsrAuthorityTargetTop != null &&
@@ -21444,6 +21652,39 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     if (liveAsrFollowMode) {
       const readerMarkerSnapshot = computeReaderLineMarkerErrorSnapshot(scroller);
+      const leaseDebtState = resolveLeasedReaderCorrectionDebtState({
+        authority: actuatorAuthorityForTick,
+        currentTop: beforeScrollTop,
+        targetScrollTop: targetScrollTopForActuator,
+        lineHeightPx: Number.isFinite(readerMarkerSnapshot.lineHeightPx) ? readerMarkerSnapshot.lineHeightPx : safeResolverLineHeightPx,
+        markerErrorPx: Number.isFinite(readerMarkerSnapshot.markerErrorPx) ? readerMarkerSnapshot.markerErrorPx : Number.NaN,
+        matchedLineViewportY: lastAsrMatchedLineViewportY,
+        markerY: lastAsrMarkerY,
+        matchedLineIdx: readerMarkerSnapshot.matchBestIdx,
+        visualAnchorLineIdx: lastAsrVisualAnchorLineIdx,
+        currentLineIdx: lastLineIndex,
+      });
+      lastAsrLeaseDebtRemainingPx = leaseDebtState.leaseDebtRemaining;
+      lastAsrLeaseEffectiveMarkerErrorPx = leaseDebtState.effectiveMarkerErrorPxUsed;
+      lastAsrLeaseMatchedBelowMarker = leaseDebtState.matchedBelowMarker;
+      const debtReducedThisFrame =
+        appliedDeltaPx > ASR_POCKET_WALL_NOISE_DELTA_PX &&
+        leaseDebtState.leaseDebtRemaining > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX;
+      if (
+        leaseDebtState.leaseActive &&
+        !debtReducedThisFrame &&
+        (
+          String(asr4PocketTickObservation?.state?.suppressedReason || 'none') !== 'none' ||
+          String(liveTickActuatorMovementBlockedReason || 'none') !== 'none'
+        )
+      ) {
+        consecutiveLeaseSuppressedFrames += 1;
+      } else if (leaseDebtState.leaseActive) {
+        consecutiveLeaseSuppressedFrames = 0;
+      } else {
+        consecutiveLeaseSuppressedFrames = 0;
+        lastAsrLeaseTargetNullWhileActive = false;
+      }
       const ownershipTraceVisualAnchorLineIdx =
         Number.isFinite(lastAsrVisualAnchorLineIdx)
           ? Math.max(0, Math.floor(Number(lastAsrVisualAnchorLineIdx)))
@@ -21514,6 +21755,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         visualAnchorLineY: Number.isFinite(ownershipTraceVisualAnchorLineY) ? ownershipTraceVisualAnchorLineY : null,
         markerY: Number.isFinite(lastAsrMarkerY) ? Number(lastAsrMarkerY) : null,
         currentScrollTopBeforeWrite: beforeScrollTop,
+        requestedDeltaPx,
+        debtReducedThisFrame,
+        consecutiveLeaseSuppressedFrames,
+        effectiveMarkerErrorPxUsed: Number.isFinite(leaseDebtState.effectiveMarkerErrorPxUsed) ? leaseDebtState.effectiveMarkerErrorPxUsed : null,
+        hardBlockerReason:
+          actuatorNoMatchOrOffscript ? 'offscript_or_nomatch'
+            : hardContradictionActive ? 'contradiction'
+              : atScrollLimit ? 'terminal_clamp'
+                : String(liveTickActuatorMovementBlockedReason || 'none'),
+        targetNullWhileLeaseActive:
+          leaseDebtState.leaseActive &&
+          (!Number.isFinite(targetScrollTopForActuator) || targetScrollTopForActuator <= beforeScrollTop + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX),
+        leaseDebtRemaining: Number.isFinite(leaseDebtState.leaseDebtRemaining) ? leaseDebtState.leaseDebtRemaining : null,
+        lastKnownMatchedLineViewportY: Number.isFinite(lastAsrMatchedLineViewportY) ? Number(lastAsrMatchedLineViewportY) : null,
       });
     }
     if (liveAsrFollowMode) {
@@ -21585,7 +21840,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (shouldEmitFrameDiagnostic('ASR_LIVE_POCKET_MAINTENANCE_EVALUATED', maintenanceSignature, 350)) {
         try {
           console.info(
-            `[ASR_LIVE_POCKET_MAINTENANCE_EVALUATED] currentLineIdx=${lastLineIndex} committedLineIdx=${liveAsrCommitteeAcceptedCommitTargetIdx} nextSpeakableLineIdx=${maintenanceNextSpeakableLineIdx} targetLineIdx=${maintenanceTargetLineIdx} markerTopPx=${Number.isFinite(lastAsrMarkerY) ? Math.round(lastAsrMarkerY) : -1} activeLineTopPx=${Number.isFinite(maintenanceActiveLineY) ? Math.round(maintenanceActiveLineY) : -1} activeLineDistanceFromMarkerPx=${Number.isFinite(maintenanceActiveLineY) && Number.isFinite(lastAsrMarkerY) ? Math.round(maintenanceActiveLineY - lastAsrMarkerY) : -1} activeLineViewportRatio=${Number.isFinite(maintenanceActiveLineY) && Number(scroller.clientHeight || 0) > 0 ? (maintenanceActiveLineY / Number(scroller.clientHeight || 1)).toFixed(3) : 'NaN'} pocketHealth=${maintenancePocketHealth} belowPocketPx=${maintenanceBelowPocketPx} visualDebtPx=${Number.isFinite(arithmeticTargetDebtPx) ? Math.round(arithmeticTargetDebtPx) : -1} currentScrollTop=${Math.round(beforeScrollTop)} targetScrollTop=${Math.round(Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop)} sourcePath=${String(liveTickSelectedAuthority || 'none')} eligible=${maintenanceEligible ? 1 : 0} deniedReason=${maintenanceDeniedReason} noMatch=${actuatorNoMatchOrOffscript ? 1 : 0} offScript=${actuatorNoMatchOrOffscript ? 1 : 0} contradiction=${hardContradictionActive ? 1 : 0} farTarget=${liveAsrCommitteeAcceptedCommitTargetIdx > lastLineIndex + 1 ? 1 : 0} terminalClamp=${atScrollLimit ? 1 : 0} directWriteBlocked=${asr4VisualRecoveryLastDirectWriteBlocked ? 1 : 0} targetPreservedForEasing=${preservedAsrAuthorityTargetTop != null ? 1 : 0} actuatorApplied=${appliedDeltaPx > 0 ? 1 : 0} actualMovedPx=${Math.round(appliedDeltaPx)} matchBestIdx=${Number.isFinite(lastAuthorityMatchBestIdx) ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx))) : -1} visualAnchorLineIdx=${Number.isFinite(lastAsrVisualAnchorLineIdx) ? Math.max(0, Math.floor(Number(lastAsrVisualAnchorLineIdx))) : -1} matchedLineViewportY=${Number.isFinite(lastAsrMatchedLineViewportY) ? Math.round(Number(lastAsrMatchedLineViewportY)) : -1} visualAnchorLineY=${Number.isFinite(lastAsrActiveLineViewportY) ? Math.round(Number(lastAsrActiveLineViewportY)) : -1} targetSafetyReferenceLineIdx=${Number.isFinite(lastAsrPocketWallTargetSafetyReferenceLineIdx) ? Math.max(0, Math.floor(Number(lastAsrPocketWallTargetSafetyReferenceLineIdx))) : -1} targetSafetyReferenceSource=${String(lastAsrPocketWallTargetSafetyReferenceSource || 'none')} unsafeTargetReason=${String(lastAsrPocketWallUnsafeTargetReason || 'none')} semanticCommitHeldButVisualCatchupAllowed=${lastAsrPocketWallSemanticCommitHeldButVisualCatchupAllowed ? 1 : 0} boundedVisualCatchupEligible=${lastAsrPocketWallBoundedVisualCatchupEligible ? 1 : 0} readerMarkerCorrectionLeaseActive=${readerMarkerCorrectionLeaseStartedAtMs > 0 ? 1 : 0} readerMarkerCorrectionLeaseAgeMs=${readerMarkerCorrectionLeaseStartedAtMs > 0 ? Math.max(0, Date.now() - readerMarkerCorrectionLeaseStartedAtMs) : -1} readerMarkerCorrectionLeaseReason=${String(readerMarkerCorrectionLeaseReason || 'none')} readerMarkerCorrectionLeaseReleasedReason=${String(readerMarkerCorrectionLeaseReleasedReason || 'none')} markerErrorPxAtLeaseStart=${Number.isFinite(readerMarkerCorrectionLeaseMarkerErrorPxAtStart) ? Math.round(Number(readerMarkerCorrectionLeaseMarkerErrorPxAtStart)) : -1}`,
+            `[ASR_LIVE_POCKET_MAINTENANCE_EVALUATED] currentLineIdx=${lastLineIndex} committedLineIdx=${liveAsrCommitteeAcceptedCommitTargetIdx} nextSpeakableLineIdx=${maintenanceNextSpeakableLineIdx} targetLineIdx=${maintenanceTargetLineIdx} markerTopPx=${Number.isFinite(lastAsrMarkerY) ? Math.round(lastAsrMarkerY) : -1} activeLineTopPx=${Number.isFinite(maintenanceActiveLineY) ? Math.round(maintenanceActiveLineY) : -1} activeLineDistanceFromMarkerPx=${Number.isFinite(maintenanceActiveLineY) && Number.isFinite(lastAsrMarkerY) ? Math.round(maintenanceActiveLineY - lastAsrMarkerY) : -1} activeLineViewportRatio=${Number.isFinite(maintenanceActiveLineY) && Number(scroller.clientHeight || 0) > 0 ? (maintenanceActiveLineY / Number(scroller.clientHeight || 1)).toFixed(3) : 'NaN'} pocketHealth=${maintenancePocketHealth} belowPocketPx=${maintenanceBelowPocketPx} visualDebtPx=${Number.isFinite(arithmeticTargetDebtPx) ? Math.round(arithmeticTargetDebtPx) : -1} currentScrollTop=${Math.round(beforeScrollTop)} targetScrollTop=${Math.round(Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop)} sourcePath=${String(liveTickSelectedAuthority || 'none')} eligible=${maintenanceEligible ? 1 : 0} deniedReason=${maintenanceDeniedReason} noMatch=${actuatorNoMatchOrOffscript ? 1 : 0} offScript=${actuatorNoMatchOrOffscript ? 1 : 0} contradiction=${hardContradictionActive ? 1 : 0} farTarget=${liveAsrCommitteeAcceptedCommitTargetIdx > lastLineIndex + 1 ? 1 : 0} terminalClamp=${atScrollLimit ? 1 : 0} directWriteBlocked=${asr4VisualRecoveryLastDirectWriteBlocked ? 1 : 0} targetPreservedForEasing=${preservedAsrAuthorityTargetTop != null ? 1 : 0} actuatorApplied=${appliedDeltaPx > 0 ? 1 : 0} actualMovedPx=${Math.round(appliedDeltaPx)} debtReducedThisFrame=${appliedDeltaPx > ASR_POCKET_WALL_NOISE_DELTA_PX ? 1 : 0} consecutiveLeaseSuppressedFrames=${consecutiveLeaseSuppressedFrames} leaseDebtRemaining=${Math.round(Math.max(0, lastAsrLeaseDebtRemainingPx))} effectiveMarkerErrorPxUsed=${Number.isFinite(lastAsrLeaseEffectiveMarkerErrorPx) ? Math.round(Number(lastAsrLeaseEffectiveMarkerErrorPx)) : -1} matchBestIdx=${Number.isFinite(lastAuthorityMatchBestIdx) ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx))) : -1} visualAnchorLineIdx=${Number.isFinite(lastAsrVisualAnchorLineIdx) ? Math.max(0, Math.floor(Number(lastAsrVisualAnchorLineIdx))) : -1} matchedLineViewportY=${Number.isFinite(lastAsrMatchedLineViewportY) ? Math.round(Number(lastAsrMatchedLineViewportY)) : -1} visualAnchorLineY=${Number.isFinite(lastAsrActiveLineViewportY) ? Math.round(Number(lastAsrActiveLineViewportY)) : -1} targetSafetyReferenceLineIdx=${Number.isFinite(lastAsrPocketWallTargetSafetyReferenceLineIdx) ? Math.max(0, Math.floor(Number(lastAsrPocketWallTargetSafetyReferenceLineIdx))) : -1} targetSafetyReferenceSource=${String(lastAsrPocketWallTargetSafetyReferenceSource || 'none')} unsafeTargetReason=${String(lastAsrPocketWallUnsafeTargetReason || 'none')} semanticCommitHeldButVisualCatchupAllowed=${lastAsrPocketWallSemanticCommitHeldButVisualCatchupAllowed ? 1 : 0} boundedVisualCatchupEligible=${lastAsrPocketWallBoundedVisualCatchupEligible ? 1 : 0} readerMarkerCorrectionLeaseActive=${readerMarkerCorrectionLeaseStartedAtMs > 0 ? 1 : 0} readerMarkerCorrectionLeaseAgeMs=${readerMarkerCorrectionLeaseStartedAtMs > 0 ? Math.max(0, Date.now() - readerMarkerCorrectionLeaseStartedAtMs) : -1} readerMarkerCorrectionLeaseReason=${String(readerMarkerCorrectionLeaseReason || 'none')} readerMarkerCorrectionLeaseReleasedReason=${String(readerMarkerCorrectionLeaseReleasedReason || 'none')} markerErrorPxAtLeaseStart=${Number.isFinite(readerMarkerCorrectionLeaseMarkerErrorPxAtStart) ? Math.round(Number(readerMarkerCorrectionLeaseMarkerErrorPxAtStart)) : -1} targetNullWhileLeaseActive=${lastAsrLeaseTargetNullWhileActive ? 1 : 0} matchedBelowMarker=${lastAsrLeaseMatchedBelowMarker ? 1 : 0}`,
           );
         } catch {}
       }
