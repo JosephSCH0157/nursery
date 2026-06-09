@@ -773,11 +773,11 @@ describe('ASR visual contract', () => {
     driver.dispose();
   });
 
-  test('stale reader-marker correction lease releases cleanly and allows conservative fallback again', () => {
+  test('active lease releases on visual debt closure instead of semantic catch-up', () => {
     const driver = createAsrScrollDriver() as DebugAsrDriver;
 
     const result = driver.__debugApplyScrollWithHybridGuard({
-      beforeScrollTop: 6,
+      beforeScrollTop: 94,
       proposedTop: 104,
       targetScrollTop: 104,
       currentLineIdx: 1,
@@ -793,19 +793,18 @@ describe('ASR visual contract', () => {
       primaryBypassReason: null,
       visualAnchorLineIdx: 1,
       visualAnchorSource: 'accepted_match',
-      matchedLineViewportY: 494,
-      matchedMarkerErrorPx: 98,
+      matchedLineViewportY: 398,
+      matchedMarkerErrorPx: 8,
       readerMarkerCorrectionLeaseActive: true,
-      readerMarkerCorrectionLeaseAgeMs: 5000,
+      readerMarkerCorrectionLeaseAgeMs: 180,
       readerMarkerCorrectionLeaseReason: 'reader_marker_correction_safe_bounded',
       readerMarkerCorrectionLeaseMarkerErrorPxAtStart: 104,
     });
 
     expect(result.reason).toBe('no_safe_target_forward_suppressed');
     expect(result.targetSafetyReferenceSource).toBe('authoritative_line');
-    expect(result.unsafeTargetReason).toBe('reader_marker_correction_inactive');
     expect(result.readerMarkerCorrectionLeaseActive).toBe(false);
-    expect(result.readerMarkerCorrectionLeaseReleasedReason).toBe('lease_stale');
+    expect(result.readerMarkerCorrectionLeaseReleasedReason).toBe('visual_debt_closed');
 
     driver.dispose();
   });
