@@ -40117,10 +40117,12 @@ function createAsrScrollDriver(options = {}) {
     const boundedTargetSafetyReferenceSource = String(args.targetSafetyReferenceSource || "none");
     const semanticCommitHeldButVisualCatchupAllowed = args.semanticCommitHeldButVisualCatchupAllowed === true;
     const retainedVisualCleanupAllowed = args.retainedVisualCleanupAllowed === true;
+    const normalizedLeaseReason = String(args.readerMarkerCorrectionLeaseReason || "none");
     const semanticProofSatisfied = semanticCommitHeldButVisualCatchupAllowed || retainedVisualCleanupAllowed;
     const hardBlocker = args.noMatchOrOffscript === true || args.hardContradiction === true || args.terminalClampActive === true;
     const leaseAgeMs = Number.isFinite(args.readerMarkerCorrectionLeaseAgeMs) ? Math.max(0, Number(args.readerMarkerCorrectionLeaseAgeMs)) : readerMarkerCorrectionLeaseStartedAtMs > 0 ? Math.max(0, Date.now() - readerMarkerCorrectionLeaseStartedAtMs) : Number.POSITIVE_INFINITY;
-    const leaseActive = (args.readerMarkerCorrectionLeaseActive === true || args.readerMarkerCorrectionLeaseActive == null && readerMarkerCorrectionLeaseStartedAtMs > 0) && leaseAgeMs <= ASR_READER_MARKER_CORRECTION_LEASE_MAX_AGE_MS;
+    const retainedCleanupLeaseActive = retainedVisualCleanupAllowed && normalizedLeaseReason === "reader_marker_correction_retained_over_preserved" && args.readerMarkerCorrectionLeaseActive === true;
+    const leaseActive = retainedCleanupLeaseActive || (args.readerMarkerCorrectionLeaseActive === true || args.readerMarkerCorrectionLeaseActive == null && readerMarkerCorrectionLeaseStartedAtMs > 0) && leaseAgeMs <= ASR_READER_MARKER_CORRECTION_LEASE_MAX_AGE_MS;
     const boundedVisualCatchupEligible = typeof args.boundedVisualCatchupEligible === "boolean" ? args.boundedVisualCatchupEligible : lastAsrPocketWallBoundedVisualCatchupEligible === true;
     const unsafeTargetReason = typeof args.unsafeTargetReason === "string" ? String(args.unsafeTargetReason || "none") : String(lastAsrPocketWallUnsafeTargetReason || "none");
     const acceptedLocalLagWindow = evaluateAcceptedLocalLagWindow({
@@ -68160,6 +68162,7 @@ function createAsrScrollDriver(options = {}) {
       retainedVisualCleanupAllowed: args.retainedVisualCleanupAllowed,
       readerMarkerCorrectionLeaseActive: args.readerMarkerCorrectionLeaseActive,
       readerMarkerCorrectionLeaseAgeMs: args.readerMarkerCorrectionLeaseAgeMs,
+      readerMarkerCorrectionLeaseReason: args.readerMarkerCorrectionLeaseReason,
       unsafeTargetReason: args.unsafeTargetReason,
       boundedVisualCatchupEligible: args.boundedVisualCatchupEligible,
       noMatchOrOffscript: args.noMatchOrOffscript,

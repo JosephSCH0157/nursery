@@ -69,6 +69,7 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     readerMarkerCorrectionLeaseReleasedReason?: string | null;
     unsafeTargetReason?: string | null;
     boundedVisualCatchupEligible?: boolean;
+    currentFrameSafeHoldReason?: string | null;
     noMatchOrOffscript?: boolean;
     hardContradiction?: boolean;
     terminalClampActive?: boolean;
@@ -78,6 +79,7 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     localWindowCoherent: boolean;
     effectiveTargetSafeSource: string;
     effectiveTargetSafeBlockedReason: string;
+    effectiveTargetSafeHoldReason: string;
   };
   __debugApplyScrollWithHybridGuard(args: {
     beforeScrollTop: number;
@@ -878,6 +880,35 @@ describe('ASR visual contract', () => {
     expect(result.effectiveTargetSafe).toBe(true);
     expect(result.effectiveTargetSafeSource).toBe('pocket_wall_bounded_spoken_match');
     expect(result.effectiveTargetSafeBlockedReason).toBe('none');
+
+    driver.dispose();
+  });
+
+  test('top-pressure bounded hold stays canonically safe instead of downgrading to lease_inactive', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluateEffectiveTargetSafety({
+      baseTargetSafe: false,
+      currentLineIdx: 0,
+      committedLineIdx: 0,
+      allowedTargetIdx: -1,
+      nextSpeakableLineIdx: 0,
+      targetSafetyReferenceLineIdx: 1,
+      targetSafetyReferenceSource: 'bounded_visual_spoken_match',
+      semanticCommitHeldButVisualCatchupAllowed: true,
+      readerMarkerCorrectionLeaseActive: true,
+      readerMarkerCorrectionLeaseAgeMs: 75,
+      readerMarkerCorrectionLeaseReason: 'reader_marker_correction_safe_bounded',
+      unsafeTargetReason: 'none',
+      boundedVisualCatchupEligible: true,
+      currentFrameSafeHoldReason: 'top_pressure_guard',
+    });
+
+    expect(result.effectiveTargetSafe).toBe(true);
+    expect(result.boundedLeaseTargetSafe).toBe(true);
+    expect(result.effectiveTargetSafeSource).toBe('pocket_wall_bounded_spoken_match');
+    expect(result.effectiveTargetSafeBlockedReason).toBe('none');
+    expect(result.effectiveTargetSafeHoldReason).toBe('top_pressure_guard');
 
     driver.dispose();
   });

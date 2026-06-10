@@ -4959,6 +4959,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     readerMarkerCorrectionLeaseReason?: string | null;
     unsafeTargetReason?: string | null;
     boundedVisualCatchupEligible?: boolean;
+    currentFrameSafeHoldReason?: string | null;
     noMatchOrOffscript?: boolean;
     hardContradiction?: boolean;
     terminalClampActive?: boolean;
@@ -4968,6 +4969,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     localWindowCoherent: boolean;
     effectiveTargetSafeSource: string;
     effectiveTargetSafeBlockedReason: string;
+    effectiveTargetSafeHoldReason: string;
   } => {
     const currentLine = Math.max(0, Math.floor(Number(args.currentLineIdx) || 0));
     const committedLine = Number.isFinite(args.committedLineIdx as number)
@@ -5023,6 +5025,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       typeof args.unsafeTargetReason === 'string'
         ? String(args.unsafeTargetReason || 'none')
         : String(lastAsrPocketWallUnsafeTargetReason || 'none');
+    const currentFrameSafeHoldReason = String(args.currentFrameSafeHoldReason || 'none');
+    const topPressureSafeHoldActive =
+      currentFrameSafeHoldReason === 'top_pressure_guard' ||
+      currentFrameSafeHoldReason === 'top_pressure_clamp' ||
+      currentFrameSafeHoldReason === 'leased_reader_correction_active';
     const acceptedLocalLagWindow = evaluateAcceptedLocalLagWindow({
       currentLine,
       committedLine,
@@ -5051,7 +5058,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const boundedLeaseTargetSafe =
       !args.baseTargetSafe &&
       !hardBlocker &&
-      leaseActive &&
+      (leaseActive || topPressureSafeHoldActive) &&
       boundedVisualCatchupEligible &&
       unsafeTargetReason === 'none' &&
       semanticProofSatisfied &&
@@ -5059,10 +5066,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       localWindowCoherent;
     let effectiveTargetSafeSource = 'none';
     let effectiveTargetSafeBlockedReason = 'none';
+    let effectiveTargetSafeHoldReason = 'none';
     if (args.baseTargetSafe) {
       effectiveTargetSafeSource = 'resolved_command';
     } else if (boundedLeaseTargetSafe) {
       effectiveTargetSafeSource = 'pocket_wall_bounded_spoken_match';
+      if (topPressureSafeHoldActive) effectiveTargetSafeHoldReason = currentFrameSafeHoldReason;
     } else if (hardBlocker) {
       effectiveTargetSafeBlockedReason = 'hard_blocker';
     } else if (!leaseActive) {
@@ -5080,6 +5089,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       localWindowCoherent,
       effectiveTargetSafeSource,
       effectiveTargetSafeBlockedReason,
+      effectiveTargetSafeHoldReason,
     };
   };
   const resolveLeasedReaderCorrectionDebtState = (args: {
@@ -20770,6 +20780,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         preflightReaderMarkerCorrectionSafeTargetContext.unsafeTargetReason,
       boundedVisualCatchupEligible:
         preflightReaderMarkerCorrectionSafeTargetContext.boundedVisualCatchupEligible,
+      currentFrameSafeHoldReason:
+        liveTickSelectedAuthority === 'top_pressure_clamp'
+          ? 'top_pressure_clamp'
+          : (
+            liveTickAuthorityReason === 'top_pressure_guard'
+              ? 'top_pressure_guard'
+              : 'none'
+          ),
       noMatchOrOffscript: actuatorNoMatchOrOffscript,
       hardContradiction: hardContradictionActive,
       terminalClampActive: atScrollLimit,
@@ -22187,7 +22205,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (shouldEmitFrameDiagnostic('ASR_LIVE_POCKET_MAINTENANCE_EVALUATED', maintenanceSignature, 350)) {
         try {
           console.info(
-            `[ASR_LIVE_POCKET_MAINTENANCE_EVALUATED] currentLineIdx=${lastLineIndex} committedLineIdx=${liveAsrCommitteeAcceptedCommitTargetIdx} nextSpeakableLineIdx=${maintenanceNextSpeakableLineIdx} targetLineIdx=${maintenanceTargetLineIdx} markerTopPx=${Number.isFinite(lastAsrMarkerY) ? Math.round(lastAsrMarkerY) : -1} activeLineTopPx=${Number.isFinite(maintenanceActiveLineY) ? Math.round(maintenanceActiveLineY) : -1} activeLineDistanceFromMarkerPx=${Number.isFinite(maintenanceActiveLineY) && Number.isFinite(lastAsrMarkerY) ? Math.round(maintenanceActiveLineY - lastAsrMarkerY) : -1} activeLineViewportRatio=${Number.isFinite(maintenanceActiveLineY) && Number(scroller.clientHeight || 0) > 0 ? (maintenanceActiveLineY / Number(scroller.clientHeight || 1)).toFixed(3) : 'NaN'} pocketHealth=${maintenancePocketHealth} belowPocketPx=${maintenanceBelowPocketPx} visualDebtPx=${Number.isFinite(arithmeticTargetDebtPx) ? Math.round(arithmeticTargetDebtPx) : -1} currentScrollTop=${Math.round(beforeScrollTop)} targetScrollTop=${Math.round(Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop)} sourcePath=${String(liveTickSelectedAuthority || 'none')} eligible=${maintenanceEligible ? 1 : 0} deniedReason=${maintenanceDeniedReason} noMatch=${actuatorNoMatchOrOffscript ? 1 : 0} offScript=${actuatorNoMatchOrOffscript ? 1 : 0} contradiction=${hardContradictionActive ? 1 : 0} farTarget=${liveAsrCommitteeAcceptedCommitTargetIdx > lastLineIndex + 1 ? 1 : 0} terminalClamp=${atScrollLimit ? 1 : 0} directWriteBlocked=${asr4VisualRecoveryLastDirectWriteBlocked ? 1 : 0} targetPreservedForEasing=${preservedAsrAuthorityTargetTop != null ? 1 : 0} actuatorApplied=${appliedDeltaPx > 0 ? 1 : 0} actualMovedPx=${Math.round(appliedDeltaPx)} debtReducedThisFrame=${appliedDeltaPx > ASR_POCKET_WALL_NOISE_DELTA_PX ? 1 : 0} consecutiveLeaseSuppressedFrames=${consecutiveLeaseSuppressedFrames} leaseDebtRemaining=${Math.round(Math.max(0, lastAsrLeaseDebtRemainingPx))} effectiveMarkerErrorPxUsed=${Number.isFinite(lastAsrLeaseEffectiveMarkerErrorPx) ? Math.round(Number(lastAsrLeaseEffectiveMarkerErrorPx)) : -1} matchBestIdx=${Number.isFinite(lastAuthorityMatchBestIdx) ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx))) : -1} visualAnchorLineIdx=${Number.isFinite(lastAsrVisualAnchorLineIdx) ? Math.max(0, Math.floor(Number(lastAsrVisualAnchorLineIdx))) : -1} matchedLineViewportY=${Number.isFinite(lastAsrMatchedLineViewportY) ? Math.round(Number(lastAsrMatchedLineViewportY)) : -1} visualAnchorLineY=${Number.isFinite(lastAsrActiveLineViewportY) ? Math.round(Number(lastAsrActiveLineViewportY)) : -1} targetSafetyReferenceLineIdx=${Number.isFinite(lastAsrPocketWallTargetSafetyReferenceLineIdx) ? Math.max(0, Math.floor(Number(lastAsrPocketWallTargetSafetyReferenceLineIdx))) : -1} targetSafetyReferenceSource=${String(lastAsrPocketWallTargetSafetyReferenceSource || 'none')} effectiveTargetSafeSource=${String(effectiveResolvedTargetSafety.effectiveTargetSafeSource || 'none')} effectiveTargetSafeBlockedReason=${String(effectiveResolvedTargetSafety.effectiveTargetSafeBlockedReason || 'none')} unsafeTargetReason=${String(lastAsrPocketWallUnsafeTargetReason || 'none')} leaseReleaseReason=${String(lastAsrLeaseReleaseReason || 'none')} leaseReleaseBlockedByRemainingVisualDebt=${lastAsrLeaseReleaseBlockedByRemainingVisualDebt ? 1 : 0} semanticReferenceCaughtUpButVisualDebtRemaining=${lastAsrSemanticReferenceCaughtUpButVisualDebtRemaining ? 1 : 0} matchBestNotForwardIgnoredForActiveLease=${lastAsrMatchBestNotForwardIgnoredForActiveLease ? 1 : 0} visualDebtClosureRequiredForLeaseRelease=${lastAsrVisualDebtClosureRequiredForLeaseRelease ? 1 : 0} leaseContinuedAfterSemanticCatchup=${lastAsrLeaseContinuedAfterSemanticCatchup ? 1 : 0} semanticCommitHeldButVisualCatchupAllowed=${lastAsrPocketWallSemanticCommitHeldButVisualCatchupAllowed ? 1 : 0} boundedVisualCatchupEligible=${lastAsrPocketWallBoundedVisualCatchupEligible ? 1 : 0} readerMarkerCorrectionLeaseActive=${readerMarkerCorrectionLeaseStartedAtMs > 0 ? 1 : 0} readerMarkerCorrectionLeaseAgeMs=${readerMarkerCorrectionLeaseStartedAtMs > 0 ? Math.max(0, Date.now() - readerMarkerCorrectionLeaseStartedAtMs) : -1} readerMarkerCorrectionLeaseReason=${String(readerMarkerCorrectionLeaseReason || 'none')} readerMarkerCorrectionLeaseReleasedReason=${String(readerMarkerCorrectionLeaseReleasedReason || 'none')} markerErrorPxAtLeaseStart=${Number.isFinite(readerMarkerCorrectionLeaseMarkerErrorPxAtStart) ? Math.round(Number(readerMarkerCorrectionLeaseMarkerErrorPxAtStart)) : -1} targetNullWhileLeaseActive=${lastAsrLeaseTargetNullWhileActive ? 1 : 0} matchedBelowMarker=${lastAsrLeaseMatchedBelowMarker ? 1 : 0}`,
+            `[ASR_LIVE_POCKET_MAINTENANCE_EVALUATED] currentLineIdx=${lastLineIndex} committedLineIdx=${liveAsrCommitteeAcceptedCommitTargetIdx} nextSpeakableLineIdx=${maintenanceNextSpeakableLineIdx} targetLineIdx=${maintenanceTargetLineIdx} markerTopPx=${Number.isFinite(lastAsrMarkerY) ? Math.round(lastAsrMarkerY) : -1} activeLineTopPx=${Number.isFinite(maintenanceActiveLineY) ? Math.round(maintenanceActiveLineY) : -1} activeLineDistanceFromMarkerPx=${Number.isFinite(maintenanceActiveLineY) && Number.isFinite(lastAsrMarkerY) ? Math.round(maintenanceActiveLineY - lastAsrMarkerY) : -1} activeLineViewportRatio=${Number.isFinite(maintenanceActiveLineY) && Number(scroller.clientHeight || 0) > 0 ? (maintenanceActiveLineY / Number(scroller.clientHeight || 1)).toFixed(3) : 'NaN'} pocketHealth=${maintenancePocketHealth} belowPocketPx=${maintenanceBelowPocketPx} visualDebtPx=${Number.isFinite(arithmeticTargetDebtPx) ? Math.round(arithmeticTargetDebtPx) : -1} currentScrollTop=${Math.round(beforeScrollTop)} targetScrollTop=${Math.round(Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop)} sourcePath=${String(liveTickSelectedAuthority || 'none')} eligible=${maintenanceEligible ? 1 : 0} deniedReason=${maintenanceDeniedReason} noMatch=${actuatorNoMatchOrOffscript ? 1 : 0} offScript=${actuatorNoMatchOrOffscript ? 1 : 0} contradiction=${hardContradictionActive ? 1 : 0} farTarget=${liveAsrCommitteeAcceptedCommitTargetIdx > lastLineIndex + 1 ? 1 : 0} terminalClamp=${atScrollLimit ? 1 : 0} directWriteBlocked=${asr4VisualRecoveryLastDirectWriteBlocked ? 1 : 0} targetPreservedForEasing=${preservedAsrAuthorityTargetTop != null ? 1 : 0} actuatorApplied=${appliedDeltaPx > 0 ? 1 : 0} actualMovedPx=${Math.round(appliedDeltaPx)} debtReducedThisFrame=${appliedDeltaPx > ASR_POCKET_WALL_NOISE_DELTA_PX ? 1 : 0} consecutiveLeaseSuppressedFrames=${consecutiveLeaseSuppressedFrames} leaseDebtRemaining=${Math.round(Math.max(0, lastAsrLeaseDebtRemainingPx))} effectiveMarkerErrorPxUsed=${Number.isFinite(lastAsrLeaseEffectiveMarkerErrorPx) ? Math.round(Number(lastAsrLeaseEffectiveMarkerErrorPx)) : -1} matchBestIdx=${Number.isFinite(lastAuthorityMatchBestIdx) ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx))) : -1} visualAnchorLineIdx=${Number.isFinite(lastAsrVisualAnchorLineIdx) ? Math.max(0, Math.floor(Number(lastAsrVisualAnchorLineIdx))) : -1} matchedLineViewportY=${Number.isFinite(lastAsrMatchedLineViewportY) ? Math.round(Number(lastAsrMatchedLineViewportY)) : -1} visualAnchorLineY=${Number.isFinite(lastAsrActiveLineViewportY) ? Math.round(Number(lastAsrActiveLineViewportY)) : -1} targetSafetyReferenceLineIdx=${Number.isFinite(lastAsrPocketWallTargetSafetyReferenceLineIdx) ? Math.max(0, Math.floor(Number(lastAsrPocketWallTargetSafetyReferenceLineIdx))) : -1} targetSafetyReferenceSource=${String(lastAsrPocketWallTargetSafetyReferenceSource || 'none')} effectiveTargetSafeSource=${String(effectiveResolvedTargetSafety.effectiveTargetSafeSource || 'none')} effectiveTargetSafeBlockedReason=${String(effectiveResolvedTargetSafety.effectiveTargetSafeBlockedReason || 'none')} effectiveTargetSafeHoldReason=${String(effectiveResolvedTargetSafety.effectiveTargetSafeHoldReason || 'none')} unsafeTargetReason=${String(lastAsrPocketWallUnsafeTargetReason || 'none')} leaseReleaseReason=${String(lastAsrLeaseReleaseReason || 'none')} leaseReleaseBlockedByRemainingVisualDebt=${lastAsrLeaseReleaseBlockedByRemainingVisualDebt ? 1 : 0} semanticReferenceCaughtUpButVisualDebtRemaining=${lastAsrSemanticReferenceCaughtUpButVisualDebtRemaining ? 1 : 0} matchBestNotForwardIgnoredForActiveLease=${lastAsrMatchBestNotForwardIgnoredForActiveLease ? 1 : 0} visualDebtClosureRequiredForLeaseRelease=${lastAsrVisualDebtClosureRequiredForLeaseRelease ? 1 : 0} leaseContinuedAfterSemanticCatchup=${lastAsrLeaseContinuedAfterSemanticCatchup ? 1 : 0} semanticCommitHeldButVisualCatchupAllowed=${lastAsrPocketWallSemanticCommitHeldButVisualCatchupAllowed ? 1 : 0} boundedVisualCatchupEligible=${lastAsrPocketWallBoundedVisualCatchupEligible ? 1 : 0} readerMarkerCorrectionLeaseActive=${readerMarkerCorrectionLeaseStartedAtMs > 0 ? 1 : 0} readerMarkerCorrectionLeaseAgeMs=${readerMarkerCorrectionLeaseStartedAtMs > 0 ? Math.max(0, Date.now() - readerMarkerCorrectionLeaseStartedAtMs) : -1} readerMarkerCorrectionLeaseReason=${String(readerMarkerCorrectionLeaseReason || 'none')} readerMarkerCorrectionLeaseReleasedReason=${String(readerMarkerCorrectionLeaseReleasedReason || 'none')} markerErrorPxAtLeaseStart=${Number.isFinite(readerMarkerCorrectionLeaseMarkerErrorPxAtStart) ? Math.round(Number(readerMarkerCorrectionLeaseMarkerErrorPxAtStart)) : -1} targetNullWhileLeaseActive=${lastAsrLeaseTargetNullWhileActive ? 1 : 0} matchedBelowMarker=${lastAsrLeaseMatchedBelowMarker ? 1 : 0}`,
           );
         } catch {}
       }
@@ -41511,6 +41529,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     readerMarkerCorrectionLeaseReleasedReason?: string | null;
     unsafeTargetReason?: string | null;
     boundedVisualCatchupEligible?: boolean;
+    currentFrameSafeHoldReason?: string | null;
     noMatchOrOffscript?: boolean;
     hardContradiction?: boolean;
     terminalClampActive?: boolean;
@@ -41569,6 +41588,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       readerMarkerCorrectionLeaseReason: args.readerMarkerCorrectionLeaseReason,
       unsafeTargetReason: args.unsafeTargetReason,
       boundedVisualCatchupEligible: args.boundedVisualCatchupEligible,
+      currentFrameSafeHoldReason: args.currentFrameSafeHoldReason,
       noMatchOrOffscript: args.noMatchOrOffscript,
       hardContradiction: args.hardContradiction,
       terminalClampActive: args.terminalClampActive,
@@ -41719,6 +41739,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       readerMarkerCorrectionLeaseReleasedReason?: string | null;
       unsafeTargetReason?: string | null;
       boundedVisualCatchupEligible?: boolean;
+      currentFrameSafeHoldReason?: string | null;
       noMatchOrOffscript?: boolean;
       hardContradiction?: boolean;
       terminalClampActive?: boolean;
@@ -41728,6 +41749,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       localWindowCoherent: boolean;
       effectiveTargetSafeSource: string;
       effectiveTargetSafeBlockedReason: string;
+      effectiveTargetSafeHoldReason: string;
     };
     __debugApplyScrollWithHybridGuard(args: {
       beforeScrollTop: number;
