@@ -62,6 +62,7 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     targetSafetyReferenceLineIdx?: number | null;
     targetSafetyReferenceSource?: string | null;
     semanticCommitHeldButVisualCatchupAllowed?: boolean;
+    retainedVisualCleanupAllowed?: boolean;
     readerMarkerCorrectionLeaseActive?: boolean;
     readerMarkerCorrectionLeaseAgeMs?: number | null;
     readerMarkerCorrectionLeaseReason?: string | null;
@@ -822,6 +823,34 @@ describe('ASR visual contract', () => {
     expect(result.effectiveTargetSafe).toBe(true);
     expect(result.effectiveTargetSafeSource).toBe('pocket_wall_bounded_spoken_match');
     expect(result.effectiveTargetSafeBlockedReason).toBe('none');
+
+    driver.dispose();
+  });
+
+  test('retained preserved-follow cleanup stays canonically safe while bounded visual debt is still being closed', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluateEffectiveTargetSafety({
+      baseTargetSafe: false,
+      currentLineIdx: 1,
+      committedLineIdx: 1,
+      allowedTargetIdx: -1,
+      nextSpeakableLineIdx: 1,
+      targetSafetyReferenceLineIdx: 1,
+      targetSafetyReferenceSource: 'bounded_visual_spoken_match',
+      semanticCommitHeldButVisualCatchupAllowed: false,
+      retainedVisualCleanupAllowed: true,
+      readerMarkerCorrectionLeaseActive: true,
+      readerMarkerCorrectionLeaseAgeMs: 36,
+      readerMarkerCorrectionLeaseReason: 'reader_marker_correction_retained_over_preserved',
+      unsafeTargetReason: 'none',
+      boundedVisualCatchupEligible: true,
+    });
+
+    expect(result.localWindowCoherent).toBe(true);
+    expect(result.boundedLeaseTargetSafe).toBe(true);
+    expect(result.effectiveTargetSafe).toBe(true);
+    expect(result.effectiveTargetSafeSource).toBe('pocket_wall_bounded_spoken_match');
 
     driver.dispose();
   });

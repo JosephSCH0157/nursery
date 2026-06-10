@@ -3394,12 +3394,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lineHeightPx: number;
     noMatchOrOffscript: boolean;
     hardContradiction: boolean;
+    applyLeaseState?: boolean;
   }): {
     boundedVisualCatchupEligible: boolean;
     targetSafetyReferenceLineIdx: number;
     targetSafetyReferenceSource: string;
     unsafeTargetReason: string;
     semanticCommitHeldButVisualCatchupAllowed: boolean;
+    retainedVisualCleanupAllowed: boolean;
     readerMarkerCorrectionLeaseActive: boolean;
     readerMarkerCorrectionLeaseAgeMs: number;
     readerMarkerCorrectionLeaseReason: string;
@@ -3413,11 +3415,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     leaseContinuedAfterSemanticCatchup: boolean;
   } => {
     const nowMs = Date.now();
+    const applyLeaseState = args.applyLeaseState !== false;
     const normalizedSelectedAuthority = String(args.selectedAuthority || '').trim().toLowerCase();
     const normalizedSourceAuthority = String(args.sourceAuthority || '').trim().toLowerCase();
     const readerMarkerCorrectionActive =
       normalizedSelectedAuthority === 'reader_marker_correction' ||
       normalizedSourceAuthority.includes('reader_marker_correction');
+    let nextLeaseStartedAtMs = readerMarkerCorrectionLeaseStartedAtMs;
+    let nextLeaseReason = readerMarkerCorrectionLeaseReason;
+    let nextLeaseReleasedReason = readerMarkerCorrectionLeaseReleasedReason;
+    let nextLeaseMarkerErrorPxAtStart = readerMarkerCorrectionLeaseMarkerErrorPxAtStart;
     const matchVia = String(lastAuthorityMatchVia || '').trim().toLowerCase();
     const matchReason = String(lastAuthorityMatchReason || '').trim().toLowerCase();
     const primaryBypassReason =
@@ -3462,11 +3469,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const effectiveMarkerErrorPxUsed = Number.isFinite(args.markerErrorPx)
       ? Number(args.markerErrorPx)
       : (
-        Number.isFinite(lastAsrMatchedMarkerErrorPx)
-          ? Number(lastAsrMatchedMarkerErrorPx)
-          : (
-            Number.isFinite(readerMarkerCorrectionLeaseMarkerErrorPxAtStart)
-              ? Number(readerMarkerCorrectionLeaseMarkerErrorPxAtStart)
+            Number.isFinite(lastAsrMatchedMarkerErrorPx)
+              ? Number(lastAsrMatchedMarkerErrorPx)
+              : (
+            Number.isFinite(nextLeaseMarkerErrorPxAtStart)
+              ? Number(nextLeaseMarkerErrorPxAtStart)
               : Number.NaN
           )
       );
@@ -3504,10 +3511,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     else if (!(Number.isFinite(matchBestIdx) && matchBestIdx > safetyBaseLineIdx)) unsafeTargetReason = 'match_best_not_forward_of_semantic_reference';
     else if (!(Number.isFinite(matchBestSim) && matchBestSim >= DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM)) unsafeTargetReason = 'confidence_below_visual_safe_target_floor';
     const leaseAgeMs =
-      readerMarkerCorrectionLeaseStartedAtMs > 0
-        ? Math.max(0, nowMs - readerMarkerCorrectionLeaseStartedAtMs)
+      nextLeaseStartedAtMs > 0
+        ? Math.max(0, nowMs - nextLeaseStartedAtMs)
         : Number.POSITIVE_INFINITY;
-    let readerMarkerCorrectionLeaseActive = readerMarkerCorrectionLeaseStartedAtMs > 0;
+    let readerMarkerCorrectionLeaseActive = nextLeaseStartedAtMs > 0;
     let leaseReleaseReason = 'none';
     let leaseReleaseBlockedByRemainingVisualDebt = false;
     let semanticReferenceCaughtUpButVisualDebtRemaining = false;
@@ -3552,26 +3559,33 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       else if (!(Number.isFinite(matchBestSim) && matchBestSim >= DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM)) leaseReleaseReason = 'confidence_below_visual_safe_target_floor';
       if (leaseReleaseReason !== 'none') {
         readerMarkerCorrectionLeaseActive = false;
-        readerMarkerCorrectionLeaseStartedAtMs = 0;
-        readerMarkerCorrectionLeaseReason = 'none';
-        readerMarkerCorrectionLeaseReleasedReason = leaseReleaseReason;
-        readerMarkerCorrectionLeaseMarkerErrorPxAtStart = Number.NaN;
+        nextLeaseStartedAtMs = 0;
+        nextLeaseReason = 'none';
+        nextLeaseReleasedReason = leaseReleaseReason;
+        nextLeaseMarkerErrorPxAtStart = Number.NaN;
       }
     }
     const effectiveReaderMarkerCorrectionActive = readerMarkerCorrectionActive || readerMarkerCorrectionLeaseActive;
     if (!effectiveReaderMarkerCorrectionActive) {
+      if (applyLeaseState) {
+        readerMarkerCorrectionLeaseStartedAtMs = nextLeaseStartedAtMs;
+        readerMarkerCorrectionLeaseReason = nextLeaseReason;
+        readerMarkerCorrectionLeaseReleasedReason = nextLeaseReleasedReason;
+        readerMarkerCorrectionLeaseMarkerErrorPxAtStart = nextLeaseMarkerErrorPxAtStart;
+      }
       return {
         boundedVisualCatchupEligible: false,
         targetSafetyReferenceLineIdx: args.authoritativeLineIdx,
         targetSafetyReferenceSource: 'authoritative_line',
         unsafeTargetReason: 'reader_marker_correction_inactive',
         semanticCommitHeldButVisualCatchupAllowed: false,
+        retainedVisualCleanupAllowed: false,
         readerMarkerCorrectionLeaseActive: false,
         readerMarkerCorrectionLeaseAgeMs: Number.POSITIVE_INFINITY,
         readerMarkerCorrectionLeaseReason: 'none',
-        readerMarkerCorrectionLeaseReleasedReason: readerMarkerCorrectionLeaseReleasedReason,
-        markerErrorPxAtLeaseStart: Number.isFinite(readerMarkerCorrectionLeaseMarkerErrorPxAtStart)
-          ? Number(readerMarkerCorrectionLeaseMarkerErrorPxAtStart)
+        readerMarkerCorrectionLeaseReleasedReason: nextLeaseReleasedReason,
+        markerErrorPxAtLeaseStart: Number.isFinite(nextLeaseMarkerErrorPxAtStart)
+          ? Number(nextLeaseMarkerErrorPxAtStart)
           : Number.NaN,
         leaseReleaseReason,
         leaseReleaseBlockedByRemainingVisualDebt,
@@ -3582,18 +3596,31 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       };
     }
     const boundedVisualCatchupEligible = unsafeTargetReason === 'none';
+    const semanticCommitHeldButVisualCatchupAllowed =
+      boundedVisualCatchupEligible && boundedVisualReferenceLineIdx > args.authoritativeLineIdx;
+    const retainedVisualCleanupAllowed =
+      boundedVisualCatchupEligible &&
+      semanticReferenceCaughtUpButVisualDebtRemaining &&
+      leaseContinuedAfterSemanticCatchup &&
+      visualDebtClosureRequiredForLeaseRelease;
     if (boundedVisualCatchupEligible) {
-      if (!(readerMarkerCorrectionLeaseStartedAtMs > 0)) {
-        readerMarkerCorrectionLeaseStartedAtMs = nowMs;
-        readerMarkerCorrectionLeaseMarkerErrorPxAtStart = Number.isFinite(args.markerErrorPx)
+      if (!(nextLeaseStartedAtMs > 0)) {
+        nextLeaseStartedAtMs = nowMs;
+        nextLeaseMarkerErrorPxAtStart = Number.isFinite(args.markerErrorPx)
           ? Number(args.markerErrorPx)
           : Number.NaN;
       }
-      readerMarkerCorrectionLeaseReason = readerMarkerCorrectionActive
+      nextLeaseReason = readerMarkerCorrectionActive
         ? 'reader_marker_correction_safe_bounded'
         : 'reader_marker_correction_retained_over_preserved';
-      readerMarkerCorrectionLeaseReleasedReason = 'none';
+      nextLeaseReleasedReason = 'none';
       readerMarkerCorrectionLeaseActive = true;
+    }
+    if (applyLeaseState) {
+      readerMarkerCorrectionLeaseStartedAtMs = nextLeaseStartedAtMs;
+      readerMarkerCorrectionLeaseReason = nextLeaseReason;
+      readerMarkerCorrectionLeaseReleasedReason = nextLeaseReleasedReason;
+      readerMarkerCorrectionLeaseMarkerErrorPxAtStart = nextLeaseMarkerErrorPxAtStart;
     }
     return {
       boundedVisualCatchupEligible,
@@ -3604,17 +3631,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ? 'bounded_visual_spoken_match'
         : 'authoritative_line',
       unsafeTargetReason,
-      semanticCommitHeldButVisualCatchupAllowed:
-        boundedVisualCatchupEligible && boundedVisualReferenceLineIdx > args.authoritativeLineIdx,
+      semanticCommitHeldButVisualCatchupAllowed,
+      retainedVisualCleanupAllowed,
       readerMarkerCorrectionLeaseActive,
       readerMarkerCorrectionLeaseAgeMs:
-        readerMarkerCorrectionLeaseStartedAtMs > 0
-          ? Math.max(0, nowMs - readerMarkerCorrectionLeaseStartedAtMs)
+        nextLeaseStartedAtMs > 0
+          ? Math.max(0, nowMs - nextLeaseStartedAtMs)
           : Number.POSITIVE_INFINITY,
-      readerMarkerCorrectionLeaseReason,
-      readerMarkerCorrectionLeaseReleasedReason,
-      markerErrorPxAtLeaseStart: Number.isFinite(readerMarkerCorrectionLeaseMarkerErrorPxAtStart)
-        ? Number(readerMarkerCorrectionLeaseMarkerErrorPxAtStart)
+      readerMarkerCorrectionLeaseReason: nextLeaseReason,
+      readerMarkerCorrectionLeaseReleasedReason: nextLeaseReleasedReason,
+      markerErrorPxAtLeaseStart: Number.isFinite(nextLeaseMarkerErrorPxAtStart)
+        ? Number(nextLeaseMarkerErrorPxAtStart)
         : Number.NaN,
       leaseReleaseReason,
       leaseReleaseBlockedByRemainingVisualDebt,
@@ -4926,6 +4953,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     targetSafetyReferenceLineIdx?: number | null;
     targetSafetyReferenceSource?: string | null;
     semanticCommitHeldButVisualCatchupAllowed?: boolean;
+    retainedVisualCleanupAllowed?: boolean;
+    readerMarkerCorrectionLeaseActive?: boolean;
+    readerMarkerCorrectionLeaseAgeMs?: number | null;
+    unsafeTargetReason?: string | null;
+    boundedVisualCatchupEligible?: boolean;
     noMatchOrOffscript?: boolean;
     hardContradiction?: boolean;
     terminalClampActive?: boolean;
@@ -4951,21 +4983,38 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ? Math.max(0, Math.floor(Number(args.targetSafetyReferenceLineIdx)))
         : acceptedLine;
     const boundedTargetSafetyReferenceSource = String(args.targetSafetyReferenceSource || 'none');
-    const semanticCommitHeldButVisualCatchupAllowed =
-      args.semanticCommitHeldButVisualCatchupAllowed === true;
+    const semanticCommitHeldButVisualCatchupAllowed = args.semanticCommitHeldButVisualCatchupAllowed === true;
+    const retainedVisualCleanupAllowed = args.retainedVisualCleanupAllowed === true;
+    const semanticProofSatisfied =
+      semanticCommitHeldButVisualCatchupAllowed || retainedVisualCleanupAllowed;
     const hardBlocker =
       args.noMatchOrOffscript === true ||
       args.hardContradiction === true ||
       args.terminalClampActive === true;
-    const leaseAgeMs =
-      readerMarkerCorrectionLeaseStartedAtMs > 0
-        ? Math.max(0, Date.now() - readerMarkerCorrectionLeaseStartedAtMs)
-        : Number.POSITIVE_INFINITY;
+    const leaseAgeMs = Number.isFinite(args.readerMarkerCorrectionLeaseAgeMs as number)
+      ? Math.max(0, Number(args.readerMarkerCorrectionLeaseAgeMs))
+      : (
+        readerMarkerCorrectionLeaseStartedAtMs > 0
+          ? Math.max(0, Date.now() - readerMarkerCorrectionLeaseStartedAtMs)
+          : Number.POSITIVE_INFINITY
+      );
     const leaseActive =
-      readerMarkerCorrectionLeaseStartedAtMs > 0 &&
+      (
+        args.readerMarkerCorrectionLeaseActive === true ||
+        (
+          args.readerMarkerCorrectionLeaseActive == null &&
+          readerMarkerCorrectionLeaseStartedAtMs > 0
+        )
+      ) &&
       leaseAgeMs <= ASR_READER_MARKER_CORRECTION_LEASE_MAX_AGE_MS;
-    const boundedVisualCatchupEligible = lastAsrPocketWallBoundedVisualCatchupEligible === true;
-    const unsafeTargetReason = String(lastAsrPocketWallUnsafeTargetReason || 'none');
+    const boundedVisualCatchupEligible =
+      typeof args.boundedVisualCatchupEligible === 'boolean'
+        ? args.boundedVisualCatchupEligible
+        : (lastAsrPocketWallBoundedVisualCatchupEligible === true);
+    const unsafeTargetReason =
+      typeof args.unsafeTargetReason === 'string'
+        ? String(args.unsafeTargetReason || 'none')
+        : String(lastAsrPocketWallUnsafeTargetReason || 'none');
     const acceptedLocalLagWindow = evaluateAcceptedLocalLagWindow({
       currentLine,
       committedLine,
@@ -4988,7 +5037,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       acceptedLocalLagWindow.withinLocalWindow ||
       (
         boundedTargetSafetyReferenceSource === 'bounded_visual_spoken_match' &&
-        semanticCommitHeldButVisualCatchupAllowed &&
+        semanticProofSatisfied &&
         boundedProofLocalLagWindow.withinLocalWindow
       );
     const boundedLeaseTargetSafe =
@@ -4997,7 +5046,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       leaseActive &&
       boundedVisualCatchupEligible &&
       unsafeTargetReason === 'none' &&
-      semanticCommitHeldButVisualCatchupAllowed &&
+      semanticProofSatisfied &&
       boundedTargetSafetyReferenceSource === 'bounded_visual_spoken_match' &&
       localWindowCoherent;
     let effectiveTargetSafeSource = 'none';
@@ -5012,7 +5061,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       effectiveTargetSafeBlockedReason = 'lease_inactive';
     } else if (unsafeTargetReason !== 'none' || !boundedVisualCatchupEligible) {
       effectiveTargetSafeBlockedReason = 'unsafe_reason_not_none';
-    } else if (!semanticCommitHeldButVisualCatchupAllowed) {
+    } else if (!semanticProofSatisfied) {
       effectiveTargetSafeBlockedReason = 'missing_semantic_hold';
     } else {
       effectiveTargetSafeBlockedReason = 'outside_local_window';
@@ -20657,6 +20706,37 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       noMatchOrOffscript: actuatorNoMatchOrOffscript,
       hardContradiction: hardContradictionActive,
     });
+    const preflightPocketWallAuthoritative = resolveAsrPocketWallAuthoritativeLine();
+    const preflightMarkerErrorPx = Number.isFinite(lastAsrMatchedMarkerErrorPx)
+      ? Number(lastAsrMatchedMarkerErrorPx)
+      : (
+        Number.isFinite(lastAsrMatchedLineViewportY) && Number.isFinite(lastAsrMarkerY)
+          ? Number(lastAsrMatchedLineViewportY) - Number(lastAsrMarkerY)
+          : Number.NaN
+      );
+    const preflightReaderMarkerCorrectionSafeTargetContext =
+      resolveReaderMarkerCorrectionSafeTargetContext({
+        selectedAuthority:
+          preservedAsrAuthorityTargetTop != null &&
+          Number.isFinite(preservedAsrAuthorityTargetTop) &&
+          Number(preservedAsrAuthorityTargetTop) > beforeScrollTop + ASR_POCKET_WALL_NOISE_DELTA_PX
+            ? 'preserved_forward_follow_target'
+            : 'reader_marker_correction',
+        sourceAuthority:
+          readerMarkerCorrectionLeaseStartedAtMs > 0
+            ? 'reader_marker_correction_preflight_active_lease'
+            : 'reader_marker_correction_preflight',
+        currentLineIdx: lastLineIndex,
+        committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+        authoritativeLineIdx: preflightPocketWallAuthoritative.authoritativeLineIdx,
+        targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop,
+        currentTop: beforeScrollTop,
+        markerErrorPx: preflightMarkerErrorPx,
+        lineHeightPx: resolverLineHeightPx,
+        noMatchOrOffscript: actuatorNoMatchOrOffscript,
+        hardContradiction: hardContradictionActive,
+        applyLeaseState: false,
+      });
     const effectiveResolvedTargetSafety = resolveEffectiveAsrTargetSafety({
       baseTargetSafe: resolvedCommand.cappedTargetSafe,
       currentLineIdx: lastLineIndex,
@@ -20666,10 +20746,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         Number.isFinite(liveAsrVisualPursuitLineIdx as number)
           ? Math.max(0, Math.floor(Number(liveAsrVisualPursuitLineIdx)))
           : liveAsrCommitteeAcceptedCommitTargetIdx,
-      targetSafetyReferenceLineIdx: lastAsrPocketWallTargetSafetyReferenceLineIdx,
-      targetSafetyReferenceSource: lastAsrPocketWallTargetSafetyReferenceSource,
+      targetSafetyReferenceLineIdx:
+        preflightReaderMarkerCorrectionSafeTargetContext.targetSafetyReferenceLineIdx,
+      targetSafetyReferenceSource:
+        preflightReaderMarkerCorrectionSafeTargetContext.targetSafetyReferenceSource,
       semanticCommitHeldButVisualCatchupAllowed:
-        lastAsrPocketWallSemanticCommitHeldButVisualCatchupAllowed,
+        preflightReaderMarkerCorrectionSafeTargetContext.semanticCommitHeldButVisualCatchupAllowed,
+      retainedVisualCleanupAllowed:
+        preflightReaderMarkerCorrectionSafeTargetContext.retainedVisualCleanupAllowed,
+      readerMarkerCorrectionLeaseActive:
+        preflightReaderMarkerCorrectionSafeTargetContext.readerMarkerCorrectionLeaseActive,
+      readerMarkerCorrectionLeaseAgeMs:
+        preflightReaderMarkerCorrectionSafeTargetContext.readerMarkerCorrectionLeaseAgeMs,
+      unsafeTargetReason:
+        preflightReaderMarkerCorrectionSafeTargetContext.unsafeTargetReason,
+      boundedVisualCatchupEligible:
+        preflightReaderMarkerCorrectionSafeTargetContext.boundedVisualCatchupEligible,
       noMatchOrOffscript: actuatorNoMatchOrOffscript,
       hardContradiction: hardContradictionActive,
       terminalClampActive: atScrollLimit,
@@ -41404,6 +41496,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     targetSafetyReferenceLineIdx?: number | null;
     targetSafetyReferenceSource?: string | null;
     semanticCommitHeldButVisualCatchupAllowed?: boolean;
+    retainedVisualCleanupAllowed?: boolean;
     readerMarkerCorrectionLeaseActive?: boolean;
     readerMarkerCorrectionLeaseAgeMs?: number | null;
     readerMarkerCorrectionLeaseReason?: string | null;
@@ -41462,6 +41555,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       targetSafetyReferenceSource: args.targetSafetyReferenceSource,
       semanticCommitHeldButVisualCatchupAllowed:
         args.semanticCommitHeldButVisualCatchupAllowed,
+      retainedVisualCleanupAllowed: args.retainedVisualCleanupAllowed,
+      readerMarkerCorrectionLeaseActive: args.readerMarkerCorrectionLeaseActive,
+      readerMarkerCorrectionLeaseAgeMs: args.readerMarkerCorrectionLeaseAgeMs,
+      unsafeTargetReason: args.unsafeTargetReason,
+      boundedVisualCatchupEligible: args.boundedVisualCatchupEligible,
       noMatchOrOffscript: args.noMatchOrOffscript,
       hardContradiction: args.hardContradiction,
       terminalClampActive: args.terminalClampActive,
@@ -41605,6 +41703,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       targetSafetyReferenceLineIdx?: number | null;
       targetSafetyReferenceSource?: string | null;
       semanticCommitHeldButVisualCatchupAllowed?: boolean;
+      retainedVisualCleanupAllowed?: boolean;
       readerMarkerCorrectionLeaseActive?: boolean;
       readerMarkerCorrectionLeaseAgeMs?: number | null;
       readerMarkerCorrectionLeaseReason?: string | null;
