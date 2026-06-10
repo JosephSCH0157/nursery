@@ -40087,6 +40087,27 @@ function createAsrScrollDriver(options = {}) {
       lineHeightPx * 0.35
     );
   };
+  const resolveEffectiveAsrTargetSafety = (args) => {
+    const currentLine = Math.max(0, Math.floor(Number(args.currentLineIdx) || 0));
+    const committedLine = Number.isFinite(args.committedLineIdx) ? Math.max(0, Math.floor(Number(args.committedLineIdx))) : currentLine;
+    const acceptedLine = Number.isFinite(args.allowedTargetIdx) && Number(args.allowedTargetIdx) >= 0 ? Math.max(0, Math.floor(Number(args.allowedTargetIdx))) : committedLine;
+    const nextSpeakableLine = Number.isFinite(args.nextSpeakableLineIdx) && Number(args.nextSpeakableLineIdx) >= 0 ? Math.max(0, Math.floor(Number(args.nextSpeakableLineIdx))) : acceptedLine;
+    const leaseAgeMs = readerMarkerCorrectionLeaseStartedAtMs > 0 ? Math.max(0, Date.now() - readerMarkerCorrectionLeaseStartedAtMs) : Number.POSITIVE_INFINITY;
+    const acceptedLocalLagWindow = evaluateAcceptedLocalLagWindow({
+      currentLine,
+      committedLine,
+      acceptedLine,
+      targetLine: acceptedLine,
+      nextSpeakableLine,
+      localWindowLines: ASR_ACCEPTED_LOCAL_LAG_LOCAL_WINDOW_LINES
+    });
+    const boundedLeaseTargetSafe = !args.baseTargetSafe && readerMarkerCorrectionLeaseStartedAtMs > 0 && leaseAgeMs <= ASR_READER_MARKER_CORRECTION_LEASE_MAX_AGE_MS && lastAsrPocketWallBoundedVisualCatchupEligible === true && String(lastAsrPocketWallUnsafeTargetReason || "none") === "none" && acceptedLocalLagWindow.withinLocalWindow;
+    return {
+      effectiveTargetSafe: args.baseTargetSafe || boundedLeaseTargetSafe,
+      boundedLeaseTargetSafe,
+      localWindowCoherent: acceptedLocalLagWindow.withinLocalWindow
+    };
+  };
   const resolveLeasedReaderCorrectionDebtState = (args) => {
     const lineHeightPx = Number.isFinite(args.lineHeightPx) ? Math.max(1, Number(args.lineHeightPx)) : Number.NaN;
     const currentTop = Number.isFinite(args.currentTop) ? Number(args.currentTop) : 0;
@@ -52038,18 +52059,25 @@ function createAsrScrollDriver(options = {}) {
       noMatchOrOffscript: actuatorNoMatchOrOffscript,
       hardContradiction: hardContradictionActive
     });
+    const effectiveResolvedTargetSafety = resolveEffectiveAsrTargetSafety({
+      baseTargetSafe: resolvedCommand.cappedTargetSafe,
+      currentLineIdx: lastLineIndex,
+      committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
+      allowedTargetIdx: resolvedCommand.allowedTargetIdx,
+      nextSpeakableLineIdx: Number.isFinite(liveAsrVisualPursuitLineIdx) ? Math.max(0, Math.floor(Number(liveAsrVisualPursuitLineIdx))) : liveAsrCommitteeAcceptedCommitTargetIdx
+    });
     lastResolvedMovementAllowed = resolvedCommand.movementAllowed;
-    lastResolvedCappedTargetSafe = resolvedCommand.cappedTargetSafe;
+    lastResolvedCappedTargetSafe = effectiveResolvedTargetSafety.effectiveTargetSafe;
     lastResolvedFinalGear = resolvedCommand.finalGear;
     lastResolvedAllowedTargetIdx = Number.isFinite(resolvedCommand.allowedTargetIdx) ? Math.max(-1, Math.floor(Number(resolvedCommand.allowedTargetIdx))) : -1;
     lastResolvedPocketState = resolvedCommand.pocketState;
     alignmentEpisodes.noteAutopsyState({
       movementAllowed: resolvedCommand.movementAllowed,
-      cappedTargetSafe: resolvedCommand.cappedTargetSafe,
+      cappedTargetSafe: effectiveResolvedTargetSafety.effectiveTargetSafe,
       markerLockSuppressed: liveAsrCommitteeMarkerLockState === "live_asr_marker_lock_suppressed" || liveAsrCommitteeMarkerLockState === "marker_lock_suppressed",
-      recoveryAvailable: resolvedCommand.movementAllowed && resolvedCommand.cappedTargetSafe && (resolvedCommand.pocketState === "below_preferred_pocket" || resolvedCommand.pocketState === "near_lower_rail" || resolvedCommand.pocketState === "bottom_locked"),
+      recoveryAvailable: resolvedCommand.movementAllowed && effectiveResolvedTargetSafety.effectiveTargetSafe && (resolvedCommand.pocketState === "below_preferred_pocket" || resolvedCommand.pocketState === "near_lower_rail" || resolvedCommand.pocketState === "bottom_locked"),
       recoverySelected: resolvedCommand.finalGear === "recovery",
-      targetUnsafe: !resolvedCommand.cappedTargetSafe,
+      targetUnsafe: !effectiveResolvedTargetSafety.effectiveTargetSafe,
       terminalGeometryBlocked: atScrollLimit
     });
     const resolvedRecoveryObedienceActive = resolvedCommand.movementAllowed && resolvedCommand.finalGear === "recovery" && resolvedCommand.finalMinStepPx > 0;
@@ -52073,7 +52101,7 @@ function createAsrScrollDriver(options = {}) {
       allowedTargetIdx: resolvedCommand.allowedTargetIdx,
       acceptedCommitTargetIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
       lastAcceptedProofLine: lastFreshProofLine,
-      cappedTargetSafe: resolvedCommand.cappedTargetSafe,
+      cappedTargetSafe: effectiveResolvedTargetSafety.effectiveTargetSafe,
       targetDebtPx: arithmeticTargetDebtPx,
       transcriptAgeMs: Number.isFinite(transcriptAgeForStall) ? transcriptAgeForStall : null,
       transcriptStaleMs: DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS,
@@ -52091,7 +52119,7 @@ function createAsrScrollDriver(options = {}) {
         movementAllowed: resolvedCommand.movementAllowed,
         finalGear: resolvedCommand.finalGear,
         pocketState: resolvedCommand.pocketState,
-        cappedTargetSafe: resolvedCommand.cappedTargetSafe,
+        cappedTargetSafe: effectiveResolvedTargetSafety.effectiveTargetSafe,
         backendTranscriptStale: liveScrollStallDecision.backendTranscriptStale,
         recoveryAction: liveScrollStallDecision.recoveryAction,
         reason: liveScrollStallDecision.reason
@@ -52170,7 +52198,7 @@ function createAsrScrollDriver(options = {}) {
               movementAllowed: resolvedCommand.movementAllowed,
               finalGear: resolvedCommand.finalGear,
               pocketState: resolvedCommand.pocketState,
-              cappedTargetSafe: resolvedCommand.cappedTargetSafe,
+              cappedTargetSafe: effectiveResolvedTargetSafety.effectiveTargetSafe,
               targetDebtPx: arithmeticTargetDebtPx,
               noVisualProgressMs,
               noCommitMs: Math.max(0, freshnessNowTs - lastForwardCommitAt),
@@ -52298,7 +52326,7 @@ function createAsrScrollDriver(options = {}) {
       currentLine: visualDebtCatchupCurrentLine,
       committedLine: visualDebtCatchupCommittedLine,
       movementAllowed: resolvedCommand.movementAllowed,
-      targetSafe: resolvedCommand.cappedTargetSafe,
+      targetSafe: effectiveResolvedTargetSafety.effectiveTargetSafe,
       noMatchOrOffscript: actuatorNoMatchOrOffscript,
       hardContradiction: hardContradictionActive,
       terminalClampActive: atScrollLimit,
@@ -52325,7 +52353,7 @@ function createAsrScrollDriver(options = {}) {
       localWindowLines: ASR_ACCEPTED_LOCAL_LAG_LOCAL_WINDOW_LINES
     });
     const acceptedLocalLagCoherenceReason = acceptedLocalLagWindow.coherenceReason;
-    const acceptedLocalLagCanReconcile = visualDebtCatchupBlockedReason === "incoherent_current_commit_lines" && actuatorSpeechFresh && significantVisualDebtActive && !visualDebtCatchupExistingMoveSufficient && resolvedCommand.movementAllowed && resolvedCommand.cappedTargetSafe && !actuatorNoMatchOrOffscript && !hardContradictionActive && !atScrollLimit && acceptedLocalLagWindow.withinLocalWindow && err >= Math.max(ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX, safeResolverLineHeightPx * 0.5) && Math.abs(move) <= Math.max(Math.round(safeResolverLineHeightPx * 0.5), effectiveMinStepPx);
+    const acceptedLocalLagCanReconcile = visualDebtCatchupBlockedReason === "incoherent_current_commit_lines" && actuatorSpeechFresh && significantVisualDebtActive && !visualDebtCatchupExistingMoveSufficient && resolvedCommand.movementAllowed && effectiveResolvedTargetSafety.effectiveTargetSafe && !actuatorNoMatchOrOffscript && !hardContradictionActive && !atScrollLimit && acceptedLocalLagWindow.withinLocalWindow && err >= Math.max(ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX, safeResolverLineHeightPx * 0.5) && Math.abs(move) <= Math.max(Math.round(safeResolverLineHeightPx * 0.5), effectiveMinStepPx);
     if (acceptedLocalLagCanReconcile) {
       visualDebtCatchupAllowed = true;
       visualDebtCatchupBlockedReason = "";
@@ -52420,7 +52448,7 @@ function createAsrScrollDriver(options = {}) {
           currentLine: visualDebtCatchupCurrentLine,
           committedLine: visualDebtCatchupCommittedLine,
           targetForward: visualDebtCatchupDecision.targetNonBackward,
-          targetSafe: resolvedCommand.cappedTargetSafe,
+          targetSafe: effectiveResolvedTargetSafety.effectiveTargetSafe,
           directWriteBlocked: asr4VisualRecoveryLastDirectWriteBlocked,
           targetPreservedForEasing: asr4VisualRecoveryLastTargetPreservedForEasing,
           markerLockActive: visualDebtCatchupMarkerLockActive,
@@ -53040,14 +53068,14 @@ function createAsrScrollDriver(options = {}) {
         targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop
       });
       const maintenanceFarTargetRelaxed = maintenanceFarTargetDecision.relaxed;
-      const maintenanceEligible = liveAsrCommitteeAcceptedCommitTargetIdx >= 0 && (liveAsrCommitteeAcceptedCommitTargetIdx <= lastLineIndex + 1 || maintenanceFarTargetRelaxed) && resolvedCommand.movementAllowed && resolvedCommand.cappedTargetSafe && !actuatorNoMatchOrOffscript && !hardContradictionActive && !atScrollLimit;
+      const maintenanceEligible = liveAsrCommitteeAcceptedCommitTargetIdx >= 0 && (liveAsrCommitteeAcceptedCommitTargetIdx <= lastLineIndex + 1 || maintenanceFarTargetRelaxed) && resolvedCommand.movementAllowed && effectiveResolvedTargetSafety.effectiveTargetSafe && !actuatorNoMatchOrOffscript && !hardContradictionActive && !atScrollLimit;
       let maintenanceDeniedReason = "none";
       if (actuatorNoMatchOrOffscript) maintenanceDeniedReason = "no_match_or_offscript";
       else if (hardContradictionActive) maintenanceDeniedReason = "contradiction";
       else if (atScrollLimit) {
         maintenanceDeniedReason = liveAsrCommitteeAcceptedCommitTargetIdx > lastLineIndex + 1 ? "terminal_near_end" : "terminal_clamp";
       } else if (!resolvedCommand.movementAllowed) maintenanceDeniedReason = "movement_not_allowed";
-      else if (!resolvedCommand.cappedTargetSafe) maintenanceDeniedReason = "unsafe_target";
+      else if (!effectiveResolvedTargetSafety.effectiveTargetSafe) maintenanceDeniedReason = "unsafe_target";
       else if (liveAsrCommitteeAcceptedCommitTargetIdx > lastLineIndex + 1) maintenanceDeniedReason = maintenanceFarTargetDecision.blockedReason;
       const maintenanceSignature = [
         lastLineIndex,
@@ -53773,7 +53801,7 @@ function createAsrScrollDriver(options = {}) {
         pocketState: resolvedCommand.pocketState,
         movementEnvelopeReason: resolvedCommand.movementEnvelopeReason,
         bridgeCueCapApplied: resolvedCommand.bridgeCueCapApplied,
-        cappedTargetSafe: resolvedCommand.cappedTargetSafe,
+        cappedTargetSafe: effectiveResolvedTargetSafety.effectiveTargetSafe,
         reason: resolvedCommand.reason
       });
       const shouldEmitResolvedAuthority = lastAsrResolvedAuthoritySignature !== resolvedAuthoritySignature || Number.isFinite(arithmeticTargetDebtPx) && arithmeticTargetDebtPx >= 120 && resolvedCommand.finalGear === "normal_floor";
@@ -53807,7 +53835,7 @@ function createAsrScrollDriver(options = {}) {
               movementEnvelopePx: resolvedCommand.movementEnvelopePx,
               movementEnvelopeReason: resolvedCommand.movementEnvelopeReason,
               bridgeCueCapApplied: resolvedCommand.bridgeCueCapApplied,
-              cappedTargetSafe: resolvedCommand.cappedTargetSafe,
+              cappedTargetSafe: effectiveResolvedTargetSafety.effectiveTargetSafe,
               overruledAuthorities: resolvedCommand.overruledAuthorities,
               reason: resolvedCommand.reason,
               chairpersonChair: chair,
@@ -53848,7 +53876,7 @@ function createAsrScrollDriver(options = {}) {
               safetyClass: effectiveRecoverySafetyClass,
               distanceRestrictionReason: effectiveRecoveryDistanceRestrictionReason,
               absoluteHoldReason: effectiveRecoveryAbsoluteHoldReason,
-              cappedTargetSafe: resolvedRecoveryObedienceActive ? resolvedCommand.cappedTargetSafe : actuatorRecoveryGearDecision.cappedTargetSafe,
+              cappedTargetSafe: resolvedRecoveryObedienceActive ? effectiveResolvedTargetSafety.effectiveTargetSafe : actuatorRecoveryGearDecision.cappedTargetSafe,
               urgentRecoveryEligible: resolvedRecoveryObedienceActive ? false : actuatorRecoveryGearDecision.urgentRecoveryEligible,
               urgentRecoveryBlockedReason: resolvedRecoveryObedienceActive ? "resolved_recovery_obedience" : actuatorRecoveryGearDecision.urgentRecoveryBlockedReason
             })
@@ -67999,6 +68027,44 @@ function createAsrScrollDriver(options = {}) {
     });
     return result;
   };
+  const debugEvaluateEffectiveTargetSafety = (args) => {
+    const previousState = {
+      readerMarkerCorrectionLeaseStartedAtMs,
+      readerMarkerCorrectionLeaseReason,
+      readerMarkerCorrectionLeaseReleasedReason,
+      lastAsrPocketWallBoundedVisualCatchupEligible,
+      lastAsrPocketWallUnsafeTargetReason
+    };
+    if (args.readerMarkerCorrectionLeaseActive === true) {
+      const leaseAgeMs = Number.isFinite(args.readerMarkerCorrectionLeaseAgeMs) ? Math.max(0, Number(args.readerMarkerCorrectionLeaseAgeMs)) : 0;
+      readerMarkerCorrectionLeaseStartedAtMs = Date.now() - leaseAgeMs;
+      readerMarkerCorrectionLeaseReason = String(args.readerMarkerCorrectionLeaseReason || "debug_reader_marker_correction_lease");
+      readerMarkerCorrectionLeaseReleasedReason = "none";
+    } else if (args.readerMarkerCorrectionLeaseActive === false) {
+      readerMarkerCorrectionLeaseStartedAtMs = 0;
+      readerMarkerCorrectionLeaseReason = "none";
+      readerMarkerCorrectionLeaseReleasedReason = String(args.readerMarkerCorrectionLeaseReleasedReason || "debug_reader_marker_correction_lease_disabled");
+    }
+    if (typeof args.unsafeTargetReason === "string") {
+      lastAsrPocketWallUnsafeTargetReason = String(args.unsafeTargetReason || "none");
+    }
+    if (typeof args.boundedVisualCatchupEligible === "boolean") {
+      lastAsrPocketWallBoundedVisualCatchupEligible = args.boundedVisualCatchupEligible;
+    }
+    const result = resolveEffectiveAsrTargetSafety({
+      baseTargetSafe: args.baseTargetSafe,
+      currentLineIdx: args.currentLineIdx,
+      committedLineIdx: args.committedLineIdx,
+      allowedTargetIdx: args.allowedTargetIdx,
+      nextSpeakableLineIdx: args.nextSpeakableLineIdx
+    });
+    readerMarkerCorrectionLeaseStartedAtMs = previousState.readerMarkerCorrectionLeaseStartedAtMs;
+    readerMarkerCorrectionLeaseReason = previousState.readerMarkerCorrectionLeaseReason;
+    readerMarkerCorrectionLeaseReleasedReason = previousState.readerMarkerCorrectionLeaseReleasedReason;
+    lastAsrPocketWallBoundedVisualCatchupEligible = previousState.lastAsrPocketWallBoundedVisualCatchupEligible;
+    lastAsrPocketWallUnsafeTargetReason = previousState.lastAsrPocketWallUnsafeTargetReason;
+    return result;
+  };
   const debugSeedPreservedFollowTarget = (args) => {
     if (Number.isFinite(args.targetScrollTop)) {
       preservedAsrAuthorityTargetTop = Number(args.targetScrollTop);
@@ -68032,6 +68098,7 @@ function createAsrScrollDriver(options = {}) {
     __debugObserveAsr4PocketDrift: debugObserveAsr4PocketDrift,
     __debugApplyScrollWithHybridGuard: debugApplyScrollWithHybridGuard,
     __debugApplyVisualActuatorTargetStep: debugApplyVisualActuatorTargetStep,
+    __debugEvaluateEffectiveTargetSafety: debugEvaluateEffectiveTargetSafety,
     __debugApplyFinalSelectedActuatorStep: debugApplyFinalSelectedActuatorStep,
     __debugEvaluateForwardCommitFreshness: debugEvaluateForwardCommitFreshness,
     __debugEvaluateStabilizerSemanticCommitCandidate: debugEvaluateStabilizerSemanticCommitCandidate,

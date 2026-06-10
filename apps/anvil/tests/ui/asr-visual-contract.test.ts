@@ -59,16 +59,24 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     committedLineIdx: number;
     allowedTargetIdx?: number | null;
     nextSpeakableLineIdx?: number | null;
+    targetSafetyReferenceLineIdx?: number | null;
+    targetSafetyReferenceSource?: string | null;
+    semanticCommitHeldButVisualCatchupAllowed?: boolean;
     readerMarkerCorrectionLeaseActive?: boolean;
     readerMarkerCorrectionLeaseAgeMs?: number | null;
     readerMarkerCorrectionLeaseReason?: string | null;
     readerMarkerCorrectionLeaseReleasedReason?: string | null;
     unsafeTargetReason?: string | null;
     boundedVisualCatchupEligible?: boolean;
+    noMatchOrOffscript?: boolean;
+    hardContradiction?: boolean;
+    terminalClampActive?: boolean;
   }): {
     effectiveTargetSafe: boolean;
     boundedLeaseTargetSafe: boolean;
     localWindowCoherent: boolean;
+    effectiveTargetSafeSource: string;
+    effectiveTargetSafeBlockedReason: string;
   };
   __debugApplyScrollWithHybridGuard(args: {
     beforeScrollTop: number;
@@ -790,15 +798,18 @@ describe('ASR visual contract', () => {
     driver.dispose();
   });
 
-  test('bounded reader-marker correction lease is treated as canonically safe by downstream follow gates', () => {
+  test('bounded reader-marker correction lease stays canonically safe from pocket-wall proof even without allowedTargetIdx', () => {
     const driver = createAsrScrollDriver() as DebugAsrDriver;
 
     const result = driver.__debugEvaluateEffectiveTargetSafety({
       baseTargetSafe: false,
       currentLineIdx: 30,
       committedLineIdx: 30,
-      allowedTargetIdx: 30,
-      nextSpeakableLineIdx: 30,
+      allowedTargetIdx: -1,
+      nextSpeakableLineIdx: 35,
+      targetSafetyReferenceLineIdx: 31,
+      targetSafetyReferenceSource: 'bounded_visual_spoken_match',
+      semanticCommitHeldButVisualCatchupAllowed: true,
       readerMarkerCorrectionLeaseActive: true,
       readerMarkerCorrectionLeaseAgeMs: 24,
       readerMarkerCorrectionLeaseReason: 'reader_marker_correction_safe_bounded',
@@ -809,32 +820,41 @@ describe('ASR visual contract', () => {
     expect(result.localWindowCoherent).toBe(true);
     expect(result.boundedLeaseTargetSafe).toBe(true);
     expect(result.effectiveTargetSafe).toBe(true);
+    expect(result.effectiveTargetSafeSource).toBe('pocket_wall_bounded_spoken_match');
+    expect(result.effectiveTargetSafeBlockedReason).toBe('none');
 
     driver.dispose();
   });
 
-  test('bounded reader-marker correction override does not apply after lease release, unsafe proof, or far targets', () => {
+  test('bounded reader-marker correction override does not apply after lease release, unsafe proof, missing semantic hold, hard blockers, or far targets', () => {
     const driver = createAsrScrollDriver() as DebugAsrDriver;
 
     const releasedLease = driver.__debugEvaluateEffectiveTargetSafety({
       baseTargetSafe: false,
       currentLineIdx: 30,
       committedLineIdx: 30,
-      allowedTargetIdx: 30,
-      nextSpeakableLineIdx: 30,
+      allowedTargetIdx: -1,
+      nextSpeakableLineIdx: 35,
+      targetSafetyReferenceLineIdx: 31,
+      targetSafetyReferenceSource: 'bounded_visual_spoken_match',
+      semanticCommitHeldButVisualCatchupAllowed: true,
       readerMarkerCorrectionLeaseActive: false,
       readerMarkerCorrectionLeaseReleasedReason: 'visual_debt_closed',
       unsafeTargetReason: 'none',
       boundedVisualCatchupEligible: true,
     });
     expect(releasedLease.effectiveTargetSafe).toBe(false);
+    expect(releasedLease.effectiveTargetSafeBlockedReason).toBe('lease_inactive');
 
     const unsafeReason = driver.__debugEvaluateEffectiveTargetSafety({
       baseTargetSafe: false,
       currentLineIdx: 30,
       committedLineIdx: 30,
-      allowedTargetIdx: 30,
-      nextSpeakableLineIdx: 30,
+      allowedTargetIdx: -1,
+      nextSpeakableLineIdx: 35,
+      targetSafetyReferenceLineIdx: 31,
+      targetSafetyReferenceSource: 'bounded_visual_spoken_match',
+      semanticCommitHeldButVisualCatchupAllowed: true,
       readerMarkerCorrectionLeaseActive: true,
       readerMarkerCorrectionLeaseAgeMs: 24,
       readerMarkerCorrectionLeaseReason: 'reader_marker_correction_safe_bounded',
@@ -842,13 +862,54 @@ describe('ASR visual contract', () => {
       boundedVisualCatchupEligible: true,
     });
     expect(unsafeReason.effectiveTargetSafe).toBe(false);
+    expect(unsafeReason.effectiveTargetSafeBlockedReason).toBe('unsafe_reason_not_none');
+
+    const missingSemanticHold = driver.__debugEvaluateEffectiveTargetSafety({
+      baseTargetSafe: false,
+      currentLineIdx: 30,
+      committedLineIdx: 30,
+      allowedTargetIdx: -1,
+      nextSpeakableLineIdx: 35,
+      targetSafetyReferenceLineIdx: 31,
+      targetSafetyReferenceSource: 'bounded_visual_spoken_match',
+      semanticCommitHeldButVisualCatchupAllowed: false,
+      readerMarkerCorrectionLeaseActive: true,
+      readerMarkerCorrectionLeaseAgeMs: 24,
+      readerMarkerCorrectionLeaseReason: 'reader_marker_correction_safe_bounded',
+      unsafeTargetReason: 'none',
+      boundedVisualCatchupEligible: true,
+    });
+    expect(missingSemanticHold.effectiveTargetSafe).toBe(false);
+    expect(missingSemanticHold.effectiveTargetSafeBlockedReason).toBe('missing_semantic_hold');
+
+    const hardBlocked = driver.__debugEvaluateEffectiveTargetSafety({
+      baseTargetSafe: false,
+      currentLineIdx: 30,
+      committedLineIdx: 30,
+      allowedTargetIdx: -1,
+      nextSpeakableLineIdx: 35,
+      targetSafetyReferenceLineIdx: 31,
+      targetSafetyReferenceSource: 'bounded_visual_spoken_match',
+      semanticCommitHeldButVisualCatchupAllowed: true,
+      readerMarkerCorrectionLeaseActive: true,
+      readerMarkerCorrectionLeaseAgeMs: 24,
+      readerMarkerCorrectionLeaseReason: 'reader_marker_correction_safe_bounded',
+      unsafeTargetReason: 'none',
+      boundedVisualCatchupEligible: true,
+      hardContradiction: true,
+    });
+    expect(hardBlocked.effectiveTargetSafe).toBe(false);
+    expect(hardBlocked.effectiveTargetSafeBlockedReason).toBe('hard_blocker');
 
     const farTarget = driver.__debugEvaluateEffectiveTargetSafety({
       baseTargetSafe: false,
       currentLineIdx: 30,
       committedLineIdx: 30,
-      allowedTargetIdx: 34,
-      nextSpeakableLineIdx: 30,
+      allowedTargetIdx: -1,
+      nextSpeakableLineIdx: 35,
+      targetSafetyReferenceLineIdx: 34,
+      targetSafetyReferenceSource: 'bounded_visual_spoken_match',
+      semanticCommitHeldButVisualCatchupAllowed: true,
       readerMarkerCorrectionLeaseActive: true,
       readerMarkerCorrectionLeaseAgeMs: 24,
       readerMarkerCorrectionLeaseReason: 'reader_marker_correction_safe_bounded',
@@ -857,6 +918,7 @@ describe('ASR visual contract', () => {
     });
     expect(farTarget.localWindowCoherent).toBe(false);
     expect(farTarget.effectiveTargetSafe).toBe(false);
+    expect(farTarget.effectiveTargetSafeBlockedReason).toBe('outside_local_window');
 
     driver.dispose();
   });
