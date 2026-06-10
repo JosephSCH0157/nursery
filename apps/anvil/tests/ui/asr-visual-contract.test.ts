@@ -855,6 +855,33 @@ describe('ASR visual contract', () => {
     driver.dispose();
   });
 
+  test('retained preserved-follow cleanup does not downgrade to lease_inactive while the retained cleanup lease is still active', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluateEffectiveTargetSafety({
+      baseTargetSafe: false,
+      currentLineIdx: 1,
+      committedLineIdx: 1,
+      allowedTargetIdx: -1,
+      nextSpeakableLineIdx: 1,
+      targetSafetyReferenceLineIdx: 1,
+      targetSafetyReferenceSource: 'bounded_visual_spoken_match',
+      semanticCommitHeldButVisualCatchupAllowed: false,
+      retainedVisualCleanupAllowed: true,
+      readerMarkerCorrectionLeaseActive: true,
+      readerMarkerCorrectionLeaseAgeMs: 1811,
+      readerMarkerCorrectionLeaseReason: 'reader_marker_correction_retained_over_preserved',
+      unsafeTargetReason: 'none',
+      boundedVisualCatchupEligible: true,
+    });
+
+    expect(result.effectiveTargetSafe).toBe(true);
+    expect(result.effectiveTargetSafeSource).toBe('pocket_wall_bounded_spoken_match');
+    expect(result.effectiveTargetSafeBlockedReason).toBe('none');
+
+    driver.dispose();
+  });
+
   test('bounded reader-marker correction override does not apply after lease release, unsafe proof, missing semantic hold, hard blockers, or far targets', () => {
     const driver = createAsrScrollDriver() as DebugAsrDriver;
 

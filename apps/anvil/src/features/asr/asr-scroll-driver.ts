@@ -4956,6 +4956,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     retainedVisualCleanupAllowed?: boolean;
     readerMarkerCorrectionLeaseActive?: boolean;
     readerMarkerCorrectionLeaseAgeMs?: number | null;
+    readerMarkerCorrectionLeaseReason?: string | null;
     unsafeTargetReason?: string | null;
     boundedVisualCatchupEligible?: boolean;
     noMatchOrOffscript?: boolean;
@@ -4985,6 +4986,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const boundedTargetSafetyReferenceSource = String(args.targetSafetyReferenceSource || 'none');
     const semanticCommitHeldButVisualCatchupAllowed = args.semanticCommitHeldButVisualCatchupAllowed === true;
     const retainedVisualCleanupAllowed = args.retainedVisualCleanupAllowed === true;
+    const normalizedLeaseReason = String(args.readerMarkerCorrectionLeaseReason || 'none');
     const semanticProofSatisfied =
       semanticCommitHeldButVisualCatchupAllowed || retainedVisualCleanupAllowed;
     const hardBlocker =
@@ -4998,15 +5000,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ? Math.max(0, Date.now() - readerMarkerCorrectionLeaseStartedAtMs)
           : Number.POSITIVE_INFINITY
       );
+    const retainedCleanupLeaseActive =
+      retainedVisualCleanupAllowed &&
+      normalizedLeaseReason === 'reader_marker_correction_retained_over_preserved' &&
+      args.readerMarkerCorrectionLeaseActive === true;
     const leaseActive =
-      (
-        args.readerMarkerCorrectionLeaseActive === true ||
+      retainedCleanupLeaseActive || (
         (
-          args.readerMarkerCorrectionLeaseActive == null &&
-          readerMarkerCorrectionLeaseStartedAtMs > 0
-        )
-      ) &&
-      leaseAgeMs <= ASR_READER_MARKER_CORRECTION_LEASE_MAX_AGE_MS;
+          args.readerMarkerCorrectionLeaseActive === true ||
+          (
+            args.readerMarkerCorrectionLeaseActive == null &&
+            readerMarkerCorrectionLeaseStartedAtMs > 0
+          )
+        ) &&
+        leaseAgeMs <= ASR_READER_MARKER_CORRECTION_LEASE_MAX_AGE_MS
+      );
     const boundedVisualCatchupEligible =
       typeof args.boundedVisualCatchupEligible === 'boolean'
         ? args.boundedVisualCatchupEligible
@@ -41558,6 +41566,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       retainedVisualCleanupAllowed: args.retainedVisualCleanupAllowed,
       readerMarkerCorrectionLeaseActive: args.readerMarkerCorrectionLeaseActive,
       readerMarkerCorrectionLeaseAgeMs: args.readerMarkerCorrectionLeaseAgeMs,
+      readerMarkerCorrectionLeaseReason: args.readerMarkerCorrectionLeaseReason,
       unsafeTargetReason: args.unsafeTargetReason,
       boundedVisualCatchupEligible: args.boundedVisualCatchupEligible,
       noMatchOrOffscript: args.noMatchOrOffscript,
