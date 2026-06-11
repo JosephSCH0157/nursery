@@ -224,6 +224,38 @@ function truncateForDetail(value: string | null, limit = 2000): string | null {
   return `${value.slice(0, limit)}…`;
 }
 
+function estimateHeaderBytes(headers: Headers): number {
+  let total = 0;
+  headers.forEach((value, key) => {
+    total += Buffer.byteLength(key, "utf8");
+    total += Buffer.byteLength(value, "utf8");
+    total += 4;
+  });
+  return total;
+}
+
+function logWhisperHeaderBudget(args: {
+  headerNames: string[];
+  totalHeaderBytes: number;
+  authHeaderPresent: boolean;
+  authHeaderLength: number;
+  resolverSource: string | null;
+  rejectedReason?: string | null;
+}): void {
+  try {
+    console.info("[ASR_WHISPER_HEADER_BUDGET]", {
+      headerNames: args.headerNames,
+      totalHeaderBytes: args.totalHeaderBytes,
+      authHeaderPresent: args.authHeaderPresent,
+      authHeaderLength: args.authHeaderLength,
+      resolverSource: args.resolverSource,
+      rejectedReason: args.rejectedReason ?? null,
+    });
+  } catch {
+    // ignore logging failures
+  }
+}
+
 function normalizeHuggingFaceModelId(modelId: string): string {
   const trimmed = modelId.trim();
   const suffixIndex = trimmed.indexOf(":");
@@ -424,6 +456,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
       });
       let lane: BillingMode = AI_USAGE_LANE.FORGE;
       let effectiveApiKey: string;
+      let resolverSource: string | null = null;
       if (byoRequested) {
         if (!supabaseService) {
           return jsonResponse(500, {
@@ -462,6 +495,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           }
           lane = credentials.billingLane;
           effectiveApiKey = credentials.apiKey;
+          resolverSource = credentials.keySource;
         } catch (error) {
           if (error instanceof MissingUserKeyError) {
             return jsonResponse(422, {
@@ -522,6 +556,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           });
         }
         effectiveApiKey = apiKey;
+        resolverSource = "forge_managed";
       }
       const providedActionId = readOptionalString(formData.get("action_id"));
       const actionId = providedActionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(providedActionId)
@@ -579,12 +614,20 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         let usedLanguageHint = Boolean(language);
         let detail = "";
         let message: string | null = null;
+        const upstreamHeaders = new Headers({
+          authorization: `Bearer ${effectiveApiKey}`,
+        });
+        logWhisperHeaderBudget({
+          headerNames: Array.from(upstreamHeaders.keys()),
+          totalHeaderBytes: estimateHeaderBytes(upstreamHeaders),
+          authHeaderPresent: true,
+          authHeaderLength: upstreamHeaders.get("authorization")?.length ?? 0,
+          resolverSource,
+        });
         try {
           upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
             method: "POST",
-            headers: {
-              authorization: `Bearer ${effectiveApiKey}`,
-            },
+            headers: upstreamHeaders,
             body: buildUpstreamForm(nextModel, nextFileValue, nextFileName, usedLanguageHint),
             signal: upstreamAbort.signal,
           });
@@ -601,9 +644,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
               usedLanguageHint = false;
               upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
                 method: "POST",
-                headers: {
-                  authorization: `Bearer ${effectiveApiKey}`,
-                },
+                headers: upstreamHeaders,
                 body: buildUpstreamForm(nextModel, nextFileValue, nextFileName, false),
                 signal: upstreamAbort.signal,
               });
@@ -870,6 +911,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           const detail = upstreamDetail || await upstream.text();
           const isHfProvider = requestProvider === "huggingface" || requestProvider === "auto";
           const isAsr2ModelUnavailable = asr2ExperimentalSelected && isModelUnavailableUpstreamError(detail);
+          const isWhisperHeaderOverflow = !isHfProvider && upstream.status === 431;
           const hfMessage = isHfProvider ? readHuggingFaceErrorMessage(detail) : null;
           const hfMissingToken = isHfProvider && (
             hfMessage?.toLowerCase().includes("missing huggingface_api_token")
@@ -898,11 +940,24 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
                     : upstream.status === 404 ? "hf_upstream_404"
                       : "hf_upstream_error"
             )
-            : undefined;
+            : (isWhisperHeaderOverflow ? "whisper_bridge_header_overflow" : undefined);
           const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
           const responseDetail = ffmpegFallbackError
             ? `${detail}\n\n[forge-ffmpeg fallback] ${ffmpegFallbackError}`
             : detail;
+          if (isWhisperHeaderOverflow) {
+            const upstreamHeaders = new Headers({
+              authorization: `Bearer ${effectiveApiKey}`,
+            });
+            logWhisperHeaderBudget({
+              headerNames: Array.from(upstreamHeaders.keys()),
+              totalHeaderBytes: estimateHeaderBytes(upstreamHeaders),
+              authHeaderPresent: true,
+              authHeaderLength: upstreamHeaders.get("authorization")?.length ?? 0,
+              resolverSource,
+              rejectedReason: "whisper_bridge_header_overflow",
+            });
+          }
           await recordAiUsageEvent({
             supabaseService,
             userId,

@@ -11116,6 +11116,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lastEvidenceAt,
         pendingEvidenceCount: strongHits.length,
         cursorLineIndex: lastLineIndex,
+        commitCount,
+        lastCommittedLine,
+        lastCommitIndex,
+        lastGuardReason: lastAsrGuardReason,
+        lastHudGuardText: lastAsrHudGuardText,
+        candidateLine:
+          Number.isFinite(lastAuthorityMatchBestIdx)
+            ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx)))
+            : null,
+        acceptedLine:
+          Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx)
+            ? Math.max(0, Math.floor(Number(liveAsrCommitteeAcceptedCommitTargetIdx)))
+            : null,
+        pendingMatchLine:
+          pendingMatch && Number.isFinite(pendingMatch.line)
+            ? Math.max(0, Math.floor(Number(pendingMatch.line)))
+            : null,
         matchAnchorIdx,
         pursuitTargetTop,
         appliedTopPx,

@@ -10,7 +10,7 @@ import {
   createAnvilWhisperHandler,
   type AnvilWhisperRuntimeConfig,
 } from "../server/anvil/create-anvil-whisper-handler";
-import { mwAnvilWhisperApi } from "../scripts/mw-anvil-whisper-api";
+import { mwAnvilWhisperApi, nodeHeadersToFetch } from "../scripts/mw-anvil-whisper-api";
 import { AI_USAGE_LANE } from "../../../packages/tongs/src/ai-usage-taxonomy";
 
 function buildConfig(overrides: Partial<AnvilWhisperRuntimeConfig> = {}): AnvilWhisperRuntimeConfig {
@@ -133,6 +133,24 @@ test("Vite middleware whisper route matches direct handler output", async () => 
   }
 });
 
+test("nodeHeadersToFetch strips cookies and browser noise from whisper bridge requests", () => {
+  const headers = nodeHeadersToFetch({
+    authorization: "Bearer test-access-token",
+    cookie: "a=".padEnd(8192, "x"),
+    "content-type": "multipart/form-data; boundary=test",
+    "user-agent": "browser-noise",
+    "sec-fetch-mode": "cors",
+    "x-forge-user-token": "forge-user-token",
+  });
+
+  assert.equal(headers.get("authorization"), "Bearer test-access-token");
+  assert.equal(headers.get("content-type"), "multipart/form-data; boundary=test");
+  assert.equal(headers.get("x-forge-user-token"), "forge-user-token");
+  assert.equal(headers.get("cookie"), null);
+  assert.equal(headers.get("user-agent"), null);
+  assert.equal(headers.get("sec-fetch-mode"), null);
+});
+
 test("Netlify whisper function matches direct handler output", async () => {
   const direct = await createAnvilWhisperHandler(buildConfig({ apiKey: null }))(
     new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`),
@@ -243,6 +261,53 @@ test("createAnvilWhisperHandler retries unsupported audio through forge-ffmpeg f
   } finally {
     globalThis.fetch = originalFetch;
     await ffmpegServer.close();
+  }
+});
+
+test("createAnvilWhisperHandler classifies OpenAI 431 as whisper_bridge_header_overflow", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({ id: TEST_USER_ID }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://api.openai.com/v1/audio/transcriptions") {
+      const headers = new Headers(init?.headers);
+      assert.equal(headers.get("cookie"), null);
+      assert.equal(headers.get("authorization")?.startsWith("Bearer "), true);
+      return new Response(JSON.stringify({
+        error: { message: "Request Header Fields Too Large" },
+      }), {
+        status: 431,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch call in test: ${url} ${init?.method ?? "GET"}`);
+  };
+
+  try {
+    const handler = createAnvilWhisperHandler(buildConfig({
+      apiKey: "forge-key",
+      supabaseUrl: "https://runtime-test.supabase.co",
+      supabaseServiceRoleKey: "service-role",
+    }));
+    const response = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-access-token" },
+      body: buildChunkFormData(),
+    }));
+
+    assert.equal(response.status, 431);
+    const payload = await response.json();
+    assert.equal(payload.ok, false);
+    assert.equal(payload.code, "whisper_bridge_header_overflow");
+    assert.equal(payload.upstream_status, 431);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 

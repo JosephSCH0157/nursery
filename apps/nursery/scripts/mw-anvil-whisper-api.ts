@@ -8,6 +8,13 @@ import {
 
 type Next = (err?: unknown) => void;
 
+const FORWARDED_WHISPER_HEADER_ALLOWLIST = new Set([
+  "authorization",
+  "content-type",
+  "x-forge-user-authorization",
+  "x-forge-user-token",
+]);
+
 function readBody(req: IncomingMessage): Promise<Uint8Array | undefined> {
   const method = (req.method || "GET").toUpperCase();
   if (method === "GET" || method === "HEAD") return Promise.resolve(undefined);
@@ -20,20 +27,18 @@ function readBody(req: IncomingMessage): Promise<Uint8Array | undefined> {
   });
 }
 
-function nodeHeadersToFetch(headers: IncomingMessage["headers"]): Headers {
+export function nodeHeadersToFetch(headers: IncomingMessage["headers"]): Headers {
   const result = new Headers();
   for (const [key, value] of Object.entries(headers)) {
     if (value == null) continue;
+    const normalizedKey = key.toLowerCase();
+    if (!FORWARDED_WHISPER_HEADER_ALLOWLIST.has(normalizedKey)) continue;
     if (Array.isArray(value)) {
-      for (const one of value) result.append(key, one);
+      for (const one of value) result.append(normalizedKey, one);
     } else {
-      result.set(key, value);
+      result.set(normalizedKey, value);
     }
   }
-  result.delete("connection");
-  result.delete("keep-alive");
-  result.delete("transfer-encoding");
-  result.delete("upgrade");
   return result;
 }
 

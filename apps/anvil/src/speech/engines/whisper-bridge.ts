@@ -185,6 +185,19 @@ function isDeterministicWhisperRequestError(error: unknown): boolean {
   return false;
 }
 
+function isWhisperBridgeHeaderOverflowError(error: unknown): boolean {
+  if (!(error instanceof WhisperBridgeHttpError)) return false;
+  if (error.status === 431) return true;
+  const code = String(error.payload?.code || "").toLowerCase();
+  const message = String(error.message || "").toLowerCase();
+  const upstreamMessage = String(error.payload?.upstream_message || "").toLowerCase();
+  return (
+    code === "whisper_bridge_header_overflow"
+    || message.includes("request header fields too large")
+    || upstreamMessage.includes("request header fields too large")
+  );
+}
+
 function isUnsupportedAudioError(error: unknown): boolean {
   if (!(error instanceof WhisperBridgeHttpError)) return false;
   const message = String(error.message || "").toLowerCase();
@@ -1367,6 +1380,9 @@ class WhisperBridgeRecognizer {
             this.unauthorized = true;
             this.queue = [];
             this.stop();
+          } else if (isWhisperBridgeHeaderOverflowError(error)) {
+            message = "ASR chunk dropped: whisper bridge header overflow; continuing session.";
+            this.lastAiError = message;
           } else if (isDeterministicWhisperRequestError(error)) {
             const queueDepthAtLatch = this.queue.length;
             const classification = isUnsupportedAudioError(error) ? "unsupported-audio" : "invalid-request";
@@ -1414,7 +1430,7 @@ class WhisperBridgeRecognizer {
             source: SOURCE,
             message,
             timestamp: nowTs(),
-            code: upstreamPayload?.code ?? null,
+            code: upstreamPayload?.code ?? (isWhisperBridgeHeaderOverflowError(error) ? "whisper_bridge_header_overflow" : null),
             provider: upstreamPayload?.provider ?? null,
             modelId: upstreamPayload?.model_id ?? null,
             asrLane: upstreamPayload?.asr_lane ?? null,
@@ -1664,7 +1680,7 @@ class WhisperBridgeRecognizer {
         },
         body: form,
         cache: "no-store",
-        credentials: "same-origin",
+        credentials: "omit",
         signal: abortController.signal,
       });
     } finally {

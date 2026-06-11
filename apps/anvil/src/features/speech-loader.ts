@@ -1952,6 +1952,76 @@ function logTranscriptEmitDebug(payload: TranscriptPayload): void {
   } catch {}
 }
 
+function scheduleAcceptedTranscriptNoCommitDiagnostic(payload: TranscriptPayload): void {
+  if (typeof window === 'undefined') return;
+  if (!payload.isFinal) return;
+  if (payload.noMatch === true) return;
+
+  const commitCountBefore = Math.max(0, Math.floor(lastAsrCommitCount || 0));
+  const acceptedLineRaw =
+    (payload as any)?.acceptedLine ??
+    (payload.match && typeof payload.match === 'object' ? (payload.match as any).acceptedLine : null) ??
+    payload.line;
+  const acceptedLine = Number.isFinite(Number(acceptedLineRaw))
+    ? Math.max(0, Math.floor(Number(acceptedLineRaw)))
+    : null;
+
+  window.setTimeout(() => {
+    syncAsrDriverStats();
+    const commitCountAfter = Math.max(0, Math.floor(lastAsrCommitCount || 0));
+    if (commitCountAfter > commitCountBefore) return;
+
+    const scrollState = ((window as any).__tpAsrScrollState || {}) as Record<string, unknown>;
+    const currentCommittedLine = Number.isFinite(Number(scrollState.lastCommittedLine))
+      ? Math.max(0, Math.floor(Number(scrollState.lastCommittedLine)))
+      : resolveRuntimeAsrLineIndex();
+    const candidateLine = Number.isFinite(Number(scrollState.candidateLine))
+      ? Math.max(0, Math.floor(Number(scrollState.candidateLine)))
+      : null;
+    const acceptedLineFromDriver = Number.isFinite(Number(scrollState.acceptedLine))
+      ? Math.max(0, Math.floor(Number(scrollState.acceptedLine)))
+      : acceptedLine;
+    const blockedReason = String(scrollState.lastGuardReason || scrollState.lastHudGuardText || 'none');
+    const blockedReasonLower = blockedReason.toLowerCase();
+    const sameLine =
+      currentCommittedLine != null &&
+      acceptedLineFromDriver != null &&
+      currentCommittedLine === acceptedLineFromDriver;
+    const duplicate = blockedReasonLower.includes('duplicate');
+    const replay = blockedReasonLower.includes('replay') || blockedReasonLower.includes('stale');
+    const offscript = blockedReasonLower.includes('offscript');
+    const contradiction = blockedReasonLower.includes('contradiction');
+    const noMatch = blockedReasonLower.includes('no_match') || blockedReasonLower.includes('nomatch');
+    const local = acceptedLineFromDriver != null && currentCommittedLine != null
+      ? acceptedLineFromDriver <= currentCommittedLine + 1
+      : null;
+    const forward = acceptedLineFromDriver != null && currentCommittedLine != null
+      ? acceptedLineFromDriver > currentCommittedLine
+      : null;
+
+    try {
+      console.warn('[ASR_COMMIT_LANE_NON_COMMIT]', {
+        matchId: payload.matchId ?? null,
+        source: payload.source,
+        currentCommittedLine,
+        candidateLine,
+        acceptedLine: acceptedLineFromDriver,
+        sameLine,
+        duplicate,
+        replay,
+        local,
+        forward,
+        noMatch,
+        offScript: offscript,
+        contradiction,
+        blockedReason,
+        commitCountBefore,
+        commitCountAfter,
+      });
+    } catch {}
+  }, 80);
+}
+
 function markResultTimestamp(): void {
   lastResultTs = Date.now();
 }
@@ -2720,6 +2790,7 @@ function routeTranscript(input: string | (Partial<TranscriptPayload> & { text?: 
     if (shouldEmitTranscript()) {
       try { (enriched as any).__tpDirectIngest = true; } catch {}
       logTranscriptEmitDebug(enriched);
+      scheduleAcceptedTranscriptNoCommitDiagnostic(enriched);
       emitTranscriptEvent(enriched);
     }
   } catch {}
