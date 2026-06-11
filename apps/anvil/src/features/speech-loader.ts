@@ -103,6 +103,8 @@ type TranscriptPayload = {
   runGeneration?: number | null;
   speechRunningActual?: boolean;
   activeAsrLane?: string;
+  transcriptSeq?: number | null;
+  requestSeq?: string | null;
 };
 
 type HudSnapshotPayload = {
@@ -1878,6 +1880,67 @@ function shouldSuppressDuplicateFinalTranscript(nextText: string, nowMs: number)
   return overlapRatio >= ASR_FINAL_NOVELTY_MIN_OVERLAP_RATIO && noveltyRatio < ASR_FINAL_NOVELTY_MIN_RATIO;
 }
 
+function resolveAcceptedTranscriptLine(payload: TranscriptPayload | Record<string, unknown> | null | undefined): number | null {
+  const acceptedLineRaw =
+    (payload as any)?.acceptedLine ??
+    ((payload as any)?.match && typeof (payload as any).match === 'object'
+      ? ((payload as any).match as any).acceptedLine ?? ((payload as any).match as any).bestIdx
+      : null) ??
+    (payload as any)?.line;
+  const acceptedLine = Number(acceptedLineRaw);
+  return Number.isFinite(acceptedLine) ? Math.max(0, Math.floor(acceptedLine)) : null;
+}
+
+function readCurrentCommittedLine(): number | null {
+  if (typeof window === 'undefined') return null;
+  const scrollState = ((window as any).__tpAsrScrollState || {}) as Record<string, unknown>;
+  if (Number.isFinite(Number(scrollState.lastCommittedLine))) {
+    return Math.max(0, Math.floor(Number(scrollState.lastCommittedLine)));
+  }
+  return resolveRuntimeAsrLineIndex();
+}
+
+function resolveDuplicateFinalCommitOpportunity(payload: TranscriptPayload): {
+  suppressed: boolean;
+  stage: 'post_commit_opportunity_eval';
+  reason: string;
+  currentCommittedLine: number | null;
+  acceptedLine: number | null;
+  acceptedLineGap: number | null;
+  transcriptSeq: number | null;
+  requestSeq: string | null;
+} {
+  const nowMs = Date.now();
+  const acceptedLine = resolveAcceptedTranscriptLine(payload);
+  const currentCommittedLine = readCurrentCommittedLine();
+  const acceptedLineGap =
+    acceptedLine != null && currentCommittedLine != null
+      ? Math.max(0, acceptedLine - currentCommittedLine)
+      : null;
+  const duplicateCandidate = shouldSuppressDuplicateFinalTranscript(payload.text, nowMs);
+  const forwardOpportunity =
+    acceptedLine != null &&
+    currentCommittedLine != null &&
+    acceptedLine > currentCommittedLine &&
+    acceptedLine - currentCommittedLine <= 8;
+  return {
+    suppressed: duplicateCandidate && !forwardOpportunity,
+    stage: 'post_commit_opportunity_eval',
+    reason: duplicateCandidate
+      ? (forwardOpportunity ? 'forward_commit_opportunity_preserved' : 'duplicate_final_suppressed')
+      : 'not_duplicate',
+    currentCommittedLine,
+    acceptedLine,
+    acceptedLineGap,
+    transcriptSeq: Number.isFinite(Number((payload as any)?.transcriptSeq))
+      ? Math.max(0, Math.floor(Number((payload as any)?.transcriptSeq)))
+      : null,
+    requestSeq: typeof (payload as any)?.requestSeq === 'string' && String((payload as any).requestSeq).trim()
+      ? String((payload as any).requestSeq).trim()
+      : null,
+  };
+}
+
 function logTranscriptEmitDebug(payload: TranscriptPayload): void {
   try {
     const textRaw = typeof payload.text === 'string' ? payload.text : '';
@@ -1958,13 +2021,7 @@ function scheduleAcceptedTranscriptNoCommitDiagnostic(payload: TranscriptPayload
   if (payload.noMatch === true) return;
 
   const commitCountBefore = Math.max(0, Math.floor(lastAsrCommitCount || 0));
-  const acceptedLineRaw =
-    (payload as any)?.acceptedLine ??
-    (payload.match && typeof payload.match === 'object' ? (payload.match as any).acceptedLine : null) ??
-    payload.line;
-  const acceptedLine = Number.isFinite(Number(acceptedLineRaw))
-    ? Math.max(0, Math.floor(Number(acceptedLineRaw)))
-    : null;
+  const acceptedLine = resolveAcceptedTranscriptLine(payload);
 
   window.setTimeout(() => {
     syncAsrDriverStats();
@@ -1981,23 +2038,52 @@ function scheduleAcceptedTranscriptNoCommitDiagnostic(payload: TranscriptPayload
     const acceptedLineFromDriver = Number.isFinite(Number(scrollState.acceptedLine))
       ? Math.max(0, Math.floor(Number(scrollState.acceptedLine)))
       : acceptedLine;
-    const blockedReason = String(scrollState.lastGuardReason || scrollState.lastHudGuardText || 'none');
-    const blockedReasonLower = blockedReason.toLowerCase();
+    const rawBlockedReason = String(scrollState.lastGuardReason || scrollState.lastHudGuardText || '').trim();
+    const rawBlockedReasonLower = rawBlockedReason.toLowerCase();
     const sameLine =
       currentCommittedLine != null &&
       acceptedLineFromDriver != null &&
       currentCommittedLine === acceptedLineFromDriver;
-    const duplicate = blockedReasonLower.includes('duplicate');
-    const replay = blockedReasonLower.includes('replay') || blockedReasonLower.includes('stale');
-    const offscript = blockedReasonLower.includes('offscript');
-    const contradiction = blockedReasonLower.includes('contradiction');
-    const noMatch = blockedReasonLower.includes('no_match') || blockedReasonLower.includes('nomatch');
+    const duplicate = rawBlockedReasonLower.includes('duplicate');
+    const replay = rawBlockedReasonLower.includes('replay') || rawBlockedReasonLower.includes('stale');
+    const offscript = rawBlockedReasonLower.includes('offscript');
+    const contradiction = rawBlockedReasonLower.includes('contradiction');
+    const noMatch = rawBlockedReasonLower.includes('no_match') || rawBlockedReasonLower.includes('nomatch');
     const local = acceptedLineFromDriver != null && currentCommittedLine != null
       ? acceptedLineFromDriver <= currentCommittedLine + 1
       : null;
     const forward = acceptedLineFromDriver != null && currentCommittedLine != null
       ? acceptedLineFromDriver > currentCommittedLine
       : null;
+    const acceptedLineGap =
+      acceptedLineFromDriver != null && currentCommittedLine != null
+        ? Math.max(0, acceptedLineFromDriver - currentCommittedLine)
+        : null;
+    const audioChunkAgeMs = Number.isFinite(Number(scrollState.lastAudioChunkAgeMs))
+      ? Math.max(0, Math.floor(Number(scrollState.lastAudioChunkAgeMs)))
+      : null;
+    const freshnessLimitMs = Number.isFinite(Number(scrollState.freshnessLimitMs))
+      ? Math.max(0, Math.floor(Number(scrollState.freshnessLimitMs)))
+      : null;
+    const transcriptSeq = Number.isFinite(Number((payload as any)?.transcriptSeq ?? scrollState.lastTranscriptSeq))
+      ? Math.max(0, Math.floor(Number((payload as any)?.transcriptSeq ?? scrollState.lastTranscriptSeq)))
+      : null;
+    const requestSeqRaw = (payload as any)?.requestSeq ?? scrollState.lastRequestSeq;
+    const requestSeq = typeof requestSeqRaw === 'string' && String(requestSeqRaw).trim()
+      ? String(requestSeqRaw).trim()
+      : null;
+    let blockedReason = rawBlockedReason;
+    if (rawBlockedReasonLower.includes('audio_chunk_stale')) {
+      blockedReason = 'commit_freshness_blocked_audio_chunk_stale';
+    } else if (duplicate) {
+      blockedReason = 'duplicate_final_suppressed';
+    } else if (forward === true && local === false) {
+      blockedReason = 'accepted_forward_match_not_local';
+    } else if (sameLine) {
+      blockedReason = 'same_line_no_commit';
+    } else if (!rawBlockedReason) {
+      blockedReason = 'unknown_non_commit';
+    }
 
     try {
       console.warn('[ASR_COMMIT_LANE_NON_COMMIT]', {
@@ -2006,6 +2092,7 @@ function scheduleAcceptedTranscriptNoCommitDiagnostic(payload: TranscriptPayload
         currentCommittedLine,
         candidateLine,
         acceptedLine: acceptedLineFromDriver,
+        acceptedLineGap,
         sameLine,
         duplicate,
         replay,
@@ -2014,6 +2101,10 @@ function scheduleAcceptedTranscriptNoCommitDiagnostic(payload: TranscriptPayload
         noMatch,
         offScript: offscript,
         contradiction,
+        audioChunkAgeMs,
+        freshnessLimitMs,
+        transcriptSeq,
+        requestSeq,
         blockedReason,
         commitCountBefore,
         commitCountAfter,
@@ -2733,23 +2824,6 @@ function routeTranscript(input: string | (Partial<TranscriptPayload> & { text?: 
     const normalizedMode = String(payload.mode || '').toLowerCase();
     const asrLike = normalizedMode === 'asr' || normalizedMode === 'hybrid';
     const promotedFinal = rawFinal || (asrLike ? shouldPromoteInterimToFinal(text) : false);
-    if (promotedFinal && asrLike) {
-      const nowMs = Date.now();
-      if (shouldSuppressDuplicateFinalTranscript(text, nowMs)) {
-        try {
-          console.info('[ASR] suppressed duplicate final transcript window', {
-            mode: normalizedMode,
-            dedupWindowMs: ASR_FINAL_NOVELTY_DEDUP_WINDOW_MS,
-          });
-        } catch {}
-        return;
-      }
-      const normalizedFinal = normalizeTranscriptForNovelty(text).join(' ');
-      if (normalizedFinal) {
-        lastEmittedFinalTranscriptNorm = normalizedFinal;
-        lastEmittedFinalTranscriptAt = nowMs;
-      }
-    }
     if (rawFinal) {
       resetAsrInterimStabilizer();
     }
@@ -2757,6 +2831,30 @@ function routeTranscript(input: string | (Partial<TranscriptPayload> & { text?: 
     payload.isFinal = promotedFinal;
     const enriched = enrichTranscriptPayloadForAsr(payload);
     const eventFinal = Boolean(enriched.isFinal ?? enriched.final ?? promotedFinal);
+    if (eventFinal && asrLike) {
+      const duplicateOpportunity = resolveDuplicateFinalCommitOpportunity(enriched as TranscriptPayload);
+      if (duplicateOpportunity.reason !== 'not_duplicate') {
+        try {
+          console.info('[ASR_DUPLICATE_FINAL_COMMIT_OPPORTUNITY]', duplicateOpportunity);
+        } catch {}
+      }
+      if (duplicateOpportunity.suppressed) {
+        try {
+          console.info('[ASR] suppressed duplicate final transcript window', {
+            mode: normalizedMode,
+            dedupWindowMs: ASR_FINAL_NOVELTY_DEDUP_WINDOW_MS,
+            stage: duplicateOpportunity.stage,
+            reason: duplicateOpportunity.reason,
+          });
+        } catch {}
+        return;
+      }
+      const normalizedFinal = normalizeTranscriptForNovelty(text).join(' ');
+      if (normalizedFinal) {
+        lastEmittedFinalTranscriptNorm = normalizedFinal;
+        lastEmittedFinalTranscriptAt = Date.now();
+      }
+    }
     if (eventFinal && !firstTranscriptFinalMatcherDiagnosticEmitted) {
       firstTranscriptFinalMatcherDiagnosticEmitted = true;
       ensureTsPrimaryMatcherNamespace('first_transcript_final');

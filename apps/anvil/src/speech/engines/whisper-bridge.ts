@@ -14,6 +14,8 @@ type WhisperBridgePayload = {
   isFinal: boolean;
   timestamp: number;
   source: string;
+  transcriptSeq?: number | null;
+  requestSeq?: string | null;
   model?: string | null;
   providerRequestId?: string | null;
   calibrationProfileId?: string | null;
@@ -1371,7 +1373,7 @@ class WhisperBridgeRecognizer {
           this.lastAiError = null;
           this.consecutiveUnsupportedAudioErrors = 0;
           this.logRecoveredChunkViaServerFallback(payload, next.seq);
-          this.handleTranscript(payload);
+          this.handleTranscript(payload, next.seq);
         } catch (error) {
           const staleDropReason = this.getStaleDropReason(requestGeneration);
           if (staleDropReason || this.isAbortError(error)) {
@@ -1787,7 +1789,7 @@ class WhisperBridgeRecognizer {
     return payload;
   }
 
-  private handleTranscript(payload: WhisperBridgeResponse): void {
+  private handleTranscript(payload: WhisperBridgeResponse, seq?: number): void {
     const text = typeof payload.text === "string" ? payload.text.trim() : "";
     if (!text) return;
 
@@ -1816,6 +1818,7 @@ class WhisperBridgeRecognizer {
     this.transcriptWindow = mergeTokenWindow(this.transcriptWindow, incomingTokens);
     const assembledText = tokensToText(this.transcriptWindow);
     if (!assembledText) return;
+    const transcriptSeq = Number.isFinite(Number(seq)) ? Math.max(0, Math.floor(Number(seq))) : null;
 
     const basePayload: WhisperBridgePayload = {
       text: assembledText,
@@ -1823,6 +1826,8 @@ class WhisperBridgeRecognizer {
       isFinal: false,
       timestamp: now,
       source: SOURCE,
+      transcriptSeq,
+      requestSeq: transcriptSeq != null ? String(transcriptSeq) : null,
       model: payload.model ?? null,
       providerRequestId: payload.provider_request_id ?? null,
       calibrationProfileId: getActiveAsrProfile()?.id || null,

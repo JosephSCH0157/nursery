@@ -24,6 +24,7 @@ export type TranscriptDetail = {
   runGeneration?: number | null;
   speechRunningActual?: boolean;
   transcriptSeq?: number | null;
+  requestSeq?: string | null;
   receivedAtMs?: number | null;
   responseCreatedAtMs?: number | null;
   responseAgeMs?: number | null;
@@ -69,6 +70,7 @@ export type PendingMatch = {
   provenSpeakablePath?: boolean;
   transcriptSource?: string;
   transcriptSeq?: number | null;
+  requestSeq?: string | null;
   transcriptReceivedAtMs?: number | null;
   transcriptResponseAgeMs?: number | null;
   transcriptSpeechAgeMs?: number | null;

@@ -7748,6 +7748,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastTranscriptPacketAt = 0;
   let lastAudioChunkAt = 0;
   let lastTranscriptSeq = -1;
+  let lastTranscriptRequestSeq = '';
   let lastTranscriptReceivedAtMs = 0;
   let lastTranscriptResponseAgeMs = Number.POSITIVE_INFINITY;
   let lastTranscriptSpeechAgeMs = Number.POSITIVE_INFINITY;
@@ -10064,6 +10065,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         transcriptSeq:
           next.transcriptSeq ??
           (lastTranscriptSeq >= 0 ? lastTranscriptSeq : null),
+        requestSeq:
+          next.requestSeq ??
+          (lastTranscriptRequestSeq || null),
         transcriptReceivedAtMs:
           next.transcriptReceivedAtMs ??
           (lastTranscriptReceivedAtMs > 0 ? lastTranscriptReceivedAtMs : null),
@@ -11126,9 +11130,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx)))
             : null,
         acceptedLine:
-          Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx)
-            ? Math.max(0, Math.floor(Number(liveAsrCommitteeAcceptedCommitTargetIdx)))
+          pendingMatch && Number.isFinite(pendingMatch.line)
+            ? Math.max(0, Math.floor(Number(pendingMatch.line)))
             : null,
+        lastTranscriptSeq: lastTranscriptSeq >= 0 ? lastTranscriptSeq : null,
+        lastRequestSeq: lastTranscriptRequestSeq || null,
+        lastAudioChunkAgeMs: Number.isFinite(lastTranscriptAudioAgeMs) ? Math.max(0, Math.floor(lastTranscriptAudioAgeMs)) : null,
+        freshnessLimitMs: Math.max(0, Math.floor(activeAsrControllerProfile.audioFreshMaxAgeMs)),
         pendingMatchLine:
           pendingMatch && Number.isFinite(pendingMatch.line)
             ? Math.max(0, Math.floor(Number(pendingMatch.line)))
@@ -12073,6 +12081,110 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     } catch {
       return '';
     }
+  };
+
+  const ASR_SHORT_LINE_CATCHUP_MIN_GAP = 2;
+  const ASR_SHORT_LINE_CATCHUP_MAX_GAP = 8;
+  const ASR_SHORT_LINE_CATCHUP_MAX_BURST = 4;
+  const ASR_SHORT_LINE_MAX_TOKENS = 3;
+
+  const resolveShortLineCommitBurst = (
+    currentLineIdx: number,
+    acceptedLineIdx: number,
+    maxBurstSteps = ASR_SHORT_LINE_CATCHUP_MAX_BURST,
+  ): {
+    eligible: boolean;
+    reason: string;
+    burstTargetLine: number | null;
+    acceptedLineGap: number;
+    shortSpeakableLines: number;
+  } => {
+    const current = Math.max(0, Math.floor(Number(currentLineIdx) || 0));
+    const accepted = Math.max(0, Math.floor(Number(acceptedLineIdx) || 0));
+    const gap = Math.max(0, accepted - current);
+    if (gap < ASR_SHORT_LINE_CATCHUP_MIN_GAP) {
+      return { eligible: false, reason: 'gap_too_small', burstTargetLine: null, acceptedLineGap: gap, shortSpeakableLines: 0 };
+    }
+    if (gap > ASR_SHORT_LINE_CATCHUP_MAX_GAP) {
+      return { eligible: false, reason: 'gap_too_large', burstTargetLine: null, acceptedLineGap: gap, shortSpeakableLines: 0 };
+    }
+    const cappedTarget = Math.min(accepted, current + Math.max(1, Math.floor(maxBurstSteps)));
+    let shortSpeakableLines = 0;
+    for (let idx = current + 1; idx <= accepted; idx += 1) {
+      if (!isSpeakableScriptLine(idx)) {
+        return {
+          eligible: false,
+          reason: 'non_speakable_intervening_line',
+          burstTargetLine: null,
+          acceptedLineGap: gap,
+          shortSpeakableLines,
+        };
+      }
+      const tokenCount = normTokens(getLineTextAt(idx)).length;
+      if (tokenCount < 1 || tokenCount > ASR_SHORT_LINE_MAX_TOKENS) {
+        return {
+          eligible: false,
+          reason: 'intervening_line_not_short',
+          burstTargetLine: null,
+          acceptedLineGap: gap,
+          shortSpeakableLines,
+        };
+      }
+      shortSpeakableLines += 1;
+    }
+    if (shortSpeakableLines < 2) {
+      return { eligible: false, reason: 'not_enough_short_lines', burstTargetLine: null, acceptedLineGap: gap, shortSpeakableLines };
+    }
+    return {
+      eligible: cappedTarget > current + 1,
+      reason: cappedTarget > current + 1 ? 'eligible' : 'burst_target_not_forward',
+      burstTargetLine: cappedTarget > current ? cappedTarget : null,
+      acceptedLineGap: gap,
+      shortSpeakableLines,
+    };
+  };
+
+  const shouldAllowAudioStaleShortLineGrace = (args: {
+    currentLineIdx: number;
+    acceptedLineIdx: number;
+    isFinal: boolean;
+    noMatchOrOffscript: boolean;
+    contradiction: boolean;
+    audioChunkAgeMs: number;
+    freshnessLimitMs: number;
+  }): {
+    allow: boolean;
+    reason: string;
+    burstTargetLine: number | null;
+    acceptedLineGap: number;
+    shortSpeakableLines: number;
+  } => {
+    const burst = resolveShortLineCommitBurst(args.currentLineIdx, args.acceptedLineIdx);
+    if (!args.isFinal) {
+      return { allow: false, reason: 'not_final', burstTargetLine: burst.burstTargetLine, acceptedLineGap: burst.acceptedLineGap, shortSpeakableLines: burst.shortSpeakableLines };
+    }
+    if (args.noMatchOrOffscript) {
+      return { allow: false, reason: 'offscript_or_nomatch', burstTargetLine: burst.burstTargetLine, acceptedLineGap: burst.acceptedLineGap, shortSpeakableLines: burst.shortSpeakableLines };
+    }
+    if (args.contradiction) {
+      return { allow: false, reason: 'contradiction', burstTargetLine: burst.burstTargetLine, acceptedLineGap: burst.acceptedLineGap, shortSpeakableLines: burst.shortSpeakableLines };
+    }
+    if (!burst.eligible || burst.burstTargetLine == null) {
+      return { allow: false, reason: burst.reason, burstTargetLine: burst.burstTargetLine, acceptedLineGap: burst.acceptedLineGap, shortSpeakableLines: burst.shortSpeakableLines };
+    }
+    if (!Number.isFinite(args.audioChunkAgeMs) || !Number.isFinite(args.freshnessLimitMs)) {
+      return { allow: false, reason: 'missing_freshness_budget', burstTargetLine: burst.burstTargetLine, acceptedLineGap: burst.acceptedLineGap, shortSpeakableLines: burst.shortSpeakableLines };
+    }
+    if (args.audioChunkAgeMs <= args.freshnessLimitMs) {
+      return { allow: false, reason: 'audio_not_stale', burstTargetLine: burst.burstTargetLine, acceptedLineGap: burst.acceptedLineGap, shortSpeakableLines: burst.shortSpeakableLines };
+    }
+    return {
+      allow: true,
+      reason: 'stale_short_line_forward_grace',
+      burstTargetLine: burst.burstTargetLine,
+      acceptedLineGap: burst.acceptedLineGap,
+      shortSpeakableLines: burst.shortSpeakableLines,
+    };
   };
 
   const findLastSpeakableLineIndex = (): number => {
@@ -18215,6 +18327,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       (detail as { transcriptSeq?: unknown } | null | undefined)?.transcriptSeq ??
       (detail as { seq?: unknown } | null | undefined)?.seq;
     return Number.isFinite(Number(raw)) ? Math.max(0, Math.floor(Number(raw))) : -1;
+  };
+
+  const resolveTranscriptRequestSeq = (detail?: TranscriptDetail): string | null => {
+    const raw =
+      (detail as { requestSeq?: unknown } | null | undefined)?.requestSeq ??
+      (detail as { seq?: unknown } | null | undefined)?.seq;
+    if (typeof raw !== 'string') return null;
+    const normalized = raw.trim();
+    return normalized ? normalized : null;
   };
 
   const resolveTranscriptReceivedAtMs = (detail: TranscriptDetail | undefined, now: number): number => {
@@ -34389,6 +34510,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const vadSpeechFreshNow = hasRecentVadSpeechNow(now);
     const latestSpeechTsForTranscript = Math.max(lastRuntimeSpeechAt || 0, lastVadSpeechAt || 0, lastSpeechRunningActualAtMs || 0);
     const transcriptSeq = resolveTranscriptSeq(detail);
+    const transcriptRequestSeq = resolveTranscriptRequestSeq(detail);
     const transcriptReceivedAtMs = resolveTranscriptReceivedAtMs(detail, now);
     const transcriptResponseAgeMs = Math.max(0, now - transcriptReceivedAtMs);
     const transcriptSpeechAgeMs =
@@ -34444,6 +34566,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       return;
     }
     lastTranscriptSeq = transcriptSeq;
+    lastTranscriptRequestSeq = transcriptRequestSeq || '';
     lastTranscriptReceivedAtMs = transcriptReceivedAtMs;
     lastTranscriptResponseAgeMs = transcriptResponseAgeMs;
     lastTranscriptSpeechAgeMs = transcriptSpeechAgeMs;
@@ -40463,6 +40586,32 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       transcriptRunGeneration: args.transcriptRunGeneration,
     });
   };
+  const debugResolveShortLineCommitBurst = (args: {
+    currentLineIdx: number;
+    acceptedLineIdx: number;
+    maxBurstSteps?: number;
+  }) => resolveShortLineCommitBurst(
+    args.currentLineIdx,
+    args.acceptedLineIdx,
+    args.maxBurstSteps,
+  );
+  const debugShouldAllowAudioStaleShortLineGrace = (args: {
+    currentLineIdx: number;
+    acceptedLineIdx: number;
+    isFinal: boolean;
+    noMatchOrOffscript?: boolean;
+    contradiction?: boolean;
+    audioChunkAgeMs: number;
+    freshnessLimitMs: number;
+  }) => shouldAllowAudioStaleShortLineGrace({
+    currentLineIdx: args.currentLineIdx,
+    acceptedLineIdx: args.acceptedLineIdx,
+    isFinal: args.isFinal,
+    noMatchOrOffscript: args.noMatchOrOffscript === true,
+    contradiction: args.contradiction === true,
+    audioChunkAgeMs: args.audioChunkAgeMs,
+    freshnessLimitMs: args.freshnessLimitMs,
+  });
   const debugEvaluateStabilizerSemanticCommitCandidate = (args: {
     currentLineIdx: number;
     action: AsrEvidenceStabilizerAction;
@@ -41676,6 +41825,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     __debugEvaluateEffectiveTargetSafety: debugEvaluateEffectiveTargetSafety,
     __debugApplyFinalSelectedActuatorStep: debugApplyFinalSelectedActuatorStep,
     __debugEvaluateForwardCommitFreshness: debugEvaluateForwardCommitFreshness,
+    __debugResolveShortLineCommitBurst: debugResolveShortLineCommitBurst,
+    __debugShouldAllowAudioStaleShortLineGrace: debugShouldAllowAudioStaleShortLineGrace,
     __debugEvaluateStabilizerSemanticCommitCandidate: debugEvaluateStabilizerSemanticCommitCandidate,
     __debugEvaluatePostSemanticCommitVisualFollowDiagnostic: debugEvaluatePostSemanticCommitVisualFollowDiagnostic,
     __debugArmPostSemanticCommitVisualRelease: debugArmPostSemanticCommitVisualRelease,
@@ -41915,6 +42066,32 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastAudioChunkAgeMs: number;
       speechFresh: boolean;
       speechActive: boolean;
+    };
+    __debugResolveShortLineCommitBurst(args: {
+      currentLineIdx: number;
+      acceptedLineIdx: number;
+      maxBurstSteps?: number;
+    }): {
+      eligible: boolean;
+      reason: string;
+      burstTargetLine: number | null;
+      acceptedLineGap: number;
+      shortSpeakableLines: number;
+    };
+    __debugShouldAllowAudioStaleShortLineGrace(args: {
+      currentLineIdx: number;
+      acceptedLineIdx: number;
+      isFinal: boolean;
+      noMatchOrOffscript?: boolean;
+      contradiction?: boolean;
+      audioChunkAgeMs: number;
+      freshnessLimitMs: number;
+    }): {
+      allow: boolean;
+      reason: string;
+      burstTargetLine: number | null;
+      acceptedLineGap: number;
+      shortSpeakableLines: number;
     };
     __debugEvaluateStabilizerSemanticCommitCandidate(args: {
       currentLineIdx: number;

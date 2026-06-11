@@ -40,6 +40,31 @@ function bootstrapLiveAsrRuntime(): void {
   }));
 }
 
+function installScriptLines(lines: string[]): void {
+  const script = document.getElementById('script') as HTMLElement;
+  script.innerHTML = lines
+    .map((line, idx) => `<div class="line" data-line="${idx}" style="line-height:24px;">${line}</div>`)
+    .join('');
+  const metrics = lines.map((_, idx) => ({ top: idx * 567, height: 236 }));
+  Array.from(document.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+    const metric = metrics[idx];
+    Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: metric.top });
+    Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: metric.height });
+    Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: metric.height });
+    Object.defineProperty(lineEl, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        top: metric.top,
+        left: 0,
+        right: 800,
+        bottom: metric.top + metric.height,
+        width: 800,
+        height: metric.height,
+      }),
+    });
+  });
+}
+
 type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
   __debugEvaluateStabilizerSemanticCommitCandidate: (args: {
     currentLineIdx: number;
@@ -60,6 +85,32 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     accepted: boolean;
     rejectReason: string;
     proposedAdjacentCommitTarget: number | null;
+  };
+  __debugResolveShortLineCommitBurst: (args: {
+    currentLineIdx: number;
+    acceptedLineIdx: number;
+    maxBurstSteps?: number;
+  }) => {
+    eligible: boolean;
+    reason: string;
+    burstTargetLine: number | null;
+    acceptedLineGap: number;
+    shortSpeakableLines: number;
+  };
+  __debugShouldAllowAudioStaleShortLineGrace: (args: {
+    currentLineIdx: number;
+    acceptedLineIdx: number;
+    isFinal: boolean;
+    noMatchOrOffscript?: boolean;
+    contradiction?: boolean;
+    audioChunkAgeMs: number;
+    freshnessLimitMs: number;
+  }) => {
+    allow: boolean;
+    reason: string;
+    burstTargetLine: number | null;
+    acceptedLineGap: number;
+    shortSpeakableLines: number;
   };
   __debugEvaluatePostSemanticCommitVisualFollowDiagnostic: (args: {
     previousSemanticLineIdx: number;
@@ -6554,6 +6605,94 @@ describe('ASR live commit motion', () => {
 
     expect(result.allow).toBe(false);
     expect(result.reason).toBe('stale_response_invalidated');
+
+    driver.dispose();
+  });
+
+  test('short-line burst resolver bounds catch-up to adjacent internal steps', () => {
+    installScriptLines([
+      'Marker line here',
+      'Just now',
+      'In time',
+      'On track',
+      'Still here',
+      'At dawn',
+    ]);
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    expect(driver.__debugResolveShortLineCommitBurst({
+      currentLineIdx: 0,
+      acceptedLineIdx: 5,
+    })).toMatchObject({
+      eligible: true,
+      reason: 'eligible',
+      burstTargetLine: 4,
+      acceptedLineGap: 5,
+      shortSpeakableLines: 5,
+    });
+
+    driver.dispose();
+  });
+
+  test('stale strong forward short-line final gets bounded freshness grace', () => {
+    installScriptLines([
+      'Marker line here',
+      'Just now',
+      'In time',
+      'On track',
+      'Still here',
+      'At dawn',
+    ]);
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    expect(driver.__debugShouldAllowAudioStaleShortLineGrace({
+      currentLineIdx: 0,
+      acceptedLineIdx: 5,
+      isFinal: true,
+      audioChunkAgeMs: 1600,
+      freshnessLimitMs: 800,
+    })).toMatchObject({
+      allow: true,
+      reason: 'stale_short_line_forward_grace',
+      burstTargetLine: 4,
+      acceptedLineGap: 5,
+    });
+
+    driver.dispose();
+  });
+
+  test('stale backward or contradictory short-line transcript still rejects grace', () => {
+    installScriptLines([
+      'Marker line here',
+      'Just now',
+      'In time',
+      'On track',
+      'Still here',
+    ]);
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    expect(driver.__debugShouldAllowAudioStaleShortLineGrace({
+      currentLineIdx: 3,
+      acceptedLineIdx: 2,
+      isFinal: true,
+      audioChunkAgeMs: 1600,
+      freshnessLimitMs: 800,
+    })).toMatchObject({
+      allow: false,
+      reason: 'gap_too_small',
+    });
+
+    expect(driver.__debugShouldAllowAudioStaleShortLineGrace({
+      currentLineIdx: 0,
+      acceptedLineIdx: 4,
+      isFinal: true,
+      contradiction: true,
+      audioChunkAgeMs: 1600,
+      freshnessLimitMs: 800,
+    })).toMatchObject({
+      allow: false,
+      reason: 'contradiction',
+    });
 
     driver.dispose();
   });
