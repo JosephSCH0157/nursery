@@ -53,6 +53,8 @@ export interface EvaluateAcceptedLocalLagWindowResult {
   coherenceReason: string;
 }
 
+const PERSISTENT_SAFE_DEBT_OBSERVATION_THRESHOLD = 4;
+
 export function evaluateAcceptedLocalLagWindow(
   input: EvaluateAcceptedLocalLagWindowInput,
 ): EvaluateAcceptedLocalLagWindowResult {
@@ -138,6 +140,10 @@ export function decideAsrVisualDebtCatchup(
     input.commitCount >= 2 &&
     Number.isFinite(input.postCommitGapMs) &&
     input.postCommitGapMs >= requiredGapMs;
+  const persistentSafeDebtOverride =
+    reducedGapEligible &&
+    input.commitCount >= 2 &&
+    input.consecutiveDebtObservations >= PERSISTENT_SAFE_DEBT_OBSERVATION_THRESHOLD;
 
   if (!input.significantVisualDebtActive) {
     return {
@@ -335,6 +341,19 @@ export function decideAsrVisualDebtCatchup(
     };
   }
   if (!gapSatisfied) {
+    if (persistentSafeDebtOverride) {
+      return {
+        allowed: true,
+        blockedReason: '',
+        decisionReason: 'persistent_safe_visual_debt_override',
+        requiredGapMs,
+        reducedGapEligible,
+        recentSafeCommitAgeMs: input.postCommitGapMs,
+        targetNonBackward,
+        farTarget,
+        currentCommittedCoherent,
+      };
+    }
     return {
       allowed: false,
       blockedReason: 'awaiting_commit_gap_window',

@@ -56,6 +56,21 @@ describe('ASR visual debt catch-up gate', () => {
     expect(decision.reducedGapEligible).toBe(true);
   });
 
+  test('allows persistent locally safe debt to break out of the post-commit gap hold', () => {
+    const decision = decideAsrVisualDebtCatchup(makeInput({
+      consecutiveDebtObservations: 5,
+      postCommitGapMs: 7,
+      targetLine: 1,
+      currentLine: 1,
+      committedLine: 1,
+    }));
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.decisionReason).toBe('persistent_safe_visual_debt_override');
+    expect(decision.requiredGapMs).toBe(140);
+    expect(decision.reducedGapEligible).toBe(true);
+  });
+
   test('still blocks no-match or off-script cases', () => {
     const decision = decideAsrVisualDebtCatchup(makeInput({
       noMatchOrOffscript: true,
