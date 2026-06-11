@@ -141,14 +141,65 @@ test("nodeHeadersToFetch strips cookies and browser noise from whisper bridge re
     "user-agent": "browser-noise",
     "sec-fetch-mode": "cors",
     "x-forge-user-token": "forge-user-token",
+    "x-whisper-request-seq": "17",
   });
 
-  assert.equal(headers.get("authorization"), "Bearer test-access-token");
   assert.equal(headers.get("content-type"), "multipart/form-data; boundary=test");
   assert.equal(headers.get("x-forge-user-token"), "forge-user-token");
+  assert.equal(headers.get("x-whisper-request-seq"), "17");
+  assert.equal(headers.get("authorization"), null);
   assert.equal(headers.get("cookie"), null);
   assert.equal(headers.get("user-agent"), null);
   assert.equal(headers.get("sec-fetch-mode"), null);
+});
+
+test("createAnvilWhisperHandler rejects oversized local incoming headers before upstream call", async () => {
+  const originalFetch = globalThis.fetch;
+  let openAiCalls = 0;
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({ id: TEST_USER_ID }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://api.openai.com/v1/audio/transcriptions") {
+      openAiCalls += 1;
+      return new Response(JSON.stringify({ text: "should-not-run" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch call in test: ${url} ${init?.method ?? "GET"}`);
+  };
+
+  try {
+    const handler = createAnvilWhisperHandler(buildConfig({
+      apiKey: "forge-key",
+      supabaseUrl: "https://runtime-test.supabase.co",
+      supabaseServiceRoleKey: "service-role",
+    }));
+    const oversizedCookie = `a=${"x".repeat(14_000)}`;
+    const response = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${"y".repeat(2048)}`,
+        cookie: oversizedCookie,
+        "x-whisper-request-seq": "91",
+      },
+      body: buildChunkFormData(),
+    }));
+
+    assert.equal(response.status, 431);
+    const payload = await response.json();
+    assert.equal(payload.ok, false);
+    assert.equal(payload.code, "whisper_local_header_overflow");
+    assert.equal(openAiCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("Netlify whisper function matches direct handler output", async () => {
@@ -264,7 +315,7 @@ test("createAnvilWhisperHandler retries unsupported audio through forge-ffmpeg f
   }
 });
 
-test("createAnvilWhisperHandler classifies OpenAI 431 as whisper_bridge_header_overflow", async () => {
+test("createAnvilWhisperHandler classifies OpenAI 431 as whisper_upstream_header_overflow", async () => {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = async (input, init) => {
@@ -295,16 +346,17 @@ test("createAnvilWhisperHandler classifies OpenAI 431 as whisper_bridge_header_o
       supabaseUrl: "https://runtime-test.supabase.co",
       supabaseServiceRoleKey: "service-role",
     }));
+    const form = buildChunkFormData();
+    form.set("user_access_token", "test-access-token");
     const response = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
       method: "POST",
-      headers: { authorization: "Bearer test-access-token" },
-      body: buildChunkFormData(),
+      body: form,
     }));
 
     assert.equal(response.status, 431);
     const payload = await response.json();
     assert.equal(payload.ok, false);
-    assert.equal(payload.code, "whisper_bridge_header_overflow");
+    assert.equal(payload.code, "whisper_upstream_header_overflow");
     assert.equal(payload.upstream_status, 431);
   } finally {
     globalThis.fetch = originalFetch;

@@ -9,11 +9,57 @@ import {
 type Next = (err?: unknown) => void;
 
 const FORWARDED_WHISPER_HEADER_ALLOWLIST = new Set([
-  "authorization",
   "content-type",
+  "x-whisper-request-seq",
   "x-forge-user-authorization",
   "x-forge-user-token",
 ]);
+
+const LOCAL_WHISPER_HEADER_LIMIT_BYTES = 12 * 1024;
+
+function estimateNodeHeaderBytes(headers: IncomingMessage["headers"]): number {
+  let total = 0;
+  for (const [key, value] of Object.entries(headers)) {
+    if (value == null) continue;
+    const values = Array.isArray(value) ? value : [value];
+    for (const one of values) {
+      total += Buffer.byteLength(key, "utf8");
+      total += Buffer.byteLength(String(one), "utf8");
+      total += 4;
+    }
+  }
+  return total;
+}
+
+function summarizeNodeHeaders(headers: IncomingMessage["headers"]): Array<{ name: string; bytes: number }> {
+  return Object.entries(headers)
+    .filter(([, value]) => value != null)
+    .map(([key, value]) => ({
+      name: key.toLowerCase(),
+      bytes: (Array.isArray(value) ? value : [value]).reduce((total, one) => total + Buffer.byteLength(String(one), "utf8"), 0),
+    }))
+    .sort((a, b) => b.bytes - a.bytes)
+    .slice(0, 5);
+}
+
+function writeLocalHeaderOverflow(res: ServerResponse, args: {
+  error: string;
+  code: string;
+  detail: string;
+}): void {
+  const body = Buffer.from(JSON.stringify({
+    ok: false,
+    text: "",
+    error: args.error,
+    code: args.code,
+    detail: args.detail,
+  }));
+  res.statusCode = 431;
+  res.setHeader("content-type", "application/json; charset=utf-8");
+  res.setHeader("cache-control", "no-store");
+  res.setHeader("content-length", String(body.length));
+  res.end(body);
+}
 
 function readBody(req: IncomingMessage): Promise<Uint8Array | undefined> {
   const method = (req.method || "GET").toUpperCase();
@@ -72,6 +118,49 @@ export function mwAnvilWhisperApi() {
 
       if (fullUrl.pathname !== ANVIL_WHISPER_ROUTE) {
         next();
+        return;
+      }
+
+      const totalHeaderBytes = estimateNodeHeaderBytes(req.headers);
+      const cookieValue = req.headers.cookie;
+      const cookieBytes = cookieValue == null
+        ? 0
+        : (Array.isArray(cookieValue) ? cookieValue : [cookieValue]).reduce((total, one) => total + Buffer.byteLength(String(one), "utf8"), 0);
+      const authorizationValue = req.headers.authorization;
+      const authorizationBytes = authorizationValue == null
+        ? 0
+        : (Array.isArray(authorizationValue) ? authorizationValue : [authorizationValue]).reduce((total, one) => total + Buffer.byteLength(String(one), "utf8"), 0);
+      const contentTypeValue = req.headers["content-type"];
+      const contentTypeBytes = contentTypeValue == null
+        ? 0
+        : (Array.isArray(contentTypeValue) ? contentTypeValue : [contentTypeValue]).reduce((total, one) => total + Buffer.byteLength(String(one), "utf8"), 0);
+      const requestSeq = Array.isArray(req.headers["x-whisper-request-seq"])
+        ? req.headers["x-whisper-request-seq"][0]
+        : req.headers["x-whisper-request-seq"];
+      try {
+        console.info("[ASR_WHISPER_LOCAL_INCOMING_HEADER_BUDGET]", {
+          boundary: "vite_middleware",
+          headerNames: Object.keys(req.headers).map((key) => key.toLowerCase()).sort(),
+          totalHeaderBytes,
+          largestHeaderNames: summarizeNodeHeaders(req.headers),
+          hasCookie: cookieBytes > 0,
+          cookieBytes,
+          hasAuthorization: authorizationBytes > 0,
+          authorizationBytes,
+          contentTypeBytes,
+          contentLength: req.headers["content-length"] ?? null,
+          requestUrl: fullUrl.toString(),
+          requestSeq: typeof requestSeq === "string" ? requestSeq : null,
+        });
+      } catch {
+        // ignore logging failures
+      }
+      if (totalHeaderBytes > LOCAL_WHISPER_HEADER_LIMIT_BYTES) {
+        writeLocalHeaderOverflow(res, {
+          error: "Local whisper request headers are too large.",
+          code: "whisper_local_header_overflow",
+          detail: `Local whisper route rejected oversized incoming headers (${totalHeaderBytes} bytes).`,
+        });
         return;
       }
 

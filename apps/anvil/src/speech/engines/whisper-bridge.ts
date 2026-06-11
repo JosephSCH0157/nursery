@@ -137,6 +137,10 @@ function readNonEmptyString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function estimateHeaderBytesFromRecord(headers: Record<string, string>): number {
+  return Object.entries(headers).reduce((total, [key, value]) => total + key.length + value.length + 4, 0);
+}
+
 function logWhisperLanguageNormalization(raw: unknown, normalized: string | null): void {
   if (!isDevAuthLoggingEnabled()) return;
   try {
@@ -193,9 +197,28 @@ function isWhisperBridgeHeaderOverflowError(error: unknown): boolean {
   const upstreamMessage = String(error.payload?.upstream_message || "").toLowerCase();
   return (
     code === "whisper_bridge_header_overflow"
+    || code === "whisper_local_header_overflow"
+    || code === "whisper_upstream_header_overflow"
+    || code === "whisper_unknown_header_overflow"
     || message.includes("request header fields too large")
     || upstreamMessage.includes("request header fields too large")
   );
+}
+
+function classifyWhisperBridgeHeaderOverflow(
+  error: unknown,
+): "whisper_local_header_overflow" | "whisper_upstream_header_overflow" | "whisper_unknown_header_overflow" | null {
+  if (!(error instanceof WhisperBridgeHttpError)) return null;
+  const code = String(error.payload?.code || "").toLowerCase();
+  if (
+    code === "whisper_local_header_overflow"
+    || code === "whisper_upstream_header_overflow"
+    || code === "whisper_unknown_header_overflow"
+  ) {
+    return code;
+  }
+  if (error.status === 431) return "whisper_unknown_header_overflow";
+  return null;
 }
 
 function isUnsupportedAudioError(error: unknown): boolean {
@@ -1430,7 +1453,7 @@ class WhisperBridgeRecognizer {
             source: SOURCE,
             message,
             timestamp: nowTs(),
-            code: upstreamPayload?.code ?? (isWhisperBridgeHeaderOverflowError(error) ? "whisper_bridge_header_overflow" : null),
+            code: upstreamPayload?.code ?? classifyWhisperBridgeHeaderOverflow(error) ?? (isWhisperBridgeHeaderOverflowError(error) ? "whisper_unknown_header_overflow" : null),
             provider: upstreamPayload?.provider ?? null,
             modelId: upstreamPayload?.model_id ?? null,
             asrLane: upstreamPayload?.asr_lane ?? null,
@@ -1626,6 +1649,8 @@ class WhisperBridgeRecognizer {
       form.set("prompt", prompt);
     }
     form.set("asr_lane", this.asrLane);
+    form.set("request_seq", String(seq));
+    form.set("user_access_token", accessToken);
     if (this.modelHint) {
       form.set("model_hint", this.modelHint);
     }
@@ -1673,11 +1698,23 @@ class WhisperBridgeRecognizer {
     }
     let response: Response;
     try {
+      const explicitHeaders: Record<string, string> = {
+        "x-whisper-request-seq": String(seq),
+      };
+      try {
+        console.info("[ASR_WHISPER_CLIENT_UPLOAD_BUDGET]", {
+          seq,
+          blobSize: blob.size,
+          queueDepth: queueDepthBefore,
+          credentialsMode: "omit",
+          explicitlySetHeaderNames: Object.keys(explicitHeaders),
+          estimatedExplicitHeaderBytes: estimateHeaderBytesFromRecord(explicitHeaders),
+          hasCookieHeader: Object.prototype.hasOwnProperty.call(explicitHeaders, "cookie"),
+        });
+      } catch {}
       response = await fetch(this.route, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
+        headers: explicitHeaders,
         body: form,
         cache: "no-store",
         credentials: "omit",

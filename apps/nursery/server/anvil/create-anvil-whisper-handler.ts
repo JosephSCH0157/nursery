@@ -37,6 +37,7 @@ const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const DEFAULT_MODEL = "gpt-4o-mini-transcribe";
 const MISSING_OPENAI_API_KEY_ERROR = "Missing OPENAI_TEXT_API_KEY (or OPENAI_API_KEY) in server env";
 const HUGGINGFACE_UPSTREAM_TIMEOUT_MS = 30_000;
+const LOCAL_WHISPER_HEADER_LIMIT_BYTES = 12 * 1024;
 
 export type AnvilWhisperRuntimeConfig = {
   apiKey: string | null;
@@ -234,26 +235,40 @@ function estimateHeaderBytes(headers: Headers): number {
   return total;
 }
 
-function logWhisperHeaderBudget(args: {
-  headerNames: string[];
-  totalHeaderBytes: number;
+function logWhisperUpstreamHeaderBudget(args: {
+  forwardedHeaderNames: string[];
+  totalForwardedHeaderBytes: number;
   authHeaderPresent: boolean;
   authHeaderLength: number;
+  contentTypeMode: "runtime-generated" | "manually-set";
   resolverSource: string | null;
+  requestSeq: string | null;
   rejectedReason?: string | null;
 }): void {
   try {
-    console.info("[ASR_WHISPER_HEADER_BUDGET]", {
-      headerNames: args.headerNames,
-      totalHeaderBytes: args.totalHeaderBytes,
+    console.info("[ASR_WHISPER_UPSTREAM_HEADER_BUDGET]", {
+      forwardedHeaderNames: args.forwardedHeaderNames,
+      totalForwardedHeaderBytes: args.totalForwardedHeaderBytes,
       authHeaderPresent: args.authHeaderPresent,
       authHeaderLength: args.authHeaderLength,
+      contentTypeMode: args.contentTypeMode,
       resolverSource: args.resolverSource,
+      requestSeq: args.requestSeq,
       rejectedReason: args.rejectedReason ?? null,
     });
   } catch {
     // ignore logging failures
   }
+}
+
+function summarizeHeaderLengths(headers: Headers): Array<{ name: string; bytes: number }> {
+  return Array.from(headers.entries())
+    .map(([name, value]) => ({
+      name: name.toLowerCase(),
+      bytes: Buffer.byteLength(value, "utf8"),
+    }))
+    .sort((a, b) => b.bytes - a.bytes)
+    .slice(0, 5);
 }
 
 function normalizeHuggingFaceModelId(modelId: string): string {
@@ -382,7 +397,8 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
       })
     : null;
 
-  function readUserAccessToken(headers: Headers): string | null {
+  function readUserAccessToken(headers: Headers, bodyToken?: string | null): string | null {
+    if (bodyToken) return bodyToken;
     const explicitToken = readBearerToken(headers.get("x-forge-user-token"));
     if (explicitToken) return explicitToken;
     const forgeAuth = readBearerToken(headers.get("x-forge-user-authorization"));
@@ -395,6 +411,39 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
       const url = new URL(request.url);
       if (url.pathname !== ANVIL_WHISPER_ROUTE) {
         return jsonResponse(404, { ok: false, text: "", error: "Not found" });
+      }
+
+      const requestSeq = readOptionalString(request.headers.get("x-whisper-request-seq"));
+      const totalHeaderBytes = estimateHeaderBytes(request.headers);
+      const cookieBytes = Buffer.byteLength(request.headers.get("cookie") ?? "", "utf8");
+      const authorizationBytes = Buffer.byteLength(request.headers.get("authorization") ?? "", "utf8");
+      const contentTypeBytes = Buffer.byteLength(request.headers.get("content-type") ?? "", "utf8");
+      try {
+        console.info("[ASR_WHISPER_LOCAL_INCOMING_HEADER_BUDGET]", {
+          boundary: "handler_request",
+          headerNames: Array.from(request.headers.keys()).map((name) => name.toLowerCase()).sort(),
+          totalHeaderBytes,
+          largestHeaderNames: summarizeHeaderLengths(request.headers),
+          hasCookie: cookieBytes > 0,
+          cookieBytes,
+          hasAuthorization: authorizationBytes > 0,
+          authorizationBytes,
+          contentTypeBytes,
+          contentLength: request.headers.get("content-length"),
+          requestUrl: request.url,
+          requestSeq,
+        });
+      } catch {
+        // ignore logging failures
+      }
+      if (totalHeaderBytes > LOCAL_WHISPER_HEADER_LIMIT_BYTES) {
+        return jsonResponse(431, {
+          ok: false,
+          text: "",
+          error: "Local whisper request headers are too large.",
+          code: "whisper_local_header_overflow",
+          detail: `Local whisper route rejected oversized incoming headers (${totalHeaderBytes} bytes).`,
+        });
       }
 
       const method = (request.method || "GET").toUpperCase();
@@ -449,7 +498,8 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         configuredBillingMode === AI_USAGE_LANE.BYO
         || laneHint === AI_USAGE_LANE.BYO
       );
-      const userAccessToken = readUserAccessToken(request.headers);
+      const bodyUserAccessToken = readOptionalString(formData.get("user_access_token"));
+      const userAccessToken = readUserAccessToken(request.headers, bodyUserAccessToken);
       const userId = await resolveUserIdFromAccessToken({
         supabaseService,
         accessToken: userAccessToken,
@@ -566,6 +616,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
       const language = readOptionalString(formData.get("language"));
       const prompt = readOptionalString(formData.get("prompt"));
       const asrLane = readOptionalString(formData.get("asr_lane"));
+      const resolvedRequestSeq = readOptionalString(formData.get("request_seq")) ?? requestSeq;
       const requestSttModel =
         (asrLane || "").toUpperCase() === "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL"
           ? asr2SttModel
@@ -617,12 +668,14 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         const upstreamHeaders = new Headers({
           authorization: `Bearer ${effectiveApiKey}`,
         });
-        logWhisperHeaderBudget({
-          headerNames: Array.from(upstreamHeaders.keys()),
-          totalHeaderBytes: estimateHeaderBytes(upstreamHeaders),
+        logWhisperUpstreamHeaderBudget({
+          forwardedHeaderNames: Array.from(upstreamHeaders.keys()),
+          totalForwardedHeaderBytes: estimateHeaderBytes(upstreamHeaders),
           authHeaderPresent: true,
           authHeaderLength: upstreamHeaders.get("authorization")?.length ?? 0,
+          contentTypeMode: "runtime-generated",
           resolverSource,
+          requestSeq: resolvedRequestSeq,
         });
         try {
           upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
@@ -940,7 +993,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
                     : upstream.status === 404 ? "hf_upstream_404"
                       : "hf_upstream_error"
             )
-            : (isWhisperHeaderOverflow ? "whisper_bridge_header_overflow" : undefined);
+            : (isWhisperHeaderOverflow ? "whisper_upstream_header_overflow" : undefined);
           const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
           const responseDetail = ffmpegFallbackError
             ? `${detail}\n\n[forge-ffmpeg fallback] ${ffmpegFallbackError}`
@@ -949,13 +1002,15 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             const upstreamHeaders = new Headers({
               authorization: `Bearer ${effectiveApiKey}`,
             });
-            logWhisperHeaderBudget({
-              headerNames: Array.from(upstreamHeaders.keys()),
-              totalHeaderBytes: estimateHeaderBytes(upstreamHeaders),
+            logWhisperUpstreamHeaderBudget({
+              forwardedHeaderNames: Array.from(upstreamHeaders.keys()),
+              totalForwardedHeaderBytes: estimateHeaderBytes(upstreamHeaders),
               authHeaderPresent: true,
               authHeaderLength: upstreamHeaders.get("authorization")?.length ?? 0,
+              contentTypeMode: "runtime-generated",
               resolverSource,
-              rejectedReason: "whisper_bridge_header_overflow",
+              requestSeq: resolvedRequestSeq,
+              rejectedReason: "whisper_upstream_header_overflow",
             });
           }
           await recordAiUsageEvent({

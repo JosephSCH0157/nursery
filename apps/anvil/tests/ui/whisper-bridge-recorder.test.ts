@@ -298,6 +298,77 @@ describe('whisper bridge recorder segmentation', () => {
     await flushMicrotasks();
   });
 
+  test('drops upstream header-overflow chunks and continues with later segments', async () => {
+    jest.doMock('../../src/forge/supabaseClient', () => ({
+      supabase: {
+        auth: {
+          getSession: jest.fn(async () => ({
+            data: {
+              session: {
+                access_token: 'test-access-token',
+              },
+            },
+            error: null,
+          })),
+        },
+      },
+    }));
+
+    const recorderInstances = installMockRecorder();
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(createMockJsonResponse(431, {
+        ok: false,
+        error: 'Request headers are too large.',
+        code: 'whisper_upstream_header_overflow',
+        upstream_status: 431,
+        upstream_message: 'Request headers are too large.',
+      }))
+      .mockResolvedValueOnce(createMockJsonResponse(200, {
+        ok: true,
+        text: 'Recovered after header overflow',
+        provider_request_id: 'req_after_header_overflow',
+      }));
+    (globalThis as any).fetch = fetchMock;
+
+    const inputStream = new MockMediaStream([new MockTrack()]);
+    (window as any).__tpMic = {
+      requestMic: jest.fn(async () => inputStream),
+    };
+
+    const { createWhisperBridgeRecognizer } = await import('../../src/speech/engines/whisper-bridge');
+    const recognizer = createWhisperBridgeRecognizer({ endpointingMs: 100 });
+    const finalPayloads: Array<{ text?: string }> = [];
+    const errorPayloads: Array<{ code?: string | null }> = [];
+
+    recognizer.on('final', (payload) => {
+      finalPayloads.push(payload as { text?: string });
+    });
+    recognizer.on('error', (payload) => {
+      errorPayloads.push(payload as { code?: string | null });
+    });
+
+    await recognizer.start();
+    recorderInstances[0]?.ondataavailable?.({
+      data: new Blob([new Uint8Array(4096)], { type: 'audio/webm' }),
+      timecode: 1000,
+    } as BlobEvent);
+    await flushMicrotasks();
+
+    recorderInstances[0]?.ondataavailable?.({
+      data: new Blob([new Uint8Array(4096)], { type: 'audio/webm' }),
+      timecode: 2000,
+    } as BlobEvent);
+    await flushMicrotasks();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(errorPayloads.some((payload) => payload.code === 'whisper_upstream_header_overflow')).toBe(true);
+    expect(finalPayloads).toHaveLength(1);
+    expect(finalPayloads[0]?.text).toBe('Recovered after header overflow');
+
+    recognizer.stop();
+    await flushMicrotasks();
+  });
+
   test('drops stale in-flight whisper responses after stop and logs stale-drop marker', async () => {
     jest.doMock('../../src/forge/supabaseClient', () => ({
       supabase: {
