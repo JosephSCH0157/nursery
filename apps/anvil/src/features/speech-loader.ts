@@ -2072,9 +2072,17 @@ function scheduleAcceptedTranscriptNoCommitDiagnostic(payload: TranscriptPayload
     const requestSeq = typeof requestSeqRaw === 'string' && String(requestSeqRaw).trim()
       ? String(requestSeqRaw).trim()
       : null;
+    const shortLineCatchupDeniedReasonMatch = rawBlockedReason.match(/short_line_staged_catchup_not_selected:([a-z0-9_:-]+)/i);
+    const deniedReason = shortLineCatchupDeniedReasonMatch?.[1]
+      ? String(shortLineCatchupDeniedReasonMatch[1]).trim()
+      : null;
     let blockedReason = rawBlockedReason;
     if (rawBlockedReasonLower.includes('audio_chunk_stale')) {
       blockedReason = 'commit_freshness_blocked_audio_chunk_stale';
+    } else if (rawBlockedReasonLower.includes('short_line_staged_catchup_not_selected')) {
+      blockedReason = deniedReason
+        ? `short_line_staged_catchup_not_selected:${deniedReason}`
+        : 'short_line_staged_catchup_not_selected';
     } else if (duplicate) {
       blockedReason = 'duplicate_final_suppressed';
     } else if (forward === true && local === false) {
@@ -2105,6 +2113,7 @@ function scheduleAcceptedTranscriptNoCommitDiagnostic(payload: TranscriptPayload
         freshnessLimitMs,
         transcriptSeq,
         requestSeq,
+        deniedReason,
         blockedReason,
         commitCountBefore,
         commitCountAfter,

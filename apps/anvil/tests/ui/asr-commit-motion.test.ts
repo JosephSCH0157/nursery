@@ -96,6 +96,8 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     burstTargetLine: number | null;
     acceptedLineGap: number;
     shortSpeakableLines: number;
+    averageWordsPerInterveningLine: number;
+    shortLineDense: boolean;
   };
   __debugShouldAllowAudioStaleShortLineGrace: (args: {
     currentLineIdx: number;
@@ -105,12 +107,20 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     contradiction?: boolean;
     audioChunkAgeMs: number;
     freshnessLimitMs: number;
+    matchConfidence?: number;
+    repeatedForwardProofCount?: number;
+    terminalClampUnsafe?: boolean;
   }) => {
     allow: boolean;
     reason: string;
     burstTargetLine: number | null;
     acceptedLineGap: number;
     shortSpeakableLines: number;
+    averageWordsPerInterveningLine: number;
+    shortLineDense: boolean;
+    repeatedForwardProofCount: number;
+    selectedLane: string;
+    deniedReason: string | null;
   };
   __debugEvaluatePostSemanticCommitVisualFollowDiagnostic: (args: {
     previousSemanticLineIdx: number;
@@ -592,6 +602,23 @@ describe('ASR live commit motion', () => {
     expect(flagProofLine).toContain('resolvedOwnerEnabled=1');
     expect(flagProofLine).toContain('ownerFlagReadFrom=url');
     expect(flagProofLine).toContain('ownerFlagSource=url:asr_visual_chairperson=true');
+
+    driver.dispose();
+    window.history.replaceState({}, '', '/');
+  });
+
+  test('auto-enables chairperson ownership for dev teleprompter script runs', () => {
+    window.history.replaceState({}, '', '/?dev=1&open=script');
+    (window as any).__TP_BUILD_STAMP = 'asr-scroll-2026-06-12T22:40:00.000Z';
+    const driver = createAsrScrollDriver({ runKey: 'chair-owner-open-script-run', runGeneration: 6 });
+
+    const lines = consoleInfoSpy.mock.calls.map((c) => String(c[0] || ''));
+    const proofLine = lines.find((line) => line.includes('ASR_VISUAL_CONTROL_RUNTIME_PROOF')) || '';
+    const flagProofLine = lines.find((line) => line.includes('ASR_CHAIRPERSON_FLAG_PROOF') && line.includes('flagEvaluationLocation=driver_creation')) || '';
+    expect(proofLine).toContain('liveTargetOwnership=1');
+    expect(flagProofLine).toContain('resolvedOwnerEnabled=1');
+    expect(flagProofLine).toContain('ownerFlagSource=default:dev_open_script_auto_owner');
+    expect(flagProofLine).toContain('ownerDisabledReason=none');
 
     driver.dispose();
     window.history.replaceState({}, '', '/');
@@ -6609,6 +6636,75 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test('fresh transcript with local safe debt and legacy caps applies bounded forward recovery instead of zero motion', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const leadPressureResult = driver.__debugEvaluateAsrVisualAuthorityLeadPressure({
+      currentLineIdx: 91,
+      committedLineIdx: 91,
+      targetLineIdx: 92,
+      currentScrollTop: 6098,
+      proposedScrollTop: 6222,
+      targetScrollTop: 6222,
+      lineHeightPx: 56,
+      maxScrollTop: 9000,
+      speechFresh: true,
+      finalFresh: true,
+      markerY: 390,
+      currentLineViewportY: 515,
+      matchedLineViewportY: 923,
+      matchedMarkerErrorPx: 532,
+      matchBestIdx: 97,
+      matchBestSim: 0.572,
+      spokenLineIdx: 92,
+      normalCappedScrollTopOverride: 6098,
+    });
+
+    expect(leadPressureResult.floorApplied).toBe(false);
+    expect(leadPressureResult.appliedTop).toBe(6098);
+    expect(leadPressureResult.movedPx).toBe(0);
+
+    const deadlockArgs = {
+      currentLineIdx: 91,
+      committedLineIdx: 91,
+      authoritativeLineIdx: 91,
+      candidateLineIdx: 92,
+      currentScrollTop: 6098,
+      proposedScrollTop: 6222,
+      cappedScrollTop: 6098,
+      lineHeightPx: 56,
+      maxScrollTop: 9000,
+      speakableLead: 6,
+      renderedLead: 6,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_tiny_or_noisy_delta',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+      finalFresh: true,
+      markerY: 390,
+      currentLineViewportY: 515,
+      matchedLineViewportY: 923,
+      matchedMarkerErrorPx: 532,
+      lastVisualProgressAgeMs: 1400,
+    } as const;
+
+    driver.__debugEvaluateAsrVisualDeadlockEscape(deadlockArgs);
+    driver.__debugEvaluateAsrVisualDeadlockEscape(deadlockArgs);
+    const deadlockResult = driver.__debugEvaluateAsrVisualDeadlockEscape(deadlockArgs);
+
+    expect(deadlockResult.recoveryMode).toBe('visual_debt_flatline');
+    expect(deadlockResult.escapeApplied).toBe(true);
+    expect(deadlockResult.rejectReason).toBe('none');
+    expect(deadlockResult.deltaScrollTop).toBeGreaterThan(0);
+    expect(deadlockResult.deltaScrollTop).toBeLessThanOrEqual(56);
+    expect(deadlockResult.visualDebtPx).toBeGreaterThan(100);
+    expect(deadlockResult.matchedMarkerErrorPx).toBeGreaterThanOrEqual(500);
+
+    driver.dispose();
+  });
+
   test('short-line burst resolver bounds catch-up to adjacent internal steps', () => {
     installScriptLines([
       'Marker line here',
@@ -6626,9 +6722,11 @@ describe('ASR live commit motion', () => {
     })).toMatchObject({
       eligible: true,
       reason: 'eligible',
-      burstTargetLine: 4,
+      burstTargetLine: 3,
       acceptedLineGap: 5,
       shortSpeakableLines: 5,
+      averageWordsPerInterveningLine: 2,
+      shortLineDense: true,
     });
 
     driver.dispose();
@@ -6651,11 +6749,16 @@ describe('ASR live commit motion', () => {
       isFinal: true,
       audioChunkAgeMs: 1600,
       freshnessLimitMs: 800,
+      matchConfidence: 0.91,
+      repeatedForwardProofCount: 2,
     })).toMatchObject({
       allow: true,
       reason: 'stale_short_line_forward_grace',
-      burstTargetLine: 4,
+      burstTargetLine: 3,
       acceptedLineGap: 5,
+      shortLineDense: true,
+      selectedLane: 'short_line_staged_catchup',
+      deniedReason: null,
     });
 
     driver.dispose();
@@ -6692,6 +6795,48 @@ describe('ASR live commit motion', () => {
     })).toMatchObject({
       allow: false,
       reason: 'contradiction',
+    });
+
+    expect(driver.__debugShouldAllowAudioStaleShortLineGrace({
+      currentLineIdx: 0,
+      acceptedLineIdx: 4,
+      isFinal: true,
+      noMatchOrOffscript: true,
+      audioChunkAgeMs: 1600,
+      freshnessLimitMs: 800,
+      matchConfidence: 0.92,
+      repeatedForwardProofCount: 3,
+    })).toMatchObject({
+      allow: false,
+      reason: 'offscript_or_nomatch',
+    });
+
+    driver.dispose();
+  });
+
+  test('normal paragraph region does not select short-line staged catchup', () => {
+    installScriptLines([
+      'Marker line here',
+      'This line carries a longer sentence structure.',
+      'Another substantial sentence keeps the region paragraph dense.',
+      'A third line continues the paragraph rhythm.',
+      'Still another long line remains here.',
+    ]);
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    expect(driver.__debugShouldAllowAudioStaleShortLineGrace({
+      currentLineIdx: 0,
+      acceptedLineIdx: 4,
+      isFinal: true,
+      audioChunkAgeMs: 1600,
+      freshnessLimitMs: 800,
+      matchConfidence: 0.96,
+      repeatedForwardProofCount: 3,
+    })).toMatchObject({
+      allow: false,
+      reason: 'intervening_line_not_short',
+      selectedLane: 'none',
+      deniedReason: 'intervening_line_not_short',
     });
 
     driver.dispose();

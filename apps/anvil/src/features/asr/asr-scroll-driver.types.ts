@@ -28,6 +28,11 @@ export type TranscriptDetail = {
   receivedAtMs?: number | null;
   responseCreatedAtMs?: number | null;
   responseAgeMs?: number | null;
+  transcriptResponseAgeMs?: number | null;
+  transcriptSpeechAgeMs?: number | null;
+  transcriptAudioAgeMs?: number | null;
+  transcriptSpeechFresh?: boolean;
+  transcriptSpeechActive?: boolean;
 };
 
 export type PendingMatch = {

@@ -84,7 +84,7 @@ describe('legacy ASR reader overrun hold', () => {
     window.history.replaceState({}, '', '/');
   });
 
-  test('ASR1 visual recovery stays held while the current line is within the 3-line overrun buffer', () => {
+  test('ASR1 visual recovery does not stay held when forward visual debt shows the reader is sinking', () => {
     const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
       __debugObserveAsr4VisualRecoveryCommit(args: {
         currentLine: number;
@@ -129,13 +129,13 @@ describe('legacy ASR reader overrun hold', () => {
       visualSnapSuppressed: true,
     });
 
-    expect(result.applied).toBe(false);
-    expect(result.afterScrollTop).toBe(800);
+    expect(result.applied).toBe(true);
+    expect(result.afterScrollTop).toBeGreaterThan(800);
 
     driver.dispose();
   });
 
-  test('ASR1 pocket drift does not relock while the reader is inside the overrun buffer', () => {
+  test('ASR1 pocket drift does not relock when forward visual debt shows the reader is sinking', () => {
     const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
       __debugObserveAsr4PocketDrift: any;
     };
@@ -166,8 +166,8 @@ describe('legacy ASR reader overrun hold', () => {
       reason: 'reader_overrun_hold_probe_2',
     });
 
-    expect(result.applied).toBe(false);
-    expect(result.afterScrollTop).toBe(650);
+    expect(result.applied).toBe(true);
+    expect(result.afterScrollTop).toBeGreaterThan(650);
 
     driver.dispose();
   });
@@ -201,6 +201,46 @@ describe('legacy ASR reader overrun hold', () => {
       followMode: 'live_asr_follow',
       scrollReason: 'test',
       reason: 'reader_overrun_hold_lane_probe_2',
+    });
+
+    expect(consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_READER_OVERRUN_HOLD'))).toBe(false);
+
+    driver.dispose();
+  });
+
+  test('ASR1 does not enter legacy reader overrun hold when speakable lead shows the reader is sinking', () => {
+    const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
+      __debugObserveAsr4PocketDrift: any;
+    };
+    setRuntimeLane(ASR_LANE_ASR1);
+
+    driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 2,
+      targetLine: 2,
+      nextSpeakableLineIdx: 7,
+      currentScrollTop: 650,
+      targetScrollTop: 980,
+      movedPx: 0,
+      directWriteBlocked: true,
+      targetPreservedForEasing: true,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'reader_overrun_sinking_probe_1',
+    });
+    driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 2,
+      targetLine: 2,
+      nextSpeakableLineIdx: 7,
+      currentScrollTop: 650,
+      targetScrollTop: 980,
+      movedPx: 0,
+      directWriteBlocked: true,
+      targetPreservedForEasing: true,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'reader_overrun_sinking_probe_2',
     });
 
     expect(consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_READER_OVERRUN_HOLD'))).toBe(false);

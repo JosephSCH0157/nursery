@@ -111,6 +111,8 @@ export function resolveAsrChairpersonFlagState(args?: {
   const rawChairpersonValue = normalizeChairpersonFlagValue(params.get('asr_visual_chairperson'));
   const rawOwnerValue = normalizeChairpersonFlagValue(params.get('asr_visual_chairperson_owner'));
   const rawShadowValue = normalizeChairpersonFlagValue(params.get('asr_visual_chairperson_shadow'));
+  const rawDevValue = normalizeChairpersonFlagValue(params.get('dev'));
+  const rawOpenValue = normalizeChairpersonFlagValue(params.get('open'));
   const localStorageRef =
     args?.localStorage === undefined
       ? ((typeof window !== 'undefined' ? window.localStorage : null) as StorageLike | null)
@@ -149,6 +151,16 @@ export function resolveAsrChairpersonFlagState(args?: {
     evaluateOwnerSource('localStorage:asr_visual_chairperson_owner', localStorageOwnerValue, 'localStorage') ||
     evaluateOwnerSource('runtime_config:asr_visual_chairperson', runtimeChairpersonValue, 'runtime_config') ||
     evaluateOwnerSource('runtime_config:asr_visual_chairperson_owner', runtimeOwnerValue, 'runtime_config');
+
+  const devTeleprompterScriptRun =
+    isTruthyFlagValue(rawDevValue) &&
+    rawOpenValue.trim().toLowerCase() === 'script';
+  if (!resolvedOwnerEnabled && ownerFlagSource === 'default' && devTeleprompterScriptRun) {
+    resolvedOwnerEnabled = true;
+    ownerFlagSource = 'default:dev_open_script_auto_owner';
+    ownerDisabledReason = 'none';
+    ownerFlagReadFrom = 'default';
+  }
 
   let resolvedShadowEnabled = true;
   if (rawShadowValue) {

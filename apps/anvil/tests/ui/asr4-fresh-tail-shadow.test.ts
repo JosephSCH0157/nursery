@@ -978,6 +978,20 @@ describe('ASR4 fresh-tail shadow wiring', () => {
     const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
       __debugObserveAsr4PocketDrift: any;
     };
+    driver.setLastLineIndex(1);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 1,
+      matchId: 'test_low_pocket_deadband_seed',
+      runKey: 'test-low-pocket-deadband-seed',
+      runGeneration: 1,
+      source: 'openai-whisper-bridge',
+      speechRunningActual: true,
+      match: {
+        bestIdx: 2,
+        bestSim: 0.96,
+        topScores: [{ idx: 2, score: 0.96 }],
+      },
+    });
 
     const first = driver.__debugObserveAsr4PocketDrift({
       currentLine: 1,
@@ -1169,6 +1183,20 @@ describe('ASR4 fresh-tail shadow wiring', () => {
     window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
       detail: { speechRunningActual: true },
     }));
+    driver.setLastLineIndex(1);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 1,
+      matchId: 'test_freeze_far_reconcile_seed',
+      runKey: 'test-freeze-far-reconcile-seed',
+      runGeneration: 1,
+      source: 'openai-whisper-bridge',
+      speechRunningActual: true,
+      match: {
+        bestIdx: 2,
+        bestSim: 0.95,
+        topScores: [{ idx: 2, score: 0.95 }],
+      },
+    });
 
     const first = driver.__debugObserveAsr4PocketDrift({
       currentLine: 1,
