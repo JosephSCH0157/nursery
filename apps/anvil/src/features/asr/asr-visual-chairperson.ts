@@ -48,6 +48,8 @@ export type AsrVisualChairpersonOutput = {
   minForwardStepPx: number;
 };
 
+const CHAIRPERSON_RECOVERY_MIN_TARGET_DEBT_PX = 120;
+
 function describeProtection(reason: string, mode: AsrVisualMode): {
   controlIntent: AsrVisualControlIntent;
   recoveryKind: AsrRecoveryKind;
@@ -139,6 +141,7 @@ export function evaluateAsrVisualChairperson(
     toleratedBandBottom: input.toleratedBandBottom,
   });
   const semanticAheadLines = Math.max(0, input.semanticSnapshot.lineIdx - input.visualAnchor.anchorLineIdx);
+  const selectedTargetDebtPx = Math.max(0, selectedTargetScrollTop - currentScrollTop);
   const blockersActive =
     !input.sessionLive ||
     !input.asrMode ||
@@ -152,13 +155,14 @@ export function evaluateAsrVisualChairperson(
     !!input.activeRecoveryEpisode &&
     input.activeRecoveryEpisode.expiresAt > input.nowMs &&
     Number.isFinite(input.activeRecoveryEpisode.protectedTargetScrollTop);
+  const chairpersonRecoveryDebtEligible =
+    selectedTargetDebtPx >= CHAIRPERSON_RECOVERY_MIN_TARGET_DEBT_PX;
   const protectedTargetScrollTop = activeRecoveryEpisode
     ? clamp(input.activeRecoveryEpisode!.protectedTargetScrollTop, currentScrollTop, maxScrollTop)
     : Number.NaN;
   const recoveryNeeded =
     activeRecoveryEpisode ||
-    pocketBand === 'recovery' ||
-    semanticAheadLines >= 1;
+    (chairpersonRecoveryDebtEligible && (pocketBand === 'recovery' || semanticAheadLines >= 1));
   let mode: AsrVisualMode;
   if (blockersActive) mode = 'hold';
   else if (

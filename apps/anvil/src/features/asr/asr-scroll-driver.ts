@@ -3916,9 +3916,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastMoveAt > 0 ? Math.max(0, Date.now() - lastMoveAt) : Number.POSITIVE_INFINITY;
     const safeLocalRecoveryAuthority =
       ASR_SAFE_LOCAL_RECOVERY_AUTHORITIES.has(normalizedSourceAuthority);
+    const safeLocalRecoveryTranscriptFresh =
+      lastFinalTranscriptAt > 0 &&
+      (Date.now() - lastFinalTranscriptAt) <= 1200;
+    const safeLocalRecoveryRepeatedEvidence =
+      asr4VisualRecoveryConsecutiveNoMoveCommits >= 2 ||
+      asr4PocketDriftConsecutiveBelowPocketCount >= 2 ||
+      asrLowPocketDeadbandObservationCount >= 2;
+    const safeLocalRecoveryBlockedByHardContext =
+      !!pendingSpeakableBridgeState ||
+      asrFocusMovementHoldActive ||
+      postFocusFreshProofRequired ||
+      !!((window as any)?.__tpLiveAsrGovernorHold);
     const safeLocalRecoverySignal =
       safeLocalRecoveryWindow &&
       safeLocalRecoveryAuthority &&
+      safeLocalRecoveryTranscriptFresh &&
+      safeLocalRecoveryRepeatedEvidence &&
+      !safeLocalRecoveryBlockedByHardContext &&
       !invalidUnlockState &&
       proposedTop > currentTop + ASR_POCKET_WALL_NOISE_DELTA_PX &&
       (
@@ -6200,9 +6215,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const safeLocalRecoveryLead = Math.max(0, targetLineIdx - currentLineIdx);
     const safeLocalRecoveryAuthority =
       ASR_SAFE_LOCAL_RECOVERY_AUTHORITIES.has(String(input.authoritySource || '').trim().toLowerCase());
+    const safeLocalRecoveryTranscriptFresh =
+      lastFinalTranscriptAt > 0 &&
+      (nowTs - lastFinalTranscriptAt) <= 1200;
+    const safeLocalRecoveryRepeatedEvidence =
+      asr4VisualRecoveryConsecutiveNoMoveCommits >= 2 ||
+      asr4PocketDriftConsecutiveBelowPocketCount >= 2 ||
+      asrLowPocketDeadbandObservationCount >= 2;
+    const safeLocalRecoveryBlockedByHardContext =
+      !!pendingSpeakableBridgeState ||
+      asrFocusMovementHoldActive ||
+      postFocusFreshProofRequired ||
+      !!((window as any)?.__tpLiveAsrGovernorHold);
     const safeLocalRecoverySignal =
       safeLocalRecoveryWindow &&
       safeLocalRecoveryAuthority &&
+      safeLocalRecoveryTranscriptFresh &&
+      safeLocalRecoveryRepeatedEvidence &&
+      !safeLocalRecoveryBlockedByHardContext &&
       proposedScrollTop > currentScrollTop + 0.5 &&
       (
         safeLocalRecoveryLead > 0 ||
@@ -6530,6 +6560,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       Number(input.cappedDeltaPx) <= 0.5 &&
       semanticAheadLines >= ASR_VISUAL_DEADLOCK_MIN_AHEAD_LINES &&
       (lineBelowMarker || visualDebtLarge);
+    const repeatedZeroDeltaCapCandidate =
+      sessionLive &&
+      visualRecoveryFresh &&
+      transcriptFresh &&
+      finalFresh &&
+      !noMatchOrOffscript &&
+      !contradictionActive &&
+      !bridgeLifecycleActive &&
+      Number(input.cappedDeltaPx) <= 0.5 &&
+      pursueFlatlineMs >= ASR_VISUAL_DEBT_RECOVERY_FLATLINE_MIN_MS &&
+      (currentVisualDebtLarge || matchedVisualDebtLarge) &&
+      (
+        ASR_VISUAL_DEADLOCK_REASONS.has(String(input.pocketWallReason || '')) ||
+        String(input.leadPressureReason || '') === 'fresh_semantic_lead_pressure_capped'
+      ) &&
+      (
+        semanticAheadLines >= ASR_VISUAL_DEADLOCK_MIN_AHEAD_LINES ||
+        Math.max(0, Number(input.speakableLead || 0)) >= ASR_VISUAL_HARD_LEAD_START
+      );
     const visualDebtQualifies =
       sessionLive &&
       visualRecoveryFresh &&
@@ -6540,7 +6589,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       committedLineIdx >= 0 &&
       (currentVisualDebtLarge || matchedVisualDebtLarge) &&
       pursueFlatlineMs >= ASR_VISUAL_DEBT_RECOVERY_FLATLINE_MIN_MS &&
-      (bottomDriftGuardRecent || visualDebtCatchupBlockedRecent);
+      (bottomDriftGuardRecent || visualDebtCatchupBlockedRecent || repeatedZeroDeltaCapCandidate);
     const highLeadVisualDebtQualifies =
       sessionLive &&
       visualRecoveryFresh &&
@@ -6552,7 +6601,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       Number(input.cappedDeltaPx) <= 0.5 &&
       (currentVisualDebtLarge || matchedVisualDebtLarge) &&
       pursueFlatlineMs >= ASR_VISUAL_DEBT_RECOVERY_FLATLINE_MIN_MS &&
-      Math.max(0, Number(input.speakableLead || 0)) >= ASR_VISUAL_HARD_LEAD_START;
+      (
+        Math.max(0, Number(input.speakableLead || 0)) >= ASR_VISUAL_HARD_LEAD_START ||
+        repeatedZeroDeltaCapCandidate
+      );
     const qualifies = semanticAheadQualifies || visualDebtQualifies || highLeadVisualDebtQualifies;
     const recoveryMode: 'semantic_ahead' | 'visual_debt_flatline' | 'none' =
       semanticAheadQualifies
@@ -6606,7 +6658,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         else rejectReason = 'visual_debt_signal_missing';
       }
       else if (!(currentVisualDebtLarge || matchedVisualDebtLarge)) rejectReason = 'semantic_not_ahead';
-      else if (!(bottomDriftGuardRecent || visualDebtCatchupBlockedRecent)) rejectReason = 'visual_debt_signal_missing';
+      else if (!(bottomDriftGuardRecent || visualDebtCatchupBlockedRecent || repeatedZeroDeltaCapCandidate)) rejectReason = 'visual_debt_signal_missing';
       else if (pursueFlatlineMs < ASR_VISUAL_DEBT_RECOVERY_FLATLINE_MIN_MS) rejectReason = 'flatline_not_mature';
       else rejectReason = 'semantic_not_ahead';
     } else if (nowMs < lastAsrVisualDeadlockCooldownUntilMs) {
@@ -11698,9 +11750,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   ) => {
     if (!isFinal) return false;
     if (!isFocusLossDiagnosticOnlySafe(now)) return false;
+    const transcriptRunKey =
+      normalizeRunKey((detail as { runKey?: unknown } | null | undefined)?.runKey) || undefined;
+    const transcriptRunGeneration =
+      normalizeRunGeneration((detail as { runGeneration?: unknown } | null | undefined)?.runGeneration);
+    if (!transcriptRunKey && transcriptRunGeneration == null) return false;
     return !isRunIdentityStale({
-      runKey: normalizeRunKey((detail as { runKey?: unknown } | null | undefined)?.runKey) || undefined,
-      runGeneration: normalizeRunGeneration((detail as { runGeneration?: unknown } | null | undefined)?.runGeneration),
+      runKey: transcriptRunKey,
+      runGeneration: transcriptRunGeneration,
     });
   };
 
@@ -11880,11 +11937,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   ): boolean => {
     syncAsrFocusMovementGate('ingest', now);
     if (!isAsrLiveMovementSession()) return true;
+    const focusLostVisible = !isDocumentFocused() && isDocumentVisible();
     const focusLossTranscriptAccepted = shouldAcceptFocusLossTranscript(isFinal, now, detail);
     if (focusLossTranscriptAccepted) {
       postFocusFreshProofRequired = false;
       focusTranscriptQuarantineActive = false;
-      asrFocusMovementHoldActive = false;
+      if (!focusLostVisible) {
+        asrFocusMovementHoldActive = false;
+      }
       try {
         console.warn(buildAsrFocusLossTranscriptAcceptedDiagnostic({
           reason: 'active_current_generation_final',
@@ -11894,7 +11954,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       publishAsrFocusGateState();
       return true;
     }
-    const focusLostVisible = !isDocumentFocused() && isDocumentVisible();
     if (focusLostVisible || asrFocusMovementHoldActive) {
       try {
         console.warn(buildAsrFocusLossTranscriptQuarantinedDiagnostic(
@@ -20911,7 +20970,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } catch {}
       }
     }
-    try { (window as any).__tpLiveAsrGovernorHold = visualGovernorHoldActive; } catch {}
+    try {
+      const existingGovernorHold = !!((window as any).__tpLiveAsrGovernorHold);
+      (window as any).__tpLiveAsrGovernorHold = visualGovernorHoldActive || existingGovernorHold;
+    } catch {}
     let comfortOnlyHoldActive = liveHardHold && !visualGovernorHoldActive;
     const preservedAuthorityTargetStillAhead =
       preservedAsrAuthorityTargetTop != null &&
@@ -32417,6 +32479,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (deadScreenReleaseEligible) {
           liveAsrVisualGovernorHardHold = false;
           liveAsrVisualGovernorHardHoldSinceMs = 0;
+          try { (window as any).__tpLiveAsrGovernorHold = false; } catch {}
           try {
             console.warn(
               `[ASR_GOVERNOR_DEAD_SCREEN_RELEASED] current=${prevLineIndex} target=${targetLine} holdAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)} noCommitMs=${Math.round(deadScreenNoCommitMs)} speakableLead=${deadScreenSpeakableLead} renderedLead=${deadScreenRenderedLead} sourceBranch=${deadScreenSourceBranch} proofSource=${deadScreenProofSource} reason=adjacent_safe_release`,
@@ -32426,6 +32489,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           liveAsrVisualGovernorHardHold = false;
           liveAsrVisualGovernorHardHoldSinceMs = 0;
           deadScreenTerminalCommitSuppressedByVisualGovernor = false;
+          try { (window as any).__tpLiveAsrGovernorHold = false; } catch {}
           try {
             console.warn(
               `[ASR_ADJACENT_SAFE_SEMANTIC_BYPASS] adjacentProgressionLane=dead_screen_adjacent_release originalMatchBestIdx=${Number.isFinite(line) ? Math.max(0, Math.floor(Number(line))) : -1} reducedSemanticTargetLine=${targetLine} currentLineIdx=${prevLineIndex} proposedCommitLine=${targetLine} proofSource=${deadScreenProofSource || 'none'} blockedReasonBeforeBypass=visual_governor_dead_screen_hold speechFresh=${deadScreenSpeechFresh ? 1 : 0} responseFresh=${deadScreenTranscriptFresh ? 1 : 0} audioFresh=${deadScreenAudioBackendFresh ? 1 : 0}`,
@@ -32438,6 +32502,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           liveAsrVisualGovernorHardHold = false;
           liveAsrVisualGovernorHardHoldSinceMs = 0;
           deadScreenEscapeUsedInWindow = true;
+          try { (window as any).__tpLiveAsrGovernorHold = false; } catch {}
           const deadScreenEscapeReason = deadScreenTerminalCommitSuppressedByVisualGovernor
             ? 'bounded_adjacent_dead_screen_escape'
             : 'fresh_adjacent_unlock_dead_screen_escape';
@@ -33764,9 +33829,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ? Math.round(Number(state.targetScrollTop) - state.currentScrollTop)
       : Math.round(state.activeLineDistanceFromMarkerPx);
     const repeatedRescueObservations = Math.max(lowPocketDeadbandObservations, consecutiveBelowPocketCount);
+    const safeLocalRescueBlockedByHardContext =
+      !!pendingSpeakableBridgeState ||
+      asrFocusMovementHoldActive ||
+      postFocusFreshProofRequired ||
+      !!((window as any)?.__tpLiveAsrGovernorHold);
     const safeLocalRescueEligible =
+      speechFresh &&
       transcriptFresh &&
       repeatedRescueObservations >= 2 &&
+      !safeLocalRescueBlockedByHardContext &&
+      !noMatchOrOffscript &&
       !hardContradiction &&
       localSemanticCandidateLine != null &&
       semanticDistance >= 0 &&
