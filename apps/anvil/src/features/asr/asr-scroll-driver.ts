@@ -31484,15 +31484,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           const readerSilencePendingBridgeCompletionBypass =
             provenLocalProofOwnedStep &&
             pendingBridgeLocalProofLane &&
-            lineageQualifiedForPendingBridgeBypass &&
             !disallowedPendingBridgeBypassPath &&
-            (
-              terminalSemanticCommitTargetLine === pendingSpeakableBridgeState?.semanticTarget ||
-              requestedTargetLine === pendingSpeakableBridgeState?.semanticTarget
-            ) &&
             terminalVisualPursuitTargetLine === freshnessProposedLineIdx &&
-            terminalFreshnessTargetLine === freshnessProposedLineIdx &&
-            visualCapActiveForPendingBridge;
+            terminalFreshnessTargetLine === freshnessProposedLineIdx;
           const readerSilenceNonPendingAdjacentProofBypass =
             provenLocalProofOwnedStep &&
             !pendingSpeakableBridgeCompletion &&
