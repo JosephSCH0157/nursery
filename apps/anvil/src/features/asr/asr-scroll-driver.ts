@@ -5583,6 +5583,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         return 'none';
     }
   };
+  const maybeCaptureTerminalGateDiagnostic = (line: string): void => {
+    try {
+      const capturePath =
+        typeof process !== 'undefined' &&
+        process &&
+        process.env &&
+        typeof process.env.ASR_TERMINAL_GATE_CAPTURE_FILE === 'string'
+          ? process.env.ASR_TERMINAL_GATE_CAPTURE_FILE.trim()
+          : '';
+      if (!capturePath) return;
+      const req = (0, eval)('require');
+      if (typeof req !== 'function') return;
+      const fs = req('fs');
+      if (!fs || typeof fs.appendFileSync !== 'function') return;
+      fs.appendFileSync(capturePath, `${line}\n`, 'utf8');
+    } catch {}
+  };
   const resolveReaderMarkerCorrectionOwnershipFinalization = (args: {
     ownershipNotFinalCandidatePresent: boolean;
     selectedAuthority: string;
@@ -8858,9 +8875,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
   const resolveDriverRunGeneration = (): number | null => normalizeRunGeneration(driverRunGeneration);
   const resolveDriverRunKey = (): string => normalizeRunKey(driverRunKey);
+  const rebindPendingResponseAuthority = (reason: string) => {
+    lastCommitAuthorityInvalidatedAt = 0;
+    lastCommitAuthorityInvalidationReason = String(reason || 'unknown');
+    clearStallRecoveryOverrideHint();
+    pendingMatch = null;
+    pendingSeq += 1;
+  };
   const resetRunTimingState = (source: string, nextRunKey: string, nextRunGeneration: number | null) => {
     const now = Date.now();
-    invalidatePendingResponseAuthority(`run_timing_reset:${source}`);
+    rebindPendingResponseAuthority(`run_timing_reset:${source}`);
     lastCommitAt = now;
     lastCommitTime = now;
     resetDeadScreenAutopsyWindow();
@@ -27408,6 +27432,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
       }
       const requestedTargetLine = targetLine;
+      if (
+        !pendingSpeakableBridgeCompletion &&
+        pendingSpeakableBridgeState &&
+        pendingSpeakableBridgeState.semanticFrom === lastLineIndex &&
+        pendingSpeakableBridgeState.semanticTarget > targetLine &&
+        isFinal === true &&
+        targetLine === lastLineIndex + 1 &&
+        String(pendingSpeakableBridgeState.sourceBranch || '').toLowerCase().includes('movement_authority_starvation_reconcile_single_step')
+      ) {
+        pendingSpeakableBridgeCompletion = true;
+        semanticCommitTargetLine = pendingSpeakableBridgeState.semanticTarget;
+        visualPursuitTargetLine = targetLine;
+        freshnessTargetLine = targetLine;
+        proofOwnedForceBypass = true;
+        forceReason = 'pending_speakable_bridge_complete';
+      }
       if (pendingSpeakableBridgeCompletion) {
         // For pending bridge completion, keep semantic target sticky while
         // visual/freshness targets continue through existing reduction logic.
@@ -27807,6 +27847,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 runGeneration: nextRunGeneration,
               };
             }
+            if (
+              pendingSpeakableBridgeState &&
+              pendingSpeakableBridgeState.semanticFrom === lastLineIndex &&
+              pendingSpeakableBridgeState.semanticTarget > singleStepTarget &&
+              isFinal === true &&
+              singleStepTarget === lastLineIndex + 1
+            ) {
+              pendingSpeakableBridgeCompletion = true;
+              semanticCommitTargetLine = pendingSpeakableBridgeState.semanticTarget;
+              visualPursuitTargetLine = singleStepTarget;
+              freshnessTargetLine = singleStepTarget;
+              proofOwnedForceBypass = true;
+              forceReason = 'pending_speakable_bridge_complete';
+            }
           }
         }
       }
@@ -27850,7 +27904,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
       }
       const shouldStagePendingBridgeLifecycleHold =
-        !String(matchId || '').includes('visible-bridge-step-cap') &&
         !pendingSpeakableBridgeCompletion &&
         !pendingSpeakableBridgeState &&
         isFinal === true &&
@@ -31255,12 +31308,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             prevLineIndex,
             Math.floor(Number(freshnessTargetLine ?? freshnessProposedLineIdx) || freshnessProposedLineIdx),
           );
-          const pendingBridgeCompletionMode = pendingSpeakableBridgeCompletion ? 1 : 0;
-          const pendingBridgeStateCurrentAndValid =
+          const pendingBridgeCompletionEligible =
             !!pendingSpeakableBridgeState &&
-            pendingSpeakableBridgeState.semanticFrom === prevLineIndex &&
-            pendingSpeakableBridgeState.semanticTarget > prevLineIndex + 1 &&
-            pendingSpeakableBridgeState.semanticTarget === terminalSemanticCommitTargetLine;
+            !pendingSpeakableBridgeCompletion &&
+            freshnessProposedLineIdx === prevLineIndex + 1 &&
+            requestedTargetLine > freshnessProposedLineIdx &&
+            String(terminalSourceBranch || '').toLowerCase().includes('movement_authority_starvation_reconcile_single_step') &&
+            String(pendingSpeakableBridgeState.sourceBranch || '').toLowerCase().includes('movement_authority_starvation_reconcile_single_step') &&
+            String(terminalProofSource || '').toLowerCase().includes('strict_speakable_bridge_landing') &&
+            directAdjacentGuardReason === 'target_reduced_before_terminal';
+          let pendingBridgeCompletionMode = pendingSpeakableBridgeCompletion ? 1 : 0;
+          if (pendingBridgeCompletionMode === 0 && pendingBridgeCompletionEligible) {
+            const pendingBridgeSemanticTarget = pendingSpeakableBridgeState?.semanticTarget ?? requestedTargetLine;
+            terminalSemanticCommitTargetLine = Math.max(
+              terminalSemanticCommitTargetLine,
+              pendingBridgeSemanticTarget,
+              requestedTargetLine,
+            );
+            terminalVisualPursuitTargetLine = freshnessProposedLineIdx;
+            terminalFreshnessTargetLine = freshnessProposedLineIdx;
+            pendingBridgeCompletionMode = 1;
+          }
           const runIdentityCurrent = !isRunIdentityStale({
             runKey: pendingRunKey || undefined,
             runGeneration: pendingRunGeneration,
@@ -31283,6 +31351,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             Math.floor(Number(visualPursuitTargetLine)) === freshnessProposedLineIdx &&
             Number.isFinite(freshnessTargetLine as number) &&
             Math.floor(Number(freshnessTargetLine)) === freshnessProposedLineIdx;
+          const pendingBridgeStateCurrentAndValid =
+            !!pendingSpeakableBridgeState &&
+            pendingSpeakableBridgeState.semanticFrom === prevLineIndex &&
+            pendingSpeakableBridgeState.semanticTarget > prevLineIndex + 1 &&
+            pendingSpeakableBridgeState.semanticTarget === terminalSemanticCommitTargetLine;
+          const bridgeEligibleLocalStep =
+            !!pendingSpeakableBridgeState &&
+            pendingBridgeCompletionMode === 1 &&
+            freshnessProposedLineIdx === prevLineIndex + 1 &&
+            pendingSpeakableBridgeState.semanticTarget > freshnessProposedLineIdx &&
+            requestedTargetLine > freshnessProposedLineIdx &&
+            directAdjacentGuardReason === 'target_reduced_before_terminal' &&
+            String(terminalSourceBranch || '').toLowerCase().includes('movement_authority_starvation_reconcile_single_step') &&
+            String(terminalProofSource || '').toLowerCase().includes('strict_speakable_bridge_landing');
           const explicitPendingCompletionLineage =
             String(terminalForceReason || '').toLowerCase().includes('pending_speakable_bridge_complete');
           const explicitStarvationBridgeLineage =
@@ -31341,16 +31423,54 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             asrFocusMovementHoldActive ||
             !isDocumentFocused() ||
             document.visibilityState !== 'visible';
+          const pendingBridgeLocalProofLane =
+            pendingBridgeCompletionMode === 1 &&
+            !!pendingSpeakableBridgeState &&
+            freshnessProposedLineIdx === prevLineIndex + 1 &&
+            requestedTargetLine > freshnessProposedLineIdx &&
+            directAdjacentGuardReason === 'target_reduced_before_terminal' &&
+            String(terminalSourceBranch || '').toLowerCase().includes('movement_authority_starvation_reconcile_single_step') &&
+            String(terminalProofSource || '').toLowerCase().includes('strict_speakable_bridge_landing');
+          const targetSpeakableOrBridgeEligible = targetSpeakable || pendingBridgeLocalProofLane;
+          const adjacentProofOwnedLocalLineage =
+            movementAuthorityHasAdjacentProof ||
+            movementAuthorityHasStrictLocalProof ||
+            nonPendingProofOwnedLineage ||
+            String(terminalProofSource || '').toLowerCase().includes('strict_speakable_bridge_landing') ||
+            String(terminalSourceBranch || '').toLowerCase().includes('movement_authority_starvation_reconcile_single_step') ||
+            directAdjacentGuardReason === 'target_reduced_before_terminal';
+          const audioFreshEffectiveReason =
+            !audioChunkStale
+              ? 'raw_audio_fresh'
+              : (
+                isFinal &&
+                terminalDelta === 1 &&
+                freshnessProposedLineIdx === prevLineIndex + 1 &&
+                targetSpeakableOrBridgeEligible &&
+                runIdentityCurrent &&
+                responseAuthorityCurrent &&
+                terminalSafeAuthority &&
+                adjacentProofOwnedLocalLineage &&
+                !terminalOffscriptOrNoMatchBlocked &&
+                !terminalContradictionBlocked &&
+                !terminalFocusLossBlocked &&
+                !deadScreenTerminalCommitSuppressedByVisualGovernor &&
+                !liveAsrVisualGovernorHardHold &&
+                !shortLineTerminalClampUnsafe
+              )
+                ? 'current_generation_adjacent_proof_owned_local_step'
+                : 'audio_chunk_stale';
+          const audioFreshEffective = audioFreshEffectiveReason !== 'audio_chunk_stale';
           const provenLocalFirstStepCandidate =
             commitFreshness.reason === 'reader_silence_commit_blocked' &&
             isFinal &&
             terminalDelta === 1 &&
             freshnessProposedLineIdx === prevLineIndex + 1 &&
-            targetSpeakable &&
+            targetSpeakableOrBridgeEligible &&
             runIdentityCurrent &&
             responseAuthorityCurrent &&
             !responseStale &&
-            !audioChunkStale &&
+            audioFreshEffective &&
             !terminalOffscriptOrNoMatchBlocked &&
             !terminalContradictionBlocked &&
             !terminalFocusLossBlocked &&
@@ -31360,22 +31480,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             terminalSafeAuthority;
           const provenLocalProofOwnedStep =
             provenLocalFirstStepCandidate &&
-            (
-              movementAuthorityHasAdjacentProof ||
-              movementAuthorityHasStrictLocalProof ||
-              nonPendingProofOwnedLineage ||
-              String(terminalProofSource || '').toLowerCase().includes('strict_speakable_bridge_landing') ||
-              String(terminalSourceBranch || '').toLowerCase().includes('movement_authority_starvation_reconcile_single_step') ||
-              directAdjacentGuardReason === 'target_reduced_before_terminal'
-            );
+            adjacentProofOwnedLocalLineage;
           const readerSilencePendingBridgeCompletionBypass =
             provenLocalProofOwnedStep &&
-            pendingSpeakableBridgeCompletion &&
-            pendingBridgeCompletionMode === 1 &&
-            pendingBridgeStateCurrentAndValid &&
+            pendingBridgeLocalProofLane &&
             lineageQualifiedForPendingBridgeBypass &&
             !disallowedPendingBridgeBypassPath &&
-            terminalSemanticCommitTargetLine === pendingSpeakableBridgeState?.semanticTarget &&
+            (
+              terminalSemanticCommitTargetLine === pendingSpeakableBridgeState?.semanticTarget ||
+              requestedTargetLine === pendingSpeakableBridgeState?.semanticTarget
+            ) &&
             terminalVisualPursuitTargetLine === freshnessProposedLineIdx &&
             terminalFreshnessTargetLine === freshnessProposedLineIdx &&
             visualCapActiveForPendingBridge;
@@ -31548,7 +31662,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               provenLocalStepBlockedReason = 'not_final';
             } else if (terminalDelta !== 1 || freshnessProposedLineIdx !== prevLineIndex + 1) {
               provenLocalStepBlockedReason = 'not_single_local_step';
-            } else if (!targetSpeakable) {
+            } else if (!targetSpeakableOrBridgeEligible) {
               provenLocalStepBlockedReason = 'target_not_speakable';
             } else if (!runIdentityCurrent) {
               provenLocalStepBlockedReason = 'stale_run_identity';
@@ -31556,7 +31670,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               provenLocalStepBlockedReason = 'stale_response_invalidated';
             } else if (responseStale) {
               provenLocalStepBlockedReason = 'response_stale';
-            } else if (audioChunkStale) {
+            } else if (!audioFreshEffective) {
               provenLocalStepBlockedReason = 'audio_chunk_stale';
             } else if (terminalOffscriptOrNoMatchBlocked) {
               provenLocalStepBlockedReason = 'offscript_or_nomatch';
@@ -31578,8 +31692,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           }
           try {
             const terminalDecisionReason = readerSilenceBypassApplied
-              ? 'reader_silence_proven_local_step_bypassed'
+              ? 'reader_silence_adjacent_safe_bypassed'
               : (shortLineStagedCatchupApplied ? 'short_line_stale_forward_grace' : commitFreshness.reason);
+            const terminalGatePredicateLine =
+              `[ASR_TERMINAL_GATE_PREDICATES] matchId=${matchId || 'unknown'} currentLineIdx=${prevLineIndex} targetLineIdx=${freshnessProposedLineIdx} requestedTargetLineIdx=${requestedTargetLine} deltaLines=${terminalDelta} readerSilenceBlocked=${commitFreshness.reason === 'reader_silence_commit_blocked' ? 1 : 0} isFinalPacket=${isFinal ? 1 : 0} currentGenerationMatch=${runIdentityCurrent ? 1 : 0} authorityEpochMatch=${authorityEpochCurrent ? 1 : 0} responseAuthorityCurrent=${responseAuthorityCurrent ? 1 : 0} runtimeRunIdentity=${runIdentityCurrent ? 'current' : 'stale'} responseFresh=${responseStale ? 0 : 1} audioFresh=${audioChunkStale ? 0 : 1} audioFreshEffective=${audioFreshEffective ? 1 : 0} audioFreshEffectiveReason=${audioFreshEffectiveReason} isForwardOnly=${freshnessProposedLineIdx > prevLineIndex ? 1 : 0} isSingleLocalStep=${terminalDelta === 1 && freshnessProposedLineIdx === prevLineIndex + 1 ? 1 : 0} speakableTarget=${targetSpeakable ? 1 : 0} bridgeEligibleTarget=${pendingBridgeLocalProofLane ? 1 : 0} proofOwnedLocalLineage=${adjacentProofOwnedLocalLineage ? 1 : 0} adjacentProofLane=${movementAuthorityHasAdjacentProof ? 1 : 0} pendingBridgeArmed=${pendingSpeakableBridgeCompletion || !!pendingSpeakableBridgeState ? 1 : 0} recoveryLandingHoldActive=${isRecoveryLandingHoldSource(terminalSourceBranch, terminalForceReason) ? 1 : 0} offscriptOrNoMatch=${terminalOffscriptOrNoMatchBlocked ? 1 : 0} contradiction=${terminalContradictionBlocked ? 1 : 0} focusLossBlocker=${terminalFocusLossBlocked ? 1 : 0} visualGovernorHardHold=${liveAsrVisualGovernorHardHold ? 1 : 0} deadScreenSuppression=${deadScreenTerminalCommitSuppressedByVisualGovernor ? 1 : 0} terminalClamp=${shortLineTerminalClampUnsafe ? 1 : 0} finalDecisionReason=${terminalDecisionReason} bypassLaneSelected=${bypassLaneSelected} sourceBranch=${terminalSourceBranch || 'unknown'} proofSource=${terminalProofSource || 'none'}`;
+            console.warn(terminalGatePredicateLine);
+            maybeCaptureTerminalGateDiagnostic(terminalGatePredicateLine);
             const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${freshnessProposedLineIdx} requestedTargetLineIdx=${requestedTargetLine} semanticCommitTargetLine=${diagnosticTerminalSemanticCommitTargetLine} visualPursuitTargetLine=${diagnosticTerminalVisualPursuitTargetLine} freshnessTargetLine=${diagnosticTerminalFreshnessTargetLine} pendingBridgeCompletionMode=${diagnosticPendingBridgeCompletionMode} pendingBridgeState=${pendingBridgeStateForTrace} lastLineIndexUpdateSource=${lastLineIndexUpdateSource} scrollTargetSource=${scrollTargetSource} freshnessTargetSource=${freshnessTargetSource} directAdjacentGuardReason=${directAdjacentGuardReason} sourceBranch=${terminalSourceBranch || 'unknown'} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} bypassLaneSelected=${bypassLaneSelected} bypassApplied=${terminalBypassApplied ? 1 : 0} decisionReason=${terminalDecisionReason}`;
             console.info(terminalEligibilityMessage);
             if (commitFreshness.reason === 'reader_silence_commit_blocked') {

@@ -1,5 +1,6 @@
 /** @jest-environment jsdom */
 
+import fs from 'node:fs';
 import { createAsrScrollDriver } from '../../src/features/asr/asr-scroll-driver';
 
 function diagnosticCallMatches(
@@ -27,6 +28,19 @@ function extractTraceFieldNumber(line: string, key: string): number {
   const raw = extractTraceField(line, key);
   const num = Number(raw);
   return Number.isFinite(num) ? num : Number.NaN;
+}
+
+function writeTerminalGateSnapshot(label: string, lines: string[]): void {
+  const captureDir = process.env.ASR_TERMINAL_GATE_CAPTURE_DIR;
+  if (!captureDir) return;
+  const payload = lines.filter((line) =>
+    line.includes('ASR_TERMINAL_GATE_PREDICATES') ||
+    line.includes('ASR_TERMINAL_ELIGIBILITY_TRACE') ||
+    line.includes('ASR_TERMINAL_LOCAL_STEP') ||
+    line.includes('ASR_ADJ_PROMOTION_TRACE') ||
+    line.includes('ASR_RUN_TIMER_RESET'),
+  );
+  fs.writeFileSync(`${captureDir}\\${label}.txt`, payload.join('\n'), 'utf8');
 }
 
 function bootstrapLiveAsrRuntime(): void {
@@ -3079,6 +3093,10 @@ describe('ASR live commit motion', () => {
       },
     });
     await jest.advanceTimersByTimeAsync(200);
+    writeTerminalGateSnapshot(
+      'limit-cumulative-future-final-evidence',
+      [...consoleWarnSpy.mock.calls, ...consoleInfoSpy.mock.calls].map((c) => String(c[0] || '')),
+    );
     expect(driver.getLastLineIndex()).toBe(2);
 
     driver.ingest('Neon ads hum above the aisle.', true, {
@@ -3131,6 +3149,10 @@ describe('ASR live commit motion', () => {
       },
     });
     await jest.advanceTimersByTimeAsync(200);
+    writeTerminalGateSnapshot(
+      'no-self-trigger-while-healthy',
+      [...consoleWarnSpy.mock.calls, ...consoleInfoSpy.mock.calls].map((c) => String(c[0] || '')),
+    );
     expect(driver.getLastLineIndex()).toBe(2);
 
     await jest.advanceTimersByTimeAsync(4000);
@@ -3175,6 +3197,10 @@ describe('ASR live commit motion', () => {
       },
     });
     await jest.advanceTimersByTimeAsync(250);
+    writeTerminalGateSnapshot(
+      'recovery-landing-hold-first-step',
+      [...warnSpy.mock.calls, ...consoleInfoSpy.mock.calls].map((c) => String(c[0] || '')),
+    );
     expect(driver.getLastLineIndex()).toBe(2);
 
     driver.ingest('Neon ads hum above the aisle.', true, {
@@ -3393,6 +3419,10 @@ describe('ASR live commit motion', () => {
       },
     });
     await jest.advanceTimersByTimeAsync(250);
+    writeTerminalGateSnapshot(
+      'pending-bridge-bypass-diagnostic',
+      [...consoleWarnSpy.mock.calls, ...consoleInfoSpy.mock.calls].map((c) => String(c[0] || '')),
+    );
 
     const infoLines = consoleInfoSpy.mock.calls.map((c) => String(c[0] || ''));
     const splitTrace =
@@ -3512,6 +3542,10 @@ describe('ASR live commit motion', () => {
       },
     });
     await jest.advanceTimersByTimeAsync(250);
+    writeTerminalGateSnapshot(
+      'pending-bridge-bypass-diagnostic',
+      [...consoleWarnSpy.mock.calls, ...consoleInfoSpy.mock.calls].map((c) => String(c[0] || '')),
+    );
 
     const infoLines = consoleInfoSpy.mock.calls.map((c) => String(c[0] || ''));
     const traceLine =
@@ -6199,6 +6233,10 @@ describe('ASR live commit motion', () => {
 
     const infos = infoSpy.mock.calls.map((c) => String(c[0] || ''));
     const warns = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    writeTerminalGateSnapshot(
+      'run-timer-reset-fresh-identity',
+      [...warnSpy.mock.calls, ...infoSpy.mock.calls].map((c) => String(c[0] || '')),
+    );
 
     expect(infos.some((l) => l.includes('ASR_RUN_TIMER_RESET'))).toBe(true);
     expect(warns.some((l) => l.includes('starvation_future_speech_reconcile'))).toBe(false);
