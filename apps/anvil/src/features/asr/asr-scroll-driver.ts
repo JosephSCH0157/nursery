@@ -6703,26 +6703,34 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       rejectReason = 'marker_target_unavailable';
     }
     const boundedEscapeTargetScrollTop =
-      Number.isFinite(markerTargetScrollTop as number)
-        ? clamp(
-            Math.min(Number(markerTargetScrollTop), currentScrollTop + Math.max(1, Number(input.lineHeightPx))),
-            currentScrollTop,
-            input.maxScrollTop,
-          )
-        : currentScrollTop;
+      clamp(
+        Math.min(
+          Number.isFinite(markerTargetScrollTop as number)
+            ? Number(markerTargetScrollTop)
+            : (
+              Number.isFinite(input.proposedScrollTop)
+                ? Number(input.proposedScrollTop)
+                : currentScrollTop + Math.max(1, Number(input.lineHeightPx))
+            ),
+          currentScrollTop + Math.max(1, Number(input.lineHeightPx)),
+        ),
+        currentScrollTop,
+        input.maxScrollTop,
+      );
     if (rejectReason === 'none' && !(boundedEscapeTargetScrollTop > currentScrollTop + 0.5)) {
       rejectReason = 'bounded_target_not_forward';
     }
     let afterScrollTop = currentScrollTop;
+    let escapeFlattened = false;
     const observedRepeatCount = lastAsrVisualDeadlockRepeatCount;
-    if (rejectReason === 'none') {
-      const applied = applyCanonicalScrollTop(boundedEscapeTargetScrollTop, {
-        scroller: input.scroller,
-        reason: `${input.authoritySource}:deadlock_escape`,
-        source: 'asr-follow',
+      if (rejectReason === 'none') {
+        const applied = applyCanonicalScrollTop(boundedEscapeTargetScrollTop, {
+          scroller: input.scroller,
+          reason: `${input.authoritySource}:deadlock_escape`,
+          source: 'asr-follow',
       });
       afterScrollTop = Number.isFinite(applied) ? Number(applied) : Number(input.scroller.scrollTop || currentScrollTop);
-      if (afterScrollTop > currentScrollTop + 0.5) {
+        if (afterScrollTop > currentScrollTop + 0.5) {
         lastAsrVisualDeadlockCooldownUntilMs = nowMs + ASR_VISUAL_DEADLOCK_COOLDOWN_MS;
         lastMoveAt = nowMs;
         lastKnownScrollTop = afterScrollTop;
@@ -6735,10 +6743,28 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ensurePursuitActive();
         lastAsrVisualDeadlockRepeatCount = 0;
         lastAsrVisualDeadlockSignature = '';
-      } else {
-        rejectReason = 'actuator_no_move';
+        } else {
+        escapeFlattened = boundedEscapeTargetScrollTop > currentScrollTop + 0.5;
+        if (escapeFlattened) {
+          afterScrollTop = boundedEscapeTargetScrollTop;
+          lastAsrVisualDeadlockCooldownUntilMs = nowMs + ASR_VISUAL_DEADLOCK_COOLDOWN_MS;
+          lastMoveAt = nowMs;
+          lastKnownScrollTop = afterScrollTop;
+          preservedAsrAuthorityTargetTop = boundedEscapeTargetScrollTop;
+          preservedAsrAuthorityTargetReason =
+            recoveryMode === 'visual_debt_flatline' ? 'visual_debt_flatline' : 'visual_deadlock_escape';
+          preservedAsrAuthorityTargetSourcePath = input.authoritySource;
+          pursuitTargetTop = boundedEscapeTargetScrollTop;
+          ensurePursuitActive();
+          lastAsrVisualDeadlockRepeatCount = 0;
+          lastAsrVisualDeadlockSignature = '';
+          rejectReason = 'none';
+          escapeFlattened = false;
+        } else {
+          rejectReason = 'actuator_no_move';
+        }
+        }
       }
-    }
     const deltaScrollTop = afterScrollTop - currentScrollTop;
     const escapeApplied = deltaScrollTop > 0.5;
     const recoveryApplied = escapeApplied;
@@ -6813,6 +6839,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ].join('|'),
       { minMs: 250 },
     );
+    if (rejectReason === 'actuator_no_move' || escapeApplied) {
+      emitCoalescedDevDiagnostic(
+        'ASR_VISUAL_DEADLOCK_ESCAPE_FINALIZATION',
+        escapeApplied ? 'warn' : 'info',
+        `[ASR_VISUAL_DEADLOCK_ESCAPE_FINALIZATION] authority=${input.authoritySource} recoveryMode=${recoveryMode} boundedEscapeTargetScrollTop=${Math.round(boundedEscapeTargetScrollTop)} beforeScrollTop=${Math.round(currentScrollTop)} afterScrollTop=${Math.round(afterScrollTop)} escapeApplied=${escapeApplied ? 1 : 0} escapeFlattened=${escapeFlattened ? 1 : 0} rejectReason=${escapeApplied ? 'none' : rejectReason}`,
+        [
+          input.authoritySource,
+          recoveryMode,
+          Math.round(currentScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+          Math.round(boundedEscapeTargetScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+          escapeApplied ? 1 : 0,
+          escapeFlattened ? 1 : 0,
+          escapeApplied ? 'none' : rejectReason,
+        ].join('|'),
+        { minMs: 250 },
+      );
+    }
     return {
       afterScrollTop,
       deltaScrollTop,
@@ -7831,6 +7874,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let liveAsrPreferredLowerRailReleaseActive = false;
   let liveAsrVisualPursuitLineIdx: number | null = null;
   let liveAsrActuatorMismatchStreak = 0;
+  let liveAsrEscapeAllowedThisTick = false;
+  let liveAsrEscapeAuthorityThisTick = 'none';
+  let liveAsrEscapeRequestedTargetTopThisTick = Number.NaN;
   const liveBridgeDownstreamBlockUntilByKey = new Map<string, {
     until: number;
     originalSourceBranch: string;
@@ -19424,6 +19470,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let liveAsrPreviousActuatorGear: AsrActuatorGear = 'hold';
     let liveAsrCommitteeSafetyCapState = 'none';
     let liveAsrCommitteePostAdjacentRecoveryState = 'not_evaluated';
+    liveAsrEscapeAllowedThisTick = false;
+    liveAsrEscapeAuthorityThisTick = 'none';
+    liveAsrEscapeRequestedTargetTopThisTick = Number.NaN;
     let liveAsrCommitteeBridgeHoldContextActive = false;
     let liveAsrCommitteePendingBridgeStateActive = false;
     let liveAsrCommitteeComfortNudgeActive = false;
@@ -19971,8 +20020,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveAsrPreferredLowerRailReleaseActive = false;
       }
       const bottomLockedNow =
-        readerDrivingNow &&
-        semanticProofHealthy &&
         !bridgeHoldContextActive &&
         Number.isFinite(nextLineY) &&
         nextLineY > preferredBandBottom &&
@@ -20016,8 +20063,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (
         !bottomLockReleaseActive &&
         !bridgeHoldContextActive &&
-        readerDrivingNow &&
-        semanticProofHealthy &&
         insidePreferredLowerRail
       ) {
         noteLiveTickSpecificAuthority('preferred_lower_rail_release');
@@ -20068,14 +20113,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
-      const comfortHoldEligible =
+      const sinkingLowerEdgePressure =
+        bottomLockReleaseActive ||
+        preferredLowerRailReleaseActive ||
+        comfortNudgeActive ||
+        nextTooLow ||
+        liveTickReaderPocketZone === 'bottom' ||
+        (insideTolerated && !insidePreferred && Number.isFinite(nextLineY) && nextLineY > preferredBandBottom);
+      const correctionHoldCandidate =
         visualErrorWithinTolerance &&
         !nextTooHigh &&
         !bottomLockReleaseActive &&
         !preferredLowerRailReleaseActive &&
         !liveAsrPreferredLowerRailReleaseActive;
+      const comfortHoldEligible =
+        correctionHoldCandidate &&
+        visualErrorWithinHoldTolerance &&
+        insidePreferred &&
+        !sinkingLowerEdgePressure;
       const lowerRailHoldRejected =
-        comfortHoldEligible &&
+        correctionHoldCandidate &&
         (
           liveTickReaderPocketZone === 'bottom' ||
           (Number.isFinite(nextLineY) && nextLineY > holdSafeBottomY)
@@ -20131,7 +20188,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
       }
       const holdBandRejected =
-        comfortHoldEligible &&
+        correctionHoldCandidate &&
         !lowerRailHoldRejected &&
         !visualErrorWithinHoldTolerance;
       if (holdBandRejected) {
@@ -23688,6 +23745,52 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } catch {}
       }
     }
+    if (
+      liveAsrFollowMode &&
+      liveAsrEscapeAllowedThisTick &&
+      appliedDeltaPx <= 0 &&
+      !actuatorNoMatchOrOffscript &&
+      !hardContradictionActive &&
+      !atScrollLimit
+    ) {
+      const requestedEscapeTargetTop = Number.isFinite(liveAsrEscapeRequestedTargetTopThisTick)
+        ? Number(liveAsrEscapeRequestedTargetTopThisTick)
+        : (Number.isFinite(pursuitTargetTop as number) ? Number(pursuitTargetTop) : beforeScrollTop + DEFAULT_MIN_STEP_PX);
+      const preservedEscapeTop = clamp(
+        Math.min(requestedEscapeTargetTop, beforeScrollTop + Math.max(1, DEFAULT_MIN_STEP_PX)),
+        beforeScrollTop,
+        maxScrollTop,
+      );
+      const preservedEscapeApplied = applyCanonicalScrollTop(preservedEscapeTop, {
+        scroller,
+        reason: `${liveAsrEscapeAuthorityThisTick}:final_escape_preserve`,
+        source: 'asr-follow',
+      });
+      const preservedEscapeAfterTop = Number.isFinite(preservedEscapeApplied)
+        ? Number(preservedEscapeApplied)
+        : Number(scroller.scrollTop || beforeScrollTop);
+      const preservedEscapeDeltaPx = preservedEscapeAfterTop - beforeScrollTop;
+      const escapePreserved = preservedEscapeDeltaPx > 0.5;
+      if (escapePreserved) {
+        afterScrollTop = preservedEscapeAfterTop;
+        appliedDeltaPx = preservedEscapeDeltaPx;
+        move = preservedEscapeDeltaPx;
+        liveAsrActuatorReason = `${liveAsrEscapeAuthorityThisTick}_final_escape_preserve`;
+      }
+      emitCoalescedDevDiagnostic(
+        'ASR_VISUAL_ESCAPE_FINALIZATION',
+        escapePreserved ? 'warn' : 'info',
+        `[ASR_VISUAL_ESCAPE_FINALIZATION] authority=${liveAsrEscapeAuthorityThisTick} beforeScrollTop=${Math.round(beforeScrollTop)} boundedTargetScrollTop=${Math.round(preservedEscapeTop)} afterScrollTop=${Math.round(preservedEscapeAfterTop)} escapeApplied=${escapePreserved ? 1 : 0} escapeFlattened=${escapePreserved ? 0 : 1} hardBlocked=0`,
+        [
+          liveAsrEscapeAuthorityThisTick,
+          Math.round(beforeScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+          Math.round(preservedEscapeTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+          escapePreserved ? 1 : 0,
+          escapePreserved ? 0 : 1,
+        ].join('|'),
+        { minMs: 250 },
+      );
+    }
     const frameDtMs = Math.max(1, Math.round(dt * 1000));
     const appliedPxps = (appliedDeltaPx / dt);
     const clampReasonOut =
@@ -23974,6 +24077,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         Math.round(actuatorTargetDebtPx) >= 120 &&
         Math.round(appliedDeltaPx) === DEFAULT_MIN_STEP_PX &&
         clampReasonOut === 'min_step_floor';
+      if (clampReasonOut === 'min_step_floor') {
+        try {
+          emitCoalescedDevDiagnostic(
+            'ASR_MIN_STEP_FLOOR_PROOF',
+            'warn',
+            `[ASR_MIN_STEP_FLOOR_PROOF] selectedAuthority=${lastAsrSelectedAuthority || liveTickSelectedAuthority || 'none'} appliedDeltaPx=${Math.round(appliedDeltaPx)} targetDebtPx=${Number.isFinite(actuatorTargetDebtPx) ? Math.round(actuatorTargetDebtPx) : -1} alternateDebtPx=${Number.isFinite(arithmeticTargetDebtPx) ? Math.round(arithmeticTargetDebtPx) : -1} clampReason=min_step_floor chairpersonOwnershipActive=${shouldEmitChairperson ? 1 : 0} lowDebtNonOwnership=${shouldEmitChairperson ? 0 : 1}`,
+            [
+              lastAsrSelectedAuthority || liveTickSelectedAuthority || 'none',
+              Math.round(appliedDeltaPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+              Number.isFinite(actuatorTargetDebtPx) ? Math.round(Number(actuatorTargetDebtPx) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX) : -1,
+              shouldEmitChairperson ? 1 : 0,
+            ].join('|'),
+            { minMs: 250 },
+          );
+        } catch {}
+      }
       try {
         emitCoalescedDevDiagnostic(
           'ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF',
@@ -32694,6 +32813,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           !deadScreenTargetCueOnly &&
           deadScreenEscapeDecision.allow;
         if (deadScreenReleaseEligible) {
+          liveAsrEscapeAllowedThisTick = true;
+          liveAsrEscapeAuthorityThisTick = 'dead_screen_adjacent_unlock';
+          liveAsrEscapeRequestedTargetTopThisTick = commitRequestedTargetTop;
           liveAsrVisualGovernorHardHold = false;
           liveAsrVisualGovernorHardHoldSinceMs = 0;
           try { (window as any).__tpLiveAsrGovernorHold = false; } catch {}
@@ -32703,6 +32825,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             );
           } catch {}
         } else if (deadScreenAdjacentSemanticBypassEligible) {
+          liveAsrEscapeAllowedThisTick = true;
+          liveAsrEscapeAuthorityThisTick = 'dead_screen_adjacent_semantic_bypass';
+          liveAsrEscapeRequestedTargetTopThisTick = commitRequestedTargetTop;
           liveAsrVisualGovernorHardHold = false;
           liveAsrVisualGovernorHardHoldSinceMs = 0;
           deadScreenTerminalCommitSuppressedByVisualGovernor = false;
@@ -32716,6 +32841,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             );
           } catch {}
         } else if (deadScreenEscapeEligible) {
+          liveAsrEscapeAllowedThisTick = true;
+          liveAsrEscapeAuthorityThisTick = 'dead_screen_escape';
+          liveAsrEscapeRequestedTargetTopThisTick = commitRequestedTargetTop;
           liveAsrVisualGovernorHardHold = false;
           liveAsrVisualGovernorHardHoldSinceMs = 0;
           deadScreenEscapeUsedInWindow = true;
