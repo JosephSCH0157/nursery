@@ -2503,7 +2503,7 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
-  test('visual deadlock escape refuses backward or non-forward bounded targets', () => {
+  test('visual deadlock escape rejects non-forward marker target but uses bounded forward fallback when available', () => {
     const driver = createAsrScrollDriver() as DebugAsrDriver;
     bootstrapLiveAsrRuntime();
 
@@ -2531,10 +2531,54 @@ describe('ASR live commit motion', () => {
     const result = driver.__debugEvaluateAsrVisualDeadlockEscape(args);
 
     expect(result).toMatchObject({
+      escapeApplied: true,
+      rejectReason: 'none',
+      eligible: true,
+      denialReason: 'none',
+      fallbackTargetGeometry: 'proposed_fallback_from_nonforward_marker',
+      boundedNonzeroMotionExists: true,
+      hardBlockerReason: 'none',
+    });
+    expect(result.afterScrollTop).toBeGreaterThan(1700);
+    expect(result.deltaScrollTop).toBeGreaterThan(0);
+    expect(result.deltaScrollTop).toBeLessThanOrEqual(68);
+
+    driver.dispose();
+  });
+
+  test('visual deadlock escape still refuses non-forward target when no bounded forward fallback exists', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+
+    const args = {
+      currentLineIdx: 2,
+      committedLineIdx: 2,
+      authoritativeLineIdx: 0,
+      candidateLineIdx: 3,
+      currentScrollTop: 1700,
+      proposedScrollTop: 1700,
+      cappedScrollTop: 1700,
+      lineHeightPx: 68,
+      maxScrollTop: 5000,
+      speakableLead: 12,
+      renderedLead: 12,
+      leadPressureReason: 'fresh_semantic_lead_pressure_capped',
+      pocketWallReason: 'wall_locked_tiny_or_noisy_delta',
+      cappedDeltaPx: 0,
+      speechFresh: true,
+      transcriptFresh: true,
+    } as const;
+
+    driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+    driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+    const result = driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+
+    expect(result).toMatchObject({
       escapeApplied: false,
       rejectReason: 'bounded_target_not_forward',
       eligible: false,
       denialReason: 'bounded_target_not_forward',
+      fallbackTargetGeometry: 'proposed_fallback_from_nonforward_marker',
       boundedNonzeroMotionExists: false,
       hardBlockerReason: 'bounded_target_not_forward',
       finalZeroingReason: 'bounded_target_not_forward',
