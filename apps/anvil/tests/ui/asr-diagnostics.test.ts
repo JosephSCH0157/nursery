@@ -83,6 +83,7 @@ import {
   buildAsrVisualDebtCatchupAllowedDiagnostic,
   buildAsrVisualDebtCatchupEvaluationSeenDiagnostic,
   buildAsrVisualDebtCatchupBlockedDiagnostic,
+  buildAsrLocalRescueAllowedButUnrealizedDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
   buildProofOwnedPrimaryCommitGuardBaseParts,
   buildRecoverySkipNonAdjacentTargetGuardBaseParts,
@@ -310,6 +311,22 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(blocked).toBe(
       '[ASR_VISUAL_DEBT_CATCHUP_BLOCKED] debtPx=148 lineHeightPx=56 proposedMovePx=56 blockedReason=cooldown postCommitGapMs=84 requiredGapMs=140 reducedGapEligible=1 recentSafeCommitAgeMs=84 consecutiveDebtObservations=3 currentLineIdx=40 committedLineIdx=41 targetLineIdx=41 decisionReason=none',
+    );
+
+    const unrealized = buildAsrLocalRescueAllowedButUnrealizedDiagnostic({
+      allowedReason: 'persistent_local_rescue_override',
+      intendedMovePx: 28,
+      actualMovePx: 0,
+      actuatorBlockReason: 'actuator_rate_limited',
+      finalZeroingReason: 'writer_no_progress',
+      hardBlocker: 'none',
+      cooldownState: 'cooldown_clear',
+      targetDebtPx: 136,
+      targetScrollTop: 308,
+      currentScrollTop: 172,
+    });
+    expect(unrealized).toBe(
+      '[ASR_LOCAL_RESCUE_ALLOWED_BUT_UNREALIZED] allowedReason=persistent_local_rescue_override intendedMovePx=28 actualMovePx=0 actuatorBlockReason=actuator_rate_limited finalZeroingReason=writer_no_progress hardBlocker=none cooldownState=cooldown_clear targetDebtPx=136 targetScrollTop=308 currentScrollTop=172',
     );
   });
 

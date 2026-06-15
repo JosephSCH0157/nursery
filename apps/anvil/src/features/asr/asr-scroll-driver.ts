@@ -104,6 +104,7 @@ import {
   buildAsrScrollAuthorityResolvedDiagnostic,
   buildAsrScrollChairpersonArbitrationDiagnostic,
   buildAsrVisualDebtCatchupAllowedDiagnostic,
+  buildAsrLocalRescueAllowedButUnrealizedDiagnostic,
   buildAsrVisualDebtCatchupEvaluationSeenDiagnostic,
   buildAsrVisualDebtCatchupBlockedDiagnostic,
   buildAsrVisualRecoveryBoostAppliedDiagnostic,
@@ -4588,6 +4589,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     terminalClampActive: boolean;
     noMatchOrOffscript: boolean;
     hardContradiction: boolean;
+    localRescueMinMovePx?: number;
   }): {
     afterTop: number;
     appliedDeltaPx: number;
@@ -4595,6 +4597,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     tolerancePx: number;
     usedPullback: boolean;
     blockedPullback: boolean;
+    zeroingReason: string;
   } => {
     const currentTop = Number.isFinite(input.currentTop) ? Number(input.currentTop) : 0;
     const targetFinite = Number.isFinite(input.targetScrollTop as number);
@@ -4623,6 +4626,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       Math.max(0, Number(input.requestedMovePx) || 0),
       Number(input.effectiveMinStepPx) || 0,
       leasedStepFloorPx,
+      Math.max(0, Number(input.localRescueMinMovePx) || 0),
     );
     const proposedTop = currentTop + Math.min(flooredMovePx, remainingForwardDebtPx);
     const targetBounding = computeVisualTargetBounding({
@@ -4654,6 +4658,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         tolerancePx: pullbackResult.tolerancePx,
         usedPullback: pullbackResult.applied,
         blockedPullback: pullbackResult.blocked,
+        zeroingReason: pullbackResult.applied ? 'none' : (pullbackResult.blockedReason || 'visual_recenter_blocked'),
       };
     }
     let boundedTop = proposedTop;
@@ -4713,6 +4718,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       tolerancePx: targetBounding.tolerancePx,
       usedPullback: false,
       blockedPullback: false,
+      zeroingReason: afterTop > currentTop + 0.5 ? 'none' : 'writer_no_progress',
     };
   };
 
@@ -21803,6 +21809,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let visualDebtCatchupAllowed = false;
     let visualDebtCatchupBlockedReason = '';
     let visualDebtCatchupDecisionReason = '';
+    const visualDebtCatchupLocalRescueAllowedReasonSet = new Set([
+      'persistent_local_rescue_override',
+      'cooldown_deferred_but_not_starved',
+    ]);
     const visualDebtDirection =
       !Number.isFinite(arithmeticTargetDebtPx)
         ? 'unknown'
@@ -22536,6 +22546,30 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         : -1;
     const targetScrollTopForActuator =
       Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : Number.NaN;
+    const localRescueMustRealizeMove =
+      visualDebtCatchupAllowed &&
+      visualDebtCatchupLocalRescueAllowedReasonSet.has(String(visualDebtCatchupDecisionReason || '')) &&
+      visualChairpersonOwnershipEnabled &&
+      actuatorSpeechFresh &&
+      !visualDebtCatchupCooldownActive &&
+      visualDebtCatchupLocalRescueCandidate &&
+      Number.isFinite(actuatorTargetDebtPx) &&
+      actuatorTargetDebtPx > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX &&
+      !atScrollLimit &&
+      !actuatorNoMatchOrOffscript &&
+      !hardContradictionActive;
+    const localRescueBoundedMinMovePx = localRescueMustRealizeMove
+      ? Math.min(
+        Number.isFinite(actuatorTargetDebtPx) ? Number(actuatorTargetDebtPx) : 0,
+        Math.max(
+          1,
+          Math.round(Math.min(
+            visualDebtCatchupProposedMovePx,
+            Math.max(12, safeResolverLineHeightPx * 0.35),
+          )),
+        ),
+      )
+      : 0;
     const actuatorAuthorityForTick =
       visualChairpersonOwnershipEnabled && chairDecisionOutput
         ? String(chairDecisionOutput.decision.authority)
@@ -22564,6 +22598,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         terminalClampActive: atScrollLimit,
         noMatchOrOffscript: actuatorNoMatchOrOffscript,
         hardContradiction: hardContradictionActive,
+        localRescueMinMovePx: localRescueBoundedMinMovePx,
       });
       if (actuatorStep.blockedPullback && lastAsrRecoveryPathBlockReason === 'none') {
         lastAsrRecoveryPathBlockReason = lastAsrBackwardRecenterBlockReason !== 'none'
@@ -22596,6 +22631,39 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             consecutiveDebtObservations: liveAsrVisualDebtCatchupObservationCount,
           }));
         } catch {}
+        if (localRescueMustRealizeMove && Math.max(0, appliedDeltaPx) <= 0) {
+          const actuatorBlockReason = resolveAsrActuatorMovementBlockedReason({
+            selectedTargetScrollTop: Number.isFinite(targetScrollTopForActuator) ? targetScrollTopForActuator : null,
+            beforeScrollTop,
+            appliedDeltaPx,
+            requestedDeltaPx: Math.max(move, localRescueBoundedMinMovePx, visualDebtCatchupProposedMovePx),
+            clampReason,
+            terminalClampActive: atScrollLimit,
+            hardSafetyBlocked: actuatorNoMatchOrOffscript || hardContradictionActive,
+            directWriteBlocked: false,
+            directWriteBlockedReason: 'none',
+            staleDebtSource: liveTickStaleDebtSource,
+            ownershipTargetChanged: liveTickOwnershipTargetChanged,
+            cooldownActive: visualDebtCatchupCooldownActive,
+          });
+          try {
+            console.warn(buildAsrLocalRescueAllowedButUnrealizedDiagnostic({
+              allowedReason: visualDebtCatchupDecisionReason,
+              intendedMovePx: Math.max(move, localRescueBoundedMinMovePx, visualDebtCatchupProposedMovePx),
+              actualMovePx: Math.max(0, appliedDeltaPx),
+              actuatorBlockReason,
+              finalZeroingReason: actuatorStep.zeroingReason || clampReason,
+              hardBlocker:
+                atScrollLimit
+                  ? 'scroll_limit'
+                  : ((actuatorNoMatchOrOffscript || hardContradictionActive) ? 'safety_blocker' : 'none'),
+              cooldownState: visualDebtCatchupCooldownActive ? 'cooldown_active' : 'cooldown_clear',
+              targetDebtPx: Number.isFinite(actuatorTargetDebtPx) ? Number(actuatorTargetDebtPx) : 0,
+              targetScrollTop: Number.isFinite(targetScrollTopForActuator) ? Number(targetScrollTopForActuator) : beforeScrollTop,
+              currentScrollTop: beforeScrollTop,
+            }));
+          } catch {}
+        }
       }
       if (Math.abs(appliedDeltaPx) > 0.5) {
         lastMoveAt = Date.now();
@@ -41531,6 +41599,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     readerMarkerCorrectionLeaseAgeMs?: number | null;
     readerMarkerCorrectionLeaseReason?: string | null;
     readerMarkerCorrectionLeaseMarkerErrorPxAtStart?: number | null;
+    localRescueMinMovePx?: number;
   }) => {
     const scroller = getScroller();
     if (!scroller) {
@@ -41618,6 +41687,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       terminalClampActive: !!args.terminalClampActive,
       noMatchOrOffscript: !!args.noMatchOrOffscript,
       hardContradiction: !!args.hardContradiction,
+      localRescueMinMovePx: Number.isFinite(args.localRescueMinMovePx as number) ? Number(args.localRescueMinMovePx) : 0,
     });
     lastLineIndex = previousState.lastLineIndex;
     lastResolvedAllowedTargetIdx = previousState.lastResolvedAllowedTargetIdx;
@@ -41664,6 +41734,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     matchVia?: string | null;
     matchReason?: string | null;
     primaryBypassReason?: string | null;
+    localRescueMinMovePx?: number;
   }) => {
     const scroller = getScroller();
     if (!scroller) {
@@ -41783,6 +41854,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       terminalClampActive: !!args.terminalClampActive,
       noMatchOrOffscript: !!args.noMatchOrOffscript,
       hardContradiction: !!args.hardContradiction,
+      localRescueMinMovePx: Number.isFinite(args.localRescueMinMovePx as number) ? Number(args.localRescueMinMovePx) : 0,
     });
     const movementBlocked = resolveAsrActuatorMovementBlockedReason({
       selectedTargetScrollTop: args.selectedTargetScrollTop,
@@ -43288,6 +43360,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       readerMarkerCorrectionLeaseAgeMs?: number | null;
       readerMarkerCorrectionLeaseReason?: string | null;
       readerMarkerCorrectionLeaseMarkerErrorPxAtStart?: number | null;
+      localRescueMinMovePx?: number;
     }): {
       beforeScrollTop: number;
       afterTop: number;
@@ -43322,6 +43395,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       matchVia?: string | null;
       matchReason?: string | null;
       primaryBypassReason?: string | null;
+      localRescueMinMovePx?: number;
     }): {
       finalTargetDebtPx: number;
       staleDebtSource: boolean;

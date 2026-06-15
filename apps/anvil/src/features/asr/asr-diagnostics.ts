@@ -1614,6 +1614,21 @@ export function buildAsrVisualDebtCatchupAllowedDiagnostic(args: {
   return `[ASR_VISUAL_DEBT_CATCHUP_ALLOWED] debtPx=${Math.round(args.debtPx)} lineHeightPx=${Math.round(args.lineHeightPx)} proposedMovePx=${Math.round(args.proposedMovePx)} actualMovePx=${actualMovePx} decisionReason=${args.decisionReason || 'none'} clampReason=${args.clampReason || 'none'} currentScrollTop=${currentScrollTop} targetScrollTop=${targetScrollTop} consecutiveDebtObservations=${consecutiveDebtObservations}`;
 }
 
+export function buildAsrLocalRescueAllowedButUnrealizedDiagnostic(args: {
+  allowedReason: string;
+  intendedMovePx: number;
+  actualMovePx: number;
+  actuatorBlockReason?: string | null;
+  finalZeroingReason?: string | null;
+  hardBlocker?: string | null;
+  cooldownState?: string | null;
+  targetDebtPx: number;
+  targetScrollTop: number;
+  currentScrollTop: number;
+}): string {
+  return `[ASR_LOCAL_RESCUE_ALLOWED_BUT_UNREALIZED] allowedReason=${args.allowedReason || 'none'} intendedMovePx=${Math.round(args.intendedMovePx)} actualMovePx=${Math.round(args.actualMovePx)} actuatorBlockReason=${args.actuatorBlockReason || 'none'} finalZeroingReason=${args.finalZeroingReason || 'none'} hardBlocker=${args.hardBlocker || 'none'} cooldownState=${args.cooldownState || 'none'} targetDebtPx=${Math.round(args.targetDebtPx)} targetScrollTop=${Math.round(args.targetScrollTop)} currentScrollTop=${Math.round(args.currentScrollTop)}`;
+}
+
 export function buildAsrVisualDebtCatchupEvaluationSeenDiagnostic(args: {
   debtPx: number;
   lineHeightPx: number;

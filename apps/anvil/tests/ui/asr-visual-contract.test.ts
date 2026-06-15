@@ -47,6 +47,7 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     readerMarkerCorrectionLeaseAgeMs?: number | null;
     readerMarkerCorrectionLeaseReason?: string | null;
     readerMarkerCorrectionLeaseMarkerErrorPxAtStart?: number | null;
+    localRescueMinMovePx?: number;
   }): {
     afterTop: number;
     appliedDeltaPx: number;
@@ -184,6 +185,7 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     matchVia?: string | null;
     matchReason?: string | null;
     primaryBypassReason?: string | null;
+    localRescueMinMovePx?: number;
   }): {
     finalTargetDebtPx: number;
     staleDebtSource: boolean;
@@ -498,6 +500,37 @@ describe('ASR visual contract', () => {
     expect(result.movementBlocked).toBe('none');
     expect(result.ownershipFinalizationRejectedReason).toBe('none');
     expect(result.semanticCommitHeldButVisualCorrectionAllowed).toBe(true);
+
+    driver.dispose();
+  });
+
+  test('local rescue floor realizes a bounded nonzero move when the selected target stays safely ahead', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugApplyFinalSelectedActuatorStep({
+      beforeScrollTop: 172,
+      selectedTargetScrollTop: 308,
+      staleActuatorDebtPx: 136,
+      requestedMovePx: 0,
+      effectiveMinStepPx: 0,
+      currentLineIdx: 4,
+      committedLineIdx: 4,
+      nextSpeakableLineIdx: 4,
+      authority: 'reader_marker_correction',
+      authorityReason: 'persistent_local_rescue_override',
+      allowedTargetIdx: 4,
+      localRescueMinMovePx: 18,
+      lineHeightPx: 56,
+      matchBestIdx: 4,
+      matchBestSim: 0.92,
+      matchVia: 'backend',
+      matchReason: 'ts_primary_matcher',
+      primaryBypassReason: null,
+    });
+
+    expect(result.appliedDeltaPx).toBeGreaterThanOrEqual(18);
+    expect(result.appliedDeltaPx).toBeLessThanOrEqual(136);
+    expect(result.movementBlocked).toBe('none');
 
     driver.dispose();
   });
