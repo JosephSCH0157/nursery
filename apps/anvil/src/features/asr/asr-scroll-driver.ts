@@ -20039,9 +20039,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 ? 'above_tolerated_top'
                 : (insideTolerated ? 'tolerated' : 'unknown'))));
         liveTickReaderPocketZone =
-          (nextLineY - markerY) > 96
+          nextLineY > preferredBandBottom
             ? 'bottom'
-            : ((nextLineY - markerY) < -48 ? 'top' : 'pocket');
+            : (nextLineY < preferredBandTop ? 'top' : 'pocket');
         let authorityAction: 'hold' | 'pursue' | 'clamp' = 'hold';
         let authorityReason = 'marker_error_within_tolerance';
         let desiredTopFromCurrent = current;
@@ -20232,7 +20232,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         preferredLowerRailReleaseActive ||
         comfortNudgeActive ||
         nextTooLow ||
-        liveTickReaderPocketZone === 'bottom' ||
+        insidePreferredLowerRail ||
         (insideTolerated && !insidePreferred && Number.isFinite(nextLineY) && nextLineY > preferredBandBottom);
       const correctionHoldCandidate =
         visualErrorWithinTolerance &&
@@ -20243,13 +20243,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const comfortHoldEligible =
         correctionHoldCandidate &&
         visualErrorWithinHoldTolerance &&
-        insidePreferred &&
+        insidePreferredSettleZone &&
         !sinkingLowerEdgePressure;
       const lowerRailHoldRejected =
         correctionHoldCandidate &&
         (
           liveTickReaderPocketZone === 'bottom' ||
-          (Number.isFinite(nextLineY) && nextLineY > holdSafeBottomY)
+          insidePreferredLowerRail ||
+          (Number.isFinite(nextLineY) && nextLineY > holdSafeBottomY && !insidePreferredSettleZone)
         );
       if (lowerRailHoldRejected) {
         liveAsrCommitteeMarkerLockState = 'lower_rail_hold_rejected';
@@ -22120,6 +22121,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           'below_preferred_bottom',
           provisionalSelectedTargetScrollTop > beforeScrollTop ? 'forward' : 'hold',
           82,
+        );
+      }
+      if (
+        liveAsrCommitteeComfortNudgeActive &&
+        !liveAsrCommitteePreferredLowerRailReleaseActive &&
+        !liveAsrCommitteeBottomLockReleaseActive
+      ) {
+        addOwnershipCandidate(
+          'comfort_nudge',
+          provisionalSelectedTargetScrollTop,
+          provisionalSelectedReason || 'outside_preferred_within_tolerated',
+          provisionalSelectedTargetScrollTop > beforeScrollTop ? 'forward' : 'hold',
+          78,
         );
       }
       const asr4OwnershipState = computeAsr4PocketDriftState({
@@ -43028,6 +43042,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     eventsSinceCommit,
     finalsSinceCommit,
   });
+  const debugGetAuthoritySnapshot = () => ({
+    lastSelectedAuthority: lastAsrSelectedAuthority,
+    visualAction: lastAsrVisualAction,
+    visualErrorPx: lastAsrVisualErrorPx,
+    holdTolerancePx: lastAsrHoldTolerancePx,
+    markerY: lastAsrMarkerY,
+    nextSpeakableLineY: lastAsrNextSpeakableLineY,
+    preferredBandTop: lastAsrPreferredBandTop,
+    preferredSettleBottom: lastAsrPreferredSettleBottom,
+    preferredBandBottom: lastAsrPreferredBandBottom,
+    toleratedBandBottom: lastAsrToleratedBandBottom,
+    readerPocketZone: lastAsrReaderPocketZone,
+    selectedReason: lastAsrGuardReason || '',
+    lineIndex: lastLineIndex,
+  });
 
   const driver = {
     ingest,
@@ -43035,6 +43064,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     setLastLineIndex,
     getLastLineIndex,
     getStats,
+    __debugGetAuthoritySnapshot: debugGetAuthoritySnapshot,
     __debugSeedPendingSpeakableBridge: debugSeedPendingSpeakableBridge,
     __debugObserveAsr4VisualRecoveryCommit: debugObserveAsr4VisualRecoveryCommit,
     __debugObserveAsr4PocketDrift: debugObserveAsr4PocketDrift,
@@ -43070,6 +43100,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       runKey?: string | null;
       runGeneration?: number | null;
     }): void;
+    __debugGetAuthoritySnapshot(): {
+      lastSelectedAuthority: string;
+      visualAction: string;
+      visualErrorPx: number;
+      holdTolerancePx: number;
+      markerY: number;
+      nextSpeakableLineY: number;
+      preferredBandTop: number;
+      preferredSettleBottom: number;
+      preferredBandBottom: number;
+      toleratedBandBottom: number;
+      readerPocketZone: string;
+      selectedReason: string;
+      lineIndex: number;
+    };
     __debugObserveAsr4VisualRecoveryCommit(args: {
       currentLine: number;
       committedLine: number;

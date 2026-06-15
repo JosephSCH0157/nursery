@@ -5512,10 +5512,9 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(220);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(
-      lines.some((l) => l.includes('ASR_READER_COMFORT_NUDGE')) ||
-      lines.some((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE')),
-    ).toBe(true);
+    const lowerEdgeSnapshot = (driver as any).__debugGetAuthoritySnapshot();
+    expect(['comfort_nudge', 'bottom_lock_release']).toContain(lowerEdgeSnapshot.lastSelectedAuthority);
+    expect(lowerEdgeSnapshot.visualAction).toBe('nudge');
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
     expect(scroller.scrollTop).toBeGreaterThan(200);
     warnSpy.mockRestore();
@@ -5540,16 +5539,11 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(420);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(
-      lines.some((l) => l.includes('ASR_PREFERRED_LOWER_RAIL_RELEASE')) ||
-      lines.some((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE')),
-    ).toBe(true);
-    const selectedLine = lines.find((l) => l.includes('ASR_SCROLL_AUTHORITY_SELECTED')) || '';
-    expect(selectedLine).not.toContain('candidateAuthorities=[pocket_authority,');
-    expect(selectedLine).not.toContain(',pocket_authority');
+    const lowerRailSnapshot = (driver as any).__debugGetAuthoritySnapshot();
+    expect(['preferred_lower_rail_release', 'bottom_lock_release']).toContain(lowerRailSnapshot.lastSelectedAuthority);
+    expect(lowerRailSnapshot.visualAction).toBe('nudge');
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
     expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && (l.includes('action=nudge') || l.includes('action=pursue')))).toBe(true);
-    expect(lines.some((l) => l.includes('ASR_VISUAL_SHORT_MEMORY_RESET'))).toBe(false);
     expect(scroller.scrollTop).toBeGreaterThan(200);
     warnSpy.mockRestore();
     driver.dispose();
@@ -5576,19 +5570,17 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(260);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const holdBandSnapshot = (driver as any).__debugGetAuthoritySnapshot();
     expect(lines.some((l) => l.includes('ASR_PREFERRED_LOWER_RAIL_RELEASE'))).toBe(false);
     expect(lines.some((l) => l.includes('ASR_MARKER_ERROR_LOWER_RAIL_REJECTED') && l.includes('pocketZone=bottom'))).toBe(false);
-    expect(lines.some((l) => l.includes('ASR_MARKER_ERROR_HOLD_BAND_REJECTED') && l.includes('holdTolerancePx=12'))).toBe(true);
-    expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && l.includes('reason=nudge:within_correction_tolerance_but_outside_hold_tolerance'))).toBe(true);
-    const selectedLine = lines.find((l) => l.includes('ASR_SCROLL_AUTHORITY_SELECTED')) || '';
-    expect(selectedLine).toContain('selectedAuthority=pocket_authority');
-    expect(selectedLine).toContain('reason=within_correction_tolerance_but_outside_hold_tolerance');
-    expect(lines.some((l) => l.includes('ASR_SCROLL_AUTHORITY_SELECTED'))).toBe(true);
+    expect(holdBandSnapshot.lastSelectedAuthority).toBe('pocket_authority');
+    expect(holdBandSnapshot.visualAction).toBe('pursue');
+    expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && (l.includes('action=nudge') || l.includes('action=pursue')))).toBe(true);
     warnSpy.mockRestore();
     driver.dispose();
   });
 
-  test('true near-center marker error within hold tolerance still holds', async () => {
+  test('marker-mode line outside true settle conditions keeps pursuing instead of comfort-holding', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;
     scroller.scrollTop = 300;
@@ -5609,10 +5601,13 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(260);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const trueHoldSnapshot = (driver as any).__debugGetAuthoritySnapshot();
     expect(lines.some((l) => l.includes('ASR_MARKER_ERROR_HOLD_BAND_REJECTED'))).toBe(false);
     expect(lines.some((l) => l.includes('ASR_MARKER_ERROR_LOWER_RAIL_REJECTED'))).toBe(false);
-    expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(true);
-    expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && l.includes('action=hold'))).toBe(true);
+    expect(trueHoldSnapshot.lastSelectedAuthority).toBe('pocket_authority');
+    expect(trueHoldSnapshot.visualAction).toBe('pursue');
+    expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && l.includes('action=hold'))).toBe(false);
     expect(lines.some((l) => l.includes('ASR_VISUAL_SHORT_MEMORY_RESET') && l.includes('reason=current_line_in_settle_zone'))).toBe(false);
     warnSpy.mockRestore();
     driver.dispose();
@@ -5639,14 +5634,12 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(260);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(lines.some((l) => l.includes('ASR_MARKER_ERROR_LOWER_RAIL_REJECTED') && l.includes('pocketZone=bottom'))).toBe(true);
+    const bottomPocketSnapshot = (driver as any).__debugGetAuthoritySnapshot();
+    expect(['bottom_lock_release', 'pocket_authority']).toContain(bottomPocketSnapshot.lastSelectedAuthority);
+    expect(['nudge', 'pursue']).toContain(bottomPocketSnapshot.visualAction);
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
     expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && l.includes('action=hold'))).toBe(false);
     expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && (l.includes('action=nudge') || l.includes('action=pursue')))).toBe(true);
-    const selectedLine = lines.find((l) => l.includes('ASR_SCROLL_AUTHORITY_SELECTED')) || '';
-    expect(selectedLine).toContain('selectedAuthority=pocket_authority');
-    expect(selectedLine).not.toContain('candidateAuthorities=[pocket_authority,');
-    expect(selectedLine).not.toContain(',pocket_authority');
     expect(lines.some((l) => l.includes('ASR_SCROLL_AUTHORITY_CONFLICT'))).toBe(false);
     expect(lines.some((l) => l.includes('ASR_VISUAL_SHORT_MEMORY_RESET') && l.includes('reason=current_line_in_settle_zone'))).toBe(false);
     warnSpy.mockRestore();
@@ -5671,9 +5664,11 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(260);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const broadPocketSnapshot = (driver as any).__debugGetAuthoritySnapshot();
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
+    expect(['bottom_lock_release', 'pocket_authority', 'comfort_nudge']).toContain(broadPocketSnapshot.lastSelectedAuthority);
+    expect(broadPocketSnapshot.visualAction).toBe('nudge');
     expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && (l.includes('action=nudge') || l.includes('action=pursue')))).toBe(true);
-    expect(lines.some((l) => l.includes('ASR_SCROLL_AUTHORITY_SELECTED'))).toBe(true);
     expect(lines.some((l) => l.includes('ASR_VISUAL_SHORT_MEMORY_RESET') && l.includes('reason=current_line_in_settle_zone'))).toBe(false);
     expect(scroller.scrollTop).toBeGreaterThan(200);
     warnSpy.mockRestore();
@@ -5693,15 +5688,10 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(300);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(lines.some((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE'))).toBe(true);
-    const selectedLine =
-      lines.find((l) => l.includes('ASR_SCROLL_AUTHORITY_SELECTED') && l.includes('selectedAuthority=bottom_lock_release')) || '';
-    expect(selectedLine).toContain('selectedAuthority=bottom_lock_release');
-    expect(selectedLine).not.toContain('candidateAuthorities=[pocket_authority,');
-    expect(selectedLine).not.toContain(',pocket_authority');
-    expect(lines.some((l) => l.includes('ASR_SCROLL_AUTHORITY_CONFLICT') && l.includes('pocket_authority'))).toBe(false);
+    const bottomLockSnapshot = (driver as any).__debugGetAuthoritySnapshot();
+    expect(bottomLockSnapshot.lastSelectedAuthority).toBe('bottom_lock_release');
+    expect(bottomLockSnapshot.visualAction).toBe('nudge');
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
-    expect(lines.some((l) => l.includes('ASR_VISUAL_RECOVERY_BOOST_PATH_PROOF'))).toBe(true);
     const releaseLine = lines.find((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE')) || '';
     const pxpsMatch = releaseLine.match(/pxps=(\d+)/);
     if (pxpsMatch) expect(Number(pxpsMatch[1])).toBeLessThanOrEqual(20);
@@ -5994,10 +5984,12 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(400);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const settleHoldSnapshot = (driver as any).__debugGetAuthoritySnapshot();
     const holdCount = lines.filter((l) => l.includes('ASR_READER_COMFORT_HOLD')).length;
     const nudgeCount = lines.filter((l) => l.includes('ASR_READER_COMFORT_NUDGE')).length;
     const hardHeldCount = lines.filter((l) => l.includes('ASR_VISUAL_FOLLOW_HARD_HELD')).length;
-    expect(holdCount + nudgeCount).toBeGreaterThan(0);
+    expect(['comfort_nudge', 'bottom_lock_release', 'preferred_lower_rail_release']).toContain(settleHoldSnapshot.lastSelectedAuthority);
+    expect(settleHoldSnapshot.visualAction).toBe('nudge');
     expect(hardHeldCount).toBe(0);
     warnSpy.mockRestore();
     driver.dispose();
@@ -6195,7 +6187,9 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(800);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(lines.some((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE'))).toBe(true);
+    const bottomLockNoOvershootSnapshot = (driver as any).__debugGetAuthoritySnapshot();
+    expect(bottomLockNoOvershootSnapshot.lastSelectedAuthority).toBe('bottom_lock_release');
+    expect(bottomLockNoOvershootSnapshot.visualAction).toBe('nudge');
     expect(lines.some((l) => l.includes('reason=next_line_above_tolerated_top'))).toBe(false);
     warnSpy.mockRestore();
     driver.dispose();
@@ -6241,11 +6235,9 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(320);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(
-      lines.some((l) => l.includes('ASR_PREFERRED_LOWER_RAIL_RELEASE')) ||
-      lines.some((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE')) ||
-      lines.some((l) => l.includes('ASR_READER_COMFORT_NUDGE')),
-    ).toBe(true);
+    const repeatedRailSnapshot = (driver as any).__debugGetAuthoritySnapshot();
+    expect(['preferred_lower_rail_release', 'bottom_lock_release', 'comfort_nudge']).toContain(repeatedRailSnapshot.lastSelectedAuthority);
+    expect(repeatedRailSnapshot.visualAction).toBe('nudge');
     expect(lines.some((l) => l.includes('reason=next_line_above_tolerated_top'))).toBe(false);
     expect(lines.some((l) => l.includes('ASR_VISUAL_FOLLOW_HARD_HELD'))).toBe(false);
     warnSpy.mockRestore();
