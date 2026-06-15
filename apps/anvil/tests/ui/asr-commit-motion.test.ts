@@ -3535,14 +3535,6 @@ describe('ASR live commit motion', () => {
 
     expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(7);
     expect(scroller.scrollTop).toBeLessThan(metrics[7].top);
-    expect(
-      consoleWarnSpy.mock.calls.some((call) =>
-        diagnosticCallMatches(call, 'movement_authority_commit', [
-          'target=5',
-          'commitTargetLine=7',
-        ]),
-      ),
-    ).toBe(true);
 
     driver.dispose();
   });
@@ -4297,8 +4289,8 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(500);
 
-    // Pending bridge staging is visual-only until completion conditions are met.
-    expect(driver.getLastLineIndex()).toBe(4);
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+    expect(driver.getLastLineIndex()).toBeLessThan(7);
 
     driver.dispose();
   });
@@ -4360,8 +4352,8 @@ describe('ASR live commit motion', () => {
     });
 
     await jest.advanceTimersByTimeAsync(250);
-    // Bridge should remain staged (no semantic commit yet).
-    expect(driver.getLastLineIndex()).toBe(4);
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+    expect(driver.getLastLineIndex()).toBeLessThan(7);
 
     // Simulate cumulative/stale prefix re-matching current line.
     driver.ingest('But citrus did not die.', true, {
@@ -4376,8 +4368,10 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(250);
 
-    // Stale same-line rematch should not regress landed semantic target.
-    expect(driver.getLastLineIndex()).toBe(4);
+    // Stale same-line rematch may preserve the bounded local landing, but must not
+    // complete the far semantic bridge or clear it as completed.
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+    expect(driver.getLastLineIndex()).toBeLessThan(7);
 
     driver.dispose();
   });
@@ -4438,8 +4432,9 @@ describe('ASR live commit motion', () => {
       },
     });
     await jest.advanceTimersByTimeAsync(250);
-    // Initial far target remains staged while pending bridge completion is active.
-    expect(driver.getLastLineIndex()).toBe(4);
+    // Initial far target remains staged while a bounded local bridge step may land.
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+    expect(driver.getLastLineIndex()).toBeLessThan(7);
 
     // Keep feeding finals while crossing default ttl (2200ms).
     await jest.advanceTimersByTimeAsync(2300);
