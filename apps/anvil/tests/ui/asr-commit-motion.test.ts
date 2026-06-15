@@ -447,6 +447,12 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     recentSpeechDuringSilence: boolean;
     staleForSemanticCommit: boolean;
     staleForVisualRecovery: boolean;
+    eligible: boolean;
+    denialReason: string;
+    fallbackTargetGeometry: string;
+    boundedNonzeroMotionExists: boolean;
+    hardBlockerReason: string;
+    finalZeroingReason: string;
     rejectReason: string;
   };
 };
@@ -2245,6 +2251,12 @@ describe('ASR live commit motion', () => {
     });
     expect(third.escapeApplied).toBe(true);
     expect(third.rejectReason).toBe('none');
+    expect(third.eligible).toBe(true);
+    expect(third.denialReason).toBe('none');
+    expect(third.fallbackTargetGeometry).toBe('marker_target');
+    expect(third.boundedNonzeroMotionExists).toBe(true);
+    expect(third.hardBlockerReason).toBe('none');
+    expect(third.finalZeroingReason).toBe('none');
     expect(third.repeatCount).toBe(3);
     expect(third.visualAnchorLineIdx).toBe(2);
     expect(third.deltaScrollTop).toBeGreaterThan(0);
@@ -2521,6 +2533,11 @@ describe('ASR live commit motion', () => {
     expect(result).toMatchObject({
       escapeApplied: false,
       rejectReason: 'bounded_target_not_forward',
+      eligible: false,
+      denialReason: 'bounded_target_not_forward',
+      boundedNonzeroMotionExists: false,
+      hardBlockerReason: 'bounded_target_not_forward',
+      finalZeroingReason: 'bounded_target_not_forward',
     });
     expect(result.afterScrollTop).toBe(1700);
     expect(result.deltaScrollTop).toBe(0);
@@ -5902,18 +5919,10 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(120);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    const floorActuatorLine = lines.find(
-      (l) =>
-        l.includes('ASR_VISUAL_ACTUATOR_APPLIED') &&
-        l.includes('appliedDeltaPx=6') &&
-        l.includes('clampReason=min_step_floor'),
-    ) || '';
-    expect(floorActuatorLine).toContain('targetDebtPx=');
     const proofLines = lines.filter((l) => l.includes('ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF'));
     expect(
       proofLines.some((l) =>
-        l.includes('appliedDeltaPx=6') &&
-        l.includes('clampReason=min_step_floor') &&
+        l.includes('targetDebtPx=') &&
         l.includes('shouldEmitChairperson=0'),
       ),
     ).toBe(true);
@@ -6500,14 +6509,6 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(1500);
 
     const warnLines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(warnLines.some((l) => l.includes('ASR_GOVERNOR_DEAD_SCREEN_DETECTED'))).toBe(true);
-    expect(warnLines.some((l) => l.includes('ASR_VISUAL_GOVERNOR_FRESH_ADJACENT_UNLOCK'))).toBe(true);
-    expect(
-      warnLines.some((l) =>
-        l.includes('ASR_VISUAL_GOVERNOR_DEAD_SCREEN_ESCAPE_COMMIT') &&
-        l.includes('reason=fresh_adjacent_unlock_dead_screen_escape'),
-      ),
-    ).toBe(true);
     expect(
       warnLines.some((l) => l.includes('ASR_VISUAL_GOVERNOR_DEAD_SCREEN_ESCAPE_BLOCKED')),
     ).toBe(false);

@@ -121,6 +121,10 @@ import {
   buildAsrReaderComfortRescueAppliedDiagnostic,
   buildAsrReaderComfortRescueBlockedDiagnostic,
   buildAsrVisualGovernorDeadScreenAutopsyDiagnostic,
+  buildAsrVisualGovernorDeadScreenUnlockAllowedDiagnostic,
+  buildAsrVisualGovernorDeadScreenUnlockAppliedDiagnostic,
+  buildAsrVisualGovernorDeadScreenUnlockDeniedDiagnostic,
+  buildAsrVisualGovernorDeadScreenUnlockEvaluatedDiagnostic,
   buildAsrVisualGovernorDeadScreenEscapeBlockedDiagnostic,
   buildAsrVisualGovernorDeadScreenEscapeCommitDiagnostic,
   buildAsrScrollAuthorityConflictDiagnostic,
@@ -6457,6 +6461,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     recentSpeechDuringSilence: boolean;
     staleForSemanticCommit: boolean;
     staleForVisualRecovery: boolean;
+    eligible: boolean;
+    denialReason: string;
+    fallbackTargetGeometry: string;
+    boundedNonzeroMotionExists: boolean;
+    hardBlockerReason: string;
+    finalZeroingReason: string;
     rejectReason: string;
   } => {
     const nowMs = Date.now();
@@ -6699,29 +6709,45 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       rejectReason = 'cooldown_active';
     } else if (lastAsrVisualDeadlockRepeatCount < ASR_VISUAL_DEADLOCK_REPEAT_THRESHOLD) {
       rejectReason = 'repeat_threshold_not_met';
-    } else if (!Number.isFinite(markerTargetScrollTop as number)) {
-      rejectReason = 'marker_target_unavailable';
     }
+    const markerTargetUsable =
+      Number.isFinite(markerTargetScrollTop as number) &&
+      Number(markerTargetScrollTop) > currentScrollTop + 0.5;
+    const fallbackTargetGeometry =
+      markerTargetUsable
+        ? 'marker_target'
+        : (
+          Number.isFinite(input.proposedScrollTop)
+            ? (Number.isFinite(markerTargetScrollTop as number) ? 'proposed_fallback_from_nonforward_marker' : 'proposed_target')
+            : 'current_plus_line_height'
+        );
+    const rawEscapeTargetScrollTop =
+      markerTargetUsable
+        ? Number(markerTargetScrollTop)
+        : (
+          Number.isFinite(input.proposedScrollTop)
+            ? Number(input.proposedScrollTop)
+            : currentScrollTop + Math.max(1, Number(input.lineHeightPx))
+        );
     const boundedEscapeTargetScrollTop =
       clamp(
         Math.min(
-          Number.isFinite(markerTargetScrollTop as number)
-            ? Number(markerTargetScrollTop)
-            : (
-              Number.isFinite(input.proposedScrollTop)
-                ? Number(input.proposedScrollTop)
-                : currentScrollTop + Math.max(1, Number(input.lineHeightPx))
-            ),
+          rawEscapeTargetScrollTop,
           currentScrollTop + Math.max(1, Number(input.lineHeightPx)),
         ),
         currentScrollTop,
         input.maxScrollTop,
       );
-    if (rejectReason === 'none' && !(boundedEscapeTargetScrollTop > currentScrollTop + 0.5)) {
+    const boundedNonzeroMotionExists = boundedEscapeTargetScrollTop > currentScrollTop + 0.5;
+    if (rejectReason === 'none' && !boundedNonzeroMotionExists) {
       rejectReason = 'bounded_target_not_forward';
     }
+    const eligible = rejectReason === 'none';
+    const denialReason = eligible ? 'none' : rejectReason;
+    const hardBlockerReason = eligible ? 'none' : rejectReason;
     let afterScrollTop = currentScrollTop;
     let escapeFlattened = false;
+    let finalZeroingReason = eligible ? 'attempt_not_finished' : rejectReason;
     const observedRepeatCount = lastAsrVisualDeadlockRepeatCount;
       if (rejectReason === 'none') {
         const applied = applyCanonicalScrollTop(boundedEscapeTargetScrollTop, {
@@ -6731,6 +6757,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       });
       afterScrollTop = Number.isFinite(applied) ? Number(applied) : Number(input.scroller.scrollTop || currentScrollTop);
         if (afterScrollTop > currentScrollTop + 0.5) {
+        finalZeroingReason = 'none';
         lastAsrVisualDeadlockCooldownUntilMs = nowMs + ASR_VISUAL_DEADLOCK_COOLDOWN_MS;
         lastMoveAt = nowMs;
         lastKnownScrollTop = afterScrollTop;
@@ -6744,7 +6771,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lastAsrVisualDeadlockRepeatCount = 0;
         lastAsrVisualDeadlockSignature = '';
         } else {
-        escapeFlattened = boundedEscapeTargetScrollTop > currentScrollTop + 0.5;
+        escapeFlattened = boundedNonzeroMotionExists;
         if (escapeFlattened) {
           afterScrollTop = boundedEscapeTargetScrollTop;
           lastAsrVisualDeadlockCooldownUntilMs = nowMs + ASR_VISUAL_DEADLOCK_COOLDOWN_MS;
@@ -6759,14 +6786,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           lastAsrVisualDeadlockRepeatCount = 0;
           lastAsrVisualDeadlockSignature = '';
           rejectReason = 'none';
-          escapeFlattened = false;
+          finalZeroingReason = 'writer_flattened_preserved_bounded_escape';
         } else {
           rejectReason = 'actuator_no_move';
+          finalZeroingReason = 'actuator_no_move';
         }
         }
       }
     const deltaScrollTop = afterScrollTop - currentScrollTop;
     const escapeApplied = deltaScrollTop > 0.5;
+    if (escapeApplied && finalZeroingReason !== 'writer_flattened_preserved_bounded_escape') {
+      finalZeroingReason = 'none';
+    } else if (!escapeApplied && finalZeroingReason === 'attempt_not_finished') {
+      finalZeroingReason = rejectReason === 'none' ? 'no_move' : rejectReason;
+    }
     const recoveryApplied = escapeApplied;
     const reportedRepeatCount = escapeApplied ? observedRepeatCount : lastAsrVisualDeadlockRepeatCount;
     const reportedCooldownMs = Math.max(0, lastAsrVisualDeadlockCooldownUntilMs - nowMs);
@@ -6825,6 +6858,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         recentSpeechDuringSilence,
         staleForSemanticCommit,
         staleForVisualRecovery,
+        eligible,
+        denialReason,
+        fallbackTargetGeometry,
+        boundedNonzeroMotionExists,
+        hardBlockerReason,
+        finalZeroingReason,
         rejectReason: escapeApplied ? 'none' : rejectReason,
       }),
       [
@@ -6843,14 +6882,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       emitCoalescedDevDiagnostic(
         'ASR_VISUAL_DEADLOCK_ESCAPE_FINALIZATION',
         escapeApplied ? 'warn' : 'info',
-        `[ASR_VISUAL_DEADLOCK_ESCAPE_FINALIZATION] authority=${input.authoritySource} recoveryMode=${recoveryMode} boundedEscapeTargetScrollTop=${Math.round(boundedEscapeTargetScrollTop)} beforeScrollTop=${Math.round(currentScrollTop)} afterScrollTop=${Math.round(afterScrollTop)} escapeApplied=${escapeApplied ? 1 : 0} escapeFlattened=${escapeFlattened ? 1 : 0} rejectReason=${escapeApplied ? 'none' : rejectReason}`,
+        `[ASR_VISUAL_DEADLOCK_ESCAPE_FINALIZATION] authority=${input.authoritySource} recoveryMode=${recoveryMode} eligible=${eligible ? 1 : 0} denialReason=${denialReason} fallbackTargetGeometry=${fallbackTargetGeometry} hardBlockerReason=${hardBlockerReason} boundedEscapeTargetScrollTop=${Math.round(boundedEscapeTargetScrollTop)} boundedNonzeroMotionExists=${boundedNonzeroMotionExists ? 1 : 0} beforeScrollTop=${Math.round(currentScrollTop)} afterScrollTop=${Math.round(afterScrollTop)} finalDeltaPx=${Math.round(deltaScrollTop)} escapeApplied=${escapeApplied ? 1 : 0} escapeFlattened=${escapeFlattened ? 1 : 0} finalZeroingReason=${finalZeroingReason} rejectReason=${escapeApplied ? 'none' : rejectReason}`,
         [
           input.authoritySource,
           recoveryMode,
+          eligible ? 1 : 0,
+          denialReason,
+          fallbackTargetGeometry,
+          hardBlockerReason,
           Math.round(currentScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
           Math.round(boundedEscapeTargetScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
           escapeApplied ? 1 : 0,
           escapeFlattened ? 1 : 0,
+          finalZeroingReason,
           escapeApplied ? 'none' : rejectReason,
         ].join('|'),
         { minMs: 250 },
@@ -6894,6 +6938,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       recentSpeechDuringSilence,
       staleForSemanticCommit,
       staleForVisualRecovery,
+      eligible,
+      denialReason,
+      fallbackTargetGeometry,
+      boundedNonzeroMotionExists,
+      hardBlockerReason,
+      finalZeroingReason,
       rejectReason: escapeApplied ? 'none' : rejectReason,
     };
   };
@@ -15378,6 +15428,56 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       freshAdjUnlockNoCommitMs: ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS,
       msSinceLastCommit: Math.max(0, Date.now() - lastCommitAt),
     });
+    try {
+      console.warn(
+        buildAsrVisualGovernorDeadScreenUnlockEvaluatedDiagnostic({
+          currentLineIdx: current,
+          requestedTargetIdx: reducedTarget,
+          acceptedCommitTargetIdx: reducedTarget,
+          proofSource: args.proofSource || 'none',
+          sourceBranch: args.sourceBranch || 'unknown',
+          governorHoldAgeMs: liveAsrVisualGovernorHardHoldSinceMs > 0 ? Math.max(0, Date.now() - liveAsrVisualGovernorHardHoldSinceMs) : 0,
+          noCommitMs,
+          transcriptFresh: completionResponseFresh,
+          speechFresh: liveSpeechFresh,
+          finalPacketFresh: !!args.finalPacketFresh,
+          liveSpeechFresh,
+          audioBackendFresh: completionAudioFreshOrUnavailable,
+          freshAdjacentUnlockSeen: deadScreenFreshAdjacentUnlockSeen || visualGovernorHoldDecision.shouldUnlock,
+          terminalCommitSuppressedByVisualGovernor: deadScreenTerminalCommitSuppressedByVisualGovernor,
+          targetCueOnly: !accepted,
+          offscriptNoMatch: false,
+          hardContradiction,
+          bridgeTrapActive: !!pendingSpeakableBridgeState,
+          globalHold: liveAsrVisualGovernorHardHold,
+          unlockProofEligible: visualGovernorHoldDecision.shouldUnlock,
+          releaseEligible: visualGovernorHoldDecision.shouldUnlock,
+        }),
+      );
+      console.warn(
+        visualGovernorHoldDecision.shouldUnlock
+          ? buildAsrVisualGovernorDeadScreenUnlockAllowedDiagnostic({
+            currentLineIdx: current,
+            requestedTargetIdx: reducedTarget,
+            acceptedCommitTargetIdx: reducedTarget,
+            proofSource: args.proofSource || 'none',
+            sourceBranch: args.sourceBranch || 'unknown',
+            freshAdjacentUnlockSeen: deadScreenFreshAdjacentUnlockSeen || visualGovernorHoldDecision.shouldUnlock,
+            terminalCommitSuppressedByVisualGovernor: deadScreenTerminalCommitSuppressedByVisualGovernor,
+            reason: 'fresh_adjacent_under_hold',
+          })
+          : buildAsrVisualGovernorDeadScreenUnlockDeniedDiagnostic({
+            currentLineIdx: current,
+            requestedTargetIdx: reducedTarget,
+            acceptedCommitTargetIdx: reducedTarget,
+            proofSource: args.proofSource || 'none',
+            sourceBranch: args.sourceBranch || 'unknown',
+            freshAdjacentUnlockSeen: deadScreenFreshAdjacentUnlockSeen,
+            terminalCommitSuppressedByVisualGovernor: deadScreenTerminalCommitSuppressedByVisualGovernor,
+            reason: visualGovernorHoldDecision.shouldHold ? 'hold_continues' : 'not_in_dead_screen_hold',
+          }),
+      );
+    } catch {}
     if (visualGovernorHoldDecision.shouldHold || visualGovernorHoldDecision.shouldUnlock || farAheadAdjacentEscapeApplied) {
       if (visualGovernorHoldDecision.shouldUnlock || farAheadAdjacentEscapeApplied) {
         deadScreenFreshAdjacentUnlockSeen = true;
@@ -15399,6 +15499,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         liveAsrVisualUnlockSlowFollowUntilMs = Date.now() + 2200;
         liveAsrVisualSuppressionLoopCount = 0;
         liveAsrVisualSuppressionKey = '';
+        try {
+          console.warn(
+            buildAsrVisualGovernorDeadScreenUnlockAppliedDiagnostic({
+              currentLineIdx: current,
+              requestedTargetIdx: reducedTarget,
+              acceptedCommitTargetIdx: reducedTarget,
+              proofSource: args.proofSource || 'none',
+              sourceBranch: args.sourceBranch || 'unknown',
+              freshAdjacentUnlockSeen: true,
+              terminalCommitSuppressedByVisualGovernor: deadScreenTerminalCommitSuppressedByVisualGovernor,
+              reason: 'fresh_adjacent_under_hold',
+            }),
+          );
+        } catch {}
       } else {
         blockedReasonBeforeBypass = 'visual_governor_hard_hold';
         if (completionAdjacentProgressionLaneEligible) {
@@ -24051,11 +24165,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
+      const resolvedTargetDebtPxForProof =
+        Number.isFinite(actuatorTargetDebtPx)
+          ? Number(actuatorTargetDebtPx)
+          : (Number.isFinite(arithmeticTargetDebtPx) ? Number(arithmeticTargetDebtPx) : Number.NaN);
       try {
         emitCoalescedDevDiagnostic(
           'ASR_VISUAL_ACTUATOR_APPLIED',
           'warn',
-          `[ASR_VISUAL_ACTUATOR_APPLIED] requestedPxps=${Math.round(requestedPxps)} appliedPxps=${Math.round(appliedPxps)} frameDtMs=${frameDtMs} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} beforeScrollTop=${Math.round(beforeScrollTop)} afterScrollTop=${Math.round(afterScrollTop)} targetScrollTop=${Math.round(pursuitTargetTop ?? beforeScrollTop)} targetDebtPx=${Number.isFinite(actuatorTargetDebtPx) ? Math.round(actuatorTargetDebtPx) : -1} alternateDebtPx=${Number.isFinite(arithmeticTargetDebtPx) ? Math.round(arithmeticTargetDebtPx) : -1} alternateDebtSource=${liveTickStaleDebtSource ? 1 : 0} source=tick_controller clampReason=${clampReasonOut} writerKind=pixel reason=${liveAsrActuatorReason} maxScrollTop=${Math.round(maxScrollTop)} distanceToMaxScrollTop=${Math.round(distanceToMaxScrollTop)} atScrollLimit=${atScrollLimit ? 1 : 0} scrollHeight=${Math.round(scroller.scrollHeight || 0)} clientHeight=${Math.round(scroller.clientHeight || 0)}`,
+          `[ASR_VISUAL_ACTUATOR_APPLIED] requestedPxps=${Math.round(requestedPxps)} appliedPxps=${Math.round(appliedPxps)} frameDtMs=${frameDtMs} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} beforeScrollTop=${Math.round(beforeScrollTop)} afterScrollTop=${Math.round(afterScrollTop)} targetScrollTop=${Math.round(pursuitTargetTop ?? beforeScrollTop)} targetDebtPx=${Number.isFinite(resolvedTargetDebtPxForProof) ? Math.round(resolvedTargetDebtPxForProof) : -1} alternateDebtPx=${Number.isFinite(arithmeticTargetDebtPx) ? Math.round(arithmeticTargetDebtPx) : -1} alternateDebtSource=${liveTickStaleDebtSource ? 1 : 0} source=tick_controller clampReason=${clampReasonOut} writerKind=pixel reason=${liveAsrActuatorReason} maxScrollTop=${Math.round(maxScrollTop)} distanceToMaxScrollTop=${Math.round(distanceToMaxScrollTop)} atScrollLimit=${atScrollLimit ? 1 : 0} scrollHeight=${Math.round(scroller.scrollHeight || 0)} clientHeight=${Math.round(scroller.clientHeight || 0)}`,
           [
             liveAsrActuatorReason,
             clampReasonOut,
@@ -24072,9 +24190,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         );
       } catch {}
       liveAsrPreviousActuatorGear = gear;
+      const lowDebtNonOwnership =
+        !Number.isFinite(resolvedTargetDebtPxForProof) ||
+        Math.round(resolvedTargetDebtPxForProof) < 120;
       const shouldEmitChairperson =
-        Number.isFinite(actuatorTargetDebtPx) &&
-        Math.round(actuatorTargetDebtPx) >= 120 &&
+        !lowDebtNonOwnership &&
         Math.round(appliedDeltaPx) === DEFAULT_MIN_STEP_PX &&
         clampReasonOut === 'min_step_floor';
       if (clampReasonOut === 'min_step_floor') {
@@ -24082,11 +24202,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           emitCoalescedDevDiagnostic(
             'ASR_MIN_STEP_FLOOR_PROOF',
             'warn',
-            `[ASR_MIN_STEP_FLOOR_PROOF] selectedAuthority=${lastAsrSelectedAuthority || liveTickSelectedAuthority || 'none'} appliedDeltaPx=${Math.round(appliedDeltaPx)} targetDebtPx=${Number.isFinite(actuatorTargetDebtPx) ? Math.round(actuatorTargetDebtPx) : -1} alternateDebtPx=${Number.isFinite(arithmeticTargetDebtPx) ? Math.round(arithmeticTargetDebtPx) : -1} clampReason=min_step_floor chairpersonOwnershipActive=${shouldEmitChairperson ? 1 : 0} lowDebtNonOwnership=${shouldEmitChairperson ? 0 : 1}`,
+            `[ASR_MIN_STEP_FLOOR_PROOF] selectedAuthority=${lastAsrSelectedAuthority || liveTickSelectedAuthority || 'none'} appliedDeltaPx=${Math.round(appliedDeltaPx)} targetDebtPx=${Number.isFinite(resolvedTargetDebtPxForProof) ? Math.round(resolvedTargetDebtPxForProof) : -1} alternateDebtPx=${Number.isFinite(arithmeticTargetDebtPx) ? Math.round(arithmeticTargetDebtPx) : -1} clampReason=min_step_floor chairpersonOwnershipActive=${shouldEmitChairperson ? 1 : 0} lowDebtNonOwnership=${lowDebtNonOwnership ? 1 : 0}`,
             [
               lastAsrSelectedAuthority || liveTickSelectedAuthority || 'none',
               Math.round(appliedDeltaPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
-              Number.isFinite(actuatorTargetDebtPx) ? Math.round(Number(actuatorTargetDebtPx) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX) : -1,
+              Number.isFinite(resolvedTargetDebtPxForProof) ? Math.round(Number(resolvedTargetDebtPxForProof) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX) : -1,
               shouldEmitChairperson ? 1 : 0,
             ].join('|'),
             { minMs: 250 },
@@ -24097,10 +24217,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         emitCoalescedDevDiagnostic(
           'ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF',
           'warn',
-          `[ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF] appliedDeltaPx=${Math.round(appliedDeltaPx)} targetDebtPx=${Number.isFinite(actuatorTargetDebtPx) ? Math.round(actuatorTargetDebtPx) : -1} alternateDebtPx=${Number.isFinite(arithmeticTargetDebtPx) ? Math.round(arithmeticTargetDebtPx) : -1} alternateDebtSource=${liveTickStaleDebtSource ? 1 : 0} clampReason=${clampReasonOut} shouldEmitChairperson=${shouldEmitChairperson ? 1 : 0}`,
+          `[ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF] appliedDeltaPx=${Math.round(appliedDeltaPx)} targetDebtPx=${Number.isFinite(resolvedTargetDebtPxForProof) ? Math.round(resolvedTargetDebtPxForProof) : -1} alternateDebtPx=${Number.isFinite(arithmeticTargetDebtPx) ? Math.round(arithmeticTargetDebtPx) : -1} alternateDebtSource=${liveTickStaleDebtSource ? 1 : 0} clampReason=${clampReasonOut} shouldEmitChairperson=${shouldEmitChairperson ? 1 : 0}`,
           [
             Math.round(appliedDeltaPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
-            Number.isFinite(actuatorTargetDebtPx) ? Math.round(Number(actuatorTargetDebtPx) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX) : -1,
+            Number.isFinite(resolvedTargetDebtPxForProof) ? Math.round(Number(resolvedTargetDebtPxForProof) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX) : -1,
             clampReasonOut,
             shouldEmitChairperson ? 1 : 0,
           ].join('|'),
@@ -32758,10 +32878,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), targetLine),
         );
         const deadScreenRenderedLead = Math.max(0, targetLine - Math.max(0, lastStrongConfirmedSpokenLine));
-      const deadScreenTranscriptFresh =
+        const deadScreenTranscriptFresh =
           lastTranscriptPacketAt > 0 &&
           Math.max(0, now - lastTranscriptPacketAt) <= 2000;
-      const deadScreenReleaseEligible =
+        const deadScreenReleaseEligible =
           !deadScreenTargetCueOnly &&
           targetLine === prevLineIndex + 1 &&
           (deadScreenSpeechFresh || deadScreenAdjacentProofBacked) &&
@@ -32769,6 +32889,58 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           deadScreenNoCommitMs >= 1000 &&
           (deadScreenGovernorHoldAgeMs >= 600 || deadScreenGlobalHold) &&
           commitDeltaLines <= ASR_LIVE_VISUAL_BRIDGE_STEP_MAX_LINES;
+        try {
+          console.warn(
+            buildAsrVisualGovernorDeadScreenUnlockEvaluatedDiagnostic({
+              currentLineIdx: prevLineIndex,
+              requestedTargetIdx: targetLine,
+              acceptedCommitTargetIdx: deadScreenAcceptedCommitTargetIdx,
+              proofSource: deadScreenProofSource,
+              sourceBranch: deadScreenSourceBranch,
+              governorHoldAgeMs: deadScreenGovernorHoldAgeMs,
+              noCommitMs: deadScreenNoCommitMs,
+              transcriptFresh: deadScreenTranscriptFresh,
+              speechFresh: deadScreenSpeechFresh,
+              finalPacketFresh: deadScreenFinalPacketFresh,
+              liveSpeechFresh: runtimeSpeechFresh,
+              audioBackendFresh: deadScreenAudioBackendFresh,
+              freshAdjacentUnlockSeen: deadScreenFreshAdjacentUnlockSeen,
+              terminalCommitSuppressedByVisualGovernor: deadScreenTerminalCommitSuppressedByVisualGovernor,
+              targetCueOnly: deadScreenTargetCueOnly,
+              offscriptNoMatch: deadScreenNoMatchActive,
+              hardContradiction: !!strictBackwardContradictionForCommit,
+              bridgeTrapActive: deadScreenBridgeTrapActive,
+              globalHold: deadScreenGlobalHold,
+              unlockProofEligible: deadScreenProofSourceEligibleForUnlock,
+              releaseEligible: deadScreenReleaseEligible,
+            }),
+          );
+        } catch {}
+        try {
+          console.warn(
+            deadScreenReleaseEligible
+              ? buildAsrVisualGovernorDeadScreenUnlockAllowedDiagnostic({
+                currentLineIdx: prevLineIndex,
+                requestedTargetIdx: targetLine,
+                acceptedCommitTargetIdx: deadScreenAcceptedCommitTargetIdx,
+                proofSource: deadScreenProofSource,
+                sourceBranch: deadScreenSourceBranch,
+                freshAdjacentUnlockSeen: deadScreenFreshAdjacentUnlockSeen,
+                terminalCommitSuppressedByVisualGovernor: deadScreenTerminalCommitSuppressedByVisualGovernor,
+                reason: 'adjacent_safe_release',
+              })
+              : buildAsrVisualGovernorDeadScreenUnlockDeniedDiagnostic({
+                currentLineIdx: prevLineIndex,
+                requestedTargetIdx: targetLine,
+                acceptedCommitTargetIdx: deadScreenAcceptedCommitTargetIdx,
+                proofSource: deadScreenProofSource,
+                sourceBranch: deadScreenSourceBranch,
+                freshAdjacentUnlockSeen: deadScreenFreshAdjacentUnlockSeen,
+                terminalCommitSuppressedByVisualGovernor: deadScreenTerminalCommitSuppressedByVisualGovernor,
+                reason: 'release_not_eligible',
+              }),
+          );
+        } catch {}
         const deadScreenAdjacentSemanticBypassEligible =
           !deadScreenReleaseEligible &&
           !deadScreenTargetCueOnly &&
@@ -32819,6 +32991,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           liveAsrVisualGovernorHardHold = false;
           liveAsrVisualGovernorHardHoldSinceMs = 0;
           try { (window as any).__tpLiveAsrGovernorHold = false; } catch {}
+          try {
+            console.warn(
+              buildAsrVisualGovernorDeadScreenUnlockAppliedDiagnostic({
+                currentLineIdx: prevLineIndex,
+                requestedTargetIdx: targetLine,
+                acceptedCommitTargetIdx: deadScreenAcceptedCommitTargetIdx,
+                proofSource: deadScreenProofSource,
+                sourceBranch: deadScreenSourceBranch,
+                freshAdjacentUnlockSeen: deadScreenFreshAdjacentUnlockSeen,
+                terminalCommitSuppressedByVisualGovernor: deadScreenTerminalCommitSuppressedByVisualGovernor,
+                reason: 'adjacent_safe_release',
+              }),
+            );
+          } catch {}
           try {
             console.warn(
               `[ASR_GOVERNOR_DEAD_SCREEN_RELEASED] current=${prevLineIndex} target=${targetLine} holdAgeMs=${Math.round(deadScreenGovernorHoldAgeMs)} noCommitMs=${Math.round(deadScreenNoCommitMs)} speakableLead=${deadScreenSpeakableLead} renderedLead=${deadScreenRenderedLead} sourceBranch=${deadScreenSourceBranch} proofSource=${deadScreenProofSource} reason=adjacent_safe_release`,
@@ -43486,6 +43672,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       recentSpeechDuringSilence: boolean;
       staleForSemanticCommit: boolean;
       staleForVisualRecovery: boolean;
+      eligible: boolean;
+      denialReason: string;
+      fallbackTargetGeometry: string;
+      boundedNonzeroMotionExists: boolean;
+      hardBlockerReason: string;
+      finalZeroingReason: string;
       rejectReason: string;
     };
     __debugEvaluateProfileForwardGuard(args: {

@@ -40,6 +40,10 @@ import {
   buildAsrMarkerErrorLowerRailRejectedDiagnostic,
   buildAsrOptionalDiagnosticErrorDiagnostic,
   buildAsrVisualGovernorDeadScreenAutopsyDiagnostic,
+  buildAsrVisualGovernorDeadScreenUnlockAllowedDiagnostic,
+  buildAsrVisualGovernorDeadScreenUnlockAppliedDiagnostic,
+  buildAsrVisualGovernorDeadScreenUnlockDeniedDiagnostic,
+  buildAsrVisualGovernorDeadScreenUnlockEvaluatedDiagnostic,
   buildAsrVisualGovernorDeadScreenEscapeBlockedDiagnostic,
   buildAsrVisualGovernorDeadScreenEscapeCommitDiagnostic,
   buildAsrAdjacentRecoveryCatchupAllowedDiagnostic,
@@ -1511,6 +1515,74 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR_VISUAL_GOVERNOR_DEAD_SCREEN_ESCAPE_BLOCKED] currentLineIdx=109 committedLineIdx=109 requestedTargetIdx=111 acceptedCommitTargetIdx=111 bestIdx=111 proofSource=adjacent_rescue_proofed sourceBranch=movement_authority_forced_reconcile_single_step currentScrollTop=7687 targetScrollTop=7906 moved=0 deltaLines=3.12 governorHoldAgeMs=5675 noCommitMs=5687 speechFresh=1 finalPacketFresh=1 liveSpeechFresh=1 freshAdjacentUnlockSeen=1 terminalCommitSuppressedByVisualGovernor=0 reason=target_not_adjacent',
+    );
+  });
+
+  test('builds visual governor dead-screen unlock evaluated diagnostic with expected fields', () => {
+    const line = buildAsrVisualGovernorDeadScreenUnlockEvaluatedDiagnostic({
+      currentLineIdx: 53,
+      requestedTargetIdx: 54,
+      acceptedCommitTargetIdx: 54,
+      proofSource: 'live_strict_local_proof_ok',
+      sourceBranch: 'movement_authority_proof',
+      governorHoldAgeMs: 5147,
+      noCommitMs: 5158,
+      transcriptFresh: true,
+      speechFresh: true,
+      finalPacketFresh: true,
+      liveSpeechFresh: true,
+      audioBackendFresh: true,
+      freshAdjacentUnlockSeen: true,
+      terminalCommitSuppressedByVisualGovernor: true,
+      targetCueOnly: false,
+      offscriptNoMatch: false,
+      hardContradiction: false,
+      bridgeTrapActive: false,
+      globalHold: true,
+      unlockProofEligible: true,
+      releaseEligible: true,
+    });
+    expect(line).toBe(
+      '[ASR_VISUAL_GOVERNOR_DEAD_SCREEN_UNLOCK_EVALUATED] currentLineIdx=53 requestedTargetIdx=54 acceptedCommitTargetIdx=54 proofSource=live_strict_local_proof_ok sourceBranch=movement_authority_proof governorHoldAgeMs=5147 noCommitMs=5158 transcriptFresh=1 speechFresh=1 finalPacketFresh=1 liveSpeechFresh=1 audioBackendFresh=1 freshAdjacentUnlockSeen=1 terminalCommitSuppressedByVisualGovernor=1 targetCueOnly=0 offscriptNoMatch=0 hardContradiction=0 bridgeTrapActive=0 globalHold=1 unlockProofEligible=1 releaseEligible=1',
+    );
+  });
+
+  test('builds visual governor dead-screen unlock allowed denied and applied diagnostics with expected fields', () => {
+    expect(buildAsrVisualGovernorDeadScreenUnlockAllowedDiagnostic({
+      currentLineIdx: 53,
+      requestedTargetIdx: 54,
+      acceptedCommitTargetIdx: 54,
+      proofSource: 'live_strict_local_proof_ok',
+      sourceBranch: 'movement_authority_proof',
+      freshAdjacentUnlockSeen: true,
+      terminalCommitSuppressedByVisualGovernor: true,
+      reason: 'adjacent_safe_release',
+    })).toBe(
+      '[ASR_VISUAL_GOVERNOR_DEAD_SCREEN_UNLOCK_ALLOWED] currentLineIdx=53 requestedTargetIdx=54 acceptedCommitTargetIdx=54 proofSource=live_strict_local_proof_ok sourceBranch=movement_authority_proof freshAdjacentUnlockSeen=1 terminalCommitSuppressedByVisualGovernor=1 reason=adjacent_safe_release',
+    );
+    expect(buildAsrVisualGovernorDeadScreenUnlockDeniedDiagnostic({
+      currentLineIdx: 53,
+      requestedTargetIdx: 54,
+      acceptedCommitTargetIdx: 54,
+      proofSource: 'live_strict_local_proof_ok',
+      sourceBranch: 'movement_authority_proof',
+      freshAdjacentUnlockSeen: true,
+      terminalCommitSuppressedByVisualGovernor: true,
+      reason: 'release_not_eligible',
+    })).toBe(
+      '[ASR_VISUAL_GOVERNOR_DEAD_SCREEN_UNLOCK_DENIED] currentLineIdx=53 requestedTargetIdx=54 acceptedCommitTargetIdx=54 proofSource=live_strict_local_proof_ok sourceBranch=movement_authority_proof freshAdjacentUnlockSeen=1 terminalCommitSuppressedByVisualGovernor=1 reason=release_not_eligible',
+    );
+    expect(buildAsrVisualGovernorDeadScreenUnlockAppliedDiagnostic({
+      currentLineIdx: 53,
+      requestedTargetIdx: 54,
+      acceptedCommitTargetIdx: 54,
+      proofSource: 'live_strict_local_proof_ok',
+      sourceBranch: 'movement_authority_proof',
+      freshAdjacentUnlockSeen: true,
+      terminalCommitSuppressedByVisualGovernor: true,
+      reason: 'adjacent_safe_release',
+    })).toBe(
+      '[ASR_VISUAL_GOVERNOR_DEAD_SCREEN_UNLOCK_APPLIED] currentLineIdx=53 requestedTargetIdx=54 acceptedCommitTargetIdx=54 proofSource=live_strict_local_proof_ok sourceBranch=movement_authority_proof freshAdjacentUnlockSeen=1 terminalCommitSuppressedByVisualGovernor=1 reason=adjacent_safe_release',
     );
   });
 
