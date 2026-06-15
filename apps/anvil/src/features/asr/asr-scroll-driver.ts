@@ -21827,6 +21827,36 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         : visualDebtCatchupAcceptedLine;
     const visualDebtCatchupMarkerLockActive =
       String(liveAsrCommitteeMarkerLockState || '').toLowerCase().includes('marker_lock');
+    const visualDebtCatchupPreflightPocketState = liveAsrFollowMode
+      ? computeAsr4PocketDriftState({
+        scroller,
+        currentLine: visualDebtCatchupCurrentLine,
+        committedLine: visualDebtCatchupCommittedLine,
+        targetLine: visualDebtCatchupTargetLine,
+        currentScrollTop: beforeScrollTop,
+        targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop,
+        movedPx: move,
+        directWriteBlocked: asr4VisualRecoveryLastDirectWriteBlocked,
+        directWriteBlockedReason: asr4VisualRecoveryLastDirectWriteBlockedReason,
+        targetPreservedForEasing: asr4VisualRecoveryLastTargetPreservedForEasing,
+        visualSnapSuppressed: alignmentEpisodes.isSnapSuppressedActive(),
+        terminalClampActive: atScrollLimit,
+        followMode: 'live_asr_follow',
+        scrollReason: liveAsrActuatorReason || liveTickAuthorityReason || 'asr-tick',
+        reason: 'visual_debt_catchup_preflight',
+      })
+      : null;
+    const visualDebtCatchupLocalRescueCandidate =
+      !!visualDebtCatchupPreflightPocketState &&
+      visualDebtCatchupPreflightPocketState.localSafeTarget &&
+      !visualDebtCatchupPreflightPocketState.terminalClampActive &&
+      !actuatorNoMatchOrOffscript &&
+      !hardContradictionActive &&
+      Number.isFinite(visualDebtCatchupPreflightPocketState.belowPocketPx) &&
+      visualDebtCatchupPreflightPocketState.belowPocketPx >= Math.max(
+        ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX,
+        visualDebtCatchupPreflightPocketState.lineHeightPx * 0.5,
+      );
     const visualDebtCatchupSafetyThresholdPx = Math.min(
       err,
       Math.max(effectiveMinStepPx, safeResolverLineHeightPx * 0.75),
@@ -21841,6 +21871,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       committedLine: visualDebtCatchupCommittedLine,
       movementAllowed: resolvedCommand.movementAllowed,
       targetSafe: effectiveResolvedTargetSafety.effectiveTargetSafe,
+      localRescueCandidate: visualDebtCatchupLocalRescueCandidate,
       noMatchOrOffscript: actuatorNoMatchOrOffscript,
       hardContradiction: hardContradictionActive,
       terminalClampActive: atScrollLimit,

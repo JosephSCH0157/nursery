@@ -6,6 +6,7 @@ export interface DecideAsrVisualDebtCatchupInput {
   committedLine: number;
   movementAllowed: boolean;
   targetSafe: boolean;
+  localRescueCandidate: boolean;
   noMatchOrOffscript: boolean;
   hardContradiction: boolean;
   terminalClampActive: boolean;
@@ -198,6 +199,32 @@ export function decideAsrVisualDebtCatchup(
     };
   }
   if (!input.targetSafe) {
+    if (input.localRescueCandidate) {
+      if (input.consecutiveDebtObservations >= PERSISTENT_SAFE_DEBT_OBSERVATION_THRESHOLD) {
+        return {
+          allowed: true,
+          blockedReason: '',
+          decisionReason: 'persistent_local_rescue_override',
+          requiredGapMs,
+          reducedGapEligible,
+          recentSafeCommitAgeMs: input.postCommitGapMs,
+          targetNonBackward,
+          farTarget,
+          currentCommittedCoherent,
+        };
+      }
+      return {
+        allowed: false,
+        blockedReason: 'awaiting_local_rescue',
+        decisionReason: '',
+        requiredGapMs,
+        reducedGapEligible,
+        recentSafeCommitAgeMs: input.postCommitGapMs,
+        targetNonBackward,
+        farTarget,
+        currentCommittedCoherent,
+      };
+    }
     return {
       allowed: false,
       blockedReason: 'unsafe_target',
@@ -263,6 +290,32 @@ export function decideAsrVisualDebtCatchup(
     };
   }
   if (input.cooldownActive) {
+    if (input.localRescueCandidate) {
+      if (input.consecutiveDebtObservations >= PERSISTENT_SAFE_DEBT_OBSERVATION_THRESHOLD) {
+        return {
+          allowed: true,
+          blockedReason: '',
+          decisionReason: 'persistent_local_rescue_override',
+          requiredGapMs,
+          reducedGapEligible,
+          recentSafeCommitAgeMs: input.postCommitGapMs,
+          targetNonBackward,
+          farTarget,
+          currentCommittedCoherent,
+        };
+      }
+      return {
+        allowed: false,
+        blockedReason: 'cooldown_deferred_but_not_starved',
+        decisionReason: '',
+        requiredGapMs,
+        reducedGapEligible,
+        recentSafeCommitAgeMs: input.postCommitGapMs,
+        targetNonBackward,
+        farTarget,
+        currentCommittedCoherent,
+      };
+    }
     return {
       allowed: false,
       blockedReason: 'cooldown',

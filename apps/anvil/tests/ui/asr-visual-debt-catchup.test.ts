@@ -12,6 +12,7 @@ describe('ASR visual debt catch-up gate', () => {
     committedLine: 1,
     movementAllowed: true,
     targetSafe: true,
+    localRescueCandidate: false,
     noMatchOrOffscript: false,
     hardContradiction: false,
     terminalClampActive: false,
@@ -130,6 +131,39 @@ describe('ASR visual debt catch-up gate', () => {
     expect(decision.allowed).toBe(false);
     expect(decision.reducedGapEligible).toBe(false);
     expect(decision.blockedReason).toBe('unsafe_target');
+  });
+
+  test('owner-active low-pocket debt reports awaiting_local_rescue before falling back to generic unsafe_target', () => {
+    const decision = decideAsrVisualDebtCatchup(makeInput({
+      currentLine: 4,
+      committedLine: 4,
+      targetLine: 4,
+      targetSafe: false,
+      localRescueCandidate: true,
+      consecutiveDebtObservations: 2,
+      postCommitGapMs: 1721,
+      errPx: 192,
+    }));
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.blockedReason).toBe('awaiting_local_rescue');
+  });
+
+  test('owner-active local rescue can break starvation-shaped cooldown once debt is persistent', () => {
+    const decision = decideAsrVisualDebtCatchup(makeInput({
+      currentLine: 6,
+      committedLine: 6,
+      targetLine: 6,
+      targetSafe: true,
+      localRescueCandidate: true,
+      cooldownActive: true,
+      consecutiveDebtObservations: 5,
+      postCommitGapMs: 597,
+      errPx: 160,
+    }));
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.decisionReason).toBe('persistent_local_rescue_override');
   });
 
   test('accepted local lag window treats FO-style local ordering drift as coherent enough', () => {
