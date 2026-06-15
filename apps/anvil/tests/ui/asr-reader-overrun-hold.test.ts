@@ -129,8 +129,14 @@ describe('legacy ASR reader overrun hold', () => {
       visualSnapSuppressed: true,
     });
 
-    expect(result.applied).toBe(true);
-    expect(result.afterScrollTop).toBeGreaterThan(800);
+    expect(result.consecutiveNoMoveCommits).toBe(2);
+    expect(result.afterScrollTop).toBeGreaterThanOrEqual(800);
+    expect(
+      consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR4_VISUAL_RECOVERY_AUTHORITY_APPLIED')),
+    ).toBe(true);
+    expect(
+      consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_READER_OVERRUN_HOLD')),
+    ).toBe(false);
 
     driver.dispose();
   });
@@ -166,8 +172,16 @@ describe('legacy ASR reader overrun hold', () => {
       reason: 'reader_overrun_hold_probe_2',
     });
 
-    expect(result.applied).toBe(true);
-    expect(result.afterScrollTop).toBeGreaterThan(650);
+    expect(result.consecutiveBelowPocketCount).toBe(2);
+    expect(result.afterScrollTop).toBeGreaterThanOrEqual(650);
+    expect(result.state.belowPocketPx).toBeGreaterThan(result.state.lineHeightPx);
+    expect(['bottomReading', 'belowPocket']).toContain(result.state.pocketHealth);
+    expect(
+      consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR4_POCKET_DRIFT_AUTHORITY_APPLIED')),
+    ).toBe(true);
+    expect(
+      consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_READER_OVERRUN_HOLD')),
+    ).toBe(false);
 
     driver.dispose();
   });

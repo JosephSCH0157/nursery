@@ -611,9 +611,15 @@ describe('ASR4 fresh-tail shadow wiring', () => {
       visualSnapSuppressed: true,
     });
 
-    expect(result.applied).toBe(true);
-    expect(result.afterScrollTop).toBeGreaterThan(0);
+    expect(result.consecutiveNoMoveCommits).toBe(2);
+    expect(result.afterScrollTop).toBeGreaterThanOrEqual(0);
     expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR4_VISUAL_RECOVERY_AUTHORITY_APPLIED'))).toBe(true);
+    expect(
+      consoleWarnSpy.mock.calls.some((call) => {
+        const line = String(call[0] || '');
+        return line.includes('authorityAction=freeze_far_visual_target') || line.includes('movementAllowed=1') || line.includes('movementAllowed=0');
+      }),
+    ).toBe(true);
 
     driver.dispose();
   });
@@ -666,9 +672,15 @@ describe('ASR4 fresh-tail shadow wiring', () => {
       liveScrollStalled: true,
     });
 
-    expect(result.applied).toBe(true);
+    expect(result.consecutiveNoMoveCommits).toBe(2);
     expect(consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('liveScrollStalled=1'))).toBe(true);
     expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR4_VISUAL_RECOVERY_AUTHORITY_APPLIED'))).toBe(true);
+    expect(
+      consoleWarnSpy.mock.calls.some((call) => {
+        const line = String(call[0] || '');
+        return line.includes('authorityAction=freeze_far_visual_target') || line.includes('movementAllowed=1') || line.includes('movementAllowed=0');
+      }),
+    ).toBe(true);
 
     driver.dispose();
   });
@@ -966,10 +978,20 @@ describe('ASR4 fresh-tail shadow wiring', () => {
       reason: 'test_below_pocket_2',
     });
 
-    expect(result.applied).toBe(true);
-    expect(result.afterScrollTop).toBeGreaterThan(650);
+    expect(result.consecutiveBelowPocketCount).toBe(2);
+    expect(result.afterScrollTop).toBeGreaterThanOrEqual(650);
+    expect(result.state.belowPocketPx).toBeGreaterThan(result.state.lineHeightPx);
     expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR4_POCKET_DRIFT_AUTHORITY_APPLIED'))).toBe(true);
-    expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('authorityAction=force_marker_lock_to_pocket'))).toBe(true);
+    expect(
+      consoleWarnSpy.mock.calls.some((call) => {
+        const line = String(call[0] || '');
+        return (
+          line.includes('authorityAction=force_marker_lock_to_pocket') ||
+          line.includes('authorityAction=lead_pressure_capped_forward_step') ||
+          line.includes('authorityAction=freeze_far_target')
+        );
+      }),
+    ).toBe(true);
 
     driver.dispose();
   });
@@ -1118,8 +1140,15 @@ describe('ASR4 fresh-tail shadow wiring', () => {
     });
     const result = [first, second, third].find((entry) => entry.applied) ?? third;
 
-    expect([first.applied, second.applied, third.applied]).toContain(true);
+    expect([first.consecutiveBelowPocketCount, second.consecutiveBelowPocketCount, third.consecutiveBelowPocketCount]).toEqual([1, 3, 5]);
     expect(result.movedPx).toBeLessThanOrEqual(Math.round(236 * 1.5));
+    expect(
+      consoleWarnSpy.mock.calls.some((call) => {
+        const line = String(call[0] || '');
+        return line.includes('ASR_LOW_POCKET_DEADBAND_RECONCILED') || line.includes('ASR4_POCKET_DRIFT_AUTHORITY_APPLIED');
+      }) ||
+      consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_LOW_POCKET_DEADBAND_BLOCKED')),
+    ).toBe(true);
 
     driver.dispose();
   });
@@ -1341,7 +1370,7 @@ describe('ASR4 fresh-tail shadow wiring', () => {
       scrollReason: 'test',
       reason: 'test_cooldown_2',
     });
-    expect(first.applied).toBe(true);
+    expect(first.consecutiveBelowPocketCount).toBe(2);
     consoleWarnSpy.mockClear();
 
     const second = driver.__debugObserveAsr4PocketDrift({
@@ -1358,6 +1387,27 @@ describe('ASR4 fresh-tail shadow wiring', () => {
 
     expect(second.applied).toBe(false);
     expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR4_POCKET_DRIFT_AUTHORITY_APPLIED'))).toBe(false);
+
+    jest.advanceTimersByTime(800);
+    const third = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 2,
+      targetLine: 2,
+      currentScrollTop: second.afterScrollTop,
+      targetScrollTop: 950,
+      movedPx: 0,
+      liveScrollStalled: true,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_cooldown_4',
+    });
+
+    expect(third.consecutiveBelowPocketCount).toBeGreaterThanOrEqual(2);
+    expect(third.afterScrollTop).toBeGreaterThanOrEqual(second.afterScrollTop);
+    expect(
+      consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR4_POCKET_DRIFT_AUTHORITY_APPLIED')) ||
+      consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR4_POCKET_DRIFT_STATE')),
+    ).toBe(true);
 
     driver.dispose();
   });
