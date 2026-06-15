@@ -1262,6 +1262,66 @@ describe('ASR4 fresh-tail shadow wiring', () => {
     driver.dispose();
   });
 
+  test('freeze-far local rescue does not hide persistent bounded relief behind generic unsafe_target', async () => {
+    const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
+      __debugObserveAsr4PocketDrift: any;
+    };
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+    driver.setLastLineIndex(1);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 1,
+      matchId: 'test_freeze_far_local_relief_seed',
+      runKey: 'test-freeze-far-local-relief-seed',
+      runGeneration: 1,
+      source: 'openai-whisper-bridge',
+      speechRunningActual: true,
+      match: {
+        bestIdx: 2,
+        bestSim: 0.96,
+        topScores: [{ idx: 2, score: 0.96 }],
+      },
+    });
+
+    const first = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 3,
+      targetLine: 5,
+      nextSpeakableLineIdx: 2,
+      currentScrollTop: 650,
+      targetScrollTop: 650,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_freeze_far_local_relief_1',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+    const second = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 3,
+      targetLine: 5,
+      nextSpeakableLineIdx: 2,
+      currentScrollTop: 650,
+      targetScrollTop: 650,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_freeze_far_local_relief_2',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+    const result = [first, second].find((entry) => entry.applied) ?? second;
+
+    expect([first.applied, second.applied]).toContain(true);
+    expect(result.afterScrollTop).toBeGreaterThan(650);
+    expect(result.movedPx).toBeGreaterThan(0);
+    expect(result.movedPx).toBeLessThanOrEqual(Math.round(236 * 1.5));
+    expect(consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_LOW_POCKET_DEADBAND_BLOCKED') && String(call[0] || '').includes('reason=unsafe_target'))).toBe(false);
+    expect(consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_LOW_POCKET_FREEZE_FAR_TARGET_BLOCKED') && String(call[0] || '').includes('blockedReason=unsafe_target'))).toBe(false);
+
+    driver.dispose();
+  });
+
   test('freeze-far-target low-pocket stall stays blocked for truly unsafe semantic distance', async () => {
     const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
       __debugObserveAsr4PocketDrift: any;

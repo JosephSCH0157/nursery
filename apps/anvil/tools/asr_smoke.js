@@ -7,7 +7,7 @@ const path = require('path');
 const assert = require('assert');
 
 (async () => {
-  const p = path.resolve(__dirname, '../src/index-hooks/asr.js');
+  const p = path.resolve(__dirname, '../src/index-hooks/asr-smoke.js');
   /** @type {{LEAP_CONFIRM_SCORE:number, LEAP_CONFIRM_WINDOW_MS:number}} */
   const mod = await import('file:///' + p.replace(/\\/g, '/'));
   const results = [];
@@ -204,7 +204,7 @@ const assert = require('assert');
 .finally(async () => {
   // Teardown ASR timers/listeners; mirror recorder smoke gating
   try {
-    const mod = await import('file:///' + path.resolve(__dirname, '../src/index-hooks/asr.js').replace(/\\/g, '/'));
+    const mod = await import('file:///' + path.resolve(__dirname, '../src/index-hooks/asr-smoke.js').replace(/\\/g, '/'));
     try { await mod.teardownASR?.(); } catch {}
   } catch {}
   try { if (global.window && typeof window.__asrFinalizeForTests === 'function') await window.__asrFinalizeForTests(); } catch {}

@@ -11,7 +11,7 @@ describe('ASR dev hardeners (smoke)', () => {
   let mod;
   beforeAll(async () => {
     // Jest runs from repo root; resolve to the module path
-    const p = path.resolve(__dirname, '../../src/index-hooks/asr.js');
+    const p = path.resolve(__dirname, '../../src/index-hooks/asr-smoke.js');
     // Use dynamic import to get ESM exports
     mod = await import('file:///' + p.replace(/\\/g, '/'));
   });

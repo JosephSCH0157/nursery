@@ -726,6 +726,8 @@ function resolveAsrChairpersonFlagState(args) {
   const rawChairpersonValue = normalizeChairpersonFlagValue(params.get("asr_visual_chairperson"));
   const rawOwnerValue = normalizeChairpersonFlagValue(params.get("asr_visual_chairperson_owner"));
   const rawShadowValue = normalizeChairpersonFlagValue(params.get("asr_visual_chairperson_shadow"));
+  const rawDevValue = normalizeChairpersonFlagValue(params.get("dev"));
+  const rawOpenValue = normalizeChairpersonFlagValue(params.get("open"));
   const localStorageRef = args?.localStorage === void 0 ? typeof window !== "undefined" ? window.localStorage : null : args.localStorage;
   const localStorageChairpersonValue = normalizeChairpersonFlagValue(localStorageRef?.getItem("asr_visual_chairperson"));
   const localStorageOwnerValue = normalizeChairpersonFlagValue(localStorageRef?.getItem("asr_visual_chairperson_owner"));
@@ -753,6 +755,13 @@ function resolveAsrChairpersonFlagState(args) {
     return true;
   };
   evaluateOwnerSource("url:asr_visual_chairperson", rawChairpersonValue, "url") || evaluateOwnerSource("url:asr_visual_chairperson_owner", rawOwnerValue, "url") || evaluateOwnerSource("localStorage:asr_visual_chairperson", localStorageChairpersonValue, "localStorage") || evaluateOwnerSource("localStorage:asr_visual_chairperson_owner", localStorageOwnerValue, "localStorage") || evaluateOwnerSource("runtime_config:asr_visual_chairperson", runtimeChairpersonValue, "runtime_config") || evaluateOwnerSource("runtime_config:asr_visual_chairperson_owner", runtimeOwnerValue, "runtime_config");
+  const devTeleprompterScriptRun = isTruthyFlagValue(rawDevValue) && rawOpenValue.trim().toLowerCase() === "script";
+  if (!resolvedOwnerEnabled && ownerFlagSource === "default" && devTeleprompterScriptRun) {
+    resolvedOwnerEnabled = true;
+    ownerFlagSource = "default:dev_open_script_auto_owner";
+    ownerDisabledReason = "none";
+    ownerFlagReadFrom = "default";
+  }
   let resolvedShadowEnabled = true;
   if (rawShadowValue) {
     if (isFalsyFlagValue(rawShadowValue)) resolvedShadowEnabled = false;

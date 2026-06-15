@@ -1358,6 +1358,8 @@ import { initScrollModeRouter, type ScrollMode as RouterMode, type SessionState 
 import { installStepScroll } from './features/scroll/step-scroll';
 import { stepEngine } from './features/scroll/step-engine';
 import { applyTypographyTo } from './features/typography';
+// Pin the browser runtime to the TS hook so the generated smoke artifact
+// at src/index-hooks/asr-smoke.js cannot shadow live chairperson boot behavior.
 import { initAsrFeature } from './index-hooks/asr';
 import { bindCameraUI } from './media/camera-bridge';
 import './media/display-bridge';

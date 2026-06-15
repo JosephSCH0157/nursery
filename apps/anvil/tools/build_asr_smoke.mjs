@@ -1,7 +1,7 @@
 import esbuild from 'esbuild';
 
 const entry = 'src/index-hooks/asr-legacy.ts';
-const outfile = 'src/index-hooks/asr.js';
+const outfile = 'src/index-hooks/asr-smoke.js';
 
 await esbuild.build({
   entryPoints: [entry],
@@ -13,4 +13,4 @@ await esbuild.build({
   outfile,
 });
 
-console.log('[esbuild] asr smoke build -> src/index-hooks/asr.js');
+console.log('[esbuild] asr smoke build -> src/index-hooks/asr-smoke.js');

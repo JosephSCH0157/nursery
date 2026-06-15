@@ -34410,6 +34410,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           : (state.committedLine > state.currentLine + 1 ? 'committed_line_far' : 'no_local_safe_target')
       )
       : 'local_safe_target';
+    const freezeFarTargetRescueCandidate =
+      !state.localSafeTarget &&
+      speechFresh &&
+      !noMatchOrOffscript &&
+      !hardContradiction &&
+      !state.terminalClampActive &&
+      localSemanticCandidateLine != null &&
+      semanticDistance <= ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE;
     let emittedFreezeFarTargetBlockedDiagnostic = false;
     if (evaluateLowPocketDeadband) {
       let blockedReason = '';
@@ -34422,7 +34430,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (state.terminalClampActive) {
         blockedReason = 'terminal_clamp';
       } else if (!state.localSafeTarget) {
-        blockedReason = 'unsafe_target';
+        blockedReason = freezeFarTargetRescueCandidate ? 'local_rescue_candidate' : 'unsafe_target';
       } else if ((state.cooldownActive || state.asr4VisualRecoveryRecentlyApplied) && !state.leasedReaderCorrectionActive) {
         blockedReason = 'cooldown_active';
       } else if (!(satisfiesFastWindow || satisfiesSlowWindow)) {
@@ -34554,7 +34562,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 : hardContradiction ? 'contradiction'
                   : state.terminalClampActive ? 'terminal_clamp'
                     : localSemanticCandidateLine == null ? 'semantic_distance_unsafe'
-                      : (semanticDistance > ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE ? 'semantic_distance_unsafe' : blockedReason || 'not_eligible');
+                      : (
+                        semanticDistance > ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE
+                          ? 'semantic_distance_unsafe'
+                          : (
+                            blockedReason === 'local_rescue_candidate'
+                              ? 'awaiting_local_rescue'
+                              : (blockedReason || 'not_eligible')
+                          )
+                      );
           emitDevDiagnostic(
             'ASR_LOW_POCKET_FREEZE_FAR_TARGET_BLOCKED',
             'info',
@@ -34597,13 +34613,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     const allowFreezeFarTargetRescue =
       evaluateLowPocketDeadband &&
-      !state.localSafeTarget &&
-      speechFresh &&
-      !noMatchOrOffscript &&
-      !hardContradiction &&
-      !state.terminalClampActive &&
-      localSemanticCandidateLine != null &&
-      semanticDistance <= ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE;
+      freezeFarTargetRescueCandidate;
     if (allowFreezeFarTargetRescue) {
       const maxTop = Math.max(0, (args.scroller.scrollHeight || 0) - args.scroller.clientHeight);
       const fallbackTop =
