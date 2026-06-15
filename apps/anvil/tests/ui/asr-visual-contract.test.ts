@@ -195,6 +195,57 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     ownershipFinalizationRejectedReason: string;
     semanticCommitHeldButVisualCorrectionAllowed: boolean;
   };
+  __debugObserveAsr4VisualRecoveryCommit(args: {
+    currentLine: number;
+    committedLine: number;
+    targetLine?: number | null;
+    beforeScrollTop: number;
+    afterScrollTop?: number;
+    movedPx?: number;
+    directWriteBlocked?: boolean;
+    targetPreservedForEasing?: boolean;
+    visualSnapSuppressed?: boolean;
+    liveScrollStalled?: boolean;
+    lastAllowedLocalRescueContext?: {
+      allowedReason: string;
+      currentLine: number;
+      committedLine: number;
+      targetLine?: number | null;
+      currentScrollTop: number;
+      targetScrollTop: number;
+      intendedMovePx: number;
+      targetDebtPx: number;
+      hardBlocker?: string | null;
+      cooldownState?: string | null;
+    } | null;
+  }): {
+    applied: boolean;
+    afterScrollTop: number;
+    movedPx: number;
+    consecutiveNoMoveCommits: number;
+  };
+  __debugApplyAsr4VisualRecoveryAuthority(args: {
+    currentLine: number;
+    committedLine: number;
+    targetLine?: number | null;
+    beforeScrollTop: number;
+    afterScrollTop?: number;
+    movedPx?: number;
+    consecutiveNoMoveCommits?: number;
+    directWriteBlocked?: boolean;
+    targetPreservedForEasing?: boolean;
+    visualSnapSuppressed?: boolean;
+    liveScrollStalled?: boolean;
+    preservedLocalRescueTargetScrollTop?: number | null;
+    preservedLocalRescueAllowedReason?: string | null;
+    preservedLocalRescueTargetDebtPx?: number | null;
+  }): {
+    applied: boolean;
+    afterScrollTop: number;
+    movedPx: number;
+    authorityAction: 'force_marker_lock_correction' | 'force_safe_direct_write' | 'freeze_far_visual_target' | 'lead_pressure_capped_forward_step';
+    movementAllowed: boolean;
+  };
 };
 
 describe('ASR visual contract', () => {
@@ -531,6 +582,55 @@ describe('ASR visual contract', () => {
     expect(result.appliedDeltaPx).toBeGreaterThanOrEqual(18);
     expect(result.appliedDeltaPx).toBeLessThanOrEqual(136);
     expect(result.movementBlocked).toBe('none');
+
+    driver.dispose();
+  });
+
+  test('post-commit recovery late pocket does not misclassify bounded rescue as a far-target freeze', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const currentLineEl = document.querySelector<HTMLElement>('[data-line="4"]');
+    const targetLineEl = document.querySelector<HTMLElement>('[data-line="5"]');
+    const latePocketHeight = 236;
+    Object.defineProperty(currentLineEl!, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        top: 399,
+        left: 0,
+        right: 800,
+        bottom: 399 + latePocketHeight,
+        width: 800,
+        height: latePocketHeight,
+      }),
+    });
+    Object.defineProperty(targetLineEl!, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        top: 281,
+        left: 0,
+        right: 800,
+        bottom: 281 + latePocketHeight,
+        width: 800,
+        height: latePocketHeight,
+      }),
+    });
+
+    const result = driver.__debugApplyAsr4VisualRecoveryAuthority({
+      currentLine: 4,
+      committedLine: 5,
+      targetLine: 5,
+      beforeScrollTop: 6976,
+      afterScrollTop: 6976,
+      movedPx: 0,
+      consecutiveNoMoveCommits: 2,
+      visualSnapSuppressed: true,
+      liveScrollStalled: false,
+      preservedLocalRescueTargetScrollTop: 7107,
+      preservedLocalRescueAllowedReason: 'persistent_local_rescue_override',
+      preservedLocalRescueTargetDebtPx: 131,
+    });
+
+    expect(result.authorityAction).not.toBe('freeze_far_visual_target');
+    expect(result.afterScrollTop).toBeGreaterThanOrEqual(6976);
 
     driver.dispose();
   });

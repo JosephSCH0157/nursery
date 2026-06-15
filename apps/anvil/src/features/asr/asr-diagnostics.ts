@@ -1629,6 +1629,17 @@ export function buildAsrLocalRescueAllowedButUnrealizedDiagnostic(args: {
   return `[ASR_LOCAL_RESCUE_ALLOWED_BUT_UNREALIZED] allowedReason=${args.allowedReason || 'none'} intendedMovePx=${Math.round(args.intendedMovePx)} actualMovePx=${Math.round(args.actualMovePx)} actuatorBlockReason=${args.actuatorBlockReason || 'none'} finalZeroingReason=${args.finalZeroingReason || 'none'} hardBlocker=${args.hardBlocker || 'none'} cooldownState=${args.cooldownState || 'none'} targetDebtPx=${Math.round(args.targetDebtPx)} targetScrollTop=${Math.round(args.targetScrollTop)} currentScrollTop=${Math.round(args.currentScrollTop)}`;
 }
 
+export function buildAsrLocalRescueSupersededByPostCommitRecoveryDiagnostic(args: {
+  previousTargetScrollTop: number;
+  newTargetScrollTop: number;
+  snapSuppressed: boolean;
+  freezeReason: string;
+  actualMovePx: number;
+  hardBlockerState: string;
+}): string {
+  return `[ASR_LOCAL_RESCUE_SUPERSEDED_BY_POST_COMMIT_RECOVERY] previousTargetScrollTop=${Math.round(args.previousTargetScrollTop)} newTargetScrollTop=${Math.round(args.newTargetScrollTop)} snapSuppressed=${args.snapSuppressed ? 1 : 0} freezeReason=${args.freezeReason || 'none'} actualMovePx=${Math.round(args.actualMovePx)} hardBlockerState=${args.hardBlockerState || 'none'}`;
+}
+
 export function buildAsrVisualDebtCatchupEvaluationSeenDiagnostic(args: {
   debtPx: number;
   lineHeightPx: number;

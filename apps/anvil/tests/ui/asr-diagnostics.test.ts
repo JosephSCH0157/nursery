@@ -84,6 +84,7 @@ import {
   buildAsrVisualDebtCatchupEvaluationSeenDiagnostic,
   buildAsrVisualDebtCatchupBlockedDiagnostic,
   buildAsrLocalRescueAllowedButUnrealizedDiagnostic,
+  buildAsrLocalRescueSupersededByPostCommitRecoveryDiagnostic,
   buildAsrBackendTranscriptStaleDiagnostic,
   buildProofOwnedPrimaryCommitGuardBaseParts,
   buildRecoverySkipNonAdjacentTargetGuardBaseParts,
@@ -327,6 +328,18 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(unrealized).toBe(
       '[ASR_LOCAL_RESCUE_ALLOWED_BUT_UNREALIZED] allowedReason=persistent_local_rescue_override intendedMovePx=28 actualMovePx=0 actuatorBlockReason=actuator_rate_limited finalZeroingReason=writer_no_progress hardBlocker=none cooldownState=cooldown_clear targetDebtPx=136 targetScrollTop=308 currentScrollTop=172',
+    );
+
+    const superseded = buildAsrLocalRescueSupersededByPostCommitRecoveryDiagnostic({
+      previousTargetScrollTop: 6976,
+      newTargetScrollTop: 7107,
+      snapSuppressed: true,
+      freezeReason: 'far_visual_target',
+      actualMovePx: 0,
+      hardBlockerState: 'none',
+    });
+    expect(superseded).toBe(
+      '[ASR_LOCAL_RESCUE_SUPERSEDED_BY_POST_COMMIT_RECOVERY] previousTargetScrollTop=6976 newTargetScrollTop=7107 snapSuppressed=1 freezeReason=far_visual_target actualMovePx=0 hardBlockerState=none',
     );
   });
 
