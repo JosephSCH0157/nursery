@@ -1640,6 +1640,50 @@ export function buildAsrLocalRescueSupersededByPostCommitRecoveryDiagnostic(args
   return `[ASR_LOCAL_RESCUE_SUPERSEDED_BY_POST_COMMIT_RECOVERY] previousTargetScrollTop=${Math.round(args.previousTargetScrollTop)} newTargetScrollTop=${Math.round(args.newTargetScrollTop)} snapSuppressed=${args.snapSuppressed ? 1 : 0} freezeReason=${args.freezeReason || 'none'} actualMovePx=${Math.round(args.actualMovePx)} hardBlockerState=${args.hardBlockerState || 'none'}`;
 }
 
+export function buildAsrStaleVisualDebtClearedDiagnostic(args: {
+  recoveryKind: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  visualAnchorLineIdx: number;
+  targetDebtPx: number;
+  tolerancePx: number;
+  currentScrollTop: number;
+  targetScrollTop: number;
+  leaseCleared: boolean;
+  reason: string;
+}): string {
+  return `[ASR_STALE_VISUAL_DEBT_CLEARED] recoveryKind=${args.recoveryKind || 'none'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} visualAnchorLineIdx=${Math.round(args.visualAnchorLineIdx)} targetDebtPx=${Math.round(args.targetDebtPx)} tolerancePx=${Math.round(args.tolerancePx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} leaseCleared=${args.leaseCleared ? 1 : 0} reason=${args.reason || 'none'}`;
+}
+
+export function buildAsrRecoveryForwardPushSuppressedTargetSatisfiedDiagnostic(args: {
+  authority: string;
+  recoveryKind: string;
+  currentLineIdx: number;
+  committedLineIdx: number;
+  targetDebtPx: number;
+  currentScrollTop: number;
+  previousTargetScrollTop: number;
+  suppressedTargetScrollTop: number;
+  newerForwardProof: boolean;
+  reason: string;
+}): string {
+  return `[ASR_RECOVERY_FORWARD_PUSH_SUPPRESSED_TARGET_SATISFIED] authority=${args.authority || 'none'} recoveryKind=${args.recoveryKind || 'none'} currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} targetDebtPx=${Math.round(args.targetDebtPx)} currentScrollTop=${Math.round(args.currentScrollTop)} previousTargetScrollTop=${Math.round(args.previousTargetScrollTop)} suppressedTargetScrollTop=${Math.round(args.suppressedTargetScrollTop)} newerForwardProof=${args.newerForwardProof ? 1 : 0} reason=${args.reason || 'none'}`;
+}
+
+export function buildAsrSemanticAheadLocalStabilizationAllowedDiagnostic(args: {
+  currentLineIdx: number;
+  committedLineIdx: number;
+  visualAnchorLineIdx: number;
+  targetDebtPx: number;
+  tolerancePx: number;
+  currentScrollTop: number;
+  targetScrollTop: number;
+  unsafeTargetReason: string;
+  reason: string;
+}): string {
+  return `[ASR_SEMANTIC_AHEAD_LOCAL_STABILIZATION_ALLOWED] currentLineIdx=${Math.round(args.currentLineIdx)} committedLineIdx=${Math.round(args.committedLineIdx)} visualAnchorLineIdx=${Math.round(args.visualAnchorLineIdx)} targetDebtPx=${Math.round(args.targetDebtPx)} tolerancePx=${Math.round(args.tolerancePx)} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} unsafeTargetReason=${args.unsafeTargetReason || 'none'} reason=${args.reason || 'none'}`;
+}
+
 export function buildAsrVisualDebtCatchupEvaluationSeenDiagnostic(args: {
   debtPx: number;
   lineHeightPx: number;

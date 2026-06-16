@@ -106,6 +106,9 @@ import {
   buildAsrVisualDebtCatchupAllowedDiagnostic,
   buildAsrLocalRescueAllowedButUnrealizedDiagnostic,
   buildAsrLocalRescueSupersededByPostCommitRecoveryDiagnostic,
+  buildAsrStaleVisualDebtClearedDiagnostic,
+  buildAsrRecoveryForwardPushSuppressedTargetSatisfiedDiagnostic,
+  buildAsrSemanticAheadLocalStabilizationAllowedDiagnostic,
   buildAsrVisualDebtCatchupEvaluationSeenDiagnostic,
   buildAsrVisualDebtCatchupBlockedDiagnostic,
   buildAsrVisualRecoveryBoostAppliedDiagnostic,
@@ -8563,6 +8566,50 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     postFloorProtectedFollowLineIdx = Math.max(0, Math.floor(Number(args.floorProtectedLineIdx)));
     postFloorProtectedFollowTargetScrollTop = Number(args.protectedTargetScrollTop);
     syncActiveAsrVisualRecoveryEpisode(args.nowMs, 'post_floor_armed');
+  };
+  const evaluateStaleVisualDebtCoordination = (args: {
+    currentLineIdx: number;
+    committedLineIdx: number;
+    visualAnchorLineIdx: number;
+    currentScrollTop: number;
+    proposedTargetScrollTop: number;
+    targetDebtPx: number;
+    tolerancePx: number;
+    activeRecoveryKind: 'semantic_ahead' | 'visual_debt' | 'none';
+    hasNewerForwardTargetProof: boolean;
+    readerMarkerCorrectionLeaseActive: boolean;
+  }) => {
+    const targetDebtPx = Number.isFinite(args.targetDebtPx) ? Number(args.targetDebtPx) : Number.NaN;
+    const tolerancePx = Number.isFinite(args.tolerancePx) ? Math.max(0, Number(args.tolerancePx)) : 0;
+    const currentScrollTop = Number.isFinite(args.currentScrollTop) ? Number(args.currentScrollTop) : 0;
+    const proposedTargetScrollTop = Number.isFinite(args.proposedTargetScrollTop)
+      ? Number(args.proposedTargetScrollTop)
+      : currentScrollTop;
+    const visualNearSatisfied =
+      Number.isFinite(targetDebtPx) &&
+      Math.abs(targetDebtPx) <= tolerancePx;
+    const targetSatisfiedOrOver =
+      Number.isFinite(targetDebtPx) &&
+      targetDebtPx <= 0;
+    const clearStaleVisualDebt =
+      args.activeRecoveryKind === 'semantic_ahead' &&
+      visualNearSatisfied;
+    const allowLocalStabilization =
+      clearStaleVisualDebt &&
+      !args.hasNewerForwardTargetProof;
+    const suppressForwardPush =
+      targetSatisfiedOrOver &&
+      proposedTargetScrollTop > currentScrollTop + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX &&
+      !args.hasNewerForwardTargetProof;
+    return {
+      clearStaleVisualDebt,
+      clearLease: clearStaleVisualDebt && !!args.readerMarkerCorrectionLeaseActive,
+      allowLocalStabilization,
+      suppressForwardPush,
+      suppressedTargetScrollTop: suppressForwardPush ? currentScrollTop : proposedTargetScrollTop,
+      clearReason: clearStaleVisualDebt ? 'semantic_ahead_near_marker_tolerance' : 'none',
+      suppressReason: suppressForwardPush ? 'local_target_already_satisfied_without_newer_forward_proof' : 'none',
+    };
   };
   const hasBridgeLifecycleContextText = (...values: Array<unknown>): boolean => {
     const haystack = values
@@ -19961,6 +20008,86 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         Math.abs(maxScrollTop - current) <= 0.5;
       const targetDebtPx = Number.isFinite(visualErrorPx) ? visualErrorPx : Number.NaN;
       liveAsrActuatorTargetDebtPx = targetDebtPx;
+      const activeRecoveryKindForCoordination = resolveActiveAsrVisualRecoveryEpisode(nowTs)?.reason || 'none';
+      const hasNewerForwardTargetProof =
+        (
+          Number.isFinite(lastAuthorityMatchBestIdx) &&
+          Number(lastAuthorityMatchBestIdx) >
+            Math.max(
+              lastLineIndex,
+              Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx as number)
+                ? Math.max(0, Math.floor(Number(liveAsrCommitteeAcceptedCommitTargetIdx)))
+                : lastLineIndex,
+            )
+        ) ||
+        (
+          pendingSpeakableBridgeState != null &&
+          Number.isFinite(pendingSpeakableBridgeState.semanticTarget) &&
+          pendingSpeakableBridgeState.semanticTarget >
+            Math.max(
+              lastLineIndex,
+              Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx as number)
+                ? Math.max(0, Math.floor(Number(liveAsrCommitteeAcceptedCommitTargetIdx)))
+                : lastLineIndex,
+            )
+        );
+      const staleVisualDebtCoordination = evaluateStaleVisualDebtCoordination({
+        currentLineIdx: lastLineIndex,
+        committedLineIdx: Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx as number)
+          ? Math.max(0, Math.floor(Number(liveAsrCommitteeAcceptedCommitTargetIdx)))
+          : lastLineIndex,
+        visualAnchorLineIdx,
+        currentScrollTop: current,
+        proposedTargetScrollTop: markerErrorTargetTop,
+        targetDebtPx,
+        tolerancePx,
+        activeRecoveryKind: activeRecoveryKindForCoordination,
+        hasNewerForwardTargetProof,
+        readerMarkerCorrectionLeaseActive: readerMarkerCorrectionLeaseStartedAtMs > 0,
+      });
+      if (staleVisualDebtCoordination.clearStaleVisualDebt) {
+        clearPostReleaseProtectedFollow();
+        if (staleVisualDebtCoordination.clearLease) {
+          readerMarkerCorrectionLeaseStartedAtMs = 0;
+          readerMarkerCorrectionLeaseReason = 'none';
+          readerMarkerCorrectionLeaseReleasedReason = 'semantic_ahead_local_stabilization';
+          readerMarkerCorrectionLeaseMarkerErrorPxAtStart = Number.NaN;
+          lastAsrLeaseReleaseReason = 'semantic_ahead_local_stabilization';
+        }
+        try {
+          console.warn(
+            buildAsrStaleVisualDebtClearedDiagnostic({
+              recoveryKind: activeRecoveryKindForCoordination,
+              currentLineIdx: lastLineIndex,
+              committedLineIdx: Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx as number)
+                ? Math.max(0, Math.floor(Number(liveAsrCommitteeAcceptedCommitTargetIdx)))
+                : lastLineIndex,
+              visualAnchorLineIdx,
+              targetDebtPx,
+              tolerancePx,
+              currentScrollTop: current,
+              targetScrollTop: markerErrorTargetTop,
+              leaseCleared: staleVisualDebtCoordination.clearLease,
+              reason: staleVisualDebtCoordination.clearReason,
+            }),
+          );
+          console.warn(
+            buildAsrSemanticAheadLocalStabilizationAllowedDiagnostic({
+              currentLineIdx: lastLineIndex,
+              committedLineIdx: Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx as number)
+                ? Math.max(0, Math.floor(Number(liveAsrCommitteeAcceptedCommitTargetIdx)))
+                : lastLineIndex,
+              visualAnchorLineIdx,
+              targetDebtPx,
+              tolerancePx,
+              currentScrollTop: current,
+              targetScrollTop: markerErrorTargetTop,
+              unsafeTargetReason: 'reader_marker_correction_inactive',
+              reason: 'semantic_ahead_near_marker_tolerance',
+            }),
+          );
+        } catch {}
+      }
       liveAsrCommitteeVisualGovernorState = visualGovernorHoldActive || liveHardHold
         ? 'hard_hold_active'
         : 'inactive';
@@ -22503,6 +22630,60 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         preservedAsrAuthorityTargetSourcePath = liveTickSelectedAuthority;
         resetPreservedForwardTargetStallState();
       }
+    }
+    const staleForwardPushCoordination = evaluateStaleVisualDebtCoordination({
+      currentLineIdx: lastLineIndex,
+      committedLineIdx: Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx as number)
+        ? Math.max(0, Math.floor(Number(liveAsrCommitteeAcceptedCommitTargetIdx)))
+        : lastLineIndex,
+      visualAnchorLineIdx: Number.isFinite(lastAsrVisualAnchorLineIdx as number)
+        ? Math.max(0, Math.floor(Number(lastAsrVisualAnchorLineIdx)))
+        : lastLineIndex,
+      currentScrollTop: beforeScrollTop,
+      proposedTargetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop,
+      targetDebtPx: Number.isFinite(arithmeticTargetDebtPx) ? Number(arithmeticTargetDebtPx) : Number.NaN,
+      tolerancePx: Math.max(1, safeResolverLineHeightPx * ASR_VISUAL_MARKER_ERROR_TOLERANCE_LINES),
+      activeRecoveryKind: resolveActiveAsrVisualRecoveryEpisode(Date.now())?.reason || 'none',
+      hasNewerForwardTargetProof:
+        Number.isFinite(lastAuthorityMatchBestIdx) &&
+        Number(lastAuthorityMatchBestIdx) >
+          Math.max(
+            lastLineIndex,
+            Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx as number)
+              ? Math.max(0, Math.floor(Number(liveAsrCommitteeAcceptedCommitTargetIdx)))
+              : lastLineIndex,
+          ),
+      readerMarkerCorrectionLeaseActive: readerMarkerCorrectionLeaseStartedAtMs > 0,
+    });
+    if (staleForwardPushCoordination.suppressForwardPush) {
+      const previousTargetScrollTop = Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : beforeScrollTop;
+      const previousAuthority = String(lastAsrSelectedAuthority || liveTickSelectedAuthority || 'none');
+      pursuitTargetTop = staleForwardPushCoordination.suppressedTargetScrollTop;
+      preservedAsrAuthorityTargetTop = null;
+      preservedAsrAuthorityTargetReason = '';
+      preservedAsrAuthorityTargetSourcePath = '';
+      if (liveTickSelectedAuthority !== 'hold') {
+        liveTickSelectedAuthority = 'hold';
+        liveTickAuthorityReason = 'target_satisfied_without_newer_forward_proof';
+      }
+      try {
+        console.warn(
+          buildAsrRecoveryForwardPushSuppressedTargetSatisfiedDiagnostic({
+            authority: previousAuthority,
+            recoveryKind: resolveActiveAsrVisualRecoveryEpisode(Date.now())?.reason || 'none',
+            currentLineIdx: lastLineIndex,
+            committedLineIdx: Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx as number)
+              ? Math.max(0, Math.floor(Number(liveAsrCommitteeAcceptedCommitTargetIdx)))
+              : lastLineIndex,
+            targetDebtPx: Number.isFinite(arithmeticTargetDebtPx) ? Number(arithmeticTargetDebtPx) : 0,
+            currentScrollTop: beforeScrollTop,
+            previousTargetScrollTop,
+            suppressedTargetScrollTop: staleForwardPushCoordination.suppressedTargetScrollTop,
+            newerForwardProof: false,
+            reason: staleForwardPushCoordination.suppressReason,
+          }),
+        );
+      } catch {}
     }
     const preOwnershipActuatorDebtPx = arithmeticTargetDebtPx;
     liveTickFinalTargetDebtPx = resolveFinalAsrActuatorDebtPx(
@@ -41512,6 +41693,29 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         : null,
     });
   };
+  const debugEvaluateStaleVisualDebtCoordination = (args: {
+    currentLineIdx: number;
+    committedLineIdx: number;
+    visualAnchorLineIdx: number;
+    currentScrollTop: number;
+    proposedTargetScrollTop: number;
+    targetDebtPx: number;
+    tolerancePx: number;
+    activeRecoveryKind?: 'semantic_ahead' | 'visual_debt' | 'none';
+    hasNewerForwardTargetProof?: boolean;
+    readerMarkerCorrectionLeaseActive?: boolean;
+  }) => evaluateStaleVisualDebtCoordination({
+    currentLineIdx: args.currentLineIdx,
+    committedLineIdx: args.committedLineIdx,
+    visualAnchorLineIdx: args.visualAnchorLineIdx,
+    currentScrollTop: args.currentScrollTop,
+    proposedTargetScrollTop: args.proposedTargetScrollTop,
+    targetDebtPx: args.targetDebtPx,
+    tolerancePx: args.tolerancePx,
+    activeRecoveryKind: args.activeRecoveryKind || 'none',
+    hasNewerForwardTargetProof: !!args.hasNewerForwardTargetProof,
+    readerMarkerCorrectionLeaseActive: !!args.readerMarkerCorrectionLeaseActive,
+  });
   const debugObserveAsr4PocketDrift = (args: {
     currentLine: number;
     committedLine: number;
@@ -43369,6 +43573,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     __debugSeedPendingSpeakableBridge: debugSeedPendingSpeakableBridge,
     __debugObserveAsr4VisualRecoveryCommit: debugObserveAsr4VisualRecoveryCommit,
     __debugApplyAsr4VisualRecoveryAuthority: debugApplyAsr4VisualRecoveryAuthority,
+    __debugEvaluateStaleVisualDebtCoordination: debugEvaluateStaleVisualDebtCoordination,
     __debugObserveAsr4PocketDrift: debugObserveAsr4PocketDrift,
     __debugApplyScrollWithHybridGuard: debugApplyScrollWithHybridGuard,
     __debugApplyVisualActuatorTargetStep: debugApplyVisualActuatorTargetStep,
@@ -43467,6 +43672,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       movedPx: number;
       authorityAction: 'force_marker_lock_correction' | 'force_safe_direct_write' | 'freeze_far_visual_target' | 'lead_pressure_capped_forward_step';
       movementAllowed: boolean;
+    };
+    __debugEvaluateStaleVisualDebtCoordination(args: {
+      currentLineIdx: number;
+      committedLineIdx: number;
+      visualAnchorLineIdx: number;
+      currentScrollTop: number;
+      proposedTargetScrollTop: number;
+      targetDebtPx: number;
+      tolerancePx: number;
+      activeRecoveryKind?: 'semantic_ahead' | 'visual_debt' | 'none';
+      hasNewerForwardTargetProof?: boolean;
+      readerMarkerCorrectionLeaseActive?: boolean;
+    }): {
+      clearStaleVisualDebt: boolean;
+      clearLease: boolean;
+      allowLocalStabilization: boolean;
+      suppressForwardPush: boolean;
+      suppressedTargetScrollTop: number;
+      clearReason: string;
+      suppressReason: string;
     };
     __debugObserveAsr4PocketDrift(args: {
       currentLine: number;

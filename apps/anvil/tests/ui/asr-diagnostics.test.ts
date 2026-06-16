@@ -58,6 +58,9 @@ import {
   buildAsrPostAdjacentCommitVisualRecoveryPathProofDiagnostic,
   buildAsrPostAdjacentCommitVisualRecoveryWindowClearedDiagnostic,
   buildAsrRecoveryGearSelectedDiagnostic,
+  buildAsrStaleVisualDebtClearedDiagnostic,
+  buildAsrRecoveryForwardPushSuppressedTargetSatisfiedDiagnostic,
+  buildAsrSemanticAheadLocalStabilizationAllowedDiagnostic,
   buildAsrAccumulationSnapshotDiagnostic,
   buildAsrLiveScrollStalledDiagnostic,
   buildAsrScrollAuthorityResolvedDiagnostic,
@@ -340,6 +343,53 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(superseded).toBe(
       '[ASR_LOCAL_RESCUE_SUPERSEDED_BY_POST_COMMIT_RECOVERY] previousTargetScrollTop=6976 newTargetScrollTop=7107 snapSuppressed=1 freezeReason=far_visual_target actualMovePx=0 hardBlockerState=none',
+    );
+
+    const staleCleared = buildAsrStaleVisualDebtClearedDiagnostic({
+      recoveryKind: 'semantic_ahead',
+      currentLineIdx: 43,
+      committedLineIdx: 43,
+      visualAnchorLineIdx: 41,
+      targetDebtPx: 3,
+      tolerancePx: 20,
+      currentScrollTop: 4044,
+      targetScrollTop: 4044,
+      leaseCleared: true,
+      reason: 'semantic_ahead_near_marker_tolerance',
+    });
+    expect(staleCleared).toBe(
+      '[ASR_STALE_VISUAL_DEBT_CLEARED] recoveryKind=semantic_ahead currentLineIdx=43 committedLineIdx=43 visualAnchorLineIdx=41 targetDebtPx=3 tolerancePx=20 currentScrollTop=4044 targetScrollTop=4044 leaseCleared=1 reason=semantic_ahead_near_marker_tolerance',
+    );
+
+    const suppressedPush = buildAsrRecoveryForwardPushSuppressedTargetSatisfiedDiagnostic({
+      authority: 'preferred_lower_rail_release',
+      recoveryKind: 'semantic_ahead',
+      currentLineIdx: 43,
+      committedLineIdx: 43,
+      targetDebtPx: -12,
+      currentScrollTop: 2834,
+      previousTargetScrollTop: 2959,
+      suppressedTargetScrollTop: 2834,
+      newerForwardProof: false,
+      reason: 'local_target_already_satisfied_without_newer_forward_proof',
+    });
+    expect(suppressedPush).toBe(
+      '[ASR_RECOVERY_FORWARD_PUSH_SUPPRESSED_TARGET_SATISFIED] authority=preferred_lower_rail_release recoveryKind=semantic_ahead currentLineIdx=43 committedLineIdx=43 targetDebtPx=-12 currentScrollTop=2834 previousTargetScrollTop=2959 suppressedTargetScrollTop=2834 newerForwardProof=0 reason=local_target_already_satisfied_without_newer_forward_proof',
+    );
+
+    const localStabilization = buildAsrSemanticAheadLocalStabilizationAllowedDiagnostic({
+      currentLineIdx: 60,
+      committedLineIdx: 60,
+      visualAnchorLineIdx: 59,
+      targetDebtPx: 3,
+      tolerancePx: 20,
+      currentScrollTop: 4044,
+      targetScrollTop: 4044,
+      unsafeTargetReason: 'reader_marker_correction_inactive',
+      reason: 'semantic_ahead_near_marker_tolerance',
+    });
+    expect(localStabilization).toBe(
+      '[ASR_SEMANTIC_AHEAD_LOCAL_STABILIZATION_ALLOWED] currentLineIdx=60 committedLineIdx=60 visualAnchorLineIdx=59 targetDebtPx=3 tolerancePx=20 currentScrollTop=4044 targetScrollTop=4044 unsafeTargetReason=reader_marker_correction_inactive reason=semantic_ahead_near_marker_tolerance',
     );
   });
 

@@ -246,6 +246,26 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     authorityAction: 'force_marker_lock_correction' | 'force_safe_direct_write' | 'freeze_far_visual_target' | 'lead_pressure_capped_forward_step';
     movementAllowed: boolean;
   };
+  __debugEvaluateStaleVisualDebtCoordination(args: {
+    currentLineIdx: number;
+    committedLineIdx: number;
+    visualAnchorLineIdx: number;
+    currentScrollTop: number;
+    proposedTargetScrollTop: number;
+    targetDebtPx: number;
+    tolerancePx: number;
+    activeRecoveryKind?: 'semantic_ahead' | 'visual_debt' | 'none';
+    hasNewerForwardTargetProof?: boolean;
+    readerMarkerCorrectionLeaseActive?: boolean;
+  }): {
+    clearStaleVisualDebt: boolean;
+    clearLease: boolean;
+    allowLocalStabilization: boolean;
+    suppressForwardPush: boolean;
+    suppressedTargetScrollTop: number;
+    clearReason: string;
+    suppressReason: string;
+  };
 };
 
 describe('ASR visual contract', () => {
@@ -631,6 +651,56 @@ describe('ASR visual contract', () => {
 
     expect(result.authorityAction).not.toBe('freeze_far_visual_target');
     expect(result.afterScrollTop).toBeGreaterThanOrEqual(6976);
+
+    driver.dispose();
+  });
+
+  test('stale semantic-ahead state clears and suppresses larger forward push once the local target is satisfied', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluateStaleVisualDebtCoordination({
+      currentLineIdx: 43,
+      committedLineIdx: 43,
+      visualAnchorLineIdx: 41,
+      currentScrollTop: 2834,
+      proposedTargetScrollTop: 2959,
+      targetDebtPx: -12,
+      tolerancePx: 20,
+      activeRecoveryKind: 'semantic_ahead',
+      hasNewerForwardTargetProof: false,
+      readerMarkerCorrectionLeaseActive: true,
+    });
+
+    expect(result.clearStaleVisualDebt).toBe(true);
+    expect(result.clearLease).toBe(true);
+    expect(result.allowLocalStabilization).toBe(true);
+    expect(result.suppressForwardPush).toBe(true);
+    expect(result.suppressedTargetScrollTop).toBe(2834);
+    expect(result.suppressReason).toBe('local_target_already_satisfied_without_newer_forward_proof');
+
+    driver.dispose();
+  });
+
+  test('newer forward proof can keep a bounded forward push candidate alive even near the semantic-ahead handoff', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluateStaleVisualDebtCoordination({
+      currentLineIdx: 60,
+      committedLineIdx: 60,
+      visualAnchorLineIdx: 59,
+      currentScrollTop: 4044,
+      proposedTargetScrollTop: 4183,
+      targetDebtPx: 3,
+      tolerancePx: 20,
+      activeRecoveryKind: 'semantic_ahead',
+      hasNewerForwardTargetProof: true,
+      readerMarkerCorrectionLeaseActive: false,
+    });
+
+    expect(result.clearStaleVisualDebt).toBe(true);
+    expect(result.allowLocalStabilization).toBe(false);
+    expect(result.suppressForwardPush).toBe(false);
+    expect(result.suppressedTargetScrollTop).toBe(4183);
 
     driver.dispose();
   });
