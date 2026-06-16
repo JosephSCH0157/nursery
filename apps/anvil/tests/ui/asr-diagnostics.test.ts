@@ -21,6 +21,11 @@ import {
   buildAsrReaderZoneSummaryDiagnostic,
   buildAsr4VisualRecoveryAuthorityAppliedDiagnostic,
   buildAsr4VisualRecoveryStateDiagnostic,
+  buildAsrPostCommitRecoveryStarvationEvaluatedDiagnostic,
+  buildAsrPostCommitRecoveryStarvationBypassedDiagnostic,
+  buildAsrPostCommitRecoveryStarvationRelievedDiagnostic,
+  buildAsrPostCommitRecoveryStarvationBlockedDiagnostic,
+  buildAsrPostCommitRecoveryReliefAttemptUnrealizedDiagnostic,
   buildAsr4FreshTailVetoDiagnostic,
   buildAsr4RecoveryBudgetStateDiagnostic,
   buildAsr4RecoveryBudgetViolationDiagnostic,
@@ -34,6 +39,7 @@ import {
   buildAsrBridgeReducedVisualCashInBlockedDiagnostic,
   buildAsrBottomLockGeometryDiagnostic,
   buildAsrDelayedSuppressionAutopsyDiagnostic,
+  buildAsrPostCommitStarvationRuntimeProofDiagnostic,
   buildAsrDiagnosticBundleProofDiagnostic,
   buildAsrEarlyBridgeTrapReleasedDiagnostic,
   buildAsrMarkerErrorHoldBandRejectedDiagnostic,
@@ -145,6 +151,20 @@ describe('ASR backend liveness diagnostics builders', () => {
       }),
     ).toBe(
       '[ASR_CHAIRPERSON_FLAG_PROOF] rawHref=http://localhost:5173/?dev=1&asr_visual_chairperson=true rawSearch=?dev=1&asr_visual_chairperson=true parsedQueryParams=["dev:1","asr_visual_chairperson:true"] asrVisualChairpersonRaw=true asrVisualChairpersonOwnerRaw=none resolvedShadowEnabled=1 resolvedOwnerEnabled=1 ownerFlagSource=url:asr_visual_chairperson=true ownerDisabledReason=none devFlagReaderAvailable=1 flagEvaluationLocation=app_boot driverCreationTimeFlagState=not_created liveTickFlagState=shadow=1|owner=1|source=url:asr_visual_chairperson=true|disabled=none importMetaDev=true importMetaMode=development ownerFlagReadFrom=url',
+    );
+
+    expect(
+      buildAsrPostCommitStarvationRuntimeProofDiagnostic({
+        buildStamp: 'asr-scroll-2026-06-16T13:35:01.646Z',
+        sourceModule: 'asr-scroll-driver.ts',
+        hasStarvationEvaluated: true,
+        hasStarvationBypassed: true,
+        hasStarvationRelieved: true,
+        hasStarvationBlocked: true,
+        proofLocation: 'driver_creation',
+      }),
+    ).toBe(
+      '[ASR_POST_COMMIT_STARVATION_RUNTIME_PROOF] buildStamp=asr-scroll-2026-06-16T13:35:01.646Z sourceModule=asr-scroll-driver.ts hasStarvationEvaluated=1 hasStarvationBypassed=1 hasStarvationRelieved=1 hasStarvationBlocked=1 proofLocation=driver_creation',
     );
 
     expect(
@@ -732,6 +752,116 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR4_VISUAL_RECOVERY_AUTHORITY_APPLIED] currentLine=32 committedLine=33 targetLine=33 beforeScrollTop=1812 afterScrollTop=2036 movedPx=224 consecutiveNoMoveCommits=2 directWriteBlocked=1 targetPreservedForEasing=1 visualSnapSuppressed=1 liveScrollStalled=1 authorityAction=force_marker_lock_correction movementAllowed=1 reason=accepted_commit_visible_scroll_stalled',
+    );
+  });
+
+  test('builds post-commit recovery starvation relieved diagnostic with expected fields', () => {
+    const line = buildAsrPostCommitRecoveryStarvationRelievedDiagnostic({
+      markerErrorPx: 104,
+      targetScrollTop: 454,
+      currentScrollTop: 350,
+      boundedMovePx: 36,
+      consecutiveNoMoveCommits: 4,
+      readerOverrunHoldReason: 'current_line_within_reader_overrun_buffer',
+      recoveryKind: 'none',
+      ownershipActive: true,
+      hardBlocker: 'none',
+      speechFresh: true,
+      semanticAheadState: 'none',
+    });
+    expect(line).toBe(
+      '[ASR_POST_COMMIT_RECOVERY_STARVATION_RELIEVED] markerErrorPx=104 targetScrollTop=454 currentScrollTop=350 boundedMovePx=36 consecutiveNoMoveCommits=4 readerOverrunHoldReason=current_line_within_reader_overrun_buffer recoveryKind=none ownershipActive=1 hardBlocker=none speechFresh=1 semanticAheadState=none',
+    );
+  });
+
+  test('builds post-commit recovery starvation evaluated diagnostic with expected fields', () => {
+    const line = buildAsrPostCommitRecoveryStarvationEvaluatedDiagnostic({
+      speechFresh: true,
+      speechActive: true,
+      ownershipActive: true,
+      visualSnapSuppressed: true,
+      markerErrorPx: 66,
+      visualDebtPx: 66,
+      targetScrollTop: 8736,
+      currentScrollTop: 8670,
+      consecutiveNoMoveCommits: 15,
+      recoveryKind: 'none',
+      readerOverrunHoldReason: 'current_line_within_reader_overrun_buffer',
+      terminalClampActive: false,
+      predicatePassed: true,
+      predicateFailedReason: 'none',
+    });
+    expect(line).toBe(
+      '[ASR_POST_COMMIT_RECOVERY_STARVATION_EVALUATED] speechFresh=1 speechActive=1 ownershipActive=1 visualSnapSuppressed=1 markerErrorPx=66 visualDebtPx=66 targetScrollTop=8736 currentScrollTop=8670 consecutiveNoMoveCommits=15 recoveryKind=none readerOverrunHoldReason=current_line_within_reader_overrun_buffer terminalClampActive=0 predicatePassed=1 predicateFailedReason=none',
+    );
+  });
+
+  test('builds post-commit recovery starvation bypassed diagnostic with expected fields', () => {
+    const line = buildAsrPostCommitRecoveryStarvationBypassedDiagnostic({
+      bypassReason: 'duplicate_authority_signature',
+      speechFresh: true,
+      speechActive: true,
+      ownershipActive: true,
+      visualSnapSuppressed: true,
+      markerErrorPx: 66,
+      visualDebtPx: 66,
+      targetScrollTop: 8736,
+      currentScrollTop: 8670,
+      consecutiveNoMoveCommits: 15,
+      recoveryKind: 'none',
+      readerOverrunHoldReason: 'current_line_within_reader_overrun_buffer',
+      terminalClampActive: false,
+    });
+    expect(line).toBe(
+      '[ASR_POST_COMMIT_RECOVERY_STARVATION_BYPASSED] bypassReason=duplicate_authority_signature speechFresh=1 speechActive=1 ownershipActive=1 visualSnapSuppressed=1 markerErrorPx=66 visualDebtPx=66 targetScrollTop=8736 currentScrollTop=8670 consecutiveNoMoveCommits=15 recoveryKind=none readerOverrunHoldReason=current_line_within_reader_overrun_buffer terminalClampActive=0',
+    );
+  });
+
+  test('builds post-commit recovery starvation blocked diagnostic with expected fields', () => {
+    const line = buildAsrPostCommitRecoveryStarvationBlockedDiagnostic({
+      markerErrorPx: 104,
+      targetScrollTop: 454,
+      currentScrollTop: 350,
+      boundedMovePx: 0,
+      consecutiveNoMoveCommits: 4,
+      readerOverrunHoldReason: 'current_line_within_reader_overrun_buffer',
+      recoveryKind: 'semantic_ahead',
+      ownershipActive: true,
+      hardBlocker: 'post_commit_recovery_no_progress',
+      speechFresh: true,
+      semanticAheadState: 'semantic_ahead',
+    });
+    expect(line).toBe(
+      '[ASR_POST_COMMIT_RECOVERY_STARVATION_BLOCKED] markerErrorPx=104 targetScrollTop=454 currentScrollTop=350 boundedMovePx=0 consecutiveNoMoveCommits=4 readerOverrunHoldReason=current_line_within_reader_overrun_buffer recoveryKind=semantic_ahead ownershipActive=1 hardBlocker=post_commit_recovery_no_progress speechFresh=1 semanticAheadState=semantic_ahead',
+    );
+  });
+
+  test('builds post-commit recovery relief attempt unrealized diagnostic with expected fields', () => {
+    const line = buildAsrPostCommitRecoveryReliefAttemptUnrealizedDiagnostic({
+      intendedMovePx: 68,
+      boundedMovePx: 0,
+      actualMovePx: 0,
+      targetScrollTop: 8736,
+      currentScrollTop: 8670,
+      markerErrorPx: 66,
+      visualDebtPx: 66,
+      recoveryKind: 'semantic_ahead',
+      visualSnapSuppressed: true,
+      readerOverrunHoldReason: 'current_line_within_reader_overrun_buffer',
+      duplicateAuthoritySignature: false,
+      inPocketSuppressionActive: false,
+      freezeInherited: false,
+      targetReplaced: true,
+      targetReplacementReason: 'starvation_floor_relief',
+      actuatorZeroReason: 'starvation_floor_apply_zero',
+      finalScrollBefore: 8670,
+      finalScrollAfter: 8670,
+      elapsedMs: 0,
+      hardBlocker: 'post_commit_recovery_no_progress',
+      zeroProgressCause: 'target_replaced',
+    });
+    expect(line).toBe(
+      '[ASR_POST_COMMIT_RECOVERY_RELIEF_ATTEMPT_UNREALIZED] intendedMovePx=68 boundedMovePx=0 actualMovePx=0 targetScrollTop=8736 currentScrollTop=8670 markerErrorPx=66 visualDebtPx=66 recoveryKind=semantic_ahead visualSnapSuppressed=1 readerOverrunHoldReason=current_line_within_reader_overrun_buffer duplicateAuthoritySignature=0 inPocketSuppressionActive=0 freezeInherited=0 targetReplaced=1 targetReplacementReason=starvation_floor_relief actuatorZeroReason=starvation_floor_apply_zero finalScrollBefore=8670 finalScrollAfter=8670 elapsedMs=0 hardBlocker=post_commit_recovery_no_progress zeroProgressCause=target_replaced',
     );
   });
 

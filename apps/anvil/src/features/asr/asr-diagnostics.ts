@@ -665,6 +665,18 @@ export function buildAsrVisualControlRuntimeProofDiagnostic(args: {
   return `[ASR_VISUAL_CONTROL_RUNTIME_PROOF] chairpersonRuntime=${args.chairpersonRuntime ? 1 : 0} contractVersion=${args.contractVersion} shadowMode=${args.shadowMode ? 1 : 0} liveTargetOwnership=${args.liveTargetOwnership ? 1 : 0} moduleLoaded=${args.moduleLoaded ? 1 : 0} buildStamp=${args.buildStamp || 'unknown'} emittedFrom=${args.emittedFrom || 'unknown'} computeAsrVisualDecisionAvailable=${args.computeAsrVisualDecisionAvailable ? 1 : 0} diagnosticsSinkAvailable=${args.diagnosticsSinkAvailable ? 1 : 0} diagnosticsExportPathAvailable=${args.diagnosticsExportPathAvailable ? 1 : 0}`;
 }
 
+export function buildAsrPostCommitStarvationRuntimeProofDiagnostic(args: {
+  buildStamp: string;
+  sourceModule: string;
+  hasStarvationEvaluated: boolean;
+  hasStarvationBypassed: boolean;
+  hasStarvationRelieved: boolean;
+  hasStarvationBlocked: boolean;
+  proofLocation: 'driver_creation' | 'first_live_visual_tick';
+}): string {
+  return `[ASR_POST_COMMIT_STARVATION_RUNTIME_PROOF] buildStamp=${args.buildStamp || 'unknown'} sourceModule=${args.sourceModule || 'unknown'} hasStarvationEvaluated=${args.hasStarvationEvaluated ? 1 : 0} hasStarvationBypassed=${args.hasStarvationBypassed ? 1 : 0} hasStarvationRelieved=${args.hasStarvationRelieved ? 1 : 0} hasStarvationBlocked=${args.hasStarvationBlocked ? 1 : 0} proofLocation=${args.proofLocation}`;
+}
+
 export function buildAsrChairpersonFlagProofDiagnostic(args: {
   rawHref: string;
   rawSearch: string;
@@ -1808,6 +1820,101 @@ export function buildAsr4VisualRecoveryAuthorityAppliedDiagnostic(args: {
     ? Math.round(Number(args.targetLine))
     : -1;
   return `[ASR4_VISUAL_RECOVERY_AUTHORITY_APPLIED] currentLine=${Math.round(args.currentLine)} committedLine=${Math.round(args.committedLine)} targetLine=${targetLine} beforeScrollTop=${Math.round(args.beforeScrollTop)} afterScrollTop=${Math.round(args.afterScrollTop)} movedPx=${Math.round(args.movedPx)} consecutiveNoMoveCommits=${Math.round(args.consecutiveNoMoveCommits)} directWriteBlocked=${args.directWriteBlocked ? 1 : 0} targetPreservedForEasing=${args.targetPreservedForEasing ? 1 : 0} visualSnapSuppressed=${args.visualSnapSuppressed ? 1 : 0} liveScrollStalled=${args.liveScrollStalled ? 1 : 0} authorityAction=${args.authorityAction} movementAllowed=${args.movementAllowed ? 1 : 0} reason=${args.reason}`;
+}
+
+export function buildAsrPostCommitRecoveryStarvationRelievedDiagnostic(args: {
+  markerErrorPx: number;
+  targetScrollTop: number;
+  currentScrollTop: number;
+  boundedMovePx: number;
+  consecutiveNoMoveCommits: number;
+  readerOverrunHoldReason: string;
+  recoveryKind: 'semantic_ahead' | 'visual_debt' | 'none';
+  ownershipActive: boolean;
+  hardBlocker: string;
+  speechFresh: boolean;
+  semanticAheadState: string;
+}): string {
+  return `[ASR_POST_COMMIT_RECOVERY_STARVATION_RELIEVED] markerErrorPx=${Math.round(args.markerErrorPx)} targetScrollTop=${Math.round(args.targetScrollTop)} currentScrollTop=${Math.round(args.currentScrollTop)} boundedMovePx=${Math.round(args.boundedMovePx)} consecutiveNoMoveCommits=${Math.round(args.consecutiveNoMoveCommits)} readerOverrunHoldReason=${args.readerOverrunHoldReason || 'none'} recoveryKind=${args.recoveryKind || 'none'} ownershipActive=${args.ownershipActive ? 1 : 0} hardBlocker=${args.hardBlocker || 'none'} speechFresh=${args.speechFresh ? 1 : 0} semanticAheadState=${args.semanticAheadState || 'none'}`;
+}
+
+export function buildAsrPostCommitRecoveryStarvationEvaluatedDiagnostic(args: {
+  speechFresh: boolean;
+  speechActive: boolean;
+  ownershipActive: boolean;
+  visualSnapSuppressed: boolean;
+  markerErrorPx: number;
+  visualDebtPx: number;
+  targetScrollTop: number;
+  currentScrollTop: number;
+  consecutiveNoMoveCommits: number;
+  recoveryKind: 'semantic_ahead' | 'visual_debt' | 'none';
+  readerOverrunHoldReason: string;
+  terminalClampActive: boolean;
+  predicatePassed: boolean;
+  predicateFailedReason: string;
+}): string {
+  return `[ASR_POST_COMMIT_RECOVERY_STARVATION_EVALUATED] speechFresh=${args.speechFresh ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} ownershipActive=${args.ownershipActive ? 1 : 0} visualSnapSuppressed=${args.visualSnapSuppressed ? 1 : 0} markerErrorPx=${Math.round(args.markerErrorPx)} visualDebtPx=${Math.round(args.visualDebtPx)} targetScrollTop=${Math.round(args.targetScrollTop)} currentScrollTop=${Math.round(args.currentScrollTop)} consecutiveNoMoveCommits=${Math.round(args.consecutiveNoMoveCommits)} recoveryKind=${args.recoveryKind || 'none'} readerOverrunHoldReason=${args.readerOverrunHoldReason || 'none'} terminalClampActive=${args.terminalClampActive ? 1 : 0} predicatePassed=${args.predicatePassed ? 1 : 0} predicateFailedReason=${args.predicateFailedReason || 'none'}`;
+}
+
+export function buildAsrPostCommitRecoveryStarvationBypassedDiagnostic(args: {
+  bypassReason: string;
+  speechFresh: boolean;
+  speechActive: boolean;
+  ownershipActive: boolean;
+  visualSnapSuppressed: boolean;
+  markerErrorPx: number;
+  visualDebtPx: number;
+  targetScrollTop: number;
+  currentScrollTop: number;
+  consecutiveNoMoveCommits: number;
+  recoveryKind: 'semantic_ahead' | 'visual_debt' | 'none';
+  readerOverrunHoldReason: string;
+  terminalClampActive: boolean;
+}): string {
+  return `[ASR_POST_COMMIT_RECOVERY_STARVATION_BYPASSED] bypassReason=${args.bypassReason || 'none'} speechFresh=${args.speechFresh ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} ownershipActive=${args.ownershipActive ? 1 : 0} visualSnapSuppressed=${args.visualSnapSuppressed ? 1 : 0} markerErrorPx=${Math.round(args.markerErrorPx)} visualDebtPx=${Math.round(args.visualDebtPx)} targetScrollTop=${Math.round(args.targetScrollTop)} currentScrollTop=${Math.round(args.currentScrollTop)} consecutiveNoMoveCommits=${Math.round(args.consecutiveNoMoveCommits)} recoveryKind=${args.recoveryKind || 'none'} readerOverrunHoldReason=${args.readerOverrunHoldReason || 'none'} terminalClampActive=${args.terminalClampActive ? 1 : 0}`;
+}
+
+export function buildAsrPostCommitRecoveryStarvationBlockedDiagnostic(args: {
+  markerErrorPx: number;
+  targetScrollTop: number;
+  currentScrollTop: number;
+  boundedMovePx: number;
+  consecutiveNoMoveCommits: number;
+  readerOverrunHoldReason: string;
+  recoveryKind: 'semantic_ahead' | 'visual_debt' | 'none';
+  ownershipActive: boolean;
+  hardBlocker: string;
+  speechFresh: boolean;
+  semanticAheadState: string;
+}): string {
+  return `[ASR_POST_COMMIT_RECOVERY_STARVATION_BLOCKED] markerErrorPx=${Math.round(args.markerErrorPx)} targetScrollTop=${Math.round(args.targetScrollTop)} currentScrollTop=${Math.round(args.currentScrollTop)} boundedMovePx=${Math.round(args.boundedMovePx)} consecutiveNoMoveCommits=${Math.round(args.consecutiveNoMoveCommits)} readerOverrunHoldReason=${args.readerOverrunHoldReason || 'none'} recoveryKind=${args.recoveryKind || 'none'} ownershipActive=${args.ownershipActive ? 1 : 0} hardBlocker=${args.hardBlocker || 'none'} speechFresh=${args.speechFresh ? 1 : 0} semanticAheadState=${args.semanticAheadState || 'none'}`;
+}
+
+export function buildAsrPostCommitRecoveryReliefAttemptUnrealizedDiagnostic(args: {
+  intendedMovePx: number;
+  boundedMovePx: number;
+  actualMovePx: number;
+  targetScrollTop: number;
+  currentScrollTop: number;
+  markerErrorPx: number;
+  visualDebtPx: number;
+  recoveryKind: string;
+  visualSnapSuppressed: boolean;
+  readerOverrunHoldReason: string;
+  duplicateAuthoritySignature: boolean;
+  inPocketSuppressionActive: boolean;
+  freezeInherited: boolean;
+  targetReplaced: boolean;
+  targetReplacementReason: string;
+  actuatorZeroReason: string;
+  finalScrollBefore: number;
+  finalScrollAfter: number;
+  elapsedMs: number;
+  hardBlocker: string;
+  zeroProgressCause: string;
+}): string {
+  return `[ASR_POST_COMMIT_RECOVERY_RELIEF_ATTEMPT_UNREALIZED] intendedMovePx=${Math.round(args.intendedMovePx)} boundedMovePx=${Math.round(args.boundedMovePx)} actualMovePx=${Math.round(args.actualMovePx)} targetScrollTop=${Math.round(args.targetScrollTop)} currentScrollTop=${Math.round(args.currentScrollTop)} markerErrorPx=${Math.round(args.markerErrorPx)} visualDebtPx=${Math.round(args.visualDebtPx)} recoveryKind=${args.recoveryKind || 'none'} visualSnapSuppressed=${args.visualSnapSuppressed ? 1 : 0} readerOverrunHoldReason=${args.readerOverrunHoldReason || 'none'} duplicateAuthoritySignature=${args.duplicateAuthoritySignature ? 1 : 0} inPocketSuppressionActive=${args.inPocketSuppressionActive ? 1 : 0} freezeInherited=${args.freezeInherited ? 1 : 0} targetReplaced=${args.targetReplaced ? 1 : 0} targetReplacementReason=${args.targetReplacementReason || 'none'} actuatorZeroReason=${args.actuatorZeroReason || 'none'} finalScrollBefore=${Math.round(args.finalScrollBefore)} finalScrollAfter=${Math.round(args.finalScrollAfter)} elapsedMs=${Math.round(args.elapsedMs)} hardBlocker=${args.hardBlocker || 'none'} zeroProgressCause=${args.zeroProgressCause || 'unknown_no_progress'}`;
 }
 
 export function buildAsrReaderOverrunHoldDiagnostic(args: {
