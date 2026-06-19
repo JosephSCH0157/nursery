@@ -19642,6 +19642,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
     }
 
+    let liveTickAuthorityReason: string | null = null;
+
     if (pursuitTargetTop < current) {
       emitDevDiagnostic(
         'ASR_FORWARD_WRITE_SUPPRESSED_TARGET_SATISFIED',
@@ -19948,7 +19950,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let liveTickAuthorityPocketZone = 'unknown';
     let liveTickReaderPocketZone = 'unknown';
     let liveTickSelectedAuthority = 'hold';
-    let liveTickAuthorityReason = 'marker_error_within_tolerance';
+    liveTickAuthorityReason = 'marker_error_within_tolerance';
     const liveTickBaseAuthority = 'pocket_authority';
     const liveTickCandidateAuthorities = new Set<string>();
     const liveTickConflictingAuthorities = new Set<string>();

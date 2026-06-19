@@ -460,6 +460,7 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
 describe('ASR live commit motion', () => {
   let rafSpy: jest.SpyInstance<number, [FrameRequestCallback]>;
   let cafSpy: jest.SpyInstance<void, [number]>;
+  let consoleErrorSpy: jest.SpyInstance<void, any[]>;
   let consoleLogSpy: jest.SpyInstance<void, any[]>;
   let consoleInfoSpy: jest.SpyInstance<void, any[]>;
   let consoleDebugSpy: jest.SpyInstance<void, any[]>;
@@ -467,6 +468,7 @@ describe('ASR live commit motion', () => {
 
   beforeEach(() => {
     jest.useFakeTimers();
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     consoleInfoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
     consoleDebugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
@@ -534,6 +536,7 @@ describe('ASR live commit motion', () => {
   afterEach(() => {
     jest.clearAllTimers();
     jest.useRealTimers();
+    consoleErrorSpy.mockRestore();
     consoleLogSpy.mockRestore();
     consoleInfoSpy.mockRestore();
     consoleDebugSpy.mockRestore();
@@ -546,6 +549,40 @@ describe('ASR live commit motion', () => {
     delete (window as any).__tpLiveAsrGovernorHold;
     delete (window as any).__tpAsrDiagnosticBundleProofEmitted;
     delete (window as any).__TP_BUILD_STAMP;
+  });
+
+  test('backward target suppression does not crash when preserved authority reason is absent', async () => {
+    const driver = createAsrScrollDriver();
+    bootstrapLiveAsrRuntime();
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 500;
+    driver.setLastLineIndex(1);
+    driver.ingest('Farebox chirps, coffee lids do that little click. Orange Blossom Trail used to smell...', true, {
+      currentIdx: 1,
+      matchId: 'tdz-backward-target-suppression-direct',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.89,
+        topScores: [{ idx: 1, score: 0.89 }],
+      },
+    });
+    await jest.advanceTimersByTimeAsync(320);
+
+    const warnLines = consoleWarnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(warnLines.some((line) =>
+      line.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION')
+      && /currentScrollTop=(\d+)/.test(line)
+      && /targetScrollTop=(\d+)/.test(line)
+      && Number((line.match(/targetScrollTop=(\d+)/) || [])[1]) < Number((line.match(/currentScrollTop=(\d+)/) || [])[1]),
+    )).toBe(true);
+    expect(
+      consoleErrorSpy.mock.calls.some((call) =>
+        String(call[0] || '').includes("Cannot access 'liveTickAuthorityReason' before initialization"),
+      ),
+    ).toBe(false);
+    expect(document.getElementById('viewer')).not.toBeNull();
+
+    driver.dispose();
   });
 
   test('emits ASR_DIAGNOSTIC_BUNDLE_PROOF once when ASR driver starts in dev mode', () => {
