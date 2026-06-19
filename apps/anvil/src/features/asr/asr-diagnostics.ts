@@ -1773,6 +1773,63 @@ export function buildAsrVisualDebtCatchupBlockedDiagnostic(args: {
   return `[ASR_VISUAL_DEBT_CATCHUP_BLOCKED] debtPx=${Math.round(args.debtPx)} lineHeightPx=${Math.round(args.lineHeightPx)} proposedMovePx=${Math.round(args.proposedMovePx)} blockedReason=${args.blockedReason || 'unknown'} postCommitGapMs=${postCommitGapMs} requiredGapMs=${requiredGapMs} reducedGapEligible=${args.reducedGapEligible ? 1 : 0} recentSafeCommitAgeMs=${recentSafeCommitAgeMs} consecutiveDebtObservations=${consecutiveDebtObservations} currentLineIdx=${currentLineIdx} committedLineIdx=${committedLineIdx} targetLineIdx=${targetLineIdx} decisionReason=${args.decisionReason || 'none'}`;
 }
 
+export function buildAsrStartupForwardVisualCorrectionEvaluatedDiagnostic(args: {
+  speechFresh: boolean;
+  ownershipActive: boolean;
+  noMatch: boolean;
+  matchBestIdx: number | null;
+  committedIndex: number;
+  targetScrollTop: number;
+  currentScrollTop: number;
+  markerErrorPx: number;
+  visualDebtPx: number;
+  consecutiveObservations: number;
+  commitGapAgeMs: number;
+  audioFreshEffective: boolean;
+  audioChunkStale: boolean;
+  actuatorRateLimited: boolean;
+  predicatePassed: boolean;
+  predicateFailedReason: string;
+}): string {
+  const matchBestIdx = Number.isFinite(args.matchBestIdx as number)
+    ? Math.round(Number(args.matchBestIdx))
+    : -1;
+  return `[ASR_STARTUP_FORWARD_VISUAL_CORRECTION_EVALUATED] speechFresh=${args.speechFresh ? 1 : 0} ownershipActive=${args.ownershipActive ? 1 : 0} noMatch=${args.noMatch ? 1 : 0} matchBestIdx=${matchBestIdx} committedIndex=${Math.round(args.committedIndex)} targetScrollTop=${Math.round(args.targetScrollTop)} currentScrollTop=${Math.round(args.currentScrollTop)} markerErrorPx=${Math.round(args.markerErrorPx)} visualDebtPx=${Math.round(args.visualDebtPx)} consecutiveObservations=${Math.round(args.consecutiveObservations)} commitGapAgeMs=${Math.round(args.commitGapAgeMs)} audioFreshEffective=${args.audioFreshEffective ? 1 : 0} audioChunkStale=${args.audioChunkStale ? 1 : 0} actuatorRateLimited=${args.actuatorRateLimited ? 1 : 0} predicatePassed=${args.predicatePassed ? 1 : 0} predicateFailedReason=${args.predicateFailedReason || 'none'}`;
+}
+
+export function buildAsrStartupForwardVisualCorrectionAllowedDiagnostic(args: {
+  boundedMovePx: number;
+  reason: string;
+}): string {
+  return `[ASR_STARTUP_FORWARD_VISUAL_CORRECTION_ALLOWED] boundedMovePx=${Math.round(args.boundedMovePx)} reason=${args.reason || 'none'}`;
+}
+
+export function buildAsrStartupForwardVisualCorrectionBlockedDiagnostic(args: {
+  blockedReason: string;
+  hardBlocker: string;
+  speechFresh: boolean;
+  ownershipActive: boolean;
+  noMatch: boolean;
+  matchBestIdx: number | null;
+  committedIndex: number;
+  targetScrollTop: number;
+  currentScrollTop: number;
+  markerErrorPx: number;
+  visualDebtPx: number;
+  consecutiveObservations: number;
+  commitGapAgeMs: number;
+  audioFreshEffective: boolean;
+  audioChunkStale: boolean;
+  actuatorRateLimited: boolean;
+  predicatePassed: boolean;
+  predicateFailedReason: string;
+}): string {
+  const matchBestIdx = Number.isFinite(args.matchBestIdx as number)
+    ? Math.round(Number(args.matchBestIdx))
+    : -1;
+  return `[ASR_STARTUP_FORWARD_VISUAL_CORRECTION_BLOCKED] blockedReason=${args.blockedReason || 'unknown'} hardBlocker=${args.hardBlocker || 'none'} speechFresh=${args.speechFresh ? 1 : 0} ownershipActive=${args.ownershipActive ? 1 : 0} noMatch=${args.noMatch ? 1 : 0} matchBestIdx=${matchBestIdx} committedIndex=${Math.round(args.committedIndex)} targetScrollTop=${Math.round(args.targetScrollTop)} currentScrollTop=${Math.round(args.currentScrollTop)} markerErrorPx=${Math.round(args.markerErrorPx)} visualDebtPx=${Math.round(args.visualDebtPx)} consecutiveObservations=${Math.round(args.consecutiveObservations)} commitGapAgeMs=${Math.round(args.commitGapAgeMs)} audioFreshEffective=${args.audioFreshEffective ? 1 : 0} audioChunkStale=${args.audioChunkStale ? 1 : 0} actuatorRateLimited=${args.actuatorRateLimited ? 1 : 0} predicatePassed=${args.predicatePassed ? 1 : 0} predicateFailedReason=${args.predicateFailedReason || 'none'}`;
+}
+
 export function buildAsr4VisualRecoveryStateDiagnostic(args: {
   currentLine: number;
   committedLine: number;

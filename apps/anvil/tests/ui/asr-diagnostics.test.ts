@@ -26,6 +26,9 @@ import {
   buildAsrPostCommitRecoveryStarvationRelievedDiagnostic,
   buildAsrPostCommitRecoveryStarvationBlockedDiagnostic,
   buildAsrPostCommitRecoveryReliefAttemptUnrealizedDiagnostic,
+  buildAsrStartupForwardVisualCorrectionEvaluatedDiagnostic,
+  buildAsrStartupForwardVisualCorrectionAllowedDiagnostic,
+  buildAsrStartupForwardVisualCorrectionBlockedDiagnostic,
   buildAsr4FreshTailVetoDiagnostic,
   buildAsr4RecoveryBudgetStateDiagnostic,
   buildAsr4RecoveryBudgetViolationDiagnostic,
@@ -752,6 +755,62 @@ describe('ASR backend liveness diagnostics builders', () => {
     });
     expect(line).toBe(
       '[ASR4_VISUAL_RECOVERY_AUTHORITY_APPLIED] currentLine=32 committedLine=33 targetLine=33 beforeScrollTop=1812 afterScrollTop=2036 movedPx=224 consecutiveNoMoveCommits=2 directWriteBlocked=1 targetPreservedForEasing=1 visualSnapSuppressed=1 liveScrollStalled=1 authorityAction=force_marker_lock_correction movementAllowed=1 reason=accepted_commit_visible_scroll_stalled',
+    );
+  });
+
+  test('builds startup forward visual correction diagnostics with expected fields', () => {
+    const evaluated = buildAsrStartupForwardVisualCorrectionEvaluatedDiagnostic({
+      speechFresh: true,
+      ownershipActive: true,
+      noMatch: false,
+      matchBestIdx: 1,
+      committedIndex: 0,
+      targetScrollTop: 104,
+      currentScrollTop: 0,
+      markerErrorPx: 104,
+      visualDebtPx: 104,
+      consecutiveObservations: 1,
+      commitGapAgeMs: 12,
+      audioFreshEffective: true,
+      audioChunkStale: true,
+      actuatorRateLimited: false,
+      predicatePassed: true,
+      predicateFailedReason: 'none',
+    });
+    expect(evaluated).toBe(
+      '[ASR_STARTUP_FORWARD_VISUAL_CORRECTION_EVALUATED] speechFresh=1 ownershipActive=1 noMatch=0 matchBestIdx=1 committedIndex=0 targetScrollTop=104 currentScrollTop=0 markerErrorPx=104 visualDebtPx=104 consecutiveObservations=1 commitGapAgeMs=12 audioFreshEffective=1 audioChunkStale=1 actuatorRateLimited=0 predicatePassed=1 predicateFailedReason=none',
+    );
+
+    const allowed = buildAsrStartupForwardVisualCorrectionAllowedDiagnostic({
+      boundedMovePx: 56,
+      reason: 'startup_owner_fresh_adjacent_safe',
+    });
+    expect(allowed).toBe(
+      '[ASR_STARTUP_FORWARD_VISUAL_CORRECTION_ALLOWED] boundedMovePx=56 reason=startup_owner_fresh_adjacent_safe',
+    );
+
+    const blocked = buildAsrStartupForwardVisualCorrectionBlockedDiagnostic({
+      blockedReason: 'awaiting_commit_gap_window',
+      hardBlocker: 'none',
+      speechFresh: true,
+      ownershipActive: true,
+      noMatch: false,
+      matchBestIdx: 1,
+      committedIndex: 0,
+      targetScrollTop: 104,
+      currentScrollTop: 0,
+      markerErrorPx: 104,
+      visualDebtPx: 104,
+      consecutiveObservations: 1,
+      commitGapAgeMs: 12,
+      audioFreshEffective: true,
+      audioChunkStale: true,
+      actuatorRateLimited: false,
+      predicatePassed: true,
+      predicateFailedReason: 'none',
+    });
+    expect(blocked).toBe(
+      '[ASR_STARTUP_FORWARD_VISUAL_CORRECTION_BLOCKED] blockedReason=awaiting_commit_gap_window hardBlocker=none speechFresh=1 ownershipActive=1 noMatch=0 matchBestIdx=1 committedIndex=0 targetScrollTop=104 currentScrollTop=0 markerErrorPx=104 visualDebtPx=104 consecutiveObservations=1 commitGapAgeMs=12 audioFreshEffective=1 audioChunkStale=1 actuatorRateLimited=0 predicatePassed=1 predicateFailedReason=none',
     );
   });
 

@@ -20,6 +20,7 @@ export interface DecideAsrVisualDebtCatchupInput {
   postCommitGapMs: number;
   standardGapMs: number;
   reducedGapMs: number;
+  startupForwardVisualCorrectionEligible?: boolean;
 }
 
 export interface DecideAsrVisualDebtCatchupResult {
@@ -145,24 +146,14 @@ export function decideAsrVisualDebtCatchup(
     reducedGapEligible &&
     input.commitCount >= 2 &&
     input.consecutiveDebtObservations >= PERSISTENT_SAFE_DEBT_OBSERVATION_THRESHOLD;
+  const startupForwardVisualCorrectionEligible =
+    input.startupForwardVisualCorrectionEligible === true &&
+    reducedGapEligible;
 
   if (!input.significantVisualDebtActive) {
     return {
       allowed: false,
       blockedReason: 'debt_below_line_height',
-      decisionReason: '',
-      requiredGapMs,
-      reducedGapEligible,
-      recentSafeCommitAgeMs: input.postCommitGapMs,
-      targetNonBackward,
-      farTarget,
-      currentCommittedCoherent,
-    };
-  }
-  if (input.consecutiveDebtObservations < 2) {
-    return {
-      allowed: false,
-      blockedReason: 'insufficient_consecutive_observations',
       decisionReason: '',
       requiredGapMs,
       reducedGapEligible,
@@ -393,12 +384,51 @@ export function decideAsrVisualDebtCatchup(
       currentCommittedCoherent,
     };
   }
+  if (input.consecutiveDebtObservations < 2) {
+    if (startupForwardVisualCorrectionEligible) {
+      return {
+        allowed: true,
+        blockedReason: '',
+        decisionReason: 'startup_owner_fresh_adjacent_safe',
+        requiredGapMs,
+        reducedGapEligible,
+        recentSafeCommitAgeMs: input.postCommitGapMs,
+        targetNonBackward,
+        farTarget,
+        currentCommittedCoherent,
+      };
+    }
+    return {
+      allowed: false,
+      blockedReason: 'insufficient_consecutive_observations',
+      decisionReason: '',
+      requiredGapMs,
+      reducedGapEligible,
+      recentSafeCommitAgeMs: input.postCommitGapMs,
+      targetNonBackward,
+      farTarget,
+      currentCommittedCoherent,
+    };
+  }
   if (!gapSatisfied) {
     if (persistentSafeDebtOverride) {
       return {
         allowed: true,
         blockedReason: '',
         decisionReason: 'persistent_safe_visual_debt_override',
+        requiredGapMs,
+        reducedGapEligible,
+        recentSafeCommitAgeMs: input.postCommitGapMs,
+        targetNonBackward,
+        farTarget,
+        currentCommittedCoherent,
+      };
+    }
+    if (startupForwardVisualCorrectionEligible) {
+      return {
+        allowed: true,
+        blockedReason: '',
+        decisionReason: 'startup_owner_fresh_adjacent_safe',
         requiredGapMs,
         reducedGapEligible,
         recentSafeCommitAgeMs: input.postCommitGapMs,

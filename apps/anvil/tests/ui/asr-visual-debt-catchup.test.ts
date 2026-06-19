@@ -57,6 +57,35 @@ describe('ASR visual debt catch-up gate', () => {
     expect(decision.reducedGapEligible).toBe(true);
   });
 
+  test('allows startup owner-fresh adjacent-safe correction before normal observation and gap gates', () => {
+    const decision = decideAsrVisualDebtCatchup(makeInput({
+      consecutiveDebtObservations: 1,
+      commitCount: 0,
+      postCommitGapMs: 12,
+      targetLine: 1,
+      currentLine: 1,
+      committedLine: 1,
+      startupForwardVisualCorrectionEligible: true,
+    }));
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.decisionReason).toBe('startup_owner_fresh_adjacent_safe');
+    expect(decision.requiredGapMs).toBe(140);
+  });
+
+  test('startup correction lane still respects hard blockers', () => {
+    const decision = decideAsrVisualDebtCatchup(makeInput({
+      consecutiveDebtObservations: 1,
+      commitCount: 0,
+      postCommitGapMs: 12,
+      startupForwardVisualCorrectionEligible: true,
+      terminalClampActive: true,
+    }));
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.blockedReason).toBe('terminal_clamp');
+  });
+
   test('allows persistent locally safe debt to break out of the post-commit gap hold', () => {
     const decision = decideAsrVisualDebtCatchup(makeInput({
       consecutiveDebtObservations: 5,
