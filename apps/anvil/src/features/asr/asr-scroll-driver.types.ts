@@ -65,6 +65,18 @@ export type TranscriptDetail = {
   captureEndedAtMs?: number | null;
   captureRuntimePath?: string | null;
   captureRecorderGeneration?: number | null;
+  requestCaptureVerdict?: 'voice_detected' | 'silence_detected' | 'unknown' | null;
+  requestCaptureEvidence?: Array<{
+    requestSeq: number;
+    verdict: 'voice_detected' | 'silence_detected' | 'unknown';
+    vadSpeaking?: boolean | null;
+    rmsDbfs?: number | null;
+    captureStartedAtMs?: number | null;
+    captureEndedAtMs?: number | null;
+    lastVoiceAtMs?: number | null;
+    lastSilenceAtMs?: number | null;
+    silenceBoundaryAtMs?: number | null;
+  }> | null;
   captureActivityVerdict?: string | null;
   captureActivityEvidence?: {
     runtimeSpeechFresh?: boolean;
@@ -72,6 +84,10 @@ export type TranscriptDetail = {
     speechRunningActual?: boolean;
     silenceActive?: boolean;
     captureEvidenceAvailable?: boolean;
+    requestCaptureVoiceDetected?: boolean;
+    requestCaptureUnknown?: boolean;
+    requestCaptureSilenceDetected?: boolean;
+    requestCaptureSeqCount?: number;
   } | null;
   semanticAdmissionVerdict?: string | null;
 };

@@ -37419,6 +37419,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastAudioChunkAt > 0 ? Math.max(0, transcriptReceivedAtMs - lastAudioChunkAt) : Number.POSITIVE_INFINITY;
     const sourceRequestSeqs = resolveTranscriptSeqList((detail as { sourceRequestSeqs?: unknown } | undefined)?.sourceRequestSeqs);
     const supportingRawSeqs = resolveTranscriptSeqList((detail as { supportingRawSeqs?: unknown } | undefined)?.supportingRawSeqs);
+    const requestCaptureEvidence = Array.isArray((detail as { requestCaptureEvidence?: unknown } | undefined)?.requestCaptureEvidence)
+      ? (((detail as { requestCaptureEvidence?: unknown[] } | undefined)?.requestCaptureEvidence || []) as unknown[])
+        .map((value) => {
+          if (!value || typeof value !== 'object') return null;
+          const requestSeq = Number((value as { requestSeq?: unknown }).requestSeq);
+          const verdictRaw = String((value as { verdict?: unknown }).verdict || '').trim();
+          if (!Number.isFinite(requestSeq)) return null;
+          return {
+            requestSeq: Math.max(0, Math.floor(requestSeq)),
+            verdict: verdictRaw === 'voice_detected' || verdictRaw === 'silence_detected' || verdictRaw === 'unknown'
+              ? verdictRaw as 'voice_detected' | 'silence_detected' | 'unknown'
+              : 'unknown',
+            silenceBoundaryAtMs: Number.isFinite(Number((value as { silenceBoundaryAtMs?: unknown }).silenceBoundaryAtMs))
+              ? Number((value as { silenceBoundaryAtMs?: unknown }).silenceBoundaryAtMs)
+              : null,
+          };
+        })
+        .filter((value): value is { requestSeq: number; verdict: 'voice_detected' | 'silence_detected' | 'unknown'; silenceBoundaryAtMs: number | null } => value != null)
+      : [];
     const rawMatchIndex = resolveTranscriptMatchIndex(
       (detail as { rawMatchIndex?: unknown; rawMatch?: { bestIdx?: unknown } } | undefined)?.rawMatchIndex ??
       (detail as { rawMatch?: { bestIdx?: unknown } } | undefined)?.rawMatch?.bestIdx,
@@ -37434,28 +37453,39 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       typeof (detail as { assembledText?: unknown } | undefined)?.assembledText === 'string' ||
       sourceRequestSeqs.length > 0 ||
       supportingRawSeqs.length > 0;
+    const lineageSeqsForForward = supportingRawSeqs.length > 0 ? supportingRawSeqs : sourceRequestSeqs;
+    const requestEvidenceBySeq = new Map<number, { verdict: 'voice_detected' | 'silence_detected' | 'unknown'; silenceBoundaryAtMs: number | null }>();
+    requestCaptureEvidence.forEach((entry) => {
+      requestEvidenceBySeq.set(entry.requestSeq, {
+        verdict: entry.verdict,
+        silenceBoundaryAtMs: entry.silenceBoundaryAtMs,
+      });
+    });
+    const missingRequestEvidence =
+      lineageSeqsForForward.length === 0 ||
+      lineageSeqsForForward.some((seq) => !requestEvidenceBySeq.has(seq));
+    const requestCaptureVoiceDetected =
+      !missingRequestEvidence &&
+      lineageSeqsForForward.length > 0 &&
+      lineageSeqsForForward.every((seq) => requestEvidenceBySeq.get(seq)?.verdict === 'voice_detected');
+    const requestCaptureSilenceDetected =
+      lineageSeqsForForward.some((seq) => requestEvidenceBySeq.get(seq)?.verdict === 'silence_detected');
+    const requestCaptureUnknown = !requestCaptureVoiceDetected && !requestCaptureSilenceDetected;
     const liveSpeechCoherent =
       runtimeSpeechFreshNow &&
       vadSpeechFreshNow &&
       asrRuntimeSpeechRunningActual;
-    const captureEvidenceAvailable =
-      asrVadSeen ||
-      lastRuntimeSpeechAt > 0 ||
-      lastSpeechRunningActualAtMs > 0;
-    const captureActivityPresent =
-      runtimeSpeechFreshNow ||
-      vadSpeechFreshNow ||
-      asrRuntimeSpeechRunningActual;
+    const captureEvidenceAvailable = requestCaptureEvidence.length > 0;
+    const captureActivityPresent = requestCaptureVoiceDetected;
     const forwardCandidate =
       assembledMatchIndex != null &&
       assembledMatchIndex > currentForwardFloor;
-    const verifiedSilence =
-      !captureActivityPresent &&
-      (asrSilenceActive || captureEvidenceAvailable);
+    const verifiedSilence = requestCaptureSilenceDetected;
     const staleWhisperBridgeFinalPacket =
       liveAsrSessionActive &&
       isFinal &&
       isWhisperBridgeTranscriptSource(transcriptSource) &&
+      !requestCaptureVoiceDetected &&
       (
         (!liveSpeechCoherent && asrSilenceActive) ||
         !runtimeSpeechFreshNow ||
@@ -37469,10 +37499,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         speechRunningActual: !!asrRuntimeSpeechRunningActual,
         silenceActive: asrSilenceActive,
         captureEvidenceAvailable,
+        requestCaptureVoiceDetected,
+        requestCaptureUnknown,
+        requestCaptureSilenceDetected,
+        requestCaptureSeqCount: requestCaptureEvidence.length,
       };
-      detail.captureActivityVerdict = captureActivityPresent
+      detail.requestCaptureVerdict = requestCaptureVoiceDetected
+        ? 'voice_detected'
+        : (requestCaptureSilenceDetected ? 'silence_detected' : 'unknown');
+      detail.captureActivityVerdict = requestCaptureVoiceDetected
         ? 'provenance_safe + capture_activity_present'
-        : (captureEvidenceAvailable ? 'raw_provider_text_during_verified_silence' : 'capture_activity_unavailable');
+        : (requestCaptureSilenceDetected ? 'raw_provider_text_during_verified_silence' : 'capture_activity_unavailable');
     }
     if (
       liveAsrSessionActive &&
@@ -37484,9 +37521,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       let semanticAdmissionVerdict: string | null = null;
       if (forwardMatchCreatedByAssembly) {
         semanticAdmissionVerdict = 'assembled_only_forward_match';
-      } else if (verifiedSilence) {
+      } else if (requestCaptureSilenceDetected || verifiedSilence) {
         semanticAdmissionVerdict = 'raw_provider_text_during_verified_silence';
-      } else if (!captureActivityPresent && !captureEvidenceAvailable) {
+      } else if (!requestCaptureVoiceDetected) {
         semanticAdmissionVerdict = 'capture_activity_unavailable';
       }
       if (detail) {
@@ -37505,6 +37542,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `supportingRawSeqs=${supportingRawSeqs.join(',') || 'none'}`,
           `captureEvidenceAvailable=${captureEvidenceAvailable ? 1 : 0}`,
           `captureActivityPresent=${captureActivityPresent ? 1 : 0}`,
+          `requestCaptureVoiceDetected=${requestCaptureVoiceDetected ? 1 : 0}`,
+          `requestCaptureSilenceDetected=${requestCaptureSilenceDetected ? 1 : 0}`,
+          `requestCaptureUnknown=${requestCaptureUnknown ? 1 : 0}`,
           compacted ? `clue="${formatLogSnippet(compacted, 72)}"` : '',
         ]);
         return;
@@ -37555,11 +37595,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastTranscriptSpeechAgeMs = transcriptSpeechAgeMs;
     lastTranscriptAudioAgeMs = transcriptAudioAgeMs;
     lastTranscriptSpeechFresh =
-      runtimeSpeechFreshNow &&
-      vadSpeechFreshNow &&
-      asrRuntimeSpeechRunningActual &&
+      requestCaptureVoiceDetected &&
+      !asrSilenceActive &&
       transcriptSpeechAgeMs <= ASR_COMMIT_FRESH_SPEECH_MAX_AGE_MS;
-    lastTranscriptSpeechActive = !!asrRuntimeSpeechRunningActual;
+    lastTranscriptSpeechActive = requestCaptureVoiceDetected && !asrSilenceActive;
     const permissiveMatcher = isPermissiveAsrMatcherEnabled();
     const compactedComparable = normalizeComparableText(compacted);
     const compactedTokenCount = normTokens(compactedComparable).length;

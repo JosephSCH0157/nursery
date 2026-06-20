@@ -134,6 +134,18 @@ type TranscriptPayload = {
   captureEndedAtMs?: number | null;
   captureRuntimePath?: string | null;
   captureRecorderGeneration?: number | null;
+  requestCaptureVerdict?: 'voice_detected' | 'silence_detected' | 'unknown' | null;
+  requestCaptureEvidence?: Array<{
+    requestSeq: number;
+    verdict: 'voice_detected' | 'silence_detected' | 'unknown';
+    vadSpeaking?: boolean | null;
+    rmsDbfs?: number | null;
+    captureStartedAtMs?: number | null;
+    captureEndedAtMs?: number | null;
+    lastVoiceAtMs?: number | null;
+    lastSilenceAtMs?: number | null;
+    silenceBoundaryAtMs?: number | null;
+  }> | null;
   captureActivityVerdict?: string | null;
   captureActivityEvidence?: {
     runtimeSpeechFresh?: boolean;
@@ -141,6 +153,10 @@ type TranscriptPayload = {
     speechRunningActual?: boolean;
     silenceActive?: boolean;
     captureEvidenceAvailable?: boolean;
+    requestCaptureVoiceDetected?: boolean;
+    requestCaptureUnknown?: boolean;
+    requestCaptureSilenceDetected?: boolean;
+    requestCaptureSeqCount?: number;
   } | null;
   semanticAdmissionVerdict?: string | null;
 };
@@ -1914,6 +1930,33 @@ function resolveMatchBestIdxValue(match: Record<string, unknown> | null | undefi
   return Number.isFinite(Number(raw)) ? Math.max(0, Math.floor(Number(raw))) : null;
 }
 
+function normalizeRequestCaptureEvidence(values: unknown): NonNullable<TranscriptPayload['requestCaptureEvidence']> {
+  const normalized: NonNullable<TranscriptPayload['requestCaptureEvidence']> = [];
+  if (!Array.isArray(values)) return normalized;
+  for (const value of values) {
+    if (!value || typeof value !== 'object') continue;
+    const entry = value as Record<string, unknown>;
+    const requestSeq = Number(entry.requestSeq);
+    const verdictRaw = String(entry.verdict || '').trim();
+    const verdict = verdictRaw === 'voice_detected' || verdictRaw === 'silence_detected' || verdictRaw === 'unknown'
+      ? verdictRaw as 'voice_detected' | 'silence_detected' | 'unknown'
+      : 'unknown';
+    if (!Number.isFinite(requestSeq)) continue;
+    normalized.push({
+      requestSeq: Math.max(0, Math.floor(requestSeq)),
+      verdict,
+      vadSpeaking: typeof entry.vadSpeaking === 'boolean' ? Boolean(entry.vadSpeaking) : null,
+      rmsDbfs: Number.isFinite(Number(entry.rmsDbfs)) ? Number(entry.rmsDbfs) : null,
+      captureStartedAtMs: Number.isFinite(Number(entry.captureStartedAtMs)) ? Number(entry.captureStartedAtMs) : null,
+      captureEndedAtMs: Number.isFinite(Number(entry.captureEndedAtMs)) ? Number(entry.captureEndedAtMs) : null,
+      lastVoiceAtMs: Number.isFinite(Number(entry.lastVoiceAtMs)) ? Number(entry.lastVoiceAtMs) : null,
+      lastSilenceAtMs: Number.isFinite(Number(entry.lastSilenceAtMs)) ? Number(entry.lastSilenceAtMs) : null,
+      silenceBoundaryAtMs: Number.isFinite(Number(entry.silenceBoundaryAtMs)) ? Number(entry.silenceBoundaryAtMs) : null,
+    });
+  }
+  return normalized;
+}
+
 function normalizeTranscriptForNovelty(text: string): string[] {
   return String(text || '')
     .toLowerCase()
@@ -2853,17 +2896,27 @@ function enrichTranscriptPayloadForAsr(payload: TranscriptPayload): TranscriptPa
   if (!next.assembledTextPreview && assembledText) next.assembledTextPreview = previewSpeechText(assembledText);
   const sourceRequestSeqs = normalizeSeqArray(next.sourceRequestSeqs);
   const supportingRawSeqs = normalizeSeqArray(next.supportingRawSeqs);
+  const requestCaptureEvidence = normalizeRequestCaptureEvidence(next.requestCaptureEvidence);
   if (sourceRequestSeqs.length) next.sourceRequestSeqs = sourceRequestSeqs;
   if (supportingRawSeqs.length) next.supportingRawSeqs = supportingRawSeqs;
+  if (requestCaptureEvidence.length) next.requestCaptureEvidence = requestCaptureEvidence;
 
   const match = deriveFallbackMatch(next);
   if (match && (!next.match || typeof next.match !== 'object')) {
     next.match = match;
   }
+  const rawAndAssembledEquivalent =
+    !!rawText &&
+    !!assembledText &&
+    next.rawTextHash != null &&
+    next.assembledTextHash != null &&
+    next.rawTextHash === next.assembledTextHash;
   const rawMatch =
-    rawText && rawText !== assembledText
-      ? deriveMatchForTranscriptText(rawText, getTpSpeechStoreSnapshot())
-      : null;
+    rawAndAssembledEquivalent
+      ? (match ? { ...(match as Record<string, unknown>) } : null)
+      : (rawText && rawText !== assembledText
+        ? deriveMatchForTranscriptText(rawText, getTpSpeechStoreSnapshot())
+        : null);
   if (rawMatch) {
     next.rawMatch = rawMatch;
   }
@@ -2913,9 +2966,33 @@ function enrichTranscriptPayloadForAsr(payload: TranscriptPayload): TranscriptPa
   next.assembledText = assembledText;
   if (rawText) next.rawText = rawText;
   next.assembledMatchIndex = assembledMatchIndex;
-  next.rawMatchIndex = rawMatchIndex;
+  next.rawMatchIndex = rawAndAssembledEquivalent ? assembledMatchIndex : rawMatchIndex;
+  if (rawAndAssembledEquivalent && rawMatchIndex != null && rawMatchIndex !== assembledMatchIndex) {
+    try {
+      console.warn('[speech-loader] raw-assembled-match-invariant-fault', JSON.stringify({
+        rawTextHash: next.rawTextHash ?? null,
+        assembledTextHash: next.assembledTextHash ?? null,
+        rawMatchIndex,
+        assembledMatchIndex,
+      }));
+    } catch {}
+  }
+  const requestCaptureVerdict =
+    requestCaptureEvidence.length > 0
+      ? (requestCaptureEvidence.every((entry) => entry.verdict === 'voice_detected')
+        ? 'voice_detected'
+        : (requestCaptureEvidence.some((entry) => entry.verdict === 'silence_detected')
+          ? 'silence_detected'
+          : 'unknown'))
+      : 'unknown';
+  next.requestCaptureVerdict = requestCaptureVerdict;
   if (next.captureActivityVerdict == null) {
-    next.captureActivityVerdict = 'capture_activity_unavailable';
+    next.captureActivityVerdict =
+      requestCaptureVerdict === 'voice_detected'
+        ? 'provenance_safe + capture_activity_present'
+        : (requestCaptureVerdict === 'silence_detected'
+          ? 'raw_provider_text_during_verified_silence'
+          : 'capture_activity_unavailable');
   }
   if (next.captureActivityEvidence == null) {
     next.captureActivityEvidence = {
@@ -2924,10 +3001,15 @@ function enrichTranscriptPayloadForAsr(payload: TranscriptPayload): TranscriptPa
       speechRunningActual: !!next.speechRunningActual,
       silenceActive: false,
       captureEvidenceAvailable: false,
+      requestCaptureVoiceDetected: requestCaptureVerdict === 'voice_detected',
+      requestCaptureUnknown: requestCaptureVerdict === 'unknown',
+      requestCaptureSilenceDetected: requestCaptureVerdict === 'silence_detected',
+      requestCaptureSeqCount: requestCaptureEvidence.length,
     };
   }
   const lineageSeqs = supportingRawSeqs.length ? supportingRawSeqs : sourceRequestSeqs;
   next.forwardMatchCreatedByAssembly =
+    !rawAndAssembledEquivalent &&
     assembledMatchIndex != null &&
     rawMatchIndex !== assembledMatchIndex &&
     lineageSeqs.length <= 1;
@@ -2949,6 +3031,7 @@ function routeRecognizerTranscript(input: unknown, defaultFinal: boolean): void 
       assembledTextPreview: payload.assembledTextPreview ?? (payload.assembledText ? previewSpeechText(payload.assembledText, 60) : null),
       sourceRequestSeqs: normalizeSeqArray(payload.sourceRequestSeqs),
       supportingRawSeqs: normalizeSeqArray(payload.supportingRawSeqs),
+      requestCaptureVerdict: payload.requestCaptureVerdict ?? null,
       promptIncluded: payload.promptIncluded === true,
       promptHash: payload.promptHash ?? null,
     }));
@@ -3007,6 +3090,7 @@ function routeTranscript(input: string | (Partial<TranscriptPayload> & { text?: 
         rawMatchIndex: enriched.rawMatchIndex ?? null,
         assembledMatchIndex: enriched.assembledMatchIndex ?? null,
         forwardMatchCreatedByAssembly: enriched.forwardMatchCreatedByAssembly === true,
+        requestCaptureVerdict: enriched.requestCaptureVerdict ?? null,
         captureActivityVerdict: enriched.captureActivityVerdict ?? null,
       }));
     } catch {}
@@ -3063,6 +3147,7 @@ function routeTranscript(input: string | (Partial<TranscriptPayload> & { text?: 
         rawMatchIndex: enriched.rawMatchIndex ?? null,
         assembledMatchIndex: enriched.assembledMatchIndex ?? null,
         forwardMatchCreatedByAssembly: enriched.forwardMatchCreatedByAssembly === true,
+        requestCaptureVerdict: enriched.requestCaptureVerdict ?? null,
         captureActivityVerdict: enriched.captureActivityVerdict ?? null,
       }));
     } catch {}

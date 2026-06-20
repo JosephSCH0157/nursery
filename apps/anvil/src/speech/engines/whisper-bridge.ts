@@ -44,6 +44,18 @@ type WhisperBridgePayload = {
   captureEndedAtMs?: number | null;
   captureRuntimePath?: string | null;
   captureRecorderGeneration?: number | null;
+  requestCaptureVerdict?: "voice_detected" | "silence_detected" | "unknown" | null;
+  requestCaptureEvidence?: Array<{
+    requestSeq: number;
+    verdict: "voice_detected" | "silence_detected" | "unknown";
+    vadSpeaking?: boolean | null;
+    rmsDbfs?: number | null;
+    captureStartedAtMs?: number | null;
+    captureEndedAtMs?: number | null;
+    lastVoiceAtMs?: number | null;
+    lastSilenceAtMs?: number | null;
+    silenceBoundaryAtMs?: number | null;
+  }> | null;
 };
 
 type WhisperBridgeResponse = {
@@ -100,6 +112,17 @@ type ChunkEnvelope = {
   enqueueTs: number;
   captureStartedAtMs: number | null;
   captureEndedAtMs: number | null;
+  captureEvidence: {
+    requestSeq: number;
+    verdict: "voice_detected" | "silence_detected" | "unknown";
+    vadSpeaking: boolean | null;
+    rmsDbfs: number | null;
+    captureStartedAtMs: number | null;
+    captureEndedAtMs: number | null;
+    lastVoiceAtMs: number | null;
+    lastSilenceAtMs: number | null;
+    silenceBoundaryAtMs: number | null;
+  };
 };
 
 type WhisperBridgeRecognizerOptions = {
@@ -580,6 +603,14 @@ class WhisperBridgeRecognizer {
   private lastCaptureConstraints: unknown = null;
   private captureRecorderGeneration = 0;
   private captureStartedAtMs = 0;
+  private lastVadSpeaking: boolean | null = null;
+  private lastVadRmsDbfs: number | null = null;
+  private lastVadAtMs = 0;
+  private lastVadVoiceAtMs = 0;
+  private lastSilenceAtMs = 0;
+  private lastSilenceBoundaryAtMs = 0;
+  private silenceActive = false;
+  private readonly requestCaptureEvidenceBySeq = new Map<number, ChunkEnvelope["captureEvidence"]>();
 
   constructor(options: WhisperBridgeRecognizerOptions = {}) {
     this.route = options.route || DEFAULT_ROUTE;
@@ -591,6 +622,89 @@ class WhisperBridgeRecognizer {
       : DEFAULT_SEGMENT_MS;
     this.asrLane = String(options.asrLane || 'ASR1_CURRENT').trim() || 'ASR1_CURRENT';
     this.modelHint = readNonEmptyString(options.modelHint);
+  }
+
+  private handleVadEvent = (event: Event): void => {
+    const detail = (event as CustomEvent).detail || {};
+    const speaking = typeof detail.speaking === "boolean" ? detail.speaking : null;
+    const rmsDbfs = Number.isFinite(Number(detail.rmsDbfs)) ? Number(detail.rmsDbfs) : null;
+    const now = Date.now();
+    this.lastVadSpeaking = speaking;
+    this.lastVadRmsDbfs = rmsDbfs;
+    this.lastVadAtMs = now;
+    if (speaking === true) {
+      this.lastVadVoiceAtMs = now;
+      this.silenceActive = false;
+    }
+  };
+
+  private handleSilenceEvent = (event: Event): void => {
+    const detail = (event as CustomEvent).detail || {};
+    const silent = detail.silent !== false;
+    const now = Date.now();
+    this.silenceActive = silent;
+    if (silent) {
+      this.lastSilenceAtMs = now;
+      this.lastSilenceBoundaryAtMs = now;
+    }
+  };
+
+  private addCaptureSignalListeners(): void {
+    try { window.addEventListener("tp:vad", this.handleVadEvent as EventListener); } catch {}
+    try { window.addEventListener("tp:asr:silence", this.handleSilenceEvent as EventListener); } catch {}
+  }
+
+  private removeCaptureSignalListeners(): void {
+    try { window.removeEventListener("tp:vad", this.handleVadEvent as EventListener); } catch {}
+    try { window.removeEventListener("tp:asr:silence", this.handleSilenceEvent as EventListener); } catch {}
+  }
+
+  private buildChunkCaptureEvidence(
+    seq: number,
+    captureStartedAtMs: number | null,
+    captureEndedAtMs: number | null,
+  ): ChunkEnvelope["captureEvidence"] {
+    const captureStart = Number.isFinite(Number(captureStartedAtMs)) ? Number(captureStartedAtMs) : null;
+    const captureEnd = Number.isFinite(Number(captureEndedAtMs)) ? Number(captureEndedAtMs) : null;
+    const voiceSeenInWindow =
+      this.lastVadVoiceAtMs > 0 &&
+      captureStart != null &&
+      captureEnd != null &&
+      this.lastVadVoiceAtMs >= captureStart &&
+      this.lastVadVoiceAtMs <= (captureEnd + 250);
+    const silenceSeenInWindow =
+      (
+        this.lastSilenceAtMs > 0 &&
+        captureStart != null &&
+        captureEnd != null &&
+        this.lastSilenceAtMs >= captureStart &&
+        this.lastSilenceAtMs <= (captureEnd + 250)
+      ) ||
+      (
+        this.lastVadAtMs > 0 &&
+        this.lastVadSpeaking === false &&
+        captureStart != null &&
+        captureEnd != null &&
+        this.lastVadAtMs >= captureStart &&
+        this.lastVadAtMs <= (captureEnd + 250)
+      );
+    let verdict: "voice_detected" | "silence_detected" | "unknown" = "unknown";
+    if (voiceSeenInWindow || this.lastVadSpeaking === true) {
+      verdict = "voice_detected";
+    } else if (silenceSeenInWindow || this.silenceActive) {
+      verdict = "silence_detected";
+    }
+    return {
+      requestSeq: seq,
+      verdict,
+      vadSpeaking: this.lastVadSpeaking,
+      rmsDbfs: this.lastVadRmsDbfs,
+      captureStartedAtMs: captureStart,
+      captureEndedAtMs: captureEnd,
+      lastVoiceAtMs: this.lastVadVoiceAtMs > 0 ? this.lastVadVoiceAtMs : null,
+      lastSilenceAtMs: this.lastSilenceAtMs > 0 ? this.lastSilenceAtMs : null,
+      silenceBoundaryAtMs: this.lastSilenceBoundaryAtMs > 0 ? this.lastSilenceBoundaryAtMs : null,
+    };
   }
 
   on(event: WhisperBridgeEvent, listener: WhisperBridgeListener): () => void {
@@ -624,6 +738,7 @@ class WhisperBridgeRecognizer {
     promptIncluded: boolean;
     promptHash: string | null;
     promptLength: number;
+    requestCaptureVerdict: "voice_detected" | "silence_detected" | "unknown";
   }): void {
     try {
       console.info("[ASR_WHISPER_TRANSCRIPT_LINEAGE]", {
@@ -638,6 +753,7 @@ class WhisperBridgeRecognizer {
         sourceRequestSeqs: payload.sourceRequestSeqs,
         appendedTokenRange: payload.appendedTokenRange,
         appendedBySeq: payload.appendedBySeq,
+        requestCaptureVerdict: payload.requestCaptureVerdict,
         forwardSupportCreatedOnlyByAssembly: payload.sourceRequestSeqs.length <= 1 && payload.rawText !== payload.assembledText,
         promptIncluded: payload.promptIncluded,
         promptHash: payload.promptHash,
@@ -934,6 +1050,8 @@ class WhisperBridgeRecognizer {
     this.switchedToRawCapture = false;
     this.flowProbeLogged = false;
     this.recordingActiveAtCaptureStart = this.isRecordingActiveNow();
+    this.requestCaptureEvidenceBySeq.clear();
+    this.addCaptureSignalListeners();
 
     const activeProfile = getActiveAsrProfile();
     const runtimePath = this.asrLane === 'ASR2' ? 'whisper-large-live' : 'whisper-bridge';
@@ -1040,6 +1158,7 @@ class WhisperBridgeRecognizer {
     this.running = false;
     this.generation += 1;
     this.queue = [];
+    this.requestCaptureEvidenceBySeq.clear();
     this.pendingRecorderStop = "final";
     this.clearSegmentTimer();
     this.abortInFlightTranscriptions();
@@ -1265,6 +1384,12 @@ class WhisperBridgeRecognizer {
       this.zeroByteChunkStreak = 0;
       this.seq = nextSeq;
       const enqueueTs = Date.now();
+      const captureEvidence = this.buildChunkCaptureEvidence(
+        this.seq,
+        this.captureStartedAtMs > 0 ? this.captureStartedAtMs : null,
+        enqueueTs,
+      );
+      this.requestCaptureEvidenceBySeq.set(this.seq, captureEvidence);
       this.queue.push({
         blob,
         seq: this.seq,
@@ -1272,6 +1397,7 @@ class WhisperBridgeRecognizer {
         enqueueTs,
         captureStartedAtMs: this.captureStartedAtMs > 0 ? this.captureStartedAtMs : null,
         captureEndedAtMs: enqueueTs,
+        captureEvidence,
       });
       const queueAfter = this.queue.length;
       const runMetaForQueue = this.readRunMeta();
@@ -1287,6 +1413,8 @@ class WhisperBridgeRecognizer {
             chunkDurationMs: chunkDurationMs ?? null,
             chunkEnqueueTs: enqueueTs,
             queueDepthAfter: queueAfter,
+            requestCaptureVerdict: captureEvidence.verdict,
+            requestCaptureRmsDbfs: captureEvidence.rmsDbfs,
             elapsedSinceLiveStartMs: runMetaForQueue.elapsedSinceLiveStartMs,
           });
         } catch {
@@ -1304,6 +1432,8 @@ class WhisperBridgeRecognizer {
           chunkEnqueueTs: enqueueTs,
           queueDepthBefore: queueBefore,
           queueDepthAfter: queueAfter,
+          requestCaptureVerdict: captureEvidence.verdict,
+          requestCaptureRmsDbfs: captureEvidence.rmsDbfs,
           elapsedSinceLiveStartMs: runMetaForQueue.elapsedSinceLiveStartMs,
         });
       } catch {
@@ -1320,6 +1450,8 @@ class WhisperBridgeRecognizer {
             blobSize: blob.size,
             blobType: blob.type || "unknown",
             chunkDurationMs: chunkDurationMs ?? null,
+            requestCaptureVerdict: captureEvidence.verdict,
+            requestCaptureRmsDbfs: captureEvidence.rmsDbfs,
           },
         }));
       } catch {
@@ -1457,6 +1589,7 @@ class WhisperBridgeRecognizer {
     this.pendingRecorderStop = null;
     this.recorder = null;
     this.running = false;
+    this.removeCaptureSignalListeners();
     this.cleanupRecorderStream();
     this.syncAiActivity();
     if (!this.endEmitted) {
@@ -1789,13 +1922,12 @@ class WhisperBridgeRecognizer {
     if (normalizedLanguage) {
       form.set("language", normalizedLanguage);
     }
-    const prompt = buildScriptPrompt();
-    const promptIncluded = !!prompt;
-    const promptHash = promptIncluded ? hashTextFragment(prompt) : null;
-    const promptPreview = promptIncluded ? previewText(prompt, 72) : null;
-    if (prompt) {
-      form.set("prompt", prompt);
-    }
+    const promptCandidate = buildScriptPrompt();
+    const promptSuppressed = !!promptCandidate;
+    const promptIncluded = false;
+    const promptHash = null;
+    const promptPreview = null;
+    const promptLength = 0;
     form.set("asr_lane", this.asrLane);
     form.set("request_seq", String(seq));
     form.set("user_access_token", accessToken);
@@ -1830,8 +1962,11 @@ class WhisperBridgeRecognizer {
           queueDepthAfter,
           elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
           promptIncluded,
+          promptSuppressed,
+          promptCandidateHash: promptSuppressed ? hashTextFragment(promptCandidate) : null,
+          promptCandidateLength: promptCandidate.length,
           promptHash,
-          promptLength: prompt.length,
+          promptLength,
           promptPreview,
           requestGeneration,
           bridgeGeneration: this.generation,
@@ -1936,8 +2071,11 @@ class WhisperBridgeRecognizer {
           providerRequestId: payload.provider_request_id ?? null,
           elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
           promptIncluded,
+          promptSuppressed,
+          promptCandidateHash: promptSuppressed ? hashTextFragment(promptCandidate) : null,
+          promptCandidateLength: promptCandidate.length,
           promptHash,
-          promptLength: prompt.length,
+          promptLength,
         });
       } catch {}
     }
@@ -1951,14 +2089,17 @@ class WhisperBridgeRecognizer {
         rawTextHash: hashTextFragment(String(payload.text || "")),
         rawTextPreview: previewText(String(payload.text || "")),
         promptIncluded,
+        promptSuppressed,
+        promptCandidateHash: promptSuppressed ? hashTextFragment(promptCandidate) : null,
+        promptCandidateLength: promptCandidate.length,
         promptHash,
-        promptLength: prompt.length,
+        promptLength,
       });
     } catch {}
     (payload as WhisperBridgeResponse & Record<string, unknown>).__tpRequestGeneration = requestGeneration;
     (payload as WhisperBridgeResponse & Record<string, unknown>).__tpPromptIncluded = promptIncluded;
     (payload as WhisperBridgeResponse & Record<string, unknown>).__tpPromptHash = promptHash;
-    (payload as WhisperBridgeResponse & Record<string, unknown>).__tpPromptLength = prompt.length;
+    (payload as WhisperBridgeResponse & Record<string, unknown>).__tpPromptLength = promptLength;
     (payload as WhisperBridgeResponse & Record<string, unknown>).__tpPromptPreview = promptPreview;
     (payload as WhisperBridgeResponse & Record<string, unknown>).__tpChunkBytes = blob.size;
     (payload as WhisperBridgeResponse & Record<string, unknown>).__tpChunkMimeType = mimeType ?? null;
@@ -1968,6 +2109,7 @@ class WhisperBridgeRecognizer {
     (payload as WhisperBridgeResponse & Record<string, unknown>).__tpCaptureEndedAtMs = chunk.captureEndedAtMs;
     (payload as WhisperBridgeResponse & Record<string, unknown>).__tpCaptureRuntimePath = this.lastCaptureRuntimePath;
     (payload as WhisperBridgeResponse & Record<string, unknown>).__tpCaptureRecorderGeneration = this.captureRecorderGeneration;
+    (payload as WhisperBridgeResponse & Record<string, unknown>).__tpRequestCaptureEvidence = chunk.captureEvidence;
     return payload;
   }
 
@@ -2015,6 +2157,10 @@ class WhisperBridgeRecognizer {
     const promptPreview = typeof (payload as Record<string, unknown>).__tpPromptPreview === "string"
       ? String((payload as Record<string, unknown>).__tpPromptPreview)
       : null;
+    const requestCaptureEvidenceRaw = (payload as Record<string, unknown>).__tpRequestCaptureEvidence;
+    const requestCaptureEvidence = requestCaptureEvidenceRaw && typeof requestCaptureEvidenceRaw === "object"
+      ? requestCaptureEvidenceRaw as ChunkEnvelope["captureEvidence"]
+      : null;
 
     this.logBridgeTranscriptLineage("assembled", {
       seq: transcriptSeq,
@@ -2028,6 +2174,7 @@ class WhisperBridgeRecognizer {
       promptIncluded,
       promptHash,
       promptLength: promptLength ?? 0,
+      requestCaptureVerdict: requestCaptureEvidence?.verdict ?? "unknown",
     });
 
     const basePayload: WhisperBridgePayload = {
@@ -2058,6 +2205,8 @@ class WhisperBridgeRecognizer {
       promptHash,
       promptLength,
       promptPreview,
+      requestCaptureVerdict: requestCaptureEvidence?.verdict ?? null,
+      requestCaptureEvidence: requestCaptureEvidence ? [requestCaptureEvidence] : [],
       chunkBytes: Number.isFinite(Number((payload as Record<string, unknown>).__tpChunkBytes))
         ? Number((payload as Record<string, unknown>).__tpChunkBytes)
         : null,

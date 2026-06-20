@@ -27,6 +27,7 @@ let asrTopbarMounted = false;
 let legacyShimWarned = false;
 let legacyOverrideWarned = false;
 const ASR_INIT_IMPL_PROOF_VERSION = 'asr.ts 2026-05-18b';
+const ASR_PROVENANCE_AUDIT_BUILD_STAMP = 'asr-provenance-audit-2026-06-20a';
 
 function allowLegacyAsrModeRuntime(): boolean {
   if (typeof window === 'undefined') return false;
@@ -133,6 +134,7 @@ export function initAsrFeature() {
     (window as any).__ASR_INIT_IMPL__ = ASR_INIT_IMPL_PROOF_VERSION;
     (window as any).__ASR_DIAGNOSTIC_PROOF__ = {
       buildStamp: String((window as any).__TP_BUILD_STAMP || 'unknown'),
+      provenanceAuditBuildStamp: ASR_PROVENANCE_AUDIT_BUILD_STAMP,
       delayedAutopsyBuilderPresent: true,
       deadScreenAutopsyBuilderPresent: true,
       dumpPathProofPresent: true,
@@ -140,14 +142,20 @@ export function initAsrFeature() {
       deadScreenAutopsyVersion: ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION,
       initImpl: ASR_INIT_IMPL_PROOF_VERSION,
     };
+    (window as any).__ASR_PROVENANCE_AUDIT_BUILD__ = ASR_PROVENANCE_AUDIT_BUILD_STAMP;
     try {
       console.warn(`[ASR_INIT_IMPL] ${ASR_INIT_IMPL_PROOF_VERSION}`);
+      console.info('[ASR_PROVENANCE_AUDIT_BUILD]', {
+        stamp: ASR_PROVENANCE_AUDIT_BUILD_STAMP,
+        buildStamp: String((window as any).__TP_BUILD_STAMP || 'unknown'),
+      });
     } catch {}
   }
   try { installAsrLogBuffer(); } catch {}
   try {
     (window as any).__ASR_DIAGNOSTIC_PROOF__ = {
       buildStamp: String((window as any).__TP_BUILD_STAMP || 'unknown'),
+      provenanceAuditBuildStamp: ASR_PROVENANCE_AUDIT_BUILD_STAMP,
       delayedAutopsyBuilderPresent: true,
       deadScreenAutopsyBuilderPresent: true,
       dumpPathProofPresent: true,
@@ -155,6 +163,7 @@ export function initAsrFeature() {
       deadScreenAutopsyVersion: ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION,
       initImpl: ASR_INIT_IMPL_PROOF_VERSION,
     };
+    (window as any).__ASR_PROVENANCE_AUDIT_BUILD__ = ASR_PROVENANCE_AUDIT_BUILD_STAMP;
   } catch {}
   ensureAsrSettingsWired(document.getElementById('settingsBody') || document);
   installAsrHotkeys();

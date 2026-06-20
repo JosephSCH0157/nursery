@@ -4237,6 +4237,7 @@ var asrTopbarMounted = false;
 var legacyShimWarned = false;
 var legacyOverrideWarned = false;
 var ASR_INIT_IMPL_PROOF_VERSION = "asr.ts 2026-05-18b";
+var ASR_PROVENANCE_AUDIT_BUILD_STAMP = "asr-provenance-audit-2026-06-20a";
 function allowLegacyAsrModeRuntime() {
   if (typeof window === "undefined") return false;
   try {
@@ -4347,6 +4348,7 @@ function initAsrFeature() {
     window.__ASR_INIT_IMPL__ = ASR_INIT_IMPL_PROOF_VERSION;
     window.__ASR_DIAGNOSTIC_PROOF__ = {
       buildStamp: String(window.__TP_BUILD_STAMP || "unknown"),
+      provenanceAuditBuildStamp: ASR_PROVENANCE_AUDIT_BUILD_STAMP,
       delayedAutopsyBuilderPresent: true,
       deadScreenAutopsyBuilderPresent: true,
       dumpPathProofPresent: true,
@@ -4354,8 +4356,13 @@ function initAsrFeature() {
       deadScreenAutopsyVersion: ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION,
       initImpl: ASR_INIT_IMPL_PROOF_VERSION
     };
+    window.__ASR_PROVENANCE_AUDIT_BUILD__ = ASR_PROVENANCE_AUDIT_BUILD_STAMP;
     try {
       console.warn(`[ASR_INIT_IMPL] ${ASR_INIT_IMPL_PROOF_VERSION}`);
+      console.info("[ASR_PROVENANCE_AUDIT_BUILD]", {
+        stamp: ASR_PROVENANCE_AUDIT_BUILD_STAMP,
+        buildStamp: String(window.__TP_BUILD_STAMP || "unknown")
+      });
     } catch {
     }
   }
@@ -4366,6 +4373,7 @@ function initAsrFeature() {
   try {
     window.__ASR_DIAGNOSTIC_PROOF__ = {
       buildStamp: String(window.__TP_BUILD_STAMP || "unknown"),
+      provenanceAuditBuildStamp: ASR_PROVENANCE_AUDIT_BUILD_STAMP,
       delayedAutopsyBuilderPresent: true,
       deadScreenAutopsyBuilderPresent: true,
       dumpPathProofPresent: true,
@@ -4373,6 +4381,7 @@ function initAsrFeature() {
       deadScreenAutopsyVersion: ASR_VISUAL_GOVERNOR_DEAD_SCREEN_AUTOPSY_VERSION,
       initImpl: ASR_INIT_IMPL_PROOF_VERSION
     };
+    window.__ASR_PROVENANCE_AUDIT_BUILD__ = ASR_PROVENANCE_AUDIT_BUILD_STAMP;
   } catch {
   }
   ensureAsrSettingsWired(document.getElementById("settingsBody") || document);

@@ -178,6 +178,7 @@ describe('ASR commit freshness gate', () => {
       assembledText: 'One. Two.',
       sourceRequestSeqs: [8],
       supportingRawSeqs: [8],
+      requestCaptureEvidence: [{ requestSeq: 8, verdict: 'voice_detected', rmsDbfs: -18 }],
       rawMatchIndex: 1,
       assembledMatchIndex: 2,
       forwardMatchCreatedByAssembly: true,
@@ -207,6 +208,7 @@ describe('ASR commit freshness gate', () => {
       assembledText: 'One. Two.',
       sourceRequestSeqs: [9],
       supportingRawSeqs: [9],
+      requestCaptureEvidence: [{ requestSeq: 9, verdict: 'silence_detected', rmsDbfs: -62 }],
       rawMatchIndex: 2,
       assembledMatchIndex: 2,
       forwardMatchCreatedByAssembly: false,
@@ -221,7 +223,7 @@ describe('ASR commit freshness gate', () => {
     driver.dispose();
   });
 
-  test('legitimate multi-chunk lineage can still advance forward', async () => {
+  test('legitimate multi-chunk lineage can still advance when no single raw chunk fully supports the target', async () => {
     const driver = createAsrScrollDriver();
     driver.setLastLineIndex(1);
 
@@ -230,21 +232,126 @@ describe('ASR commit freshness gate', () => {
     }));
     window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
 
-    driver.ingest('One. Two.', true, {
+    const detail: any = {
       currentIdx: 1,
       matchId: 'multi-chunk-forward',
       source: 'openai-whisper-bridge',
-      rawText: 'Two.',
+      rawText: 'wo.',
       assembledText: 'One. Two.',
-      sourceRequestSeqs: [10, 11],
-      supportingRawSeqs: [10, 11],
+      sourceRequestSeqs: [10, 11, 12],
+      supportingRawSeqs: [10, 11, 12],
+      requestCaptureEvidence: [
+        { requestSeq: 10, verdict: 'voice_detected', rmsDbfs: -18 },
+        { requestSeq: 11, verdict: 'voice_detected', rmsDbfs: -18 },
+        { requestSeq: 12, verdict: 'voice_detected', rmsDbfs: -18 },
+      ],
       rawMatchIndex: 1,
       assembledMatchIndex: 2,
       forwardMatchCreatedByAssembly: false,
       match: { bestIdx: 2, bestSim: 0.97, topScores: [{ idx: 2, score: 0.97 }] } as any,
-    });
+    };
+    driver.ingest('One. Two.', true, detail);
     await jest.advanceTimersByTimeAsync(200);
 
+    expect(driver.getLastLineIndex()).toBe(2);
+    expect(detail.semanticAdmissionVerdict ?? null).toBeNull();
+
+    driver.dispose();
+  });
+
+  test('voice-detected in-flight tail can still advance after silence begins', async () => {
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+    await jest.advanceTimersByTimeAsync(30);
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: false, rmsDbfs: -62 } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: true, ts: Date.now() } }));
+
+    const detail: any = {
+      currentIdx: 1,
+      matchId: 'voice-tail-forward',
+      source: 'openai-whisper-bridge',
+      rawText: 'One. Two.',
+      assembledText: 'One. Two.',
+      sourceRequestSeqs: [13],
+      supportingRawSeqs: [13],
+      requestCaptureEvidence: [{ requestSeq: 13, verdict: 'voice_detected', rmsDbfs: -18 }],
+      rawMatchIndex: 2,
+      assembledMatchIndex: 2,
+      forwardMatchCreatedByAssembly: false,
+      match: { bestIdx: 2, bestSim: 0.96, topScores: [{ idx: 2, score: 0.96 }] } as any,
+    };
+    driver.ingest('One. Two.', true, detail);
+    await jest.advanceTimersByTimeAsync(120);
+
+    expect(driver.getLastLineIndex()).toBe(2);
+    expect(detail.semanticAdmissionVerdict ?? null).toBeNull();
+
+    driver.dispose();
+  });
+
+  test('unknown capture evidence cannot re-arm forward admission once silence is asserted', async () => {
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: false, rmsDbfs: -62 } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: true, ts: Date.now() } }));
+
+    const detail: any = {
+      currentIdx: 1,
+      matchId: 'unknown-capture-forward',
+      source: 'openai-whisper-bridge',
+      rawText: 'One. Two.',
+      assembledText: 'One. Two.',
+      sourceRequestSeqs: [14],
+      supportingRawSeqs: [14],
+      requestCaptureEvidence: [{ requestSeq: 14, verdict: 'unknown', rmsDbfs: null }],
+      rawMatchIndex: 2,
+      assembledMatchIndex: 2,
+      forwardMatchCreatedByAssembly: false,
+      match: { bestIdx: 2, bestSim: 0.96, topScores: [{ idx: 2, score: 0.96 }] } as any,
+    };
+    driver.ingest('One. Two.', true, detail);
+    await jest.advanceTimersByTimeAsync(120);
+    driver.ingest('One. Two.', true, detail);
+    await jest.advanceTimersByTimeAsync(120);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+    expect(detail.semanticAdmissionVerdict).toBe('capture_activity_unavailable');
+
+    driver.dispose();
+  });
+
+  test('raw and assembled equivalent text is never treated as assembled-only', async () => {
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+
+    const detail: any = {
+      currentIdx: 1,
+      matchId: 'raw-assembled-equivalent',
+      source: 'openai-whisper-bridge',
+      rawText: 'One. Two.',
+      assembledText: 'One. Two.',
+      rawTextHash: 'fnv1a:samehash',
+      assembledTextHash: 'fnv1a:samehash',
+      sourceRequestSeqs: [15],
+      supportingRawSeqs: [15],
+      requestCaptureEvidence: [{ requestSeq: 15, verdict: 'voice_detected', rmsDbfs: -18 }],
+      rawMatchIndex: 2,
+      assembledMatchIndex: 2,
+      forwardMatchCreatedByAssembly: false,
+      match: { bestIdx: 2, bestSim: 0.98, topScores: [{ idx: 2, score: 0.98 }] } as any,
+    };
+    driver.ingest('One. Two.', true, detail);
+    await jest.advanceTimersByTimeAsync(120);
+
+    expect(detail.semanticAdmissionVerdict ?? null).toBeNull();
     expect(driver.getLastLineIndex()).toBe(2);
 
     driver.dispose();
