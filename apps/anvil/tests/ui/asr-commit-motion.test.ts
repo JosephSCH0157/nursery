@@ -468,6 +468,7 @@ describe('ASR live commit motion', () => {
 
   beforeEach(() => {
     jest.useFakeTimers();
+    window.history.replaceState({}, '', '/?dev=1');
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     consoleInfoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
@@ -549,6 +550,7 @@ describe('ASR live commit motion', () => {
     delete (window as any).__tpLiveAsrGovernorHold;
     delete (window as any).__tpAsrDiagnosticBundleProofEmitted;
     delete (window as any).__TP_BUILD_STAMP;
+    window.history.replaceState({}, '', '/');
   });
 
   test('backward target suppression does not crash when preserved authority reason is absent', async () => {
