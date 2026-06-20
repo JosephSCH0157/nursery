@@ -20,6 +20,30 @@ type WhisperBridgePayload = {
   providerRequestId?: string | null;
   calibrationProfileId?: string | null;
   calibrationVersion?: number | null;
+  requestGeneration?: number | null;
+  bridgeGeneration?: number | null;
+  rawText?: string | null;
+  assembledText?: string | null;
+  rawTextHash?: string | null;
+  assembledTextHash?: string | null;
+  rawTextPreview?: string | null;
+  assembledTextPreview?: string | null;
+  sourceRequestSeqs?: number[];
+  supportingRawSeqs?: number[];
+  appendedTokenRange?: { start: number; end: number } | null;
+  appendedBySeq?: number[];
+  promptIncluded?: boolean;
+  promptHash?: string | null;
+  promptLength?: number | null;
+  promptPreview?: string | null;
+  chunkBytes?: number | null;
+  chunkMimeType?: string | null;
+  chunkDurationMs?: number | null;
+  chunkEnqueueTs?: number | null;
+  captureStartedAtMs?: number | null;
+  captureEndedAtMs?: number | null;
+  captureRuntimePath?: string | null;
+  captureRecorderGeneration?: number | null;
 };
 
 type WhisperBridgeResponse = {
@@ -66,6 +90,16 @@ class WhisperBridgeAuthError extends Error {
 type WordToken = {
   raw: string;
   normalized: string;
+  sourceSeq: number | null;
+};
+
+type ChunkEnvelope = {
+  blob: Blob;
+  seq: number;
+  durationMs?: number;
+  enqueueTs: number;
+  captureStartedAtMs: number | null;
+  captureEndedAtMs: number | null;
 };
 
 type WhisperBridgeRecognizerOptions = {
@@ -336,24 +370,76 @@ function splitWords(text: string): string[] {
   return String(text || "").trim().split(/\s+/).filter(Boolean);
 }
 
+function hashTextFragment(value: string): string {
+  const input = String(value || "");
+  let hash = 2166136261;
+  for (let idx = 0; idx < input.length; idx += 1) {
+    hash ^= input.charCodeAt(idx);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fnv1a:${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function previewText(value: string, maxChars = 96): string {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  return normalized.length > maxChars ? `${normalized.slice(0, maxChars)}...` : normalized;
+}
+
 function normalizeWord(word: string): string {
   return word.toLowerCase().replace(/[^\p{L}\p{N}'’]+/gu, "");
 }
 
-function toWordTokens(text: string): WordToken[] {
+function toWordTokens(text: string, sourceSeq: number | null = null): WordToken[] {
   const words = splitWords(text);
   const out: WordToken[] = [];
   for (const raw of words) {
     const normalized = normalizeWord(raw);
     if (!normalized) continue;
-    out.push({ raw, normalized });
+    out.push({ raw, normalized, sourceSeq });
   }
   return out;
 }
 
-function mergeTokenWindow(current: WordToken[], incoming: WordToken[]): WordToken[] {
-  if (!incoming.length) return current;
-  if (!current.length) return incoming.slice(-MAX_WINDOW_WORDS);
+function uniqSeqs(values: Array<number | null | undefined>): number[] {
+  const out: number[] = [];
+  const seen = new Set<number>();
+  for (const value of values) {
+    if (!Number.isFinite(Number(value))) continue;
+    const normalized = Math.max(0, Math.floor(Number(value)));
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function mergeTokenWindow(current: WordToken[], incoming: WordToken[]): {
+  tokens: WordToken[];
+  overlap: number;
+  appendedTokenRange: { start: number; end: number } | null;
+  sourceRequestSeqs: number[];
+  appendedBySeq: number[];
+} {
+  if (!incoming.length) {
+    return {
+      tokens: current,
+      overlap: 0,
+      appendedTokenRange: null,
+      sourceRequestSeqs: uniqSeqs(current.map((token) => token.sourceSeq)),
+      appendedBySeq: [],
+    };
+  }
+  if (!current.length) {
+    const tokens = incoming.slice(-MAX_WINDOW_WORDS);
+    return {
+      tokens,
+      overlap: 0,
+      appendedTokenRange: tokens.length ? { start: 0, end: tokens.length - 1 } : null,
+      sourceRequestSeqs: uniqSeqs(tokens.map((token) => token.sourceSeq)),
+      appendedBySeq: uniqSeqs(tokens.map((token) => token.sourceSeq)),
+    };
+  }
 
   const maxOverlap = Math.min(MAX_OVERLAP_WORDS, current.length, incoming.length);
   let overlap = 0;
@@ -376,7 +462,20 @@ function mergeTokenWindow(current: WordToken[], incoming: WordToken[]): WordToke
   const merged = overlap >= incoming.length
     ? current.slice()
     : current.concat(incoming.slice(overlap));
-  return merged.slice(-MAX_WINDOW_WORDS);
+  const tokens = merged.slice(-MAX_WINDOW_WORDS);
+  const appendedCount = Math.max(0, Math.min(incoming.length - overlap, tokens.length));
+  const appendedTokenRange = appendedCount > 0
+    ? { start: tokens.length - appendedCount, end: tokens.length - 1 }
+    : null;
+  return {
+    tokens,
+    overlap,
+    appendedTokenRange,
+    sourceRequestSeqs: uniqSeqs(tokens.map((token) => token.sourceSeq)),
+    appendedBySeq: appendedTokenRange
+      ? uniqSeqs(tokens.slice(appendedTokenRange.start, appendedTokenRange.end + 1).map((token) => token.sourceSeq))
+      : [],
+  };
 }
 
 function tokensToText(tokens: WordToken[]): string {
@@ -445,7 +544,7 @@ class WhisperBridgeRecognizer {
   private readonly segmentMs: number;
   private readonly asrLane: string;
   private readonly modelHint: string | null;
-  private queue: Array<{ blob: Blob; seq: number; durationMs?: number }> = [];
+  private queue: ChunkEnvelope[] = [];
   private queueRunning = false;
   private running = false;
   private recorder: MediaRecorder | null = null;
@@ -479,6 +578,8 @@ class WhisperBridgeRecognizer {
   private lastCaptureRuntimePath = "whisper-bridge";
   private lastCaptureProfileId: string | null = null;
   private lastCaptureConstraints: unknown = null;
+  private captureRecorderGeneration = 0;
+  private captureStartedAtMs = 0;
 
   constructor(options: WhisperBridgeRecognizerOptions = {}) {
     this.route = options.route || DEFAULT_ROUTE;
@@ -508,6 +609,42 @@ class WhisperBridgeRecognizer {
       } catch {
         // listener failures are non-fatal
       }
+    }
+  }
+
+  private logBridgeTranscriptLineage(stage: string, payload: {
+    seq: number | null;
+    requestGeneration: number | null;
+    bridgeGeneration: number | null;
+    rawText: string;
+    assembledText: string;
+    sourceRequestSeqs: number[];
+    appendedTokenRange: { start: number; end: number } | null;
+    appendedBySeq: number[];
+    promptIncluded: boolean;
+    promptHash: string | null;
+    promptLength: number;
+  }): void {
+    try {
+      console.info("[ASR_WHISPER_TRANSCRIPT_LINEAGE]", {
+        stage,
+        seq: payload.seq,
+        requestGeneration: payload.requestGeneration,
+        bridgeGeneration: payload.bridgeGeneration,
+        rawTextHash: hashTextFragment(payload.rawText),
+        assembledTextHash: hashTextFragment(payload.assembledText),
+        rawTextPreview: previewText(payload.rawText),
+        assembledTextPreview: previewText(payload.assembledText),
+        sourceRequestSeqs: payload.sourceRequestSeqs,
+        appendedTokenRange: payload.appendedTokenRange,
+        appendedBySeq: payload.appendedBySeq,
+        forwardSupportCreatedOnlyByAssembly: payload.sourceRequestSeqs.length <= 1 && payload.rawText !== payload.assembledText,
+        promptIncluded: payload.promptIncluded,
+        promptHash: payload.promptHash,
+        promptLength: payload.promptLength,
+      });
+    } catch {
+      // ignore logging failures
     }
   }
 
@@ -1033,6 +1170,8 @@ class WhisperBridgeRecognizer {
     }
     this.recorder = recorder;
     this.pendingRecorderStop = null;
+    this.captureRecorderGeneration += 1;
+    this.captureStartedAtMs = Date.now();
 
     recorder.ondataavailable = async (event: BlobEvent) => {
       const blob = event.data;
@@ -1125,9 +1264,16 @@ class WhisperBridgeRecognizer {
       }
       this.zeroByteChunkStreak = 0;
       this.seq = nextSeq;
-      this.queue.push({ blob, seq: this.seq, durationMs: chunkDurationMs });
-      const queueAfter = this.queue.length;
       const enqueueTs = Date.now();
+      this.queue.push({
+        blob,
+        seq: this.seq,
+        durationMs: chunkDurationMs,
+        enqueueTs,
+        captureStartedAtMs: this.captureStartedAtMs > 0 ? this.captureStartedAtMs : null,
+        captureEndedAtMs: enqueueTs,
+      });
+      const queueAfter = this.queue.length;
       const runMetaForQueue = this.readRunMeta();
       if (!this.firstAudioChunkLogged) {
         this.firstAudioChunkLogged = true;
@@ -1138,6 +1284,8 @@ class WhisperBridgeRecognizer {
             seq: this.seq,
             blobSize: blob.size,
             blobType: blob.type || "unknown",
+            chunkDurationMs: chunkDurationMs ?? null,
+            chunkEnqueueTs: enqueueTs,
             queueDepthAfter: queueAfter,
             elapsedSinceLiveStartMs: runMetaForQueue.elapsedSinceLiveStartMs,
           });
@@ -1152,6 +1300,8 @@ class WhisperBridgeRecognizer {
           seq: this.seq,
           blobSize: blob.size,
           blobType: blob.type || "unknown",
+          chunkDurationMs: chunkDurationMs ?? null,
+          chunkEnqueueTs: enqueueTs,
           queueDepthBefore: queueBefore,
           queueDepthAfter: queueAfter,
           elapsedSinceLiveStartMs: runMetaForQueue.elapsedSinceLiveStartMs,
@@ -1169,6 +1319,7 @@ class WhisperBridgeRecognizer {
             seq: this.seq,
             blobSize: blob.size,
             blobType: blob.type || "unknown",
+            chunkDurationMs: chunkDurationMs ?? null,
           },
         }));
       } catch {
@@ -1340,14 +1491,7 @@ class WhisperBridgeRecognizer {
         this.syncAiActivity();
         const requestGeneration = this.generation;
         try {
-          const payload = await this.transcribe(
-            next.blob,
-            next.seq,
-            requestGeneration,
-            next.durationMs,
-            queueDepthBefore,
-            queueDepthAfter,
-          );
+          const payload = await this.transcribe(next, requestGeneration, queueDepthBefore, queueDepthAfter);
           const staleDropReason = this.getStaleDropReason(requestGeneration);
           if (staleDropReason) {
             const runMeta = this.readRunMeta();
@@ -1625,13 +1769,12 @@ class WhisperBridgeRecognizer {
   }
 
   private async transcribe(
-    blob: Blob,
-    seq: number,
+    chunk: ChunkEnvelope,
     requestGeneration: number,
-    durationMs?: number,
     queueDepthBefore?: number,
     queueDepthAfter?: number,
   ): Promise<WhisperBridgeResponse> {
+    const { blob, seq, durationMs } = chunk;
     const accessToken = await resolveWhisperAccessToken();
     if (this.getStaleDropReason(requestGeneration)) {
       throw new Error("whisper_stale_response");
@@ -1647,6 +1790,9 @@ class WhisperBridgeRecognizer {
       form.set("language", normalizedLanguage);
     }
     const prompt = buildScriptPrompt();
+    const promptIncluded = !!prompt;
+    const promptHash = promptIncluded ? hashTextFragment(prompt) : null;
+    const promptPreview = promptIncluded ? previewText(prompt, 72) : null;
     if (prompt) {
       form.set("prompt", prompt);
     }
@@ -1683,6 +1829,12 @@ class WhisperBridgeRecognizer {
           queueDepthBefore,
           queueDepthAfter,
           elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+          promptIncluded,
+          promptHash,
+          promptLength: prompt.length,
+          promptPreview,
+          requestGeneration,
+          bridgeGeneration: this.generation,
         });
       } catch {}
     }
@@ -1783,9 +1935,39 @@ class WhisperBridgeRecognizer {
           textLength: typeof payload.text === "string" ? payload.text.trim().length : 0,
           providerRequestId: payload.provider_request_id ?? null,
           elapsedSinceLiveStartMs: runMeta.elapsedSinceLiveStartMs,
+          promptIncluded,
+          promptHash,
+          promptLength: prompt.length,
         });
       } catch {}
     }
+    try {
+      console.info("[ASR_WHISPER_RAW_RESPONSE_TEXT]", {
+        seq,
+        runKey: this.readRunMeta().runKey,
+        runGeneration: this.readRunMeta().runGeneration,
+        requestGeneration,
+        bridgeGeneration: this.generation,
+        rawTextHash: hashTextFragment(String(payload.text || "")),
+        rawTextPreview: previewText(String(payload.text || "")),
+        promptIncluded,
+        promptHash,
+        promptLength: prompt.length,
+      });
+    } catch {}
+    (payload as WhisperBridgeResponse & Record<string, unknown>).__tpRequestGeneration = requestGeneration;
+    (payload as WhisperBridgeResponse & Record<string, unknown>).__tpPromptIncluded = promptIncluded;
+    (payload as WhisperBridgeResponse & Record<string, unknown>).__tpPromptHash = promptHash;
+    (payload as WhisperBridgeResponse & Record<string, unknown>).__tpPromptLength = prompt.length;
+    (payload as WhisperBridgeResponse & Record<string, unknown>).__tpPromptPreview = promptPreview;
+    (payload as WhisperBridgeResponse & Record<string, unknown>).__tpChunkBytes = blob.size;
+    (payload as WhisperBridgeResponse & Record<string, unknown>).__tpChunkMimeType = mimeType ?? null;
+    (payload as WhisperBridgeResponse & Record<string, unknown>).__tpChunkDurationMs = durationMs ?? null;
+    (payload as WhisperBridgeResponse & Record<string, unknown>).__tpChunkEnqueueTs = chunk.enqueueTs;
+    (payload as WhisperBridgeResponse & Record<string, unknown>).__tpCaptureStartedAtMs = chunk.captureStartedAtMs;
+    (payload as WhisperBridgeResponse & Record<string, unknown>).__tpCaptureEndedAtMs = chunk.captureEndedAtMs;
+    (payload as WhisperBridgeResponse & Record<string, unknown>).__tpCaptureRuntimePath = this.lastCaptureRuntimePath;
+    (payload as WhisperBridgeResponse & Record<string, unknown>).__tpCaptureRecorderGeneration = this.captureRecorderGeneration;
     return payload;
   }
 
@@ -1794,7 +1976,8 @@ class WhisperBridgeRecognizer {
     if (!text) return;
 
     const now = nowTs();
-    const incomingTokens = toWordTokens(text);
+    const transcriptSeq = Number.isFinite(Number(seq)) ? Math.max(0, Math.floor(Number(seq))) : null;
+    const incomingTokens = toWordTokens(text, transcriptSeq);
     if (!incomingTokens.length) return;
     if (!this.firstTranscriptPacketLogged) {
       this.firstTranscriptPacketLogged = true;
@@ -1815,10 +1998,37 @@ class WhisperBridgeRecognizer {
       this.transcriptWindow = [];
     }
     this.lastTranscriptAt = now;
-    this.transcriptWindow = mergeTokenWindow(this.transcriptWindow, incomingTokens);
+    const mergeResult = mergeTokenWindow(this.transcriptWindow, incomingTokens);
+    this.transcriptWindow = mergeResult.tokens;
     const assembledText = tokensToText(this.transcriptWindow);
     if (!assembledText) return;
-    const transcriptSeq = Number.isFinite(Number(seq)) ? Math.max(0, Math.floor(Number(seq))) : null;
+    const requestGeneration = Number.isFinite(Number((payload as Record<string, unknown>).__tpRequestGeneration))
+      ? Math.max(0, Math.floor(Number((payload as Record<string, unknown>).__tpRequestGeneration)))
+      : null;
+    const promptIncluded = (payload as Record<string, unknown>).__tpPromptIncluded === true;
+    const promptHash = typeof (payload as Record<string, unknown>).__tpPromptHash === "string"
+      ? String((payload as Record<string, unknown>).__tpPromptHash)
+      : null;
+    const promptLength = Number.isFinite(Number((payload as Record<string, unknown>).__tpPromptLength))
+      ? Math.max(0, Math.floor(Number((payload as Record<string, unknown>).__tpPromptLength)))
+      : null;
+    const promptPreview = typeof (payload as Record<string, unknown>).__tpPromptPreview === "string"
+      ? String((payload as Record<string, unknown>).__tpPromptPreview)
+      : null;
+
+    this.logBridgeTranscriptLineage("assembled", {
+      seq: transcriptSeq,
+      requestGeneration,
+      bridgeGeneration: this.generation,
+      rawText: text,
+      assembledText,
+      sourceRequestSeqs: mergeResult.sourceRequestSeqs,
+      appendedTokenRange: mergeResult.appendedTokenRange,
+      appendedBySeq: mergeResult.appendedBySeq,
+      promptIncluded,
+      promptHash,
+      promptLength: promptLength ?? 0,
+    });
 
     const basePayload: WhisperBridgePayload = {
       text: assembledText,
@@ -1832,6 +2042,46 @@ class WhisperBridgeRecognizer {
       providerRequestId: payload.provider_request_id ?? null,
       calibrationProfileId: getActiveAsrProfile()?.id || null,
       calibrationVersion: getActiveAsrProfile()?.version ?? null,
+      requestGeneration,
+      bridgeGeneration: this.generation,
+      rawText: text,
+      assembledText,
+      rawTextHash: hashTextFragment(text),
+      assembledTextHash: hashTextFragment(assembledText),
+      rawTextPreview: previewText(text),
+      assembledTextPreview: previewText(assembledText),
+      sourceRequestSeqs: mergeResult.sourceRequestSeqs,
+      supportingRawSeqs: mergeResult.sourceRequestSeqs,
+      appendedTokenRange: mergeResult.appendedTokenRange,
+      appendedBySeq: mergeResult.appendedBySeq,
+      promptIncluded,
+      promptHash,
+      promptLength,
+      promptPreview,
+      chunkBytes: Number.isFinite(Number((payload as Record<string, unknown>).__tpChunkBytes))
+        ? Number((payload as Record<string, unknown>).__tpChunkBytes)
+        : null,
+      chunkMimeType: typeof (payload as Record<string, unknown>).__tpChunkMimeType === "string"
+        ? String((payload as Record<string, unknown>).__tpChunkMimeType)
+        : null,
+      chunkDurationMs: Number.isFinite(Number((payload as Record<string, unknown>).__tpChunkDurationMs))
+        ? Number((payload as Record<string, unknown>).__tpChunkDurationMs)
+        : null,
+      chunkEnqueueTs: Number.isFinite(Number((payload as Record<string, unknown>).__tpChunkEnqueueTs))
+        ? Number((payload as Record<string, unknown>).__tpChunkEnqueueTs)
+        : null,
+      captureStartedAtMs: Number.isFinite(Number((payload as Record<string, unknown>).__tpCaptureStartedAtMs))
+        ? Number((payload as Record<string, unknown>).__tpCaptureStartedAtMs)
+        : null,
+      captureEndedAtMs: Number.isFinite(Number((payload as Record<string, unknown>).__tpCaptureEndedAtMs))
+        ? Number((payload as Record<string, unknown>).__tpCaptureEndedAtMs)
+        : null,
+      captureRuntimePath: typeof (payload as Record<string, unknown>).__tpCaptureRuntimePath === "string"
+        ? String((payload as Record<string, unknown>).__tpCaptureRuntimePath)
+        : null,
+      captureRecorderGeneration: Number.isFinite(Number((payload as Record<string, unknown>).__tpCaptureRecorderGeneration))
+        ? Math.max(0, Math.floor(Number((payload as Record<string, unknown>).__tpCaptureRecorderGeneration)))
+        : null,
     };
 
     if (this.interim && assembledText !== this.lastPartialText) {

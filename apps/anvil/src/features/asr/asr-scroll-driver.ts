@@ -19263,6 +19263,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return now;
   };
 
+  const resolveTranscriptSeqList = (values: unknown): number[] => {
+    if (!Array.isArray(values)) return [];
+    const out: number[] = [];
+    const seen = new Set<number>();
+    values.forEach((value) => {
+      if (!Number.isFinite(Number(value))) return;
+      const normalized = Math.max(0, Math.floor(Number(value)));
+      if (seen.has(normalized)) return;
+      seen.add(normalized);
+      out.push(normalized);
+    });
+    return out;
+  };
+
+  const resolveTranscriptMatchIndex = (raw: unknown): number | null =>
+    Number.isFinite(Number(raw)) ? Math.max(0, Math.floor(Number(raw))) : null;
+
   function getCommitFreshnessDiagnosticPayload(args: {
     transcriptSeq?: number | null;
     responseAgeMs?: number | null;
@@ -37383,6 +37400,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         transcriptRunKey ? `transcriptRunKey=${transcriptRunKey}` : '',
         `activeRunKey=${resolveActiveRunKey() || 'none'}`,
       ]);
+      if (detail) {
+        detail.semanticAdmissionVerdict = 'stale_generation_or_mismatched_request';
+        detail.captureActivityVerdict = 'stale_generation_or_mismatched_request';
+      }
       return;
     }
     const runtimeSpeechFreshNow = hasRecentActualSpeech(now);
@@ -37396,10 +37417,41 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       latestSpeechTsForTranscript > 0 ? Math.max(0, transcriptReceivedAtMs - latestSpeechTsForTranscript) : Number.POSITIVE_INFINITY;
     const transcriptAudioAgeMs =
       lastAudioChunkAt > 0 ? Math.max(0, transcriptReceivedAtMs - lastAudioChunkAt) : Number.POSITIVE_INFINITY;
+    const sourceRequestSeqs = resolveTranscriptSeqList((detail as { sourceRequestSeqs?: unknown } | undefined)?.sourceRequestSeqs);
+    const supportingRawSeqs = resolveTranscriptSeqList((detail as { supportingRawSeqs?: unknown } | undefined)?.supportingRawSeqs);
+    const rawMatchIndex = resolveTranscriptMatchIndex(
+      (detail as { rawMatchIndex?: unknown; rawMatch?: { bestIdx?: unknown } } | undefined)?.rawMatchIndex ??
+      (detail as { rawMatch?: { bestIdx?: unknown } } | undefined)?.rawMatch?.bestIdx,
+    );
+    const assembledMatchIndex = resolveTranscriptMatchIndex(
+      (detail as { assembledMatchIndex?: unknown; match?: { bestIdx?: unknown } } | undefined)?.assembledMatchIndex ??
+      (detail as { match?: { bestIdx?: unknown } } | undefined)?.match?.bestIdx,
+    );
+    const currentForwardFloor = Math.max(0, lastLineIndex);
+    const forwardMatchCreatedByAssembly = (detail as { forwardMatchCreatedByAssembly?: unknown } | undefined)?.forwardMatchCreatedByAssembly === true;
+    const hasProvenanceMetadata =
+      typeof (detail as { rawText?: unknown } | undefined)?.rawText === 'string' ||
+      typeof (detail as { assembledText?: unknown } | undefined)?.assembledText === 'string' ||
+      sourceRequestSeqs.length > 0 ||
+      supportingRawSeqs.length > 0;
     const liveSpeechCoherent =
       runtimeSpeechFreshNow &&
       vadSpeechFreshNow &&
       asrRuntimeSpeechRunningActual;
+    const captureEvidenceAvailable =
+      asrVadSeen ||
+      lastRuntimeSpeechAt > 0 ||
+      lastSpeechRunningActualAtMs > 0;
+    const captureActivityPresent =
+      runtimeSpeechFreshNow ||
+      vadSpeechFreshNow ||
+      asrRuntimeSpeechRunningActual;
+    const forwardCandidate =
+      assembledMatchIndex != null &&
+      assembledMatchIndex > currentForwardFloor;
+    const verifiedSilence =
+      !captureActivityPresent &&
+      (asrSilenceActive || captureEvidenceAvailable);
     const staleWhisperBridgeFinalPacket =
       liveAsrSessionActive &&
       isFinal &&
@@ -37410,7 +37462,59 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !vadSpeechFreshNow ||
         !asrRuntimeSpeechRunningActual
       );
+    if (detail) {
+      detail.captureActivityEvidence = {
+        runtimeSpeechFresh: runtimeSpeechFreshNow,
+        vadSpeechFresh: vadSpeechFreshNow,
+        speechRunningActual: !!asrRuntimeSpeechRunningActual,
+        silenceActive: asrSilenceActive,
+        captureEvidenceAvailable,
+      };
+      detail.captureActivityVerdict = captureActivityPresent
+        ? 'provenance_safe + capture_activity_present'
+        : (captureEvidenceAvailable ? 'raw_provider_text_during_verified_silence' : 'capture_activity_unavailable');
+    }
+    if (
+      liveAsrSessionActive &&
+      isFinal &&
+      isWhisperBridgeTranscriptSource(transcriptSource) &&
+      hasProvenanceMetadata &&
+      forwardCandidate
+    ) {
+      let semanticAdmissionVerdict: string | null = null;
+      if (forwardMatchCreatedByAssembly) {
+        semanticAdmissionVerdict = 'assembled_only_forward_match';
+      } else if (verifiedSilence) {
+        semanticAdmissionVerdict = 'raw_provider_text_during_verified_silence';
+      } else if (!captureActivityPresent && !captureEvidenceAvailable) {
+        semanticAdmissionVerdict = 'capture_activity_unavailable';
+      }
+      if (detail) {
+        detail.semanticAdmissionVerdict = semanticAdmissionVerdict;
+        if (semanticAdmissionVerdict) detail.captureActivityVerdict = semanticAdmissionVerdict;
+      }
+      if (semanticAdmissionVerdict) {
+        warnGuard('asr_semantic_admission_blocked', [
+          `verdict=${semanticAdmissionVerdict}`,
+          `transcriptSource=${transcriptSource || 'unknown'}`,
+          `forwardCandidate=${forwardCandidate ? 1 : 0}`,
+          `rawMatchIndex=${rawMatchIndex ?? -1}`,
+          `assembledMatchIndex=${assembledMatchIndex ?? -1}`,
+          `forwardMatchCreatedByAssembly=${forwardMatchCreatedByAssembly ? 1 : 0}`,
+          `sourceRequestSeqs=${sourceRequestSeqs.join(',') || 'none'}`,
+          `supportingRawSeqs=${supportingRawSeqs.join(',') || 'none'}`,
+          `captureEvidenceAvailable=${captureEvidenceAvailable ? 1 : 0}`,
+          `captureActivityPresent=${captureActivityPresent ? 1 : 0}`,
+          compacted ? `clue="${formatLogSnippet(compacted, 72)}"` : '',
+        ]);
+        return;
+      }
+    }
     if (staleWhisperBridgeFinalPacket) {
+      if (detail) {
+        detail.semanticAdmissionVerdict = 'raw_provider_text_during_verified_silence';
+        detail.captureActivityVerdict = 'raw_provider_text_during_verified_silence';
+      }
       const stalePayload = getCommitFreshnessDiagnosticPayload({
         transcriptSeq,
         responseAgeMs: transcriptResponseAgeMs,

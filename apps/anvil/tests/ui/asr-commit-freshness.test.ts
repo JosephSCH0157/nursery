@@ -161,6 +161,95 @@ describe('ASR commit freshness gate', () => {
     driver.dispose();
   });
 
+  test('assembled-only forward match is blocked at semantic admission', async () => {
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+
+    const detail: any = {
+      currentIdx: 1,
+      matchId: 'assembled-only-forward',
+      source: 'openai-whisper-bridge',
+      rawText: 'One.',
+      assembledText: 'One. Two.',
+      sourceRequestSeqs: [8],
+      supportingRawSeqs: [8],
+      rawMatchIndex: 1,
+      assembledMatchIndex: 2,
+      forwardMatchCreatedByAssembly: true,
+      match: { bestIdx: 2, bestSim: 0.95, topScores: [{ idx: 2, score: 0.95 }] } as any,
+    };
+    driver.ingest('One. Two.', true, detail);
+    await jest.advanceTimersByTimeAsync(120);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+    expect(detail.semanticAdmissionVerdict).toBe('assembled_only_forward_match');
+
+    driver.dispose();
+  });
+
+  test('raw provider forward text during verified silence is blocked', async () => {
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: false, rmsDbfs: -62 } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: true, ts: Date.now() } }));
+
+    const detail: any = {
+      currentIdx: 1,
+      matchId: 'raw-forward-silence',
+      source: 'openai-whisper-bridge',
+      rawText: 'One. Two.',
+      assembledText: 'One. Two.',
+      sourceRequestSeqs: [9],
+      supportingRawSeqs: [9],
+      rawMatchIndex: 2,
+      assembledMatchIndex: 2,
+      forwardMatchCreatedByAssembly: false,
+      match: { bestIdx: 2, bestSim: 0.96, topScores: [{ idx: 2, score: 0.96 }] } as any,
+    };
+    driver.ingest('One. Two.', true, detail);
+    await jest.advanceTimersByTimeAsync(120);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+    expect(detail.semanticAdmissionVerdict).toBe('raw_provider_text_during_verified_silence');
+
+    driver.dispose();
+  });
+
+  test('legitimate multi-chunk lineage can still advance forward', async () => {
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+
+    driver.ingest('One. Two.', true, {
+      currentIdx: 1,
+      matchId: 'multi-chunk-forward',
+      source: 'openai-whisper-bridge',
+      rawText: 'Two.',
+      assembledText: 'One. Two.',
+      sourceRequestSeqs: [10, 11],
+      supportingRawSeqs: [10, 11],
+      rawMatchIndex: 1,
+      assembledMatchIndex: 2,
+      forwardMatchCreatedByAssembly: false,
+      match: { bestIdx: 2, bestSim: 0.97, topScores: [{ idx: 2, score: 0.97 }] } as any,
+    });
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(2);
+
+    driver.dispose();
+  });
+
   test('visual correction without fresh commit cannot advance same line', () => {
     const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
       __debugApplyScrollWithHybridGuard(args: any): any;

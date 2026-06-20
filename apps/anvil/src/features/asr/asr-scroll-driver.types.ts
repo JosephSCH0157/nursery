@@ -16,6 +16,7 @@ export type DriverOptions = {
 export type TranscriptDetail = {
   matchId?: string | null;
   match?: MatchResult;
+  rawMatch?: MatchResult | null;
   source?: string;
   meta?: boolean;
   noMatch?: boolean;
@@ -33,6 +34,46 @@ export type TranscriptDetail = {
   transcriptAudioAgeMs?: number | null;
   transcriptSpeechFresh?: boolean;
   transcriptSpeechActive?: boolean;
+  requestGeneration?: number | null;
+  bridgeGeneration?: number | null;
+  rawText?: string | null;
+  assembledText?: string | null;
+  rawTextHash?: string | null;
+  assembledTextHash?: string | null;
+  rawTextPreview?: string | null;
+  assembledTextPreview?: string | null;
+  sourceRequestSeqs?: number[] | null;
+  supportingRawSeqs?: number[] | null;
+  appendedTokenRange?: {
+    start: number;
+    end: number;
+  } | null;
+  appendedBySeq?: number[] | null;
+  rawMatchIndex?: number | null;
+  assembledMatchIndex?: number | null;
+  forwardMatchCreatedByAssembly?: boolean;
+  promptIncluded?: boolean;
+  promptHash?: string | null;
+  promptLength?: number | null;
+  promptPreview?: string | null;
+  providerRequestId?: string | null;
+  chunkBytes?: number | null;
+  chunkMimeType?: string | null;
+  chunkDurationMs?: number | null;
+  chunkEnqueueTs?: number | null;
+  captureStartedAtMs?: number | null;
+  captureEndedAtMs?: number | null;
+  captureRuntimePath?: string | null;
+  captureRecorderGeneration?: number | null;
+  captureActivityVerdict?: string | null;
+  captureActivityEvidence?: {
+    runtimeSpeechFresh?: boolean;
+    vadSpeechFresh?: boolean;
+    speechRunningActual?: boolean;
+    silenceActive?: boolean;
+    captureEvidenceAvailable?: boolean;
+  } | null;
+  semanticAdmissionVerdict?: string | null;
 };
 
 export type PendingMatch = {

@@ -298,6 +298,74 @@ describe('whisper bridge recorder segmentation', () => {
     await flushMicrotasks();
   });
 
+  test('emits lineage for multi-chunk assembled finals', async () => {
+    jest.doMock('../../src/forge/supabaseClient', () => ({
+      supabase: {
+        auth: {
+          getSession: jest.fn(async () => ({
+            data: {
+              session: {
+                access_token: 'test-access-token',
+              },
+            },
+            error: null,
+          })),
+        },
+      },
+    }));
+
+    const recorderInstances = installMockRecorder();
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(createMockJsonResponse(200, {
+        ok: true,
+        text: 'Florida citrus did not',
+        provider_request_id: 'req-1',
+      }))
+      .mockResolvedValueOnce(createMockJsonResponse(200, {
+        ok: true,
+        text: 'did not start small',
+        provider_request_id: 'req-2',
+      }));
+    (globalThis as any).fetch = fetchMock;
+
+    const inputStream = new MockMediaStream([new MockTrack()]);
+    (window as any).__tpMic = {
+      requestMic: jest.fn(async () => inputStream),
+    };
+
+    const { createWhisperBridgeRecognizer } = await import('../../src/speech/engines/whisper-bridge');
+    const recognizer = createWhisperBridgeRecognizer({ endpointingMs: 100 });
+    const finalPayloads: any[] = [];
+    recognizer.on('final', (payload) => finalPayloads.push(payload));
+
+    await recognizer.start();
+
+    recorderInstances[0]?.ondataavailable?.({
+      data: new Blob([new Uint8Array(4096)], { type: 'audio/webm' }),
+      timecode: 1000,
+    } as BlobEvent);
+    await flushMicrotasks();
+
+    recorderInstances[0]?.ondataavailable?.({
+      data: new Blob([new Uint8Array(4096)], { type: 'audio/webm' }),
+      timecode: 2000,
+    } as BlobEvent);
+    await flushMicrotasks();
+
+    const lastPayload = finalPayloads[finalPayloads.length - 1];
+    expect(lastPayload).toBeTruthy();
+    expect(lastPayload.rawText).toBe('did not start small');
+    expect(lastPayload.assembledText).toContain('Florida citrus did not start small');
+    expect(lastPayload.sourceRequestSeqs).toEqual([1, 2]);
+    expect(lastPayload.supportingRawSeqs).toEqual([1, 2]);
+    expect(lastPayload.appendedTokenRange).toEqual({ start: 4, end: 5 });
+    expect(lastPayload.appendedBySeq).toEqual([2]);
+    expect(lastPayload.requestGeneration).toBe(1);
+
+    recognizer.stop();
+    await flushMicrotasks();
+  });
+
   test('drops upstream header-overflow chunks and continues with later segments', async () => {
     jest.doMock('../../src/forge/supabaseClient', () => ({
       supabase: {

@@ -51283,6 +51283,7 @@ function createAsrScrollDriver(options = {}) {
         return;
       }
     }
+    let liveTickAuthorityReason = null;
     if (pursuitTargetTop < current2) {
       emitDevDiagnostic(
         "ASR_FORWARD_WRITE_SUPPRESSED_TARGET_SATISFIED",
@@ -51521,7 +51522,7 @@ function createAsrScrollDriver(options = {}) {
     let liveTickAuthorityPocketZone = "unknown";
     let liveTickReaderPocketZone = "unknown";
     let liveTickSelectedAuthority = "hold";
-    let liveTickAuthorityReason = "marker_error_within_tolerance";
+    liveTickAuthorityReason = "marker_error_within_tolerance";
     const liveTickBaseAuthority = "pocket_authority";
     const liveTickCandidateAuthorities = /* @__PURE__ */ new Set();
     const liveTickConflictingAuthorities = /* @__PURE__ */ new Set();
