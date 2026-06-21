@@ -48,8 +48,12 @@ type WhisperBridgePayload = {
   requestCaptureEvidence?: Array<{
     requestSeq: number;
     verdict: "voice_detected" | "silence_detected" | "unknown";
+    evidenceSource?: string | null;
     vadSpeaking?: boolean | null;
     rmsDbfs?: number | null;
+    peakDbfs?: number | null;
+    activeVadFrameCount?: number | null;
+    activeVadDurationMs?: number | null;
     captureStartedAtMs?: number | null;
     captureEndedAtMs?: number | null;
     lastVoiceAtMs?: number | null;
@@ -115,14 +119,27 @@ type ChunkEnvelope = {
   captureEvidence: {
     requestSeq: number;
     verdict: "voice_detected" | "silence_detected" | "unknown";
+    evidenceSource: string | null;
     vadSpeaking: boolean | null;
     rmsDbfs: number | null;
+    peakDbfs: number | null;
+    activeVadFrameCount: number;
+    activeVadDurationMs: number;
     captureStartedAtMs: number | null;
     captureEndedAtMs: number | null;
     lastVoiceAtMs: number | null;
     lastSilenceAtMs: number | null;
     silenceBoundaryAtMs: number | null;
   };
+};
+
+type CaptureWindowStats = {
+  sampleCount: number;
+  rmsDbfs: number | null;
+  peakDbfs: number | null;
+  activeVadFrameCount: number;
+  activeVadDurationMs: number;
+  lastSpeaking: boolean | null;
 };
 
 type WhisperBridgeRecognizerOptions = {
@@ -603,6 +620,7 @@ class WhisperBridgeRecognizer {
   private lastCaptureConstraints: unknown = null;
   private captureRecorderGeneration = 0;
   private captureStartedAtMs = 0;
+  private nextChunkCaptureStartedAtMs = 0;
   private lastVadSpeaking: boolean | null = null;
   private lastVadRmsDbfs: number | null = null;
   private lastVadAtMs = 0;
@@ -611,6 +629,19 @@ class WhisperBridgeRecognizer {
   private lastSilenceBoundaryAtMs = 0;
   private silenceActive = false;
   private readonly requestCaptureEvidenceBySeq = new Map<number, ChunkEnvelope["captureEvidence"]>();
+  private captureAnalyserCtx: AudioContext | null = null;
+  private captureAnalyser: AnalyserNode | null = null;
+  private captureAnalyserSource: MediaStreamAudioSourceNode | null = null;
+  private captureAnalyserBuffer: Float32Array | null = null;
+  private captureAnalyserTimer: ReturnType<typeof globalThis.setInterval> | null = null;
+  private captureWindowStats: CaptureWindowStats = {
+    sampleCount: 0,
+    rmsDbfs: null,
+    peakDbfs: null,
+    activeVadFrameCount: 0,
+    activeVadDurationMs: 0,
+    lastSpeaking: null,
+  };
 
   constructor(options: WhisperBridgeRecognizerOptions = {}) {
     this.route = options.route || DEFAULT_ROUTE;
@@ -664,8 +695,10 @@ class WhisperBridgeRecognizer {
     captureStartedAtMs: number | null,
     captureEndedAtMs: number | null,
   ): ChunkEnvelope["captureEvidence"] {
+    const streamStats = this.captureWindowStats;
     const captureStart = Number.isFinite(Number(captureStartedAtMs)) ? Number(captureStartedAtMs) : null;
     const captureEnd = Number.isFinite(Number(captureEndedAtMs)) ? Number(captureEndedAtMs) : null;
+    const hasStreamStats = streamStats.sampleCount > 0;
     const voiceSeenInWindow =
       this.lastVadVoiceAtMs > 0 &&
       captureStart != null &&
@@ -689,22 +722,130 @@ class WhisperBridgeRecognizer {
         this.lastVadAtMs <= (captureEnd + 250)
       );
     let verdict: "voice_detected" | "silence_detected" | "unknown" = "unknown";
-    if (voiceSeenInWindow || this.lastVadSpeaking === true) {
+    let evidenceSource: string | null = null;
+    if (hasStreamStats) {
+      evidenceSource = "stream_analyser";
+      if (streamStats.activeVadFrameCount > 0 || streamStats.lastSpeaking === true) {
+        verdict = "voice_detected";
+      } else if (streamStats.sampleCount > 0) {
+        verdict = "silence_detected";
+      }
+    }
+    if (verdict === "unknown" && (voiceSeenInWindow || this.lastVadSpeaking === true)) {
       verdict = "voice_detected";
-    } else if (silenceSeenInWindow || this.silenceActive) {
+      evidenceSource = evidenceSource || "tp_vad_window";
+    } else if (verdict === "unknown" && (silenceSeenInWindow || this.silenceActive)) {
       verdict = "silence_detected";
+      evidenceSource = evidenceSource || "tp_vad_window";
     }
     return {
       requestSeq: seq,
       verdict,
-      vadSpeaking: this.lastVadSpeaking,
-      rmsDbfs: this.lastVadRmsDbfs,
+      evidenceSource,
+      vadSpeaking: hasStreamStats ? streamStats.lastSpeaking : this.lastVadSpeaking,
+      rmsDbfs: hasStreamStats ? streamStats.rmsDbfs : this.lastVadRmsDbfs,
+      peakDbfs: hasStreamStats ? streamStats.peakDbfs : null,
+      activeVadFrameCount: hasStreamStats ? streamStats.activeVadFrameCount : 0,
+      activeVadDurationMs: hasStreamStats ? streamStats.activeVadDurationMs : 0,
       captureStartedAtMs: captureStart,
       captureEndedAtMs: captureEnd,
       lastVoiceAtMs: this.lastVadVoiceAtMs > 0 ? this.lastVadVoiceAtMs : null,
       lastSilenceAtMs: this.lastSilenceAtMs > 0 ? this.lastSilenceAtMs : null,
       silenceBoundaryAtMs: this.lastSilenceBoundaryAtMs > 0 ? this.lastSilenceBoundaryAtMs : null,
     };
+  }
+
+  private resetCaptureWindowStats(): void {
+    this.captureWindowStats = {
+      sampleCount: 0,
+      rmsDbfs: null,
+      peakDbfs: null,
+      activeVadFrameCount: 0,
+      activeVadDurationMs: 0,
+      lastSpeaking: null,
+    };
+  }
+
+  private sampleCaptureAnalyser(): void {
+    const analyser = this.captureAnalyser;
+    const buffer = this.captureAnalyserBuffer;
+    if (!analyser || !buffer) return;
+    try {
+      analyser.getFloatTimeDomainData(buffer as unknown as Float32Array<ArrayBuffer>);
+      let sumSq = 0;
+      let peak = 0;
+      for (let idx = 0; idx < buffer.length; idx += 1) {
+        const sample = Number(buffer[idx]) || 0;
+        sumSq += sample * sample;
+        const abs = Math.abs(sample);
+        if (abs > peak) peak = abs;
+      }
+      const rms = Math.sqrt(sumSq / Math.max(1, buffer.length));
+      const rmsDbfs = 20 * Math.log10(Math.max(rms, 1e-12));
+      const peakDbfs = 20 * Math.log10(Math.max(peak, 1e-12));
+      const activeProfile = getActiveAsrProfile();
+      const tonDb = Number.isFinite(Number(activeProfile?.vad?.tonDb)) ? Number(activeProfile?.vad?.tonDb) : -38;
+      const toffDb = Number.isFinite(Number(activeProfile?.vad?.toffDb)) ? Number(activeProfile?.vad?.toffDb) : -44;
+      const thresholdDb = this.captureWindowStats.lastSpeaking === true ? toffDb : tonDb;
+      const speaking = rmsDbfs >= thresholdDb;
+      const stats = this.captureWindowStats;
+      stats.sampleCount += 1;
+      stats.rmsDbfs = stats.rmsDbfs == null ? rmsDbfs : Math.max(stats.rmsDbfs, rmsDbfs);
+      stats.peakDbfs = stats.peakDbfs == null ? peakDbfs : Math.max(stats.peakDbfs, peakDbfs);
+      stats.lastSpeaking = speaking;
+      if (speaking) {
+        stats.activeVadFrameCount += 1;
+        stats.activeVadDurationMs += 20;
+        this.lastVadVoiceAtMs = Date.now();
+        this.silenceActive = false;
+      } else {
+        this.lastSilenceAtMs = Date.now();
+      }
+      this.lastVadSpeaking = speaking;
+      this.lastVadRmsDbfs = rmsDbfs;
+      this.lastVadAtMs = Date.now();
+    } catch {
+      // best-effort capture metrics only
+    }
+  }
+
+  private async stopCaptureAnalyser(): Promise<void> {
+    if (this.captureAnalyserTimer) {
+      try { clearInterval(this.captureAnalyserTimer); } catch {}
+      this.captureAnalyserTimer = null;
+    }
+    try { this.captureAnalyserSource?.disconnect(); } catch {}
+    try { this.captureAnalyser?.disconnect(); } catch {}
+    this.captureAnalyserSource = null;
+    this.captureAnalyser = null;
+    this.captureAnalyserBuffer = null;
+    const ctx = this.captureAnalyserCtx;
+    this.captureAnalyserCtx = null;
+    try { await ctx?.close?.(); } catch {}
+  }
+
+  private async startCaptureAnalyser(stream: MediaStream): Promise<void> {
+    await this.stopCaptureAnalyser();
+    this.resetCaptureWindowStats();
+    const AC = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext | undefined;
+    if (!AC) return;
+    try {
+      const ctx = new AC();
+      try {
+        if (typeof ctx.resume === "function" && ctx.state === "suspended") await ctx.resume();
+      } catch {}
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      source.connect(analyser);
+      this.captureAnalyserCtx = ctx;
+      this.captureAnalyserSource = source;
+      this.captureAnalyser = analyser;
+      this.captureAnalyserBuffer = new Float32Array(analyser.fftSize);
+      this.captureAnalyserTimer = globalThis.setInterval(() => this.sampleCaptureAnalyser(), 20);
+    } catch {
+      await this.stopCaptureAnalyser();
+    }
   }
 
   on(event: WhisperBridgeEvent, listener: WhisperBridgeListener): () => void {
@@ -988,6 +1129,7 @@ class WhisperBridgeRecognizer {
       this.logCapturePolicy("raw-mic", true, reason);
       this.logTrackState("raw-fallback", cloned);
       this.flowProbeLogged = false;
+      await this.startCaptureAnalyser(cloned);
       await this.probeAudioFlow(cloned, "raw-fallback");
       try {
         console.info("[ASR_WHISPER_RAW_FALLBACK_STARTED]", {
@@ -1051,6 +1193,7 @@ class WhisperBridgeRecognizer {
     this.flowProbeLogged = false;
     this.recordingActiveAtCaptureStart = this.isRecordingActiveNow();
     this.requestCaptureEvidenceBySeq.clear();
+    this.resetCaptureWindowStats();
     this.addCaptureSignalListeners();
 
     const activeProfile = getActiveAsrProfile();
@@ -1127,6 +1270,7 @@ class WhisperBridgeRecognizer {
       }
     }
     this.recorderStream = captureStream;
+    await this.startCaptureAnalyser(captureStream);
     const mimeType = chooseMimeType();
     this.recorderMimeType = mimeType;
     this.transcriptWindow = [];
@@ -1291,6 +1435,8 @@ class WhisperBridgeRecognizer {
     this.pendingRecorderStop = null;
     this.captureRecorderGeneration += 1;
     this.captureStartedAtMs = Date.now();
+    this.nextChunkCaptureStartedAtMs = this.captureStartedAtMs;
+    this.resetCaptureWindowStats();
 
     recorder.ondataavailable = async (event: BlobEvent) => {
       const blob = event.data;
@@ -1384,9 +1530,10 @@ class WhisperBridgeRecognizer {
       this.zeroByteChunkStreak = 0;
       this.seq = nextSeq;
       const enqueueTs = Date.now();
+      const captureWindowStartedAtMs = this.nextChunkCaptureStartedAtMs > 0 ? this.nextChunkCaptureStartedAtMs : this.captureStartedAtMs;
       const captureEvidence = this.buildChunkCaptureEvidence(
         this.seq,
-        this.captureStartedAtMs > 0 ? this.captureStartedAtMs : null,
+        captureWindowStartedAtMs > 0 ? captureWindowStartedAtMs : null,
         enqueueTs,
       );
       this.requestCaptureEvidenceBySeq.set(this.seq, captureEvidence);
@@ -1395,10 +1542,12 @@ class WhisperBridgeRecognizer {
         seq: this.seq,
         durationMs: chunkDurationMs,
         enqueueTs,
-        captureStartedAtMs: this.captureStartedAtMs > 0 ? this.captureStartedAtMs : null,
+        captureStartedAtMs: captureWindowStartedAtMs > 0 ? captureWindowStartedAtMs : null,
         captureEndedAtMs: enqueueTs,
         captureEvidence,
       });
+      this.nextChunkCaptureStartedAtMs = enqueueTs;
+      this.resetCaptureWindowStats();
       const queueAfter = this.queue.length;
       const runMetaForQueue = this.readRunMeta();
       if (!this.firstAudioChunkLogged) {
@@ -1415,6 +1564,10 @@ class WhisperBridgeRecognizer {
             queueDepthAfter: queueAfter,
             requestCaptureVerdict: captureEvidence.verdict,
             requestCaptureRmsDbfs: captureEvidence.rmsDbfs,
+            requestCapturePeakDbfs: captureEvidence.peakDbfs,
+            requestCaptureEvidenceSource: captureEvidence.evidenceSource,
+            requestCaptureActiveVadFrameCount: captureEvidence.activeVadFrameCount,
+            requestCaptureActiveVadDurationMs: captureEvidence.activeVadDurationMs,
             elapsedSinceLiveStartMs: runMetaForQueue.elapsedSinceLiveStartMs,
           });
         } catch {
@@ -1434,6 +1587,10 @@ class WhisperBridgeRecognizer {
           queueDepthAfter: queueAfter,
           requestCaptureVerdict: captureEvidence.verdict,
           requestCaptureRmsDbfs: captureEvidence.rmsDbfs,
+          requestCapturePeakDbfs: captureEvidence.peakDbfs,
+          requestCaptureEvidenceSource: captureEvidence.evidenceSource,
+          requestCaptureActiveVadFrameCount: captureEvidence.activeVadFrameCount,
+          requestCaptureActiveVadDurationMs: captureEvidence.activeVadDurationMs,
           elapsedSinceLiveStartMs: runMetaForQueue.elapsedSinceLiveStartMs,
         });
       } catch {
@@ -1452,6 +1609,10 @@ class WhisperBridgeRecognizer {
             chunkDurationMs: chunkDurationMs ?? null,
             requestCaptureVerdict: captureEvidence.verdict,
             requestCaptureRmsDbfs: captureEvidence.rmsDbfs,
+            requestCapturePeakDbfs: captureEvidence.peakDbfs,
+            requestCaptureEvidenceSource: captureEvidence.evidenceSource,
+            requestCaptureActiveVadFrameCount: captureEvidence.activeVadFrameCount,
+            requestCaptureActiveVadDurationMs: captureEvidence.activeVadDurationMs,
           },
         }));
       } catch {
@@ -1590,6 +1751,7 @@ class WhisperBridgeRecognizer {
     this.recorder = null;
     this.running = false;
     this.removeCaptureSignalListeners();
+    void this.stopCaptureAnalyser();
     this.cleanupRecorderStream();
     this.syncAiActivity();
     if (!this.endEmitted) {

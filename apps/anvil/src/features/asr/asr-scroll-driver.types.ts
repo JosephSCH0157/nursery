@@ -69,8 +69,12 @@ export type TranscriptDetail = {
   requestCaptureEvidence?: Array<{
     requestSeq: number;
     verdict: 'voice_detected' | 'silence_detected' | 'unknown';
+    evidenceSource?: string | null;
     vadSpeaking?: boolean | null;
     rmsDbfs?: number | null;
+    peakDbfs?: number | null;
+    activeVadFrameCount?: number | null;
+    activeVadDurationMs?: number | null;
     captureStartedAtMs?: number | null;
     captureEndedAtMs?: number | null;
     lastVoiceAtMs?: number | null;

@@ -319,9 +319,12 @@ describe('ASR commit freshness gate', () => {
     await jest.advanceTimersByTimeAsync(120);
     driver.ingest('One. Two.', true, detail);
     await jest.advanceTimersByTimeAsync(120);
+    await jest.advanceTimersByTimeAsync(2600);
 
     expect(driver.getLastLineIndex()).toBe(1);
     expect(detail.semanticAdmissionVerdict).toBe('capture_activity_unavailable');
+    expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_CAPTURE_PROOF_INTEGRATION_FAULT'))).toBe(true);
+    expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_BACKEND_RESTART_REQUESTED'))).toBe(false);
 
     driver.dispose();
   });

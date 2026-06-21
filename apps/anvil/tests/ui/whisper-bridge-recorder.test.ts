@@ -85,6 +85,55 @@ function installMockRecorder(): MockMediaRecorderInstance[] {
   return recorderInstances;
 }
 
+function installMockAudioContext(initialLevel = 0): { setLevel(level: number): void } {
+  let currentLevel = initialLevel;
+
+  class MockAnalyserNode {
+    fftSize = 1024;
+    connect() {}
+    disconnect() {}
+    getFloatTimeDomainData(buffer: Float32Array) {
+      for (let idx = 0; idx < buffer.length; idx += 1) buffer[idx] = currentLevel;
+    }
+    getByteTimeDomainData(buffer: Uint8Array) {
+      const centered = Math.max(-1, Math.min(1, currentLevel));
+      const value = Math.max(0, Math.min(255, Math.round(128 + centered * 127)));
+      for (let idx = 0; idx < buffer.length; idx += 1) buffer[idx] = value;
+    }
+  }
+
+  class MockSourceNode {
+    connect() {}
+    disconnect() {}
+  }
+
+  class MockAudioContext {
+    state: AudioContextState = 'running';
+    createMediaStreamSource(_stream: MockMediaStream) {
+      return new MockSourceNode() as unknown as MediaStreamAudioSourceNode;
+    }
+    createAnalyser() {
+      return new MockAnalyserNode() as unknown as AnalyserNode;
+    }
+    resume() {
+      this.state = 'running';
+      return Promise.resolve();
+    }
+    close() {
+      this.state = 'closed';
+      return Promise.resolve();
+    }
+  }
+
+  (window as any).AudioContext = MockAudioContext;
+  (window as any).webkitAudioContext = MockAudioContext;
+  return {
+    setLevel(level: number) {
+      currentLevel = level;
+    },
+  };
+}
+
 async function flushMicrotasks(turns = 8): Promise<void> {
   for (let idx = 0; idx < turns; idx += 1) {
     await Promise.resolve();
@@ -124,6 +173,8 @@ describe('whisper bridge recorder segmentation', () => {
     delete (window as any).__tpAsrRunKey;
     delete (window as any).__tpAsrRunGeneration;
     delete (window as any).__tpAsrRunStartedAt;
+    delete (window as any).AudioContext;
+    delete (window as any).webkitAudioContext;
   });
 
   test('starts MediaRecorder with a timeslice and still rolls recorder segments', async () => {
@@ -381,6 +432,93 @@ describe('whisper bridge recorder segmentation', () => {
     recognizer.stop();
     await flushMicrotasks();
   });
+
+  test('seals processed-stream voiced and silent windows with stream-analyser capture evidence', async () => {
+    jest.doMock('../../src/forge/supabaseClient', () => ({
+      supabase: {
+        auth: {
+          getSession: jest.fn(async () => ({
+            data: {
+              session: {
+                access_token: 'test-access-token',
+              },
+            },
+            error: null,
+          })),
+        },
+      },
+    }));
+
+    const level = installMockAudioContext(0.2);
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+    const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const recorderInstances = installMockRecorder();
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(createMockJsonResponse(200, {
+        ok: true,
+        text: 'Voiced chunk',
+        provider_request_id: 'req-1',
+      }))
+      .mockResolvedValueOnce(createMockJsonResponse(200, {
+        ok: true,
+        text: 'Silent chunk',
+        provider_request_id: 'req-2',
+      }));
+    (globalThis as any).fetch = fetchMock;
+
+    const inputStream = new MockMediaStream([new MockTrack()]);
+    (window as any).__tpMic = {
+      requestMic: jest.fn(async () => inputStream),
+    };
+
+    const { createWhisperBridgeRecognizer } = await import('../../src/speech/engines/whisper-bridge');
+    const recognizer = createWhisperBridgeRecognizer({ endpointingMs: 100 });
+    const finalPayloads: any[] = [];
+    recognizer.on('final', (payload) => finalPayloads.push(payload));
+
+    const startPromise = recognizer.start();
+    await flushMicrotasks();
+    jest.advanceTimersByTime(160);
+    await startPromise;
+    jest.advanceTimersByTime(120);
+    await flushMicrotasks();
+
+    recorderInstances[0]?.ondataavailable?.({
+      data: new Blob([new Uint8Array(4096)], { type: 'audio/webm' }),
+      timecode: 1000,
+    } as BlobEvent);
+    await flushMicrotasks();
+
+    level.setLevel(0.0005);
+    jest.advanceTimersByTime(120);
+    await flushMicrotasks();
+
+    recorderInstances[0]?.ondataavailable?.({
+      data: new Blob([new Uint8Array(4096)], { type: 'audio/webm' }),
+      timecode: 2000,
+    } as BlobEvent);
+    await flushMicrotasks();
+
+    expect(finalPayloads[0]?.requestCaptureVerdict).toBe('voice_detected');
+    expect(finalPayloads[0]?.requestCaptureEvidence?.[0]).toEqual(expect.objectContaining({
+      verdict: 'voice_detected',
+      evidenceSource: 'stream_analyser',
+      activeVadFrameCount: expect.any(Number),
+    }));
+    expect(finalPayloads[1]?.requestCaptureVerdict).toBe('silence_detected');
+    expect(finalPayloads[1]?.requestCaptureEvidence?.[0]).toEqual(expect.objectContaining({
+      verdict: 'silence_detected',
+      evidenceSource: 'stream_analyser',
+      activeVadFrameCount: 0,
+    }));
+
+    recognizer.stop();
+    await flushMicrotasks();
+    infoSpy.mockRestore();
+    debugSpy.mockRestore();
+    warnSpy.mockRestore();
+  }, 30000);
 
   test('live asr requests suppress prompt injection during the audit pass', async () => {
     jest.doMock('../../src/forge/supabaseClient', () => ({

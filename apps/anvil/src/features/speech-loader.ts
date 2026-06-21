@@ -138,8 +138,12 @@ type TranscriptPayload = {
   requestCaptureEvidence?: Array<{
     requestSeq: number;
     verdict: 'voice_detected' | 'silence_detected' | 'unknown';
+    evidenceSource?: string | null;
     vadSpeaking?: boolean | null;
     rmsDbfs?: number | null;
+    peakDbfs?: number | null;
+    activeVadFrameCount?: number | null;
+    activeVadDurationMs?: number | null;
     captureStartedAtMs?: number | null;
     captureEndedAtMs?: number | null;
     lastVoiceAtMs?: number | null;
@@ -1945,8 +1949,12 @@ function normalizeRequestCaptureEvidence(values: unknown): NonNullable<Transcrip
     normalized.push({
       requestSeq: Math.max(0, Math.floor(requestSeq)),
       verdict,
+      evidenceSource: typeof entry.evidenceSource === 'string' ? String(entry.evidenceSource) : null,
       vadSpeaking: typeof entry.vadSpeaking === 'boolean' ? Boolean(entry.vadSpeaking) : null,
       rmsDbfs: Number.isFinite(Number(entry.rmsDbfs)) ? Number(entry.rmsDbfs) : null,
+      peakDbfs: Number.isFinite(Number(entry.peakDbfs)) ? Number(entry.peakDbfs) : null,
+      activeVadFrameCount: Number.isFinite(Number(entry.activeVadFrameCount)) ? Math.max(0, Math.floor(Number(entry.activeVadFrameCount))) : null,
+      activeVadDurationMs: Number.isFinite(Number(entry.activeVadDurationMs)) ? Math.max(0, Number(entry.activeVadDurationMs)) : null,
       captureStartedAtMs: Number.isFinite(Number(entry.captureStartedAtMs)) ? Number(entry.captureStartedAtMs) : null,
       captureEndedAtMs: Number.isFinite(Number(entry.captureEndedAtMs)) ? Number(entry.captureEndedAtMs) : null,
       lastVoiceAtMs: Number.isFinite(Number(entry.lastVoiceAtMs)) ? Number(entry.lastVoiceAtMs) : null,

@@ -8061,6 +8061,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastRescueSpeechTokenCount = 0;
   let lastFinalTranscriptNorm = '';
   let lastFinalTranscriptAt = 0;
+  let lastObservedFinalTranscriptAt = 0;
   let lastFinalTranscriptRaw = '';
   let lastFinalTranscriptRunKey = '';
   let lastFinalTranscriptRunGeneration: number | null = null;
@@ -8362,6 +8363,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let backendLivenessTimer: ReturnType<typeof setInterval> | null = null;
   let lastSpeechRunningActualAtMs = 0;
   let lastRuntimeSpeechAt = 0;
+  let lastCaptureProofIntegrationFaultAt = 0;
+  let lastCaptureProofIntegrationFaultReason = '';
   let readerIdleForwardHoldActive = false;
   let readerIdleForwardHoldSinceMs = 0;
   let readerIdleForwardHoldSettleUsed = false;
@@ -9285,8 +9288,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastTranscriptPacketAt = 0;
     lastPartialTranscriptAt = 0;
     lastFinalTranscriptAt = 0;
+    lastObservedFinalTranscriptAt = 0;
     lastFinalTranscriptRunKey = '';
     lastFinalTranscriptRunGeneration = null;
+    lastCaptureProofIntegrationFaultAt = 0;
+    lastCaptureProofIntegrationFaultReason = '';
     readerIdleForwardHoldActive = false;
     readerIdleForwardHoldSinceMs = 0;
     readerIdleForwardHoldSettleUsed = false;
@@ -14274,6 +14280,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       transcriptStaleMs: DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS,
     });
     if (backendTranscriptStall && now - lastBackendTranscriptStaleAt >= 1000) {
+      const captureProofIntegrationFaultActive =
+        lastCaptureProofIntegrationFaultAt > 0 &&
+        now - lastCaptureProofIntegrationFaultAt <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS;
       lastBackendTranscriptStaleAt = now;
       const transcriptAgeForLog = Number.isFinite(transcriptAgeMs as number)
         ? Number(transcriptAgeMs)
@@ -14292,12 +14301,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           }),
         );
       } catch {}
-      requestBackendRestart(
-        'backend_transcript_starvation',
-        now,
-        transcriptAgeForLog,
-        audioAgeForLog,
-      );
+      if (captureProofIntegrationFaultActive) {
+        try {
+          console.warn('[ASR_CAPTURE_PROOF_INTEGRATION_FAULT]', {
+            reason: lastCaptureProofIntegrationFaultReason || 'capture_activity_unavailable',
+            source: 'backend_liveness_watchdog',
+            transcriptAgeMs: transcriptAgeForLog,
+            audioAgeMs: audioAgeForLog,
+            recognizerAttached,
+            speechActive,
+            activeReadMode,
+          });
+        } catch {}
+      } else {
+        requestBackendRestart(
+          'backend_transcript_starvation',
+          now,
+          transcriptAgeForLog,
+          audioAgeForLog,
+        );
+      }
     }
   };
   function syncBackendLivenessTimer() {
@@ -22305,8 +22328,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ? Math.max(0, freshnessNowTs - visualProgressBaseAt)
         : Number.POSITIVE_INFINITY;
     const transcriptAgeForStall =
-      lastFinalTranscriptAt > 0
-        ? Math.max(0, freshnessNowTs - lastFinalTranscriptAt)
+      lastObservedFinalTranscriptAt > 0
+        ? Math.max(0, freshnessNowTs - lastObservedFinalTranscriptAt)
         : Number.POSITIVE_INFINITY;
     const audioAgeForStall =
       lastTranscriptPacketAt > 0
@@ -22357,19 +22380,35 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const shouldEmitLiveScrollStall =
         lastAsrLiveScrollStallSignature !== liveScrollStallSignature ||
         freshnessNowTs - lastAsrLiveScrollStallLoggedAt >= DEFAULT_ASR_LIVE_SCROLL_STALL_RECOVERY_COOLDOWN_MS;
+      const captureProofIntegrationFaultActive =
+        lastCaptureProofIntegrationFaultAt > 0 &&
+        freshnessNowTs - lastCaptureProofIntegrationFaultAt <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS;
       if (liveScrollStallDecision.backendTranscriptStale && shouldEmitLiveScrollStall) {
-        const restartResult = requestBackendRestart(
-          'live_scroll_stalled_backend_stale',
-          freshnessNowTs,
-          Number.isFinite(transcriptAgeForStall) ? transcriptAgeForStall : Number.POSITIVE_INFINITY,
-          Number.isFinite(audioAgeForStall) ? audioAgeForStall : Number.POSITIVE_INFINITY,
-        );
-        liveScrollStallRestartAction =
-          restartResult === 'requested'
-            ? 'restart_requested'
-            : (restartResult === 'already_restarted_in_window'
-              ? 'restart_cooldown_blocked'
-              : 'recognizer_controls_unavailable');
+        if (captureProofIntegrationFaultActive) {
+          liveScrollStallRestartAction = 'capture_proof_fault';
+          try {
+            console.warn('[ASR_CAPTURE_PROOF_INTEGRATION_FAULT]', {
+              reason: lastCaptureProofIntegrationFaultReason || 'capture_activity_unavailable',
+              source: 'live_scroll_stall_watchdog',
+              transcriptAgeMs: Number.isFinite(transcriptAgeForStall) ? transcriptAgeForStall : Number.POSITIVE_INFINITY,
+              audioAgeMs: Number.isFinite(audioAgeForStall) ? audioAgeForStall : Number.POSITIVE_INFINITY,
+              currentLineIdx: lastLineIndex,
+            });
+          } catch {}
+        } else {
+          const restartResult = requestBackendRestart(
+            'live_scroll_stalled_backend_stale',
+            freshnessNowTs,
+            Number.isFinite(transcriptAgeForStall) ? transcriptAgeForStall : Number.POSITIVE_INFINITY,
+            Number.isFinite(audioAgeForStall) ? audioAgeForStall : Number.POSITIVE_INFINITY,
+          );
+          liveScrollStallRestartAction =
+            restartResult === 'requested'
+              ? 'restart_requested'
+              : (restartResult === 'already_restarted_in_window'
+                ? 'restart_cooldown_blocked'
+                : 'recognizer_controls_unavailable');
+        }
       }
       const recoveryTargetIdx =
         Number.isFinite(liveScrollStallDecision.recoveryTargetIdx as number)
@@ -37531,6 +37570,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (semanticAdmissionVerdict) detail.captureActivityVerdict = semanticAdmissionVerdict;
       }
       if (semanticAdmissionVerdict) {
+        if (semanticAdmissionVerdict === 'capture_activity_unavailable') {
+          lastCaptureProofIntegrationFaultAt = now;
+          lastCaptureProofIntegrationFaultReason = semanticAdmissionVerdict;
+          emitHudStatus(
+            'asr_capture_proof_unavailable',
+            'ASR capture proof unavailable - transcripts visible, auto-follow paused',
+          );
+          try {
+            console.warn('[ASR_CAPTURE_PROOF_INTEGRATION_FAULT]', {
+              reason: semanticAdmissionVerdict,
+              transcriptSource: transcriptSource || 'unknown',
+              sourceRequestSeqs,
+              supportingRawSeqs,
+              requestCaptureEvidence,
+              clue: compacted ? formatLogSnippet(compacted, 72) : '',
+            });
+          } catch {}
+        }
         warnGuard('asr_semantic_admission_blocked', [
           `verdict=${semanticAdmissionVerdict}`,
           `transcriptSource=${transcriptSource || 'unknown'}`,
@@ -37549,6 +37606,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ]);
         return;
       }
+    }
+    if (requestCaptureVoiceDetected) {
+      lastCaptureProofIntegrationFaultAt = 0;
+      lastCaptureProofIntegrationFaultReason = '';
     }
     if (staleWhisperBridgeFinalPacket) {
       if (detail) {
@@ -38583,6 +38644,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     lastIngestAt = now;
     lastTranscriptPacketAt = now;
+    if (isFinal) {
+      lastObservedFinalTranscriptAt = now;
+    }
     if (lastAudioChunkAt <= 0 || now - lastAudioChunkAt > 250) {
       lastAudioChunkAt = now;
     }
