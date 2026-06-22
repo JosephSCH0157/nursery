@@ -182,6 +182,7 @@ describe('ASR commit freshness gate', () => {
       rawMatchIndex: 1,
       assembledMatchIndex: 2,
       forwardMatchCreatedByAssembly: true,
+      targetSupportProvenance: 'single_request_assembly_only',
       match: { bestIdx: 2, bestSim: 0.95, topScores: [{ idx: 2, score: 0.95 }] } as any,
     };
     driver.ingest('One. Two.', true, detail);
@@ -223,7 +224,7 @@ describe('ASR commit freshness gate', () => {
     driver.dispose();
   });
 
-  test('legitimate multi-chunk lineage can still advance when no single raw chunk fully supports the target', async () => {
+  test('voice-backed multi-chunk assembly can still advance when no single raw chunk fully supports the target', async () => {
     const driver = createAsrScrollDriver();
     driver.setLastLineIndex(1);
 
@@ -248,7 +249,8 @@ describe('ASR commit freshness gate', () => {
       ],
       rawMatchIndex: 1,
       assembledMatchIndex: 2,
-      forwardMatchCreatedByAssembly: false,
+      forwardMatchCreatedByAssembly: true,
+      targetSupportProvenance: 'voice_backed_multi_request_support',
       match: { bestIdx: 2, bestSim: 0.97, topScores: [{ idx: 2, score: 0.97 }] } as any,
     };
     driver.ingest('One. Two.', true, detail);
@@ -256,6 +258,43 @@ describe('ASR commit freshness gate', () => {
 
     expect(driver.getLastLineIndex()).toBe(2);
     expect(detail.semanticAdmissionVerdict ?? null).toBeNull();
+
+    driver.dispose();
+  });
+
+  test('unattributed forward-support assembly is blocked at semantic admission', async () => {
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+
+    const detail: any = {
+      currentIdx: 1,
+      matchId: 'unattributed-forward-support',
+      source: 'openai-whisper-bridge',
+      rawText: 'Two.',
+      assembledText: 'One. Two.',
+      sourceRequestSeqs: [18, 19],
+      supportingRawSeqs: [18, 19],
+      forwardSupportRequestSeqs: [],
+      requestCaptureEvidence: [
+        { requestSeq: 18, verdict: 'voice_detected', rmsDbfs: -18 },
+        { requestSeq: 19, verdict: 'voice_detected', rmsDbfs: -18 },
+      ],
+      rawMatchIndex: 1,
+      assembledMatchIndex: 2,
+      forwardMatchCreatedByAssembly: true,
+      targetSupportProvenance: 'unattributed_forward_support',
+      match: { bestIdx: 2, bestSim: 0.95, topScores: [{ idx: 2, score: 0.95 }] } as any,
+    };
+    driver.ingest('One. Two.', true, detail);
+    await jest.advanceTimersByTimeAsync(120);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+    expect(detail.semanticAdmissionVerdict).toBe('assembled_only_forward_match');
 
     driver.dispose();
   });

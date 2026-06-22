@@ -122,6 +122,7 @@ type TranscriptPayload = {
   rawMatchIndex?: number | null;
   assembledMatchIndex?: number | null;
   forwardMatchCreatedByAssembly?: boolean;
+  targetSupportProvenance?: string | null;
   promptIncluded?: boolean;
   promptHash?: string | null;
   promptLength?: number | null;
@@ -2140,9 +2141,11 @@ function logTranscriptEmitDebug(payload: TranscriptPayload): void {
       assembledTextPreview: payload.assembledTextPreview ?? (assembledText ? previewSpeechText(assembledText, 60) : null),
       sourceRequestSeqs: normalizeSeqArray(payload.sourceRequestSeqs),
       supportingRawSeqs: normalizeSeqArray(payload.supportingRawSeqs),
+      forwardSupportRequestSeqs: normalizeSeqArray((payload as { forwardSupportRequestSeqs?: unknown }).forwardSupportRequestSeqs),
       rawMatchIndex: payload.rawMatchIndex ?? null,
       assembledMatchIndex: payload.assembledMatchIndex ?? null,
       forwardMatchCreatedByAssembly: payload.forwardMatchCreatedByAssembly === true,
+      targetSupportProvenance: payload.targetSupportProvenance ?? null,
       captureActivityVerdict: payload.captureActivityVerdict ?? null,
       semanticAdmissionVerdict: payload.semanticAdmissionVerdict ?? null,
       promptIncluded: payload.promptIncluded === true,
@@ -3047,11 +3050,19 @@ function enrichTranscriptPayloadForAsr(payload: TranscriptPayload): TranscriptPa
   }
   (next as { forwardSupportRequestSeqs?: number[] | null }).forwardSupportRequestSeqs = forwardSupportSeqs;
   const lineageSeqs = forwardSupportSeqs.length ? forwardSupportSeqs : (supportingRawSeqs.length ? supportingRawSeqs : sourceRequestSeqs);
-  next.forwardMatchCreatedByAssembly =
+  const assemblyDivergedFromRaw =
     !rawAndAssembledEquivalent &&
     assembledMatchIndex != null &&
-    rawMatchIndex !== assembledMatchIndex &&
-    lineageSeqs.length <= 1;
+    rawMatchIndex !== assembledMatchIndex;
+  next.forwardMatchCreatedByAssembly = assemblyDivergedFromRaw;
+  next.targetSupportProvenance =
+    !assemblyDivergedFromRaw
+      ? 'direct_raw_support'
+      : (forwardSupportSeqs.length === 0
+        ? 'unattributed_forward_support'
+        : (sourceRequestSeqs.length <= 1
+          ? 'single_request_assembly_only'
+          : 'voice_backed_multi_request_support'));
   return next;
 }
 
@@ -3130,6 +3141,7 @@ function routeTranscript(input: string | (Partial<TranscriptPayload> & { text?: 
         rawMatchIndex: enriched.rawMatchIndex ?? null,
         assembledMatchIndex: enriched.assembledMatchIndex ?? null,
         forwardMatchCreatedByAssembly: enriched.forwardMatchCreatedByAssembly === true,
+        targetSupportProvenance: enriched.targetSupportProvenance ?? null,
         requestCaptureVerdict: enriched.requestCaptureVerdict ?? null,
         forwardSupportRequestSeqs: normalizeSeqArray((enriched as { forwardSupportRequestSeqs?: unknown }).forwardSupportRequestSeqs),
         captureActivityVerdict: enriched.captureActivityVerdict ?? null,
@@ -3188,6 +3200,7 @@ function routeTranscript(input: string | (Partial<TranscriptPayload> & { text?: 
         rawMatchIndex: enriched.rawMatchIndex ?? null,
         assembledMatchIndex: enriched.assembledMatchIndex ?? null,
         forwardMatchCreatedByAssembly: enriched.forwardMatchCreatedByAssembly === true,
+        targetSupportProvenance: enriched.targetSupportProvenance ?? null,
         requestCaptureVerdict: enriched.requestCaptureVerdict ?? null,
         forwardSupportRequestSeqs: normalizeSeqArray((enriched as { forwardSupportRequestSeqs?: unknown }).forwardSupportRequestSeqs),
         captureActivityVerdict: enriched.captureActivityVerdict ?? null,

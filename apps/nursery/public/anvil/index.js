@@ -42228,6 +42228,7 @@ function createAsrScrollDriver(options = {}) {
   let lastRescueSpeechTokenCount = 0;
   let lastFinalTranscriptNorm = "";
   let lastFinalTranscriptAt = 0;
+  let lastObservedFinalTranscriptAt = 0;
   let lastFinalTranscriptRaw = "";
   let lastFinalTranscriptRunKey = "";
   let lastFinalTranscriptRunGeneration = null;
@@ -42476,6 +42477,8 @@ function createAsrScrollDriver(options = {}) {
   let backendLivenessTimer = null;
   let lastSpeechRunningActualAtMs = 0;
   let lastRuntimeSpeechAt = 0;
+  let lastCaptureProofIntegrationFaultAt = 0;
+  let lastCaptureProofIntegrationFaultReason = "";
   let readerIdleForwardHoldActive = false;
   let readerIdleForwardHoldSinceMs = 0;
   let readerIdleForwardHoldSettleUsed = false;
@@ -43195,8 +43198,11 @@ function createAsrScrollDriver(options = {}) {
     lastTranscriptPacketAt = 0;
     lastPartialTranscriptAt = 0;
     lastFinalTranscriptAt = 0;
+    lastObservedFinalTranscriptAt = 0;
     lastFinalTranscriptRunKey = "";
     lastFinalTranscriptRunGeneration = null;
+    lastCaptureProofIntegrationFaultAt = 0;
+    lastCaptureProofIntegrationFaultReason = "";
     readerIdleForwardHoldActive = false;
     readerIdleForwardHoldSinceMs = 0;
     readerIdleForwardHoldSettleUsed = false;
@@ -47065,6 +47071,7 @@ function createAsrScrollDriver(options = {}) {
       transcriptStaleMs: DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS
     });
     if (backendTranscriptStall && now3 - lastBackendTranscriptStaleAt >= 1e3) {
+      const captureProofIntegrationFaultActive = lastCaptureProofIntegrationFaultAt > 0 && now3 - lastCaptureProofIntegrationFaultAt <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS;
       lastBackendTranscriptStaleAt = now3;
       const transcriptAgeForLog = Number.isFinite(transcriptAgeMs) ? Number(transcriptAgeMs) : Number.POSITIVE_INFINITY;
       const audioAgeForLog = Number.isFinite(audioAgeMs) ? Number(audioAgeMs) : Number.POSITIVE_INFINITY;
@@ -47080,12 +47087,27 @@ function createAsrScrollDriver(options = {}) {
         );
       } catch {
       }
-      requestBackendRestart(
-        "backend_transcript_starvation",
-        now3,
-        transcriptAgeForLog,
-        audioAgeForLog
-      );
+      if (captureProofIntegrationFaultActive) {
+        try {
+          console.warn("[ASR_CAPTURE_PROOF_INTEGRATION_FAULT]", {
+            reason: lastCaptureProofIntegrationFaultReason || "capture_activity_unavailable",
+            source: "backend_liveness_watchdog",
+            transcriptAgeMs: transcriptAgeForLog,
+            audioAgeMs: audioAgeForLog,
+            recognizerAttached,
+            speechActive: speechActive2,
+            activeReadMode
+          });
+        } catch {
+        }
+      } else {
+        requestBackendRestart(
+          "backend_transcript_starvation",
+          now3,
+          transcriptAgeForLog,
+          audioAgeForLog
+        );
+      }
     }
   };
   function syncBackendLivenessTimer() {
@@ -53265,7 +53287,7 @@ function createAsrScrollDriver(options = {}) {
     const resolvedRecoveryObedienceActive = resolvedCommand.movementAllowed && resolvedCommand.finalGear === "recovery" && resolvedCommand.finalMinStepPx > 0;
     const visualProgressBaseAt = lastMoveAt > 0 ? lastMoveAt : lastForwardCommitAt > 0 ? lastForwardCommitAt : 0;
     const noVisualProgressMs = visualProgressBaseAt > 0 ? Math.max(0, freshnessNowTs - visualProgressBaseAt) : Number.POSITIVE_INFINITY;
-    const transcriptAgeForStall = lastFinalTranscriptAt > 0 ? Math.max(0, freshnessNowTs - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
+    const transcriptAgeForStall = lastObservedFinalTranscriptAt > 0 ? Math.max(0, freshnessNowTs - lastObservedFinalTranscriptAt) : Number.POSITIVE_INFINITY;
     const audioAgeForStall = lastTranscriptPacketAt > 0 ? Math.max(0, freshnessNowTs - lastTranscriptPacketAt) : Number.POSITIVE_INFINITY;
     const stallAudioFresh = asrRuntimeSpeechRunningActual || hasRecentActualSpeech(freshnessNowTs) || hasRecentVadSpeechNow(freshnessNowTs);
     const liveScrollStallDecision = resolveAsrLiveScrollStall({
@@ -53307,14 +53329,29 @@ function createAsrScrollDriver(options = {}) {
         reason: liveScrollStallDecision.reason
       });
       const shouldEmitLiveScrollStall = lastAsrLiveScrollStallSignature !== liveScrollStallSignature || freshnessNowTs - lastAsrLiveScrollStallLoggedAt >= DEFAULT_ASR_LIVE_SCROLL_STALL_RECOVERY_COOLDOWN_MS;
+      const captureProofIntegrationFaultActive = lastCaptureProofIntegrationFaultAt > 0 && freshnessNowTs - lastCaptureProofIntegrationFaultAt <= DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS;
       if (liveScrollStallDecision.backendTranscriptStale && shouldEmitLiveScrollStall) {
-        const restartResult = requestBackendRestart(
-          "live_scroll_stalled_backend_stale",
-          freshnessNowTs,
-          Number.isFinite(transcriptAgeForStall) ? transcriptAgeForStall : Number.POSITIVE_INFINITY,
-          Number.isFinite(audioAgeForStall) ? audioAgeForStall : Number.POSITIVE_INFINITY
-        );
-        liveScrollStallRestartAction = restartResult === "requested" ? "restart_requested" : restartResult === "already_restarted_in_window" ? "restart_cooldown_blocked" : "recognizer_controls_unavailable";
+        if (captureProofIntegrationFaultActive) {
+          liveScrollStallRestartAction = "capture_proof_fault";
+          try {
+            console.warn("[ASR_CAPTURE_PROOF_INTEGRATION_FAULT]", {
+              reason: lastCaptureProofIntegrationFaultReason || "capture_activity_unavailable",
+              source: "live_scroll_stall_watchdog",
+              transcriptAgeMs: Number.isFinite(transcriptAgeForStall) ? transcriptAgeForStall : Number.POSITIVE_INFINITY,
+              audioAgeMs: Number.isFinite(audioAgeForStall) ? audioAgeForStall : Number.POSITIVE_INFINITY,
+              currentLineIdx: lastLineIndex
+            });
+          } catch {
+          }
+        } else {
+          const restartResult = requestBackendRestart(
+            "live_scroll_stalled_backend_stale",
+            freshnessNowTs,
+            Number.isFinite(transcriptAgeForStall) ? transcriptAgeForStall : Number.POSITIVE_INFINITY,
+            Number.isFinite(audioAgeForStall) ? audioAgeForStall : Number.POSITIVE_INFINITY
+          );
+          liveScrollStallRestartAction = restartResult === "requested" ? "restart_requested" : restartResult === "already_restarted_in_window" ? "restart_cooldown_blocked" : "recognizer_controls_unavailable";
+        }
       }
       const recoveryTargetIdx = Number.isFinite(liveScrollStallDecision.recoveryTargetIdx) ? Math.max(0, Math.floor(Number(liveScrollStallDecision.recoveryTargetIdx))) : -1;
       if (asr4VisualRecoveryLastNoMoveCommitContext) {
@@ -64751,6 +64788,8 @@ function createAsrScrollDriver(options = {}) {
     const transcriptAudioAgeMs = lastAudioChunkAt > 0 ? Math.max(0, transcriptReceivedAtMs - lastAudioChunkAt) : Number.POSITIVE_INFINITY;
     const sourceRequestSeqs = resolveTranscriptSeqList(detail?.sourceRequestSeqs);
     const supportingRawSeqs = resolveTranscriptSeqList(detail?.supportingRawSeqs);
+    const forwardSupportRequestSeqs = resolveTranscriptSeqList(detail?.forwardSupportRequestSeqs);
+    const appendedBySeq = resolveTranscriptSeqList(detail?.appendedBySeq);
     const requestCaptureEvidence = Array.isArray(detail?.requestCaptureEvidence) ? (detail?.requestCaptureEvidence || []).map((value) => {
       if (!value || typeof value !== "object") return null;
       const requestSeq = Number(value.requestSeq);
@@ -64771,7 +64810,7 @@ function createAsrScrollDriver(options = {}) {
     const currentForwardFloor = Math.max(0, lastLineIndex);
     const forwardMatchCreatedByAssembly = detail?.forwardMatchCreatedByAssembly === true;
     const hasProvenanceMetadata = typeof detail?.rawText === "string" || typeof detail?.assembledText === "string" || sourceRequestSeqs.length > 0 || supportingRawSeqs.length > 0;
-    const lineageSeqsForForward = supportingRawSeqs.length > 0 ? supportingRawSeqs : sourceRequestSeqs;
+    const lineageSeqsForForward = forwardSupportRequestSeqs.length > 0 ? forwardSupportRequestSeqs : appendedBySeq.length > 0 ? appendedBySeq : supportingRawSeqs.length > 0 ? supportingRawSeqs : sourceRequestSeqs;
     const requestEvidenceBySeq = /* @__PURE__ */ new Map();
     requestCaptureEvidence.forEach((entry) => {
       requestEvidenceBySeq.set(entry.requestSeq, {
@@ -64779,7 +64818,9 @@ function createAsrScrollDriver(options = {}) {
         silenceBoundaryAtMs: entry.silenceBoundaryAtMs
       });
     });
-    const missingRequestEvidence = lineageSeqsForForward.length === 0 || lineageSeqsForForward.some((seq) => !requestEvidenceBySeq.has(seq));
+    const voiceEvidenceRequestSeqs = requestCaptureEvidence.filter((entry) => entry.verdict === "voice_detected").map((entry) => entry.requestSeq);
+    const missingEvidenceRequestSeqs = lineageSeqsForForward.filter((seq) => !requestEvidenceBySeq.has(seq));
+    const missingRequestEvidence = lineageSeqsForForward.length === 0 || missingEvidenceRequestSeqs.length > 0;
     const requestCaptureVoiceDetected = !missingRequestEvidence && lineageSeqsForForward.length > 0 && lineageSeqsForForward.every((seq) => requestEvidenceBySeq.get(seq)?.verdict === "voice_detected");
     const requestCaptureSilenceDetected = lineageSeqsForForward.some((seq) => requestEvidenceBySeq.get(seq)?.verdict === "silence_detected");
     const requestCaptureUnknown = !requestCaptureVoiceDetected && !requestCaptureSilenceDetected;
@@ -64796,6 +64837,10 @@ function createAsrScrollDriver(options = {}) {
         speechRunningActual: !!asrRuntimeSpeechRunningActual,
         silenceActive: asrSilenceActive,
         captureEvidenceAvailable,
+        allSourceRequestSeqs: sourceRequestSeqs,
+        forwardSupportRequestSeqs: lineageSeqsForForward,
+        voiceEvidenceRequestSeqs,
+        missingEvidenceRequestSeqs,
         requestCaptureVoiceDetected,
         requestCaptureUnknown,
         requestCaptureSilenceDetected,
@@ -64818,6 +64863,28 @@ function createAsrScrollDriver(options = {}) {
         if (semanticAdmissionVerdict) detail.captureActivityVerdict = semanticAdmissionVerdict;
       }
       if (semanticAdmissionVerdict) {
+        if (semanticAdmissionVerdict === "capture_activity_unavailable") {
+          lastCaptureProofIntegrationFaultAt = now3;
+          lastCaptureProofIntegrationFaultReason = semanticAdmissionVerdict;
+          emitHudStatus(
+            "asr_capture_proof_unavailable",
+            "ASR capture proof unavailable - transcripts visible, auto-follow paused"
+          );
+          try {
+            console.warn("[ASR_CAPTURE_PROOF_INTEGRATION_FAULT]", {
+              reason: semanticAdmissionVerdict,
+              transcriptSource: transcriptSource || "unknown",
+              sourceRequestSeqs,
+              supportingRawSeqs,
+              forwardSupportRequestSeqs: lineageSeqsForForward,
+              voiceEvidenceRequestSeqs,
+              missingEvidenceRequestSeqs,
+              requestCaptureEvidence,
+              clue: compacted ? formatLogSnippet(compacted, 72) : ""
+            });
+          } catch {
+          }
+        }
         warnGuard("asr_semantic_admission_blocked", [
           `verdict=${semanticAdmissionVerdict}`,
           `transcriptSource=${transcriptSource || "unknown"}`,
@@ -64827,6 +64894,9 @@ function createAsrScrollDriver(options = {}) {
           `forwardMatchCreatedByAssembly=${forwardMatchCreatedByAssembly ? 1 : 0}`,
           `sourceRequestSeqs=${sourceRequestSeqs.join(",") || "none"}`,
           `supportingRawSeqs=${supportingRawSeqs.join(",") || "none"}`,
+          `forwardSupportRequestSeqs=${lineageSeqsForForward.join(",") || "none"}`,
+          `voiceEvidenceRequestSeqs=${voiceEvidenceRequestSeqs.join(",") || "none"}`,
+          `missingEvidenceRequestSeqs=${missingEvidenceRequestSeqs.join(",") || "none"}`,
           `captureEvidenceAvailable=${captureEvidenceAvailable ? 1 : 0}`,
           `captureActivityPresent=${captureActivityPresent ? 1 : 0}`,
           `requestCaptureVoiceDetected=${requestCaptureVoiceDetected ? 1 : 0}`,
@@ -64836,6 +64906,10 @@ function createAsrScrollDriver(options = {}) {
         ]);
         return;
       }
+    }
+    if (requestCaptureVoiceDetected) {
+      lastCaptureProofIntegrationFaultAt = 0;
+      lastCaptureProofIntegrationFaultReason = "";
     }
     if (staleWhisperBridgeFinalPacket) {
       if (detail) {
@@ -65682,6 +65756,9 @@ function createAsrScrollDriver(options = {}) {
     }
     lastIngestAt = now3;
     lastTranscriptPacketAt = now3;
+    if (isFinal) {
+      lastObservedFinalTranscriptAt = now3;
+    }
     if (lastAudioChunkAt <= 0 || now3 - lastAudioChunkAt > 250) {
       lastAudioChunkAt = now3;
     }
@@ -73057,6 +73134,7 @@ var init_whisper_bridge = __esm({
       lastCaptureConstraints = null;
       captureRecorderGeneration = 0;
       captureStartedAtMs = 0;
+      nextChunkCaptureStartedAtMs = 0;
       lastVadSpeaking = null;
       lastVadRmsDbfs = null;
       lastVadAtMs = 0;
@@ -73065,6 +73143,19 @@ var init_whisper_bridge = __esm({
       lastSilenceBoundaryAtMs = 0;
       silenceActive = false;
       requestCaptureEvidenceBySeq = /* @__PURE__ */ new Map();
+      captureAnalyserCtx = null;
+      captureAnalyser = null;
+      captureAnalyserSource = null;
+      captureAnalyserBuffer = null;
+      captureAnalyserTimer = null;
+      captureWindowStats = {
+        sampleCount: 0,
+        rmsDbfs: null,
+        peakDbfs: null,
+        activeVadFrameCount: 0,
+        activeVadDurationMs: 0,
+        lastSpeaking: null
+      };
       constructor(options = {}) {
         this.route = options.route || DEFAULT_ROUTE;
         this.lang = options.lang || "en-US";
@@ -73118,27 +73209,145 @@ var init_whisper_bridge = __esm({
         }
       }
       buildChunkCaptureEvidence(seq, captureStartedAtMs, captureEndedAtMs) {
+        const streamStats = this.captureWindowStats;
         const captureStart = Number.isFinite(Number(captureStartedAtMs)) ? Number(captureStartedAtMs) : null;
         const captureEnd = Number.isFinite(Number(captureEndedAtMs)) ? Number(captureEndedAtMs) : null;
+        const hasStreamStats = streamStats.sampleCount > 0;
         const voiceSeenInWindow = this.lastVadVoiceAtMs > 0 && captureStart != null && captureEnd != null && this.lastVadVoiceAtMs >= captureStart && this.lastVadVoiceAtMs <= captureEnd + 250;
         const silenceSeenInWindow = this.lastSilenceAtMs > 0 && captureStart != null && captureEnd != null && this.lastSilenceAtMs >= captureStart && this.lastSilenceAtMs <= captureEnd + 250 || this.lastVadAtMs > 0 && this.lastVadSpeaking === false && captureStart != null && captureEnd != null && this.lastVadAtMs >= captureStart && this.lastVadAtMs <= captureEnd + 250;
         let verdict = "unknown";
-        if (voiceSeenInWindow || this.lastVadSpeaking === true) {
+        let evidenceSource = null;
+        if (hasStreamStats) {
+          evidenceSource = "stream_analyser";
+          if (streamStats.activeVadFrameCount > 0 || streamStats.lastSpeaking === true) {
+            verdict = "voice_detected";
+          } else if (streamStats.sampleCount > 0) {
+            verdict = "silence_detected";
+          }
+        }
+        if (verdict === "unknown" && (voiceSeenInWindow || this.lastVadSpeaking === true)) {
           verdict = "voice_detected";
-        } else if (silenceSeenInWindow || this.silenceActive) {
+          evidenceSource = evidenceSource || "tp_vad_window";
+        } else if (verdict === "unknown" && (silenceSeenInWindow || this.silenceActive)) {
           verdict = "silence_detected";
+          evidenceSource = evidenceSource || "tp_vad_window";
         }
         return {
           requestSeq: seq,
           verdict,
-          vadSpeaking: this.lastVadSpeaking,
-          rmsDbfs: this.lastVadRmsDbfs,
+          evidenceSource,
+          vadSpeaking: hasStreamStats ? streamStats.lastSpeaking : this.lastVadSpeaking,
+          rmsDbfs: hasStreamStats ? streamStats.rmsDbfs : this.lastVadRmsDbfs,
+          peakDbfs: hasStreamStats ? streamStats.peakDbfs : null,
+          activeVadFrameCount: hasStreamStats ? streamStats.activeVadFrameCount : 0,
+          activeVadDurationMs: hasStreamStats ? streamStats.activeVadDurationMs : 0,
           captureStartedAtMs: captureStart,
           captureEndedAtMs: captureEnd,
           lastVoiceAtMs: this.lastVadVoiceAtMs > 0 ? this.lastVadVoiceAtMs : null,
           lastSilenceAtMs: this.lastSilenceAtMs > 0 ? this.lastSilenceAtMs : null,
           silenceBoundaryAtMs: this.lastSilenceBoundaryAtMs > 0 ? this.lastSilenceBoundaryAtMs : null
         };
+      }
+      resetCaptureWindowStats() {
+        this.captureWindowStats = {
+          sampleCount: 0,
+          rmsDbfs: null,
+          peakDbfs: null,
+          activeVadFrameCount: 0,
+          activeVadDurationMs: 0,
+          lastSpeaking: null
+        };
+      }
+      sampleCaptureAnalyser() {
+        const analyser2 = this.captureAnalyser;
+        const buffer = this.captureAnalyserBuffer;
+        if (!analyser2 || !buffer) return;
+        try {
+          analyser2.getFloatTimeDomainData(buffer);
+          let sumSq = 0;
+          let peak = 0;
+          for (let idx = 0; idx < buffer.length; idx += 1) {
+            const sample = Number(buffer[idx]) || 0;
+            sumSq += sample * sample;
+            const abs = Math.abs(sample);
+            if (abs > peak) peak = abs;
+          }
+          const rms = Math.sqrt(sumSq / Math.max(1, buffer.length));
+          const rmsDbfs = 20 * Math.log10(Math.max(rms, 1e-12));
+          const peakDbfs = 20 * Math.log10(Math.max(peak, 1e-12));
+          const activeProfile = getActiveAsrProfile();
+          const tonDb = Number.isFinite(Number(activeProfile?.vad?.tonDb)) ? Number(activeProfile?.vad?.tonDb) : -38;
+          const toffDb = Number.isFinite(Number(activeProfile?.vad?.toffDb)) ? Number(activeProfile?.vad?.toffDb) : -44;
+          const thresholdDb = this.captureWindowStats.lastSpeaking === true ? toffDb : tonDb;
+          const speaking2 = rmsDbfs >= thresholdDb;
+          const stats = this.captureWindowStats;
+          stats.sampleCount += 1;
+          stats.rmsDbfs = stats.rmsDbfs == null ? rmsDbfs : Math.max(stats.rmsDbfs, rmsDbfs);
+          stats.peakDbfs = stats.peakDbfs == null ? peakDbfs : Math.max(stats.peakDbfs, peakDbfs);
+          stats.lastSpeaking = speaking2;
+          if (speaking2) {
+            stats.activeVadFrameCount += 1;
+            stats.activeVadDurationMs += 20;
+            this.lastVadVoiceAtMs = Date.now();
+            this.silenceActive = false;
+          } else {
+            this.lastSilenceAtMs = Date.now();
+          }
+          this.lastVadSpeaking = speaking2;
+          this.lastVadRmsDbfs = rmsDbfs;
+          this.lastVadAtMs = Date.now();
+        } catch {
+        }
+      }
+      async stopCaptureAnalyser() {
+        if (this.captureAnalyserTimer) {
+          try {
+            clearInterval(this.captureAnalyserTimer);
+          } catch {
+          }
+          this.captureAnalyserTimer = null;
+        }
+        try {
+          this.captureAnalyserSource?.disconnect();
+        } catch {
+        }
+        try {
+          this.captureAnalyser?.disconnect();
+        } catch {
+        }
+        this.captureAnalyserSource = null;
+        this.captureAnalyser = null;
+        this.captureAnalyserBuffer = null;
+        const ctx = this.captureAnalyserCtx;
+        this.captureAnalyserCtx = null;
+        try {
+          await ctx?.close?.();
+        } catch {
+        }
+      }
+      async startCaptureAnalyser(stream) {
+        await this.stopCaptureAnalyser();
+        this.resetCaptureWindowStats();
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        try {
+          const ctx = new AC();
+          try {
+            if (typeof ctx.resume === "function" && ctx.state === "suspended") await ctx.resume();
+          } catch {
+          }
+          const source = ctx.createMediaStreamSource(stream);
+          const analyser2 = ctx.createAnalyser();
+          analyser2.fftSize = 1024;
+          source.connect(analyser2);
+          this.captureAnalyserCtx = ctx;
+          this.captureAnalyserSource = source;
+          this.captureAnalyser = analyser2;
+          this.captureAnalyserBuffer = new Float32Array(analyser2.fftSize);
+          this.captureAnalyserTimer = globalThis.setInterval(() => this.sampleCaptureAnalyser(), 20);
+        } catch {
+          await this.stopCaptureAnalyser();
+        }
       }
       on(event, listener) {
         const listeners3 = this.listeners.get(event) || /* @__PURE__ */ new Set();
@@ -73399,6 +73608,7 @@ var init_whisper_bridge = __esm({
           this.logCapturePolicy("raw-mic", true, reason);
           this.logTrackState("raw-fallback", cloned);
           this.flowProbeLogged = false;
+          await this.startCaptureAnalyser(cloned);
           await this.probeAudioFlow(cloned, "raw-fallback");
           try {
             console.info("[ASR_WHISPER_RAW_FALLBACK_STARTED]", {
@@ -73460,6 +73670,7 @@ var init_whisper_bridge = __esm({
         this.flowProbeLogged = false;
         this.recordingActiveAtCaptureStart = this.isRecordingActiveNow();
         this.requestCaptureEvidenceBySeq.clear();
+        this.resetCaptureWindowStats();
         this.addCaptureSignalListeners();
         const activeProfile = getActiveAsrProfile();
         const runtimePath = this.asrLane === "ASR2" ? "whisper-large-live" : "whisper-bridge";
@@ -73536,6 +73747,7 @@ var init_whisper_bridge = __esm({
           }
         }
         this.recorderStream = captureStream;
+        await this.startCaptureAnalyser(captureStream);
         const mimeType = chooseMimeType();
         this.recorderMimeType = mimeType;
         this.transcriptWindow = [];
@@ -73678,6 +73890,8 @@ var init_whisper_bridge = __esm({
         this.pendingRecorderStop = null;
         this.captureRecorderGeneration += 1;
         this.captureStartedAtMs = Date.now();
+        this.nextChunkCaptureStartedAtMs = this.captureStartedAtMs;
+        this.resetCaptureWindowStats();
         recorder2.ondataavailable = async (event) => {
           const blob = event.data;
           const runMeta = this.readRunMeta();
@@ -73775,9 +73989,10 @@ var init_whisper_bridge = __esm({
           this.zeroByteChunkStreak = 0;
           this.seq = nextSeq2;
           const enqueueTs = Date.now();
+          const captureWindowStartedAtMs = this.nextChunkCaptureStartedAtMs > 0 ? this.nextChunkCaptureStartedAtMs : this.captureStartedAtMs;
           const captureEvidence = this.buildChunkCaptureEvidence(
             this.seq,
-            this.captureStartedAtMs > 0 ? this.captureStartedAtMs : null,
+            captureWindowStartedAtMs > 0 ? captureWindowStartedAtMs : null,
             enqueueTs
           );
           this.requestCaptureEvidenceBySeq.set(this.seq, captureEvidence);
@@ -73786,10 +74001,12 @@ var init_whisper_bridge = __esm({
             seq: this.seq,
             durationMs: chunkDurationMs,
             enqueueTs,
-            captureStartedAtMs: this.captureStartedAtMs > 0 ? this.captureStartedAtMs : null,
+            captureStartedAtMs: captureWindowStartedAtMs > 0 ? captureWindowStartedAtMs : null,
             captureEndedAtMs: enqueueTs,
             captureEvidence
           });
+          this.nextChunkCaptureStartedAtMs = enqueueTs;
+          this.resetCaptureWindowStats();
           const queueAfter = this.queue.length;
           const runMetaForQueue = this.readRunMeta();
           if (!this.firstAudioChunkLogged) {
@@ -73806,6 +74023,10 @@ var init_whisper_bridge = __esm({
                 queueDepthAfter: queueAfter,
                 requestCaptureVerdict: captureEvidence.verdict,
                 requestCaptureRmsDbfs: captureEvidence.rmsDbfs,
+                requestCapturePeakDbfs: captureEvidence.peakDbfs,
+                requestCaptureEvidenceSource: captureEvidence.evidenceSource,
+                requestCaptureActiveVadFrameCount: captureEvidence.activeVadFrameCount,
+                requestCaptureActiveVadDurationMs: captureEvidence.activeVadDurationMs,
                 elapsedSinceLiveStartMs: runMetaForQueue.elapsedSinceLiveStartMs
               });
             } catch {
@@ -73824,6 +74045,10 @@ var init_whisper_bridge = __esm({
               queueDepthAfter: queueAfter,
               requestCaptureVerdict: captureEvidence.verdict,
               requestCaptureRmsDbfs: captureEvidence.rmsDbfs,
+              requestCapturePeakDbfs: captureEvidence.peakDbfs,
+              requestCaptureEvidenceSource: captureEvidence.evidenceSource,
+              requestCaptureActiveVadFrameCount: captureEvidence.activeVadFrameCount,
+              requestCaptureActiveVadDurationMs: captureEvidence.activeVadDurationMs,
               elapsedSinceLiveStartMs: runMetaForQueue.elapsedSinceLiveStartMs
             });
           } catch {
@@ -73840,7 +74065,11 @@ var init_whisper_bridge = __esm({
                 blobType: blob.type || "unknown",
                 chunkDurationMs: chunkDurationMs ?? null,
                 requestCaptureVerdict: captureEvidence.verdict,
-                requestCaptureRmsDbfs: captureEvidence.rmsDbfs
+                requestCaptureRmsDbfs: captureEvidence.rmsDbfs,
+                requestCapturePeakDbfs: captureEvidence.peakDbfs,
+                requestCaptureEvidenceSource: captureEvidence.evidenceSource,
+                requestCaptureActiveVadFrameCount: captureEvidence.activeVadFrameCount,
+                requestCaptureActiveVadDurationMs: captureEvidence.activeVadDurationMs
               }
             }));
           } catch {
@@ -73974,6 +74203,7 @@ var init_whisper_bridge = __esm({
         this.recorder = null;
         this.running = false;
         this.removeCaptureSignalListeners();
+        void this.stopCaptureAnalyser();
         this.cleanupRecorderStream();
         this.syncAiActivity();
         if (!this.endEmitted) {
@@ -74472,6 +74702,8 @@ var init_whisper_bridge = __esm({
         const promptPreview = typeof payload.__tpPromptPreview === "string" ? String(payload.__tpPromptPreview) : null;
         const requestCaptureEvidenceRaw = payload.__tpRequestCaptureEvidence;
         const requestCaptureEvidence = requestCaptureEvidenceRaw && typeof requestCaptureEvidenceRaw === "object" ? requestCaptureEvidenceRaw : null;
+        const lineageCaptureEvidence = mergeResult.sourceRequestSeqs.map((seq2) => this.requestCaptureEvidenceBySeq.get(seq2) ?? null).filter((value) => value != null);
+        const forwardSupportRequestSeqs = mergeResult.appendedBySeq.length > 0 ? mergeResult.appendedBySeq : mergeResult.sourceRequestSeqs;
         this.logBridgeTranscriptLineage("assembled", {
           seq: transcriptSeq,
           requestGeneration,
@@ -74508,6 +74740,7 @@ var init_whisper_bridge = __esm({
           assembledTextPreview: previewText(assembledText),
           sourceRequestSeqs: mergeResult.sourceRequestSeqs,
           supportingRawSeqs: mergeResult.sourceRequestSeqs,
+          forwardSupportRequestSeqs,
           appendedTokenRange: mergeResult.appendedTokenRange,
           appendedBySeq: mergeResult.appendedBySeq,
           promptIncluded,
@@ -74515,7 +74748,7 @@ var init_whisper_bridge = __esm({
           promptLength,
           promptPreview,
           requestCaptureVerdict: requestCaptureEvidence?.verdict ?? null,
-          requestCaptureEvidence: requestCaptureEvidence ? [requestCaptureEvidence] : [],
+          requestCaptureEvidence: lineageCaptureEvidence,
           chunkBytes: Number.isFinite(Number(payload.__tpChunkBytes)) ? Number(payload.__tpChunkBytes) : null,
           chunkMimeType: typeof payload.__tpChunkMimeType === "string" ? String(payload.__tpChunkMimeType) : null,
           chunkDurationMs: Number.isFinite(Number(payload.__tpChunkDurationMs)) ? Number(payload.__tpChunkDurationMs) : null,
@@ -76783,8 +77016,12 @@ function normalizeRequestCaptureEvidence(values) {
     normalized.push({
       requestSeq: Math.max(0, Math.floor(requestSeq)),
       verdict,
+      evidenceSource: typeof entry.evidenceSource === "string" ? String(entry.evidenceSource) : null,
       vadSpeaking: typeof entry.vadSpeaking === "boolean" ? Boolean(entry.vadSpeaking) : null,
       rmsDbfs: Number.isFinite(Number(entry.rmsDbfs)) ? Number(entry.rmsDbfs) : null,
+      peakDbfs: Number.isFinite(Number(entry.peakDbfs)) ? Number(entry.peakDbfs) : null,
+      activeVadFrameCount: Number.isFinite(Number(entry.activeVadFrameCount)) ? Math.max(0, Math.floor(Number(entry.activeVadFrameCount))) : null,
+      activeVadDurationMs: Number.isFinite(Number(entry.activeVadDurationMs)) ? Math.max(0, Number(entry.activeVadDurationMs)) : null,
       captureStartedAtMs: Number.isFinite(Number(entry.captureStartedAtMs)) ? Number(entry.captureStartedAtMs) : null,
       captureEndedAtMs: Number.isFinite(Number(entry.captureEndedAtMs)) ? Number(entry.captureEndedAtMs) : null,
       lastVoiceAtMs: Number.isFinite(Number(entry.lastVoiceAtMs)) ? Number(entry.lastVoiceAtMs) : null,
@@ -77673,9 +77910,13 @@ function enrichTranscriptPayloadForAsr(payload) {
   if (!next.assembledTextPreview && assembledText) next.assembledTextPreview = previewSpeechText(assembledText);
   const sourceRequestSeqs = normalizeSeqArray(next.sourceRequestSeqs);
   const supportingRawSeqs = normalizeSeqArray(next.supportingRawSeqs);
+  const forwardSupportRequestSeqs = normalizeSeqArray(next.forwardSupportRequestSeqs);
+  const appendedBySeq = normalizeSeqArray(next.appendedBySeq);
   const requestCaptureEvidence = normalizeRequestCaptureEvidence(next.requestCaptureEvidence);
   if (sourceRequestSeqs.length) next.sourceRequestSeqs = sourceRequestSeqs;
   if (supportingRawSeqs.length) next.supportingRawSeqs = supportingRawSeqs;
+  if (forwardSupportRequestSeqs.length) next.forwardSupportRequestSeqs = forwardSupportRequestSeqs;
+  if (appendedBySeq.length) next.appendedBySeq = appendedBySeq;
   if (requestCaptureEvidence.length) next.requestCaptureEvidence = requestCaptureEvidence;
   const match = deriveFallbackMatch(next);
   if (match && (!next.match || typeof next.match !== "object")) {
@@ -77743,7 +77984,15 @@ function enrichTranscriptPayloadForAsr(payload) {
     } catch {
     }
   }
-  const requestCaptureVerdict = requestCaptureEvidence.length > 0 ? requestCaptureEvidence.every((entry) => entry.verdict === "voice_detected") ? "voice_detected" : requestCaptureEvidence.some((entry) => entry.verdict === "silence_detected") ? "silence_detected" : "unknown" : "unknown";
+  const forwardSupportSeqs = forwardSupportRequestSeqs.length > 0 ? forwardSupportRequestSeqs : appendedBySeq.length > 0 ? appendedBySeq : supportingRawSeqs.length > 0 ? supportingRawSeqs : sourceRequestSeqs;
+  const requestEvidenceBySeq = /* @__PURE__ */ new Map();
+  requestCaptureEvidence.forEach((entry) => {
+    requestEvidenceBySeq.set(entry.requestSeq, entry);
+  });
+  const voiceEvidenceRequestSeqs = requestCaptureEvidence.filter((entry) => entry.verdict === "voice_detected").map((entry) => entry.requestSeq);
+  const missingEvidenceRequestSeqs = forwardSupportSeqs.filter((seq) => !requestEvidenceBySeq.has(seq));
+  const forwardSupportEvidence = forwardSupportSeqs.map((seq) => requestEvidenceBySeq.get(seq) ?? null).filter((entry) => entry != null);
+  const requestCaptureVerdict = forwardSupportSeqs.length > 0 && missingEvidenceRequestSeqs.length === 0 ? forwardSupportEvidence.every((entry) => entry.verdict === "voice_detected") ? "voice_detected" : forwardSupportEvidence.some((entry) => entry.verdict === "silence_detected") ? "silence_detected" : "unknown" : "unknown";
   next.requestCaptureVerdict = requestCaptureVerdict;
   if (next.captureActivityVerdict == null) {
     next.captureActivityVerdict = requestCaptureVerdict === "voice_detected" ? "provenance_safe + capture_activity_present" : requestCaptureVerdict === "silence_detected" ? "raw_provider_text_during_verified_silence" : "capture_activity_unavailable";
@@ -77755,13 +78004,18 @@ function enrichTranscriptPayloadForAsr(payload) {
       speechRunningActual: !!next.speechRunningActual,
       silenceActive: false,
       captureEvidenceAvailable: false,
+      allSourceRequestSeqs: sourceRequestSeqs,
+      forwardSupportRequestSeqs: forwardSupportSeqs,
+      voiceEvidenceRequestSeqs,
+      missingEvidenceRequestSeqs,
       requestCaptureVoiceDetected: requestCaptureVerdict === "voice_detected",
       requestCaptureUnknown: requestCaptureVerdict === "unknown",
       requestCaptureSilenceDetected: requestCaptureVerdict === "silence_detected",
       requestCaptureSeqCount: requestCaptureEvidence.length
     };
   }
-  const lineageSeqs = supportingRawSeqs.length ? supportingRawSeqs : sourceRequestSeqs;
+  next.forwardSupportRequestSeqs = forwardSupportSeqs;
+  const lineageSeqs = forwardSupportSeqs.length ? forwardSupportSeqs : supportingRawSeqs.length ? supportingRawSeqs : sourceRequestSeqs;
   next.forwardMatchCreatedByAssembly = !rawAndAssembledEquivalent && assembledMatchIndex != null && rawMatchIndex !== assembledMatchIndex && lineageSeqs.length <= 1;
   return next;
 }
@@ -77780,6 +78034,7 @@ function routeRecognizerTranscript(input, defaultFinal) {
       assembledTextPreview: payload.assembledTextPreview ?? (payload.assembledText ? previewSpeechText(payload.assembledText, 60) : null),
       sourceRequestSeqs: normalizeSeqArray(payload.sourceRequestSeqs),
       supportingRawSeqs: normalizeSeqArray(payload.supportingRawSeqs),
+      forwardSupportRequestSeqs: normalizeSeqArray(payload.forwardSupportRequestSeqs),
       requestCaptureVerdict: payload.requestCaptureVerdict ?? null,
       promptIncluded: payload.promptIncluded === true,
       promptHash: payload.promptHash ?? null
@@ -77834,6 +78089,7 @@ function routeTranscript(input, isFinal) {
         assembledMatchIndex: enriched.assembledMatchIndex ?? null,
         forwardMatchCreatedByAssembly: enriched.forwardMatchCreatedByAssembly === true,
         requestCaptureVerdict: enriched.requestCaptureVerdict ?? null,
+        forwardSupportRequestSeqs: normalizeSeqArray(enriched.forwardSupportRequestSeqs),
         captureActivityVerdict: enriched.captureActivityVerdict ?? null
       }));
     } catch {
@@ -77896,6 +78152,7 @@ function routeTranscript(input, isFinal) {
         assembledMatchIndex: enriched.assembledMatchIndex ?? null,
         forwardMatchCreatedByAssembly: enriched.forwardMatchCreatedByAssembly === true,
         requestCaptureVerdict: enriched.requestCaptureVerdict ?? null,
+        forwardSupportRequestSeqs: normalizeSeqArray(enriched.forwardSupportRequestSeqs),
         captureActivityVerdict: enriched.captureActivityVerdict ?? null
       }));
     } catch {

@@ -53,6 +53,7 @@ export type TranscriptDetail = {
   rawMatchIndex?: number | null;
   assembledMatchIndex?: number | null;
   forwardMatchCreatedByAssembly?: boolean;
+  targetSupportProvenance?: string | null;
   promptIncluded?: boolean;
   promptHash?: string | null;
   promptLength?: number | null;

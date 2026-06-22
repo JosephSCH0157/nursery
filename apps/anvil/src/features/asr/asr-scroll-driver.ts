@@ -37489,6 +37489,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     );
     const currentForwardFloor = Math.max(0, lastLineIndex);
     const forwardMatchCreatedByAssembly = (detail as { forwardMatchCreatedByAssembly?: unknown } | undefined)?.forwardMatchCreatedByAssembly === true;
+    const targetSupportProvenanceRaw = String((detail as { targetSupportProvenance?: unknown } | undefined)?.targetSupportProvenance || '').trim();
+    const targetSupportProvenance = targetSupportProvenanceRaw || null;
     const hasProvenanceMetadata =
       typeof (detail as { rawText?: unknown } | undefined)?.rawText === 'string' ||
       typeof (detail as { assembledText?: unknown } | undefined)?.assembledText === 'string' ||
@@ -37573,7 +37575,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       forwardCandidate
     ) {
       let semanticAdmissionVerdict: string | null = null;
-      if (forwardMatchCreatedByAssembly) {
+      if (
+        targetSupportProvenance === 'single_request_assembly_only' ||
+        targetSupportProvenance === 'unattributed_forward_support' ||
+        (
+          targetSupportProvenance == null &&
+          forwardMatchCreatedByAssembly &&
+          (lineageSeqsForForward.length === 0 || sourceRequestSeqs.length <= 1)
+        )
+      ) {
         semanticAdmissionVerdict = 'assembled_only_forward_match';
       } else if (requestCaptureSilenceDetected || verifiedSilence) {
         semanticAdmissionVerdict = 'raw_provider_text_during_verified_silence';
@@ -37599,6 +37609,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               sourceRequestSeqs,
               supportingRawSeqs,
               forwardSupportRequestSeqs: lineageSeqsForForward,
+              targetSupportProvenance,
               voiceEvidenceRequestSeqs,
               missingEvidenceRequestSeqs,
               requestCaptureEvidence,
@@ -37613,6 +37624,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `rawMatchIndex=${rawMatchIndex ?? -1}`,
           `assembledMatchIndex=${assembledMatchIndex ?? -1}`,
           `forwardMatchCreatedByAssembly=${forwardMatchCreatedByAssembly ? 1 : 0}`,
+          `targetSupportProvenance=${targetSupportProvenance || 'none'}`,
           `sourceRequestSeqs=${sourceRequestSeqs.join(',') || 'none'}`,
           `supportingRawSeqs=${supportingRawSeqs.join(',') || 'none'}`,
           `forwardSupportRequestSeqs=${lineageSeqsForForward.join(',') || 'none'}`,
