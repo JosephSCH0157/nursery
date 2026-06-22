@@ -366,11 +366,24 @@ type CanonicalBackendAdjacentEvidence = {
   rejectedReason: string | null;
 };
 
+type ReanchorPendingState = {
+  pendingSinceMs: number;
+  reason: string;
+  candidateLineIdx: number;
+  candidateHits: number;
+  supportingRequestSeqs: number[];
+  triggerRawMatchIndex: number | null;
+  triggerAssembledMatchIndex: number | null;
+  rawMetaConfidence: boolean;
+};
+
 const DEFAULT_MIN_LINE_ADVANCE = 1;
 const DEFAULT_SEEK_THROTTLE_MS = 120;
 const DEFAULT_INTERIM_SCALE = 1.15;
 const DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS = 2000;
 const DEFAULT_LOOKAHEAD_BEHIND_HITS = 2;
+const ASR_REANCHOR_LOCALITY_DIVERGENCE_MIN_LINES = 3;
+const ASR_REANCHOR_CONFIRM_LOCAL_WINDOW_LINES = 2;
 const DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS = 1800;
 const DEFAULT_LOOKAHEAD_STALL_MS = 2500;
 const DEFAULT_SAME_LINE_THROTTLE_MS = 90;
@@ -4899,6 +4912,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     };
   };
 
+  const noteVisualWrite = (owner: string, beforeTop: number, afterTop: number) => {
+    lastVisualWriteOwner = String(owner || 'none');
+    lastVisualWriteEpoch = semanticEpoch;
+    lastVisualWriteDirection =
+      afterTop > beforeTop + 0.5
+        ? 'forward'
+        : (afterTop < beforeTop - 0.5 ? 'backward' : 'hold');
+    try {
+      console.info(
+        `[ASR_SCROLL_WRITE_AUDIT] owner=${lastVisualWriteOwner} semanticEpoch=${lastVisualWriteEpoch} direction=${lastVisualWriteDirection} beforeScrollTop=${Math.round(beforeTop)} afterScrollTop=${Math.round(afterTop)}`,
+      );
+    } catch {}
+  };
+
   function applyScrollWithHybridGuard(
     targetTop: number,
     opts: {
@@ -5063,6 +5090,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       } catch {}
     }
     scheduleAsrWriteCheck(scroller, currentTop, reason, targetTop, source);
+    noteVisualWrite(
+      String(opts.selectedAuthority || opts.sourceAuthority || reason || 'asr'),
+      currentTop,
+      appliedTop,
+    );
     return appliedTop;
   }
   let calmModeEnabled = false;
@@ -8352,6 +8384,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastTranscriptSpeechFresh = false;
   let lastTranscriptSpeechActive = false;
   let commitAuthorityEpoch = 1;
+  let semanticEpoch = 1;
   let lastCommitAuthorityInvalidatedAt = 0;
   let lastCommitAuthorityInvalidationReason = '';
   let firstTranscriptPacketLogged = false;
@@ -8453,6 +8486,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let firstLiveAsrVisualTickFlagStateSummary = 'not_live_tick';
   let didEmitFirstLiveAsrVisualTickFlagProof = false;
   let activeAsrVisualRecoveryEpisode: AsrRecoveryEpisode | null = null;
+  let reanchorPendingState: ReanchorPendingState | null = null;
+  let lastVisualWriteOwner = 'none';
+  let lastVisualWriteEpoch = semanticEpoch;
+  let lastVisualWriteDirection: 'forward' | 'backward' | 'hold' = 'hold';
   let postSemanticCommitVisualReleasePending = false;
   let postSemanticCommitVisualReleaseUntilMs = 0;
   let postSemanticCommitVisualReleasePreviousLineIdx = -1;
@@ -8671,6 +8708,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         protectedLineIdx: Math.max(0, Math.floor(Number(postFloorProtectedFollowLineIdx) || 0)),
         protectedTargetScrollTop: Number(postFloorProtectedFollowTargetScrollTop),
         reason: 'visual_debt',
+        semanticEpoch,
       };
     }
     return {
@@ -8679,6 +8717,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       protectedLineIdx: Math.max(0, Math.floor(Number(postReleaseProtectedFollowReleaseLineIdx) || 0)),
       protectedTargetScrollTop: Number(postReleaseProtectedFollowTargetScrollTop),
       reason: 'semantic_ahead',
+      semanticEpoch,
     };
   };
   const syncActiveAsrVisualRecoveryEpisode = (nowMs: number, endReason = 'none') => {
@@ -11981,6 +12020,113 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     updateDebugState('buffer-clear');
   };
 
+  const clearProtectedVisualFollowState = () => {
+    postReleaseProtectedFollowUntilMs = 0;
+    postReleaseProtectedFollowReleaseLineIdx = -1;
+    postReleaseProtectedFollowTargetScrollTop = Number.NaN;
+    postFloorProtectedFollowUntilMs = 0;
+    postFloorProtectedFollowLineIdx = -1;
+    postFloorProtectedFollowTargetScrollTop = Number.NaN;
+    activeAsrVisualRecoveryEpisode = null;
+  };
+
+  const clearReanchorPendingState = (reason = 'resolved') => {
+    if (!reanchorPendingState) return;
+    try {
+      console.info(
+        `[ASR_REANCHOR_PENDING_CLEARED] reason=${reason} candidateLineIdx=${reanchorPendingState.candidateLineIdx} hits=${reanchorPendingState.candidateHits} epoch=${semanticEpoch}`,
+      );
+    } catch {}
+    reanchorPendingState = null;
+  };
+
+  const cancelAutomaticVisualAuthorities = (reason: string) => {
+    stopGlide(reason);
+    pursuitTargetTop = null;
+    pursuitVel = 0;
+    pursuitActive = false;
+    microPursuitUntil = 0;
+    pendingSpeakableBridgeState = null;
+    preservedAsrAuthorityTargetTop = null;
+    preservedAsrAuthorityTargetReason = reason;
+    preservedAsrAuthorityTargetSourcePath = reason;
+    readerIdleForwardHoldActive = false;
+    readerIdleForwardHoldSinceMs = 0;
+    readerIdleForwardHoldSettleUsed = false;
+    clearProtectedVisualFollowState();
+  };
+
+  const enterReanchorPending = (args: {
+    now: number;
+    reason: string;
+    rawMatchIndex: number;
+    assembledMatchIndex: number | null;
+    supportingRequestSeqs: number[];
+    rawMetaConfidence: boolean;
+    clue?: string;
+  }) => {
+    const candidateLineIdx = Math.max(0, Math.floor(args.rawMatchIndex));
+    reanchorPendingState = {
+      pendingSinceMs: args.now,
+      reason: args.reason,
+      candidateLineIdx,
+      candidateHits: 1,
+      supportingRequestSeqs: [...args.supportingRequestSeqs],
+      triggerRawMatchIndex: candidateLineIdx,
+      triggerAssembledMatchIndex: args.assembledMatchIndex,
+      rawMetaConfidence: args.rawMetaConfidence,
+    };
+    clearEvidenceBuffer('reanchor-pending');
+    cancelAutomaticVisualAuthorities('reanchor_pending');
+    emitHudStatus('asr_reanchor_pending', 'ASR re-anchor pending - transcripts visible, auto-follow paused');
+    try {
+      console.warn(
+        `[ASR_REANCHOR_PENDING] reason=${args.reason} currentLineIdx=${lastLineIndex} rawMatchIndex=${candidateLineIdx} assembledMatchIndex=${args.assembledMatchIndex ?? -1} supportingRequestSeqs=${args.supportingRequestSeqs.join(',') || 'none'} epoch=${semanticEpoch} clue="${formatLogSnippet(String(args.clue || ''), 80)}"`,
+      );
+    } catch {}
+  };
+
+  const confirmReanchor = (args: {
+    newLineIdx: number;
+    supportingRequestSeqs: number[];
+    reason: string;
+  }) => {
+    const scroller = getScroller();
+    const previousLineIdx = Math.max(0, Math.floor(Number(lastLineIndex) || 0));
+    const newLineIdx = Math.max(0, Math.floor(Number(args.newLineIdx) || 0));
+    semanticEpoch += 1;
+    invalidatePendingResponseAuthority('reanchor_confirmed', {
+      currentLineIdx: previousLineIdx,
+      proposedLineIdx: newLineIdx,
+      committedLineIdx: previousLineIdx,
+      reason: 'reanchor_confirmed',
+    });
+    clearEvidenceBuffer('reanchor-confirmed');
+    cancelAutomaticVisualAuthorities('reanchor_confirmed');
+    setLastLineIndex(newLineIdx);
+    if (scroller) {
+      const targetLineEl = getLineElementByIndex(scroller, newLineIdx);
+      const targetTop = Number.isFinite(Number(targetLineEl?.offsetTop))
+        ? Math.max(0, Number(targetLineEl?.offsetTop))
+        : resolveTargetTop(scroller, newLineIdx);
+      if (targetTop != null && Number.isFinite(targetTop)) {
+        const beforeTop = Number(scroller.scrollTop || 0);
+        scroller.scrollTop = targetTop;
+        noteVisualWrite('reanchor_confirmed', beforeTop, Number(scroller.scrollTop || targetTop));
+        lastKnownScrollTop = Number(scroller.scrollTop || targetTop);
+        lastMoveAt = Date.now();
+        markProgrammaticScroll();
+      }
+    }
+    try {
+      console.warn(
+        `[ASR_REANCHOR_COMMIT] priorLineIdx=${previousLineIdx} newLineIdx=${newLineIdx} supportingRequestSeqs=${args.supportingRequestSeqs.join(',') || 'none'} reason=${args.reason} semanticEpoch=${semanticEpoch}`,
+      );
+    } catch {}
+    emitHudStatus('asr_reanchor_confirmed', `Re-anchor confirmed at line ${newLineIdx + 1}`);
+    clearReanchorPendingState('confirmed');
+  };
+
   const publishAsrFocusGateState = () => {
     try {
       (window as any).__tpAsrFocusGate = {
@@ -12242,6 +12388,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       sourceBranch?: string;
     },
   ): boolean => {
+    const normalizedSource = String(source || '').trim().toLowerCase();
+    if (
+      reanchorPendingState &&
+      normalizedSource !== 'reanchor-confirmed' &&
+      normalizedSource !== 'scroll-write:reanchor-confirmed'
+    ) {
+      warnGuard('asr_reanchor_pending_hold', [
+        `source=${source}`,
+        `reason=${reanchorPendingState.reason}`,
+        `candidateLineIdx=${reanchorPendingState.candidateLineIdx}`,
+        `hits=${reanchorPendingState.candidateHits}`,
+        `epoch=${semanticEpoch}`,
+      ]);
+      emitHudStatus('asr_reanchor_pending', 'ASR re-anchor pending - transcripts visible, auto-follow paused');
+      return false;
+    }
     const commitLikeAsrSource = isLiveAsrCommitSource(source);
     if (getScrollMode() === 'asr' && commitLikeAsrSource) {
       if (!isSessionLivePhase() || !isSessionAsrArmed()) {
@@ -19738,6 +19900,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const keepLivePocketMaintenanceActive = shouldKeepLiveAsrPocketMaintenanceActive(wallNow);
 
     const current = scroller.scrollTop || 0;
+    if (reanchorPendingState) {
+      cancelAutomaticVisualAuthorities('reanchor_pending_tick');
+      try {
+        console.warn(
+          `[ASR_VISUAL_OWNER_FROZEN] owner=reanchor_pending semanticEpoch=${semanticEpoch} currentScrollTop=${Math.round(current)} candidateLineIdx=${reanchorPendingState.candidateLineIdx} hits=${reanchorPendingState.candidateHits}`,
+        );
+      } catch {}
+      return;
+    }
     appliedTopPx = current;
 
     const manualDelta = Math.abs(current - lastKnownScrollTop);
@@ -37693,6 +37864,104 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       !asrSilenceActive &&
       transcriptSpeechAgeMs <= ASR_COMMIT_FRESH_SPEECH_MAX_AGE_MS;
     lastTranscriptSpeechActive = requestCaptureVoiceDetected && !asrSilenceActive;
+    const rawMatchConfidence = Number(
+      (detail as { rawMatch?: { bestSim?: unknown } } | undefined)?.rawMatch?.bestSim,
+    );
+    const assembledMatchConfidence = Number(
+      (detail as { match?: { bestSim?: unknown } } | undefined)?.match?.bestSim,
+    );
+    const rawAndAssembledEquivalent =
+      (
+        typeof (detail as { rawTextHash?: unknown } | undefined)?.rawTextHash === 'string' &&
+        typeof (detail as { assembledTextHash?: unknown } | undefined)?.assembledTextHash === 'string' &&
+        String((detail as { rawTextHash?: unknown }).rawTextHash) ===
+          String((detail as { assembledTextHash?: unknown }).assembledTextHash)
+      ) ||
+      (
+        typeof (detail as { rawText?: unknown } | undefined)?.rawText === 'string' &&
+        typeof (detail as { assembledText?: unknown } | undefined)?.assembledText === 'string' &&
+        normalizeComparableText(String((detail as { rawText?: unknown }).rawText || '')) ===
+          normalizeComparableText(String((detail as { assembledText?: unknown }).assembledText || ''))
+      );
+    const rawAssembledLocalityDiverged =
+      rawMatchIndex != null &&
+      assembledMatchIndex != null &&
+      Math.abs(rawMatchIndex - assembledMatchIndex) >= ASR_REANCHOR_LOCALITY_DIVERGENCE_MIN_LINES;
+    const assembledNeighborhoodHasContinuingRawSupport =
+      rawMatchIndex != null &&
+      assembledMatchIndex != null &&
+      rawMatchIndex >= Math.max(0, lastLineIndex - 1) &&
+      Math.abs(rawMatchIndex - assembledMatchIndex) <= 1;
+    const suspectReanchorDiscontinuity =
+      liveAsrSessionActive &&
+      isFinal &&
+      isWhisperBridgeTranscriptSource(transcriptSource) &&
+      requestCaptureVoiceDetected &&
+      rawMatchIndex != null &&
+      assembledMatchIndex != null &&
+      rawMatchIndex < Math.max(0, lastLineIndex - 1) &&
+      assembledMatchIndex >= Math.max(0, lastLineIndex - 1) &&
+      rawAssembledLocalityDiverged &&
+      !assembledNeighborhoodHasContinuingRawSupport &&
+      !rawAndAssembledEquivalent;
+    if (suspectReanchorDiscontinuity && !reanchorPendingState) {
+      enterReanchorPending({
+        now,
+        reason: 'raw_locality_diverged_without_continuing_support',
+        rawMatchIndex,
+        assembledMatchIndex,
+        supportingRequestSeqs: sourceRequestSeqs.length > 0 ? sourceRequestSeqs : lineageSeqsForForward,
+        rawMetaConfidence:
+          Number.isFinite(rawMatchConfidence)
+            ? rawMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim
+            : Number.isFinite(assembledMatchConfidence) && assembledMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim,
+        clue: compacted,
+      });
+      return;
+    }
+    if (reanchorPendingState) {
+      if (
+        liveAsrSessionActive &&
+        isFinal &&
+        requestCaptureVoiceDetected &&
+        rawMatchIndex != null
+      ) {
+        const nextSupportSeqs = sourceRequestSeqs.length > 0 ? sourceRequestSeqs : lineageSeqsForForward;
+        const nextHighConfidence =
+          Number.isFinite(rawMatchConfidence)
+            ? rawMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim
+            : (Number.isFinite(assembledMatchConfidence) && assembledMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim);
+        if (
+          Math.abs(rawMatchIndex - reanchorPendingState.candidateLineIdx) <= ASR_REANCHOR_CONFIRM_LOCAL_WINDOW_LINES
+        ) {
+          reanchorPendingState.candidateHits += 1;
+          reanchorPendingState.candidateLineIdx = rawMatchIndex;
+          reanchorPendingState.rawMetaConfidence =
+            reanchorPendingState.rawMetaConfidence || nextHighConfidence;
+          nextSupportSeqs.forEach((seq) => {
+            if (!reanchorPendingState!.supportingRequestSeqs.includes(seq)) {
+              reanchorPendingState!.supportingRequestSeqs.push(seq);
+            }
+          });
+        } else {
+          reanchorPendingState.candidateLineIdx = rawMatchIndex;
+          reanchorPendingState.candidateHits = 1;
+          reanchorPendingState.supportingRequestSeqs = [...nextSupportSeqs];
+          reanchorPendingState.rawMetaConfidence = nextHighConfidence;
+        }
+        const hitsNeeded = reanchorPendingState.rawMetaConfidence ? 2 : 3;
+        if (reanchorPendingState.candidateHits >= hitsNeeded) {
+          confirmReanchor({
+            newLineIdx: reanchorPendingState.candidateLineIdx,
+            supportingRequestSeqs: reanchorPendingState.supportingRequestSeqs,
+            reason: reanchorPendingState.reason,
+          });
+          return;
+        }
+      }
+      emitHudStatus('asr_reanchor_pending', 'ASR re-anchor pending - transcripts visible, auto-follow paused');
+      return;
+    }
     const permissiveMatcher = isPermissiveAsrMatcherEnabled();
     const compactedComparable = normalizeComparableText(compacted);
     const compactedTokenCount = normTokens(compactedComparable).length;
@@ -42906,6 +43175,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
   const setLastLineIndex = (index: number) => {
     if (!Number.isFinite(index)) return;
+    clearReanchorPendingState('setLastLineIndex');
     scriptEndEventEmitted = false;
     releaseCommitWindow('setLastLineIndex');
     lastLineIndex = Math.max(0, Math.floor(index));
@@ -45117,6 +45387,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     topPressureReason: lastDebugTopPressureReason,
     actuatorReason: lastDebugActuatorReason,
     pursuitVel: lastDebugPursuitVel,
+    reanchorPending: !!reanchorPendingState,
+    reanchorCandidateLineIdx: reanchorPendingState?.candidateLineIdx ?? -1,
+    reanchorCandidateHits: reanchorPendingState?.candidateHits ?? 0,
+    semanticEpoch,
+    lastVisualWriteOwner,
+    lastVisualWriteEpoch,
+    lastVisualWriteDirection,
   });
 
   const driver = {
@@ -45178,6 +45455,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       readerPocketZone: string;
       selectedReason: string;
       lineIndex: number;
+      reanchorPending: boolean;
+      reanchorCandidateLineIdx: number;
+      reanchorCandidateHits: number;
+      semanticEpoch: number;
+      lastVisualWriteOwner: string;
+      lastVisualWriteEpoch: number;
+      lastVisualWriteDirection: 'forward' | 'backward' | 'hold';
     };
     __debugObserveAsr4VisualRecoveryCommit(args: {
       currentLine: number;

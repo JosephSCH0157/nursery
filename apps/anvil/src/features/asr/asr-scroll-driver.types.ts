@@ -346,6 +346,7 @@ export type AsrRecoveryEpisode = {
   protectedLineIdx: number;
   protectedTargetScrollTop: number;
   reason: 'visual_debt' | 'semantic_ahead';
+  semanticEpoch?: number;
 };
 
 export type AsrVisualControlIntent =

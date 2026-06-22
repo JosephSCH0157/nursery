@@ -40159,6 +40159,17 @@ function createAsrScrollDriver(options = {}) {
       zeroingReason: afterTop > currentTop + 0.5 ? "none" : "writer_no_progress"
     };
   };
+  const noteVisualWrite = (owner, beforeTop, afterTop) => {
+    lastVisualWriteOwner = String(owner || "none");
+    lastVisualWriteEpoch = semanticEpoch;
+    lastVisualWriteDirection = afterTop > beforeTop + 0.5 ? "forward" : afterTop < beforeTop - 0.5 ? "backward" : "hold";
+    try {
+      console.info(
+        `[ASR_SCROLL_WRITE_AUDIT] owner=${lastVisualWriteOwner} semanticEpoch=${lastVisualWriteEpoch} direction=${lastVisualWriteDirection} beforeScrollTop=${Math.round(beforeTop)} afterScrollTop=${Math.round(afterTop)}`
+      );
+    } catch {
+    }
+  };
   function applyScrollWithHybridGuard(targetTop, opts) {
     const scroller = opts.scroller ?? getScroller();
     const reason = opts.reason ?? "asr";
@@ -40280,6 +40291,11 @@ function createAsrScrollDriver(options = {}) {
       }
     }
     scheduleAsrWriteCheck(scroller, currentTop, reason, targetTop, source);
+    noteVisualWrite(
+      String(opts.selectedAuthority || opts.sourceAuthority || reason || "asr"),
+      currentTop,
+      appliedTop
+    );
     return appliedTop;
   }
   let calmModeEnabled = false;
@@ -42466,6 +42482,7 @@ function createAsrScrollDriver(options = {}) {
   let lastTranscriptSpeechFresh = false;
   let lastTranscriptSpeechActive = false;
   let commitAuthorityEpoch = 1;
+  let semanticEpoch = 1;
   let lastCommitAuthorityInvalidatedAt = 0;
   let lastCommitAuthorityInvalidationReason = "";
   let firstTranscriptPacketLogged = false;
@@ -42567,6 +42584,10 @@ function createAsrScrollDriver(options = {}) {
   let firstLiveAsrVisualTickFlagStateSummary = "not_live_tick";
   let didEmitFirstLiveAsrVisualTickFlagProof = false;
   let activeAsrVisualRecoveryEpisode = null;
+  let reanchorPendingState = null;
+  let lastVisualWriteOwner = "none";
+  let lastVisualWriteEpoch = semanticEpoch;
+  let lastVisualWriteDirection = "hold";
   let postSemanticCommitVisualReleasePending = false;
   let postSemanticCommitVisualReleaseUntilMs = 0;
   let postSemanticCommitVisualReleasePreviousLineIdx = -1;
@@ -42752,7 +42773,8 @@ function createAsrScrollDriver(options = {}) {
         expiresAt: postFloorProtectedFollowUntilMs,
         protectedLineIdx: Math.max(0, Math.floor(Number(postFloorProtectedFollowLineIdx) || 0)),
         protectedTargetScrollTop: Number(postFloorProtectedFollowTargetScrollTop),
-        reason: "visual_debt"
+        reason: "visual_debt",
+        semanticEpoch
       };
     }
     return {
@@ -42760,7 +42782,8 @@ function createAsrScrollDriver(options = {}) {
       expiresAt: postReleaseProtectedFollowUntilMs,
       protectedLineIdx: Math.max(0, Math.floor(Number(postReleaseProtectedFollowReleaseLineIdx) || 0)),
       protectedTargetScrollTop: Number(postReleaseProtectedFollowTargetScrollTop),
-      reason: "semantic_ahead"
+      reason: "semantic_ahead",
+      semanticEpoch
     };
   };
   const syncActiveAsrVisualRecoveryEpisode = (nowMs3, endReason = "none") => {
@@ -45271,6 +45294,97 @@ function createAsrScrollDriver(options = {}) {
     logDev("evidence buffer cleared", { reason });
     updateDebugState("buffer-clear");
   };
+  const clearProtectedVisualFollowState = () => {
+    postReleaseProtectedFollowUntilMs = 0;
+    postReleaseProtectedFollowReleaseLineIdx = -1;
+    postReleaseProtectedFollowTargetScrollTop = Number.NaN;
+    postFloorProtectedFollowUntilMs = 0;
+    postFloorProtectedFollowLineIdx = -1;
+    postFloorProtectedFollowTargetScrollTop = Number.NaN;
+    activeAsrVisualRecoveryEpisode = null;
+  };
+  const clearReanchorPendingState = (reason = "resolved") => {
+    if (!reanchorPendingState) return;
+    try {
+      console.info(
+        `[ASR_REANCHOR_PENDING_CLEARED] reason=${reason} candidateLineIdx=${reanchorPendingState.candidateLineIdx} hits=${reanchorPendingState.candidateHits} epoch=${semanticEpoch}`
+      );
+    } catch {
+    }
+    reanchorPendingState = null;
+  };
+  const cancelAutomaticVisualAuthorities = (reason) => {
+    stopGlide(reason);
+    pursuitTargetTop = null;
+    pursuitVel = 0;
+    pursuitActive = false;
+    microPursuitUntil = 0;
+    pendingSpeakableBridgeState = null;
+    preservedAsrAuthorityTargetTop = null;
+    preservedAsrAuthorityTargetReason = reason;
+    preservedAsrAuthorityTargetSourcePath = reason;
+    readerIdleForwardHoldActive = false;
+    readerIdleForwardHoldSinceMs = 0;
+    readerIdleForwardHoldSettleUsed = false;
+    clearProtectedVisualFollowState();
+  };
+  const enterReanchorPending = (args) => {
+    const candidateLineIdx = Math.max(0, Math.floor(args.rawMatchIndex));
+    reanchorPendingState = {
+      pendingSinceMs: args.now,
+      reason: args.reason,
+      candidateLineIdx,
+      candidateHits: 1,
+      supportingRequestSeqs: [...args.supportingRequestSeqs],
+      triggerRawMatchIndex: candidateLineIdx,
+      triggerAssembledMatchIndex: args.assembledMatchIndex,
+      rawMetaConfidence: args.rawMetaConfidence
+    };
+    clearEvidenceBuffer("reanchor-pending");
+    cancelAutomaticVisualAuthorities("reanchor_pending");
+    emitHudStatus("asr_reanchor_pending", "ASR re-anchor pending - transcripts visible, auto-follow paused");
+    try {
+      console.warn(
+        `[ASR_REANCHOR_PENDING] reason=${args.reason} currentLineIdx=${lastLineIndex} rawMatchIndex=${candidateLineIdx} assembledMatchIndex=${args.assembledMatchIndex ?? -1} supportingRequestSeqs=${args.supportingRequestSeqs.join(",") || "none"} epoch=${semanticEpoch} clue="${formatLogSnippet(String(args.clue || ""), 80)}"`
+      );
+    } catch {
+    }
+  };
+  const confirmReanchor = (args) => {
+    const scroller = getScroller();
+    const previousLineIdx = Math.max(0, Math.floor(Number(lastLineIndex) || 0));
+    const newLineIdx = Math.max(0, Math.floor(Number(args.newLineIdx) || 0));
+    semanticEpoch += 1;
+    invalidatePendingResponseAuthority("reanchor_confirmed", {
+      currentLineIdx: previousLineIdx,
+      proposedLineIdx: newLineIdx,
+      committedLineIdx: previousLineIdx,
+      reason: "reanchor_confirmed"
+    });
+    clearEvidenceBuffer("reanchor-confirmed");
+    cancelAutomaticVisualAuthorities("reanchor_confirmed");
+    setLastLineIndex(newLineIdx);
+    if (scroller) {
+      const targetLineEl = getLineElementByIndex(scroller, newLineIdx);
+      const targetTop = Number.isFinite(Number(targetLineEl?.offsetTop)) ? Math.max(0, Number(targetLineEl?.offsetTop)) : resolveTargetTop(scroller, newLineIdx);
+      if (targetTop != null && Number.isFinite(targetTop)) {
+        const beforeTop = Number(scroller.scrollTop || 0);
+        scroller.scrollTop = targetTop;
+        noteVisualWrite("reanchor_confirmed", beforeTop, Number(scroller.scrollTop || targetTop));
+        lastKnownScrollTop = Number(scroller.scrollTop || targetTop);
+        lastMoveAt = Date.now();
+        markProgrammaticScroll();
+      }
+    }
+    try {
+      console.warn(
+        `[ASR_REANCHOR_COMMIT] priorLineIdx=${previousLineIdx} newLineIdx=${newLineIdx} supportingRequestSeqs=${args.supportingRequestSeqs.join(",") || "none"} reason=${args.reason} semanticEpoch=${semanticEpoch}`
+      );
+    } catch {
+    }
+    emitHudStatus("asr_reanchor_confirmed", `Re-anchor confirmed at line ${newLineIdx + 1}`);
+    clearReanchorPendingState("confirmed");
+  };
   const publishAsrFocusGateState = () => {
     try {
       window.__tpAsrFocusGate = {
@@ -45471,6 +45585,18 @@ function createAsrScrollDriver(options = {}) {
     return normalized.includes("whisper-bridge");
   };
   const canApplyAsrMovement = (source, now3, detail) => {
+    const normalizedSource = String(source || "").trim().toLowerCase();
+    if (reanchorPendingState && normalizedSource !== "reanchor-confirmed" && normalizedSource !== "scroll-write:reanchor-confirmed") {
+      warnGuard("asr_reanchor_pending_hold", [
+        `source=${source}`,
+        `reason=${reanchorPendingState.reason}`,
+        `candidateLineIdx=${reanchorPendingState.candidateLineIdx}`,
+        `hits=${reanchorPendingState.candidateHits}`,
+        `epoch=${semanticEpoch}`
+      ]);
+      emitHudStatus("asr_reanchor_pending", "ASR re-anchor pending - transcripts visible, auto-follow paused");
+      return false;
+    }
     const commitLikeAsrSource = isLiveAsrCommitSource(source);
     if (getScrollMode3() === "asr" && commitLikeAsrSource) {
       if (!isSessionLivePhase() || !isSessionAsrArmed()) {
@@ -45509,10 +45635,10 @@ function createAsrScrollDriver(options = {}) {
       const localSpeechFresh = vadSpeechFresh;
       const speechFresh = localSpeechFresh || runtimeSpeechFresh || !asrRuntimeSpeechSeen && !asrVadSeen;
       if (!speechFresh) {
-        const normalizedSource = String(source || "").trim().toLowerCase();
+        const normalizedSource2 = String(source || "").trim().toLowerCase();
         const normalizedForceReason = String(detail?.forceReason || "").trim().toLowerCase();
         const normalizedSourceBranch = String(detail?.sourceBranch || "").trim().toLowerCase();
-        const pendingCommitPath = normalizedSource.startsWith("pending-commit:") ? normalizedSource.slice("pending-commit:".length) : normalizedSource;
+        const pendingCommitPath = normalizedSource2.startsWith("pending-commit:") ? normalizedSource2.slice("pending-commit:".length) : normalizedSource2;
         const whisperBridgePacket = isWhisperBridgeTranscriptSource(detail?.transcriptSource);
         const stalePath = [
           pendingCommitPath,
@@ -51317,6 +51443,16 @@ function createAsrScrollDriver(options = {}) {
     const wallNow = Date.now();
     const keepLivePocketMaintenanceActive = shouldKeepLiveAsrPocketMaintenanceActive(wallNow);
     const current2 = scroller.scrollTop || 0;
+    if (reanchorPendingState) {
+      cancelAutomaticVisualAuthorities("reanchor_pending_tick");
+      try {
+        console.warn(
+          `[ASR_VISUAL_OWNER_FROZEN] owner=reanchor_pending semanticEpoch=${semanticEpoch} currentScrollTop=${Math.round(current2)} candidateLineIdx=${reanchorPendingState.candidateLineIdx} hits=${reanchorPendingState.candidateHits}`
+        );
+      } catch {
+      }
+      return;
+    }
     appliedTopPx = current2;
     const manualDelta = Math.abs(current2 - lastKnownScrollTop);
     if (pursuitActive && lastMoveAt && manualDelta > DEFAULT_PURSUE_MANUAL_CANCEL_PX) {
@@ -64809,6 +64945,8 @@ function createAsrScrollDriver(options = {}) {
     );
     const currentForwardFloor = Math.max(0, lastLineIndex);
     const forwardMatchCreatedByAssembly = detail?.forwardMatchCreatedByAssembly === true;
+    const targetSupportProvenanceRaw = String(detail?.targetSupportProvenance || "").trim();
+    const targetSupportProvenance = targetSupportProvenanceRaw || null;
     const hasProvenanceMetadata = typeof detail?.rawText === "string" || typeof detail?.assembledText === "string" || sourceRequestSeqs.length > 0 || supportingRawSeqs.length > 0;
     const lineageSeqsForForward = forwardSupportRequestSeqs.length > 0 ? forwardSupportRequestSeqs : appendedBySeq.length > 0 ? appendedBySeq : supportingRawSeqs.length > 0 ? supportingRawSeqs : sourceRequestSeqs;
     const requestEvidenceBySeq = /* @__PURE__ */ new Map();
@@ -64851,7 +64989,7 @@ function createAsrScrollDriver(options = {}) {
     }
     if (liveAsrSessionActive && isFinal && isWhisperBridgeTranscriptSource(transcriptSource) && hasProvenanceMetadata && forwardCandidate) {
       let semanticAdmissionVerdict = null;
-      if (forwardMatchCreatedByAssembly) {
+      if (targetSupportProvenance === "single_request_assembly_only" || targetSupportProvenance === "unattributed_forward_support" || targetSupportProvenance == null && forwardMatchCreatedByAssembly && (lineageSeqsForForward.length === 0 || sourceRequestSeqs.length <= 1)) {
         semanticAdmissionVerdict = "assembled_only_forward_match";
       } else if (requestCaptureSilenceDetected || verifiedSilence) {
         semanticAdmissionVerdict = "raw_provider_text_during_verified_silence";
@@ -64877,6 +65015,7 @@ function createAsrScrollDriver(options = {}) {
               sourceRequestSeqs,
               supportingRawSeqs,
               forwardSupportRequestSeqs: lineageSeqsForForward,
+              targetSupportProvenance,
               voiceEvidenceRequestSeqs,
               missingEvidenceRequestSeqs,
               requestCaptureEvidence,
@@ -64892,6 +65031,7 @@ function createAsrScrollDriver(options = {}) {
           `rawMatchIndex=${rawMatchIndex ?? -1}`,
           `assembledMatchIndex=${assembledMatchIndex ?? -1}`,
           `forwardMatchCreatedByAssembly=${forwardMatchCreatedByAssembly ? 1 : 0}`,
+          `targetSupportProvenance=${targetSupportProvenance || "none"}`,
           `sourceRequestSeqs=${sourceRequestSeqs.join(",") || "none"}`,
           `supportingRawSeqs=${supportingRawSeqs.join(",") || "none"}`,
           `forwardSupportRequestSeqs=${lineageSeqsForForward.join(",") || "none"}`,
@@ -64957,6 +65097,60 @@ function createAsrScrollDriver(options = {}) {
     lastTranscriptAudioAgeMs = transcriptAudioAgeMs;
     lastTranscriptSpeechFresh = requestCaptureVoiceDetected && !asrSilenceActive && transcriptSpeechAgeMs <= ASR_COMMIT_FRESH_SPEECH_MAX_AGE_MS;
     lastTranscriptSpeechActive = requestCaptureVoiceDetected && !asrSilenceActive;
+    const rawMatchConfidence = Number(
+      detail?.rawMatch?.bestSim
+    );
+    const assembledMatchConfidence = Number(
+      detail?.match?.bestSim
+    );
+    const rawAndAssembledEquivalent = typeof detail?.rawTextHash === "string" && typeof detail?.assembledTextHash === "string" && String(detail.rawTextHash) === String(detail.assembledTextHash) || typeof detail?.rawText === "string" && typeof detail?.assembledText === "string" && normalizeComparableText2(String(detail.rawText || "")) === normalizeComparableText2(String(detail.assembledText || ""));
+    const rawAssembledLocalityDiverged = rawMatchIndex != null && assembledMatchIndex != null && Math.abs(rawMatchIndex - assembledMatchIndex) >= ASR_REANCHOR_LOCALITY_DIVERGENCE_MIN_LINES;
+    const assembledNeighborhoodHasContinuingRawSupport = rawMatchIndex != null && assembledMatchIndex != null && rawMatchIndex >= Math.max(0, lastLineIndex - 1) && Math.abs(rawMatchIndex - assembledMatchIndex) <= 1;
+    const suspectReanchorDiscontinuity = liveAsrSessionActive && isFinal && isWhisperBridgeTranscriptSource(transcriptSource) && requestCaptureVoiceDetected && rawMatchIndex != null && assembledMatchIndex != null && rawMatchIndex < Math.max(0, lastLineIndex - 1) && assembledMatchIndex >= Math.max(0, lastLineIndex - 1) && rawAssembledLocalityDiverged && !assembledNeighborhoodHasContinuingRawSupport && !rawAndAssembledEquivalent;
+    if (suspectReanchorDiscontinuity && !reanchorPendingState) {
+      enterReanchorPending({
+        now: now3,
+        reason: "raw_locality_diverged_without_continuing_support",
+        rawMatchIndex,
+        assembledMatchIndex,
+        supportingRequestSeqs: sourceRequestSeqs.length > 0 ? sourceRequestSeqs : lineageSeqsForForward,
+        rawMetaConfidence: Number.isFinite(rawMatchConfidence) ? rawMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim : Number.isFinite(assembledMatchConfidence) && assembledMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim,
+        clue: compacted
+      });
+      return;
+    }
+    if (reanchorPendingState) {
+      if (liveAsrSessionActive && isFinal && requestCaptureVoiceDetected && rawMatchIndex != null) {
+        const nextSupportSeqs = sourceRequestSeqs.length > 0 ? sourceRequestSeqs : lineageSeqsForForward;
+        const nextHighConfidence = Number.isFinite(rawMatchConfidence) ? rawMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim : Number.isFinite(assembledMatchConfidence) && assembledMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim;
+        if (Math.abs(rawMatchIndex - reanchorPendingState.candidateLineIdx) <= ASR_REANCHOR_CONFIRM_LOCAL_WINDOW_LINES) {
+          reanchorPendingState.candidateHits += 1;
+          reanchorPendingState.candidateLineIdx = rawMatchIndex;
+          reanchorPendingState.rawMetaConfidence = reanchorPendingState.rawMetaConfidence || nextHighConfidence;
+          nextSupportSeqs.forEach((seq) => {
+            if (!reanchorPendingState.supportingRequestSeqs.includes(seq)) {
+              reanchorPendingState.supportingRequestSeqs.push(seq);
+            }
+          });
+        } else {
+          reanchorPendingState.candidateLineIdx = rawMatchIndex;
+          reanchorPendingState.candidateHits = 1;
+          reanchorPendingState.supportingRequestSeqs = [...nextSupportSeqs];
+          reanchorPendingState.rawMetaConfidence = nextHighConfidence;
+        }
+        const hitsNeeded = reanchorPendingState.rawMetaConfidence ? 2 : 3;
+        if (reanchorPendingState.candidateHits >= hitsNeeded) {
+          confirmReanchor({
+            newLineIdx: reanchorPendingState.candidateLineIdx,
+            supportingRequestSeqs: reanchorPendingState.supportingRequestSeqs,
+            reason: reanchorPendingState.reason
+          });
+          return;
+        }
+      }
+      emitHudStatus("asr_reanchor_pending", "ASR re-anchor pending - transcripts visible, auto-follow paused");
+      return;
+    }
     const permissiveMatcher = isPermissiveAsrMatcherEnabled();
     const compactedComparable = normalizeComparableText2(compacted);
     const compactedTokenCount = normTokens(compactedComparable).length;
@@ -69129,6 +69323,7 @@ function createAsrScrollDriver(options = {}) {
   };
   const setLastLineIndex = (index) => {
     if (!Number.isFinite(index)) return;
+    clearReanchorPendingState("setLastLineIndex");
     scriptEndEventEmitted = false;
     releaseCommitWindow("setLastLineIndex");
     lastLineIndex = Math.max(0, Math.floor(index));
@@ -70757,7 +70952,14 @@ function createAsrScrollDriver(options = {}) {
     topPressureActive: lastDebugTopPressureActive,
     topPressureReason: lastDebugTopPressureReason,
     actuatorReason: lastDebugActuatorReason,
-    pursuitVel: lastDebugPursuitVel
+    pursuitVel: lastDebugPursuitVel,
+    reanchorPending: !!reanchorPendingState,
+    reanchorCandidateLineIdx: reanchorPendingState?.candidateLineIdx ?? -1,
+    reanchorCandidateHits: reanchorPendingState?.candidateHits ?? 0,
+    semanticEpoch,
+    lastVisualWriteOwner,
+    lastVisualWriteEpoch,
+    lastVisualWriteDirection
   });
   const driver = {
     ingest,
@@ -70804,7 +71006,7 @@ function createAsrScrollDriver(options = {}) {
   }
   return driver;
 }
-var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_READER_MARKER_VISUAL_SAFE_TARGET_MAX_LEAD_LINES, ASR_READER_MARKER_CORRECTION_LEASE_MAX_AGE_MS, ASR_READER_MARKER_CORRECTION_COMFORT_BAND_MIN_PX, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_WINDOW_MS, ASR_POST_SEMANTIC_COMMIT_VISUAL_FOLLOW_WINDOW_MS, ASR_POST_RELEASE_PROTECTED_FOLLOW_WINDOW_MS, ASR_POST_FLOOR_PROTECTED_WINDOW_MS, ASR_VISUAL_CHAIRPERSON_VERSION, ASR_VISUAL_CHAIRPERSON_CONTRACT_VERSION, ASR_VISUAL_CHAIRPERSON_SETTLE_HOLD_MS, ASR4_POCKET_DRIFT_AUTHORITY_COOLDOWN_MS, ASR_STALE_LANDING_RELAXATION_COOLDOWN_MS, ASR_VISUAL_DEBT_CATCHUP_COOLDOWN_MS, ASR_VISUAL_DEBT_CATCHUP_RECENT_SAFE_COMMIT_GAP_MS, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, LIVE_ASR_COMMIT_MIN_PX, LIVE_ASR_COMMIT_MAX_LINES, LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO, LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES, ASR_FORWARD_GOVERNOR_MAX_COMFORT_LEAD_SPEAKABLE, ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE, ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES, ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_AHEAD_MS, ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_COMFORTABLE_MS, ASR_EARLY_BRIDGE_GOVERNOR_MAX_COMMITS, ASR_EARLY_BRIDGE_GOVERNOR_MAX_RENDERED_DELTA, ASR_EARLY_BRIDGE_TRAP_STARTUP_MAX_CURRENT, ASR_EARLY_BRIDGE_TRAP_STARTUP_MAX_RUN_AGE_MS, ASR_EARLY_BRIDGE_TRAP_PENDING_OVERDUE_MS, ASR_EARLY_BRIDGE_TRAP_MIN_REPEATED_HOLDS, ASR_STARTUP_FORWARD_VISUAL_CORRECTION_MAX_RUN_AGE_MS, ASR_STARTUP_FORWARD_VISUAL_CORRECTION_MAX_COMMITS, ASR_EARLY_FORWARD_AUTHORITY_CAP_MAX_LINES, ASR_EARLY_FORWARD_AUTHORITY_CAP_MAX_FINALS, ASR_EARLY_FORWARD_AUTHORITY_CAP_MAX_PX, ASR_VISUAL_GOVERNOR_HOLD_CLEAR_TARGET_MS, ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS, ASR_RESCUE_BYPASS_BUDGET_MAX, ASR_RESCUE_BYPASS_MIN_DELAY_MS, ASR_READER_PACE_MAX_MARKER_LEAD_LINES, ASR_READER_PACE_NO_SPEECH_HOLD_MS, ASR_READER_IDLE_FORWARD_HOLD_THRESHOLD_MS, ASR_READER_IDLE_FORWARD_HOLD_SETTLE_MAX_LINES, ASR_FORWARD_WRITE_SUPPRESSION_TOLERANCE_PX, ASR_VISUAL_SOFT_LEAD_START, ASR_VISUAL_HARD_LEAD_START, ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS, ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_WINDOW_MS, ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_MAX_DELTA_LINES, ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_PXPS, ASR_LEAD_AWARE_PURSUIT_AHEAD_MAX_PXPS, ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES, ASR_VISUAL_PROJECTION_MAX_SAFE_DELTA_LINES, ASR_LIVE_VISUAL_STEP_MAX_LINES, ASR_LIVE_VISUAL_BRIDGE_STEP_MAX_LINES, ASR_VISUAL_ENVELOPE_LEASH_ARM_DELTA_LINES, ASR_VISUAL_ENVELOPE_LEASH_CLEAR_DELTA_LINES, ASR_STARTUP_SHORT_MEMORY_MAX_COMMITS, ASR_STARTUP_SHORT_MEMORY_MAX_RUN_AGE_MS, ASR_STARTUP_SHORT_MEMORY_MIN_ADJACENT_SIM, ASR_STARTUP_SHORT_MEMORY_MIN_TAIL_WORDS, ASR_FAR_AHEAD_HOLD_ADJ_ESCAPE_TIMEOUT_MS, ENABLE_ASR_STABILIZER_SHADOW, ENABLE_ASR_STABILIZER_SEMANTIC_CANDIDATE, ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS, ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS, ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS, ASR_VISUAL_FOLLOW_NORMAL_ADJ_MIN_PXPS, ASR_VISUAL_FOLLOW_MAX_PXPS, ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS, ASR_VISUAL_FOLLOW_MIN_PXPS, ASR_VISUAL_FOLLOW_READER_AHEAD_PXPS, ASR_VISUAL_FOLLOW_READER_HIGH_LEAD_PXPS, ASR_COMMIT_FRESH_SPEECH_MAX_AGE_MS, ASR_COMMIT_FRESH_AUDIO_MAX_AGE_MS, ASR_COMMIT_FRESH_RESPONSE_MAX_AGE_MS, ASR_STANDARD_COMMIT_FRESH_SPEECH_MAX_AGE_MS, ASR_STANDARD_COMMIT_FRESH_AUDIO_MAX_AGE_MS, ASR_STANDARD_COMMIT_FRESH_RESPONSE_MAX_AGE_MS, ASR_READER_POCKET_PREFERRED_TOP_LINES, ASR_READER_POCKET_PREFERRED_BOTTOM_LINES, ASR_READER_POCKET_PREFERRED_SETTLE_BOTTOM_LINES, ASR_READER_POCKET_TOLERATED_TOP_LINES, ASR_READER_POCKET_TOLERATED_BOTTOM_LINES, ASR_READER_COMFORT_NUDGE_PXPS, ASR_READER_COMFORT_BOTTOM_DRIFT_NUDGE_PXPS, ASR_READER_COMFORT_BOTTOM_DRIFT_WINDOW_MS, ASR_READER_COMFORT_RESCUE_MIN_BELOW_POCKET_LINES, ASR_READER_COMFORT_RESCUE_BOTTOM_VIEWPORT_RATIO, ASR_READER_COMFORT_RESCUE_REPEAT_COUNT, ASR_READER_COMFORT_RESCUE_MAX_STEP_LINES, ASR_READER_COMFORT_RESCUE_COOLDOWN_MS, ASR_READER_COMFORT_RESCUE_MIN_CORRECTION_GAP_MS, ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX, ASR_LOW_POCKET_DEADBAND_RECONCILE_FAST_MIN_OBSERVATIONS, ASR_LOW_POCKET_DEADBAND_RECONCILE_FAST_LINES, ASR_LOW_POCKET_DEADBAND_RECONCILE_SLOW_MIN_OBSERVATIONS, ASR_LOW_POCKET_DEADBAND_RECONCILE_SLOW_LINES, ASR_LOW_POCKET_DEADBAND_RECONCILE_MAX_STEP_LINES, ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX, ASR_POST_COMMIT_RECOVERY_STARVATION_THRESHOLD, ASR_POST_COMMIT_RECOVERY_STARVATION_MIN_MOVE_PX, ASR_PURSUE_TARGET_GRACE_MS, ASR_PURSUE_TARGET_GRACE_MAX_SEMANTIC_DISTANCE, ASR_PURSUE_PLATEAU_MIN_FRAMES, ASR_PURSUE_PLATEAU_MIN_PXPS, ASR_PURSUE_PLATEAU_MAX_STEP_PX, ASR_PURSUE_COALESCE_WINDOW_MS, ASR_VISUAL_OWNERSHIP_TRACE_SUMMARY_MS, ASR_VISUAL_OWNERSHIP_TRACE_PERIODIC_MS, ASR_DIRECT_WRITE_BLOCKED_COALESCE_MS, ASR_PRESERVED_TARGET_YIELD_MIN_ADVANTAGE_LINES, ASR_PRESERVED_TARGET_NOT_CLOSING_MAX_FRAMES, ASR_PRESERVED_TARGET_NOT_CLOSING_MAX_MS, ASR_APPROVED_VISUAL_GLIDE_MIN_PX, ASR_APPROVED_VISUAL_GLIDE_MAX_LINES, ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_RATIO, ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_MIN_PX, ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_MAX_LINES, ASR_APPROVED_VISUAL_GLIDE_MIN_MS, ASR_APPROVED_VISUAL_GLIDE_MAX_MS, ASR_ACCEPTED_LOCAL_LAG_LOCAL_WINDOW_LINES, ASR_READER_ZONE_BUCKET_LINES, ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE, ASR1_READER_OVERRUN_HOLD_BUFFER_LINES, ASR_SAFE_LOCAL_RECOVERY_MAX_TARGET_DELTA_LINES, ASR_SAFE_LOCAL_RECOVERY_MIN_SPEAKABLE_LEAD, ASR_POCKET_WALL_FRESH_COMMIT_MAX_AGE_MS, ASR_POCKET_WALL_TOLERANCE_MAX_PX, ASR_POCKET_WALL_NOISE_DELTA_PX, ASR_VISUAL_RECENTER_PULLBACK_MAX_LINES, ASR_VISUAL_RECENTER_PULLBACK_MIN_PX, ASR_BRIDGE_HOLD_READABILITY_RESCUE_DEFAULT, ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MIN_STALL_MS, ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_REPEAT_COUNT, ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_COOLDOWN_MS, ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MIN_CORRECTION_GAP_MS, ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MAX_STEP_LINES, ASR_FRAME_DIAGNOSTIC_THROTTLE_MS, ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX, ASR_VISUAL_MARKER_ERROR_DESIRED_READ_AHEAD_LINES, ASR_VISUAL_MARKER_ERROR_TOLERANCE_LINES, ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX, ASR_VISUAL_FOLLOW_SLOW_ZONE_PX, ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX, ALIGNMENT_SKEPTIC_WINDOW_MS, ALIGNMENT_SKEPTIC_FORWARD_CONF_BONUS, ALIGNMENT_SKEPTIC_MIN_FORWARD_TOKENS, ALIGNMENT_SKEPTIC_MIN_SUSTAINED_SPEECH_MS, ALIGNMENT_SKEPTIC_STABLE_SAME_LINE_HITS, ALIGNMENT_SKEPTIC_ADJACENT_COMMIT_HITS, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_STALL_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_COOLDOWN_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_FINAL_MAX_AGE_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_SKIP_LOG_COOLDOWN_MS, DEFAULT_LIVE_ASR_MIN_FORWARD_COMMIT_GAP_MS, DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM, DEFAULT_ASR_AUTHORITY_SPEECH_STOP_BRAKE_MS, DEFAULT_ASR_AUTHORITY_FINAL_AFTER_SPEECH_STOP_MAX_AGE_MS, DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, ASR_SAFE_LOCAL_RECOVERY_AUTHORITIES, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, AUTO_CUE_SKIP_COOLDOWN_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, ASR_STANDARD_MULTI_STEP_CONFIRM_MIN_DELTA, ASR_STANDARD_MULTI_STEP_CONFIRM_HITS, ASR_STANDARD_MULTI_STEP_CONFIRM_WINDOW_MS, ASR_STANDARD_MULTI_STEP_CONFIRM_SPREAD, ASR_STANDARD_BACKTRACK_INSTABILITY_HOLD_MS, ASR_STANDARD_VISUAL_RELEASE_AUTHORITIES, ASR_STANDARD_CONTROLLER_PROFILE, ASR_HIGH_ACCURACY_CONTROLLER_PROFILE, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS, DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS, DEFAULT_RESCUE_MATCH_MIN_SIM, DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES, DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS, DEFAULT_LIVE_STRICT_LOCAL_PROOF_ADJACENT_MIN_SIM, DEFAULT_LIVE_STRICT_LOCAL_PROOF_RESCUE_MIN_SIM, DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MIN_SIM, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_SIM_BONUS, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MAX_FORWARD_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_DELTA_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MAX_DELTA_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_STABLE_HITS, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_INDEX_EPS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS, LIVE_STRICT_MOMENTUM_SYNC_WINDOW_MS, LIVE_STRICT_STALL_AFTER_MS, LIVE_STRICT_WEAK_SIGNAL_REPEAT_COUNT, LIVE_STRICT_WEAK_POSITIVE_ADJACENT_MIN_SIM, LIVE_STRICT_BEHIND_RECOVERY_MIN_LINES, LIVE_STRICT_BEHIND_RECOVERY_MAX_LINES, LIVE_STRICT_BEHIND_RECOVERY_ADJACENT_SLACK, ASR_READER_LEASH_MAX_READABLE_AHEAD, ASR_READER_LEASH_MAX_UNPROVEN_AHEAD, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN, DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS, DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS, DEFAULT_ASR_PENDING_BRIDGE_PRESSURE_COMMIT_MS, DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_LINES, DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_NO_COMMIT_MS, DEFAULT_ASR_MARKER_LAG_PRESSURE_ADJACENT_SIM_SLACK, LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS, LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT, LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES, DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MULTI_STEP_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES, DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM, DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK, DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_LIVE_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_STALL_MS, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SIM, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SCORE_GAP, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_RATIO, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_HITS, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_NOVEL_TOKENS, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_COMMITS, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_SIM_PER_EXTRA_LINE, DEFAULT_STRONG_MARKER_SNAP_MAX_REQUIRED_SIM, DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES, DEFAULT_ASR_MARKER_ANCHOR_LIVE_MAX_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_MIN_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_LOW_CONF_SIM, DEFAULT_LIVE_ASR_SOFT_COMMIT_MAX_LINES, DEFAULT_STARVATION_TIE_FORWARD_MAX_DELTA_LINES, DEFAULT_STARVATION_TIE_FORWARD_SIM_SLACK, DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES, DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM, DEFAULT_ASR_ADJACENT_COMPLETION_SIM_SLACK, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_REQUIRED_LEAD, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_FINAL_MATCH_NUDGE_MAX_DELTA_LINES, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CURSOR_BACKJUMP_ALLOWED_REASONS, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, lastAsrGuardReason, lastAsrHudGuardText, GUARD_DEBUG_REASONS, ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, LIVE_STRICT_SPECULATIVE_FORCE_REASONS, lastPursueHudAt, lastAsrPursuePayloadSignature, lastAsrPursuePayloadAt, lastAsrPursueSuppressedCount, lastAsrPursueSuppressedSince, asrPursuitDiagnosticCounters, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, frameDiagnosticLastSeen, coalescedDiagnosticState, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
+var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, ASR_REANCHOR_LOCALITY_DIVERGENCE_MIN_LINES, ASR_REANCHOR_CONFIRM_LOCAL_WINDOW_LINES, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_READER_MARKER_VISUAL_SAFE_TARGET_MAX_LEAD_LINES, ASR_READER_MARKER_CORRECTION_LEASE_MAX_AGE_MS, ASR_READER_MARKER_CORRECTION_COMFORT_BAND_MIN_PX, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, ASR_POST_ADJACENT_COMMIT_VISUAL_RECOVERY_WINDOW_MS, ASR_POST_SEMANTIC_COMMIT_VISUAL_FOLLOW_WINDOW_MS, ASR_POST_RELEASE_PROTECTED_FOLLOW_WINDOW_MS, ASR_POST_FLOOR_PROTECTED_WINDOW_MS, ASR_VISUAL_CHAIRPERSON_VERSION, ASR_VISUAL_CHAIRPERSON_CONTRACT_VERSION, ASR_VISUAL_CHAIRPERSON_SETTLE_HOLD_MS, ASR4_POCKET_DRIFT_AUTHORITY_COOLDOWN_MS, ASR_STALE_LANDING_RELAXATION_COOLDOWN_MS, ASR_VISUAL_DEBT_CATCHUP_COOLDOWN_MS, ASR_VISUAL_DEBT_CATCHUP_RECENT_SAFE_COMMIT_GAP_MS, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, LIVE_ASR_COMMIT_MIN_PX, LIVE_ASR_COMMIT_MAX_LINES, LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO, LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES, ASR_FORWARD_GOVERNOR_MAX_COMFORT_LEAD_SPEAKABLE, ASR_FORWARD_GOVERNOR_MAX_HARD_LEAD_SPEAKABLE, ASR_FORWARD_GOVERNOR_MAX_RENDERED_LEAD_LINES, ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_AHEAD_MS, ASR_FORWARD_GOVERNOR_MIN_COMMIT_INTERVAL_COMFORTABLE_MS, ASR_EARLY_BRIDGE_GOVERNOR_MAX_COMMITS, ASR_EARLY_BRIDGE_GOVERNOR_MAX_RENDERED_DELTA, ASR_EARLY_BRIDGE_TRAP_STARTUP_MAX_CURRENT, ASR_EARLY_BRIDGE_TRAP_STARTUP_MAX_RUN_AGE_MS, ASR_EARLY_BRIDGE_TRAP_PENDING_OVERDUE_MS, ASR_EARLY_BRIDGE_TRAP_MIN_REPEATED_HOLDS, ASR_STARTUP_FORWARD_VISUAL_CORRECTION_MAX_RUN_AGE_MS, ASR_STARTUP_FORWARD_VISUAL_CORRECTION_MAX_COMMITS, ASR_EARLY_FORWARD_AUTHORITY_CAP_MAX_LINES, ASR_EARLY_FORWARD_AUTHORITY_CAP_MAX_FINALS, ASR_EARLY_FORWARD_AUTHORITY_CAP_MAX_PX, ASR_VISUAL_GOVERNOR_HOLD_CLEAR_TARGET_MS, ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS, ASR_RESCUE_BYPASS_BUDGET_MAX, ASR_RESCUE_BYPASS_MIN_DELAY_MS, ASR_READER_PACE_MAX_MARKER_LEAD_LINES, ASR_READER_PACE_NO_SPEECH_HOLD_MS, ASR_READER_IDLE_FORWARD_HOLD_THRESHOLD_MS, ASR_READER_IDLE_FORWARD_HOLD_SETTLE_MAX_LINES, ASR_FORWARD_WRITE_SUPPRESSION_TOLERANCE_PX, ASR_VISUAL_SOFT_LEAD_START, ASR_VISUAL_HARD_LEAD_START, ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_NO_COMMIT_MS, ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_WINDOW_MS, ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_MAX_DELTA_LINES, ASR_BRIDGE_VISUAL_FOLLOW_COMFORT_PXPS, ASR_LEAD_AWARE_PURSUIT_AHEAD_MAX_PXPS, ASR_BRIDGE_COMMIT_COMFORT_LEASH_SAFE_DELTA_LINES, ASR_VISUAL_PROJECTION_MAX_SAFE_DELTA_LINES, ASR_LIVE_VISUAL_STEP_MAX_LINES, ASR_LIVE_VISUAL_BRIDGE_STEP_MAX_LINES, ASR_VISUAL_ENVELOPE_LEASH_ARM_DELTA_LINES, ASR_VISUAL_ENVELOPE_LEASH_CLEAR_DELTA_LINES, ASR_STARTUP_SHORT_MEMORY_MAX_COMMITS, ASR_STARTUP_SHORT_MEMORY_MAX_RUN_AGE_MS, ASR_STARTUP_SHORT_MEMORY_MIN_ADJACENT_SIM, ASR_STARTUP_SHORT_MEMORY_MIN_TAIL_WORDS, ASR_FAR_AHEAD_HOLD_ADJ_ESCAPE_TIMEOUT_MS, ENABLE_ASR_STABILIZER_SHADOW, ENABLE_ASR_STABILIZER_SEMANTIC_CANDIDATE, ASR_VISUAL_GOVERNOR_FRESH_ADJ_UNLOCK_SLOW_PXPS, ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS, ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS, ASR_VISUAL_FOLLOW_NORMAL_ADJ_MIN_PXPS, ASR_VISUAL_FOLLOW_MAX_PXPS, ASR_VISUAL_FOLLOW_COMFORTABLE_PXPS, ASR_VISUAL_FOLLOW_MIN_PXPS, ASR_VISUAL_FOLLOW_READER_AHEAD_PXPS, ASR_VISUAL_FOLLOW_READER_HIGH_LEAD_PXPS, ASR_COMMIT_FRESH_SPEECH_MAX_AGE_MS, ASR_COMMIT_FRESH_AUDIO_MAX_AGE_MS, ASR_COMMIT_FRESH_RESPONSE_MAX_AGE_MS, ASR_STANDARD_COMMIT_FRESH_SPEECH_MAX_AGE_MS, ASR_STANDARD_COMMIT_FRESH_AUDIO_MAX_AGE_MS, ASR_STANDARD_COMMIT_FRESH_RESPONSE_MAX_AGE_MS, ASR_READER_POCKET_PREFERRED_TOP_LINES, ASR_READER_POCKET_PREFERRED_BOTTOM_LINES, ASR_READER_POCKET_PREFERRED_SETTLE_BOTTOM_LINES, ASR_READER_POCKET_TOLERATED_TOP_LINES, ASR_READER_POCKET_TOLERATED_BOTTOM_LINES, ASR_READER_COMFORT_NUDGE_PXPS, ASR_READER_COMFORT_BOTTOM_DRIFT_NUDGE_PXPS, ASR_READER_COMFORT_BOTTOM_DRIFT_WINDOW_MS, ASR_READER_COMFORT_RESCUE_MIN_BELOW_POCKET_LINES, ASR_READER_COMFORT_RESCUE_BOTTOM_VIEWPORT_RATIO, ASR_READER_COMFORT_RESCUE_REPEAT_COUNT, ASR_READER_COMFORT_RESCUE_MAX_STEP_LINES, ASR_READER_COMFORT_RESCUE_COOLDOWN_MS, ASR_READER_COMFORT_RESCUE_MIN_CORRECTION_GAP_MS, ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX, ASR_LOW_POCKET_DEADBAND_RECONCILE_FAST_MIN_OBSERVATIONS, ASR_LOW_POCKET_DEADBAND_RECONCILE_FAST_LINES, ASR_LOW_POCKET_DEADBAND_RECONCILE_SLOW_MIN_OBSERVATIONS, ASR_LOW_POCKET_DEADBAND_RECONCILE_SLOW_LINES, ASR_LOW_POCKET_DEADBAND_RECONCILE_MAX_STEP_LINES, ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX, ASR_POST_COMMIT_RECOVERY_STARVATION_THRESHOLD, ASR_POST_COMMIT_RECOVERY_STARVATION_MIN_MOVE_PX, ASR_PURSUE_TARGET_GRACE_MS, ASR_PURSUE_TARGET_GRACE_MAX_SEMANTIC_DISTANCE, ASR_PURSUE_PLATEAU_MIN_FRAMES, ASR_PURSUE_PLATEAU_MIN_PXPS, ASR_PURSUE_PLATEAU_MAX_STEP_PX, ASR_PURSUE_COALESCE_WINDOW_MS, ASR_VISUAL_OWNERSHIP_TRACE_SUMMARY_MS, ASR_VISUAL_OWNERSHIP_TRACE_PERIODIC_MS, ASR_DIRECT_WRITE_BLOCKED_COALESCE_MS, ASR_PRESERVED_TARGET_YIELD_MIN_ADVANTAGE_LINES, ASR_PRESERVED_TARGET_NOT_CLOSING_MAX_FRAMES, ASR_PRESERVED_TARGET_NOT_CLOSING_MAX_MS, ASR_APPROVED_VISUAL_GLIDE_MIN_PX, ASR_APPROVED_VISUAL_GLIDE_MAX_LINES, ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_RATIO, ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_MIN_PX, ASR_APPROVED_VISUAL_GLIDE_INITIAL_STEP_MAX_LINES, ASR_APPROVED_VISUAL_GLIDE_MIN_MS, ASR_APPROVED_VISUAL_GLIDE_MAX_MS, ASR_ACCEPTED_LOCAL_LAG_LOCAL_WINDOW_LINES, ASR_READER_ZONE_BUCKET_LINES, ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE, ASR1_READER_OVERRUN_HOLD_BUFFER_LINES, ASR_SAFE_LOCAL_RECOVERY_MAX_TARGET_DELTA_LINES, ASR_SAFE_LOCAL_RECOVERY_MIN_SPEAKABLE_LEAD, ASR_POCKET_WALL_FRESH_COMMIT_MAX_AGE_MS, ASR_POCKET_WALL_TOLERANCE_MAX_PX, ASR_POCKET_WALL_NOISE_DELTA_PX, ASR_VISUAL_RECENTER_PULLBACK_MAX_LINES, ASR_VISUAL_RECENTER_PULLBACK_MIN_PX, ASR_BRIDGE_HOLD_READABILITY_RESCUE_DEFAULT, ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MIN_STALL_MS, ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_REPEAT_COUNT, ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_COOLDOWN_MS, ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MIN_CORRECTION_GAP_MS, ASR_BRIDGE_REDUCED_VISUAL_CASH_IN_MAX_STEP_LINES, ASR_FRAME_DIAGNOSTIC_THROTTLE_MS, ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX, ASR_VISUAL_MARKER_ERROR_DESIRED_READ_AHEAD_LINES, ASR_VISUAL_MARKER_ERROR_TOLERANCE_LINES, ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX, ASR_VISUAL_FOLLOW_SLOW_ZONE_PX, ASR_VISUAL_FOLLOW_HARD_CATCHUP_PX, ALIGNMENT_SKEPTIC_WINDOW_MS, ALIGNMENT_SKEPTIC_FORWARD_CONF_BONUS, ALIGNMENT_SKEPTIC_MIN_FORWARD_TOKENS, ALIGNMENT_SKEPTIC_MIN_SUSTAINED_SPEECH_MS, ALIGNMENT_SKEPTIC_STABLE_SAME_LINE_HITS, ALIGNMENT_SKEPTIC_ADJACENT_COMMIT_HITS, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_STALL_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_COOLDOWN_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_FINAL_MAX_AGE_MS, DEFAULT_ASR_SOFT_RUNTIME_REBASE_SKIP_LOG_COOLDOWN_MS, DEFAULT_LIVE_ASR_MIN_FORWARD_COMMIT_GAP_MS, DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM, DEFAULT_ASR_AUTHORITY_SPEECH_STOP_BRAKE_MS, DEFAULT_ASR_AUTHORITY_FINAL_AFTER_SPEECH_STOP_MAX_AGE_MS, DEFAULT_ASR_AUTHORITY_NO_LIVE_SPEECH_MAX_COMMIT_STEPS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, ASR_SAFE_LOCAL_RECOVERY_AUTHORITIES, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, AUTO_CUE_SKIP_COOLDOWN_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, ASR_STANDARD_MULTI_STEP_CONFIRM_MIN_DELTA, ASR_STANDARD_MULTI_STEP_CONFIRM_HITS, ASR_STANDARD_MULTI_STEP_CONFIRM_WINDOW_MS, ASR_STANDARD_MULTI_STEP_CONFIRM_SPREAD, ASR_STANDARD_BACKTRACK_INSTABILITY_HOLD_MS, ASR_STANDARD_VISUAL_RELEASE_AUTHORITIES, ASR_STANDARD_CONTROLLER_PROFILE, ASR_HIGH_ACCURACY_CONTROLLER_PROFILE, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS, DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS, DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS, DEFAULT_RESCUE_MATCH_MIN_SIM, DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES, DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS, DEFAULT_LIVE_STRICT_LOCAL_PROOF_ADJACENT_MIN_SIM, DEFAULT_LIVE_STRICT_LOCAL_PROOF_RESCUE_MIN_SIM, DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MIN_SIM, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_SIM_BONUS, DEFAULT_LIVE_STRICT_CUE_EXIT_LOOKAHEAD_MAX_FORWARD_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_DELTA_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MAX_DELTA_LINES, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_STABLE_HITS, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_WINDOW_MS, DEFAULT_LIVE_STRICT_CLUSTER_BRIDGE_INDEX_EPS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_FINAL_MAX_AGE_MS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_HITS, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_CONTENT_RATIO, DEFAULT_LIVE_STRICT_BRIDGE_LANDING_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_MIN_SIM, DEFAULT_LIVE_STRICT_CLUSTER_CONTRADICTION_BLOCK_MS, LIVE_STRICT_MOMENTUM_SYNC_WINDOW_MS, LIVE_STRICT_STALL_AFTER_MS, LIVE_STRICT_WEAK_SIGNAL_REPEAT_COUNT, LIVE_STRICT_WEAK_POSITIVE_ADJACENT_MIN_SIM, LIVE_STRICT_BEHIND_RECOVERY_MIN_LINES, LIVE_STRICT_BEHIND_RECOVERY_MAX_LINES, LIVE_STRICT_BEHIND_RECOVERY_ADJACENT_SLACK, ASR_READER_LEASH_MAX_READABLE_AHEAD, ASR_READER_LEASH_MAX_UNPROVEN_AHEAD, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN, DEFAULT_ASR_LIVE_VISIBLE_BRIDGE_MAX_RENDERED_STEPS, DEFAULT_ASR_PENDING_SPEAKABLE_BRIDGE_TTL_MS, DEFAULT_ASR_PENDING_BRIDGE_PRESSURE_COMMIT_MS, DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_LINES, DEFAULT_ASR_MARKER_LAG_PRESSURE_MIN_NO_COMMIT_MS, DEFAULT_ASR_MARKER_LAG_PRESSURE_ADJACENT_SIM_SLACK, LIVE_STRICT_BACKLOG_DRAIN_MAX_EXTRA_STEPS, LIVE_STRICT_BACKLOG_DRAIN_MAX_STEPS_PER_EVENT, LIVE_STRICT_BACKLOG_DRAIN_MIN_CLUSTER_HITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES, DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MATURE_MULTI_STEP_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MULTI_STEP_STALL_MS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES, DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM, DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK, DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_LIVE_PROMOTE_MAX_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_DELTA_LINES, DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM, DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_STALL_MS, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SIM, DEFAULT_LIVE_SPEECH_FORWARD_PUSH_MIN_SCORE_GAP, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_RATIO, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_CONTENT_HITS, DEFAULT_LIVE_STRICT_ADJ_TAIL_PROGRESS_MIN_NOVEL_TOKENS, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_COMMITS, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_SIM, DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES, DEFAULT_STRONG_MARKER_SNAP_SIM_PER_EXTRA_LINE, DEFAULT_STRONG_MARKER_SNAP_MAX_REQUIRED_SIM, DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES, DEFAULT_ASR_MARKER_ANCHOR_LIVE_MAX_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_MIN_DELTA_LINES, DEFAULT_LIVE_ASR_SOFT_COMMIT_LOW_CONF_SIM, DEFAULT_LIVE_ASR_SOFT_COMMIT_MAX_LINES, DEFAULT_STARVATION_TIE_FORWARD_MAX_DELTA_LINES, DEFAULT_STARVATION_TIE_FORWARD_SIM_SLACK, DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES, DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM, DEFAULT_ASR_ADJACENT_COMPLETION_SIM_SLACK, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_REQUIRED_LEAD, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_FINAL_MATCH_NUDGE_MAX_DELTA_LINES, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CURSOR_BACKJUMP_ALLOWED_REASONS, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, lastAsrGuardReason, lastAsrHudGuardText, GUARD_DEBUG_REASONS, ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, LIVE_STRICT_SPECULATIVE_FORCE_REASONS, lastPursueHudAt, lastAsrPursuePayloadSignature, lastAsrPursuePayloadAt, lastAsrPursueSuppressedCount, lastAsrPursueSuppressedSince, asrPursuitDiagnosticCounters, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, frameDiagnosticLastSeen, coalescedDiagnosticState, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
 var init_asr_scroll_driver = __esm({
   "src/features/asr/asr-scroll-driver.ts"() {
     "use strict";
@@ -70857,6 +71059,8 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_INTERIM_SCALE = 1.15;
     DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS = 2e3;
     DEFAULT_LOOKAHEAD_BEHIND_HITS = 2;
+    ASR_REANCHOR_LOCALITY_DIVERGENCE_MIN_LINES = 3;
+    ASR_REANCHOR_CONFIRM_LOCAL_WINDOW_LINES = 2;
     DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS = 1800;
     DEFAULT_LOOKAHEAD_STALL_MS = 2500;
     DEFAULT_SAME_LINE_THROTTLE_MS = 90;
@@ -77141,9 +77345,11 @@ function logTranscriptEmitDebug(payload) {
       assembledTextPreview: payload.assembledTextPreview ?? (assembledText ? previewSpeechText(assembledText, 60) : null),
       sourceRequestSeqs: normalizeSeqArray(payload.sourceRequestSeqs),
       supportingRawSeqs: normalizeSeqArray(payload.supportingRawSeqs),
+      forwardSupportRequestSeqs: normalizeSeqArray(payload.forwardSupportRequestSeqs),
       rawMatchIndex: payload.rawMatchIndex ?? null,
       assembledMatchIndex: payload.assembledMatchIndex ?? null,
       forwardMatchCreatedByAssembly: payload.forwardMatchCreatedByAssembly === true,
+      targetSupportProvenance: payload.targetSupportProvenance ?? null,
       captureActivityVerdict: payload.captureActivityVerdict ?? null,
       semanticAdmissionVerdict: payload.semanticAdmissionVerdict ?? null,
       promptIncluded: payload.promptIncluded === true,
@@ -78016,7 +78222,9 @@ function enrichTranscriptPayloadForAsr(payload) {
   }
   next.forwardSupportRequestSeqs = forwardSupportSeqs;
   const lineageSeqs = forwardSupportSeqs.length ? forwardSupportSeqs : supportingRawSeqs.length ? supportingRawSeqs : sourceRequestSeqs;
-  next.forwardMatchCreatedByAssembly = !rawAndAssembledEquivalent && assembledMatchIndex != null && rawMatchIndex !== assembledMatchIndex && lineageSeqs.length <= 1;
+  const assemblyDivergedFromRaw = !rawAndAssembledEquivalent && assembledMatchIndex != null && rawMatchIndex !== assembledMatchIndex;
+  next.forwardMatchCreatedByAssembly = assemblyDivergedFromRaw;
+  next.targetSupportProvenance = !assemblyDivergedFromRaw ? "direct_raw_support" : forwardSupportSeqs.length === 0 ? "unattributed_forward_support" : sourceRequestSeqs.length <= 1 ? "single_request_assembly_only" : "voice_backed_multi_request_support";
   return next;
 }
 function routeRecognizerTranscript(input, defaultFinal) {
@@ -78088,6 +78296,7 @@ function routeTranscript(input, isFinal) {
         rawMatchIndex: enriched.rawMatchIndex ?? null,
         assembledMatchIndex: enriched.assembledMatchIndex ?? null,
         forwardMatchCreatedByAssembly: enriched.forwardMatchCreatedByAssembly === true,
+        targetSupportProvenance: enriched.targetSupportProvenance ?? null,
         requestCaptureVerdict: enriched.requestCaptureVerdict ?? null,
         forwardSupportRequestSeqs: normalizeSeqArray(enriched.forwardSupportRequestSeqs),
         captureActivityVerdict: enriched.captureActivityVerdict ?? null
@@ -78151,6 +78360,7 @@ function routeTranscript(input, isFinal) {
         rawMatchIndex: enriched.rawMatchIndex ?? null,
         assembledMatchIndex: enriched.assembledMatchIndex ?? null,
         forwardMatchCreatedByAssembly: enriched.forwardMatchCreatedByAssembly === true,
+        targetSupportProvenance: enriched.targetSupportProvenance ?? null,
         requestCaptureVerdict: enriched.requestCaptureVerdict ?? null,
         forwardSupportRequestSeqs: normalizeSeqArray(enriched.forwardSupportRequestSeqs),
         captureActivityVerdict: enriched.captureActivityVerdict ?? null
