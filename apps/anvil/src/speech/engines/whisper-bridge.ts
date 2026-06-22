@@ -30,6 +30,7 @@ type WhisperBridgePayload = {
   assembledTextPreview?: string | null;
   sourceRequestSeqs?: number[];
   supportingRawSeqs?: number[];
+  forwardSupportRequestSeqs?: number[];
   appendedTokenRange?: { start: number; end: number } | null;
   appendedBySeq?: number[];
   promptIncluded?: boolean;
@@ -2323,6 +2324,12 @@ class WhisperBridgeRecognizer {
     const requestCaptureEvidence = requestCaptureEvidenceRaw && typeof requestCaptureEvidenceRaw === "object"
       ? requestCaptureEvidenceRaw as ChunkEnvelope["captureEvidence"]
       : null;
+    const lineageCaptureEvidence = mergeResult.sourceRequestSeqs
+      .map((seq) => this.requestCaptureEvidenceBySeq.get(seq) ?? null)
+      .filter((value): value is ChunkEnvelope["captureEvidence"] => value != null);
+    const forwardSupportRequestSeqs = mergeResult.appendedBySeq.length > 0
+      ? mergeResult.appendedBySeq
+      : mergeResult.sourceRequestSeqs;
 
     this.logBridgeTranscriptLineage("assembled", {
       seq: transcriptSeq,
@@ -2361,6 +2368,7 @@ class WhisperBridgeRecognizer {
       assembledTextPreview: previewText(assembledText),
       sourceRequestSeqs: mergeResult.sourceRequestSeqs,
       supportingRawSeqs: mergeResult.sourceRequestSeqs,
+      forwardSupportRequestSeqs,
       appendedTokenRange: mergeResult.appendedTokenRange,
       appendedBySeq: mergeResult.appendedBySeq,
       promptIncluded,
@@ -2368,7 +2376,7 @@ class WhisperBridgeRecognizer {
       promptLength,
       promptPreview,
       requestCaptureVerdict: requestCaptureEvidence?.verdict ?? null,
-      requestCaptureEvidence: requestCaptureEvidence ? [requestCaptureEvidence] : [],
+      requestCaptureEvidence: lineageCaptureEvidence,
       chunkBytes: Number.isFinite(Number((payload as Record<string, unknown>).__tpChunkBytes))
         ? Number((payload as Record<string, unknown>).__tpChunkBytes)
         : null,

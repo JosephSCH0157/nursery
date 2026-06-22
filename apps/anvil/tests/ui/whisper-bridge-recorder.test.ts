@@ -507,11 +507,14 @@ describe('whisper bridge recorder segmentation', () => {
       activeVadFrameCount: expect.any(Number),
     }));
     expect(finalPayloads[1]?.requestCaptureVerdict).toBe('silence_detected');
-    expect(finalPayloads[1]?.requestCaptureEvidence?.[0]).toEqual(expect.objectContaining({
-      verdict: 'silence_detected',
-      evidenceSource: 'stream_analyser',
-      activeVadFrameCount: 0,
-    }));
+    expect(finalPayloads[1]?.requestCaptureEvidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        requestSeq: 2,
+        verdict: 'silence_detected',
+        evidenceSource: 'stream_analyser',
+        activeVadFrameCount: 0,
+      }),
+    ]));
 
     recognizer.stop();
     await flushMicrotasks();

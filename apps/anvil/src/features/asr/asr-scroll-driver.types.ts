@@ -44,6 +44,7 @@ export type TranscriptDetail = {
   assembledTextPreview?: string | null;
   sourceRequestSeqs?: number[] | null;
   supportingRawSeqs?: number[] | null;
+  forwardSupportRequestSeqs?: number[] | null;
   appendedTokenRange?: {
     start: number;
     end: number;
@@ -88,6 +89,10 @@ export type TranscriptDetail = {
     speechRunningActual?: boolean;
     silenceActive?: boolean;
     captureEvidenceAvailable?: boolean;
+    allSourceRequestSeqs?: number[];
+    forwardSupportRequestSeqs?: number[];
+    voiceEvidenceRequestSeqs?: number[];
+    missingEvidenceRequestSeqs?: number[];
     requestCaptureVoiceDetected?: boolean;
     requestCaptureUnknown?: boolean;
     requestCaptureSilenceDetected?: boolean;

@@ -37458,6 +37458,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastAudioChunkAt > 0 ? Math.max(0, transcriptReceivedAtMs - lastAudioChunkAt) : Number.POSITIVE_INFINITY;
     const sourceRequestSeqs = resolveTranscriptSeqList((detail as { sourceRequestSeqs?: unknown } | undefined)?.sourceRequestSeqs);
     const supportingRawSeqs = resolveTranscriptSeqList((detail as { supportingRawSeqs?: unknown } | undefined)?.supportingRawSeqs);
+    const forwardSupportRequestSeqs = resolveTranscriptSeqList((detail as { forwardSupportRequestSeqs?: unknown } | undefined)?.forwardSupportRequestSeqs);
+    const appendedBySeq = resolveTranscriptSeqList((detail as { appendedBySeq?: unknown } | undefined)?.appendedBySeq);
     const requestCaptureEvidence = Array.isArray((detail as { requestCaptureEvidence?: unknown } | undefined)?.requestCaptureEvidence)
       ? (((detail as { requestCaptureEvidence?: unknown[] } | undefined)?.requestCaptureEvidence || []) as unknown[])
         .map((value) => {
@@ -37492,7 +37494,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       typeof (detail as { assembledText?: unknown } | undefined)?.assembledText === 'string' ||
       sourceRequestSeqs.length > 0 ||
       supportingRawSeqs.length > 0;
-    const lineageSeqsForForward = supportingRawSeqs.length > 0 ? supportingRawSeqs : sourceRequestSeqs;
+    const lineageSeqsForForward =
+      forwardSupportRequestSeqs.length > 0
+        ? forwardSupportRequestSeqs
+        : (appendedBySeq.length > 0
+          ? appendedBySeq
+          : (supportingRawSeqs.length > 0 ? supportingRawSeqs : sourceRequestSeqs));
     const requestEvidenceBySeq = new Map<number, { verdict: 'voice_detected' | 'silence_detected' | 'unknown'; silenceBoundaryAtMs: number | null }>();
     requestCaptureEvidence.forEach((entry) => {
       requestEvidenceBySeq.set(entry.requestSeq, {
@@ -37500,9 +37507,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         silenceBoundaryAtMs: entry.silenceBoundaryAtMs,
       });
     });
+    const voiceEvidenceRequestSeqs = requestCaptureEvidence
+      .filter((entry) => entry.verdict === 'voice_detected')
+      .map((entry) => entry.requestSeq);
+    const missingEvidenceRequestSeqs = lineageSeqsForForward.filter((seq) => !requestEvidenceBySeq.has(seq));
     const missingRequestEvidence =
       lineageSeqsForForward.length === 0 ||
-      lineageSeqsForForward.some((seq) => !requestEvidenceBySeq.has(seq));
+      missingEvidenceRequestSeqs.length > 0;
     const requestCaptureVoiceDetected =
       !missingRequestEvidence &&
       lineageSeqsForForward.length > 0 &&
@@ -37538,6 +37549,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         speechRunningActual: !!asrRuntimeSpeechRunningActual,
         silenceActive: asrSilenceActive,
         captureEvidenceAvailable,
+        allSourceRequestSeqs: sourceRequestSeqs,
+        forwardSupportRequestSeqs: lineageSeqsForForward,
+        voiceEvidenceRequestSeqs,
+        missingEvidenceRequestSeqs,
         requestCaptureVoiceDetected,
         requestCaptureUnknown,
         requestCaptureSilenceDetected,
@@ -37583,6 +37598,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               transcriptSource: transcriptSource || 'unknown',
               sourceRequestSeqs,
               supportingRawSeqs,
+              forwardSupportRequestSeqs: lineageSeqsForForward,
+              voiceEvidenceRequestSeqs,
+              missingEvidenceRequestSeqs,
               requestCaptureEvidence,
               clue: compacted ? formatLogSnippet(compacted, 72) : '',
             });
@@ -37597,6 +37615,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `forwardMatchCreatedByAssembly=${forwardMatchCreatedByAssembly ? 1 : 0}`,
           `sourceRequestSeqs=${sourceRequestSeqs.join(',') || 'none'}`,
           `supportingRawSeqs=${supportingRawSeqs.join(',') || 'none'}`,
+          `forwardSupportRequestSeqs=${lineageSeqsForForward.join(',') || 'none'}`,
+          `voiceEvidenceRequestSeqs=${voiceEvidenceRequestSeqs.join(',') || 'none'}`,
+          `missingEvidenceRequestSeqs=${missingEvidenceRequestSeqs.join(',') || 'none'}`,
           `captureEvidenceAvailable=${captureEvidenceAvailable ? 1 : 0}`,
           `captureActivityPresent=${captureActivityPresent ? 1 : 0}`,
           `requestCaptureVoiceDetected=${requestCaptureVoiceDetected ? 1 : 0}`,

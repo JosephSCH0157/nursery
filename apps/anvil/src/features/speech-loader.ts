@@ -115,6 +115,7 @@ type TranscriptPayload = {
   assembledTextPreview?: string | null;
   sourceRequestSeqs?: number[] | null;
   supportingRawSeqs?: number[] | null;
+  forwardSupportRequestSeqs?: number[] | null;
   appendedTokenRange?: { start: number; end: number } | null;
   appendedBySeq?: number[] | null;
   rawMatch?: Record<string, unknown> | null;
@@ -157,6 +158,10 @@ type TranscriptPayload = {
     speechRunningActual?: boolean;
     silenceActive?: boolean;
     captureEvidenceAvailable?: boolean;
+    allSourceRequestSeqs?: number[];
+    forwardSupportRequestSeqs?: number[];
+    voiceEvidenceRequestSeqs?: number[];
+    missingEvidenceRequestSeqs?: number[];
     requestCaptureVoiceDetected?: boolean;
     requestCaptureUnknown?: boolean;
     requestCaptureSilenceDetected?: boolean;
@@ -2904,9 +2909,13 @@ function enrichTranscriptPayloadForAsr(payload: TranscriptPayload): TranscriptPa
   if (!next.assembledTextPreview && assembledText) next.assembledTextPreview = previewSpeechText(assembledText);
   const sourceRequestSeqs = normalizeSeqArray(next.sourceRequestSeqs);
   const supportingRawSeqs = normalizeSeqArray(next.supportingRawSeqs);
+  const forwardSupportRequestSeqs = normalizeSeqArray((next as { forwardSupportRequestSeqs?: number[] | null }).forwardSupportRequestSeqs);
+  const appendedBySeq = normalizeSeqArray(next.appendedBySeq);
   const requestCaptureEvidence = normalizeRequestCaptureEvidence(next.requestCaptureEvidence);
   if (sourceRequestSeqs.length) next.sourceRequestSeqs = sourceRequestSeqs;
   if (supportingRawSeqs.length) next.supportingRawSeqs = supportingRawSeqs;
+  if (forwardSupportRequestSeqs.length) (next as { forwardSupportRequestSeqs?: number[] | null }).forwardSupportRequestSeqs = forwardSupportRequestSeqs;
+  if (appendedBySeq.length) next.appendedBySeq = appendedBySeq;
   if (requestCaptureEvidence.length) next.requestCaptureEvidence = requestCaptureEvidence;
 
   const match = deriveFallbackMatch(next);
@@ -2985,11 +2994,28 @@ function enrichTranscriptPayloadForAsr(payload: TranscriptPayload): TranscriptPa
       }));
     } catch {}
   }
+  const forwardSupportSeqs =
+    forwardSupportRequestSeqs.length > 0
+      ? forwardSupportRequestSeqs
+      : (appendedBySeq.length > 0
+        ? appendedBySeq
+        : (supportingRawSeqs.length > 0 ? supportingRawSeqs : sourceRequestSeqs));
+  const requestEvidenceBySeq = new Map<number, NonNullable<TranscriptPayload['requestCaptureEvidence']>[number]>();
+  requestCaptureEvidence.forEach((entry) => {
+    requestEvidenceBySeq.set(entry.requestSeq, entry);
+  });
+  const voiceEvidenceRequestSeqs = requestCaptureEvidence
+    .filter((entry) => entry.verdict === 'voice_detected')
+    .map((entry) => entry.requestSeq);
+  const missingEvidenceRequestSeqs = forwardSupportSeqs.filter((seq) => !requestEvidenceBySeq.has(seq));
+  const forwardSupportEvidence = forwardSupportSeqs
+    .map((seq) => requestEvidenceBySeq.get(seq) ?? null)
+    .filter((entry): entry is NonNullable<TranscriptPayload['requestCaptureEvidence']>[number] => entry != null);
   const requestCaptureVerdict =
-    requestCaptureEvidence.length > 0
-      ? (requestCaptureEvidence.every((entry) => entry.verdict === 'voice_detected')
+    forwardSupportSeqs.length > 0 && missingEvidenceRequestSeqs.length === 0
+      ? (forwardSupportEvidence.every((entry) => entry.verdict === 'voice_detected')
         ? 'voice_detected'
-        : (requestCaptureEvidence.some((entry) => entry.verdict === 'silence_detected')
+        : (forwardSupportEvidence.some((entry) => entry.verdict === 'silence_detected')
           ? 'silence_detected'
           : 'unknown'))
       : 'unknown';
@@ -3009,13 +3035,18 @@ function enrichTranscriptPayloadForAsr(payload: TranscriptPayload): TranscriptPa
       speechRunningActual: !!next.speechRunningActual,
       silenceActive: false,
       captureEvidenceAvailable: false,
+      allSourceRequestSeqs: sourceRequestSeqs,
+      forwardSupportRequestSeqs: forwardSupportSeqs,
+      voiceEvidenceRequestSeqs,
+      missingEvidenceRequestSeqs,
       requestCaptureVoiceDetected: requestCaptureVerdict === 'voice_detected',
       requestCaptureUnknown: requestCaptureVerdict === 'unknown',
       requestCaptureSilenceDetected: requestCaptureVerdict === 'silence_detected',
       requestCaptureSeqCount: requestCaptureEvidence.length,
     };
   }
-  const lineageSeqs = supportingRawSeqs.length ? supportingRawSeqs : sourceRequestSeqs;
+  (next as { forwardSupportRequestSeqs?: number[] | null }).forwardSupportRequestSeqs = forwardSupportSeqs;
+  const lineageSeqs = forwardSupportSeqs.length ? forwardSupportSeqs : (supportingRawSeqs.length ? supportingRawSeqs : sourceRequestSeqs);
   next.forwardMatchCreatedByAssembly =
     !rawAndAssembledEquivalent &&
     assembledMatchIndex != null &&
@@ -3039,6 +3070,7 @@ function routeRecognizerTranscript(input: unknown, defaultFinal: boolean): void 
       assembledTextPreview: payload.assembledTextPreview ?? (payload.assembledText ? previewSpeechText(payload.assembledText, 60) : null),
       sourceRequestSeqs: normalizeSeqArray(payload.sourceRequestSeqs),
       supportingRawSeqs: normalizeSeqArray(payload.supportingRawSeqs),
+      forwardSupportRequestSeqs: normalizeSeqArray((payload as { forwardSupportRequestSeqs?: unknown }).forwardSupportRequestSeqs),
       requestCaptureVerdict: payload.requestCaptureVerdict ?? null,
       promptIncluded: payload.promptIncluded === true,
       promptHash: payload.promptHash ?? null,
@@ -3099,6 +3131,7 @@ function routeTranscript(input: string | (Partial<TranscriptPayload> & { text?: 
         assembledMatchIndex: enriched.assembledMatchIndex ?? null,
         forwardMatchCreatedByAssembly: enriched.forwardMatchCreatedByAssembly === true,
         requestCaptureVerdict: enriched.requestCaptureVerdict ?? null,
+        forwardSupportRequestSeqs: normalizeSeqArray((enriched as { forwardSupportRequestSeqs?: unknown }).forwardSupportRequestSeqs),
         captureActivityVerdict: enriched.captureActivityVerdict ?? null,
       }));
     } catch {}
@@ -3156,6 +3189,7 @@ function routeTranscript(input: string | (Partial<TranscriptPayload> & { text?: 
         assembledMatchIndex: enriched.assembledMatchIndex ?? null,
         forwardMatchCreatedByAssembly: enriched.forwardMatchCreatedByAssembly === true,
         requestCaptureVerdict: enriched.requestCaptureVerdict ?? null,
+        forwardSupportRequestSeqs: normalizeSeqArray((enriched as { forwardSupportRequestSeqs?: unknown }).forwardSupportRequestSeqs),
         captureActivityVerdict: enriched.captureActivityVerdict ?? null,
       }));
     } catch {}

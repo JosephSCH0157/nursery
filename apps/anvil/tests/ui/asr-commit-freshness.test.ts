@@ -240,6 +240,7 @@ describe('ASR commit freshness gate', () => {
       assembledText: 'One. Two.',
       sourceRequestSeqs: [10, 11, 12],
       supportingRawSeqs: [10, 11, 12],
+      forwardSupportRequestSeqs: [12],
       requestCaptureEvidence: [
         { requestSeq: 10, verdict: 'voice_detected', rmsDbfs: -18 },
         { requestSeq: 11, verdict: 'voice_detected', rmsDbfs: -18 },
@@ -255,6 +256,86 @@ describe('ASR commit freshness gate', () => {
 
     expect(driver.getLastLineIndex()).toBe(2);
     expect(detail.semanticAdmissionVerdict ?? null).toBeNull();
+
+    driver.dispose();
+  });
+
+  test('missing old request evidence does not block a current voiced forward-supporting request', async () => {
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+
+    const detail: any = {
+      currentIdx: 1,
+      matchId: 'forward-support-current-voice',
+      source: 'openai-whisper-bridge',
+      rawText: 'Two.',
+      assembledText: 'One. Two.',
+      sourceRequestSeqs: [20, 21],
+      supportingRawSeqs: [20, 21],
+      forwardSupportRequestSeqs: [21],
+      appendedBySeq: [21],
+      requestCaptureVerdict: 'voice_detected',
+      requestCaptureEvidence: [
+        { requestSeq: 21, verdict: 'voice_detected', rmsDbfs: -18 },
+      ],
+      rawMatchIndex: 1,
+      assembledMatchIndex: 2,
+      forwardMatchCreatedByAssembly: false,
+      match: { bestIdx: 2, bestSim: 0.97, topScores: [{ idx: 2, score: 0.97 }] } as any,
+    };
+    driver.ingest('One. Two.', true, detail);
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(2);
+    expect(detail.semanticAdmissionVerdict ?? null).toBeNull();
+    expect(detail.captureActivityEvidence?.forwardSupportRequestSeqs).toEqual([21]);
+    expect(detail.captureActivityEvidence?.missingEvidenceRequestSeqs).toEqual([]);
+
+    driver.dispose();
+  });
+
+  test('unknown current forward-supporting request evidence blocks even when older voiced evidence exists', async () => {
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+
+    const detail: any = {
+      currentIdx: 1,
+      matchId: 'forward-support-current-unknown',
+      source: 'openai-whisper-bridge',
+      rawText: 'Two.',
+      assembledText: 'One. Two.',
+      sourceRequestSeqs: [30, 31],
+      supportingRawSeqs: [30, 31],
+      forwardSupportRequestSeqs: [31],
+      appendedBySeq: [31],
+      requestCaptureVerdict: 'unknown',
+      requestCaptureEvidence: [
+        { requestSeq: 30, verdict: 'voice_detected', rmsDbfs: -18 },
+        { requestSeq: 31, verdict: 'unknown', rmsDbfs: null },
+      ],
+      rawMatchIndex: 1,
+      assembledMatchIndex: 2,
+      forwardMatchCreatedByAssembly: false,
+      match: { bestIdx: 2, bestSim: 0.97, topScores: [{ idx: 2, score: 0.97 }] } as any,
+    };
+    driver.ingest('One. Two.', true, detail);
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+    expect(detail.semanticAdmissionVerdict).toBe('capture_activity_unavailable');
+    expect(detail.captureActivityEvidence?.forwardSupportRequestSeqs).toEqual([31]);
+    expect(detail.captureActivityEvidence?.voiceEvidenceRequestSeqs).toEqual([30]);
+    expect(detail.captureActivityEvidence?.missingEvidenceRequestSeqs).toEqual([]);
 
     driver.dispose();
   });
