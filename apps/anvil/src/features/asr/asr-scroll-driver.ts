@@ -377,6 +377,16 @@ type ReanchorPendingState = {
   rawMetaConfidence: boolean;
 };
 
+type ReanchorLandingState = {
+  startedAtMs: number;
+  reason: string;
+  anchorLineIdx: number;
+  finalTargetLineIdx: number;
+  finalTargetScrollTop: number;
+  semanticEpoch: number;
+  supportingRequestSeqs: number[];
+};
+
 const DEFAULT_MIN_LINE_ADVANCE = 1;
 const DEFAULT_SEEK_THROTTLE_MS = 120;
 const DEFAULT_INTERIM_SCALE = 1.15;
@@ -384,6 +394,7 @@ const DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS = 2000;
 const DEFAULT_LOOKAHEAD_BEHIND_HITS = 2;
 const ASR_REANCHOR_LOCALITY_DIVERGENCE_MIN_LINES = 3;
 const ASR_REANCHOR_CONFIRM_LOCAL_WINDOW_LINES = 2;
+const ASR_REANCHOR_LANDING_MAX_EXPOSED_LINES = 2;
 const DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS = 1800;
 const DEFAULT_LOOKAHEAD_STALL_MS = 2500;
 const DEFAULT_SAME_LINE_THROTTLE_MS = 90;
@@ -8487,6 +8498,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let didEmitFirstLiveAsrVisualTickFlagProof = false;
   let activeAsrVisualRecoveryEpisode: AsrRecoveryEpisode | null = null;
   let reanchorPendingState: ReanchorPendingState | null = null;
+  let reanchorLandingState: ReanchorLandingState | null = null;
   let lastVisualWriteOwner = 'none';
   let lastVisualWriteEpoch = semanticEpoch;
   let lastVisualWriteDirection: 'forward' | 'backward' | 'hold' = 'hold';
@@ -12040,6 +12052,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     reanchorPendingState = null;
   };
 
+  const clearReanchorLandingState = (reason = 'resolved') => {
+    if (!reanchorLandingState) return;
+    try {
+      console.info(
+        `[ASR_REANCHOR_LANDING_CLEARED] reason=${reason} anchorLineIdx=${reanchorLandingState.anchorLineIdx} finalTargetLineIdx=${reanchorLandingState.finalTargetLineIdx} epoch=${reanchorLandingState.semanticEpoch}`,
+      );
+    } catch {}
+    reanchorLandingState = null;
+  };
+
   const cancelAutomaticVisualAuthorities = (reason: string) => {
     stopGlide(reason);
     pursuitTargetTop = null;
@@ -12110,12 +12132,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ? Math.max(0, Number(targetLineEl?.offsetTop))
         : resolveTargetTop(scroller, newLineIdx);
       if (targetTop != null && Number.isFinite(targetTop)) {
-        const beforeTop = Number(scroller.scrollTop || 0);
-        scroller.scrollTop = targetTop;
-        noteVisualWrite('reanchor_confirmed', beforeTop, Number(scroller.scrollTop || targetTop));
-        lastKnownScrollTop = Number(scroller.scrollTop || targetTop);
-        lastMoveAt = Date.now();
-        markProgrammaticScroll();
+        reanchorLandingState = {
+          startedAtMs: Date.now(),
+          reason: args.reason,
+          anchorLineIdx: newLineIdx,
+          finalTargetLineIdx: newLineIdx,
+          finalTargetScrollTop: targetTop,
+          semanticEpoch,
+          supportingRequestSeqs: [...args.supportingRequestSeqs],
+        };
+        pursuitTargetTop = targetTop;
+        ensurePursuitActive();
       }
     }
     try {
@@ -12402,6 +12429,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         `epoch=${semanticEpoch}`,
       ]);
       emitHudStatus('asr_reanchor_pending', 'ASR re-anchor pending - transcripts visible, auto-follow paused');
+      return false;
+    }
+    if (
+      reanchorLandingState &&
+      normalizedSource !== 'reanchor-landing' &&
+      normalizedSource !== 'scroll-write:reanchor-landing'
+    ) {
+      warnGuard('asr_reanchor_landing_hold', [
+        `source=${source}`,
+        `anchorLineIdx=${reanchorLandingState.anchorLineIdx}`,
+        `finalTargetLineIdx=${reanchorLandingState.finalTargetLineIdx}`,
+        `epoch=${reanchorLandingState.semanticEpoch}`,
+      ]);
       return false;
     }
     const commitLikeAsrSource = isLiveAsrCommitSource(source);
@@ -19907,6 +19947,50 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `[ASR_VISUAL_OWNER_FROZEN] owner=reanchor_pending semanticEpoch=${semanticEpoch} currentScrollTop=${Math.round(current)} candidateLineIdx=${reanchorPendingState.candidateLineIdx} hits=${reanchorPendingState.candidateHits}`,
         );
       } catch {}
+      return;
+    }
+    if (reanchorLandingState) {
+      cancelAutomaticVisualAuthorities('reanchor_landing_tick');
+      const landing = reanchorLandingState;
+      const lineHeightPx = Math.max(
+        1,
+        Number(getLineElementByIndex(scroller, Math.max(0, landing.finalTargetLineIdx))?.clientHeight || 24),
+      );
+      const maxExposeDeltaPx = Math.max(18, lineHeightPx * ASR_REANCHOR_LANDING_MAX_EXPOSED_LINES);
+      const finalTargetTop = Number(landing.finalTargetScrollTop);
+      const targetAhead = finalTargetTop >= current;
+      const exposedTargetTop = targetAhead
+        ? Math.min(finalTargetTop, current + maxExposeDeltaPx)
+        : Math.max(finalTargetTop, current - maxExposeDeltaPx);
+      const appliedTop = applyScrollWithHybridGuard(exposedTargetTop, {
+        scroller,
+        reason: 'reanchor-landing',
+        sourceAuthority: 'reanchor_landing',
+        selectedAuthority: 'reanchor_landing',
+        currentLineIdx: landing.anchorLineIdx,
+        committedLineIdx: landing.anchorLineIdx,
+        nextSpeakableLineIdx: landing.finalTargetLineIdx,
+      });
+      lastKnownScrollTop = appliedTop;
+      lastMoveAt = Date.now();
+      markProgrammaticScroll();
+      const landed = Math.abs(finalTargetTop - appliedTop) <= Math.max(12, lineHeightPx * 0.5);
+      try {
+        console.warn(
+          `[ASR_REANCHOR_LANDING] owner=reanchor_landing semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current)} exposedTargetScrollTop=${Math.round(exposedTargetTop)} finalTargetScrollTop=${Math.round(finalTargetTop)} landed=${landed ? 1 : 0}`,
+        );
+      } catch {}
+      if (landed) {
+        clearReanchorLandingState('landed');
+        pursuitActive = false;
+        pursuitTargetTop = null;
+        pursuitVel = 0;
+      } else {
+        pursuitActive = true;
+        pursuitTargetTop = finalTargetTop;
+        pursuitVel = 0;
+        window.requestAnimationFrame(tickController);
+      }
       return;
     }
     appliedTopPx = current;
@@ -37904,6 +37988,35 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       rawAssembledLocalityDiverged &&
       !assembledNeighborhoodHasContinuingRawSupport &&
       !rawAndAssembledEquivalent;
+    if (
+      reanchorLandingState &&
+      liveAsrSessionActive &&
+      isFinal &&
+      requestCaptureVoiceDetected &&
+      rawMatchIndex != null &&
+      Math.abs(rawMatchIndex - reanchorLandingState.finalTargetLineIdx) <= (ASR_REANCHOR_CONFIRM_LOCAL_WINDOW_LINES + 1)
+    ) {
+      const scroller = getScroller();
+      const reinforcedTargetTop = scroller
+        ? resolveTargetTop(scroller, rawMatchIndex)
+        : null;
+      reanchorLandingState.finalTargetLineIdx = rawMatchIndex;
+      if (reinforcedTargetTop != null && Number.isFinite(reinforcedTargetTop)) {
+        reanchorLandingState.finalTargetScrollTop = reinforcedTargetTop;
+      }
+      sourceRequestSeqs.forEach((seq) => {
+        if (!reanchorLandingState!.supportingRequestSeqs.includes(seq)) {
+          reanchorLandingState!.supportingRequestSeqs.push(seq);
+        }
+      });
+      try {
+        console.info(
+          `[ASR_REANCHOR_LANDING_REINFORCED] anchorLineIdx=${reanchorLandingState.anchorLineIdx} finalTargetLineIdx=${reanchorLandingState.finalTargetLineIdx} supportingRequestSeqs=${reanchorLandingState.supportingRequestSeqs.join(',') || 'none'} semanticEpoch=${reanchorLandingState.semanticEpoch}`,
+        );
+      } catch {}
+      ensurePursuitActive();
+      return;
+    }
     if (suspectReanchorDiscontinuity && !reanchorPendingState) {
       enterReanchorPending({
         now,
@@ -39392,7 +39505,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const catchupMinSim = clamp(requiredThreshold - catchupSimSlack, 0, 1);
     const prevIndex = cursorLine >= 0 ? cursorLine : 0;
     const bestMatchLineForProgress = Number.isFinite(rawIdx) ? Math.max(0, Math.floor(rawIdx)) : prevIndex;
-    noteNoProgressIngest(now, prevIndex, bestMatchLineForProgress, conf, requiredThreshold);
+    const quarantineTranscriptForLostForward =
+      metaTranscript ||
+      detail?.meta === true ||
+      detail?.noMatch === true ||
+      !!reanchorPendingState ||
+      !!reanchorLandingState;
+    if (quarantineTranscriptForLostForward) {
+      resetNoProgressStreak('quarantined_or_meta_transcript', prevIndex);
+    } else {
+      noteNoProgressIngest(now, prevIndex, bestMatchLineForProgress, conf, requiredThreshold);
+    }
     const candidateAnchorLine = Number.isFinite(rawIdx) ? Math.max(0, Math.floor(rawIdx)) : null;
     if (candidateAnchorLine !== null && conf >= thresholds.anchorMinSim) {
       if (anchorStreakLine === candidateAnchorLine) {
@@ -43176,6 +43299,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const setLastLineIndex = (index: number) => {
     if (!Number.isFinite(index)) return;
     clearReanchorPendingState('setLastLineIndex');
+    clearReanchorLandingState('setLastLineIndex');
     scriptEndEventEmitted = false;
     releaseCommitWindow('setLastLineIndex');
     lastLineIndex = Math.max(0, Math.floor(index));
@@ -45390,6 +45514,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     reanchorPending: !!reanchorPendingState,
     reanchorCandidateLineIdx: reanchorPendingState?.candidateLineIdx ?? -1,
     reanchorCandidateHits: reanchorPendingState?.candidateHits ?? 0,
+    reanchorLanding: !!reanchorLandingState,
+    reanchorLandingAnchorLineIdx: reanchorLandingState?.anchorLineIdx ?? -1,
+    reanchorLandingTargetLineIdx: reanchorLandingState?.finalTargetLineIdx ?? -1,
     semanticEpoch,
     lastVisualWriteOwner,
     lastVisualWriteEpoch,
@@ -45458,6 +45585,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       reanchorPending: boolean;
       reanchorCandidateLineIdx: number;
       reanchorCandidateHits: number;
+      reanchorLanding: boolean;
+      reanchorLandingAnchorLineIdx: number;
+      reanchorLandingTargetLineIdx: number;
       semanticEpoch: number;
       lastVisualWriteOwner: string;
       lastVisualWriteEpoch: number;

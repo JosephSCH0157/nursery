@@ -88,6 +88,9 @@ describe('ASR reread recovery', () => {
         reanchorPending: boolean;
         reanchorCandidateLineIdx: number;
         reanchorCandidateHits: number;
+        reanchorLanding: boolean;
+        reanchorLandingAnchorLineIdx: number;
+        reanchorLandingTargetLineIdx: number;
         semanticEpoch: number;
         lastVisualWriteOwner: string;
         lastVisualWriteDirection: 'forward' | 'backward' | 'hold';
@@ -145,19 +148,27 @@ describe('ASR reread recovery', () => {
       assembledMatchIndex: 5,
       match: { bestIdx: 5, bestSim: 0.95, topScores: [{ idx: 5, score: 0.95 }] },
     } as any);
-    await jest.advanceTimersByTimeAsync(160);
+    await jest.advanceTimersByTimeAsync(20);
 
     snapshot = driver.__debugGetAuthoritySnapshot();
     expect(snapshot.reanchorPending).toBe(false);
     expect(driver.getLastLineIndex()).toBe(2);
     expect(scroller.scrollTop).toBeLessThan(3200);
-    expect(snapshot.lastVisualWriteOwner).toBe('reanchor_confirmed');
+    expect(scroller.scrollTop).toBeGreaterThan(1134);
+    expect(snapshot.reanchorLanding).toBe(true);
+    expect(snapshot.reanchorLandingAnchorLineIdx).toBe(2);
+    expect(snapshot.reanchorLandingTargetLineIdx).toBe(2);
+    expect(snapshot.lastVisualWriteOwner).toBe('reanchor_landing');
     expect(snapshot.lastVisualWriteDirection).toBe('backward');
 
     const afterReanchorTop = scroller.scrollTop;
+    const reanchorCommitCountBeforeReinforce = consoleWarnSpy.mock.calls.filter((call) =>
+      String(call[0] || '').includes('ASR_REANCHOR_COMMIT')
+    ).length;
+    const semanticEpochBeforeReinforce = snapshot.semanticEpoch;
     driver.ingest('Then came the hurricanes.', true, {
       currentIdx: 2,
-      matchId: 'post-reread-forward',
+      matchId: 'reread-reinforce',
       source: 'openai-whisper-bridge',
       rawText: 'Then came the hurricanes.',
       assembledText: 'Then came the hurricanes.',
@@ -171,14 +182,25 @@ describe('ASR reread recovery', () => {
       assembledMatchIndex: 3,
       match: { bestIdx: 3, bestSim: 0.97, topScores: [{ idx: 3, score: 0.97 }] },
     } as any);
-    await jest.advanceTimersByTimeAsync(220);
+    await jest.advanceTimersByTimeAsync(20);
 
-    expect(driver.getLastLineIndex()).toBe(3);
-    expect(scroller.scrollTop).toBeGreaterThan(afterReanchorTop);
+    snapshot = driver.__debugGetAuthoritySnapshot();
+    expect(snapshot.reanchorLanding).toBe(true);
+    expect(snapshot.reanchorLandingAnchorLineIdx).toBe(2);
+    expect(snapshot.reanchorLandingTargetLineIdx).toBe(3);
+    expect(snapshot.semanticEpoch).toBe(semanticEpochBeforeReinforce);
+    expect(consoleWarnSpy.mock.calls.filter((call) =>
+      String(call[0] || '').includes('ASR_REANCHOR_COMMIT')
+    ).length).toBe(reanchorCommitCountBeforeReinforce);
+    expect(scroller.scrollTop).toBeLessThanOrEqual(afterReanchorTop);
+
+    expect(driver.getLastLineIndex()).toBe(2);
+    expect(scroller.scrollTop).toBeLessThanOrEqual(afterReanchorTop);
 
     const warnLines = consoleWarnSpy.mock.calls.map((call) => String(call[0] || ''));
     expect(warnLines.some((line) => line.includes('ASR_REANCHOR_PENDING'))).toBe(true);
     expect(warnLines.some((line) => line.includes('ASR_REANCHOR_COMMIT'))).toBe(true);
+    expect(warnLines.some((line) => line.includes('LOST_FORWARD on'))).toBe(false);
     expect(warnLines.some((line) => line.includes('ASR_SCROLL_AUTHORITY_CONFLICT'))).toBe(false);
 
     driver.dispose();
