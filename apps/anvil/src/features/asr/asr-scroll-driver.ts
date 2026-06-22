@@ -385,6 +385,11 @@ type ReanchorLandingState = {
   finalTargetScrollTop: number;
   semanticEpoch: number;
   supportingRequestSeqs: number[];
+  noProgressFrames: number;
+  lastActuatorFaultReason: string | null;
+  lastExposedTargetScrollTop: number;
+  lastAppliedScrollTop: number;
+  stuckSinceMs: number;
 };
 
 const DEFAULT_MIN_LINE_ADVANCE = 1;
@@ -395,6 +400,7 @@ const DEFAULT_LOOKAHEAD_BEHIND_HITS = 2;
 const ASR_REANCHOR_LOCALITY_DIVERGENCE_MIN_LINES = 3;
 const ASR_REANCHOR_CONFIRM_LOCAL_WINDOW_LINES = 2;
 const ASR_REANCHOR_LANDING_MAX_EXPOSED_LINES = 2;
+const ASR_REANCHOR_LANDING_STUCK_FRAME_THRESHOLD = 3;
 const DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS = 1800;
 const DEFAULT_LOOKAHEAD_STALL_MS = 2500;
 const DEFAULT_SAME_LINE_THROTTLE_MS = 90;
@@ -4957,6 +4963,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       forceReason?: string;
       terminalClampActive?: boolean;
       allowPostSemanticCommitVisualRelease?: boolean;
+      bypassAsrVisualGuardrails?: boolean;
     },
   ): number {
     const scroller = opts.scroller ?? getScroller();
@@ -5003,12 +5010,32 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       isSessionLivePhase() &&
       isSessionAsrArmed();
     if (liveAsrMode && liveAsrVisualGovernorHardHold) {
+      if (opts.bypassAsrVisualGuardrails === true) {
+        const appliedTop = applyCanonicalScrollTop(targetTop, { ...opts, scroller, source });
+        scheduleAsrWriteCheck(scroller, currentTop, reason, targetTop, source);
+        noteVisualWrite(
+          String(opts.selectedAuthority || opts.sourceAuthority || reason || 'asr'),
+          currentTop,
+          appliedTop,
+        );
+        return appliedTop;
+      }
       try {
         console.warn(
           `[ASR_VISUAL_FOLLOW_HARD_HELD] currentScrollTop=${Math.round(currentTop)} targetScrollTop=${Math.round(targetTop)} deltaPx=${Math.round(targetTop - currentTop)} speakableLead=${Math.max(0, countSpeakableDistanceAhead(Math.max(0, lastStrongConfirmedSpokenLine), Math.max(0, lastLineIndex)))} renderedLead=${Math.max(0, Math.max(0, lastLineIndex) - Math.max(0, lastStrongConfirmedSpokenLine))} reason=governor_hold source=applyScrollWithHybridGuard`,
         );
       } catch {}
       return currentTop;
+    }
+    if (opts.bypassAsrVisualGuardrails === true) {
+      const appliedTop = applyCanonicalScrollTop(targetTop, { ...opts, scroller, source });
+      scheduleAsrWriteCheck(scroller, currentTop, reason, targetTop, source);
+      noteVisualWrite(
+        String(opts.selectedAuthority || opts.sourceAuthority || reason || 'asr'),
+        currentTop,
+        appliedTop,
+      );
+      return appliedTop;
     }
     const releaseDecision = opts.allowPostSemanticCommitVisualRelease
       ? evaluatePostSemanticCommitVisualRelease({
@@ -11917,6 +11944,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         postFocusFreshProofRequired,
         hasFreshPostFocusFinalProof: hasFreshPostFocusFinalProof(),
         asrFocusMovementHoldActive,
+        reanchorLandingActive: !!reanchorLandingState,
+        reanchorLandingAnchorLineIdx: reanchorLandingState?.anchorLineIdx ?? null,
+        reanchorLandingTargetLineIdx: reanchorLandingState?.finalTargetLineIdx ?? null,
+        reanchorLandingNoProgressFrames: reanchorLandingState?.noProgressFrames ?? 0,
+        reanchorLandingActuatorFault:
+          !!reanchorLandingState &&
+          reanchorLandingState.noProgressFrames >= ASR_REANCHOR_LANDING_STUCK_FRAME_THRESHOLD,
+        reanchorLandingActuatorFaultReason: reanchorLandingState?.lastActuatorFaultReason ?? null,
+        reanchorLandingExposedTargetScrollTop: reanchorLandingState?.lastExposedTargetScrollTop ?? null,
+        reanchorLandingFinalTargetScrollTop: reanchorLandingState?.finalTargetScrollTop ?? null,
+        reanchorLandingAppliedScrollTop: reanchorLandingState?.lastAppliedScrollTop ?? null,
+        reanchorLandingStuckSinceMs: reanchorLandingState?.stuckSinceMs ?? 0,
       };
     } catch {}
   };
@@ -12059,6 +12098,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         `[ASR_REANCHOR_LANDING_CLEARED] reason=${reason} anchorLineIdx=${reanchorLandingState.anchorLineIdx} finalTargetLineIdx=${reanchorLandingState.finalTargetLineIdx} epoch=${reanchorLandingState.semanticEpoch}`,
       );
     } catch {}
+    try {
+      const scrollState = ((window as any).__tpAsrScrollState ??= {});
+      scrollState.reanchorLandingActive = false;
+      scrollState.reanchorLandingActuatorFault = false;
+      scrollState.reanchorLandingActuatorFaultReason = null;
+      scrollState.reanchorLandingNoProgressFrames = 0;
+      scrollState.reanchorLandingStuckSinceMs = 0;
+    } catch {}
     reanchorLandingState = null;
   };
 
@@ -12140,6 +12187,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           finalTargetScrollTop: targetTop,
           semanticEpoch,
           supportingRequestSeqs: [...args.supportingRequestSeqs],
+          noProgressFrames: 0,
+          lastActuatorFaultReason: null,
+          lastExposedTargetScrollTop: targetTop,
+          lastAppliedScrollTop: Number(scroller.scrollTop || 0),
+          stuckSinceMs: 0,
         };
         pursuitTargetTop = targetTop;
         ensurePursuitActive();
@@ -18850,6 +18902,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (maybeSuppressTerminalScriptEndWatchdog(lastLineIndex, 'stall-terminal')) return;
     if (now - lastStallLogAt < DEFAULT_STALL_LOG_COOLDOWN_MS) return;
     lastStallLogAt = now;
+    const reanchorLandingActuatorFault =
+      reanchorLandingState != null &&
+      reanchorLandingState.noProgressFrames >= ASR_REANCHOR_LANDING_STUCK_FRAME_THRESHOLD;
     const reasonSummary = summarizeGuardText();
     const telemetrySummary = formatCompletionTelemetry();
     try {
@@ -18858,16 +18913,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         commitCount,
         lastLineIndex,
         reasonSummary,
+        stallKind: reanchorLandingActuatorFault ? 'reanchor_landing_actuator_fault' : 'generic_commit_stall',
       });
     } catch {}
     if (!stallHudEmitted) {
-      const stallText = telemetrySummary
-        ? `ASR stalled • ${reasonSummary} • ${telemetrySummary}`
-        : `ASR stalled • ${reasonSummary}`;
+      const stallText = reanchorLandingActuatorFault
+        ? 'ASR re-anchor landing stuck - transcripts visible, auto-follow paused'
+        : telemetrySummary
+          ? `ASR stalled • ${reasonSummary} • ${telemetrySummary}`
+          : `ASR stalled • ${reasonSummary}`;
       emitHudStatus('stall', stallText, {
         key: 'stall',
         sinceMs: Math.round(now - lastCommitAt),
-        reasonSummary,
+        reasonSummary: reanchorLandingActuatorFault ? 'reanchor_landing_actuator_fault' : reasonSummary,
       });
       stallHudEmitted = true;
     }
@@ -19970,16 +20028,62 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         currentLineIdx: landing.anchorLineIdx,
         committedLineIdx: landing.anchorLineIdx,
         nextSpeakableLineIdx: landing.finalTargetLineIdx,
+        bypassAsrVisualGuardrails: true,
       });
+      const requestedDeltaPx = Math.abs(exposedTargetTop - current);
+      const appliedDeltaPx = Math.abs(appliedTop - current);
+      const actuatorNoProgress = requestedDeltaPx > 1 && appliedDeltaPx <= 0.5;
+      landing.lastExposedTargetScrollTop = exposedTargetTop;
+      landing.lastAppliedScrollTop = appliedTop;
+      if (actuatorNoProgress) {
+        landing.noProgressFrames += 1;
+        landing.lastActuatorFaultReason = 'landing_writer_no_progress';
+        if (landing.stuckSinceMs <= 0) landing.stuckSinceMs = Date.now();
+      } else {
+        landing.noProgressFrames = 0;
+        landing.lastActuatorFaultReason = null;
+        landing.stuckSinceMs = 0;
+      }
+      try {
+        const scrollState = ((window as any).__tpAsrScrollState ??= {});
+        scrollState.reanchorLandingActive = true;
+        scrollState.reanchorLandingAnchorLineIdx = landing.anchorLineIdx;
+        scrollState.reanchorLandingTargetLineIdx = landing.finalTargetLineIdx;
+        scrollState.reanchorLandingNoProgressFrames = landing.noProgressFrames;
+        scrollState.reanchorLandingActuatorFault =
+          landing.noProgressFrames >= ASR_REANCHOR_LANDING_STUCK_FRAME_THRESHOLD;
+        scrollState.reanchorLandingActuatorFaultReason = landing.lastActuatorFaultReason;
+        scrollState.reanchorLandingExposedTargetScrollTop = Math.round(exposedTargetTop);
+        scrollState.reanchorLandingFinalTargetScrollTop = Math.round(finalTargetTop);
+        scrollState.reanchorLandingAppliedScrollTop = Math.round(appliedTop);
+        scrollState.reanchorLandingStuckSinceMs = landing.stuckSinceMs;
+      } catch {}
       lastKnownScrollTop = appliedTop;
       lastMoveAt = Date.now();
       markProgrammaticScroll();
       const landed = Math.abs(finalTargetTop - appliedTop) <= Math.max(12, lineHeightPx * 0.5);
       try {
         console.warn(
-          `[ASR_REANCHOR_LANDING] owner=reanchor_landing semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current)} exposedTargetScrollTop=${Math.round(exposedTargetTop)} finalTargetScrollTop=${Math.round(finalTargetTop)} landed=${landed ? 1 : 0}`,
+          `[ASR_REANCHOR_LANDING] owner=reanchor_landing semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current)} exposedTargetScrollTop=${Math.round(exposedTargetTop)} finalTargetScrollTop=${Math.round(finalTargetTop)} appliedScrollTop=${Math.round(appliedTop)} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} noProgressFrames=${landing.noProgressFrames} landed=${landed ? 1 : 0}`,
         );
       } catch {}
+      if (landing.noProgressFrames >= ASR_REANCHOR_LANDING_STUCK_FRAME_THRESHOLD) {
+        try {
+          console.warn(
+            `[ASR_REANCHOR_LANDING_ACTUATOR_FAULT] semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current)} requestedScrollTop=${Math.round(exposedTargetTop)} appliedScrollTop=${Math.round(appliedTop)} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} noProgressFrames=${landing.noProgressFrames} reason=${landing.lastActuatorFaultReason || 'unknown'}`,
+          );
+        } catch {}
+        emitHudStatus(
+          'stall',
+          'ASR re-anchor landing stuck - transcripts visible, auto-follow paused',
+          {
+            key: 'stall',
+            sinceMs: landing.stuckSinceMs > 0 ? Math.max(0, Date.now() - landing.stuckSinceMs) : 0,
+            reasonSummary: 'reanchor_landing_actuator_fault',
+          },
+        );
+        stallHudEmitted = true;
+      }
       if (landed) {
         clearReanchorLandingState('landed');
         pursuitActive = false;

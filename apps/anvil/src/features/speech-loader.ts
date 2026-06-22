@@ -1570,6 +1570,18 @@ function classifyAsrStall(payload: AsrHeartbeatPayload): AsrStallClass {
     lastMatcherStallCommitStableSince = now;
   }
   const commitStagnantMs = Math.max(0, now - lastMatcherStallCommitStableSince);
+  const reanchorLanding = readReanchorLandingActuatorFaultState();
+  if (liveArmedAsr && reanchorLanding.fault) {
+    if (isDevMode() && shouldLogTag('ASR_REANCHOR_LANDING_STALL_CLASS', 2, 1000)) {
+      try {
+        console.warn('[ASR_REANCHOR_LANDING_STALL_CLASS]', {
+          classifiedAs: 'matcher_stall',
+          reason: reanchorLanding.reason || 'reanchor_landing_actuator_fault',
+        });
+      } catch {}
+    }
+    return 'matcher_stall';
+  }
   const sinceOnResultMs = payload.sinceOnResultMs;
   const recognizerQuietMs = resolveRecognizerQuietMs(payload, now);
   const sinceIngestMs = payload.sinceIngestMs;
@@ -1682,6 +1694,7 @@ function maybeAutoRestartSpeechStall(stallPayload: AsrStallPayload): void {
   if (nextClass !== 'speech_stall') return;
 
   const now = Date.now();
+  const reanchorLanding = readReanchorLandingActuatorFaultState();
   const mode = String(stallPayload.scrollMode || '').toLowerCase();
   const asrArmed = stallPayload.asrArmed === true;
   const inAsrMode = mode === 'asr';
@@ -1696,7 +1709,7 @@ function maybeAutoRestartSpeechStall(stallPayload: AsrStallPayload): void {
     !stallPayload.recognizerAttached ||
     !stallPayload.speechRunningActual ||
     deafRecognizerLane;
-  if (liveArmedAsr && recognizerLaneDied) {
+  if (liveArmedAsr && recognizerLaneDied && !reanchorLanding.fault && !reanchorLanding.active) {
     const rescueCooldownRemainingMs = Math.max(
       0,
       ASR_STALL_RESCUE_COOLDOWN_MS - (now - lastAsrStallRescueAt),
@@ -1719,6 +1732,10 @@ function maybeAutoRestartSpeechStall(stallPayload: AsrStallPayload): void {
 
   if (!inAsrMode || !asrArmed) {
     reason = 'skip:not-asr-armed';
+  } else if (reanchorLanding.fault || reanchorLanding.active) {
+    reason = reanchorLanding.fault
+      ? `skip:reanchor-landing-actuator-fault${reanchorLanding.reason ? `:${reanchorLanding.reason}` : ''}`
+      : 'skip:reanchor-landing-active';
   } else if (!recognizerLaneDied) {
     reason = 'skip:not-speech-lane';
   } else if (!shouldAutoRestartSpeech()) {
@@ -2028,6 +2045,23 @@ function readCurrentCommittedLine(): number | null {
     return Math.max(0, Math.floor(Number(scrollState.lastCommittedLine)));
   }
   return resolveRuntimeAsrLineIndex();
+}
+
+function readReanchorLandingActuatorFaultState(): {
+  active: boolean;
+  fault: boolean;
+  reason: string | null;
+} {
+  if (typeof window === 'undefined') {
+    return { active: false, fault: false, reason: null };
+  }
+  const scrollState = ((window as any).__tpAsrScrollState || {}) as Record<string, unknown>;
+  const reasonRaw = scrollState.reanchorLandingActuatorFaultReason;
+  return {
+    active: scrollState.reanchorLandingActive === true,
+    fault: scrollState.reanchorLandingActuatorFault === true,
+    reason: typeof reasonRaw === 'string' && reasonRaw.trim() ? reasonRaw.trim() : null,
+  };
 }
 
 function resolveDuplicateFinalCommitOpportunity(payload: TranscriptPayload): {
