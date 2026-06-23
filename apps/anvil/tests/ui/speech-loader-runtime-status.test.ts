@@ -40,11 +40,14 @@ describe('speech loader runtime status', () => {
     delete (window as any).__tpAsrRuntimeStatus;
     delete (window as any).__tpAsrBlocksReady;
     delete (window as any).__tpAsrBlockCount;
+    delete (window as any).__tpAsrDriver;
     delete (window as any).__TP_TS_PRIMARY__;
     delete (window as any).__TP_LAST_APPLIED_HASH;
     delete (window as any).__tpSpeech;
     delete (window as any).__tpMatcher;
     delete (window as any).__tpEmitSpeech;
+    delete (window as any).__tpAsrStallLast;
+    delete (window as any).__tpAsrStallAutoRestartLast;
     delete (window as any).scriptWords;
     delete (window as any).paraIndex;
     delete (window as any).__vParaIndex;
@@ -59,11 +62,14 @@ describe('speech loader runtime status', () => {
     delete (window as any).__tpAsrRuntimeStatus;
     delete (window as any).__tpAsrBlocksReady;
     delete (window as any).__tpAsrBlockCount;
+    delete (window as any).__tpAsrDriver;
     delete (window as any).__TP_TS_PRIMARY__;
     delete (window as any).__TP_LAST_APPLIED_HASH;
     delete (window as any).__tpSpeech;
     delete (window as any).__tpMatcher;
     delete (window as any).__tpEmitSpeech;
+    delete (window as any).__tpAsrStallLast;
+    delete (window as any).__tpAsrStallAutoRestartLast;
     delete (window as any).scriptWords;
     delete (window as any).paraIndex;
     delete (window as any).__vParaIndex;
@@ -268,11 +274,15 @@ describe('speech loader runtime status', () => {
       })),
     }));
 
+    let recognizerInstance: MockSpeechRecognition | null = null;
     class MockSpeechRecognition {
       continuous = false;
       interimResults = false;
       lang = 'en-US';
       onstart: ((ev: Event) => void) | null = null;
+      constructor() {
+        recognizerInstance = this;
+      }
       start = jest.fn(() => {
         this.onstart?.(new Event('start'));
       });
@@ -396,5 +406,219 @@ describe('speech loader runtime status', () => {
     expect(blockedSuppressedAfterStop).toHaveLength(0);
     expect(appStore.get('session.asrArmed')).toBe(false);
     expect(appStore.get('session.asrDesired')).toBe(false);
+  });
+
+  test('classifies active driver focus hold as focus_hold without autorestart', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-06-23T12:00:00.000Z'));
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const driverStats = {
+      lastIngestAt: Date.now() - 500,
+      lastCommitAt: Date.now() - 7000,
+      commitCount: 12,
+      eventsSinceCommit: 4,
+      finalsSinceCommit: 2,
+      focusHoldActive: true,
+      focusHoldReason: 'focus_loss_quarantine',
+    };
+    (window as any).__tpAsrDriver = {
+      getStats: () => driverStats,
+      getLastLineIndex: () => 0,
+    };
+
+    jest.doMock('../../src/features/asr/asr-scroll-driver', () => ({
+      createAsrScrollDriver: jest.fn(() => ({
+        getStats: () => driverStats,
+        getLastLineIndex: () => 0,
+        setLastLineIndex: jest.fn(),
+        ingest: jest.fn(),
+        dispose: jest.fn(),
+      })),
+    }));
+
+    let recognizerInstance: any = null;
+    class MockSpeechRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = 'en-US';
+      onstart: ((ev: Event) => void) | null = null;
+      constructor() {
+        recognizerInstance = this;
+      }
+      start = jest.fn(() => {
+        this.onstart?.(new Event('start'));
+      });
+      stop = jest.fn();
+      abort = jest.fn();
+    }
+    (window as any).SpeechRecognition = MockSpeechRecognition;
+
+    const { appStore } = await import('../../src/state/app-store');
+    const { initSession } = await import('../../src/state/session');
+    initSession();
+    (window as any).__tpStore = appStore;
+    (window as any).__tpMic = { requestMic: jest.fn(), releaseMic: jest.fn() };
+    appStore.set('scrollMode', 'asr' as any);
+    appStore.set('asr.engine', 'webspeech');
+    appStore.set('session.phase', 'live' as any);
+    appStore.set('session.asrArmed', true as any);
+    appStore.set('session.asrDesired', true as any);
+
+    const { startSpeechBackendForSession, stopSpeechBackendForSession } = await import('../../src/features/speech-loader');
+    const ok = await startSpeechBackendForSession({ mode: 'asr', reason: 'test-focus-hold' });
+    expect(ok).toBe(true);
+
+    await jest.advanceTimersByTimeAsync(2100);
+
+    expect((window as any).__tpAsrStallLast).toEqual(expect.objectContaining({
+      stallClass: 'focus_hold',
+      focusHoldActive: true,
+      focusHoldReason: 'focus_loss_quarantine',
+    }));
+    expect((window as any).__tpAsrStallAutoRestartLast).toBeUndefined();
+
+    stopSpeechBackendForSession('test-focus-hold');
+    jest.useRealTimers();
+  });
+
+  test('active driver focus hold dominates stale no-ingress watchdog classification without recovery action', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-06-23T12:00:00.000Z'));
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const driverStats = {
+      lastIngestAt: Date.now() - 9000,
+      lastCommitAt: Date.now() - 9000,
+      commitCount: 12,
+      eventsSinceCommit: 4,
+      finalsSinceCommit: 2,
+      focusHoldActive: true,
+      focusHoldReason: 'focus_loss_quarantine',
+    };
+    (window as any).__tpAsrDriver = {
+      getStats: () => driverStats,
+      getLastLineIndex: () => 0,
+    };
+
+    let recognizerInstance: any = null;
+    class MockSpeechRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = 'en-US';
+      onstart: ((ev: Event) => void) | null = null;
+      constructor() {
+        recognizerInstance = this;
+      }
+      start = jest.fn(() => {
+        this.onstart?.(new Event('start'));
+      });
+      stop = jest.fn();
+      abort = jest.fn();
+    }
+    (window as any).SpeechRecognition = MockSpeechRecognition;
+
+    const { appStore } = await import('../../src/state/app-store');
+    const { initSession } = await import('../../src/state/session');
+    initSession();
+    (window as any).__tpStore = appStore;
+    (window as any).__tpMic = { requestMic: jest.fn(), releaseMic: jest.fn() };
+    appStore.set('scrollMode', 'asr' as any);
+    appStore.set('asr.engine', 'webspeech');
+    appStore.set('session.phase', 'live' as any);
+    appStore.set('session.asrArmed', true as any);
+    appStore.set('session.asrDesired', true as any);
+
+    const { startSpeechBackendForSession, stopSpeechBackendForSession } = await import('../../src/features/speech-loader');
+    const ok = await startSpeechBackendForSession({ mode: 'asr', reason: 'test-focus-hold-stale-no-ingress' });
+    expect(ok).toBe(true);
+
+    const startCallsBefore = recognizerInstance?.start.mock.calls.length ?? 0;
+    const abortCallsBefore = recognizerInstance?.abort.mock.calls.length ?? 0;
+    const stopCallsBefore = recognizerInstance?.stop.mock.calls.length ?? 0;
+
+    await jest.advanceTimersByTimeAsync(7000);
+
+    expect((window as any).__tpAsrStallLast).toEqual(expect.objectContaining({
+      stallClass: 'focus_hold',
+      focusHoldActive: true,
+      focusHoldReason: 'focus_loss_quarantine',
+    }));
+    expect((window as any).__tpAsrStallAutoRestartLast).toBeUndefined();
+    expect((recognizerInstance?.start.mock.calls.length ?? 0)).toBe(startCallsBefore);
+    expect((recognizerInstance?.abort.mock.calls.length ?? 0)).toBe(abortCallsBefore);
+    expect((recognizerInstance?.stop.mock.calls.length ?? 0)).toBe(stopCallsBefore);
+
+    stopSpeechBackendForSession('test-focus-hold-stale-no-ingress');
+    jest.useRealTimers();
+  });
+
+  test('does not classify stale blur history as focus_hold once the driver hold clears', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-06-23T12:00:00.000Z'));
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const driverStats = {
+      lastIngestAt: Date.now() - 500,
+      lastCommitAt: Date.now() - 7000,
+      commitCount: 12,
+      eventsSinceCommit: 4,
+      finalsSinceCommit: 2,
+      focusHoldActive: false,
+      focusHoldReason: 'none',
+    };
+    (window as any).__tpAsrDriver = {
+      getStats: () => driverStats,
+      getLastLineIndex: () => 0,
+    };
+
+    jest.doMock('../../src/features/asr/asr-scroll-driver', () => ({
+      createAsrScrollDriver: jest.fn(() => ({
+        getStats: () => driverStats,
+        getLastLineIndex: () => 0,
+        setLastLineIndex: jest.fn(),
+        ingest: jest.fn(),
+        dispose: jest.fn(),
+      })),
+    }));
+
+    class MockSpeechRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = 'en-US';
+      onstart: ((ev: Event) => void) | null = null;
+      start = jest.fn(() => {
+        this.onstart?.(new Event('start'));
+      });
+      stop = jest.fn();
+      abort = jest.fn();
+    }
+    (window as any).SpeechRecognition = MockSpeechRecognition;
+
+    const { appStore } = await import('../../src/state/app-store');
+    const { initSession } = await import('../../src/state/session');
+    initSession();
+    (window as any).__tpStore = appStore;
+    (window as any).__tpMic = { requestMic: jest.fn(), releaseMic: jest.fn() };
+    appStore.set('scrollMode', 'asr' as any);
+    appStore.set('asr.engine', 'webspeech');
+    appStore.set('session.phase', 'live' as any);
+    appStore.set('session.asrArmed', true as any);
+    appStore.set('session.asrDesired', true as any);
+
+    const { startSpeechBackendForSession, stopSpeechBackendForSession } = await import('../../src/features/speech-loader');
+    const ok = await startSpeechBackendForSession({ mode: 'asr', reason: 'test-focus-hold-cleared' });
+    expect(ok).toBe(true);
+
+    await jest.advanceTimersByTimeAsync(2100);
+
+    expect((window as any).__tpAsrStallLast).toEqual(expect.objectContaining({
+      stallClass: 'matcher_stall',
+      focusHoldActive: false,
+      focusHoldReason: 'none',
+    }));
+
+    stopSpeechBackendForSession('test-focus-hold-cleared');
+    jest.useRealTimers();
   });
 });

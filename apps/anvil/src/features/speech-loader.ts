@@ -206,9 +206,11 @@ type AsrHeartbeatPayload = {
   commitCount: number;
   lifecycleEvent: string;
   lifecycleEventTs: number | null;
+  focusHoldActive: boolean;
+  focusHoldReason: string | null;
 };
 
-type AsrStallClass = 'speech_stall' | 'matcher_stall' | 'unknown';
+type AsrStallClass = 'speech_stall' | 'matcher_stall' | 'focus_hold' | 'unknown';
 
 type AsrStallPayload = {
   reason: string;
@@ -229,6 +231,8 @@ type AsrStallPayload = {
   commitCount: number;
   lifecycleEvent: string;
   lifecycleEventTs: number | null;
+  focusHoldActive: boolean;
+  focusHoldReason: string | null;
 };
 
 type AsrStallAutoRestartPayload = {
@@ -406,6 +410,8 @@ let lastRecognizerAttachedTs = 0;
 let lastAsrIngestTs = 0;
 let lastAsrCommitTs = 0;
 let lastAsrCommitCount = 0;
+let lastAsrFocusHoldActive = false;
+let lastAsrFocusHoldReason: string | null = null;
 let lastRecognizerLifecycleEvent = '';
 let lastRecognizerLifecycleAt = 0;
 let lastAsrStallClass: AsrStallClass | '' = '';
@@ -870,6 +876,11 @@ function readAsrDriverStats(driverRef: any): AsrScrollDriverStats | null {
         commitCount: Math.max(0, Math.floor(Number(snapshot.commitCount) || 0)),
         eventsSinceCommit: Math.max(0, Math.floor(Number(snapshot.eventsSinceCommit) || 0)),
         finalsSinceCommit: Math.max(0, Math.floor(Number(snapshot.finalsSinceCommit) || 0)),
+        focusHoldActive: snapshot.focusHoldActive === true,
+        focusHoldReason:
+          typeof snapshot.focusHoldReason === 'string' && snapshot.focusHoldReason.trim()
+            ? snapshot.focusHoldReason.trim()
+            : null,
       };
     }
   } catch {
@@ -884,6 +895,8 @@ function syncAsrDriverStats(driverRef?: any): void {
   lastAsrIngestTs = Math.max(lastAsrIngestTs, stats.lastIngestAt);
   lastAsrCommitTs = Math.max(lastAsrCommitTs, stats.lastCommitAt);
   lastAsrCommitCount = Math.max(lastAsrCommitCount, stats.commitCount);
+  lastAsrFocusHoldActive = stats.focusHoldActive === true;
+  lastAsrFocusHoldReason = stats.focusHoldReason ?? null;
 }
 
 function normalizeLineIndex(value: unknown): number | null {
@@ -1547,6 +1560,8 @@ function buildAsrHeartbeat(reason: string): AsrHeartbeatPayload {
     commitCount: Math.max(0, Math.floor(lastAsrCommitCount || 0)),
     lifecycleEvent: lastRecognizerLifecycleEvent || '',
     lifecycleEventTs: toMaybeTimestamp(lastRecognizerLifecycleAt),
+    focusHoldActive: lastAsrFocusHoldActive,
+    focusHoldReason: lastAsrFocusHoldReason,
   };
 }
 
@@ -1557,11 +1572,6 @@ function classifyAsrStall(payload: AsrHeartbeatPayload): AsrStallClass {
     payload.sessionPhase,
     payload.asrArmed,
   );
-  const liveArmedDetached = liveArmedAsr && !payload.recognizerAttached;
-  if (liveArmedDetached) {
-    maybeLogLiveArmedDetachedInvariant('stall-classifier');
-    return 'speech_stall';
-  }
   const commitCount = Math.max(0, Math.floor(Number(payload.commitCount) || 0));
   if (commitCount !== lastMatcherStallCommitCount) {
     lastMatcherStallCommitCount = commitCount;
@@ -1570,6 +1580,23 @@ function classifyAsrStall(payload: AsrHeartbeatPayload): AsrStallClass {
     lastMatcherStallCommitStableSince = now;
   }
   const commitStagnantMs = Math.max(0, now - lastMatcherStallCommitStableSince);
+  const sinceCommitMs = payload.sinceCommitMs;
+  const focusHoldActive = payload.focusHoldActive === true;
+  const focusHoldReason = String(payload.focusHoldReason || '').trim().toLowerCase();
+  const focusHoldBlocking =
+    liveArmedAsr &&
+    focusHoldActive &&
+    focusHoldReason !== '' &&
+    focusHoldReason !== 'none' &&
+    sinceCommitMs != null &&
+    sinceCommitMs > ASR_STALL_MATCHER_THRESHOLD_MS &&
+    commitStagnantMs >= ASR_STALL_MATCHER_STABLE_COMMIT_MS;
+  if (focusHoldBlocking) return 'focus_hold';
+  const liveArmedDetached = liveArmedAsr && !payload.recognizerAttached;
+  if (liveArmedDetached) {
+    maybeLogLiveArmedDetachedInvariant('stall-classifier');
+    return 'speech_stall';
+  }
   const reanchorLanding = readReanchorLandingActuatorFaultState();
   if (liveArmedAsr && reanchorLanding.fault) {
     if (isDevMode() && shouldLogTag('ASR_REANCHOR_LANDING_STALL_CLASS', 2, 1000)) {
@@ -1585,7 +1612,6 @@ function classifyAsrStall(payload: AsrHeartbeatPayload): AsrStallClass {
   const sinceOnResultMs = payload.sinceOnResultMs;
   const recognizerQuietMs = resolveRecognizerQuietMs(payload, now);
   const sinceIngestMs = payload.sinceIngestMs;
-  const sinceCommitMs = payload.sinceCommitMs;
   const deafRecognizerStalled =
     liveArmedAsr &&
     (payload.recognizerAttached || payload.speechRunningActual) &&
@@ -1691,6 +1717,7 @@ function maybeAutoRestartSpeechStall(stallPayload: AsrStallPayload): void {
   }
   lastAsrStallEpisodeClass = nextClass;
 
+  if (nextClass === 'focus_hold') return;
   if (nextClass !== 'speech_stall') return;
 
   const now = Date.now();
@@ -1795,6 +1822,8 @@ function emitAsrStallIfChanged(payload: AsrHeartbeatPayload, opts?: { force?: bo
     commitCount: payload.commitCount,
     lifecycleEvent: payload.lifecycleEvent,
     lifecycleEventTs: payload.lifecycleEventTs,
+    focusHoldActive: payload.focusHoldActive,
+    focusHoldReason: payload.focusHoldReason,
   };
   maybeAutoRestartSpeechStall(stallPayload);
   if (!opts?.force && stallClass === lastAsrStallClass) return;
@@ -2513,6 +2542,8 @@ function hardResetSpeechEngine(reason?: string): void {
   lastAsrIngestTs = 0;
   lastAsrCommitTs = 0;
   lastAsrCommitCount = 0;
+  lastAsrFocusHoldActive = false;
+  lastAsrFocusHoldReason = null;
   pendingManualRestartCount = 0;
   lastAsrStallClass = '';
   clearAsrRunKey(`hard-reset:${why}`);
@@ -5376,6 +5407,8 @@ export async function startSpeechBackendForSession(info?: { reason?: string; mod
     lastAsrIngestTs = 0;
     lastAsrCommitTs = 0;
     lastAsrCommitCount = 0;
+    lastAsrFocusHoldActive = false;
+    lastAsrFocusHoldReason = null;
     lastRecognizerLifecycleEvent = '';
     lastRecognizerLifecycleAt = 0;
     lastAsrStallClass = '';

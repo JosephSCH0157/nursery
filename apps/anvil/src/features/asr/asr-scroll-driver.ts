@@ -10856,6 +10856,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         transcriptAuthorityEpoch:
           next.transcriptAuthorityEpoch ??
           commitAuthorityEpoch,
+        requestCaptureVerdict:
+          next.requestCaptureVerdict ?? null,
+        captureActivityVerdict:
+          next.captureActivityVerdict ?? null,
+        targetSupportProvenance:
+          next.targetSupportProvenance ?? null,
+        forwardMatchCreatedByAssembly:
+          typeof next.forwardMatchCreatedByAssembly === 'boolean'
+            ? next.forwardMatchCreatedByAssembly
+            : null,
       };
       pendingSeq += 1;
       return pendingMatch;
@@ -12207,6 +12217,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
 
   const publishAsrFocusGateState = () => {
+    const focusHoldState = getAsrFocusHoldState();
     try {
       (window as any).__tpAsrFocusGate = {
         asrFocusGeneration,
@@ -12215,6 +12226,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         postFocusFreshProofRequired,
         hasFreshPostFocusFinalProof: hasFreshPostFocusFinalProof(),
         movementHoldActive: asrFocusMovementHoldActive,
+        focusHoldActive: focusHoldState.active,
+        focusHoldReason: focusHoldState.reason,
+        focused: focusHoldState.focused,
+        visible: focusHoldState.visible,
+        diagnosticOnly: focusHoldState.diagnosticOnly,
         canAsrMove: canAsrMove(),
       };
     } catch {
@@ -12291,22 +12307,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       return;
     }
     const focusLossDiagnosticOnly = isFocusLossDiagnosticOnlySafe(now);
-    const shouldHold = !isDocumentVisible() || (!isDocumentFocused() && !focusLossDiagnosticOnly);
-    if (focusLossDiagnosticOnly) {
-      if (asrFocusMovementHoldActive) {
-        asrFocusMovementHoldActive = false;
-        publishAsrFocusGateState();
-      }
-      if (source === 'window-blur' && !runAffectedByFocusLoss) {
-        runAffectedByFocusLoss = true;
-        try {
-          console.warn(
-            `[ASR_RUN_AFFECTED_BY_FOCUS_LOSS] generation=${asrFocusGeneration} source=${source} state=lost reason=focus_loss_diagnostic_only`,
-          );
-        } catch {}
-      }
-      return;
-    }
+    const shouldHold = !isDocumentVisible() || !isDocumentFocused();
     if (shouldHold) {
       if (!asrFocusMovementHoldActive) {
         asrFocusMovementHoldActive = true;
@@ -12318,7 +12319,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           runAffectedByFocusLoss = true;
           try {
             console.warn(
-              `[ASR_RUN_AFFECTED_BY_FOCUS_LOSS] generation=${asrFocusGeneration} source=${source} state=lost reason=focus_loss_quarantine`,
+              `[ASR_RUN_AFFECTED_BY_FOCUS_LOSS] generation=${asrFocusGeneration} source=${source} state=lost reason=${focusLossDiagnosticOnly ? 'focus_loss_diagnostic_only' : 'focus_loss_quarantine'}`,
             );
           } catch {}
         }
@@ -12357,6 +12358,55 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
 
   const hasFreshPostFocusFinalProof = () => !postFocusFreshProofRequired;
+
+  const getAsrFocusHoldState = (now = Date.now()) => {
+    const visible = getDocumentVisibilityState() === 'visible';
+    const focused = isDocumentFocused();
+    const diagnosticOnly = isFocusLossDiagnosticOnlySafe(now);
+    if (!visible) {
+      return {
+        active: true,
+        reason: 'document_hidden',
+        focused,
+        visible,
+        diagnosticOnly,
+      } as const;
+    }
+    if (!focused) {
+      return {
+        active: true,
+        reason: asrFocusMovementHoldActive ? 'focus_loss_quarantine' : 'document_blur',
+        focused,
+        visible,
+        diagnosticOnly,
+      } as const;
+    }
+    if (asrFocusMovementHoldActive) {
+      return {
+        active: true,
+        reason: 'focus_loss_quarantine',
+        focused,
+        visible,
+        diagnosticOnly,
+      } as const;
+    }
+    if (!hasFreshPostFocusFinalProof()) {
+      return {
+        active: true,
+        reason: 'awaiting_post_focus_final',
+        focused,
+        visible,
+        diagnosticOnly,
+      } as const;
+    }
+    return {
+      active: false,
+      reason: 'none',
+      focused,
+      visible,
+      diagnosticOnly,
+    } as const;
+  };
 
   const isFocusLossDiagnosticOnlySafe = (now: number) => {
     if (!isAsrLiveMovementSession()) return false;
@@ -12417,6 +12467,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   ) => {
     if (!isFinal) return false;
     if (!isFocusLossDiagnosticOnlySafe(now)) return false;
+    const focusHoldState = getAsrFocusHoldState(now);
+    if (!focusHoldState.active) return false;
+    if (focusHoldState.reason === 'awaiting_post_focus_final') return false;
     const transcriptRunKey =
       normalizeRunKey((detail as { runKey?: unknown } | null | undefined)?.runKey) || undefined;
     const transcriptRunGeneration =
@@ -12432,9 +12485,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     getScrollMode() === 'asr' &&
     isSessionLivePhase() &&
     isSessionAsrArmed() &&
-    (isDocumentFocused() || isFocusLossDiagnosticOnlySafe(Date.now())) &&
-    getDocumentVisibilityState() === 'visible' &&
-    hasFreshPostFocusFinalProof()
+    getAsrFocusHoldState(Date.now()).active === false
   );
 
   const isLiveAsrCommitSource = (source: string): boolean => {
@@ -12636,10 +12687,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const focusLostVisible = !isDocumentFocused() && isDocumentVisible();
     const focusLossTranscriptAccepted = shouldAcceptFocusLossTranscript(isFinal, now, detail);
     if (focusLossTranscriptAccepted) {
-      postFocusFreshProofRequired = false;
-      focusTranscriptQuarantineActive = false;
-      if (!focusLostVisible) {
+      const focusHoldState = getAsrFocusHoldState(now);
+      if (!focusHoldState.active) {
+        postFocusFreshProofRequired = false;
+        focusTranscriptQuarantineActive = false;
         asrFocusMovementHoldActive = false;
+      } else {
+        postFocusFreshProofRequired = true;
+        focusTranscriptQuarantineActive = true;
       }
       try {
         console.warn(buildAsrFocusLossTranscriptAcceptedDiagnostic({
@@ -12707,6 +12762,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     postFocusFreshProofRequired = false;
     focusTranscriptQuarantineActive = false;
+    pendingMatch = null;
+    if (pendingRaf) {
+      cancelAnimationFrame(pendingRaf);
+      pendingRaf = 0;
+    }
+    clearPendingSpeakableBridge('post_focus_fresh_proof');
     clearEvidenceBuffer('post-focus-fresh-proof');
     try {
       console.warn(
@@ -23981,7 +24042,30 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const canAttemptVisualRecenterPullback =
       Number.isFinite(targetScrollTopForActuator) &&
       beforeScrollTop > targetScrollTopForActuator + getVisualTargetTolerancePx(safeResolverLineHeightPx);
-    if (move > 0 || canAttemptVisualRecenterPullback) {
+    const focusHoldStateForActuator = getAsrFocusHoldState(freshnessNowTs);
+    const activeFocusMovementHold =
+      isAsrLiveMovementSession() &&
+      focusHoldStateForActuator.active;
+    if (activeFocusMovementHold) {
+      requestedDeltaPx = 0;
+      requestedPxps = 0;
+      move = 0;
+      pursuitVel = 0;
+      if (lastAsrRecoveryPathBlockReason === 'none') {
+        lastAsrRecoveryPathBlockReason = `focus_hold:${focusHoldStateForActuator.reason}`;
+      }
+      warnGuard(ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD, [
+        `state=${focusHoldStateForActuator.reason}`,
+        'source=tick_controller',
+        `generation=${asrFocusGeneration}`,
+        focusHoldStateForActuator.focused ? '' : 'focus=0',
+        focusHoldStateForActuator.visible ? '' : 'visibility=hidden',
+      ]);
+      emitHudStatus(
+        ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD,
+        'Hold: focus lost, movement frozen',
+      );
+    } else if (move > 0 || canAttemptVisualRecenterPullback) {
       const actuatorStep = applyVisualActuatorTargetStep({
         scroller,
         currentTop: beforeScrollTop,
@@ -25403,6 +25487,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
     }
     if (
+      !activeFocusMovementHold &&
       liveAsrFollowMode &&
       liveAsrEscapeAllowedThisTick &&
       appliedDeltaPx <= 0 &&
@@ -27091,6 +27176,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         transcriptSpeechFresh: pendingTranscriptSpeechFresh,
         transcriptSpeechActive: pendingTranscriptSpeechActive,
         transcriptAuthorityEpoch: pendingTranscriptAuthorityEpoch,
+        requestCaptureVerdict: pendingRequestCaptureVerdict,
+        captureActivityVerdict: pendingCaptureActivityVerdict,
+        targetSupportProvenance: pendingTargetSupportProvenance,
+        forwardMatchCreatedByAssembly: pendingForwardMatchCreatedByAssembly,
       } = pending;
       const pendingTranscriptSource = String(pending.transcriptSource || '').trim().toLowerCase();
       let forceReason = pendingForceReason;
@@ -33025,6 +33114,115 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           : stabilizerSemanticCommitCandidateActive
             ? Math.max(prevLineIndex, Math.floor(Number(freshnessTargetLine ?? semanticCommitTargetLine ?? targetLine) || targetLine))
             : targetLine;
+        const terminalSourceBranchPre = pendingSourceBranch || movementAuthoritySourceBranch || '';
+        const terminalProofSourcePre = pendingProofSource || movementAuthorityProofSource || '';
+        const terminalForceReasonPre = forceReason || '';
+        const terminalDeltaPre = Math.max(0, freshnessProposedLineIdx - prevLineIndex);
+        const targetSpeakablePre = isSpeakableScriptLine(freshnessProposedLineIdx);
+        const runIdentityCurrentPre = !isRunIdentityStale({
+          runKey: pendingRunKey || undefined,
+          runGeneration: pendingRunGeneration,
+        });
+        const authorityEpochCurrentPre =
+          pendingTranscriptAuthorityEpoch == null ||
+          !Number.isFinite(pendingTranscriptAuthorityEpoch as number) ||
+          Number(pendingTranscriptAuthorityEpoch) === commitAuthorityEpoch;
+        const responseAuthorityCurrentPre =
+          authorityEpochCurrentPre &&
+          !(
+            lastCommitAuthorityInvalidatedAt > 0 &&
+            Number.isFinite(pendingTranscriptReceivedAtMs as number) &&
+            Number(pendingTranscriptReceivedAtMs) <= lastCommitAuthorityInvalidatedAt
+          );
+        const pendingResponseAgeMsPre = Number.isFinite(pendingTranscriptResponseAgeMs as number)
+          ? Math.max(0, Number(pendingTranscriptResponseAgeMs))
+          : (
+            Number.isFinite(pendingTranscriptReceivedAtMs as number)
+              ? Math.max(0, now - Number(pendingTranscriptReceivedAtMs))
+              : Number.POSITIVE_INFINITY
+          );
+        const pendingAudioAgeMsPre = Number.isFinite(pendingTranscriptAudioAgeMs as number)
+          ? Math.max(0, Number(pendingTranscriptAudioAgeMs))
+          : (lastAudioChunkAt > 0 ? Math.max(0, now - lastAudioChunkAt) : Number.POSITIVE_INFINITY);
+        const responseStalePre =
+          Number.isFinite(pendingResponseAgeMsPre) &&
+          pendingResponseAgeMsPre > activeAsrControllerProfile.responseFreshMaxAgeMs;
+        const audioChunkStalePre =
+          Number.isFinite(pendingAudioAgeMsPre) &&
+          pendingAudioAgeMsPre > activeAsrControllerProfile.audioFreshMaxAgeMs;
+        const terminalSafeAuthorityPre =
+          (movementAuthority === 'proof' || movementAuthority === 'reconcile') &&
+          (
+            isProofOwnedPrimaryForceReason(terminalForceReasonPre) ||
+            isAdjacentProofOwnedForceReason(terminalProofSourcePre) ||
+            isAdjacentProofOwnedForceReason(terminalSourceBranchPre) ||
+            isAdjacentProofOwnedForceReason(terminalForceReasonPre) ||
+            isMovementAuthorityProofBranch(terminalProofSourcePre) ||
+            isMovementAuthorityProofBranch(terminalSourceBranchPre) ||
+            isMovementAuthorityProofBranch(terminalForceReasonPre) ||
+            isAsrRecoverySource(terminalSourceBranchPre, terminalForceReasonPre, matchId) ||
+            isRecoveryLandingHoldSource(terminalSourceBranchPre, terminalForceReasonPre) ||
+            String(terminalProofSourcePre).toLowerCase().includes('sustained_read') ||
+            String(terminalSourceBranchPre).toLowerCase().includes('sustained_read') ||
+            String(terminalForceReasonPre).toLowerCase().includes('sustained_read')
+          );
+        const nonPendingBypassReasonTextPre = `${String(terminalSourceBranchPre || '')}|${String(terminalProofSourcePre || '')}|${String(terminalForceReasonPre || '')}`.toLowerCase();
+        const nonPendingProofOwnedLineagePre =
+          isProofOwnedPrimaryForceReason(terminalForceReasonPre) ||
+          isAdjacentProofOwnedForceReason(terminalForceReasonPre) ||
+          isAdjacentProofOwnedForceReason(terminalSourceBranchPre) ||
+          isAdjacentProofOwnedForceReason(terminalProofSourcePre) ||
+          nonPendingBypassReasonTextPre.includes('proof_owned') ||
+          nonPendingBypassReasonTextPre.includes('final-forward-nudge') ||
+          nonPendingBypassReasonTextPre.includes('live_strict_proof_owned_commit') ||
+          nonPendingBypassReasonTextPre.includes('sustained_read') ||
+          !!liveSpeechForwardPushBackwardContradictionOverriddenByTail;
+        const adjacentProofOwnedLocalLineagePre =
+          movementAuthorityHasAdjacentProof ||
+          movementAuthorityHasStrictLocalProof ||
+          nonPendingProofOwnedLineagePre;
+        const terminalGuardTextPre = `${String(lastAsrGuardReason || '')}|${String(lastAsrHudGuardText || '')}`.toLowerCase();
+        const terminalOffscriptOrNoMatchBlockedPre =
+          terminalGuardTextPre.includes('no_match') ||
+          terminalGuardTextPre.includes('nomatch') ||
+          terminalGuardTextPre.includes('offscript');
+        const terminalContradictionBlockedPre =
+          strictBackwardContradictionForCommit ||
+          terminalGuardTextPre.includes('contradiction');
+        const focusHoldStatePre = getAsrFocusHoldState(now);
+        const terminalFocusLossBlockedPre = focusHoldStatePre.active;
+        const hasExplicitDirectForwardMatch =
+          pendingForwardMatchCreatedByAssembly === false;
+        const hasVoiceBackedAssemblyForwardMatch =
+          pendingForwardMatchCreatedByAssembly === true &&
+          pendingTargetSupportProvenance === 'voice_backed_multi_request_support';
+        const forwardMatchOriginSafe =
+          hasExplicitDirectForwardMatch ||
+          hasVoiceBackedAssemblyForwardMatch;
+        const candidateScopedVoiceBridgeEligible =
+          isFinal &&
+          freshnessProposedLineIdx === prevLineIndex + 1 &&
+          targetSpeakablePre &&
+          runIdentityCurrentPre &&
+          responseAuthorityCurrentPre &&
+          !responseStalePre &&
+          !audioChunkStalePre &&
+          !terminalOffscriptOrNoMatchBlockedPre &&
+          !terminalContradictionBlockedPre &&
+          focusHoldStatePre.focused === true &&
+          focusHoldStatePre.visible === true &&
+          focusHoldStatePre.active === false &&
+          pendingRequestCaptureVerdict === 'voice_detected' &&
+          pendingCaptureActivityVerdict === 'provenance_safe + capture_activity_present' &&
+          adjacentProofOwnedLocalLineagePre &&
+          terminalSafeAuthorityPre &&
+          forwardMatchOriginSafe;
+        const effectiveSpeechFresh =
+          !!pendingTranscriptSpeechFresh ||
+          candidateScopedVoiceBridgeEligible;
+        const effectiveSpeechActive =
+          !!pendingTranscriptSpeechActive ||
+          candidateScopedVoiceBridgeEligible;
         const commitFreshness = evaluateForwardCommitFreshness({
           currentLineIdx: prevLineIndex,
           proposedLineIdx: freshnessProposedLineIdx,
@@ -33035,12 +33233,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           transcriptResponseAgeMs: pendingTranscriptResponseAgeMs,
           transcriptSpeechAgeMs: pendingTranscriptSpeechAgeMs,
           transcriptAudioAgeMs: pendingTranscriptAudioAgeMs,
-          transcriptSpeechFresh: pendingTranscriptSpeechFresh,
-          transcriptSpeechActive: pendingTranscriptSpeechActive,
+          transcriptSpeechFresh: effectiveSpeechFresh,
+          transcriptSpeechActive: effectiveSpeechActive,
           transcriptAuthorityEpoch: pendingTranscriptAuthorityEpoch,
           transcriptRunKey: pendingRunKey,
           transcriptRunGeneration: pendingRunGeneration,
         });
+        if (candidateScopedVoiceBridgeEligible) {
+          try {
+            console.info(
+              `[ASR_CANDIDATE_VOICE_ADMISSION_USED] requestSeq=${pending.requestSeq || 'none'} transcriptSeq=${pendingTranscriptSeq ?? -1} targetLineIdx=${freshnessProposedLineIdx} inheritedSpeechFresh=${pendingTranscriptSpeechFresh ? 1 : 0} inheritedSpeechActive=${pendingTranscriptSpeechActive ? 1 : 0} effectiveSpeechFresh=${effectiveSpeechFresh ? 1 : 0} effectiveSpeechActive=${effectiveSpeechActive ? 1 : 0} used=${(!pendingTranscriptSpeechFresh || !pendingTranscriptSpeechActive) ? 1 : 0} requestCaptureVerdict=${pendingRequestCaptureVerdict || 'none'} captureActivityVerdict=${pendingCaptureActivityVerdict || 'none'} targetSupportProvenance=${pendingTargetSupportProvenance || 'none'} adjacentProofOwnedLineage=${adjacentProofOwnedLocalLineagePre ? 1 : 0} responseFresh=${responseStalePre ? 0 : 1} audioFresh=${audioChunkStalePre ? 0 : 1} focusHold=${terminalFocusLossBlockedPre ? 1 : 0} focusHoldReason=${focusHoldStatePre.reason}`,
+            );
+          } catch {}
+        }
         if (!commitFreshness.allow) {
           const terminalDelta = Math.max(0, freshnessProposedLineIdx - prevLineIndex);
           const terminalSourceBranch = pendingSourceBranch || movementAuthoritySourceBranch || '';
@@ -33212,10 +33417,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           const terminalContradictionBlocked =
             strictBackwardContradictionForCommit ||
             terminalGuardText.includes('contradiction');
-          const terminalFocusLossBlocked =
-            asrFocusMovementHoldActive ||
-            !isDocumentFocused() ||
-            document.visibilityState !== 'visible';
+          const focusHoldState = focusHoldStatePre;
+          const terminalFocusLossBlocked = focusHoldState.active;
           const pendingBridgeLocalProofLane =
             pendingBridgeCompletionMode === 1 &&
             !!pendingSpeakableBridgeState &&
@@ -33482,7 +33685,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               ? 'reader_silence_adjacent_safe_bypassed'
               : (shortLineStagedCatchupApplied ? 'short_line_stale_forward_grace' : commitFreshness.reason);
             const terminalGatePredicateLine =
-              `[ASR_TERMINAL_GATE_PREDICATES] matchId=${matchId || 'unknown'} currentLineIdx=${prevLineIndex} targetLineIdx=${freshnessProposedLineIdx} requestedTargetLineIdx=${requestedTargetLine} deltaLines=${terminalDelta} readerSilenceBlocked=${commitFreshness.reason === 'reader_silence_commit_blocked' ? 1 : 0} isFinalPacket=${isFinal ? 1 : 0} currentGenerationMatch=${runIdentityCurrent ? 1 : 0} authorityEpochMatch=${authorityEpochCurrent ? 1 : 0} responseAuthorityCurrent=${responseAuthorityCurrent ? 1 : 0} runtimeRunIdentity=${runIdentityCurrent ? 'current' : 'stale'} responseFresh=${responseStale ? 0 : 1} audioFresh=${audioChunkStale ? 0 : 1} audioFreshEffective=${audioFreshEffective ? 1 : 0} audioFreshEffectiveReason=${audioFreshEffectiveReason} isForwardOnly=${freshnessProposedLineIdx > prevLineIndex ? 1 : 0} isSingleLocalStep=${terminalDelta === 1 && freshnessProposedLineIdx === prevLineIndex + 1 ? 1 : 0} speakableTarget=${targetSpeakable ? 1 : 0} bridgeEligibleTarget=${pendingBridgeLocalProofLane ? 1 : 0} proofOwnedLocalLineage=${adjacentProofOwnedLocalLineage ? 1 : 0} adjacentProofLane=${movementAuthorityHasAdjacentProof ? 1 : 0} pendingBridgeArmed=${pendingSpeakableBridgeCompletion || !!pendingSpeakableBridgeState ? 1 : 0} recoveryLandingHoldActive=${isRecoveryLandingHoldSource(terminalSourceBranch, terminalForceReason) ? 1 : 0} offscriptOrNoMatch=${terminalOffscriptOrNoMatchBlocked ? 1 : 0} contradiction=${terminalContradictionBlocked ? 1 : 0} focusLossBlocker=${terminalFocusLossBlocked ? 1 : 0} visualGovernorHardHold=${liveAsrVisualGovernorHardHold ? 1 : 0} deadScreenSuppression=${deadScreenTerminalCommitSuppressedByVisualGovernor ? 1 : 0} terminalClamp=${shortLineTerminalClampUnsafe ? 1 : 0} finalDecisionReason=${terminalDecisionReason} bypassLaneSelected=${bypassLaneSelected} sourceBranch=${terminalSourceBranch || 'unknown'} proofSource=${terminalProofSource || 'none'}`;
+              `[ASR_TERMINAL_GATE_PREDICATES] matchId=${matchId || 'unknown'} currentLineIdx=${prevLineIndex} targetLineIdx=${freshnessProposedLineIdx} requestedTargetLineIdx=${requestedTargetLine} deltaLines=${terminalDelta} readerSilenceBlocked=${commitFreshness.reason === 'reader_silence_commit_blocked' ? 1 : 0} isFinalPacket=${isFinal ? 1 : 0} currentGenerationMatch=${runIdentityCurrent ? 1 : 0} authorityEpochMatch=${authorityEpochCurrent ? 1 : 0} responseAuthorityCurrent=${responseAuthorityCurrent ? 1 : 0} runtimeRunIdentity=${runIdentityCurrent ? 'current' : 'stale'} responseFresh=${responseStale ? 0 : 1} audioFresh=${audioChunkStale ? 0 : 1} audioFreshEffective=${audioFreshEffective ? 1 : 0} audioFreshEffectiveReason=${audioFreshEffectiveReason} isForwardOnly=${freshnessProposedLineIdx > prevLineIndex ? 1 : 0} isSingleLocalStep=${terminalDelta === 1 && freshnessProposedLineIdx === prevLineIndex + 1 ? 1 : 0} speakableTarget=${targetSpeakable ? 1 : 0} bridgeEligibleTarget=${pendingBridgeLocalProofLane ? 1 : 0} proofOwnedLocalLineage=${adjacentProofOwnedLocalLineage ? 1 : 0} adjacentProofLane=${movementAuthorityHasAdjacentProof ? 1 : 0} pendingBridgeArmed=${pendingSpeakableBridgeCompletion || !!pendingSpeakableBridgeState ? 1 : 0} recoveryLandingHoldActive=${isRecoveryLandingHoldSource(terminalSourceBranch, terminalForceReason) ? 1 : 0} offscriptOrNoMatch=${terminalOffscriptOrNoMatchBlocked ? 1 : 0} contradiction=${terminalContradictionBlocked ? 1 : 0} focusLossBlocker=${terminalFocusLossBlocked ? 1 : 0} focusHoldReason=${focusHoldState.reason} visualGovernorHardHold=${liveAsrVisualGovernorHardHold ? 1 : 0} deadScreenSuppression=${deadScreenTerminalCommitSuppressedByVisualGovernor ? 1 : 0} terminalClamp=${shortLineTerminalClampUnsafe ? 1 : 0} finalDecisionReason=${terminalDecisionReason} bypassLaneSelected=${bypassLaneSelected} sourceBranch=${terminalSourceBranch || 'unknown'} proofSource=${terminalProofSource || 'none'}`;
             console.warn(terminalGatePredicateLine);
             maybeCaptureTerminalGateDiagnostic(terminalGatePredicateLine);
             const terminalEligibilityMessage = `[ASR_TERMINAL_ELIGIBILITY_TRACE] currentLineIdx=${prevLineIndex} candidateLineIdx=${freshnessProposedLineIdx} requestedTargetLineIdx=${requestedTargetLine} semanticCommitTargetLine=${diagnosticTerminalSemanticCommitTargetLine} visualPursuitTargetLine=${diagnosticTerminalVisualPursuitTargetLine} freshnessTargetLine=${diagnosticTerminalFreshnessTargetLine} pendingBridgeCompletionMode=${diagnosticPendingBridgeCompletionMode} pendingBridgeState=${pendingBridgeStateForTrace} lastLineIndexUpdateSource=${lastLineIndexUpdateSource} scrollTargetSource=${scrollTargetSource} freshnessTargetSource=${freshnessTargetSource} directAdjacentGuardReason=${directAdjacentGuardReason} sourceBranch=${terminalSourceBranch || 'unknown'} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} bypassLaneSelected=${bypassLaneSelected} bypassApplied=${terminalBypassApplied ? 1 : 0} decisionReason=${terminalDecisionReason}`;
@@ -33491,7 +33694,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               console.warn(
                 readerSilenceBypassApplied
                   ? `[ASR_TERMINAL_LOCAL_STEP_BYPASSED] currentLineIdx=${prevLineIndex} candidateLineIdx=${freshnessProposedLineIdx} requestedTargetLineIdx=${requestedTargetLine} lane=${bypassLaneSelected} proofOwned=${movementAuthority === 'proof' || movementAuthority === 'reconcile' ? 1 : 0} localProof=${movementAuthorityHasStrictLocalProof ? 1 : 0} adjacentProof=${movementAuthorityHasAdjacentProof ? 1 : 0} focusBlocked=0 offscriptBlocked=0 contradictionBlocked=0 responseStale=0 audioChunkStale=0 runIdentityCurrent=${runIdentityCurrent ? 1 : 0} responseAuthorityCurrent=${responseAuthorityCurrent ? 1 : 0} sourceBranch=${terminalSourceBranch || 'unknown'} proofSource=${terminalProofSource || 'none'}`
-                  : `[ASR_TERMINAL_LOCAL_STEP_BLOCKED] currentLineIdx=${prevLineIndex} candidateLineIdx=${freshnessProposedLineIdx} requestedTargetLineIdx=${requestedTargetLine} lane=none proofOwned=${movementAuthority === 'proof' || movementAuthority === 'reconcile' ? 1 : 0} localProof=${movementAuthorityHasStrictLocalProof ? 1 : 0} adjacentProof=${movementAuthorityHasAdjacentProof ? 1 : 0} focusBlocked=${terminalFocusLossBlocked ? 1 : 0} offscriptBlocked=${terminalOffscriptOrNoMatchBlocked ? 1 : 0} contradictionBlocked=${terminalContradictionBlocked ? 1 : 0} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} runIdentityCurrent=${runIdentityCurrent ? 1 : 0} responseAuthorityCurrent=${responseAuthorityCurrent ? 1 : 0} reason=${provenLocalStepBlockedReason} sourceBranch=${terminalSourceBranch || 'unknown'} proofSource=${terminalProofSource || 'none'}`
+                  : `[ASR_TERMINAL_LOCAL_STEP_BLOCKED] currentLineIdx=${prevLineIndex} candidateLineIdx=${freshnessProposedLineIdx} requestedTargetLineIdx=${requestedTargetLine} lane=none proofOwned=${movementAuthority === 'proof' || movementAuthority === 'reconcile' ? 1 : 0} localProof=${movementAuthorityHasStrictLocalProof ? 1 : 0} adjacentProof=${movementAuthorityHasAdjacentProof ? 1 : 0} focusBlocked=${terminalFocusLossBlocked ? 1 : 0} focusHoldReason=${focusHoldState.reason} offscriptBlocked=${terminalOffscriptOrNoMatchBlocked ? 1 : 0} contradictionBlocked=${terminalContradictionBlocked ? 1 : 0} responseStale=${responseStale ? 1 : 0} audioChunkStale=${audioChunkStale ? 1 : 0} runIdentityCurrent=${runIdentityCurrent ? 1 : 0} responseAuthorityCurrent=${responseAuthorityCurrent ? 1 : 0} reason=${provenLocalStepBlockedReason} sourceBranch=${terminalSourceBranch || 'unknown'} proofSource=${terminalProofSource || 'none'}`
               );
             }
           } catch {}
@@ -35593,6 +35796,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     movementAllowed: boolean;
   } => {
     const beforeScrollTop = Number(args.state.currentScrollTop || 0);
+    const focusHoldState = getAsrFocusHoldState(Date.now());
+    if (isAsrLiveMovementSession() && focusHoldState.active) {
+      return {
+        applied: false,
+        afterScrollTop: beforeScrollTop,
+        movedPx: 0,
+        authorityAction: 'freeze_far_target',
+        movementAllowed: false,
+      };
+    }
     let afterScrollTop = beforeScrollTop;
     let movedPx = 0;
     let authorityAction:
@@ -35798,6 +36011,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   }) => {
     const state = computeAsr4PocketDriftState(args);
     emitAsr4PocketDriftState(state);
+    const focusHoldState = getAsrFocusHoldState(Date.now());
+    if (isAsrLiveMovementSession() && focusHoldState.active) {
+      asr4PocketDriftConsecutiveBelowPocketCount = 0;
+      asrLowPocketDeadbandObservationCount = 0;
+      return {
+        applied: false,
+        afterScrollTop: state.currentScrollTop,
+        movedPx: state.movedPx,
+        consecutiveBelowPocketCount: 0,
+        state,
+      };
+    }
     const previousHoldReason = String(args.previousHoldReason || '');
     const significantBelowPocketForHoldBypass =
       state.pocketHealth === 'belowPocket' &&
@@ -35916,8 +36141,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const repeatedRescueObservations = Math.max(lowPocketDeadbandObservations, consecutiveBelowPocketCount);
     const safeLocalRescueBlockedByHardContext =
       !!pendingSpeakableBridgeState ||
-      asrFocusMovementHoldActive ||
-      postFocusFreshProofRequired ||
+      focusHoldState.active ||
       !!((window as any)?.__tpLiveAsrGovernorHold);
     const safeLocalRescueEligible =
       speechFresh &&
@@ -45592,13 +45816,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     preservedTargetClosingError?: boolean;
   }) => selectAsrVisualOwnershipCandidate(args);
   const getLastLineIndex = () => lastLineIndex;
-  const getStats = (): AsrScrollDriverStats => ({
-    lastIngestAt,
-    lastCommitAt,
-    commitCount,
-    eventsSinceCommit,
-    finalsSinceCommit,
-  });
+  const getStats = (): AsrScrollDriverStats => {
+    const focusHoldState = getAsrFocusHoldState();
+    return {
+      lastIngestAt,
+      lastCommitAt,
+      commitCount,
+      eventsSinceCommit,
+      finalsSinceCommit,
+      focusHoldActive: focusHoldState.active,
+      focusHoldReason: focusHoldState.reason,
+    };
+  };
   const debugGetAuthoritySnapshot = () => ({
     lastSelectedAuthority: lastAsrSelectedAuthority,
     visualAction: lastAsrVisualAction,

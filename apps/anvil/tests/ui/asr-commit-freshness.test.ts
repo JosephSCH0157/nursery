@@ -414,6 +414,197 @@ describe('ASR commit freshness gate', () => {
     driver.dispose();
   });
 
+  test('focused bridge does not bypass an off-script unsafe candidate', async () => {
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+    await jest.advanceTimersByTimeAsync(30);
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: false, rmsDbfs: -62 } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: true, ts: Date.now() } }));
+
+    const detail: any = {
+      currentIdx: 1,
+      matchId: 'voice-tail-offscript-blocked',
+      source: 'openai-whisper-bridge',
+      noMatch: true,
+      rawText: 'Unscripted tangent.',
+      assembledText: 'Unscripted tangent.',
+      sourceRequestSeqs: [15],
+      supportingRawSeqs: [15],
+      requestCaptureEvidence: [{ requestSeq: 15, verdict: 'voice_detected', rmsDbfs: -18 }],
+      rawMatchIndex: 2,
+      assembledMatchIndex: 2,
+      forwardMatchCreatedByAssembly: false,
+      match: { bestIdx: -1, bestSim: Number.NaN, topScores: [] } as any,
+    };
+    driver.ingest('Unscripted tangent.', true, detail);
+    await jest.advanceTimersByTimeAsync(160);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+    expect(consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_CANDIDATE_VOICE_ADMISSION_USED'))).toBe(false);
+
+    driver.dispose();
+  });
+
+  test('bridge success does not leak proof into a later candidate with missing bridge evidence', async () => {
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+    await jest.advanceTimersByTimeAsync(30);
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: false, rmsDbfs: -62 } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: true, ts: Date.now() } }));
+
+    driver.ingest('One. Two.', true, {
+      currentIdx: 1,
+      matchId: 'voice-tail-forward-rearm-source',
+      source: 'openai-whisper-bridge',
+      rawText: 'One. Two.',
+      assembledText: 'One. Two.',
+      sourceRequestSeqs: [16],
+      supportingRawSeqs: [16],
+      requestCaptureEvidence: [{ requestSeq: 16, verdict: 'voice_detected', rmsDbfs: -18 }],
+      rawMatchIndex: 2,
+      assembledMatchIndex: 2,
+      forwardMatchCreatedByAssembly: false,
+      match: { bestIdx: 2, bestSim: 0.96, topScores: [{ idx: 2, score: 0.96 }] } as any,
+    });
+    await jest.advanceTimersByTimeAsync(160);
+
+    expect(driver.getLastLineIndex()).toBe(2);
+
+    consoleInfoSpy.mockClear();
+    driver.ingest('One. Two. Three.', true, {
+      currentIdx: 2,
+      matchId: 'voice-tail-forward-missing-evidence',
+      source: 'openai-whisper-bridge',
+      rawText: 'One. Two. Three.',
+      assembledText: 'One. Two. Three.',
+      rawMatchIndex: 3,
+      assembledMatchIndex: 3,
+      forwardMatchCreatedByAssembly: false,
+      match: { bestIdx: 3, bestSim: 0.96, topScores: [{ idx: 3, score: 0.96 }] } as any,
+    });
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(2);
+    expect(consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_CANDIDATE_VOICE_ADMISSION_USED'))).toBe(false);
+
+    driver.dispose();
+  });
+
+  test('voice-backed assembly origin explicitly enables the focused bridge', async () => {
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+    await jest.advanceTimersByTimeAsync(30);
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: false, rmsDbfs: -62 } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: true, ts: Date.now() } }));
+    await jest.advanceTimersByTimeAsync(920);
+
+    const detail: any = {
+      currentIdx: 1,
+      matchId: 'multi-chunk-forward-explicit-assembly-origin',
+      source: 'openai-whisper-bridge',
+      rawText: 'wo.',
+      assembledText: 'One. Two.',
+      sourceRequestSeqs: [10, 11, 12],
+      supportingRawSeqs: [10, 11, 12],
+      forwardSupportRequestSeqs: [12],
+      requestCaptureEvidence: [
+        { requestSeq: 10, verdict: 'voice_detected', rmsDbfs: -18 },
+        { requestSeq: 11, verdict: 'voice_detected', rmsDbfs: -18 },
+        { requestSeq: 12, verdict: 'voice_detected', rmsDbfs: -18 },
+      ],
+      rawMatchIndex: 1,
+      assembledMatchIndex: 2,
+      forwardMatchCreatedByAssembly: true,
+      targetSupportProvenance: 'voice_backed_multi_request_support',
+      match: { bestIdx: 2, bestSim: 0.97, topScores: [{ idx: 2, score: 0.97 }] } as any,
+    };
+    driver.ingest('One. Two.', true, detail);
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(2);
+    expect(detail.semanticAdmissionVerdict ?? null).toBeNull();
+    expect(consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_CANDIDATE_VOICE_ADMISSION_USED'))).toBe(true);
+    expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_TERMINAL_LOCAL_STEP_BYPASSED'))).toBe(false);
+
+    driver.dispose();
+  });
+
+  test('missing assembly-origin metadata cannot activate the focused bridge', async () => {
+    const driver = createAsrScrollDriver();
+    driver.setLastLineIndex(1);
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+    await jest.advanceTimersByTimeAsync(30);
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: false, rmsDbfs: -62 } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: true, ts: Date.now() } }));
+    await jest.advanceTimersByTimeAsync(920);
+
+    driver.ingest('One. Two.', true, {
+      currentIdx: 1,
+      matchId: 'multi-chunk-forward-missing-assembly-origin',
+      source: 'openai-whisper-bridge',
+      rawText: 'wo.',
+      assembledText: 'One. Two.',
+      sourceRequestSeqs: [10, 11, 12],
+      supportingRawSeqs: [10, 11, 12],
+      forwardSupportRequestSeqs: [12],
+      requestCaptureEvidence: [
+        { requestSeq: 10, verdict: 'voice_detected', rmsDbfs: -18 },
+        { requestSeq: 11, verdict: 'voice_detected', rmsDbfs: -18 },
+        { requestSeq: 12, verdict: 'voice_detected', rmsDbfs: -18 },
+      ],
+      rawMatchIndex: 1,
+      assembledMatchIndex: 2,
+      targetSupportProvenance: 'voice_backed_multi_request_support',
+      match: { bestIdx: 2, bestSim: 0.97, topScores: [{ idx: 2, score: 0.97 }] } as any,
+    });
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+    expect(consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_CANDIDATE_VOICE_ADMISSION_USED'))).toBe(false);
+
+    consoleInfoSpy.mockClear();
+    driver.ingest('Unscripted tangent.', true, {
+      currentIdx: 1,
+      matchId: 'voice-tail-forward-missing-assembly-origin-followup-unsafe',
+      source: 'openai-whisper-bridge',
+      noMatch: true,
+      rawText: 'Unscripted tangent.',
+      assembledText: 'Unscripted tangent.',
+      sourceRequestSeqs: [18],
+      supportingRawSeqs: [18],
+      requestCaptureEvidence: [{ requestSeq: 18, verdict: 'voice_detected', rmsDbfs: -18 }],
+      rawMatchIndex: 2,
+      assembledMatchIndex: 2,
+      forwardMatchCreatedByAssembly: false,
+      match: { bestIdx: -1, bestSim: Number.NaN, topScores: [] } as any,
+    });
+    await jest.advanceTimersByTimeAsync(160);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+    expect(consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_CANDIDATE_VOICE_ADMISSION_USED'))).toBe(false);
+
+    driver.dispose();
+  });
+
   test('unknown capture evidence cannot re-arm forward admission once silence is asserted', async () => {
     const driver = createAsrScrollDriver();
     driver.setLastLineIndex(1);

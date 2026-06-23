@@ -79,6 +79,30 @@ function installScriptLines(lines: string[]): void {
   });
 }
 
+function installScrollWriteProbe(scroller: HTMLElement): {
+  getTop: () => number;
+  getWriteCount: () => number;
+  resetWrites: () => void;
+} {
+  let currentTop = Number(scroller.scrollTop || 0);
+  let writeCount = 0;
+  Object.defineProperty(scroller, 'scrollTop', {
+    configurable: true,
+    get: () => currentTop,
+    set: (value: number) => {
+      writeCount += 1;
+      currentTop = Number(value);
+    },
+  });
+  return {
+    getTop: () => currentTop,
+    getWriteCount: () => writeCount,
+    resetWrites: () => {
+      writeCount = 0;
+    },
+  };
+}
+
 type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
   __debugEvaluateStabilizerSemanticCommitCandidate: (args: {
     currentLineIdx: number;
@@ -6381,11 +6405,14 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
-  test('accepts current-generation final transcripts during visible blur for active ASR sessions', async () => {
+  test('keeps focus hold active during visible blur even for diagnostic-only bridge-eligible candidates', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
     const driver = createAsrScrollDriver({ runKey: 'focus-safe-run', runGeneration: 7 });
     let focusActive = true;
     const hasFocusSpy = jest.spyOn(document, 'hasFocus').mockImplementation(() => focusActive);
+    const viewer = document.getElementById('viewer') as HTMLElement;
+    const scrollProbe = installScrollWriteProbe(viewer);
 
     driver.setLastLineIndex(1);
     window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
@@ -6400,10 +6427,19 @@ describe('ASR live commit motion', () => {
     window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true } }));
     focusActive = false;
     window.dispatchEvent(new Event('blur'));
+    const blockedScrollTop = scrollProbe.getTop();
+    scrollProbe.resetWrites();
     driver.ingest('The seats remember every early shift.', true, {
       currentIdx: 1,
       matchId: 'focus-accepted',
       source: 'openai-whisper-bridge',
+      sourceRequestSeqs: [41],
+      supportingRawSeqs: [41],
+      requestCaptureEvidence: [{ requestSeq: 41, verdict: 'voice_detected', rmsDbfs: -18 }],
+      rawMatchIndex: 2,
+      assembledMatchIndex: 2,
+      forwardMatchCreatedByAssembly: false,
+      targetSupportProvenance: 'voice_backed_multi_request_support',
       runKey: 'focus-safe-run',
       runGeneration: 7,
       match: { bestIdx: 2, bestSim: 0.92, topScores: [{ idx: 2, score: 0.92 }] },
@@ -6417,9 +6453,15 @@ describe('ASR live commit motion', () => {
     expect(acceptedLine).toContain('runGeneration=7');
     expect(acceptedLine).toContain('runKey=focus-safe-run');
     expect(lines.some((l) => l.includes('ASR_FOCUS_LOSS_TRANSCRIPT_QUARANTINED'))).toBe(false);
-    expect(driver.getLastLineIndex()).toBe(2);
+    expect(lines.some((l) => l.includes('ASR_CANDIDATE_VOICE_ADMISSION_USED'))).toBe(false);
+    expect(driver.getLastLineIndex()).toBe(1);
+    expect(scrollProbe.getTop()).toBe(blockedScrollTop);
+    expect((window as any).__tpAsrFocusGate?.focusHoldActive).toBe(true);
+    expect((window as any).__tpAsrFocusGate?.focused).toBe(false);
+    expect((window as any).__tpAsrFocusGate?.visible).toBe(true);
 
     hasFocusSpy.mockRestore();
+    infoSpy.mockRestore();
     warnSpy.mockRestore();
     driver.dispose();
   });
@@ -6459,6 +6501,122 @@ describe('ASR live commit motion', () => {
     expect(driver.getLastLineIndex()).toBe(1);
 
     hasFocusSpy.mockRestore();
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('resumes ordinary local commit after real focus regain and fresh post-focus proof', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+    const driver = createAsrScrollDriver({ runKey: 'focus-regain-run', runGeneration: 9 });
+    let focusActive = true;
+    const hasFocusSpy = jest.spyOn(document, 'hasFocus').mockImplementation(() => focusActive);
+    const viewer = document.getElementById('viewer') as HTMLElement;
+    const scrollProbe = installScrollWriteProbe(viewer);
+
+    driver.setLastLineIndex(1);
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: {
+        recognizerAttached: true,
+        activeReadMode: true,
+        speechRunningActual: true,
+        runKey: 'focus-regain-run',
+        runGeneration: 9,
+      },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+
+    focusActive = false;
+    window.dispatchEvent(new Event('blur'));
+    const blockedScrollTop = scrollProbe.getTop();
+    scrollProbe.resetWrites();
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'focus-regain-blocked',
+      source: 'openai-whisper-bridge',
+      sourceRequestSeqs: [51],
+      supportingRawSeqs: [51],
+      requestCaptureEvidence: [{ requestSeq: 51, verdict: 'voice_detected', rmsDbfs: -18 }],
+      rawMatchIndex: 2,
+      assembledMatchIndex: 2,
+      forwardMatchCreatedByAssembly: false,
+      targetSupportProvenance: 'voice_backed_multi_request_support',
+      runKey: 'focus-regain-run',
+      runGeneration: 9,
+      match: { bestIdx: 2, bestSim: 0.94, topScores: [{ idx: 2, score: 0.94 }] },
+    });
+    await jest.advanceTimersByTimeAsync(240);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+    expect(scrollProbe.getTop()).toBe(blockedScrollTop);
+    expect(infoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_CANDIDATE_VOICE_ADMISSION_USED'))).toBe(false);
+
+    focusActive = true;
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: {
+        recognizerAttached: true,
+        activeReadMode: true,
+        speechRunningActual: true,
+        runKey: 'focus-regain-run',
+        runGeneration: 9,
+      },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'focus-regain-proof-clear',
+      source: 'openai-whisper-bridge',
+      sourceRequestSeqs: [52],
+      supportingRawSeqs: [52],
+      requestCaptureEvidence: [{ requestSeq: 52, verdict: 'voice_detected', rmsDbfs: -18 }],
+      rawMatchIndex: 2,
+      assembledMatchIndex: 2,
+      forwardMatchCreatedByAssembly: false,
+      targetSupportProvenance: 'voice_backed_multi_request_support',
+      runKey: 'focus-regain-run',
+      runGeneration: 9,
+      match: { bestIdx: 2, bestSim: 0.95, topScores: [{ idx: 2, score: 0.95 }] },
+    });
+    await jest.advanceTimersByTimeAsync(160);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+    expect(warnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_POST_FOCUS_FRESH_FINAL_ACCEPTED'))).toBe(true);
+
+    infoSpy.mockClear();
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: {
+        recognizerAttached: true,
+        activeReadMode: true,
+        speechRunningActual: true,
+        runKey: 'focus-regain-run',
+        runGeneration: 9,
+      },
+    }));
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'focus-regain-resume',
+      source: 'openai-whisper-bridge',
+      sourceRequestSeqs: [53],
+      supportingRawSeqs: [53],
+      requestCaptureEvidence: [{ requestSeq: 53, verdict: 'voice_detected', rmsDbfs: -18 }],
+      rawMatchIndex: 2,
+      assembledMatchIndex: 2,
+      forwardMatchCreatedByAssembly: false,
+      targetSupportProvenance: 'voice_backed_multi_request_support',
+      runKey: 'focus-regain-run',
+      runGeneration: 9,
+      match: { bestIdx: 2, bestSim: 0.96, topScores: [{ idx: 2, score: 0.96 }] },
+    });
+    await jest.advanceTimersByTimeAsync(240);
+
+    expect(driver.getLastLineIndex()).toBe(2);
+    expect((window as any).__tpAsrFocusGate?.focusHoldActive).toBe(false);
+    expect(infoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_CANDIDATE_VOICE_ADMISSION_USED'))).toBe(false);
+
+    hasFocusSpy.mockRestore();
+    infoSpy.mockRestore();
     warnSpy.mockRestore();
     driver.dispose();
   });

@@ -52,7 +52,7 @@ export type TranscriptDetail = {
   appendedBySeq?: number[] | null;
   rawMatchIndex?: number | null;
   assembledMatchIndex?: number | null;
-  forwardMatchCreatedByAssembly?: boolean;
+  forwardMatchCreatedByAssembly?: boolean | null;
   targetSupportProvenance?: string | null;
   promptIncluded?: boolean;
   promptHash?: string | null;
@@ -150,6 +150,10 @@ export type PendingMatch = {
   transcriptSpeechFresh?: boolean;
   transcriptSpeechActive?: boolean;
   transcriptAuthorityEpoch?: number | null;
+  requestCaptureVerdict?: 'voice_detected' | 'silence_detected' | 'unknown' | null;
+  captureActivityVerdict?: string | null;
+  targetSupportProvenance?: string | null;
+  forwardMatchCreatedByAssembly?: boolean | null;
 };
 
 export type AsrEventSnapshot = {
@@ -321,6 +325,8 @@ export type AsrScrollDriverStats = {
   commitCount: number;
   eventsSinceCommit: number;
   finalsSinceCommit: number;
+  focusHoldActive?: boolean;
+  focusHoldReason?: string | null;
 };
 
 export type AsrVisualMode = 'track' | 'recover' | 'settle' | 'hold';
