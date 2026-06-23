@@ -512,6 +512,7 @@ describe('ASR commit freshness gate', () => {
     window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: false, rmsDbfs: -62 } }));
     window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: true, ts: Date.now() } }));
     await jest.advanceTimersByTimeAsync(920);
+    window.dispatchEvent(new CustomEvent('tp:asr:audio-chunk', { detail: { ts: Date.now() } }));
 
     const detail: any = {
       currentIdx: 1,
@@ -556,6 +557,7 @@ describe('ASR commit freshness gate', () => {
     window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: false, rmsDbfs: -62 } }));
     window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: true, ts: Date.now() } }));
     await jest.advanceTimersByTimeAsync(920);
+    window.dispatchEvent(new CustomEvent('tp:asr:audio-chunk', { detail: { ts: Date.now() } }));
 
     driver.ingest('One. Two.', true, {
       currentIdx: 1,
