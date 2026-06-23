@@ -959,6 +959,123 @@ const ASR_HIGH_ACCURACY_CONTROLLER_PROFILE: AsrControllerProfile = {
   suppressVisualReleaseWithoutFreshProof: false,
 };
 const OVERSHOOT_RISK_DELTA_LINES = 30;
+
+export type CandidateScopedVoiceBridgeEligibilityInput = {
+  isFinal: boolean;
+  isForwardAdjacentLocalStep: boolean;
+  targetSpeakable: boolean;
+  runIdentityCurrent: boolean;
+  responseAuthorityCurrent: boolean;
+  responseFresh: boolean;
+  audioFresh: boolean;
+  offscriptOrNoMatchBlocked: boolean;
+  contradictionBlocked: boolean;
+  focused: boolean;
+  visible: boolean;
+  focusHoldActive: boolean;
+  requestCaptureVerdict: string | null | undefined;
+  captureActivityVerdict: string | null | undefined;
+  proofOwnedLocalLineage: boolean;
+  safeAuthority: boolean;
+  forwardMatchCreatedByAssembly: boolean | null | undefined;
+  targetSupportProvenance: string | null | undefined;
+};
+
+export type CandidateScopedVoiceBridgeEligibilityResult = {
+  eligible: boolean;
+  reason: string;
+};
+
+export type CandidateScopedVoiceAdmissionInput = {
+  inheritedSpeechFresh: boolean | null | undefined;
+  inheritedSpeechActive: boolean | null | undefined;
+  bridgeEligible: boolean;
+};
+
+export type CandidateScopedVoiceAdmissionResult = {
+  effectiveSpeechFresh: boolean;
+  effectiveSpeechActive: boolean;
+  bridgeNeeded: boolean;
+};
+
+export const evaluateCandidateScopedVoiceBridgeEligibility = (
+  input: CandidateScopedVoiceBridgeEligibilityInput,
+): CandidateScopedVoiceBridgeEligibilityResult => {
+  if (!input.isFinal) {
+    return { eligible: false, reason: 'not_final_packet' };
+  }
+  if (!input.isForwardAdjacentLocalStep) {
+    return { eligible: false, reason: 'not_forward_adjacent_local_step' };
+  }
+  if (!input.targetSpeakable) {
+    return { eligible: false, reason: 'target_not_speakable' };
+  }
+  if (!input.runIdentityCurrent) {
+    return { eligible: false, reason: 'stale_run_identity' };
+  }
+  if (!input.responseAuthorityCurrent) {
+    return { eligible: false, reason: 'stale_response_authority' };
+  }
+  if (!input.responseFresh) {
+    return { eligible: false, reason: 'response_stale' };
+  }
+  if (!input.audioFresh) {
+    return { eligible: false, reason: 'audio_chunk_stale' };
+  }
+  if (input.offscriptOrNoMatchBlocked) {
+    return { eligible: false, reason: 'offscript_or_no_match_blocked' };
+  }
+  if (input.contradictionBlocked) {
+    return { eligible: false, reason: 'contradiction_blocked' };
+  }
+  if (!input.focused) {
+    return { eligible: false, reason: 'document_not_focused' };
+  }
+  if (!input.visible) {
+    return { eligible: false, reason: 'document_not_visible' };
+  }
+  if (input.focusHoldActive) {
+    return { eligible: false, reason: 'focus_hold_active' };
+  }
+  if (input.requestCaptureVerdict !== 'voice_detected') {
+    return { eligible: false, reason: 'request_not_voice_detected' };
+  }
+  if (input.captureActivityVerdict !== 'provenance_safe + capture_activity_present') {
+    return { eligible: false, reason: 'capture_activity_not_safe' };
+  }
+  if (!input.proofOwnedLocalLineage) {
+    return { eligible: false, reason: 'not_proof_owned_local_lineage' };
+  }
+  if (!input.safeAuthority) {
+    return { eligible: false, reason: 'unsafe_authority' };
+  }
+  if (input.forwardMatchCreatedByAssembly === false) {
+    return { eligible: true, reason: 'explicit_direct_forward_match' };
+  }
+  if (input.forwardMatchCreatedByAssembly == null) {
+    return { eligible: false, reason: 'forward_match_origin_unknown' };
+  }
+  if (input.targetSupportProvenance !== 'voice_backed_multi_request_support') {
+    return { eligible: false, reason: 'assembly_support_not_voice_backed' };
+  }
+  return { eligible: true, reason: 'voice_backed_assembly_forward_match' };
+};
+
+export const deriveCandidateScopedVoiceAdmission = (
+  input: CandidateScopedVoiceAdmissionInput,
+): CandidateScopedVoiceAdmissionResult => {
+  const inheritedSpeechFresh = input.inheritedSpeechFresh === true;
+  const inheritedSpeechActive = input.inheritedSpeechActive === true;
+  const bridgeNeeded =
+    input.bridgeEligible &&
+    (!inheritedSpeechFresh || !inheritedSpeechActive);
+
+  return {
+    effectiveSpeechFresh: inheritedSpeechFresh || input.bridgeEligible,
+    effectiveSpeechActive: inheritedSpeechActive || input.bridgeEligible,
+    bridgeNeeded,
+  };
+};
 const OVERSHOOT_RISK_WINDOW_MS = 3500;
 const OVERSHOOT_RISK_MIN_SIM = 0.4;
 const BEHIND_RECOVERY_WINDOW_MS = 2500;
@@ -33191,38 +33308,36 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           terminalGuardTextPre.includes('contradiction');
         const focusHoldStatePre = getAsrFocusHoldState(now);
         const terminalFocusLossBlockedPre = focusHoldStatePre.active;
-        const hasExplicitDirectForwardMatch =
-          pendingForwardMatchCreatedByAssembly === false;
-        const hasVoiceBackedAssemblyForwardMatch =
-          pendingForwardMatchCreatedByAssembly === true &&
-          pendingTargetSupportProvenance === 'voice_backed_multi_request_support';
-        const forwardMatchOriginSafe =
-          hasExplicitDirectForwardMatch ||
-          hasVoiceBackedAssemblyForwardMatch;
+        const candidateScopedVoiceBridgeDecision =
+          evaluateCandidateScopedVoiceBridgeEligibility({
+            isFinal,
+            isForwardAdjacentLocalStep: freshnessProposedLineIdx === prevLineIndex + 1,
+            targetSpeakable: targetSpeakablePre,
+            runIdentityCurrent: runIdentityCurrentPre,
+            responseAuthorityCurrent: responseAuthorityCurrentPre,
+            responseFresh: !responseStalePre,
+            audioFresh: !audioChunkStalePre,
+            offscriptOrNoMatchBlocked: terminalOffscriptOrNoMatchBlockedPre,
+            contradictionBlocked: terminalContradictionBlockedPre,
+            focused: focusHoldStatePre.focused === true,
+            visible: focusHoldStatePre.visible === true,
+            focusHoldActive: focusHoldStatePre.active === true,
+            requestCaptureVerdict: pendingRequestCaptureVerdict,
+            captureActivityVerdict: pendingCaptureActivityVerdict,
+            proofOwnedLocalLineage: adjacentProofOwnedLocalLineagePre,
+            safeAuthority: terminalSafeAuthorityPre,
+            forwardMatchCreatedByAssembly: pendingForwardMatchCreatedByAssembly,
+            targetSupportProvenance: pendingTargetSupportProvenance,
+          });
         const candidateScopedVoiceBridgeEligible =
-          isFinal &&
-          freshnessProposedLineIdx === prevLineIndex + 1 &&
-          targetSpeakablePre &&
-          runIdentityCurrentPre &&
-          responseAuthorityCurrentPre &&
-          !responseStalePre &&
-          !audioChunkStalePre &&
-          !terminalOffscriptOrNoMatchBlockedPre &&
-          !terminalContradictionBlockedPre &&
-          focusHoldStatePre.focused === true &&
-          focusHoldStatePre.visible === true &&
-          focusHoldStatePre.active === false &&
-          pendingRequestCaptureVerdict === 'voice_detected' &&
-          pendingCaptureActivityVerdict === 'provenance_safe + capture_activity_present' &&
-          adjacentProofOwnedLocalLineagePre &&
-          terminalSafeAuthorityPre &&
-          forwardMatchOriginSafe;
-        const effectiveSpeechFresh =
-          !!pendingTranscriptSpeechFresh ||
-          candidateScopedVoiceBridgeEligible;
-        const effectiveSpeechActive =
-          !!pendingTranscriptSpeechActive ||
-          candidateScopedVoiceBridgeEligible;
+          candidateScopedVoiceBridgeDecision.eligible;
+        const voiceAdmission = deriveCandidateScopedVoiceAdmission({
+          inheritedSpeechFresh: pendingTranscriptSpeechFresh,
+          inheritedSpeechActive: pendingTranscriptSpeechActive,
+          bridgeEligible: candidateScopedVoiceBridgeEligible,
+        });
+        const effectiveSpeechFresh = voiceAdmission.effectiveSpeechFresh;
+        const effectiveSpeechActive = voiceAdmission.effectiveSpeechActive;
         const commitFreshness = evaluateForwardCommitFreshness({
           currentLineIdx: prevLineIndex,
           proposedLineIdx: freshnessProposedLineIdx,
@@ -33242,7 +33357,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (candidateScopedVoiceBridgeEligible) {
           try {
             console.info(
-              `[ASR_CANDIDATE_VOICE_ADMISSION_USED] requestSeq=${pending.requestSeq || 'none'} transcriptSeq=${pendingTranscriptSeq ?? -1} targetLineIdx=${freshnessProposedLineIdx} inheritedSpeechFresh=${pendingTranscriptSpeechFresh ? 1 : 0} inheritedSpeechActive=${pendingTranscriptSpeechActive ? 1 : 0} effectiveSpeechFresh=${effectiveSpeechFresh ? 1 : 0} effectiveSpeechActive=${effectiveSpeechActive ? 1 : 0} used=${(!pendingTranscriptSpeechFresh || !pendingTranscriptSpeechActive) ? 1 : 0} requestCaptureVerdict=${pendingRequestCaptureVerdict || 'none'} captureActivityVerdict=${pendingCaptureActivityVerdict || 'none'} targetSupportProvenance=${pendingTargetSupportProvenance || 'none'} adjacentProofOwnedLineage=${adjacentProofOwnedLocalLineagePre ? 1 : 0} responseFresh=${responseStalePre ? 0 : 1} audioFresh=${audioChunkStalePre ? 0 : 1} focusHold=${terminalFocusLossBlockedPre ? 1 : 0} focusHoldReason=${focusHoldStatePre.reason}`,
+              `[ASR_CANDIDATE_VOICE_ADMISSION_USED] requestSeq=${pending.requestSeq || 'none'} transcriptSeq=${pendingTranscriptSeq ?? -1} targetLineIdx=${freshnessProposedLineIdx} inheritedSpeechFresh=${pendingTranscriptSpeechFresh ? 1 : 0} inheritedSpeechActive=${pendingTranscriptSpeechActive ? 1 : 0} effectiveSpeechFresh=${effectiveSpeechFresh ? 1 : 0} effectiveSpeechActive=${effectiveSpeechActive ? 1 : 0} used=${voiceAdmission.bridgeNeeded ? 1 : 0} requestCaptureVerdict=${pendingRequestCaptureVerdict || 'none'} captureActivityVerdict=${pendingCaptureActivityVerdict || 'none'} targetSupportProvenance=${pendingTargetSupportProvenance || 'none'} adjacentProofOwnedLineage=${adjacentProofOwnedLocalLineagePre ? 1 : 0} responseFresh=${responseStalePre ? 0 : 1} audioFresh=${audioChunkStalePre ? 0 : 1} focusHold=${terminalFocusLossBlockedPre ? 1 : 0} focusHoldReason=${focusHoldStatePre.reason} bridgeReason=${candidateScopedVoiceBridgeDecision.reason}`,
             );
           } catch {}
         }

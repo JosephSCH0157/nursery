@@ -255,15 +255,6 @@ describe('ASR commit freshness gate', () => {
     };
     driver.ingest('One. Two.', true, detail);
     await jest.advanceTimersByTimeAsync(200);
-    console.log('DEBUG_POSITIVE_BRIDGE', {
-      line: driver.getLastLineIndex(),
-      semanticAdmissionVerdict: detail.semanticAdmissionVerdict ?? null,
-      requestCaptureVerdict: detail.requestCaptureVerdict ?? null,
-      captureActivityVerdict: detail.captureActivityVerdict ?? null,
-      info: consoleInfoSpy.mock.calls.map((call) => String(call[0] || '')),
-      warn: consoleWarnSpy.mock.calls.map((call) => String(call[0] || '')),
-    });
-
     expect(driver.getLastLineIndex()).toBe(2);
     expect(detail.semanticAdmissionVerdict ?? null).toBeNull();
 
