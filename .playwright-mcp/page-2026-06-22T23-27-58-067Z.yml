@@ -1,0 +1,184 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic "The Forge navigation menu"
+    - strong [ref=e3]: Anvil - Teleprompter
+    - generic "App version" [ref=e4]: v1.8.5
+    - generic [ref=e5]: "Draft: -"
+    - status "Session status" [ref=e7]: "Session: checking…"
+    - generic "Anchor % within viewport and current scrollTop" [ref=e8]: Anchor - * scrollTop -
+    - generic "Auto scroll status" [ref=e9]: "Auto: Manual"
+    - generic "Top bar actions" [ref=e10]:
+      - button "Settings" [ref=e11] [cursor=pointer]
+      - button "Help" [ref=e12] [cursor=pointer]
+    - generic [ref=e13]:
+      - button "Single Monitor" [ref=e14] [cursor=pointer]
+      - button "Present Mode" [ref=e15] [cursor=pointer]
+      - link "Log in" [ref=e17] [cursor=pointer]:
+        - /url: /login
+      - generic [ref=e18]:
+        - text: "Self-checks:"
+        - strong [ref=e19]: 6/6 OK
+        - emphasis [ref=e20]: (click)
+  - generic [ref=e21]:
+    - complementary [ref=e22]:
+      - region "Session" [ref=e23]:
+        - generic [ref=e25]:
+          - heading "Session" [level=2] [ref=e26]
+          - paragraph [ref=e27]: Immediate live controls for the current read.
+        - generic [ref=e28]:
+          - generic [ref=e29]:
+            - generic [ref=e30]: Scroll Mode
+            - generic [ref=e31]: Priority Control
+          - generic [ref=e32]: Scroll Mode
+          - combobox "Scroll Mode" [ref=e33] [cursor=pointer]:
+            - option "Timed" [selected]
+            - option "WPM"
+            - option "Hybrid"
+            - option "ASR"
+            - option "Step"
+            - option "Rehearsal"
+          - paragraph [ref=e34]: Hybrid follows speech automatically. Switch anytime to lock in manual, ASR, or rehearsal modes.
+        - 'button "Display: Closed" [ref=e36] [cursor=pointer]'
+        - generic [ref=e37]:
+          - button "Request Mic" [ref=e38] [cursor=pointer]
+          - button "Start speech sync" [disabled] [ref=e39]
+        - generic [ref=e40]:
+          - generic [ref=e41]:
+            - text: Calibration (required)
+            - combobox "Calibration (required)" [ref=e42] [cursor=pointer]
+          - button "Manage calibrations..." [ref=e43] [cursor=pointer]
+        - generic [ref=e45]: ⚠️ No calibration selected
+        - generic [ref=e46]:
+          - button "Catch Up" [ref=e47] [cursor=pointer]
+          - generic [ref=e48]: (Instantly centers the active line)
+      - region "Recording" [ref=e49]:
+        - generic [ref=e51]:
+          - heading "Recording" [level=2] [ref=e52]
+          - paragraph [ref=e53]: Capture and display-adjacent controls.
+        - generic [ref=e54]:
+          - generic [ref=e55]:
+            - generic [ref=e56]: Primary capture control
+            - heading "Camera" [level=3] [ref=e57]
+            - paragraph [ref=e58]:
+              - text: Start or stop video here before you arm recording. Device selection stays under
+              - strong [ref=e59]: Settings > Recording / Media
+              - text: .
+          - 'button "Camera: Off" [ref=e61] [cursor=pointer]':
+            - generic [ref=e62]: "Camera: Off"
+          - generic [ref=e63]:
+            - generic [ref=e64]:
+              - text: Size (%)
+              - spinbutton "Size (%)" [ref=e65] [cursor=pointer]: "28"
+            - generic [ref=e66]:
+              - text: Opacity
+              - spinbutton "Opacity" [ref=e67] [cursor=pointer]: "100"
+            - generic [ref=e68]:
+              - checkbox "Mirror preview" [checked] [ref=e69]
+              - text: Mirror preview
+            - button "Picture-in-Picture" [ref=e70] [cursor=pointer]
+        - generic [ref=e71]:
+          - generic [ref=e72]:
+            - checkbox "Enable OBS" [ref=e73]
+            - text: Enable OBS
+          - generic [ref=e74]: "OBS: idle"
+        - generic [ref=e76]:
+          - text: Full camera device and OBS configuration lives under
+          - strong [ref=e77]: Settings > Recording / Media
+          - text: .
+      - region "Reading" [ref=e78]:
+        - generic [ref=e80]:
+          - heading "Reading" [level=2] [ref=e81]
+          - paragraph [ref=e82]: Only show the controls that matter for the current mode.
+        - generic [ref=e83]:
+          - generic [ref=e85]:
+            - text: Auto-scroll (px/s)
+            - spinbutton "Auto-scroll (px/s)" [ref=e86]: "21"
+          - button "-" [ref=e87] [cursor=pointer]
+          - button "+" [ref=e88] [cursor=pointer]
+          - 'button "Auto-scroll: Off" [ref=e89] [cursor=pointer]'
+        - generic [ref=e90]:
+          - generic [ref=e91]:
+            - text: Target WPM
+            - spinbutton [ref=e92] [cursor=pointer]: "150"
+          - generic [ref=e93]: ... px/s
+        - generic [ref=e94]:
+          - button [ref=e95] [cursor=pointer]: Step ↑
+          - button [ref=e96] [cursor=pointer]: Step ↓
+        - generic [ref=e97]:
+          - generic [ref=e98]:
+            - text: Font size
+            - spinbutton [ref=e99] [cursor=pointer]: "48"
+          - generic [ref=e100]:
+            - text: Line height
+            - spinbutton [ref=e101] [cursor=pointer]: "1.35"
+        - generic [ref=e103]:
+          - text: Pre-roll (sec)
+          - spinbutton "Pre-roll (sec)" [ref=e104] [cursor=pointer]: "3"
+        - generic [ref=e106]:
+          - text: Match aggressiveness
+          - combobox "Match aggressiveness" [ref=e107] [cursor=pointer]:
+            - option "Conservative"
+            - option "Normal" [selected]
+            - option "Aggressive"
+            - option "Aggressive live-read"
+        - generic [ref=e109]:
+          - text: Motion smoothness
+          - combobox "Motion smoothness" [ref=e110] [cursor=pointer]:
+            - option "Stable"
+            - option "Balanced" [selected]
+            - option "Responsive"
+        - generic [ref=e111]:
+          - button "Reset timer" [ref=e112] [cursor=pointer]
+          - generic [ref=e113]: 00:00.0
+      - region "Script Files" [ref=e114]:
+        - generic [ref=e116]:
+          - heading "Script Files" [level=2] [ref=e117]
+          - paragraph [ref=e118]: Import, load, save, and manage scripts for this episode.
+        - generic [ref=e119]:
+          - generic [ref=e120]:
+            - text: Format
+            - combobox "Format" [ref=e121] [cursor=pointer]:
+              - option ".txt" [selected]
+              - option ".md"
+              - option ".rtf"
+              - option ".text"
+              - option ".docx (soon)" [disabled]
+          - button "Download" [ref=e122] [cursor=pointer]
+          - button "Import Script" [ref=e123] [cursor=pointer]
+        - generic [ref=e124]:
+          - generic [ref=e125]:
+            - text: Saved Scripts
+            - combobox "Saved scripts" [ref=e126] [cursor=pointer]
+          - button "Refresh" [ref=e127] [cursor=pointer]
+          - generic [ref=e128]: "Source: Session - not selected"
+        - generic [ref=e129]:
+          - generic [ref=e130]:
+            - text: Title
+            - textbox "Title" [ref=e131] [cursor=pointer]:
+              - /placeholder: Untitled
+          - button "Save" [ref=e132] [cursor=pointer]
+          - button "Save As" [ref=e133] [cursor=pointer]
+          - button "Load" [ref=e134] [cursor=pointer]
+        - generic [ref=e135]:
+          - button "Rename" [ref=e136] [cursor=pointer]
+          - button "Delete" [ref=e137] [cursor=pointer]
+          - button "Reset Script" [ref=e138] [cursor=pointer]
+        - paragraph
+        - heading "Script" [level=3] [ref=e139]
+        - 'textbox "Use tags: [s1]?[/s1], [s2]?[/s2], [g1]?[/g1], [g2]?[/g2]. Inline: [b], [i], [u], [note], [color=red], [bg=#112233]" [ref=e140]'
+      - region "Speakers" [ref=e141]:
+        - generic [ref=e142]:
+          - generic [ref=e143]:
+            - heading "Speakers" [level=2] [ref=e144]
+            - paragraph [ref=e145]: Collapsed by default so the session controls stay readable.
+          - button "Show" [ref=e146] [cursor=pointer]
+      - region "Utilities" [ref=e147]:
+        - generic [ref=e149]:
+          - heading "Utilities" [level=2] [ref=e150]
+          - paragraph [ref=e151]: Lower-priority helpers that should not compete with session controls.
+        - generic [ref=e152]:
+          - button "Load sample text" [ref=e153] [cursor=pointer]
+          - button "Normalize" [ref=e154] [cursor=pointer]
+          - button "Clear" [ref=e155] [cursor=pointer]
+    - main [ref=e156]
+  - generic: ANVIL build (booting...)

@@ -65303,35 +65303,43 @@ function createAsrScrollDriver(options = {}) {
     }
     if (reanchorPendingState) {
       if (liveAsrSessionActive && isFinal && requestCaptureVoiceDetected && rawMatchIndex != null) {
-        const nextSupportSeqs = sourceRequestSeqs.length > 0 ? sourceRequestSeqs : lineageSeqsForForward;
-        const nextHighConfidence = Number.isFinite(rawMatchConfidence) ? rawMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim : Number.isFinite(assembledMatchConfidence) && assembledMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim;
-        if (Math.abs(rawMatchIndex - reanchorPendingState.candidateLineIdx) <= ASR_REANCHOR_CONFIRM_LOCAL_WINDOW_LINES) {
-          reanchorPendingState.candidateHits += 1;
-          reanchorPendingState.candidateLineIdx = rawMatchIndex;
-          reanchorPendingState.rawMetaConfidence = reanchorPendingState.rawMetaConfidence || nextHighConfidence;
-          nextSupportSeqs.forEach((seq) => {
-            if (!reanchorPendingState.supportingRequestSeqs.includes(seq)) {
-              reanchorPendingState.supportingRequestSeqs.push(seq);
-            }
-          });
+        const corroborationHighConfidence = Number.isFinite(rawMatchConfidence) ? rawMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim : Number.isFinite(assembledMatchConfidence) && assembledMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim;
+        const hasStrongRawLocalProof = Number.isFinite(rawMatchConfidence) && rawMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim;
+        const resolvedToForwardContinuity = reanchorPendingState.reason === "raw_locality_diverged_without_continuing_support" && hasStrongRawLocalProof && assembledMatchIndex != null && rawMatchIndex >= Math.max(0, lastLineIndex - 1) && rawMatchIndex <= lastLineIndex + 1 && Math.abs(rawMatchIndex - assembledMatchIndex) <= 1;
+        if (resolvedToForwardContinuity) {
+          clearReanchorPendingState("resolved_to_forward_continuity");
         } else {
-          reanchorPendingState.candidateLineIdx = rawMatchIndex;
-          reanchorPendingState.candidateHits = 1;
-          reanchorPendingState.supportingRequestSeqs = [...nextSupportSeqs];
-          reanchorPendingState.rawMetaConfidence = nextHighConfidence;
-        }
-        const hitsNeeded = reanchorPendingState.rawMetaConfidence ? 2 : 3;
-        if (reanchorPendingState.candidateHits >= hitsNeeded) {
-          confirmReanchor({
-            newLineIdx: reanchorPendingState.candidateLineIdx,
-            supportingRequestSeqs: reanchorPendingState.supportingRequestSeqs,
-            reason: reanchorPendingState.reason
-          });
-          return;
+          const nextSupportSeqs = sourceRequestSeqs.length > 0 ? sourceRequestSeqs : lineageSeqsForForward;
+          if (Math.abs(rawMatchIndex - reanchorPendingState.candidateLineIdx) <= ASR_REANCHOR_CONFIRM_LOCAL_WINDOW_LINES) {
+            reanchorPendingState.candidateHits += 1;
+            reanchorPendingState.candidateLineIdx = rawMatchIndex;
+            reanchorPendingState.rawMetaConfidence = reanchorPendingState.rawMetaConfidence || corroborationHighConfidence;
+            nextSupportSeqs.forEach((seq) => {
+              if (!reanchorPendingState.supportingRequestSeqs.includes(seq)) {
+                reanchorPendingState.supportingRequestSeqs.push(seq);
+              }
+            });
+          } else {
+            reanchorPendingState.candidateLineIdx = rawMatchIndex;
+            reanchorPendingState.candidateHits = 1;
+            reanchorPendingState.supportingRequestSeqs = [...nextSupportSeqs];
+            reanchorPendingState.rawMetaConfidence = corroborationHighConfidence;
+          }
+          const hitsNeeded = reanchorPendingState.rawMetaConfidence ? 2 : 3;
+          if (reanchorPendingState.candidateHits >= hitsNeeded) {
+            confirmReanchor({
+              newLineIdx: reanchorPendingState.candidateLineIdx,
+              supportingRequestSeqs: reanchorPendingState.supportingRequestSeqs,
+              reason: reanchorPendingState.reason
+            });
+            return;
+          }
         }
       }
-      emitHudStatus("asr_reanchor_pending", "ASR re-anchor pending - transcripts visible, auto-follow paused");
-      return;
+      if (reanchorPendingState) {
+        emitHudStatus("asr_reanchor_pending", "ASR re-anchor pending - transcripts visible, auto-follow paused");
+        return;
+      }
     }
     const permissiveMatcher = isPermissiveAsrMatcherEnabled();
     const compactedComparable = normalizeComparableText2(compacted);
