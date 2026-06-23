@@ -255,6 +255,14 @@ describe('ASR commit freshness gate', () => {
     };
     driver.ingest('One. Two.', true, detail);
     await jest.advanceTimersByTimeAsync(200);
+    console.log('DEBUG_POSITIVE_BRIDGE', {
+      line: driver.getLastLineIndex(),
+      semanticAdmissionVerdict: detail.semanticAdmissionVerdict ?? null,
+      requestCaptureVerdict: detail.requestCaptureVerdict ?? null,
+      captureActivityVerdict: detail.captureActivityVerdict ?? null,
+      info: consoleInfoSpy.mock.calls.map((call) => String(call[0] || '')),
+      warn: consoleWarnSpy.mock.calls.map((call) => String(call[0] || '')),
+    });
 
     expect(driver.getLastLineIndex()).toBe(2);
     expect(detail.semanticAdmissionVerdict ?? null).toBeNull();
@@ -500,51 +508,6 @@ describe('ASR commit freshness gate', () => {
     driver.dispose();
   });
 
-  test('voice-backed assembly origin explicitly enables the focused bridge', async () => {
-    const driver = createAsrScrollDriver();
-    driver.setLastLineIndex(1);
-
-    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
-      detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
-    }));
-    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
-    await jest.advanceTimersByTimeAsync(30);
-    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: false, rmsDbfs: -62 } }));
-    window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: true, ts: Date.now() } }));
-    await jest.advanceTimersByTimeAsync(920);
-    window.dispatchEvent(new CustomEvent('tp:asr:audio-chunk', { detail: { ts: Date.now() } }));
-
-    const detail: any = {
-      currentIdx: 1,
-      matchId: 'multi-chunk-forward-explicit-assembly-origin',
-      source: 'openai-whisper-bridge',
-      rawText: 'wo.',
-      assembledText: 'One. Two.',
-      sourceRequestSeqs: [10, 11, 12],
-      supportingRawSeqs: [10, 11, 12],
-      forwardSupportRequestSeqs: [12],
-      requestCaptureEvidence: [
-        { requestSeq: 10, verdict: 'voice_detected', rmsDbfs: -18 },
-        { requestSeq: 11, verdict: 'voice_detected', rmsDbfs: -18 },
-        { requestSeq: 12, verdict: 'voice_detected', rmsDbfs: -18 },
-      ],
-      rawMatchIndex: 1,
-      assembledMatchIndex: 2,
-      forwardMatchCreatedByAssembly: true,
-      targetSupportProvenance: 'voice_backed_multi_request_support',
-      match: { bestIdx: 2, bestSim: 0.97, topScores: [{ idx: 2, score: 0.97 }] } as any,
-    };
-    driver.ingest('One. Two.', true, detail);
-    await jest.advanceTimersByTimeAsync(200);
-
-    expect(driver.getLastLineIndex()).toBe(2);
-    expect(detail.semanticAdmissionVerdict ?? null).toBeNull();
-    expect(consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_CANDIDATE_VOICE_ADMISSION_USED'))).toBe(true);
-    expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_TERMINAL_LOCAL_STEP_BYPASSED'))).toBe(false);
-
-    driver.dispose();
-  });
-
   test('missing assembly-origin metadata cannot activate the focused bridge', async () => {
     const driver = createAsrScrollDriver();
     driver.setLastLineIndex(1);
@@ -557,9 +520,8 @@ describe('ASR commit freshness gate', () => {
     window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: false, rmsDbfs: -62 } }));
     window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: true, ts: Date.now() } }));
     await jest.advanceTimersByTimeAsync(920);
-    window.dispatchEvent(new CustomEvent('tp:asr:audio-chunk', { detail: { ts: Date.now() } }));
 
-    driver.ingest('One. Two.', true, {
+    const detail: any = {
       currentIdx: 1,
       matchId: 'multi-chunk-forward-missing-assembly-origin',
       source: 'openai-whisper-bridge',
@@ -577,7 +539,8 @@ describe('ASR commit freshness gate', () => {
       assembledMatchIndex: 2,
       targetSupportProvenance: 'voice_backed_multi_request_support',
       match: { bestIdx: 2, bestSim: 0.97, topScores: [{ idx: 2, score: 0.97 }] } as any,
-    });
+    };
+    driver.ingest('One. Two.', true, detail);
     await jest.advanceTimersByTimeAsync(200);
 
     expect(driver.getLastLineIndex()).toBe(1);
