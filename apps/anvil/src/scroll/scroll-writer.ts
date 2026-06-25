@@ -263,6 +263,7 @@ function resolveSeekTarget(blockIdx: number): {
   scroller: HTMLElement;
   top: number;
   blockTopPx: number;
+  lineTopPx: number | null;
   lineIdx: number | null;
 } | null {
   const blocks = getAsrBlockElements();
@@ -283,15 +284,44 @@ function resolveSeekTarget(blockIdx: number): {
     return null;
   }
   let lineIdx: number | null = null;
+  let lineTopPx: number | null = null;
+  let lineHeightPx: number | null = null;
   try {
     const firstLine = el.querySelector<HTMLElement>('.line[data-line], .line[data-line-idx], .line');
     const rawIdx = firstLine?.dataset?.line ?? firstLine?.dataset?.lineIdx;
     const parsed = Number(rawIdx);
     if (Number.isFinite(parsed)) lineIdx = Math.max(0, Math.floor(parsed));
+    if (firstLine) {
+      const firstLineTopPx = elementTopRelativeTo(firstLine, scroller);
+      if (Number.isFinite(firstLineTopPx)) {
+        lineTopPx = firstLineTopPx;
+      }
+      const firstLineHeightPx =
+        firstLine.getBoundingClientRect?.().height ||
+        firstLine.offsetHeight ||
+        firstLine.clientHeight ||
+        0;
+      if (Number.isFinite(firstLineHeightPx) && firstLineHeightPx > 0) {
+        lineHeightPx = firstLineHeightPx;
+      }
+    }
   } catch {
     lineIdx = null;
+    lineTopPx = null;
+    lineHeightPx = null;
   }
-  return { blockEl: el, scroller, top, blockTopPx, lineIdx };
+  const asrTargetTop =
+    lineTopPx != null
+      ? lineTopPx - Math.max(0, markerOffsetPx(scroller) - ((lineHeightPx || 0) * 0.5))
+      : blockTopPx - markerOffsetPx(scroller);
+  return {
+    blockEl: el,
+    scroller,
+    top: mode === 'asr' ? asrTargetTop : top,
+    blockTopPx,
+    lineTopPx,
+    lineIdx,
+  };
 }
 
 function resolveSeekLineHeightPx(target: { blockEl: HTMLElement; scroller: HTMLElement }): number {

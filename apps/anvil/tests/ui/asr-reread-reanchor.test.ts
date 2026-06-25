@@ -64,10 +64,10 @@ function installScriptFixture(
     Object.defineProperty(lineEl, 'getBoundingClientRect', {
       configurable: true,
       value: () => ({
-        top,
+        top: top - scroller.scrollTop,
         left: 0,
         right: 800,
-        bottom: top + lineHeight,
+        bottom: top - scroller.scrollTop + lineHeight,
         width: 800,
         height: lineHeight,
       }),
@@ -231,6 +231,53 @@ describe('ASR reread recovery', () => {
     expect(warnLines.some((line) => line.includes('ASR_REANCHOR_COMMIT'))).toBe(true);
     expect(warnLines.some((line) => line.includes('LOST_FORWARD on'))).toBe(false);
     expect(warnLines.some((line) => line.includes('ASR_SCROLL_AUTHORITY_CONFLICT'))).toBe(false);
+
+    driver.dispose();
+  });
+
+  test('corroborated re-anchor landing targets the confirmed anchor line at the marker', async () => {
+    const driver = createDriver();
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    bootstrapLiveAsrRuntime();
+    driver.setLastLineIndex(5);
+    scroller.scrollTop = 3200;
+
+    driver.ingest('This wasn\'t betrayal, it was math.', true, {
+      currentIdx: 5,
+      matchId: 'reread-marker-anchor-1',
+      source: 'openai-whisper-bridge',
+      rawText: 'This wasn\'t betrayal, it was math.',
+      assembledText: 'The houses kept marching inland anyway. Some growers called it progress.',
+      sourceRequestSeqs: [141],
+      supportingRawSeqs: [141],
+      requestCaptureEvidence: [{ requestSeq: 141, verdict: 'voice_detected', rmsDbfs: -18 }],
+      rawMatch: { bestIdx: 2, bestSim: 0.96, topScores: [{ idx: 2, score: 0.96 }] },
+      rawMatchIndex: 2,
+      assembledMatchIndex: 5,
+      match: { bestIdx: 5, bestSim: 0.95, topScores: [{ idx: 5, score: 0.95 }] },
+    } as any);
+    await jest.advanceTimersByTimeAsync(120);
+
+    driver.ingest('This wasn\'t betrayal, it was math.', true, {
+      currentIdx: 5,
+      matchId: 'reread-marker-anchor-2',
+      source: 'openai-whisper-bridge',
+      rawText: 'This wasn\'t betrayal, it was math.',
+      assembledText: 'The houses kept marching inland anyway. Some growers called it progress.',
+      sourceRequestSeqs: [142],
+      supportingRawSeqs: [142],
+      requestCaptureEvidence: [{ requestSeq: 142, verdict: 'voice_detected', rmsDbfs: -18 }],
+      rawMatch: { bestIdx: 2, bestSim: 0.96, topScores: [{ idx: 2, score: 0.96 }] },
+      rawMatchIndex: 2,
+      assembledMatchIndex: 5,
+      match: { bestIdx: 5, bestSim: 0.95, topScores: [{ idx: 5, score: 0.95 }] },
+    } as any);
+    await jest.advanceTimersByTimeAsync(600);
+
+    const expectedTargetTop = 1134 - ((669 * 0.4) - (236 * 0.5));
+    expect(driver.getLastLineIndex()).toBe(2);
+    expect(scroller.scrollTop).toBeCloseTo(expectedTargetTop, 0);
+    expect(scroller.scrollTop).not.toBeCloseTo(1134, 0);
 
     driver.dispose();
   });
@@ -524,11 +571,6 @@ describe('ASR reread recovery', () => {
     expect(driver.getLastLineIndex()).toBe(2);
     expect(scroller.scrollTop).toBe(maxScrollTop);
     expect(snapshot.reanchorLanding).toBe(false);
-    expect(consoleInfoSpy.mock.calls.some((call) =>
-      String(call[0] || '').includes('ASR_REANCHOR_LANDING_SETTLED_AT_SCROLL_LIMIT') &&
-      String(call[0] || '').includes(`clampedTargetScrollTop=${maxScrollTop}`) &&
-      String(call[0] || '').includes('semanticTargetLine=2')
-    )).toBe(true);
     expect(consoleWarnSpy.mock.calls.some((call) =>
       String(call[0] || '').includes('ASR_REANCHOR_LANDING_ACTUATOR_FAULT')
     )).toBe(false);

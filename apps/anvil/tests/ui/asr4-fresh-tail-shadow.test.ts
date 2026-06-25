@@ -1060,6 +1060,184 @@ describe('ASR4 fresh-tail shadow wiring', () => {
     driver.dispose();
   });
 
+  test('small 20-50px marker drift stays quiet instead of thrashing deadband recovery', async () => {
+    const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
+      __debugObserveAsr4PocketDrift: any;
+    };
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    driver.setLastLineIndex(1);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 1,
+      matchId: 'test_small_marker_drift_seed',
+      runKey: 'test-small-marker-drift-seed',
+      runGeneration: 1,
+      source: 'openai-whisper-bridge',
+      speechRunningActual: true,
+      match: {
+        bestIdx: 2,
+        bestSim: 0.96,
+        topScores: [{ idx: 2, score: 0.96 }],
+      },
+    });
+    scroller.scrollTop = 842;
+
+    const first = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 2,
+      targetLine: 2,
+      currentScrollTop: 842,
+      targetScrollTop: 842,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_small_marker_drift_1',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+    const second = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 2,
+      targetLine: 2,
+      currentScrollTop: 842,
+      targetScrollTop: 842,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_small_marker_drift_2',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+    const third = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 2,
+      targetLine: 2,
+      currentScrollTop: 842,
+      targetScrollTop: 842,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_small_marker_drift_3',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+
+    expect(first.state.activeLineDistanceFromMarkerPx).toBeGreaterThanOrEqual(20);
+    expect(first.state.activeLineDistanceFromMarkerPx).toBeLessThan(48);
+    expect([first.applied, second.applied, third.applied]).toEqual([false, false, false]);
+    expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_LOW_POCKET_DEADBAND_RECONCILED'))).toBe(false);
+    expect(consoleInfoSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_LOW_POCKET_DEADBAND_BLOCKED'))).toBe(false);
+
+    driver.dispose();
+  });
+
+  test('active forward recovery owner blocks competing deadband pullback in the same semantic epoch', async () => {
+    const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
+      __debugObserveAsr4PocketDrift: any;
+    };
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    driver.setLastLineIndex(1);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 1,
+      matchId: 'test_forward_owner_seed',
+      runKey: 'test-forward-owner-seed',
+      runGeneration: 1,
+      source: 'openai-whisper-bridge',
+      speechRunningActual: true,
+      match: {
+        bestIdx: 2,
+        bestSim: 0.96,
+        topScores: [{ idx: 2, score: 0.96 }],
+      },
+    });
+    scroller.scrollTop = 806;
+    consoleInfoSpy.mockClear();
+    consoleWarnSpy.mockClear();
+
+    const result = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 2,
+      targetLine: 2,
+      currentScrollTop: 806,
+      targetScrollTop: 860,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_forward_owner_blocks_deadband',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+
+    expect(result.applied).toBe(false);
+    expect(result.afterScrollTop).toBe(806);
+    expect(consoleWarnSpy.mock.calls.some((call) => String(call[0] || '').includes('ASR_LOW_POCKET_DEADBAND_RECONCILED'))).toBe(false);
+
+    driver.dispose();
+  });
+
+  test('larger genuine marker drift still gets one bounded forward deadband correction', async () => {
+    const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
+      __debugObserveAsr4PocketDrift: any;
+    };
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    driver.setLastLineIndex(1);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 1,
+      matchId: 'test_large_marker_drift_seed',
+      runKey: 'test-large-marker-drift-seed',
+      runGeneration: 1,
+      source: 'openai-whisper-bridge',
+      speechRunningActual: true,
+      match: {
+        bestIdx: 2,
+        bestSim: 0.96,
+        topScores: [{ idx: 2, score: 0.96 }],
+      },
+    });
+    scroller.scrollTop = 806;
+
+    const first = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 2,
+      targetLine: 2,
+      currentScrollTop: 806,
+      targetScrollTop: 806,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_large_marker_drift_1',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+    const second = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 2,
+      targetLine: 2,
+      currentScrollTop: 806,
+      targetScrollTop: 806,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_large_marker_drift_2',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+    const third = driver.__debugObserveAsr4PocketDrift({
+      currentLine: 1,
+      committedLine: 2,
+      targetLine: 2,
+      currentScrollTop: 806,
+      targetScrollTop: 806,
+      movedPx: 0,
+      followMode: 'live_asr_follow',
+      scrollReason: 'test',
+      reason: 'test_large_marker_drift_3',
+      previousHoldReason: 'existing_target_within_deadband',
+    });
+
+    expect(first.applied).toBe(false);
+    expect([first.applied, second.applied, third.applied].filter(Boolean)).toHaveLength(1);
+    const appliedResult = [first, second, third].find((entry) => entry.applied)!;
+    expect(appliedResult.movedPx).toBeGreaterThan(0);
+    expect(appliedResult.movedPx).toBeLessThanOrEqual(Math.round(24 * 1.5));
+    expect(consoleWarnSpy.mock.calls.filter((call) => String(call[0] || '').includes('ASR_LOW_POCKET_DEADBAND_RECONCILED'))).toHaveLength(1);
+
+    driver.dispose();
+  });
+
   test('far pocket drift target freezes instead of jumping', async () => {
     const driver = createAsrScrollDriver() as ReturnType<typeof createAsrScrollDriver> & {
       __debugObserveAsr4PocketDrift: any;

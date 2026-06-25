@@ -528,6 +528,11 @@ const ASR_LOW_POCKET_DEADBAND_RECONCILE_SLOW_MIN_OBSERVATIONS = 3;
 const ASR_LOW_POCKET_DEADBAND_RECONCILE_SLOW_LINES = 0.35;
 const ASR_LOW_POCKET_DEADBAND_RECONCILE_MAX_STEP_LINES = 0.75;
 const ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX = 0.5;
+const ASR_MARKER_CORRECTION_HOLD_MIN_PX = 20;
+const ASR_MARKER_CORRECTION_HOLD_LINE_RATIO = 0.55;
+const ASR_MARKER_CORRECTION_ENGAGE_MIN_PX = 48;
+const ASR_MARKER_CORRECTION_ENGAGE_LINE_RATIO = 0.95;
+const ASR_MARKER_CORRECTION_ENGAGE_GAP_MIN_PX = 12;
 const ASR_POST_COMMIT_RECOVERY_STARVATION_THRESHOLD = 4;
 const ASR_POST_COMMIT_RECOVERY_STARVATION_MIN_MOVE_PX = 18;
 const ASR_PURSUE_TARGET_GRACE_MS = 900;
@@ -5340,12 +5345,82 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       );
     } catch {}
   };
+  const resolveAsrMarkerCorrectionHysteresisBands = (lineHeightPx: number): {
+    holdBandPx: number;
+    engageBandPx: number;
+  } => {
+    const sanitizedLineHeightPx = Number.isFinite(lineHeightPx) ? Number(lineHeightPx) : Number.NaN;
+    const holdBandPx = Number.isFinite(sanitizedLineHeightPx)
+      ? Math.max(
+        ASR_MARKER_CORRECTION_HOLD_MIN_PX,
+        sanitizedLineHeightPx * ASR_MARKER_CORRECTION_HOLD_LINE_RATIO,
+      )
+      : ASR_MARKER_CORRECTION_HOLD_MIN_PX;
+    const engageBandPx = Number.isFinite(sanitizedLineHeightPx)
+      ? Math.max(
+        ASR_MARKER_CORRECTION_ENGAGE_MIN_PX,
+        holdBandPx + ASR_MARKER_CORRECTION_ENGAGE_GAP_MIN_PX,
+        sanitizedLineHeightPx * ASR_MARKER_CORRECTION_ENGAGE_LINE_RATIO,
+      )
+      : Math.max(
+        ASR_MARKER_CORRECTION_ENGAGE_MIN_PX,
+        holdBandPx + ASR_MARKER_CORRECTION_ENGAGE_GAP_MIN_PX,
+      );
+    return {
+      holdBandPx,
+      engageBandPx,
+    };
+  };
+  const evaluateAsrMarkerCorrectionHysteresis = (args: {
+    markerErrorPx: number;
+    lineHeightPx: number;
+  }): {
+    correctionRequested: boolean;
+    holdBandPx: number;
+    engageBandPx: number;
+    hysteresisActive: boolean;
+  } => {
+    const absErrorPx = Math.abs(Number(args.markerErrorPx));
+    const lineHeightPx = Number(args.lineHeightPx);
+    const { holdBandPx, engageBandPx } = resolveAsrMarkerCorrectionHysteresisBands(lineHeightPx);
+    if (!(Number.isFinite(absErrorPx) && Number.isFinite(lineHeightPx))) {
+      readerMarkerCorrectionHysteresisActive = false;
+      readerMarkerCorrectionHysteresisEpoch = semanticEpoch;
+      lastAsrMarkerCorrectionHoldBandPx = holdBandPx;
+      lastAsrMarkerCorrectionEngageBandPx = engageBandPx;
+      return {
+        correctionRequested: false,
+        holdBandPx,
+        engageBandPx,
+        hysteresisActive: false,
+      };
+    }
+    if (readerMarkerCorrectionHysteresisEpoch !== semanticEpoch) {
+      readerMarkerCorrectionHysteresisActive = false;
+      readerMarkerCorrectionHysteresisEpoch = semanticEpoch;
+    }
+    const correctionRequested = readerMarkerCorrectionHysteresisActive
+      ? absErrorPx > holdBandPx
+      : absErrorPx > engageBandPx;
+    readerMarkerCorrectionHysteresisActive = correctionRequested;
+    lastAsrMarkerCorrectionHoldBandPx = holdBandPx;
+    lastAsrMarkerCorrectionEngageBandPx = engageBandPx;
+    return {
+      correctionRequested,
+      holdBandPx,
+      engageBandPx,
+      hysteresisActive: correctionRequested,
+    };
+  };
   const computeReaderLineMarkerErrorSnapshot = (scroller: HTMLElement | null): {
     correctionRequested: boolean;
     matchBestIdx: number;
     matchBestSim: number;
     markerErrorPx: number;
     lineHeightPx: number;
+    holdBandPx: number;
+    engageBandPx: number;
+    hysteresisActive: boolean;
   } => {
     if (!scroller) {
       return {
@@ -5354,6 +5429,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         matchBestSim: Number.NaN,
         markerErrorPx: Number.NaN,
         lineHeightPx: Number.NaN,
+        holdBandPx: ASR_MARKER_CORRECTION_HOLD_MIN_PX,
+        engageBandPx: ASR_MARKER_CORRECTION_ENGAGE_MIN_PX,
+        hysteresisActive: false,
       };
     }
     const matchBestIdx =
@@ -5367,6 +5445,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         matchBestSim: Number.isFinite(lastAuthorityMatchBestSim) ? Number(lastAuthorityMatchBestSim) : Number.NaN,
         markerErrorPx: Number.NaN,
         lineHeightPx: Number.NaN,
+        holdBandPx: ASR_MARKER_CORRECTION_HOLD_MIN_PX,
+        engageBandPx: ASR_MARKER_CORRECTION_ENGAGE_MIN_PX,
+        hysteresisActive: false,
       };
     }
     const telemetry = resolveLineVisualTelemetry(scroller, matchBestIdx);
@@ -5382,16 +5463,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         : Number.NaN;
     const lineEl = getLineElementByIndex(scroller, matchBestIdx);
     const lineHeightPx = lineEl ? clamp(resolveMotionLineHeightPx(lineEl), 12, 320) : Number.NaN;
-    const correctionRequested =
-      Number.isFinite(markerErrorPx) &&
-      Number.isFinite(lineHeightPx) &&
-      Math.abs(markerErrorPx) > lineHeightPx;
+    const hysteresis = evaluateAsrMarkerCorrectionHysteresis({
+      markerErrorPx,
+      lineHeightPx,
+    });
     return {
-      correctionRequested,
+      correctionRequested: hysteresis.correctionRequested,
       matchBestIdx,
       matchBestSim: Number.isFinite(lastAuthorityMatchBestSim) ? Number(lastAuthorityMatchBestSim) : Number.NaN,
       markerErrorPx,
       lineHeightPx,
+      holdBandPx: hysteresis.holdBandPx,
+      engageBandPx: hysteresis.engageBandPx,
+      hysteresisActive: hysteresis.hysteresisActive,
     };
   };
   const isLeasedReaderCorrectionActivelyClosing = (args: {
@@ -8643,6 +8727,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let activeAsrVisualRecoveryEpisode: AsrRecoveryEpisode | null = null;
   let reanchorPendingState: ReanchorPendingState | null = null;
   let reanchorLandingState: ReanchorLandingState | null = null;
+  let readerMarkerCorrectionHysteresisActive = false;
+  let readerMarkerCorrectionHysteresisEpoch = semanticEpoch;
+  let lastAsrMarkerCorrectionHoldBandPx = Number.NaN;
+  let lastAsrMarkerCorrectionEngageBandPx = Number.NaN;
   let lastVisualWriteOwner = 'none';
   let lastVisualWriteEpoch = semanticEpoch;
   let lastVisualWriteDirection: 'forward' | 'backward' | 'hold' = 'hold';
@@ -12301,10 +12389,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     cancelAutomaticVisualAuthorities('reanchor_confirmed');
     setLastLineIndex(newLineIdx);
     if (scroller) {
-      const targetLineEl = getLineElementByIndex(scroller, newLineIdx);
-      const targetTop = Number.isFinite(Number(targetLineEl?.offsetTop))
-        ? Math.max(0, Number(targetLineEl?.offsetTop))
-        : resolveTargetTop(scroller, newLineIdx);
+      const targetTop = resolveTargetTop(scroller, newLineIdx);
       if (targetTop != null && Number.isFinite(targetTop)) {
         reanchorLandingState = {
           startedAtMs: Date.now(),
@@ -36120,6 +36205,45 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return { applied: movementAllowed, afterScrollTop, movedPx, authorityAction, movementAllowed };
   };
 
+  const hasActiveForwardVisualOwnerInCurrentEpoch = (currentScrollTop: number): boolean => {
+    const now = Date.now();
+    if (
+      lastVisualWriteEpoch === semanticEpoch &&
+      lastVisualWriteDirection === 'forward' &&
+      lastVisualWriteOwner !== 'none'
+    ) {
+      return true;
+    }
+    if (
+      Number.isFinite(Number(pursuitTargetTop)) &&
+      Number(pursuitTargetTop) > currentScrollTop + ASR_POCKET_WALL_NOISE_DELTA_PX
+    ) {
+      return true;
+    }
+    if (
+      postSemanticCommitVisualFollowPending &&
+      postSemanticCommitVisualFollowUntilMs > now &&
+      postSemanticCommitVisualFollowNewLineIdx >= 0
+    ) {
+      return true;
+    }
+    if (
+      postReleaseProtectedFollowUntilMs > now &&
+      Number.isFinite(postReleaseProtectedFollowTargetScrollTop) &&
+      postReleaseProtectedFollowTargetScrollTop > currentScrollTop + ASR_POCKET_WALL_NOISE_DELTA_PX
+    ) {
+      return true;
+    }
+    if (
+      postFloorProtectedFollowUntilMs > now &&
+      Number.isFinite(postFloorProtectedFollowTargetScrollTop) &&
+      postFloorProtectedFollowTargetScrollTop > currentScrollTop + ASR_POCKET_WALL_NOISE_DELTA_PX
+    ) {
+      return true;
+    }
+    return false;
+  };
+
   const observeAsr4PocketDrift = (args: {
     scroller: HTMLElement;
     currentLine: number;
@@ -36211,8 +36335,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       previousHoldReason === 'existing_target_within_deadband' ||
       state.suppressedReason === 'target_preserved_but_not_closing' ||
       state.suppressedReason === 'leased_reader_correction_active';
+    const markerCorrectionBands = resolveAsrMarkerCorrectionHysteresisBands(state.lineHeightPx);
+    const markerCorrectionWithinHoldBand =
+      Number.isFinite(state.activeLineDistanceFromMarkerPx) &&
+      Math.abs(state.activeLineDistanceFromMarkerPx) <= markerCorrectionBands.holdBandPx;
+    const markerCorrectionBeyondEngageBand =
+      Number.isFinite(state.activeLineDistanceFromMarkerPx) &&
+      Math.abs(state.activeLineDistanceFromMarkerPx) >= markerCorrectionBands.engageBandPx;
+    const activeForwardVisualOwner = hasActiveForwardVisualOwnerInCurrentEpoch(state.currentScrollTop);
     const evaluateLowPocketDeadband =
       sameTargetNotClosing &&
+      markerCorrectionBeyondEngageBand &&
       state.belowPocketPx > ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX &&
       Math.abs(state.movedPx) <= ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX;
     if (evaluateLowPocketDeadband) {
@@ -36324,6 +36457,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         && state.belowPocketPx >= slowBelowPocketPx;
       if (state.terminalClampActive) {
         blockedReason = 'terminal_clamp';
+      } else if (markerCorrectionWithinHoldBand) {
+        blockedReason = 'marker_error_within_hysteresis_hold_band';
+      } else if (activeForwardVisualOwner) {
+        blockedReason = 'forward_owner_active';
       } else if (!state.localSafeTarget) {
         blockedReason = freezeFarTargetRescueCandidate ? 'local_rescue_candidate' : 'unsafe_target';
       } else if ((state.cooldownActive || state.asr4VisualRecoveryRecentlyApplied) && !state.leasedReaderCorrectionActive) {
@@ -36529,7 +36666,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         : proposedScrollTop;
       const correctionPx = Math.max(0, rescuedProposedScrollTop - state.currentScrollTop);
       let blockedReason = '';
-      if ((state.cooldownActive || state.asr4VisualRecoveryRecentlyApplied) && !state.leasedReaderCorrectionActive) {
+      if (markerCorrectionWithinHoldBand) {
+        blockedReason = 'marker_error_within_hysteresis_hold_band';
+      } else if (activeForwardVisualOwner) {
+        blockedReason = 'forward_owner_active';
+      } else if ((state.cooldownActive || state.asr4VisualRecoveryRecentlyApplied) && !state.leasedReaderCorrectionActive) {
         blockedReason = 'cooldown_active';
       } else if (correctionPx <= ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX) {
         blockedReason = 'bounded_correction_too_small';

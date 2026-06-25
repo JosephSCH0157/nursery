@@ -41,11 +41,13 @@ When `scrollMode='asr'`:
 - Legacy `AsrMode` -> `tp:scroll:intent` movement lane is compatibility-only and blocked by default.
 - Commit path is writer-first: `seekToBlockAnimated(...)`.
 - ASR commit movement is writer-first: resolve block mapping via `seekToBlockAnimated(...)`, then (in ASR mode) ease toward commit `targetTop` with bounded-speed animation; this remains commit-driven (no continuous ASR motor lane).
+- ASR hard seeks and snaps are marker-anchored by default: land the confirmed active line at the configured marker Y, not at viewport top. If exact placement is impossible because the document bottom is reached, clamp normally and settle at the scroll limit without re-triggering recovery loops.
 - After a successful ASR commit seek, enforce a post-commit readability pass so the active line stays near the marker band while forward readable lookahead remains visible.
 - Post-commit readability nudge must preserve a tight marker-centered active-line band with responsive same-line recentering; when forward readable lookahead is clipped, nudge should restore lookahead without forcing the active line above that band.
 - Post-commit readability should ensure immediate continuity: if the next speakable line is near bottom clipping (small guard margin), reveal it before chasing deeper lookahead.
 - Post-commit readability nudge is bounded to about one line of forward movement per settle pass to avoid overshoot/bounce from stacked helper writes.
 - Same-line recenter no-op is near-threshold only: when same-line marker delta is large, do not hard-noop; continue bounded recenter/creep handling.
+- Small ASR marker drift is hysteretic: no scroll write inside the hold band, correction only after exiting the larger engage band, and no competing low-pocket/deadband backward reconcile while a fresh forward owner or protected post-commit recovery target still owns the frame.
 - Live ASR capture may force interim hypotheses on transport even when UI interim toggle is off; commit/movement remains gated by ASR commit logic.
 - Pixel `driveToLine` is fallback only when writer/block mapping is unavailable.
 - Strong small-delta forward/same matches (`delta>=0` within relaxed-small window) at/above required similarity must not be blocked solely for weak forward-evidence.

@@ -78,12 +78,14 @@ In `scrollMode='asr'`:
 - Legacy ASR intent lane (`AsrMode` -> `tp:scroll:intent`) is compatibility-only and must not drive movement unless explicitly dev-overridden.
 - Must prefer `ScrollWriter.seekToBlockAnimated()` (writer-first) only when line-addressable commit anchors are present in meaningful quantity.
 - ASR commit movement is conditionally writer-first (`seekToBlockAnimated(...)`) with commit-target refinement: writer resolves block mapping first when the DOM is line-addressable; otherwise ASR must use the non-writer targetTop path (no free-running motor lane).
+- In ASR mode, every hard seek or snap must land the confirmed active line on the configured marker Y by default; block-top viewport alignment is not an acceptable fallback. Only physical document limits may clamp the landing, and bottom-limit settles must preserve the existing settled-at-scroll-limit path.
 - Pixel commit path is debug-only (`asr_pixel` / explicit override); dev mode must not implicitly force pixel commits.
 - After a successful ASR commit seek, run a post-commit readability guarantee: keep the active line near the marker band (not pinned at top) while preserving forward readable lines (minimum lookahead target) so commits remain readable without jumping ahead.
 - Post-commit readability nudges must preserve a tight marker-centered active-line band (with responsive same-line recenter cadence), should prioritize restoring forward readable lookahead when it is clipped, and may not push the active line above that band solely to satisfy lookahead.
 - Post-commit readability must prioritize immediate continuity: when the next speakable line approaches clipping below the viewport (small guard margin), nudge to reveal it before deeper lookahead targets.
 - Post-commit readability nudge is bounded to roughly one line of forward movement per commit settle pass, preventing readability stacking from overshooting unspoken content.
 - Same-line recenter guard is proximity-only: `same_line_noop` applies only when marker delta is already near target; large same-line marker deltas must continue through bounded recenter/creep attempts (no hard noop veto).
+- Small ASR marker-error correction must use hysteresis ownership: inside the hold band emit no scroll write, only enter correction outside the larger engage band, and do not allow low-pocket/deadband reconcile to compete with a fresh forward visual owner or protected recovery target in the same semantic epoch.
 - Live ASR transport may force interim capture for responsiveness; movement remains commit-gated and thresholds still arbitrate advancement.
 - Forward-evidence gating must not block strong small-delta forward/same matches (`delta>=0` within relaxed-small window) when similarity is at or above required threshold.
 - Forward scan must evaluate speakable multi-line windows (next-line to small joined windows) instead of single-line-only probes so natural 2-4 line utterances can advance.

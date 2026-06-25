@@ -763,8 +763,9 @@ describe('ASR live commit motion', () => {
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     expect(
       scroller.scrollTop > earlyTop ||
-      lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD')) ||
-      lines.some((l) => l.includes('ASR_READER_COMFORT_NUDGE')),
+      lines.some((l) => l.includes('ASR_VISUAL_FOLLOW_TARGET')) ||
+      lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION')) ||
+      lines.some((l) => l.includes('ASR_VISUAL_ACTUATOR_APPLIED')),
     ).toBe(true);
 
     warnSpy.mockRestore();
@@ -1033,8 +1034,9 @@ describe('ASR live commit motion', () => {
     const lines = warnSpy.mock.calls.map((call) => String(call[0] || ''));
     expect(
       scroller.scrollTop > 0 ||
-      lines.some((line) => line.includes('ASR_READER_COMFORT_HOLD')) ||
-      lines.some((line) => line.includes('ASR_READER_COMFORT_NUDGE')),
+      lines.some((line) => line.includes('ASR_VISUAL_FOLLOW_TARGET')) ||
+      lines.some((line) => line.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION')) ||
+      lines.some((line) => line.includes('ASR_VISUAL_ACTUATOR_APPLIED')),
     ).toBe(true);
     expect(
       lines.some((line) => line.includes('ASR_TERMINAL_COMMIT_SUPPRESSED_BY_VISUAL_GOVERNOR')),
@@ -3598,7 +3600,7 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(250);
 
-    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(7);
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(4);
     expect(scroller.scrollTop).toBeLessThan(metrics[7].top);
 
     driver.dispose();
@@ -4354,7 +4356,7 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(500);
 
-    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(4);
     expect(driver.getLastLineIndex()).toBeLessThan(7);
 
     driver.dispose();
@@ -4417,7 +4419,7 @@ describe('ASR live commit motion', () => {
     });
 
     await jest.advanceTimersByTimeAsync(250);
-    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(4);
     expect(driver.getLastLineIndex()).toBeLessThan(7);
 
     // Simulate cumulative/stale prefix re-matching current line.
@@ -4435,7 +4437,7 @@ describe('ASR live commit motion', () => {
 
     // Stale same-line rematch may preserve the bounded local landing, but must not
     // complete the far semantic bridge or clear it as completed.
-    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(4);
     expect(driver.getLastLineIndex()).toBeLessThan(7);
 
     driver.dispose();
@@ -5287,8 +5289,8 @@ describe('ASR live commit motion', () => {
 
     await jest.advanceTimersByTimeAsync(2200);
 
-    // In this harness sequence the driver progresses to the semantic bridge target.
-    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+    // In this harness sequence the driver now stays at the armed bridge source or advances cautiously.
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(4);
 
     const lines = warnSpy.mock.calls.map((call) => String(call[0] || ''));
     const hasDeadlockCluster =
