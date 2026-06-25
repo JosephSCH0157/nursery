@@ -51586,8 +51586,10 @@ function createAsrScrollDriver(options = {}) {
         1,
         Number(getLineElementByIndex(scroller, Math.max(0, landing.finalTargetLineIdx))?.clientHeight || 24)
       );
+      const maxScrollTop2 = Math.max(0, Number(scroller.scrollHeight || 0) - Number(scroller.clientHeight || 0));
       const maxExposeDeltaPx = Math.max(18, lineHeightPx * ASR_REANCHOR_LANDING_MAX_EXPOSED_LINES);
-      const finalTargetTop = Number(landing.finalTargetScrollTop);
+      const requestedFinalTargetTop = Number(landing.finalTargetScrollTop);
+      const finalTargetTop = clamp5(requestedFinalTargetTop, 0, maxScrollTop2);
       const targetAhead = finalTargetTop >= current2;
       const exposedTargetTop = targetAhead ? Math.min(finalTargetTop, current2 + maxExposeDeltaPx) : Math.max(finalTargetTop, current2 - maxExposeDeltaPx);
       const appliedTop = applyScrollWithHybridGuard(exposedTargetTop, {
@@ -51631,12 +51633,21 @@ function createAsrScrollDriver(options = {}) {
       lastKnownScrollTop = appliedTop;
       lastMoveAt = Date.now();
       markProgrammaticScroll();
-      const landed = Math.abs(finalTargetTop - appliedTop) <= Math.max(12, lineHeightPx * 0.5);
+      const landingTolerancePx = Math.max(12, lineHeightPx * 0.5);
+      const landed = Math.abs(finalTargetTop - appliedTop) <= landingTolerancePx || Math.abs(finalTargetTop - current2) <= 0.5;
       try {
         console.warn(
           `[ASR_REANCHOR_LANDING] owner=reanchor_landing semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current2)} exposedTargetScrollTop=${Math.round(exposedTargetTop)} finalTargetScrollTop=${Math.round(finalTargetTop)} appliedScrollTop=${Math.round(appliedTop)} requestedDeltaPx=${Math.round(requestedDeltaPx2)} appliedDeltaPx=${Math.round(appliedDeltaPx2)} noProgressFrames=${landing.noProgressFrames} landed=${landed ? 1 : 0}`
         );
       } catch {
+      }
+      if (landed && Number.isFinite(requestedFinalTargetTop) && Math.abs(requestedFinalTargetTop - finalTargetTop) > 0.5) {
+        try {
+          console.info(
+            `[ASR_REANCHOR_LANDING_SETTLED_AT_SCROLL_LIMIT] semanticEpoch=${landing.semanticEpoch} semanticTargetLine=${landing.finalTargetLineIdx} requestedTargetScrollTop=${Math.round(requestedFinalTargetTop)} clampedTargetScrollTop=${Math.round(finalTargetTop)} maxScrollTop=${Math.round(maxScrollTop2)} currentScrollTop=${Math.round(current2)} appliedScrollTop=${Math.round(appliedTop)}`
+          );
+        } catch {
+        }
       }
       if (landing.noProgressFrames >= ASR_REANCHOR_LANDING_STUCK_FRAME_THRESHOLD) {
         try {
@@ -65429,8 +65440,24 @@ function createAsrScrollDriver(options = {}) {
     );
     const rawAndAssembledEquivalent = typeof detail?.rawTextHash === "string" && typeof detail?.assembledTextHash === "string" && String(detail.rawTextHash) === String(detail.assembledTextHash) || typeof detail?.rawText === "string" && typeof detail?.assembledText === "string" && normalizeComparableText2(String(detail.rawText || "")) === normalizeComparableText2(String(detail.assembledText || ""));
     const rawAssembledLocalityDiverged = rawMatchIndex != null && assembledMatchIndex != null && Math.abs(rawMatchIndex - assembledMatchIndex) >= ASR_REANCHOR_LOCALITY_DIVERGENCE_MIN_LINES;
+    const assembledCurrentOrBoundedForwardLocal = assembledMatchIndex != null && assembledMatchIndex >= Math.max(0, lastLineIndex - 1) && assembledMatchIndex <= lastLineIndex + 1;
     const assembledNeighborhoodHasContinuingRawSupport = rawMatchIndex != null && assembledMatchIndex != null && rawMatchIndex >= Math.max(0, lastLineIndex - 1) && Math.abs(rawMatchIndex - assembledMatchIndex) <= 1;
+    const focusHoldState = getAsrFocusHoldState(now3);
+    const latestGuardReason = String(lastAsrGuardReason || "").trim().toLowerCase();
+    const latestHudGuardText = String(lastAsrHudGuardText || "").trim().toLowerCase();
+    const contradictionOrOffscriptBlocked = latestGuardReason.includes("contradiction") || latestGuardReason.includes("offscript") || latestHudGuardText.includes("contradiction") || latestHudGuardText.includes("offscript");
+    const transcriptAuthorityEpochRaw = detail?.transcriptAuthorityEpoch ?? detail?.authorityEpoch;
+    const transcriptAuthorityEpoch = Number.isFinite(Number(transcriptAuthorityEpochRaw)) ? Math.max(0, Math.floor(Number(transcriptAuthorityEpochRaw))) : null;
+    const staleAuthorityBlocked = latestGuardReason.includes("stale_authority") || latestGuardReason.includes("authority_not_current") || latestGuardReason.includes("response_authority") || latestHudGuardText.includes("stale authority") || latestHudGuardText.includes("stale_authority") || latestHudGuardText.includes("authority not current") || latestHudGuardText.includes("response authority");
+    const assembledEvidenceFreshAndSafe = requestCaptureVoiceDetected && !asrSilenceActive && transcriptResponseAgeMs <= ASR_COMMIT_FRESH_RESPONSE_MAX_AGE_MS && transcriptAudioAgeMs <= ASR_COMMIT_FRESH_AUDIO_MAX_AGE_MS;
     const suspectReanchorDiscontinuity = liveAsrSessionActive && isFinal && isWhisperBridgeTranscriptSource(transcriptSource) && requestCaptureVoiceDetected && rawMatchIndex != null && assembledMatchIndex != null && rawMatchIndex < Math.max(0, lastLineIndex - 1) && assembledMatchIndex >= Math.max(0, lastLineIndex - 1) && rawAssembledLocalityDiverged && !assembledNeighborhoodHasContinuingRawSupport && !rawAndAssembledEquivalent;
+    const reanchorRawDivergenceVetoProvenanceOk = targetSupportProvenance === "direct_raw_support" || targetSupportProvenance === "voice_backed_multi_request_support";
+    const assembledContinuingForwardSupportSafe = lineageSeqsForForward.length > 0 && !missingRequestEvidence && sourceRequestSeqs.length > 0 && sourceRequestSeqs.some((seq) => lineageSeqsForForward.includes(seq));
+    const transcriptAuthorityCurrent = transcriptAuthorityEpoch == null || transcriptAuthorityEpoch === commitAuthorityEpoch;
+    const vetoRawDivergenceReanchorAdmission = suspectReanchorDiscontinuity && assembledCurrentOrBoundedForwardLocal && assembledEvidenceFreshAndSafe && reanchorRawDivergenceVetoProvenanceOk && transcriptAuthorityCurrent && !isRunIdentityStale({
+      runKey: transcriptRunKey || void 0,
+      runGeneration: transcriptRunGeneration
+    }) && !contradictionOrOffscriptBlocked && !focusHoldState.active && !staleAuthorityBlocked && assembledContinuingForwardSupportSafe;
     if (reanchorLandingState && liveAsrSessionActive && isFinal && requestCaptureVoiceDetected && rawMatchIndex != null && Math.abs(rawMatchIndex - reanchorLandingState.finalTargetLineIdx) <= ASR_REANCHOR_CONFIRM_LOCAL_WINDOW_LINES + 1) {
       const scroller = getScroller();
       const reinforcedTargetTop = scroller ? resolveTargetTop(scroller, rawMatchIndex) : null;
@@ -65453,16 +65480,25 @@ function createAsrScrollDriver(options = {}) {
       return;
     }
     if (suspectReanchorDiscontinuity && !reanchorPendingState) {
-      enterReanchorPending({
-        now: now3,
-        reason: "raw_locality_diverged_without_continuing_support",
-        rawMatchIndex,
-        assembledMatchIndex,
-        supportingRequestSeqs: sourceRequestSeqs.length > 0 ? sourceRequestSeqs : lineageSeqsForForward,
-        rawMetaConfidence: Number.isFinite(rawMatchConfidence) ? rawMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim : Number.isFinite(assembledMatchConfidence) && assembledMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim,
-        clue: compacted
-      });
-      return;
+      if (vetoRawDivergenceReanchorAdmission) {
+        try {
+          console.info(
+            `[ASR_REANCHOR_PENDING_VETOED] reason=raw_locality_diverged_without_continuing_support currentLineIdx=${lastLineIndex} rawMatchIndex=${rawMatchIndex} assembledMatchIndex=${assembledMatchIndex} provenance=${targetSupportProvenance || "none"} supportingRequestSeqs=${(sourceRequestSeqs.length > 0 ? sourceRequestSeqs : lineageSeqsForForward).join(",") || "none"} focusHold=${focusHoldState.active ? 1 : 0} clue="${formatLogSnippet(compacted, 80)}"`
+          );
+        } catch {
+        }
+      } else {
+        enterReanchorPending({
+          now: now3,
+          reason: "raw_locality_diverged_without_continuing_support",
+          rawMatchIndex,
+          assembledMatchIndex,
+          supportingRequestSeqs: sourceRequestSeqs.length > 0 ? sourceRequestSeqs : lineageSeqsForForward,
+          rawMetaConfidence: Number.isFinite(rawMatchConfidence) ? rawMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim : Number.isFinite(assembledMatchConfidence) && assembledMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim,
+          clue: compacted
+        });
+        return;
+      }
     }
     if (reanchorPendingState) {
       if (liveAsrSessionActive && isFinal && requestCaptureVoiceDetected && rawMatchIndex != null) {
