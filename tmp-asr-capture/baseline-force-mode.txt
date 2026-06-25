@@ -1,0 +1,23 @@
+FAIL tests/ui/asr-commit-motion.test.ts (6.092 s)
+  ● ASR live commit motion › deterministically arms pending bridge completion mode and preserves semantic-vs-visual split
+
+    expect(received).toBeGreaterThanOrEqual(expected)
+
+    Expected: >= 7
+    Received:    4
+
+      3599 |     await jest.advanceTimersByTimeAsync(250);
+      3600 |
+    > 3601 |     expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(7);
+           |                                       ^
+      3602 |     expect(scroller.scrollTop).toBeLessThan(metrics[7].top);
+      3603 |
+      3604 |     driver.dispose();
+
+      at Object.<anonymous> (tests/ui/asr-commit-motion.test.ts:3601:39)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 144 skipped, 145 total
+Snapshots:   0 total
+Time:        6.907 s, estimated 8 s
+Ran all test suites matching tests/ui/asr-commit-motion.test.ts with tests matching "deterministically arms pending bridge completion mode and preserves semantic-vs-visual split".

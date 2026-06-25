@@ -20192,8 +20192,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         1,
         Number(getLineElementByIndex(scroller, Math.max(0, landing.finalTargetLineIdx))?.clientHeight || 24),
       );
+      const maxScrollTop = Math.max(0, Number(scroller.scrollHeight || 0) - Number(scroller.clientHeight || 0));
       const maxExposeDeltaPx = Math.max(18, lineHeightPx * ASR_REANCHOR_LANDING_MAX_EXPOSED_LINES);
-      const finalTargetTop = Number(landing.finalTargetScrollTop);
+      const requestedFinalTargetTop = Number(landing.finalTargetScrollTop);
+      const finalTargetTop = clamp(requestedFinalTargetTop, 0, maxScrollTop);
       const targetAhead = finalTargetTop >= current;
       const exposedTargetTop = targetAhead
         ? Math.min(finalTargetTop, current + maxExposeDeltaPx)
@@ -20239,12 +20241,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastKnownScrollTop = appliedTop;
       lastMoveAt = Date.now();
       markProgrammaticScroll();
-      const landed = Math.abs(finalTargetTop - appliedTop) <= Math.max(12, lineHeightPx * 0.5);
+      const landingTolerancePx = Math.max(12, lineHeightPx * 0.5);
+      const landed =
+        Math.abs(finalTargetTop - appliedTop) <= landingTolerancePx ||
+        Math.abs(finalTargetTop - current) <= 0.5;
       try {
         console.warn(
           `[ASR_REANCHOR_LANDING] owner=reanchor_landing semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current)} exposedTargetScrollTop=${Math.round(exposedTargetTop)} finalTargetScrollTop=${Math.round(finalTargetTop)} appliedScrollTop=${Math.round(appliedTop)} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} noProgressFrames=${landing.noProgressFrames} landed=${landed ? 1 : 0}`,
         );
       } catch {}
+      if (
+        landed &&
+        Number.isFinite(requestedFinalTargetTop) &&
+        Math.abs(requestedFinalTargetTop - finalTargetTop) > 0.5
+      ) {
+        try {
+          console.info(
+            `[ASR_REANCHOR_LANDING_SETTLED_AT_SCROLL_LIMIT] semanticEpoch=${landing.semanticEpoch} semanticTargetLine=${landing.finalTargetLineIdx} requestedTargetScrollTop=${Math.round(requestedFinalTargetTop)} clampedTargetScrollTop=${Math.round(finalTargetTop)} maxScrollTop=${Math.round(maxScrollTop)} currentScrollTop=${Math.round(current)} appliedScrollTop=${Math.round(appliedTop)}`,
+          );
+        } catch {}
+      }
       if (landing.noProgressFrames >= ASR_REANCHOR_LANDING_STUCK_FRAME_THRESHOLD) {
         try {
           console.warn(
@@ -38414,11 +38430,43 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       rawMatchIndex != null &&
       assembledMatchIndex != null &&
       Math.abs(rawMatchIndex - assembledMatchIndex) >= ASR_REANCHOR_LOCALITY_DIVERGENCE_MIN_LINES;
+    const assembledCurrentOrBoundedForwardLocal =
+      assembledMatchIndex != null &&
+      assembledMatchIndex >= Math.max(0, lastLineIndex - 1) &&
+      assembledMatchIndex <= lastLineIndex + 1;
     const assembledNeighborhoodHasContinuingRawSupport =
       rawMatchIndex != null &&
       assembledMatchIndex != null &&
       rawMatchIndex >= Math.max(0, lastLineIndex - 1) &&
       Math.abs(rawMatchIndex - assembledMatchIndex) <= 1;
+    const focusHoldState = getAsrFocusHoldState(now);
+    const latestGuardReason = String(lastAsrGuardReason || '').trim().toLowerCase();
+    const latestHudGuardText = String(lastAsrHudGuardText || '').trim().toLowerCase();
+    const contradictionOrOffscriptBlocked =
+      latestGuardReason.includes('contradiction') ||
+      latestGuardReason.includes('offscript') ||
+      latestHudGuardText.includes('contradiction') ||
+      latestHudGuardText.includes('offscript');
+    const transcriptAuthorityEpochRaw =
+      (detail as { transcriptAuthorityEpoch?: unknown; authorityEpoch?: unknown } | undefined)?.transcriptAuthorityEpoch ??
+      (detail as { authorityEpoch?: unknown } | undefined)?.authorityEpoch;
+    const transcriptAuthorityEpoch =
+      Number.isFinite(Number(transcriptAuthorityEpochRaw))
+        ? Math.max(0, Math.floor(Number(transcriptAuthorityEpochRaw)))
+        : null;
+    const staleAuthorityBlocked =
+      latestGuardReason.includes('stale_authority') ||
+      latestGuardReason.includes('authority_not_current') ||
+      latestGuardReason.includes('response_authority') ||
+      latestHudGuardText.includes('stale authority') ||
+      latestHudGuardText.includes('stale_authority') ||
+      latestHudGuardText.includes('authority not current') ||
+      latestHudGuardText.includes('response authority');
+    const assembledEvidenceFreshAndSafe =
+      requestCaptureVoiceDetected &&
+      !asrSilenceActive &&
+      transcriptResponseAgeMs <= ASR_COMMIT_FRESH_RESPONSE_MAX_AGE_MS &&
+      transcriptAudioAgeMs <= ASR_COMMIT_FRESH_AUDIO_MAX_AGE_MS;
     const suspectReanchorDiscontinuity =
       liveAsrSessionActive &&
       isFinal &&
@@ -38431,6 +38479,31 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       rawAssembledLocalityDiverged &&
       !assembledNeighborhoodHasContinuingRawSupport &&
       !rawAndAssembledEquivalent;
+    const reanchorRawDivergenceVetoProvenanceOk =
+      targetSupportProvenance === 'direct_raw_support' ||
+      targetSupportProvenance === 'voice_backed_multi_request_support';
+    const assembledContinuingForwardSupportSafe =
+      lineageSeqsForForward.length > 0 &&
+      !missingRequestEvidence &&
+      sourceRequestSeqs.length > 0 &&
+      sourceRequestSeqs.some((seq) => lineageSeqsForForward.includes(seq));
+    const transcriptAuthorityCurrent =
+      transcriptAuthorityEpoch == null ||
+      transcriptAuthorityEpoch === commitAuthorityEpoch;
+    const vetoRawDivergenceReanchorAdmission =
+      suspectReanchorDiscontinuity &&
+      assembledCurrentOrBoundedForwardLocal &&
+      assembledEvidenceFreshAndSafe &&
+      reanchorRawDivergenceVetoProvenanceOk &&
+      transcriptAuthorityCurrent &&
+      !isRunIdentityStale({
+        runKey: transcriptRunKey || undefined,
+        runGeneration: transcriptRunGeneration,
+      }) &&
+      !contradictionOrOffscriptBlocked &&
+      !focusHoldState.active &&
+      !staleAuthorityBlocked &&
+      assembledContinuingForwardSupportSafe;
     if (
       reanchorLandingState &&
       liveAsrSessionActive &&
@@ -38461,19 +38534,27 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       return;
     }
     if (suspectReanchorDiscontinuity && !reanchorPendingState) {
-      enterReanchorPending({
-        now,
-        reason: 'raw_locality_diverged_without_continuing_support',
-        rawMatchIndex,
-        assembledMatchIndex,
-        supportingRequestSeqs: sourceRequestSeqs.length > 0 ? sourceRequestSeqs : lineageSeqsForForward,
-        rawMetaConfidence:
-          Number.isFinite(rawMatchConfidence)
-            ? rawMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim
-            : Number.isFinite(assembledMatchConfidence) && assembledMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim,
-        clue: compacted,
-      });
-      return;
+      if (vetoRawDivergenceReanchorAdmission) {
+        try {
+          console.info(
+            `[ASR_REANCHOR_PENDING_VETOED] reason=raw_locality_diverged_without_continuing_support currentLineIdx=${lastLineIndex} rawMatchIndex=${rawMatchIndex} assembledMatchIndex=${assembledMatchIndex} provenance=${targetSupportProvenance || 'none'} supportingRequestSeqs=${(sourceRequestSeqs.length > 0 ? sourceRequestSeqs : lineageSeqsForForward).join(',') || 'none'} focusHold=${focusHoldState.active ? 1 : 0} clue="${formatLogSnippet(compacted, 80)}"`,
+          );
+        } catch {}
+      } else {
+        enterReanchorPending({
+          now,
+          reason: 'raw_locality_diverged_without_continuing_support',
+          rawMatchIndex,
+          assembledMatchIndex,
+          supportingRequestSeqs: sourceRequestSeqs.length > 0 ? sourceRequestSeqs : lineageSeqsForForward,
+          rawMetaConfidence:
+            Number.isFinite(rawMatchConfidence)
+              ? rawMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim
+              : Number.isFinite(assembledMatchConfidence) && assembledMatchConfidence >= getAsrDriverThresholds().commitFinalMinSim,
+          clue: compacted,
+        });
+        return;
+      }
     }
     if (reanchorPendingState) {
       if (

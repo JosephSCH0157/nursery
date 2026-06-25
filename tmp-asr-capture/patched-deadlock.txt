@@ -1,0 +1,23 @@
+FAIL tests/ui/asr-commit-motion.test.ts (7.019 s)
+  ● ASR live commit motion › documents current harness limitation: 4 -> 7 cue/blank bridge progresses instead of reproducing visual-hold deadlock
+
+    expect(received).toBeGreaterThanOrEqual(expected)
+
+    Expected: >= 5
+    Received:    4
+
+      5289 |
+      5290 |     // In this harness sequence the driver progresses to the semantic bridge target.
+    > 5291 |     expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(5);
+           |                                       ^
+      5292 |
+      5293 |     const lines = warnSpy.mock.calls.map((call) => String(call[0] || ''));
+      5294 |     const hasDeadlockCluster =
+
+      at Object.<anonymous> (tests/ui/asr-commit-motion.test.ts:5291:39)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 144 skipped, 145 total
+Snapshots:   0 total
+Time:        7.898 s, estimated 131 s
+Ran all test suites matching tests/ui/asr-commit-motion.test.ts with tests matching "documents current harness limitation: 4 -> 7 cue/blank bridge progresses instead of reproducing visual-hold deadlock".

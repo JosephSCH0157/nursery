@@ -28,6 +28,54 @@ function bootstrapLiveAsrRuntime(): void {
   window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
 }
 
+function installScriptFixture(
+  lines: string[],
+  options?: {
+    clientHeight?: number;
+    scrollHeight?: number;
+    lineTopStep?: number;
+    lineHeight?: number;
+    topOverrides?: Record<number, number>;
+  },
+): HTMLElement {
+  const clientHeight = options?.clientHeight ?? 669;
+  const scrollHeight = options?.scrollHeight ?? 6000;
+  const lineTopStep = options?.lineTopStep ?? 567;
+  const lineHeight = options?.lineHeight ?? 236;
+  document.body.innerHTML = `
+    <main id="viewer" class="viewer" style="overflow-y:auto">
+      <div id="script">
+        ${lines.map((line, idx) => `<div class="line" data-line="${idx}">${line}</div>`).join('')}
+      </div>
+    </main>
+  `;
+  const scroller = document.getElementById('viewer') as HTMLElement;
+  Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: clientHeight });
+  Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: scrollHeight });
+  Object.defineProperty(scroller, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => ({ top: 0, left: 0, right: 800, bottom: clientHeight, width: 800, height: clientHeight }),
+  });
+  Array.from(document.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+    const top = options?.topOverrides?.[idx] ?? idx * lineTopStep;
+    Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: top });
+    Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: lineHeight });
+    Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: lineHeight });
+    Object.defineProperty(lineEl, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        top,
+        left: 0,
+        right: 800,
+        bottom: top + lineHeight,
+        width: 800,
+        height: lineHeight,
+      }),
+    });
+  });
+  return scroller;
+}
+
 describe('ASR reread recovery', () => {
   let consoleLogSpy: jest.SpyInstance<void, any[]>;
   let consoleWarnSpy: jest.SpyInstance<void, any[]>;
@@ -39,43 +87,16 @@ describe('ASR reread recovery', () => {
     consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     consoleInfoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
     window.history.replaceState({}, '', '/?dev=1');
-    document.body.innerHTML = `
-      <main id="viewer" class="viewer" style="overflow-y:auto">
-        <div id="script">
-          <div class="line" data-line="0">Florida citrus didn't start small.</div>
-          <div class="line" data-line="1">It started with porch crates and side roads.</div>
-          <div class="line" data-line="2">This wasn't betrayal, it was math.</div>
-          <div class="line" data-line="3">Then came the hurricanes.</div>
-          <div class="line" data-line="4">Weather has always been Florida citrus's oldest enemy.</div>
-          <div class="line" data-line="5">The houses kept marching inland anyway.</div>
-          <div class="line" data-line="6">Some growers called it progress.</div>
-          <div class="line" data-line="7">Others called it surrender.</div>
-        </div>
-      </main>
-    `;
-    const scroller = document.getElementById('viewer') as HTMLElement;
-    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 669 });
-    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 6000 });
-    Object.defineProperty(scroller, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({ top: 0, left: 0, right: 800, bottom: 669, width: 800, height: 669 }),
-    });
-    Array.from(document.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
-      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: idx * 567 });
-      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: 236 });
-      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: 236 });
-      Object.defineProperty(lineEl, 'getBoundingClientRect', {
-        configurable: true,
-        value: () => ({
-          top: idx * 567,
-          left: 0,
-          right: 800,
-          bottom: idx * 567 + 236,
-          width: 800,
-          height: 236,
-        }),
-      });
-    });
+    installScriptFixture([
+      "Florida citrus didn't start small.",
+      'It started with porch crates and side roads.',
+      "This wasn't betrayal, it was math.",
+      'Then came the hurricanes.',
+      "Weather has always been Florida citrus's oldest enemy.",
+      'The houses kept marching inland anyway.',
+      'Some growers called it progress.',
+      'Others called it surrender.',
+    ]);
     (window as any).__tpStore = {
       get(key: string) {
         if (key === 'scrollMode') return 'asr';
@@ -273,6 +294,247 @@ describe('ASR reread recovery', () => {
       String(call[0] || '').includes('ASR_REANCHOR_PENDING_CLEARED') &&
       String(call[0] || '').includes('resolved_to_forward_continuity')
     )).toBe(true);
+
+    driver.dispose();
+  });
+
+  test('vetoes false raw-locality reread admission when assembled path stays locally coherent with continuing voice-backed support', async () => {
+    const scroller = installScriptFixture(
+      Array.from({ length: 60 }, (_, idx) => `Script line ${idx}.`),
+      { scrollHeight: 36000, lineTopStep: 120, lineHeight: 48, clientHeight: 720 },
+    );
+    const driver = createDriver();
+    bootstrapLiveAsrRuntime();
+    window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: false } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:audio-chunk', { detail: { ts: Date.now() } }));
+    driver.setLastLineIndex(48);
+    scroller.scrollTop = 5760;
+    const currentSemanticEpoch = driver.__debugGetAuthoritySnapshot().semanticEpoch;
+
+    driver.ingest('garbled stale locality packet', true, {
+      currentIdx: 48,
+      matchId: 'raw-divergence-veto',
+      source: 'openai-whisper-bridge',
+      rawText: 'garbled stale locality packet',
+      assembledText: 'Script line 48. Script line 49.',
+      sourceRequestSeqs: [6001, 6002],
+      supportingRawSeqs: [6001, 6002],
+      forwardSupportRequestSeqs: [6001, 6002],
+      requestCaptureEvidence: [
+        { requestSeq: 6001, verdict: 'voice_detected', rmsDbfs: -18 },
+        { requestSeq: 6002, verdict: 'voice_detected', rmsDbfs: -18 },
+      ],
+      targetSupportProvenance: 'voice_backed_multi_request_support',
+      rawMatch: { bestIdx: 0, bestSim: 0.94, topScores: [{ idx: 0, score: 0.94 }] },
+      rawMatchIndex: 0,
+      assembledMatchIndex: 48,
+      match: { bestIdx: 48, bestSim: 0.95, topScores: [{ idx: 48, score: 0.95 }] },
+      transcriptReceivedAtMs: Date.now(),
+      responseAgeMs: 25,
+      lastSpeechAgeMs: 25,
+      lastAudioChunkAgeMs: 25,
+      transcriptAuthorityEpoch: currentSemanticEpoch,
+      runKey: 'reanchor-veto-run',
+      runGeneration: 1,
+    } as any);
+    await jest.advanceTimersByTimeAsync(80);
+
+    let snapshot = driver.__debugGetAuthoritySnapshot();
+    expect(snapshot.reanchorPending).toBe(false);
+    expect(snapshot.reanchorLanding).toBe(false);
+    expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(48);
+    expect(driver.getLastLineIndex()).toBeLessThanOrEqual(49);
+    expect(consoleWarnSpy.mock.calls.some((call) =>
+      String(call[0] || '').includes('ASR_REANCHOR_PENDING')
+    )).toBe(false);
+    expect(consoleWarnSpy.mock.calls.some((call) =>
+      String(call[0] || '').includes('ASR_REANCHOR_COMMIT')
+    )).toBe(false);
+    expect(consoleInfoSpy.mock.calls.some((call) =>
+      String(call[0] || '').includes('ASR_REANCHOR_PENDING_VETOED')
+    )).toBe(true);
+
+    driver.ingest('Script line 49.', true, {
+      currentIdx: driver.getLastLineIndex(),
+      matchId: 'raw-divergence-veto-progress',
+      source: 'openai-whisper-bridge',
+      rawText: 'Script line 49.',
+      assembledText: 'Script line 49.',
+      rawTextHash: 'local-veto-49',
+      assembledTextHash: 'local-veto-49',
+      sourceRequestSeqs: [6003],
+      supportingRawSeqs: [6003],
+      forwardSupportRequestSeqs: [6003],
+      requestCaptureEvidence: [{ requestSeq: 6003, verdict: 'voice_detected', rmsDbfs: -18 }],
+      targetSupportProvenance: 'direct_raw_support',
+      rawMatch: { bestIdx: 49, bestSim: 0.97, topScores: [{ idx: 49, score: 0.97 }] },
+      rawMatchIndex: 49,
+      assembledMatchIndex: 49,
+      match: { bestIdx: 49, bestSim: 0.97, topScores: [{ idx: 49, score: 0.97 }] },
+      transcriptReceivedAtMs: Date.now(),
+      responseAgeMs: 20,
+      lastSpeechAgeMs: 20,
+      lastAudioChunkAgeMs: 20,
+      runKey: 'reanchor-veto-run',
+      runGeneration: 1,
+    } as any);
+    await jest.advanceTimersByTimeAsync(160);
+
+    snapshot = driver.__debugGetAuthoritySnapshot();
+    expect(driver.getLastLineIndex()).toBe(49);
+    expect(snapshot.reanchorPending).toBe(false);
+    expect(snapshot.reanchorLanding).toBe(false);
+    expect(consoleWarnSpy.mock.calls.some((call) =>
+      String(call[0] || '').includes('ASR_REANCHOR_COMMIT')
+    )).toBe(false);
+
+    driver.dispose();
+  });
+
+  test('preserves genuine reread re-anchor when raw divergence lacks safe continuing local support', async () => {
+    const scroller = installScriptFixture(
+      Array.from({ length: 60 }, (_, idx) => `Script line ${idx}.`),
+      { scrollHeight: 36000, lineTopStep: 120, lineHeight: 48, clientHeight: 720 },
+    );
+    const driver = createDriver();
+    bootstrapLiveAsrRuntime();
+    window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: false } }));
+    window.dispatchEvent(new CustomEvent('tp:asr:audio-chunk', { detail: { ts: Date.now() } }));
+    driver.setLastLineIndex(48);
+    scroller.scrollTop = 5760;
+
+    driver.ingest('Script line 0.', true, {
+      currentIdx: 48,
+      matchId: 'genuine-reread-pending',
+      source: 'openai-whisper-bridge',
+      rawText: 'Script line 0.',
+      assembledText: 'Script line 48. Script line 49.',
+      rawTextHash: 'genuine-reread',
+      assembledTextHash: 'genuine-reread-local',
+      sourceRequestSeqs: [6101],
+      supportingRawSeqs: [6101],
+      requestCaptureEvidence: [{ requestSeq: 6101, verdict: 'voice_detected', rmsDbfs: -18 }],
+      targetSupportProvenance: 'single_request_assembly_only',
+      rawMatch: { bestIdx: 0, bestSim: 0.98, topScores: [{ idx: 0, score: 0.98 }] },
+      rawMatchIndex: 0,
+      assembledMatchIndex: 48,
+      match: { bestIdx: 48, bestSim: 0.95, topScores: [{ idx: 48, score: 0.95 }] },
+      transcriptReceivedAtMs: Date.now(),
+      responseAgeMs: 20,
+      lastSpeechAgeMs: 20,
+      lastAudioChunkAgeMs: 20,
+      runKey: 'genuine-reread-run',
+      runGeneration: 1,
+    } as any);
+    await jest.advanceTimersByTimeAsync(80);
+
+    const snapshot = driver.__debugGetAuthoritySnapshot();
+    expect(snapshot.reanchorPending).toBe(true);
+    expect(snapshot.reanchorCandidateLineIdx).toBe(0);
+    expect(snapshot.reanchorLanding).toBe(false);
+    expect(consoleWarnSpy.mock.calls.some((call) =>
+      String(call[0] || '').includes('ASR_REANCHOR_PENDING')
+    )).toBe(true);
+
+    driver.dispose();
+  });
+
+  test('re-anchor landing settles once at scroll limit when requested target exceeds physical document bottom', async () => {
+    const scroller = installScriptFixture(
+      [
+        "Florida citrus didn't start small.",
+        'It started with porch crates and side roads.',
+        "This wasn't betrayal, it was math.",
+        'Then came the hurricanes.',
+        "Weather has always been Florida citrus's oldest enemy.",
+        'The houses kept marching inland anyway.',
+        'Some growers called it progress.',
+        'Others called it surrender.',
+      ],
+      {
+        clientHeight: 600,
+        scrollHeight: 1800,
+        lineTopStep: 220,
+        lineHeight: 60,
+        topOverrides: {
+          0: 0,
+          1: 220,
+          2: 1750,
+          3: 1970,
+          4: 2190,
+          5: 2410,
+          6: 2630,
+          7: 2850,
+        },
+      },
+    );
+    const driver = createDriver();
+    bootstrapLiveAsrRuntime();
+    driver.setLastLineIndex(5);
+    scroller.scrollTop = 1200;
+
+    driver.ingest('This wasn\'t betrayal, it was math.', true, {
+      currentIdx: 5,
+      matchId: 'bottom-limit-1',
+      source: 'openai-whisper-bridge',
+      rawText: 'This wasn\'t betrayal, it was math.',
+      assembledText: 'The houses kept marching inland anyway. Some growers called it progress.',
+      sourceRequestSeqs: [6201],
+      supportingRawSeqs: [6201],
+      requestCaptureEvidence: [{ requestSeq: 6201, verdict: 'voice_detected', rmsDbfs: -18 }],
+      targetSupportProvenance: 'direct_raw_support',
+      rawMatch: { bestIdx: 2, bestSim: 0.98, topScores: [{ idx: 2, score: 0.98 }] },
+      rawMatchIndex: 2,
+      assembledMatchIndex: 5,
+      match: { bestIdx: 5, bestSim: 0.95, topScores: [{ idx: 5, score: 0.95 }] },
+      transcriptReceivedAtMs: Date.now(),
+      responseAgeMs: 20,
+      lastSpeechAgeMs: 20,
+      lastAudioChunkAgeMs: 20,
+      runKey: 'bottom-limit-run',
+      runGeneration: 1,
+    } as any);
+    await jest.advanceTimersByTimeAsync(60);
+
+    driver.ingest('This wasn\'t betrayal, it was math.', true, {
+      currentIdx: 5,
+      matchId: 'bottom-limit-2',
+      source: 'openai-whisper-bridge',
+      rawText: 'This wasn\'t betrayal, it was math.',
+      assembledText: 'The houses kept marching inland anyway. Some growers called it progress.',
+      sourceRequestSeqs: [6202],
+      supportingRawSeqs: [6202],
+      requestCaptureEvidence: [{ requestSeq: 6202, verdict: 'voice_detected', rmsDbfs: -18 }],
+      targetSupportProvenance: 'direct_raw_support',
+      rawMatch: { bestIdx: 2, bestSim: 0.98, topScores: [{ idx: 2, score: 0.98 }] },
+      rawMatchIndex: 2,
+      assembledMatchIndex: 5,
+      match: { bestIdx: 5, bestSim: 0.95, topScores: [{ idx: 5, score: 0.95 }] },
+      transcriptReceivedAtMs: Date.now(),
+      responseAgeMs: 20,
+      lastSpeechAgeMs: 20,
+      lastAudioChunkAgeMs: 20,
+      runKey: 'bottom-limit-run',
+      runGeneration: 1,
+    } as any);
+    await jest.advanceTimersByTimeAsync(300);
+
+    const maxScrollTop = 1200;
+    const snapshot = driver.__debugGetAuthoritySnapshot();
+    expect(driver.getLastLineIndex()).toBe(2);
+    expect(scroller.scrollTop).toBe(maxScrollTop);
+    expect(snapshot.reanchorLanding).toBe(false);
+    expect(consoleInfoSpy.mock.calls.some((call) =>
+      String(call[0] || '').includes('ASR_REANCHOR_LANDING_SETTLED_AT_SCROLL_LIMIT') &&
+      String(call[0] || '').includes(`clampedTargetScrollTop=${maxScrollTop}`) &&
+      String(call[0] || '').includes('semanticTargetLine=2')
+    )).toBe(true);
+    expect(consoleWarnSpy.mock.calls.some((call) =>
+      String(call[0] || '').includes('ASR_REANCHOR_LANDING_ACTUATOR_FAULT')
+    )).toBe(false);
+    expect(consoleWarnSpy.mock.calls.some((call) =>
+      String(call[0] || '').includes('reason=landing_writer_no_progress')
+    )).toBe(false);
 
     driver.dispose();
   });
