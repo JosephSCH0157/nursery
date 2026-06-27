@@ -392,6 +392,18 @@ type ReanchorLandingState = {
   stuckSinceMs: number;
 };
 
+type OvershootSettleLockState = {
+  targetEpoch: number;
+  semanticEpoch: number;
+  lineIdx: number;
+  targetScrollTop: number;
+  targetTolerancePx: number;
+  currentScrollTop: number;
+  signedErrorPx: number;
+  engagedAtMs: number;
+  sourceAuthority: string;
+};
+
 const DEFAULT_MIN_LINE_ADVANCE = 1;
 const DEFAULT_SEEK_THROTTLE_MS = 120;
 const DEFAULT_INTERIM_SCALE = 1.15;
@@ -418,6 +430,8 @@ const DEFAULT_MAX_VEL_MED_PX_PER_SEC = 170;
 const DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC = 240;
 const DEFAULT_READER_MARKER_VISUAL_SAFE_TARGET_MAX_LEAD_LINES = 3;
 const ASR_READER_MARKER_CORRECTION_LEASE_MAX_AGE_MS = 1800;
+const ASR_OVERSHOOT_SETTLE_LOCK_MAX_NEGATIVE_DEBT_LINES = 0.5;
+const ASR_VISUAL_DEBT_RECOVERY_SAME_EPOCH_MAX_BUDGET_PX = 96;
 const ASR_READER_MARKER_CORRECTION_COMFORT_BAND_MIN_PX = 18;
 const DEFAULT_MAX_ACCEL_PX_PER_SEC2 = 800;
 const DEFAULT_MIN_STEP_PX = 6;
@@ -699,7 +713,15 @@ function evaluateReaderIdleForwardHoldInteraction(
     !input.readerIdleFreshAdjacentProofPending;
   const holdCandidate =
     holdShouldEngage ||
-    (input.readerIdleForwardHoldActive && !input.readerIdleReleaseReady && targetAhead);
+    (
+      input.readerIdleForwardHoldActive &&
+      !input.readerIdleReleaseReady &&
+      targetAhead &&
+      !input.speechFresh &&
+      !transcriptFresh &&
+      !input.readerIdleCurrentGenerationFinalPending &&
+      !input.readerIdleFreshAdjacentProofPending
+    );
   let holdApplied = false;
   let effectiveTargetScrollTop = rawTargetScrollTop;
   let targetCollapseReason: string | null = null;
@@ -4777,7 +4799,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     emitDevDiagnostic(
       'ASR_VISUAL_TARGET_OVERSHOOT_DETECTED',
-      'info',
+      'warn',
       buildAsrVisualTargetOvershootDetectedDiagnostic({
         authority: input.authority,
         currentLineIdx: input.currentLineIdx,
@@ -4890,6 +4912,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ].join('|'),
       },
     );
+    if (actualPullbackPx > 0) {
+      armOvershootSettleLock({
+        lineIdx: input.nextSpeakableLineIdx,
+        targetScrollTop,
+        currentScrollTop: afterTop,
+        signedErrorPx: afterTop - targetScrollTop,
+        targetTolerancePx: Math.max(tolerancePx, input.lineHeightPx * ASR_OVERSHOOT_SETTLE_LOCK_MAX_NEGATIVE_DEBT_LINES),
+        sourceAuthority: input.authority,
+      });
+    }
     return {
       applied: actualPullbackPx > 0,
       blocked: false,
@@ -8402,11 +8434,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastAsrVisualErrorPx = Number.NaN;
   let lastAsrHoldTolerancePx = Number.NaN;
   let lastAsrMarkerY = Number.NaN;
+  let lastAsrMarkerCenteredHoldTop = Number.NaN;
+  let lastAsrMarkerCenteredHoldBottom = Number.NaN;
   let lastAsrPreferredBandTop = Number.NaN;
   let lastAsrPreferredSettleBottom = Number.NaN;
   let lastAsrPreferredBandBottom = Number.NaN;
   let lastAsrToleratedBandBottom = Number.NaN;
   let lastAsrNextSpeakableLineY = Number.NaN;
+  let lastAsrNormalMarkerFollowOwnsTarget = false;
+  let lastAsrLowerPocketAcceptanceIgnored = false;
   let lastAsrVisualAnchorSource = 'none';
   let lastAsrVisualAnchorLineIdx = -1;
   let lastAsrCurrentLineViewportY = Number.NaN;
@@ -8624,6 +8660,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastTranscriptSpeechActive = false;
   let commitAuthorityEpoch = 1;
   let semanticEpoch = 1;
+  let visualTargetEpoch = 1;
   let lastCommitAuthorityInvalidatedAt = 0;
   let lastCommitAuthorityInvalidationReason = '';
   let firstTranscriptPacketLogged = false;
@@ -8727,6 +8764,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let activeAsrVisualRecoveryEpisode: AsrRecoveryEpisode | null = null;
   let reanchorPendingState: ReanchorPendingState | null = null;
   let reanchorLandingState: ReanchorLandingState | null = null;
+  let overshootSettleLockState: OvershootSettleLockState | null = null;
+  let visualDebtRecoveryBudgetEpoch = visualTargetEpoch;
+  let visualDebtRecoveryBudgetUsedPx = 0;
+  let safeForwardResidualTargetEpoch = visualTargetEpoch;
+  let safeForwardResidualTargetScrollTop = Number.NaN;
+  let safeForwardResidualDebtPx = 0;
   let readerMarkerCorrectionHysteresisActive = false;
   let readerMarkerCorrectionHysteresisEpoch = semanticEpoch;
   let lastAsrMarkerCorrectionHoldBandPx = Number.NaN;
@@ -8772,6 +8815,267 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const clearStallRecoveryOverrideHint = () => {
     lastStallRecoveryOverrideHintAt = 0;
     lastStallRecoveryOverrideHintTarget = -1;
+  };
+  const resetVisualDebtRecoveryBudget = (nextEpoch = visualTargetEpoch) => {
+    visualDebtRecoveryBudgetEpoch = nextEpoch;
+    visualDebtRecoveryBudgetUsedPx = 0;
+  };
+  const resetSafeForwardResidualDebt = (nextEpoch = visualTargetEpoch) => {
+    safeForwardResidualTargetEpoch = nextEpoch;
+    safeForwardResidualTargetScrollTop = Number.NaN;
+    safeForwardResidualDebtPx = 0;
+  };
+  const isSafeForwardPolicyReason = (reason: string | null | undefined): boolean => {
+    switch (String(reason || 'none')) {
+      case 'target_preserved_but_not_closing':
+      case 'min_step_floor':
+      case 'below_min_delta':
+      case 'actuator_rate_limited':
+      case 'reader_idle_forward_hold':
+      case 'reader_idle_forward_hold_settle_cap':
+      case 'standard_visual_release_suppressed':
+      case 'same_epoch_visual_debt_budget_exhausted':
+        return true;
+      default:
+        return false;
+    }
+  };
+  const normalizeSafeForwardRealBlockerReason = (reason: string | null | undefined): string => {
+    switch (String(reason || 'none')) {
+      case 'focus_hold':
+      case 'focus_hold_active':
+      case 'focus_loss':
+        return 'focus_hold';
+      case 'visibility_hold':
+      case 'document_hidden':
+      case 'visibility_hidden':
+        return 'visibility_hold';
+      case 'stale_run_identity':
+        return 'stale_run_identity';
+      case 'stale_response_authority':
+      case 'stale_authority':
+        return 'stale_response_authority';
+      case 'response_stale':
+      case 'audio_chunk_stale':
+      case 'transcript_stale':
+        return 'response_stale';
+      case 'offscript_or_nomatch':
+        return 'offscript_or_nomatch';
+      case 'contradiction':
+      case 'hard_contradiction':
+      case 'contradiction_blocked':
+        return 'contradiction';
+      case 'terminal_clamp':
+      case 'scroll_limit':
+        return 'scroll_limit';
+      case 'unsafe_target':
+      case 'unsafe_reason_not_none':
+        return 'unsafe_target';
+      case 'same_target_overshoot_settle_lock':
+        return 'same_target_overshoot_settle_lock';
+      case 'target_behind_current':
+        return 'target_behind_current';
+      case 'hard_blocker_active':
+      case 'hard_blocker':
+      case 'unknown_hard_blocker':
+        return 'hard_blocker_active';
+      default:
+        return 'none';
+    }
+  };
+  const isSafeForwardRealBlocker = (reason: string | null | undefined): boolean => {
+    return normalizeSafeForwardRealBlockerReason(reason) !== 'none';
+  };
+  const resolveSafeForwardRealBlockerReason = (reasons: Array<string | null | undefined>): string => {
+    for (const reason of reasons) {
+      const normalized = normalizeSafeForwardRealBlockerReason(reason);
+      if (normalized !== 'none') return normalized;
+    }
+    return 'none';
+  };
+  const emitSafeMicroFollowDecision = (args: {
+    selectedAuthority: string;
+    targetEpoch: number;
+    semanticEpoch: number;
+    currentScrollTop: number;
+    effectiveTargetScrollTop: number;
+    signedDebtPx: number;
+    sourceBlocker: string;
+    decision: 'advance' | 'hold' | 'denied';
+    actualStepPx: number;
+    residualPx: number;
+    overshootLockActive: boolean;
+  }) => {
+    emitDevDiagnostic(
+      'ASR_SAFE_MICRO_FOLLOW_DECISION',
+      'warn',
+      `[ASR_SAFE_MICRO_FOLLOW_DECISION] selectedAuthority=${args.selectedAuthority} targetEpoch=${args.targetEpoch} semanticEpoch=${args.semanticEpoch} currentScrollTop=${Math.round(args.currentScrollTop)} effectiveTargetScrollTop=${Math.round(args.effectiveTargetScrollTop)} signedDebtPx=${Math.round(args.signedDebtPx)} sourceBlocker=${args.sourceBlocker} decision=${args.decision} actualStepPx=${Math.round(args.actualStepPx)} residualPx=${Math.round(args.residualPx)} overshootLockActive=${args.overshootLockActive ? 1 : 0}`,
+      {
+        minMs: 120,
+        signature: [
+          args.selectedAuthority,
+          args.targetEpoch,
+          Math.round(args.currentScrollTop / 12),
+          Math.round(args.effectiveTargetScrollTop / 12),
+          args.sourceBlocker,
+          args.decision,
+          Math.round(args.actualStepPx / 6),
+          Math.round(args.residualPx / 6),
+          args.overshootLockActive ? 1 : 0,
+        ].join('|'),
+      },
+    );
+  };
+  const applySafeForwardResidualPacing = (args: {
+    currentScrollTop: number;
+    targetScrollTop: number;
+    requestedDeltaPx: number;
+    requestedPxps: number;
+    move: number;
+    dt: number;
+    clampReason: string;
+    selectedAuthority: string;
+    policySource: string;
+    realBlockerReason: string;
+    sameEpochOrFreshAdvance: boolean;
+    overshootLockActive: boolean;
+    holdBandPx: number;
+    boundedStepPx: number;
+    actuatorEligible: boolean;
+  }) => {
+    const holdBandPx = Math.max(0, Number(args.holdBandPx) || 0);
+    const boundedStepPx = Math.max(1, Math.round(Number(args.boundedStepPx) || 0));
+    const safeForwardTargetDebtPx = Math.max(0, Number(args.targetScrollTop) - Number(args.currentScrollTop));
+    const eligible =
+      Number.isFinite(args.targetScrollTop) &&
+      args.sameEpochOrFreshAdvance &&
+      args.realBlockerReason === 'none';
+    const targetOutsideHoldBand = safeForwardTargetDebtPx > holdBandPx;
+    if (
+      safeForwardResidualTargetEpoch !== visualTargetEpoch ||
+      !eligible ||
+      !Number.isFinite(args.targetScrollTop) ||
+      !targetOutsideHoldBand
+    ) {
+      resetSafeForwardResidualDebt(visualTargetEpoch);
+    }
+    let requestedDeltaPx = Number(args.requestedDeltaPx || 0);
+    let requestedPxps = Number(args.requestedPxps || 0);
+    let move = Number(args.move || 0);
+    let clampReason = String(args.clampReason || 'none');
+    let decision: 'advance' | 'hold' | 'denied' =
+      eligible && targetOutsideHoldBand
+        ? 'hold'
+        : (args.realBlockerReason === 'none' ? 'hold' : 'denied');
+    const residualPending = safeForwardResidualDebtPx > holdBandPx;
+    if (eligible && targetOutsideHoldBand && (args.policySource !== 'none' || residualPending)) {
+      safeForwardResidualTargetEpoch = visualTargetEpoch;
+      safeForwardResidualTargetScrollTop = Number(args.targetScrollTop);
+      safeForwardResidualDebtPx = Math.max(safeForwardResidualDebtPx, safeForwardTargetDebtPx);
+      if (args.actuatorEligible && move <= holdBandPx && safeForwardResidualDebtPx > holdBandPx) {
+        const boundedResidualStepPx = Math.min(
+          safeForwardTargetDebtPx,
+          Math.max(boundedStepPx, Math.min(safeForwardResidualDebtPx, boundedStepPx)),
+        );
+        move = Math.max(move, boundedResidualStepPx);
+        requestedDeltaPx = Math.max(requestedDeltaPx, boundedResidualStepPx);
+        requestedPxps = Math.max(requestedPxps, boundedResidualStepPx / Math.max(args.dt, 0.001));
+        if (clampReason === 'none') clampReason = 'safe_forward_residual';
+        decision = 'advance';
+      } else {
+        decision = 'hold';
+      }
+    }
+    return {
+      eligible,
+      safeForwardTargetDebtPx,
+      requestedDeltaPx,
+      requestedPxps,
+      move,
+      clampReason,
+      residualPx: safeForwardResidualDebtPx,
+      decision,
+    };
+  };
+  const getSameEpochVisualDebtRecoveryBudgetPx = (lineHeightPx: number) =>
+    Math.max(
+      ASR_VISUAL_RECENTER_PULLBACK_MIN_PX,
+      Math.min(
+        ASR_VISUAL_DEBT_RECOVERY_SAME_EPOCH_MAX_BUDGET_PX,
+        Math.round(Math.max(1, lineHeightPx) * ASR_OVERSHOOT_SETTLE_LOCK_MAX_NEGATIVE_DEBT_LINES),
+      ),
+    );
+  const emitOvershootSettleLockDiagnostic = (reason: string, lock: OvershootSettleLockState | null, currentScrollTop: number) => {
+    if (!lock) return;
+    emitDevDiagnostic(
+      'ASR_VISUAL_OVERSHOOT_SETTLE_LOCK',
+      'warn',
+      `[ASR_VISUAL_OVERSHOOT_SETTLE_LOCK] targetEpoch=${lock.targetEpoch} semanticEpoch=${lock.semanticEpoch} lineIdx=${lock.lineIdx} targetScrollTop=${Math.round(lock.targetScrollTop)} currentScrollTop=${Math.round(currentScrollTop)} signedErrorPx=${Math.round(lock.signedErrorPx)} sourceAuthority=${lock.sourceAuthority} reason=${reason}`,
+      {
+        minMs: 0,
+        signature: [
+          lock.targetEpoch,
+          lock.lineIdx,
+          Math.round(lock.targetScrollTop / 12),
+          reason,
+        ].join('|'),
+      },
+    );
+  };
+  const clearOvershootSettleLock = (reason: string, currentScrollTop?: number) => {
+    if (!overshootSettleLockState) return;
+    emitOvershootSettleLockDiagnostic(
+      `released:${reason}`,
+      overshootSettleLockState,
+      Number.isFinite(currentScrollTop as number)
+        ? Number(currentScrollTop)
+        : overshootSettleLockState.currentScrollTop,
+    );
+    overshootSettleLockState = null;
+  };
+  const armOvershootSettleLock = (args: {
+    lineIdx: number;
+    targetScrollTop: number;
+    currentScrollTop: number;
+    signedErrorPx: number;
+    targetTolerancePx: number;
+    sourceAuthority: string;
+  }) => {
+    overshootSettleLockState = {
+      targetEpoch: visualTargetEpoch,
+      semanticEpoch,
+      lineIdx: Math.max(0, Math.floor(args.lineIdx)),
+      targetScrollTop: Number(args.targetScrollTop),
+      targetTolerancePx: Math.max(1, Number(args.targetTolerancePx)),
+      currentScrollTop: Number(args.currentScrollTop),
+      signedErrorPx: Number(args.signedErrorPx),
+      engagedAtMs: Date.now(),
+      sourceAuthority: String(args.sourceAuthority || 'unknown'),
+    };
+    emitOvershootSettleLockDiagnostic('engaged', overshootSettleLockState, args.currentScrollTop);
+  };
+  const resolveOvershootSettleLock = (args: {
+    lineIdx: number;
+    targetScrollTop: number;
+  }): OvershootSettleLockState | null => {
+    const lock = overshootSettleLockState;
+    if (!lock) return null;
+    if (lock.targetEpoch !== visualTargetEpoch) {
+      clearOvershootSettleLock('target_epoch_advanced');
+      return null;
+    }
+    if (Math.max(0, Math.floor(args.lineIdx)) !== lock.lineIdx) {
+      return null;
+    }
+    if (!Number.isFinite(args.targetScrollTop)) {
+      clearOvershootSettleLock('target_invalidated');
+      return null;
+    }
+    const targetDeltaPx = Math.abs(Number(args.targetScrollTop) - lock.targetScrollTop);
+    if (targetDeltaPx > Math.max(lock.targetTolerancePx, ASR_POCKET_WALL_NOISE_DELTA_PX)) {
+      return null;
+    }
+    return lock;
   };
   const getAsrChairpersonFlagState = () => resolveAsrChairpersonFlagState();
   const isAsrVisualChairpersonShadowEnabled = (): boolean => getAsrChairpersonFlagState().resolvedShadowEnabled;
@@ -11875,6 +12179,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       lineMissingRetryLine = null;
       lineMissingRetryCount = 0;
+    }
+    if (next !== prev) {
+      visualTargetEpoch += 1;
+      resetVisualDebtRecoveryBudget(visualTargetEpoch);
+      resetSafeForwardResidualDebt(visualTargetEpoch);
+      clearOvershootSettleLock('target_epoch_advanced');
     }
     try { (window as any).currentIndex = next; } catch {}
     publishSharedCursor(next, reason);
@@ -21186,6 +21496,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const desiredLineY = markerY + desiredReadAheadPx;
       const tolerancePx = Math.max(1, ASR_VISUAL_MARKER_ERROR_TOLERANCE_LINES * measuredLineHeightPx);
       const holdTolerancePx = Math.max(1, Math.min(tolerancePx, 0.20 * measuredLineHeightPx, 12));
+      const markerCenteredHoldTop = desiredLineY - holdTolerancePx;
+      const markerCenteredHoldBottom = desiredLineY + holdTolerancePx;
+      const normalMarkerFollowOwnsTarget =
+        ordinaryLiveMarkerLandingActive &&
+        (visualAnchorSource === 'accepted_match' || visualAnchorSource === 'confirmed_spoken');
       const visualErrorPx = Number.isFinite(visualAnchorLineY) ? (visualAnchorLineY - desiredLineY) : Number.NaN;
       const visualErrorAbsPx = Number.isFinite(visualErrorPx) ? Math.abs(visualErrorPx) : Number.NaN;
       const visualErrorWithinTolerance =
@@ -21194,6 +21509,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const visualErrorWithinHoldTolerance =
         Number.isFinite(visualErrorAbsPx) &&
         visualErrorAbsPx <= holdTolerancePx;
+      const lowerPocketAcceptanceIgnored =
+        normalMarkerFollowOwnsTarget &&
+        !visualErrorWithinHoldTolerance;
       const holdSafeBottomY = desiredLineY + Math.min(tolerancePx, 0.35 * measuredLineHeightPx);
       const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
       let markerErrorTargetTop =
@@ -21514,7 +21832,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           emitDevDiagnostic(
             'ASR_CURRENT_POCKET_AUTHORITY',
             'warn',
-            `[ASR_CURRENT_POCKET_AUTHORITY] markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} visualAnchorLineIdx=${visualAnchorLineIdx} visualAnchorLineY=${Math.round(visualAnchorLineY)} visualAnchorSource=${visualAnchorSource} desiredLineYMode=${desiredLineYMode} preferredBandTop=${Math.round(preferredBandTop)} preferredSettleBottom=${Math.round(preferredSettleBottom)} preferredBandBottom=${Math.round(preferredBandBottom)} currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(desiredTopFromCurrent)} pocketZone=${liveTickAuthorityPocketZone} action=${authorityAction} reason=${authorityReason} desiredLineY=${Math.round(desiredLineY)} visualErrorPx=${Math.round(visualErrorPx)} tolerancePx=${Math.round(tolerancePx)}`,
+            `[ASR_CURRENT_POCKET_AUTHORITY] markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} visualAnchorLineIdx=${visualAnchorLineIdx} visualAnchorLineY=${Math.round(visualAnchorLineY)} visualAnchorSource=${visualAnchorSource} desiredLineYMode=${desiredLineYMode} markerHoldTop=${Math.round(markerCenteredHoldTop)} markerHoldBottom=${Math.round(markerCenteredHoldBottom)} preferredBandTop=${Math.round(preferredBandTop)} preferredSettleBottom=${Math.round(preferredSettleBottom)} preferredBandBottom=${Math.round(preferredBandBottom)} lowerPocketIgnored=${lowerPocketAcceptanceIgnored ? 1 : 0} currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(desiredTopFromCurrent)} pocketZone=${liveTickAuthorityPocketZone} action=${authorityAction} reason=${authorityReason} desiredLineY=${Math.round(desiredLineY)} visualErrorPx=${Math.round(visualErrorPx)} tolerancePx=${Math.round(tolerancePx)}`,
             {
               minMs: 500,
               signature: [
@@ -21549,10 +21867,38 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         }
       }
+      const overshootSettleLock = resolveOvershootSettleLock({
+        lineIdx: nextSpeakableLineIdx,
+        targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : Number.NaN,
+      });
+      const overshootSettleNegativeDebtPx =
+        overshootSettleLock && Number.isFinite(Number(pursuitTargetTop))
+          ? Number(pursuitTargetTop) - current
+          : Number.NaN;
+      const overshootSettleSameTargetActive = !!overshootSettleLock;
+      const overshootSettleHoldActive =
+        overshootSettleSameTargetActive &&
+        Number.isFinite(overshootSettleNegativeDebtPx) &&
+        overshootSettleNegativeDebtPx <= 0 &&
+        Math.abs(overshootSettleNegativeDebtPx) <= Math.max(
+          tolerancePx,
+          overshootSettleLock.targetTolerancePx,
+        );
+      const lowerPocketRecoveryContextActive =
+        !normalMarkerFollowOwnsTarget ||
+        overshootSettleSameTargetActive ||
+        pocketAuthorityTerminalClampActive ||
+        activeRecoveryKindForCoordination !== 'none' ||
+        acceptedAnchorHoldOrRecoveryContextActive;
+      if (overshootSettleHoldActive && visualErrorWithinHoldTolerance && insidePreferredSettleZone) {
+        clearOvershootSettleLock('settled_within_hold_band', current);
+      }
       if (liveAsrPreferredLowerRailReleaseActive && insidePreferredSettleZone) {
         liveAsrPreferredLowerRailReleaseActive = false;
       }
       const bottomLockedNow =
+        lowerPocketRecoveryContextActive &&
+        !overshootSettleSameTargetActive &&
         !bridgeHoldContextActive &&
         Number.isFinite(nextLineY) &&
         nextLineY > preferredBandBottom &&
@@ -21607,6 +21953,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lastBottomLockReleaseProofSignature = '';
       }
       if (
+        lowerPocketRecoveryContextActive &&
+        !overshootSettleSameTargetActive &&
         !bottomLockReleaseActive &&
         !bridgeHoldContextActive &&
         insidePreferredLowerRail
@@ -21630,7 +21978,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
-      if (!bottomLockReleaseActive && !visualGovernorHoldActive && (nextTooLow || (insideTolerated && !insidePreferred && Number.isFinite(nextLineY) && nextLineY > preferredBandBottom))) {
+      if (lowerPocketRecoveryContextActive && !overshootSettleSameTargetActive && !bottomLockReleaseActive && !visualGovernorHoldActive && (nextTooLow || (insideTolerated && !insidePreferred && Number.isFinite(nextLineY) && nextLineY > preferredBandBottom))) {
         noteLiveTickSpecificAuthority('comfort_nudge');
         if (!bottomLockReleaseActive && !preferredLowerRailReleaseActive) {
           liveTickSelectedAuthority = 'comfort_nudge';
@@ -21675,10 +22023,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const comfortHoldEligible =
         correctionHoldCandidate &&
         visualErrorWithinHoldTolerance &&
-        insidePreferredSettleZone &&
-        !sinkingLowerEdgePressure;
+        (normalMarkerFollowOwnsTarget || insidePreferredSettleZone) &&
+        !(normalMarkerFollowOwnsTarget ? false : sinkingLowerEdgePressure);
       const lowerRailHoldRejected =
         correctionHoldCandidate &&
+        lowerPocketRecoveryContextActive &&
+        !overshootSettleSameTargetActive &&
         (
           liveTickReaderPocketZone === 'bottom' ||
           insidePreferredLowerRail ||
@@ -21736,6 +22086,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       const holdBandRejected =
         correctionHoldCandidate &&
+        !overshootSettleSameTargetActive &&
         !lowerRailHoldRejected &&
         !visualErrorWithinHoldTolerance;
       if (holdBandRejected) {
@@ -21933,11 +22284,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       if (Number.isFinite(nextLineY)) {
         const markerCorrectionAction: 'pursue' | 'nudge' | 'hold' =
+          overshootSettleHoldActive
+            ? 'hold'
+            :
           comfortNudgeActive
             ? 'nudge'
             : (((visualErrorWithinTolerance && !holdBandRejected && !lowerRailHoldRejected) || nextTooHigh) ? 'hold' : 'pursue');
         let markerCorrectionReason = 'marker_error_within_tolerance';
-        if (comfortNudgeActive) {
+        if (overshootSettleHoldActive) {
+          markerCorrectionReason = 'overshoot_settle_lock';
+          if (liveTickSelectedAuthority !== 'hold') {
+            liveTickSelectedAuthority = 'hold';
+            liveTickAuthorityReason = markerCorrectionReason;
+          }
+          pursuitTargetTop = current;
+          pursuitVel = 0;
+          liveAsrVisualPursuitLineIdx = nextSpeakableLineIdx;
+          err = 0;
+        } else if (comfortNudgeActive) {
           markerCorrectionReason = bottomLockReleaseActive
             ? `nudge:${bottomLockReleaseReason || 'bottom_lock_release'}`
             : (preferredLowerRailReleaseActive
@@ -21981,11 +22345,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lastAsrVisualErrorPx = Number.isFinite(visualErrorPx) ? Number(visualErrorPx) : Number.NaN;
         lastAsrHoldTolerancePx = Number.isFinite(holdTolerancePx) ? Number(holdTolerancePx) : Number.NaN;
         lastAsrMarkerY = Number.isFinite(markerY) ? Number(markerY) : Number.NaN;
+        lastAsrMarkerCenteredHoldTop = Number.isFinite(markerCenteredHoldTop) ? Number(markerCenteredHoldTop) : Number.NaN;
+        lastAsrMarkerCenteredHoldBottom = Number.isFinite(markerCenteredHoldBottom) ? Number(markerCenteredHoldBottom) : Number.NaN;
         lastAsrPreferredBandTop = Number.isFinite(preferredBandTop) ? Number(preferredBandTop) : Number.NaN;
         lastAsrPreferredSettleBottom = Number.isFinite(preferredSettleBottom) ? Number(preferredSettleBottom) : Number.NaN;
         lastAsrPreferredBandBottom = Number.isFinite(preferredBandBottom) ? Number(preferredBandBottom) : Number.NaN;
         lastAsrToleratedBandBottom = Number.isFinite(toleratedBandBottom) ? Number(toleratedBandBottom) : Number.NaN;
         lastAsrNextSpeakableLineY = Number.isFinite(nextLineY) ? Number(nextLineY) : Number.NaN;
+        lastAsrNormalMarkerFollowOwnsTarget = normalMarkerFollowOwnsTarget;
+        lastAsrLowerPocketAcceptanceIgnored = lowerPocketAcceptanceIgnored;
         lastAsrVisualAnchorSource = String(visualAnchorSource || 'none');
         lastAsrVisualAnchorLineIdx = Number.isFinite(visualAnchorLineIdx) ? Number(visualAnchorLineIdx) : -1;
         lastAsrCurrentLineViewportY = Number.isFinite(currentVisual.lineCenterInViewport)
@@ -24032,6 +24400,59 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
     }
     if (liveAsrFollowMode && visualChairpersonOwnershipEnabled && chairDecisionOutput) {
+      const chairNextSpeakableLineIdx =
+        Number.isFinite(liveAsrVisualPursuitLineIdx as number)
+          ? Math.max(0, Math.floor(Number(liveAsrVisualPursuitLineIdx)))
+          : lastLineIndex;
+      const chairOvershootSettleLock = resolveOvershootSettleLock({
+        lineIdx: chairNextSpeakableLineIdx,
+        targetScrollTop: legacyChairSelectedTargetScrollTop,
+      });
+      const chairFocusHoldState = getAsrFocusHoldState(visualFollowNowMs);
+      const chairFocusBlocked =
+        isAsrLiveMovementSession() &&
+        chairFocusHoldState.active;
+      const chairPolicySource =
+        isSafeForwardPolicyReason(String(chairDecisionOutput.decision.reason || 'none'))
+          ? String(chairDecisionOutput.decision.reason || 'none')
+          : (
+            isSafeForwardPolicyReason(String(lastDebugTargetCollapseReason || 'none'))
+              ? String(lastDebugTargetCollapseReason || 'none')
+              : (
+                isSafeForwardPolicyReason(String(lastAsrPocketWallReason || 'none'))
+                  ? String(lastAsrPocketWallReason || 'none')
+                  : 'none'
+              )
+          );
+      const chairVisibilityBlocked = String(getDocumentVisibilityState() || 'visible').toLowerCase() !== 'visible';
+      const chairRealBlocker = resolveSafeForwardRealBlockerReason([
+        chairFocusBlocked ? 'focus_hold' : null,
+        chairVisibilityBlocked ? 'visibility_hold' : null,
+        String(chairDecisionOutput.decision.reason || 'none'),
+        !effectiveResolvedTargetSafety.effectiveTargetSafe
+          ? String(effectiveResolvedTargetSafety.effectiveTargetSafeBlockedReason || 'unsafe_target')
+          : null,
+        actuatorNoMatchOrOffscript ? 'offscript_or_nomatch' : null,
+        hardContradictionActive ? 'contradiction' : null,
+        atScrollLimit ? 'scroll_limit' : null,
+        chairOvershootSettleLock ? 'same_target_overshoot_settle_lock' : null,
+      ]);
+      const safeForwardChairOverrideEligible =
+        String(chairDecisionOutput.decision.authority || 'hold') === 'hold' &&
+        Number.isFinite(legacyChairSelectedTargetScrollTop) &&
+        legacyChairSelectedTargetScrollTop > beforeScrollTop + ASR_POCKET_WALL_NOISE_DELTA_PX &&
+        effectiveResolvedTargetSafety.effectiveTargetSafe &&
+        chairRealBlocker === 'none' &&
+        chairPolicySource !== 'none';
+      if (safeForwardChairOverrideEligible) {
+        pursuitTargetTop = legacyChairSelectedTargetScrollTop;
+        liveAsrActuatorReason = legacyChairSelectedReason;
+        lastAsrSelectedAuthority = legacyChairSelectedAuthority;
+        liveTickSelectedAuthority = legacyChairSelectedAuthority;
+        liveTickAuthorityReason = legacyChairSelectedReason;
+      }
+    }
+    if (liveAsrFollowMode && visualChairpersonOwnershipEnabled && chairDecisionOutput) {
       liveTickVisualOwnershipCandidates.push({
         authority: String(chairDecisionOutput.decision.authority || 'chairperson_ownership'),
         targetScrollTop: Number.isFinite(chairDecisionOutput.decision.targetScrollTop as number)
@@ -24088,6 +24509,42 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         preservedAsrAuthorityTargetReason = liveTickAuthorityReason;
         preservedAsrAuthorityTargetSourcePath = liveTickSelectedAuthority;
         resetPreservedForwardTargetStallState();
+      }
+      const ownershipOvershootSettleLock = resolveOvershootSettleLock({
+        lineIdx: liveAsrVisualPursuitLineIdx ?? lastLineIndex,
+        targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : Number.NaN,
+      });
+      const sameEpochRecoveryWithoutFreshAdvance =
+        liveTickSelectedAuthority === 'recover_visual_debt' &&
+        liveAsrVisualPursuitLineIdx === lastLineIndex &&
+        liveAsrCommitteeAcceptedCommitTargetIdx === lastLineIndex;
+      if (sameEpochRecoveryWithoutFreshAdvance) {
+        if (visualDebtRecoveryBudgetEpoch !== visualTargetEpoch) {
+          resetVisualDebtRecoveryBudget(visualTargetEpoch);
+        }
+        const recoveryBudgetPx = getSameEpochVisualDebtRecoveryBudgetPx(safeResolverLineHeightPx);
+        const recoveryBudgetRemainingPx = Math.max(0, recoveryBudgetPx - visualDebtRecoveryBudgetUsedPx);
+        const boundedForwardTargetTop = clamp(
+          beforeScrollTop + recoveryBudgetRemainingPx,
+          beforeScrollTop,
+          maxScrollTop,
+        );
+        if (ownershipOvershootSettleLock) {
+          pursuitTargetTop = Math.min(
+            Number(pursuitTargetTop),
+            ownershipOvershootSettleLock.targetScrollTop,
+            boundedForwardTargetTop,
+          );
+        } else {
+          pursuitTargetTop = Math.min(Number(pursuitTargetTop), boundedForwardTargetTop);
+        }
+        if (pursuitTargetTop <= beforeScrollTop + ASR_POCKET_WALL_NOISE_DELTA_PX) {
+          pursuitTargetTop = beforeScrollTop;
+          liveTickSelectedAuthority = 'hold';
+          liveTickAuthorityReason = 'same_epoch_visual_debt_budget_exhausted';
+        }
+      } else if (visualDebtRecoveryBudgetEpoch !== visualTargetEpoch) {
+        resetVisualDebtRecoveryBudget(visualTargetEpoch);
       }
     }
     const staleForwardPushCoordination = evaluateStaleVisualDebtCoordination({
@@ -24200,6 +24657,40 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         : -1;
     const targetScrollTopForActuator =
       Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : Number.NaN;
+    const sameTargetOvershootSettleLockForActuator = resolveOvershootSettleLock({
+      lineIdx: nextSpeakableLineIdxForActuator,
+      targetScrollTop: targetScrollTopForActuator,
+    });
+    const safeForwardPolicySource =
+      isSafeForwardPolicyReason(String(liveAsrActuatorReason || 'none'))
+        ? String(liveAsrActuatorReason || 'none')
+        : (
+          isSafeForwardPolicyReason(String(liveTickAuthorityReason || 'none'))
+            ? String(liveTickAuthorityReason || 'none')
+            : (
+              isSafeForwardPolicyReason(String(lastDebugTargetCollapseReason || 'none'))
+                ? String(lastDebugTargetCollapseReason || 'none')
+                : (
+                  isSafeForwardPolicyReason(String(lastAsrPocketWallReason || 'none'))
+                    ? String(lastAsrPocketWallReason || 'none')
+                    : (
+                      isSafeForwardPolicyReason(String(lastAsrRecoveryPathBlockReason || 'none'))
+                        ? String(lastAsrRecoveryPathBlockReason || 'none')
+                        : 'none'
+                    )
+                )
+            )
+        );
+    const safeForwardTargetDebtPx =
+      Number.isFinite(targetScrollTopForActuator)
+        ? Math.max(0, targetScrollTopForActuator - beforeScrollTop)
+        : 0;
+    const safeForwardSameEpochOrFreshAdvance =
+      (
+        nextSpeakableLineIdxForActuator >= lastLineIndex &&
+        nextSpeakableLineIdxForActuator <= (lastLineIndex + 1)
+      ) ||
+      committedLineIdxForActuator > lastLineIndex;
     const localRescueMustRealizeMove =
       visualDebtCatchupAllowed &&
       visualDebtCatchupLocalRescueAllowedReasonSet.has(String(visualDebtCatchupDecisionReason || '')) &&
@@ -24264,6 +24755,48 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const activeFocusMovementHold =
       isAsrLiveMovementSession() &&
       focusHoldStateForActuator.active;
+    const visibilityBlockedForActuator = String(getDocumentVisibilityState() || 'visible').toLowerCase() !== 'visible';
+    const safeForwardRealBlockerReason = resolveSafeForwardRealBlockerReason([
+      activeFocusMovementHold ? 'focus_hold' : null,
+      visibilityBlockedForActuator ? 'visibility_hold' : null,
+      String(liveAsrActuatorReason || 'none'),
+      String(liveTickAuthorityReason || 'none'),
+      String(lastDebugTargetCollapseReason || 'none'),
+      String(lastAsrPocketWallReason || 'none'),
+      String(lastAsrRecoveryPathBlockReason || 'none'),
+      !effectiveResolvedTargetSafety.effectiveTargetSafe
+        ? String(effectiveResolvedTargetSafety.effectiveTargetSafeBlockedReason || 'unsafe_target')
+        : null,
+      actuatorNoMatchOrOffscript ? 'offscript_or_nomatch' : null,
+      hardContradictionActive ? 'contradiction' : null,
+      atScrollLimit ? 'scroll_limit' : null,
+      sameTargetOvershootSettleLockForActuator ? 'same_target_overshoot_settle_lock' : null,
+    ]);
+    const safeForwardHoldBandPx = getVisualTargetTolerancePx(safeResolverLineHeightPx);
+    const safeForwardActuatorEligible =
+      String(clampReason || 'none') !== 'actuator_rate_limited';
+    const safeForwardPacingDecision = applySafeForwardResidualPacing({
+      currentScrollTop: beforeScrollTop,
+      targetScrollTop: targetScrollTopForActuator,
+      requestedDeltaPx,
+      requestedPxps,
+      move,
+      dt,
+      clampReason,
+      selectedAuthority: String(lastAsrSelectedAuthority || liveTickSelectedAuthority || 'hold'),
+      policySource: safeForwardPolicySource,
+      realBlockerReason: liveAsrFollowMode ? safeForwardRealBlockerReason : 'follow_mode_inactive',
+      sameEpochOrFreshAdvance: safeForwardSameEpochOrFreshAdvance,
+      overshootLockActive: !!sameTargetOvershootSettleLockForActuator,
+      holdBandPx: safeForwardHoldBandPx,
+      boundedStepPx: Math.max(1, effectiveMinStepPx),
+      actuatorEligible: safeForwardActuatorEligible,
+    });
+    requestedDeltaPx = safeForwardPacingDecision.requestedDeltaPx;
+    requestedPxps = safeForwardPacingDecision.requestedPxps;
+    move = safeForwardPacingDecision.move;
+    clampReason = safeForwardPacingDecision.clampReason;
+    const safeForwardMaintenanceEligible = safeForwardPacingDecision.eligible;
     if (activeFocusMovementHold) {
       requestedDeltaPx = 0;
       requestedPxps = 0;
@@ -25293,6 +25826,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       } else {
         liveAsrReaderComfortRescueRepeatCount = 0;
       }
+      if (
+        liveTickSelectedAuthority === 'recover_visual_debt' &&
+        liveAsrVisualPursuitLineIdx === lastLineIndex &&
+        liveAsrCommitteeAcceptedCommitTargetIdx === lastLineIndex &&
+        appliedDeltaPx > 0
+      ) {
+        if (visualDebtRecoveryBudgetEpoch !== visualTargetEpoch) {
+          resetVisualDebtRecoveryBudget(visualTargetEpoch);
+        }
+        visualDebtRecoveryBudgetUsedPx += appliedDeltaPx;
+      }
       const candidateAuthorities = liveTickCandidateAuthorities.size > 0
         ? Array.from(liveTickCandidateAuthorities)
         : [liveTickSelectedAuthority || liveTickBaseAuthority];
@@ -25749,6 +26293,75 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           escapePreserved ? 0 : 1,
         ].join('|'),
         { minMs: 250 },
+      );
+    }
+    let safeForwardDecision: 'advance' | 'hold' | 'denied' = 'hold';
+    const safeForwardResidualPending = safeForwardResidualDebtPx > safeForwardHoldBandPx;
+    if (safeForwardMaintenanceEligible && (safeForwardPolicySource !== 'none' || safeForwardResidualPending)) {
+      if (appliedDeltaPx > ASR_POCKET_WALL_NOISE_DELTA_PX) {
+        safeForwardResidualDebtPx = Math.max(0, safeForwardTargetDebtPx - Math.max(0, appliedDeltaPx));
+        if (safeForwardResidualDebtPx <= ASR_POCKET_WALL_NOISE_DELTA_PX) {
+          resetSafeForwardResidualDebt(visualTargetEpoch);
+        }
+        safeForwardDecision = 'advance';
+      } else {
+        safeForwardDecision = 'hold';
+      }
+      emitSafeMicroFollowDecision({
+        selectedAuthority: String(lastAsrSelectedAuthority || liveTickSelectedAuthority || 'hold'),
+        targetEpoch: visualTargetEpoch,
+        semanticEpoch,
+        currentScrollTop: beforeScrollTop,
+        effectiveTargetScrollTop: Number.isFinite(targetScrollTopForActuator) ? Number(targetScrollTopForActuator) : beforeScrollTop,
+        signedDebtPx: safeForwardTargetDebtPx,
+        sourceBlocker: safeForwardPolicySource !== 'none' ? safeForwardPolicySource : 'residual_forward_debt',
+        decision: safeForwardDecision,
+        actualStepPx: Math.max(0, appliedDeltaPx),
+        residualPx: safeForwardResidualDebtPx,
+        overshootLockActive: !!sameTargetOvershootSettleLockForActuator,
+      });
+    } else if (Number.isFinite(targetScrollTopForActuator) && targetScrollTopForActuator > beforeScrollTop + ASR_POCKET_WALL_NOISE_DELTA_PX) {
+      if (safeForwardRealBlockerReason !== 'none') {
+        resetSafeForwardResidualDebt(visualTargetEpoch);
+        emitSafeMicroFollowDecision({
+          selectedAuthority: String(lastAsrSelectedAuthority || liveTickSelectedAuthority || 'hold'),
+          targetEpoch: visualTargetEpoch,
+          semanticEpoch,
+          currentScrollTop: beforeScrollTop,
+          effectiveTargetScrollTop: Number(targetScrollTopForActuator),
+          signedDebtPx: safeForwardTargetDebtPx,
+          sourceBlocker: safeForwardRealBlockerReason,
+          decision: 'denied',
+          actualStepPx: 0,
+          residualPx: 0,
+          overshootLockActive: !!sameTargetOvershootSettleLockForActuator,
+        });
+      } else {
+        resetSafeForwardResidualDebt(visualTargetEpoch);
+      }
+    } else {
+      resetSafeForwardResidualDebt(visualTargetEpoch);
+    }
+    if (liveAsrFollowMode && lastAsrNormalMarkerFollowOwnsTarget) {
+      const remainingMarkerDebtPx =
+        Number.isFinite(targetScrollTopForActuator)
+          ? Math.max(0, Number(targetScrollTopForActuator) - afterScrollTop)
+          : 0;
+      emitDevDiagnostic(
+        'ASR_NORMAL_FOLLOW_GEOMETRY',
+        'warn',
+        `[ASR_NORMAL_FOLLOW_GEOMETRY] markerY=${Math.round(lastAsrMarkerY)} markerHoldTop=${Math.round(lastAsrMarkerCenteredHoldTop)} markerHoldBottom=${Math.round(lastAsrMarkerCenteredHoldBottom)} lowerPocketTop=${Math.round(lastAsrPreferredBandTop)} lowerPocketSettleBottom=${Math.round(lastAsrPreferredSettleBottom)} lowerPocketBottom=${Math.round(lastAsrPreferredBandBottom)} lowerPocketIgnored=${lastAsrLowerPocketAcceptanceIgnored ? 1 : 0} selectedAuthority=${String(lastAsrSelectedAuthority || liveTickSelectedAuthority || 'none')} beforeScrollTop=${Math.round(beforeScrollTop)} afterScrollTop=${Math.round(afterScrollTop)} targetScrollTop=${Number.isFinite(targetScrollTopForActuator) ? Math.round(Number(targetScrollTopForActuator)) : -1} actualStepPx=${Math.round(Math.max(0, appliedDeltaPx))} remainingMarkerDebtPx=${Math.round(remainingMarkerDebtPx)} reason=${String(liveAsrActuatorReason || liveTickAuthorityReason || 'none')}`,
+        {
+          minMs: 120,
+          signature: [
+            Math.round(lastAsrMarkerY / 8),
+            Math.round(lastAsrMarkerCenteredHoldBottom / 8),
+            Math.round(lastAsrPreferredBandBottom / 8),
+            lastAsrLowerPocketAcceptanceIgnored ? 1 : 0,
+            String(lastAsrSelectedAuthority || liveTickSelectedAuthority || 'none'),
+            Math.round(remainingMarkerDebtPx / 8),
+          ].join('|'),
+        },
       );
     }
     const frameDtMs = Math.max(1, Math.round(dt * 1000));
@@ -43932,6 +44545,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastLiveForwardGuardHintTarget = -1;
     lastObservedRescueBestSim = Number.NaN;
     lastObservedRescueAdjacentCandidateSim = Number.NaN;
+    overshootSettleLockState = null;
+    resetVisualDebtRecoveryBudget(visualTargetEpoch);
+    resetSafeForwardResidualDebt(visualTargetEpoch);
     _postCommitReadabilitySeq += 1;
     try {
       unsubscribe();
@@ -44858,6 +45474,39 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ownershipFinalizationStatus?.semanticCommitHeldButVisualCorrectionAllowed === true,
     };
   };
+  const debugResolveSafeForwardResidualPacing = (args: {
+    currentScrollTop: number;
+    targetScrollTop: number;
+    requestedDeltaPx: number;
+    requestedPxps?: number;
+    move?: number;
+    dt?: number;
+    clampReason?: string;
+    selectedAuthority?: string;
+    policySource?: string;
+    realBlockerReason?: string;
+    sameEpochOrFreshAdvance?: boolean;
+    overshootLockActive?: boolean;
+    holdBandPx?: number;
+    boundedStepPx?: number;
+    actuatorEligible?: boolean;
+  }) => applySafeForwardResidualPacing({
+    currentScrollTop: Number(args.currentScrollTop || 0),
+    targetScrollTop: Number(args.targetScrollTop || 0),
+    requestedDeltaPx: Number(args.requestedDeltaPx || 0),
+    requestedPxps: Number.isFinite(args.requestedPxps as number) ? Number(args.requestedPxps) : Number(args.requestedDeltaPx || 0),
+    move: Number.isFinite(args.move as number) ? Number(args.move) : Number(args.requestedDeltaPx || 0),
+    dt: Number.isFinite(args.dt as number) ? Number(args.dt) : (1 / 60),
+    clampReason: String(args.clampReason || 'none'),
+    selectedAuthority: String(args.selectedAuthority || 'track_follow'),
+    policySource: String(args.policySource || 'target_preserved_but_not_closing'),
+    realBlockerReason: String(args.realBlockerReason || 'none'),
+    sameEpochOrFreshAdvance: args.sameEpochOrFreshAdvance !== false,
+    overshootLockActive: !!args.overshootLockActive,
+    holdBandPx: Number.isFinite(args.holdBandPx as number) ? Number(args.holdBandPx) : 12,
+    boundedStepPx: Number.isFinite(args.boundedStepPx as number) ? Number(args.boundedStepPx) : DEFAULT_MIN_STEP_PX,
+    actuatorEligible: args.actuatorEligible !== false,
+  });
   const debugEvaluateForwardCommitFreshness = (args: {
     currentLineIdx: number;
     proposedLineIdx: number;
@@ -46137,6 +46786,33 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     preservedAsrAuthorityTargetSourcePath = String(args.sourcePath || 'debug_clear_preserved_follow_target');
     resetPreservedForwardTargetStallState();
   };
+  const debugSeedOvershootSettleLock = (args: {
+    lineIdx: number;
+    targetScrollTop: number | null;
+    currentScrollTop?: number;
+    signedErrorPx?: number;
+    targetTolerancePx?: number;
+    sourceAuthority?: string;
+  }) => {
+    if (!Number.isFinite(args.targetScrollTop as number)) {
+      clearOvershootSettleLock('debug_cleared');
+      return;
+    }
+    armOvershootSettleLock({
+      lineIdx: args.lineIdx,
+      targetScrollTop: Number(args.targetScrollTop),
+      currentScrollTop: Number.isFinite(args.currentScrollTop as number)
+        ? Number(args.currentScrollTop)
+        : Number(getScroller()?.scrollTop || 0),
+      signedErrorPx: Number.isFinite(args.signedErrorPx as number)
+        ? Number(args.signedErrorPx)
+        : 0,
+      targetTolerancePx: Number.isFinite(args.targetTolerancePx as number)
+        ? Number(args.targetTolerancePx)
+        : 20,
+      sourceAuthority: String(args.sourceAuthority || 'debug_seed'),
+    });
+  };
   const debugSelectVisualOwnershipCandidate = (args: {
     candidates: AsrVisualOwnershipCandidate[];
     currentScrollTop: number;
@@ -46171,11 +46847,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     visualErrorPx: lastAsrVisualErrorPx,
     holdTolerancePx: lastAsrHoldTolerancePx,
     markerY: lastAsrMarkerY,
+    markerCenteredHoldTop: lastAsrMarkerCenteredHoldTop,
+    markerCenteredHoldBottom: lastAsrMarkerCenteredHoldBottom,
     nextSpeakableLineY: lastAsrNextSpeakableLineY,
     preferredBandTop: lastAsrPreferredBandTop,
     preferredSettleBottom: lastAsrPreferredSettleBottom,
     preferredBandBottom: lastAsrPreferredBandBottom,
     toleratedBandBottom: lastAsrToleratedBandBottom,
+    normalMarkerFollowOwnsTarget: lastAsrNormalMarkerFollowOwnsTarget,
+    lowerPocketAcceptanceIgnored: lastAsrLowerPocketAcceptanceIgnored,
     readerPocketZone: lastAsrReaderPocketZone,
     selectedReason: lastAsrGuardReason || '',
     lineIndex: lastLineIndex,
@@ -46207,9 +46887,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     reanchorLandingAnchorLineIdx: reanchorLandingState?.anchorLineIdx ?? -1,
     reanchorLandingTargetLineIdx: reanchorLandingState?.finalTargetLineIdx ?? -1,
     semanticEpoch,
+    visualTargetEpoch,
     lastVisualWriteOwner,
     lastVisualWriteEpoch,
     lastVisualWriteDirection,
+    overshootSettleLockActive: !!overshootSettleLockState,
+    overshootSettleLockLineIdx: overshootSettleLockState?.lineIdx ?? -1,
+    overshootSettleLockTargetScrollTop: overshootSettleLockState?.targetScrollTop ?? Number.NaN,
+    visualDebtRecoveryBudgetUsedPx,
   });
 
   const driver = {
@@ -46227,6 +46912,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     __debugApplyScrollWithHybridGuard: debugApplyScrollWithHybridGuard,
     __debugApplyVisualActuatorTargetStep: debugApplyVisualActuatorTargetStep,
     __debugEvaluateEffectiveTargetSafety: debugEvaluateEffectiveTargetSafety,
+    __debugResolveSafeForwardResidualPacing: debugResolveSafeForwardResidualPacing,
     __debugEvaluateReaderIdleForwardHoldInteraction: debugEvaluateReaderIdleForwardHoldInteraction,
     __debugApplyFinalSelectedActuatorStep: debugApplyFinalSelectedActuatorStep,
     __debugEvaluateForwardCommitFreshness: debugEvaluateForwardCommitFreshness,
@@ -46244,6 +46930,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     __debugEvaluateProfileForwardGuard: debugEvaluateProfileForwardGuard,
     __debugSelectVisualOwnershipCandidate: debugSelectVisualOwnershipCandidate,
     __debugSeedPreservedFollowTarget: debugSeedPreservedFollowTarget,
+    __debugSeedOvershootSettleLock: debugSeedOvershootSettleLock,
   } as AsrScrollDriver & {
     __debugSeedPendingSpeakableBridge(args: {
       semanticFrom: number;
@@ -46263,11 +46950,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       visualErrorPx: number;
       holdTolerancePx: number;
       markerY: number;
+      markerCenteredHoldTop: number;
+      markerCenteredHoldBottom: number;
       nextSpeakableLineY: number;
       preferredBandTop: number;
       preferredSettleBottom: number;
       preferredBandBottom: number;
       toleratedBandBottom: number;
+      normalMarkerFollowOwnsTarget: boolean;
+      lowerPocketAcceptanceIgnored: boolean;
       readerPocketZone: string;
       selectedReason: string;
       lineIndex: number;
@@ -46278,9 +46969,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       reanchorLandingAnchorLineIdx: number;
       reanchorLandingTargetLineIdx: number;
       semanticEpoch: number;
+      visualTargetEpoch: number;
       lastVisualWriteOwner: string;
       lastVisualWriteEpoch: number;
       lastVisualWriteDirection: 'forward' | 'backward' | 'hold';
+      overshootSettleLockActive: boolean;
+      overshootSettleLockLineIdx: number;
+      overshootSettleLockTargetScrollTop: number;
+      visualDebtRecoveryBudgetUsedPx: number;
     };
     __debugObserveAsr4VisualRecoveryCommit(args: {
       currentLine: number;
@@ -46495,6 +47191,32 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       tolerancePx: number;
       usedPullback: boolean;
       blockedPullback: boolean;
+    };
+    __debugResolveSafeForwardResidualPacing(args: {
+      currentScrollTop: number;
+      targetScrollTop: number;
+      requestedDeltaPx: number;
+      requestedPxps?: number;
+      move?: number;
+      dt?: number;
+      clampReason?: string;
+      selectedAuthority?: string;
+      policySource?: string;
+      realBlockerReason?: string;
+      sameEpochOrFreshAdvance?: boolean;
+      overshootLockActive?: boolean;
+      holdBandPx?: number;
+      boundedStepPx?: number;
+      actuatorEligible?: boolean;
+    }): {
+      eligible: boolean;
+      safeForwardTargetDebtPx: number;
+      requestedDeltaPx: number;
+      requestedPxps: number;
+      move: number;
+      clampReason: string;
+      residualPx: number;
+      decision: 'advance' | 'hold' | 'denied';
     };
     __debugApplyFinalSelectedActuatorStep(args: {
       beforeScrollTop: number;
@@ -46990,6 +47712,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       targetScrollTop: number | null;
       reason?: string;
       sourcePath?: string;
+    }): void;
+    __debugSeedOvershootSettleLock(args: {
+      lineIdx: number;
+      targetScrollTop: number | null;
+      currentScrollTop?: number;
+      signedErrorPx?: number;
+      targetTolerancePx?: number;
+      sourceAuthority?: string;
     }): void;
   };
   try { (driver as any).__instanceId = driverInstanceId; } catch {}

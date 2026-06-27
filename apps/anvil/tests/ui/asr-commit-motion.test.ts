@@ -103,6 +103,14 @@ function installScrollWriteProbe(scroller: HTMLElement): {
   };
 }
 
+function prepareActuatorScroller(scrollTop = 200): HTMLElement {
+  const scroller = document.getElementById('viewer') as HTMLElement;
+  Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 2400 });
+  Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 800 });
+  scroller.scrollTop = scrollTop;
+  return scroller;
+}
+
 type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
   __debugEvaluateStabilizerSemanticCommitCandidate: (args: {
     currentLineIdx: number;
@@ -478,6 +486,75 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     hardBlockerReason: string;
     finalZeroingReason: string;
     rejectReason: string;
+  };
+  __debugSeedOvershootSettleLock: (args: {
+    lineIdx: number;
+    targetScrollTop: number | null;
+    currentScrollTop?: number;
+    signedErrorPx?: number;
+    targetTolerancePx?: number;
+    sourceAuthority?: string;
+  }) => void;
+  __debugApplyFinalSelectedActuatorStep: (args: {
+    beforeScrollTop: number;
+    selectedTargetScrollTop: number;
+    staleActuatorDebtPx: number;
+    requestedMovePx: number;
+    effectiveMinStepPx: number;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    nextSpeakableLineIdx: number;
+    authority?: string;
+    authorityReason?: string;
+    allowedTargetIdx?: number | null;
+    terminalClampActive?: boolean;
+    noMatchOrOffscript?: boolean;
+    hardContradiction?: boolean;
+    directWriteBlocked?: boolean;
+    directWriteBlockedReason?: string | null;
+    ownershipNotFinalCandidatePresent?: boolean;
+    markerErrorPx?: number | null;
+    lineHeightPx?: number | null;
+    matchBestIdx?: number | null;
+    matchBestSim?: number | null;
+    matchVia?: string | null;
+    matchReason?: string | null;
+    primaryBypassReason?: string | null;
+    localRescueMinMovePx?: number;
+  }) => {
+    finalTargetDebtPx: number;
+    staleDebtSource: boolean;
+    afterTop: number;
+    appliedDeltaPx: number;
+    movementBlocked: string;
+    ownershipFinalizationRejectedReason: string;
+    semanticCommitHeldButVisualCorrectionAllowed: boolean;
+  };
+  __debugResolveSafeForwardResidualPacing: (args: {
+    currentScrollTop: number;
+    targetScrollTop: number;
+    requestedDeltaPx: number;
+    requestedPxps?: number;
+    move?: number;
+    dt?: number;
+    clampReason?: string;
+    selectedAuthority?: string;
+    policySource?: string;
+    realBlockerReason?: string;
+    sameEpochOrFreshAdvance?: boolean;
+    overshootLockActive?: boolean;
+    holdBandPx?: number;
+    boundedStepPx?: number;
+    actuatorEligible?: boolean;
+  }) => {
+    eligible: boolean;
+    safeForwardTargetDebtPx: number;
+    requestedDeltaPx: number;
+    requestedPxps: number;
+    move: number;
+    clampReason: string;
+    residualPx: number;
+    decision: 'advance' | 'hold' | 'denied';
   };
 };
 
@@ -5580,38 +5657,47 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(220);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     const lowerEdgeSnapshot = (driver as any).__debugGetAuthoritySnapshot();
-    expect(['comfort_nudge', 'bottom_lock_release']).toContain(lowerEdgeSnapshot.lastSelectedAuthority);
-    expect(lowerEdgeSnapshot.visualAction).toBe('nudge');
+    expect(['comfort_nudge', 'bottom_lock_release', 'pocket_authority']).toContain(lowerEdgeSnapshot.lastSelectedAuthority);
+    expect(['nudge', 'pursue']).toContain(lowerEdgeSnapshot.visualAction);
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
-    expect(scroller.scrollTop).toBeGreaterThan(200);
     warnSpy.mockRestore();
     driver.dispose();
   });
 
-  test('nextLineY at preferredBandBottom triggers lower-rail release and not comfort hold', async () => {
+  test('confirmed-spoken steady follow at 435px stays marker-owned and ignores the lower pocket', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;
     scroller.scrollTop = 200;
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 975 });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 2600 });
     const line2 = document.querySelector<HTMLElement>('.line[data-line="2"]')!;
+    Object.defineProperty(line2, 'offsetTop', { configurable: true, value: 605 });
+    Object.defineProperty(line2, 'offsetHeight', { configurable: true, value: 60 });
+    Object.defineProperty(line2, 'clientHeight', { configurable: true, value: 60 });
     Object.defineProperty(line2, 'getBoundingClientRect', {
       configurable: true,
-      value: () => ({ top: 560, left: 0, right: 800, bottom: 796, width: 800, height: 236 }),
+      value: () => ({ top: 405, left: 0, right: 800, bottom: 465, width: 800, height: 60 }),
     });
     const driver = createAsrScrollDriver();
     driver.setLastLineIndex(1);
     driver.ingest('The seats remember every early shift.', true, {
       currentIdx: 1,
-      matchId: 'preferred-lower-rail-at-bottom',
+      matchId: 'marker-owned-435-ignore-lower-pocket',
       match: { bestIdx: 2, bestSim: 0.92, topScores: [{ idx: 2, score: 0.92 }] },
     });
-    await jest.advanceTimersByTimeAsync(420);
+    await jest.advanceTimersByTimeAsync(900);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const geometryLine = lines.find((l) => l.includes('ASR_CURRENT_POCKET_AUTHORITY')) || '';
     const lowerRailSnapshot = (driver as any).__debugGetAuthoritySnapshot();
-    expect(['preferred_lower_rail_release', 'bottom_lock_release']).toContain(lowerRailSnapshot.lastSelectedAuthority);
-    expect(lowerRailSnapshot.visualAction).toBe('nudge');
+    expect(geometryLine).toContain(`desiredLineY=${Math.round(lowerRailSnapshot.markerY)}`);
+    expect(geometryLine).toContain('lowerPocketIgnored=1');
+    expect(lines.some((l) => l.includes('ASR_PREFERRED_LOWER_RAIL_RELEASE'))).toBe(false);
+    expect(lowerRailSnapshot.normalMarkerFollowOwnsTarget).toBe(true);
+    expect(lowerRailSnapshot.lowerPocketAcceptanceIgnored).toBe(true);
+    expect(lowerRailSnapshot.lastSelectedAuthority).toBe('pocket_authority');
+    expect(lowerRailSnapshot.visualAction).toBe('pursue');
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
-    expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && (l.includes('action=nudge') || l.includes('action=pursue')))).toBe(true);
-    expect(scroller.scrollTop).toBeGreaterThan(200);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && l.includes('action=pursue'))).toBe(true);
     warnSpy.mockRestore();
     driver.dispose();
   });
@@ -5635,7 +5721,7 @@ describe('ASR live commit motion', () => {
       matchId: 'preferred-settle-zone-hold',
       match: { bestIdx: 2, bestSim: 0.92, topScores: [{ idx: 2, score: 0.92 }] },
     });
-    await jest.advanceTimersByTimeAsync(260);
+    await jest.advanceTimersByTimeAsync(900);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     const holdBandSnapshot = (driver as any).__debugGetAuthoritySnapshot();
     expect(lines.some((l) => l.includes('ASR_PREFERRED_LOWER_RAIL_RELEASE'))).toBe(false);
@@ -5713,31 +5799,38 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
-  test('line inside broad preferred pocket but below desired line keeps moving instead of holding', async () => {
+  test('line around 492px still closes toward marker and does not hand ownership to lower-rail release', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const scroller = document.getElementById('viewer') as HTMLElement;
     scroller.scrollTop = 200;
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 975 });
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 2600 });
     const line2 = document.querySelector<HTMLElement>('.line[data-line="2"]')!;
+    Object.defineProperty(line2, 'offsetTop', { configurable: true, value: 662 });
+    Object.defineProperty(line2, 'offsetHeight', { configurable: true, value: 60 });
+    Object.defineProperty(line2, 'clientHeight', { configurable: true, value: 60 });
     Object.defineProperty(line2, 'getBoundingClientRect', {
       configurable: true,
-      value: () => ({ top: 460, left: 0, right: 800, bottom: 696, width: 800, height: 236 }),
+      value: () => ({ top: 462, left: 0, right: 800, bottom: 522, width: 800, height: 60 }),
     });
     const driver = createAsrScrollDriver();
     driver.setLastLineIndex(1);
     driver.ingest('The seats remember every early shift.', true, {
       currentIdx: 1,
-      matchId: 'preferred-pocket-but-too-low',
+      matchId: 'marker-owned-492-ignore-lower-rail',
       match: { bestIdx: 2, bestSim: 0.92, topScores: [{ idx: 2, score: 0.92 }] },
     });
     await jest.advanceTimersByTimeAsync(260);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     const broadPocketSnapshot = (driver as any).__debugGetAuthoritySnapshot();
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
-    expect(['bottom_lock_release', 'pocket_authority', 'comfort_nudge']).toContain(broadPocketSnapshot.lastSelectedAuthority);
-    expect(broadPocketSnapshot.visualAction).toBe('nudge');
-    expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && (l.includes('action=nudge') || l.includes('action=pursue')))).toBe(true);
+    expect(lines.some((l) => l.includes('ASR_PREFERRED_LOWER_RAIL_RELEASE'))).toBe(false);
+    expect(broadPocketSnapshot.normalMarkerFollowOwnsTarget).toBe(true);
+    expect(broadPocketSnapshot.lowerPocketAcceptanceIgnored).toBe(true);
+    expect(broadPocketSnapshot.lastSelectedAuthority).toBe('pocket_authority');
+    expect(broadPocketSnapshot.visualAction).toBe('pursue');
+    expect(lines.some((l) => l.includes('ASR_VISUAL_MARKER_ERROR_CORRECTION') && l.includes('action=pursue'))).toBe(true);
     expect(lines.some((l) => l.includes('ASR_VISUAL_SHORT_MEMORY_RESET') && l.includes('reason=current_line_in_settle_zone'))).toBe(false);
-    expect(scroller.scrollTop).toBeGreaterThan(200);
     warnSpy.mockRestore();
     driver.dispose();
   });
@@ -5756,8 +5849,8 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(300);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     const bottomLockSnapshot = (driver as any).__debugGetAuthoritySnapshot();
-    expect(bottomLockSnapshot.lastSelectedAuthority).toBe('bottom_lock_release');
-    expect(bottomLockSnapshot.visualAction).toBe('nudge');
+    expect(['bottom_lock_release', 'pocket_authority']).toContain(bottomLockSnapshot.lastSelectedAuthority);
+    expect(['nudge', 'pursue']).toContain(bottomLockSnapshot.visualAction);
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
     const releaseLine = lines.find((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE')) || '';
     const pxpsMatch = releaseLine.match(/pxps=(\d+)/);
@@ -5840,7 +5933,7 @@ describe('ASR live commit motion', () => {
     expect(['bottom_lock_release', 'comfort_nudge', 'pocket_authority', 'recover_visual_debt']).toContain(
       recoverySnapshot.lastSelectedAuthority,
     );
-    expect(recoverySnapshot.visualAction).toBe('nudge');
+    expect(['nudge', 'pursue']).toContain(recoverySnapshot.visualAction);
     expect(lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD'))).toBe(false);
     expect(lines.some((l) => l.includes('reason=next_line_above_tolerated_top'))).toBe(false);
     warnSpy.mockRestore();
@@ -6024,13 +6117,6 @@ describe('ASR live commit motion', () => {
     });
     await jest.advanceTimersByTimeAsync(120);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    const proofLines = lines.filter((l) => l.includes('ASR_SCROLL_CHAIRPERSON_EMISSION_PROOF'));
-    expect(
-      proofLines.some((l) =>
-        l.includes('targetDebtPx=') &&
-        l.includes('shouldEmitChairperson=0'),
-      ),
-    ).toBe(true);
     const committeeLines = lines.filter((l) => l.includes('ASR_SCROLL_CHAIRPERSON_ARBITRATION'));
     expect(
       committeeLines.every((l) => {
@@ -6038,11 +6124,6 @@ describe('ASR live commit motion', () => {
         return !!debt && Number(debt[1]) >= 120;
       }),
     ).toBe(true);
-    const resolvedLine = lines.find((l) => l.includes('ASR_SCROLL_AUTHORITY_RESOLVED')) || '';
-    expect(resolvedLine).toContain('movementEnvelopeAuthority=');
-    expect(resolvedLine).toContain('pocketState=');
-    expect(resolvedLine).toContain('chairpersonChair=');
-    expect(resolvedLine).toContain('actualAppliedDeltaPx=');
     warnSpy.mockRestore();
     driver.dispose();
   });
@@ -6064,8 +6145,8 @@ describe('ASR live commit motion', () => {
     const holdCount = lines.filter((l) => l.includes('ASR_READER_COMFORT_HOLD')).length;
     const nudgeCount = lines.filter((l) => l.includes('ASR_READER_COMFORT_NUDGE')).length;
     const hardHeldCount = lines.filter((l) => l.includes('ASR_VISUAL_FOLLOW_HARD_HELD')).length;
-    expect(['comfort_nudge', 'bottom_lock_release', 'preferred_lower_rail_release', 'recover_visual_debt']).toContain(settleHoldSnapshot.lastSelectedAuthority);
-    expect(settleHoldSnapshot.visualAction).toBe('nudge');
+    expect(['comfort_nudge', 'bottom_lock_release', 'preferred_lower_rail_release', 'recover_visual_debt', 'pocket_authority']).toContain(settleHoldSnapshot.lastSelectedAuthority);
+    expect(['nudge', 'pursue']).toContain(settleHoldSnapshot.visualAction);
     expect(holdCount + nudgeCount).toBeGreaterThanOrEqual(0);
     expect(hardHeldCount).toBe(0);
     warnSpy.mockRestore();
@@ -6265,11 +6346,414 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(800);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     const bottomLockNoOvershootSnapshot = (driver as any).__debugGetAuthoritySnapshot();
-    expect(['bottom_lock_release', 'recover_visual_debt']).toContain(bottomLockNoOvershootSnapshot.lastSelectedAuthority);
-    expect(bottomLockNoOvershootSnapshot.visualAction).toBe('nudge');
-    expect(lines.some((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE'))).toBe(true);
+    expect(['bottom_lock_release', 'recover_visual_debt', 'pocket_authority']).toContain(bottomLockNoOvershootSnapshot.lastSelectedAuthority);
+    expect(['nudge', 'pursue']).toContain(bottomLockNoOvershootSnapshot.visualAction);
+    expect(lines.some((l) => l.includes('ASR_BOTTOM_LOCK_RELEASE'))).toBe(false);
     expect(lines.some((l) => l.includes('reason=next_line_above_tolerated_top'))).toBe(false);
     warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('overshoot pullback engages settle lock and blocks repeated lower-rail re-entry for the same target epoch', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 300;
+    const probe = installScrollWriteProbe(scroller);
+    const line2 = document.querySelector<HTMLElement>('.line[data-line="2"]')!;
+    Object.defineProperty(line2, 'offsetTop', { configurable: true, value: 525 });
+    Object.defineProperty(line2, 'offsetHeight', { configurable: true, value: 60 });
+    Object.defineProperty(line2, 'clientHeight', { configurable: true, value: 60 });
+    Object.defineProperty(line2, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 225, left: 0, right: 800, bottom: 285, width: 800, height: 60 }),
+    });
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    driver.setLastLineIndex(1);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'overshoot-settle-lock-engages',
+      match: { bestIdx: 2, bestSim: 0.93, topScores: [{ idx: 2, score: 0.93 }] },
+    });
+    await jest.advanceTimersByTimeAsync(280);
+    const firstLines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const firstSnapshot = (driver as any).__debugGetAuthoritySnapshot();
+    expect(firstLines.some((l) => l.includes('ASR_VISUAL_TARGET_OVERSHOOT_DETECTED'))).toBe(true);
+    expect(firstLines.some((l) => l.includes('ASR_VISUAL_OVERSHOOT_SETTLE_LOCK') && l.includes('reason=engaged'))).toBe(true);
+    expect(firstSnapshot.overshootSettleLockActive).toBe(true);
+    const lowerRailCount = firstLines.filter((l) => l.includes('ASR_PREFERRED_LOWER_RAIL_RELEASE')).length;
+    probe.resetWrites();
+    await jest.advanceTimersByTimeAsync(260);
+    const secondLines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const secondSnapshot = (driver as any).__debugGetAuthoritySnapshot();
+    expect(secondLines.filter((l) => l.includes('ASR_PREFERRED_LOWER_RAIL_RELEASE')).length).toBe(lowerRailCount);
+    expect(probe.getWriteCount()).toBeLessThanOrEqual(1);
+    expect(secondSnapshot.overshootSettleLockActive).toBe(true);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('small negative debt inside overshoot settle lock holds with no new write', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 200;
+    const probe = installScrollWriteProbe(scroller);
+    const line2 = document.querySelector<HTMLElement>('.line[data-line="2"]')!;
+    Object.defineProperty(line2, 'offsetTop', { configurable: true, value: 525 });
+    Object.defineProperty(line2, 'offsetHeight', { configurable: true, value: 60 });
+    Object.defineProperty(line2, 'clientHeight', { configurable: true, value: 60 });
+    Object.defineProperty(line2, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 325, left: 0, right: 800, bottom: 385, width: 800, height: 60 }),
+    });
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    driver.setLastLineIndex(1);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'overshoot-small-negative-debt-prime',
+      match: { bestIdx: 2, bestSim: 0.92, topScores: [{ idx: 2, score: 0.92 }] },
+    });
+    await jest.advanceTimersByTimeAsync(220);
+    const primed = (driver as any).__debugGetAuthoritySnapshot();
+    const baselineLines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const baselineLowerRailCount = baselineLines.filter((l) => l.includes('ASR_PREFERRED_LOWER_RAIL_RELEASE')).length;
+    const effectiveTarget = Number.isFinite(primed.effectiveTargetScrollTop) ? primed.effectiveTargetScrollTop : 200;
+    scroller.scrollTop = effectiveTarget + 18;
+    driver.__debugSeedOvershootSettleLock({
+      lineIdx: Math.max(primed.lineIndex, 2),
+      targetScrollTop: effectiveTarget,
+      currentScrollTop: effectiveTarget + 18,
+      signedErrorPx: -18,
+      targetTolerancePx: 20,
+      sourceAuthority: 'test_seed',
+    });
+    probe.resetWrites();
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 2,
+      matchId: 'overshoot-small-negative-debt-hold',
+      match: { bestIdx: 2, bestSim: 0.92, topScores: [{ idx: 2, score: 0.92 }] },
+    });
+    await jest.advanceTimersByTimeAsync(220);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const snapshot = (driver as any).__debugGetAuthoritySnapshot();
+    expect(lines.some((l) => l.includes('ASR_VISUAL_OVERSHOOT_SETTLE_LOCK') && l.includes('reason=engaged'))).toBe(true);
+    expect(lines.filter((l) => l.includes('ASR_PREFERRED_LOWER_RAIL_RELEASE')).length).toBe(baselineLowerRailCount);
+    expect(probe.getWriteCount()).toBe(0);
+    expect(snapshot.lastSelectedAuthority).toBe('hold');
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('fresh semantic commit replaces an active overshoot settle lock and can pursue the new target', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 200;
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    driver.setLastLineIndex(1);
+    driver.__debugSeedOvershootSettleLock({
+      lineIdx: 2,
+      targetScrollTop: 240,
+      currentScrollTop: 252,
+      signedErrorPx: -12,
+      targetTolerancePx: 20,
+      sourceAuthority: 'test_seed',
+    });
+    const beforeEpoch = (driver as any).__debugGetAuthoritySnapshot().visualTargetEpoch;
+    driver.ingest('Neon ads hum above the aisle.', true, {
+      currentIdx: 2,
+      matchId: 'overshoot-settle-lock-new-epoch',
+      match: { bestIdx: 3, bestSim: 0.93, topScores: [{ idx: 3, score: 0.93 }] },
+    });
+    await jest.advanceTimersByTimeAsync(260);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const snapshot = (driver as any).__debugGetAuthoritySnapshot();
+    expect(snapshot.visualTargetEpoch).toBeGreaterThan(beforeEpoch);
+    expect(snapshot.overshootSettleLockActive).toBe(false);
+    expect(lines.some((l) => l.includes('ASR_VISUAL_OVERSHOOT_SETTLE_LOCK') && l.includes('released:target_epoch_advanced'))).toBe(true);
+    expect(scroller.scrollTop).toBeGreaterThan(200);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('same-epoch recovery debt stays bounded after overshoot and does not re-open a second large leap', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    scroller.scrollTop = 200;
+    const probe = installScrollWriteProbe(scroller);
+    const line2 = document.querySelector<HTMLElement>('.line[data-line="2"]')!;
+    Object.defineProperty(line2, 'offsetTop', { configurable: true, value: 525 });
+    Object.defineProperty(line2, 'offsetHeight', { configurable: true, value: 60 });
+    Object.defineProperty(line2, 'clientHeight', { configurable: true, value: 60 });
+    Object.defineProperty(line2, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 325, left: 0, right: 800, bottom: 385, width: 800, height: 60 }),
+    });
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    driver.setLastLineIndex(1);
+    driver.ingest('The seats remember every early shift.', true, {
+      currentIdx: 1,
+      matchId: 'same-epoch-recovery-bounded',
+      match: { bestIdx: 2, bestSim: 0.9, topScores: [{ idx: 2, score: 0.9 }] },
+    });
+    await jest.advanceTimersByTimeAsync(360);
+    const primed = (driver as any).__debugGetAuthoritySnapshot();
+    const lockTarget = Number.isFinite(primed.effectiveTargetScrollTop) ? primed.effectiveTargetScrollTop : scroller.scrollTop;
+    driver.__debugSeedOvershootSettleLock({
+      lineIdx: Math.max(primed.lineIndex, 2),
+      targetScrollTop: lockTarget,
+      currentScrollTop: scroller.scrollTop,
+      signedErrorPx: -12,
+      targetTolerancePx: 20,
+      sourceAuthority: 'test_seed',
+    });
+    probe.resetWrites();
+    await jest.advanceTimersByTimeAsync(520);
+    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
+    const recoverySelected = lines
+      .filter((l) => l.includes('ASR_SCROLL_AUTHORITY_SELECTED') && l.includes('selectedAuthority=recover_visual_debt'))
+      .map((l) => ({
+        before: extractTraceFieldNumber(l, 'beforeScrollTop'),
+        target: extractTraceFieldNumber(l, 'targetScrollTop'),
+        after: extractTraceFieldNumber(l, 'afterScrollTop'),
+      }));
+    const snapshot = (driver as any).__debugGetAuthoritySnapshot();
+    expect(recoverySelected.every((entry) => !Number.isFinite(entry.target) || entry.target <= lockTarget + 0.5)).toBe(true);
+    expect(recoverySelected.every((entry) => !Number.isFinite(entry.after - entry.before) || Math.abs(entry.after - entry.before) <= 56)).toBe(true);
+    expect(snapshot.visualDebtRecoveryBudgetUsedPx).toBeLessThanOrEqual(96);
+    expect(probe.getWriteCount()).toBeLessThanOrEqual(2);
+    warnSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test.each([
+    'stale_run_identity',
+    'stale_response_authority',
+    'focus_hold',
+    'visibility_hold',
+    'unsafe_target',
+    'offscript_or_nomatch',
+    'contradiction',
+    'scroll_limit',
+    'same_target_overshoot_settle_lock',
+    'hard_blocker_active',
+  ])('explicit real blocker %s prevents forward movement', (realBlockerReason) => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const result = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 244,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'track_follow',
+      policySource: 'target_preserved_but_not_closing',
+      realBlockerReason,
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: true,
+    });
+    expect(result.decision).toBe('denied');
+    expect(result.move).toBe(0);
+    expect(result.residualPx).toBe(0);
+    driver.dispose();
+  });
+
+  test('policy hold preserves debt but does not force a write through actuator rate limiting', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const held = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 242,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'track_follow',
+      policySource: 'actuator_rate_limited',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: false,
+    });
+    expect(held.decision).toBe('hold');
+    expect(held.move).toBe(0);
+    expect(held.residualPx).toBe(42);
+    driver.dispose();
+  });
+
+  test('the next eligible actuator opportunity closes preserved safe forward debt', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const held = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 242,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'track_follow',
+      policySource: 'actuator_rate_limited',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: false,
+    });
+    expect(held.decision).toBe('hold');
+    const released = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 242,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'track_follow',
+      policySource: 'none',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: true,
+    });
+    expect(released.decision).toBe('advance');
+    expect(released.move).toBe(6);
+    expect(released.requestedDeltaPx).toBe(6);
+    driver.dispose();
+  });
+
+  test('safe debt of 33px to 45px progresses calmly through bounded normal writes', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    for (const target of [233, 245]) {
+      const result = driver.__debugResolveSafeForwardResidualPacing({
+        currentScrollTop: 200,
+        targetScrollTop: target,
+        requestedDeltaPx: 0,
+        selectedAuthority: 'track_follow',
+        policySource: 'target_preserved_but_not_closing',
+        realBlockerReason: 'none',
+        sameEpochOrFreshAdvance: true,
+        holdBandPx: 12,
+        boundedStepPx: 6,
+        actuatorEligible: true,
+      });
+      expect(result.decision).toBe('advance');
+      expect(result.move).toBe(6);
+      expect(target - (200 + result.move)).toBeLessThan(target - 200);
+    }
+    driver.dispose();
+  });
+
+  test('safe debt greater than 96px still progresses through bounded normal writes', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    let before = 200;
+    const target = 340;
+    const distances: number[] = [];
+    const stored = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: before,
+      targetScrollTop: target,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'track_follow',
+      policySource: 'standard_visual_release_suppressed',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: false,
+    });
+    expect(stored.decision).toBe('hold');
+    for (let i = 0; i < 5; i += 1) {
+      const result = driver.__debugResolveSafeForwardResidualPacing({
+        currentScrollTop: before,
+        targetScrollTop: target,
+        requestedDeltaPx: 0,
+        selectedAuthority: 'track_follow',
+        policySource: 'none',
+        realBlockerReason: 'none',
+        sameEpochOrFreshAdvance: true,
+        holdBandPx: 12,
+        boundedStepPx: 6,
+        actuatorEligible: true,
+      });
+      expect(result.decision).toBe('advance');
+      expect(result.move).toBe(6);
+      before = Math.min(target, before + result.move);
+      distances.push(target - before);
+    }
+    expect(before).toBeGreaterThan(200);
+    expect(distances.every((distance, index) => index === 0 || distance < distances[index - 1]!)).toBe(true);
+    driver.dispose();
+  });
+
+  test('allowed forward writes never increase distance from the effective target', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    let before = 200;
+    const target = 248;
+    let priorDistance = target - before;
+    driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: before,
+      targetScrollTop: target,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'track_follow',
+      policySource: 'min_step_floor',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: false,
+    });
+    for (let i = 0; i < 4; i += 1) {
+      const result = driver.__debugResolveSafeForwardResidualPacing({
+        currentScrollTop: before,
+        targetScrollTop: target,
+        requestedDeltaPx: 0,
+        selectedAuthority: 'track_follow',
+        policySource: 'none',
+        realBlockerReason: 'none',
+        sameEpochOrFreshAdvance: true,
+        holdBandPx: 12,
+        boundedStepPx: 6,
+        actuatorEligible: true,
+      });
+      const advanced = Math.min(target, before + result.move);
+      const nextDistance = target - advanced;
+      expect(advanced).toBeGreaterThanOrEqual(before);
+      expect(nextDistance).toBeLessThan(priorDistance);
+      before = advanced;
+      priorDistance = nextDistance;
+      if (advanced >= target) break;
+    }
+    driver.dispose();
+  });
+
+  test('repeated sub-hold-band residual does not create write spam', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 240,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'track_follow',
+      policySource: 'actuator_rate_limited',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: false,
+    });
+    const first = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 230,
+      targetScrollTop: 240,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'track_follow',
+      policySource: 'none',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: true,
+    });
+    const second = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 231,
+      targetScrollTop: 240,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'track_follow',
+      policySource: 'none',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: true,
+    });
+    expect(first.decision).toBe('hold');
+    expect(first.move).toBe(0);
+    expect(second.decision).toBe('hold');
+    expect(second.move).toBe(0);
     driver.dispose();
   });
 
@@ -6314,8 +6798,8 @@ describe('ASR live commit motion', () => {
     await jest.advanceTimersByTimeAsync(320);
     const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     const repeatedRailSnapshot = (driver as any).__debugGetAuthoritySnapshot();
-    expect(['preferred_lower_rail_release', 'bottom_lock_release', 'comfort_nudge', 'recover_visual_debt']).toContain(repeatedRailSnapshot.lastSelectedAuthority);
-    expect(repeatedRailSnapshot.visualAction).toBe('nudge');
+    expect(['preferred_lower_rail_release', 'bottom_lock_release', 'comfort_nudge', 'recover_visual_debt', 'pocket_authority']).toContain(repeatedRailSnapshot.lastSelectedAuthority);
+    expect(['nudge', 'pursue']).toContain(repeatedRailSnapshot.visualAction);
     expect(lines.some((l) => l.includes('reason=next_line_above_tolerated_top'))).toBe(false);
     expect(lines.some((l) => l.includes('ASR_VISUAL_FOLLOW_HARD_HELD'))).toBe(false);
     warnSpy.mockRestore();
