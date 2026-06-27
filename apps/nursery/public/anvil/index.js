@@ -42726,6 +42726,7 @@ function createAsrScrollDriver(options = {}) {
   let postSemanticCommitVisualReleaseTranscriptAuthorityEpoch = null;
   let postSemanticCommitVisualReleaseTranscriptRunKey = null;
   let postSemanticCommitVisualReleaseTranscriptRunGeneration = null;
+  let safeForwardResidualNextEligibleAtMs = 0;
   const emitAdjacentPromotionTrace = (input) => {
     try {
       const delta = Math.max(0, input.candidateLineIdx - input.currentLineIdx);
@@ -42747,6 +42748,7 @@ function createAsrScrollDriver(options = {}) {
     safeForwardResidualTargetEpoch = nextEpoch;
     safeForwardResidualTargetScrollTop = Number.NaN;
     safeForwardResidualDebtPx = 0;
+    safeForwardResidualNextEligibleAtMs = 0;
   };
   const isSafeForwardPolicyReason = (reason) => {
     switch (String(reason || "none")) {
@@ -42806,13 +42808,18 @@ function createAsrScrollDriver(options = {}) {
         return "none";
     }
   };
-  const isSafeForwardRealBlocker = (reason) => {
-    return normalizeSafeForwardRealBlockerReason(reason) !== "none";
-  };
-  const resolveSafeForwardRealBlockerReason = (reasons) => {
+  const resolveSafeForwardRealBlockerReason = (reasons, policyReason = "none") => {
+    let sawUnknownHardBlocker = false;
     for (const reason of reasons) {
       const normalized = normalizeSafeForwardRealBlockerReason(reason);
+      if (normalized === "hard_blocker_active") {
+        sawUnknownHardBlocker = true;
+        continue;
+      }
       if (normalized !== "none") return normalized;
+    }
+    if (sawUnknownHardBlocker && !isSafeForwardPolicyReason(policyReason)) {
+      return "hard_blocker_active";
     }
     return "none";
   };
@@ -42820,7 +42827,7 @@ function createAsrScrollDriver(options = {}) {
     emitDevDiagnostic(
       "ASR_SAFE_MICRO_FOLLOW_DECISION",
       "warn",
-      `[ASR_SAFE_MICRO_FOLLOW_DECISION] selectedAuthority=${args.selectedAuthority} targetEpoch=${args.targetEpoch} semanticEpoch=${args.semanticEpoch} currentScrollTop=${Math.round(args.currentScrollTop)} effectiveTargetScrollTop=${Math.round(args.effectiveTargetScrollTop)} signedDebtPx=${Math.round(args.signedDebtPx)} sourceBlocker=${args.sourceBlocker} decision=${args.decision} actualStepPx=${Math.round(args.actualStepPx)} residualPx=${Math.round(args.residualPx)} overshootLockActive=${args.overshootLockActive ? 1 : 0}`,
+      `[ASR_SAFE_MICRO_FOLLOW_DECISION] selectedAuthority=${args.selectedAuthority} targetEpoch=${args.targetEpoch} semanticEpoch=${args.semanticEpoch} currentScrollTop=${Math.round(args.currentScrollTop)} effectiveTargetScrollTop=${Math.round(args.effectiveTargetScrollTop)} signedDebtPx=${Math.round(args.signedDebtPx)} sourceBlocker=${args.sourceBlocker} classification=${args.classification} decision=${args.decision} actualStepPx=${Math.round(args.actualStepPx)} residualPx=${Math.round(args.residualPx)} debtPreserved=${args.debtPreserved ? 1 : 0} nextEligibleAtMs=${Math.round(args.nextEligibleAtMs)} nextEligibleWindowMs=${Math.round(args.nextEligibleWindowMs)} consumedPreservedDebt=${args.consumedPreservedDebt ? 1 : 0} overshootLockActive=${args.overshootLockActive ? 1 : 0}`,
       {
         minMs: 120,
         signature: [
@@ -42829,21 +42836,29 @@ function createAsrScrollDriver(options = {}) {
           Math.round(args.currentScrollTop / 12),
           Math.round(args.effectiveTargetScrollTop / 12),
           args.sourceBlocker,
+          args.classification,
           args.decision,
           Math.round(args.actualStepPx / 6),
           Math.round(args.residualPx / 6),
+          args.debtPreserved ? 1 : 0,
+          Math.round(args.nextEligibleWindowMs / 8),
+          args.consumedPreservedDebt ? 1 : 0,
           args.overshootLockActive ? 1 : 0
         ].join("|")
       }
     );
   };
   const applySafeForwardResidualPacing = (args) => {
+    const nowMs3 = Date.now();
+    const nextEligibleWindowMs = Math.max(1, Math.round(Math.max(Number(args.dt) || 0, 1e-3) * 1e3));
     const holdBandPx = Math.max(0, Number(args.holdBandPx) || 0);
     const boundedStepPx = Math.max(1, Math.round(Number(args.boundedStepPx) || 0));
     const safeForwardTargetDebtPx = Math.max(0, Number(args.targetScrollTop) - Number(args.currentScrollTop));
-    const eligible = Number.isFinite(args.targetScrollTop) && args.sameEpochOrFreshAdvance && args.realBlockerReason === "none";
+    const sameTargetResidualActive = safeForwardResidualTargetEpoch === visualTargetEpoch && Number.isFinite(safeForwardResidualTargetScrollTop) && Number.isFinite(args.targetScrollTop) && Math.abs(Number(safeForwardResidualTargetScrollTop) - Number(args.targetScrollTop)) <= ASR_POCKET_WALL_NOISE_DELTA_PX;
+    const eligible = Number.isFinite(args.targetScrollTop) && args.realBlockerReason === "none" && (args.sameEpochOrFreshAdvance || sameTargetResidualActive);
     const targetOutsideHoldBand = safeForwardTargetDebtPx > holdBandPx;
-    if (safeForwardResidualTargetEpoch !== visualTargetEpoch || !eligible || !Number.isFinite(args.targetScrollTop) || !targetOutsideHoldBand) {
+    const targetChanged = safeForwardResidualTargetEpoch === visualTargetEpoch && Number.isFinite(safeForwardResidualTargetScrollTop) && Number.isFinite(args.targetScrollTop) && Math.abs(Number(safeForwardResidualTargetScrollTop) - Number(args.targetScrollTop)) > ASR_POCKET_WALL_NOISE_DELTA_PX;
+    if (safeForwardResidualTargetEpoch !== visualTargetEpoch || !Number.isFinite(args.targetScrollTop) || !targetOutsideHoldBand || args.realBlockerReason !== "none" || targetChanged || !args.sameEpochOrFreshAdvance && !sameTargetResidualActive) {
       resetSafeForwardResidualDebt(visualTargetEpoch);
     }
     let requestedDeltaPx = Number(args.requestedDeltaPx || 0);
@@ -42851,12 +42866,27 @@ function createAsrScrollDriver(options = {}) {
     let move = Number(args.move || 0);
     let clampReason = String(args.clampReason || "none");
     let decision = eligible && targetOutsideHoldBand ? "hold" : args.realBlockerReason === "none" ? "hold" : "denied";
+    let classification = args.realBlockerReason !== "none" ? "true_blocker" : targetOutsideHoldBand ? "pacing_deferred" : "in_band_settle";
+    let debtPreserved = false;
+    let usedPreservedDebt = false;
     const residualPending = safeForwardResidualDebtPx > holdBandPx;
     if (eligible && targetOutsideHoldBand && (args.policySource !== "none" || residualPending)) {
       safeForwardResidualTargetEpoch = visualTargetEpoch;
       safeForwardResidualTargetScrollTop = Number(args.targetScrollTop);
       safeForwardResidualDebtPx = Math.max(safeForwardResidualDebtPx, safeForwardTargetDebtPx);
-      if (args.actuatorEligible && move <= holdBandPx && safeForwardResidualDebtPx > holdBandPx) {
+      safeForwardResidualNextEligibleAtMs = args.actuatorEligible ? nowMs3 : nowMs3 + nextEligibleWindowMs;
+      debtPreserved = safeForwardResidualDebtPx > holdBandPx;
+      if (!args.actuatorEligible) {
+        requestedDeltaPx = 0;
+        requestedPxps = 0;
+        move = 0;
+        if (clampReason === "none") clampReason = String(args.policySource || "actuator_rate_limited");
+        classification = "pacing_deferred";
+        decision = "hold";
+      } else if (move > holdBandPx) {
+        classification = "allowed_move";
+        decision = "advance";
+      } else if (safeForwardResidualDebtPx > holdBandPx) {
         const boundedResidualStepPx = Math.min(
           safeForwardTargetDebtPx,
           Math.max(boundedStepPx, Math.min(safeForwardResidualDebtPx, boundedStepPx))
@@ -42865,8 +42895,16 @@ function createAsrScrollDriver(options = {}) {
         requestedDeltaPx = Math.max(requestedDeltaPx, boundedResidualStepPx);
         requestedPxps = Math.max(requestedPxps, boundedResidualStepPx / Math.max(args.dt, 1e-3));
         if (clampReason === "none") clampReason = "safe_forward_residual";
+        safeForwardResidualNextEligibleAtMs = nowMs3;
+        classification = "allowed_move";
         decision = "advance";
+        usedPreservedDebt = true;
       } else {
+        requestedDeltaPx = 0;
+        requestedPxps = 0;
+        move = 0;
+        if (clampReason === "none") clampReason = String(args.policySource || "safe_forward_residual");
+        classification = "pacing_deferred";
         decision = "hold";
       }
     }
@@ -42878,7 +42916,12 @@ function createAsrScrollDriver(options = {}) {
       move,
       clampReason,
       residualPx: safeForwardResidualDebtPx,
-      decision
+      decision,
+      classification,
+      debtPreserved,
+      nextEligibleAtMs: safeForwardResidualNextEligibleAtMs,
+      nextEligibleWindowMs,
+      usedPreservedDebt
     };
   };
   const getSameEpochVisualDebtRecoveryBudgetPx = (lineHeightPx) => Math.max(
@@ -55058,7 +55101,7 @@ function createAsrScrollDriver(options = {}) {
       hardContradictionActive ? "contradiction" : null,
       atScrollLimit ? "scroll_limit" : null,
       sameTargetOvershootSettleLockForActuator ? "same_target_overshoot_settle_lock" : null
-    ]);
+    ], safeForwardPolicySource);
     const safeForwardHoldBandPx = getVisualTargetTolerancePx(safeResolverLineHeightPx);
     const safeForwardActuatorEligible = String(clampReason || "none") !== "actuator_rate_limited";
     const safeForwardPacingDecision = applySafeForwardResidualPacing({
@@ -56122,16 +56165,19 @@ function createAsrScrollDriver(options = {}) {
       );
     }
     let safeForwardDecision = "hold";
+    let safeForwardFinalClassification = safeForwardPacingDecision.classification;
     const safeForwardResidualPending = safeForwardResidualDebtPx > safeForwardHoldBandPx;
     if (safeForwardMaintenanceEligible && (safeForwardPolicySource !== "none" || safeForwardResidualPending)) {
       if (appliedDeltaPx > ASR_POCKET_WALL_NOISE_DELTA_PX) {
-        safeForwardResidualDebtPx = Math.max(0, safeForwardTargetDebtPx - Math.max(0, appliedDeltaPx));
-        if (safeForwardResidualDebtPx <= ASR_POCKET_WALL_NOISE_DELTA_PX) {
+        safeForwardResidualDebtPx = Number.isFinite(targetScrollTopForActuator) ? Math.max(0, Number(targetScrollTopForActuator) - afterScrollTop) : Math.max(0, safeForwardTargetDebtPx - Math.max(0, appliedDeltaPx));
+        if (safeForwardResidualDebtPx <= safeForwardHoldBandPx) {
           resetSafeForwardResidualDebt(visualTargetEpoch);
         }
         safeForwardDecision = "advance";
+        safeForwardFinalClassification = "allowed_move";
       } else {
         safeForwardDecision = "hold";
+        safeForwardFinalClassification = safeForwardPacingDecision.classification === "allowed_move" ? "pacing_deferred" : safeForwardPacingDecision.classification;
       }
       emitSafeMicroFollowDecision({
         selectedAuthority: String(lastAsrSelectedAuthority || liveTickSelectedAuthority || "hold"),
@@ -56144,7 +56190,12 @@ function createAsrScrollDriver(options = {}) {
         decision: safeForwardDecision,
         actualStepPx: Math.max(0, appliedDeltaPx),
         residualPx: safeForwardResidualDebtPx,
-        overshootLockActive: !!sameTargetOvershootSettleLockForActuator
+        overshootLockActive: !!sameTargetOvershootSettleLockForActuator,
+        classification: safeForwardFinalClassification,
+        debtPreserved: safeForwardResidualDebtPx > safeForwardHoldBandPx,
+        nextEligibleAtMs: safeForwardResidualNextEligibleAtMs,
+        nextEligibleWindowMs: safeForwardPacingDecision.nextEligibleWindowMs,
+        consumedPreservedDebt: safeForwardPacingDecision.usedPreservedDebt && appliedDeltaPx > ASR_POCKET_WALL_NOISE_DELTA_PX
       });
     } else if (Number.isFinite(targetScrollTopForActuator) && targetScrollTopForActuator > beforeScrollTop + ASR_POCKET_WALL_NOISE_DELTA_PX) {
       if (safeForwardRealBlockerReason !== "none") {
@@ -56160,7 +56211,12 @@ function createAsrScrollDriver(options = {}) {
           decision: "denied",
           actualStepPx: 0,
           residualPx: 0,
-          overshootLockActive: !!sameTargetOvershootSettleLockForActuator
+          overshootLockActive: !!sameTargetOvershootSettleLockForActuator,
+          classification: "true_blocker",
+          debtPreserved: false,
+          nextEligibleAtMs: 0,
+          nextEligibleWindowMs: safeForwardPacingDecision.nextEligibleWindowMs,
+          consumedPreservedDebt: false
         });
       } else {
         resetSafeForwardResidualDebt(visualTargetEpoch);

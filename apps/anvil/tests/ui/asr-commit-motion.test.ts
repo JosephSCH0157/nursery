@@ -555,6 +555,11 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     clampReason: string;
     residualPx: number;
     decision: 'advance' | 'hold' | 'denied';
+    classification: 'true_blocker' | 'in_band_settle' | 'pacing_deferred' | 'allowed_move';
+    debtPreserved: boolean;
+    nextEligibleAtMs: number;
+    nextEligibleWindowMs: number;
+    usedPreservedDebt: boolean;
   };
 };
 
@@ -6570,8 +6575,13 @@ describe('ASR live commit motion', () => {
       actuatorEligible: false,
     });
     expect(held.decision).toBe('hold');
+    expect(held.classification).toBe('pacing_deferred');
     expect(held.move).toBe(0);
+    expect(held.requestedDeltaPx).toBe(0);
     expect(held.residualPx).toBe(42);
+    expect(held.debtPreserved).toBe(true);
+    expect(held.nextEligibleWindowMs).toBeGreaterThan(0);
+    expect(held.nextEligibleAtMs).toBeGreaterThan(0);
     driver.dispose();
   });
 
@@ -6590,6 +6600,7 @@ describe('ASR live commit motion', () => {
       actuatorEligible: false,
     });
     expect(held.decision).toBe('hold');
+    expect(held.classification).toBe('pacing_deferred');
     const released = driver.__debugResolveSafeForwardResidualPacing({
       currentScrollTop: 200,
       targetScrollTop: 242,
@@ -6603,20 +6614,37 @@ describe('ASR live commit motion', () => {
       actuatorEligible: true,
     });
     expect(released.decision).toBe('advance');
+    expect(released.classification).toBe('allowed_move');
     expect(released.move).toBe(6);
     expect(released.requestedDeltaPx).toBe(6);
+    expect(released.usedPreservedDebt).toBe(true);
     driver.dispose();
   });
 
-  test('safe debt of 33px to 45px progresses calmly through bounded normal writes', () => {
+  test('33px, 45px, and 90px safe marker debt outside hold band cannot remain repeated no-op holds', () => {
     const driver = createAsrScrollDriver() as DebugAsrDriver;
-    for (const target of [233, 245]) {
+    for (const target of [233, 245, 290]) {
+      const held = driver.__debugResolveSafeForwardResidualPacing({
+        currentScrollTop: 200,
+        targetScrollTop: target,
+        requestedDeltaPx: 0,
+        selectedAuthority: 'track_follow',
+        policySource: 'actuator_rate_limited',
+        realBlockerReason: 'none',
+        sameEpochOrFreshAdvance: true,
+        holdBandPx: 12,
+        boundedStepPx: 6,
+        actuatorEligible: false,
+      });
+      expect(held.decision).toBe('hold');
+      expect(held.move).toBe(0);
+      expect(held.residualPx).toBe(target - 200);
       const result = driver.__debugResolveSafeForwardResidualPacing({
         currentScrollTop: 200,
         targetScrollTop: target,
         requestedDeltaPx: 0,
         selectedAuthority: 'track_follow',
-        policySource: 'target_preserved_but_not_closing',
+        policySource: 'none',
         realBlockerReason: 'none',
         sameEpochOrFreshAdvance: true,
         holdBandPx: 12,
@@ -6624,9 +6652,31 @@ describe('ASR live commit motion', () => {
         actuatorEligible: true,
       });
       expect(result.decision).toBe('advance');
+      expect(result.classification).toBe('allowed_move');
       expect(result.move).toBe(6);
       expect(target - (200 + result.move)).toBeLessThan(target - 200);
     }
+    driver.dispose();
+  });
+
+  test('min_step_floor preserves debt and advances on the next eligible normal actuator opportunity', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const result = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 245,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'track_follow',
+      policySource: 'min_step_floor',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: true,
+    });
+    expect(result.decision).toBe('advance');
+    expect(result.classification).toBe('allowed_move');
+    expect(result.move).toBe(6);
+    expect(result.usedPreservedDebt).toBe(true);
     driver.dispose();
   });
 
@@ -6709,6 +6759,40 @@ describe('ASR live commit motion', () => {
       priorDistance = nextDistance;
       if (advanced >= target) break;
     }
+    driver.dispose();
+  });
+
+  test('a new semantic target supersedes old residual debt cleanly', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const first = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 245,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'track_follow',
+      policySource: 'actuator_rate_limited',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: false,
+    });
+    expect(first.residualPx).toBe(45);
+    const second = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 290,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'track_follow',
+      policySource: 'target_preserved_but_not_closing',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: true,
+    });
+    expect(second.decision).toBe('advance');
+    expect(second.safeForwardTargetDebtPx).toBe(90);
+    expect(second.residualPx).toBe(90);
+    expect(second.move).toBe(6);
     driver.dispose();
   });
 
