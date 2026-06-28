@@ -4221,18 +4221,38 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     });
     const targetSafetyReferenceLineIdx = readerMarkerCorrectionSafeTargetContext.targetSafetyReferenceLineIdx;
     const targetSafetyReferenceSource = readerMarkerCorrectionSafeTargetContext.targetSafetyReferenceSource;
+    const acceptedMarkerMaintenanceCandidate =
+      lastAsrNormalMarkerFollowOwnsTarget &&
+      committedLineIdx === currentLineIdx &&
+      nextSpeakableLineIdx === currentLineIdx &&
+      proposedTop > currentTop + ASR_POCKET_WALL_NOISE_DELTA_PX;
+    const acceptedMarkerMaintenanceActive =
+      acceptedMarkerMaintenanceCandidate &&
+      commitCount >= 2 &&
+      (
+        normalizedAuthorityReason === 'no_safe_allowed_target' ||
+        (
+          isStandardAsrProfile() &&
+          activeAsrControllerProfile.suppressVisualReleaseWithoutFreshProof &&
+          ASR_STANDARD_VISUAL_RELEASE_AUTHORITIES.has(normalizedSourceAuthority) &&
+          !hasFreshVerifiedForwardCommit &&
+          sameLineVisualCorrection
+        )
+      );
     const noSafeTargetForwardLocked =
       (
         allowedTargetIdx === -1 ||
         normalizedAuthorityReason === 'no_safe_allowed_target'
       ) &&
-      !readerMarkerCorrectionSafeTargetContext.boundedVisualCatchupEligible;
+      !readerMarkerCorrectionSafeTargetContext.boundedVisualCatchupEligible &&
+      !acceptedMarkerMaintenanceActive;
     const standardVisualReleaseSuppressed =
       isStandardAsrProfile() &&
       activeAsrControllerProfile.suppressVisualReleaseWithoutFreshProof &&
       ASR_STANDARD_VISUAL_RELEASE_AUTHORITIES.has(normalizedSourceAuthority) &&
       !hasFreshVerifiedForwardCommit &&
-      sameLineVisualCorrection;
+      sameLineVisualCorrection &&
+      !acceptedMarkerMaintenanceActive;
     const targetSafetyReferenceLineEl = getLineElementByIndex(input.scroller, targetSafetyReferenceLineIdx);
     const effectiveTargetSafetyLineEl =
       targetSafetyReferenceLineEl ||
@@ -4410,6 +4430,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       pocketBottom,
       tolerancePx,
       sourceAuthority: input.sourceAuthority || sourceAuthority,
+      maintenanceMode: (acceptedMarkerMaintenanceActive ? 'accepted_marker_maintenance' : 'speculative_forward') as
+        'accepted_marker_maintenance' | 'speculative_forward',
       proposedTopSource,
       targetSafetyReferenceLineIdx,
       targetSafetyReferenceSource,
@@ -8770,6 +8792,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let safeForwardResidualTargetEpoch = visualTargetEpoch;
   let safeForwardResidualTargetScrollTop = Number.NaN;
   let safeForwardResidualDebtPx = 0;
+  let safeForwardResidualTargetLineIdx = -1;
+  let safeForwardResidualOwner = 'none';
+  let safeForwardResidualOriginalDeadlineAtMs = 0;
   let readerMarkerCorrectionHysteresisActive = false;
   let readerMarkerCorrectionHysteresisEpoch = semanticEpoch;
   let lastAsrMarkerCorrectionHoldBandPx = Number.NaN;
@@ -8825,6 +8850,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     safeForwardResidualTargetEpoch = nextEpoch;
     safeForwardResidualTargetScrollTop = Number.NaN;
     safeForwardResidualDebtPx = 0;
+    safeForwardResidualTargetLineIdx = -1;
+    safeForwardResidualOwner = 'none';
+    safeForwardResidualOriginalDeadlineAtMs = 0;
     safeForwardResidualNextEligibleAtMs = 0;
   };
   const isSafeForwardPolicyReason = (reason: string | null | undefined): boolean => {
@@ -8945,9 +8973,45 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       },
     );
   };
+  const emitSafeForwardResidualLifecycle = (args: {
+    event: 'debtScheduleCreated' | 'debtScheduleReused' | 'debtScheduleMatured' | 'debtConsumed';
+    owner: string;
+    targetEpoch: number;
+    targetLineIdx: number;
+    maintenanceMode: 'speculative_forward' | 'accepted_marker_maintenance';
+    currentScrollTop: number;
+    targetScrollTop: number;
+    residualPx: number;
+    originalDeadlineAtMs: number;
+    nextEligibleAtMs: number;
+    nowMs: number;
+    actualStepPx?: number;
+  }) => {
+    emitDevDiagnostic(
+      'ASR_SAFE_FORWARD_RESIDUAL_LIFECYCLE',
+      args.event === 'debtConsumed' ? 'warn' : 'info',
+      `[ASR_SAFE_FORWARD_RESIDUAL_LIFECYCLE] event=${args.event} owner=${args.owner} targetEpoch=${args.targetEpoch} targetLineIdx=${args.targetLineIdx} maintenanceMode=${args.maintenanceMode} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} residualPx=${Math.round(args.residualPx)} originalDeadlineAtMs=${Math.round(args.originalDeadlineAtMs)} nextEligibleAtMs=${Math.round(args.nextEligibleAtMs)} nowMs=${Math.round(args.nowMs)} actualStepPx=${Math.round(args.actualStepPx || 0)}`,
+      {
+        minMs: 0,
+        signature: [
+          args.event,
+          args.owner,
+          args.targetEpoch,
+          args.targetLineIdx,
+          args.maintenanceMode,
+          Math.round(args.targetScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+          Math.round(args.residualPx / 6),
+          Math.round(args.nextEligibleAtMs / 8),
+          Math.round(args.nowMs / 8),
+          Math.round((args.actualStepPx || 0) / 6),
+        ].join('|'),
+      },
+    );
+  };
   const applySafeForwardResidualPacing = (args: {
     currentScrollTop: number;
     targetScrollTop: number;
+    targetLineIdx: number;
     requestedDeltaPx: number;
     requestedPxps: number;
     move: number;
@@ -8961,33 +9025,48 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     holdBandPx: number;
     boundedStepPx: number;
     actuatorEligible: boolean;
+    maintenanceMode: 'speculative_forward' | 'accepted_marker_maintenance';
   }) => {
     const nowMs = Date.now();
     const nextEligibleWindowMs = Math.max(1, Math.round(Math.max(Number(args.dt) || 0, 0.001) * 1000));
     const holdBandPx = Math.max(0, Number(args.holdBandPx) || 0);
     const boundedStepPx = Math.max(1, Math.round(Number(args.boundedStepPx) || 0));
+    const targetIdentityTolerancePx = Math.max(2, ASR_POCKET_WALL_NOISE_DELTA_PX);
     const safeForwardTargetDebtPx = Math.max(0, Number(args.targetScrollTop) - Number(args.currentScrollTop));
-    const sameTargetResidualActive =
+    const targetLineIdx = Number.isFinite(args.targetLineIdx) ? Math.max(0, Math.floor(args.targetLineIdx)) : -1;
+    const selectedOwner = String(args.selectedAuthority || 'none');
+    const sameTargetIdentity =
       safeForwardResidualTargetEpoch === visualTargetEpoch &&
+      safeForwardResidualTargetLineIdx === targetLineIdx &&
+      safeForwardResidualOwner === selectedOwner;
+    const sameTargetResidualActive =
+      sameTargetIdentity &&
       Number.isFinite(safeForwardResidualTargetScrollTop) &&
       Number.isFinite(args.targetScrollTop) &&
-      Math.abs(Number(safeForwardResidualTargetScrollTop) - Number(args.targetScrollTop)) <= ASR_POCKET_WALL_NOISE_DELTA_PX;
+      Math.abs(Number(safeForwardResidualTargetScrollTop) - Number(args.targetScrollTop)) <= targetIdentityTolerancePx;
     const eligible =
       Number.isFinite(args.targetScrollTop) &&
       args.realBlockerReason === 'none' &&
       (args.sameEpochOrFreshAdvance || sameTargetResidualActive);
     const targetOutsideHoldBand = safeForwardTargetDebtPx > holdBandPx;
     const targetChanged =
-      safeForwardResidualTargetEpoch === visualTargetEpoch &&
+      sameTargetIdentity &&
       Number.isFinite(safeForwardResidualTargetScrollTop) &&
       Number.isFinite(args.targetScrollTop) &&
-      Math.abs(Number(safeForwardResidualTargetScrollTop) - Number(args.targetScrollTop)) > ASR_POCKET_WALL_NOISE_DELTA_PX;
+      Math.abs(Number(safeForwardResidualTargetScrollTop) - Number(args.targetScrollTop)) > targetIdentityTolerancePx;
+    const materiallyDifferentTargetIdentity =
+      safeForwardResidualTargetEpoch === visualTargetEpoch &&
+      (
+        safeForwardResidualTargetLineIdx !== targetLineIdx ||
+        safeForwardResidualOwner !== selectedOwner ||
+        targetChanged
+      );
     if (
       safeForwardResidualTargetEpoch !== visualTargetEpoch ||
       !Number.isFinite(args.targetScrollTop) ||
       !targetOutsideHoldBand ||
       args.realBlockerReason !== 'none' ||
-      targetChanged ||
+      materiallyDifferentTargetIdentity ||
       (!args.sameEpochOrFreshAdvance && !sameTargetResidualActive)
     ) {
       resetSafeForwardResidualDebt(visualTargetEpoch);
@@ -9006,13 +9085,49 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         : (targetOutsideHoldBand ? 'pacing_deferred' : 'in_band_settle');
     let debtPreserved = false;
     let usedPreservedDebt = false;
+    let scheduleCreated = false;
+    let scheduleReused = false;
+    let scheduleMatured = false;
     const residualPending = safeForwardResidualDebtPx > holdBandPx;
-    if (eligible && targetOutsideHoldBand && (args.policySource !== 'none' || residualPending)) {
-      safeForwardResidualTargetEpoch = visualTargetEpoch;
+    const explicitResidualPolicy =
+      args.policySource === 'min_step_floor' ||
+      args.policySource === 'below_min_delta' ||
+      args.policySource === 'target_preserved_but_not_closing';
+    const shouldTrackResidual =
+      residualPending ||
+      explicitResidualPolicy ||
+      !args.actuatorEligible ||
+      args.maintenanceMode === 'accepted_marker_maintenance';
+    if (eligible && targetOutsideHoldBand && shouldTrackResidual && (args.policySource !== 'none' || residualPending)) {
+      scheduleReused =
+        sameTargetIdentity &&
+        safeForwardResidualDebtPx > holdBandPx &&
+        Number.isFinite(safeForwardResidualTargetScrollTop);
+      if (!scheduleReused) {
+        safeForwardResidualTargetEpoch = visualTargetEpoch;
+        safeForwardResidualTargetLineIdx = targetLineIdx;
+        safeForwardResidualOwner = selectedOwner;
+        safeForwardResidualOriginalDeadlineAtMs = 0;
+        scheduleCreated = true;
+      }
       safeForwardResidualTargetScrollTop = Number(args.targetScrollTop);
       safeForwardResidualDebtPx = Math.max(safeForwardResidualDebtPx, safeForwardTargetDebtPx);
-      safeForwardResidualNextEligibleAtMs = args.actuatorEligible ? nowMs : (nowMs + nextEligibleWindowMs);
+      if (!args.actuatorEligible) {
+        if (!(safeForwardResidualNextEligibleAtMs > 0)) {
+          safeForwardResidualNextEligibleAtMs = nowMs + nextEligibleWindowMs;
+          safeForwardResidualOriginalDeadlineAtMs = safeForwardResidualNextEligibleAtMs;
+        }
+      } else if (safeForwardResidualNextEligibleAtMs <= 0) {
+        safeForwardResidualNextEligibleAtMs = nowMs;
+        if (!(safeForwardResidualOriginalDeadlineAtMs > 0)) {
+          safeForwardResidualOriginalDeadlineAtMs = safeForwardResidualNextEligibleAtMs;
+        }
+      }
       debtPreserved = safeForwardResidualDebtPx > holdBandPx;
+      scheduleMatured =
+        debtPreserved &&
+        safeForwardResidualNextEligibleAtMs > 0 &&
+        nowMs >= safeForwardResidualNextEligibleAtMs;
       if (!args.actuatorEligible) {
         requestedDeltaPx = 0;
         requestedPxps = 0;
@@ -9023,7 +9138,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       } else if (move > holdBandPx) {
         classification = 'allowed_move';
         decision = 'advance';
-      } else if (safeForwardResidualDebtPx > holdBandPx) {
+      } else if (scheduleMatured && safeForwardResidualDebtPx > holdBandPx) {
         const boundedResidualStepPx = Math.min(
           safeForwardTargetDebtPx,
           Math.max(boundedStepPx, Math.min(safeForwardResidualDebtPx, boundedStepPx)),
@@ -9032,7 +9147,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         requestedDeltaPx = Math.max(requestedDeltaPx, boundedResidualStepPx);
         requestedPxps = Math.max(requestedPxps, boundedResidualStepPx / Math.max(args.dt, 0.001));
         if (clampReason === 'none') clampReason = 'safe_forward_residual';
-        safeForwardResidualNextEligibleAtMs = nowMs;
         classification = 'allowed_move';
         decision = 'advance';
         usedPreservedDebt = true;
@@ -9056,6 +9170,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       decision,
       classification,
       debtPreserved,
+      scheduleCreated,
+      scheduleReused,
+      scheduleMatured,
+      originalDeadlineAtMs: safeForwardResidualOriginalDeadlineAtMs,
       nextEligibleAtMs: safeForwardResidualNextEligibleAtMs,
       nextEligibleWindowMs,
       usedPreservedDebt,
@@ -24749,6 +24867,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       Number.isFinite(targetScrollTopForActuator)
         ? Math.max(0, targetScrollTopForActuator - beforeScrollTop)
         : 0;
+    const acceptedMarkerMaintenanceActive =
+      liveAsrFollowMode &&
+      commitCount >= 2 &&
+      lastAsrNormalMarkerFollowOwnsTarget &&
+      committedLineIdxForActuator === lastLineIndex &&
+      nextSpeakableLineIdxForActuator === lastLineIndex &&
+      safeForwardTargetDebtPx > getVisualTargetTolerancePx(safeResolverLineHeightPx) &&
+      !sameTargetOvershootSettleLockForActuator &&
+      (
+        safeForwardPolicySource !== 'none' ||
+        safeForwardResidualDebtPx > getVisualTargetTolerancePx(safeResolverLineHeightPx)
+      );
     const safeForwardSameEpochOrFreshAdvance =
       (
         nextSpeakableLineIdxForActuator >= lastLineIndex &&
@@ -24855,12 +24985,61 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       holdBandPx: safeForwardHoldBandPx,
       boundedStepPx: Math.max(1, effectiveMinStepPx),
       actuatorEligible: safeForwardActuatorEligible,
+      targetLineIdx: nextSpeakableLineIdxForActuator,
+      maintenanceMode: acceptedMarkerMaintenanceActive ? 'accepted_marker_maintenance' : 'speculative_forward',
     });
     requestedDeltaPx = safeForwardPacingDecision.requestedDeltaPx;
     requestedPxps = safeForwardPacingDecision.requestedPxps;
     move = safeForwardPacingDecision.move;
     clampReason = safeForwardPacingDecision.clampReason;
     const safeForwardMaintenanceEligible = safeForwardPacingDecision.eligible;
+    const safeForwardLifecycleOwner = String(lastAsrSelectedAuthority || liveTickSelectedAuthority || 'hold');
+    const safeForwardLifecycleTargetTop =
+      Number.isFinite(targetScrollTopForActuator) ? Number(targetScrollTopForActuator) : beforeScrollTop;
+    if (safeForwardPacingDecision.scheduleCreated) {
+      emitSafeForwardResidualLifecycle({
+        event: 'debtScheduleCreated',
+        owner: safeForwardLifecycleOwner,
+        targetEpoch: visualTargetEpoch,
+        targetLineIdx: nextSpeakableLineIdxForActuator,
+        maintenanceMode: acceptedMarkerMaintenanceActive ? 'accepted_marker_maintenance' : 'speculative_forward',
+        currentScrollTop: beforeScrollTop,
+        targetScrollTop: safeForwardLifecycleTargetTop,
+        residualPx: safeForwardPacingDecision.residualPx,
+        originalDeadlineAtMs: safeForwardPacingDecision.originalDeadlineAtMs,
+        nextEligibleAtMs: safeForwardPacingDecision.nextEligibleAtMs,
+        nowMs: Date.now(),
+      });
+    } else if (safeForwardPacingDecision.scheduleReused) {
+      emitSafeForwardResidualLifecycle({
+        event: 'debtScheduleReused',
+        owner: safeForwardLifecycleOwner,
+        targetEpoch: visualTargetEpoch,
+        targetLineIdx: nextSpeakableLineIdxForActuator,
+        maintenanceMode: acceptedMarkerMaintenanceActive ? 'accepted_marker_maintenance' : 'speculative_forward',
+        currentScrollTop: beforeScrollTop,
+        targetScrollTop: safeForwardLifecycleTargetTop,
+        residualPx: safeForwardPacingDecision.residualPx,
+        originalDeadlineAtMs: safeForwardPacingDecision.originalDeadlineAtMs,
+        nextEligibleAtMs: safeForwardPacingDecision.nextEligibleAtMs,
+        nowMs: Date.now(),
+      });
+    }
+    if (safeForwardPacingDecision.scheduleMatured) {
+      emitSafeForwardResidualLifecycle({
+        event: 'debtScheduleMatured',
+        owner: safeForwardLifecycleOwner,
+        targetEpoch: visualTargetEpoch,
+        targetLineIdx: nextSpeakableLineIdxForActuator,
+        maintenanceMode: acceptedMarkerMaintenanceActive ? 'accepted_marker_maintenance' : 'speculative_forward',
+        currentScrollTop: beforeScrollTop,
+        targetScrollTop: safeForwardLifecycleTargetTop,
+        residualPx: safeForwardPacingDecision.residualPx,
+        originalDeadlineAtMs: safeForwardPacingDecision.originalDeadlineAtMs,
+        nextEligibleAtMs: safeForwardPacingDecision.nextEligibleAtMs,
+        nowMs: Date.now(),
+      });
+    }
     if (activeFocusMovementHold) {
       requestedDeltaPx = 0;
       requestedPxps = 0;
@@ -26373,6 +26552,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
         safeForwardDecision = 'advance';
         safeForwardFinalClassification = 'allowed_move';
+        if (safeForwardPacingDecision.usedPreservedDebt) {
+          emitSafeForwardResidualLifecycle({
+            event: 'debtConsumed',
+            owner: safeForwardLifecycleOwner,
+            targetEpoch: visualTargetEpoch,
+            targetLineIdx: nextSpeakableLineIdxForActuator,
+            maintenanceMode: acceptedMarkerMaintenanceActive ? 'accepted_marker_maintenance' : 'speculative_forward',
+            currentScrollTop: beforeScrollTop,
+            targetScrollTop: Number.isFinite(targetScrollTopForActuator) ? Number(targetScrollTopForActuator) : afterScrollTop,
+            residualPx: safeForwardResidualDebtPx,
+            originalDeadlineAtMs: safeForwardPacingDecision.originalDeadlineAtMs,
+            nextEligibleAtMs: safeForwardPacingDecision.nextEligibleAtMs,
+            nowMs: Date.now(),
+            actualStepPx: appliedDeltaPx,
+          });
+        }
       } else {
         safeForwardDecision = 'hold';
         safeForwardFinalClassification =
@@ -45561,6 +45756,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const debugResolveSafeForwardResidualPacing = (args: {
     currentScrollTop: number;
     targetScrollTop: number;
+    targetLineIdx?: number;
     requestedDeltaPx: number;
     requestedPxps?: number;
     move?: number;
@@ -45574,9 +45770,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     holdBandPx?: number;
     boundedStepPx?: number;
     actuatorEligible?: boolean;
+    maintenanceMode?: 'speculative_forward' | 'accepted_marker_maintenance';
   }) => applySafeForwardResidualPacing({
     currentScrollTop: Number(args.currentScrollTop || 0),
     targetScrollTop: Number(args.targetScrollTop || 0),
+    targetLineIdx: Number.isFinite(args.targetLineIdx as number) ? Number(args.targetLineIdx) : 0,
     requestedDeltaPx: Number(args.requestedDeltaPx || 0),
     requestedPxps: Number.isFinite(args.requestedPxps as number) ? Number(args.requestedPxps) : Number(args.requestedDeltaPx || 0),
     move: Number.isFinite(args.move as number) ? Number(args.move) : Number(args.requestedDeltaPx || 0),
@@ -45590,6 +45788,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     holdBandPx: Number.isFinite(args.holdBandPx as number) ? Number(args.holdBandPx) : 12,
     boundedStepPx: Number.isFinite(args.boundedStepPx as number) ? Number(args.boundedStepPx) : DEFAULT_MIN_STEP_PX,
     actuatorEligible: args.actuatorEligible !== false,
+    maintenanceMode: args.maintenanceMode === 'accepted_marker_maintenance' ? 'accepted_marker_maintenance' : 'speculative_forward',
   });
   const debugEvaluateForwardCommitFreshness = (args: {
     currentLineIdx: number;
@@ -46139,6 +46338,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     contradiction?: boolean;
     bridgeContextActive?: boolean;
     matchedMarkerErrorPx?: number | null;
+    normalMarkerFollowOwnsTarget?: boolean;
   }) => {
     const scroller = getScroller();
     if (!scroller) {
@@ -46164,6 +46364,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       preservedAsrAuthorityTargetReason,
       preservedAsrAuthorityTargetSourcePath,
       lastAsrMatchedMarkerErrorPx,
+      lastAsrNormalMarkerFollowOwnsTarget,
+      commitCount,
     };
     asrSilenceActive = args.silenceActive === true;
     if (args.finalFresh === false) lastFinalTranscriptAt = 0;
@@ -46207,6 +46409,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     preservedAsrAuthorityTargetSourcePath = args.bridgeContextActive ? 'bridge_lifecycle_debug' : '';
     if (Number.isFinite(args.matchedMarkerErrorPx as number)) {
       lastAsrMatchedMarkerErrorPx = Number(args.matchedMarkerErrorPx);
+    }
+    if (typeof args.normalMarkerFollowOwnsTarget === 'boolean') {
+      lastAsrNormalMarkerFollowOwnsTarget = args.normalMarkerFollowOwnsTarget;
+      if (args.normalMarkerFollowOwnsTarget) {
+        commitCount = Math.max(commitCount, 2);
+      }
     }
     if (args.armPostFloorProtection) {
       armPostFloorProtectedFollow({
@@ -46279,6 +46487,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         pocketBottom: 0,
         tolerancePx: 0,
         sourceAuthority: args.sourceAuthority,
+        maintenanceMode: lastAsrNormalMarkerFollowOwnsTarget ? 'accepted_marker_maintenance' : 'speculative_forward',
         proposedTopSource,
       }),
       proposedTopUsed,
@@ -46302,6 +46511,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     preservedAsrAuthorityTargetReason = previousState.preservedAsrAuthorityTargetReason;
     preservedAsrAuthorityTargetSourcePath = previousState.preservedAsrAuthorityTargetSourcePath;
     lastAsrMatchedMarkerErrorPx = previousState.lastAsrMatchedMarkerErrorPx;
+    lastAsrNormalMarkerFollowOwnsTarget = previousState.lastAsrNormalMarkerFollowOwnsTarget;
+    commitCount = previousState.commitCount;
     return result;
   };
   const debugEvaluateAsrVisualDeadlockEscape = (args: {
@@ -47279,6 +47490,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     __debugResolveSafeForwardResidualPacing(args: {
       currentScrollTop: number;
       targetScrollTop: number;
+      targetLineIdx?: number;
       requestedDeltaPx: number;
       requestedPxps?: number;
       move?: number;
@@ -47292,6 +47504,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       holdBandPx?: number;
       boundedStepPx?: number;
       actuatorEligible?: boolean;
+      maintenanceMode?: 'speculative_forward' | 'accepted_marker_maintenance';
     }): {
       eligible: boolean;
       safeForwardTargetDebtPx: number;
@@ -47303,6 +47516,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       decision: 'advance' | 'hold' | 'denied';
       classification: 'true_blocker' | 'in_band_settle' | 'pacing_deferred' | 'allowed_move';
       debtPreserved: boolean;
+      scheduleCreated: boolean;
+      scheduleReused: boolean;
+      scheduleMatured: boolean;
+      originalDeadlineAtMs: number;
       nextEligibleAtMs: number;
       nextEligibleWindowMs: number;
       usedPreservedDebt: boolean;
@@ -47649,6 +47866,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       contradiction?: boolean;
       bridgeContextActive?: boolean;
       matchedMarkerErrorPx?: number | null;
+      normalMarkerFollowOwnsTarget?: boolean;
     }): {
       effectiveTop: number;
       reason: string;

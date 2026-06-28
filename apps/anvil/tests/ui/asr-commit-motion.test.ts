@@ -359,6 +359,7 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     contradiction?: boolean;
     bridgeContextActive?: boolean;
     matchedMarkerErrorPx?: number | null;
+    normalMarkerFollowOwnsTarget?: boolean;
   }) => {
     effectiveTop: number;
     reason: string;
@@ -533,6 +534,7 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
   __debugResolveSafeForwardResidualPacing: (args: {
     currentScrollTop: number;
     targetScrollTop: number;
+    targetLineIdx?: number;
     requestedDeltaPx: number;
     requestedPxps?: number;
     move?: number;
@@ -546,6 +548,7 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     holdBandPx?: number;
     boundedStepPx?: number;
     actuatorEligible?: boolean;
+    maintenanceMode?: 'speculative_forward' | 'accepted_marker_maintenance';
   }) => {
     eligible: boolean;
     safeForwardTargetDebtPx: number;
@@ -557,6 +560,10 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     decision: 'advance' | 'hold' | 'denied';
     classification: 'true_blocker' | 'in_band_settle' | 'pacing_deferred' | 'allowed_move';
     debtPreserved: boolean;
+    scheduleCreated: boolean;
+    scheduleReused: boolean;
+    scheduleMatured: boolean;
+    originalDeadlineAtMs: number;
     nextEligibleAtMs: number;
     nextEligibleWindowMs: number;
     usedPreservedDebt: boolean;
@@ -6601,6 +6608,7 @@ describe('ASR live commit motion', () => {
     });
     expect(held.decision).toBe('hold');
     expect(held.classification).toBe('pacing_deferred');
+    jest.advanceTimersByTime(25);
     const released = driver.__debugResolveSafeForwardResidualPacing({
       currentScrollTop: 200,
       targetScrollTop: 242,
@@ -6639,6 +6647,7 @@ describe('ASR live commit motion', () => {
       expect(held.decision).toBe('hold');
       expect(held.move).toBe(0);
       expect(held.residualPx).toBe(target - 200);
+      jest.advanceTimersByTime(25);
       const result = driver.__debugResolveSafeForwardResidualPacing({
         currentScrollTop: 200,
         targetScrollTop: target,
@@ -6656,6 +6665,129 @@ describe('ASR live commit motion', () => {
       expect(result.move).toBe(6);
       expect(target - (200 + result.move)).toBeLessThan(target - 200);
     }
+    driver.dispose();
+  });
+
+  test('microscopic target churn reuses preserved debt and keeps the original deadline stable', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const first = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 245,
+      targetLineIdx: 7,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'track_follow',
+      policySource: 'actuator_rate_limited',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: false,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    const second = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 246,
+      targetLineIdx: 7,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'track_follow',
+      policySource: 'actuator_rate_limited',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: false,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    expect(first.scheduleCreated).toBe(true);
+    expect(second.scheduleCreated).toBe(false);
+    expect(second.scheduleReused).toBe(true);
+    expect(second.nextEligibleAtMs).toBe(first.nextEligibleAtMs);
+    expect(second.originalDeadlineAtMs).toBe(first.originalDeadlineAtMs);
+    expect(second.residualPx).toBe(46);
+    driver.dispose();
+  });
+
+  test('a matured preserved-debt schedule is not re-armed by another arbitration frame before the write chance', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const first = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 245,
+      targetLineIdx: 7,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'track_follow',
+      policySource: 'actuator_rate_limited',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: false,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    jest.advanceTimersByTime(25);
+    const maturedHold = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 245,
+      targetLineIdx: 7,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'track_follow',
+      policySource: 'actuator_rate_limited',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: false,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    const released = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 245,
+      targetLineIdx: 7,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'track_follow',
+      policySource: 'none',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: true,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    expect(maturedHold.scheduleMatured).toBe(true);
+    expect(maturedHold.nextEligibleAtMs).toBe(first.nextEligibleAtMs);
+    expect(maturedHold.originalDeadlineAtMs).toBe(first.originalDeadlineAtMs);
+    expect(released.scheduleMatured).toBe(true);
+    expect(released.nextEligibleAtMs).toBe(first.nextEligibleAtMs);
+    expect(released.originalDeadlineAtMs).toBe(first.originalDeadlineAtMs);
+    expect(released.decision).toBe('advance');
+    expect(released.usedPreservedDebt).toBe(true);
+    expect(released.move).toBe(6);
+    driver.dispose();
+  });
+
+  test('accepted marker maintenance does not classify pocket-wall evaluation as speculative forward suppression', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const result = driver.__debugEvaluateAsrPocketWall({
+      currentTop: 200,
+      proposedTop: 245,
+      targetScrollTop: 245,
+      currentLineIdx: 5,
+      committedLineIdx: 5,
+      nextSpeakableLineIdx: 5,
+      allowedTargetIdx: -1,
+      selectedAuthority: 'track_follow',
+      authorityReason: 'no_safe_allowed_target',
+      candidateLineIdx: 5,
+      sourceAuthority: 'live_follow_target',
+      speechFresh: true,
+      finalFresh: true,
+      noMatchOrOffscript: false,
+      contradiction: false,
+      normalMarkerFollowOwnsTarget: true,
+      matchedMarkerErrorPx: 45,
+    });
+    expect(result.diagnostic).toContain('maintenanceMode=accepted_marker_maintenance');
+    expect(result.reason).not.toBe('no_safe_target_forward_suppressed');
+    expect(result.reason).not.toBe('standard_visual_release_suppressed');
     driver.dispose();
   });
 
@@ -6699,6 +6831,7 @@ describe('ASR live commit motion', () => {
     });
     expect(stored.decision).toBe('hold');
     for (let i = 0; i < 5; i += 1) {
+      jest.advanceTimersByTime(25);
       const result = driver.__debugResolveSafeForwardResidualPacing({
         currentScrollTop: before,
         targetScrollTop: target,
@@ -6739,6 +6872,7 @@ describe('ASR live commit motion', () => {
       actuatorEligible: false,
     });
     for (let i = 0; i < 4; i += 1) {
+      jest.advanceTimersByTime(25);
       const result = driver.__debugResolveSafeForwardResidualPacing({
         currentScrollTop: before,
         targetScrollTop: target,
