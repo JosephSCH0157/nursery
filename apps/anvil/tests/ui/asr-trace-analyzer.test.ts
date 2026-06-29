@@ -80,7 +80,7 @@ describe('ASR trace analyzer comparison mode', () => {
     expect(summary.proposedAdjacentCommitCount).toBe(3);
     expect(summary.everyProposedCommitMonotonicAndBounded).toBe(true);
     expect(summary.anyAdvanceOverOne).toBe(false);
-    expect(summary.steps.every((item, index) => {
+    expect(summary.steps.every((item, _index) => {
       if (item.proposedAdjacentCommitTarget == null) return true;
       return item.proposedAdjacentCommitTarget === item.previousStableCursorIdx + 1;
     })).toBe(true);

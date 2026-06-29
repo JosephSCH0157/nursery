@@ -3114,7 +3114,6 @@ function enrichTranscriptPayloadForAsr(payload: TranscriptPayload): TranscriptPa
     };
   }
   (next as { forwardSupportRequestSeqs?: number[] | null }).forwardSupportRequestSeqs = forwardSupportSeqs;
-  const lineageSeqs = forwardSupportSeqs.length ? forwardSupportSeqs : (supportingRawSeqs.length ? supportingRawSeqs : sourceRequestSeqs);
   const assemblyDivergedFromRaw =
     !rawAndAssembledEquivalent &&
     assembledMatchIndex != null &&
@@ -4916,7 +4915,6 @@ function ensureAsrDriverLifecycleHooks(): void {
   window.addEventListener('tp:render:done', onScriptRendered, TRANSCRIPT_EVENT_OPTIONS);
   const initialMode = String(getScrollMode() || '').toLowerCase();
   const session = getSession();
-  const initialPhase = String(session.phase || '').toLowerCase();
   const allowBootstrapCreate = shouldAllowAsrDriverCreateAttempt(initialMode, session);
   if (allowBootstrapCreate || !!asrScrollDriver) {
     attachAsrScrollDriver({ reason: 'bootstrap', mode: initialMode, allowCreate: allowBootstrapCreate });

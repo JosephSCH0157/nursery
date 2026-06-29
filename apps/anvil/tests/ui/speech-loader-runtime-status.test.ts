@@ -274,15 +274,11 @@ describe('speech loader runtime status', () => {
       })),
     }));
 
-    let recognizerInstance: MockSpeechRecognition | null = null;
     class MockSpeechRecognition {
       continuous = false;
       interimResults = false;
       lang = 'en-US';
       onstart: ((ev: Event) => void) | null = null;
-      constructor() {
-        recognizerInstance = this;
-      }
       start = jest.fn(() => {
         this.onstart?.(new Event('start'));
       });
@@ -437,15 +433,11 @@ describe('speech loader runtime status', () => {
       })),
     }));
 
-    let recognizerInstance: any = null;
     class MockSpeechRecognition {
       continuous = false;
       interimResults = false;
       lang = 'en-US';
       onstart: ((ev: Event) => void) | null = null;
-      constructor() {
-        recognizerInstance = this;
-      }
       start = jest.fn(() => {
         this.onstart?.(new Event('start'));
       });

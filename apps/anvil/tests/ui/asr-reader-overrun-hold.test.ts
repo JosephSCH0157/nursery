@@ -327,14 +327,8 @@ describe('legacy ASR reader overrun hold', () => {
       });
     });
 
-    let result = null as null | {
-      applied: boolean;
-      afterScrollTop: number;
-      movedPx: number;
-      consecutiveNoMoveCommits: number;
-    };
     for (let i = 0; i < 15; i += 1) {
-      result = driver.__debugObserveAsr4VisualRecoveryCommit({
+      driver.__debugObserveAsr4VisualRecoveryCommit({
         currentLine: 1,
         committedLine: 2,
         targetLine: 2,

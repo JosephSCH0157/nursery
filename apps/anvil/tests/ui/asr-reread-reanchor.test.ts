@@ -191,7 +191,6 @@ describe('ASR reread recovery', () => {
     expect(snapshot.lastVisualWriteOwner).toBe('reanchor_landing');
     expect(snapshot.lastVisualWriteDirection).toBe('backward');
 
-    const afterReanchorTop = scroller.scrollTop;
     const reanchorCommitCountBeforeReinforce = consoleWarnSpy.mock.calls.filter((call) =>
       String(call[0] || '').includes('ASR_REANCHOR_COMMIT')
     ).length;

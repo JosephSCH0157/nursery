@@ -103,14 +103,6 @@ function installScrollWriteProbe(scroller: HTMLElement): {
   };
 }
 
-function prepareActuatorScroller(scrollTop = 200): HTMLElement {
-  const scroller = document.getElementById('viewer') as HTMLElement;
-  Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 2400 });
-  Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 800 });
-  scroller.scrollTop = scrollTop;
-  return scroller;
-}
-
 type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
   __debugEvaluateStabilizerSemanticCommitCandidate: (args: {
     currentLineIdx: number;
@@ -2437,7 +2429,7 @@ describe('ASR live commit motion', () => {
     } as const;
 
     const first = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
-    const second = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
+    driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
     const third = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
 
     expect(first).toMatchObject({
@@ -2637,7 +2629,7 @@ describe('ASR live commit motion', () => {
     } as const;
 
     const first = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
-    const second = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
+    driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
     const third = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
 
     expect(first).toMatchObject({
@@ -2910,7 +2902,7 @@ describe('ASR live commit motion', () => {
     } as const;
 
     const first = driver.__debugEvaluateAsrVisualDeadlockEscape(args);
-    const second = driver.__debugEvaluateAsrVisualDeadlockEscape(args);
+    driver.__debugEvaluateAsrVisualDeadlockEscape(args);
     const third = driver.__debugEvaluateAsrVisualDeadlockEscape(args);
 
     expect(first).toMatchObject({
@@ -7722,14 +7714,12 @@ describe('ASR live commit motion', () => {
 
     const warnLines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
     console.log('ESCAPE_WARN', warnLines);
-    const debugLines = debugSpy.mock.calls.map((c) => String(c[0] || ''));
     const infoLines = infoSpy.mock.calls.map((c) => String(c[0] || ''));
     const deadScreenDetected = warnLines.some((l) => l.includes('ASR_GOVERNOR_DEAD_SCREEN_DETECTED'));
     const released = warnLines.some((l) => l.includes('ASR_GOVERNOR_DEAD_SCREEN_RELEASED'));
     const heldCount = warnLines.filter((l) => l.includes('ASR_GOVERNOR_DEAD_SCREEN_COMMIT_HELD')).length;
     const bypassed = warnLines.some((l) => l.includes('ASR_VISIBLE_BRIDGE_CAP_BYPASSED_TERMINAL'));
-    const timerResetSeen = infoLines.some((l) => l.includes('ASR_RUN_TIMER_RESET'));
-    void timerResetSeen;
+    infoLines.some((l) => l.includes('ASR_RUN_TIMER_RESET'));
     expect(deadScreenDetected).toBe(true);
     expect(released).toBe(true);
     expect(heldCount).toBeLessThanOrEqual(1);

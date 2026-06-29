@@ -2569,7 +2569,7 @@ function initAsrFeature() {
       const marker = this.opts.markerOffsetPx;
       const top = elementTopRelativeTo(target, scroller) - marker;
       try {
-        const steps = this.smoothScrollTo(scroller, top, 160, score);
+        this.smoothScrollTo(scroller, top, 160, score);
       } catch {
       }
     }
