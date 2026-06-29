@@ -2463,6 +2463,7 @@ function initAsrFeature() {
           return;
         }
         if (newIdx === this.currentIdx) {
+          // Same-index matches still fall through so duplicate suppression and stuck/rescue timing can run.
         }
         const delta = newIdx - this.currentIdx;
         if (!this._leapAllowed(delta, newIdx, bestScore)) return;
@@ -2569,8 +2570,6 @@ function initAsrFeature() {
       const top = elementTopRelativeTo(target, scroller) - marker;
       try {
         const steps = this.smoothScrollTo(scroller, top, 160, score);
-        if (typeof steps === "number") {
-        }
       } catch {
       }
     }
@@ -2738,14 +2737,6 @@ function initAsrFeature() {
       speechActive = !!on;
       try {
         window.dispatchEvent(new CustomEvent("asr:state", { detail: { state: on ? "listening" : "idle" } }));
-      } catch {
-      }
-      try {
-        if (asrMode && asrMode._speaking) {
-          const due = asrMode._lastCommitAt + NO_COMMIT_HOLD_MS;
-          if (performance.now() > due && asrMode.state === "running") {
-          }
-        }
       } catch {
       }
       if (speechActive && wantASR()) void start();
