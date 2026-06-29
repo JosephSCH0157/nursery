@@ -481,6 +481,65 @@ async function main() {
     const scrollerKey = '__best__';
 
     await pageRef.evaluate((key) => {
+      const ensureSmokeAsrProfile = () => {
+        const now = Date.now();
+        const profile = {
+          id: 'smoke-e2e',
+          label: 'Smoke E2E Profile',
+          capture: {
+            deviceId: 'smoke-mic',
+            sampleRateHz: 48000,
+            channelCount: 1,
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          },
+          cal: {
+            noiseRmsDbfs: -50,
+            noisePeakDbfs: -44,
+            speechRmsDbfs: -20,
+            speechPeakDbfs: -14,
+            snrDb: 30,
+          },
+          vad: {
+            tonDb: -28,
+            toffDb: -34,
+            attackMs: 80,
+            releaseMs: 300,
+          },
+          filters: {},
+          createdAt: now,
+          updatedAt: now,
+        };
+        const profileMap = { [profile.id]: profile };
+        const storageState = { profiles: profileMap, activeProfileId: profile.id };
+        try { localStorage.setItem('tp_asr_profiles_v1', JSON.stringify(storageState)); } catch {}
+        try {
+          const prefs = JSON.parse(localStorage.getItem('tp_ui_prefs_v1') || '{}') || {};
+          prefs.hybridUseProfileId = profile.id;
+          localStorage.setItem('tp_ui_prefs_v1', JSON.stringify(prefs));
+        } catch {}
+        try { window.__tpStore?.set?.('asrProfiles', profileMap); } catch {}
+        try { window.__tpStore?.set?.('asrActiveProfileId', profile.id); } catch {}
+        try {
+          window.dispatchEvent(new StorageEvent('storage', {
+            key: 'tp_asr_profiles_v1',
+            newValue: JSON.stringify(storageState),
+          }));
+        } catch {}
+        try {
+          window.dispatchEvent(new CustomEvent('tp:asrChanged', {
+            detail: storageState,
+          }));
+        } catch {}
+        try {
+          window.__tpSmokeAsrProfile = {
+            id: profile.id,
+            seeded: true,
+            activeProfileId: window.__tpStore?.get?.('asrActiveProfileId') || profile.id,
+          };
+        } catch {}
+      };
       const getEl = (sel) => {
         const pickBestScroller = () => {
           const candidates = [
@@ -562,6 +621,7 @@ async function main() {
       try { window.__tpStore?.set?.('micGranted', true); } catch {}
       try { window.__tpStore?.set?.('micDevice', 'smoke-mic'); } catch {}
       try { window.__tpMicPermState = 'granted'; } catch {}
+      ensureSmokeAsrProfile();
       try {
         const mic = (typeof window.__tpMic === 'object' && window.__tpMic) ? window.__tpMic : {};
         if (!mic.__lastStream) mic.__lastStream = { id: 'smoke-stream' };
@@ -673,11 +733,13 @@ async function main() {
     });
     await pageRef.waitForFunction(() => {
       try {
-        return String(window.__tpStore?.get?.('scrollMode') || '').toLowerCase() === 'asr';
+        return String(window.__tpStore?.get?.('scrollMode') || '').toLowerCase() === 'asr'
+          && window.__tpStore?.get?.('session.asrDesired') === true
+          && window.__tpStore?.get?.('session.asrArmed') === true;
       } catch {
         return false;
       }
-    }, { timeout: 3000 }).catch(() => {});
+    }, { timeout: 5000 });
 
     const beforeNoCommit = await pageRef.evaluate(readScrollState, scrollerKey);
     await waitMs(pageRef, 2600);
@@ -697,19 +759,6 @@ async function main() {
       }
     }
 
-    await pageRef.evaluate(async () => {
-      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-      try { window.__tpStore?.set?.('session.asrDesired', true); } catch {}
-      try { window.__tpStore?.set?.('session.asrArmed', true); } catch {}
-      try { window.__tpStore?.set?.('session.asrReady', true); } catch {}
-      try {
-        // Re-enter live once so scroll-session attempts ASR backend start and driver attach.
-        window.__tpStore?.set?.('session.phase', 'idle');
-        await sleep(60);
-        window.__tpStore?.set?.('session.phase', 'live');
-      } catch {}
-      await sleep(260);
-    });
     await pageRef.waitForFunction(() => {
       try {
         return !!window.__tpAsrDriver || !!window.__tpAsrScrollDriver;
@@ -717,6 +766,32 @@ async function main() {
         return false;
       }
     }, { timeout: 7000 }).catch(() => {});
+
+    await pageRef.evaluate(async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const runKey = 'smoke-asr-run';
+      const runGeneration = 1;
+      const detail = {
+        speechRunningActual: true,
+        recognizerAttached: true,
+        activeReadMode: true,
+        runKey,
+        runGeneration,
+      };
+      try { window.__tpAsrRunKey = runKey; } catch {}
+      try { window.__tpAsrRunGeneration = runGeneration; } catch {}
+      try { window.__tpAsrRunStartedAt = Date.now() - 250; } catch {}
+      try {
+        window.__tpAsrRuntimeStatus = {
+          ...(window.__tpAsrRuntimeStatus || {}),
+          ...detail,
+        };
+      } catch {}
+      try { window.__tpBus?.emit?.('tp:asr:runtime-status', detail); } catch {}
+      try { window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', { detail })); } catch {}
+      try { document.dispatchEvent(new CustomEvent('tp:asr:runtime-status', { detail })); } catch {}
+      await sleep(120);
+    });
 
     const commitProbe = await pageRef.evaluate(async (key) => {
       const getEl = (sel) => {
@@ -770,6 +845,15 @@ async function main() {
       const modeBefore = String(window.__tpStore?.get?.('scrollMode') || '');
       const asrArmed = window.__tpStore?.get?.('session.asrArmed') ?? null;
       const asrDesired = window.__tpStore?.get?.('session.asrDesired') ?? null;
+      const runtimeStatus = window.__tpAsrRuntimeStatus || null;
+      const runtimeRunKey = String(window.__tpAsrRunKey || runtimeStatus?.runKey || '');
+      const runtimeRunGenerationRaw = Number(window.__tpAsrRunGeneration ?? runtimeStatus?.runGeneration);
+      const runtimeRunGeneration = Number.isFinite(runtimeRunGenerationRaw) ? runtimeRunGenerationRaw : null;
+      const recognizerAttached = runtimeStatus?.recognizerAttached ?? null;
+      const speechRunningActual = runtimeStatus?.speechRunningActual ?? null;
+      const activeReadMode = runtimeStatus?.activeReadMode ?? null;
+      const activeProfileId = window.__tpStore?.get?.('asrActiveProfileId') ?? null;
+      const profileSeeded = window.__tpSmokeAsrProfile?.seeded === true;
       let injectedVia = 'none';
       let driverAvailable = false;
       let driverError = null;
@@ -788,6 +872,9 @@ async function main() {
             mode: 'asr',
             matchId: `smoke-driver-${Date.now()}`,
             currentIdx,
+            speechRunningActual: true,
+            runKey: runtimeRunKey || 'smoke-asr-run',
+            runGeneration: Number.isFinite(runtimeRunGeneration) ? runtimeRunGeneration : 1,
             noMatch: false,
             match: {
               bestIdx: targetLine,
@@ -864,6 +951,13 @@ async function main() {
         modeAfter,
         asrArmed,
         asrDesired,
+        recognizerAttached,
+        speechRunningActual,
+        activeReadMode,
+        runtimeRunKey: runtimeRunKey || null,
+        runtimeRunGeneration,
+        activeProfileId,
+        profileSeeded,
       };
     }, scrollerKey);
 
