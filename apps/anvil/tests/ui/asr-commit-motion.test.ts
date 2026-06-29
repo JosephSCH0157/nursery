@@ -531,6 +531,51 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     ownershipFinalizationRejectedReason: string;
     semanticCommitHeldButVisualCorrectionAllowed: boolean;
   };
+  __debugEvaluateReaderIdleForwardHoldInteraction: (args: {
+    liveAsrFollowMode?: boolean;
+    keepLivePocketMaintenanceActive?: boolean;
+    currentScrollTop: number;
+    rawTargetScrollTop: number;
+    speechFresh: boolean;
+    lastPartialAgeMs: number;
+    lastFinalAgeMs: number;
+    lastTranscriptAgeMs: number;
+    readerIdleCurrentGenerationFinalPending?: boolean;
+    readerIdleFreshAdjacentProofPending?: boolean;
+    readerIdleForwardHoldActive?: boolean;
+    readerIdleForwardHoldSettleUsed?: boolean;
+    readerIdleReleaseReady?: boolean;
+    lineHeightPx?: number;
+    selectedAuthority?: string | null;
+    movementSource?: string | null;
+    liveEvidenceActive?: boolean;
+    liveEvidenceBasis?: string | null;
+    maturedPreservedMarkerMaintenance?: boolean;
+    preservedMarkerSameTarget?: boolean;
+    preservedMarkerSameEpoch?: boolean;
+    preservedMarkerOriginalOwner?: string | null;
+  }) => {
+    holdCandidate: boolean;
+    bypassFreshDebt: boolean;
+    releasedForMaturedMarkerMaintenance: boolean;
+    holdApplied: boolean;
+    rawTargetDebtPx: number;
+    settleCapPx: number;
+    realDebtThresholdPx: number;
+    selectedAuthority: string;
+    originalOwner: string;
+    effectiveTargetScrollTop: number;
+    targetCollapseReason: string | null;
+    nextHoldActive: boolean;
+    nextHoldSettleUsed: boolean;
+    rawTargetSatisfied: boolean;
+    effectiveTargetSatisfied: boolean;
+    shouldEmitTargetSatisfied: boolean;
+    readerIdleHoldDisposition: 'retained_true_idle' | 'released_for_matured_marker_maintenance' | 'not_applicable';
+    liveEvidenceBasis: string;
+    sameTargetProof: boolean;
+    sameEpochProof: boolean;
+  };
   __debugResolveSafeForwardResidualPacing: (args: {
     currentScrollTop: number;
     targetScrollTop: number;
@@ -6788,6 +6833,295 @@ describe('ASR live commit motion', () => {
     expect(result.diagnostic).toContain('maintenanceMode=accepted_marker_maintenance');
     expect(result.reason).not.toBe('no_safe_target_forward_suppressed');
     expect(result.reason).not.toBe('standard_visual_release_suppressed');
+    driver.dispose();
+  });
+
+  test('matured accepted-marker debt with real live evidence survives reader idle hold and reaches a bounded write', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    bootstrapLiveAsrRuntime();
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true } }));
+    const hasFocusSpy = jest.spyOn(document, 'hasFocus').mockImplementation(() => true);
+    scroller.scrollTop = 200;
+    driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 245,
+      targetLineIdx: 1,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'reader_marker_correction',
+      policySource: 'actuator_rate_limited',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: false,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    jest.advanceTimersByTime(25);
+    const hold = driver.__debugEvaluateReaderIdleForwardHoldInteraction({
+      currentScrollTop: 200,
+      rawTargetScrollTop: 245,
+      speechFresh: false,
+      lastPartialAgeMs: 2500,
+      lastFinalAgeMs: 2500,
+      lastTranscriptAgeMs: 2500,
+      readerIdleForwardHoldActive: true,
+      readerIdleForwardHoldSettleUsed: true,
+      selectedAuthority: 'hold',
+      movementSource: 'reader_marker_correction',
+      liveEvidenceActive: true,
+      liveEvidenceBasis: 'runtime_recent',
+      maturedPreservedMarkerMaintenance: true,
+      preservedMarkerSameTarget: true,
+      preservedMarkerSameEpoch: true,
+      preservedMarkerOriginalOwner: 'reader_marker_correction',
+      lineHeightPx: 24,
+    });
+    const released = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: hold.effectiveTargetScrollTop,
+      targetLineIdx: 1,
+      requestedDeltaPx: 0,
+      selectedAuthority: hold.selectedAuthority,
+      policySource: 'none',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: false,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: true,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    const applied = (driver as any).__debugApplyVisualActuatorTargetStep({
+      beforeScrollTop: 200,
+      targetScrollTop: hold.effectiveTargetScrollTop,
+      requestedMovePx: released.move,
+      effectiveMinStepPx: 6,
+      currentLineIdx: 1,
+      committedLineIdx: 1,
+      nextSpeakableLineIdx: 1,
+      authority: hold.selectedAuthority,
+      authorityReason: 'matured_marker_maintenance_owner_restored',
+      allowedTargetIdx: 1,
+      lastVerifiedCommitLineIdx: 1,
+      lastVerifiedCommitAgeMs: 0,
+      preservedTargetScrollTop: hold.effectiveTargetScrollTop,
+    });
+    expect(hold.releasedForMaturedMarkerMaintenance).toBe(true);
+    expect(hold.readerIdleHoldDisposition).toBe('released_for_matured_marker_maintenance');
+    expect(hold.selectedAuthority).toBe('reader_marker_correction');
+    expect(released.decision).toBe('advance');
+    expect(released.usedPreservedDebt).toBe(true);
+    expect(applied.appliedDeltaPx).toBeGreaterThan(0);
+    expect(applied.appliedDeltaPx).toBeLessThanOrEqual(6);
+    expect(245 - applied.afterTop).toBeLessThan(45);
+    hasFocusSpy.mockRestore();
+    driver.dispose();
+  });
+
+  test('matured accepted-marker debt remains held when true idle or silence is confirmed', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const hold = driver.__debugEvaluateReaderIdleForwardHoldInteraction({
+      currentScrollTop: 200,
+      rawTargetScrollTop: 245,
+      speechFresh: false,
+      lastPartialAgeMs: 2500,
+      lastFinalAgeMs: 2500,
+      lastTranscriptAgeMs: 2500,
+      readerIdleForwardHoldActive: true,
+      readerIdleForwardHoldSettleUsed: true,
+      selectedAuthority: 'hold',
+      movementSource: 'reader_marker_correction',
+      liveEvidenceActive: false,
+      liveEvidenceBasis: 'confirmed_silence',
+      maturedPreservedMarkerMaintenance: true,
+      preservedMarkerSameTarget: true,
+      preservedMarkerSameEpoch: true,
+      preservedMarkerOriginalOwner: 'reader_marker_correction',
+      lineHeightPx: 24,
+    });
+    expect(hold.releasedForMaturedMarkerMaintenance).toBe(false);
+    expect(hold.holdApplied).toBe(true);
+    expect(hold.readerIdleHoldDisposition).toBe('retained_true_idle');
+    expect(hold.targetCollapseReason).toBe('reader_idle_forward_hold');
+    expect(hold.effectiveTargetScrollTop).toBe(200);
+    driver.dispose();
+  });
+
+  test('stale speechActive alone cannot release matured accepted-marker debt through reader idle hold', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const hold = driver.__debugEvaluateReaderIdleForwardHoldInteraction({
+      currentScrollTop: 200,
+      rawTargetScrollTop: 245,
+      speechFresh: false,
+      lastPartialAgeMs: 2500,
+      lastFinalAgeMs: 2500,
+      lastTranscriptAgeMs: 2500,
+      readerIdleForwardHoldActive: true,
+      readerIdleForwardHoldSettleUsed: true,
+      selectedAuthority: 'hold',
+      movementSource: 'reader_marker_correction',
+      liveEvidenceActive: false,
+      liveEvidenceBasis: 'stale_speech_active_only',
+      maturedPreservedMarkerMaintenance: true,
+      preservedMarkerSameTarget: true,
+      preservedMarkerSameEpoch: true,
+      preservedMarkerOriginalOwner: 'reader_marker_correction',
+      lineHeightPx: 24,
+    });
+    expect(hold.releasedForMaturedMarkerMaintenance).toBe(false);
+    expect(hold.holdApplied).toBe(true);
+    expect(hold.readerIdleHoldDisposition).toBe('retained_true_idle');
+    driver.dispose();
+  });
+
+  test('matured accepted-marker debt can consume without a fresh semantic commit once the same target persists', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 245,
+      targetLineIdx: 1,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'reader_marker_correction',
+      policySource: 'actuator_rate_limited',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: false,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    jest.advanceTimersByTime(25);
+    const released = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 245,
+      targetLineIdx: 1,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'reader_marker_correction',
+      policySource: 'none',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: false,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: true,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    expect(released.eligible).toBe(true);
+    expect(released.decision).toBe('advance');
+    expect(released.usedPreservedDebt).toBe(true);
+    driver.dispose();
+  });
+
+  test('accepted-marker maintenance still respects rate limiting before the next eligible bounded write', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const held = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 245,
+      targetLineIdx: 1,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'reader_marker_correction',
+      policySource: 'actuator_rate_limited',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: false,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    expect(held.decision).toBe('hold');
+    expect(held.debtPreserved).toBe(true);
+    jest.advanceTimersByTime(25);
+    const released = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 245,
+      targetLineIdx: 1,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'reader_marker_correction',
+      policySource: 'none',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: false,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: true,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    expect(released.decision).toBe('advance');
+    expect(released.move).toBe(6);
+    expect(released.usedPreservedDebt).toBe(true);
+    driver.dispose();
+  });
+
+  test('target replacement or epoch mismatch does not restore stale matured accepted-marker debt ownership', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const changedTarget = driver.__debugEvaluateReaderIdleForwardHoldInteraction({
+      currentScrollTop: 200,
+      rawTargetScrollTop: 290,
+      speechFresh: false,
+      lastPartialAgeMs: 2500,
+      lastFinalAgeMs: 2500,
+      lastTranscriptAgeMs: 2500,
+      readerIdleForwardHoldActive: true,
+      readerIdleForwardHoldSettleUsed: true,
+      selectedAuthority: 'hold',
+      movementSource: 'reader_marker_correction',
+      liveEvidenceActive: true,
+      liveEvidenceBasis: 'runtime_recent',
+      maturedPreservedMarkerMaintenance: true,
+      preservedMarkerSameTarget: false,
+      preservedMarkerSameEpoch: true,
+      preservedMarkerOriginalOwner: 'reader_marker_correction',
+      lineHeightPx: 24,
+    });
+    expect(changedTarget.releasedForMaturedMarkerMaintenance).toBe(false);
+    expect(changedTarget.holdApplied).toBe(true);
+    expect(changedTarget.readerIdleHoldDisposition).toBe('retained_true_idle');
+    driver.dispose();
+  });
+
+  test.each([
+    'stale_run_identity',
+    'stale_response_authority',
+    'response_stale',
+    'unsafe_target',
+    'focus_hold',
+    'visibility_hold',
+    'contradiction',
+    'offscript_or_nomatch',
+    'scroll_limit',
+    'same_target_overshoot_settle_lock',
+    'hard_blocker_active',
+  ])('matured accepted-marker maintenance blocker %s still prevents movement', (realBlockerReason) => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 245,
+      targetLineIdx: 1,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'reader_marker_correction',
+      policySource: 'actuator_rate_limited',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: false,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    jest.advanceTimersByTime(25);
+    const result = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 200,
+      targetScrollTop: 245,
+      targetLineIdx: 1,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'reader_marker_correction',
+      policySource: 'none',
+      realBlockerReason,
+      sameEpochOrFreshAdvance: false,
+      holdBandPx: 12,
+      boundedStepPx: 6,
+      actuatorEligible: true,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    expect(result.decision).toBe('denied');
+    expect(result.move).toBe(0);
     driver.dispose();
   });
 

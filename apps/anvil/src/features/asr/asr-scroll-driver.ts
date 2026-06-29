@@ -626,16 +626,24 @@ type ReaderIdleForwardHoldInteractionInput = {
   lineHeightPx: number;
   selectedAuthority?: string | null;
   movementSource?: string | null;
+  liveEvidenceActive?: boolean;
+  liveEvidenceBasis?: string | null;
+  maturedPreservedMarkerMaintenance?: boolean;
+  preservedMarkerSameTarget?: boolean;
+  preservedMarkerSameEpoch?: boolean;
+  preservedMarkerOriginalOwner?: string | null;
 };
 
 type ReaderIdleForwardHoldInteractionResult = {
   holdCandidate: boolean;
   bypassFreshDebt: boolean;
+  releasedForMaturedMarkerMaintenance: boolean;
   holdApplied: boolean;
   rawTargetDebtPx: number;
   settleCapPx: number;
   realDebtThresholdPx: number;
   selectedAuthority: string;
+  originalOwner: string;
   effectiveTargetScrollTop: number;
   targetCollapseReason: string | null;
   nextHoldActive: boolean;
@@ -643,6 +651,10 @@ type ReaderIdleForwardHoldInteractionResult = {
   rawTargetSatisfied: boolean;
   effectiveTargetSatisfied: boolean;
   shouldEmitTargetSatisfied: boolean;
+  readerIdleHoldDisposition: 'retained_true_idle' | 'released_for_matured_marker_maintenance' | 'not_applicable';
+  liveEvidenceBasis: string;
+  sameTargetProof: boolean;
+  sameEpochProof: boolean;
 };
 
 function isReaderIdleForwardDebtAuthorityEligible(
@@ -688,11 +700,15 @@ function evaluateReaderIdleForwardHoldInteraction(
     input.lastPartialAgeMs < ASR_READER_IDLE_FORWARD_HOLD_THRESHOLD_MS ||
     input.lastFinalAgeMs < ASR_READER_IDLE_FORWARD_HOLD_THRESHOLD_MS ||
     input.lastTranscriptAgeMs < ASR_READER_IDLE_FORWARD_HOLD_THRESHOLD_MS;
-  const selectedAuthority = String(input.selectedAuthority || 'hold');
+  let selectedAuthority = String(input.selectedAuthority || 'hold');
+  const originalOwner = String(input.preservedMarkerOriginalOwner || selectedAuthority || 'hold');
   const authorityEligible = isReaderIdleForwardDebtAuthorityEligible(
     selectedAuthority,
     input.movementSource,
   );
+  const liveEvidenceBasis = String(input.liveEvidenceBasis || 'none');
+  const sameTargetProof = input.preservedMarkerSameTarget === true;
+  const sameEpochProof = input.preservedMarkerSameEpoch === true;
   const bypassFreshDebt =
     input.liveAsrFollowMode &&
     input.keepLivePocketMaintenanceActive &&
@@ -723,13 +739,32 @@ function evaluateReaderIdleForwardHoldInteraction(
       !input.readerIdleFreshAdjacentProofPending
     );
   let holdApplied = false;
+  let releasedForMaturedMarkerMaintenance = false;
   let effectiveTargetScrollTop = rawTargetScrollTop;
   let targetCollapseReason: string | null = null;
   let nextHoldActive = input.readerIdleForwardHoldActive;
   let nextHoldSettleUsed = input.readerIdleForwardHoldSettleUsed;
-  if (holdCandidate && !bypassFreshDebt) {
+  let readerIdleHoldDisposition: 'retained_true_idle' | 'released_for_matured_marker_maintenance' | 'not_applicable' = 'not_applicable';
+  const allowMaturedMarkerMaintenanceRelease =
+    holdCandidate &&
+    !bypassFreshDebt &&
+    input.maturedPreservedMarkerMaintenance === true &&
+    sameTargetProof &&
+    sameEpochProof &&
+    input.liveEvidenceActive === true &&
+    originalOwner !== 'hold';
+  if (allowMaturedMarkerMaintenanceRelease) {
+    releasedForMaturedMarkerMaintenance = true;
+    selectedAuthority = originalOwner;
+    nextHoldActive = false;
+    nextHoldSettleUsed = false;
+    effectiveTargetScrollTop = rawTargetScrollTop;
+    targetCollapseReason = null;
+    readerIdleHoldDisposition = 'released_for_matured_marker_maintenance';
+  } else if (holdCandidate && !bypassFreshDebt) {
     holdApplied = true;
     nextHoldActive = true;
+    readerIdleHoldDisposition = 'retained_true_idle';
     if (!input.readerIdleForwardHoldSettleUsed) {
       effectiveTargetScrollTop = Math.min(rawTargetScrollTop, currentScrollTop + settleCapPx);
       nextHoldSettleUsed = true;
@@ -752,11 +787,13 @@ function evaluateReaderIdleForwardHoldInteraction(
   return {
     holdCandidate,
     bypassFreshDebt,
+    releasedForMaturedMarkerMaintenance,
     holdApplied,
     rawTargetDebtPx,
     settleCapPx,
     realDebtThresholdPx,
     selectedAuthority,
+    originalOwner,
     effectiveTargetScrollTop,
     targetCollapseReason,
     nextHoldActive,
@@ -764,6 +801,10 @@ function evaluateReaderIdleForwardHoldInteraction(
     rawTargetSatisfied,
     effectiveTargetSatisfied,
     shouldEmitTargetSatisfied: rawTargetSatisfied && effectiveTargetSatisfied,
+    readerIdleHoldDisposition,
+    liveEvidenceBasis,
+    sameTargetProof,
+    sameEpochProof,
   };
 }
 const DEFAULT_REALIGN_LEAD_LINES = 6;
@@ -9004,6 +9045,47 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           Math.round(args.nextEligibleAtMs / 8),
           Math.round(args.nowMs / 8),
           Math.round((args.actualStepPx || 0) / 6),
+        ].join('|'),
+      },
+    );
+  };
+  const emitReaderIdleHoldDispositionDiagnostic = (args: {
+    maturedDebtOwnerRestored: boolean;
+    readerIdleHoldDisposition: 'retained_true_idle' | 'released_for_matured_marker_maintenance' | 'not_applicable';
+    originalOwner: string;
+    selectedOwnerAfterFinalArbitration: string;
+    liveEvidenceBasis: string;
+    sameTargetProof: boolean;
+    sameEpochProof: boolean;
+    actuatorEligible: boolean;
+    writerDistanceReductionPx: number;
+    debtConsumed: boolean;
+    holdReason: string;
+    currentScrollTop: number;
+    targetScrollTop: number;
+    targetEpoch: number;
+    targetLineIdx: number;
+  }) => {
+    if (args.readerIdleHoldDisposition === 'not_applicable') return;
+    emitDevDiagnostic(
+      'ASR_READER_IDLE_FORWARD_HOLD_DISPOSITION',
+      args.maturedDebtOwnerRestored ? 'warn' : 'info',
+      `[ASR_READER_IDLE_FORWARD_HOLD_DISPOSITION] maturedDebtOwnerRestored=${args.maturedDebtOwnerRestored ? 1 : 0} readerIdleHoldDisposition=${args.readerIdleHoldDisposition} originalOwner=${args.originalOwner} selectedOwnerAfterFinalArbitration=${args.selectedOwnerAfterFinalArbitration} liveEvidenceBasis=${args.liveEvidenceBasis} sameTargetProof=${args.sameTargetProof ? 1 : 0} sameEpochProof=${args.sameEpochProof ? 1 : 0} actuatorEligible=${args.actuatorEligible ? 1 : 0} writerDistanceReductionPx=${Math.round(args.writerDistanceReductionPx)} debtConsumed=${args.debtConsumed ? 1 : 0} holdReason=${args.holdReason} currentScrollTop=${Math.round(args.currentScrollTop)} targetScrollTop=${Math.round(args.targetScrollTop)} targetEpoch=${args.targetEpoch} targetLineIdx=${args.targetLineIdx}`,
+      {
+        minMs: 0,
+        signature: [
+          args.maturedDebtOwnerRestored ? 1 : 0,
+          args.readerIdleHoldDisposition,
+          args.originalOwner,
+          args.selectedOwnerAfterFinalArbitration,
+          args.liveEvidenceBasis,
+          args.sameTargetProof ? 1 : 0,
+          args.sameEpochProof ? 1 : 0,
+          args.actuatorEligible ? 1 : 0,
+          Math.round(args.writerDistanceReductionPx / 6),
+          args.debtConsumed ? 1 : 0,
+          args.targetEpoch,
+          args.targetLineIdx,
         ].join('|'),
       },
     );
@@ -21016,6 +21098,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const lastTranscriptAgeMs =
       lastTranscriptPacketAt > 0 ? Math.max(0, wallNow - lastTranscriptPacketAt) : Number.POSITIVE_INFINITY;
     const latestRuntimeSpeechTs = Math.max(lastRuntimeSpeechAt || 0, lastVadSpeechAt || 0, lastSpeechRunningActualAtMs || 0);
+    const readerIdleRuntimeSpeechRecent = hasRecentActualSpeech(wallNow);
+    const readerIdleVadSpeechRecent = hasRecentVadSpeechNow(wallNow);
     const readerIdleSpeechFresh =
       latestRuntimeSpeechTs > 0 &&
       Math.max(0, wallNow - latestRuntimeSpeechTs) < ASR_READER_IDLE_FORWARD_HOLD_THRESHOLD_MS;
@@ -21081,6 +21165,58 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       Number(getLineElementByIndex(scroller, Math.max(0, lastLineIndex))?.clientHeight || 24),
     );
     const rawPursuitTargetTop = Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current;
+    const readerIdleFreshVoiceBackedTranscriptActivity =
+      !!lastTranscriptSpeechActive &&
+      lastTranscriptPacketAt > 0 &&
+      lastTranscriptAgeMs < ASR_READER_IDLE_FORWARD_HOLD_THRESHOLD_MS &&
+      !asrSilenceActive;
+    const readerIdleLiveEvidenceBasis =
+      readerIdleRuntimeSpeechRecent && readerIdleVadSpeechRecent
+        ? 'runtime_and_vad_recent'
+        : readerIdleRuntimeSpeechRecent
+          ? 'runtime_recent'
+          : readerIdleVadSpeechRecent
+            ? 'vad_recent'
+            : readerIdleFreshVoiceBackedTranscriptActivity
+              ? 'fresh_voice_backed_transcript'
+              : (asrSilenceActive
+                ? 'confirmed_silence'
+                : (!asrRuntimeRecognizerAttached ? 'recognizer_detached' : 'no_recent_live_evidence'));
+    const readerIdleLiveEvidenceActive =
+      liveAsrFollowMode &&
+      keepLivePocketMaintenanceActive &&
+      asrRuntimeRecognizerAttached &&
+      !asrSilenceActive &&
+      (
+        readerIdleRuntimeSpeechRecent ||
+        readerIdleVadSpeechRecent ||
+        readerIdleFreshVoiceBackedTranscriptActivity
+      );
+    const readerIdlePreservedTargetLineIdx =
+      Number.isFinite(liveAsrVisualPursuitLineIdx as number)
+        ? Math.max(0, Math.floor(Number(liveAsrVisualPursuitLineIdx)))
+        : lastLineIndex;
+    const readerIdlePreservedTargetTolerancePx = Math.max(2, ASR_POCKET_WALL_NOISE_DELTA_PX);
+    const readerIdlePreservedMarkerSameEpoch = safeForwardResidualTargetEpoch === visualTargetEpoch;
+    const readerIdlePreservedMarkerSameTarget =
+      readerIdlePreservedMarkerSameEpoch &&
+      safeForwardResidualTargetLineIdx === readerIdlePreservedTargetLineIdx &&
+      Number.isFinite(safeForwardResidualTargetScrollTop) &&
+      Number.isFinite(rawPursuitTargetTop) &&
+      Math.abs(Number(safeForwardResidualTargetScrollTop) - rawPursuitTargetTop) <= readerIdlePreservedTargetTolerancePx;
+    const readerIdleMaturedPreservedMarkerMaintenance =
+      liveAsrFollowMode &&
+      commitCount >= 2 &&
+      lastAsrNormalMarkerFollowOwnsTarget &&
+      lastCommittedLine === lastLineIndex &&
+      readerIdlePreservedTargetLineIdx === lastLineIndex &&
+      readerIdlePreservedMarkerSameEpoch &&
+      readerIdlePreservedMarkerSameTarget &&
+      safeForwardResidualDebtPx > getVisualTargetTolerancePx(readerIdleLineHeightPx) &&
+      safeForwardResidualNextEligibleAtMs > 0 &&
+      wallNow >= safeForwardResidualNextEligibleAtMs &&
+      rawPursuitTargetTop > current + getVisualTargetTolerancePx(readerIdleLineHeightPx) &&
+      safeForwardResidualOwner !== 'none';
     const readerIdleHoldShouldEngage =
       liveAsrFollowMode &&
       keepLivePocketMaintenanceActive &&
@@ -21109,6 +21245,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lineHeightPx: readerIdleLineHeightPx,
       selectedAuthority: readerIdleSelectedAuthority,
       movementSource: readerIdleMovementSource,
+      liveEvidenceActive: readerIdleLiveEvidenceActive,
+      liveEvidenceBasis: readerIdleLiveEvidenceBasis,
+      maturedPreservedMarkerMaintenance: readerIdleMaturedPreservedMarkerMaintenance,
+      preservedMarkerSameTarget: readerIdlePreservedMarkerSameTarget,
+      preservedMarkerSameEpoch: readerIdlePreservedMarkerSameEpoch,
+      preservedMarkerOriginalOwner: safeForwardResidualOwner,
     });
     lastDebugRawTargetScrollTop = rawPursuitTargetTop;
     lastDebugEffectiveTargetScrollTop = Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current;
@@ -21159,6 +21301,32 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               Math.round(current / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
               Math.round(rawPursuitTargetTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
               readerIdleForwardHoldInteraction.selectedAuthority,
+            ].join('|'),
+          },
+        );
+      } else if (readerIdleForwardHoldInteraction.releasedForMaturedMarkerMaintenance) {
+        readerIdleForwardHoldActive = false;
+        readerIdleForwardHoldSinceMs = 0;
+        readerIdleForwardHoldSettleUsed = false;
+        liveTickSelectedAuthority = readerIdleForwardHoldInteraction.selectedAuthority;
+        liveTickAuthorityReason = 'matured_marker_maintenance_owner_restored';
+        lastDebugSelectedAuthority = readerIdleForwardHoldInteraction.selectedAuthority;
+        lastDebugHoldApplied = false;
+        lastDebugHoldReason = 'matured_marker_maintenance_owner_restored';
+        lastDebugTargetCollapseReason = 'none';
+        emitDevDiagnostic(
+          'ASR_MATURED_MARKER_DEBT_OWNER_RESTORED',
+          'warn',
+          `[ASR_MATURED_MARKER_DEBT_OWNER_RESTORED] maturedDebtOwnerRestored=1 readerIdleHoldDisposition=${readerIdleForwardHoldInteraction.readerIdleHoldDisposition} originalOwner=${readerIdleForwardHoldInteraction.originalOwner} restoredOwner=${readerIdleForwardHoldInteraction.selectedAuthority} liveEvidenceBasis=${readerIdleForwardHoldInteraction.liveEvidenceBasis} sameTargetProof=${readerIdleForwardHoldInteraction.sameTargetProof ? 1 : 0} sameEpochProof=${readerIdleForwardHoldInteraction.sameEpochProof ? 1 : 0} currentScrollTop=${Math.round(current)} targetScrollTop=${Math.round(rawPursuitTargetTop)} targetDebtPx=${Math.round(readerIdleForwardHoldInteraction.rawTargetDebtPx)}`,
+          {
+            minMs: 0,
+            signature: [
+              readerIdleForwardHoldInteraction.originalOwner,
+              readerIdleForwardHoldInteraction.selectedAuthority,
+              readerIdleForwardHoldInteraction.liveEvidenceBasis,
+              readerIdleForwardHoldInteraction.sameTargetProof ? 1 : 0,
+              readerIdleForwardHoldInteraction.sameEpochProof ? 1 : 0,
+              Math.round(rawPursuitTargetTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
             ].join('|'),
           },
         );
@@ -24937,11 +25105,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const actuatorAuthorityForTick =
       visualChairpersonOwnershipEnabled && chairDecisionOutput
         ? String(chairDecisionOutput.decision.authority)
-        : String(liveTickSelectedAuthority || 'asr-tick');
+        : String(
+          readerIdleForwardHoldInteraction.releasedForMaturedMarkerMaintenance
+            ? readerIdleForwardHoldInteraction.selectedAuthority
+            : (liveTickSelectedAuthority || 'asr-tick'),
+        );
     const actuatorAuthorityReasonForTick =
       visualChairpersonOwnershipEnabled && chairDecisionOutput
         ? String(chairDecisionOutput.decision.reason)
-        : String(liveTickAuthorityReason || 'unknown');
+        : String(
+          readerIdleForwardHoldInteraction.releasedForMaturedMarkerMaintenance
+            ? 'matured_marker_maintenance_owner_restored'
+            : (liveTickAuthorityReason || 'unknown'),
+        );
     const canAttemptVisualRecenterPullback =
       Number.isFinite(targetScrollTopForActuator) &&
       beforeScrollTop > targetScrollTopForActuator + getVisualTargetTolerancePx(safeResolverLineHeightPx);
@@ -24967,6 +25143,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       sameTargetOvershootSettleLockForActuator ? 'same_target_overshoot_settle_lock' : null,
     ], safeForwardPolicySource);
     const safeForwardHoldBandPx = getVisualTargetTolerancePx(safeResolverLineHeightPx);
+    const safeForwardSelectedAuthority = String(
+      readerIdleForwardHoldInteraction.releasedForMaturedMarkerMaintenance
+        ? readerIdleForwardHoldInteraction.selectedAuthority
+        : (lastAsrSelectedAuthority || liveTickSelectedAuthority || 'hold'),
+    );
     const safeForwardActuatorEligible =
       String(clampReason || 'none') !== 'actuator_rate_limited';
     const safeForwardPacingDecision = applySafeForwardResidualPacing({
@@ -24977,7 +25158,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       move,
       dt,
       clampReason,
-      selectedAuthority: String(lastAsrSelectedAuthority || liveTickSelectedAuthority || 'hold'),
+      selectedAuthority: safeForwardSelectedAuthority,
       policySource: safeForwardPolicySource,
       realBlockerReason: liveAsrFollowMode ? safeForwardRealBlockerReason : 'follow_mode_inactive',
       sameEpochOrFreshAdvance: safeForwardSameEpochOrFreshAdvance,
@@ -24993,7 +25174,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     move = safeForwardPacingDecision.move;
     clampReason = safeForwardPacingDecision.clampReason;
     const safeForwardMaintenanceEligible = safeForwardPacingDecision.eligible;
-    const safeForwardLifecycleOwner = String(lastAsrSelectedAuthority || liveTickSelectedAuthority || 'hold');
+    const safeForwardLifecycleOwner = safeForwardSelectedAuthority;
     const safeForwardLifecycleTargetTop =
       Number.isFinite(targetScrollTopForActuator) ? Number(targetScrollTopForActuator) : beforeScrollTop;
     if (safeForwardPacingDecision.scheduleCreated) {
@@ -26621,6 +26802,45 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     } else {
       resetSafeForwardResidualDebt(visualTargetEpoch);
     }
+    const readerIdleDispositionWriterDistanceReductionPx =
+      Number.isFinite(targetScrollTopForActuator)
+        ? Math.max(
+          0,
+          Math.max(0, Number(targetScrollTopForActuator) - beforeScrollTop) -
+            Math.max(0, Number(targetScrollTopForActuator) - afterScrollTop),
+        )
+        : 0;
+    const readerIdleDispositionDebtConsumed =
+      safeForwardPacingDecision.usedPreservedDebt &&
+      readerIdleDispositionWriterDistanceReductionPx > ASR_POCKET_WALL_NOISE_DELTA_PX;
+    emitReaderIdleHoldDispositionDiagnostic({
+      maturedDebtOwnerRestored: readerIdleForwardHoldInteraction.releasedForMaturedMarkerMaintenance,
+      readerIdleHoldDisposition: readerIdleForwardHoldInteraction.readerIdleHoldDisposition,
+      originalOwner: readerIdleForwardHoldInteraction.originalOwner,
+      selectedOwnerAfterFinalArbitration: safeForwardSelectedAuthority,
+      liveEvidenceBasis: readerIdleForwardHoldInteraction.liveEvidenceBasis,
+      sameTargetProof: readerIdleForwardHoldInteraction.sameTargetProof,
+      sameEpochProof: readerIdleForwardHoldInteraction.sameEpochProof,
+      actuatorEligible: safeForwardActuatorEligible,
+      writerDistanceReductionPx: readerIdleDispositionWriterDistanceReductionPx,
+      debtConsumed: readerIdleDispositionDebtConsumed,
+      holdReason:
+        readerIdleForwardHoldInteraction.readerIdleHoldDisposition === 'released_for_matured_marker_maintenance'
+          ? (
+            readerIdleDispositionDebtConsumed
+              ? 'matured_marker_debt_consumed'
+              : (safeForwardRealBlockerReason !== 'none'
+                ? safeForwardRealBlockerReason
+                : (safeForwardDecision === 'hold'
+                  ? (safeForwardPolicySource !== 'none' ? safeForwardPolicySource : safeForwardFinalClassification)
+                  : 'writer_no_distance_reduction'))
+          )
+          : (targetCollapseReason || 'reader_idle_forward_hold'),
+      currentScrollTop: beforeScrollTop,
+      targetScrollTop: Number.isFinite(targetScrollTopForActuator) ? Number(targetScrollTopForActuator) : beforeScrollTop,
+      targetEpoch: visualTargetEpoch,
+      targetLineIdx: nextSpeakableLineIdxForActuator,
+    });
     if (liveAsrFollowMode && lastAsrNormalMarkerFollowOwnsTarget) {
       const remainingMarkerDebtPx =
         Number.isFinite(targetScrollTopForActuator)
@@ -47046,6 +47266,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lineHeightPx?: number;
     selectedAuthority?: string | null;
     movementSource?: string | null;
+    liveEvidenceActive?: boolean;
+    liveEvidenceBasis?: string | null;
+    maturedPreservedMarkerMaintenance?: boolean;
+    preservedMarkerSameTarget?: boolean;
+    preservedMarkerSameEpoch?: boolean;
+    preservedMarkerOriginalOwner?: string | null;
   }) => evaluateReaderIdleForwardHoldInteraction({
     liveAsrFollowMode: args.liveAsrFollowMode !== false,
     keepLivePocketMaintenanceActive: args.keepLivePocketMaintenanceActive !== false,
@@ -47063,6 +47289,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lineHeightPx: Number.isFinite(args.lineHeightPx as number) ? Number(args.lineHeightPx) : 24,
     selectedAuthority: args.selectedAuthority,
     movementSource: args.movementSource,
+    liveEvidenceActive: !!args.liveEvidenceActive,
+    liveEvidenceBasis: args.liveEvidenceBasis,
+    maturedPreservedMarkerMaintenance: !!args.maturedPreservedMarkerMaintenance,
+    preservedMarkerSameTarget: !!args.preservedMarkerSameTarget,
+    preservedMarkerSameEpoch: !!args.preservedMarkerSameEpoch,
+    preservedMarkerOriginalOwner: args.preservedMarkerOriginalOwner,
   });
   const debugSeedPreservedFollowTarget = (args: {
     targetScrollTop: number | null;
@@ -47411,6 +47643,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lineHeightPx?: number;
       selectedAuthority?: string | null;
       movementSource?: string | null;
+      liveEvidenceActive?: boolean;
+      liveEvidenceBasis?: string | null;
+      maturedPreservedMarkerMaintenance?: boolean;
+      preservedMarkerSameTarget?: boolean;
+      preservedMarkerSameEpoch?: boolean;
+      preservedMarkerOriginalOwner?: string | null;
     }): ReaderIdleForwardHoldInteractionResult;
     __debugApplyScrollWithHybridGuard(args: {
       beforeScrollTop: number;
