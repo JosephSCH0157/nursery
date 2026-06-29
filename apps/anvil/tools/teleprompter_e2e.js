@@ -861,40 +861,102 @@ async function main() {
       let injectedVia = 'none';
       let driverAvailable = false;
       let driverError = null;
+      const stageResults = [];
 
       try {
         const driver = window.__tpAsrDriver || window.__tpAsrScrollDriver;
         driverAvailable = !!driver && typeof driver.ingest === 'function';
         if (driverAvailable) {
+          const getLineText = (idx) => {
+            const lineEl = document.querySelector(`.line[data-line="${idx}"]`);
+            if (!lineEl) return '';
+            return String(lineEl.textContent || lineEl.innerText || '').replace(/\s+/g, ' ').trim();
+          };
           const currentRaw = Number(driver.getLastLineIndex?.() ?? window.currentIndex ?? 0);
           const currentIdx = Number.isFinite(currentRaw) ? Math.max(0, Math.floor(currentRaw)) : 0;
           const maxLine = Math.max(0, lineCount - 1);
-          const targetLine = Math.min(maxLine, Math.max(currentIdx + 18, 18));
-          const clue = 'Synthetic ASR commit smoke probe with enough evidence tokens to advance.';
-          const detail = {
+          const primeTargetLine = Math.min(maxLine, currentIdx + 1);
+          const primeTranscript = getLineText(primeTargetLine);
+          const sharedDetail = {
             source: 'smoke',
             mode: 'asr',
-            matchId: `smoke-driver-${Date.now()}`,
-            currentIdx,
             speechRunningActual: true,
             runKey: runtimeRunKey || 'smoke-asr-run',
             runGeneration: Number.isFinite(runtimeRunGeneration) ? runtimeRunGeneration : 1,
             noMatch: false,
-            match: {
-              bestIdx: targetLine,
-              bestSim: 0.99,
-              topScores: [
-                { idx: targetLine, score: 0.99 },
-                { idx: Math.max(0, targetLine - 1), score: 0.12 },
-              ],
-              bandStart: Math.max(0, currentIdx - 2),
-              bandEnd: Math.max(targetLine + 3, currentIdx + 10),
-            },
           };
-          driver.ingest(clue, true, detail);
-          await sleep(120);
-          driver.ingest(clue, true, detail);
-          injectedVia = 'driver';
+          if (primeTranscript && primeTargetLine > currentIdx) {
+            const primeDetail = {
+              ...sharedDetail,
+              currentIdx,
+              matchId: `smoke-driver-prime-${Date.now()}`,
+              match: {
+                bestIdx: primeTargetLine,
+                bestSim: 0.92,
+                topScores: [
+                  { idx: primeTargetLine, score: 0.92 },
+                ],
+              },
+            };
+            driver.ingest(primeTranscript, true, primeDetail);
+            await sleep(260);
+            const currentAfterPrimeRaw = Number(driver.getLastLineIndex?.() ?? window.currentIndex ?? currentIdx);
+            const currentAfterPrime = Number.isFinite(currentAfterPrimeRaw)
+              ? Math.max(0, Math.floor(currentAfterPrimeRaw))
+              : currentIdx;
+            const primeMoved = currentAfterPrime > currentIdx;
+            stageResults.push({
+              name: 'adjacent-prime',
+              beforeCursorIdx: currentIdx,
+              requestedTargetIdx: primeTargetLine,
+              observedCursorIdx: currentAfterPrime,
+              accepted: currentAfterPrime === primeTargetLine,
+              held: currentAfterPrime === currentIdx,
+              moved: primeMoved,
+              transcriptSource: 'rendered-line',
+              transcriptLength: primeTranscript.length,
+              topScoreIndices: [primeTargetLine],
+            });
+
+            const skipRequestTarget = Math.min(maxLine, currentAfterPrime + 2);
+            const skipExpectedReducedTarget = Math.min(maxLine, currentAfterPrime + 1);
+            const skipTranscript = getLineText(skipRequestTarget);
+            if (currentAfterPrime === primeTargetLine && skipTranscript && skipRequestTarget > currentAfterPrime + 1) {
+              const skipDetail = {
+                ...sharedDetail,
+                currentIdx: currentAfterPrime,
+                matchId: `smoke-driver-skip-${Date.now()}`,
+                match: {
+                  bestIdx: skipRequestTarget,
+                  bestSim: 0.93,
+                  topScores: [
+                    { idx: skipRequestTarget, score: 0.93 },
+                  ],
+                },
+              };
+              driver.ingest(skipTranscript, true, skipDetail);
+              await sleep(1200);
+              const currentAfterSkipRaw = Number(driver.getLastLineIndex?.() ?? window.currentIndex ?? currentAfterPrime);
+              const currentAfterSkip = Number.isFinite(currentAfterSkipRaw)
+                ? Math.max(0, Math.floor(currentAfterSkipRaw))
+                : currentAfterPrime;
+              stageResults.push({
+                name: 'safe-skip-request',
+                beforeCursorIdx: currentAfterPrime,
+                requestedTargetIdx: skipRequestTarget,
+                expectedReducedTargetIdx: skipExpectedReducedTarget,
+                observedCursorIdx: currentAfterSkip,
+                accepted: currentAfterSkip === skipExpectedReducedTarget,
+                held: currentAfterSkip === currentAfterPrime,
+                moved: currentAfterSkip > currentAfterPrime,
+                reduced: currentAfterSkip === skipExpectedReducedTarget && currentAfterSkip < skipRequestTarget,
+                transcriptSource: 'rendered-line',
+                transcriptLength: skipTranscript.length,
+                topScoreIndices: [skipRequestTarget],
+              });
+            }
+            injectedVia = 'driver-staged';
+          }
         }
       } catch (err) {
         driverError = String(err?.message || err);
@@ -961,6 +1023,7 @@ async function main() {
         fakeSpeechInstalled,
         fakeGetUserMediaCalls,
         fakeRecognizerStarts,
+        stageResults,
         runtimeRunKey: runtimeRunKey || null,
         runtimeRunGeneration,
         activeProfileId,
