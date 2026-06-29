@@ -852,6 +852,10 @@ async function main() {
       const recognizerAttached = runtimeStatus?.recognizerAttached ?? null;
       const speechRunningActual = runtimeStatus?.speechRunningActual ?? null;
       const activeReadMode = runtimeStatus?.activeReadMode ?? null;
+      const fakeSpeech = window.__tpFakeSpeech || null;
+      const fakeSpeechInstalled = window.__TP_FAKE_SPEECH_INSTALLED__ === true || fakeSpeech?.installed === true;
+      const fakeGetUserMediaCalls = Number(fakeSpeech?.getUserMediaCalls || 0);
+      const fakeRecognizerStarts = Number(fakeSpeech?.recognizerStarts || 0);
       const activeProfileId = window.__tpStore?.get?.('asrActiveProfileId') ?? null;
       const profileSeeded = window.__tpSmokeAsrProfile?.seeded === true;
       let injectedVia = 'none';
@@ -954,6 +958,9 @@ async function main() {
         recognizerAttached,
         speechRunningActual,
         activeReadMode,
+        fakeSpeechInstalled,
+        fakeGetUserMediaCalls,
+        fakeRecognizerStarts,
         runtimeRunKey: runtimeRunKey || null,
         runtimeRunGeneration,
         activeProfileId,
@@ -1023,6 +1030,168 @@ async function main() {
   }
 
   const url = RUN_SMOKE ? `http://127.0.0.1:${effectivePort}/teleprompter_pro.html?ci=1&mockFolder=1&uiMock=1&noRelax=1${USE_DIST?'&useDist=1':''}` : `http://127.0.0.1:${effectivePort}/teleprompter_pro.html`;
+  await page.evaluateOnNewDocument((cfg) => {
+    try {
+      const search = String(globalThis.location?.search || '');
+      if (!cfg?.enabled || !search.includes('ci=1')) return;
+      if (globalThis.__TP_FAKE_SPEECH_INSTALLED__) return;
+      globalThis.__TP_FAKE_SPEECH_INSTALLED__ = true;
+      const fakeState = (globalThis.__tpFakeSpeech = globalThis.__tpFakeSpeech || {
+        installed: true,
+        getUserMediaCalls: 0,
+        recognizerStarts: 0,
+        recognizerStops: 0,
+      });
+
+      const ensureSilentStream = async (constraints) => {
+        if (fakeState.stream) return fakeState.stream;
+        const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
+        if (!AC) throw new Error('AudioContext unavailable for fake speech backend');
+        const ctx = new AC();
+        fakeState.audioContext = ctx;
+        try {
+          if (typeof ctx.resume === 'function' && ctx.state === 'suspended') {
+            await ctx.resume();
+          }
+        } catch {}
+        const dest = ctx.createMediaStreamDestination();
+        const gain = ctx.createGain();
+        gain.gain.value = 0;
+        const osc = ctx.createOscillator();
+        osc.frequency.value = 440;
+        osc.connect(gain);
+        gain.connect(dest);
+        try { osc.start(); } catch {}
+        const stream = dest.stream;
+        const track = stream.getAudioTracks?.()[0] || null;
+        if (track) {
+          const requested = constraints?.audio && typeof constraints.audio === 'object' ? constraints.audio : {};
+          const deviceId =
+            requested?.deviceId && typeof requested.deviceId === 'object' && 'exact' in requested.deviceId
+              ? requested.deviceId.exact
+              : requested?.deviceId;
+          const sampleRate =
+            Number(requested?.sampleRate && typeof requested.sampleRate === 'object' && 'exact' in requested.sampleRate
+              ? requested.sampleRate.exact
+              : requested?.sampleRate) || 48000;
+          const channelCount =
+            Number(requested?.channelCount && typeof requested.channelCount === 'object' && 'exact' in requested.channelCount
+              ? requested.channelCount.exact
+              : requested?.channelCount) || 1;
+          try {
+            track.getSettings = () => ({
+              deviceId: deviceId || 'smoke-mic',
+              sampleRate,
+              channelCount,
+              echoCancellation: requested?.echoCancellation ?? false,
+              noiseSuppression: requested?.noiseSuppression ?? false,
+              autoGainControl: requested?.autoGainControl ?? false,
+            });
+          } catch {}
+        }
+        fakeState.stream = stream;
+        fakeState.destination = dest;
+        fakeState.gain = gain;
+        fakeState.oscillator = osc;
+        return stream;
+      };
+
+      const mediaDevices = globalThis.navigator?.mediaDevices;
+      if (mediaDevices) {
+        fakeState.originalGetUserMedia = mediaDevices.getUserMedia?.bind(mediaDevices);
+        fakeState.originalEnumerateDevices = mediaDevices.enumerateDevices?.bind(mediaDevices);
+        mediaDevices.getUserMedia = async (constraints = { audio: true }) => {
+          fakeState.getUserMediaCalls += 1;
+          const stream = await ensureSilentStream(constraints);
+          try {
+            const mic = (typeof globalThis.__tpMic === 'object' && globalThis.__tpMic) ? globalThis.__tpMic : {};
+            mic.__lastStream = stream;
+            mic.__lastRawStream = stream;
+            globalThis.__tpMic = mic;
+          } catch {}
+          return stream;
+        };
+        mediaDevices.enumerateDevices = async () => ([
+          {
+            deviceId: 'smoke-mic',
+            kind: 'audioinput',
+            label: 'Smoke Fake Microphone',
+            groupId: 'smoke-audio-group',
+            toJSON() { return this; },
+          },
+          {
+            deviceId: 'smoke-speaker',
+            kind: 'audiooutput',
+            label: 'Smoke Fake Speakers',
+            groupId: 'smoke-audio-group',
+            toJSON() { return this; },
+          },
+        ]);
+      }
+
+      const permissions = globalThis.navigator?.permissions;
+      if (permissions?.query) {
+        fakeState.originalPermissionsQuery = permissions.query.bind(permissions);
+        permissions.query = async (descriptor) => {
+          if (descriptor?.name === 'microphone') {
+            return {
+              state: 'granted',
+              onchange: null,
+              addEventListener() {},
+              removeEventListener() {},
+              dispatchEvent() { return true; },
+            };
+          }
+          return fakeState.originalPermissionsQuery(descriptor);
+        };
+      }
+
+      class FakeSpeechRecognition {
+        constructor() {
+          this.continuous = false;
+          this.interimResults = false;
+          this.lang = 'en-US';
+          this.maxAlternatives = 1;
+          this.onstart = null;
+          this.onaudiostart = null;
+          this.onspeechstart = null;
+          this.onresult = null;
+          this.onspeechend = null;
+          this.onaudioend = null;
+          this.onend = null;
+          this.onerror = null;
+          this._started = false;
+        }
+
+        start() {
+          fakeState.recognizerStarts += 1;
+          this._started = true;
+          try { this.onstart?.(new Event('start')); } catch {}
+          try { this.onaudiostart?.(new Event('audiostart')); } catch {}
+          try { this.onspeechstart?.(new Event('speechstart')); } catch {}
+        }
+
+        stop() {
+          if (!this._started) return;
+          fakeState.recognizerStops += 1;
+          this._started = false;
+          try { this.onspeechend?.(new Event('speechend')); } catch {}
+          try { this.onaudioend?.(new Event('audioend')); } catch {}
+          try { this.onend?.(new Event('end')); } catch {}
+        }
+
+        abort() {
+          this.stop();
+        }
+      }
+
+      globalThis.SpeechRecognition = FakeSpeechRecognition;
+      globalThis.webkitSpeechRecognition = FakeSpeechRecognition;
+      try { globalThis.__tpMicPermState = 'granted'; } catch {}
+    } catch (e) {
+      try { console.warn('[e2e] fake speech install failed', e); } catch {}
+    }
+  }, { enabled: RUN_SMOKE });
   // Inject OBS config and a robust WebSocket proxy before any page scripts run.
   await page.evaluateOnNewDocument((cfg) => {
     try { globalThis.__OBS_CFG__ = { host: cfg.host, port: cfg.port, password: cfg.pass }; } catch (_e) { /* ignore */ }
