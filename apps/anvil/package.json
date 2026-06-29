@@ -65,7 +65,7 @@
     "report:asr-alignment": "node tools/asr_alignment_report.mjs",
     "report:asr-trace": "node --experimental-strip-types tools/analyze_asr_trace.mjs",
     "check-index-shell": "node tools/check-index-shell.js",
-    "ci-local": "npm ci && npm run check && npm run smoke:strict"
+    "ci-local": "pnpm run check && pnpm run smoke:strict"
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",
