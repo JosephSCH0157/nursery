@@ -5481,8 +5481,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (!(Number.isFinite(absErrorPx) && Number.isFinite(lineHeightPx))) {
       readerMarkerCorrectionHysteresisActive = false;
       readerMarkerCorrectionHysteresisEpoch = semanticEpoch;
-      lastAsrMarkerCorrectionHoldBandPx = holdBandPx;
-      lastAsrMarkerCorrectionEngageBandPx = engageBandPx;
       return {
         correctionRequested: false,
         holdBandPx,
@@ -5498,8 +5496,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ? absErrorPx > holdBandPx
       : absErrorPx > engageBandPx;
     readerMarkerCorrectionHysteresisActive = correctionRequested;
-    lastAsrMarkerCorrectionHoldBandPx = holdBandPx;
-    lastAsrMarkerCorrectionEngageBandPx = engageBandPx;
     return {
       correctionRequested,
       holdBandPx,
@@ -8725,7 +8721,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let semanticEpoch = 1;
   let visualTargetEpoch = 1;
   let lastCommitAuthorityInvalidatedAt = 0;
-  let lastCommitAuthorityInvalidationReason = '';
   let firstTranscriptPacketLogged = false;
   let backendRestartWindowStartedAt = 0;
   let backendRestartedInWindow = false;
@@ -8776,8 +8771,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastStallRecoveryOverrideAt = 0;
   let lastStallRecoveryOverrideHintAt = 0;
   let lastStallRecoveryOverrideHintTarget = -1;
-  let lastLiveForwardGuardHintAt = 0;
-  let lastLiveForwardGuardHintTarget = -1;
   let lastObservedRescueBestSim = Number.NaN;
   let lastObservedRescueAdjacentCandidateSim = Number.NaN;
   let lastCanonicalBackendAdjacentEvidence: CanonicalBackendAdjacentEvidence | null = null;
@@ -8838,8 +8831,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let safeForwardResidualOriginalDeadlineAtMs = 0;
   let readerMarkerCorrectionHysteresisActive = false;
   let readerMarkerCorrectionHysteresisEpoch = semanticEpoch;
-  let lastAsrMarkerCorrectionHoldBandPx = Number.NaN;
-  let lastAsrMarkerCorrectionEngageBandPx = Number.NaN;
   let lastVisualWriteOwner = 'none';
   let lastVisualWriteEpoch = semanticEpoch;
   let lastVisualWriteDirection: 'forward' | 'backward' | 'hold' = 'hold';
@@ -10122,7 +10113,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const resolveDriverRunKey = (): string => normalizeRunKey(driverRunKey);
   const rebindPendingResponseAuthority = (reason: string) => {
     lastCommitAuthorityInvalidatedAt = 0;
-    lastCommitAuthorityInvalidationReason = String(reason || 'unknown');
     clearStallRecoveryOverrideHint();
     pendingMatch = null;
     pendingSeq += 1;
@@ -10153,8 +10143,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastStarvationRelockAt = 0;
     lastStallRecoveryOverrideAt = 0;
     clearStallRecoveryOverrideHint();
-    lastLiveForwardGuardHintAt = 0;
-    lastLiveForwardGuardHintTarget = -1;
     lastObservedRescueBestSim = Number.NaN;
     lastObservedRescueAdjacentCandidateSim = Number.NaN;
     lastStaleLandingRelaxationAt = 0;
@@ -11596,10 +11584,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let pendingSeq = 0;
 
     const adoptPendingMatch = (next: PendingMatch) => {
-      if (next.liveForwardGuardActive && Number.isFinite(next.line)) {
-        lastLiveForwardGuardHintAt = Date.now();
-        lastLiveForwardGuardHintTarget = Math.max(0, Math.floor(Number(next.line)));
-      }
       pendingMatch = {
         ...next,
         transcriptSeq:
@@ -20434,7 +20418,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   ) {
     commitAuthorityEpoch += 1;
     lastCommitAuthorityInvalidatedAt = Date.now();
-    lastCommitAuthorityInvalidationReason = String(reason || 'unknown');
     clearStallRecoveryOverrideHint();
     pendingMatch = null;
     pendingSeq += 1;
@@ -21217,17 +21200,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       wallNow >= safeForwardResidualNextEligibleAtMs &&
       rawPursuitTargetTop > current + getVisualTargetTolerancePx(readerIdleLineHeightPx) &&
       safeForwardResidualOwner !== 'none';
-    const readerIdleHoldShouldEngage =
-      liveAsrFollowMode &&
-      keepLivePocketMaintenanceActive &&
-      Number.isFinite(pursuitTargetTop as number) &&
-      Number(pursuitTargetTop) > current &&
-      !readerIdleSpeechFresh &&
-      lastPartialAgeMs >= ASR_READER_IDLE_FORWARD_HOLD_THRESHOLD_MS &&
-      lastFinalAgeMs >= ASR_READER_IDLE_FORWARD_HOLD_THRESHOLD_MS &&
-      lastTranscriptAgeMs >= ASR_READER_IDLE_FORWARD_HOLD_THRESHOLD_MS &&
-      !readerIdleCurrentGenerationFinalPending &&
-      !readerIdleFreshAdjacentProofPending;
     const readerIdleForwardHoldInteraction = evaluateReaderIdleForwardHoldInteraction({
       liveAsrFollowMode,
       keepLivePocketMaintenanceActive,
@@ -21496,7 +21468,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let postAdjacentCommitRecoveryMinStepPx = 0;
     let postAdjacentCommitRecoveryMaxStepPx = 0;
     let liveAsrRecoveryBoostBlockedReason = '';
-    let postAdjacentCommitRecoveryBlockedReason = '';
     let liveAsrCommitteeSemanticTargetIdx = -1;
     let liveAsrCommitteeAcceptedCommitTargetIdx = -1;
     let liveAsrCommitteeDistanceCapTargetIdx = -1;
@@ -21521,8 +21492,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let liveAsrCommitteeComfortNudgeActive = false;
     let liveAsrCommitteeBottomLockReleaseActive = false;
     let liveAsrCommitteePreferredLowerRailReleaseActive = false;
-    let liveAsrCommitteePostAdjacentRecoveryPending = false;
-    let liveAsrCommitteePostAdjacentRecoveryOpen = false;
     let liveTickVisualOwnershipCandidates: AsrVisualOwnershipCandidate[] = [];
     let liveTickVisualOwnershipDecision: AsrVisualOwnershipDecision | null = null;
     let liveTickOwnershipSnapshot: ReturnType<typeof computeReaderLineMarkerErrorSnapshot> | null = null;
@@ -22826,8 +22795,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const postAdjacentCommitWindowStillFresh =
         postAdjacentCommitVisualRecoveryUntilMs > nowTs &&
         (postAdjacentCommitVisualRecoveryPending || postAdjacentCommitVisualRecoveryOpen);
-      liveAsrCommitteePostAdjacentRecoveryPending = postAdjacentCommitVisualRecoveryPending;
-      liveAsrCommitteePostAdjacentRecoveryOpen = postAdjacentCommitVisualRecoveryOpen;
       if (postAdjacentCommitVisualRecoveryPending && postAdjacentCommitWindowStillFresh) {
         try {
           console.warn(
@@ -22953,12 +22920,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (postAdjacentCommitDecision.allow) {
         postAdjacentCommitRecoveryMinStepPx = postAdjacentCommitDecision.minStepPx;
         postAdjacentCommitRecoveryMaxStepPx = postAdjacentCommitDecision.maxStepPx;
-        postAdjacentCommitRecoveryBlockedReason = '';
         postAdjacentCommitVisualRecoveryLastBlockedReason = '';
       } else {
         postAdjacentCommitRecoveryMinStepPx = 0;
         postAdjacentCommitRecoveryMaxStepPx = 0;
-        postAdjacentCommitRecoveryBlockedReason = postAdjacentCommitDecision.reason;
         let openBlockedReason = postAdjacentCommitDecision.reason;
         if (postAdjacentCommitDecision.reason === 'stale_speech') {
           if (!readerDrivingNow || !postAdjacentCommitLiveSpeechFresh) openBlockedReason = 'stale_speech';
@@ -34447,7 +34412,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const terminalSourceBranchPre = pendingSourceBranch || movementAuthoritySourceBranch || '';
         const terminalProofSourcePre = pendingProofSource || movementAuthorityProofSource || '';
         const terminalForceReasonPre = forceReason || '';
-        const terminalDeltaPre = Math.max(0, freshnessProposedLineIdx - prevLineIndex);
         const targetSpeakablePre = isSpeakableScriptLine(freshnessProposedLineIdx);
         const runIdentityCurrentPre = !isRunIdentityStale({
           runKey: pendingRunKey || undefined,
@@ -45040,8 +45004,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     liveAsrVisualDebtCatchupLastDebtPx = Number.NaN;
     lastStallRecoveryOverrideAt = 0;
     clearStallRecoveryOverrideHint();
-    lastLiveForwardGuardHintAt = 0;
-    lastLiveForwardGuardHintTarget = -1;
     lastObservedRescueBestSim = Number.NaN;
     lastObservedRescueAdjacentCandidateSim = Number.NaN;
     overshootSettleLockState = null;
