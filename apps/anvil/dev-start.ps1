@@ -9,7 +9,7 @@ if (-not $node) {
 }
 
 Write-Host "Starting live-server on port $port..."
-$proc = Start-Process -FilePath "npx" -ArgumentList "live-server --port=$port --no-browser --watch=." -PassThru -WindowStyle Hidden
+$proc = Start-Process -FilePath "pnpm" -ArgumentList "exec live-server --port=$port --no-browser --watch=. --ignore=node_modules,.git" -PassThru -WindowStyle Hidden
 $procId = $proc.Id
 Set-Content -Path .\server.pid -Value $procId
 Write-Host "Started. PID: $procId"
