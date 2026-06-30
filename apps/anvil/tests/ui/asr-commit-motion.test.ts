@@ -546,6 +546,16 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     preservedMarkerSameTarget?: boolean;
     preservedMarkerSameEpoch?: boolean;
     preservedMarkerOriginalOwner?: string | null;
+    stableTargetInWindow?: boolean;
+    sameCommitWindow?: boolean;
+    localAuthorizedTarget?: boolean;
+    physicallyReachable?: boolean;
+    terminalClampActive?: boolean;
+    pendingBridgeActive?: boolean;
+    unsafeTargetActive?: boolean;
+    backwardCandidate?: boolean;
+    authorityConflictActive?: boolean;
+    reanchorOrRescueActive?: boolean;
   }) => {
     holdCandidate: boolean;
     bypassFreshDebt: boolean;
@@ -567,6 +577,9 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     liveEvidenceBasis: string;
     sameTargetProof: boolean;
     sameEpochProof: boolean;
+    settleReleaseEligible: boolean;
+    settleReleased: boolean;
+    settleReleaseBlockedReason: string | null;
   };
   __debugResolveSafeForwardResidualPacing: (args: {
     currentScrollTop: number;
@@ -2429,7 +2442,7 @@ describe('ASR live commit motion', () => {
     } as const;
 
     const first = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
-    driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
+    const second = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
     const third = driver.__debugEvaluateAsrVisualDeadlockEscape(baseArgs);
 
     expect(first).toMatchObject({

@@ -10,6 +10,7 @@ export type BackendRestartRequestedPayloadInput = {
 
 export type BackendHeartbeatDiagnosticInput = {
   transcriptAgeMs: number | null;
+  semanticProgressAgeMs?: number | null;
   audioAgeMs: number | null;
   recognizerAttached: boolean;
   speechActive: boolean;
@@ -19,6 +20,7 @@ export type BackendHeartbeatDiagnosticInput = {
 
 export type BackendHeartbeatDiagnosticPayloadInput = {
   transcriptAgeMs: number;
+  semanticProgressAgeMs: number;
   audioAgeMs: number;
   recognizerAttached: boolean;
   speechActive: boolean;
@@ -87,6 +89,9 @@ export function buildBackendHeartbeatDiagnosticInput(
   const transcriptHeartbeatAge = Number.isFinite(input.transcriptAgeMs as number)
     ? Number(input.transcriptAgeMs)
     : Number.NaN;
+  const semanticProgressHeartbeatAge = Number.isFinite(input.semanticProgressAgeMs as number)
+    ? Number(input.semanticProgressAgeMs)
+    : Number.NaN;
   const audioHeartbeatAge = Number.isFinite(input.audioAgeMs as number)
     ? Number(input.audioAgeMs)
     : Number.NaN;
@@ -95,6 +100,7 @@ export function buildBackendHeartbeatDiagnosticInput(
     speechActive: input.speechActive,
     activeReadMode: input.activeReadMode,
     transcriptAgeMs: transcriptHeartbeatAge,
+    semanticProgressAgeMs: semanticProgressHeartbeatAge,
     audioAgeMs: audioHeartbeatAge,
     backendRestartedInWindow: input.backendRestartedInWindow,
   };

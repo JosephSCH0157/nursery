@@ -20,6 +20,16 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     lineHeightPx?: number;
     selectedAuthority?: string | null;
     movementSource?: string | null;
+    stableTargetInWindow?: boolean;
+    sameCommitWindow?: boolean;
+    localAuthorizedTarget?: boolean;
+    physicallyReachable?: boolean;
+    terminalClampActive?: boolean;
+    pendingBridgeActive?: boolean;
+    unsafeTargetActive?: boolean;
+    backwardCandidate?: boolean;
+    authorityConflictActive?: boolean;
+    reanchorOrRescueActive?: boolean;
   }): {
     holdCandidate: boolean;
     bypassFreshDebt: boolean;
@@ -35,6 +45,9 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     rawTargetSatisfied: boolean;
     effectiveTargetSatisfied: boolean;
     shouldEmitTargetSatisfied: boolean;
+    settleReleaseEligible: boolean;
+    settleReleased: boolean;
+    settleReleaseBlockedReason: string | null;
   };
 };
 
@@ -80,7 +93,7 @@ describe('ASR reader idle forward hold interaction', () => {
       readerIdleForwardHoldActive: true,
     });
 
-    expect(result.holdCandidate).toBe(true);
+    expect(result.holdCandidate).toBe(false);
     expect(result.bypassFreshDebt).toBe(true);
     expect(result.holdApplied).toBe(false);
     expect(result.effectiveTargetScrollTop).toBe(8602);
@@ -90,7 +103,7 @@ describe('ASR reader idle forward hold interaction', () => {
     driver.dispose();
   });
 
-  test('stale speech still allows idle hold to settle and then collapse', () => {
+  test('stale speech latches hold first, then releases one bounded settle step on a stable safe target', () => {
     const driver = createAsrScrollDriver() as DebugAsrDriver;
 
     const first = driver.__debugEvaluateReaderIdleForwardHoldInteraction({
@@ -116,17 +129,46 @@ describe('ASR reader idle forward hold interaction', () => {
       selectedAuthority: 'reader_marker_correction',
       movementSource: 'reader_idle_forward_hold_candidate',
       readerIdleForwardHoldActive: true,
+      stableTargetInWindow: true,
+      sameCommitWindow: true,
+      localAuthorizedTarget: true,
+      physicallyReachable: true,
+    });
+
+    const third = driver.__debugEvaluateReaderIdleForwardHoldInteraction({
+      currentScrollTop: 8534,
+      rawTargetScrollTop: 8602,
+      speechFresh: false,
+      lastPartialAgeMs: 2400,
+      lastFinalAgeMs: 2400,
+      lastTranscriptAgeMs: 2400,
+      lineHeightPx: 120,
+      selectedAuthority: 'reader_marker_correction',
+      movementSource: 'reader_idle_forward_hold_candidate',
+      readerIdleForwardHoldActive: true,
       readerIdleForwardHoldSettleUsed: true,
+      stableTargetInWindow: true,
+      sameCommitWindow: true,
+      localAuthorizedTarget: true,
+      physicallyReachable: true,
     });
 
     expect(first.holdCandidate).toBe(true);
     expect(first.bypassFreshDebt).toBe(false);
     expect(first.holdApplied).toBe(true);
-    expect(first.effectiveTargetScrollTop).toBe(8534 + first.settleCapPx);
-    expect(first.targetCollapseReason).toBe('reader_idle_forward_hold_settle_cap');
+    expect(first.effectiveTargetScrollTop).toBe(8534);
+    expect(first.targetCollapseReason).toBe('reader_idle_forward_hold');
+    expect(first.settleReleased).toBe(false);
     expect(second.holdApplied).toBe(true);
-    expect(second.effectiveTargetScrollTop).toBe(8534);
-    expect(second.targetCollapseReason).toBe('reader_idle_forward_hold');
+    expect(second.effectiveTargetScrollTop).toBe(8534 + second.settleCapPx);
+    expect(second.settleReleaseEligible).toBe(true);
+    expect(second.settleReleased).toBe(true);
+    expect(second.targetCollapseReason).toBe('reader_idle_forward_hold_settle_cap');
+    expect(third.holdApplied).toBe(true);
+    expect(third.effectiveTargetScrollTop).toBe(8534);
+    expect(third.settleReleased).toBe(false);
+    expect(third.settleReleaseBlockedReason).toBe('settle_release_already_used');
+    expect(third.targetCollapseReason).toBe('reader_idle_forward_hold');
 
     driver.dispose();
   });
@@ -177,6 +219,55 @@ describe('ASR reader idle forward hold interaction', () => {
     expect(result.nextHoldSettleUsed).toBe(false);
     expect(result.effectiveTargetScrollTop).toBe(8602);
     expect(result.shouldEmitTargetSatisfied).toBe(false);
+
+    driver.dispose();
+  });
+
+  test('settle release is denied during terminal clamp and for unsafe rescue-like candidates', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const terminalClamp = driver.__debugEvaluateReaderIdleForwardHoldInteraction({
+      currentScrollTop: 3040,
+      rawTargetScrollTop: 3058,
+      speechFresh: false,
+      lastPartialAgeMs: 2400,
+      lastFinalAgeMs: 2400,
+      lastTranscriptAgeMs: 2400,
+      lineHeightPx: 48,
+      selectedAuthority: 'reader_marker_correction',
+      movementSource: 'reader_idle_forward_hold_candidate',
+      readerIdleForwardHoldActive: true,
+      stableTargetInWindow: true,
+      sameCommitWindow: true,
+      localAuthorizedTarget: true,
+      physicallyReachable: true,
+      terminalClampActive: true,
+    });
+    expect(terminalClamp.effectiveTargetScrollTop).toBe(3040);
+    expect(terminalClamp.settleReleased).toBe(false);
+    expect(terminalClamp.settleReleaseBlockedReason).toBe('terminal_clamp_active');
+
+    const unsafeRescue = driver.__debugEvaluateReaderIdleForwardHoldInteraction({
+      currentScrollTop: 3040,
+      rawTargetScrollTop: 3058,
+      speechFresh: false,
+      lastPartialAgeMs: 2400,
+      lastFinalAgeMs: 2400,
+      lastTranscriptAgeMs: 2400,
+      lineHeightPx: 48,
+      selectedAuthority: 'reader_marker_correction',
+      movementSource: 'reanchor_rescue_candidate',
+      readerIdleForwardHoldActive: true,
+      stableTargetInWindow: true,
+      sameCommitWindow: true,
+      localAuthorizedTarget: false,
+      physicallyReachable: true,
+      unsafeTargetActive: true,
+      reanchorOrRescueActive: true,
+    });
+    expect(unsafeRescue.effectiveTargetScrollTop).toBe(3040);
+    expect(unsafeRescue.settleReleased).toBe(false);
+    expect(unsafeRescue.settleReleaseBlockedReason).toBe('target_not_local_authorized');
 
     driver.dispose();
   });

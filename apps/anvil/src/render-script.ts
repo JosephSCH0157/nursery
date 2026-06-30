@@ -80,6 +80,75 @@ function resolveSpeakerTag(tag: string): SpeakerKey | null {
 }
 
 let viewerScrollRouterInstalled = false;
+let markerPaddingLayoutListenerInstalled = false;
+
+function applyMarkerPaddingLayout(root: HTMLElement, viewer: HTMLElement | null): void {
+  const markerPct =
+    typeof (window as any).__TP_MARKER_PCT === 'number' ? (window as any).__TP_MARKER_PCT : 0.4;
+  const host = viewer || root;
+  const hostHeight = host.clientHeight || window.innerHeight || 0;
+  const markerOffset = Math.max(0, Math.round(hostHeight * markerPct));
+  const lastLine = root.querySelector<HTMLElement>('.line:last-of-type');
+  const lastLineHeight = Math.max(
+    1,
+    Number(lastLine?.offsetHeight || lastLine?.clientHeight || 0) || 1,
+  );
+  const trailingRunwayPx = Math.max(
+    0,
+    Math.ceil(hostHeight - markerOffset - (lastLineHeight * 0.5)),
+  );
+
+  try { root.style.paddingTop = `${markerOffset}px`; } catch {}
+  try { root.style.paddingBottom = `${trailingRunwayPx}px`; } catch {}
+  try { root.style.scrollPaddingTop = ''; } catch {}
+  try { root.style.scrollPaddingBottom = ''; } catch {}
+  if (viewer) {
+    viewer.style.paddingTop = '0px';
+    viewer.style.scrollPaddingTop = `${markerOffset}px`;
+    viewer.style.scrollPaddingBottom = `${trailingRunwayPx}px`;
+    const viewerHeight = viewer.clientHeight || 0;
+    if (viewerHeight > 0 && markerOffset > viewerHeight * 2) {
+      try { console.warn('[MARKER] insane offset', { markerOffset, viewerHeight }); } catch {}
+    }
+  }
+  try {
+    const padTarget = root.id ? `#${root.id}` : (root.className ? `.${root.className}` : root.tagName.toLowerCase());
+    const scrollPadTarget = viewer
+      ? (viewer.id ? `#${viewer.id}` : (viewer.className ? `.${viewer.className}` : viewer.tagName.toLowerCase()))
+      : 'none';
+    console.info([
+      '[MARKER_PADDING]',
+      `markerPct=${markerPct}`,
+      `hostH=${Math.round(hostHeight)}`,
+      `markerOffset=${markerOffset}`,
+      `lastLineHeight=${Math.round(lastLineHeight)}`,
+      `trailingRunwayPx=${Math.round(trailingRunwayPx)}`,
+      `paddingTop=${padTarget}`,
+      `scrollPaddingTop=${scrollPadTarget}`,
+    ].join(' '));
+  } catch {}
+}
+
+function ensureMarkerPaddingLayoutListener(): void {
+  if (markerPaddingLayoutListenerInstalled || typeof window === 'undefined') return;
+  const reapply = () => {
+    try {
+      const root =
+        (document.getElementById('script') as HTMLElement | null) ||
+        (document.querySelector('.script') as HTMLElement | null) ||
+        (document.querySelector('#viewer') as HTMLElement | null) ||
+        (document.querySelector('[data-role="viewer"]') as HTMLElement | null) ||
+        (document.querySelector('[data-script-view]') as HTMLElement | null);
+      if (!root) return;
+      const viewer = (root.id === 'viewer' ? root : (root.closest('#viewer') as HTMLElement | null)) || null;
+      applyMarkerPaddingLayout(root, viewer);
+    } catch {}
+  };
+  window.addEventListener('resize', reapply, { passive: true });
+  window.addEventListener('tp:marker-changed', reapply as EventListener);
+  window.addEventListener('tp:script-rendered', reapply as EventListener);
+  markerPaddingLayoutListenerInstalled = true;
+}
 
 function isDevMode(): boolean {
   try {
@@ -195,85 +264,57 @@ export function renderScript(text: string, container?: HTMLElement | null): void
   const frag = document.createDocumentFragment();
   const viewer = (root.id === 'viewer' ? root : (root.closest('#viewer') as HTMLElement | null)) || null;
 
-  // Set a top padding equal to the marker offset so the first line sits on the marker line
+  // Keep the leading marker landing point and add trailing runway so the terminal line can still land there.
   try {
-    const markerPct =
-      typeof (window as any).__TP_MARKER_PCT === 'number' ? (window as any).__TP_MARKER_PCT : 0.4;
-    const host = viewer || root;
-    const h = host.clientHeight || window.innerHeight || 0;
-    const markerOffset = Math.max(0, Math.round(h * markerPct));
-    try { root.style.paddingTop = `${markerOffset}px`; } catch {}
-    try { root.style.scrollPaddingTop = ''; } catch {}
-    if (viewer) {
-      // scroll-padding keeps scrollTo alignment without shifting the marker element
-      viewer.style.paddingTop = '0px';
-      viewer.style.scrollPaddingTop = `${markerOffset}px`;
-      const viewerHeight = viewer.clientHeight || 0;
-      if (viewerHeight > 0 && markerOffset > viewerHeight * 2) {
-        try { console.warn('[MARKER] insane offset', { markerOffset, viewerHeight }); } catch {}
-      }
-    }
-    try {
-      const padTarget = root.id ? `#${root.id}` : (root.className ? `.${root.className}` : root.tagName.toLowerCase());
-      const scrollPadTarget = viewer
-        ? (viewer.id ? `#${viewer.id}` : (viewer.className ? `.${viewer.className}` : viewer.tagName.toLowerCase()))
-        : 'none';
-      console.info([
-        '[MARKER_PADDING]',
-        `markerPct=${markerPct}`,
-        `hostH=${Math.round(h)}`,
-        `markerOffset=${markerOffset}`,
-        `paddingTop=${padTarget}`,
-        `scrollPaddingTop=${scrollPadTarget}`,
-      ].join(' '));
-      if (!viewerScrollRouterInstalled && viewer) {
-        bootTrace('render-script:scroll-router-runtime:install:start');
-        try { console.warn('[SCROLL_ROUTER] render-script installing router now'); } catch {}
-        const auto = createAutoMotor();
-        const viewerEl = document.getElementById('viewer') as HTMLElement | null;
-        const hostEl = viewerEl || root;
-        const mode =
-          (window as any).__tpCurrentScrollMode ||
-          (window as any).__tpScrollMode ||
-          'unknown';
-        const viewerInfo = viewerEl
-          ? `${viewerEl.id || 'no-id'} ${viewerEl.className || 'no-class'}`
-          : 'no-viewer';
-        const hybridMotorInit = !!auto;
-        const listenersWired = !!(window as any).__tpHybridListenersReady;
+    applyMarkerPaddingLayout(root, viewer);
+    ensureMarkerPaddingLayoutListener();
+    if (!viewerScrollRouterInstalled && viewer) {
+      bootTrace('render-script:scroll-router-runtime:install:start');
+      try { console.warn('[SCROLL_ROUTER] render-script installing router now'); } catch {}
+      const auto = createAutoMotor();
+      const viewerEl = document.getElementById('viewer') as HTMLElement | null;
+      const hostEl = viewerEl || root;
+      const mode =
+        (window as any).__tpCurrentScrollMode ||
+        (window as any).__tpScrollMode ||
+        'unknown';
+      const viewerInfo = viewerEl
+        ? `${viewerEl.id || 'no-id'} ${viewerEl.className || 'no-class'}`
+        : 'no-viewer';
+      const hybridMotorInit = !!auto;
+      const listenersWired = !!(window as any).__tpHybridListenersReady;
+      try {
+        console.warn('[SCROLL_ROUTER] install debug', {
+          mode,
+          viewer: viewerInfo.trim(),
+          hybridMotorInit,
+          listenersWired,
+        });
+      } catch {}
+      try { console.info('ABOUT TO CALL installScrollRouter'); } catch {}
+      try {
+        installScrollRouter({ auto, viewer: !!viewerEl, hostEl });
+        try { console.info('RETURNED FROM installScrollRouter'); } catch {}
+        try { (window as any).__tpAuto = auto; } catch {}
+        viewerScrollRouterInstalled = true;
+        bootTrace('render-script:scroll-router-runtime:install:done');
+      } catch (error) {
+        bootTrace('render-script:scroll-router-runtime:install:error', { error: String(error) });
         try {
-          console.warn('[SCROLL_ROUTER] install debug', {
+          const errObj = error instanceof Error ? error : new Error(String(error));
+          console.error('[SCROLL_ROUTER] install failure context', {
             mode,
             viewer: viewerInfo.trim(),
             hybridMotorInit,
             listenersWired,
           });
+          console.error('[SCROLL_ROUTER] INSTALL FAILED', errObj);
+          if (errObj.stack) {
+            console.error(errObj.stack);
+          }
         } catch {}
-        try { console.info('ABOUT TO CALL installScrollRouter'); } catch {}
-        try {
-          installScrollRouter({ auto, viewer: !!viewerEl, hostEl });
-          try { console.info('RETURNED FROM installScrollRouter'); } catch {}
-          try { (window as any).__tpAuto = auto; } catch {}
-          viewerScrollRouterInstalled = true;
-          bootTrace('render-script:scroll-router-runtime:install:done');
-        } catch (error) {
-          bootTrace('render-script:scroll-router-runtime:install:error', { error: String(error) });
-          try {
-            const errObj = error instanceof Error ? error : new Error(String(error));
-            console.error('[SCROLL_ROUTER] install failure context', {
-              mode,
-              viewer: viewerInfo.trim(),
-              hybridMotorInit,
-              listenersWired,
-            });
-            console.error('[SCROLL_ROUTER] INSTALL FAILED', errObj);
-            if (errObj.stack) {
-              console.error(errObj.stack);
-            }
-          } catch {}
-        }
       }
-    } catch {}
+    }
   } catch {}
 
   let currentSpeaker: SpeakerKey | null = null;
@@ -437,6 +478,7 @@ export function renderScript(text: string, container?: HTMLElement | null): void
   }
 
   try { root.appendChild(frag); } catch {}
+  try { applyMarkerPaddingLayout(root, viewer); } catch {}
   try {
     const meta: AsrBlockMetaV1 = {
       schemaVersion: 1,

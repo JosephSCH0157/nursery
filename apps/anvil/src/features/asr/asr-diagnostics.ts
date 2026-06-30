@@ -3,10 +3,11 @@ export function buildAsrBackendHeartbeatDiagnostic(args: {
   speechActive: boolean;
   activeReadMode: boolean;
   transcriptAgeMs: number;
+  semanticProgressAgeMs?: number;
   audioAgeMs: number;
   backendRestartedInWindow: boolean;
 }): string {
-  return `[ASR_BACKEND_HEARTBEAT] live=1 asrArmed=1 recognizerAttached=${args.recognizerAttached ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} activeReadMode=${args.activeReadMode ? 1 : 0} transcriptAgeMs=${Number.isFinite(args.transcriptAgeMs) ? Math.round(args.transcriptAgeMs) : -1} audioAgeMs=${Number.isFinite(args.audioAgeMs) ? Math.round(args.audioAgeMs) : -1} restartedInWindow=${args.backendRestartedInWindow ? 1 : 0}`;
+  return `[ASR_BACKEND_HEARTBEAT] live=1 asrArmed=1 recognizerAttached=${args.recognizerAttached ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} activeReadMode=${args.activeReadMode ? 1 : 0} transcriptAgeMs=${Number.isFinite(args.transcriptAgeMs) ? Math.round(args.transcriptAgeMs) : -1} semanticProgressAgeMs=${Number.isFinite(args.semanticProgressAgeMs as number) ? Math.round(Number(args.semanticProgressAgeMs)) : -1} audioAgeMs=${Number.isFinite(args.audioAgeMs) ? Math.round(args.audioAgeMs) : -1} restartedInWindow=${args.backendRestartedInWindow ? 1 : 0}`;
 }
 
 export function buildAsrBackendTranscriptStaleDiagnostic(args: {
@@ -15,8 +16,9 @@ export function buildAsrBackendTranscriptStaleDiagnostic(args: {
   recognizerAttached: boolean;
   speechActive: boolean;
   activeReadMode: boolean;
+  semanticProgressAgeMs?: number;
 }): string {
-  return `[ASR_BACKEND_TRANSCRIPT_STALE] ageMs=${Math.round(args.ageMs)} thresholdMs=${args.thresholdMs} recognizerAttached=${args.recognizerAttached ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} activeReadMode=${args.activeReadMode ? 1 : 0}`;
+  return `[ASR_BACKEND_TRANSCRIPT_STALE] ageMs=${Math.round(args.ageMs)} thresholdMs=${args.thresholdMs} recognizerAttached=${args.recognizerAttached ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} activeReadMode=${args.activeReadMode ? 1 : 0} semanticProgressAgeMs=${Number.isFinite(args.semanticProgressAgeMs as number) ? Math.round(Number(args.semanticProgressAgeMs)) : -1}`;
 }
 
 export function buildAsrAudioChunkStaleDiagnostic(args: {

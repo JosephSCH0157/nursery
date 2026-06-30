@@ -33934,10 +33934,10 @@ var init_tuning_store = __esm({
 
 // src/features/asr/asr-diagnostics.ts
 function buildAsrBackendHeartbeatDiagnostic(args) {
-  return `[ASR_BACKEND_HEARTBEAT] live=1 asrArmed=1 recognizerAttached=${args.recognizerAttached ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} activeReadMode=${args.activeReadMode ? 1 : 0} transcriptAgeMs=${Number.isFinite(args.transcriptAgeMs) ? Math.round(args.transcriptAgeMs) : -1} audioAgeMs=${Number.isFinite(args.audioAgeMs) ? Math.round(args.audioAgeMs) : -1} restartedInWindow=${args.backendRestartedInWindow ? 1 : 0}`;
+  return `[ASR_BACKEND_HEARTBEAT] live=1 asrArmed=1 recognizerAttached=${args.recognizerAttached ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} activeReadMode=${args.activeReadMode ? 1 : 0} transcriptAgeMs=${Number.isFinite(args.transcriptAgeMs) ? Math.round(args.transcriptAgeMs) : -1} semanticProgressAgeMs=${Number.isFinite(args.semanticProgressAgeMs) ? Math.round(Number(args.semanticProgressAgeMs)) : -1} audioAgeMs=${Number.isFinite(args.audioAgeMs) ? Math.round(args.audioAgeMs) : -1} restartedInWindow=${args.backendRestartedInWindow ? 1 : 0}`;
 }
 function buildAsrBackendTranscriptStaleDiagnostic(args) {
-  return `[ASR_BACKEND_TRANSCRIPT_STALE] ageMs=${Math.round(args.ageMs)} thresholdMs=${args.thresholdMs} recognizerAttached=${args.recognizerAttached ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} activeReadMode=${args.activeReadMode ? 1 : 0}`;
+  return `[ASR_BACKEND_TRANSCRIPT_STALE] ageMs=${Math.round(args.ageMs)} thresholdMs=${args.thresholdMs} recognizerAttached=${args.recognizerAttached ? 1 : 0} speechActive=${args.speechActive ? 1 : 0} activeReadMode=${args.activeReadMode ? 1 : 0} semanticProgressAgeMs=${Number.isFinite(args.semanticProgressAgeMs) ? Math.round(Number(args.semanticProgressAgeMs)) : -1}`;
 }
 function buildAsrAudioChunkStaleDiagnostic(args) {
   return `[ASR_AUDIO_CHUNK_STALE] ageMs=${Math.round(args.ageMs)} thresholdMs=${args.thresholdMs} recognizerAttached=${args.recognizerAttached ? 1 : 0} speechActive=${args.speechActive ? 1 : 0}`;
@@ -37242,12 +37242,14 @@ function buildBackendRestartRequestedPayloadInput(input) {
 }
 function buildBackendHeartbeatDiagnosticInput(input) {
   const transcriptHeartbeatAge = Number.isFinite(input.transcriptAgeMs) ? Number(input.transcriptAgeMs) : Number.NaN;
+  const semanticProgressHeartbeatAge = Number.isFinite(input.semanticProgressAgeMs) ? Number(input.semanticProgressAgeMs) : Number.NaN;
   const audioHeartbeatAge = Number.isFinite(input.audioAgeMs) ? Number(input.audioAgeMs) : Number.NaN;
   return {
     recognizerAttached: input.recognizerAttached,
     speechActive: input.speechActive,
     activeReadMode: input.activeReadMode,
     transcriptAgeMs: transcriptHeartbeatAge,
+    semanticProgressAgeMs: semanticProgressHeartbeatAge,
     audioAgeMs: audioHeartbeatAge,
     backendRestartedInWindow: input.backendRestartedInWindow
   };
@@ -37265,6 +37267,7 @@ function evaluateBackendLiveness(input) {
     return {
       shouldCheck: false,
       transcriptAgeMs: null,
+      semanticProgressAgeMs: null,
       audioAgeMs: null,
       recognizerAgeMs: null,
       firstTranscriptGraceActive: false,
@@ -37274,7 +37277,9 @@ function evaluateBackendLiveness(input) {
       shouldRequestRestart: false
     };
   }
-  const transcriptAgeMs = input.lastTranscriptPacketAt != null ? Math.max(0, input.now - input.lastTranscriptPacketAt) : null;
+  const effectiveTransportVoiceFinalAt = input.lastTransportVoiceFinalAt != null ? input.lastTransportVoiceFinalAt : input.lastTranscriptPacketAt;
+  const transcriptAgeMs = effectiveTransportVoiceFinalAt != null ? Math.max(0, input.now - effectiveTransportVoiceFinalAt) : null;
+  const semanticProgressAgeMs = input.lastSemanticProgressAt != null ? Math.max(0, input.now - input.lastSemanticProgressAt) : null;
   const audioAgeMs = input.lastAudioChunkAt != null ? Math.max(0, input.now - input.lastAudioChunkAt) : null;
   const recognizerAgeMs = input.recognizerAttachedAt != null ? Math.max(0, input.now - input.recognizerAttachedAt) : null;
   const firstTranscriptGraceActive = transcriptAgeMs == null && recognizerAgeMs != null && recognizerAgeMs < input.thresholds.firstTranscriptGraceMs;
@@ -37286,6 +37291,7 @@ function evaluateBackendLiveness(input) {
   return {
     shouldCheck: true,
     transcriptAgeMs,
+    semanticProgressAgeMs,
     audioAgeMs,
     recognizerAgeMs,
     firstTranscriptGraceActive,
@@ -37527,17 +37533,42 @@ function evaluateReaderIdleForwardHoldInteraction(input) {
     holdApplied = true;
     nextHoldActive = true;
     readerIdleHoldDisposition = "retained_true_idle";
-    if (!input.readerIdleForwardHoldSettleUsed) {
+    const settleReleaseEligible = input.readerIdleForwardHoldActive && !input.readerIdleForwardHoldSettleUsed && input.stableTargetInWindow === true && input.sameCommitWindow === true && input.localAuthorizedTarget === true && input.physicallyReachable !== false && input.terminalClampActive !== true && input.pendingBridgeActive !== true && input.unsafeTargetActive !== true && input.backwardCandidate !== true && input.authorityConflictActive !== true && input.reanchorOrRescueActive !== true;
+    const settleReleaseBlockedReason = settleReleaseEligible ? null : input.readerIdleForwardHoldActive !== true ? "hold_not_latched" : input.readerIdleForwardHoldSettleUsed ? "settle_release_already_used" : input.stableTargetInWindow !== true ? "target_not_stable" : input.sameCommitWindow !== true ? "commit_window_changed" : input.localAuthorizedTarget !== true ? "target_not_local_authorized" : input.physicallyReachable === false ? "target_not_physically_reachable" : input.terminalClampActive === true ? "terminal_clamp_active" : input.pendingBridgeActive === true ? "pending_bridge_active" : input.unsafeTargetActive === true ? "unsafe_target_active" : input.backwardCandidate === true ? "backward_candidate" : input.authorityConflictActive === true ? "authority_conflict_active" : input.reanchorOrRescueActive === true ? "reanchor_or_rescue_active" : "settle_release_denied";
+    if (settleReleaseEligible) {
       effectiveTargetScrollTop = Math.min(rawTargetScrollTop, currentScrollTop + settleCapPx);
       nextHoldSettleUsed = true;
-      if (effectiveTargetScrollTop < rawTargetScrollTop - ASR_POCKET_WALL_NOISE_DELTA_PX) {
-        targetCollapseReason = "reader_idle_forward_hold_settle_cap";
-      }
+      targetCollapseReason = effectiveTargetScrollTop < rawTargetScrollTop - ASR_POCKET_WALL_NOISE_DELTA_PX ? "reader_idle_forward_hold_settle_cap" : "reader_idle_forward_hold_settle_release";
     } else {
       effectiveTargetScrollTop = currentScrollTop;
-      nextHoldSettleUsed = true;
+      nextHoldSettleUsed = input.readerIdleForwardHoldSettleUsed;
       targetCollapseReason = "reader_idle_forward_hold";
     }
+    return {
+      holdCandidate,
+      bypassFreshDebt,
+      releasedForMaturedMarkerMaintenance,
+      holdApplied,
+      rawTargetDebtPx,
+      settleCapPx,
+      realDebtThresholdPx,
+      selectedAuthority,
+      originalOwner,
+      effectiveTargetScrollTop,
+      targetCollapseReason,
+      nextHoldActive,
+      nextHoldSettleUsed,
+      rawTargetSatisfied: rawTargetScrollTop <= currentScrollTop + ASR_FORWARD_WRITE_SUPPRESSION_TOLERANCE_PX,
+      effectiveTargetSatisfied: effectiveTargetScrollTop <= currentScrollTop + ASR_FORWARD_WRITE_SUPPRESSION_TOLERANCE_PX,
+      shouldEmitTargetSatisfied: false,
+      readerIdleHoldDisposition,
+      liveEvidenceBasis,
+      sameTargetProof,
+      sameEpochProof,
+      settleReleaseEligible,
+      settleReleased: settleReleaseEligible,
+      settleReleaseBlockedReason
+    };
   } else if (bypassFreshDebt) {
     nextHoldActive = false;
     nextHoldSettleUsed = false;
@@ -37564,7 +37595,10 @@ function evaluateReaderIdleForwardHoldInteraction(input) {
     readerIdleHoldDisposition,
     liveEvidenceBasis,
     sameTargetProof,
-    sameEpochProof
+    sameEpochProof,
+    settleReleaseEligible: false,
+    settleReleased: false,
+    settleReleaseBlockedReason: null
   };
 }
 function isSafeLocalRecoveryWindow(args) {
@@ -40462,8 +40496,6 @@ function createAsrScrollDriver(options = {}) {
     if (!(Number.isFinite(absErrorPx) && Number.isFinite(lineHeightPx))) {
       readerMarkerCorrectionHysteresisActive = false;
       readerMarkerCorrectionHysteresisEpoch = semanticEpoch;
-      lastAsrMarkerCorrectionHoldBandPx = holdBandPx;
-      lastAsrMarkerCorrectionEngageBandPx = engageBandPx;
       return {
         correctionRequested: false,
         holdBandPx,
@@ -40477,8 +40509,6 @@ function createAsrScrollDriver(options = {}) {
     }
     const correctionRequested = readerMarkerCorrectionHysteresisActive ? absErrorPx > holdBandPx : absErrorPx > engageBandPx;
     readerMarkerCorrectionHysteresisActive = correctionRequested;
-    lastAsrMarkerCorrectionHoldBandPx = holdBandPx;
-    lastAsrMarkerCorrectionEngageBandPx = engageBandPx;
     return {
       correctionRequested,
       holdBandPx,
@@ -42384,6 +42414,8 @@ function createAsrScrollDriver(options = {}) {
   let lastFinalTranscriptNorm = "";
   let lastFinalTranscriptAt = 0;
   let lastObservedFinalTranscriptAt = 0;
+  let lastTransportVoiceFinalAt = 0;
+  let lastSemanticProgressAt = sessionStartAt;
   let lastFinalTranscriptRaw = "";
   let lastFinalTranscriptRunKey = "";
   let lastFinalTranscriptRunGeneration = null;
@@ -42628,7 +42660,6 @@ function createAsrScrollDriver(options = {}) {
   let semanticEpoch = 1;
   let visualTargetEpoch = 1;
   let lastCommitAuthorityInvalidatedAt = 0;
-  let lastCommitAuthorityInvalidationReason = "";
   let firstTranscriptPacketLogged = false;
   let backendRestartWindowStartedAt = 0;
   let backendRestartedInWindow = false;
@@ -42643,6 +42674,9 @@ function createAsrScrollDriver(options = {}) {
   let readerIdleForwardHoldActive = false;
   let readerIdleForwardHoldSinceMs = 0;
   let readerIdleForwardHoldSettleUsed = false;
+  let readerIdleForwardHoldStableTargetTop = null;
+  let readerIdleForwardHoldStableTargetLineIdx = -1;
+  let readerIdleForwardHoldStableCommitCount = -1;
   let activeAsrLane2 = ASR_LANE_ASR1;
   let activeAsrControllerProfile = ASR_STANDARD_CONTROLLER_PROFILE;
   let standardForwardJumpConfirm = null;
@@ -42679,8 +42713,6 @@ function createAsrScrollDriver(options = {}) {
   let lastStallRecoveryOverrideAt = 0;
   let lastStallRecoveryOverrideHintAt = 0;
   let lastStallRecoveryOverrideHintTarget = -1;
-  let lastLiveForwardGuardHintAt = 0;
-  let lastLiveForwardGuardHintTarget = -1;
   let lastObservedRescueBestSim = Number.NaN;
   let lastObservedRescueAdjacentCandidateSim = Number.NaN;
   let lastCanonicalBackendAdjacentEvidence = null;
@@ -42741,8 +42773,6 @@ function createAsrScrollDriver(options = {}) {
   let safeForwardResidualOriginalDeadlineAtMs = 0;
   let readerMarkerCorrectionHysteresisActive = false;
   let readerMarkerCorrectionHysteresisEpoch = semanticEpoch;
-  let lastAsrMarkerCorrectionHoldBandPx = Number.NaN;
-  let lastAsrMarkerCorrectionEngageBandPx = Number.NaN;
   let lastVisualWriteOwner = "none";
   let lastVisualWriteEpoch = semanticEpoch;
   let lastVisualWriteDirection = "hold";
@@ -43693,18 +43723,18 @@ function createAsrScrollDriver(options = {}) {
   };
   const resolveDriverRunGeneration = () => normalizeRunGeneration(driverRunGeneration);
   const resolveDriverRunKey = () => normalizeRunKey(driverRunKey);
-  const rebindPendingResponseAuthority = (reason) => {
+  const rebindPendingResponseAuthority = () => {
     lastCommitAuthorityInvalidatedAt = 0;
-    lastCommitAuthorityInvalidationReason = String(reason || "unknown");
     clearStallRecoveryOverrideHint();
     pendingMatch = null;
     pendingSeq += 1;
   };
   const resetRunTimingState = (source, nextRunKey, nextRunGeneration) => {
     const now3 = Date.now();
-    rebindPendingResponseAuthority(`run_timing_reset:${source}`);
+    rebindPendingResponseAuthority();
     lastCommitAt2 = now3;
     lastCommitTime = now3;
+    lastSemanticProgressAt = now3;
     resetDeadScreenAutopsyWindow();
     lastForwardCommitAt = now3;
     liveProgressHeuristics.lastAdvanceAtMs = now3;
@@ -43713,6 +43743,8 @@ function createAsrScrollDriver(options = {}) {
     lastPartialTranscriptAt = 0;
     lastFinalTranscriptAt = 0;
     lastObservedFinalTranscriptAt = 0;
+    lastTransportVoiceFinalAt = 0;
+    lastSemanticProgressAt = now3;
     lastFinalTranscriptRunKey = "";
     lastFinalTranscriptRunGeneration = null;
     lastCaptureProofIntegrationFaultAt = 0;
@@ -43720,14 +43752,15 @@ function createAsrScrollDriver(options = {}) {
     readerIdleForwardHoldActive = false;
     readerIdleForwardHoldSinceMs = 0;
     readerIdleForwardHoldSettleUsed = false;
+    readerIdleForwardHoldStableTargetTop = null;
+    readerIdleForwardHoldStableTargetLineIdx = -1;
+    readerIdleForwardHoldStableCommitCount = -1;
     firstTranscriptPacketLogged = false;
     lastStallLogAt = 0;
     lastStarvationWarnAt = 0;
     lastStarvationRelockAt = 0;
     lastStallRecoveryOverrideAt = 0;
     clearStallRecoveryOverrideHint();
-    lastLiveForwardGuardHintAt = 0;
-    lastLiveForwardGuardHintTarget = -1;
     lastObservedRescueBestSim = Number.NaN;
     lastObservedRescueAdjacentCandidateSim = Number.NaN;
     lastStaleLandingRelaxationAt = 0;
@@ -44727,10 +44760,6 @@ function createAsrScrollDriver(options = {}) {
   let pendingMatch = null;
   let pendingSeq = 0;
   const adoptPendingMatch = (next) => {
-    if (next.liveForwardGuardActive && Number.isFinite(next.line)) {
-      lastLiveForwardGuardHintAt = Date.now();
-      lastLiveForwardGuardHintTarget = Math.max(0, Math.floor(Number(next.line)));
-    }
     pendingMatch = {
       ...next,
       transcriptSeq: next.transcriptSeq ?? (lastTranscriptSeq >= 0 ? lastTranscriptSeq : null),
@@ -45604,6 +45633,7 @@ function createAsrScrollDriver(options = {}) {
     lastForwardCommitAt = now3;
     lastCommitAt2 = now3;
     lastCommitTime = now3;
+    lastSemanticProgressAt = now3;
     resetDeadScreenAutopsyWindow();
     lastSeekTs = now3;
     lastMoveAt = now3;
@@ -47713,6 +47743,8 @@ function createAsrScrollDriver(options = {}) {
       speechActive: speechActive2,
       activeReadMode,
       lastTranscriptPacketAt: lastTranscriptPacketAt > 0 ? lastTranscriptPacketAt : null,
+      lastTransportVoiceFinalAt: lastTransportVoiceFinalAt > 0 ? lastTransportVoiceFinalAt : null,
+      lastSemanticProgressAt: lastSemanticProgressAt > 0 ? lastSemanticProgressAt : null,
       lastAudioChunkAt: lastAudioChunkAt > 0 ? lastAudioChunkAt : null,
       lastBackendHeartbeatAt: lastBackendHeartbeatAt > 0 ? lastBackendHeartbeatAt : null,
       lastBackendTranscriptStaleAt: lastBackendTranscriptStaleAt > 0 ? lastBackendTranscriptStaleAt : null,
@@ -47733,6 +47765,7 @@ function createAsrScrollDriver(options = {}) {
       backendRestartedInWindow = false;
     }
     const transcriptAgeMs = decision.transcriptAgeMs;
+    const semanticProgressAgeMs = decision.semanticProgressAgeMs;
     const audioAgeMs = decision.audioAgeMs;
     lastAsrBackendSpeechActive = speechActive2;
     lastAsrBackendTranscriptAgeMs = Number.isFinite(transcriptAgeMs) ? Number(transcriptAgeMs) : -1;
@@ -47754,6 +47787,7 @@ function createAsrScrollDriver(options = {}) {
       lastBackendHeartbeatAt = now3;
       const heartbeatDiagnosticInput = buildBackendHeartbeatDiagnosticInput({
         transcriptAgeMs,
+        semanticProgressAgeMs,
         audioAgeMs,
         recognizerAttached,
         speechActive: speechActive2,
@@ -47807,7 +47841,8 @@ function createAsrScrollDriver(options = {}) {
             thresholdMs: DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS,
             recognizerAttached,
             speechActive: speechActive2,
-            activeReadMode
+            activeReadMode,
+            semanticProgressAgeMs: Number.isFinite(semanticProgressAgeMs) ? Number(semanticProgressAgeMs) : Number.NaN
           })
         );
       } catch {
@@ -48640,6 +48675,9 @@ function createAsrScrollDriver(options = {}) {
       readerIdleForwardHoldActive = false;
       readerIdleForwardHoldSinceMs = 0;
       readerIdleForwardHoldSettleUsed = false;
+      readerIdleForwardHoldStableTargetTop = null;
+      readerIdleForwardHoldStableTargetLineIdx = -1;
+      readerIdleForwardHoldStableCommitCount = -1;
       emitDevDiagnostic(
         "ASR_READER_IDLE_FORWARD_HOLD_RELEASED",
         "warn",
@@ -51765,7 +51803,6 @@ function createAsrScrollDriver(options = {}) {
   function invalidatePendingResponseAuthority(reason, overrides) {
     commitAuthorityEpoch += 1;
     lastCommitAuthorityInvalidatedAt = Date.now();
-    lastCommitAuthorityInvalidationReason = String(reason || "unknown");
     clearStallRecoveryOverrideHint();
     pendingMatch = null;
     pendingSeq += 1;
@@ -52288,6 +52325,9 @@ function createAsrScrollDriver(options = {}) {
       readerIdleForwardHoldActive = false;
       readerIdleForwardHoldSinceMs = 0;
       readerIdleForwardHoldSettleUsed = false;
+      readerIdleForwardHoldStableTargetTop = null;
+      readerIdleForwardHoldStableTargetLineIdx = -1;
+      readerIdleForwardHoldStableCommitCount = -1;
       emitDevDiagnostic(
         "ASR_READER_IDLE_FORWARD_HOLD_RELEASED",
         "warn",
@@ -52317,7 +52357,16 @@ function createAsrScrollDriver(options = {}) {
     const readerIdlePreservedMarkerSameEpoch = safeForwardResidualTargetEpoch === visualTargetEpoch;
     const readerIdlePreservedMarkerSameTarget = readerIdlePreservedMarkerSameEpoch && safeForwardResidualTargetLineIdx === readerIdlePreservedTargetLineIdx && Number.isFinite(safeForwardResidualTargetScrollTop) && Number.isFinite(rawPursuitTargetTop) && Math.abs(Number(safeForwardResidualTargetScrollTop) - rawPursuitTargetTop) <= readerIdlePreservedTargetTolerancePx;
     const readerIdleMaturedPreservedMarkerMaintenance = liveAsrFollowMode && commitCount >= 2 && lastAsrNormalMarkerFollowOwnsTarget && lastCommittedLine === lastLineIndex && readerIdlePreservedTargetLineIdx === lastLineIndex && readerIdlePreservedMarkerSameEpoch && readerIdlePreservedMarkerSameTarget && safeForwardResidualDebtPx > getVisualTargetTolerancePx(readerIdleLineHeightPx) && safeForwardResidualNextEligibleAtMs > 0 && wallNow >= safeForwardResidualNextEligibleAtMs && rawPursuitTargetTop > current2 + getVisualTargetTolerancePx(readerIdleLineHeightPx) && safeForwardResidualOwner !== "none";
-    const readerIdleHoldShouldEngage = liveAsrFollowMode && keepLivePocketMaintenanceActive && Number.isFinite(pursuitTargetTop) && Number(pursuitTargetTop) > current2 && !readerIdleSpeechFresh && lastPartialAgeMs >= ASR_READER_IDLE_FORWARD_HOLD_THRESHOLD_MS && lastFinalAgeMs >= ASR_READER_IDLE_FORWARD_HOLD_THRESHOLD_MS && lastTranscriptAgeMs >= ASR_READER_IDLE_FORWARD_HOLD_THRESHOLD_MS && !readerIdleCurrentGenerationFinalPending && !readerIdleFreshAdjacentProofPending;
+    const readerIdleStableTargetTolerancePx = Math.max(2, ASR_POCKET_WALL_NOISE_DELTA_PX);
+    const readerIdleStableTargetInWindow = readerIdleForwardHoldActive && Number.isFinite(readerIdleForwardHoldStableTargetTop) && Math.abs(Number(readerIdleForwardHoldStableTargetTop) - rawPursuitTargetTop) <= readerIdleStableTargetTolerancePx && readerIdleForwardHoldStableTargetLineIdx === readerIdlePreservedTargetLineIdx;
+    const readerIdleSameCommitWindow = readerIdleForwardHoldStableCommitCount === commitCount;
+    const readerIdleAuthorizedLocalTarget = readerIdlePreservedTargetLineIdx >= 0 && readerIdlePreservedTargetLineIdx <= Math.max(lastLineIndex, lastCommittedLine) && (readerIdlePreservedTargetLineIdx === lastLineIndex || readerIdlePreservedTargetLineIdx === lastCommittedLine);
+    const readerIdleMaxScrollTop = Math.max(0, Number(scroller.scrollHeight || 0) - Number(scroller.clientHeight || 0));
+    const readerIdlePhysicallyReachable = rawPursuitTargetTop <= readerIdleMaxScrollTop + ASR_POCKET_WALL_NOISE_DELTA_PX;
+    const readerIdlePendingBridgeActive = !!pendingSpeakableBridgeState;
+    const readerIdleUnsafeTargetActive = lastAsrPocketWallUnsafeTargetReason !== "none" || lastAsrGuardReason === "no_match" || lastAsrGuardReason === "contradiction";
+    const readerIdleAuthorityConflictActive = liveTickSelectedAuthority === "hold" || !!liveTickSelectedAuthority && !!lastAsrSelectedAuthority && liveTickSelectedAuthority !== lastAsrSelectedAuthority && liveTickSelectedAuthority !== "hold" && lastAsrSelectedAuthority !== "hold";
+    const readerIdleReanchorOrRescueActive = readerIdleMovementSource.includes("reanchor") || readerIdleMovementSource.includes("rescue");
     const readerIdleForwardHoldInteraction = evaluateReaderIdleForwardHoldInteraction({
       liveAsrFollowMode,
       keepLivePocketMaintenanceActive,
@@ -52340,7 +52389,17 @@ function createAsrScrollDriver(options = {}) {
       maturedPreservedMarkerMaintenance: readerIdleMaturedPreservedMarkerMaintenance,
       preservedMarkerSameTarget: readerIdlePreservedMarkerSameTarget,
       preservedMarkerSameEpoch: readerIdlePreservedMarkerSameEpoch,
-      preservedMarkerOriginalOwner: safeForwardResidualOwner
+      preservedMarkerOriginalOwner: safeForwardResidualOwner,
+      stableTargetInWindow: readerIdleStableTargetInWindow,
+      sameCommitWindow: readerIdleSameCommitWindow,
+      localAuthorizedTarget: readerIdleAuthorizedLocalTarget,
+      physicallyReachable: readerIdlePhysicallyReachable,
+      terminalClampActive: liveAsrTerminalScriptHoldActive,
+      pendingBridgeActive: readerIdlePendingBridgeActive,
+      unsafeTargetActive: readerIdleUnsafeTargetActive,
+      backwardCandidate: rawPursuitTargetTop <= current2,
+      authorityConflictActive: readerIdleAuthorityConflictActive,
+      reanchorOrRescueActive: readerIdleReanchorOrRescueActive
     });
     lastDebugRawTargetScrollTop = rawPursuitTargetTop;
     lastDebugEffectiveTargetScrollTop = Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current2;
@@ -52379,6 +52438,9 @@ function createAsrScrollDriver(options = {}) {
         readerIdleForwardHoldActive = false;
         readerIdleForwardHoldSinceMs = 0;
         readerIdleForwardHoldSettleUsed = false;
+        readerIdleForwardHoldStableTargetTop = null;
+        readerIdleForwardHoldStableTargetLineIdx = -1;
+        readerIdleForwardHoldStableCommitCount = -1;
         lastDebugHoldApplied = false;
         lastDebugHoldReason = "bypassed_fresh_debt";
         emitDevDiagnostic(
@@ -52398,6 +52460,9 @@ function createAsrScrollDriver(options = {}) {
         readerIdleForwardHoldActive = false;
         readerIdleForwardHoldSinceMs = 0;
         readerIdleForwardHoldSettleUsed = false;
+        readerIdleForwardHoldStableTargetTop = null;
+        readerIdleForwardHoldStableTargetLineIdx = -1;
+        readerIdleForwardHoldStableCommitCount = -1;
         liveTickSelectedAuthority = readerIdleForwardHoldInteraction.selectedAuthority;
         liveTickAuthorityReason = "matured_marker_maintenance_owner_restored";
         lastDebugSelectedAuthority = readerIdleForwardHoldInteraction.selectedAuthority;
@@ -52424,6 +52489,11 @@ function createAsrScrollDriver(options = {}) {
         readerIdleForwardHoldActive = readerIdleForwardHoldInteraction.nextHoldActive;
         if (readerIdleForwardHoldSinceMs <= 0) {
           readerIdleForwardHoldSinceMs = wallNow;
+        }
+        if (!readerIdleStableTargetInWindow) {
+          readerIdleForwardHoldStableTargetTop = rawPursuitTargetTop;
+          readerIdleForwardHoldStableTargetLineIdx = readerIdlePreservedTargetLineIdx;
+          readerIdleForwardHoldStableCommitCount = commitCount;
         }
         const proposedScrollTop = rawPursuitTargetTop;
         pursuitTargetTop = readerIdleForwardHoldInteraction.effectiveTargetScrollTop;
@@ -52453,6 +52523,22 @@ function createAsrScrollDriver(options = {}) {
             ].join("|")
           }
         );
+        if (readerIdleForwardHoldInteraction.settleReleased) {
+          emitDevDiagnostic(
+            "ASR_READER_IDLE_FORWARD_SETTLE_RELEASED",
+            "warn",
+            `[ASR_READER_IDLE_FORWARD_SETTLE_RELEASED] currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(proposedScrollTop)} effectiveTargetScrollTop=${Math.round(Number(pursuitTargetTop))} deltaPx=${Math.round(Number(pursuitTargetTop) - current2)} lineCapPx=${Math.round(readerIdleForwardHoldInteraction.settleCapPx)} committedLine=${Math.max(lastCommittedLine, lastLineIndex)} targetLine=${readerIdlePreservedTargetLineIdx} terminalClampActive=${liveAsrTerminalScriptHoldActive ? 1 : 0} physicallyReachable=${readerIdlePhysicallyReachable ? 1 : 0} pendingBridgeActive=${readerIdlePendingBridgeActive ? 1 : 0} unsafeTargetActive=${readerIdleUnsafeTargetActive ? 1 : 0} authorityConflictActive=${readerIdleAuthorityConflictActive ? 1 : 0} reanchorOrRescueActive=${readerIdleReanchorOrRescueActive ? 1 : 0} stableTargetInWindow=${readerIdleStableTargetInWindow ? 1 : 0} sameCommitWindow=${readerIdleSameCommitWindow ? 1 : 0}`,
+            {
+              minMs: 0,
+              signature: [
+                Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+                Math.round(proposedScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+                Math.round(Number(pursuitTargetTop) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+                readerIdlePreservedTargetLineIdx
+              ].join("|")
+            }
+          );
+        }
       }
     }
     if (Number.isFinite(pursuitTargetTop) && liveAsrVisualPursuitLineIdx != null && Number.isFinite(liveAsrVisualPursuitLineIdx) && liveAsrVisualPursuitLineIdx >= 0 && liveAsrVisualPursuitLineIdx <= lastLineIndex + ASR_PURSUE_TARGET_GRACE_MAX_SEMANTIC_DISTANCE) {
@@ -52564,7 +52650,6 @@ function createAsrScrollDriver(options = {}) {
     let postAdjacentCommitRecoveryMinStepPx = 0;
     let postAdjacentCommitRecoveryMaxStepPx = 0;
     let liveAsrRecoveryBoostBlockedReason = "";
-    let postAdjacentCommitRecoveryBlockedReason = "";
     let liveAsrCommitteeSemanticTargetIdx = -1;
     let liveAsrCommitteeAcceptedCommitTargetIdx = -1;
     let liveAsrCommitteeDistanceCapTargetIdx = -1;
@@ -52589,8 +52674,6 @@ function createAsrScrollDriver(options = {}) {
     let liveAsrCommitteeComfortNudgeActive = false;
     let liveAsrCommitteeBottomLockReleaseActive = false;
     let liveAsrCommitteePreferredLowerRailReleaseActive = false;
-    let liveAsrCommitteePostAdjacentRecoveryPending = false;
-    let liveAsrCommitteePostAdjacentRecoveryOpen = false;
     let liveTickVisualOwnershipCandidates = [];
     let liveTickVisualOwnershipDecision = null;
     let liveTickOwnershipSnapshot = null;
@@ -53522,8 +53605,6 @@ function createAsrScrollDriver(options = {}) {
       const postAdjacentCommitNoMatchOrOffscript = String(lastAsrGuardReason || "").toLowerCase().includes("no_match") || String(lastAsrHudGuardText || "").toLowerCase().includes("offscript") || String(lastAsrGuardReason || "").toLowerCase().includes("contradiction");
       liveAsrCommitteeHardSafetyState = !Number.isFinite(nextLineY) || !Number.isFinite(markerY) || postAdjacentCommitNoMatchOrOffscript || liveAsrVisualGovernorHardHold || !postAdjacentCommitAudioBackendFresh ? "absolute_hold" : bridgeHoldContextActive ? "distance_restrict_only" : "clear";
       const postAdjacentCommitWindowStillFresh = postAdjacentCommitVisualRecoveryUntilMs > nowTs2 && (postAdjacentCommitVisualRecoveryPending || postAdjacentCommitVisualRecoveryOpen);
-      liveAsrCommitteePostAdjacentRecoveryPending = postAdjacentCommitVisualRecoveryPending;
-      liveAsrCommitteePostAdjacentRecoveryOpen = postAdjacentCommitVisualRecoveryOpen;
       if (postAdjacentCommitVisualRecoveryPending && postAdjacentCommitWindowStillFresh) {
         try {
           console.warn(
@@ -53618,12 +53699,10 @@ function createAsrScrollDriver(options = {}) {
       if (postAdjacentCommitDecision.allow) {
         postAdjacentCommitRecoveryMinStepPx = postAdjacentCommitDecision.minStepPx;
         postAdjacentCommitRecoveryMaxStepPx = postAdjacentCommitDecision.maxStepPx;
-        postAdjacentCommitRecoveryBlockedReason = "";
         postAdjacentCommitVisualRecoveryLastBlockedReason = "";
       } else {
         postAdjacentCommitRecoveryMinStepPx = 0;
         postAdjacentCommitRecoveryMaxStepPx = 0;
-        postAdjacentCommitRecoveryBlockedReason = postAdjacentCommitDecision.reason;
         let openBlockedReason = postAdjacentCommitDecision.reason;
         if (postAdjacentCommitDecision.reason === "stale_speech") {
           if (!readerDrivingNow || !postAdjacentCommitLiveSpeechFresh) openBlockedReason = "stale_speech";
@@ -62295,7 +62374,6 @@ function createAsrScrollDriver(options = {}) {
           const terminalSourceBranchPre = pendingSourceBranch || movementAuthoritySourceBranch || "";
           const terminalProofSourcePre = pendingProofSource || movementAuthorityProofSource || "";
           const terminalForceReasonPre = forceReason || "";
-          const terminalDeltaPre = Math.max(0, freshnessProposedLineIdx - prevLineIndex);
           const targetSpeakablePre = isSpeakableScriptLine(freshnessProposedLineIdx);
           const runIdentityCurrentPre = !isRunIdentityStale({
             runKey: pendingRunKey || void 0,
@@ -63625,6 +63703,7 @@ function createAsrScrollDriver(options = {}) {
           }
         }
         lastCommitTime = Date.now();
+        lastSemanticProgressAt = now3;
         resetDeadScreenAutopsyWindow();
         lastCommitIndex = cursorIndex;
         creepBudgetLine = -1;
@@ -63732,6 +63811,7 @@ function createAsrScrollDriver(options = {}) {
             lastAcceptedMatchedLineIdx = effectiveSemanticCommitTargetLine;
             lastAcceptedMatchedLineSim = Number.NaN;
             lastAcceptedMatchedAt = now3;
+            lastSemanticProgressAt = now3;
           }
           if (liveStrictSpeculativeStepUsed) {
             liveStrictSpeculativeStepUsed = false;
@@ -66577,6 +66657,7 @@ function createAsrScrollDriver(options = {}) {
           lastAcceptedMatchedLineIdx = freshBestIdx;
           lastAcceptedMatchedLineSim = freshBestSim;
           lastAcceptedMatchedAt = now3;
+          lastSemanticProgressAt = now3;
         }
       }
     }
@@ -67208,6 +67289,12 @@ function createAsrScrollDriver(options = {}) {
     lastTranscriptPacketAt = now3;
     if (isFinal) {
       lastObservedFinalTranscriptAt = now3;
+      const activeRunKey = resolveActiveRunKey();
+      const activeRunGeneration = resolveActiveRunGeneration();
+      const sameActiveRun = (!transcriptRunKey || !activeRunKey || transcriptRunKey === activeRunKey) && (transcriptRunGeneration == null || activeRunGeneration == null || transcriptRunGeneration === activeRunGeneration);
+      if (sameActiveRun && detail?.requestCaptureVerdict === "voice_detected") {
+        lastTransportVoiceFinalAt = now3;
+      }
     }
     if (lastAudioChunkAt <= 0 || now3 - lastAudioChunkAt > 250) {
       lastAudioChunkAt = now3;
@@ -70500,8 +70587,6 @@ function createAsrScrollDriver(options = {}) {
     liveAsrVisualDebtCatchupLastDebtPx = Number.NaN;
     lastStallRecoveryOverrideAt = 0;
     clearStallRecoveryOverrideHint();
-    lastLiveForwardGuardHintAt = 0;
-    lastLiveForwardGuardHintTarget = -1;
     lastObservedRescueBestSim = Number.NaN;
     lastObservedRescueAdjacentCandidateSim = Number.NaN;
     overshootSettleLockState = null;
@@ -70598,6 +70683,7 @@ function createAsrScrollDriver(options = {}) {
     lastAcceptedMatchedLineIdx = lastLineIndex;
     lastAcceptedMatchedLineSim = Number.NaN;
     lastAcceptedMatchedAt = Date.now();
+    lastSemanticProgressAt = Date.now();
     _postCommitReadabilitySeq += 1;
     lastSeekTs = 0;
     lastSameLineNudgeTs = 0;
@@ -72195,7 +72281,17 @@ function createAsrScrollDriver(options = {}) {
     maturedPreservedMarkerMaintenance: !!args.maturedPreservedMarkerMaintenance,
     preservedMarkerSameTarget: !!args.preservedMarkerSameTarget,
     preservedMarkerSameEpoch: !!args.preservedMarkerSameEpoch,
-    preservedMarkerOriginalOwner: args.preservedMarkerOriginalOwner
+    preservedMarkerOriginalOwner: args.preservedMarkerOriginalOwner,
+    stableTargetInWindow: !!args.stableTargetInWindow,
+    sameCommitWindow: !!args.sameCommitWindow,
+    localAuthorizedTarget: !!args.localAuthorizedTarget,
+    physicallyReachable: args.physicallyReachable !== false,
+    terminalClampActive: !!args.terminalClampActive,
+    pendingBridgeActive: !!args.pendingBridgeActive,
+    unsafeTargetActive: !!args.unsafeTargetActive,
+    backwardCandidate: !!args.backwardCandidate,
+    authorityConflictActive: !!args.authorityConflictActive,
+    reanchorOrRescueActive: !!args.reanchorOrRescueActive
   });
   const debugSeedPreservedFollowTarget = (args) => {
     if (Number.isFinite(args.targetScrollTop)) {
@@ -73894,6 +73990,7 @@ var init_asr_log_buffer = __esm({
     NOISY_ASR_TAG_COALESCE_SAMPLE_EVERY = 120;
     NOISY_ASR_TAG_COALESCE_MIN_MS = 2500;
     NOISY_ASR_TAGS = /* @__PURE__ */ new Set([
+      "ASR_SCROLL_WRITE_AUDIT",
       "ASR_LIVE_POCKET_MAINTENANCE_CALLSITE_REACHED",
       "ASR_POCKET_WALL_EVALUATED",
       "ASR_LOW_POCKET_DEADBAND_BLOCKED",
@@ -73901,6 +73998,8 @@ var init_asr_log_buffer = __esm({
       "ASR_VISUAL_DEBT_CATCHUP_EVALUATION_SEEN",
       "ASR_LEAD_AWARE_PURSUIT_CAP",
       "ASR_READER_PRESSURE_REDUCED",
+      "ASR_READER_IDLE_FORWARD_HOLD_APPLIED",
+      "ASR_FORWARD_WRITE_SUPPRESSED_TARGET_SATISFIED",
       "ASR_VISUAL_AUTHORITY_LEAD_PRESSURE_EVALUATED"
     ]);
     TRACKED_SUMMARY_FAMILIES = /* @__PURE__ */ new Set([
@@ -79677,7 +79776,6 @@ function enrichTranscriptPayloadForAsr(payload) {
     };
   }
   next.forwardSupportRequestSeqs = forwardSupportSeqs;
-  const lineageSeqs = forwardSupportSeqs.length ? forwardSupportSeqs : supportingRawSeqs.length ? supportingRawSeqs : sourceRequestSeqs;
   const assemblyDivergedFromRaw = !rawAndAssembledEquivalent && assembledMatchIndex != null && rawMatchIndex !== assembledMatchIndex;
   next.forwardMatchCreatedByAssembly = assemblyDivergedFromRaw;
   next.targetSupportProvenance = !assemblyDivergedFromRaw ? "direct_raw_support" : forwardSupportSeqs.length === 0 ? "unattributed_forward_support" : sourceRequestSeqs.length <= 1 ? "single_request_assembly_only" : "voice_backed_multi_request_support";
@@ -81248,7 +81346,6 @@ function ensureAsrDriverLifecycleHooks() {
   window.addEventListener("tp:render:done", onScriptRendered, TRANSCRIPT_EVENT_OPTIONS);
   const initialMode = String(getScrollMode4() || "").toLowerCase();
   const session = getSession();
-  const initialPhase = String(session.phase || "").toLowerCase();
   const allowBootstrapCreate = shouldAllowAsrDriverCreateAttempt(initialMode, session);
   if (allowBootstrapCreate || !!asrScrollDriver) {
     attachAsrScrollDriver({ reason: "bootstrap", mode: initialMode, allowCreate: allowBootstrapCreate });
@@ -85497,6 +85594,80 @@ function resolveSpeakerTag(tag) {
   if (t === "g2" || t === "guest2") return "guest2";
   return null;
 }
+function applyMarkerPaddingLayout(root, viewer2) {
+  const markerPct = typeof window.__TP_MARKER_PCT === "number" ? window.__TP_MARKER_PCT : 0.4;
+  const host = viewer2 || root;
+  const hostHeight = host.clientHeight || window.innerHeight || 0;
+  const markerOffset = Math.max(0, Math.round(hostHeight * markerPct));
+  const lastLine = root.querySelector(".line:last-of-type");
+  const lastLineHeight = Math.max(
+    1,
+    Number(lastLine?.offsetHeight || lastLine?.clientHeight || 0) || 1
+  );
+  const trailingRunwayPx = Math.max(
+    0,
+    Math.ceil(hostHeight - markerOffset - lastLineHeight * 0.5)
+  );
+  try {
+    root.style.paddingTop = `${markerOffset}px`;
+  } catch {
+  }
+  try {
+    root.style.paddingBottom = `${trailingRunwayPx}px`;
+  } catch {
+  }
+  try {
+    root.style.scrollPaddingTop = "";
+  } catch {
+  }
+  try {
+    root.style.scrollPaddingBottom = "";
+  } catch {
+  }
+  if (viewer2) {
+    viewer2.style.paddingTop = "0px";
+    viewer2.style.scrollPaddingTop = `${markerOffset}px`;
+    viewer2.style.scrollPaddingBottom = `${trailingRunwayPx}px`;
+    const viewerHeight = viewer2.clientHeight || 0;
+    if (viewerHeight > 0 && markerOffset > viewerHeight * 2) {
+      try {
+        console.warn("[MARKER] insane offset", { markerOffset, viewerHeight });
+      } catch {
+      }
+    }
+  }
+  try {
+    const padTarget = root.id ? `#${root.id}` : root.className ? `.${root.className}` : root.tagName.toLowerCase();
+    const scrollPadTarget = viewer2 ? viewer2.id ? `#${viewer2.id}` : viewer2.className ? `.${viewer2.className}` : viewer2.tagName.toLowerCase() : "none";
+    console.info([
+      "[MARKER_PADDING]",
+      `markerPct=${markerPct}`,
+      `hostH=${Math.round(hostHeight)}`,
+      `markerOffset=${markerOffset}`,
+      `lastLineHeight=${Math.round(lastLineHeight)}`,
+      `trailingRunwayPx=${Math.round(trailingRunwayPx)}`,
+      `paddingTop=${padTarget}`,
+      `scrollPaddingTop=${scrollPadTarget}`
+    ].join(" "));
+  } catch {
+  }
+}
+function ensureMarkerPaddingLayoutListener() {
+  if (markerPaddingLayoutListenerInstalled || typeof window === "undefined") return;
+  const reapply = () => {
+    try {
+      const root = document.getElementById("script") || document.querySelector(".script") || document.querySelector("#viewer") || document.querySelector('[data-role="viewer"]') || document.querySelector("[data-script-view]");
+      if (!root) return;
+      const viewer2 = (root.id === "viewer" ? root : root.closest("#viewer")) || null;
+      applyMarkerPaddingLayout(root, viewer2);
+    } catch {
+    }
+  };
+  window.addEventListener("resize", reapply, { passive: true });
+  window.addEventListener("tp:marker-changed", reapply);
+  window.addEventListener("tp:script-rendered", reapply);
+  markerPaddingLayoutListenerInstalled = true;
+}
 function isDevMode7() {
   try {
     const qs = new URLSearchParams(String(location.search || ""));
@@ -85581,97 +85752,63 @@ function renderScript(text, container) {
   const frag = document.createDocumentFragment();
   const viewer2 = (root.id === "viewer" ? root : root.closest("#viewer")) || null;
   try {
-    const markerPct = typeof window.__TP_MARKER_PCT === "number" ? window.__TP_MARKER_PCT : 0.4;
-    const host = viewer2 || root;
-    const h = host.clientHeight || window.innerHeight || 0;
-    const markerOffset = Math.max(0, Math.round(h * markerPct));
-    try {
-      root.style.paddingTop = `${markerOffset}px`;
-    } catch {
-    }
-    try {
-      root.style.scrollPaddingTop = "";
-    } catch {
-    }
-    if (viewer2) {
-      viewer2.style.paddingTop = "0px";
-      viewer2.style.scrollPaddingTop = `${markerOffset}px`;
-      const viewerHeight = viewer2.clientHeight || 0;
-      if (viewerHeight > 0 && markerOffset > viewerHeight * 2) {
-        try {
-          console.warn("[MARKER] insane offset", { markerOffset, viewerHeight });
-        } catch {
-        }
+    applyMarkerPaddingLayout(root, viewer2);
+    ensureMarkerPaddingLayoutListener();
+    if (!viewerScrollRouterInstalled && viewer2) {
+      bootTrace("render-script:scroll-router-runtime:install:start");
+      try {
+        console.warn("[SCROLL_ROUTER] render-script installing router now");
+      } catch {
       }
-    }
-    try {
-      const padTarget = root.id ? `#${root.id}` : root.className ? `.${root.className}` : root.tagName.toLowerCase();
-      const scrollPadTarget = viewer2 ? viewer2.id ? `#${viewer2.id}` : viewer2.className ? `.${viewer2.className}` : viewer2.tagName.toLowerCase() : "none";
-      console.info([
-        "[MARKER_PADDING]",
-        `markerPct=${markerPct}`,
-        `hostH=${Math.round(h)}`,
-        `markerOffset=${markerOffset}`,
-        `paddingTop=${padTarget}`,
-        `scrollPaddingTop=${scrollPadTarget}`
-      ].join(" "));
-      if (!viewerScrollRouterInstalled && viewer2) {
-        bootTrace("render-script:scroll-router-runtime:install:start");
+      const auto2 = createAutoMotor();
+      const viewerEl = document.getElementById("viewer");
+      const hostEl = viewerEl || root;
+      const mode = window.__tpCurrentScrollMode || window.__tpScrollMode || "unknown";
+      const viewerInfo = viewerEl ? `${viewerEl.id || "no-id"} ${viewerEl.className || "no-class"}` : "no-viewer";
+      const hybridMotorInit = !!auto2;
+      const listenersWired2 = !!window.__tpHybridListenersReady;
+      try {
+        console.warn("[SCROLL_ROUTER] install debug", {
+          mode,
+          viewer: viewerInfo.trim(),
+          hybridMotorInit,
+          listenersWired: listenersWired2
+        });
+      } catch {
+      }
+      try {
+        console.info("ABOUT TO CALL installScrollRouter");
+      } catch {
+      }
+      try {
+        installScrollRouter({ auto: auto2, viewer: !!viewerEl, hostEl });
         try {
-          console.warn("[SCROLL_ROUTER] render-script installing router now");
+          console.info("RETURNED FROM installScrollRouter");
         } catch {
         }
-        const auto2 = createAutoMotor();
-        const viewerEl = document.getElementById("viewer");
-        const hostEl = viewerEl || root;
-        const mode = window.__tpCurrentScrollMode || window.__tpScrollMode || "unknown";
-        const viewerInfo = viewerEl ? `${viewerEl.id || "no-id"} ${viewerEl.className || "no-class"}` : "no-viewer";
-        const hybridMotorInit = !!auto2;
-        const listenersWired2 = !!window.__tpHybridListenersReady;
         try {
-          console.warn("[SCROLL_ROUTER] install debug", {
+          window.__tpAuto = auto2;
+        } catch {
+        }
+        viewerScrollRouterInstalled = true;
+        bootTrace("render-script:scroll-router-runtime:install:done");
+      } catch (error) {
+        bootTrace("render-script:scroll-router-runtime:install:error", { error: String(error) });
+        try {
+          const errObj = error instanceof Error ? error : new Error(String(error));
+          console.error("[SCROLL_ROUTER] install failure context", {
             mode,
             viewer: viewerInfo.trim(),
             hybridMotorInit,
             listenersWired: listenersWired2
           });
+          console.error("[SCROLL_ROUTER] INSTALL FAILED", errObj);
+          if (errObj.stack) {
+            console.error(errObj.stack);
+          }
         } catch {
-        }
-        try {
-          console.info("ABOUT TO CALL installScrollRouter");
-        } catch {
-        }
-        try {
-          installScrollRouter({ auto: auto2, viewer: !!viewerEl, hostEl });
-          try {
-            console.info("RETURNED FROM installScrollRouter");
-          } catch {
-          }
-          try {
-            window.__tpAuto = auto2;
-          } catch {
-          }
-          viewerScrollRouterInstalled = true;
-          bootTrace("render-script:scroll-router-runtime:install:done");
-        } catch (error) {
-          bootTrace("render-script:scroll-router-runtime:install:error", { error: String(error) });
-          try {
-            const errObj = error instanceof Error ? error : new Error(String(error));
-            console.error("[SCROLL_ROUTER] install failure context", {
-              mode,
-              viewer: viewerInfo.trim(),
-              hybridMotorInit,
-              listenersWired: listenersWired2
-            });
-            console.error("[SCROLL_ROUTER] INSTALL FAILED", errObj);
-            if (errObj.stack) {
-              console.error(errObj.stack);
-            }
-          } catch {
-          }
         }
       }
-    } catch {
     }
   } catch {
   }
@@ -85818,6 +85955,10 @@ function renderScript(text, container) {
   } catch {
   }
   try {
+    applyMarkerPaddingLayout(root, viewer2);
+  } catch {
+  }
+  try {
     const meta2 = {
       schemaVersion: 1,
       blockCount: blockEls2.length,
@@ -85916,7 +86057,7 @@ function renderScript(text, container) {
   } catch {
   }
 }
-var SPEAKER_CLASS, viewerScrollRouterInstalled;
+var SPEAKER_CLASS, viewerScrollRouterInstalled, markerPaddingLayoutListenerInstalled;
 var init_render_script = __esm({
   "src/render-script.ts"() {
     "use strict";
@@ -85937,6 +86078,7 @@ var init_render_script = __esm({
       guest2: "speaker-guest2"
     };
     viewerScrollRouterInstalled = false;
+    markerPaddingLayoutListenerInstalled = false;
     try {
       window.renderScript = renderScript;
     } catch {

@@ -18,6 +18,8 @@ function buildInput(overrides: Partial<BackendLivenessInput> = {}): BackendLiven
     speechActive: true,
     activeReadMode: false,
     lastTranscriptPacketAt: 9_500,
+    lastTransportVoiceFinalAt: null,
+    lastSemanticProgressAt: 9_500,
     lastAudioChunkAt: 9_500,
     lastBackendHeartbeatAt: null,
     lastBackendTranscriptStaleAt: null,
@@ -69,12 +71,42 @@ describe('ASR backend liveness decision helper', () => {
 
   test('fresh transcript does not emit transcript stale or request restart', () => {
     const decision = evaluateBackendLiveness(buildInput({
-      lastTranscriptPacketAt: 9_900,
+      lastTransportVoiceFinalAt: 9_900,
       speechActive: true,
     }));
 
     expect(decision.shouldEmitTranscriptStale).toBe(false);
     expect(decision.shouldRequestRestart).toBe(false);
+  });
+
+  test('fresh voice-backed transport prevents transcript stale even when semantic progress is old', () => {
+    const decision = evaluateBackendLiveness(buildInput({
+      lastTranscriptPacketAt: 500,
+      lastTransportVoiceFinalAt: 9_700,
+      lastSemanticProgressAt: 500,
+      speechActive: true,
+      activeReadMode: true,
+    }));
+
+    expect(decision.transcriptAgeMs).toBe(300);
+    expect(decision.semanticProgressAgeMs).toBe(9500);
+    expect(decision.shouldEmitTranscriptStale).toBe(false);
+    expect(decision.shouldRequestRestart).toBe(false);
+  });
+
+  test('transport stale still triggers restart even if semantic progress is fresh', () => {
+    const decision = evaluateBackendLiveness(buildInput({
+      lastTranscriptPacketAt: 9_700,
+      lastTransportVoiceFinalAt: 200,
+      lastSemanticProgressAt: 9_900,
+      speechActive: true,
+      activeReadMode: true,
+    }));
+
+    expect(decision.transcriptAgeMs).toBe(9800);
+    expect(decision.semanticProgressAgeMs).toBe(100);
+    expect(decision.shouldEmitTranscriptStale).toBe(true);
+    expect(decision.shouldRequestRestart).toBe(true);
   });
 
   test('audio chunk stale emits audio stale', () => {

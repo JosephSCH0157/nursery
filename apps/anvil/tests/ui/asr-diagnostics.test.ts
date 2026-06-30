@@ -451,6 +451,7 @@ describe('ASR backend liveness diagnostics builders', () => {
       speechActive: false,
       activeReadMode: true,
       transcriptAgeMs: Number.NaN,
+      semanticProgressAgeMs: 9876.4,
       audioAgeMs: 1234.7,
       backendRestartedInWindow: false,
     });
@@ -461,6 +462,7 @@ describe('ASR backend liveness diagnostics builders', () => {
     expect(line).toContain('speechActive=0');
     expect(line).toContain('activeReadMode=1');
     expect(line).toContain('transcriptAgeMs=-1');
+    expect(line).toContain('semanticProgressAgeMs=9876');
     expect(line).toContain('audioAgeMs=1235');
     expect(line).toContain('restartedInWindow=0');
   });
@@ -472,9 +474,10 @@ describe('ASR backend liveness diagnostics builders', () => {
       recognizerAttached: true,
       speechActive: true,
       activeReadMode: true,
+      semanticProgressAgeMs: 4123,
     });
     expect(line).toBe(
-      '[ASR_BACKEND_TRANSCRIPT_STALE] ageMs=Infinity thresholdMs=9000 recognizerAttached=1 speechActive=1 activeReadMode=1',
+      '[ASR_BACKEND_TRANSCRIPT_STALE] ageMs=Infinity thresholdMs=9000 recognizerAttached=1 speechActive=1 activeReadMode=1 semanticProgressAgeMs=4123',
     );
   });
 

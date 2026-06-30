@@ -15,6 +15,8 @@ export type BackendLivenessInput = {
   speechActive: boolean;
   activeReadMode: boolean;
   lastTranscriptPacketAt: number | null;
+  lastTransportVoiceFinalAt?: number | null;
+  lastSemanticProgressAt?: number | null;
   lastAudioChunkAt: number | null;
   lastBackendHeartbeatAt: number | null;
   lastBackendTranscriptStaleAt: number | null;
@@ -27,6 +29,7 @@ export type BackendLivenessInput = {
 export type BackendLivenessDecision = {
   shouldCheck: boolean;
   transcriptAgeMs: number | null;
+  semanticProgressAgeMs: number | null;
   audioAgeMs: number | null;
   recognizerAgeMs: number | null;
   firstTranscriptGraceActive: boolean;
@@ -47,6 +50,7 @@ export function evaluateBackendLiveness(input: BackendLivenessInput): BackendLiv
     return {
       shouldCheck: false,
       transcriptAgeMs: null,
+      semanticProgressAgeMs: null,
       audioAgeMs: null,
       recognizerAgeMs: null,
       firstTranscriptGraceActive: false,
@@ -57,9 +61,17 @@ export function evaluateBackendLiveness(input: BackendLivenessInput): BackendLiv
     };
   }
 
+  const effectiveTransportVoiceFinalAt =
+    input.lastTransportVoiceFinalAt != null
+      ? input.lastTransportVoiceFinalAt
+      : input.lastTranscriptPacketAt;
   const transcriptAgeMs =
-    input.lastTranscriptPacketAt != null
-      ? Math.max(0, input.now - input.lastTranscriptPacketAt)
+    effectiveTransportVoiceFinalAt != null
+      ? Math.max(0, input.now - effectiveTransportVoiceFinalAt)
+      : null;
+  const semanticProgressAgeMs =
+    input.lastSemanticProgressAt != null
+      ? Math.max(0, input.now - input.lastSemanticProgressAt)
       : null;
   const audioAgeMs =
     input.lastAudioChunkAt != null
@@ -105,6 +117,7 @@ export function evaluateBackendLiveness(input: BackendLivenessInput): BackendLiv
   return {
     shouldCheck: true,
     transcriptAgeMs,
+    semanticProgressAgeMs,
     audioAgeMs,
     recognizerAgeMs,
     firstTranscriptGraceActive,

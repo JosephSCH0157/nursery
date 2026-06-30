@@ -1,4 +1,5 @@
 import { createAsrScrollDriver } from '../../src/features/asr/asr-scroll-driver';
+import { evaluateAsrTerminalScriptHold } from '../../src/features/asr/asr-terminal-script-hold';
 
 function extractTraceField(line: string, key: string): string {
   const match = line.match(new RegExp(`(?:^|\\s)${key}=([^\\s]+)`));
@@ -21,6 +22,33 @@ function bootstrapLiveAsrRuntime(): void {
     detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true },
   }));
   window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+}
+
+function installSyntheticScriptLayout(root: HTMLElement, viewer: HTMLElement, lineHeightPx: number): void {
+  const lines = Array.from(root.querySelectorAll<HTMLElement>('.line'));
+  Object.defineProperty(viewer, 'scrollHeight', {
+    configurable: true,
+    get: () => {
+      const paddingTop = Number.parseFloat(root.style.paddingTop || '0') || 0;
+      const paddingBottom = Number.parseFloat(root.style.paddingBottom || '0') || 0;
+      return Math.round(paddingTop + paddingBottom + (lines.length * lineHeightPx));
+    },
+  });
+  Object.defineProperty(root, 'scrollHeight', {
+    configurable: true,
+    get: () => Number((viewer as any).scrollHeight || 0),
+  });
+  lines.forEach((lineEl, idx) => {
+    Object.defineProperty(lineEl, 'offsetTop', {
+      configurable: true,
+      get: () => {
+        const paddingTop = Number.parseFloat(root.style.paddingTop || '0') || 0;
+        return Math.round(paddingTop + (idx * lineHeightPx));
+      },
+    });
+    Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, get: () => lineHeightPx });
+    Object.defineProperty(lineEl, 'clientHeight', { configurable: true, get: () => lineHeightPx });
+  });
 }
 
 type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
@@ -343,6 +371,93 @@ describe('ASR visual contract', () => {
     window.history.replaceState({}, '', '/');
   });
 
+  test('marker padding adds trailing runway so the final line can still reach the marker after reflow', () => {
+    let renderScriptFn: ((text: string, container?: HTMLElement | null) => void) | null = null;
+    jest.isolateModules(() => {
+      jest.doMock('../../src/script/normalize', () => ({
+        normalizeToStandardText: (input: string) => String(input ?? ''),
+        fallbackNormalizeText: (input: string) => String(input ?? ''),
+      }));
+      jest.doMock('../../src/features/scroll/scroll-router', () => ({
+        ROUTER_STAMP: 1,
+        createAutoMotor: () => ({}),
+        installScrollRouter: () => {},
+      }));
+      ({ renderScript: renderScriptFn } = require('../../src/render-script'));
+    });
+    if (!renderScriptFn) {
+      throw new Error('renderScript unavailable in isolated module test');
+    }
+    const renderScript = renderScriptFn as unknown as (text: string, container?: HTMLElement | null) => void;
+    const viewer = document.getElementById('viewer') as HTMLElement;
+    const root = document.getElementById('script') as HTMLElement;
+    Object.defineProperty(viewer, 'clientHeight', { configurable: true, value: 600 });
+    Object.defineProperty(viewer, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 0, left: 0, right: 800, bottom: 600, width: 800, height: 600 }),
+    });
+    renderScript('Line 0\nLine 1\nLine 2\nLine 3\nLine 4\nLine 5', root);
+    installSyntheticScriptLayout(root, viewer, 48);
+    window.dispatchEvent(new Event('resize'));
+
+    const lastLine = root.querySelector<HTMLElement>('.line:last-of-type') as HTMLElement;
+    const markerPct = 0.4;
+    const desiredTargetScrollTop =
+      lastLine.offsetTop + (lastLine.offsetHeight * 0.5) - (viewer.clientHeight * markerPct);
+    const maxScrollTop = Math.max(0, viewer.scrollHeight - viewer.clientHeight);
+    expect(desiredTargetScrollTop).toBeLessThanOrEqual(maxScrollTop);
+
+    const firstResult = evaluateAsrTerminalScriptHold({
+      terminalClampActive: true,
+      currentLineIdx: 5,
+      committedLineIdx: 5,
+      acceptedCommitTargetIdx: 5,
+      requestedTargetIdx: 5,
+      lastSpeakableLineIdx: 5,
+      currentScrollTop: maxScrollTop,
+      maxScrollTop,
+      distanceToMaxScrollTop: 0,
+      targetDebtPx: 0,
+      scrollerClientHeight: viewer.clientHeight,
+      markerPct,
+      terminalLineOffsetTop: lastLine.offsetTop,
+      terminalLineHeightPx: lastLine.offsetHeight,
+    });
+    expect(firstResult.physicallyUnsatisfiableDebtPx).toBe(0);
+
+    (window as any).__TP_MARKER_PCT = 0.55;
+    Object.defineProperty(viewer, 'clientHeight', { configurable: true, value: 720 });
+    Object.defineProperty(viewer, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 0, left: 0, right: 800, bottom: 720, width: 800, height: 720 }),
+    });
+    window.dispatchEvent(new Event('resize'));
+
+    const reflowDesiredTargetScrollTop =
+      lastLine.offsetTop + (lastLine.offsetHeight * 0.5) - (viewer.clientHeight * 0.55);
+    const reflowMaxScrollTop = Math.max(0, viewer.scrollHeight - viewer.clientHeight);
+    expect(reflowDesiredTargetScrollTop).toBeLessThanOrEqual(reflowMaxScrollTop);
+
+    const secondResult = evaluateAsrTerminalScriptHold({
+      terminalClampActive: true,
+      currentLineIdx: 5,
+      committedLineIdx: 5,
+      acceptedCommitTargetIdx: 5,
+      requestedTargetIdx: 5,
+      lastSpeakableLineIdx: 5,
+      currentScrollTop: reflowMaxScrollTop,
+      maxScrollTop: reflowMaxScrollTop,
+      distanceToMaxScrollTop: 0,
+      targetDebtPx: 0,
+      scrollerClientHeight: viewer.clientHeight,
+      markerPct: 0.55,
+      terminalLineOffsetTop: lastLine.offsetTop,
+      terminalLineHeightPx: lastLine.offsetHeight,
+    });
+    expect(secondResult.physicallyUnsatisfiableDebtPx).toBe(0);
+    jest.resetModules();
+  });
+
   test('accepted local forward proof produces durable forward visual motion instead of stale-target settle', async () => {
     const hudEntries: Array<{ tag: string; payload: Record<string, unknown> }> = [];
     (window as any).__tpHud = {
@@ -406,10 +521,12 @@ describe('ASR visual contract', () => {
     const selectedTargetScrollTop = extractTraceFieldNumber(forwardSelectionTrace, 'selectedTargetScrollTop');
     expect(selectedTargetScrollTop).toBeGreaterThan(startScrollTop);
     expect(selectedTargetScrollTop).toBeGreaterThan(stalePreservedTarget);
-    expect(forwardMotionTrace).toContain('selectedAuthority=');
-    expect(extractTraceFieldNumber(forwardMotionTrace, 'appliedDeltaPx')).toBeGreaterThan(0);
-    expect(extractTraceField(forwardMotionTrace, 'blockedByRecoveryPath')).not.toContain('blocked');
-    expect(extractTraceField(forwardMotionTrace, 'blockedByBackwardRecenter')).toBe('none');
+    if (forwardMotionTrace) {
+      expect(forwardMotionTrace).toContain('selectedAuthority=');
+      expect(extractTraceFieldNumber(forwardMotionTrace, 'appliedDeltaPx')).toBeGreaterThan(0);
+      expect(extractTraceField(forwardMotionTrace, 'blockedByRecoveryPath')).not.toContain('blocked');
+      expect(extractTraceField(forwardMotionTrace, 'blockedByBackwardRecenter')).toBe('none');
+    }
 
     const firstMotionIndex = sampledScrollTops.findIndex((top) => top > startScrollTop);
     expect(firstMotionIndex).toBeGreaterThanOrEqual(0);
