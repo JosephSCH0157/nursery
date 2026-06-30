@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { evaluateBackendLiveness, type BackendLivenessInput } from '../../src/features/asr/asr-backend-liveness';
 
 const baseThresholds = {
@@ -148,5 +149,22 @@ describe('ASR backend liveness decision helper', () => {
     expect(detached.shouldEmitAudioStale).toBe(false);
     expect(detached.shouldEmitTranscriptStale).toBe(false);
     expect(detached.shouldRequestRestart).toBe(false);
+  });
+
+  test('scroll-driver keeps backend restart authority singular', () => {
+    const source = fs.readFileSync(
+      require.resolve('../../src/features/asr/asr-scroll-driver.ts'),
+      'utf8',
+    );
+    const speechLoaderSource = fs.readFileSync(
+      require.resolve('../../src/features/speech-loader.ts'),
+      'utf8',
+    );
+
+    expect(source).not.toContain('live_scroll_stalled_backend_stale');
+    expect((source.match(/requestBackendRestart\(/g) || [])).toHaveLength(1);
+    expect(source).toContain('backend_transcript_starvation');
+    expect(speechLoaderSource).not.toContain("requestRecognizerRestart('stall:speech_stall'");
+    expect(speechLoaderSource).not.toContain("emitHudSnapshot(`stall-autorestart:");
   });
 });

@@ -158,8 +158,28 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     shortLineDense: boolean;
     repeatedForwardProofCount: number;
     selectedLane: string;
-    deniedReason: string | null;
+      deniedReason: string | null;
+    };
+  __debugNoteShortLineAmbiguity: () => void;
+  __debugGetShortLinePreReanchorGraceState: () => null | {
+    currentLineIdx: number;
+    safeAdjacentVisualTargetIdx: number;
+    rawMatchIndex: number;
+    assembledMatchIndex: number;
+    visualBridgeSpent: boolean;
+    freshVoiceFinalCount: number;
+    qualifyingContinuationCount: number;
   };
+  __debugEnterShortLinePreReanchorGrace: (args: {
+    currentLineIdx: number;
+    visualTargetIdx: number;
+    rawMatchIndex: number;
+    assembledMatchIndex: number;
+    triggerTranscriptSeq?: number;
+    triggerRequestSeq?: number;
+    supportingRequestSeqs?: number[];
+    ageMs?: number;
+  }) => boolean;
   __debugEvaluatePostSemanticCommitVisualFollowDiagnostic: (args: {
     previousSemanticLineIdx: number;
     newSemanticLineIdx: number;
@@ -617,6 +637,58 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     nextEligibleAtMs: number;
     nextEligibleWindowMs: number;
     usedPreservedDebt: boolean;
+    rateLimitAgeMs: number;
+    rateLimitExpired: boolean;
+  };
+  __debugFinalizeSafeForwardResidualWrite: (args: {
+    beforeScrollTop: number;
+    afterScrollTop: number;
+    targetScrollTop: number;
+    holdBandPx: number;
+    targetEpoch?: number;
+    targetLineIdx?: number;
+    maintenanceMode?: 'speculative_forward' | 'accepted_marker_maintenance';
+    usedPreservedDebt?: boolean;
+    originalDeadlineAtMs?: number;
+    nextEligibleAtMs?: number;
+    semanticEpoch?: number;
+    originalAuthority?: string;
+  }) => {
+    residualAfterPx: number;
+    consumedPreservedDebt: boolean;
+    closureWritten: boolean;
+  };
+  __debugApplyVisualActuatorTargetStep: (args: {
+    beforeScrollTop: number;
+    targetScrollTop: number;
+    requestedMovePx: number;
+    effectiveMinStepPx: number;
+    currentLineIdx: number;
+    committedLineIdx: number;
+    nextSpeakableLineIdx: number;
+    authority?: string;
+    authorityReason?: string;
+    allowedTargetIdx?: number | null;
+    lastVerifiedCommitLineIdx?: number;
+    lastVerifiedCommitAgeMs?: number;
+    terminalClampActive?: boolean;
+    noMatchOrOffscript?: boolean;
+    hardContradiction?: boolean;
+    lastAuthorityMatchBestIdx?: number | null;
+    lastAuthorityMatchBestSim?: number | null;
+    preservedTargetScrollTop?: number | null;
+    readerMarkerCorrectionLeaseActive?: boolean;
+    readerMarkerCorrectionLeaseAgeMs?: number | null;
+    readerMarkerCorrectionLeaseReason?: string | null;
+    readerMarkerCorrectionLeaseMarkerErrorPxAtStart?: number | null;
+    localRescueMinMovePx?: number;
+  }) => {
+    beforeScrollTop: number;
+    afterTop: number;
+    appliedDeltaPx: number;
+    clampReason: string;
+    usedPullback: boolean;
+    blockedPullback: boolean;
   };
 };
 
@@ -6718,6 +6790,112 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
+  test.each([
+    [8988, 9010],
+    [9056, 9078],
+    [9125, 9146],
+  ])('small preserved residual %i -> %i closes once rate-limit eligibility expires', (currentScrollTop, targetScrollTop) => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const residualPx = targetScrollTop - currentScrollTop;
+    const held = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop,
+      targetScrollTop,
+      targetLineIdx: 134,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'reader_marker_correction',
+      policySource: 'actuator_rate_limited',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 8,
+      boundedStepPx: 34,
+      actuatorEligible: false,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    expect(held.decision).toBe('hold');
+    expect(held.residualPx).toBe(residualPx);
+    jest.advanceTimersByTime(25);
+    const released = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop,
+      targetScrollTop,
+      targetLineIdx: 134,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'reader_marker_correction',
+      policySource: 'none',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 8,
+      boundedStepPx: 34,
+      actuatorEligible: true,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    expect(released.decision).toBe('advance');
+    expect(released.usedPreservedDebt).toBe(true);
+    expect(released.move).toBe(residualPx);
+    expect(released.requestedDeltaPx).toBe(residualPx);
+    expect(released.rateLimitExpired).toBe(true);
+    driver.dispose();
+  });
+
+  test('restored eligible residual 8988 -> 9010 emits closure-written when the bounded physical write lands', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const held = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 8988,
+      targetScrollTop: 9010,
+      targetLineIdx: 134,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'reader_marker_correction',
+      policySource: 'actuator_rate_limited',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 8,
+      boundedStepPx: 34,
+      actuatorEligible: false,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    jest.advanceTimersByTime(25);
+    const released = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 8988,
+      targetScrollTop: 9010,
+      targetLineIdx: 134,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'reader_marker_correction',
+      policySource: 'none',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: false,
+      holdBandPx: 8,
+      boundedStepPx: 34,
+      actuatorEligible: true,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    const finalized = driver.__debugFinalizeSafeForwardResidualWrite({
+      beforeScrollTop: 8988,
+      afterScrollTop: 8988 + released.move,
+      targetScrollTop: 9010,
+      holdBandPx: 8,
+      targetLineIdx: 134,
+      maintenanceMode: 'accepted_marker_maintenance',
+      usedPreservedDebt: released.usedPreservedDebt,
+      originalDeadlineAtMs: held.originalDeadlineAtMs,
+      nextEligibleAtMs: released.nextEligibleAtMs,
+      semanticEpoch: 11,
+      originalAuthority: 'reader_marker_correction',
+    });
+
+    expect(released.decision).toBe('advance');
+    expect(released.move).toBeGreaterThan(0);
+    expect(finalized.residualAfterPx).toBeLessThan(22);
+    expect(finalized.consumedPreservedDebt).toBe(true);
+    expect(finalized.closureWritten).toBe(true);
+    expect(
+      consoleWarnSpy.mock.calls.some((call) =>
+        String(call[0] || '').includes('ASR_MATURED_MARKER_DEBT_CLOSURE_WRITTEN') &&
+        String(call[0] || '').includes('currentScrollTop=8988') &&
+        String(call[0] || '').includes('targetScrollTop=9010'),
+      ),
+    ).toBe(true);
+    driver.dispose();
+  });
+
   test('microscopic target churn reuses preserved debt and keeps the original deadline stable', () => {
     const driver = createAsrScrollDriver() as DebugAsrDriver;
     const first = driver.__debugResolveSafeForwardResidualPacing({
@@ -6805,12 +6983,71 @@ describe('ASR live commit motion', () => {
     expect(maturedHold.scheduleMatured).toBe(true);
     expect(maturedHold.nextEligibleAtMs).toBe(first.nextEligibleAtMs);
     expect(maturedHold.originalDeadlineAtMs).toBe(first.originalDeadlineAtMs);
+    expect(maturedHold.rateLimitExpired).toBe(true);
     expect(released.scheduleMatured).toBe(true);
     expect(released.nextEligibleAtMs).toBe(first.nextEligibleAtMs);
     expect(released.originalDeadlineAtMs).toBe(first.originalDeadlineAtMs);
     expect(released.decision).toBe('advance');
     expect(released.usedPreservedDebt).toBe(true);
     expect(released.move).toBe(6);
+    driver.dispose();
+  });
+
+  test('no-op residual frames keep the original deadline stable and cannot defer after expiry', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    const first = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 8988,
+      targetScrollTop: 9010,
+      targetLineIdx: 134,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'reader_marker_correction',
+      policySource: 'actuator_rate_limited',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 8,
+      boundedStepPx: 34,
+      actuatorEligible: false,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    jest.advanceTimersByTime(10);
+    const second = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 8988,
+      targetScrollTop: 9010,
+      targetLineIdx: 134,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'reader_marker_correction',
+      policySource: 'actuator_rate_limited',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: true,
+      holdBandPx: 8,
+      boundedStepPx: 34,
+      actuatorEligible: false,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    expect(second.nextEligibleAtMs).toBe(first.nextEligibleAtMs);
+    expect(second.originalDeadlineAtMs).toBe(first.originalDeadlineAtMs);
+    expect(second.classification).toBe('pacing_deferred');
+    expect(second.rateLimitExpired).toBe(false);
+    jest.advanceTimersByTime(20);
+    const released = driver.__debugResolveSafeForwardResidualPacing({
+      currentScrollTop: 8988,
+      targetScrollTop: 9010,
+      targetLineIdx: 134,
+      requestedDeltaPx: 0,
+      selectedAuthority: 'reader_marker_correction',
+      policySource: 'none',
+      realBlockerReason: 'none',
+      sameEpochOrFreshAdvance: false,
+      holdBandPx: 8,
+      boundedStepPx: 34,
+      actuatorEligible: true,
+      maintenanceMode: 'accepted_marker_maintenance',
+    });
+    expect(released.nextEligibleAtMs).toBe(first.nextEligibleAtMs);
+    expect(released.originalDeadlineAtMs).toBe(first.originalDeadlineAtMs);
+    expect(released.rateLimitExpired).toBe(true);
+    expect(released.classification).toBe('allowed_move');
+    expect(released.decision).toBe('advance');
     driver.dispose();
   });
 
@@ -8134,6 +8371,142 @@ describe('ASR live commit motion', () => {
     });
 
     driver.dispose();
+  });
+
+  test('short-line pre-reanchor grace writes one bounded adjacent visual bridge before any freeze', async () => {
+    installScriptLines(Array.from({ length: 40 }, (_, idx) =>
+      idx === 31 ? 'Just now' : idx === 32 ? 'In time' : idx === 33 ? 'On track' : idx === 34 ? 'Still here' : `Line ${idx} carries the paragraph forward.`,
+    ));
+    const driver = createAsrScrollDriver({ runKey: 'pre-reanchor-a', runGeneration: 11 }) as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+    driver.setLastLineIndex(31);
+    driver.__debugNoteShortLineAmbiguity();
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 40 * 567 + 900 });
+    const scrollProbe = installScrollWriteProbe(scroller);
+    scroller.scrollTop = 31 * 567;
+    scrollProbe.resetWrites();
+    expect(driver.__debugEnterShortLinePreReanchorGrace({
+      currentLineIdx: 31,
+      visualTargetIdx: 32,
+      rawMatchIndex: 25,
+      assembledMatchIndex: 34,
+      triggerTranscriptSeq: 201,
+      triggerRequestSeq: 58,
+      supportingRequestSeqs: [44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58],
+    })).toBe(true);
+    await jest.advanceTimersByTimeAsync(80);
+
+    const warnLines = consoleWarnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(warnLines.some((line) => line.includes('ASR_SHORT_LINE_PRE_REANCHOR_GRACE'))).toBe(true);
+    expect(warnLines.some((line) => line.includes('ASR_REANCHOR_PENDING'))).toBe(false);
+    expect(warnLines.some((line) => line.includes('ASR_SHORT_LINE_PRE_REANCHOR_VISUAL_BRIDGE_WRITTEN'))).toBe(true);
+    expect(driver.__debugGetShortLinePreReanchorGraceState()).toEqual(expect.objectContaining({
+      currentLineIdx: 31,
+      safeAdjacentVisualTargetIdx: 32,
+      rawMatchIndex: 25,
+      assembledMatchIndex: 34,
+      visualBridgeSpent: true,
+    }));
+    expect(driver.getLastLineIndex()).toBe(31);
+    expect(scrollProbe.getTop()).toBeGreaterThan(31 * 567);
+    expect(scrollProbe.getWriteCount()).toBeGreaterThan(0);
+    expect(warnLines.some((line) => line.includes('ASR_REANCHOR_COMMIT'))).toBe(false);
+
+    driver.dispose();
+  });
+
+  test('short-line pre-reanchor grace needs fresh continuation proof to advance and otherwise escalates safely', async () => {
+    installScriptLines(Array.from({ length: 40 }, (_, idx) =>
+      idx === 31 ? 'Just now' : idx === 32 ? 'In time' : idx === 33 ? 'On track' : idx === 34 ? 'Still here' : `Line ${idx} carries the paragraph forward.`,
+    ));
+    const driver = createAsrScrollDriver({ runKey: 'pre-reanchor-b', runGeneration: 12 }) as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+    driver.setLastLineIndex(31);
+    driver.__debugNoteShortLineAmbiguity();
+    const proofScroller = document.getElementById('viewer') as HTMLElement;
+    Object.defineProperty(proofScroller, 'scrollHeight', { configurable: true, value: 40 * 567 + 900 });
+    proofScroller.scrollTop = 31 * 567;
+    expect(driver.__debugEnterShortLinePreReanchorGrace({
+      currentLineIdx: 31,
+      visualTargetIdx: 32,
+      rawMatchIndex: 25,
+      assembledMatchIndex: 34,
+      triggerTranscriptSeq: 301,
+      triggerRequestSeq: 58,
+      supportingRequestSeqs: [44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58],
+    })).toBe(true);
+    await jest.advanceTimersByTimeAsync(80);
+
+    driver.ingest('In time.', true, {
+      currentIdx: 31,
+      transcriptSeq: 302,
+      matchId: 'pre-reanchor-proof-1',
+      source: 'openai-whisper-bridge',
+      sourceRequestSeqs: [59],
+      supportingRawSeqs: [59],
+      requestCaptureEvidence: [{ requestSeq: 59, verdict: 'voice_detected', rmsDbfs: -18 }],
+      rawMatchIndex: 32,
+      assembledMatchIndex: 32,
+      forwardMatchCreatedByAssembly: false,
+      targetSupportProvenance: 'voice_backed_multi_request_support',
+      runKey: 'pre-reanchor-b',
+      runGeneration: 12,
+      match: { bestIdx: 32, bestSim: 0.96, topScores: [{ idx: 32, score: 0.96 }] },
+    });
+    driver.ingest('In time.', true, {
+      currentIdx: 31,
+      transcriptSeq: 303,
+      matchId: 'pre-reanchor-proof-2',
+      source: 'openai-whisper-bridge',
+      sourceRequestSeqs: [60],
+      supportingRawSeqs: [60],
+      requestCaptureEvidence: [{ requestSeq: 60, verdict: 'voice_detected', rmsDbfs: -18 }],
+      rawMatchIndex: 32,
+      assembledMatchIndex: 32,
+      forwardMatchCreatedByAssembly: false,
+      targetSupportProvenance: 'voice_backed_multi_request_support',
+      runKey: 'pre-reanchor-b',
+      runGeneration: 12,
+      match: { bestIdx: 32, bestSim: 0.97, topScores: [{ idx: 32, score: 0.97 }] },
+    });
+    await jest.advanceTimersByTimeAsync(80);
+
+    const proofWarnLines = consoleWarnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(proofWarnLines.some((line) => line.includes('ASR_REANCHOR_COMMIT'))).toBe(true);
+    expect(driver.getLastLineIndex()).toBe(32);
+
+    driver.dispose();
+
+    consoleWarnSpy.mockClear();
+    installScriptLines(Array.from({ length: 40 }, (_, idx) =>
+      idx === 31 ? 'Just now' : idx === 32 ? 'In time' : idx === 33 ? 'On track' : idx === 34 ? 'Still here' : `Line ${idx} carries the paragraph forward.`,
+    ));
+    const escalationDriver = createAsrScrollDriver({ runKey: 'pre-reanchor-c', runGeneration: 13 }) as DebugAsrDriver;
+    bootstrapLiveAsrRuntime();
+    escalationDriver.setLastLineIndex(31);
+    escalationDriver.__debugNoteShortLineAmbiguity();
+    const escalationScroller = document.getElementById('viewer') as HTMLElement;
+    Object.defineProperty(escalationScroller, 'scrollHeight', { configurable: true, value: 40 * 567 + 900 });
+    escalationScroller.scrollTop = 31 * 567;
+    expect(escalationDriver.__debugEnterShortLinePreReanchorGrace({
+      currentLineIdx: 31,
+      visualTargetIdx: 32,
+      rawMatchIndex: 25,
+      assembledMatchIndex: 34,
+      triggerTranscriptSeq: 401,
+      triggerRequestSeq: 58,
+      supportingRequestSeqs: [44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58],
+    })).toBe(true);
+    await jest.advanceTimersByTimeAsync(1000);
+
+    const escalationWarnLines = consoleWarnSpy.mock.calls.map((call) => String(call[0] || ''));
+    expect(escalationWarnLines.some((line) => line.includes('ASR_SHORT_LINE_PRE_REANCHOR_GRACE_ESCALATED'))).toBe(true);
+    expect(escalationWarnLines.some((line) => line.includes('ASR_REANCHOR_PENDING'))).toBe(true);
+    expect(escalationWarnLines.filter((line) => line.includes('ASR_SHORT_LINE_PRE_REANCHOR_VISUAL_BRIDGE_WRITTEN'))).toHaveLength(1);
+    expect(escalationDriver.getLastLineIndex()).toBe(31);
+
+    escalationDriver.dispose();
   });
 
   test('normal paragraph region does not select short-line staged catchup', () => {

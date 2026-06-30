@@ -1750,54 +1750,9 @@ function maybeAutoRestartSpeechStall(stallPayload: AsrStallPayload): void {
     asrStallEpisodeRestarted = false;
     asrStallAttemptCountThisEpisode = 0;
   }
-  const suppressionRemainingMs = Math.max(0, suppressAsrStallAutoRestartUntil - now);
-  const cooldownRemainingBeforeMs = Math.max(0, ASR_STALL_AUTORESTART_COOLDOWN_MS - (now - lastAsrStallAutoRestartAt));
-
-  let reason = 'stall:speech_stall';
-  let restartAttempted = false;
-  let restarted = false;
-
-  if (!inAsrMode || !asrArmed) {
-    reason = 'skip:not-asr-armed';
-  } else if (reanchorLanding.fault || reanchorLanding.active) {
-    reason = reanchorLanding.fault
-      ? `skip:reanchor-landing-actuator-fault${reanchorLanding.reason ? `:${reanchorLanding.reason}` : ''}`
-      : 'skip:reanchor-landing-active';
-  } else if (!recognizerLaneDied) {
-    reason = 'skip:not-speech-lane';
-  } else if (!shouldAutoRestartSpeech()) {
-    reason = 'skip:autorestart-disabled';
-  } else if (asrStallEpisodeRestarted && cooldownRemainingBeforeMs > 0) {
-    reason = 'skip:episode-cooldown';
-  } else if (suppressionRemainingMs > 0) {
-    reason = 'skip:manual-suppressed';
-  } else if (cooldownRemainingBeforeMs > 0) {
-    reason = 'skip:cooldown';
-  } else {
-    restartAttempted = true;
-    asrStallEpisodeRestarted = true;
-    asrStallAttemptCountThisEpisode += 1;
-    lastAsrStallAutoRestartAt = now;
-    restarted = requestRecognizerRestart('stall:speech_stall', { abortFirst: false });
-    reason = restarted ? 'stall:speech_stall' : 'stall:speech_stall:failed';
-    emitHudSnapshot(`stall-autorestart:${restarted ? 'ok' : 'failed'}`, { force: true });
-  }
-
-  if (!restartAttempted && !enteredSpeechStall) return;
-
-  const cooldownRemainingMs = Math.max(0, ASR_STALL_AUTORESTART_COOLDOWN_MS - (now - lastAsrStallAutoRestartAt));
-  emitAsrStallAutoRestart({
-    reason,
-    ts: now,
-    stall: stallPayload,
-    episodeId: asrStallEpisodeId,
-    attemptCountThisEpisode: asrStallAttemptCountThisEpisode,
-    lastAttemptAt: lastAsrStallAutoRestartAt > 0 ? lastAsrStallAutoRestartAt : null,
-    cooldownRemainingMs,
-    suppressionRemainingMs,
-    restartAttempted,
-    restarted,
-  });
+  // Semantic/live-scroll stall classification is diagnostic-only.
+  // Backend freshness timeouts own restart authority through the canonical adapter.
+  return;
 }
 
 function emitAsrStallIfChanged(payload: AsrHeartbeatPayload, opts?: { force?: boolean }): void {

@@ -20,6 +20,12 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     lineHeightPx?: number;
     selectedAuthority?: string | null;
     movementSource?: string | null;
+    liveEvidenceActive?: boolean;
+    liveEvidenceBasis?: string | null;
+    maturedPreservedMarkerMaintenance?: boolean;
+    preservedMarkerSameTarget?: boolean;
+    preservedMarkerSameEpoch?: boolean;
+    preservedMarkerOriginalOwner?: string | null;
     stableTargetInWindow?: boolean;
     sameCommitWindow?: boolean;
     localAuthorizedTarget?: boolean;
@@ -38,6 +44,7 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     settleCapPx: number;
     realDebtThresholdPx: number;
     selectedAuthority: string;
+    originalOwner: string;
     effectiveTargetScrollTop: number;
     targetCollapseReason: string | null;
     nextHoldActive: boolean;
@@ -48,6 +55,7 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
     settleReleaseEligible: boolean;
     settleReleased: boolean;
     settleReleaseBlockedReason: string | null;
+    selectedAuthorityFromLatchedSnapshot: boolean;
   };
 };
 
@@ -193,6 +201,37 @@ describe('ASR reader idle forward hold interaction', () => {
     expect(result.rawTargetSatisfied).toBe(false);
     expect(result.effectiveTargetSatisfied).toBe(true);
     expect(result.shouldEmitTargetSatisfied).toBe(false);
+
+    driver.dispose();
+  });
+
+  test('stale safe residual can settle once using the latched original authority even when live arbitration collapses to hold', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const result = driver.__debugEvaluateReaderIdleForwardHoldInteraction({
+      currentScrollTop: 9125,
+      rawTargetScrollTop: 9146,
+      speechFresh: false,
+      lastPartialAgeMs: 2400,
+      lastFinalAgeMs: 2400,
+      lastTranscriptAgeMs: 2400,
+      lineHeightPx: 68,
+      selectedAuthority: 'hold',
+      movementSource: 'reader_marker_correction',
+      readerIdleForwardHoldActive: true,
+      stableTargetInWindow: true,
+      sameCommitWindow: true,
+      localAuthorizedTarget: true,
+      physicallyReachable: true,
+      preservedMarkerOriginalOwner: 'reader_marker_correction',
+    });
+
+    expect(result.settleReleaseEligible).toBe(true);
+    expect(result.settleReleased).toBe(true);
+    expect(result.selectedAuthority).toBe('reader_marker_correction');
+    expect(result.originalOwner).toBe('reader_marker_correction');
+    expect(result.selectedAuthorityFromLatchedSnapshot).toBe(true);
+    expect(result.effectiveTargetScrollTop).toBe(9146);
 
     driver.dispose();
   });
