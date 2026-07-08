@@ -254,6 +254,14 @@ export function resolveBarStockSparkHearthWorkpieceId(
   return readString(spark.links?.hearthWorkpieceId);
 }
 
+export function shouldDisplaySparkInHearthLibrary(
+  spark: BarStockSpark | null | undefined,
+): boolean {
+  if (!spark) return false;
+  if (resolveBarStockSparkHearthWorkpieceId(spark)) return true;
+  return spark.status !== "forged" && spark.status !== "graduated";
+}
+
 function buildSparkOutboxSignature(spark: BarStockSpark): string {
   const tags = Array.isArray(spark.tags) ? spark.tags.map((tag) => readString(tag) ?? "").filter(Boolean) : [];
   return JSON.stringify({

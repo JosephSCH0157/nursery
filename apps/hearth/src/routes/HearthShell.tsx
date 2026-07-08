@@ -14,6 +14,7 @@ import {
   enqueueBarStockSpark,
   resolveBarStockSparkHearthWorkpieceId,
   resolveBarstockSparkIdFromQuery,
+  shouldDisplaySparkInHearthLibrary,
   upsertBarStockSpark,
   writeBarStockSparks,
 } from "../lib/barstock-sparks";
@@ -4067,7 +4068,7 @@ export default function HearthShell({
     [routeProjectId, routeSparkId, sparks],
   );
   const visibleSparks = useMemo(
-    () => sortedSparks.filter((spark) => spark.status !== "archived"),
+    () => sortedSparks.filter((spark) => spark.status !== "archived" && shouldDisplaySparkInHearthLibrary(spark)),
     [sortedSparks],
   );
   const selectedSpark = useMemo(() => {
