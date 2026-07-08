@@ -183,6 +183,40 @@
   opacity: 0.74;
 }
 
+.tongs-storage__tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tongs-storage__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+}
+
+.tongs-storage__tab.is-active {
+  border-color: rgba(148, 204, 255, 0.55);
+  background: rgba(32, 74, 120, 0.22);
+}
+
+.tongs-storage__tab-count {
+  min-width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 12px;
+}
+
 .tongs-storage__layout {
   display: grid;
   gap: 14px;
@@ -196,6 +230,41 @@
   background: rgba(255, 255, 255, 0.04);
   display: grid;
   gap: 12px;
+}
+
+.tongs-storage__archive-list {
+  display: grid;
+  gap: 10px;
+}
+
+.tongs-storage__archive-card {
+  border: 1px solid rgba(148, 204, 255, 0.24);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(32, 74, 120, 0.12);
+}
+
+.tongs-storage__archive-card-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.tongs-storage__archive-card-title {
+  font-weight: 700;
+}
+
+.tongs-storage__archive-card-meta {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.tongs-storage__archive-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .tongs-storage__panel-header {
