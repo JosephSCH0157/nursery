@@ -244,6 +244,7 @@ function buildWorkspaceSnapshot(state: HammerEditorStateSerializable): HammerWor
 }
 
 function buildPersistedSnapshotFromSaveRequest(saveRequest: ReturnType<typeof buildHammerPersistenceSaveRequest>): HammerPersistenceSnapshot {
+  assert.ok(saveRequest.editorial_authority);
   return {
     schema_version: 1,
     state: {
@@ -255,6 +256,7 @@ function buildPersistedSnapshotFromSaveRequest(saveRequest: ReturnType<typeof bu
       pass_status: saveRequest.pass_status ?? { transcript_cleanup: "in_progress", retakes: "not_started" },
       editor_session_path: "hammer/session/editor-state.v1.json",
       transcript_artifact_path: "hammer/transcript/structured.v1.json",
+      transcript_versions_artifact_path: "hammer/transcript/version-registry.v1.json",
       speaker_map_artifact_path: "hammer/transcript/speaker-map.v1.json",
       visual_placement_artifact_path: "hammer/prep/visual-placements.v1.json",
       visual_timeline_artifact_path: "hammer/prep/visual-timeline.v1.json",
@@ -279,6 +281,11 @@ function buildPersistedSnapshotFromSaveRequest(saveRequest: ReturnType<typeof bu
       path: "hammer/transcript/structured.v1.json",
       updated_at: "2026-04-18T12:05:02.000Z",
       data: saveRequest.structured_transcript?.data ?? null,
+    },
+    transcript_version_registry: {
+      path: "hammer/transcript/version-registry.v1.json",
+      updated_at: "2026-04-18T12:05:02.250Z",
+      data: saveRequest.transcript_version_registry?.data ?? null,
     },
     speaker_map: {
       path: "hammer/transcript/speaker-map.v1.json",
@@ -363,6 +370,7 @@ async function testDeleteActionStaysCompositionSynchronized() {
   assert.equal(after.playheadSec, 2);
 
   const saveRequest = buildHammerPersistenceSaveRequest(buildWorkspaceSnapshot(after));
+  assert.ok(saveRequest.editorial_authority);
   assert.equal(saveRequest.editorial_authority.data.operations.length, 2);
   assert.equal(saveRequest.visual_timeline?.data.clips[0]?.start_sec, 2);
   assert.equal(saveRequest.visual_timeline?.data.clips[0]?.end_sec, 4);
@@ -446,6 +454,7 @@ async function testMuteActionStaysCompositionSynchronized() {
   assert.equal(muteOperation?.lifecycle, "superseded");
 
   const saveRequest = buildHammerPersistenceSaveRequest(buildWorkspaceSnapshot(reenabled));
+  assert.ok(saveRequest.editorial_authority);
   assert.equal(saveRequest.editorial_authority.data.operations.length, 2);
   assert.equal(saveRequest.edit_plan?.data.instructions.filter((instruction) => instruction.type === "mute").length, 0);
   assert.equal(saveRequest.structured_transcript?.data.segments.find((segment) => segment.segment_id === "seg_002")?.is_disabled, undefined);
@@ -508,6 +517,7 @@ async function testSplitActionStaysCompositionSynchronized() {
   assert.equal(after.visualTimeline?.clips[0]?.end_sec, 6);
 
   const saveRequest = buildHammerPersistenceSaveRequest(buildWorkspaceSnapshot(after));
+  assert.ok(saveRequest.editorial_authority);
   assert.equal(saveRequest.editorial_authority.data.operations.length, 2);
   assert.equal(saveRequest.edit_plan?.data.instructions.at(-1)?.type, "split");
   assert.deepEqual(
@@ -586,6 +596,7 @@ async function testTrimActionStaysCompositionSynchronized() {
   assert.equal(after.audioEdit, null);
 
   const saveRequest = buildHammerPersistenceSaveRequest(buildWorkspaceSnapshot(after));
+  assert.ok(saveRequest.editorial_authority);
   assert.equal(saveRequest.editorial_authority.data.operations.length, 2);
   assert.equal(saveRequest.edit_plan?.data.instructions.at(-1)?.type, "trim");
   assert.deepEqual(
