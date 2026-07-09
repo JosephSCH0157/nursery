@@ -38,6 +38,10 @@
     "tests/hammerSubtitleExports.test.ts",
     "tests/hammerRenderAssembly.test.ts",
     "tests/hammerAuthorityOps.test.ts",
-    "tests/hammerEditorialAuthorityContract.test.ts"
+    "tests/hammerEditorialAuthorityContract.test.ts",
+    "tests/hammerWorkspaceTimeline.test.ts",
+    "tests/hammerWorkspaceSelection.test.ts",
+    "tests/hammerWorkspaceTranscript.test.ts",
+    "tests/hammerTranscriptSelection.test.ts"
   ]
 }

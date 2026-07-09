@@ -57,7 +57,6 @@ function buildSegment(overrides?: Partial<HammerTranscriptSegment>): HammerTrans
     text: "Welcome back.",
     start_sec: 10,
     end_sec: 12,
-    confidence: 0.95,
     ...overrides,
   };
 }
