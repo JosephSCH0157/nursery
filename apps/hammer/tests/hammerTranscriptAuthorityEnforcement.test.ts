@@ -5,7 +5,7 @@ import { deriveHammerVisualPlacements } from "../src/lib/hammerVisualPlacements"
 import type { HammerTranscriptSegment } from "../../../packages/contracts/hammer/transcript.contract";
 
 async function testAnvilLiveAsrCannotBecomeCanonicalTranscript() {
-  const editorPath = path.resolve(process.cwd(), "src/editor/HammerWorkspaceEditor.tsx");
+  const editorPath = path.resolve(process.cwd(), "apps/hammer/src/editor/HammerWorkspaceEditor.tsx");
   const source = await fs.readFile(editorPath, "utf-8");
   assert.equal(
     source.includes("promoteAnvilLocalTranscriptToTongs("),
@@ -38,6 +38,7 @@ function testScriptCueAlignmentDoesNotMutateTranscriptAndAnchorsToHammerTimeline
     visualPackage: {
       workspace_id: "workspace_01",
       workpiece_id: "workpiece_01",
+      script_path: "hearth/script.md",
       script_updated_at: "2026-05-07T00:00:00.000Z",
       image_map_updated_at: "2026-05-07T00:00:00.000Z",
       image_map_asset_updated_at: "2026-05-07T00:00:00.000Z",

@@ -5,17 +5,22 @@ import {
 } from "../src/prep/hammerPrepApi";
 
 const originalFetch = globalThis.fetch;
-const originalWindow = (globalThis as typeof globalThis & { window?: unknown }).window;
+const runtimeGlobals = globalThis as { fetch: typeof globalThis.fetch; window?: unknown };
+const originalWindow = runtimeGlobals.window;
 
 async function main(): Promise<void> {
-  (globalThis as typeof globalThis & { window?: unknown }).window = {
+  const runtimeWindow = {
     location: { search: "" },
     localStorage: {
       getItem: () => null,
       key: () => null,
       length: 0,
+      clear: () => undefined,
+      removeItem: () => undefined,
+      setItem: () => undefined,
     },
   };
+  runtimeGlobals.window = runtimeWindow;
 
   // Legacy error envelope -> synthesize UNKNOWN_ERROR.
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -126,6 +131,6 @@ main().catch((error) => {
   process.exit(1);
 }).finally(() => {
   globalThis.fetch = originalFetch;
-  (globalThis as typeof globalThis & { window?: unknown }).window = originalWindow;
+  runtimeGlobals.window = originalWindow;
 });
 

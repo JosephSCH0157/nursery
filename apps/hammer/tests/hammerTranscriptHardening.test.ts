@@ -5,13 +5,11 @@ import {
   moveSegmentTiming,
   resolvePlayheadSegment,
   trimSegmentEndTiming,
-  trimSegmentStartTiming,
   updateSegmentInTimeline,
 } from "../src/editor/hammerWorkspaceTimeline";
 import {
   resolveSelectedSegmentId,
   syncEditableTranscriptSegments,
-  updateTranscriptSegmentSpeaker,
   updateTranscriptSegmentText,
 } from "../src/editor/hammerWorkspaceTranscript";
 

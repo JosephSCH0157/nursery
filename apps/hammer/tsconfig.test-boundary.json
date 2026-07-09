@@ -42,6 +42,18 @@
     "tests/hammerWorkspaceTimeline.test.ts",
     "tests/hammerWorkspaceSelection.test.ts",
     "tests/hammerWorkspaceTranscript.test.ts",
-    "tests/hammerTranscriptSelection.test.ts"
+    "tests/hammerTranscriptSelection.test.ts",
+    "tests/hammerWorkspaceAuthority.test.ts",
+    "tests/hammerTranscriptAuthorityEnforcement.test.ts",
+    "tests/hammerTranscriptHardening.test.ts",
+    "tests/hammerDerivedTranscriptLayers.test.ts",
+    "tests/hammerTranscriptPrepApi.test.ts",
+    "tests/hammerTranscriptReadability.test.ts",
+    "tests/hammerVisualTimelineModel.test.ts",
+    "tests/hammerVisualTimelineReducer.test.ts",
+    "tests/hammerVisualTimelineLegacyAdapter.test.ts",
+    "tests/hammerVisualPlacements.test.ts",
+    "tests/hammerVisualPlacementGeometry.test.ts",
+    "tests/hammerMediaPrepOutputsPackage.test.ts"
   ]
 }
