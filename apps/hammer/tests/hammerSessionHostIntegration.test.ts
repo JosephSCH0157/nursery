@@ -46,7 +46,7 @@ async function run() {
 
   caseAssert(
     source.includes("applyHostLoopState(resolveHammerReloadFailure(")
-      && source.includes("catch(async () => {"),
+      && source.includes(".catch(async (error) => {"),
     {
       title: "reload failure preserves harder truth in host loop",
       setup: "Operator clicks `Reload latest` but canonical hydration fails.",

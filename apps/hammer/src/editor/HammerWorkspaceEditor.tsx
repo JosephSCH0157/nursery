@@ -239,6 +239,7 @@ type HammerCanonicalOpenHydrationResult = {
   reloadOutcome: "success" | "failure";
   effectiveLaunchContext?: HammerLaunchContext;
   hasCanonicalBasis: boolean;
+  reopenPersistenceSource: "persistence" | "launch" | "bootstrap" | "transitional" | "none";
   loadedPersistenceSnapshot: HammerPersistenceSnapshot | null;
   activeCanonicalRecording: HammerCanonicalRecordingRecord | null;
   activeRevision: HammerRecordingRevisionRecord | null;
@@ -631,6 +632,9 @@ export default function HammerWorkspaceEditor(
   );
   const [hydrationReady, setHydrationReady] = useState(persistenceMode !== "canonical");
   const [hasCanonicalBasis, setHasCanonicalBasis] = useState(Boolean(incomingLaunchContext));
+  const [reopenPersistenceSource, setReopenPersistenceSource] = useState<
+    "persistence" | "launch" | "bootstrap" | "transitional" | "none" | null
+  >(incomingLaunchContext ? "launch" : null);
   const [workspaceSnapshot, setWorkspaceSnapshot] = useState<HammerWorkspaceSnapshot | null>(null);
   const [prepVoiceLine, setPrepVoiceLine] = useState<string | null>(null);
   const [prepVoiceOpacity, setPrepVoiceOpacity] = useState(1);
@@ -1510,6 +1514,7 @@ export default function HammerWorkspaceEditor(
       setPrepState(createHammerPrepState("idle", null));
       setHydrationReady(true);
       setHasCanonicalBasis(Boolean(incomingLaunchContext));
+      setReopenPersistenceSource(incomingLaunchContext ? "launch" : "none");
       return;
     }
 
@@ -1520,6 +1525,7 @@ export default function HammerWorkspaceEditor(
       setPrepState(createHammerPrepState("preparing", "loading_context"));
       setHydrationReady(false);
       setHasCanonicalBasis(Boolean(incomingLaunchContext));
+      setReopenPersistenceSource(incomingLaunchContext ? "launch" : "none");
       return;
     }
 
@@ -1528,6 +1534,7 @@ export default function HammerWorkspaceEditor(
     let active = true;
     setHydrationReady(false);
     setHasCanonicalBasis(Boolean(incomingLaunchContext));
+    setReopenPersistenceSource(incomingLaunchContext ? "launch" : "none");
     setPrepState(createHammerPrepState("preparing", "loading_context"));
 
     const canonicalOpenKey = `${targetKey ?? "hammer"}:reload:${reloadRequestNonce}`;
@@ -1575,6 +1582,8 @@ export default function HammerWorkspaceEditor(
 
         let nextLaunchContext = incomingLaunchContext;
         let nextHasCanonicalBasis = Boolean(nextLaunchContext);
+        let nextReopenPersistenceSource: HammerCanonicalOpenHydrationResult["reopenPersistenceSource"] =
+          incomingLaunchContext ? "launch" : "none";
 
         let hydratedSnapshot: HammerPersistenceSnapshot | null = null;
         let nextActiveCanonicalRecording: HammerCanonicalRecordingRecord | null = null;
@@ -1609,6 +1618,7 @@ export default function HammerWorkspaceEditor(
             reloadOutcome: "success",
             effectiveLaunchContext: nextLaunchContext,
             hasCanonicalBasis: false,
+            reopenPersistenceSource: nextReopenPersistenceSource,
             loadedPersistenceSnapshot: null,
             activeCanonicalRecording: null,
             activeRevision: null,
@@ -1897,6 +1907,7 @@ export default function HammerWorkspaceEditor(
           });
           nextLaunchContext = withSessionId(openHydration.launchContext);
           nextHasCanonicalBasis = openHydration.hasCanonicalBasis;
+          nextReopenPersistenceSource = openHydration.persistenceSource;
 
           if (nextLaunchContext && hydratedTranscript?.segments.length) {
             nextLaunchContext = {
@@ -1940,9 +1951,11 @@ export default function HammerWorkspaceEditor(
             });
             nextLaunchContext = withSessionId(mergedHydration.launchContext);
             nextHasCanonicalBasis = mergedHydration.hasCanonicalBasis;
+            nextReopenPersistenceSource = mergedHydration.persistenceSource;
           } catch {
             nextLaunchContext = undefined;
             nextHasCanonicalBasis = false;
+            nextReopenPersistenceSource = incomingLaunchContext ? "launch" : "none";
           }
         }
 
@@ -1950,6 +1963,7 @@ export default function HammerWorkspaceEditor(
           reloadOutcome: "success",
           effectiveLaunchContext: nextLaunchContext,
           hasCanonicalBasis: nextHasCanonicalBasis,
+          reopenPersistenceSource: nextReopenPersistenceSource,
           loadedPersistenceSnapshot: hydratedSnapshot,
           activeCanonicalRecording: nextActiveCanonicalRecording,
           activeRevision: nextActiveRevision,
@@ -1985,6 +1999,7 @@ export default function HammerWorkspaceEditor(
         setEffectiveLaunchContext(result.effectiveLaunchContext);
         applyHostLoopState(resolveHammerReloadSuccess(hostLoopStateRef.current));
         setHasCanonicalBasis(result.hasCanonicalBasis);
+        setReopenPersistenceSource(result.reopenPersistenceSource);
         setHydrationReady(true);
       })
       .catch(async (error) => {
@@ -2015,6 +2030,7 @@ export default function HammerWorkspaceEditor(
         });
         applyHostLoopState(resolveHammerReloadFailure(hostLoopStateRef.current));
         setHasCanonicalBasis(nextHasCanonicalBasis);
+        setReopenPersistenceSource(nextLaunchContext ? "bootstrap" : "none");
         if (ingestDiagnosticRef.current && persistenceTarget) {
           ingestDiagnosticRef.current.final_status = "blocked";
           ingestDiagnosticRef.current.timestamp = new Date().toISOString();
@@ -4145,9 +4161,11 @@ export default function HammerWorkspaceEditor(
     mediaLabelMismatchWarning: workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning ?? null,
     actualRecordingMismatchWarning: workspaceSnapshot?.diagnostics?.actualRecordingMismatchWarning ?? null,
     jobsStatusUnavailable,
+    reopenPersistenceSource,
   }), [
     handoffMediaPrepOutputs,
     jobsStatusUnavailable,
+    reopenPersistenceSource,
     sessionState,
     workspaceSnapshot?.diagnostics?.actualRecordingMismatchWarning,
     workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning,

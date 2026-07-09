@@ -1,0 +1,29 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": [
+    "src",
+    "tests/hammerAutosaveCommitGap.test.ts",
+    "tests/hammerOpenHydration.test.ts",
+    "tests/hammerIssueDiagnostics.test.ts",
+    "tests/hammerPersistenceRecovery.test.ts",
+    "tests/hammerPersistence.test.ts",
+    "tests/hammerSnapshotRecoveryFlow.test.ts",
+    "tests/hammerSnapshotProduction.test.ts",
+    "tests/hammerSessionHostLoop.test.ts",
+    "tests/hammerSessionState.test.ts",
+    "tests/hammerWorkspaceHistory.test.ts",
+    "tests/hammerHistoryArtifactApi.test.ts",
+    "tests/hammerHistoryStatus.test.ts",
+    "tests/hammerReopenFlowLabelMismatch.test.ts",
+    "tests/hammerSessionHostIntegration.test.ts",
+    "tests/hammerConflictRecovery.test.ts",
+    "tests/hammerSaveFailure.test.ts",
+    "tests/hammerPassReload.test.ts",
+    "tests/hammerSessionActions.test.ts",
+    "tests/hammerPassStatus.test.ts",
+    "tests/hammerPodcastMasterStatus.test.ts"
+  ]
+}

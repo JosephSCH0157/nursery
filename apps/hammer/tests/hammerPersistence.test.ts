@@ -253,12 +253,15 @@ const snapshot: HammerWorkspaceSnapshot = {
         chunks: [
           {
             id: "chunk_1",
+            chunk_index: 0,
             start_sec: 0,
             end_sec: 8,
             duration_sec: 8,
+            boundary_reason: "short_file",
             source: "short_file",
           },
         ],
+        chunk_count: 1,
       },
       channel_characterization: {
         channel_count: 1,
@@ -298,6 +301,7 @@ const snapshot: HammerWorkspaceSnapshot = {
     processor_version: "forge-v1.2.0/audio-polish.v4",
     prepared_at: "2026-03-13T10:10:05.000Z",
     output_local_relpath: "hammer/prep/audio-polish/episode-1--abcd1234.wav",
+    output_workpiece_path: null,
     output_mime_type: "audio/wav",
     output_duration_ms: 8_000,
     failure_code: null,
@@ -380,6 +384,9 @@ assert.deepEqual(saveRequest.editor_session?.data.visual_preview, {
   background_replace_mode: "solid",
   background_replace_color: "#2b2b2b",
   background_replace_image_url: null,
+  background_replace_image_asset_path: null,
+  background_replace_image_asset_id: null,
+  background_replace_image_asset_type: null,
   background_wash_enabled: false,
   background_wash_dim_amount: 0.35,
   background_wash_desaturate_amount: 0.25,
@@ -400,6 +407,7 @@ const persistedSnapshot: HammerPersistenceSnapshot = {
     },
     editor_session_path: "hammer/session/editor-state.v1.json",
     transcript_artifact_path: "hammer/transcript/structured.v1.json",
+    transcript_versions_artifact_path: null,
     speaker_map_artifact_path: "hammer/transcript/speaker-map.v1.json",
     visual_placement_artifact_path: "hammer/prep/visual-placements.v1.json",
     audio_polish_artifact_path: "hammer/prep/audio-polish.v1.json",
@@ -429,10 +437,20 @@ const persistedSnapshot: HammerPersistenceSnapshot = {
     updated_at: "2026-03-13T10:10:03.000Z",
     data: saveRequest.speaker_map?.data ?? null,
   },
+  transcript_version_registry: {
+    path: null,
+    updated_at: null,
+    data: null,
+  },
   visual_placements: {
     path: "hammer/prep/visual-placements.v1.json",
     updated_at: "2026-03-13T10:10:04.000Z",
     data: saveRequest.visual_placements?.data ?? null,
+  },
+  visual_timeline: {
+    path: null,
+    updated_at: null,
+    data: null,
   },
   audio_polish: {
     path: "hammer/prep/audio-polish.v1.json",
@@ -525,7 +543,7 @@ const fallbackLaunchContextForProjection = {
     ref: {
       media_id: "media_fallback",
       kind: "recording_video" as const,
-      source_hint: "local",
+      source_hint: "local" as const,
     },
     label: "tongs:media_fallback",
   },
@@ -573,14 +591,22 @@ try {
     getItem: () => "hammer_user_token",
     key: () => null,
     length: 0,
+    clear: () => undefined,
+    removeItem: () => undefined,
+    setItem: () => undefined,
+  } as Storage;
+  const runtimeLocation = { search: "" } as Location;
+  const runtimeGlobals = globalThis as unknown as {
+    window?: Window & typeof globalThis;
+    localStorage?: Storage;
+    location?: Location;
   };
-  const runtimeLocation = { search: "" };
-  (globalThis as GlobalWithRuntime).window = {
+  runtimeGlobals.window = {
     location: runtimeLocation,
     localStorage: runtimeStorage,
-  };
-  (globalThis as GlobalWithRuntime).localStorage = runtimeStorage;
-  (globalThis as GlobalWithRuntime).location = runtimeLocation;
+  } as Window & typeof globalThis;
+  runtimeGlobals.localStorage = runtimeStorage;
+  runtimeGlobals.location = runtimeLocation;
 
   async function assertInvalidAudioEditPersistsAsCanonicalNull(): Promise<void> {
     globalThis.fetch = async (): Promise<Response> => new Response(JSON.stringify({
@@ -1001,7 +1027,7 @@ try {
       currentPass: result.data.state?.current_pass ?? "transcript_cleanup",
       passOrderVersion: result.data.state?.pass_order_version ?? 2,
       passStatus: result.data.state?.pass_status ?? {},
-      editPlanSignature: result.data.state?.edit_plan_signature ?? null,
+      editPlanSignature: result.data.state?.edit_plan_signature ?? "",
       selectedMacroRecipeRef: result.data.macro_hooks.recipe_ref ?? null,
       lastMacroRunRef: result.data.macro_hooks.last_run_ref ?? null,
     });
@@ -1075,6 +1101,9 @@ try {
       background_replace_mode: "solid",
       background_replace_color: "#2b2b2b",
       background_replace_image_url: null,
+      background_replace_image_asset_path: null,
+      background_replace_image_asset_id: null,
+      background_replace_image_asset_type: null,
       background_wash_enabled: false,
       background_wash_dim_amount: 0.35,
       background_wash_desaturate_amount: 0.25,
@@ -1101,6 +1130,9 @@ try {
       background_replace_mode: "solid",
       background_replace_color: "#2b2b2b",
       background_replace_image_url: null,
+      background_replace_image_asset_path: null,
+      background_replace_image_asset_id: null,
+      background_replace_image_asset_type: null,
       background_wash_enabled: false,
       background_wash_dim_amount: 0.35,
       background_wash_desaturate_amount: 0.25,
@@ -1168,6 +1200,9 @@ try {
       background_replace_mode: "checkerboard",
       background_replace_color: "#2b2b2b",
       background_replace_image_url: null,
+      background_replace_image_asset_path: null,
+      background_replace_image_asset_id: null,
+      background_replace_image_asset_type: null,
       background_wash_enabled: false,
       background_wash_dim_amount: 0.35,
       background_wash_desaturate_amount: 0.25,
@@ -1194,6 +1229,9 @@ try {
       background_replace_mode: "checkerboard",
       background_replace_color: "#2b2b2b",
       background_replace_image_url: null,
+      background_replace_image_asset_path: null,
+      background_replace_image_asset_id: null,
+      background_replace_image_asset_type: null,
       background_wash_enabled: false,
       background_wash_dim_amount: 0.35,
       background_wash_desaturate_amount: 0.25,
@@ -1235,20 +1273,25 @@ try {
   assert.equal(legacyEditResult.ok && legacyEditResult.data.audio_polish.data?.audio_edit, null);
 } finally {
   globalThis.fetch = originalFetch;
+  const runtimeGlobals = globalThis as unknown as {
+    window?: Window & typeof globalThis;
+    localStorage?: Storage;
+    location?: Location;
+  };
   if (originalWindow === undefined) {
-    delete (globalThis as GlobalWithRuntime).window;
+    delete runtimeGlobals.window;
   } else {
-    (globalThis as GlobalWithRuntime).window = originalWindow;
+    runtimeGlobals.window = originalWindow as Window & typeof globalThis;
   }
   if (originalLocalStorage === undefined) {
-    delete (globalThis as GlobalWithRuntime).localStorage;
+    delete runtimeGlobals.localStorage;
   } else {
-    (globalThis as GlobalWithRuntime).localStorage = originalLocalStorage;
+    runtimeGlobals.localStorage = originalLocalStorage as Storage;
   }
   if (originalLocation === undefined) {
-    delete (globalThis as GlobalWithRuntime).location;
+    delete runtimeGlobals.location;
   } else {
-    (globalThis as GlobalWithRuntime).location = originalLocation;
+    runtimeGlobals.location = originalLocation as Location;
   }
 }
 

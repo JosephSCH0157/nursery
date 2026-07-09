@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { MediaRef } from "../../../packages/contracts/hammer/media-resolver.contract";
 import { resolveHammerRecordingIdentityStatus } from "../src/editor/hammerRecordingIdentity";
 import { deriveHammerIssueDiagnostics } from "../src/editor/hammerIssueDiagnostics";
 
@@ -21,15 +22,15 @@ async function testReopenFlowWithLabelChangeButSameCanonicalPath() {
   // === Setup: Prior session state ===
   const priorSessionLabel = "Camera A";
   const priorCanonicalMediaPath = "takes/episode-alpha.wav";
-  const priorMediaRef = {
+  const priorMediaRef: MediaRef = {
     media_id: "media_canonical_1",
     kind: "recording_audio" as const,
     local_relpath: "takes/episode-alpha.wav",
-    cloud_uri: null,
-    source_hint: null,
-    sha256: null,
-    byte_size: null,
-    duration_ms: null,
+    cloud_uri: undefined,
+    source_hint: undefined,
+    sha256: undefined,
+    byte_size: undefined,
+    duration_ms: undefined,
   };
 
   // === Reopen state: Same canonical binding, different label ===
@@ -125,8 +126,8 @@ async function testReopenFlowWithLabelChangeButSameCanonicalPath() {
   // === Step 5: Integration semantics ===
   // Summarize the expected behavior on reopen
   const reopenBehavior = {
-    labelChanged: priorSessionLabel !== reopenLabel,
-    canonicalPathUnchanged: priorCanonicalMediaPath === reopenCanonicalMediaPath,
+    labelChanged: String(priorSessionLabel) !== String(reopenLabel),
+    canonicalPathUnchanged: String(priorCanonicalMediaPath) === String(reopenCanonicalMediaPath),
     canonicalBindingIntact: identityStatus.hasActualRecordingMismatch === false,
     historyReplayEnabled: !historyControllerWouldEarlyReturn,
     hasBlockingIssue: blockingIssues.length > 0,
@@ -161,15 +162,15 @@ async function testReopenFlowWithLabelChangeButSameCanonicalPath() {
  */
 async function testReopenFlowWithActualMediaPathChange() {
   // Prior session persisted this mediaRef
-  const priorPersistedMediaRef = {
+  const priorPersistedMediaRef: MediaRef = {
     media_id: "media_old",
     kind: "recording_audio" as const,
     local_relpath: "takes/episode-alpha.wav",
-    cloud_uri: null,
-    source_hint: null,
-    sha256: null,
-    byte_size: null,
-    duration_ms: null,
+    cloud_uri: undefined,
+    source_hint: undefined,
+    sha256: undefined,
+    byte_size: undefined,
+    duration_ms: undefined,
   };
 
   // On reopen, fresh Tongs query returns different canonical path

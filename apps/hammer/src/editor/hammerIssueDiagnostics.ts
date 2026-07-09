@@ -53,7 +53,8 @@ export function deriveHammerIssueDiagnostics(args: {
   mediaPrepOutputs: HammerMediaPrepOutputsPackage | null;
   mediaLabelMismatchWarning: string | null;
   actualRecordingMismatchWarning: string | null;
-  jobsStatusUnavailable: { status: number; message: string } | null;
+  jobsStatusUnavailable?: { status: number; message: string } | null;
+  reopenPersistenceSource?: "persistence" | "launch" | "bootstrap" | "transitional" | "none" | null;
 }): HammerIssueDiagnostic[] {
   const issues: HammerIssueDiagnostic[] = [];
   const {
@@ -61,7 +62,22 @@ export function deriveHammerIssueDiagnostics(args: {
     mediaPrepOutputs,
     actualRecordingMismatchWarning,
     jobsStatusUnavailable,
+    reopenPersistenceSource,
   } = args;
+
+  if (reopenPersistenceSource === "transitional") {
+    issues.push({
+      id: "transitional_reopen",
+      severity: "warning",
+      title: "Reopened in transitional recovery mode",
+      summary: "Hammer reopened from persisted transcript data because canonical editorial authority was missing. This is degraded recovery or migration mode, not a normal canonical reopen.",
+      affectedAreas: ["persistence", "transcript_editing"],
+      safeActions: ["Inspection and cautious continuation are still available."],
+      recommendedAction: "Treat this session as degraded recovery. Verify the reopened transcript carefully and restore canonical editorial authority before trusting this as a fully canonical reopen.",
+      canAutoFix: false,
+      fixActionId: null,
+    });
+  }
 
   if (actualRecordingMismatchWarning) {
     issues.push({

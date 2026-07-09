@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { HammerHistoryDocumentV1 } from "../src/editor/hammerWorkspaceHistory";
 import {
   HAMMER_HISTORY_ARTIFACT_PATH,
   HAMMER_HISTORY_PRESENCE_PATH,
@@ -101,7 +102,7 @@ async function testSaveRevisionHistoryUsesRevisionEndpoint() {
     return createJsonResponse(200, { ok: true, data: { revision: { id: "rev-123" } } });
   };
 
-  const document = {
+  const document: HammerHistoryDocumentV1 = {
     version: 1,
     workpieceId: "workpiece-123",
     sessionId: "session-123",
@@ -113,7 +114,7 @@ async function testSaveRevisionHistoryUsesRevisionEndpoint() {
     checkpoints: [],
     undoStack: [],
     redoStack: [],
-  } as const;
+  };
 
   const result = await saveHammerRevisionHistoryDocument({
     workspaceId: "workspace-123",

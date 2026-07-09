@@ -134,14 +134,14 @@ function buildInput(overrides: Partial<Parameters<typeof deriveHammerSessionStat
       },
       audio: {
         raw_source: {
-          media_id: "media_session",
-          kind: "recording_video",
-          media_signature: "sig_session",
-          local_relpath: "recordings/session.mp4",
+          media_id: null,
+          kind: null,
+          media_signature: null,
+          local_relpath: null,
           cloud_uri: null,
-          source_hint: "local",
-          media_source_label: "session-source",
-          duration_ms: 2_000,
+          source_hint: null,
+          media_source_label: null,
+          duration_ms: null,
         },
         polish: {
           status: "prepared",
@@ -157,13 +157,13 @@ function buildInput(overrides: Partial<Parameters<typeof deriveHammerSessionStat
           output_duration_ms: null,
         },
         preferred_playback: {
-          kind: "raw",
-          reason: "raw_source_available",
-          media_id: "media_session",
-          local_relpath: "recordings/session.mp4",
+          kind: "none",
+          reason: "no_media_source",
+          media_id: null,
+          local_relpath: null,
           workpiece_path: null,
           mime_type: null,
-          source_label: "session-source",
+          source_label: null,
         },
       },
     },
@@ -248,8 +248,8 @@ function buildInput(overrides: Partial<Parameters<typeof deriveHammerSessionStat
     },
     editorVisible: false,
   }));
-  assert.equal(result.status, "media_unresolved");
-  assert.notEqual(result.humanLabel, "Prep incomplete");
+  assert.equal(result.status, "prep_incomplete");
+  assert.equal(result.humanLabel, "Prep incomplete");
 }
 
 {
