@@ -99,6 +99,7 @@ function buildCurrentReleasePrep(args?: {
     prepared_passes: args?.preferredKind === "polished" ? ["studio_sound"] : [],
     source_artifact_paths: ["recordings/prepared-release.wav"],
     settings_summary: {},
+    analysis: null,
     source_media_id: args?.mediaId ?? "media_prepared_pkg_01",
     source_media_signature: args?.mediaSignature ?? "sig_prepared_pkg_01",
     processor_version: "forge-v1.2.0/audio-polish.v4",

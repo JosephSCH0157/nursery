@@ -25,6 +25,19 @@
     "tests/hammerPassReload.test.ts",
     "tests/hammerSessionActions.test.ts",
     "tests/hammerPassStatus.test.ts",
-    "tests/hammerPodcastMasterStatus.test.ts"
+    "tests/hammerPodcastMasterStatus.test.ts",
+    "tests/hammerReadinessGate.test.ts",
+    "tests/hammerPreparedHandoff.test.ts",
+    "tests/hammerReleaseHandoffPosture.test.ts",
+    "tests/hammerQuenchHandoff.test.ts",
+    "tests/hammerPreparedReleasePackage.test.ts",
+    "tests/hammerQuenchReleasePacket.test.ts",
+    "tests/hammerQuenchParity.test.ts",
+    "tests/hammerReleasePrepPackage.test.ts",
+    "tests/hammerTextOutputsPackage.test.ts",
+    "tests/hammerSubtitleExports.test.ts",
+    "tests/hammerRenderAssembly.test.ts",
+    "tests/hammerAuthorityOps.test.ts",
+    "tests/hammerEditorialAuthorityContract.test.ts"
   ]
 }

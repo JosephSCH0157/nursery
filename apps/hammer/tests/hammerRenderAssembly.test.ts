@@ -3,6 +3,7 @@ import type { HammerEditPlan } from "../../../packages/contracts/hammer/edit-pla
 import {
   buildHammerRenderAssembly,
   projectEditorialAuthorityGraphFromEditPlan,
+  type HammerRenderRuntimeCapabilities,
 } from "../src/editor/hammerRenderAssembly";
 
 function buildPlan(): HammerEditPlan {
@@ -229,11 +230,11 @@ async function testExportTimelineAssemblyIsDeterministicAndComposed() {
     workpieceId: "wp_render",
     sessionId: "session_render",
   });
-  const capabilities = {
+  const capabilities: HammerRenderRuntimeCapabilities = {
     preview_supported_operation_types: ["ripple_delete", "insert_broll", "audio_duck", "crossfade"],
     export_supported_operation_types: ["ripple_delete", "insert_broll", "audio_duck", "crossfade"],
     handoff_supported_operation_types: ["ripple_delete", "insert_broll", "audio_duck", "crossfade"],
-  } as const;
+  };
   const first = buildHammerRenderAssembly({
     canonicalGraph: graph,
     runtimeCapabilities: capabilities,
