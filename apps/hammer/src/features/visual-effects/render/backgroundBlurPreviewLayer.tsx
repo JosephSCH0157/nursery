@@ -184,7 +184,7 @@ function isTruthyDebugToggle(value: string | null): boolean {
 }
 
 function isSegmentationFrameLogEnabled(): boolean {
-  const isDev = Boolean((import.meta as any)?.env?.DEV);
+  const isDev = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
   if (!isDev || typeof window === "undefined") return false;
   try {
     const search = new URLSearchParams(window.location.search ?? "");
@@ -1350,8 +1350,12 @@ export default function BackgroundBlurPreviewLayer(props: {
     };
 
     const video = props.videoRef.current;
-    const requestVideoFrameCallback = video ? (video as any).requestVideoFrameCallback?.bind(video) as ((cb: (now: number, metadata: { mediaTime?: number }) => void) => number) | null : null;
-    const cancelVideoFrameCallback = video ? (video as any).cancelVideoFrameCallback?.bind(video) as ((handle: number) => void) | null : null;
+    const videoFrameSource = video as (HTMLVideoElement & {
+      requestVideoFrameCallback?: (callback: (now: number, metadata: { mediaTime?: number }) => void) => number;
+      cancelVideoFrameCallback?: (handle: number) => void;
+    }) | null;
+    const requestVideoFrameCallback = videoFrameSource?.requestVideoFrameCallback?.bind(videoFrameSource) ?? null;
+    const cancelVideoFrameCallback = videoFrameSource?.cancelVideoFrameCallback?.bind(videoFrameSource) ?? null;
 
     let rvfcHandle = 0;
     if (video && typeof requestVideoFrameCallback === "function") {

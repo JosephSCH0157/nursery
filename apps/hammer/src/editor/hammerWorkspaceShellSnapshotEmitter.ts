@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
-import type { HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
+import type { HammerEditPlan, HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
+import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import type { MediaRef, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type { HammerPlacementOutboundDiagnostics, HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
@@ -46,7 +47,7 @@ export type UseHammerWorkspaceShellSnapshotEmitterArgs = {
   selectedMacroRecipeRef: string | null;
   lastMacroRunRef: string | null;
   canonicalStructuredTranscript: HammerPersistedStructuredTranscript | null;
-  exportCanonicalGraph: any;
+  exportCanonicalGraph: HammerEditorialAuthorityGraph;
 
   currentPass: HammerPassId;
   passStatus: HammerPassStatusMap;
@@ -68,7 +69,7 @@ export type UseHammerWorkspaceShellSnapshotEmitterArgs = {
     launchContext: HammerLaunchContext,
     transcriptSourceId: string,
     previewMode: HammerPreviewMode,
-  ) => any;
+  ) => HammerEditPlan;
 };
 
 export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceShellSnapshotEmitterArgs): void {

@@ -334,8 +334,12 @@ export default function EyeContactAssistPreviewLayer(props: {
     }
 
     const video = props.videoRef.current;
-    const requestVideoFrameCallback = video ? (video as any).requestVideoFrameCallback?.bind(video) as ((cb: () => void) => number) | null : null;
-    const cancelVideoFrameCallback = video ? (video as any).cancelVideoFrameCallback?.bind(video) as ((handle: number) => void) | null : null;
+    const videoFrameSource = video as (HTMLVideoElement & {
+      requestVideoFrameCallback?: (callback: () => void) => number;
+      cancelVideoFrameCallback?: (handle: number) => void;
+    }) | null;
+    const requestVideoFrameCallback = videoFrameSource?.requestVideoFrameCallback?.bind(videoFrameSource) ?? null;
+    const cancelVideoFrameCallback = videoFrameSource?.cancelVideoFrameCallback?.bind(videoFrameSource) ?? null;
     if (video && typeof requestVideoFrameCallback === "function") {
       let handle = 0;
       const loop = () => {

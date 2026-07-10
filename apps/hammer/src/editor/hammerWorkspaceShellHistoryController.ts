@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
-import type { HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
+import type { HammerEditPlan, HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import {
   cloneHammerEditorialAuthorityGraph,
   type HammerEditorialAuthorityGraph,
@@ -20,6 +20,7 @@ import {
   cloneEditorState,
   type HammerEditorStateSerializable,
   type HammerHistoryController,
+  type HammerOutputSelectionState,
 } from "./hammerWorkspaceHistory";
 import { syncEditableTranscriptSegments, resolveTranscriptDurationSec } from "./hammerWorkspaceTranscript";
 import { createDefaultHammerStudioRackState } from "./hammerStudioRack";
@@ -96,8 +97,8 @@ export type UseHammerWorkspaceShellHistoryControllerArgs = {
     launchContext: HammerLaunchContext,
     transcriptSourceId: string,
     previewMode: HammerPreviewMode,
-  ) => any;
-  resolveOutputSelectionFromTranscript: (structured: HammerPersistedStructuredTranscript | null) => any;
+  ) => HammerEditPlan;
+  resolveOutputSelectionFromTranscript: (structured: HammerPersistedStructuredTranscript | null) => HammerOutputSelectionState;
   toEditorState: (args: {
     segments: HammerTranscriptSegment[];
     visualPlacements: HammerPersistedVisualPlacements | null;
@@ -105,12 +106,12 @@ export type UseHammerWorkspaceShellHistoryControllerArgs = {
     audioEdit: HammerPersistedAudioEdit | null;
     studioRack: ReturnType<typeof createDefaultHammerStudioRackState>;
     editorialAuthorityGraph: ReturnType<typeof projectEditorialAuthorityGraphFromEditPlan>;
-    outputSelection: any;
+    outputSelection: HammerOutputSelectionState;
     selectedSegmentId: string | null;
     playheadSec: number;
     transcriptTimingHint: string | null;
   }) => HammerEditorStateSerializable;
-  cloneHammerDerivedTextLayers: (value: any) => DerivedLayersState;
+  cloneHammerDerivedTextLayers: (value: DerivedLayersState) => DerivedLayersState;
 };
 
 export function resolveBaselineAuthorityGraph(args: {
