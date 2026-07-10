@@ -37,6 +37,7 @@ function buildCanonicalOnlySnapshot(): HammerPersistenceSnapshot {
     } as any,
     editor_session: { path: null, updated_at: null, data: null },
     structured_transcript: { path: null, updated_at: null, data: null },
+    transcript_version_registry: { path: null, updated_at: null, data: null },
     speaker_map: { path: null, updated_at: null, data: null },
     visual_placements: { path: null, updated_at: null, data: null },
     visual_timeline: { path: null, updated_at: null, data: null },

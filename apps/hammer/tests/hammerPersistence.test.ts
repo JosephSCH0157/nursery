@@ -479,8 +479,7 @@ assert.equal(hydrated?.source, "persistence");
 assert.equal(hydrated?.launchContext.session_id, "session_hammer_01");
 assert.equal(hydrated?.launchContext.transcript.kind, "tongs-stub");
 assert.equal(hydrated?.launchContext.media.kind, "tongs-stub");
-assert.equal(hydrated?.launchContext.edit_plan?.edit_plan_id, "plan_01");
-assert.equal(hydrated?.launchContext.edit_plan?.instructions.length, 0);
+assert.equal(hydrated?.launchContext.edit_plan, undefined);
 assert.equal(
   persistedSnapshot.audio_polish.data?.analysis?.segmentation.regions[0]?.kind,
   "speech",
@@ -525,7 +524,7 @@ const canonicalOnlySnapshot: HammerPersistenceSnapshot = {
   },
 };
 const hydratedCanonicalOnly = buildHammerLaunchContextFromPersistence(target, canonicalOnlySnapshot);
-assert.equal(hydratedCanonicalOnly?.launchContext.edit_plan?.edit_plan_id, "plan_01");
+assert.equal(hydratedCanonicalOnly?.launchContext.edit_plan, undefined);
 
 const fallbackLaunchContextForProjection = {
   workspace_id: target.workspaceId,
@@ -555,7 +554,7 @@ const hydratedCanonicalOnlyWithFallback = buildHammerLaunchContextFromPersistenc
   canonicalOnlySnapshot,
   fallbackLaunchContextForProjection,
 );
-assert.equal(hydratedCanonicalOnlyWithFallback?.launchContext.edit_plan?.edit_plan_id, "plan_01");
+assert.equal(hydratedCanonicalOnlyWithFallback?.launchContext.edit_plan, undefined);
 
 const hydratedCanonicalOnlyWithGate = buildHammerLaunchContextFromPersistence(
   target,

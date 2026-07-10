@@ -454,7 +454,7 @@ export function buildHammerLaunchContextFromPersistence(
   const editorSession = snapshot.editor_session.data;
   const transcript = snapshot.structured_transcript.data;
   const canonicalGraph = snapshot.editorial_authority.data;
-  void options;
+  const allowLegacyEditPlanProjection = options?.allowLegacyEditPlanProjection === true;
   const hasPersistedState = Boolean(
     snapshot.state
     || editorSession
@@ -489,6 +489,9 @@ export function buildHammerLaunchContextFromPersistence(
       fallbackEditPlan: snapshot.edit_plan.data ?? null,
     }),
   });
+  const legacyProjectedEditPlan = allowLegacyEditPlanProjection && editPlan
+    ? cloneEditPlan(editPlan)
+    : undefined;
 
   if (!launchContext) {
     if (!editorSession || !transcript || !editorSession.media_ref) {
@@ -514,7 +517,7 @@ export function buildHammerLaunchContextFromPersistence(
           : undefined,
         label: editorSession.media_source_label ?? "tongs:persisted-media",
       },
-      edit_plan: cloneEditPlan(editPlan),
+      edit_plan: legacyProjectedEditPlan,
       preview_mode: editPlan?.preview_mode ?? editorSession.preview_mode,
     };
 
@@ -550,7 +553,7 @@ export function buildHammerLaunchContextFromPersistence(
       label: editorSession.media_source_label ?? "tongs:persisted-media",
     };
   }
-  launchContext.edit_plan = cloneEditPlan(editPlan);
+  launchContext.edit_plan = legacyProjectedEditPlan;
   launchContext.preview_mode = editPlan?.preview_mode
     ?? editorSession?.preview_mode
     ?? launchContext.preview_mode;

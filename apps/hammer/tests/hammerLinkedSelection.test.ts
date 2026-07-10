@@ -15,7 +15,6 @@ function buildSegment(overrides?: Partial<HammerTranscriptSegment>): HammerTrans
     text: "sample",
     start_sec: 0,
     end_sec: 1,
-    confidence: 0.99,
     ...overrides,
   };
 }

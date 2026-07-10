@@ -379,6 +379,12 @@ async function testDeleteActionStaysCompositionSynchronized() {
 
   const persistedSnapshot = buildPersistedSnapshotFromSaveRequest(saveRequest);
   const reloadedLaunch = buildHammerLaunchContextFromPersistence(target, persistedSnapshot);
+  const reloadedLaunchWithLegacyProjection = buildHammerLaunchContextFromPersistence(
+    target,
+    persistedSnapshot,
+    undefined,
+    { allowLegacyEditPlanProjection: true },
+  );
   const reloadedTimeline = loadHammerVisualTimelineStateFromSnapshot(persistedSnapshot);
 
   assert.ok(reloadedLaunch);
@@ -388,8 +394,9 @@ async function testDeleteActionStaysCompositionSynchronized() {
       : [],
     after.transcriptSegments,
   );
-  assert.equal(reloadedLaunch?.launchContext.edit_plan?.instructions.length, 2);
-  assert.equal(reloadedLaunch?.launchContext.edit_plan?.instructions.at(-1)?.type, "ripple_delete");
+  assert.equal(reloadedLaunch?.launchContext.edit_plan, undefined);
+  assert.equal(reloadedLaunchWithLegacyProjection?.launchContext.edit_plan?.instructions.length, 2);
+  assert.equal(reloadedLaunchWithLegacyProjection?.launchContext.edit_plan?.instructions.at(-1)?.type, "ripple_delete");
   assert.equal(reloadedTimeline.clips[0]?.start_sec, 2);
   assert.equal(reloadedTimeline.clips[0]?.end_sec, 4);
 }
@@ -468,7 +475,15 @@ async function testMuteActionStaysCompositionSynchronized() {
       : null,
     undefined,
   );
-  assert.equal(reloadedLaunch?.launchContext.edit_plan?.instructions.filter((instruction) => instruction.type === "mute").length, 0);
+  assert.equal(reloadedLaunch?.launchContext.edit_plan, undefined);
+
+  const reloadedLaunchWithLegacyProjection = buildHammerLaunchContextFromPersistence(
+    target,
+    persistedSnapshot,
+    undefined,
+    { allowLegacyEditPlanProjection: true },
+  );
+  assert.equal(reloadedLaunchWithLegacyProjection?.launchContext.edit_plan?.instructions.filter((instruction) => instruction.type === "mute").length, 0);
 }
 
 async function testSplitActionStaysCompositionSynchronized() {
@@ -532,6 +547,12 @@ async function testSplitActionStaysCompositionSynchronized() {
 
   const persistedSnapshot = buildPersistedSnapshotFromSaveRequest(saveRequest);
   const reloadedLaunch = buildHammerLaunchContextFromPersistence(target, persistedSnapshot);
+  const reloadedLaunchWithLegacyProjection = buildHammerLaunchContextFromPersistence(
+    target,
+    persistedSnapshot,
+    undefined,
+    { allowLegacyEditPlanProjection: true },
+  );
   const reloadedTimeline = loadHammerVisualTimelineStateFromSnapshot(persistedSnapshot);
 
   assert.ok(reloadedLaunch);
@@ -546,7 +567,8 @@ async function testSplitActionStaysCompositionSynchronized() {
       { id: "seg_003", start: 4, end: 6 },
     ],
   );
-  assert.equal(reloadedLaunch?.launchContext.edit_plan?.instructions.at(-1)?.type, "split");
+  assert.equal(reloadedLaunch?.launchContext.edit_plan, undefined);
+  assert.equal(reloadedLaunchWithLegacyProjection?.launchContext.edit_plan?.instructions.at(-1)?.type, "split");
   assert.equal(reloadedTimeline.clips[0]?.start_sec, 4);
   assert.equal(reloadedTimeline.clips[0]?.end_sec, 6);
 }
@@ -611,6 +633,12 @@ async function testTrimActionStaysCompositionSynchronized() {
 
   const persistedSnapshot = buildPersistedSnapshotFromSaveRequest(saveRequest);
   const reloadedLaunch = buildHammerLaunchContextFromPersistence(target, persistedSnapshot);
+  const reloadedLaunchWithLegacyProjection = buildHammerLaunchContextFromPersistence(
+    target,
+    persistedSnapshot,
+    undefined,
+    { allowLegacyEditPlanProjection: true },
+  );
   const reloadedTimeline = loadHammerVisualTimelineStateFromSnapshot(persistedSnapshot);
 
   assert.ok(reloadedLaunch);
@@ -624,7 +652,8 @@ async function testTrimActionStaysCompositionSynchronized() {
       { id: "seg_003", start: 4, end: 6 },
     ],
   );
-  assert.equal(reloadedLaunch?.launchContext.edit_plan?.instructions.at(-1)?.type, "trim");
+  assert.equal(reloadedLaunch?.launchContext.edit_plan, undefined);
+  assert.equal(reloadedLaunchWithLegacyProjection?.launchContext.edit_plan?.instructions.at(-1)?.type, "trim");
   assert.equal(reloadedTimeline.clips[0]?.start_sec, 4);
   assert.equal(reloadedTimeline.clips[0]?.end_sec, 6);
 }

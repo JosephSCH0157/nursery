@@ -173,7 +173,7 @@ test("reopen hydration prefers persisted canonical basis and strips stale launch
   });
   assert.equal(result.persistenceSource, "persistence");
   assert.equal(result.hasCanonicalBasis, true);
-  assert.equal(result.launchContext?.edit_plan?.edit_plan_id, "plan_reopen_01");
+  assert.equal(result.launchContext?.edit_plan, undefined);
 });
 
 test("reopen hydration preserves persisted canonical edit_plan when present", () => {
@@ -190,6 +190,19 @@ test("reopen hydration preserves persisted canonical edit_plan when present", ()
     hydratedSnapshot: snapshotWithPlan,
     initialLaunchContext: fallbackLaunchContext as any,
     bootstrapLaunchContext: undefined,
+  });
+  assert.equal(result.persistenceSource, "persistence");
+  assert.equal(result.hasCanonicalBasis, true);
+  assert.equal(result.launchContext?.edit_plan, undefined);
+});
+
+test("reopen hydration projects legacy edit_plan only when compatibility mode is enabled", () => {
+  const result = hydrateHammerOpenLaunchContext({
+    target,
+    hydratedSnapshot: buildCanonicalOnlySnapshot(),
+    initialLaunchContext: fallbackLaunchContext as any,
+    bootstrapLaunchContext: undefined,
+    allowLegacyEditPlanProjection: true,
   });
   assert.equal(result.persistenceSource, "persistence");
   assert.equal(result.hasCanonicalBasis, true);
