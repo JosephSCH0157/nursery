@@ -8,12 +8,170 @@ import {
 
 type AlphaMaskBuffer = Uint8ClampedArray<ArrayBufferLike>;
 
+const TOPOLOGY_OCCUPANCY_THRESHOLD = 96;
+const STRONG_COMPONENT_PEAK_ALPHA = 220;
+const STRONG_COMPONENT_MEAN_ALPHA = 150;
+const COMPONENT_SUPPORT_GAP_PX = 2;
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
 function roundToTenth(value: number): number {
   return Math.round(value * 10) / 10;
+}
+
+function validateSegmentationInput(input: SegmentationResult): void {
+  const { width, height, personMask } = input;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new Error("Segmentation provider returned invalid mask dimensions.");
+  }
+  if (!Number.isInteger(width) || !Number.isInteger(height)) {
+    throw new Error("Segmentation provider returned non-integer mask dimensions.");
+  }
+  const expectedLength = width * height;
+  if (!personMask || personMask.length === 0 || personMask.length !== expectedLength) {
+    throw new Error(`Segmentation provider returned an invalid mask buffer (expected ${expectedLength}, received ${personMask?.length ?? 0}).`);
+  }
+}
+
+type ForegroundComponent = {
+  pixels: number[];
+  size: number;
+  peakAlpha: number;
+  alphaTotal: number;
+  touchesFrameEdge: boolean;
+};
+
+function collectComponents(args: {
+  alpha: AlphaMaskBuffer;
+  width: number;
+  height: number;
+  foreground: boolean;
+}): ForegroundComponent[] {
+  const { alpha, width, height, foreground } = args;
+  const visited = new Uint8Array(alpha.length);
+  const components: ForegroundComponent[] = [];
+  const queue = new Int32Array(alpha.length);
+  for (let start = 0; start < alpha.length; start += 1) {
+    const occupied = (alpha[start] ?? 0) >= TOPOLOGY_OCCUPANCY_THRESHOLD;
+    if (visited[start] || occupied !== foreground) continue;
+    visited[start] = 1;
+    let head = 0;
+    let tail = 0;
+    queue[tail++] = start;
+    const pixels: number[] = [];
+    let peakAlpha = 0;
+    let alphaTotal = 0;
+    let touchesFrameEdge = false;
+    while (head < tail) {
+      const index = queue[head++]!;
+      const x = index % width;
+      const y = Math.floor(index / width);
+      const value = alpha[index] ?? 0;
+      pixels.push(index);
+      peakAlpha = Math.max(peakAlpha, value);
+      alphaTotal += value;
+      if (x === 0 || y === 0 || x === width - 1 || y === height - 1) touchesFrameEdge = true;
+      const neighbors = [index - 1, index + 1, index - width, index + width];
+      for (const neighbor of neighbors) {
+        if (neighbor < 0 || neighbor >= alpha.length || visited[neighbor]) continue;
+        const nx = neighbor % width;
+        const ny = Math.floor(neighbor / width);
+        if (Math.abs(nx - x) + Math.abs(ny - y) !== 1) continue;
+        const neighborOccupied = (alpha[neighbor] ?? 0) >= TOPOLOGY_OCCUPANCY_THRESHOLD;
+        if (neighborOccupied !== foreground) continue;
+        visited[neighbor] = 1;
+        queue[tail++] = neighbor;
+      }
+    }
+    components.push({ pixels, size: pixels.length, peakAlpha, alphaTotal, touchesFrameEdge });
+  }
+  return components;
+}
+
+function isNearSupportedPixel(args: {
+  component: ForegroundComponent;
+  supported: Uint8Array;
+  width: number;
+  height: number;
+}): boolean {
+  for (const index of args.component.pixels) {
+    const x = index % args.width;
+    const y = Math.floor(index / args.width);
+    for (let oy = -COMPONENT_SUPPORT_GAP_PX; oy <= COMPONENT_SUPPORT_GAP_PX; oy += 1) {
+      const ny = y + oy;
+      if (ny < 0 || ny >= args.height) continue;
+      for (let ox = -COMPONENT_SUPPORT_GAP_PX; ox <= COMPONENT_SUPPORT_GAP_PX; ox += 1) {
+        const nx = x + ox;
+        if (nx < 0 || nx >= args.width) continue;
+        if (args.supported[(ny * args.width) + nx]) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function removeUnsupportedForegroundIslands(args: {
+  alpha: AlphaMaskBuffer;
+  width: number;
+  height: number;
+}): AlphaMaskBuffer {
+  const out = new Uint8ClampedArray(args.alpha);
+  const components = collectComponents({ ...args, foreground: true });
+  const meaningfulArea = Math.max(6, Math.floor(args.width * args.height * 0.001));
+  const supported = new Uint8Array(out.length);
+  for (const component of components) {
+    if (component.size >= meaningfulArea || component.touchesFrameEdge) {
+      for (const index of component.pixels) supported[index] = 1;
+    }
+  }
+  for (const component of components) {
+    if (component.size >= meaningfulArea || component.touchesFrameEdge) continue;
+    const meanAlpha = component.alphaTotal / Math.max(1, component.size);
+    const hasStrongEvidence = component.size >= 2
+      && component.peakAlpha >= STRONG_COMPONENT_PEAK_ALPHA
+      && meanAlpha >= STRONG_COMPONENT_MEAN_ALPHA;
+    const hasSpatialSupport = isNearSupportedPixel({ component, supported, width: args.width, height: args.height });
+    if (hasStrongEvidence || hasSpatialSupport) continue;
+    for (const index of component.pixels) out[index] = 0;
+  }
+  return out;
+}
+
+function fillTinyInteriorHoles(args: {
+  alpha: AlphaMaskBuffer;
+  width: number;
+  height: number;
+}): AlphaMaskBuffer {
+  const out = new Uint8ClampedArray(args.alpha);
+  const maxHoleArea = Math.max(4, Math.floor(args.width * args.height * 0.00075));
+  const holes = collectComponents({ ...args, foreground: false });
+  for (const hole of holes) {
+    if (hole.touchesFrameEdge || hole.size > maxHoleArea) continue;
+    let boundaryTotal = 0;
+    let boundaryCount = 0;
+    for (const index of hole.pixels) {
+      const x = index % args.width;
+      const y = Math.floor(index / args.width);
+      const neighbors = [index - 1, index + 1, index - args.width, index + args.width];
+      for (const neighbor of neighbors) {
+        if (neighbor < 0 || neighbor >= out.length) continue;
+        const nx = neighbor % args.width;
+        const ny = Math.floor(neighbor / args.width);
+        if (Math.abs(nx - x) + Math.abs(ny - y) !== 1) continue;
+        const value = args.alpha[neighbor] ?? 0;
+        if (value >= TOPOLOGY_OCCUPANCY_THRESHOLD) {
+          boundaryTotal += value;
+          boundaryCount += 1;
+        }
+      }
+    }
+    if (boundaryCount === 0) continue;
+    const fillAlpha = Math.round(boundaryTotal / boundaryCount);
+    for (const index of hole.pixels) out[index] = fillAlpha;
+  }
+  return out;
 }
 
 function blurAlphaSeparable(args: {
@@ -284,6 +442,7 @@ export class SimpleMatteRefiner implements MatteRefiner {
   }
 
   public buildMatte(input: SegmentationResult, options: MatteBuildOptions): ForegroundMatte {
+    validateSegmentationInput(input);
     const width = input.width;
     const height = input.height;
     const featherPx = clamp(options.featherPx, 0, 64);
@@ -294,18 +453,23 @@ export class SimpleMatteRefiner implements MatteRefiner {
     const isHigh = options.quality === "high";
     const isMedium = options.quality === "medium";
     const baseMask = buildNeutralizedBaseMask(input);
-    const denoisedBase = applyMedian3x3({
-      alpha: baseMask,
+    const topologyCleaned = fillTinyInteriorHoles({
+      alpha: removeUnsupportedForegroundIslands({ alpha: baseMask, width, height }),
       width,
       height,
-      iterations: isHigh ? 2 : isMedium ? 1 : 0,
+    });
+    const denoisedBase = applyMedian3x3({
+      alpha: topologyCleaned,
+      width,
+      height,
+      iterations: isHigh ? 1 : 0,
     });
     const cleanedBase = applyMorphologyPair({
       alpha: denoisedBase,
       width,
       height,
-      closeSteps: isHigh ? 2 : 1,
-      openSteps: isHigh ? 1 : 0,
+      closeSteps: isHigh ? 1 : 0,
+      openSteps: 0,
     });
 
     // Expansion happens after cleanup so we do not amplify speckles/holes.
@@ -330,14 +494,8 @@ export class SimpleMatteRefiner implements MatteRefiner {
       featheredAlpha,
       featherPx,
     });
-    const refinedDenoised = applyMedian3x3({
-      alpha: haloClamped.refinedAlpha,
-      width,
-      height,
-      iterations: isHigh ? 1 : 0,
-    });
     const refinedAlpha = dampLowAlphaNoise({
-      alpha: refinedDenoised,
+      alpha: haloClamped.refinedAlpha,
       floor: isHigh ? 4 : isMedium ? 5 : 6,
       fadeRange: isHigh ? 14 : 10,
     });
