@@ -188,6 +188,26 @@ test("legacy migration is used only when canonical timeline is absent", () => {
   assert.deepEqual(loaded.assets.map((asset) => asset.asset_id).length, 1);
 });
 
+test("structurally unusable canonical data cannot suppress viable legacy recovery", () => {
+  const snapshot = buildSnapshot({
+    canonical: {
+      version: 1,
+      source_mode: "packaging",
+      revision: 1,
+      updated_at: "2026-04-02T12:00:00.000Z",
+      assets: [],
+      lanes: [{ lane_id: "lane:primary", label: "Visuals", clip_ids: ["missing_clip"] }],
+      clips: [],
+      selected_clip_id: null,
+    },
+    legacy: buildLegacyVisualPlacements([buildPlacement({ placement_id: "legacy_recovery" })]),
+  });
+
+  const loaded = loadHammerVisualTimelineStateFromSnapshot(snapshot);
+  assert.equal(loaded.debug_origin, "legacy_migration");
+  assert.deepEqual(loaded.clips.map((clip) => clip.clip_id), ["legacy_recovery"]);
+});
+
 test("empty init is returned when neither canonical nor legacy visuals exist", () => {
   const loaded = loadHammerVisualTimelineStateFromSnapshot(buildSnapshot());
 

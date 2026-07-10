@@ -148,10 +148,7 @@ export function loadHammerVisualTimelineStateFromSnapshot(
   let canonical: HammerVisualTimelineState | null = null;
   if (rawCanonical) {
     try {
-      canonical = assertValidTimelineState(createEmptyVisualTimelineState({
-        ...rawCanonical,
-        debug_origin: "canonical_load",
-      }));
+      canonical = assertValidTimelineState({ ...rawCanonical, debug_origin: "canonical_load" });
     } catch {
       canonical = normalizeCanonicalTimeline(rawCanonical);
     }
