@@ -10,6 +10,7 @@ import {
   evaluateFaceAnalysis,
   sameFaceAnalysisFrame,
   selectEyeContactEvidence,
+  acceptFaceAnalysisForFrame,
 } from "../src/features/eye-contact-assist/analysis/faceAnalysisAuthority";
 import type { FaceAnalysisFrameRef, FaceAnalysisResult } from "../src/features/eye-contact-assist/types";
 const hammerRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -54,6 +55,8 @@ test("exact reference evaluation distinguishes current and stale", () => {
   assert.equal(evaluateFaceAnalysis(result, ref({ sourcePresentationTimeSec: 9 })).kind, "stale");
   assert.equal(evaluateFaceAnalysis(result, ref({ geometricRevision: "mirror-x" })).kind, "stale");
   assert.equal(sameFaceAnalysisFrame(ref(), ref({ inferenceTimestampMs: 999 })), true, "inference time is not freshness authority");
+  assert.equal(acceptFaceAnalysisForFrame(result, ref()), result);
+  assert.equal(acceptFaceAnalysisForFrame(result, ref({ captureRevision: 2 })), null);
 });
 
 test("capture epochs, revisions, timestamps, and pixels remain isolated", () => {

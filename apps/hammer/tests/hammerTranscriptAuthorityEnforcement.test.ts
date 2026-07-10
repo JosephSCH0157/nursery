@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { deriveHammerVisualPlacements } from "../src/lib/hammerVisualPlacements";
 import type { HammerTranscriptSegment } from "../../../packages/contracts/hammer/transcript.contract";
 
 async function testAnvilLiveAsrCannotBecomeCanonicalTranscript() {
-  const editorPath = path.resolve(process.cwd(), "apps/hammer/src/editor/HammerWorkspaceEditor.tsx");
+  const editorPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/editor/HammerWorkspaceEditor.tsx");
   const source = await fs.readFile(editorPath, "utf-8");
   assert.equal(
     source.includes("promoteAnvilLocalTranscriptToTongs("),

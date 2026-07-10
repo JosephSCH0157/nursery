@@ -722,9 +722,10 @@ export function previewRemoveRetakes(
     const nextTextRaw = String(next.text || "");
     const markerOnly = options.honorExplicitRetakePhrases && isRetakeMarkerOnly(currentTextRaw);
     const explicitStrong = options.honorExplicitRetakePhrases && RETAKE_PHRASES_STRONG.test(currentTextRaw);
+    const nextExplicitStrong = options.honorExplicitRetakePhrases && RETAKE_PHRASES_STRONG.test(nextTextRaw);
     const explicitWeak = options.honorExplicitRetakePhrases && RETAKE_PHRASES_WEAK.test(currentTextRaw);
     const currentText = stripRetakeCuePrefix(currentTextRaw);
-    const nextText = String(nextTextRaw || "");
+    const nextText = stripRetakeCuePrefix(nextTextRaw);
     const aborted = isLikelyAborted(currentText);
     const repaired = hasLocalRepairMarker(currentText);
     const shortLeadInReread = isShortAbortedLeadInReread(currentText, nextText);
@@ -766,7 +767,7 @@ export function previewRemoveRetakes(
     );
     const rereadStrong = prefixStrong || probableDuplicate || shortLeadInReread;
     const rereadRisky = includeRisky && (rereadStrong || riskyDuplicate);
-    const explicitWithEvidence = explicitStrong && (rereadStrong || aborted || repaired);
+    const explicitWithEvidence = (explicitStrong || nextExplicitStrong) && (rereadStrong || aborted || repaired);
 
     // Conservative pass: only treat as retake when explicit or aborted.
     if (options.detection === "conservative") {
@@ -792,8 +793,8 @@ export function previewRemoveRetakes(
     pushRetakeSuggestion({
       removeSegmentIds: [removeTarget.segment_id],
       keepSegmentId: keepTarget.segment_id,
-      description: explicitStrong
-        ? "Possible retake detected (trigger + phrase restart). Keep the cleaner restarted delivery?"
+      description: explicitStrong || nextExplicitStrong
+        ? "Possible retake detected from an explicit restart cue (trigger + phrase restart). Keep the cleaner restarted delivery?"
         : aborted
         ? "Possible retake detected (no-trigger restart). Earlier delivery appears aborted or restarted."
         : repaired
@@ -801,9 +802,9 @@ export function previewRemoveRetakes(
         : includeRisky && explicitWeak
         ? "Possible retake detected (no-trigger restart, weak cue). Keep the cleaner delivery?"
         : "Possible retake detected (no-trigger restart). Near-immediate reread detected; keep the cleaner delivery?",
-      confidence: explicitStrong ? 0.95 : aborted ? 0.86 : repaired ? 0.82 : includeRisky ? 0.76 : 0.8,
+      confidence: explicitStrong || nextExplicitStrong ? 0.95 : aborted ? 0.86 : repaired ? 0.82 : includeRisky ? 0.76 : 0.8,
       index,
-      category: explicitStrong
+      category: explicitStrong || nextExplicitStrong
         ? "trigger_phrase_restart"
         : ((isLikelyAborted(removeTarget.text) && tokenCount(removeTarget.text) >= 12) ? "long_abandoned_restart" : "no_trigger_restart"),
     });
@@ -935,7 +936,7 @@ export function previewRemoveRetakes(
         pushRestartTrimSuggestion({
           segment,
           trimmedText: prefixTrimmed,
-          description: "Possible retake detected (trigger-only retake). Remove restart trigger phrase?",
+          description: "Possible retake detected from an explicit restart cue. Remove restart trigger phrase?",
           confidence: 0.93,
           index,
         });

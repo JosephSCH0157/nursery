@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { FaceAnalysisResult } from "../types";
-import { FaceAnalysisFrameCapture } from "../analysis/faceAnalysisAuthority";
+import { FaceAnalysisFrameCapture, acceptFaceAnalysisForFrame } from "../analysis/faceAnalysisAuthority";
+import type { FaceAnalysisFrameRef } from "../types";
 import { createFaceLandmarkProvider, isFaceLandmarkProviderId, type FaceLandmarkProviderId } from "../providers/faceLandmarkProviderRegistry";
 
 export default function FaceAnalysisPreviewLayer(props: {
@@ -15,6 +16,7 @@ export default function FaceAnalysisPreviewLayer(props: {
   const provider = useMemo(() => createFaceLandmarkProvider(providerId), [providerId]);
   const capture = useMemo(() => new FaceAnalysisFrameCapture(), []);
   const lastRunMs = useRef(0);
+  const latestFrameRef = useRef<FaceAnalysisFrameRef | null>(null);
 
   useEffect(() => () => { void provider.dispose(); }, [provider]);
 
@@ -42,8 +44,14 @@ export default function FaceAnalysisPreviewLayer(props: {
         width: video.videoWidth,
         height: video.videoHeight,
       });
+      latestFrameRef.current = frame.frameRef;
+      props.onResult(null);
       void provider.analyzeFrame(frame)
-        .then((result) => { if (!cancelled) props.onResult(result); })
+        .then((result) => {
+          if (cancelled || !latestFrameRef.current) return;
+          const current = acceptFaceAnalysisForFrame(result, latestFrameRef.current);
+          if (current) props.onResult(current);
+        })
         .catch((error) => {
           if (!cancelled) props.onResult({ kind: "failed", frameRef: frame.frameRef, reason: "provider_inference_failed", warnings: [error instanceof Error ? error.message : String(error)] });
         })

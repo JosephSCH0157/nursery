@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   createDefaultHammerVoicePolishState,
   setHammerVoiceCleanupEnabled,
@@ -18,7 +19,7 @@ async function testVoiceCleanupToggleState() {
 }
 
 async function testAudioFinalizationControlIsControlledAndAccessible() {
-  const toolBayPath = path.resolve(process.cwd(), "src/editor/HammerWorkspaceShellToolBay.tsx");
+  const toolBayPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/editor/HammerWorkspaceShellToolBay.tsx");
   const source = await readFile(toolBayPath, "utf-8");
   assert.equal(
     source.includes("checked={Boolean(voicePolish?.voice_cleanup_enabled)}"),
@@ -30,11 +31,7 @@ async function testAudioFinalizationControlIsControlledAndAccessible() {
     true,
     "Voice Cleanup card should derive active visual state from canonical boolean.",
   );
-  assert.equal(
-    source.includes("aria-checked={Boolean(voicePolish?.voice_cleanup_enabled)}"),
-    true,
-    "Voice Cleanup control must expose accessible checked state.",
-  );
+  assert.equal(source.includes('aria-label="Voice Cleanup"'), true, "Voice Cleanup checkbox must have an accessible name.");
   assert.equal(
     source.includes("hammer-audio-fix__checkmark"),
     true,

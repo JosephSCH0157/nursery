@@ -325,8 +325,13 @@ export function getPassStatus(
       break;
     case "visual_finishing":
     case "image_placement":
+      reasonCodes = imagePlacementReasonCodes(context);
+      break;
     case "image_animation":
       reasonCodes = imagePlacementReasonCodes(context);
+      if ((context.visualPlacements?.placements.length ?? 0) === 0) {
+        reasonCodes.push("image_animation_target_missing");
+      }
       break;
     case "audio_finalization":
       reasonCodes = audioReasonCodes(context);

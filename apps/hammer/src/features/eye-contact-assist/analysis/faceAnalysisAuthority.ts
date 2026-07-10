@@ -30,6 +30,13 @@ export function evaluateFaceAnalysis(result: FaceAnalysisResult, requestedFrameR
     : { kind: "stale", result, requestedFrameRef };
 }
 
+export function acceptFaceAnalysisForFrame(
+  result: FaceAnalysisResult,
+  requestedFrameRef: FaceAnalysisFrameRef,
+): FaceAnalysisResult | null {
+  return evaluateFaceAnalysis(result, requestedFrameRef).kind === "current" ? result : null;
+}
+
 export function selectEyeContactEvidence(faces: readonly AnalyzedFace[]): FaceLandmarksFrame | null {
   return faces.find((face) => face.eyeContactEvidence != null)?.eyeContactEvidence ?? null;
 }
