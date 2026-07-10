@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "node -e \"console.log('Hammer runs through Nursery.')\"",
-    "build": "node -e \"console.log('Hammer builds through Nursery.')\"",
+    "build": "pnpm --dir ../nursery run build:hammer-integration",
+    "lint": "node scripts/check-lint-ratchet.mjs",
+    "lint:report": "eslint src tests",
     "preview": "node -e \"console.log('Hammer previews through Nursery.')\"",
     "types": "tsc -p tsconfig.json --noEmit",
     "types:ratchet": "node scripts/check-type-safety-ratchet.mjs",
@@ -70,10 +72,17 @@
     "react-router-dom": "^7.13.1"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.1",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.1",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "globals": "^16.5.0",
     "tsx": "^4.21.0",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "typescript-eslint": "8.57.2"
   }
 }

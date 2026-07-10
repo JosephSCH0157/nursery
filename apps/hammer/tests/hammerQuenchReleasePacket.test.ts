@@ -10,8 +10,10 @@ import {
 import type { HammerReadinessGateResult } from "../src/editor/hammerReadinessGate";
 import { buildHammerReadinessVerdict } from "../src/editor/hammerReadinessTypes";
 import type { HammerPersistedStructuredTranscript } from "../src/persistence/hammerPersistenceContract";
-import { projectEditorialAuthorityGraphFromEditPlan } from "../src/editor/hammerRenderAssembly";
-import { buildHammerRenderAssembly } from "../src/editor/hammerRenderAssembly";
+import {
+  buildHammerRenderAssembly,
+  projectEditorialAuthorityGraphFromEditPlan,
+} from "../src/editor/hammerRenderAssembly";
 import {
   appendAuthorityInstructionToGraph,
   createHearthBrollSuggestionInstruction,

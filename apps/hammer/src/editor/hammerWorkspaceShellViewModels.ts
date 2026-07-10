@@ -4,8 +4,7 @@ import {
   resolveVisualPreviewEmptyStateMessage,
 } from "./hammerPolishPreviewTarget";
 import { evaluateMaskAwarePlacementCandidates, resolveMaskAwarePlacement, resolveMaskAwarePlacementWithScaleFallback } from "../features/auto-placement";
-import type { Rect as AutoPlacementRect } from "../features/auto-placement";
-import type { PlacementLayoutMode, PlacementZone } from "../features/auto-placement";
+import type { PlacementLayoutMode, PlacementZone, Rect as AutoPlacementRect } from "../features/auto-placement";
 import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
 
 function isTruthyDevToggle(value: string | null): boolean {

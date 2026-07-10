@@ -513,7 +513,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           Review filler candidates first, then retake candidates below. Shortcuts: Fillers (1), Retakes (2), Approve (A), Reject (R), Prev/Next (K/J).
                         </div>
 
-                    <div onMouseDown={() => {
+                    <div role="group" aria-label="Filler cleanup" onFocusCapture={() => {
                       setActiveReviewKind("fillers");
                       setActiveTranscriptToolSection("fillers");
                     }}>
@@ -632,7 +632,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
 
                     <hr className="hammer-divider" />
 
-                    <div onMouseDown={() => {
+                    <div role="group" aria-label="Retake review" onFocusCapture={() => {
                       setActiveReviewKind("retakes");
                       setActiveTranscriptToolSection("retakes");
                     }}>
@@ -741,7 +741,11 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
 
                     <hr className="hammer-divider" />
 
-                    <div onMouseDown={() => setActiveTranscriptToolSection("silence_gaps")}>
+                    <div
+                      role="group"
+                      aria-label="Silence gap cleanup"
+                      onFocusCapture={() => setActiveTranscriptToolSection("silence_gaps")}
+                    >
                       <header className="hammer-cleanup-tool__head">
                         <strong>Silence Gaps</strong>
                         <span>Intent: Trim long silent pauses between spoken segments without changing transcript wording.</span>

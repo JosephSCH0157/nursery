@@ -1,12 +1,12 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
-import type { HammerCleanupPreview } from "./hammerCleanupTools";
-import { resolveDeleteOnlyTranscriptSelectionFromTexts } from "./hammerDeleteOnlyTranscriptEditing";
 import {
+  type HammerCleanupPreview,
   previewRemoveFillers,
   previewRemoveRetakes,
   type FillerCleanupOptions,
   type RetakeCleanupOptions,
 } from "./hammerCleanupTools";
+import { resolveDeleteOnlyTranscriptSelectionFromTexts } from "./hammerDeleteOnlyTranscriptEditing";
 
 export type HammerCandidateReviewKind = "fillers" | "retakes";
 

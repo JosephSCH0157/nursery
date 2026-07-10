@@ -929,8 +929,11 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                           <header className="hammer-transcript-doc-turn__head">
                             <span className="hammer-transcript-doc-turn__label">{turn.speaker || "Speaker"}</span>
                           </header>
-                          <p
+                          <div
                             className="hammer-transcript-doc-turn__para"
+                            role="textbox"
+                            aria-readonly="true"
+                            tabIndex={0}
                             onMouseUp={(event) => {
                               reportTranscriptDocumentSelection(event.currentTarget);
                             }}
@@ -957,6 +960,8 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                       segment.is_disabled ? "is-disabled" : "",
                                     ].filter(Boolean).join(" ")}
                                     title={`${segment.start_sec.toFixed(1)}s - ${segment.end_sec.toFixed(1)}s`}
+                                    role="button"
+                                    tabIndex={0}
                                     onClick={(event) => {
                                       if (typeof window !== "undefined") {
                                         const selection = window.getSelection();
@@ -969,6 +974,12 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                         }
                                       }
                                       event.stopPropagation();
+                                      setFocusOverride("source-focus");
+                                      applyTranscriptSelection(segment.segment_id, event.shiftKey);
+                                    }}
+                                    onKeyDown={(event) => {
+                                      if (event.key !== "Enter" && event.key !== " ") return;
+                                      event.preventDefault();
                                       setFocusOverride("source-focus");
                                       applyTranscriptSelection(segment.segment_id, event.shiftKey);
                                     }}
@@ -985,7 +996,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                 </Fragment>
                               );
                             })}
-                          </p>
+                          </div>
                         </section>
                       ))}
                     </article>
@@ -1015,11 +1026,6 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                       activeCandidateSegmentIdSet.has(segment.segment_id) ? "is-candidate-active" : "",
                                       segment.is_disabled ? "is-disabled" : "",
                                     ].filter(Boolean).join(" ")}
-                                    onClick={(event) => {
-                                      const target = event.target as HTMLElement;
-                                      if (target.closest("textarea")) return;
-                                      applyTranscriptSelection(segment.segment_id, event.shiftKey);
-                                    }}
                                     ref={(element) => {
                                       if (element) {
                                         transcriptLineRefs.current.set(`diag:${segment.segment_id}`, element);
@@ -1028,7 +1034,13 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                       }
                                     }}
                                   >
-                                    <div className="hammer-transcript-page-seg__meta">
+                                    <button
+                                      type="button"
+                                      className="hammer-transcript-page-seg__meta"
+                                      onClick={(event) => {
+                                        applyTranscriptSelection(segment.segment_id, event.shiftKey);
+                                      }}
+                                    >
                                       <span>
                                         {segment.start_sec.toFixed(1)}s - {segment.end_sec.toFixed(1)}s
                                         {" · "}
@@ -1037,7 +1049,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                         {segment.is_disabled ? " · disabled" : ""}
                                         {segment.gain_db != null && segment.gain_db !== 0 ? ` · gain ${segment.gain_db.toFixed(1)}dB` : ""}
                                       </span>
-                                    </div>
+                                    </button>
                                     <textarea
                                       className="hammer-transcript-page-seg__text"
                                       aria-label={`Transcript segment ${segment.segment_id} (diagnostics)`}

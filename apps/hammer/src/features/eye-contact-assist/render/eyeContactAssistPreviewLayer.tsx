@@ -225,7 +225,7 @@ export default function EyeContactAssistPreviewLayer(props: {
 
       let frame: FaceLandmarksFrame | null = null;
       let gaze: GazeEstimate | null = null;
-      let providerMs: number | null = null;
+      const providerMs: number | null = null;
       const warnings: string[] = [];
       const analysis = props.faceAnalysisResult;
       const readiness: FaceLandmarkProviderReadiness = analysis?.kind === "unavailable"

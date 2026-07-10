@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dispatch, MouseEvent, MutableRefObject, SetStateAction } from "react";
-import type { HammerPassId } from "../persistence/hammerPersistenceContract";
-import type { HammerEditorStateSerializable, HammerHistoryKind } from "./hammerWorkspaceHistory";
 import type {
+  HammerPassId,
   HammerPersistedVisualPlacements,
   HammerVisualPlacementRecord,
 } from "../persistence/hammerPersistenceContract";
+import type { HammerEditorStateSerializable, HammerHistoryKind } from "./hammerWorkspaceHistory";
 import type { HammerVisualClip, HammerVisualGeometry, HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 import { selectClipById } from "../visuals/state/hammerVisualSelectors";
 import type { HammerVisualTimelineAction } from "../visuals/state/hammerVisualActions";

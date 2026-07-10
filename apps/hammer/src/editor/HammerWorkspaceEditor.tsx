@@ -1,8 +1,10 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
-import { normalizeHammerOrchestrationState } from "../../../../packages/tongs/src/hammer-orchestration-contract";
-import { HAMMER_PASS_ORDER_VERSION } from "../../../../packages/tongs/src/hammer-orchestration-contract";
+import {
+  HAMMER_PASS_ORDER_VERSION,
+  normalizeHammerOrchestrationState,
+} from "../../../../packages/tongs/src/hammer-orchestration-contract";
 import HammerWorkspaceShell from "./HammerWorkspaceShell";
 import type { HammerPlacementOutboundDiagnostics, HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
 import {
@@ -21,7 +23,13 @@ import {
   normalizeTranscriptVersionRegistry,
   HAMMER_TRANSCRIPT_VERSIONS_ARTIFACT_PATH,
 } from "../transcript/hammerTranscriptVersionRegistry";
-import type { HammerPersistedTranscriptVersionRegistry } from "../persistence/hammerPersistenceContract";
+import type {
+  HammerPersistedTranscriptVersionRegistry,
+  HammerPersistenceSaveRequest,
+  HammerPersistenceSnapshot,
+  HammerPersistenceTarget,
+  HammerPresenceRow,
+} from "../persistence/hammerPersistenceContract";
 import { applyHammerSessionAction } from "./hammerSessionActions";
 import {
   resolveHammerReloadFailure,
@@ -111,12 +119,6 @@ import {
   saveHammerPersistenceSnapshot,
   upsertHammerPresence,
 } from "../persistence/hammerPersistence";
-import type {
-  HammerPersistenceSaveRequest,
-  HammerPersistenceSnapshot,
-  HammerPersistenceTarget,
-  HammerPresenceRow,
-} from "../persistence/hammerPersistenceContract";
 import {
   loadHammerCanonicalBaselineArtifacts,
   loadHammerRecordingRevisionArtifacts,
@@ -1588,7 +1590,7 @@ export default function HammerWorkspaceEditor(
         let hydratedSnapshot: HammerPersistenceSnapshot | null = null;
         let nextActiveCanonicalRecording: HammerCanonicalRecordingRecord | null = null;
         let nextActiveRevision: HammerRecordingRevisionRecord | null = null;
-        let revisionTranscriptLoadOk = false;
+        const revisionTranscriptLoadOk = false;
         let transcriptSource = "none";
         let registeredTranscriptPath: string | null = null;
 
@@ -1792,7 +1794,7 @@ export default function HammerWorkspaceEditor(
               timestamp: new Date().toISOString(),
             });
 
-            let localAnvilRecoveryResult: {
+            const localAnvilRecoveryResult: {
               scan_attempted: boolean;
               match_found: boolean;
               capture_session_id: string | null;

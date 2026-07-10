@@ -1,4 +1,4 @@
-import type { JSX, RefObject, WheelEvent as ReactWheelEvent } from "react";
+import type { JSX, KeyboardEvent as ReactKeyboardEvent, RefObject, WheelEvent as ReactWheelEvent } from "react";
 import VisualTimelineDock from "../visuals/components/VisualTimelineDock";
 import { HammerWaveformLane } from "./HammerWaveformLane";
 
@@ -156,6 +156,19 @@ export default function HammerWorkspaceShellTimelineDock(props: { vm: HammerWork
     beginTimelineImagePlacementDrag,
     openImageAnimationContextMenu,
   } = vm;
+
+  const handleTimelineSliderKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    let nextTimeSec: number | null = null;
+    if (event.key === "ArrowLeft") nextTimeSec = playheadSec - smallPlayheadNudgeSec;
+    if (event.key === "ArrowRight") nextTimeSec = playheadSec + smallPlayheadNudgeSec;
+    if (event.key === "Home") nextTimeSec = 0;
+    if (event.key === "End") nextTimeSec = timelineDurationSec;
+    if (nextTimeSec == null) return;
+    event.preventDefault();
+    seekPlayheadToTime(Math.max(0, Math.min(timelineDurationSec, nextTimeSec)), "timeline", {
+      snapToBoundary: false,
+    });
+  };
 
   return (
     <>
@@ -448,6 +461,13 @@ export default function HammerWorkspaceShellTimelineDock(props: { vm: HammerWork
             >
               <div
                 className="hammer-timeline-ruler"
+                role="slider"
+                tabIndex={0}
+                aria-label="Timeline playhead"
+                aria-valuemin={0}
+                aria-valuemax={timelineDurationSec}
+                aria-valuenow={playheadSec}
+                onKeyDown={handleTimelineSliderKeyDown}
                 onMouseDown={(event) => {
                   beginTimelineScrub(event);
                 }}
@@ -519,6 +539,13 @@ export default function HammerWorkspaceShellTimelineDock(props: { vm: HammerWork
                   </div>
                   <div
                     className={`hammer-timeline-lane__track hammer-timeline-lane__track--${lane.tone}`}
+                    role="slider"
+                    tabIndex={0}
+                    aria-label={`${lane.label} timeline playhead`}
+                    aria-valuemin={0}
+                    aria-valuemax={timelineDurationSec}
+                    aria-valuenow={playheadSec}
+                    onKeyDown={handleTimelineSliderKeyDown}
                     onMouseDown={(event) => {
                       const target = event.target as Element | null;
                       if (target?.closest?.(".hammer-timeline-block.is-image-placement-editable")) {

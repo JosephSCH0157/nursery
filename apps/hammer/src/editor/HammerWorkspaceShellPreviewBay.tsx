@@ -343,6 +343,8 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
               aria-hidden="true"
             />
           ) : null}
+          {/* The editor exposes the synchronized transcript beside this source preview. */}
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
           <video
             ref={vm.previewAudioRef}
             src={vm.playbackMediaSrc ?? undefined}

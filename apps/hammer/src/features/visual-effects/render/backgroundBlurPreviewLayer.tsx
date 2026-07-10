@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { BackgroundBlurSettings, ForegroundMatte, SegmentationProviderReadiness } from "../types";
-import type { SegmentationProvider } from "../types";
+import type {
+  BackgroundBlurSettings,
+  ForegroundMatte,
+  SegmentationProvider,
+  SegmentationProviderReadiness,
+} from "../types";
 import type { SegmentationProviderId } from "../providers/segmentationProviderRegistry";
 import { createSegmentationProvider, isSegmentationProviderId } from "../providers/segmentationProviderRegistry";
 import { MediapipeSelfieSegmentationProvider } from "../providers/mediapipeSelfieSegmentationProvider";

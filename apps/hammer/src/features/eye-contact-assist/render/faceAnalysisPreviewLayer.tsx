@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
-import type { FaceAnalysisResult } from "../types";
+import type { FaceAnalysisFrameRef, FaceAnalysisResult } from "../types";
 import { FaceAnalysisFrameCapture, acceptFaceAnalysisForFrame } from "../analysis/faceAnalysisAuthority";
-import type { FaceAnalysisFrameRef } from "../types";
 import { createFaceLandmarkProvider, isFaceLandmarkProviderId, type FaceLandmarkProviderId } from "../providers/faceLandmarkProviderRegistry";
 
 export default function FaceAnalysisPreviewLayer(props: {

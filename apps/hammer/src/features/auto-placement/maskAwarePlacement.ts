@@ -80,7 +80,7 @@ function nudgeRectAvoidingFaceSafeZones(args: {
   frame: { width: number; height: number };
   faceSafeZones: Rect[];
 }): Rect {
-  let current = nudgeRectIntoFrame(args.rect, args.frame);
+  const current = nudgeRectIntoFrame(args.rect, args.frame);
   if (!rectIntersectsAnyFaceSafeZone(current, args.faceSafeZones)) return current;
   const verticalSteps = [16, 28, 40, 56, 72, 96, 128, 160, 192, 224];
   const horizontalSteps = [18, 32, 52, 72, 96, 128, 160];

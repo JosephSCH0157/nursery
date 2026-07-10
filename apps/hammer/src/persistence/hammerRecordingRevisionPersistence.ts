@@ -6,9 +6,9 @@ import type {
   HammerPersistedSpeakerMap,
   HammerPersistedStructuredTranscript,
   HammerPersistenceTarget,
+  HammerPersistedVisualPlacements,
 } from "./hammerPersistenceContract";
 import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
-import type { HammerPersistedVisualPlacements } from "./hammerPersistenceContract";
 
 type JsonObject = Record<string, unknown>;
 

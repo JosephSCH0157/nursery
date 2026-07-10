@@ -57,6 +57,14 @@ export default function VisualPreviewComposer(props: VisualPreviewComposerProps)
           ref={(node) => {
             applyOverlayLayout(node, overlay);
           }}
+          role="button"
+          tabIndex={0}
+          aria-label={`Select ${overlay.label}`}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            props.onSelectClip(overlay.clip_id);
+          }}
           onMouseDown={(event) => {
             if (!props.editable) {
               props.onSelectClip(overlay.clip_id);

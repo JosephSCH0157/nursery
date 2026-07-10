@@ -8578,6 +8578,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
             ref={imageAnimationContextMenuRef}
             className="hammer-context-menu"
             role="menu"
+            tabIndex={-1}
             aria-label="Image animation preset menu"
             onMouseDown={(event) => {
               event.stopPropagation();
