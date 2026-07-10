@@ -1,0 +1,92 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  FaceAnalysisFrameCapture,
+  deriveFaceBoundsPx,
+  deriveHeadSafeBoundsPx,
+  evaluateFaceAnalysis,
+  sameFaceAnalysisFrame,
+} from "../src/features/eye-contact-assist/analysis/faceAnalysisAuthority";
+import type { FaceAnalysisFrameRef, FaceAnalysisResult } from "../src/features/eye-contact-assist/types";
+
+function ref(overrides: Partial<FaceAnalysisFrameRef> = {}): FaceAnalysisFrameRef {
+  return {
+    captureEpoch: "epoch-a",
+    captureRevision: 1,
+    sourceIdentity: "media-a",
+    sourcePresentationTimeSec: 4,
+    inferenceTimestampMs: 1,
+    width: 100,
+    height: 80,
+    coordinateSpace: "placement_source_pixels",
+    geometricRevision: "100x80:identity",
+    ...overrides,
+  };
+}
+
+test("face and head-safe bounds map into analyzed pixel coordinates", () => {
+  const face = deriveFaceBoundsPx([{ x: 0.2, y: 0.25 }, { x: 0.6, y: 0.75 }], ref());
+  assert.deepEqual(face, { x: 20, y: 20, width: 40, height: 40 });
+  const head = deriveHeadSafeBoundsPx(face!, ref());
+  assert.deepEqual(head, { x: 12, y: 6, width: 56, height: 61.2 });
+  assert.ok(head.x <= face!.x && head.y <= face!.y);
+  assert.ok(head.x + head.width >= face!.x + face!.width);
+  assert.ok(head.y + head.height >= face!.y + face!.height);
+});
+
+test("bounds clamp to frame edges and malformed coordinates fail", () => {
+  const face = deriveFaceBoundsPx([{ x: -0.2, y: -0.1 }, { x: 1.2, y: 1.1 }], ref());
+  assert.deepEqual(face, { x: 0, y: 0, width: 100, height: 80 });
+  assert.deepEqual(deriveHeadSafeBoundsPx(face!, ref()), face);
+  assert.equal(deriveFaceBoundsPx([{ x: Number.NaN, y: 0 }, { x: 1, y: 1 }], ref()), null);
+  assert.equal(deriveFaceBoundsPx([{ x: 0.5, y: 0.5 }, { x: 0.5, y: 0.7 }], ref()), null);
+});
+
+test("exact reference evaluation distinguishes current and stale", () => {
+  const result: FaceAnalysisResult = { kind: "success", frameRef: ref(), faces: [], warnings: [] };
+  assert.equal(evaluateFaceAnalysis(result, ref()).kind, "current");
+  assert.equal(evaluateFaceAnalysis(result, ref({ captureRevision: 2 })).kind, "stale");
+  assert.equal(evaluateFaceAnalysis(result, ref({ sourcePresentationTimeSec: 9 })).kind, "stale");
+  assert.equal(evaluateFaceAnalysis(result, ref({ geometricRevision: "mirror-x" })).kind, "stale");
+  assert.equal(sameFaceAnalysisFrame(ref(), ref({ inferenceTimestampMs: 999 })), true, "inference time is not freshness authority");
+});
+
+test("capture epochs, revisions, timestamps, and pixels remain isolated", () => {
+  type FakeCanvas = { width: number; height: number; snapshot: unknown; getContext(): { drawImage(source: unknown): void } };
+  const canvases: FakeCanvas[] = [];
+  const factory = () => {
+    const canvas: FakeCanvas = {
+      width: 0,
+      height: 0,
+      snapshot: null,
+      getContext() { return { drawImage: (source: unknown) => { canvas.snapshot = source; } }; },
+    };
+    canvases.push(canvas);
+    return canvas as unknown as HTMLCanvasElement;
+  };
+  const capture = new FaceAnalysisFrameCapture(() => "fixed-epoch", factory);
+  const sourceA = { id: "pixels-a" } as unknown as CanvasImageSource;
+  const sourceB = { id: "pixels-b" } as unknown as CanvasImageSource;
+  const a = capture.capture({ source: sourceA, sourceIdentity: "media", sourcePresentationTimeSec: 8, width: 20, height: 10 });
+  const b = capture.capture({ source: sourceB, sourceIdentity: "media", sourcePresentationTimeSec: 2, width: 20, height: 10 });
+  assert.equal(a.frameRef.captureEpoch, "fixed-epoch");
+  assert.equal(a.frameRef.captureRevision, 1);
+  assert.equal(b.frameRef.captureRevision, 2);
+  assert.ok(b.frameRef.inferenceTimestampMs > a.frameRef.inferenceTimestampMs);
+  assert.equal(canvases[0]!.snapshot, sourceA);
+  assert.equal(canvases[1]!.snapshot, sourceB);
+  assert.notEqual(a.pixels, b.pixels);
+  b.release();
+  assert.equal(canvases[1]!.width, 0);
+  assert.equal(canvases[0]!.width, 20);
+});
+
+test("new producer epochs prevent revision collisions", () => {
+  let epoch = 0;
+  const factory = () => `epoch-${++epoch}`;
+  const canvasFactory = () => ({ width: 0, height: 0, getContext: () => ({ drawImage: () => {} }) }) as unknown as HTMLCanvasElement;
+  const first = new FaceAnalysisFrameCapture(factory, canvasFactory).capture({ source: {} as CanvasImageSource, sourceIdentity: "m", sourcePresentationTimeSec: 1, width: 2, height: 2 });
+  const second = new FaceAnalysisFrameCapture(factory, canvasFactory).capture({ source: {} as CanvasImageSource, sourceIdentity: "m", sourcePresentationTimeSec: 1, width: 2, height: 2 });
+  assert.equal(first.frameRef.captureRevision, second.frameRef.captureRevision);
+  assert.notEqual(first.frameRef.captureEpoch, second.frameRef.captureEpoch);
+});

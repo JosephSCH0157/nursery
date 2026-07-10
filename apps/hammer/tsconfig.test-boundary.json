@@ -62,6 +62,7 @@
     "tests/hammerLegacyProjectionContainment.test.ts",
     "tests/hammerLegacyRetirementGate.test.ts",
     "tests/hammerSimpleMatteRefiner.test.ts",
+    "tests/hammerFaceAnalysisAuthority.test.ts",
     "tests/hammerReasonPreservation.test.ts",
     "tests/hammerBoundObjects.test.ts",
     "tests/hammerLinkedSelection.test.ts",

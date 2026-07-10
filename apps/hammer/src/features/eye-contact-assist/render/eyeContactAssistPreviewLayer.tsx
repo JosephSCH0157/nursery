@@ -11,6 +11,7 @@ import { estimateGaze } from "../analysis/gazeEstimator";
 import { decideEyeContactAssistApplicability, type EyeRegionStabilityHistory } from "../analysis/applicability";
 import { smoothGazeCorrection, type TemporalGazeState } from "../analysis/temporalGazeSmoother";
 import { EyeContactAssistRenderer } from "./eyeContactAssistRenderer";
+import { FaceAnalysisFrameCapture, evaluateFaceAnalysis } from "../analysis/faceAnalysisAuthority";
 
 export type HammerEyeContactAssistRuntimeStatus = {
   provider: {
@@ -120,6 +121,7 @@ export default function EyeContactAssistPreviewLayer(props: {
   const provider = useDefaultFaceLandmarkProvider(props.enabled, resolvedProviderId);
 
   const renderer = useMemo(() => new EyeContactAssistRenderer(), []);
+  const frameCapture = useMemo(() => new FaceAnalysisFrameCapture(), []);
 
   const baseFrameCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const baseFrameCtxRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -254,7 +256,29 @@ export default function EyeContactAssistPreviewLayer(props: {
 
       try {
         const providerStart = nowMs();
-        frame = await provider.analyzeFrame({ video, timestampSec: video.currentTime });
+        const captured = frameCapture.capture({
+          source: video,
+          sourceIdentity: video.currentSrc || video.src || "hammer-preview-video",
+          sourcePresentationTimeSec: video.currentTime,
+          width: video.videoWidth,
+          height: video.videoHeight,
+        });
+        try {
+          const analysis = await provider.analyzeFrame(captured);
+          const evaluated = evaluateFaceAnalysis(analysis, captured.frameRef);
+          if (evaluated.kind === "stale") {
+            warnings.push("face_analysis_stale");
+          } else if (analysis.kind === "success") {
+            frame = analysis.faces[0]?.eyeContactFrame ?? null;
+            warnings.push(...analysis.warnings);
+          } else if (analysis.kind === "failed") {
+            warnings.push(`provider_error:${analysis.reason}`);
+          } else {
+            warnings.push(`provider_unavailable:${analysis.reason}`);
+          }
+        } finally {
+          captured.release();
+        }
         const providerEnd = nowMs();
         providerMs = roundToTenth(providerEnd - providerStart);
       } catch (error) {
@@ -403,6 +427,7 @@ export default function EyeContactAssistPreviewLayer(props: {
     };
   }, [
     provider,
+    frameCapture,
     props.backgroundCanvasRef,
     props.debugOverlay,
     props.enabled,

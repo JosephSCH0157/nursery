@@ -25,6 +25,7 @@
     "test:render-assembly": "tsx tests/hammerRenderAssembly.test.ts",
     "test:visual-effects-export-contract": "tsx tests/hammerVisualEffectsExportContract.test.ts",
     "test:eye-contact": "tsx tests/hammerEyeContactAssist.test.ts",
+    "test:face-analysis": "tsx tests/hammerFaceAnalysisAuthority.test.ts",
     "test:output-selection-guard": "tsx tests/hammerOutputSelectionGuard.test.ts",
     "test:workspace-authority": "tsx tests/hammerWorkspaceAuthority.test.ts",
     "test:runtime-data": "tsx tests/hammerRuntimeData.test.ts",
