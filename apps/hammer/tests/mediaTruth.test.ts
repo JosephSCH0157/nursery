@@ -75,10 +75,12 @@ import { V1HammerMediaResolver } from "../src/media/resolveMedia";
       processor_version: "forge-v1.2.0/audio-polish.v4",
       prepared_at: "2026-03-14T10:00:00.000Z",
       output_local_relpath: "hammer/prep/audio-polish/ws_demo/episode014--abcd.wav",
+      output_workpiece_path: "hammer/prep/audio-polish/ws_demo/episode014--abcd.wav",
       output_mime_type: "audio/wav",
       output_duration_ms: 8_000,
       failure_code: null,
       failure_reason: null,
+      analysis: null,
       audio_edit: null,
     },
   );

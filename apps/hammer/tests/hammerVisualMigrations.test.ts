@@ -84,6 +84,7 @@ function buildSnapshot(args?: {
       },
     },
     structured_transcript: { path: null, updated_at: null, data: null },
+    transcript_version_registry: { path: null, updated_at: null, data: null },
     speaker_map: { path: null, updated_at: null, data: null },
     visual_placements: { path: null, updated_at: "2026-04-02T12:00:00.000Z", data: args?.legacy ?? null },
     visual_timeline: { path: null, updated_at: "2026-04-02T12:01:00.000Z", data: args?.canonical ?? null },

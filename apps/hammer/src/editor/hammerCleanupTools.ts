@@ -142,7 +142,7 @@ export type HammerCleanupPreview = {
     };
 };
 
-function cloneSegments(segments: HammerTranscriptSegment[]): HammerTranscriptSegment[] {
+function cloneSegments(segments: readonly HammerTranscriptSegment[]): HammerTranscriptSegment[] {
   return segments.map((segment) => ({ ...segment }));
 }
 
@@ -583,7 +583,7 @@ function isShortAbortedLeadInReread(currentText: string, nextText: string): bool
 }
 
 export function previewRemoveRetakes(
-  segments: HammerTranscriptSegment[],
+  segments: readonly HammerTranscriptSegment[],
   options: RetakeCleanupOptions,
 ): HammerCleanupPreview {
   const sorted = cloneSegments(segments).sort((a, b) => a.start_sec - b.start_sec);

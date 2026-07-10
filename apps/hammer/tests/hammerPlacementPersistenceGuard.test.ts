@@ -36,7 +36,7 @@ function buildSnapshot(args: { placements: number; anchors: number }): HammerWor
     workspaceId: "workspace-1",
     workpieceId: "workpiece-1",
     sessionId: "session-1",
-    sourceMode: "canonical_hammer",
+    sourceMode: "tongs",
     previewMode: "edit-aware",
     editPlanStatus: "clean",
     editPlanSignature: "sig",

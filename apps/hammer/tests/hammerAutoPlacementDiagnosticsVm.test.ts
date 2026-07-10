@@ -3,8 +3,18 @@ import { normalizeSpeakerMaskBoundsToFrame, resolveAutoPlacementDiagnosticsForPr
 import { preservePlacementRichTimelineDuringHydration } from "../src/editor/hammerVisualTimelineHydrationGuard";
 import { intersectionArea } from "../src/features/auto-placement/reservedZones";
 
+const authorityContext = {
+  workspaceId: "workspace-test",
+  workpieceId: "workpiece-test",
+  episodeId: null,
+  expectedMediaPath: null,
+  actualMediaPath: null,
+  sourceDeskErrorRaw: null,
+};
+
 function testResolvedWhenBoundsAvailable() {
   const result = resolveAutoPlacementDiagnosticsForPreview({
+    ...authorityContext,
     debugEnabled: true,
     frameInput: { width: 1920, height: 1080 },
     speakerMaskBounds: [{ x: 700, y: 220, width: 500, height: 700 }],
@@ -36,6 +46,7 @@ function testResolvedWhenBoundsAvailable() {
 
 function testNoMaskBoundsWhenMissing() {
   const result = resolveAutoPlacementDiagnosticsForPreview({
+    ...authorityContext,
     debugEnabled: true,
     frameInput: { width: 1920, height: 1080 },
     speakerMaskBounds: [],
@@ -67,6 +78,7 @@ function testNoMaskBoundsWhenMissing() {
 
 function testDisabledWhenDebugOff() {
   const result = resolveAutoPlacementDiagnosticsForPreview({
+    ...authorityContext,
     debugEnabled: false,
     frameInput: { width: 1920, height: 1080 },
     speakerMaskBounds: [{ x: 700, y: 220, width: 500, height: 700 }],
@@ -82,6 +94,7 @@ function testDisabledWhenDebugOff() {
 
 function testWaitingWhenMaskBoundsPresentButSelectedOverlayMissing() {
   const result = resolveAutoPlacementDiagnosticsForPreview({
+    ...authorityContext,
     debugEnabled: true,
     frameInput: { width: 1920, height: 1080 },
     speakerMaskBounds: [{ x: 700, y: 220, width: 500, height: 700 }],
@@ -117,6 +130,7 @@ function testCenteredSpeakerMaskRejectsCenterRegionAfterScalingTransform() {
   assert.ok(center.y > 200 && center.y < 300);
 
   const result = resolveAutoPlacementDiagnosticsForPreview({
+    ...authorityContext,
     debugEnabled: true,
     frameInput,
     speakerMaskBounds: maskSpaceBounds,

@@ -75,7 +75,6 @@ function buildContext(overrides: Partial<HammerPassSelectorContext> = {}): Hamme
       blocker_count: 0,
       review_count: 0,
     },
-    handoffStatus: "ready",
     ...overrides,
   };
 }
