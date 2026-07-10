@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   FaceAnalysisFrameCapture,
   deriveFaceBoundsPx,
   deriveHeadSafeBoundsPx,
   evaluateFaceAnalysis,
   sameFaceAnalysisFrame,
+  selectEyeContactEvidence,
 } from "../src/features/eye-contact-assist/analysis/faceAnalysisAuthority";
 import type { FaceAnalysisFrameRef, FaceAnalysisResult } from "../src/features/eye-contact-assist/types";
+const hammerRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 function ref(overrides: Partial<FaceAnalysisFrameRef> = {}): FaceAnalysisFrameRef {
   return {
@@ -89,4 +94,27 @@ test("new producer epochs prevent revision collisions", () => {
   const second = new FaceAnalysisFrameCapture(factory, canvasFactory).capture({ source: {} as CanvasImageSource, sourceIdentity: "m", sourcePresentationTimeSec: 1, width: 2, height: 2 });
   assert.equal(first.frameRef.captureRevision, second.frameRef.captureRevision);
   assert.notEqual(first.frameRef.captureEpoch, second.frameRef.captureEpoch);
+});
+
+test("eye contact selects the first eligible face without truncating canonical geometry", () => {
+  const evidence = { providerName: "mock" } as never;
+  const faces = [
+    { providerIndex: 0, normalizedLandmarks: [], faceBoundsPx: { x: 1, y: 1, width: 2, height: 2 }, headSafeBoundsPx: { x: 0, y: 0, width: 4, height: 4 }, eyeContactEvidence: null },
+    { providerIndex: 1, normalizedLandmarks: [], faceBoundsPx: { x: 5, y: 1, width: 2, height: 2 }, headSafeBoundsPx: { x: 4, y: 0, width: 4, height: 4 }, eyeContactEvidence: evidence },
+  ];
+  assert.equal(selectEyeContactEvidence(faces), evidence);
+  assert.equal(faces.length, 2);
+  assert.equal(faces[0]!.eyeContactEvidence, null);
+});
+
+test("neutral preview owner owns provider and demand independently of eye contact", () => {
+  const neutral = readFileSync(resolve(hammerRoot, "src/features/eye-contact-assist/render/faceAnalysisPreviewLayer.tsx"), "utf8");
+  const eye = readFileSync(resolve(hammerRoot, "src/features/eye-contact-assist/render/eyeContactAssistPreviewLayer.tsx"), "utf8");
+  const preview = readFileSync(resolve(hammerRoot, "src/editor/HammerWorkspaceShellPreviewBay.tsx"), "utf8");
+  assert.match(neutral, /createFaceLandmarkProvider/);
+  assert.match(neutral, /demand: boolean/);
+  assert.match(neutral, /provider\.analyzeFrame\(frame\)/);
+  assert.doesNotMatch(eye, /createFaceLandmarkProvider|provider\.analyzeFrame|FaceAnalysisFrameCapture/);
+  assert.match(preview, /faceAnalysisDemand \?\? vm\.eyeContactAssist\.enabled/);
+  assert.match(preview, /faceAnalysisResult=\{faceAnalysisResult\}/);
 });

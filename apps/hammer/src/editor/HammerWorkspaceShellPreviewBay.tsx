@@ -2,6 +2,8 @@ import type { JSX, MutableRefObject, MouseEvent, RefObject } from "react";
 import { useEffect, useMemo, useState } from "react";
 import BackgroundBlurPreviewLayer from "../features/visual-effects/render/backgroundBlurPreviewLayer";
 import EyeContactAssistPreviewLayer from "../features/eye-contact-assist/render/eyeContactAssistPreviewLayer";
+import FaceAnalysisPreviewLayer from "../features/eye-contact-assist/render/faceAnalysisPreviewLayer";
+import type { FaceAnalysisResult } from "../features/eye-contact-assist/types";
 import VisualPreviewComposer, { type VisualPreviewOverlayModel } from "../visuals/components/VisualPreviewComposer";
 import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
 
@@ -169,6 +171,7 @@ export type HammerWorkspaceShellPreviewBayVM = {
     debugOverlay: boolean;
     onStatus: (status: any) => void;
   };
+  faceAnalysisDemand?: boolean;
 
   visualPreview: {
     isAuthority: boolean;
@@ -184,6 +187,7 @@ export type HammerWorkspaceShellPreviewBayVM = {
 export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorkspaceShellPreviewBayVM }): JSX.Element {
   const vm = props.vm;
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [faceAnalysisResult, setFaceAnalysisResult] = useState<FaceAnalysisResult | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const visualFx = vm.diagnostics?.snapshot?.visualEffects ?? null;
   const segmentationSummary = (() => {
@@ -364,6 +368,11 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             maskPreviewStage={vm.backgroundEffect.maskPreviewStage}
             onCanvas={vm.backgroundEffect.onCanvas}
           />
+          <FaceAnalysisPreviewLayer
+            demand={Boolean(vm.faceAnalysisDemand ?? vm.eyeContactAssist.enabled)}
+            videoRef={vm.previewVideoRef}
+            onResult={setFaceAnalysisResult}
+          />
           <EyeContactAssistPreviewLayer
             enabled={vm.eyeContactAssist.enabled}
             settings={{
@@ -375,6 +384,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             useBackgroundCanvasAsSource={vm.eyeContactAssist.useBackgroundCanvasAsSource}
             debugOverlay={vm.eyeContactAssist.debugOverlay}
             onStatus={vm.eyeContactAssist.onStatus}
+            faceAnalysisResult={faceAnalysisResult}
           />
           <div className="hammer-preview-surface__label">{vm.previewSurfaceLabel}</div>
           <VisualPreviewComposer

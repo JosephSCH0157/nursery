@@ -271,14 +271,16 @@ export class MediapipeFaceLandmarkerProvider implements FaceLandmarkProvider {
       }
       const normalizedLandmarks = landmarks.map((value) => toPoint(value)).filter((value): value is FacePoint2D => value != null);
       const faceBoundsPx = deriveFaceBoundsPx(normalizedLandmarks, frame.frameRef);
-      const warnings: string[] = [];
-      const left = buildEye({ landmarks, spec: LEFT_EYE, warnings });
-      const right = buildEye({ landmarks, spec: RIGHT_EYE, warnings });
-      if (!faceBoundsPx || normalizedLandmarks.length !== landmarks.length || !left || !right) {
+      if (!faceBoundsPx || normalizedLandmarks.length !== landmarks.length) {
         aggregateWarnings.push(`malformed_face_rejected:${providerIndex}`);
         continue;
       }
+      const warnings: string[] = [];
+      const left = buildEye({ landmarks, spec: LEFT_EYE, warnings });
+      const right = buildEye({ landmarks, spec: RIGHT_EYE, warnings });
 
+      let eyeContactEvidence: FaceLandmarksFrame | null = null;
+      if (left && right) {
       const interOcular = Math.hypot(
       ((left.eye.outerCorner.x + left.eye.innerCorner.x) / 2) - ((right.eye.outerCorner.x + right.eye.innerCorner.x) / 2),
       ((left.eye.outerCorner.y + left.eye.innerCorner.y) / 2) - ((right.eye.outerCorner.y + right.eye.innerCorner.y) / 2),
@@ -299,7 +301,7 @@ export class MediapipeFaceLandmarkerProvider implements FaceLandmarkProvider {
     };
 
       if (pose.rollDeg == null) pose.rollDeg = computeRollFromEyes({ leftOuter: left.eye.outerCorner, rightOuter: right.eye.outerCorner });
-      const eyeContactFrame: FaceLandmarksFrame = {
+      eyeContactEvidence = {
         providerName: this.name,
         sourceTimestampSec: frame.frameRef.sourcePresentationTimeSec,
         processingMs,
@@ -309,12 +311,15 @@ export class MediapipeFaceLandmarkerProvider implements FaceLandmarkProvider {
         leftEye: left.eye,
         rightEye: right.eye,
       };
+      } else {
+        aggregateWarnings.push(`face_retained_without_eye_contact_evidence:${providerIndex}`);
+      }
       faces.push(Object.freeze({
         providerIndex,
         normalizedLandmarks: Object.freeze(normalizedLandmarks.map((point) => Object.freeze({ ...point }))),
         faceBoundsPx: Object.freeze(faceBoundsPx),
         headSafeBoundsPx: Object.freeze(deriveHeadSafeBoundsPx(faceBoundsPx, frame.frameRef)),
-        eyeContactFrame,
+        eyeContactEvidence,
       }));
     }
     if (faces.length === 0) return { kind: "failed", frameRef: frame.frameRef, reason: "no_structurally_usable_faces", warnings: aggregateWarnings };

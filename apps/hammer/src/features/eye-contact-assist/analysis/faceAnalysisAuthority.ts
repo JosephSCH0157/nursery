@@ -5,6 +5,8 @@ import type {
   FaceAnalysisPixelBounds,
   FaceAnalysisResult,
   FacePoint2D,
+  AnalyzedFace,
+  FaceLandmarksFrame,
 } from "../types";
 
 export const MAX_ANALYZED_FACES = 8;
@@ -26,6 +28,10 @@ export function evaluateFaceAnalysis(result: FaceAnalysisResult, requestedFrameR
   return sameFaceAnalysisFrame(result.frameRef, requestedFrameRef)
     ? { kind: "current", result }
     : { kind: "stale", result, requestedFrameRef };
+}
+
+export function selectEyeContactEvidence(faces: readonly AnalyzedFace[]): FaceLandmarksFrame | null {
+  return faces.find((face) => face.eyeContactEvidence != null)?.eyeContactEvidence ?? null;
 }
 
 export function deriveFaceBoundsPx(points: readonly FacePoint2D[], frame: Pick<FaceAnalysisFrameRef, "width" | "height">): FaceAnalysisPixelBounds | null {

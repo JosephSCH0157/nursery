@@ -1188,6 +1188,8 @@ export function buildPreviewBayVM(args: any) {
       debugOverlay: args.visualEyeContactAssistDebugOverlay,
       onStatus: args.setVisualEyeContactAssistRuntimeStatus,
     },
+    faceAnalysisDemand: polishPreviewTarget.hasFrame
+      && (args.visualEyeContactAssistEnabled || autoPlacementDiagnosticsEnabled),
     visualPreview: {
       isAuthority: args.isVisualPreviewAuthority,
       overlays: args.activePreviewOverlays,

@@ -69,7 +69,7 @@ export type AnalyzedFace = Readonly<{
   normalizedLandmarks: readonly FacePoint2D[];
   faceBoundsPx: FaceAnalysisPixelBounds;
   headSafeBoundsPx: FaceAnalysisPixelBounds;
-  eyeContactFrame: FaceLandmarksFrame;
+  eyeContactEvidence: FaceLandmarksFrame | null;
 }>;
 
 export type FaceAnalysisResult =
