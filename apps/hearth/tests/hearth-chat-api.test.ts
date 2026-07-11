@@ -214,7 +214,8 @@ test("requestHearthChatReply includes attachment context metadata in payload", a
 
     assert.equal(result.ok, true);
     assert.ok(capturedBody);
-    const attachmentContext = capturedBody?.attachment_context as Record<string, unknown> | undefined;
+    const submittedBody = capturedBody as unknown as Record<string, unknown>;
+    const attachmentContext = submittedBody.attachment_context as Record<string, unknown> | undefined;
     assert.ok(attachmentContext);
     assert.equal(attachmentContext?.include_episode_attachments, true);
     assert.deepEqual(attachmentContext?.attachment_ids, ["33333333-3333-4333-8333-333333333333"]);

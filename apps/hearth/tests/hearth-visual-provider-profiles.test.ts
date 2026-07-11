@@ -227,7 +227,7 @@ test("visual providers: timeline image prompt pack removes duplicate sentence fr
       script_anchor: null,
       beat_anchor: null,
       anchor_scope: "attached",
-      purpose: "cutaway",
+      purpose: "coverage",
       description: `${repeatedSentence} So here's.`,
       visual_intent: "coverage",
       prompt_basis: repeatedSentence,

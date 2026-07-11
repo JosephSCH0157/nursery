@@ -37,7 +37,7 @@ test("hearth thumbnail loader: metadata fetch failures resolve into handled erro
   } finally {
     globalThis.fetch = originalFetch;
     if (originalWindow === undefined) {
-      delete globalWithWindow.window;
+      Reflect.deleteProperty(globalWithWindow, "window");
     } else {
       globalWithWindow.window = originalWindow;
     }

@@ -12,6 +12,7 @@ import {
   createEmptyEpisodePackageV2,
   ensureBrollPlanV2,
   ensureReferenceClipPlanV2,
+  type EpisodePackageV2,
 } from "../src/lib/episode-package-v2";
 import { createReferenceClipPlan } from "../src/lib/hearth-reference-clip-plan";
 
@@ -124,7 +125,7 @@ test("manual returned asset candidate preserves beat linkage and class identity"
 
 test("ensure plan normalizers keep class explicit for downstream consumers", () => {
   const base = createEmptyEpisodePackageV2();
-  const next = {
+  const next: EpisodePackageV2 = {
     ...base,
     broll_plan: {
       ...base.broll_plan,
@@ -165,7 +166,7 @@ test("ensure plan normalizers keep class explicit for downstream consumers", () 
         }],
       }],
     },
-  } as const;
+  };
 
   const brollNormalized = ensureBrollPlanV2(next);
   const referenceNormalized = ensureReferenceClipPlanV2(brollNormalized);

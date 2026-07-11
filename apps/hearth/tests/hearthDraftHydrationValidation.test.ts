@@ -15,6 +15,7 @@ test("hearthDraftHydrationValidation: hydrated draft validates immediately", () 
   const hydrated = hydrateDraftBodyFromCanonicalScript({
     draft: base,
     scriptText: "[s1]\nHydrated body\n[/s1]\n",
+    updatedAt: base.updatedAt,
   });
   const validation = validateScriptTags(normalizeScriptTags(hydrated.body));
   assert.equal(validation.ok, true);

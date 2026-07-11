@@ -92,7 +92,7 @@ test("reference clip bridge resolves the matching explanatory image entry and pr
       format: "still",
     }),
     foreground_data_description: "Permit dates, march route, enforcement shift",
-    visual_style: "documentary_cinematic" as const,
+    visual_style: "cinematic_realism" as const,
   };
   const matchingImageEntry = {
     id: "image-map-1",
@@ -104,6 +104,8 @@ test("reference clip bridge resolves the matching explanatory image entry and pr
       beat_id: "beat-1",
       speaker: "s1" as const,
       beat_index: 2,
+      speaker_order: 1,
+      speaker_turn: 2,
       beat_label: "permit timeline gap",
       cue_phrase: null,
       purpose: "explanation" as const,
@@ -112,7 +114,7 @@ test("reference clip bridge resolves the matching explanatory image entry and pr
     description: "Show the permit timeline the headline skipped.",
     visual_intent: "Permit timeline explainer",
     prompt_basis: "permit dates, march route, enforcement shift",
-    style_preset: "documentary_cinematic" as const,
+    style_preset: "cinematic_realism" as const,
     intent: "graphic",
     source_type: "stock",
     visual_priority: "primary" as const,
