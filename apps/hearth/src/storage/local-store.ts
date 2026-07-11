@@ -16,7 +16,13 @@ import {
   normalizeRevisionSnapshot,
   revisionToEntry,
 } from "../lib/hearth-revisions-contract";
-import type { HearthDraftSaveAcknowledgement, HearthStore, SaveDraftOptions } from "./hearth-store";
+import type {
+  HearthCanonicalRevisionsResult,
+  HearthDraftSaveAcknowledgement,
+  HearthRevisionSaveAcknowledgement,
+  HearthStore,
+  SaveDraftOptions,
+} from "./hearth-store";
 import {
   cloneRevision,
   loadRevisionSnapshotFallback,
@@ -342,6 +348,19 @@ export class LocalHearthStore implements HearthStore {
       .map(cloneRevision);
   }
 
+  async readCanonicalRevisions(
+    _workpieceId: string,
+    _draftId?: DraftId | null,
+  ): Promise<HearthCanonicalRevisionsResult> {
+    return {
+      ok: false,
+      kind: "unavailable",
+      authority: "none",
+      reason: "local_store",
+      status: null,
+    };
+  }
+
   async getRevision(workpieceId: string, id: RevisionId): Promise<Revision | null> {
     const snapshot = loadRevisionSnapshotFallback(workpieceId);
     if (!snapshot) return null;
@@ -350,7 +369,7 @@ export class LocalHearthStore implements HearthStore {
     return found ? cloneRevision(entryToRevision(found)) : null;
   }
 
-  async saveRevision(workpieceId: string, revision: Revision): Promise<void> {
+  async saveRevision(workpieceId: string, revision: Revision): Promise<HearthRevisionSaveAcknowledgement> {
     const normalizedWorkpieceId = typeof workpieceId === "string" ? workpieceId.trim() : "";
     if (!normalizedWorkpieceId) {
       throw new Error("missing_workpiece");
@@ -376,6 +395,13 @@ export class LocalHearthStore implements HearthStore {
       throw new Error("Invalid revision snapshot");
     }
     saveRevisionSnapshotFallback(normalizedWorkpieceId, nextSnapshot);
+    return {
+      ok: false,
+      kind: "recovery_only",
+      authority: "browser_cache",
+      artifact: "revision_snapshot",
+      reason: "local_store",
+    };
   }
 
   async restoreRevision(workpieceId: string, id: RevisionId): Promise<{ title: string; body: string } | null> {

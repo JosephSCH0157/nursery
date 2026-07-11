@@ -38,6 +38,46 @@ export function isCanonicalHearthDraftSave(
   return result.ok && result.kind === "canonical" && result.authority === "tongs";
 }
 
+export type HearthRevisionSaveAcknowledgement =
+  | Readonly<{
+      ok: true;
+      kind: "canonical";
+      authority: "tongs";
+      artifact: "revision_snapshot";
+      workpieceId: string;
+      committedAt: string;
+    }>
+  | Readonly<{
+      ok: false;
+      kind: "recovery_only";
+      authority: "browser_cache";
+      artifact: "revision_snapshot";
+      reason: "local_store" | "canonical_read_failed" | "canonical_commit_failed";
+    }>;
+
+export type HearthCanonicalRevisionsResult =
+  | Readonly<{
+      ok: true;
+      kind: "canonical";
+      authority: "tongs";
+      workpieceId: string;
+      fileUpdatedAt: string | null;
+      revisions: readonly Revision[];
+    }>
+  | Readonly<{
+      ok: false;
+      kind: "unavailable";
+      authority: "none";
+      reason: "local_store" | "not_found" | "request_failed" | "invalid_response";
+      status: number | null;
+    }>;
+
+export function isCanonicalHearthRevisionSave(
+  result: HearthRevisionSaveAcknowledgement,
+): result is Extract<HearthRevisionSaveAcknowledgement, { ok: true }> {
+  return result.ok && result.kind === "canonical" && result.authority === "tongs";
+}
+
 export interface HearthStore {
   listDrafts(): Promise<Draft[]>;
   listWorkpieceDrafts(workpieceId: string): Promise<Draft[]>;
@@ -46,8 +86,9 @@ export interface HearthStore {
   deleteDraft(id: DraftId): Promise<void>;
   getChatHistory(draftId: DraftId): Promise<HearthChatMessage[]>;
   saveChatHistory(draftId: DraftId, messages: HearthChatMessage[]): Promise<void>;
+  readCanonicalRevisions(workpieceId: string, draftId?: DraftId | null): Promise<HearthCanonicalRevisionsResult>;
   listRevisions(workpieceId: string, draftId?: DraftId | null): Promise<Revision[]>;
   getRevision(workpieceId: string, id: RevisionId): Promise<Revision | null>;
-  saveRevision(workpieceId: string, revision: Revision): Promise<void>;
+  saveRevision(workpieceId: string, revision: Revision): Promise<HearthRevisionSaveAcknowledgement>;
   restoreRevision(workpieceId: string, id: RevisionId): Promise<{ title: string; body: string } | null>;
 }

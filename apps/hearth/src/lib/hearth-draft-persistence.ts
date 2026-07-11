@@ -3,7 +3,9 @@ import type { Draft } from "../domain/draft";
 import type { ScriptValidationResult } from "@forge/shared/script-tags";
 import {
   isCanonicalHearthDraftSave,
+  isCanonicalHearthRevisionSave,
   type HearthDraftSaveAcknowledgement,
+  type HearthRevisionSaveAcknowledgement,
 } from "../storage/hearth-store";
 
 export type DraftConflictState = {
@@ -77,7 +79,7 @@ type PersistDraftDeps = {
   draftEditVersionRef: { current: number };
   activeDraftRef: { current: Draft | null };
   store: {
-    saveRevision: (workpieceId: string, revision: Revision) => Promise<void>;
+    saveRevision: (workpieceId: string, revision: Revision) => Promise<HearthRevisionSaveAcknowledgement>;
     saveDraft: (draft: Draft, options?: { reason?: string }) => Promise<HearthDraftSaveAcknowledgement>;
   };
   setIsSaving: (next: boolean) => void;
@@ -148,7 +150,10 @@ export async function persistHearthDraft(
         );
       } else {
         try {
-          await deps.store.saveRevision(activeRevisionWorkpieceId, createdRevision);
+          const revisionAcknowledgement = await deps.store.saveRevision(activeRevisionWorkpieceId, createdRevision);
+          if (!isCanonicalHearthRevisionSave(revisionAcknowledgement)) {
+            throw new Error("revision_snapshot_sync_failed");
+          }
           if (args.createRevision.kind === "autosave") {
             deps.setAiAutosaveWarning(null);
           } else {

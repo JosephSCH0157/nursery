@@ -187,7 +187,14 @@ function createPersistenceDeps(
     draftEditVersionRef: { current: 1 },
     activeDraftRef: draftRef,
     store: {
-      saveRevision: async () => undefined,
+      saveRevision: async () => ({
+        ok: true as const,
+        kind: "canonical" as const,
+        authority: "tongs" as const,
+        artifact: "revision_snapshot" as const,
+        workpieceId: WORKPIECE_ID,
+        committedAt: COMMITTED_AT,
+      }),
       saveDraft: async () => acknowledgement,
     },
     setIsSaving: () => undefined,

@@ -132,8 +132,18 @@ import { useMediaMapConversationBootstrap } from "../hooks/visuals/useMediaMapCo
 import { useCanonicalImageMapScriptStateLoader } from "../hooks/visuals/useCanonicalImageMapScriptStateLoader";
 import { useVisualSelectionHydration } from "../hooks/visuals/useVisualSelectionHydration";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
+import {
+  NO_CANONICAL_SCRIPT_APPROVAL,
+  isScriptApprovalStateEqual,
+  nextApprovedScriptVersion,
+  resolveCanonicalScriptApproval,
+  type ScriptApprovalState,
+} from "../lib/hearth-approval-authority";
 import { createHearthStore } from "../storage/store-factory";
-import type { HearthStoreKind } from "../storage/hearth-store";
+import {
+  isCanonicalHearthRevisionSave,
+  type HearthStoreKind,
+} from "../storage/hearth-store";
 import { LocalSessionStore } from "../storage/local-session-store";
 import {
   applyHearthOps,
@@ -357,12 +367,6 @@ type ForgeNoticeDetail = {
   workpieceId?: string;
   severity: ForgeNoticeSeverity;
   timestamp: number;
-};
-
-type ScriptApprovalState = {
-  hasApprovedScript: boolean;
-  approvedScriptVersion: number | null;
-  approvedAt: number | null;
 };
 
 type ApprovalPersistenceStatus = {
@@ -996,88 +1000,13 @@ function writeChatHistoryCache(historyKey: string | null, messages: HearthChatMe
   }
 }
 
-function readScriptApprovalState(workpieceId: string | null): ScriptApprovalState {
-  const fallback: ScriptApprovalState = {
-    hasApprovedScript: false,
-    approvedScriptVersion: null,
-    approvedAt: null,
-  };
-  if (!workpieceId || typeof window === "undefined") return fallback;
-  try {
-    const raw = window.localStorage.getItem(`${SCRIPT_APPROVAL_STORAGE_PREFIX}${workpieceId}`);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw) as Partial<ScriptApprovalState>;
-    const version = typeof parsed.approvedScriptVersion === "number" && parsed.approvedScriptVersion > 0
-      ? parsed.approvedScriptVersion
-      : null;
-    const approvedAt = typeof parsed.approvedAt === "number" && Number.isFinite(parsed.approvedAt)
-      ? parsed.approvedAt
-      : null;
-    return {
-      hasApprovedScript: Boolean(parsed.hasApprovedScript && version),
-      approvedScriptVersion: version,
-      approvedAt,
-    };
-  } catch {
-    return fallback;
-  }
-}
-
-function writeScriptApprovalState(workpieceId: string | null, value: ScriptApprovalState): void {
+function writeScriptApprovalRecoveryEvidence(workpieceId: string | null, value: ScriptApprovalState): void {
   if (!workpieceId || typeof window === "undefined") return;
   try {
     window.localStorage.setItem(`${SCRIPT_APPROVAL_STORAGE_PREFIX}${workpieceId}`, JSON.stringify(value));
   } catch {
     // ignore storage failures
   }
-}
-
-function parseApprovedVersionFromNote(note: string | undefined): number | null {
-  if (!note) return null;
-  const normalized = note.trim();
-  if (!normalized) return null;
-  const tagged = normalized.match(/script_version_approved:v(\d+)/i);
-  if (tagged) {
-    const parsed = Number.parseInt(tagged[1] ?? "", 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-  }
-  const plain = normalized.match(/script\s+version\s+(\d+)\s+approved/i);
-  if (plain) {
-    const parsed = Number.parseInt(plain[1] ?? "", 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-  }
-  return null;
-}
-
-function nextApprovedScriptVersion(revisions: Revision[]): number {
-  const maxVersion = revisions.reduce((max, revision) => {
-    if (revision.kind !== "milestone") return max;
-    const parsed = parseApprovedVersionFromNote(revision.note);
-    return parsed && parsed > max ? parsed : max;
-  }, 0);
-  return maxVersion + 1;
-}
-
-function findLatestApprovedScript(revisions: Revision[]): { version: number; approvedAt: number } | null {
-  let latest: { version: number; approvedAt: number } | null = null;
-  for (const revision of revisions) {
-    if (revision.kind !== "milestone") continue;
-    const version = parseApprovedVersionFromNote(revision.note);
-    if (!version) continue;
-    if (!latest || version > latest.version || (version === latest.version && revision.createdAt > latest.approvedAt)) {
-      latest = {
-        version,
-        approvedAt: revision.createdAt,
-      };
-    }
-  }
-  return latest;
-}
-
-function isScriptApprovalStateEqual(a: ScriptApprovalState, b: ScriptApprovalState): boolean {
-  return a.hasApprovedScript === b.hasApprovedScript
-    && a.approvedScriptVersion === b.approvedScriptVersion
-    && a.approvedAt === b.approvedAt;
 }
 
 function hasExplicitWorkpieceQuery(): boolean {
@@ -2144,9 +2073,7 @@ export default function HearthShell({
   const [selectedWritingFormat, setSelectedWritingFormat] = useState<HearthWritingFormat>(() => readLastHearthWritingFormat());
   const [scriptCompletionBadge, setScriptCompletionBadge] = useState<ScriptCompletionBadge | null>(null);
   const [scriptCompletionReasons, setScriptCompletionReasons] = useState<string[]>([]);
-  const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(() =>
-    readScriptApprovalState(incomingBarStockIntakeRoute ? null : resolveWorkpieceId()),
-  );
+  const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(NO_CANONICAL_SCRIPT_APPROVAL);
   const [approvalPersistenceStatus, setApprovalPersistenceStatus] = useState<ApprovalPersistenceStatus | null>(null);
   const [activeProductionAction, setActiveProductionAction] = useState<ProductionAction | null>(null);
   const [writingProfile, setWritingProfile] = useState<WritingProfile | null>(null);
@@ -2661,7 +2588,12 @@ export default function HearthShell({
       updatedAt: params.updatedAt,
       createRevision: { kind: "manual", note: "Restored from revision" },
     }),
-    saveRevisionRecord: (workpieceId, revision) => store.saveRevision(workpieceId, revision),
+    saveRevisionRecord: async (workpieceId, revision) => {
+      const acknowledgement = await store.saveRevision(workpieceId, revision);
+      if (!isCanonicalHearthRevisionSave(acknowledgement)) {
+        throw new Error("revision_snapshot_sync_failed");
+      }
+    },
     refreshRevisions,
     reportRevisionPersistenceWarning,
     setAiRuntimeWarning,
@@ -4576,6 +4508,8 @@ export default function HearthShell({
   const {
     persistApprovedDraft,
     publishApprovedScript,
+    readCanonicalApprovalRevisions,
+    commitCanonicalApprovalRevision,
     appendApprovalMarker,
   } = useHearthApprovalPersistenceActions({
     persistDraft,
@@ -4583,15 +4517,18 @@ export default function HearthShell({
     chatHistoryMaxMessages: CHAT_HISTORY_MAX_MESSAGES,
     flushChatHistoryNow,
     setChatMessages,
+    readCanonicalRevisions: (episodeId, draftId) => store.readCanonicalRevisions(episodeId, draftId),
+    saveRevision: (episodeId, revision) => store.saveRevision(episodeId, revision),
+    refreshRevisions,
   });
   const {
     isApprovingScript,
     onApproveScript,
   } = useApprovalFlow({
+    operationAuthority,
     activeDraft,
     workpieceId,
     workspaceId,
-    revisions,
     isSaving,
     isAiProcessing,
     setError,
@@ -4606,6 +4543,8 @@ export default function HearthShell({
     nextApprovedScriptVersion,
     persistApprovedDraft,
     publishApprovedScript,
+    readCanonicalApprovalRevisions,
+    commitCanonicalApprovalRevision,
     mirrorApprovedScript: async (params) => mirrorApprovedScriptToLocal({
       workspaceId: params.workspaceId,
       workpieceId: params.workpieceId,
@@ -4614,7 +4553,7 @@ export default function HearthShell({
     }),
     graduateLinkedSpark,
     setScriptApprovalState,
-    writeScriptApprovalState,
+    writeScriptApprovalRecoveryEvidence,
     updateStyleProfileFromReadyCheckpoint,
     appendApprovalMarker,
     refreshReadyScripts,
@@ -6107,57 +6046,29 @@ export default function HearthShell({
   }, [activeWorkpieceTab, workpieceId, workspaceId]);
 
   useEffect(() => {
-    const stored = readScriptApprovalState(workpieceId);
-    setScriptApprovalState(stored);
+    setScriptApprovalState(NO_CANONICAL_SCRIPT_APPROVAL);
     setApprovalPersistenceStatus(null);
   }, [workpieceId]);
 
   useEffect(() => {
-    if (!workpieceId) {
-      const fallback: ScriptApprovalState = {
-        hasApprovedScript: false,
-        approvedScriptVersion: null,
-        approvedAt: null,
-      };
-      setScriptApprovalState((prev) => (isScriptApprovalStateEqual(prev, fallback) ? prev : fallback));
+    const episodeId = workpieceId?.trim() ?? "";
+    const draftId = activeDraft?.id ?? null;
+    const operation = operationAuthority.begin("approval.canonical.read");
+    setScriptApprovalState((prev) => (
+      isScriptApprovalStateEqual(prev, NO_CANONICAL_SCRIPT_APPROVAL)
+        ? prev
+        : NO_CANONICAL_SCRIPT_APPROVAL
+    ));
+    if (!episodeId || !draftId) {
       return;
     }
-
-    const stored = readScriptApprovalState(workpieceId);
-    const scopedRevisions = activeDraft
-      ? revisions.filter((revision) => revision.draftId === activeDraft.id)
-      : [];
-    const latestApproved = findLatestApprovedScript(scopedRevisions);
-    const fromRevisions: ScriptApprovalState = latestApproved
-      ? {
-          hasApprovedScript: true,
-          approvedScriptVersion: latestApproved.version,
-          approvedAt: latestApproved.approvedAt,
-        }
-      : {
-          hasApprovedScript: false,
-          approvedScriptVersion: null,
-          approvedAt: null,
-        };
-
-    const shouldPreferRevisions = Boolean(
-      fromRevisions.hasApprovedScript
-      && (
-        !stored.hasApprovedScript
-        || (fromRevisions.approvedScriptVersion ?? 0) > (stored.approvedScriptVersion ?? 0)
-        || (
-          fromRevisions.approvedScriptVersion === stored.approvedScriptVersion
-          && (fromRevisions.approvedAt ?? 0) > (stored.approvedAt ?? 0)
-        )
-      ),
-    );
-
-    const resolved = shouldPreferRevisions ? fromRevisions : stored;
-    setScriptApprovalState((prev) => (isScriptApprovalStateEqual(prev, resolved) ? prev : resolved));
-    if (!isScriptApprovalStateEqual(stored, resolved)) {
-      writeScriptApprovalState(workpieceId, resolved);
-    }
-  }, [activeDraft, revisions, workpieceId]);
+    void store.readCanonicalRevisions(episodeId, draftId).then((result) => {
+      if (!operationAuthority.isCurrent(operation) || !result.ok) return;
+      const resolved = resolveCanonicalScriptApproval(result.revisions, draftId);
+      setScriptApprovalState((prev) => (isScriptApprovalStateEqual(prev, resolved) ? prev : resolved));
+      writeScriptApprovalRecoveryEvidence(episodeId, resolved);
+    });
+  }, [activeDraft?.id, operationAuthority, revisions, store, workpieceId]);
 
   useEffect(() => {
     if (!activeDraft) {

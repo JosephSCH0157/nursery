@@ -293,15 +293,10 @@ test("stabilization contract: an unacknowledged browser-cache write cannot resol
   }
 });
 
-test("stabilization blocker reproduction: local approval outranks absent canonical approval", {
-  todo: "Step 4 will replace local-first approval selection with canonical approval authority.",
-}, () => {
+test("stabilization contract: local approval cannot outrank absent canonical approval", () => {
   const shellSource = readFileSync(new URL("../src/routes/HearthShell.tsx", import.meta.url), "utf8");
-  assert.match(
-    shellSource,
-    /const resolved = shouldPreferRevisions \? fromRevisions : stored;/,
-    "The reproduction depends on the shell promoting stored browser approval without canonical proof.",
-  );
+  assert.match(shellSource, /store\.readCanonicalRevisions\(episodeId, draftId\)/);
+  assert.doesNotMatch(shellSource, /readScriptApprovalState|shouldPreferRevisions/);
 });
 
 test("stabilization blocker reproduction: workpiece source recovery evidence leaks across workpieces", {
