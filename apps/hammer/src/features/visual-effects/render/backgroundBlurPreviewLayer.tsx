@@ -18,6 +18,7 @@ import type { Rect as AutoPlacementRect } from "../../auto-placement/types";
 import { extractSpeakerMaskBoundsFromMatte } from "../../auto-placement/speakerMaskAnalysis";
 import type { FrameBoundPlacementMatteResult } from "../../auto-placement/canonicalPlacementAuthority";
 import type { FaceAnalysisFrame } from "../../eye-contact-assist/types";
+import { LatestOwnedAnalysisFrameQueue } from "../../eye-contact-assist/analysis/ownedAnalysisFrameQueue";
 
 export type HammerBackgroundBlurRuntimeStatus = {
   provider: {
@@ -297,7 +298,7 @@ export default function BackgroundBlurPreviewLayer(props: {
   const replacementRenderer = useMemo(() => new BackgroundReplacementRenderer(), []);
   const washRenderer = useMemo(() => new BackgroundWashRenderer(), []);
   const secondaryProviderRef = useRef<SegmentationProvider | null>(null);
-  const pendingAnalysisFrameRef = useRef<FaceAnalysisFrame | null>(null);
+  const analysisFrameQueue = useMemo(() => new LatestOwnedAnalysisFrameQueue(), []);
   const onPlacementMatteRef = useRef(props.onPlacementMatte);
 
   useEffect(() => {
@@ -306,16 +307,12 @@ export default function BackgroundBlurPreviewLayer(props: {
 
   useEffect(() => {
     if (!props.analysisFrame) return;
-    const pending = pendingAnalysisFrameRef.current;
-    if (pending === props.analysisFrame) return;
-    pending?.release();
-    pendingAnalysisFrameRef.current = props.analysisFrame;
-  }, [props.analysisFrame]);
+    analysisFrameQueue.offer(props.analysisFrame);
+  }, [analysisFrameQueue, props.analysisFrame]);
 
   useEffect(() => () => {
-    pendingAnalysisFrameRef.current?.release();
-    pendingAnalysisFrameRef.current = null;
-  }, []);
+    analysisFrameQueue.dispose();
+  }, [analysisFrameQueue]);
 
   const inFlightRef = useRef(false);
   const lastSegmentationAttemptAtMsRef = useRef<number | null>(null);
@@ -1061,7 +1058,7 @@ export default function BackgroundBlurPreviewLayer(props: {
         || props.settings.replacementEnabled
         || props.settings.washEnabled
         || props.maskPreviewMode
-        || pendingAnalysisFrameRef.current != null;
+        || analysisFrameQueue.hasPending();
       if (!visualModeActive) {
         drawPassthroughFrame({ source: video, output: canvas });
         publishStatus((prev) => ({
@@ -1130,11 +1127,10 @@ export default function BackgroundBlurPreviewLayer(props: {
       const enoughWallTime = lastSegAttempt == null || (now - lastSegAttempt) >= minSegGapMs;
       const enoughSourceDelta = lastSegSource == null || Math.abs(sourceTimeSec - lastSegSource) >= minSegSourceDeltaSec;
       const hasNoMaskYet = latestMatteFrameRef.current == null;
-      const analysisFrame = pendingAnalysisFrameRef.current;
+      const analysisFrame = analysisFrameQueue.take();
       const shouldAttemptSegmentation = Boolean(analysisFrame) || (enoughWallTime && enoughSourceDelta) || hasNoMaskYet;
 
       if (shouldAttemptSegmentation) {
-        if (analysisFrame) pendingAnalysisFrameRef.current = null;
         lastSegmentationAttemptAtMsRef.current = now;
         lastSegmentationSourceTimeSecRef.current = sourceTimeSec;
         segmentationSampleCountRef.current += 1;
@@ -1388,6 +1384,7 @@ export default function BackgroundBlurPreviewLayer(props: {
     };
   }, [
     blurRenderer,
+    analysisFrameQueue,
     matteRefiner,
     props.enabled,
     props.maskPreviewMode,

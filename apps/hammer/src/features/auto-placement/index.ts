@@ -5,6 +5,16 @@ export type {
   CanonicalAutomaticPlacementResult,
   FrameBoundPlacementMatteResult,
 } from "./canonicalPlacementAuthority";
+export { PlacementAnalysisLifecycle } from "./placementAnalysisLifecycle";
+export type { FrameBoundPlacementEvidencePair } from "./placementAnalysisLifecycle";
+export {
+  evaluatePlacementFrameAgainstDisplay,
+  readPlacementDisplaySnapshot,
+} from "./placementFrameDisplayAuthority";
+export type {
+  PlacementDisplaySnapshot,
+  PlacementFrameDisplayEvaluation,
+} from "./placementFrameDisplayAuthority";
 export {
   createPlacementMatteOverlapIndex,
   PLACEMENT_FOREGROUND_ALPHA_THRESHOLD,

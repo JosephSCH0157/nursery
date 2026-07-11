@@ -1,7 +1,7 @@
 # Hammer Foundation Release Record
 
 Recorded: 2026-07-11
-Scope: stabilization foundation through Step 8 production placement-resolver integration
+Scope: stabilization foundation through Step 9 placement lifecycle hardening
 
 ## Release posture
 
@@ -24,11 +24,12 @@ placement commits use the existing canonical history mutation and durable persis
 | 5 | `4ebd2979` | Real Hammer production build and scoped lint gates established. |
 | 6 | `64ec60a1` | All production sources instrumented with global and critical coverage floors. |
 | 7 | `81627720` | Automatic placement dependency and commit-refusal policy frozen. |
-| 8 | This change | Exact-frame matte/face analysis integrated into one production placement commit path. |
+| 8 | `25b846c6` | Exact-frame matte/face analysis integrated into one production placement commit path. |
+| 9 | This change | Analysis lifecycle, display-frame revalidation, owned captures, and live editor behavior hardened. |
 
 ## Frozen authority contracts
 
-The following contracts are executable and may not be weakened during Step 8:
+The following contracts are executable and may not be weakened after Step 9:
 
 1. Supabase-backed canonical persisted truth defeats local caches and legacy projections.
 2. Canonical visual timeline data defeats usable legacy visual migration data.
@@ -74,10 +75,10 @@ placement and existing editorial controls.
 
 | Gate | Recorded result |
 | --- | --- |
-| Hammer production/test source manifests | 199 production files; 118 discovered and strict-compiled tests |
-| Stable complete Hammer tests | 118/118 passed |
-| Recorded shuffled Hammer tests | 118/118 passed with seed `260710` |
-| Coverage | 37.78% lines/statements, 67.12% branches, 78.47% functions |
+| Hammer production/test source manifests | 202 production files; 119 discovered and strict-compiled tests |
+| Stable complete Hammer tests | 119/119 passed on Node 20.20.0 |
+| Recorded shuffled Hammer tests | 119/119 passed with seed `260710` on Node 20.20.0 |
+| Coverage | 37.92% lines/statements, 67.35% branches, 78.75% functions |
 | Critical coverage | 22 authority-critical files have individual no-regression floors |
 | Type safety | Critical `any=0`, critical suppressions `=0`; total debt remains ratcheted |
 | Hammer lint | Zero errors; 84 pre-existing Hook dependency warnings remain per-file ratcheted |
@@ -131,3 +132,22 @@ requested placement frame
 
 Step 8 did not create another segmentation provider, face detector, frame clock, freshness
 evaluator, final-placement resolver, or persistence path.
+
+## Step 9 closure
+
+- Matte and face evidence are retained in one bounded lifecycle keyed only by the opaque capture
+  epoch and revision. Requesting a newer frame immediately invalidates an older completed pair,
+  including when both captures have the same source timestamp.
+- Face-provider unavailability is associated with the exact requested frame and becomes an
+  explicit fail-closed placement refusal instead of an indefinite waiting state.
+- The commit boundary re-reads the displayed source, presentation time, dimensions, coordinate
+  space, geometry revision, and playback state immediately before mutation. Any mismatch clears
+  the cached result and preserves manual placement.
+- Captured frame ownership is explicit: superseded pending frames are released, an in-flight frame
+  remains owned by its consumer, and later captures cannot overwrite its pixels.
+- A deterministic development-only visual fixture exercises the real editor, shared MediaPipe
+  providers, canonical placement command, and existing history controller without introducing a
+  persistence authority.
+- Live browser verification found and fixed an aggregate-object effect dependency that caused a
+  React update loop during continuous analysis. Result publication now depends on the stable
+  callback and semantic placement inputs.

@@ -1204,6 +1204,7 @@ export function buildPreviewBayVM(args: any) {
         }
         : null,
       selectionSeed: Math.round((Number(args.playheadSec) || 0) * 1000),
+      sourcePresentationTimeSec: Math.max(0, Number(args.playheadSec) || 0),
       onResult: args.onCanonicalAutoPlacementResult,
     },
     visualPreview: {

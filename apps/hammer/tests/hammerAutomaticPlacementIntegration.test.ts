@@ -170,7 +170,10 @@ test("live integration shares one capture token and commits only through canonic
   const shell = readFileSync(resolve(hammerRoot, "src/editor/HammerWorkspaceShell.tsx"), "utf8");
   const toolBay = readFileSync(resolve(hammerRoot, "src/editor/HammerWorkspaceShellToolBay.tsx"), "utf8");
   assert.match(faceLayer, /onCapturedFrame\(cloneFaceAnalysisFrame\(frame\)\)/);
-  assert.match(previewBay, /sameFaceAnalysisFrame\(placementPair\.matte\.frameRef, analysisFrame\.frameRef\)/);
+  assert.match(previewBay, /sameFaceAnalysisFrame\(placementPair\.frameRef, analysisFrame\.frameRef\)/);
+  assert.match(previewBay, /sourcePresentationTimeSec - automaticPlacementSourceTimeSec/);
+  assert.match(previewBay, /\[canonicalPlacementResult, onAutomaticPlacementResult\]/);
+  assert.doesNotMatch(previewBay, /\[canonicalPlacementResult, vm\.automaticPlacement\]/);
   assert.match(previewBay, /analysisFrame=\{vm\.automaticPlacement\?\.enabled \? analysisFrame : null\}/);
   assert.match(shell, /commitImagePlacementTransform\([\s\S]*"Apply automatic visual placement"/);
   assert.doesNotMatch(shell, /forcePreviewAutoPosition/);

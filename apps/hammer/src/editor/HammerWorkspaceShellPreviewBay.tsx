@@ -1,5 +1,5 @@
 import type { JSX, MutableRefObject, MouseEvent, RefObject } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import BackgroundBlurPreviewLayer from "../features/visual-effects/render/backgroundBlurPreviewLayer";
 import EyeContactAssistPreviewLayer from "../features/eye-contact-assist/render/eyeContactAssistPreviewLayer";
 import FaceAnalysisPreviewLayer from "../features/eye-contact-assist/render/faceAnalysisPreviewLayer";
@@ -8,6 +8,8 @@ import {
   resolveCanonicalAutomaticPlacement,
   type CanonicalAutomaticPlacementResult,
   type FrameBoundPlacementMatteResult,
+  PlacementAnalysisLifecycle,
+  type FrameBoundPlacementEvidencePair,
 } from "../features/auto-placement";
 import { sameFaceAnalysisFrame } from "../features/eye-contact-assist/analysis/faceAnalysisAuthority";
 import VisualPreviewComposer, { type VisualPreviewOverlayModel } from "../visuals/components/VisualPreviewComposer";
@@ -182,6 +184,7 @@ export type HammerWorkspaceShellPreviewBayVM = {
     enabled: boolean;
     overlay: { widthPct: number; heightPct: number } | null;
     selectionSeed: number;
+    sourcePresentationTimeSec: number;
     onResult?: (result: CanonicalAutomaticPlacementResult | null) => void;
   };
 
@@ -201,12 +204,14 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [faceAnalysisResult, setFaceAnalysisResult] = useState<FaceAnalysisResult | null>(null);
   const [analysisFrame, setAnalysisFrame] = useState<FaceAnalysisFrame | null>(null);
-  const [placementPair, setPlacementPair] = useState<{
-    matte: FrameBoundPlacementMatteResult;
-    face: FaceAnalysisResult;
-  } | null>(null);
-  const matteByFrameRef = useRef(new Map<string, FrameBoundPlacementMatteResult>());
-  const faceByFrameRef = useRef(new Map<string, FaceAnalysisResult>());
+  const [placementPair, setPlacementPair] = useState<FrameBoundPlacementEvidencePair | null>(null);
+  const placementLifecycle = useMemo(() => new PlacementAnalysisLifecycle(), []);
+  const automaticPlacementEnabled = vm.automaticPlacement?.enabled ?? false;
+  const automaticPlacementOverlayWidthPct = vm.automaticPlacement?.overlay?.widthPct ?? null;
+  const automaticPlacementOverlayHeightPct = vm.automaticPlacement?.overlay?.heightPct ?? null;
+  const automaticPlacementSelectionSeed = vm.automaticPlacement?.selectionSeed ?? 0;
+  const automaticPlacementSourceTimeSec = vm.automaticPlacement?.sourcePresentationTimeSec ?? 0;
+  const onAutomaticPlacementResult = vm.automaticPlacement?.onResult;
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const visualFx = vm.diagnostics?.snapshot?.visualEffects ?? null;
   const segmentationSummary = (() => {
@@ -239,54 +244,58 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
     diagnosticsOpen ? JSON.stringify(vm.diagnostics.snapshot, null, 2) : ""
   ), [diagnosticsOpen, vm.diagnostics.snapshot]);
 
-  const frameKey = useCallback((frameRef: { captureEpoch: string; captureRevision: number }) => (
-    `${frameRef.captureEpoch}:${frameRef.captureRevision}`
-  ), []);
-  const retainRecent = useCallback(<T,>(map: Map<string, T>): void => {
-    while (map.size > 8) map.delete(map.keys().next().value as string);
-  }, []);
+  const handleCapturedAnalysisFrame = useCallback((frame: FaceAnalysisFrame): void => {
+    setAnalysisFrame(frame);
+    setPlacementPair(placementLifecycle.requestFrame(frame.frameRef));
+  }, [placementLifecycle]);
   const handleFaceAnalysisResult = useCallback((result: FaceAnalysisResult | null): void => {
     setFaceAnalysisResult(result);
-    if (!result || result.kind === "unavailable") return;
-    const key = frameKey(result.frameRef);
-    faceByFrameRef.current.set(key, result);
-    retainRecent(faceByFrameRef.current);
-    const matte = matteByFrameRef.current.get(key);
-    if (matte) setPlacementPair({ matte, face: result });
-  }, [frameKey, retainRecent]);
+    if (!result) return;
+    setPlacementPair(placementLifecycle.acceptFace(result));
+  }, [placementLifecycle]);
   const handlePlacementMatte = useCallback((matte: FrameBoundPlacementMatteResult): void => {
-    const key = frameKey(matte.frameRef);
-    matteByFrameRef.current.set(key, matte);
-    retainRecent(matteByFrameRef.current);
-    const face = faceByFrameRef.current.get(key);
-    if (face) setPlacementPair({ matte, face });
-  }, [frameKey, retainRecent]);
+    setPlacementPair(placementLifecycle.acceptMatte(matte));
+  }, [placementLifecycle]);
   const canonicalPlacementResult = useMemo(() => {
-    const request = vm.automaticPlacement;
-    if (!request?.enabled || !request.overlay || !placementPair || !analysisFrame) return null;
-    if (!sameFaceAnalysisFrame(placementPair.matte.frameRef, analysisFrame.frameRef)) return null;
+    if (
+      !automaticPlacementEnabled
+      || automaticPlacementOverlayWidthPct === null
+      || automaticPlacementOverlayHeightPct === null
+      || !placementPair
+      || !analysisFrame
+    ) return null;
+    if (!sameFaceAnalysisFrame(placementPair.frameRef, analysisFrame.frameRef)) return null;
+    if (Math.abs(placementPair.frameRef.sourcePresentationTimeSec - automaticPlacementSourceTimeSec) > 0.001) return null;
     return resolveCanonicalAutomaticPlacement({
-      requestedFrameRef: placementPair.matte.frameRef,
+      requestedFrameRef: placementPair.frameRef,
       matteResult: placementPair.matte,
       faceResult: placementPair.face,
       overlay: {
-        width: Math.max(1, placementPair.matte.frameRef.width * (request.overlay.widthPct / 100)),
-        height: Math.max(1, placementPair.matte.frameRef.height * (request.overlay.heightPct / 100)),
+        width: Math.max(1, placementPair.frameRef.width * (automaticPlacementOverlayWidthPct / 100)),
+        height: Math.max(1, placementPair.frameRef.height * (automaticPlacementOverlayHeightPct / 100)),
       },
-      selectionSeed: request.selectionSeed,
+      selectionSeed: automaticPlacementSelectionSeed,
       diagnosticsAvailable: vm.diagnostics.enabled,
     });
-  }, [analysisFrame, placementPair, vm.automaticPlacement, vm.diagnostics.enabled]);
+  }, [
+    analysisFrame,
+    automaticPlacementEnabled,
+    automaticPlacementOverlayHeightPct,
+    automaticPlacementOverlayWidthPct,
+    automaticPlacementSelectionSeed,
+    automaticPlacementSourceTimeSec,
+    placementPair,
+    vm.diagnostics.enabled,
+  ]);
   useEffect(() => {
-    if (vm.automaticPlacement?.enabled) return;
+    if (automaticPlacementEnabled) return;
     setAnalysisFrame(null);
     setPlacementPair(null);
-    matteByFrameRef.current.clear();
-    faceByFrameRef.current.clear();
-  }, [vm.automaticPlacement?.enabled]);
+    placementLifecycle.reset();
+  }, [automaticPlacementEnabled, placementLifecycle]);
   useEffect(() => {
-    vm.automaticPlacement?.onResult?.(canonicalPlacementResult);
-  }, [canonicalPlacementResult, vm.automaticPlacement]);
+    onAutomaticPlacementResult?.(canonicalPlacementResult);
+  }, [canonicalPlacementResult, onAutomaticPlacementResult]);
 
   async function handleCopyDiagnostics(): Promise<void> {
     const payload = JSON.stringify(vm.diagnostics.snapshot, null, 2);
@@ -444,7 +453,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             demand={Boolean(vm.faceAnalysisDemand ?? vm.eyeContactAssist.enabled)}
             videoRef={vm.previewVideoRef}
             onResult={handleFaceAnalysisResult}
-            onCapturedFrame={vm.automaticPlacement?.enabled ? setAnalysisFrame : undefined}
+            onCapturedFrame={vm.automaticPlacement?.enabled ? handleCapturedAnalysisFrame : undefined}
           />
           <EyeContactAssistPreviewLayer
             enabled={vm.eyeContactAssist.enabled}

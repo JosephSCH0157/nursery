@@ -329,7 +329,11 @@ import HammerWorkspaceShellToolBay from "./HammerWorkspaceShellToolBay";
 import { useHammerWorkspaceShellHistoryController } from "./hammerWorkspaceShellHistoryController";
 import { buildVisualTimelineDiagnostics } from "./hammerVisualTimelineHydrationGuard";
 import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
-import type { CanonicalAutomaticPlacementResult } from "../features/auto-placement";
+import {
+  evaluatePlacementFrameAgainstDisplay,
+  readPlacementDisplaySnapshot,
+  type CanonicalAutomaticPlacementResult,
+} from "../features/auto-placement";
 import {
   clearPreviewOverride,
   type PreviewPlacementTransform,
@@ -7243,6 +7247,26 @@ function HammerWorkspaceShellWithContext(
       setPreviewAutoPositionStatus(`Automatic placement refused: ${reason} Manual placement remains available.`);
       return;
     }
+    const displayedFrame = readPlacementDisplaySnapshot({
+      video: previewVideoRef.current,
+      playbackActive: isPlaybackActive,
+    });
+    if (!displayedFrame) {
+      setCanonicalAutoPlacementResult(null);
+      setPreviewAutoPositionStatus("Automatic placement refused: the displayed preview frame is unavailable. Manual placement remains available.");
+      return;
+    }
+    const displayEvaluation = evaluatePlacementFrameAgainstDisplay(
+      canonicalAutoPlacementResult.requestedFrameRef,
+      displayedFrame,
+    );
+    if (displayEvaluation.kind === "changed") {
+      setCanonicalAutoPlacementResult(null);
+      setPreviewAutoPositionStatus(
+        `Automatic placement refused: the displayed frame changed (${displayEvaluation.reason}). Manual placement remains available.`,
+      );
+      return;
+    }
     const frame = canonicalAutoPlacementResult.requestedFrameRef;
     const rect = canonicalAutoPlacementResult.placement.rect;
     const transform = {
@@ -7260,7 +7284,7 @@ function HammerWorkspaceShellWithContext(
     setPreviewAutoPositionStatus(committed
       ? `Automatic placement saved (${canonicalAutoPlacementResult.placement.zone}).`
       : "Automatic placement already matches the canonical saved geometry.");
-  }, [canonicalAutoPlacementResult, commitImagePlacementTransform, selectedImagePlacement]);
+  }, [canonicalAutoPlacementResult, commitImagePlacementTransform, isPlaybackActive, previewVideoRef, selectedImagePlacement]);
   const previewDiagnosticsSummary = useMemo(() => {
     const diagnostics = previewBayVM.autoPlacementDiagnostics;
     const gateById = new Map((diagnostics?.enabled ? diagnostics.gates : []).map((gate) => [gate.id, gate]));
