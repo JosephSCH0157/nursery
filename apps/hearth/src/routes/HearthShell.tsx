@@ -2689,6 +2689,7 @@ export default function HearthShell({
   const sessionSparkId = planningSession?.origin?.spark_id ?? planningSession?.links?.spark_id ?? null;
   const sourcesState = useSourcesState(workspaceId, workpieceId, activeDraft?.body ?? "", {
     mode: mode === "focus" && focusTab === "sources" ? "full" : "summary",
+    operationAuthority,
   });
   const workpieceSources = sourcesState.workpieceSources;
   const sourceIndexById = sourcesState.sourceIndexById;

@@ -7,11 +7,16 @@ import { JSDOM } from "jsdom";
 import { createDraft } from "../src/domain/draft";
 import type { HearthChatMessage } from "../src/lib/hearth-ai-runtime-contract";
 import { createHearthOperationAuthority } from "../src/lib/hearth-operation-authority";
-import { readWorkpieceSources, writeWorkpieceSourcesCache } from "../src/lib/source-registry";
+import {
+  readLegacyWorkpieceSourcesRecoveryEvidence,
+  readWorkpieceSources,
+  writeWorkpieceSourcesCache,
+} from "../src/lib/source-registry";
 import { useChatWorkspaceRuntime } from "../src/hooks/useChatWorkspace";
 import { TongsHearthStore } from "../src/storage/tongs-store";
 
 const WORKSPACE_A = "11111111-1111-4111-8111-111111111111";
+const WORKSPACE_B = "44444444-4444-4444-8444-444444444444";
 const WORKPIECE_A = "22222222-2222-4222-8222-222222222222";
 const WORKPIECE_B = "33333333-3333-4333-8333-333333333333";
 
@@ -299,14 +304,17 @@ test("stabilization contract: local approval cannot outrank absent canonical app
   assert.doesNotMatch(shellSource, /readScriptApprovalState|shouldPreferRevisions/);
 });
 
-test("stabilization blocker reproduction: workpiece source recovery evidence leaks across workpieces", {
-  todo: "Step 5 will scope source caches and source mutations by workspace and workpiece identity.",
-}, () => {
+test("stabilization contract: workpiece source recovery evidence cannot cross identities", () => {
   const windowHarness = installWindow();
   try {
-    writeWorkpieceSourcesCache([{ source_id: "source-for-a" }]);
+    writeWorkpieceSourcesCache(WORKSPACE_A, WORKPIECE_A, [{ source_id: "source-for-a" }]);
+    assert.deepEqual(readWorkpieceSources(WORKSPACE_A, WORKPIECE_A), [{ source_id: "source-for-a" }]);
+    assert.deepEqual(readWorkpieceSources(WORKSPACE_A, WORKPIECE_B), []);
+    assert.deepEqual(readWorkpieceSources(WORKSPACE_B, WORKPIECE_A), []);
+    windowHarness.storage.setItem("hearth:script:sources:v1", JSON.stringify([{ source_id: "legacy-global" }]));
     windowHarness.setSearch(`?workspace_id=${WORKSPACE_A}&workpiece_id=${WORKPIECE_B}`);
-    assert.deepEqual(readWorkpieceSources(), [{ source_id: "source-for-a" }]);
+    assert.deepEqual(readWorkpieceSources(WORKSPACE_A, WORKPIECE_B), []);
+    assert.deepEqual(readLegacyWorkpieceSourcesRecoveryEvidence(), [{ source_id: "legacy-global" }]);
   } finally {
     windowHarness.restore();
   }
