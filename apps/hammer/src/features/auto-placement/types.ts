@@ -17,10 +17,25 @@ export type PlacementZone =
 
 export type PlacementLayoutMode = "single_person" | "multi_person" | "unknown";
 
+export type PlacementForegroundMatte = Readonly<{
+  width: number;
+  height: number;
+  alphaMask: Uint8ClampedArray;
+}>;
+
+export type PlacementMatteOverlap = Readonly<{
+  sampledPixels: number;
+  coveredForegroundPixels: number;
+  foregroundPixelRatio: number;
+  alphaWeightedForegroundRatio: number;
+}>;
+
 export type MaskAwarePlacementInput = {
   frame: { width: number; height: number };
   overlay: { width: number; height: number };
   speakerMaskBounds: Rect[];
+  headSafeBounds?: Rect[];
+  canonicalMatte?: PlacementForegroundMatte;
   reservedZones?: Rect[];
   safeMarginPx?: number;
   speakerPaddingPx?: number;
@@ -44,6 +59,7 @@ export type MaskAwarePlacementResult = {
   score: number;
   compositionScore?: number;
   overlapPenalty?: number;
+  matteOverlap?: PlacementMatteOverlap;
   facePenalty?: number;
   scalePenalty?: number;
   edgePenalty?: number;
@@ -78,6 +94,7 @@ export type ScoredPlacementCandidate = PlacementCandidate & {
   score: number;
   compositionScore: number;
   overlapPenalty: number;
+  matteOverlap?: PlacementMatteOverlap;
   facePenalty: number;
   edgePenalty: number;
   finalScore: number;
@@ -98,5 +115,6 @@ export type DebugPlacementCandidate = PlacementCandidate & {
   faceOverlap?: boolean;
   bodyOverlap?: boolean;
   rejectedByBodyMask?: boolean;
+  matteOverlap?: PlacementMatteOverlap;
   reasons: string[];
 };

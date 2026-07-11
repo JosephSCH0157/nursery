@@ -1,17 +1,14 @@
 # Hammer Foundation Release Record
 
 Recorded: 2026-07-11
-Scope: stabilization foundation through Step 7, before production placement-resolver integration
+Scope: stabilization foundation through Step 8 production placement-resolver integration
 
 ## Release posture
 
-Hammer's stabilization foundation is approved for Step 8 integration. This is not approval to
-commit automatic placements from incomplete analysis. The production commit boundary is now
-executable and fails closed until the integration supplies current canonical matte evidence,
-exact-current shared face evidence, and an explicitly safe resolver candidate.
-
-The existing auto-position feature remains a dev-only, unsaved preview override. It is not a
-second persisted placement authority.
+Hammer's stabilization foundation and first production visual-analysis consumer are complete.
+Automatic image placement now fails closed until the integration supplies current canonical matte
+evidence, exact-current shared face evidence, and an explicitly safe resolver candidate. Accepted
+placement commits use the existing canonical history mutation and durable persistence boundary.
 
 ## Foundation changes
 
@@ -26,7 +23,8 @@ second persisted placement authority.
 | 4 | `d06024e6` | Authority-critical unsafe types eliminated and total debt ratcheted. |
 | 5 | `4ebd2979` | Real Hammer production build and scoped lint gates established. |
 | 6 | `64ec60a1` | All production sources instrumented with global and critical coverage floors. |
-| 7 | This change | Automatic placement dependency and commit-refusal policy frozen. |
+| 7 | `81627720` | Automatic placement dependency and commit-refusal policy frozen. |
+| 8 | This change | Exact-frame matte/face analysis integrated into one production placement commit path. |
 
 ## Frozen authority contracts
 
@@ -76,11 +74,11 @@ placement and existing editorial controls.
 
 | Gate | Recorded result |
 | --- | --- |
-| Hammer production/test source manifests | 196 production files; 117 discovered and strict-compiled tests |
-| Stable complete Hammer tests | 117/117 passed |
-| Recorded shuffled Hammer tests | 117/117 passed with seed `260710` |
-| Coverage | 37.51% lines/statements, 66.90% branches, 78.31% functions |
-| Critical coverage | 19 authority-critical files have individual no-regression floors |
+| Hammer production/test source manifests | 199 production files; 118 discovered and strict-compiled tests |
+| Stable complete Hammer tests | 118/118 passed |
+| Recorded shuffled Hammer tests | 118/118 passed with seed `260710` |
+| Coverage | 37.78% lines/statements, 67.12% branches, 78.47% functions |
+| Critical coverage | 22 authority-critical files have individual no-regression floors |
 | Type safety | Critical `any=0`, critical suppressions `=0`; total debt remains ratcheted |
 | Hammer lint | Zero errors; 84 pre-existing Hook dependency warnings remain per-file ratcheted |
 | Hammer production integration | TypeScript plus real Vite route/CSS/artifact build passed |
@@ -88,23 +86,35 @@ placement and existing editorial controls.
 | Repository lint | Still fails only on the recorded non-Hammer Anvil, Henry, and Tongs findings |
 | Worktree hygiene | Verification commands leave no tracked generated changes |
 
-## Known limitations carried into Step 8
+## Step 8 closure
 
-- The canonical matte runtime currently tracks source presentation time and bounded reuse age; it
-  does not independently mint the opaque face-analysis frame token. Step 8 must prove the adapter
-  marks matte evidence current only for the requested placement frame. Timestamp proximity alone
-  must not be promoted to exact frame identity.
-- Production placement does not yet consume `ForegroundMatte.alphaMask` for pixel-accurate overlap.
-- Production placement does not yet consume every current `headSafeBoundsPx` result.
-- Existing speaker-derived upper-head rectangles remain heuristic until Step 8 replaces their
-  face-safety role with current detected head-safe bounds.
+- The neutral capture owner creates an independent immutable pixel snapshot for segmentation with
+  the exact same opaque frame reference used by shared face analysis.
+- Production placement is exposed only when the latest requested capture has matching matte and
+  face results. Timestamp proximity is not freshness authority.
+- `ForegroundMatte.alphaMask` supplies pixel-accurate foreground and alpha-weighted overlap through
+  a summed-area index built once per candidate evaluation.
+- Every current `headSafeBoundsPx` is a hard exclusion. Speaker-derived upper-head rectangles remain
+  only as backward-compatible resolver heuristics for callers that omit semantic face evidence.
+- The matte preserves every credible foreground component while the downstream speaker analyzer
+  alone retains at most the two largest qualifying components.
+- A structurally valid all-background matte and successful zero-face result remain valid evidence.
+- The force-preview UI path was removed. Refusal leaves manual placement available and cannot be
+  converted into a persisted automatic edit.
+- Accepted geometry uses `commitImagePlacementTransform`, preserving history, undo, canonical
+  timeline persistence, and reload behavior.
+
+## Remaining deliberate limits
+
+- Production automatic placement is offered only while preview playback is paused. Moving playback
+  never commits placement against a frame that has already advanced.
 - The global coverage percentage is intentionally a baseline, not a quality target. Authority files
   have stronger individual floors while unmounted UI/provider surfaces remain visible as zero.
 - Peripheral type debt and Hook dependency warnings remain bounded by their ratchets.
 
-## Step 8 entry conditions
+## Step 8 completed lineage
 
-Step 8 may integrate placement only through this lineage:
+Step 8 integrates placement only through this lineage:
 
 ```text
 requested placement frame
@@ -119,5 +129,5 @@ requested placement frame
         -> canonical history and persistence
 ```
 
-Step 8 must not create another segmentation provider, face detector, frame clock, freshness
+Step 8 did not create another segmentation provider, face detector, frame clock, freshness
 evaluator, final-placement resolver, or persistence path.

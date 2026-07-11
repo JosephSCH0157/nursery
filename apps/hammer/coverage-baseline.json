@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "description": "Initial c8 coverage floors for all Hammer production source and authority-critical contracts. Percentages may improve but must not regress.",
-  "productionFileCountAtBaseline": 196,
+  "productionFileCountAtBaseline": 199,
   "global": {
     "lines": 37.51,
     "statements": 37.51,
@@ -51,6 +51,18 @@
       "functions": 100,
       "branches": 85.54
     },
+    "src/features/auto-placement/canonicalPlacementAuthority.ts": {
+      "lines": 98.16,
+      "statements": 98.16,
+      "functions": 100,
+      "branches": 77.77
+    },
+    "src/features/auto-placement/matteOverlap.ts": {
+      "lines": 91.39,
+      "statements": 91.39,
+      "functions": 100,
+      "branches": 57.14
+    },
     "src/features/auto-placement/placementAuthorityPolicy.ts": {
       "lines": 100,
       "statements": 100,
@@ -68,6 +80,12 @@
       "statements": 85.41,
       "functions": 91.66,
       "branches": 87.5
+    },
+    "src/features/auto-placement/speakerMaskAnalysis.ts": {
+      "lines": 100,
+      "statements": 100,
+      "functions": 100,
+      "branches": 80
     },
     "src/features/eye-contact-assist/analysis/faceAnalysisAuthority.ts": {
       "lines": 100,

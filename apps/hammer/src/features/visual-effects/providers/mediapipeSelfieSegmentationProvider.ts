@@ -8,7 +8,7 @@ import type {
 type MediaPipeSelfieSegmentation = {
   setOptions(options: { modelSelection?: 0 | 1 }): void;
   onResults(callback: (results: { segmentationMask: HTMLCanvasElement | HTMLImageElement | ImageBitmap }) => void): void;
-  send(input: { image: HTMLVideoElement }): Promise<void>;
+  send(input: { image: CanvasImageSource }): Promise<void>;
   close(): void;
 };
 
@@ -108,7 +108,7 @@ export class MediapipeSelfieSegmentationProvider implements SegmentationProvider
     this.modulePromise = null;
   }
 
-  public async segmentFrame(args: { video: HTMLVideoElement; timestampSec: number }): Promise<SegmentationResult> {
+  public async segmentFrame(args: { source: CanvasImageSource; timestampSec: number }): Promise<SegmentationResult> {
     if (!this.engine) {
       await this.initialize();
     }
@@ -120,7 +120,7 @@ export class MediapipeSelfieSegmentationProvider implements SegmentationProvider
     const engine = this.engine;
     const results = await new Promise<{ segmentationMask: HTMLCanvasElement | HTMLImageElement | ImageBitmap }>((resolve) => {
       engine.onResults((value) => resolve(value));
-      void engine.send({ image: args.video });
+      void engine.send({ image: args.source });
     });
     const finished = nowMs();
 

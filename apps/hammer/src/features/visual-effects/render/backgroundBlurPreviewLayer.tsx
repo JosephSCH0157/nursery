@@ -15,6 +15,9 @@ import { BackgroundWashRenderer } from "../effects/backgroundWashRenderer";
 import { drawSourceContained } from "../effects/mediaFrameGeometry";
 import { resolveVisualPreviewQualityPolicy } from "./previewQualityPolicy";
 import type { Rect as AutoPlacementRect } from "../../auto-placement/types";
+import { extractSpeakerMaskBoundsFromMatte } from "../../auto-placement/speakerMaskAnalysis";
+import type { FrameBoundPlacementMatteResult } from "../../auto-placement/canonicalPlacementAuthority";
+import type { FaceAnalysisFrame } from "../../eye-contact-assist/types";
 
 export type HammerBackgroundBlurRuntimeStatus = {
   provider: {
@@ -247,87 +250,6 @@ function isMaskReusable(args: {
   return sourceDelta <= MASK_REUSE_MAX_DELTA_SEC;
 }
 
-function extractSpeakerMaskBoundsFromMatte(args: {
-  matte: ForegroundMatte;
-  alphaThreshold?: number;
-  maxComponents?: number;
-}): AutoPlacementRect[] {
-  const threshold = Number.isFinite(args.alphaThreshold) ? Number(args.alphaThreshold) : 132;
-  const maxComponents = Math.max(1, Math.floor(args.maxComponents ?? 2));
-  const width = args.matte.width;
-  const height = args.matte.height;
-  const alpha = args.matte.alphaMask;
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return [];
-  if (!alpha || alpha.length !== width * height) return [];
-  const minPixels = Math.max(24, Math.floor((width * height) * 0.0025));
-  const visited = new Uint8Array(width * height);
-  const queue = new Int32Array(width * height);
-  const components: Array<{ x: number; y: number; width: number; height: number; pixels: number }> = [];
-
-  for (let start = 0; start < alpha.length; start += 1) {
-    if (visited[start]) continue;
-    visited[start] = 1;
-    if (alpha[start] < threshold) continue;
-    let head = 0;
-    let tail = 0;
-    queue[tail++] = start;
-    let minX = width;
-    let minY = height;
-    let maxX = 0;
-    let maxY = 0;
-    let pixels = 0;
-
-    while (head < tail) {
-      const idx = queue[head++];
-      const x = idx % width;
-      const y = Math.floor(idx / width);
-      pixels += 1;
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-
-      const neighbors = [
-        idx - 1,
-        idx + 1,
-        idx - width,
-        idx + width,
-      ];
-      for (const neighbor of neighbors) {
-        if (neighbor < 0 || neighbor >= alpha.length) continue;
-        if (visited[neighbor]) continue;
-        const nx = neighbor % width;
-        const ny = Math.floor(neighbor / width);
-        if (Math.abs(nx - x) + Math.abs(ny - y) !== 1) continue;
-        visited[neighbor] = 1;
-        if (alpha[neighbor] >= threshold) {
-          queue[tail++] = neighbor;
-        }
-      }
-    }
-
-    if (pixels >= minPixels) {
-      components.push({
-        x: minX,
-        y: minY,
-        width: Math.max(1, (maxX - minX) + 1),
-        height: Math.max(1, (maxY - minY) + 1),
-        pixels,
-      });
-    }
-  }
-
-  return components
-    .sort((a, b) => b.pixels - a.pixels)
-    .slice(0, maxComponents)
-    .map((component) => ({
-      x: component.x,
-      y: component.y,
-      width: component.width,
-      height: component.height,
-    }));
-}
-
 function useDefaultSegmentationProvider(enabled: boolean, providerId: SegmentationProviderId): SegmentationProvider {
   const providerRef = useRef<SegmentationProvider | null>(null);
   const lastProviderIdRef = useRef<SegmentationProviderId | null>(null);
@@ -361,6 +283,8 @@ export default function BackgroundBlurPreviewLayer(props: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onCanvas?: (canvas: HTMLCanvasElement | null) => void;
   onStatus?: (status: HammerBackgroundBlurRuntimeStatus) => void;
+  analysisFrame?: FaceAnalysisFrame | null;
+  onPlacementMatte?: (result: FrameBoundPlacementMatteResult) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const resolvedProviderId: SegmentationProviderId = isSegmentationProviderId(props.providerId)
@@ -373,6 +297,25 @@ export default function BackgroundBlurPreviewLayer(props: {
   const replacementRenderer = useMemo(() => new BackgroundReplacementRenderer(), []);
   const washRenderer = useMemo(() => new BackgroundWashRenderer(), []);
   const secondaryProviderRef = useRef<SegmentationProvider | null>(null);
+  const pendingAnalysisFrameRef = useRef<FaceAnalysisFrame | null>(null);
+  const onPlacementMatteRef = useRef(props.onPlacementMatte);
+
+  useEffect(() => {
+    onPlacementMatteRef.current = props.onPlacementMatte;
+  }, [props.onPlacementMatte]);
+
+  useEffect(() => {
+    if (!props.analysisFrame) return;
+    const pending = pendingAnalysisFrameRef.current;
+    if (pending === props.analysisFrame) return;
+    pending?.release();
+    pendingAnalysisFrameRef.current = props.analysisFrame;
+  }, [props.analysisFrame]);
+
+  useEffect(() => () => {
+    pendingAnalysisFrameRef.current?.release();
+    pendingAnalysisFrameRef.current = null;
+  }, []);
 
   const inFlightRef = useRef(false);
   const lastSegmentationAttemptAtMsRef = useRef<number | null>(null);
@@ -757,11 +700,12 @@ export default function BackgroundBlurPreviewLayer(props: {
     };
 
     const runSegmentationJob = async (args: {
-      video: HTMLVideoElement;
+      source: CanvasImageSource;
       canvas: HTMLCanvasElement;
       frameInput: { width: number; height: number; format: "htmlvideoelement" };
       sourceTimeSec: number;
       frameToken: number;
+      analysisFrame: FaceAnalysisFrame | null;
     }): Promise<void> => {
       if (inFlightRef.current) {
         skippedSegmentationFramesRef.current += 1;
@@ -779,11 +723,12 @@ export default function BackgroundBlurPreviewLayer(props: {
 
         let segProvider: SegmentationProvider | null = provider;
         let segProviderSource: "primary" | "secondary" = "primary";
-        let seg = await provider.segmentFrame({ video: args.video, timestampSec: args.sourceTimeSec });
+        let seg = await provider.segmentFrame({ source: args.source, timestampSec: args.sourceTimeSec });
 
         const confidence = Number(seg.confidenceSummary.score);
-        const lowConfidence = Number.isFinite(confidence) && confidence < 0.05;
         const primaryMaskValid = isSegmentationMaskValid(seg.personMask, seg.width, seg.height);
+        const primaryAllBackground = primaryMaskValid && !seg.personMask.some((alpha) => alpha > 0);
+        const lowConfidence = !primaryAllBackground && Number.isFinite(confidence) && confidence < 0.05;
         if (!primaryMaskValid || lowConfidence) {
           const secondary = secondaryProviderRef.current;
           if (secondary) {
@@ -792,7 +737,7 @@ export default function BackgroundBlurPreviewLayer(props: {
               await secondary.initialize();
             }
             if (secondary.getReadiness().status === "ready") {
-              seg = await secondary.segmentFrame({ video: args.video, timestampSec: args.sourceTimeSec });
+              seg = await secondary.segmentFrame({ source: args.source, timestampSec: args.sourceTimeSec });
               segProvider = secondary;
               segProviderSource = "secondary";
             }
@@ -804,7 +749,8 @@ export default function BackgroundBlurPreviewLayer(props: {
         const effectiveProviderStatus = resolveProviderStatus(segProvider?.getReadiness() ?? provider.getReadiness());
         const segConfidence = Number(seg.confidenceSummary.score);
         const maskValid = isSegmentationMaskValid(seg.personMask, seg.width, seg.height);
-        const maskRejectedReason = !Number.isFinite(segConfidence) || segConfidence < 0.05
+        const allBackground = maskValid && !seg.personMask.some((alpha) => alpha > 0);
+        const maskRejectedReason = !Number.isFinite(segConfidence) || (!allBackground && segConfidence < 0.05)
           ? "low_confidence"
           : null;
 
@@ -874,6 +820,13 @@ export default function BackgroundBlurPreviewLayer(props: {
               },
             };
           });
+          if (args.analysisFrame) {
+            onPlacementMatteRef.current?.(Object.freeze({
+              kind: "failed",
+              frameRef: args.analysisFrame.frameRef,
+              reason: missingReason ?? "segmentation_unavailable",
+            }));
+          }
           return;
         }
 
@@ -902,6 +855,14 @@ export default function BackgroundBlurPreviewLayer(props: {
           warnings: [...seg.warnings],
           resolution: { width: seg.width, height: seg.height },
         };
+        if (args.analysisFrame) {
+          onPlacementMatteRef.current?.(Object.freeze({
+            kind: "success",
+            frameRef: args.analysisFrame.frameRef,
+            matte,
+            speakerMaskBounds: Object.freeze(extractSpeakerMaskBoundsFromMatte({ matte })),
+          }));
+        }
         consecutiveMaskFailuresRef.current = 0;
 
         avgSegMsRef.current = avgSegMsRef.current == null
@@ -1001,6 +962,13 @@ export default function BackgroundBlurPreviewLayer(props: {
           };
         }, true);
       } catch (error) {
+        if (args.analysisFrame) {
+          onPlacementMatteRef.current?.(Object.freeze({
+            kind: "failed",
+            frameRef: args.analysisFrame.frameRef,
+            reason: error instanceof Error ? error.message : "Segmentation failed.",
+          }));
+        }
         const providerStatus = resolveProviderStatus(provider.getReadiness());
         publishStatus((prev) => {
           const cadence = computeCadenceSnapshot();
@@ -1048,6 +1016,7 @@ export default function BackgroundBlurPreviewLayer(props: {
           };
         });
       } finally {
+        args.analysisFrame?.release();
         inFlightRef.current = false;
         const elapsed = nowMs() - segmentStartedAt;
         if (elapsed > (minSegGapMs * 3)) {
@@ -1088,7 +1057,11 @@ export default function BackgroundBlurPreviewLayer(props: {
         return;
       }
 
-      const visualModeActive = props.settings.enabled || props.settings.replacementEnabled || props.settings.washEnabled || props.maskPreviewMode;
+      const visualModeActive = props.settings.enabled
+        || props.settings.replacementEnabled
+        || props.settings.washEnabled
+        || props.maskPreviewMode
+        || pendingAnalysisFrameRef.current != null;
       if (!visualModeActive) {
         drawPassthroughFrame({ source: video, output: canvas });
         publishStatus((prev) => ({
@@ -1157,14 +1130,25 @@ export default function BackgroundBlurPreviewLayer(props: {
       const enoughWallTime = lastSegAttempt == null || (now - lastSegAttempt) >= minSegGapMs;
       const enoughSourceDelta = lastSegSource == null || Math.abs(sourceTimeSec - lastSegSource) >= minSegSourceDeltaSec;
       const hasNoMaskYet = latestMatteFrameRef.current == null;
-      const shouldAttemptSegmentation = (enoughWallTime && enoughSourceDelta) || hasNoMaskYet;
+      const analysisFrame = pendingAnalysisFrameRef.current;
+      const shouldAttemptSegmentation = Boolean(analysisFrame) || (enoughWallTime && enoughSourceDelta) || hasNoMaskYet;
 
       if (shouldAttemptSegmentation) {
+        if (analysisFrame) pendingAnalysisFrameRef.current = null;
         lastSegmentationAttemptAtMsRef.current = now;
         lastSegmentationSourceTimeSecRef.current = sourceTimeSec;
         segmentationSampleCountRef.current += 1;
         const frameToken = ++frameTokenRef.current;
-        void runSegmentationJob({ video, canvas, frameInput, sourceTimeSec, frameToken });
+        void runSegmentationJob({
+          source: analysisFrame?.pixels ?? video,
+          canvas,
+          frameInput: analysisFrame
+            ? { width: analysisFrame.frameRef.width, height: analysisFrame.frameRef.height, format: "htmlvideoelement" }
+            : frameInput,
+          sourceTimeSec: analysisFrame?.frameRef.sourcePresentationTimeSec ?? sourceTimeSec,
+          frameToken,
+          analysisFrame,
+        });
       } else {
         skippedSegmentationFramesRef.current += 1;
       }

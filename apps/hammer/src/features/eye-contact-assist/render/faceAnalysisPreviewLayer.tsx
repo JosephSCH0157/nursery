@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
-import type { FaceAnalysisFrameRef, FaceAnalysisResult } from "../types";
-import { FaceAnalysisFrameCapture, acceptFaceAnalysisForFrame } from "../analysis/faceAnalysisAuthority";
+import type { FaceAnalysisFrame, FaceAnalysisFrameRef, FaceAnalysisResult } from "../types";
+import { FaceAnalysisFrameCapture, acceptFaceAnalysisForFrame, cloneFaceAnalysisFrame } from "../analysis/faceAnalysisAuthority";
 import { createFaceLandmarkProvider, isFaceLandmarkProviderId, type FaceLandmarkProviderId } from "../providers/faceLandmarkProviderRegistry";
 
 export default function FaceAnalysisPreviewLayer(props: {
@@ -8,6 +8,7 @@ export default function FaceAnalysisPreviewLayer(props: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   providerId?: string | null;
   onResult(result: FaceAnalysisResult | null): void;
+  onCapturedFrame?(frame: FaceAnalysisFrame): void;
 }) {
   const providerId: FaceLandmarkProviderId = isFaceLandmarkProviderId(props.providerId)
     ? props.providerId
@@ -15,6 +16,7 @@ export default function FaceAnalysisPreviewLayer(props: {
   const provider = useMemo(() => createFaceLandmarkProvider(providerId), [providerId]);
   const capture = useMemo(() => new FaceAnalysisFrameCapture(), []);
   const lastRunMs = useRef(0);
+  const lastSharedCaptureMs = useRef(Number.NEGATIVE_INFINITY);
   const latestFrameRef = useRef<FaceAnalysisFrameRef | null>(null);
 
   useEffect(() => () => { void provider.dispose(); }, [provider]);
@@ -44,6 +46,10 @@ export default function FaceAnalysisPreviewLayer(props: {
         height: video.videoHeight,
       });
       latestFrameRef.current = frame.frameRef;
+      if (props.onCapturedFrame && nowMs - lastSharedCaptureMs.current >= 500) {
+        lastSharedCaptureMs.current = nowMs;
+        props.onCapturedFrame(cloneFaceAnalysisFrame(frame));
+      }
       props.onResult(null);
       void provider.analyzeFrame(frame)
         .then((result) => {
@@ -61,7 +67,7 @@ export default function FaceAnalysisPreviewLayer(props: {
       cancelled = true;
       cancelAnimationFrame(animationFrame);
     };
-  }, [capture, props.demand, props.onResult, props.videoRef, provider]);
+  }, [capture, props.demand, props.onCapturedFrame, props.onResult, props.videoRef, provider]);
 
   return null;
 }

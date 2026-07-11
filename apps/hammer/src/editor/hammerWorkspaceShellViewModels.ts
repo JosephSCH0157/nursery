@@ -970,6 +970,14 @@ export function buildPreviewBayVM(args: any) {
     }
     : null;
   const selectedOverlayForGhost = selectedOverlayForGhostFromPreview ?? selectedOverlayForGhostFromPlacement;
+  const automaticPlacementEligible = Boolean(
+    polishPreviewTarget.hasFrame
+      && !args.isPlaybackActive
+      && segmentationSourceMatchesDisplayedBase
+      && args.selectedImagePlacement
+      && selectedOverlayForGhost
+      && (selectedOverlayForGhost.src || selectedOverlayForGhost.asset_path || selectedOverlayForGhost.asset_id),
+  );
   const speakerMaskBounds: AutoPlacementRect[] = Array.isArray(blurRuntime?.mask?.speakerMaskBounds)
     ? blurRuntime.mask.speakerMaskBounds
     : [];
@@ -1011,9 +1019,7 @@ export function buildPreviewBayVM(args: any) {
     actualMediaPath: args.actualMediaPath == null ? null : String(args.actualMediaPath),
     sourceDeskErrorRaw: args.workspaceLoadError == null ? null : String(args.workspaceLoadError),
   });
-  const autoPlacementRuntimeEnabled = autoPlacementDiagnosticsEnabled
-    && polishPreviewTarget.hasFrame
-    && segmentationSourceMatchesDisplayedBase;
+  const autoPlacementRuntimeEnabled = automaticPlacementEligible;
   if (trace) {
     console.debug("[hammer][auto-placement][buildPreviewBayVM] diagnostics", {
       hasDiagnosticsObject: autoPlacementDiagnostics !== undefined,
@@ -1188,7 +1194,18 @@ export function buildPreviewBayVM(args: any) {
       onStatus: args.setVisualEyeContactAssistRuntimeStatus,
     },
     faceAnalysisDemand: polishPreviewTarget.hasFrame
-      && (args.visualEyeContactAssistEnabled || autoPlacementDiagnosticsEnabled),
+      && (args.visualEyeContactAssistEnabled || automaticPlacementEligible),
+    automaticPlacement: {
+      enabled: automaticPlacementEligible,
+      overlay: selectedOverlayForGhost
+        ? {
+          widthPct: Math.max(1, Number(selectedOverlayForGhost.width_pct) || 22),
+          heightPct: Math.max(1, Number(selectedOverlayForGhost.height_pct) || 16),
+        }
+        : null,
+      selectionSeed: Math.round((Number(args.playheadSec) || 0) * 1000),
+      onResult: args.onCanonicalAutoPlacementResult,
+    },
     visualPreview: {
       isAuthority: args.isVisualPreviewAuthority,
       overlays: args.activePreviewOverlays,
@@ -1461,7 +1478,6 @@ export function buildToolBayVM(args: any) {
     previewTruthPosture: args.previewTruthPosture,
     autoPlacementDebugEnabled: args.autoPlacementDebugEnabled,
     previewAutoPosition: args.previewAutoPosition,
-    forcePreviewAutoPosition: args.forcePreviewAutoPosition,
     resetPreviewAutoPosition: args.resetPreviewAutoPosition,
     selectedAutoPreviewActive: args.selectedAutoPreviewActive,
     previewAutoPositionStatus: args.previewAutoPositionStatus,

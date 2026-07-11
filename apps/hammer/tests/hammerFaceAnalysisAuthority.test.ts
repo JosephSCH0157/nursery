@@ -11,6 +11,7 @@ import {
   sameFaceAnalysisFrame,
   selectEyeContactEvidence,
   acceptFaceAnalysisForFrame,
+  cloneFaceAnalysisFrame,
 } from "../src/features/eye-contact-assist/analysis/faceAnalysisAuthority";
 import type { FaceAnalysisFrameRef, FaceAnalysisResult } from "../src/features/eye-contact-assist/types";
 const hammerRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -97,6 +98,69 @@ test("new producer epochs prevent revision collisions", () => {
   const second = new FaceAnalysisFrameCapture(factory, canvasFactory).capture({ source: {} as CanvasImageSource, sourceIdentity: "m", sourcePresentationTimeSec: 1, width: 2, height: 2 });
   assert.equal(first.frameRef.captureRevision, second.frameRef.captureRevision);
   assert.notEqual(first.frameRef.captureEpoch, second.frameRef.captureEpoch);
+});
+
+test("a shared analysis clone owns independent pixels with the exact same immutable reference", () => {
+  type FakeCanvas = { width: number; height: number; snapshot: unknown; getContext(): { drawImage(source: unknown): void } };
+  const canvases: FakeCanvas[] = [];
+  const factory = () => {
+    const canvas: FakeCanvas = {
+      width: 0,
+      height: 0,
+      snapshot: null,
+      getContext() { return { drawImage: (source: unknown) => { canvas.snapshot = source; } }; },
+    };
+    canvases.push(canvas);
+    return canvas as unknown as HTMLCanvasElement;
+  };
+  const original = new FaceAnalysisFrameCapture(() => "clone-epoch", factory).capture({
+    source: { id: "frame-a" } as unknown as CanvasImageSource,
+    sourceIdentity: "media",
+    sourcePresentationTimeSec: 1,
+    width: 20,
+    height: 10,
+  });
+  const clone = cloneFaceAnalysisFrame(original, factory);
+  assert.equal(clone.frameRef, original.frameRef);
+  assert.notEqual(clone.pixels, original.pixels);
+  assert.equal(canvases[1]!.snapshot, original.pixels);
+  original.release();
+  original.release();
+  assert.equal(canvases[0]!.width, 0);
+  assert.equal(canvases[1]!.width, 20, "releasing the face-provider capture cannot mutate the segmentation snapshot");
+  clone.release();
+  clone.release();
+  assert.equal(canvases[1]!.width, 0);
+});
+
+test("shared analysis clone uses browser canvas ownership and rejects unavailable canvas contexts", () => {
+  const original = {
+    pixels: { id: "immutable-source" } as unknown as CanvasImageSource,
+    frameRef: ref({ width: 4, height: 3 }),
+    release: () => {},
+  };
+  const previousDocument = globalThis.document;
+  const browserCanvas = {
+    width: 0,
+    height: 0,
+    getContext: () => ({ drawImage: () => {} }),
+  } as unknown as HTMLCanvasElement;
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: { createElement: () => browserCanvas },
+  });
+  try {
+    const clone = cloneFaceAnalysisFrame(original);
+    assert.equal(clone.pixels, browserCanvas);
+    clone.release();
+    assert.equal(browserCanvas.width, 0);
+    assert.throws(
+      () => cloneFaceAnalysisFrame(original, () => ({ width: 0, height: 0, getContext: () => null }) as unknown as HTMLCanvasElement),
+      /clone canvas unavailable/i,
+    );
+  } finally {
+    Object.defineProperty(globalThis, "document", { configurable: true, value: previousDocument });
+  }
 });
 
 test("eye contact selects the first eligible face without truncating canonical geometry", () => {

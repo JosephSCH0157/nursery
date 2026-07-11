@@ -41,6 +41,29 @@ export function selectEyeContactEvidence(faces: readonly AnalyzedFace[]): FaceLa
   return faces.find((face) => face.eyeContactEvidence != null)?.eyeContactEvidence ?? null;
 }
 
+export function cloneFaceAnalysisFrame(
+  frame: FaceAnalysisFrame,
+  canvasFactory: () => HTMLCanvasElement = () => document.createElement("canvas"),
+): FaceAnalysisFrame {
+  const canvas = canvasFactory();
+  canvas.width = frame.frameRef.width;
+  canvas.height = frame.frameRef.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Face analysis clone canvas unavailable.");
+  ctx.drawImage(frame.pixels, 0, 0, frame.frameRef.width, frame.frameRef.height);
+  let released = false;
+  return Object.freeze({
+    pixels: canvas,
+    frameRef: frame.frameRef,
+    release: () => {
+      if (released) return;
+      released = true;
+      canvas.width = 0;
+      canvas.height = 0;
+    },
+  });
+}
+
 export function deriveFaceBoundsPx(points: readonly FacePoint2D[], frame: Pick<FaceAnalysisFrameRef, "width" | "height">): FaceAnalysisPixelBounds | null {
   if (points.length === 0 || frame.width <= 0 || frame.height <= 0) return null;
   const finite = points.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
@@ -94,6 +117,16 @@ export class FaceAnalysisFrameCapture {
       coordinateSpace: "placement_source_pixels",
       geometricRevision: args.geometricRevision ?? `${args.width}x${args.height}:identity`,
     });
-    return Object.freeze({ pixels: canvas, frameRef, release: () => { canvas.width = 0; canvas.height = 0; } });
+    let released = false;
+    return Object.freeze({
+      pixels: canvas,
+      frameRef,
+      release: () => {
+        if (released) return;
+        released = true;
+        canvas.width = 0;
+        canvas.height = 0;
+      },
+    });
   }
 }

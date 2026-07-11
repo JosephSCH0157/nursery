@@ -196,7 +196,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const selectedAutoPreviewActive = ctx.selectedAutoPreviewActive as boolean;
   const previewAutoPositionStatus = ctx.previewAutoPositionStatus as string | null;
   const previewAutoPosition = ctx.previewAutoPosition as (() => void) | undefined;
-  const forcePreviewAutoPosition = ctx.forcePreviewAutoPosition as (() => void) | undefined;
   const resetPreviewAutoPosition = ctx.resetPreviewAutoPosition as (() => void) | undefined;
   const previewDiagnosticsSummary = ctx.previewDiagnosticsSummary as {
     diagnosticsEnabled: boolean;
@@ -228,12 +227,10 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const selectedClipPresent = Boolean(selectedVisualClip?.clip_id);
   const previewAutoPositionDisabledReason = !selectedImagePlacement
     ? "No selected image placement."
-    : !previewDiagnosticsSummary?.diagnosticsEnabled
-    ? "Diagnostics disabled."
-    : !previewDiagnosticsSummary.resolvedPlacementExists
-    ? `No resolved placement: ${previewDiagnosticsSummary.resolverReason}`
+    : !selectedOverlayAssetPresent && !selectedVisualAssetPresent
+    ? "Selected placement has no visual asset."
     : !previewAutoPosition
-    ? "Preview action unavailable (not wired)."
+    ? "Automatic placement action unavailable (not wired)."
     : null;
   const resetPreviewPositionDisabledReason = !selectedImagePlacement
     ? "No selected image placement."
@@ -2881,13 +2878,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                         >
                           Reset Preview Position
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => forcePreviewAutoPosition?.()}
-                          disabled={!selectedImagePlacement || !forcePreviewAutoPosition}
-                        >
-                          FORCE PREVIEW
-                        </button>
                       </div>
                       <div>
                         Preview button: {previewAutoPositionDisabledReason ? `disabled - ${previewAutoPositionDisabledReason}` : "enabled"}
@@ -2990,6 +2980,13 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           />
                         </label>
                         <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => previewAutoPosition?.()}
+                            disabled={Boolean(previewAutoPositionDisabledReason)}
+                          >
+                            Apply Auto Position
+                          </button>
                           <button
                             type="button"
                             onClick={() => commitVisualAnchorRefinement({

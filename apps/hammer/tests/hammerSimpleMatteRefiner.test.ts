@@ -109,10 +109,12 @@ test("blur, replacement, and placement derive from canonical alphaMask", () => {
   const blur = readFileSync(resolve(hammerRoot, "src/features/visual-effects/effects/backgroundBlurRenderer.ts"), "utf8");
   const replacement = readFileSync(resolve(hammerRoot, "src/features/visual-effects/effects/backgroundReplacementRenderer.ts"), "utf8");
   const previewLayer = readFileSync(resolve(hammerRoot, "src/features/visual-effects/render/backgroundBlurPreviewLayer.tsx"), "utf8");
+  const speakerAnalysis = readFileSync(resolve(hammerRoot, "src/features/auto-placement/speakerMaskAnalysis.ts"), "utf8");
   assert.match(blur, /args\.matte\.alphaMask\[px\]/);
   assert.match(replacement, /args\.matte\.alphaMask\[px\]/);
   assert.match(previewLayer, /extractSpeakerMaskBoundsFromMatte\(\{\s*matte:\s*cachedMatte\.matte,/s);
-  assert.match(previewLayer, /const alpha = args\.matte\.alphaMask;/);
+  assert.match(speakerAnalysis, /const alpha = args\.matte\.alphaMask;/);
+  assert.match(previewLayer, /from "\.\.\/\.\.\/auto-placement\/speakerMaskAnalysis"/);
   assert.doesNotMatch(previewLayer, /extractSpeakerMaskBoundsFromMatte\(\{[^}]*debugPlanes/s);
   assert.doesNotMatch(previewLayer, /extractSpeakerMaskBoundsFromMatte\(\{[^}]*personMask/s);
 });

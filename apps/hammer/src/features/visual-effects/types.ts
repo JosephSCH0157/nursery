@@ -27,7 +27,7 @@ export interface SegmentationProvider {
   initialize(): Promise<void>;
   isReady(): boolean;
   getReadiness(): SegmentationProviderReadiness;
-  segmentFrame(args: { video: HTMLVideoElement; timestampSec: number }): Promise<SegmentationResult>;
+  segmentFrame(args: { source: CanvasImageSource; timestampSec: number }): Promise<SegmentationResult>;
   dispose(): Promise<void>;
 }
 
