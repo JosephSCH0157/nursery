@@ -20,7 +20,11 @@ import {
   type HearthRevisionSnapshot,
 } from "../lib/hearth-revisions-contract";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
-import type { HearthStore, SaveDraftOptions } from "./hearth-store";
+import type {
+  HearthDraftSaveAcknowledgement,
+  HearthStore,
+  SaveDraftOptions,
+} from "./hearth-store";
 import {
   cloneRevision,
   loadRevisionSnapshotFallback,
@@ -589,7 +593,7 @@ async function commitDraftSnapshot(
   writtenBy: WrittenBy,
   options?: { expectedPreviousUpdatedAt?: string; reason?: string },
 ): Promise<
-  | { ok: true; fileUpdatedAt: string | null }
+  | { ok: true; fileUpdatedAt: string }
   | { ok: false; status: number; reason: "request_failed" | "conflict" | "invalid_response"; details?: CommitConflictDetails }
 > {
   const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/commit-file`, {
@@ -642,6 +646,9 @@ async function commitDraftSnapshot(
   const fileUpdatedAt = readString(
     (body as { data?: { file_row?: { updated_at?: unknown } } })?.data?.file_row?.updated_at,
   );
+  if (!fileUpdatedAt) {
+    return { ok: false, status: response.status, reason: "invalid_response" };
+  }
   return { ok: true, fileUpdatedAt };
 }
 
@@ -1054,7 +1061,7 @@ export class TongsHearthStore implements HearthStore {
     return found ? cloneDraft(found) : null;
   }
 
-  async saveDraft(draft: Draft, options?: SaveDraftOptions): Promise<void> {
+  async saveDraft(draft: Draft, options?: SaveDraftOptions): Promise<HearthDraftSaveAcknowledgement> {
     const normalized = normalizeDraft(draft);
     if (!normalized) {
       throw new Error("Invalid draft payload");
@@ -1068,7 +1075,19 @@ export class TongsHearthStore implements HearthStore {
     cache.drafts[normalized.id] = cloneDraft(normalized);
     cache.draftWorkspaceById[normalized.id] = workspaceId;
     writeCache(cache);
-    await this.syncDraftsToTongs(cache, workspaceId, options?.reason);
+    try {
+      return await this.syncDraftsToTongs(cache, workspaceId, options?.reason);
+    } catch (error) {
+      if ((error as { code?: unknown } | null)?.code === "draft_conflict") throw error;
+      return {
+        ok: false,
+        kind: "recovery_only",
+        authority: "browser_cache",
+        artifact: "draft_snapshot",
+        reason: "canonical_request_failed",
+        status: null,
+      };
+    }
   }
 
   async deleteDraft(id: DraftId): Promise<void> {
@@ -1369,16 +1388,34 @@ export class TongsHearthStore implements HearthStore {
     cache: TongsCacheV1,
     workspaceIdInput?: string | null,
     reason?: string,
-  ): Promise<void> {
+  ): Promise<HearthDraftSaveAcknowledgement> {
     const workspaceId = workspaceIdInput ?? resolveWorkspaceId();
-    if (!workspaceId) return;
+    if (!workspaceId) {
+      return {
+        ok: false,
+        kind: "recovery_only",
+        authority: "browser_cache",
+        artifact: "draft_snapshot",
+        reason: "canonical_target_unavailable",
+        status: null,
+      };
+    }
 
     const writtenBy = buildWrittenBy();
     let workpieceId = resolveCachedWorkpieceId(workspaceId, cache);
 
     if (!workpieceId) {
       workpieceId = await createCradle(workspaceId, writtenBy);
-      if (!workpieceId) return;
+      if (!workpieceId) {
+        return {
+          ok: false,
+          kind: "recovery_only",
+          authority: "browser_cache",
+          artifact: "draft_snapshot",
+          reason: "canonical_target_unavailable",
+          status: null,
+        };
+      }
       persistWorkpieceId(workspaceId, workpieceId, cache);
     }
 
@@ -1398,29 +1435,72 @@ export class TongsHearthStore implements HearthStore {
     if (firstTry.ok) {
       writeDraftSnapshotUpdatedAt(cache, workspaceId, firstTry.fileUpdatedAt);
       writeCache(cache);
-      return;
+      return {
+        ok: true,
+        kind: "canonical",
+        authority: "tongs",
+        artifact: "draft_snapshot",
+        workspaceId,
+        workpieceId,
+        committedAt: firstTry.fileUpdatedAt,
+      };
     }
     if (firstTry.reason === "conflict") {
       throw createDraftConflictError(firstTry.details);
     }
     if (firstTry.status !== 404) {
-      throw new Error("draft_snapshot_sync_failed");
+      return {
+        ok: false,
+        kind: "recovery_only",
+        authority: "browser_cache",
+        artifact: "draft_snapshot",
+        reason: firstTry.reason === "invalid_response"
+          ? "canonical_response_invalid"
+          : "canonical_commit_failed",
+        status: firstTry.status,
+      };
     }
 
     const replacementId = await createCradle(workspaceId, writtenBy);
-    if (!replacementId) return;
+    if (!replacementId) {
+      return {
+        ok: false,
+        kind: "recovery_only",
+        authority: "browser_cache",
+        artifact: "draft_snapshot",
+        reason: "canonical_target_unavailable",
+        status: 404,
+      };
+    }
     persistWorkpieceId(workspaceId, replacementId, cache);
     writeDraftSnapshotUpdatedAt(cache, workspaceId, null);
     const secondTry = await commitDraftSnapshot(replacementId, snapshot, writtenBy, { reason });
     if (secondTry.ok) {
       writeDraftSnapshotUpdatedAt(cache, workspaceId, secondTry.fileUpdatedAt);
       writeCache(cache);
-      return;
+      return {
+        ok: true,
+        kind: "canonical",
+        authority: "tongs",
+        artifact: "draft_snapshot",
+        workspaceId,
+        workpieceId: replacementId,
+        committedAt: secondTry.fileUpdatedAt,
+      };
     }
     if (secondTry.reason === "conflict") {
       throw createDraftConflictError(secondTry.details);
     }
-    throw new Error("draft_snapshot_sync_failed");
+    return {
+      ok: false,
+      kind: "recovery_only",
+      authority: "browser_cache",
+      artifact: "draft_snapshot",
+      reason: secondTry.reason === "invalid_response"
+        ? "canonical_response_invalid"
+        : "canonical_commit_failed",
+      status: secondTry.status,
+    };
   }
 
   private async syncChatsToTongs(cache: TongsCacheV1, workspaceIdInput?: string | null): Promise<void> {

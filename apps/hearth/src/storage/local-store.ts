@@ -16,7 +16,7 @@ import {
   normalizeRevisionSnapshot,
   revisionToEntry,
 } from "../lib/hearth-revisions-contract";
-import type { HearthStore, SaveDraftOptions } from "./hearth-store";
+import type { HearthDraftSaveAcknowledgement, HearthStore, SaveDraftOptions } from "./hearth-store";
 import {
   cloneRevision,
   loadRevisionSnapshotFallback,
@@ -268,7 +268,7 @@ export class LocalHearthStore implements HearthStore {
     return found ? cloneDraft(found) : null;
   }
 
-  async saveDraft(draft: Draft, _options?: SaveDraftOptions): Promise<void> {
+  async saveDraft(draft: Draft, _options?: SaveDraftOptions): Promise<HearthDraftSaveAcknowledgement> {
     const normalized = normalizeDraft(draft);
     if (!normalized) {
       throw new Error("Invalid draft payload");
@@ -277,6 +277,14 @@ export class LocalHearthStore implements HearthStore {
     const record = readDraftRecord();
     record[normalized.id] = cloneDraft(normalized);
     writeDraftRecord(record);
+    return {
+      ok: false,
+      kind: "recovery_only",
+      authority: "browser_cache",
+      artifact: "draft_snapshot",
+      reason: "local_store",
+      status: null,
+    };
   }
 
   async deleteDraft(id: DraftId): Promise<void> {

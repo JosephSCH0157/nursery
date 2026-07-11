@@ -8,13 +8,18 @@ import {
   hydrateDraftBodyFromCanonicalScript,
 } from "../lib/hearth-draft-hydration";
 import { readHearthPrimaryScript } from "../lib/hearth-script-repo";
+import {
+  isCanonicalHearthDraftSave,
+  type HearthDraftSaveAcknowledgement,
+} from "../storage/hearth-store";
+import { formatHearthDraftSaveAcknowledgementFailure } from "../lib/hearth-draft-persistence";
 
 type UseHearthDraftHydrationActionsArgs = {
   hearthUser: { userId: string | null; displayName: string };
   sparks: BarStockSpark[];
   store: {
     listWorkpieceDrafts: (workpieceId: string) => Promise<Draft[]>;
-    saveDraft: (draft: Draft, options?: { reason?: string }) => Promise<void>;
+    saveDraft: (draft: Draft, options?: { reason?: string }) => Promise<HearthDraftSaveAcknowledgement>;
   };
   draftsRef: MutableRefObject<Draft[]>;
   workpieceSummariesRef: MutableRefObject<HearthWorkpieceSummary[]>;
@@ -109,7 +114,12 @@ export function useHearthDraftHydrationActions(args: UseHearthDraftHydrationActi
       });
 
       try {
-        await args.store.saveDraft(repairedDraft, { reason: "hydrate_workpiece" });
+        const saveAcknowledgement = await args.store.saveDraft(repairedDraft, { reason: "hydrate_workpiece" });
+        if (!isCanonicalHearthDraftSave(saveAcknowledgement)) {
+          const message = formatHearthDraftSaveAcknowledgementFailure(saveAcknowledgement);
+          args.setAiRuntimeWarning(message);
+          throw new Error(message);
+        }
         const nextDrafts = args.dedupeDraftListById([repairedDraft, ...args.draftsRef.current]);
         args.draftsRef.current = nextDrafts;
         args.setDrafts(nextDrafts);
@@ -156,7 +166,12 @@ export function useHearthDraftHydrationActions(args: UseHearthDraftHydrationActi
     };
 
     try {
-      await args.store.saveDraft(draft, { reason: "hydrate_workpiece" });
+      const saveAcknowledgement = await args.store.saveDraft(draft, { reason: "hydrate_workpiece" });
+      if (!isCanonicalHearthDraftSave(saveAcknowledgement)) {
+        const message = formatHearthDraftSaveAcknowledgementFailure(saveAcknowledgement);
+        args.setAiRuntimeWarning(message);
+        throw new Error(message);
+      }
     } catch (err) {
       if (!args.parseDraftConflictError(err)) {
         throw err;

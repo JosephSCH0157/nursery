@@ -278,14 +278,15 @@ test("stabilization contract: a late AI result from workpiece A cannot mutate wo
   }
 });
 
-test("stabilization blocker reproduction: an unacknowledged browser-cache write resolves as saved", {
-  todo: "Step 3 will require a Tongs acknowledgement envelope before save success.",
-}, async () => {
+test("stabilization contract: an unacknowledged browser-cache write cannot resolve as saved", async () => {
   const windowHarness = installWindow();
   try {
     const store = new TongsHearthStore();
     const draft = createDraft({ title: "Unacknowledged", body: "Local recovery evidence only" });
-    await store.saveDraft({ ...draft, id: WORKPIECE_A });
+    const result = await store.saveDraft({ ...draft, id: WORKPIECE_A });
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, "recovery_only");
+    assert.equal(result.authority, "browser_cache");
     assert.match(windowHarness.storage.getItem("hearth:tongs:cache:v1") ?? "", new RegExp(WORKPIECE_A));
   } finally {
     windowHarness.restore();
