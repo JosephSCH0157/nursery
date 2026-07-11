@@ -80,6 +80,7 @@ import {
 import { useHearthAutosave } from "../hooks/useHearthAutosave";
 import { useApprovalFlow } from "../hooks/useApprovalFlow";
 import { useHearthVisualsWorkspace } from "../hooks/useHearthVisualsWorkspace";
+import { useHearthOperationAuthority } from "../hooks/useHearthOperationAuthority";
 import { useHearthFocusOpenActions } from "../hooks/useHearthFocusOpenActions";
 import { useHearthInitialLoader } from "../hooks/useHearthInitialLoader";
 import { useHearthWorkspaceResetLifecycle } from "../hooks/useHearthWorkspaceResetLifecycle";
@@ -2667,6 +2668,13 @@ export default function HearthShell({
     setError,
     confirmRestore: (message) => window.confirm(message),
   });
+  const operationAuthority = useHearthOperationAuthority({
+    workspaceId,
+    workpieceId,
+    draftId: activeDraft?.id ?? null,
+    draftVersion: draftEditVersionRef.current,
+    revisionId: selectedRevision?.id ?? null,
+  });
   useEffect(() => {
     setSelectedRevision((prev) => {
       if (!prev) return null;
@@ -3181,6 +3189,7 @@ export default function HearthShell({
     persistMediaMap,
     persistReferenceClipPlan,
   } = useVisualsPersistence({
+    operationAuthority,
     episodePackage,
     workpieceId,
     workspaceId,
@@ -3246,6 +3255,7 @@ export default function HearthShell({
     onDeleteMediaMapEntry,
     onActivateEpisodeMediaMap,
   } = useMediaMapEntryActions({
+    operationAuthority,
     episodePackage,
     workpieceId,
     selectedMediaMapEntry,
@@ -3287,6 +3297,7 @@ export default function HearthShell({
     onGenerateEpisodeMediaMapFromPlans,
     onBuildAndApplyMediaMapFromConversation,
   } = useMediaMapGenerationActions({
+    operationAuthority,
     episodePackage,
     isMediaMapBusy,
     approvedScriptVersion,
@@ -3381,12 +3392,14 @@ export default function HearthShell({
       setChatAttachmentError(null);
       return;
     }
+    const operation = operationAuthority.begin("attachments.refresh");
 
     setIsAttachmentsLoading(true);
     const result = await listHearthAttachments({
       workspaceId: activeWorkspaceId,
       episodeId,
     });
+    if (!operationAuthority.isCurrent(operation)) return;
     if (!result.ok) {
       setChatAttachmentError(result.error);
       setIsAttachmentsLoading(false);
@@ -3408,7 +3421,7 @@ export default function HearthShell({
     })));
     setChatAttachmentError(null);
     setIsAttachmentsLoading(false);
-  }, [workpieceId, workspaceId]);
+  }, [operationAuthority, workpieceId, workspaceId]);
 
   useEffect(() => {
     void refreshChatAttachments();
@@ -3418,6 +3431,7 @@ export default function HearthShell({
     const episodeId = workpieceId?.trim();
     const activeWorkspaceId = workspaceId?.trim();
     if (!episodeId || !activeWorkspaceId || !files || files.length === 0) return;
+    const operation = operationAuthority.begin("attachments.upload");
 
     const uploadItems = Array.from(files);
     for (const file of uploadItems) {
@@ -3444,6 +3458,7 @@ export default function HearthShell({
         episodeId,
         file,
       });
+      if (!operationAuthority.isCurrent(operation)) return;
 
       if (!upload.ok) {
         setChatAttachments((prev) => prev.map((entry) => (
@@ -3477,7 +3492,7 @@ export default function HearthShell({
           : entry
       )));
     }
-  }, [workpieceId, workspaceId]);
+  }, [operationAuthority, workpieceId, workspaceId]);
 
   const onRemoveChatAttachment = useCallback((id: string) => {
     setChatAttachments((prev) => prev.filter((entry) => entry.id !== id));
@@ -3486,11 +3501,13 @@ export default function HearthShell({
   const onPasteAttachmentText = useCallback(async (attachmentId: string, text: string) => {
     const activeWorkspaceId = workspaceId?.trim();
     if (!activeWorkspaceId) return;
+    const operation = operationAuthority.begin(`attachments.text:${attachmentId}`);
     const result = await updateHearthAttachmentExtractedText({
       attachmentId,
       workspaceId: activeWorkspaceId,
       extractedText: text,
     });
+    if (!operationAuthority.isCurrent(operation)) return;
     if (!result.ok) {
       setChatAttachments((prev) => prev.map((entry) =>
         entry.id === attachmentId
@@ -3504,12 +3521,13 @@ export default function HearthShell({
         ? { ...entry, status: "attached", error: null }
         : entry,
     ));
-  }, [workspaceId]);
+  }, [operationAuthority, workspaceId]);
 
   const {
     onFixScriptFormattingNoAi,
     onAskAiRepairScript,
   } = useHearthScriptRepairActions({
+    operationAuthority,
     activeDraft,
     isRepairingScript,
     isAiProcessing,
@@ -3563,6 +3581,7 @@ export default function HearthShell({
     EpisodeContext,
     HearthOp
   >({
+    operationAuthority,
     isAiProcessing,
     aiTokenBalance,
     chatDraft,
@@ -3632,6 +3651,7 @@ export default function HearthShell({
     },
   });
   const { onToggleMic } = useChatWorkspaceStt({
+    operationAuthority,
     workpieceId,
     devMode,
     hasBrowserSpeech,
@@ -4504,6 +4524,7 @@ export default function HearthShell({
   }, [activeDraft?.id, sparks, workpieceId]);
 
   const refreshEpisodePackage = useEpisodePackageLoader({
+    operationAuthority,
     workpieceId,
     replaceEpisodePackageImageMap,
     resetReleasePrepState,
@@ -4605,6 +4626,7 @@ export default function HearthShell({
     onDeleteBrollBeat,
     onRegenerateBrollBeat,
   } = useBrollCoreActions({
+    operationAuthority,
     isApprovingScript,
     isAiProcessing,
     isBrollBusy,
@@ -4648,6 +4670,7 @@ export default function HearthShell({
     onSelectBrollCandidate,
     onRetryBrollCandidateIngestion,
   } = useBrollBridgeActions({
+    operationAuthority,
     episodePackage,
     selectedBrollBeat,
     brollProviders,
@@ -4682,6 +4705,7 @@ export default function HearthShell({
     onGenerateReferenceClipInForge,
     onRegenerateReferenceClipEntryStub,
   } = useReferenceClipCoreActions({
+    operationAuthority,
     episodePackage,
     workpieceId,
     workspaceId,
@@ -4733,6 +4757,7 @@ export default function HearthShell({
     onUploadReferenceClipAsset,
     onSelectReferenceClipCandidate,
   } = useReferenceClipBridgeActions({
+    operationAuthority,
     episodePackage,
     selectedReferenceClipEntry,
     activeVisualPromptPackForReferenceClip,
@@ -4768,6 +4793,7 @@ export default function HearthShell({
     onSelectLaunchVariant,
     onSaveLaunchVariant,
   } = useThumbnailConceptActions({
+    operationAuthority,
     episodePackage,
     thumbnailVersions,
     launchVariants,
@@ -4805,6 +4831,7 @@ export default function HearthShell({
     onRemoveThumbnailBrandLogo,
     onUploadThumbnailImage,
   } = useThumbnailGenerationActions({
+    operationAuthority,
     workpieceId,
     workspaceId,
     episodePackage,
@@ -4847,6 +4874,7 @@ export default function HearthShell({
     onConvertImageMapToGlobalVisual,
     onLeaveImageMapOrphaned,
   } = useImageMapReanchorActions({
+    operationAuthority,
     episodePackage,
     selectedImageMapEntry,
     imageMapReanchorDisabledReason,
@@ -4870,6 +4898,7 @@ export default function HearthShell({
     onSelectImageMapCandidate,
     onUploadImageMapAsset,
   } = useImageMapCandidateActions({
+    operationAuthority,
     workpieceId,
     workspaceId,
     episodePackage,
@@ -4906,6 +4935,7 @@ export default function HearthShell({
     onDuplicateImageMapEntry,
     onDeleteImageMapEntry,
   } = useImageMapEntryCrudActions({
+    operationAuthority,
     episodePackage,
     selectedImageMapEntry,
     selectedImageMapEntryId,
@@ -4919,6 +4949,7 @@ export default function HearthShell({
     onCopyImageMapExportJson,
     onDownloadImageMapExportJson,
   } = useImageMapSeedExportActions({
+    operationAuthority,
     workpieceId,
     episodePackage,
     selectedImageMapEntryId,

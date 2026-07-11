@@ -6,6 +6,7 @@ import {
 } from "../lib/browser-stt";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
 import type { HearthResearchResult } from "../lib/hearth-research-contract";
+import type { HearthOperationAuthority } from "../lib/hearth-operation-authority";
 import {
   buildNoScriptChangesExplanation,
   type HearthScriptMutationIntent,
@@ -317,6 +318,7 @@ type SendChatMessageArgs = {
 };
 
 type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp> = {
+  operationAuthority: HearthOperationAuthority;
   isAiProcessing: boolean;
   aiTokenBalance: number | null;
   chatDraft: string;
@@ -442,6 +444,7 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
       args.setChatError("Pick an Episode or Spark and I’ll work from there.");
       return;
     }
+    const operation = args.operationAuthority.begin("chat.reply");
 
     const lane = args.resolveAiLaneFromStorage();
     args.setAiBillingMode(lane);
@@ -517,6 +520,7 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
         signal: controller.signal,
         attachmentContext,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setAiBillingMode(result.runtime.billingMode);
       if (result.runtime.billingMode === "byo") {
         args.setAiTokenBalance(null);
@@ -570,6 +574,7 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
           scriptVersion: params.productionScriptVersion,
           assistantText,
         });
+        if (!args.operationAuthority.isCurrent(operation)) return;
       }
 
       const proposalOps = scriptMutationRouting.proposalOps as THearthOp[];
@@ -633,6 +638,7 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
       }
 
       const refreshedCredits = await args.refreshMyAiCredits();
+      if (!args.operationAuthority.isCurrent(operation)) return;
       const laneNow = args.resolveAiLaneFromStorage();
       if (laneNow === "byo") {
         args.setAiBillingMode("byo");
@@ -644,6 +650,7 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
         args.setAiRuntimeWarning("Unable to update credits.");
       }
     } catch (err) {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (err instanceof DOMException && err.name === "AbortError") {
         return;
       }
@@ -658,7 +665,9 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
     } finally {
       if (args.aiRequestControllerRef.current === controller) {
         args.aiRequestControllerRef.current = null;
-        args.setIsAiProcessing(false);
+        if (args.operationAuthority.isCurrent(operation)) {
+          args.setIsAiProcessing(false);
+        }
       }
     }
   }, [args]);
@@ -673,6 +682,7 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
 }
 
 type UseChatWorkspaceSttArgs = {
+  operationAuthority: HearthOperationAuthority;
   workpieceId: string | null;
   devMode: boolean;
   hasBrowserSpeech: boolean;
@@ -819,11 +829,13 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       args.setSttError("Select an Episode or Spark to start.");
       return;
     }
+    const operation = args.operationAuthority.begin("stt.ai.transcribe");
 
     const uploaded = await args.uploadHearthSttAudio({
       workpieceId: episodeId,
       blob: blobArgs.blob,
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!uploaded.ok) {
       args.setSttError(uploaded.error);
       return;
@@ -844,6 +856,7 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
         args.aiSttTranscribeControllerRef.current = null;
       }
     }
+    if (!args.operationAuthority.isCurrent(operation)) return;
 
     args.setAiBillingMode(transcriptResult.runtime.billingMode);
     if (transcriptResult.runtime.billingMode === "byo") {
@@ -924,6 +937,7 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       args.setSttState("idle");
       return;
     }
+    const operation = args.operationAuthority.begin("stt.ai.capture");
 
     clearSttNoticeTimer();
     args.setSttNotice(null);
@@ -943,9 +957,14 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (error) {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       const message = error instanceof Error ? error.message : "Unable to access microphone.";
       args.setSttError(message);
       args.setSttState("idle");
+      return;
+    }
+    if (!args.operationAuthority.isCurrent(operation)) {
+      for (const track of stream.getTracks()) track.stop();
       return;
     }
 
@@ -982,6 +1001,7 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
     };
 
     recorder.onerror = () => {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.aiSttDiscardNextStopRef.current = true;
       clearAiSttStopTimer();
       args.mediaRecorderRef.current = null;
@@ -1008,6 +1028,8 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       args.aiSttEpisodeIdRef.current = null;
       clearAiSttStopTimer();
       stopAiSttStream();
+
+      if (!args.operationAuthority.isCurrent(operation)) return;
 
       if (shouldDiscard) {
         args.setSttState("idle");
@@ -1044,10 +1066,13 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
           mimeType: recordedMimeType,
         });
       } catch (error) {
+        if (!args.operationAuthority.isCurrent(operation)) return;
         const message = error instanceof Error ? error.message : "Transcription failed.";
         args.setSttError(message);
       } finally {
-        args.setSttState("idle");
+        if (args.operationAuthority.isCurrent(operation)) {
+          args.setSttState("idle");
+        }
       }
     };
 
@@ -1085,6 +1110,7 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       args.setSttState("idle");
       return;
     }
+    const operation = args.operationAuthority.begin("stt.browser");
 
     clearBrowserSttStopTimer();
     clearSttNoticeTimer();
@@ -1104,9 +1130,14 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (error) {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       const message = error instanceof Error ? error.message : "Unable to access microphone.";
       args.setSttError(message);
       args.setSttState("idle");
+      return;
+    }
+    if (!args.operationAuthority.isCurrent(operation)) {
+      for (const track of stream.getTracks()) track.stop();
       return;
     }
 
@@ -1128,6 +1159,7 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       session.settled = true;
       clearBrowserSttStopTimer();
       stopAiSttStream();
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setSttState("idle");
       if (session.fatalErrorMessage) {
         args.setSttError(session.fatalErrorMessage);
@@ -1138,7 +1170,10 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
     };
     (recognition as any).__hearthBrowserSttSession = session;
     (recognition as any).__hearthBrowserSttSettle = settleBrowserSession;
-    const isCurrentRecognition = () => args.speechRecognitionRef.current === recognition;
+    const isCurrentRecognition = () => (
+      args.operationAuthority.isCurrent(operation)
+      && args.speechRecognitionRef.current === recognition
+    );
 
     recognition.onresult = (event: any) => {
       if (!isCurrentRecognition()) return;

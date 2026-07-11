@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { createDraft } from "../src/domain/draft";
 import type { HearthChatMessage } from "../src/lib/hearth-ai-runtime-contract";
+import { createHearthOperationAuthority } from "../src/lib/hearth-operation-authority";
 import { readWorkpieceSources, writeWorkpieceSourcesCache } from "../src/lib/source-registry";
 import { useChatWorkspaceRuntime } from "../src/hooks/useChatWorkspace";
 import { TongsHearthStore } from "../src/storage/tongs-store";
@@ -137,9 +138,7 @@ function installDom(): { container: HTMLElement; restore: () => void } {
   };
 }
 
-test("stabilization blocker reproduction: a late AI result from workpiece A mutates workpiece B", {
-  todo: "Step 2 will bind every asynchronous completion to immutable operation identity.",
-}, async () => {
+test("stabilization contract: a late AI result from workpiece A cannot mutate workpiece B", async () => {
   type EpisodeContext = { workspaceId: string; workpieceId: string; draftId: string };
   type HearthOp = { op: string };
   type PendingProposal = { episodeContext: EpisodeContext; ops: HearthOp[] };
@@ -157,8 +156,18 @@ test("stabilization blocker reproduction: a late AI result from workpiece A muta
   let runtimeApi: RuntimeApi | null = null;
   let root: Root | null = null;
   const domHarness = installDom();
+  const operationAuthority = createHearthOperationAuthority({
+    workspaceId: currentContext.workspaceId,
+    workpieceId: currentContext.workpieceId,
+    draftId: currentContext.draftId,
+    draftVersion: 1,
+    revisionId: null,
+  }, {
+    createAuthorityId: () => "mounted-chat-authority",
+  });
 
   const args: RuntimeArgs = {
+    operationAuthority,
     isAiProcessing: false,
     aiTokenBalance: 100,
     chatDraft: "",
@@ -241,6 +250,13 @@ test("stabilization blocker reproduction: a late AI result from workpiece A muta
       workpieceId: WORKPIECE_B,
       draftId: WORKPIECE_B,
     };
+    operationAuthority.updateScope({
+      workspaceId: currentContext.workspaceId,
+      workpieceId: currentContext.workpieceId,
+      draftId: currentContext.draftId,
+      draftVersion: 1,
+      revisionId: null,
+    });
     await act(async () => {
       response.resolve({
         ok: true,
@@ -251,7 +267,7 @@ test("stabilization blocker reproduction: a late AI result from workpiece A muta
       await request;
     });
 
-    assert.equal(messages.some((message) => message.content === "Late answer for A"), true);
+    assert.equal(messages.some((message) => message.content === "Late answer for A"), false);
     assert.equal(pendingProposal, null);
   } finally {
     await act(async () => {

@@ -24,12 +24,14 @@ import type {
   EpisodeReferenceClipTone,
   EpisodePackageV2,
 } from "../../lib/episode-package-v2";
+import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 
 type PersistReferenceClipPlanResult =
   | { ok: true; episodePackage: EpisodePackageV2 }
   | { ok: false; error: string };
 
 type UseReferenceClipCoreActionsArgs = {
+  operationAuthority: HearthOperationAuthority;
   episodePackage: EpisodePackageV2 | null;
   workpieceId: string | null;
   workspaceId: string | null;
@@ -164,6 +166,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
       args.setReferenceClipSaveState("error");
       return false;
     }
+    const operation = args.operationAuthority.begin("reference-clip.generate");
 
     const sourceImageEntry = resolveReferenceClipSourceImageEntry({
       entry: referenceClipEntry,
@@ -177,6 +180,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
 
     if (!scriptAnchor || sourceImageEntry?.script_anchor) {
       const canonicalScript = await args.readCanonicalScriptForImageMapGeneration();
+      if (!args.operationAuthority.isCurrent(operation)) return false;
       if (canonicalScript.ok) {
         canonicalScriptText = canonicalScript.text;
         if (!scriptAnchor) {
@@ -251,6 +255,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
         spokenBeats: baseEpisodePackage.spoken_beats,
         skipOptimisticConflictCheck: true,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return false;
       if (!withTempImageMap.ok) {
         args.setReferenceClipSaveError(withTempImageMap.error);
         args.setReferenceClipSaveState("error");
@@ -267,6 +272,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
         confirmSpend: options.confirmSpend,
         alwaysApproveAiSpend: options.alwaysApproveAiSpend,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return false;
 
       const cleanedImageMapEntries = withTempImageMap.episodePackage.image_map.entries.filter((entry) => entry.id !== tempImageEntryId);
       const cleanedImageMap = await args.persistImageMapEntries({
@@ -274,6 +280,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
         spokenBeats: withTempImageMap.episodePackage.spoken_beats,
         skipOptimisticConflictCheck: true,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return false;
       if (!cleanedImageMap.ok) {
         args.setReferenceClipSaveState("saved");
         args.setReferenceClipMessage("Reference Clip generation finished, but the temporary bridge beat cleanup needs a refresh.");
@@ -337,6 +344,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
         },
         baseEpisodePackage: cleanedImageMap.episodePackage,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return false;
       if (!generatedSaved.ok) {
         args.setReferenceClipSaveState("saved");
         args.setReferenceClipMessage("Reference Clip images generated, but the canonical clip update failed.");
@@ -352,11 +360,12 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
       );
       return true;
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return false;
       args.setReferenceClipSaveError("Unable to generate this Reference Clip in Forge.");
       args.setReferenceClipSaveState("error");
       return false;
     } finally {
-      args.setIsReferenceClipBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsReferenceClipBusy(false);
     }
   }, [args]);
 
@@ -369,6 +378,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
       args.setReferenceClipSaveState("error");
       return;
     }
+    const operation = args.operationAuthority.begin("reference-clip.create");
     const baseAnchor = (
       args.selectedImageMapEntry?.anchor
       || args.selectedBrollBeatAnchorText
@@ -400,6 +410,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
           data_type: created.data_type,
         },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setReferenceClipSaveError(saved.error);
         args.setReferenceClipSaveState("error");
@@ -419,17 +430,20 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
         confirmSpend,
         alwaysApproveAiSpend,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setReferenceClipSaveError("Unable to create this reference clip.");
       args.setReferenceClipSaveState("error");
     } finally {
-      args.setIsReferenceClipBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsReferenceClipBusy(false);
     }
   }, [args]);
 
   const onSaveReferenceClipEntry = useCallback(async () => {
     if (!args.episodePackage || !args.selectedReferenceClipEntry) return;
     if (args.isReferenceClipBusy) return;
+    const operation = args.operationAuthority.begin("reference-clip.save");
     const nextEntry = buildReferenceClipEntryFromDraft(args.selectedReferenceClipEntry);
     const nextPlan: EpisodeReferenceClipPlan = {
       ...args.episodePackage.cdc_plan,
@@ -446,6 +460,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
         eventName: "hearth.cdc_plan.entry_updated.v1",
         eventPayload: { cdc_id: args.selectedReferenceClipEntry.id },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setReferenceClipSaveError(saved.error);
         args.setReferenceClipSaveState("error");
@@ -454,10 +469,11 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
       args.setReferenceClipSaveState("saved");
       args.setReferenceClipMessage("Reference Clip saved.");
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setReferenceClipSaveError("Unable to save this reference clip.");
       args.setReferenceClipSaveState("error");
     } finally {
-      args.setIsReferenceClipBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsReferenceClipBusy(false);
     }
   }, [args, buildReferenceClipEntryFromDraft]);
 
@@ -466,6 +482,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
     if (args.isReferenceClipBusy) return;
     const confirmed = window.confirm("Delete this Reference Clip?");
     if (!confirmed) return;
+    const operation = args.operationAuthority.begin("reference-clip.delete");
     const nextEntries = args.episodePackage.cdc_plan.entries.filter((entry) => entry.id !== args.selectedReferenceClipEntry?.id);
     const nextPlan: EpisodeReferenceClipPlan = {
       ...args.episodePackage.cdc_plan,
@@ -482,6 +499,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
         eventName: "hearth.cdc_plan.entry_deleted.v1",
         eventPayload: { cdc_id: args.selectedReferenceClipEntry.id },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setReferenceClipSaveError(saved.error);
         args.setReferenceClipSaveState("error");
@@ -491,10 +509,11 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
       args.setReferenceClipSaveState("saved");
       args.setReferenceClipMessage("Reference Clip removed.");
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setReferenceClipSaveError("Unable to delete this reference clip.");
       args.setReferenceClipSaveState("error");
     } finally {
-      args.setIsReferenceClipBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsReferenceClipBusy(false);
     }
   }, [args]);
 
@@ -516,6 +535,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
   const onRegenerateReferenceClipEntryStub = useCallback(async () => {
     if (!args.episodePackage || !args.selectedReferenceClipEntry) return;
     if (args.isReferenceClipBusy) return;
+    const operation = args.operationAuthority.begin("reference-clip.guidance.regenerate");
     const nextDescription = args.referenceClipDescriptionDraft.trim() || args.selectedReferenceClipEntry.description || args.selectedReferenceClipEntry.anchor_text;
     const signals = inferReferenceClipSuitabilitySignals(nextDescription);
     const inferredDataType: EpisodeReferenceClipDataType = signals.includes("geographic")
@@ -565,6 +585,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
           signal_count: signals.length,
         },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setReferenceClipSaveError(saved.error);
         args.setReferenceClipSaveState("error");
@@ -573,10 +594,11 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
       args.setReferenceClipSaveState("saved");
       args.setReferenceClipMessage("Reference Clip guidance refreshed.");
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setReferenceClipSaveError("Unable to regenerate reference clip guidance.");
       args.setReferenceClipSaveState("error");
     } finally {
-      args.setIsReferenceClipBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsReferenceClipBusy(false);
     }
   }, [args]);
 

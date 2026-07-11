@@ -10,12 +10,14 @@ import {
   hasStructuredImageMapAnchor,
   resolveImageMapEntryAnchorScope,
 } from "../../lib/hearth-image-map-anchor";
+import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 
 type PersistImageMapEntriesResult =
   | { ok: true; episodePackage: EpisodePackageV2; metadataUpdatedAt: string | null }
   | { ok: false; error: string };
 
 type UseImageMapEntryCrudActionsArgs = {
+  operationAuthority: HearthOperationAuthority;
   episodePackage: EpisodePackageV2 | null;
   selectedImageMapEntry: EpisodeImageMapEntry | null;
   selectedImageMapEntryId: string | null;
@@ -31,6 +33,7 @@ type UseImageMapEntryCrudActionsArgs = {
 export function useImageMapEntryCrudActions(args: UseImageMapEntryCrudActionsArgs) {
   const onCreateImageMapEntry = useCallback(async () => {
     if (!args.episodePackage) return;
+    const operation = args.operationAuthority.begin("image-map.entry.create");
     const nextAnchor = `manual:p${args.episodePackage.image_map.entries.length + 1}`;
     const nextEpisodePackage = addImageMapEntry(args.episodePackage, {
       anchor: nextAnchor,
@@ -64,6 +67,7 @@ export function useImageMapEntryCrudActions(args: UseImageMapEntryCrudActionsArg
     const saved = await args.persistImageMapEntries({
       entries: nextEpisodePackage.image_map.entries,
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved.ok) {
       args.setImageMapSaveState("error");
       args.setImageMapSaveError(saved.error);
@@ -75,6 +79,7 @@ export function useImageMapEntryCrudActions(args: UseImageMapEntryCrudActionsArg
 
   const onDuplicateImageMapEntry = useCallback(async () => {
     if (!args.episodePackage || !args.selectedImageMapEntry) return;
+    const operation = args.operationAuthority.begin("image-map.entry.duplicate");
     const nextEpisodePackage = addImageMapEntry(args.episodePackage, {
       anchor: args.selectedImageMapEntry.anchor,
       script_anchor: args.selectedImageMapEntry.script_anchor,
@@ -109,6 +114,7 @@ export function useImageMapEntryCrudActions(args: UseImageMapEntryCrudActionsArg
     const saved = await args.persistImageMapEntries({
       entries: nextEpisodePackage.image_map.entries,
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved.ok) {
       args.setImageMapSaveState("error");
       args.setImageMapSaveError(saved.error);
@@ -122,6 +128,7 @@ export function useImageMapEntryCrudActions(args: UseImageMapEntryCrudActionsArg
     if (!args.episodePackage || !args.selectedImageMapEntryId) return;
     const confirmed = window.confirm("Delete this image map entry?");
     if (!confirmed) return;
+    const operation = args.operationAuthority.begin("image-map.entry.delete");
 
     const nextEpisodePackage = removeImageMapEntry(args.episodePackage, args.selectedImageMapEntryId);
     args.setImageMapSaveState("saving");
@@ -129,6 +136,7 @@ export function useImageMapEntryCrudActions(args: UseImageMapEntryCrudActionsArg
     const saved = await args.persistImageMapEntries({
       entries: nextEpisodePackage.image_map.entries,
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved.ok) {
       args.setImageMapSaveState("error");
       args.setImageMapSaveError(saved.error);

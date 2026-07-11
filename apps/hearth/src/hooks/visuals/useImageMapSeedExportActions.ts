@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { isBulletOutlineScript } from "../../lib/hearth-spoken-beats";
 import { resolveImageMapEntriesForMediaMapBootstrap } from "../../lib/hearth-media-map-bootstrap";
 import { buildVisualScriptIntentExportDocument } from "../../lib/hearth-visual-script-intent-export";
+import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 import type {
   EpisodeImageMapAnchorScope,
   EpisodeImageMapEntry,
@@ -27,6 +28,7 @@ type PersistImageMapEntriesResult =
   | { ok: false; error: string };
 
 type UseImageMapSeedExportActionsArgs = {
+  operationAuthority: HearthOperationAuthority;
   workpieceId: string | null;
   episodePackage: EpisodePackageV2 | null;
   selectedImageMapEntryId: string | null;
@@ -100,7 +102,9 @@ export function useImageMapSeedExportActions(args: UseImageMapSeedExportActionsA
       );
       if (!confirmed) return;
     }
+    const operation = args.operationAuthority.begin("image-map.seed");
     const canonicalScript = await args.readCanonicalScriptForImageMapGeneration();
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!canonicalScript.ok) {
       args.setImageMapExportMessage(canonicalScript.message);
       return;
@@ -123,6 +127,7 @@ export function useImageMapSeedExportActions(args: UseImageMapSeedExportActionsA
       entries: generatedPlan.entries,
       spokenBeats: generatedPlan.spokenBeats,
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved.ok) {
       args.setImageMapSaveState("error");
       args.setImageMapSaveError(saved.error);

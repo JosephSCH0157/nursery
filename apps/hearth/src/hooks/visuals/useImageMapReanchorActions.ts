@@ -6,12 +6,14 @@ import {
   type ImageMapScriptSelection,
 } from "../../lib/hearth-image-map-beats";
 import type { EpisodeImageMapEntry, EpisodePackageV2 } from "../../lib/episode-package-v2";
+import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 
 type PersistImageMapEntriesResult =
   | { ok: true; episodePackage: EpisodePackageV2; metadataUpdatedAt: string | null }
   | { ok: false; error: string };
 
 type UseImageMapReanchorActionsArgs = {
+  operationAuthority: HearthOperationAuthority;
   episodePackage: EpisodePackageV2 | null;
   selectedImageMapEntry: EpisodeImageMapEntry | null;
   imageMapReanchorDisabledReason: string | null;
@@ -83,6 +85,7 @@ export function useImageMapReanchorActions(args: UseImageMapReanchorActionsArgs)
       args.setImageMapReanchorError("Unable to re-anchor this visual beat.");
       return;
     }
+    const operation = args.operationAuthority.begin("image-map.reanchor");
 
     args.setIsImageMapReanchorSaving(true);
     args.setImageMapSaveState("saving");
@@ -101,6 +104,7 @@ export function useImageMapReanchorActions(args: UseImageMapReanchorActionsArgs)
             : entry
         )),
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setImageMapSaveState("error");
         args.setImageMapSaveError(saved.error);
@@ -113,12 +117,13 @@ export function useImageMapReanchorActions(args: UseImageMapReanchorActionsArgs)
       args.setImageMapExportMessage("Visual beat re-anchored to the current canonical script.");
       args.setIsImageMapReanchorMode(false);
     } catch (error) {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       const message = error instanceof Error ? error.message : "Unable to re-anchor this visual beat.";
       args.setImageMapSaveState("error");
       args.setImageMapSaveError(message);
       args.setImageMapReanchorError(message);
     } finally {
-      args.setIsImageMapReanchorSaving(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsImageMapReanchorSaving(false);
     }
   }, [args]);
 
@@ -141,6 +146,7 @@ export function useImageMapReanchorActions(args: UseImageMapReanchorActionsArgs)
 
   const onConvertImageMapToGlobalVisual = useCallback(async () => {
     if (!args.episodePackage || !args.selectedImageMapEntry) return;
+    const operation = args.operationAuthority.begin("image-map.anchor.globalize");
     args.setImageMapSaveState("saving");
     args.setImageMapSaveError(null);
     args.setImageMapReanchorError(null);
@@ -157,6 +163,7 @@ export function useImageMapReanchorActions(args: UseImageMapReanchorActionsArgs)
           : entry
       )),
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved.ok) {
       args.setImageMapSaveState("error");
       args.setImageMapSaveError(saved.error);
@@ -168,6 +175,7 @@ export function useImageMapReanchorActions(args: UseImageMapReanchorActionsArgs)
 
   const onLeaveImageMapOrphaned = useCallback(async () => {
     if (!args.episodePackage || !args.selectedImageMapEntry) return;
+    const operation = args.operationAuthority.begin("image-map.anchor.orphan");
     args.setImageMapSaveState("saving");
     args.setImageMapSaveError(null);
     args.setImageMapReanchorError(null);
@@ -184,6 +192,7 @@ export function useImageMapReanchorActions(args: UseImageMapReanchorActionsArgs)
           : entry
       )),
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved.ok) {
       args.setImageMapSaveState("error");
       args.setImageMapSaveError(saved.error);

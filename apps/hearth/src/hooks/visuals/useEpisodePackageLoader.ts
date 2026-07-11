@@ -13,8 +13,10 @@ import type {
   EpisodePackageV2,
   EpisodeSpokenBeat,
 } from "../../lib/episode-package-v2";
+import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 
 type UseEpisodePackageLoaderArgs = {
+  operationAuthority: HearthOperationAuthority;
   workpieceId: string | null;
   replaceEpisodePackageImageMap: (
     episodePackage: EpisodePackageV2,
@@ -106,10 +108,13 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
       artifactStateWorkpieceIdRef.current = null;
       return;
     }
+    const operation = currentArgs.operationAuthority.begin("visuals.package.load");
 
     try {
       const loaded = await readEpisodePackageForWorkpiece(episodeId);
       if (
+        !currentArgs.operationAuthority.isCurrent(operation)
+        ||
         episodePackageRequestSeqRef.current !== requestSeq
         || (latestArgsRef.current.workpieceId?.trim() ?? "") !== episodeId
       ) {
@@ -147,6 +152,8 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
         readWorkpieceEpisodeMediaMap(episodeId),
       ]);
       if (
+        !currentArgs.operationAuthority.isCurrent(operation)
+        ||
         episodePackageRequestSeqRef.current !== requestSeq
         || (latestArgsRef.current.workpieceId?.trim() ?? "") !== episodeId
       ) {
@@ -182,6 +189,8 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
       });
     } catch {
       if (
+        !currentArgs.operationAuthority.isCurrent(operation)
+        ||
         episodePackageRequestSeqRef.current !== requestSeq
         || (latestArgsRef.current.workpieceId?.trim() ?? "") !== episodeId
       ) {

@@ -16,12 +16,14 @@ import type {
   EpisodeExternalRequestState,
   EpisodePackageV2,
 } from "../../lib/episode-package-v2";
+import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 
 type PersistBrollPlanResult =
   | { ok: true; episodePackage: EpisodePackageV2 }
   | { ok: false; error: string };
 
 type UseBrollBridgeActionsArgs = {
+  operationAuthority: HearthOperationAuthority;
   episodePackage: EpisodePackageV2 | null;
   selectedBrollBeat: EpisodeBrollPlanBeat | null;
   brollProviders: ExternalGenerationProvider[];
@@ -73,6 +75,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
 
   const onMarkBrollRequestState = useCallback(async (nextState: EpisodeExternalRequestState) => {
     if (!args.episodePackage || !args.selectedBrollBeat) return;
+    const operation = args.operationAuthority.begin("broll.request-state.update");
     const nextBeat: EpisodeBrollPlanBeat = {
       ...args.selectedBrollBeat,
       external_request: advanceExternalRequestTracker(args.selectedBrollBeat.external_request, nextState, {
@@ -96,6 +99,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
       eventName: "hearth.broll_plan.request_state.updated.v1",
       eventPayload: { beat_id: args.selectedBrollBeat.id, request_state: nextState },
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved.ok) {
       args.setBrollSaveError(saved.error);
       args.setBrollSaveState("error");
@@ -106,6 +110,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
 
   const onClearBrollRequestState = useCallback(async () => {
     if (!args.episodePackage || !args.selectedBrollBeat) return;
+    const operation = args.operationAuthority.begin("broll.request-state.clear");
     const nextBeat: EpisodeBrollPlanBeat = {
       ...args.selectedBrollBeat,
       external_request: {
@@ -125,6 +130,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
       eventName: "hearth.broll_plan.request_state.cleared.v1",
       eventPayload: { beat_id: args.selectedBrollBeat.id },
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved.ok) {
       args.setBrollSaveError(saved.error);
       args.setBrollSaveState("error");
@@ -136,6 +142,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
 
   const onCopyBrollPrompt = useCallback(async () => {
     if (!args.episodePackage || !args.selectedBrollBeat) return false;
+    const operation = args.operationAuthority.begin("broll.brief.copy");
     const brief = buildBrollBeatBrief({
       beat: {
         ...args.selectedBrollBeat,
@@ -146,6 +153,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
       workpieceTitle: args.activeDraftTitle,
     });
     const copied = await args.writeTextToClipboard(formatVisualBriefAsText(brief));
+    if (!args.operationAuthority.isCurrent(operation)) return false;
     if (!copied) {
       args.setBrollSaveError("Unable to copy prompt to clipboard.");
       args.setBrollSaveState("error");
@@ -173,6 +181,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
       eventName: "hearth.broll_plan.brief_copied.v1",
       eventPayload: { beat_id: args.selectedBrollBeat.id },
     });
+    if (!args.operationAuthority.isCurrent(operation)) return false;
     if (!saved.ok) {
       args.setBrollSaveError(saved.error);
       args.setBrollSaveState("error");
@@ -185,6 +194,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
 
   const onDownloadBrollBrief = useCallback(async (format: "text" | "json") => {
     if (!args.episodePackage || !args.selectedBrollBeat) return;
+    const operation = args.operationAuthority.begin("broll.brief.download");
     const brief = buildBrollBeatBrief({
       beat: {
         ...args.selectedBrollBeat,
@@ -229,6 +239,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
       eventName: "hearth.broll_plan.brief_downloaded.v1",
       eventPayload: { beat_id: args.selectedBrollBeat.id, format },
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved.ok) {
       args.setBrollSaveError(saved.error);
       args.setBrollSaveState("error");
@@ -240,6 +251,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
 
   const onOpenBrollProvider = useCallback(async () => {
     if (!args.selectedBrollBeat) return;
+    const operation = args.operationAuthority.begin("broll.provider.open");
     const provider = args.brollProviders.find((entry) => entry.id === args.brollProviderIdDraft) ?? null;
     if (!provider) {
       args.setBrollSaveError("Choose a provider before opening a manual bridge.");
@@ -256,15 +268,18 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
       workpieceTitle: args.activeDraftTitle,
     });
     await args.writeTextToClipboard(formatVisualBriefAsText(brief));
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (typeof window !== "undefined") {
       window.open(provider.launchUrl, "_blank", "noopener,noreferrer");
     }
     await onMarkBrollRequestState("sent_external");
+    if (!args.operationAuthority.isCurrent(operation)) return;
     args.setBrollMessage(`Opened ${provider.name}. Prompt copied for manual paste.`);
   }, [args, onMarkBrollRequestState]);
 
   const onAttachBrollResultFromUrl = useCallback(async () => {
     if (!args.episodePackage || !args.selectedBrollBeat) return;
+    const operation = args.operationAuthority.begin("broll.result-url.attach");
     const sourceUrl = args.brollSourceUrlDraft.trim();
     if (!sourceUrl) {
       args.setBrollSaveError("Add a source URL before attaching a result.");
@@ -310,6 +325,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
       eventName: "hearth.broll_plan.result_url_attached.v1",
       eventPayload: { beat_id: args.selectedBrollBeat.id },
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved.ok) {
       args.setBrollSaveError(saved.error);
       args.setBrollSaveState("error");
@@ -322,6 +338,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
   const onFindStockForBrollBeat = useCallback(async () => {
     if (!args.episodePackage || !args.selectedBrollBeat) return;
     if (args.isBrollBusy) return;
+    const operation = args.operationAuthority.begin("broll.stock.find");
     const nextMotionIntent = args.brollMotionIntentDraft as EpisodeBrollPlanBeat["motion_intent"];
     const baseBeat: EpisodeBrollPlanBeat = {
       ...args.selectedBrollBeat,
@@ -359,6 +376,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
         eventName: "hearth.broll_plan.stock_candidates.generated.v1",
         eventPayload: { beat_id: args.selectedBrollBeat.id, candidate_count: stockCandidates.length },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setBrollSaveError(saved.error);
         args.setBrollSaveState("error");
@@ -367,10 +385,11 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
       args.setBrollSaveState("saved");
       args.setBrollMessage(`Attached ${stockCandidates.length} stock candidate links.`);
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setBrollSaveError("Unable to attach stock candidates for this B-roll beat.");
       args.setBrollSaveState("error");
     } finally {
-      args.setIsBrollBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsBrollBusy(false);
     }
   }, [args]);
 
@@ -383,6 +402,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
       args.setBrollSaveState("error");
       return;
     }
+    const operation = args.operationAuthority.begin("broll.asset.upload");
     args.setIsBrollBusy(true);
     args.setBrollSaveState("saving");
     args.setBrollSaveError(null);
@@ -398,6 +418,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
         providerNote: args.brollProviderNoteDraft,
         usageNote: args.brollUsageNoteDraft,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!uploaded.ok) {
         args.setBrollSaveError(uploaded.error);
         args.setBrollSaveState("error");
@@ -448,6 +469,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
         eventName: "hearth.broll_plan.asset_uploaded.v1",
         eventPayload: { beat_id: args.selectedBrollBeat.id, source: "upload" },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setBrollSaveError(saved.error);
         args.setBrollSaveState("error");
@@ -462,10 +484,11 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
         args.setBrollMessage("Uploaded asset selected for this B-roll beat.");
       }
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setBrollSaveError("Unable to upload this B-roll asset.");
       args.setBrollSaveState("error");
     } finally {
-      args.setIsBrollBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsBrollBusy(false);
     }
   }, [args]);
 
@@ -489,6 +512,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
       args.setBrollSaveState("error");
       return;
     }
+    const operation = args.operationAuthority.begin("broll.candidate.select");
     const nextBeat: EpisodeBrollPlanBeat = {
       ...args.selectedBrollBeat,
       source_type: candidate.source,
@@ -521,6 +545,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
         eventName: "hearth.broll_plan.asset_selected.v1",
         eventPayload: { beat_id: args.selectedBrollBeat.id, candidate_id: candidate.asset_id },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setBrollSaveError(saved.error);
         args.setBrollSaveState("error");
@@ -529,10 +554,11 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
       args.setBrollSaveState("saved");
       args.setBrollMessage("Selected asset attached to B-roll beat.");
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setBrollSaveError("Unable to select this B-roll candidate.");
       args.setBrollSaveState("error");
     } finally {
-      args.setIsBrollBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsBrollBusy(false);
     }
   }, [args]);
 
@@ -551,6 +577,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
       args.setBrollSaveState("error");
       return;
     }
+    const operation = args.operationAuthority.begin("broll.candidate.ingest");
 
     args.setIsBrollBusy(true);
     args.setBrollSaveState("saving");
@@ -566,6 +593,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
         beatId: args.selectedBrollBeat.id,
         candidateAsset: pendingCandidate,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
 
       const nextCandidates = (args.selectedBrollBeat.candidate_assets ?? []).map((candidate) => (
         candidate.asset_id === ingestedCandidate.asset_id ? ingestedCandidate : candidate
@@ -600,6 +628,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
         eventName: "hearth.broll_plan.asset_ingest_retried.v1",
         eventPayload: { beat_id: args.selectedBrollBeat.id, candidate_id: ingestedCandidate.asset_id },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setBrollSaveError(saved.error);
         args.setBrollSaveState("error");
@@ -612,10 +641,11 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
         args.setBrollMessage("Candidate ingestion completed and preview is ready.");
       }
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setBrollSaveError("Unable to retry candidate ingestion.");
       args.setBrollSaveState("error");
     } finally {
-      args.setIsBrollBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsBrollBusy(false);
     }
   }, [args, resolveFulfillmentState, resolveReadyCandidate]);
 

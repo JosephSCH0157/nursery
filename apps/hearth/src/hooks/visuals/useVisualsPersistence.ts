@@ -15,8 +15,10 @@ import { saveEpisodePackageForWorkpiece } from "../../lib/hearth-thumbnail-api";
 import { saveWorkpieceImageMap } from "../../lib/hearth-image-map-repo";
 import { syncMediaMapImageEntriesFromImageMap } from "../../lib/hearth-media-map-sync";
 import { saveWorkpieceEpisodeMediaMap } from "../../lib/hearth-media-map-repo";
+import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 
 type UseVisualsPersistenceArgs = {
+  operationAuthority: HearthOperationAuthority;
   episodePackage: EpisodePackageV2 | null;
   workpieceId: string | null;
   workspaceId: string | null;
@@ -38,6 +40,7 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
       args.setThumbnailGenerateError("Select an Episode before editing visuals.");
       return null;
     }
+    const operation = args.operationAuthority.begin("visuals.persist.thumbnail");
     const normalizedEpisodePackage = ensureLaunchVariantsV2(nextEpisodePackage);
     const saved = await saveEpisodePackageForWorkpiece({
       workpieceId: episodeId,
@@ -46,6 +49,7 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
       eventName,
       eventPayload,
     });
+    if (!args.operationAuthority.isCurrent(operation)) return null;
     if (!saved.ok) {
       args.setThumbnailGenerateError(saved.error);
       return null;
@@ -79,6 +83,7 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
         error: "Workspace or workpiece is missing.",
       };
     }
+    const operation = args.operationAuthority.begin("visuals.persist.image-map");
 
     const expectedMetadataUpdatedAt = input.skipOptimisticConflictCheck
       ? undefined
@@ -95,6 +100,9 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
         ? { expectedMetadataUpdatedAt }
         : {}),
     });
+    if (!args.operationAuthority.isCurrent(operation)) {
+      return { ok: false, error: "Image-map save completion is stale." };
+    }
 
     if (!saved.ok) {
       if (saved.reason === "conflict" && saved.latest) {
@@ -106,6 +114,9 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
           spokenBeats: input.spokenBeats ?? args.episodePackage.spoken_beats,
           expectedMetadataUpdatedAt: latest.metadataUpdatedAt,
         });
+        if (!args.operationAuthority.isCurrent(operation)) {
+          return { ok: false, error: "Image-map save completion is stale." };
+        }
         if (retry.ok) {
           const retriedEpisodePackage = replaceEpisodePackageImageMap(
             args.episodePackage,
@@ -196,6 +207,7 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
     if (!episodeId || !workspace) {
       return { ok: false, error: "Workspace or workpiece is missing." };
     }
+    const operation = args.operationAuthority.begin("visuals.persist.broll");
     const nextEpisodePackage = ensureBrollPlanV2({
       ...baseEpisodePackage,
       broll_plan: {
@@ -210,6 +222,9 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
       eventName: input.eventName,
       eventPayload: input.eventPayload,
     });
+    if (!args.operationAuthority.isCurrent(operation)) {
+      return { ok: false, error: "B-roll save completion is stale." };
+    }
     if (!saved.ok) {
       return { ok: false, error: saved.error };
     }
@@ -236,6 +251,7 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
     if (!episodeId || !workspace) {
       return { ok: false, error: "Workspace or workpiece is missing." };
     }
+    const operation = args.operationAuthority.begin("visuals.persist.media-map");
     const nextEpisodePackage: EpisodePackageV2 = {
       ...baseEpisodePackage,
       media_map: {
@@ -250,6 +266,9 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
       eventName: input.eventName,
       eventPayload: input.eventPayload,
     });
+    if (!args.operationAuthority.isCurrent(operation)) {
+      return { ok: false, error: "Media-map save completion is stale." };
+    }
     if (!savedEpisode.ok) {
       return { ok: false, error: savedEpisode.error };
     }
@@ -262,6 +281,9 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
         script_version_id: savedEpisode.episodePackage.media_map.script_version_id,
       },
     });
+    if (!args.operationAuthority.isCurrent(operation)) {
+      return { ok: false, error: "Media-map artifact completion is stale." };
+    }
     if (!mediaMapSaved.ok) {
       return { ok: false, error: mediaMapSaved.error };
     }
@@ -288,6 +310,7 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
     if (!episodeId || !workspace) {
       return { ok: false, error: "Workspace or workpiece is missing." };
     }
+    const operation = args.operationAuthority.begin("visuals.persist.reference-clip");
     const nextEpisodePackage = ensureReferenceClipPlanV2({
       ...baseEpisodePackage,
       cdc_plan: {
@@ -302,6 +325,9 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
       eventName: input.eventName,
       eventPayload: input.eventPayload,
     });
+    if (!args.operationAuthority.isCurrent(operation)) {
+      return { ok: false, error: "Reference-clip save completion is stale." };
+    }
     if (!saved.ok) {
       return { ok: false, error: saved.error };
     }
