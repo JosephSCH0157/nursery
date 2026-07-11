@@ -6,6 +6,7 @@
     "dev": "pnpm --filter nursery dev",
     "test": "pnpm test:hammer",
     "test:hammer": "pnpm --filter @forge/hammer run types && pnpm --filter @forge/hammer run test:all",
+    "test:hammer:coverage": "pnpm --filter @forge/hammer run types && pnpm --filter @forge/hammer run test:coverage",
     "build:hammer": "pnpm --filter @forge/hammer run build",
     "lint:hammer": "pnpm --filter @forge/hammer run lint",
     "build": "pnpm --filter @forge/ui-mobile build && pnpm -r --filter=!@forge/ui-mobile build",

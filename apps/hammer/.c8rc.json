@@ -1,0 +1,21 @@
+{
+  "all": true,
+  "clean": true,
+  "exclude": [
+    "src/**/*.d.ts",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/__tests__/**",
+    "src/dev/**"
+  ],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "reporter": [
+    "text-summary",
+    "json-summary"
+  ],
+  "reports-dir": "node_modules/.hammer-coverage",
+  "temp-directory": "node_modules/.hammer-coverage/tmp"
+}

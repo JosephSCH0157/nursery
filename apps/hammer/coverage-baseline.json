@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "description": "Initial c8 coverage floors for all Hammer production source and authority-critical contracts. Percentages may improve but must not regress.",
+  "productionFileCountAtBaseline": 195,
+  "global": {
+    "lines": 37.38,
+    "statements": 37.38,
+    "functions": 78.26,
+    "branches": 66.82
+  },
+  "criticalFiles": {
+    "src/editor/hammerAuthorityOps.ts": {
+      "lines": 80.46,
+      "statements": 80.46,
+      "functions": 77.77,
+      "branches": 68.81
+    },
+    "src/editor/hammerOpenHydration.ts": {
+      "lines": 75.75,
+      "statements": 75.75,
+      "functions": 83.33,
+      "branches": 55.55
+    },
+    "src/editor/hammerPlacementPersistenceGuard.ts": {
+      "lines": 95,
+      "statements": 95,
+      "functions": 100,
+      "branches": 46.66
+    },
+    "src/editor/hammerRenderAssembly.ts": {
+      "lines": 92.65,
+      "statements": 92.65,
+      "functions": 100,
+      "branches": 81.13
+    },
+    "src/editor/hammerTranscriptSelection.ts": {
+      "lines": 95.89,
+      "statements": 95.89,
+      "functions": 100,
+      "branches": 76.19
+    },
+    "src/editor/hammerWorkspaceHistory.ts": {
+      "lines": 78.97,
+      "statements": 78.97,
+      "functions": 86.27,
+      "branches": 61.42
+    },
+    "src/features/auto-placement/maskAwarePlacement.ts": {
+      "lines": 96.09,
+      "statements": 96.09,
+      "functions": 100,
+      "branches": 85.54
+    },
+    "src/features/auto-placement/placementScoring.ts": {
+      "lines": 98.71,
+      "statements": 98.71,
+      "functions": 100,
+      "branches": 92.75
+    },
+    "src/features/auto-placement/reservedZones.ts": {
+      "lines": 85.41,
+      "statements": 85.41,
+      "functions": 91.66,
+      "branches": 87.5
+    },
+    "src/features/eye-contact-assist/analysis/faceAnalysisAuthority.ts": {
+      "lines": 100,
+      "statements": 100,
+      "functions": 84.61,
+      "branches": 87.87
+    },
+    "src/features/visual-effects/matte/simpleMatteRefiner.ts": {
+      "lines": 97.55,
+      "statements": 97.55,
+      "functions": 90.9,
+      "branches": 72
+    },
+    "src/features/visual-effects/matte/temporalMatteSmoothing.ts": {
+      "lines": 94.11,
+      "statements": 94.11,
+      "functions": 100,
+      "branches": 71.42
+    },
+    "src/media/hammerMediaBackbone.ts": {
+      "lines": 93.96,
+      "statements": 93.96,
+      "functions": 100,
+      "branches": 84.37
+    },
+    "src/media/resolveMedia.ts": {
+      "lines": 56.65,
+      "statements": 56.65,
+      "functions": 77.77,
+      "branches": 69.23
+    },
+    "src/persistence/hammerPersistence.ts": {
+      "lines": 68.45,
+      "statements": 68.45,
+      "functions": 74.41,
+      "branches": 70.35
+    },
+    "src/transcript/hammerAnvilSnapshotRecovery.ts": {
+      "lines": 98.8,
+      "statements": 98.8,
+      "functions": 100,
+      "branches": 71.42
+    },
+    "src/visuals/model/hammerVisualMigrations.ts": {
+      "lines": 97.33,
+      "statements": 97.33,
+      "functions": 100,
+      "branches": 53.62
+    },
+    "src/visuals/persistence/hammerVisualTimelinePersistence.ts": {
+      "lines": 65.59,
+      "statements": 65.59,
+      "functions": 66.66,
+      "branches": 47.05
+    }
+  }
+}
