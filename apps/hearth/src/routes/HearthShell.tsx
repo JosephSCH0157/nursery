@@ -4459,7 +4459,6 @@ export default function HearthShell({
   const refreshEpisodePackage = useEpisodePackageLoader({
     operationAuthority,
     workpieceId,
-    replaceEpisodePackageImageMap,
     resetReleasePrepState,
     setEpisodePackage,
     setImageMapMetadataUpdatedAt,

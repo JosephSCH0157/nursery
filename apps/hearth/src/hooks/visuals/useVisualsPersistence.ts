@@ -16,6 +16,7 @@ import { saveWorkpieceImageMap } from "../../lib/hearth-image-map-repo";
 import { syncMediaMapImageEntriesFromImageMap } from "../../lib/hearth-media-map-sync";
 import { saveWorkpieceEpisodeMediaMap } from "../../lib/hearth-media-map-repo";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
+import { retainCanonicalVisualArtifacts } from "../../lib/hearth-visual-artifact-authority";
 
 type UseVisualsPersistenceArgs = {
   operationAuthority: HearthOperationAuthority;
@@ -54,9 +55,13 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
       args.setThumbnailGenerateError(saved.error);
       return null;
     }
-    args.setEpisodePackage(saved.episodePackage);
+    const authoritativeEpisodePackage = retainCanonicalVisualArtifacts(
+      saved.episodePackage,
+      normalizedEpisodePackage,
+    );
+    args.setEpisodePackage(authoritativeEpisodePackage);
     args.setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
-    return saved.episodePackage;
+    return authoritativeEpisodePackage;
   }, [args]);
 
   const persistImageMapEntries = useCallback(async (input: {
@@ -228,9 +233,13 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
     if (!saved.ok) {
       return { ok: false, error: saved.error };
     }
-    args.setEpisodePackage(saved.episodePackage);
+    const authoritativeEpisodePackage = retainCanonicalVisualArtifacts(
+      saved.episodePackage,
+      nextEpisodePackage,
+    );
+    args.setEpisodePackage(authoritativeEpisodePackage);
     args.setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
-    return { ok: true, episodePackage: saved.episodePackage };
+    return { ok: true, episodePackage: authoritativeEpisodePackage };
   }, [args]);
 
   const persistMediaMap = useCallback(async (input: {
@@ -252,34 +261,19 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
       return { ok: false, error: "Workspace or workpiece is missing." };
     }
     const operation = args.operationAuthority.begin("visuals.persist.media-map");
+    const canonicalMediaMap: EpisodeMediaMap = {
+      ...input.map,
+      workpiece_id: episodeId,
+    };
     const nextEpisodePackage: EpisodePackageV2 = {
       ...baseEpisodePackage,
-      media_map: {
-        ...input.map,
-        workpiece_id: episodeId,
-      },
+      media_map: canonicalMediaMap,
     };
-    const savedEpisode = await saveEpisodePackageForWorkpiece({
-      workpieceId: episodeId,
-      workspaceId: workspace,
-      episodePackage: ensureLaunchVariantsV2(nextEpisodePackage),
-      eventName: input.eventName,
-      eventPayload: input.eventPayload,
-    });
-    if (!args.operationAuthority.isCurrent(operation)) {
-      return { ok: false, error: "Media-map save completion is stale." };
-    }
-    if (!savedEpisode.ok) {
-      return { ok: false, error: savedEpisode.error };
-    }
     const mediaMapSaved = await saveWorkpieceEpisodeMediaMap({
       workpieceId: episodeId,
-      mediaMap: savedEpisode.episodePackage.media_map,
-      eventName: "hearth.media_map.artifact.saved.v1",
-      eventPayload: {
-        entry_count: savedEpisode.episodePackage.media_map.entries.length,
-        script_version_id: savedEpisode.episodePackage.media_map.script_version_id,
-      },
+      mediaMap: canonicalMediaMap,
+      eventName: input.eventName,
+      eventPayload: input.eventPayload,
     });
     if (!args.operationAuthority.isCurrent(operation)) {
       return { ok: false, error: "Media-map artifact completion is stale." };
@@ -287,9 +281,12 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
     if (!mediaMapSaved.ok) {
       return { ok: false, error: mediaMapSaved.error };
     }
-    args.setEpisodePackage(savedEpisode.episodePackage);
-    args.setImageMapMetadataUpdatedAt(savedEpisode.metadataUpdatedAt);
-    return { ok: true, episodePackage: savedEpisode.episodePackage };
+    const acknowledgedEpisodePackage = {
+      ...nextEpisodePackage,
+      media_map: mediaMapSaved.mediaMap,
+    };
+    args.setEpisodePackage(acknowledgedEpisodePackage);
+    return { ok: true, episodePackage: acknowledgedEpisodePackage };
   }, [args]);
 
   const persistReferenceClipPlan = useCallback(async (input: {
@@ -331,9 +328,13 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
     if (!saved.ok) {
       return { ok: false, error: saved.error };
     }
-    args.setEpisodePackage(saved.episodePackage);
+    const authoritativeEpisodePackage = retainCanonicalVisualArtifacts(
+      saved.episodePackage,
+      nextEpisodePackage,
+    );
+    args.setEpisodePackage(authoritativeEpisodePackage);
     args.setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
-    return { ok: true, episodePackage: saved.episodePackage };
+    return { ok: true, episodePackage: authoritativeEpisodePackage };
   }, [args]);
 
   return {

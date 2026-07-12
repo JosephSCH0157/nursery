@@ -10,6 +10,7 @@ import {
 import { resolveAiLaneFromStorage, resolveForgeUserAccessToken } from "./hearth-chat-api";
 import { recordHearthBandwidthFetch } from "./hearthBandwidthTelemetry";
 import { tongsFetch } from "./tongs-fetch";
+import { retainPersistedArtifactsForMetadataCommit } from "./hearth-visual-artifact-authority";
 
 type GeneratedAsset = {
   id: string;
@@ -459,11 +460,16 @@ export async function saveEpisodePackageForWorkpiece(args: {
     notes: null,
     origin: null,
   });
+  const persistedEpisodePackage = hydrateEpisodePackageV2(metadata);
+  const metadataOwnedEpisodePackage = retainPersistedArtifactsForMetadataCommit(
+    args.episodePackage,
+    persistedEpisodePackage,
+  );
 
   const nextMetadata = mirrorEpisodePackageV2ToLegacy({
     ...metadata,
     updated_at: nowIso,
-    episode: args.episodePackage,
+    episode: metadataOwnedEpisodePackage,
   });
 
   const committed = await commitMetadataDocument({

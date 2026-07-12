@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import type {
   EpisodePackageV2,
   EpisodeSeoTitle,
@@ -8,6 +8,7 @@ import {
   normalizeSeoTags,
 } from "../../lib/episode-package-v2";
 import { saveEpisodePackageForWorkpiece } from "../../lib/hearth-thumbnail-api";
+import { retainCanonicalVisualArtifacts } from "../../lib/hearth-visual-artifact-authority";
 
 type MetadataPreviewMode = "youtube" | "rss" | "plain";
 type MetadataSaveState = "saved" | "editing" | "saving" | "error";
@@ -19,7 +20,7 @@ type UseMetadataWorkspaceArgs = {
   workpieceId: string | null;
   workspaceId: string | null;
   episodePackage: EpisodePackageV2 | null;
-  setEpisodePackage: (value: EpisodePackageV2) => void;
+  setEpisodePackage: Dispatch<SetStateAction<EpisodePackageV2 | null>>;
   setImageMapMetadataUpdatedAt: (value: string | null) => void;
   parseTagInput: (input: string) => string[];
   normalizeTag: (tag: string) => string | null;
@@ -190,7 +191,11 @@ export function useMetadataWorkspace(args: UseMetadataWorkspaceArgs) {
         return;
       }
 
-      setEpisodePackage(saved.episodePackage);
+      const authoritativeEpisodePackage = retainCanonicalVisualArtifacts(
+        saved.episodePackage,
+        nextEpisodePackage,
+      );
+      setEpisodePackage(authoritativeEpisodePackage);
       setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
       setMetadataSaveState("saved");
       setMetadataSaveError(null);

@@ -19,6 +19,7 @@ import type {
 import { DEFAULT_HEARTH_VISUAL_STYLE } from "../../lib/hearth-visual-styles";
 import { DEFAULT_TITLE_STYLE } from "../../lib/hearth-title-fonts";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
+import { retainCanonicalVisualArtifacts } from "../../lib/hearth-visual-artifact-authority";
 
 type PersistThumbnailEpisodePackage = (
   nextEpisodePackage: EpisodePackageV2,
@@ -172,12 +173,15 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
         return;
       }
 
-      let nextEpisodePackage = generated.updatedEpisodePackage;
+      let nextEpisodePackage = retainCanonicalVisualArtifacts(
+        generated.updatedEpisodePackage,
+        args.episodePackage,
+      );
       const refreshedImageMap = await getWorkpieceImageMap(episodeId);
       if (!args.operationAuthority.isCurrent(operation)) return;
       if (refreshedImageMap.ok) {
         nextEpisodePackage = args.replaceEpisodePackageImageMap(
-          generated.updatedEpisodePackage,
+          nextEpisodePackage,
           refreshedImageMap.imageMap.entries,
           refreshedImageMap.imageMap.spokenBeats,
         );
