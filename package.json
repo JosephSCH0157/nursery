@@ -5,9 +5,10 @@
   "scripts": {
     "dev": "pnpm --filter nursery dev",
     "test": "pnpm test:hammer",
-    "test:hammer": "pnpm --filter @forge/hammer run types && pnpm --filter @forge/hammer run test:all",
-    "test:hammer:coverage": "pnpm --filter @forge/hammer run types && pnpm --filter @forge/hammer run test:coverage",
-    "build:hammer": "pnpm --filter @forge/hammer run build",
+    "build:hammer:deps": "pnpm --filter @forge/shared build && pnpm --filter @forge/tongs build",
+    "test:hammer": "pnpm build:hammer:deps && pnpm --filter @forge/hammer run types && pnpm --filter @forge/hammer run test:all",
+    "test:hammer:coverage": "pnpm build:hammer:deps && pnpm --filter @forge/hammer run types && pnpm --filter @forge/hammer run test:coverage",
+    "build:hammer": "pnpm build:hammer:deps && pnpm --filter @forge/hammer run build",
     "lint:hammer": "pnpm --filter @forge/hammer run lint",
     "build": "pnpm --filter @forge/ui-mobile build && pnpm -r --filter=!@forge/ui-mobile build",
     "lint": "pnpm --filter nursery lint && pnpm --filter @forge/tongs lint",

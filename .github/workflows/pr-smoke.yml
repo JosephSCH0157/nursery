@@ -226,10 +226,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Prebuild @forge/tongs (fresh emit)
+      - name: Prebuild @forge/shared and @forge/tongs (fresh emit)
         run: |
+          rm -f packages/shared/tsconfig.tsbuildinfo
           rm -f packages/tongs/tsconfig.tsbuildinfo
+          pnpm --filter @forge/shared build
           pnpm --filter @forge/tongs build
+          test -f packages/shared/dist/script-tags/index.d.ts
           test -f packages/tongs/dist/index.d.ts
 
       - name: Run smoke:core
