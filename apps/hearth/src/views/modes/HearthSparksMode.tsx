@@ -32,6 +32,7 @@ type HearthSparksModeProps = {
   forgeError: string | null;
   visibleSparks: BarStockSpark[];
   isSparksLoading: boolean;
+  sparkDiscoveryError: string | null;
   setSelectedSparkId: (id: string) => void;
   onActivateSpark: (spark: BarStockSpark) => void | Promise<void>;
   formatSparkDate: (value: number | undefined) => string;
@@ -64,6 +65,7 @@ export default function HearthSparksMode({
   forgeError,
   visibleSparks,
   isSparksLoading,
+  sparkDiscoveryError,
   setSelectedSparkId,
   onActivateSpark,
   formatSparkDate,
@@ -180,7 +182,7 @@ export default function HearthSparksMode({
               <p className="hs-home-empty">
                 {isSparksLoading
                   ? "Loading sparks from Bar Stock..."
-                  : "No sparks yet. Capture ideas in Bar Stock first."}
+                  : sparkDiscoveryError ?? "No sparks yet. Capture ideas in Bar Stock first."}
               </p>
             ) : (
               visibleSparks.map((spark) => {

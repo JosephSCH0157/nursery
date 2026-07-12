@@ -4,6 +4,7 @@ import type {
   EpisodePackageV2,
   EpisodeSpokenBeat,
 } from "./episode-package-v2";
+import { createEmptyEpisodePackageV2 } from "./episode-package-v2";
 
 export type CanonicalImageMapArtifact = {
   entries: readonly EpisodeImageMapEntry[];
@@ -12,9 +13,14 @@ export type CanonicalImageMapArtifact = {
 
 export type CanonicalVisualArtifactInputs = {
   metadataPackage: EpisodePackageV2;
-  imageMap?: CanonicalImageMapArtifact | null;
-  mediaMap?: EpisodeMediaMap | null;
+  imageMap: CanonicalArtifactRead<CanonicalImageMapArtifact>;
+  mediaMap: CanonicalArtifactRead<EpisodeMediaMap>;
 };
+
+export type CanonicalArtifactRead<T> =
+  | { kind: "available"; value: T }
+  | { kind: "missing" }
+  | { kind: "unavailable" };
 
 /**
  * Episode metadata owns the package shell. The image-map endpoint and media-map
@@ -24,22 +30,28 @@ export type CanonicalVisualArtifactInputs = {
 export function resolveCanonicalVisualArtifacts(
   input: CanonicalVisualArtifactInputs,
 ): EpisodePackageV2 {
-  const withImageMap = input.imageMap
+  const emptyPackage = createEmptyEpisodePackageV2();
+  const withImageMap = input.imageMap.kind === "available"
     ? {
       ...input.metadataPackage,
-      spoken_beats: [...input.imageMap.spokenBeats],
+      spoken_beats: [...input.imageMap.value.spokenBeats],
       image_map: {
         ...input.metadataPackage.image_map,
-        entries: [...input.imageMap.entries],
+        entries: [...input.imageMap.value.entries],
       },
     }
-    : input.metadataPackage;
+    : input.imageMap.kind === "unavailable"
+      ? {
+        ...input.metadataPackage,
+        spoken_beats: emptyPackage.spoken_beats,
+        image_map: emptyPackage.image_map,
+      }
+      : input.metadataPackage;
 
-  if (!input.mediaMap) return withImageMap;
-  return {
-    ...withImageMap,
-    media_map: input.mediaMap,
-  };
+  if (input.mediaMap.kind === "missing") return withImageMap;
+  return input.mediaMap.kind === "available"
+    ? { ...withImageMap, media_map: input.mediaMap.value }
+    : { ...withImageMap, media_map: emptyPackage.media_map };
 }
 
 /**

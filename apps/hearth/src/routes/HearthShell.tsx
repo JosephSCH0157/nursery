@@ -1962,6 +1962,7 @@ export default function HearthShell({
   const [sparks, setSparks] = useState<BarStockSpark[]>([]);
   const [isSparksLoading, setIsSparksLoading] = useState<boolean>(() => Boolean(normalizeUuid(resolveWorkspaceId())));
   const [sparkDiscoveryWorkspaceId, setSparkDiscoveryWorkspaceId] = useState<string | null>(null);
+  const [sparkDiscoveryError, setSparkDiscoveryError] = useState<string | null>(null);
   const [selectedSparkId, setSelectedSparkId] = useState<string | null>(null);
   const [forgeError, setForgeError] = useState<string | null>(null);
   const [isForging, setIsForging] = useState(false);
@@ -2094,6 +2095,7 @@ export default function HearthShell({
     ),
   );
   const [presenceRows, setPresenceRows] = useState<HearthWorkpiecePresence[]>([]);
+  const [presenceState, setPresenceState] = useState<"idle" | "loading" | "available" | "unavailable" | "failed">("idle");
   const [draftConflictState, setDraftConflictState] = useState<DraftConflictState | null>(null);
   const [mobileOverlayView, setMobileOverlayView] = useState<"editor" | "ready" | null>(null);
   const { acknowledgeCopy, isCopyAcknowledged } = useClipboardButtonAcks();
@@ -4975,6 +4977,7 @@ export default function HearthShell({
     const normalizedWorkpieceId = normalizeUuid(workpiece);
     if (!normalizedWorkspaceId || !normalizedWorkpieceId) {
       setPresenceRows([]);
+      setPresenceState("idle");
       return;
     }
 
@@ -4982,6 +4985,7 @@ export default function HearthShell({
     let timer: number | null = null;
 
     const syncPresence = async () => {
+      if (!cancelled) setPresenceState((previous) => previous === "available" ? previous : "loading");
       try {
         const ownPresence = await upsertHearthWorkpiecePresence({
           workspaceId: normalizedWorkspaceId,
@@ -4989,20 +4993,32 @@ export default function HearthShell({
           mode: localPresenceMode,
           displayName: activeUserDisplayName,
         });
-        if (!cancelled && ownPresence?.userId) {
+        if (cancelled) return;
+        if (ownPresence.kind !== "success") {
+          setPresenceRows([]);
+          setPresenceState(ownPresence.kind);
+          return;
+        }
+        if (ownPresence.value.userId) {
           setHearthUser((prev) => (
-            prev.userId === ownPresence.userId
+            prev.userId === ownPresence.value.userId
               ? prev
-              : { ...prev, userId: ownPresence.userId }
+              : { ...prev, userId: ownPresence.value.userId }
           ));
         }
-        const rows = await listHearthWorkpiecePresence(normalizedWorkspaceId, normalizedWorkpieceId);
-        if (!cancelled) {
-          setPresenceRows(rows);
+        const presenceResult = await listHearthWorkpiecePresence(normalizedWorkspaceId, normalizedWorkpieceId);
+        if (cancelled) return;
+        if (presenceResult.kind === "success") {
+          setPresenceRows(presenceResult.value);
+          setPresenceState("available");
+        } else {
+          setPresenceRows([]);
+          setPresenceState(presenceResult.kind);
         }
       } catch {
         if (!cancelled) {
           setPresenceRows([]);
+          setPresenceState("failed");
         }
       }
     };
@@ -5614,6 +5630,7 @@ export default function HearthShell({
     onWorkspaceChanged: () => {
       setSparks([]);
       setSparkDiscoveryWorkspaceId(null);
+      setSparkDiscoveryError(null);
       setIsSparksLoading(Boolean(normalizeUuid(workspaceId)));
       setWorkpieceId(null);
       setPlanningSession(null);
@@ -5641,6 +5658,7 @@ export default function HearthShell({
     workspaceId,
     sparkDiscoveryWorkspaceId,
     isSparksLoading,
+    sparkDiscoveryError,
     routeSpark,
     projectIntakeHandledRef,
     sparkIntakeHandledRef,
@@ -5670,6 +5688,7 @@ export default function HearthShell({
     setSparks,
     setSparkDiscoveryWorkspaceId,
     setIsSparksLoading,
+    setSparkDiscoveryError,
   });
 
   useEffect(() => {
@@ -6687,18 +6706,21 @@ export default function HearthShell({
   }, [isMobile]);
 
   const resolveWorkpiecePresenceBadge = useCallback((targetWorkpieceId: string): string => {
-    if (workpieceId !== targetWorkpieceId) return "Idle";
+    if (workpieceId !== targetWorkpieceId) return "Not checked";
+    if (presenceState === "loading") return "Checking...";
+    if (presenceState === "unavailable" || presenceState === "failed") return "Presence unavailable";
     if (editingPeers.length > 0) return `${activeEditorName} editing`;
     if (viewingPeers.length > 0) return `${activeViewerName} viewing`;
     return "Idle";
-  }, [activeEditorName, editingPeers.length, activeViewerName, viewingPeers.length, workpieceId]);
+  }, [activeEditorName, editingPeers.length, activeViewerName, presenceState, viewingPeers.length, workpieceId]);
 
   const resolveWorkpiecePresenceClass = useCallback((targetWorkpieceId: string): string => {
     if (workpieceId !== targetWorkpieceId) return "is-idle";
+    if (presenceState === "unavailable" || presenceState === "failed") return "is-unavailable";
     if (editingPeers.length > 0) return "is-editing";
     if (viewingPeers.length > 0) return "is-viewing";
     return "is-idle";
-  }, [editingPeers.length, viewingPeers.length, workpieceId]);
+  }, [editingPeers.length, presenceState, viewingPeers.length, workpieceId]);
 
   const renderSparksView = () => {
     return (
@@ -6727,6 +6749,7 @@ export default function HearthShell({
         forgeError={forgeError}
         visibleSparks={visibleSparks}
         isSparksLoading={isSparksLoading}
+        sparkDiscoveryError={sparkDiscoveryError}
         setSelectedSparkId={setSelectedSparkId}
         onActivateSpark={onActivateSpark}
         formatSparkDate={formatSparkDate}

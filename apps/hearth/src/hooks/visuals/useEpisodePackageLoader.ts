@@ -128,27 +128,49 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
         metadataPackage: loaded.episodePackage,
         imageMap: imageMapLoaded.ok
           ? {
-            entries: imageMapLoaded.imageMap.entries,
-            spokenBeats: imageMapLoaded.imageMap.spokenBeats,
+            kind: "available",
+            value: {
+              entries: imageMapLoaded.imageMap.entries,
+              spokenBeats: imageMapLoaded.imageMap.spokenBeats,
+            },
           }
-          : null,
+          : { kind: "unavailable" },
         mediaMap: mediaMapLoaded.ok && mediaMapLoaded.mediaMap
           ? {
-            ...mediaMapLoaded.mediaMap,
-            workpiece_id: episodeId,
+            kind: "available",
+            value: {
+              ...mediaMapLoaded.mediaMap,
+              workpiece_id: episodeId,
+            },
           }
-          : null,
+          : mediaMapLoaded.ok
+            ? { kind: "missing" }
+            : { kind: "unavailable" },
       });
       if (imageMapLoaded.ok) {
         currentArgs.setImageMapMetadataUpdatedAt(imageMapLoaded.imageMap.metadataUpdatedAt);
+        currentArgs.setImageMapSaveState("saved");
+        currentArgs.setImageMapSaveError(null);
       } else {
         currentArgs.setImageMapMetadataUpdatedAt(null);
+        currentArgs.setImageMapSaveState("error");
+        currentArgs.setImageMapSaveError(
+          "error" in imageMapLoaded && typeof imageMapLoaded.error === "string"
+            ? imageMapLoaded.error
+            : "Image-map discovery is currently unavailable.",
+        );
+      }
+      if (mediaMapLoaded.ok) {
+        currentArgs.setMediaMapSaveState("saved");
+        currentArgs.setMediaMapSaveError(null);
+      } else {
+        currentArgs.setMediaMapSaveState("error");
+        currentArgs.setMediaMapSaveError(mediaMapLoaded.error);
       }
 
       currentArgs.setEpisodePackage(nextEpisodePackage);
       artifactStateWorkpieceIdRef.current = episodeId;
       currentArgs.setThumbnailGenerateError(null);
-      currentArgs.setImageMapSaveError(null);
       const versions = nextEpisodePackage.thumbnail.versions;
       const preferredVersionId = nextEpisodePackage.thumbnail.primary_version_id
         ?? versions[versions.length - 1]?.id

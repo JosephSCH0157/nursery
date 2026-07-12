@@ -2,6 +2,7 @@ import { useEffect, type Dispatch, type SetStateAction } from "react";
 import type { BarStockSpark } from "../lib/barstock-sparks";
 import { isBarStockKey } from "../lib/barstock-sparks";
 import { listHearthBarStockSparks } from "../lib/hearth-barstock-sparks";
+import { describeHearthDependencyFailure } from "../lib/hearth-dependency-state";
 
 type UseHearthSparkDiscoveryArgs = {
   workspaceId: string | null;
@@ -9,6 +10,7 @@ type UseHearthSparkDiscoveryArgs = {
   setSparks: Dispatch<SetStateAction<BarStockSpark[]>>;
   setSparkDiscoveryWorkspaceId: Dispatch<SetStateAction<string | null>>;
   setIsSparksLoading: Dispatch<SetStateAction<boolean>>;
+  setSparkDiscoveryError: Dispatch<SetStateAction<string | null>>;
 };
 
 export function useHearthSparkDiscovery(args: UseHearthSparkDiscoveryArgs) {
@@ -22,20 +24,30 @@ export function useHearthSparkDiscovery(args: UseHearthSparkDiscoveryArgs) {
           args.setSparks([]);
           args.setSparkDiscoveryWorkspaceId(null);
           args.setIsSparksLoading(false);
+          args.setSparkDiscoveryError(null);
         }
         return;
       }
 
-      if (!cancelled) args.setIsSparksLoading(true);
+      if (!cancelled) {
+        args.setIsSparksLoading(true);
+        args.setSparkDiscoveryError(null);
+      }
       try {
         const remote = await listHearthBarStockSparks(normalizedWorkspaceId);
         if (cancelled) return;
         args.setSparks(remote);
-      } catch {
+        args.setSparkDiscoveryWorkspaceId(normalizedWorkspaceId);
+      } catch (error) {
         if (cancelled) return;
+        args.setSparks([]);
+        args.setSparkDiscoveryWorkspaceId(null);
+        args.setSparkDiscoveryError(describeHearthDependencyFailure(
+          error,
+          "Bar Stock spark discovery is currently unavailable.",
+        ));
       } finally {
         if (!cancelled) {
-          args.setSparkDiscoveryWorkspaceId(normalizedWorkspaceId);
           args.setIsSparksLoading(false);
         }
       }
@@ -55,6 +67,7 @@ export function useHearthSparkDiscovery(args: UseHearthSparkDiscoveryArgs) {
     args.normalizeUuid,
     args.setIsSparksLoading,
     args.setSparkDiscoveryWorkspaceId,
+    args.setSparkDiscoveryError,
     args.setSparks,
     args.workspaceId,
   ]);

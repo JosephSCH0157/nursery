@@ -48,10 +48,19 @@ function readCanonicalCommitUpdatedAt(payload: unknown, expectedPath: string): s
 }
 
 export async function readWorkpieceEpisodeMediaMap(workpieceId: string): Promise<MediaMapReadResult> {
-  const response = await tongsFetch(
-    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(HEARTH_MEDIA_MAP_PATH)}`,
-    { method: "GET" },
-  );
+  let response: Response;
+  try {
+    response = await tongsFetch(
+      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(HEARTH_MEDIA_MAP_PATH)}`,
+      { method: "GET" },
+    );
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      error: "Unable to read Episode Media Map.",
+    };
+  }
   const payload = await readJsonBody(response);
   if (response.status === 404) {
     return { ok: true, mediaMap: null };

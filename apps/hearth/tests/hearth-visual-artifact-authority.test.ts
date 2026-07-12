@@ -81,8 +81,8 @@ test("visual artifact authority: canonical standalone artifacts defeat usable me
 
   const resolved = resolveCanonicalVisualArtifacts({
     metadataPackage,
-    imageMap: { entries: [canonicalImage], spokenBeats: [] },
-    mediaMap: canonicalMedia,
+    imageMap: { kind: "available", value: { entries: [canonicalImage], spokenBeats: [] } },
+    mediaMap: { kind: "available", value: canonicalMedia },
   });
 
   assert.equal(resolved.image_map.entries[0]?.id, "canonical-image");
@@ -98,11 +98,29 @@ test("visual artifact authority: absent standalone media retains the legacy meta
 
   const resolved = resolveCanonicalVisualArtifacts({
     metadataPackage,
-    imageMap: null,
-    mediaMap: null,
+    imageMap: { kind: "missing" },
+    mediaMap: { kind: "missing" },
   });
 
   assert.equal(resolved.media_map.id, "legacy-media");
+});
+
+test("visual artifact authority: unavailable canonical reads never masquerade as legacy success", () => {
+  const metadataPackage = {
+    ...createEmptyEpisodePackageV2(),
+    image_map: { entries: [createImageEntry("legacy-image")] },
+    media_map: createMediaMap("legacy-media"),
+  };
+
+  const resolved = resolveCanonicalVisualArtifacts({
+    metadataPackage,
+    imageMap: { kind: "unavailable" },
+    mediaMap: { kind: "unavailable" },
+  });
+
+  assert.deepEqual(resolved.image_map.entries, []);
+  assert.deepEqual(resolved.media_map.entries, []);
+  assert.notEqual(resolved.media_map.id, "legacy-media");
 });
 
 test("visual artifact authority: metadata acknowledgements cannot replace canonical working artifacts", () => {

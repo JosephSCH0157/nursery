@@ -104,7 +104,7 @@ test("listHearthAttachments returns normalized attachment records on success", a
   }
 });
 
-test("listHearthAttachments returns empty array on 404", async () => {
+test("listHearthAttachments reports unavailable on 404", async () => {
   const restoreWindow = installWindowAuthStub();
   const restore = installFetchStub(() =>
     Promise.resolve(new Response(null, { status: 404 })),
@@ -115,9 +115,9 @@ test("listHearthAttachments returns empty array on 404", async () => {
       workspaceId: "11111111-1111-4111-8111-111111111111",
       episodeId: "22222222-2222-4222-8222-222222222222",
     });
-    assert.ok(result.ok);
-    if (!result.ok) return;
-    assert.equal(result.attachments.length, 0);
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.equal(result.reason, "unavailable");
   } finally {
     restore();
     restoreWindow();

@@ -13,6 +13,11 @@ export type HearthWorkpiecePresence = {
   lastSeenAt: string;
 };
 
+export type HearthPresenceResult<T> =
+  | { kind: "success"; value: T }
+  | { kind: "unavailable"; reason: string }
+  | { kind: "failed"; error: string };
+
 type PresenceApiRow = {
   workspace_id?: unknown;
   workpiece_id?: unknown;
@@ -67,12 +72,13 @@ function normalizePresenceRow(row: unknown): HearthWorkpiecePresence | null {
   };
 }
 
-function normalizePresenceListPayload(body: unknown): HearthWorkpiecePresence[] {
+function normalizePresenceListPayload(body: unknown): HearthWorkpiecePresence[] | null {
   const rows = (body as { data?: { presence?: unknown } })?.data?.presence;
-  if (!Array.isArray(rows)) return [];
-  return rows
+  if (!Array.isArray(rows)) return null;
+  const normalized = rows
     .map((entry) => normalizePresenceRow(entry))
     .filter((entry): entry is HearthWorkpiecePresence => Boolean(entry));
+  return rows.length > 0 && normalized.length === 0 ? null : normalized;
 }
 
 function normalizePresencePayload(body: unknown): HearthWorkpiecePresence | null {
@@ -83,23 +89,39 @@ function normalizePresencePayload(body: unknown): HearthWorkpiecePresence | null
 export async function listHearthWorkpiecePresence(
   workspaceId: string,
   workpieceId: string,
-): Promise<HearthWorkpiecePresence[]> {
+): Promise<HearthPresenceResult<HearthWorkpiecePresence[]>> {
   const safeWorkspaceId = normalizeUuid(workspaceId);
   const safeWorkpieceId = normalizeUuid(workpieceId);
-  if (!safeWorkspaceId || !safeWorkpieceId) return [];
-  if (!(await hasTongsUserAccessToken())) return [];
-  const response = await tongsFetch(
-    `/tongs/workspaces/${encodeURIComponent(safeWorkspaceId)}/workpieces/${encodeURIComponent(safeWorkpieceId)}/presence`,
-    { method: "GET" },
-  );
-  if (!response.ok) return [];
+  if (!safeWorkspaceId || !safeWorkpieceId) {
+    return { kind: "unavailable", reason: "Presence requires a valid workspace and workpiece." };
+  }
+  if (!(await hasTongsUserAccessToken())) {
+    return { kind: "unavailable", reason: "Sign in to use team presence." };
+  }
+  let response: Response;
+  try {
+    response = await tongsFetch(
+      `/tongs/workspaces/${encodeURIComponent(safeWorkspaceId)}/workpieces/${encodeURIComponent(safeWorkpieceId)}/presence`,
+      { method: "GET" },
+    );
+  } catch {
+    return { kind: "failed", error: "Unable to refresh team presence." };
+  }
+  if (!response.ok) {
+    return response.status === 404 || response.status === 501 || response.status === 503
+      ? { kind: "unavailable", reason: "Team presence is currently unavailable." }
+      : { kind: "failed", error: "Unable to refresh team presence." };
+  }
   let body: unknown = null;
   try {
     body = await response.json();
   } catch {
-    return [];
+    return { kind: "failed", error: "Team presence returned an unreadable response." };
   }
-  return normalizePresenceListPayload(body);
+  const rows = normalizePresenceListPayload(body);
+  return rows
+    ? { kind: "success", value: rows }
+    : { kind: "failed", error: "Team presence returned a malformed response." };
 }
 
 export async function upsertHearthWorkpiecePresence(args: {
@@ -107,27 +129,43 @@ export async function upsertHearthWorkpiecePresence(args: {
   workpieceId: string;
   mode: HearthPresenceMode;
   displayName?: string | null;
-}): Promise<HearthWorkpiecePresence | null> {
+}): Promise<HearthPresenceResult<HearthWorkpiecePresence>> {
   const safeWorkspaceId = normalizeUuid(args.workspaceId);
   const safeWorkpieceId = normalizeUuid(args.workpieceId);
-  if (!safeWorkspaceId || !safeWorkpieceId) return null;
-  if (!(await hasTongsUserAccessToken())) return null;
-  const response = await tongsFetch(
-    `/tongs/workspaces/${encodeURIComponent(safeWorkspaceId)}/workpieces/${encodeURIComponent(safeWorkpieceId)}/presence`,
-    {
-      method: "PUT",
-      json: {
-        mode: args.mode,
-        display_name: args.displayName ?? null,
+  if (!safeWorkspaceId || !safeWorkpieceId) {
+    return { kind: "unavailable", reason: "Presence requires a valid workspace and workpiece." };
+  }
+  if (!(await hasTongsUserAccessToken())) {
+    return { kind: "unavailable", reason: "Sign in to use team presence." };
+  }
+  let response: Response;
+  try {
+    response = await tongsFetch(
+      `/tongs/workspaces/${encodeURIComponent(safeWorkspaceId)}/workpieces/${encodeURIComponent(safeWorkpieceId)}/presence`,
+      {
+        method: "PUT",
+        json: {
+          mode: args.mode,
+          display_name: args.displayName ?? null,
+        },
       },
-    },
-  );
-  if (!response.ok) return null;
+    );
+  } catch {
+    return { kind: "failed", error: "Unable to publish team presence." };
+  }
+  if (!response.ok) {
+    return response.status === 404 || response.status === 501 || response.status === 503
+      ? { kind: "unavailable", reason: "Team presence is currently unavailable." }
+      : { kind: "failed", error: "Unable to publish team presence." };
+  }
   let body: unknown = null;
   try {
     body = await response.json();
   } catch {
-    return null;
+    return { kind: "failed", error: "Team presence returned an unreadable response." };
   }
-  return normalizePresencePayload(body);
+  const presence = normalizePresencePayload(body);
+  return presence
+    ? { kind: "success", value: presence }
+    : { kind: "failed", error: "Team presence returned a malformed response." };
 }

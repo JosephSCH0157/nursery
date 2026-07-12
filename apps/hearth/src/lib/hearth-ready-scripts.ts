@@ -1,4 +1,8 @@
 import { tongsFetch } from "./tongs-fetch";
+import {
+  classifyHttpDependencyFailure,
+  HearthDependencyError,
+} from "./hearth-dependency-state";
 import { buildDefaultMetadataDocument, mirrorEpisodePackageV2ToLegacy } from "./episode-package-v2";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -383,20 +387,77 @@ function parseReadyScriptsPayload(payload: unknown, workspaceId: string): Hearth
 
 export async function listHearthReadyScripts(workspaceId: string): Promise<HearthReadyScript[]> {
   const safeWorkspaceId = normalizeUuid(workspaceId);
-  if (!safeWorkspaceId) return [];
+  if (!safeWorkspaceId) {
+    throw new HearthDependencyError({
+      dependency: "ready_scripts",
+      kind: "unavailable",
+      message: "Ready to Record is unavailable without a valid workspace.",
+    });
+  }
 
   const url = `/tongs/workspaces/${encodeURIComponent(safeWorkspaceId)}/ready-scripts?include_hidden=1`;
-  const response = await tongsFetch(url, { method: "GET" });
-  if (!response.ok) return [];
+  let response: Response;
+  try {
+    response = await tongsFetch(url, { method: "GET" });
+  } catch (error) {
+    throw new HearthDependencyError({
+      dependency: "ready_scripts",
+      kind: "failed",
+      message: "Failed to load Ready to Record list.",
+      cause: error,
+    });
+  }
+  if (!response.ok) {
+    throw new HearthDependencyError({
+      dependency: "ready_scripts",
+      kind: classifyHttpDependencyFailure(response.status),
+      status: response.status,
+      message: response.status === 404 || response.status === 501 || response.status === 503
+        ? "Ready to Record is currently unavailable."
+        : "Failed to load Ready to Record list.",
+    });
+  }
 
   let body: unknown = null;
   try {
     body = await response.json();
-  } catch {
-    return [];
+  } catch (error) {
+    throw new HearthDependencyError({
+      dependency: "ready_scripts",
+      kind: "failed",
+      status: response.status,
+      message: "Ready to Record returned an unreadable response.",
+      cause: error,
+    });
+  }
+  const scripts = (
+    body
+    && typeof body === "object"
+    && (body as { ok?: unknown }).ok === true
+    && (body as { data?: unknown }).data
+    && typeof (body as { data?: unknown }).data === "object"
+  )
+    ? ((body as { data: { scripts?: unknown } }).data.scripts)
+    : null;
+  if (!Array.isArray(scripts)) {
+    throw new HearthDependencyError({
+      dependency: "ready_scripts",
+      kind: "failed",
+      status: response.status,
+      message: "Ready to Record returned a malformed response.",
+    });
   }
 
-  return parseReadyScriptsPayload(body, safeWorkspaceId);
+  const parsed = parseReadyScriptsPayload(body, safeWorkspaceId);
+  if (scripts.length > 0 && parsed.length === 0) {
+    throw new HearthDependencyError({
+      dependency: "ready_scripts",
+      kind: "failed",
+      status: response.status,
+      message: "Ready to Record returned no structurally usable entries.",
+    });
+  }
+  return parsed;
 }
 
 export async function updateHearthReadyQueueState(args: {

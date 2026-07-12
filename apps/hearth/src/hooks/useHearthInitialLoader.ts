@@ -4,6 +4,7 @@ import type { Revision } from "../domain/revision";
 import type { HearthSession } from "../domain/session";
 import { listHearthWorkpieces, type HearthWorkpieceSummary } from "../lib/hearth-workpieces";
 import type { LocalSessionStore } from "../storage/local-session-store";
+import { describeHearthDependencyFailure } from "../lib/hearth-dependency-state";
 
 type UseHearthInitialLoaderArgs = {
   initialLoadKey: string;
@@ -76,15 +77,18 @@ export function useHearthInitialLoader(args: UseHearthInitialLoaderArgs) {
       }
 
       const workspace = args.normalizeUuid(args.workspaceId) ?? args.resolveWorkspaceId();
-      const [storedSession, list, loadedWorkpieces] = await Promise.all([
+      const [storedSession, list, workpiecesResult] = await Promise.all([
         args.sessionStore.getSession(),
         args.store.listDrafts(),
         workspace
           ? listHearthWorkpieces(workspace, {
               includeArchived: Boolean(args.normalizeUuid(args.workpieceIdRef.current)),
-            }).catch(() => [] as HearthWorkpieceSummary[])
-          : Promise.resolve([] as HearthWorkpieceSummary[]),
+            })
+              .then((workpieces) => ({ ok: true as const, workpieces }))
+              .catch((error: unknown) => ({ ok: false as const, error }))
+          : Promise.resolve({ ok: true as const, workpieces: [] as HearthWorkpieceSummary[] }),
       ]);
+      const loadedWorkpieces = workpiecesResult.ok ? workpiecesResult.workpieces : [];
 
       args.setSession(storedSession);
       const dedupedDrafts = args.dedupeDraftListById(list);
@@ -92,7 +96,9 @@ export function useHearthInitialLoader(args: UseHearthInitialLoaderArgs) {
       args.setDrafts(dedupedDrafts);
       args.workpieceSummariesRef.current = loadedWorkpieces;
       args.setWorkpieceSummaries(loadedWorkpieces);
-      args.setWorkpiecesError(null);
+      args.setWorkpiecesError(workpiecesResult.ok
+        ? null
+        : describeHearthDependencyFailure(workpiecesResult.error, "Failed to load Episodes."));
 
       const tab = storedSession?.uiState?.selectedTab;
       if (tab === "preview" || tab === "compare" || tab === "list") {

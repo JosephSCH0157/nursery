@@ -1,5 +1,6 @@
 import type { BarStockSpark } from "./barstock-sparks";
 import { tongsFetch } from "./tongs-fetch";
+import { classifyHttpDependencyFailure, HearthDependencyError } from "./hearth-dependency-state";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -176,15 +177,75 @@ export function parseHearthBarStockSparksPayload(
 
 export async function listHearthBarStockSparks(workspaceId: string): Promise<BarStockSpark[]> {
   const normalizedWorkspaceId = normalizeUuid(workspaceId);
-  if (!normalizedWorkspaceId) return [];
-
-  const response = await tongsFetch(`/tongs/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/sparks`, {
-    method: "GET",
-  });
-  if (!response.ok) {
-    throw new Error("barstock_spark_list_failed");
+  if (!normalizedWorkspaceId) {
+    throw new HearthDependencyError({
+      dependency: "bar_stock_sparks",
+      kind: "unavailable",
+      message: "Bar Stock spark discovery requires a valid workspace.",
+    });
   }
 
-  const body = await response.json();
-  return parseHearthBarStockSparksPayload(body);
+  let response: Response;
+  try {
+    response = await tongsFetch(`/tongs/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/sparks`, {
+      method: "GET",
+    });
+  } catch (error) {
+    throw new HearthDependencyError({
+      dependency: "bar_stock_sparks",
+      kind: "failed",
+      message: "Failed to load Bar Stock sparks.",
+      cause: error,
+    });
+  }
+  if (!response.ok) {
+    throw new HearthDependencyError({
+      dependency: "bar_stock_sparks",
+      kind: classifyHttpDependencyFailure(response.status),
+      status: response.status,
+      message: response.status === 404 || response.status === 501 || response.status === 503
+        ? "Bar Stock spark discovery is currently unavailable."
+        : "Failed to load Bar Stock sparks.",
+    });
+  }
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch (error) {
+    throw new HearthDependencyError({
+      dependency: "bar_stock_sparks",
+      kind: "failed",
+      status: response.status,
+      message: "Bar Stock spark discovery returned an unreadable response.",
+      cause: error,
+    });
+  }
+  const sparks = (
+    body
+    && typeof body === "object"
+    && (body as { ok?: unknown }).ok === true
+    && (body as { data?: unknown }).data
+    && typeof (body as { data?: unknown }).data === "object"
+  )
+    ? (body as { data: { sparks?: unknown } }).data.sparks
+    : null;
+  if (!Array.isArray(sparks)) {
+    throw new HearthDependencyError({
+      dependency: "bar_stock_sparks",
+      kind: "failed",
+      status: response.status,
+      message: "Bar Stock spark discovery returned a malformed response.",
+    });
+  }
+  const parsed = parseHearthBarStockSparksPayload(body);
+  if (sparks.length > 0 && parsed.length === 0) {
+    throw new HearthDependencyError({
+      dependency: "bar_stock_sparks",
+      kind: "failed",
+      status: response.status,
+      message: "Bar Stock spark discovery returned no structurally usable entries.",
+    });
+  }
+  return parsed;
 }

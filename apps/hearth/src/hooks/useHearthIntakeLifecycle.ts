@@ -14,6 +14,7 @@ type UseHearthIntakeLifecycleArgs = {
   workspaceId: string | null;
   sparkDiscoveryWorkspaceId: string | null;
   isSparksLoading: boolean;
+  sparkDiscoveryError: string | null;
   routeSpark: BarStockSpark | null;
   projectIntakeHandledRef: MutableRefObject<string | null>;
   sparkIntakeHandledRef: MutableRefObject<string | null>;
@@ -127,6 +128,10 @@ export function useHearthIntakeLifecycle(args: UseHearthIntakeLifecycleArgs) {
 
     const intakeKey = `${args.workspaceId ?? "none"}:${args.routeSparkId}`;
     if (args.sparkIntakeHandledRef.current === intakeKey) return;
+    if (args.sparkDiscoveryError) {
+      args.setForgeError(args.sparkDiscoveryError);
+      return;
+    }
 
     const intakeError = resolveCanonicalSparkIntakeError({
       routeProjectId: args.routeProjectId,
