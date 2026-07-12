@@ -27,7 +27,7 @@ function caseAssert(condition: boolean, context: FailureContext): void {
 
 async function run() {
   const source = await readFile(
-    "D:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceEditor.tsx",
+    new URL("../src/editor/HammerWorkspaceEditor.tsx", import.meta.url),
     "utf-8",
   );
 

@@ -27,11 +27,11 @@ function caseAssert(condition: boolean, context: FailureContext): void {
 
 async function testSnapshotAssistedOpenFlowIsPresent() {
   const source = await readFile(
-    "d:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx",
+    new URL("../src/editor/HammerWorkspaceShell.tsx", import.meta.url),
     "utf-8",
   );
   const hookSource = await readFile(
-    "d:/nursery/nursery/apps/hammer/src/editor/hammerWorkspaceShellHistoryController.ts",
+    new URL("../src/editor/hammerWorkspaceShellHistoryController.ts", import.meta.url),
     "utf-8",
   );
 
@@ -66,11 +66,11 @@ async function testSnapshotAssistedOpenFlowIsPresent() {
 
 async function testFallbackStatusMessagingIsExplicit() {
   const source = await readFile(
-    "d:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx",
+    new URL("../src/editor/HammerWorkspaceShell.tsx", import.meta.url),
     "utf-8",
   );
   const hookSource = await readFile(
-    "d:/nursery/nursery/apps/hammer/src/editor/hammerWorkspaceShellHistoryController.ts",
+    new URL("../src/editor/hammerWorkspaceShellHistoryController.ts", import.meta.url),
     "utf-8",
   );
 

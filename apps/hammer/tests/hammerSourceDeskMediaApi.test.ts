@@ -406,7 +406,7 @@ async function testPreviewErrorIncludesNormalizationDiagnostics() {
 
 async function testNoLocalStorageDependencyInApiModule() {
   const source = await readFile(
-    "d:/nursery/nursery/apps/hammer/src/lib/hammerSourceDeskMediaApi.ts",
+    new URL("../src/lib/hammerSourceDeskMediaApi.ts", import.meta.url),
     "utf-8",
   );
   assert.equal(source.includes("localStorage"), false);
