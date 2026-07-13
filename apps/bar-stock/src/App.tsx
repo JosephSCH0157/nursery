@@ -5,29 +5,26 @@ import "./App.css";
 import type { Assignment, AssignmentId, Spark, SparkStatus } from "./lib/model";
 import { makeSpark, now } from "./lib/model";
 
-import { loadSparks, removeSpark, saveSparks, upsertSpark } from "./lib/store";
+import { removeSpark, upsertSpark } from "./lib/store";
 import {
-  buildAssignmentNameFromSpark,
-  loadAssignments,
   makeAssignment,
-  saveAssignments,
   upsertAssignment
 } from "./lib/assignments";
 
 import { extractTags, normalizeTag, querySparks, type SparkQuery } from "./lib/query";
 import { copyText } from "./lib/clip";
-import { buildExportPayload, downloadJson, mergeSparks, parseImportJson } from "./lib/io";
-import { compactOutbox, drainOutbox, loadOutbox, peekOutbox, pushOutbox, saveOutbox } from "./lib/outbox";
+import { buildExportPayload, downloadJson, parseImportJson } from "./lib/io";
 import { supabase, supabaseAvailable } from "./lib/supabase";
 import {
   listGraduatedEpisodeIds,
   listMyWorkspaces,
-  listWorkspaceProjects,
-  listWorkspaceSparks,
   type Workspace,
 } from "./lib/tongs-api";
 import type { Session as SupabaseSession } from "@supabase/supabase-js";
-import { flushOutboxToTongs } from "./lib/tongs-sync";
+import { createSupabaseBarStockRepository, type BarStockSnapshot } from "./lib/bar-stock-repository";
+import { assignmentOperation, executeOperation, importLegacyBrowserData, reconcileRetryCache, sparkOperation, type OperationExecution } from "./lib/bar-stock-persistence";
+import { setEntityState, type BarStockPersistenceState, type BarStockStateMap } from "./lib/bar-stock-state";
+import { loadRetryCache } from "./lib/retry-cache";
 
 type AssignmentFilter = "all" | AssignmentId;
 
@@ -37,7 +34,6 @@ const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
 const LEGACY_WORKSPACE_KEY = "barstock_workspace_id";
 const SHOW_GRADUATED_PREF_PREFIX = "barstock_show_graduated_v1";
 const WORKPIECE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const PROJECT_ID_MAP_PREFIX = "forge_barstock_project_id_map_v2";
 
 const SPARK_STATUS_LABELS: Record<SparkStatus, string> = {
   raw: "Open",
@@ -66,52 +62,6 @@ function normalizeWorkpieceId(value: string | null | undefined): string | null {
   const trimmed = typeof value === "string" ? value.trim().toLowerCase() : "";
   if (!trimmed) return null;
   return WORKPIECE_UUID_RE.test(trimmed) ? trimmed : null;
-}
-
-function normalizedWorkspaceScope(workspaceId?: string | null): string | null {
-  const trimmed = typeof workspaceId === "string" ? workspaceId.trim().toLowerCase() : "";
-  return trimmed || null;
-}
-
-function projectIdMapKey(workspaceId?: string | null): string {
-  const scope = normalizedWorkspaceScope(workspaceId);
-  return scope ? `${PROJECT_ID_MAP_PREFIX}:${scope}` : PROJECT_ID_MAP_PREFIX;
-}
-
-function loadProjectIdMap(workspaceId?: string | null): Record<string, string> {
-  try {
-    const raw = localStorage.getItem(projectIdMapKey(workspaceId));
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return {};
-    return parsed as Record<string, string>;
-  } catch {
-    return {};
-  }
-}
-
-function saveProjectIdMap(map: Record<string, string>, workspaceId?: string | null): void {
-  try {
-    localStorage.setItem(projectIdMapKey(workspaceId), JSON.stringify(map));
-  } catch {
-    // ignore storage failures
-  }
-}
-
-function normalizeProjectId(value: string, workspaceId?: string | null): string {
-  const normalized = value.trim().toLowerCase();
-  if (WORKPIECE_UUID_RE.test(normalized)) return normalized;
-
-  const map = loadProjectIdMap(workspaceId);
-  const existing = map[normalized];
-  if (typeof existing === "string" && WORKPIECE_UUID_RE.test(existing)) {
-    return existing.toLowerCase();
-  }
-
-  const generated = crypto.randomUUID();
-  map[normalized] = generated;
-  saveProjectIdMap(map, workspaceId);
-  return generated;
 }
 
 function showGraduatedPrefKey(workspaceId: string | null, userId: string | null): string | null {
@@ -213,8 +163,8 @@ export default function App(props: BarstockAppProps = {}) {
 
   const [body, setBody] = useState("");
   const [workspaceId, setWorkspaceId] = useState<string | null>(initialWorkspaceId);
-  const [sparks, setSparks] = useState<Spark[]>(() => loadSparks(initialWorkspaceId));
-  const [assignments, setAssignments] = useState<Assignment[]>(() => loadAssignments(initialWorkspaceId));
+  const [sparks, setSparks] = useState<Spark[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [showGraduated, setShowGraduated] = useState<boolean>(() => readShowGraduatedPref(initialWorkspaceId, null));
   const [graduatedEpisodeIds, setGraduatedEpisodeIds] = useState<string[]>([]);
   const [activeAssignment, setActiveAssignment] = useState<AssignmentFilter>("all");
@@ -231,14 +181,18 @@ export default function App(props: BarstockAppProps = {}) {
   const [isBrowserOnline, setIsBrowserOnline] = useState<boolean>(() => (
     typeof navigator === "undefined" ? true : navigator.onLine
   ));
-  const [outboxCount, setOutboxCount] = useState(() => loadOutbox(initialWorkspaceId).length);
+  const [outboxCount, setOutboxCount] = useState(() => initialWorkspaceId ? loadRetryCache(localStorage, initialWorkspaceId).length : 0);
   const [syncing, setSyncing] = useState(false);
+  const [authorityReady, setAuthorityReady] = useState(false);
+  const [persistenceState, setPersistenceState] = useState<BarStockPersistenceState>({ status: "offline", message: "Authentication and workspace resolution required." });
+  const [entityStates, setEntityStates] = useState<BarStockStateMap>({});
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingBody, setEditingBody] = useState("");
   const [openMenuSparkId, setOpenMenuSparkId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const sessionUserId = session?.user.id ?? null;
+  const repository = useMemo(() => supabase ? createSupabaseBarStockRepository(supabase) : null, []);
   const syncOnline = useMemo(() => {
     if (!supabaseAvailable || !workspaceId) return false;
     if (hasExternalWorkspaceState) return externalCloudConnected === true;
@@ -282,12 +236,44 @@ export default function App(props: BarstockAppProps = {}) {
     window.setTimeout(() => setToast(null), 1200);
   }
 
-  function enqueue(op: any) {
-    pushOutbox(op, workspaceId);
-    const items = compactOutbox(loadOutbox(workspaceId));
-    saveOutbox(items, workspaceId);
-    setOutboxCount(items.length);
-  }
+  const snapshot = useMemo<BarStockSnapshot>(() => ({
+    assignments,
+    sparks,
+    links: Object.fromEntries(assignments.filter((item) => item.workpieceId).map((item) => [item.id, item.workpieceId!])),
+  }), [assignments, sparks]);
+
+  const applyExecution = useCallback((execution: OperationExecution) => {
+    const { operation, state, row, acknowledged } = execution;
+    setEntityStates((current) => setEntityState(current, operation.kind, operation.entityId, state));
+    setPersistenceState(state);
+    if (row) {
+      if (operation.kind === "assignment") setAssignments((current) => upsertAssignment(current, row as Assignment));
+      else setSparks((current) => upsertSpark(current, row as Spark));
+    } else if (acknowledged && (operation.action === "archive" || operation.action === "delete")) {
+      if (operation.kind === "assignment") setAssignments((current) => current.filter((item) => item.id !== operation.entityId));
+      else setSparks((current) => removeSpark(current, operation.entityId));
+    }
+    setOutboxCount(loadRetryCache(localStorage, operation.workspaceId).length);
+  }, []);
+
+  const commitOperation = useCallback(async (operation: Parameters<typeof executeOperation>[0]["operation"]) => {
+    if (!repository || !sessionUserId || !workspaceId) {
+      setPersistenceState({ status: "unavailable", operationId: operation.operationId, message: "Authentication, workspace, and migration 20260713170000 are required." });
+      return null;
+    }
+    setEntityStates((current) => setEntityState(current, operation.kind, operation.entityId, { status: "pending", operationId: operation.operationId }));
+    setPersistenceState({ status: "pending", operationId: operation.operationId });
+    const execution = await executeOperation({
+      repository,
+      storage: localStorage,
+      scope: { workspaceId, userId: sessionUserId },
+      operation,
+      online: syncOnline,
+      snapshot,
+    });
+    applyExecution(execution);
+    return execution;
+  }, [applyExecution, repository, sessionUserId, snapshot, syncOnline, workspaceId]);
 
   const setActiveWorkspace = useCallback((next: string | null) => {
     if (hasExternalWorkspaceState && externalWorkspaceChange) {
@@ -298,142 +284,28 @@ export default function App(props: BarstockAppProps = {}) {
     saveStoredWorkspaceId(next);
   }, [hasExternalWorkspaceState, externalWorkspaceChange]);
 
-  function normalizeAssignmentsState(inputSparks: Spark[], inputAssignments: Assignment[], scopeWorkspaceId: string | null) {
-    const assignmentById = new Map<string, Assignment>();
-    const updatedAssignments: Assignment[] = [];
-    for (const assignment of inputAssignments) {
-      const normalizedId = normalizeProjectId(assignment.id, scopeWorkspaceId);
-      const createdAt = assignment.createdAt ?? now();
-      const normalized: Assignment = {
-        ...assignment,
-        id: normalizedId,
-        name: assignment.name?.trim() || "Imported Project",
-        createdAt,
-        updatedAt: assignment.updatedAt ?? createdAt,
-      };
-      const existing = assignmentById.get(normalized.id);
-      if (!existing) {
-        assignmentById.set(normalized.id, normalized);
-        if (
-          normalized.id !== assignment.id
-          || normalized.name !== assignment.name
-          || normalized.createdAt !== assignment.createdAt
-          || normalized.updatedAt !== assignment.updatedAt
-        ) {
-          updatedAssignments.push(normalized);
-        }
-        continue;
-      }
-      const existingUpdatedAt = existing.updatedAt ?? existing.createdAt ?? 0;
-      const nextUpdatedAt = normalized.updatedAt ?? normalized.createdAt ?? 0;
-      if (nextUpdatedAt >= existingUpdatedAt) {
-        assignmentById.set(normalized.id, normalized);
-      }
-      if (
-        normalized.id !== assignment.id
-        || normalized.name !== assignment.name
-        || normalized.createdAt !== assignment.createdAt
-        || normalized.updatedAt !== assignment.updatedAt
-      ) {
-        updatedAssignments.push(normalized);
-      }
-    }
-
-    const updatedSparkById = new Map<string, Spark>();
-
-    const legacyKey = "session" + "Id";
-
-    const nextSparks = inputSparks.map((s) => {
-      const legacyId = (s as any)[legacyKey] as string | undefined;
-      const rawAssignmentId = s.assignmentId ?? legacyId;
-      const assignmentId = typeof rawAssignmentId === "string" && rawAssignmentId.trim()
-        ? normalizeProjectId(rawAssignmentId, scopeWorkspaceId)
-        : null;
-
-      if (assignmentId && !assignmentById.has(assignmentId)) {
-        const createdAt = s.createdAt ?? now();
-        const title = s.title?.trim() || buildAssignmentNameFromSpark(s.body, createdAt) || "Imported Project";
-        const assignment = makeAssignment(title, {
-          id: assignmentId,
-          createdAt,
-          updatedAt: s.updatedAt ?? createdAt,
-        });
-        assignmentById.set(assignmentId, assignment);
-        updatedAssignments.push(assignment);
-      }
-
-      if (s.assignmentId !== assignmentId || legacyId) {
-        const next = { ...s, assignmentId };
-        updatedSparkById.set(next.id, next);
-        return next;
-      }
-      return s;
-    });
-
-    const dedupedAssignments = [...assignmentById.values()];
-    const updatedSparks = [...updatedSparkById.values()];
-    const changed = updatedAssignments.length > 0
-      || updatedSparks.length > 0
-      || dedupedAssignments.length !== inputAssignments.length;
-
-    return {
-      changed,
-      sparks: nextSparks,
-      assignments: dedupedAssignments,
-      updatedSparks,
-      updatedAssignments,
-    };
-  }
-
-  useEffect(() => {
-    const res = normalizeAssignmentsState(sparks, assignments, workspaceId);
-    if (!res.changed) return;
-
-    setAssignments(res.assignments);
-    setSparks(res.sparks);
-
-    const ts = now();
-    for (const a of res.updatedAssignments) {
-      enqueue({ op: "upsert_assignment", at: ts, assignment: a });
-    }
-    for (const s of res.updatedSparks) {
-      enqueue({ op: "upsert_spark", at: ts, spark: s });
-    }
-  }, []);
-
   const onSyncNow = useCallback(async () => {
-    if (!supabaseAvailable) return popToast("Cloud sync unavailable.");
-    if (!session) return popToast("Sign in first.");
-    if (!workspaceId) return popToast("Pick a workspace first.");
-
-    const ops = peekOutbox(workspaceId);
-    if (!ops.length) return popToast("Nothing to sync.");
-
+    if (!repository || !sessionUserId || !workspaceId) return popToast("Canonical persistence unavailable.");
     try {
       setSyncing(true);
-
-      const res = await flushOutboxToTongs({
-        workspaceId,
-        userId: session.user.id,
-        ops
+      const canonical = await repository.hydrateWorkspace({ workspaceId, userId: sessionUserId });
+      const results = await reconcileRetryCache({
+        repository, storage: localStorage, scope: { workspaceId, userId: sessionUserId }, snapshot: canonical, online: syncOnline,
+        onTransition: (operation, state) => setEntityStates((current) => setEntityState(current, operation.kind, operation.entityId, state)),
       });
-
-      if (res.errors.length) {
-        console.error(res.errors);
-        popToast(`Sync had issues: ${res.errors[0]}`);
-        return;
-      }
-
-      drainOutbox(workspaceId);
-      setOutboxCount(0);
-      popToast(`Synced ${res.sent} item(s).`);
+      for (const result of results) applyExecution(result);
+      const refreshed = await repository.hydrateWorkspace({ workspaceId, userId: sessionUserId });
+      setAssignments(refreshed.assignments);
+      setSparks(refreshed.sparks);
+      setOutboxCount(loadRetryCache(localStorage, workspaceId).length);
+      popToast(`Reconciled ${results.filter((result) => result.acknowledged).length} item(s).`);
     } catch (e: any) {
       console.error(e);
       popToast(`Sync failed: ${e?.message ?? "Unknown error"}`);
     } finally {
       setSyncing(false);
     }
-  }, [session, workspaceId, supabaseAvailable]);
+  }, [applyExecution, repository, sessionUserId, syncOnline, workspaceId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -479,46 +351,48 @@ export default function App(props: BarstockAppProps = {}) {
   }, [workspaceId, session?.user.id, showGraduated]);
 
   useEffect(() => {
-    const nextSparks = loadSparks(workspaceId);
-    const nextAssignments = loadAssignments(workspaceId);
-    const nextOutbox = compactOutbox(loadOutbox(workspaceId));
-    setSparks(nextSparks);
-    setAssignments(nextAssignments);
-    saveOutbox(nextOutbox, workspaceId);
-    setOutboxCount(nextOutbox.length);
+    setAssignments([]);
+    setSparks([]);
+    setEntityStates({});
+    setAuthorityReady(false);
     setActiveAssignment("all");
-  }, [workspaceId]);
-
-  useEffect(() => {
-    saveSparks(sparks, workspaceId);
-  }, [sparks, workspaceId]);
-
-  useEffect(() => {
-    saveAssignments(assignments, workspaceId);
-  }, [assignments, workspaceId]);
-
-  useEffect(() => {
-    if (!supabaseAvailable || !sessionUserId || !workspaceId) return;
+    if (!repository || !sessionUserId || !workspaceId) {
+      setPersistenceState({ status: "offline", message: "Authentication and workspace resolution required." });
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
-        const [remoteAssignments, remoteSparks] = await Promise.all([
-          listWorkspaceProjects(workspaceId),
-          listWorkspaceSparks(workspaceId),
-        ]);
+        setPersistenceState({ status: "loading" });
+        const scope = { workspaceId, userId: sessionUserId };
+        await repository.hydrateWorkspace(scope);
+        await importLegacyBrowserData({ repository, storage: localStorage, scope, online: syncOnline });
+        const canonical = await repository.hydrateWorkspace(scope);
+        const retryResults = await reconcileRetryCache({
+          repository, storage: localStorage, scope, snapshot: canonical, online: syncOnline,
+          onTransition: (operation, state) => setEntityStates((current) => setEntityState(current, operation.kind, operation.entityId, state)),
+        });
+        const refreshed = retryResults.some((result) => result.acknowledged) ? await repository.hydrateWorkspace(scope) : canonical;
         if (cancelled) return;
-        setAssignments(remoteAssignments);
-        setSparks(remoteSparks);
+        setAssignments(refreshed.assignments);
+        setSparks(refreshed.sparks);
+        setAuthorityReady(true);
+        for (const result of retryResults) applyExecution(result);
+        setOutboxCount(loadRetryCache(localStorage, workspaceId).length);
+        const unresolved = [...retryResults].reverse().find((result) => !result.acknowledged);
+        setPersistenceState(unresolved?.state ?? { status: "saved" });
       } catch (err) {
         if (!cancelled) {
           console.warn("[bar-stock] failed to hydrate workspace state", err);
+          setAuthorityReady(false);
+          setPersistenceState({ status: "unavailable", message: err instanceof Error ? err.message : String(err) });
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [sessionUserId, supabaseAvailable, workspaceId]);
+  }, [applyExecution, repository, sessionUserId, syncOnline, workspaceId]);
 
   useEffect(() => {
     if (hasExternalWorkspaceState) return;
@@ -596,25 +470,6 @@ export default function App(props: BarstockAppProps = {}) {
     return Boolean(episodeId && graduatedEpisodeIdSet.has(episodeId));
   }, [graduatedEpisodeIdSet]);
 
-  useEffect(() => {
-    if (!graduatedEpisodeIdSet.size) return;
-    const promoted: Spark[] = [];
-    const ts = now();
-    const nextSparks = sparks.map((spark) => {
-      if (spark.status === "graduated" || spark.status === "archived") return spark;
-      const episodeId = normalizeWorkpieceId(spark.links?.hearthWorkpieceId);
-      if (!episodeId || !graduatedEpisodeIdSet.has(episodeId)) return spark;
-      const updated: Spark = { ...spark, status: "graduated", updatedAt: ts };
-      promoted.push(updated);
-      return updated;
-    });
-    if (promoted.length === 0) return;
-    setSparks(nextSparks);
-    for (const spark of promoted) {
-      enqueue({ op: "upsert_spark", at: ts, spark });
-    }
-  }, [graduatedEpisodeIdSet, sparks]);
-
   const sparksForList = useMemo(() => {
     if (showGraduated) return sparks;
     return sparks.filter((spark) => !isSparkGraduated(spark));
@@ -630,14 +485,18 @@ export default function App(props: BarstockAppProps = {}) {
     [workspaceId, workspaces],
   );
   const canWrite = useMemo(() => {
-    if (!activeWorkspaceRole) return true;
+    if (!authorityReady || !activeWorkspaceRole || !sessionUserId || !workspaceId || !repository) return false;
     return activeWorkspaceRole === "owner" || activeWorkspaceRole === "admin" || activeWorkspaceRole === "editor";
-  }, [activeWorkspaceRole]);
+  }, [activeWorkspaceRole, authorityReady, repository, sessionUserId, workspaceId]);
   const canAdd = useMemo(() => canWrite && body.trim().length > 0, [body, canWrite]);
+  const attentionCount = useMemo(
+    () => Object.values(entityStates).filter((state) => state.status !== "saved").length,
+    [entityStates],
+  );
   const mobileRoute = props.mobileRoute ?? null;
   const isMobileRoute = mobileRoute !== null;
   const mobileMode: MobileRouteMode = mobileRoute?.mode ?? "list";
-  const syncLabel = !supabaseAvailable ? "LOCAL-ONLY" : (syncOnline ? "ONLINE" : "OFFLINE");
+  const syncLabel = persistenceState.status.toUpperCase();
   const syncHint = !supabaseAvailable
     ? "Cloud sync unavailable."
     : (!workspaceId
@@ -703,7 +562,8 @@ export default function App(props: BarstockAppProps = {}) {
     const ts = now();
     const next: Spark = { ...s, ...patch, updatedAt: ts };
     setSparks(prev => upsertSpark(prev, next));
-    enqueue({ op: "upsert_spark", at: ts, spark: next });
+    if (!workspaceId) return;
+    void commitOperation(sparkOperation({ workspaceId, action: "update", spark: next }));
   }
 
   function setStatus(s: Spark, status: SparkStatus) {
@@ -722,16 +582,18 @@ export default function App(props: BarstockAppProps = {}) {
       popToast("Editor access required.");
       return;
     }
-    setSparks(prev => removeSpark(prev, id));
-    enqueue({ op: "delete_spark", at: now(), sparkId: id });
+    const spark = sparks.find((item) => item.id === id);
+    if (!spark || !workspaceId) return;
+    const intent = { ...spark, status: "archived" as const, updatedAt: now() };
+    void commitOperation(sparkOperation({ workspaceId, action: "archive", spark: intent }));
   }
 
   function confirmDeleteSpark(spark: Spark) {
     const label = spark.title?.trim() || spark.body.trim().split(/\r?\n/)[0] || "this spark";
-    const confirmed = window.confirm(`Delete ${label}? This cannot be undone.`);
+    const confirmed = window.confirm(`Archive ${label}? The canonical Workpiece, if any, will be preserved.`);
     if (!confirmed) return;
     deleteSpark(spark.id);
-    popToast("Spark deleted.");
+    popToast("Spark archive requested.");
   }
 
   function onTagClick(tag: string) {
@@ -748,7 +610,7 @@ export default function App(props: BarstockAppProps = {}) {
     if (!name) return;
     const a = makeAssignment(name);
     setAssignments(prev => upsertAssignment(prev, a));
-    enqueue({ op: "upsert_assignment", at: now(), assignment: a });
+    if (workspaceId) void commitOperation(assignmentOperation({ workspaceId, action: "create", assignment: a }));
     setNewAssignmentName("");
     setActiveAssignment(a.id);
     popToast("Project created.");
@@ -773,7 +635,7 @@ export default function App(props: BarstockAppProps = {}) {
     });
 
     setSparks(prev => upsertSpark(prev, s));
-    enqueue({ op: "upsert_spark", at: now(), spark: s });
+    if (workspaceId) void commitOperation(sparkOperation({ workspaceId, action: "create", spark: s }));
     setBody("");
   }
 
@@ -847,6 +709,10 @@ export default function App(props: BarstockAppProps = {}) {
   }, [activeAssignment, projectCountsByAssignmentId, showEmptyProjects]);
 
   async function onImportFile(file: File) {
+    if (!workspaceId || !canWrite) {
+      popToast("Authenticated editor workspace required.");
+      return;
+    }
     const text = await file.text();
     const parsed = parseImportJson(text);
 
@@ -855,11 +721,15 @@ export default function App(props: BarstockAppProps = {}) {
       return;
     }
 
-    const res = mergeSparks(sparks, parsed.sparks);
-    setSparks(res.merged);
-
-    const msgParts = [`Imported ${res.imported}`];
-    if (res.skipped) msgParts.push(`skipped ${res.skipped}`);
+    let acknowledged = 0;
+    for (const spark of parsed.sparks) {
+      setSparks((current) => upsertSpark(current, spark));
+      const result = await commitOperation(sparkOperation({ workspaceId, action: "create", spark }));
+      if (result?.acknowledged) acknowledged++;
+    }
+    const msgParts = [`Acknowledged ${acknowledged}`];
+    const pending = parsed.sparks.length - acknowledged;
+    if (pending) msgParts.push(`pending ${pending}`);
     if (parsed.errors) msgParts.push(`errors ${parsed.errors}`);
     popToast(msgParts.join(", ") + ".");
   }
@@ -1428,7 +1298,7 @@ export default function App(props: BarstockAppProps = {}) {
           <div className="barstock-sidebar__sync">
             <div className="barstock-sidebar__section-title">Forge Sync</div>
             <div className="barstock-sidebar__sync-status">
-              Status: <b>{syncLabel}</b> - Outbox: <b>{outboxCount}</b>
+              Status: <b>{syncLabel}</b> - Retry cache: <b>{outboxCount}</b> - Attention: <b>{attentionCount}</b>
             </div>
             <div className="barstock-sidebar__sync-hint">
               {syncHint}

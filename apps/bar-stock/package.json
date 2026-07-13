@@ -13,7 +13,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "types": "pnpm typecheck",
     "test:db": "node ../../scripts/verify-barstock-persistence-db.mjs",
-    "test": "tsx --test tests/store-characterization.test.ts tests/repository-contract.test.ts tests/migration-contract.test.ts"
+    "test:db:repository": "tsx tests/repository-db.integration.ts",
+    "test": "tsx --test tests/store-characterization.test.ts tests/repository-contract.test.ts tests/persistence-state.test.ts tests/legacy-import.test.ts tests/migration-contract.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",

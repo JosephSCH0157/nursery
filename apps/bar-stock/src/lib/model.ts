@@ -15,13 +15,16 @@ export type AssignmentId = string;
 export type Assignment = {
   id: AssignmentId;
   name: string;
+  revision: number;
   createdAt: number;
   updatedAt: number;
   pinned?: boolean;
+  workpieceId?: string | null;
 };
 
 export type Spark = {
   id: SparkId;
+  revision: number;
   createdAt: number; // epoch ms
   updatedAt: number; // epoch ms
 
@@ -61,6 +64,7 @@ export function makeSpark(body: string, assignmentId: AssignmentId | null, parti
   const t = now();
   const id = isUuid(partial?.id) ? partial.id : crypto.randomUUID();
   return {
+    revision: 0,
     createdAt: t,
     updatedAt: t,
     body: body.trim(),
