@@ -5,6 +5,7 @@ import {
 } from "./hammerCompositionV2";
 import type { HammerMediaProvenance } from "./hammerMediaProvenance";
 import { readAcknowledgedHammerCompositionV2, type HammerCompositionTransactionV2 } from "./hammerCompositionTransactionV2";
+import type { HammerAudioTreatmentV1 } from "./hammerAudioGraphV1";
 
 export type HammerLegacyCompositionProjectionInput = Readonly<{
   workspace_id: string;
@@ -16,7 +17,7 @@ export type HammerLegacyCompositionProjectionInput = Readonly<{
   projected_tracks: readonly HammerCompositionTrackV2[];
   transcript_id: string | null;
   caption_artifact_id: string | null;
-  audio_treatments?: readonly Readonly<Record<string, unknown>>[];
+  audio_treatments?: readonly HammerAudioTreatmentV1[];
   editorial_authority?: Readonly<Record<string, unknown>>;
   automated_placements?: readonly Readonly<{ placement_id: string; payload: Readonly<Record<string, unknown>> }>[];
   intro_clip_id?: string | null;

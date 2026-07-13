@@ -1,4 +1,5 @@
 import type { HammerMediaProvenance } from "./hammerMediaProvenance";
+import type { HammerAudioTreatmentV1 } from "./hammerAudioGraphV1";
 
 export type HammerCompositionTrackKind = "video" | "audio" | "caption" | "graphic";
 export type HammerCompositionClipKind = "media" | "caption" | "graphic" | "transition";
@@ -42,7 +43,7 @@ export type HammerCompositionV2 = Readonly<{
   tracks: readonly HammerCompositionTrackV2[];
   transcript: Readonly<{ transcript_id: string | null; corrections: readonly { segment_id: string; corrected_text: string }[] }>;
   captions: Readonly<{ artifact_id: string | null; based_on_transcript_id: string | null; stale: boolean }>;
-  audio_treatments: readonly Readonly<Record<string, unknown>>[];
+  audio_treatments: readonly HammerAudioTreatmentV1[];
   editorial_authority: Readonly<Record<string, unknown>>;
   automated_placements: readonly Readonly<{ placement_id: string; payload: Readonly<Record<string, unknown>> }>[];
   packaging: Readonly<{ intro_clip_id: string | null; outro_clip_id: string | null; thumbnail_asset_id: string | null }>;
@@ -65,7 +66,7 @@ export type HammerCompositionCommand =
   | Readonly<{ type: "set_editorial_authority"; authority: Readonly<Record<string, unknown>> }>
   | Readonly<{ type: "set_automated_placement"; placement_id: string; payload: Readonly<Record<string, unknown>> }>
   | Readonly<{ type: "set_clip_payload"; clip_id: string; payload: Readonly<Record<string, unknown>> }>
-  | Readonly<{ type: "set_audio_treatments"; treatments: readonly Readonly<Record<string, unknown>>[] }>
+  | Readonly<{ type: "set_audio_treatments"; treatments: readonly HammerAudioTreatmentV1[] }>
   | Readonly<{ type: "set_packaging"; intro_clip_id: string | null; outro_clip_id: string | null; thumbnail_asset_id: string | null }>;
 
 export type HammerCompositionHistoryEntryV2 = Readonly<{

@@ -1,6 +1,7 @@
 import { hammerStableFingerprint, type HammerCompositionTrackKind, type HammerCompositionV2 } from "./hammerCompositionV2";
 import { assertHammerCompositionV2 } from "./hammerCompositionTransactionV2";
 import { resolveHammerMediaSource, type HammerDerivedArtifact, type HammerMediaProvenance, type HammerResolvedMediaSource } from "./hammerMediaProvenance";
+import { compileHammerAudioGraphV1, type HammerAudioGraphV1 } from "./hammerAudioGraphV1";
 
 export type HammerRenderOperationKind = "video" | "audio" | "caption" | "graphic" | "transition" | "audio_treatment" | "placement";
 
@@ -30,6 +31,7 @@ export type HammerRenderPlanV1 = Readonly<{
   packaging: Readonly<{ intro_operation_id: string | null; outro_operation_id: string | null; thumbnail_asset_id: string | null }>;
   duration_sec: number;
   operations: readonly HammerRenderOperationV1[];
+  audio_graph: HammerAudioGraphV1;
   fingerprint: string;
 }>;
 
@@ -84,6 +86,7 @@ export function compileHammerRenderPlan(composition: HammerCompositionV2): Hamme
     }
   });
   const duration = Math.max(0, ...clipOperations.map((row) => row.end_sec));
+  const audioGraph = compileHammerAudioGraphV1(composition);
   const audioOperations: HammerRenderOperationV1[] = composition.audio_treatments.map((payload, index) => Object.freeze({
     operation_id: `audio-treatment:${index}`,
     kind: "audio_treatment",
@@ -128,6 +131,7 @@ export function compileHammerRenderPlan(composition: HammerCompositionV2): Hamme
     packaging: Object.freeze({ intro_operation_id: findPackageOperation(composition.packaging.intro_clip_id), outro_operation_id: findPackageOperation(composition.packaging.outro_clip_id), thumbnail_asset_id: composition.packaging.thumbnail_asset_id }),
     duration_sec: Math.max(0, ...operations.map((row) => row.end_sec)),
     operations,
+    audio_graph: audioGraph,
   };
   return Object.freeze({ ...draft, fingerprint: hammerStableFingerprint(draft) });
 }

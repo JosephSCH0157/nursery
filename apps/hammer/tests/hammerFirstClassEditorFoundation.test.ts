@@ -18,6 +18,7 @@ import { buildHammerInteractivePreviewFrameV1 } from "../src/composition/hammerI
 import { buildHammerCaptionCorrectionCommand, buildHammerRangeDeleteCommand, buildHammerSplitCommand, buildHammerTranscriptCorrectionCommand, buildHammerTranscriptMediaDeleteCommand, buildHammerTrimCommand, navigateHammerSpeaker, searchHammerTranscript, selectHammerTimelineRange, selectHammerTranscriptRange, snapHammerPlayheadFrame } from "../src/composition/hammerPodcastEditingV1";
 import { acknowledgeHammerRenderJob, createHammerRenderJob, settleHammerRenderJob } from "../src/composition/hammerRenderJobV1";
 import { buildHammerReleasePacketV2, validateHammerReleasePacketV2ForQuench } from "../src/composition/hammerReleasePacketV2";
+import { compileHammerAudioGraphV1, diagnoseHammerAudioMaster, selectHammerAudioGraphExecution, type HammerAudioTreatmentV1 } from "../src/composition/hammerAudioGraphV1";
 
 test("Tongs fails closed before any V2 artifact write when the migration is unavailable", () => {
   const source = readFileSync(new URL("../../../packages/tongs/src/workpiece-commit-api.ts", import.meta.url), "utf8");
@@ -126,7 +127,7 @@ test("all Phase 2 creative authorities participate in the same canonical history
   let history = createHammerCompositionHistory(HAMMER_COMPOSITION_FIXTURES.interview);
   const commands = [
     { type: "set_angle", clip_id: "angle-a", source_media_id: "cam-b" },
-    { type: "set_audio_treatments", treatments: [{ kind: "gain", db: -2 }] },
+    { type: "set_audio_treatments", treatments: [{ treatment_id: "gain:program", kind: "gain", scope: { kind: "program" }, bypassed: false, gain_db: -2 }] },
     { type: "set_transition", clip_id: "angle-b", transition: { kind: "crossfade" } },
     { type: "set_caption_artifact", artifact_id: "captions:2", based_on_transcript_id: "transcript:1" },
     { type: "set_editorial_authority", authority: { owner: "composition_v2" } },
@@ -199,7 +200,7 @@ test("golden semantic plan resolves ranges, angles, layers, captions, graphics, 
   const plan = compileHammerRenderPlan(composition);
   const second = compileHammerRenderPlan(JSON.parse(JSON.stringify(composition)));
   assert.equal(second.fingerprint, plan.fingerprint);
-  assert.equal(plan.fingerprint, "fnv1a:20b03748");
+  assert.equal(plan.fingerprint, "fnv1a:11265d34");
   assert.equal(plan.duration_sec, 70);
   assert.deepEqual(plan.packaging, { intro_operation_id: "clip:intro", outro_operation_id: "clip:outro", thumbnail_asset_id: "thumb:semantic" });
   assert.deepEqual(plan.operations.find((row) => row.operation_id === "clip:camera-b"), {
@@ -225,7 +226,7 @@ test("interactive preview is a plan-only semantic projection with stable layer o
   assert.equal(frame.placements.length, 1);
   assert.equal(Object.keys(frame.resolved_sources).sort().join(","), "clip:camera-a,clip:music-bed");
   assert.equal(buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: composition.fingerprint, atSec: 7, provenance: composition.source_media }).semantic_fingerprint, frame.semantic_fingerprint);
-  assert.equal(frame.semantic_fingerprint, "fnv1a:6ebf6774");
+  assert.equal(frame.semantic_fingerprint, "fnv1a:3df6b569");
   assert.throws(() => buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: "stale", atSec: 7, provenance: composition.source_media }), /preview_plan_stale/);
   assert.throws(() => buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: composition.fingerprint, atSec: 7, provenance: composition.source_media.map((source) => source.media_id === "cam-a" ? { ...source, content_fingerprint: "changed" } : source) }), /preview_source_set_stale/);
   assert.throws(() => buildHammerInteractivePreviewFrameV1({ plan: { ...plan, duration_sec: 71 }, expectedCompositionFingerprint: composition.fingerprint, atSec: 7, provenance: composition.source_media }), /render_plan_fingerprint_mismatch/);
@@ -340,4 +341,58 @@ test("only acknowledged current creative masters produce a validated Quench pack
   assert.equal(validateHammerReleasePacketV2ForQuench(packet, { ...context, workspace_id: "workspace-b" }).accepted, false);
   assert.equal(validateHammerReleasePacketV2ForQuench(packet, { ...context, composition_revision: composition.revision + 1 }).accepted, false);
   assert.equal(validateHammerReleasePacketV2ForQuench(packet, { ...context, authorized_asset_ids: new Set<string>() }).accepted, false);
+});
+
+const phase5Treatments: readonly HammerAudioTreatmentV1[] = [
+  { treatment_id: "clip-gain", kind: "gain", scope: { kind: "clip", clip_id: "audio-main" }, bypassed: false, gain_db: -2 },
+  { treatment_id: "host-eq", kind: "eq", scope: { kind: "speaker", speaker_id: "host" }, bypassed: false, bands: [{ frequency_hz: 90, gain_db: -3, q: 0.7 }] },
+  { treatment_id: "dialogue-compressor", kind: "compressor", scope: { kind: "track", track_id: "audio" }, bypassed: false, threshold_db: -18, ratio: 3, attack_ms: 10, release_ms: 80, makeup_gain_db: 2 },
+  { treatment_id: "dialogue-gate", kind: "gate", scope: { kind: "track", track_id: "audio" }, bypassed: true, threshold_db: -45, attack_ms: 5, release_ms: 120 },
+  { treatment_id: "deesser", kind: "deesser", scope: { kind: "speaker", speaker_id: "host" }, bypassed: false, frequency_hz: 6500, threshold_db: -20, reduction_db: -5 },
+  { treatment_id: "noise", kind: "noise_reduction", scope: { kind: "track", track_id: "audio" }, bypassed: false, amount: 0.25 },
+  { treatment_id: "room", kind: "room_tone", scope: { kind: "program" }, bypassed: false, source_media_id: "linked-audio", gain_db: -30 },
+  { treatment_id: "crossfade", kind: "crossfade", scope: { kind: "track", track_id: "audio" }, bypassed: false, from_clip_id: "audio-main", to_clip_id: "audio-tail", start_sec: 19.5, end_sec: 20.5, curve: "equal_power" },
+  { treatment_id: "duck", kind: "sidechain_duck", scope: { kind: "program" }, bypassed: false, key_track_id: "audio", target_track_id: "music", reduction_db: -9, attack_ms: 25, release_ms: 250 },
+  { treatment_id: "loudness", kind: "loudness", scope: { kind: "program" }, bypassed: false, target_lufs: -16, true_peak_ceiling_dbtp: -1 },
+  { treatment_id: "limiter", kind: "limiter", scope: { kind: "program" }, bypassed: false, ceiling_dbtp: -1, release_ms: 100 },
+];
+
+test("Phase 5 compiles all podcast treatments into one deterministic non-destructive audio graph", () => {
+  const composition = applyHammerCompositionCommand(HAMMER_COMPOSITION_FIXTURES.linkedPodcast, { type: "set_audio_treatments", treatments: phase5Treatments });
+  const plan = compileHammerRenderPlan(composition);
+  const graph = compileHammerAudioGraphV1(composition);
+  assert.equal(plan.audio_graph.fingerprint, graph.fingerprint);
+  assert.equal(graph.treatments.length, phase5Treatments.length);
+  assert.deepEqual(graph.master_intents, ["creative_video", "creative_audio", "neutral_finished"]);
+  assert.deepEqual(graph.source_nodes.map((node) => node.source_fingerprint), ["sha256:linked-audio", "sha256:linked-audio"]);
+  assert.deepEqual(composition.source_media, HAMMER_COMPOSITION_FIXTURES.linkedPodcast.source_media);
+  assert.equal(compileHammerAudioGraphV1(JSON.parse(JSON.stringify(composition))).fingerprint, graph.fingerprint);
+});
+
+test("preview and export select the exact same signed graph while bypass compare is explicit", () => {
+  const composition = applyHammerCompositionCommand(HAMMER_COMPOSITION_FIXTURES.linkedPodcast, { type: "set_audio_treatments", treatments: phase5Treatments });
+  const graph = compileHammerRenderPlan(composition).audio_graph;
+  const preview = selectHammerAudioGraphExecution(graph, "processed");
+  const exported = selectHammerAudioGraphExecution(graph, "processed");
+  assert.deepEqual(preview, exported);
+  assert.equal(preview.treatments.some((treatment) => treatment.treatment_id === "dialogue-gate"), false);
+  const bypass = selectHammerAudioGraphExecution(graph, "bypass");
+  assert.equal(bypass.graph_fingerprint, exported.graph_fingerprint);
+  assert.equal(bypass.treatments.length, 0);
+});
+
+test("loudness, clipping, crossfade, and invalid master controls fail honestly", () => {
+  assert.deepEqual(diagnoseHammerAudioMaster({ measured_lufs: -16.4, true_peak_dbtp: -1.2, target_lufs: -16, ceiling_dbtp: -1 }), { loudness_delta_lu: -0.3999999999999986, clipping: false, within_target: true });
+  assert.equal(diagnoseHammerAudioMaster({ measured_lufs: -12, true_peak_dbtp: 0.2, target_lufs: -16, ceiling_dbtp: -1 }).clipping, true);
+  assert.throws(() => compileHammerAudioGraphV1(applyHammerCompositionCommand(HAMMER_COMPOSITION_FIXTURES.linkedPodcast, { type: "set_audio_treatments", treatments: [{ treatment_id: "bad", kind: "crossfade", scope: { kind: "program" }, bypassed: false, from_clip_id: "a", to_clip_id: "b", start_sec: 2, end_sec: 1, curve: "linear" }] })), /audio_crossfade_invalid/);
+  assert.throws(() => compileHammerAudioGraphV1(applyHammerCompositionCommand(HAMMER_COMPOSITION_FIXTURES.linkedPodcast, { type: "set_audio_treatments", treatments: [{ treatment_id: "bad", kind: "limiter", scope: { kind: "program" }, bypassed: false, ceiling_dbtp: 1, release_ms: 100 }] })), /audio_limiter_invalid/);
+});
+
+test("every audio treatment participates in canonical history and repeated Undo restores raw source", () => {
+  const base = HAMMER_COMPOSITION_FIXTURES.linkedPodcast;
+  let history = createHammerCompositionHistory(base);
+  history = commitHammerCompositionCommand(history, { type: "set_audio_treatments", treatments: phase5Treatments }, "Podcast mix");
+  history = commitHammerCompositionCommand(history, { type: "set_audio_treatments", treatments: [...phase5Treatments, { treatment_id: "track-gain", kind: "gain", scope: { kind: "track", track_id: "audio" }, bypassed: false, gain_db: 1 }] }, "Track gain");
+  history = undoHammerComposition(undoHammerComposition(history));
+  assert.deepEqual(readHammerCompositionAtHead(history), base);
 });
