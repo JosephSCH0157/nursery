@@ -22,6 +22,9 @@ type ReadyScriptApiRow = {
   updated_at?: unknown;
   marked_ready_by?: unknown;
   marked_ready_at?: unknown;
+  script_revision?: unknown;
+  script_hash?: unknown;
+  transition_id?: unknown;
 };
 
 type RecordingSessionApiRow = {
@@ -58,6 +61,9 @@ export type ReadyScriptReference = {
   updatedAt?: string;
   markedReadyBy?: string;
   markedReadyAt?: string;
+  scriptRevision: number;
+  scriptHash: string;
+  transitionId: string;
 };
 
 export type RecordingSessionSummary = {
@@ -133,14 +139,6 @@ function resolveTongsApiToken(): string | undefined {
   const fromWindow = readString(w.__forgeTongsApiToken ?? w.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
 
-  try {
-    const meta = import.meta as unknown as { env?: Record<string, string | undefined> };
-    const fromEnv = readString(meta.env?.VITE_TONGS_API_TOKEN);
-    if (fromEnv) return fromEnv;
-  } catch {
-    // ignore env access failures
-  }
-
   return readLocalStorage("forge_tongs_api_token_v1") ?? undefined;
 }
 
@@ -205,7 +203,12 @@ function parseReadyScriptsPayload(payload: unknown, workspaceId: string): ReadyS
     const primaryPath = normalizeScriptPath(item.primary_script_path) ?? normalizeScriptPath(item.path);
     const scriptPaths = normalizeScriptPaths(item.script_paths);
     const path = primaryPath ?? scriptPaths[0] ?? null;
-    if (!rowWorkspace || !workpieceId || !path) continue;
+    const scriptRevision = typeof item.script_revision === "number" && Number.isInteger(item.script_revision) && item.script_revision > 0
+      ? item.script_revision
+      : null;
+    const scriptHash = readString(item.script_hash)?.toLowerCase() ?? null;
+    const transitionId = normalizeUuid(item.transition_id);
+    if (!rowWorkspace || !workpieceId || !path || !scriptRevision || !scriptHash || !/^[0-9a-f]{64}$/.test(scriptHash) || !transitionId) continue;
     const normalizedScriptPaths = scriptPaths.length
       ? (scriptPaths.includes(path) ? scriptPaths : [path, ...scriptPaths])
       : [path];
@@ -221,6 +224,9 @@ function parseReadyScriptsPayload(payload: unknown, workspaceId: string): ReadyS
       updatedAt: normalizeIso(item.updated_at),
       markedReadyBy: normalizeUuid(item.marked_ready_by) ?? undefined,
       markedReadyAt: normalizeIso(item.marked_ready_at),
+      scriptRevision,
+      scriptHash,
+      transitionId,
     });
   }
 
@@ -296,19 +302,23 @@ function toScriptReferenceFromSessionItem(args: {
   if (!workpieceId || !path) return null;
   const key = `${workpieceId}::${path}`;
   const matchedReady = args.readyByKey.get(key) ?? null;
+  if (!matchedReady) return null;
   const title = args.titleByKey.get(key) ?? args.fallbackTitle;
-  const scriptPaths = matchedReady
-    ? Array.from(new Set([path, matchedReady.primaryPath, ...matchedReady.scriptPaths].filter(Boolean)))
-    : [path];
+  const scriptPaths = Array.from(new Set([path, matchedReady.primaryPath, ...matchedReady.scriptPaths].filter(Boolean)));
   return {
     id: toReadyScriptId(workpieceId, path),
     workspaceId: args.workspaceId,
     workpieceId,
     path,
-    primaryPath: matchedReady?.primaryPath ?? path,
+    primaryPath: matchedReady.primaryPath,
     scriptPaths,
     title,
-    updatedAt: matchedReady?.updatedAt,
+    updatedAt: matchedReady.updatedAt,
+    markedReadyBy: matchedReady.markedReadyBy,
+    markedReadyAt: matchedReady.markedReadyAt,
+    scriptRevision: matchedReady.scriptRevision,
+    scriptHash: matchedReady.scriptHash,
+    transitionId: matchedReady.transitionId,
   };
 }
 
@@ -320,7 +330,12 @@ export async function listWorkspaceReadyScripts(): Promise<ReadyScriptReference[
     method: "GET",
     headers: await withAuthHeaders(),
   });
-  if (!response.ok) return [];
+  if (!response.ok) {
+    if (response.status === 503) {
+      throw new Error("Hearth Ready authority unavailable: migration 20260713190000 is required.");
+    }
+    return [];
+  }
 
   let body: unknown = null;
   try {

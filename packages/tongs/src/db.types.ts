@@ -830,6 +830,10 @@ export type Database = {
           workspace_id: string
           workpiece_id: string
           script_path: string
+          script_revision: number | null
+          script_hash: string | null
+          transition_id: string | null
+          publish_evidence: Json | null
           marked_ready_by: string
           marked_ready_at: string
           updated_at: string
@@ -839,6 +843,10 @@ export type Database = {
           workspace_id: string
           workpiece_id: string
           script_path: string
+          script_revision?: number | null
+          script_hash?: string | null
+          transition_id?: string | null
+          publish_evidence?: Json | null
           marked_ready_by: string
           marked_ready_at?: string
           updated_at?: string
@@ -848,6 +856,10 @@ export type Database = {
           workspace_id?: string
           workpiece_id?: string
           script_path?: string
+          script_revision?: number | null
+          script_hash?: string | null
+          transition_id?: string | null
+          publish_evidence?: Json | null
           marked_ready_by?: string
           marked_ready_at?: string
           updated_at?: string
@@ -1223,6 +1235,7 @@ export type Database = {
           written_by_lane: string
           created_at: string
           updated_at: string
+          revision: number
         }
         Insert: {
           workpiece_id: string
@@ -1239,6 +1252,7 @@ export type Database = {
           written_by_lane: string
           created_at?: string
           updated_at?: string
+          revision?: number
         }
         Update: {
           workpiece_id?: string
@@ -1255,6 +1269,7 @@ export type Database = {
           written_by_lane?: string
           created_at?: string
           updated_at?: string
+          revision?: number
         }
         Relationships: [
           {
@@ -1289,7 +1304,21 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      current_workpiece_ready_scripts: {
+        Row: {
+          workspace_id: string
+          workpiece_id: string
+          script_path: string
+          script_revision: number
+          script_hash: string
+          transition_id: string
+          marked_ready_by: string | null
+          marked_ready_at: string | null
+          publish_evidence: Json | null
+          script_updated_at: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       append_bellows_session_checkpoint: {

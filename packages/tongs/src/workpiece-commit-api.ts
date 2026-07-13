@@ -447,6 +447,7 @@ export type CommitFileRequest = {
 
 export type CommitFileResponse = {
   workpiece_id: string;
+  workspace_id: string;
   path: string;
   storage_key: string;
   hash: string;
@@ -1106,9 +1107,30 @@ export type WorkspaceReadyScript = {
   content_category: string | null;
   marked_ready_by: string | null;
   marked_ready_at: string | null;
+  script_revision: number;
+  script_hash: string;
+  transition_id: string;
   queue_rank: number | null;
   hidden_at: string | null;
   hidden_by: string | null;
+};
+
+export type HearthReadyTransitionRequest = {
+  workspace_id: string;
+  script_path: string;
+  expected_script_revision: number;
+  expected_script_hash: string;
+  idempotency_key: string;
+  publish_evidence: Json;
+  user_access_token?: string | null;
+};
+
+export type HearthReadyTransitionResult = {
+  outcome: "saved" | "duplicate" | "stale" | "conflict" | "denied" | "not_found";
+  reason: string | null;
+  ready: Record<string, unknown> | null;
+  canonical_revision?: number;
+  canonical_hash?: string;
 };
 
 export type WorkspaceSparkSummary = {
@@ -1298,6 +1320,10 @@ export type TongsCommitApiOptions = {
 export type TongsCommitApiService = {
   createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse>;
   commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse>;
+  transitionHearthScriptReady(
+    workpieceId: string,
+    input: HearthReadyTransitionRequest,
+  ): Promise<HearthReadyTransitionResult>;
   beginRecordingUploadSession(
     workpieceId: string,
     input: BeginRecordingUploadSessionRequest,
@@ -5084,10 +5110,18 @@ export class TongsCommitService {
   readonly bucket: string;
   readonly imageProvider: ImageProvider | null;
 
-  constructor(supabase: SupabaseClient<Database>, bucket = TONGS_WORKPIECE_BUCKET, imageProvider: ImageProvider | null = null) {
+  readonly userClientFactory: ((accessToken: string) => SupabaseClient<Database>) | null;
+
+  constructor(
+    supabase: SupabaseClient<Database>,
+    bucket = TONGS_WORKPIECE_BUCKET,
+    imageProvider: ImageProvider | null = null,
+    userClientFactory: ((accessToken: string) => SupabaseClient<Database>) | null = null,
+  ) {
     this.supabase = supabase;
     this.bucket = bucket;
     this.imageProvider = imageProvider;
+    this.userClientFactory = userClientFactory;
   }
 
   private async getCradleOrThrow(workpieceId: string): Promise<EpisodeRow> {
@@ -5196,50 +5230,6 @@ export class TongsCommitService {
     }
 
     return (data ?? []).length;
-  }
-
-  private async upsertReadyScriptMeta(
-    workspaceId: string,
-    workpieceId: string,
-    scriptPath: string,
-    userId: string,
-  ): Promise<void> {
-    const payload: Database["tongs"]["Tables"]["workpiece_ready_script_meta"]["Insert"] = {
-      workspace_id: workspaceId,
-      workpiece_id: workpieceId,
-      script_path: scriptPath,
-      marked_ready_by: userId,
-      marked_ready_at: new Date().toISOString(),
-      updated_by: userId,
-    };
-
-    const { error } = await this.supabase
-      .schema("tongs")
-      .from("workpiece_ready_script_meta")
-      .upsert(payload, {
-        onConflict: "workpiece_id,script_path",
-      });
-
-    if (error) {
-      throw new HttpError(502, "db_write_failed", "Failed to upsert ready script metadata", {
-        reason: error.message,
-      });
-    }
-
-    // Ready queue invariant: exactly one active ready pointer per workpiece.
-    const { error: cleanupError } = await this.supabase
-      .schema("tongs")
-      .from("workpiece_ready_script_meta")
-      .delete()
-      .eq("workspace_id", workspaceId)
-      .eq("workpiece_id", workpieceId)
-      .neq("script_path", scriptPath);
-
-    if (cleanupError) {
-      throw new HttpError(502, "db_write_failed", "Failed to supersede previous ready script pointers", {
-        reason: cleanupError.message,
-      });
-    }
   }
 
   private async deleteReadyScriptMeta(
@@ -8371,7 +8361,6 @@ export class TongsCommitService {
     eventPayload?: Json;
     correlationId?: string;
     commitMode: "replace" | "append_jsonl" | "chunked_finalize";
-    readyScriptActor?: { userId: string; role: WorkspaceRole } | null;
   }): Promise<CommitFileResponse> {
     const nowIso = new Date().toISOString();
     const workpieceId = args.cradle.id;
@@ -8452,15 +8441,6 @@ export class TongsCommitService {
       },
     ]);
 
-    if (args.readyScriptActor) {
-      await this.upsertReadyScriptMeta(
-        args.cradle.workspace_id,
-        args.cradle.id,
-        args.path,
-        args.readyScriptActor.userId,
-      );
-    }
-
     const eventName = args.eventName?.trim() || "workpiece.file.committed";
     const eventPayload =
       typeof args.eventPayload === "undefined"
@@ -8529,6 +8509,7 @@ export class TongsCommitService {
 
     return {
       workpiece_id: workpieceId,
+      workspace_id: args.cradle.workspace_id,
       path: args.path,
       storage_key: storageKey,
       hash,
@@ -8744,12 +8725,11 @@ export class TongsCommitService {
   async commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse> {
     const cradle = await this.getCradleOrThrow(workpieceId);
     const path = normalizeRelativePath(input.path);
-    let readyScriptActor: { userId: string; role: WorkspaceRole } | null = null;
     if (path === MANIFEST_PATH) {
       throw new HttpError(400, "invalid_path", "manifest.json is managed by Tongs and cannot be committed directly");
     }
     if (READY_SCRIPT_PATH_SET.has(path)) {
-      readyScriptActor = await this.assertWorkspaceRoleFromAccessToken(
+      await this.assertWorkspaceRoleFromAccessToken(
         cradle.workspace_id,
         "editor",
         input.user_access_token,
@@ -8816,8 +8796,52 @@ export class TongsCommitService {
       eventPayload: input.event_payload,
       correlationId: input.correlation_id,
       commitMode,
-      readyScriptActor,
     });
+  }
+
+  async transitionHearthScriptReady(
+    workpieceId: string,
+    input: HearthReadyTransitionRequest,
+  ): Promise<HearthReadyTransitionResult> {
+    const accessToken = normalizeNonEmptyString(input.user_access_token, "user_access_token");
+    if (!this.userClientFactory) {
+      throw new HttpError(503, "hearth_ready_migration_required", "Hearth Ready authority is unavailable; migration 20260713190000 is required.");
+    }
+    const client = this.userClientFactory(accessToken);
+    const rpcClient = client.schema("tongs") as unknown as {
+      rpc: (name: string, args: Record<string, unknown>) => Promise<{
+        data: unknown;
+        error: { code?: string; message: string } | null;
+      }>;
+    };
+    const { data, error } = await rpcClient.rpc("hearth_transition_script_ready", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_script_path: input.script_path,
+      p_expected_script_revision: input.expected_script_revision,
+      p_expected_script_hash: input.expected_script_hash,
+      p_idempotency_key: input.idempotency_key,
+      p_publish_evidence: input.publish_evidence,
+    });
+    if (error) {
+      const missing = error.code === "PGRST202" || /hearth_transition_script_ready/i.test(error.message);
+      throw new HttpError(
+        missing ? 503 : 502,
+        missing ? "hearth_ready_migration_required" : "hearth_ready_transition_failed",
+        missing
+          ? "Hearth Ready authority is unavailable; migration 20260713190000 is required."
+          : "Hearth Ready transition failed.",
+        { reason: error.message },
+      );
+    }
+    if (!isRecord(data) || typeof data.outcome !== "string") {
+      throw new HttpError(502, "hearth_ready_transition_malformed", "Hearth Ready transition returned a malformed result.");
+    }
+    const outcomes = new Set(["saved", "duplicate", "stale", "conflict", "denied", "not_found"]);
+    if (!outcomes.has(data.outcome)) {
+      throw new HttpError(502, "hearth_ready_transition_ambiguous", "Hearth Ready transition returned an ambiguous result.");
+    }
+    return data as HearthReadyTransitionResult;
   }
 
   private async loadRecordingUploadSessionState(
@@ -9101,7 +9125,6 @@ export class TongsCommitService {
       eventPayload: state.event_payload ?? undefined,
       correlationId: state.correlation_id ?? undefined,
       commitMode: "chunked_finalize",
-      readyScriptActor: null,
     });
 
     const finalizedAt = new Date().toISOString();
@@ -11662,6 +11685,9 @@ export class TongsCommitService {
       {
         workpiece_id: string;
         script_path: string;
+        script_revision: number;
+        script_hash: string;
+        transition_id: string;
         marked_ready_by: string | null;
         marked_ready_at: string | null;
       }
@@ -11671,13 +11697,17 @@ export class TongsCommitService {
     if (readyMetaCandidateIds.length) {
       const { data: readyMetaRows, error: readyMetaError } = await this.supabase
         .schema("tongs")
-        .from("workpiece_ready_script_meta")
-        .select("workpiece_id,script_path,marked_ready_by,marked_ready_at")
+        .from("current_workpiece_ready_scripts")
+        .select("workpiece_id,script_path,script_revision,script_hash,transition_id,marked_ready_by,marked_ready_at")
         .eq("workspace_id", workspaceId)
         .in("workpiece_id", readyMetaCandidateIds);
 
       if (readyMetaError) {
-        throw new HttpError(502, "db_read_failed", "Failed to list ready script metadata", {
+        const migrationMissing = readyMetaError.code === "PGRST205"
+          || /current_workpiece_ready_scripts/i.test(readyMetaError.message);
+        throw new HttpError(migrationMissing ? 503 : 502, migrationMissing ? "hearth_ready_migration_required" : "db_read_failed", migrationMissing
+          ? "Ready scripts are unavailable; migration 20260713190000 is required."
+          : "Failed to list ready script metadata", {
           reason: readyMetaError.message,
         });
       }
@@ -11720,6 +11750,9 @@ export class TongsCommitService {
         readyPointerByWorkpiece.set(row.workpiece_id, {
           workpiece_id: row.workpiece_id,
           script_path: row.script_path,
+          script_revision: row.script_revision ?? 0,
+          script_hash: row.script_hash ?? "",
+          transition_id: row.transition_id ?? "",
           marked_ready_by: row.marked_ready_by,
           marked_ready_at: row.marked_ready_at,
         });
@@ -11731,57 +11764,6 @@ export class TongsCommitService {
           knownPaths.push(row.script_path);
         }
       }
-    }
-
-    for (const [workpieceId, scriptPaths] of scriptPathsByWorkpiece.entries()) {
-      const knownPaths = readyPathsByWorkpiece.get(workpieceId);
-      if (!knownPaths) {
-        readyPathsByWorkpiece.set(workpieceId, [...scriptPaths]);
-      } else {
-        for (const path of scriptPaths) {
-          if (!knownPaths.includes(path)) knownPaths.push(path);
-        }
-      }
-
-      if (readyPointerByWorkpiece.has(workpieceId)) continue;
-
-      let winnerPath: string | null = null;
-      let winnerFile: { workpiece_id: string; path: string; updated_at: string | null; created_at: string | null } | null = null;
-      for (const path of scriptPaths) {
-        const candidateFile = fileByWorkpiecePath.get(readyScriptMetaKey(workpieceId, path));
-        if (!candidateFile) continue;
-        if (!winnerPath || !winnerFile) {
-          winnerPath = path;
-          winnerFile = candidateFile;
-          continue;
-        }
-
-        const winnerStamp = winnerFile.updated_at ?? winnerFile.created_at ?? "";
-        const candidateStamp = candidateFile.updated_at ?? candidateFile.created_at ?? "";
-        if (candidateStamp > winnerStamp) {
-          winnerPath = path;
-          winnerFile = candidateFile;
-          continue;
-        }
-        if (candidateStamp < winnerStamp) {
-          continue;
-        }
-
-        const winnerPriority = readyScriptPathPriority(winnerPath);
-        const candidatePriority = readyScriptPathPriority(path);
-        if (candidatePriority < winnerPriority || (candidatePriority === winnerPriority && path < winnerPath)) {
-          winnerPath = path;
-          winnerFile = candidateFile;
-        }
-      }
-
-      if (!winnerPath || !winnerFile) continue;
-      readyPointerByWorkpiece.set(workpieceId, {
-        workpiece_id: workpieceId,
-        script_path: winnerPath,
-        marked_ready_by: null,
-        marked_ready_at: winnerFile.updated_at ?? winnerFile.created_at ?? null,
-      });
     }
 
     if (readyPointerByWorkpiece.size === 0) {
@@ -11884,6 +11866,9 @@ export class TongsCommitService {
         content_category: categoryByWorkpiece.get(workpieceId) ?? null,
         marked_ready_by: readyPointer.marked_ready_by ?? null,
         marked_ready_at: readyPointer.marked_ready_at ?? null,
+        script_revision: readyPointer.script_revision,
+        script_hash: readyPointer.script_hash,
+        transition_id: readyPointer.transition_id,
         queue_rank: queueState?.queue_rank ?? null,
         hidden_at: queueState?.hidden_at ?? null,
         hidden_by: queueState?.hidden_by ?? null,
@@ -11985,7 +11970,12 @@ export function createTongsCommitService(options: TongsCommitApiOptions): TongsC
     ? new OpenAiImageProvider(openAiImageApiKey, options.openAiImageModel?.trim() || "gpt-image-1")
     : null;
 
-  return new TongsCommitService(supabase, bucket, imageProvider);
+  const userClientFactory = (accessToken: string): SupabaseClient<Database> => createClient<Database>(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+  });
+
+  return new TongsCommitService(supabase, bucket, imageProvider, userClientFactory);
 }
 
 export function createTongsCommitApiHandlerWithService(
@@ -12227,6 +12217,24 @@ export function createTongsCommitApiHandlerWithService(
           };
           return jsonResponse(status, responsePayload, requestId);
         }
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "ready-transition") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const input: HearthReadyTransitionRequest = {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          script_path: normalizeRelativePath(normalizeNonEmptyString(body.script_path, "script_path")),
+          expected_script_revision: normalizePositiveInteger(body.expected_script_revision, "expected_script_revision"),
+          expected_script_hash: normalizeNonEmptyString(body.expected_script_hash, "expected_script_hash").toLowerCase(),
+          idempotency_key: normalizeNonEmptyString(body.idempotency_key, "idempotency_key"),
+          publish_evidence: normalizeJsonValue(body.publish_evidence),
+          user_access_token: userAccessToken,
+        };
+        const result = await service.transitionHearthScriptReady(workpieceId, input);
+        return jsonResponse(200, { ok: true, data: result });
       }
 
       if (

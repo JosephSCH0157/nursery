@@ -10,6 +10,7 @@ function mockService() {
   const calls = {
     createCradle: [],
     commitFile: [],
+    transitionHearthScriptReady: [],
     createHearthAttachment: [],
     listHearthAttachments: [],
     updateHearthAttachmentExtractedText: [],
@@ -141,6 +142,14 @@ function mockService() {
           written_by_lane: input.written_by.lane,
           created_at: "2026-02-21T00:00:00.000Z",
         },
+      };
+    },
+    async transitionHearthScriptReady(workpieceId, input) {
+      calls.transitionHearthScriptReady.push({ workpieceId, input });
+      return {
+        outcome: "saved",
+        reason: null,
+        ready: { transition_id: "22222222-2222-4222-8222-222222222222" },
       };
     },
     async createHearthAttachment(input, options) {
@@ -2276,7 +2285,7 @@ function createRoleGateSupabase({ userId, workspaceId, workspaceOwnerId, memberR
             };
           }
 
-          if (tableName === "workpiece_ready_script_meta") {
+          if (tableName === "workpiece_ready_script_meta" || tableName === "current_workpiece_ready_scripts") {
             return {
               async upsert() {
                 return { data: null, error: null };
@@ -2622,7 +2631,7 @@ function createReadyQueueSupabase({
             };
           }
 
-          if (tableName === "workpiece_ready_script_meta") {
+          if (tableName === "workpiece_ready_script_meta" || tableName === "current_workpiece_ready_scripts") {
             return {
               select() {
                 let workspaceFilter = null;
@@ -2635,9 +2644,14 @@ function createReadyQueueSupabase({
                         assert.equal(innerField, "workpiece_id");
                         const idSet = new Set(values);
                         return {
-                          data: state.readyMetaRows.filter(
-                            (row) => row.workspace_id === workspaceFilter && idSet.has(row.workpiece_id),
-                          ),
+                          data: state.readyMetaRows
+                            .filter((row) => row.workspace_id === workspaceFilter && idSet.has(row.workpiece_id))
+                            .map((row, index) => ({
+                              script_revision: 1,
+                              script_hash: "a".repeat(64),
+                              transition_id: `11111111-1111-4111-8111-${String(index + 1).padStart(12, "0")}`,
+                              ...row,
+                            })),
                           error: null,
                         };
                       },
@@ -3317,6 +3331,39 @@ test("POST /tongs/workpieces/:id/commit-file dispatches commitFile", async () =>
   assert.equal(calls.commitFile[0].input.user_access_token, "user_token_abc");
   assert.equal(calls.commitFile[0].input.expected_previous_updated_at, "2026-03-01T00:00:00.000Z");
   assert.equal(body.ok, true);
+});
+
+test("POST /tongs/workpieces/:id/ready-transition forwards exact revision/hash authority", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service, "test-token");
+  const response = await handler(new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/ready-transition",
+    {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-token",
+        "x-forge-user-authorization": "Bearer user-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        script_path: "script/script.md",
+        expected_script_revision: 7,
+        expected_script_hash: "a".repeat(64),
+        idempotency_key: "hearth-publish:workpiece:7:hash",
+        publish_evidence: {
+          transition: "hearth.script.published.v1",
+          script: { path: "script/script.md", revision: 7, hash: "a".repeat(64) },
+          validation: { validator: "shared-script-tags-v1", ok: true, issue_count: 0 },
+        },
+      }),
+    },
+  ));
+  assert.equal(response.status, 200);
+  assert.equal(calls.transitionHearthScriptReady.length, 1);
+  assert.equal(calls.transitionHearthScriptReady[0].input.expected_script_revision, 7);
+  assert.equal(calls.transitionHearthScriptReady[0].input.expected_script_hash, "a".repeat(64));
+  assert.equal(calls.transitionHearthScriptReady[0].input.user_access_token, "user-token");
 });
 
 test("POST /tongs/workpieces/:id/commit-file returns controlled error payload for upstream db/storage failures", async () => {
@@ -7319,7 +7366,7 @@ test("TongsCommitService.listWorkspaceReadyScripts emits one canonical row per w
   assert.deepEqual(result[0]?.script_paths, ["script/script.published.md", "script/script.md"]);
 });
 
-test("TongsCommitService.listWorkspaceReadyScripts keeps distinct workpieces even when titles match", async () => {
+test("TongsCommitService.listWorkspaceReadyScripts never synthesizes Ready rows from script paths", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
   const workpieceA = "11111111-1111-4111-8111-111111111111";
@@ -7373,8 +7420,7 @@ test("TongsCommitService.listWorkspaceReadyScripts keeps distinct workpieces eve
     userAccessToken: "viewer_token",
   });
 
-  assert.equal(result.length, 2);
-  assert.deepEqual(new Set(result.map((row) => row.workpiece_id)), new Set([workpieceA, workpieceB]));
+  assert.deepEqual(result, []);
 });
 
 test("TongsCommitService.listWorkspaceReadyScripts falls back to Untitled Episode instead of script tags", async () => {
