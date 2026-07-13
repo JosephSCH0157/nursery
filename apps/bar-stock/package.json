@@ -12,7 +12,7 @@
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "types": "pnpm typecheck",
-    "test": "tsx --test tests/store-characterization.test.ts tests/repository-contract.test.ts"
+    "test": "tsx --test tests/store-characterization.test.ts tests/repository-contract.test.ts tests/migration-contract.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",
