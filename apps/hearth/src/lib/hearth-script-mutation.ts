@@ -108,7 +108,7 @@ export function detectHearthScriptMutationIntent(text: string): HearthScriptMuta
 
 export function resolveHearthScriptMutationRouting<TOp extends { op: string }>(args: {
   productionAction: boolean;
-  autosaveReasonCode: string;
+  autosaveReasonCode: string | null;
   ops: TOp[];
   intent: HearthScriptMutationIntent;
 }): {

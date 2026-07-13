@@ -5,6 +5,7 @@ Baseline release: Forge `v1.2.0` (`forge-v1.2.0`)
 
 This document records what Hearth V2 features are currently implemented in this repository.  
 `HEARTH_V1_MANIFEST.md` remains frozen as the V1 baseline.
+Current lifecycle terms, implementation ownership, degraded states, and Hammer/Quench handoffs are governed by `HEARTH_CANONICAL_AUTHORITY.md` and the lifecycle constitution.
 
 ## Included In V2
 

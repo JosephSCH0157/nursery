@@ -20,6 +20,7 @@
   "tests/hearth-chat-stt-smoke.test.ts",
   "tests/hearth-confidence.test.ts",
   "tests/hearth-dependency-degradation.test.ts",
+  "tests/hearth-expansion-gate.test.ts",
   "tests/hearth-image-map-workflow.test.ts",
   "tests/hearth-media-map-bootstrap.test.ts",
   "tests/hearth-media-map-builder.test.ts",

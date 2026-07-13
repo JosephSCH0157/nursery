@@ -4,7 +4,18 @@ import {
   getBrowserSttFatalErrorMessage,
   shouldRestartBrowserSttSession,
 } from "../lib/browser-stt";
-import type { HearthChatMessage } from "../lib/hearth-chat-api";
+import type {
+  HearthChatMessage,
+  HearthInteractionEventType,
+  HearthSttResult,
+  HearthSttUploadResult,
+} from "../lib/hearth-chat-api";
+import {
+  resolveBrowserSpeechRecognitionConstructor,
+  type BrowserSpeechRecognition,
+  type BrowserSpeechRecognitionErrorEvent,
+  type BrowserSpeechRecognitionResultEvent,
+} from "../lib/browser-speech-contract";
 import type { HearthResearchResult } from "../lib/hearth-research-contract";
 import type { HearthOperationAuthority } from "../lib/hearth-operation-authority";
 import {
@@ -40,7 +51,7 @@ export function useChatWorkspaceState<TPendingAiProposal>() {
 
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const aiRequestControllerRef = useRef<AbortController | null>(null);
-  const speechRecognitionRef = useRef<any>(null);
+  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const aiSttChunksRef = useRef<BlobPart[]>([]);
@@ -317,7 +328,9 @@ type SendChatMessageArgs = {
   source?: "typed" | "voice" | "shortcut";
 };
 
-type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp> = {
+type AiAutosaveReasonCode = "ai_outline" | "ai_script" | "ai_repair" | "ai_rewrite";
+
+type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp extends { op: string }> = {
   operationAuthority: HearthOperationAuthority;
   isAiProcessing: boolean;
   aiTokenBalance: number | null;
@@ -354,11 +367,11 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp>
     explicitDraftNow: boolean;
     scriptMutationIntent: HearthScriptMutationIntent;
   };
-  detectAiAutosaveReasonCode: (text: string) => any;
+  detectAiAutosaveReasonCode: (text: string) => AiAutosaveReasonCode | null;
   buildAssistantMessageContent: (args: {
     assistantText: string;
     ops: THearthOp[];
-    autosaveReasonCode: any;
+    autosaveReasonCode: AiAutosaveReasonCode | null;
     scriptMutationRequested: boolean;
     scriptMutationReady: boolean;
   }) => string;
@@ -370,7 +383,7 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp>
     proposalOps: THearthOp[];
     episodeContext: TEpisodeContext;
     fromGate: boolean;
-    autosaveReasonCode: any;
+    autosaveReasonCode: AiAutosaveReasonCode | null;
   }) => TPendingAiProposal;
   resolveAiLaneFromStorage: () => "forge" | "byo";
   requestHearthChatReply: (
@@ -408,12 +421,12 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp>
       tokenBalance: number | null;
     };
   }>;
-  recordInteractionEvent: (eventType: any, payload?: Record<string, unknown>) => void;
+  recordInteractionEvent: (eventType: HearthInteractionEventType, payload?: Record<string, unknown>) => void;
   publishForgeNotice: (notice: {
-    job: any;
+    job: "image-generated" | "script-completed" | "sources-found" | "save-failed" | "render-finished" | "export-finished" | "job-failed";
     title: string;
     message?: string;
-    severity: any;
+    severity: "info" | "success" | "warning" | "error";
   }) => void;
   onResearchResult?: (result: HearthResearchResult | null) => void;
   getAttachmentContext?: () => {
@@ -422,7 +435,11 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp>
   } | null;
 };
 
-export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THearthOp>(
+export function useChatWorkspaceRuntime<
+  TPendingAiProposal,
+  TEpisodeContext,
+  THearthOp extends { op: string },
+>(
   args: UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp>,
 ): {
   sendChatMessage: (params: SendChatMessageArgs) => Promise<void>;
@@ -584,7 +601,7 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
           has_outline: Boolean(args.readLatestOutlineFromOps(ops)),
           ops_count: ops.length,
         });
-      } else if (!params.productionAction && ops.some((op: any) => op.op === "set_body")) {
+      } else if (!params.productionAction && ops.some((op) => op.op === "set_body")) {
         args.recordInteractionEvent("draft_generated", {
           source,
           ops_count: ops.length,
@@ -602,8 +619,8 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
       }
 
       if (!params.productionAction) {
-        const scriptUpdated = proposalOps.some((op: any) => op.op === "set_body");
-        const sourceAdditions = proposalOps.filter((op: any) => op.op === "add_source").length;
+        const scriptUpdated = proposalOps.some((op) => op.op === "set_body");
+        const sourceAdditions = proposalOps.filter((op) => op.op === "add_source").length;
         if (scriptMutationRouting.missingScriptBodyMutation) {
           const message = buildNoScriptChangesExplanation(intentSignals.scriptMutationIntent);
           args.setChatError(message);
@@ -700,7 +717,7 @@ type UseChatWorkspaceSttArgs = {
   setAiRuntimeWarning: (value: string | null) => void;
   setAiBillingMode: (value: "forge" | "byo") => void;
   setAiTokenBalance: (value: number | null) => void;
-  speechRecognitionRef: MutableRefObject<any>;
+  speechRecognitionRef: MutableRefObject<BrowserSpeechRecognition | null>;
   mediaRecorderRef: MutableRefObject<MediaRecorder | null>;
   mediaStreamRef: MutableRefObject<MediaStream | null>;
   aiSttChunksRef: MutableRefObject<BlobPart[]>;
@@ -719,13 +736,13 @@ type UseChatWorkspaceSttArgs = {
   aiSttMaxBytes: number;
   resolveAiLaneFromStorage: () => "forge" | "byo";
   resolveAiSttMimeType: () => string | null;
-  uploadHearthSttAudio: (args: { workpieceId: string; blob: Blob }) => Promise<any>;
+  uploadHearthSttAudio: (args: { workpieceId: string; blob: Blob }) => Promise<HearthSttUploadResult>;
   requestHearthSttTranscript: (args: {
     workpieceId: string;
     storageKey: string;
     mimeType: string;
     signal: AbortSignal;
-  }) => Promise<any>;
+  }) => Promise<HearthSttResult>;
   sendChatMessage: (args: { requestContent: string; source?: "voice" | "typed" | "shortcut" }) => Promise<void>;
   commitScriptTranscript: (text: string) => Promise<boolean>;
   getSttStartError?: (target: "chat" | "script") => string | null;
@@ -843,7 +860,7 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
 
     const controller = new AbortController();
     args.aiSttTranscribeControllerRef.current = controller;
-    let transcriptResult: any;
+    let transcriptResult: HearthSttResult;
     try {
       transcriptResult = await args.requestHearthSttTranscript({
         workpieceId: episodeId,
@@ -1104,7 +1121,7 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       args.setSttState("idle");
       return;
     }
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SpeechRecognition = resolveBrowserSpeechRecognitionConstructor(window);
     if (!SpeechRecognition) {
       args.setSttError("Browser speech not supported.");
       args.setSttState("idle");
@@ -1168,14 +1185,14 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       const transcript = `${session.finalTranscript} ${session.interimTranscript}`.trim();
       await commitVoiceTranscript(transcript);
     };
-    (recognition as any).__hearthBrowserSttSession = session;
-    (recognition as any).__hearthBrowserSttSettle = settleBrowserSession;
+    recognition.__hearthBrowserSttSession = session;
+    recognition.__hearthBrowserSttSettle = settleBrowserSession;
     const isCurrentRecognition = () => (
       args.operationAuthority.isCurrent(operation)
       && args.speechRecognitionRef.current === recognition
     );
 
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event: BrowserSpeechRecognitionResultEvent) => {
       if (!isCurrentRecognition()) return;
       session.interimTranscript = "";
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
@@ -1198,7 +1215,7 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       }
     };
 
-    recognition.onerror = (event: any) => {
+    recognition.onerror = (event: BrowserSpeechRecognitionErrorEvent) => {
       if (!isCurrentRecognition()) return;
       const errorCode = typeof event?.error === "string" ? event.error : "";
       if (errorCode === "aborted" && session.manualStopRequested) {
@@ -1247,7 +1264,7 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
   }, [args, clearBrowserSttStopTimer, clearSttNoticeTimer, clearSttPreviewTimer, commitVoiceTranscript, showSttNotice, showSttPreviewLine, stopAiSttStream]);
 
   const stopBrowserStt = useCallback(() => {
-    const recognition = args.speechRecognitionRef.current as any;
+    const recognition = args.speechRecognitionRef.current;
     if (!recognition) {
       clearBrowserSttStopTimer();
       stopAiSttStream();

@@ -82,13 +82,6 @@ type UseApprovalFlowArgs = {
   refreshReadyScripts: () => Promise<void> | void;
 };
 
-function mirrorStatusLine(result: MirrorApprovedScriptResult): string {
-  if (result.ok) {
-    return `saved_to_local_mirror: ok (${result.relativePath})`;
-  }
-  return `saved_to_local_mirror: failed (${result.message})`;
-}
-
 export function useApprovalFlow(args: UseApprovalFlowArgs): {
   isApprovingScript: boolean;
   onApproveScript: (options?: { draftOverride?: Draft }) => Promise<boolean>;
@@ -161,49 +154,28 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
       args.setScriptApprovalState(nextState);
       args.writeScriptApprovalRecoveryEvidence(episodeId, nextState);
 
-      const mirror = await args.mirrorApprovedScript({
+      // A local mirror is a production-independent convenience sink. Canonical
+      // approval settles before this best-effort job starts and never awaits it.
+      args.setApprovalPersistenceStatus({ cloud: "ok", local: "failed", localMessage: "Local mirror sync pending." });
+      void args.mirrorApprovedScript({
         workspaceId: args.workspaceId,
         workpieceId: episodeId,
         scriptText: normalizedText,
-      });
-      const graduatedSparkId = await args.graduateLinkedSpark(episodeId);
-      if (!args.operationAuthority.isCurrent(operation)) return false;
-      if (mirror.ok) {
-        args.setApprovalPersistenceStatus({
-          cloud: "ok",
-          local: "ok",
-          localPath: mirror.relativePath,
-        });
-        try {
-          console.log("[hearth-approve] saved to cloud and local mirror", {
-            workpieceId: episodeId,
-            graduatedSparkId,
-            localRelativePath: mirror.relativePath,
-            mirrorWorkspaceId: mirror.workspaceId,
-            vaultKey: mirror.vaultKey,
-          });
-        } catch {
-          // ignore logging failures
+      }).then((mirror) => {
+        if (mirror.ok) {
+          args.setApprovalPersistenceStatus({ cloud: "ok", local: "ok", localPath: mirror.relativePath });
+          return;
         }
-      } else {
+        args.setApprovalPersistenceStatus({ cloud: "ok", local: "failed", localMessage: mirror.message });
+      }).catch((error: unknown) => {
         args.setApprovalPersistenceStatus({
           cloud: "ok",
           local: "failed",
-          localMessage: mirror.message,
+          localMessage: error instanceof Error ? error.message : "Local mirror sync failed.",
         });
-        args.setAiRuntimeWarning(`Saved to cloud. Local mirror failed: ${mirror.message}`);
-        try {
-          console.warn("[hearth-approve] local mirror failed", {
-            workpieceId: episodeId,
-            graduatedSparkId,
-            mirrorWorkspaceId: mirror.workspaceId,
-            reason: mirror.reason,
-            message: mirror.message,
-          });
-        } catch {
-          // ignore logging failures
-        }
-      }
+      });
+      const graduatedSparkId = await args.graduateLinkedSpark(episodeId);
+      if (!args.operationAuthority.isCurrent(operation)) return false;
 
       let styleAlignmentMarker: string | null = null;
       const styleUpdate = await args.updateStyleProfileFromReadyCheckpoint({
@@ -234,7 +206,7 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
         `script_version: ${nextVersion}`,
         `timestamp: ${new Date(approvedAt).toISOString()}`,
         "saved_to_cloud: ok",
-        mirrorStatusLine(mirror),
+        "local_mirror: independent_best_effort_sync",
         graduatedSparkId ? `spark_status: graduated (${graduatedSparkId})` : "spark_status: no_linked_spark",
         ...(styleAlignmentMarker ? [styleAlignmentMarker] : []),
         "Production Mode available",

@@ -2,7 +2,6 @@ import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import { Link, useLocation } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
-import HearthShell from "@hearth/routes/HearthShell";
 import {
   readHearthAiRuntimeStatus,
   type HearthAiRuntimeStatus,
@@ -27,6 +26,7 @@ const AiControlsPanel = lazy(async () => {
   const module = await import("../components/hearth/AiControlsPanel");
   return { default: module.AiControlsPanel };
 });
+const HearthShell = lazy(() => import("@hearth/routes/HearthShell"));
 
 type StoreKind = "local" | "tongs";
 
