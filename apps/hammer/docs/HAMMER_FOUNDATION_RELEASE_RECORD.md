@@ -1,11 +1,11 @@
 # Hammer Foundation Release Record
 
 Recorded: 2026-07-11
-Scope: stabilization foundation through Step 9 placement lifecycle hardening
+Scope: complete ten-step stabilization, maintainability, and expansion foundation
 
 ## Release posture
 
-Hammer's stabilization foundation and first production visual-analysis consumer are complete.
+Hammer's full ten-step stabilization foundation and first production visual-analysis consumer are complete.
 Automatic image placement now fails closed until the integration supplies current canonical matte
 evidence, exact-current shared face evidence, and an explicitly safe resolver candidate. Accepted
 placement commits use the existing canonical history mutation and durable persistence boundary.
@@ -26,6 +26,7 @@ placement commits use the existing canonical history mutation and durable persis
 | 7 | `81627720` | Automatic placement dependency and commit-refusal policy frozen. |
 | 8 | `25b846c6` | Exact-frame matte/face analysis integrated into one production placement commit path. |
 | 9 | This change | Analysis lifecycle, display-frame revalidation, owned captures, and live editor behavior hardened. |
+| 10 | Final program change | Authority-oriented orchestration extraction and permanent architecture expansion ratchet. |
 
 ## Frozen authority contracts
 
@@ -112,6 +113,16 @@ placement and existing editorial controls.
 - The global coverage percentage is intentionally a baseline, not a quality target. Authority files
   have stronger individual floors while unmounted UI/provider surfaces remain visible as zero.
 - Peripheral type debt and Hook dependency warnings remain bounded by their ratchets.
+- Principal workspace components remain large composition surfaces, but their achieved responsibility concentration is now capped and operation-critical placement/open lifecycle decisions have focused controller boundaries.
+
+## Step 10 closure
+
+- Final automatic-placement command resolution is pure and cannot mutate canonical history on refusal.
+- Canonical-open and prep-run dedupe lifecycles are identity-keyed outside the editor render orchestrator.
+- Tool-bay presentation owns no browser persistence and imports real domain option contracts.
+- The permanent architecture gate caps principal-file concentration and unsafe typing, bounds extracted controller size, prohibits `@ts-nocheck`, prevents presentation persistence/storage ownership, and requires the canonical automatic-placement command boundary.
+- Stable and seed-`260710` shuffled execution pass 120/120 discovered and strict-compiled tests. Full coverage, lint, production build, Hearth, and Tongs gates pass.
+- Detailed proof is recorded in `HAMMER_STEP_10_COMPLETION.md`.
 
 ## Step 8 completed lineage
 
