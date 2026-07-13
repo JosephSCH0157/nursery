@@ -116,11 +116,11 @@ async function testAttentionWhenAudioUnresolved() {
       },
     },
   });
-  assert.equal(result.state, "ready");
-  assert.equal(result.status_label, "Ready for publish");
-  assert.equal(result.verdict?.status, "ready");
-  assert.equal(result.verdict?.ready_for_quench, true);
-  assert.equal(result.verdict?.reason_codes.includes("quench_audio_reference_unresolved"), false);
+  assert.equal(result.state, "blocked");
+  assert.equal(result.status_label, "Blocked for publish");
+  assert.equal(result.verdict?.status, "blocked");
+  assert.equal(result.verdict?.ready_for_quench, false);
+  assert.equal(result.verdict?.reason_codes.includes("quench_audio_reference_unresolved"), true);
   assert.equal(result.issues.some((issue) => issue.code === "quench_audio_reference_unresolved"), true);
 }
 
@@ -139,10 +139,10 @@ async function testAttentionWhenCaptionsMissingButPacketValid() {
   const result = await ingestHammerReleasePacket({
     reader: createReader(store),
   });
-  assert.equal(result.state, "ready");
-  assert.equal(result.status_label, "Ready for publish");
-  assert.equal(result.verdict?.status, "ready");
-  assert.equal(result.verdict?.reason_codes.includes("quench_captions_missing"), false);
+  assert.equal(result.state, "needs_review");
+  assert.equal(result.status_label, "Needs review before publish");
+  assert.equal(result.verdict?.status, "needs_review");
+  assert.equal(result.verdict?.reason_codes.includes("quench_captions_missing"), true);
   assert.equal(result.issues.some((issue) => issue.code === "quench_captions_missing"), true);
 }
 
@@ -156,10 +156,25 @@ async function testVisualsMissingIsWarningNotInvalid() {
   const result = await ingestHammerReleasePacket({
     reader: createReader(store),
   });
-  assert.equal(result.state, "ready");
-  assert.equal(result.verdict?.status, "ready");
-  assert.equal(result.verdict?.reason_codes.includes("quench_visuals_missing"), false);
+  assert.equal(result.state, "needs_review");
+  assert.equal(result.verdict?.status, "needs_review");
+  assert.equal(result.verdict?.reason_codes.includes("quench_visuals_missing"), true);
   assert.equal(result.issues.some((issue) => issue.code === "quench_visuals_missing"), true);
+}
+
+async function testMalformedVisualsWorsenReadyToNeedsReview() {
+  const manifest = buildManifest();
+  const store: MemoryStore = {
+    [HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH]: manifest,
+    [manifest.transcript.text_path]: "Resolved transcript text.",
+    [manifest.captions.srt_path]: "1\n00:00:00,000 --> 00:00:01,000\nhello\n",
+    [manifest.visuals.placements_path]: { malformed: true },
+  };
+  const result = await ingestHammerReleasePacket({ reader: createReader(store) });
+  assert.equal(result.state, "needs_review");
+  assert.equal(result.verdict?.ready_for_quench, false);
+  assert.equal(result.verdict?.reason_codes.includes("quench_visuals_invalid"), true);
+  assert.equal(result.issues.some((issue) => issue.code === "quench_visuals_invalid"), true);
 }
 
 async function testInvalidManifestShape() {
@@ -194,10 +209,10 @@ async function testAttentionWhenTranscriptMissing() {
   const result = await ingestHammerReleasePacket({
     reader: createReader(store),
   });
-  assert.equal(result.state, "ready");
-  assert.equal(result.status_label, "Ready for publish");
-  assert.equal(result.verdict?.status, "ready");
-  assert.equal(result.verdict?.reason_codes.includes("quench_transcript_missing"), false);
+  assert.equal(result.state, "blocked");
+  assert.equal(result.status_label, "Blocked for publish");
+  assert.equal(result.verdict?.status, "blocked");
+  assert.equal(result.verdict?.reason_codes.includes("quench_transcript_missing"), true);
   assert.equal(result.issues.some((issue) => issue.code === "quench_transcript_missing"), true);
 }
 
@@ -327,7 +342,7 @@ async function testManifestBlockedTruthOutranksLocalReviewOnlyIssue() {
   });
   assert.equal(result.state, "blocked");
   assert.equal(result.verdict?.reason_codes.includes("handoff_blocked"), true);
-  assert.equal(result.verdict?.reason_codes.includes("quench_visuals_missing"), false);
+  assert.equal(result.verdict?.reason_codes.includes("quench_visuals_missing"), true);
   assert.equal(result.issues.some((issue) => issue.code === "quench_visuals_missing"), true);
 }
 
@@ -416,15 +431,20 @@ async function testManifestReasonDetailsArePreservedWithoutQuenchBackfill() {
   });
   assert.equal(result.state, "blocked");
   assert.equal(result.verdict?.status, "blocked");
-  assert.deepEqual(result.verdict?.reason_codes, ["handoff_blocked", "artifact_visuals_stale"]);
-  assert.deepEqual(result.verdict?.blocking_reason_codes, ["handoff_blocked"]);
-  assert.deepEqual(result.verdict?.review_reason_codes, ["artifact_visuals_stale"]);
+  assert.deepEqual(result.verdict?.reason_codes, [
+    "handoff_blocked",
+    "artifact_visuals_stale",
+    "quench_transcript_missing",
+    "quench_visuals_missing",
+  ]);
+  assert.deepEqual(result.verdict?.blocking_reason_codes, ["handoff_blocked", "quench_transcript_missing"]);
+  assert.deepEqual(result.verdict?.review_reason_codes, ["artifact_visuals_stale", "quench_visuals_missing"]);
   assert.equal(result.verdict?.reasons_detail[0]?.operationId, "op_blocked_01");
   assert.equal(result.verdict?.reasons_detail[0]?.operation_id, "op_blocked_01");
   assert.equal(result.verdict?.reasons_detail[1]?.operationId, "op_review_01");
   assert.equal(result.verdict?.reasons_detail[1]?.operation_id, "op_review_01");
-  assert.equal(result.verdict?.reason_codes.includes("quench_transcript_missing"), false);
-  assert.equal(result.verdict?.reason_codes.includes("quench_visuals_missing"), false);
+  assert.equal(result.verdict?.reason_codes.includes("quench_transcript_missing"), true);
+  assert.equal(result.verdict?.reason_codes.includes("quench_visuals_missing"), true);
   assert.equal(result.issues.some((issue) => issue.code === "quench_transcript_missing"), true);
   assert.equal(result.issues.some((issue) => issue.code === "quench_visuals_missing"), true);
 }
@@ -434,6 +454,7 @@ async function run() {
   await testAttentionWhenAudioUnresolved();
   await testAttentionWhenCaptionsMissingButPacketValid();
   await testVisualsMissingIsWarningNotInvalid();
+  await testMalformedVisualsWorsenReadyToNeedsReview();
   await testInvalidManifestShape();
   await testInvalidWhenManifestNotFound();
   await testAttentionWhenTranscriptMissing();

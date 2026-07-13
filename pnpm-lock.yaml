@@ -170,6 +170,9 @@ importers:
 
   apps/hammer:
     dependencies:
+      '@forge/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@mediapipe/selfie_segmentation':
         specifier: ^0.1.1675465747
         version: 0.1.1675465747
@@ -340,6 +343,10 @@ importers:
         version: 7.2.4(@types/node@24.12.0)(tsx@4.21.0)(yaml@2.8.3)
 
   apps/quench:
+    dependencies:
+      '@forge/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
     devDependencies:
       tsx:
         specifier: ^4.20.6

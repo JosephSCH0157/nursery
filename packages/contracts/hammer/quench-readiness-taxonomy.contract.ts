@@ -4,7 +4,7 @@ export type HammerQuenchCanonicalReadinessStatus = (typeof HAMMER_QUENCH_CANONIC
 export const HAMMER_QUENCH_CANONICAL_READINESS_REASON_SEVERITIES = ["blocking", "review"] as const;
 export type HammerQuenchCanonicalReadinessReasonSeverity = (typeof HAMMER_QUENCH_CANONICAL_READINESS_REASON_SEVERITIES)[number];
 
-export const HAMMER_QUENCH_CANONICAL_READINESS_REASON_SOURCES = ["gate", "artifact", "packet", "handoff"] as const;
+export const HAMMER_QUENCH_CANONICAL_READINESS_REASON_SOURCES = ["gate", "artifact", "packet", "handoff", "quench"] as const;
 export type HammerQuenchCanonicalReadinessReasonSource = (typeof HAMMER_QUENCH_CANONICAL_READINESS_REASON_SOURCES)[number];
 
 export const HAMMER_QUENCH_CANONICAL_READINESS_REASON_CODES = [
@@ -38,5 +38,80 @@ export const HAMMER_QUENCH_CANONICAL_READINESS_REASON_CODES = [
   "packet_timeline_snapshot_missing",
   "handoff_blocked",
   "handoff_needs_review",
+  "quench_audio_reference_unresolved",
+  "quench_transcript_missing",
+  "quench_captions_missing",
+  "quench_visuals_missing",
+  "quench_visuals_invalid",
 ] as const;
 export type HammerQuenchCanonicalReadinessReasonCode = (typeof HAMMER_QUENCH_CANONICAL_READINESS_REASON_CODES)[number];
+
+export interface HammerQuenchReadinessReasonLike {
+  code: string;
+  severity: HammerQuenchCanonicalReadinessReasonSeverity;
+  source: string;
+  operationId?: string | null;
+  operation_id?: string | null;
+}
+
+export interface HammerQuenchReadinessEvidence<T extends HammerQuenchReadinessReasonLike = HammerQuenchReadinessReasonLike> {
+  status: HammerQuenchCanonicalReadinessStatus;
+  reasons: readonly T[];
+}
+
+export interface HammerQuenchResolvedReadiness<T extends HammerQuenchReadinessReasonLike = HammerQuenchReadinessReasonLike> {
+  status: HammerQuenchCanonicalReadinessStatus;
+  reasons: T[];
+  readyForQuench: boolean;
+}
+
+const READINESS_RANK: Record<HammerQuenchCanonicalReadinessStatus, number> = {
+  ready: 0,
+  needs_review: 1,
+  blocked: 2,
+};
+
+export function maxHammerQuenchReadinessStatus(
+  left: HammerQuenchCanonicalReadinessStatus,
+  right: HammerQuenchCanonicalReadinessStatus,
+): HammerQuenchCanonicalReadinessStatus {
+  return READINESS_RANK[left] >= READINESS_RANK[right] ? left : right;
+}
+
+export function readinessStatusForReasons(
+  reasons: readonly HammerQuenchReadinessReasonLike[],
+): HammerQuenchCanonicalReadinessStatus {
+  if (reasons.some((reason) => reason.severity === "blocking")) return "blocked";
+  if (reasons.some((reason) => reason.severity === "review")) return "needs_review";
+  return "ready";
+}
+
+export function mergeReadinessReasons<T extends HammerQuenchReadinessReasonLike>(
+  upstream: readonly T[],
+  downstream: readonly T[],
+): T[] {
+  const byIdentity = new Map<string, T>();
+  for (const reason of [...upstream, ...downstream]) {
+    const operationId = reason.operationId ?? reason.operation_id ?? "";
+    const identity = `${reason.source}\u0000${reason.code}\u0000${operationId}`;
+    const existing = byIdentity.get(identity);
+    if (!existing || (existing.severity === "review" && reason.severity === "blocking")) {
+      byIdentity.set(identity, reason);
+    }
+  }
+  return [...byIdentity.values()];
+}
+
+export function resolveMonotonicReadiness<T extends HammerQuenchReadinessReasonLike>(args: {
+  upstreamStatus: HammerQuenchCanonicalReadinessStatus;
+  upstreamReasons: readonly T[];
+  downstreamReasons: readonly T[];
+}): HammerQuenchResolvedReadiness<T> {
+  const reasons = mergeReadinessReasons(args.upstreamReasons, args.downstreamReasons);
+  const upstreamStatus = maxHammerQuenchReadinessStatus(
+    args.upstreamStatus,
+    readinessStatusForReasons(args.upstreamReasons),
+  );
+  const status = maxHammerQuenchReadinessStatus(upstreamStatus, readinessStatusForReasons(args.downstreamReasons));
+  return { status, reasons, readyForQuench: status === "ready" };
+}

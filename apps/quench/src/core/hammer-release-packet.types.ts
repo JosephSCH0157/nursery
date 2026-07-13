@@ -3,23 +3,23 @@ import type {
   HammerQuenchCanonicalReadinessReasonSeverity as HammerQuenchCanonicalReadinessReasonSeverityBase,
   HammerQuenchCanonicalReadinessReasonSource as HammerQuenchCanonicalReadinessReasonSourceBase,
   HammerQuenchCanonicalReadinessStatus as HammerQuenchCanonicalReadinessStatusBase,
-} from "../../../../packages/contracts/hammer/quench-readiness-taxonomy.contract";
+} from "@forge/contracts/hammer/quench-readiness-taxonomy.contract";
 
 export const HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH = "hammer/release-packet/manifest.v1.json";
 
 export type HammerQuenchPacketReadinessStatus = "ready" | "missing" | "stale" | "failed" | "unsupported" | "requires_future_ffmpeg";
 export type HammerQuenchCanonicalReadinessStatus = HammerQuenchCanonicalReadinessStatusBase;
 export type HammerQuenchCanonicalReadinessReasonSeverity = HammerQuenchCanonicalReadinessReasonSeverityBase;
-export type HammerQuenchCanonicalReadinessReasonSource = HammerQuenchCanonicalReadinessReasonSourceBase | "quench";
-export type QuenchSupplementalReadinessReasonCode =
+export type HammerQuenchCanonicalReadinessReasonSource = HammerQuenchCanonicalReadinessReasonSourceBase;
+export type QuenchSupplementalReadinessReasonCode = Extract<
+  HammerQuenchCanonicalReadinessReasonCodeBase,
   | "quench_audio_reference_unresolved"
   | "quench_transcript_missing"
   | "quench_captions_missing"
   | "quench_visuals_missing"
-  | "quench_visuals_invalid";
-export type HammerQuenchCanonicalReadinessReasonCode =
-  | HammerQuenchCanonicalReadinessReasonCodeBase
-  | QuenchSupplementalReadinessReasonCode;
+  | "quench_visuals_invalid"
+>;
+export type HammerQuenchCanonicalReadinessReasonCode = HammerQuenchCanonicalReadinessReasonCodeBase;
 
 export interface HammerQuenchCanonicalReadinessReason {
   code: HammerQuenchCanonicalReadinessReasonCode;

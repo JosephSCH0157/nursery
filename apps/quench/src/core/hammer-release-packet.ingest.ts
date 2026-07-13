@@ -9,7 +9,11 @@ import {
   type QuenchPacketIngestResult,
   type QuenchPacketIssue,
 } from "./hammer-release-packet.types";
-import { HAMMER_QUENCH_CANONICAL_READINESS_STATUSES } from "../../../../packages/contracts/hammer/quench-readiness-taxonomy.contract";
+import {
+  HAMMER_QUENCH_CANONICAL_READINESS_STATUSES,
+  mergeReadinessReasons,
+  resolveMonotonicReadiness,
+} from "@forge/contracts/hammer/quench-readiness-taxonomy.contract";
 
 interface HammerPacketReader {
   readJson(path: string): Promise<unknown | null>;
@@ -282,6 +286,23 @@ export async function ingestHammerReleasePacket(args: {
   }
 
   const verdict = buildVerdictFromManifest(manifest);
+  const upstreamReasons = mergeReadinessReasons(
+    verdict.reasons_detail,
+    [...verdict.blocking_reasons_detail, ...verdict.review_reasons_detail],
+  );
+  const resolved = resolveMonotonicReadiness({
+    upstreamStatus: verdict.status,
+    upstreamReasons,
+    downstreamReasons: appendedReasons,
+  });
+  verdict.status = resolved.status;
+  verdict.ready_for_quench = verdict.ready_for_quench && resolved.readyForQuench;
+  verdict.reasons_detail = resolved.reasons;
+  verdict.reason_codes = resolved.reasons.map((reason) => reason.code);
+  verdict.blocking_reasons_detail = resolved.reasons.filter((reason) => reason.severity === "blocking");
+  verdict.blocking_reason_codes = verdict.blocking_reasons_detail.map((reason) => reason.code);
+  verdict.review_reasons_detail = resolved.reasons.filter((reason) => reason.severity === "review");
+  verdict.review_reason_codes = verdict.review_reasons_detail.map((reason) => reason.code);
   issues.push(...buildIssuesFromReasons(appendedReasons));
 
   return {

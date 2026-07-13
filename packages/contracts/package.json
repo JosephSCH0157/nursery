@@ -23,7 +23,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test tests/exports.test.ts"
+    "test": "tsx --test tests/exports.test.ts tests/quench-readiness.test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

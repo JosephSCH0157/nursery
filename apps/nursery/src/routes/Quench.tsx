@@ -16,6 +16,7 @@ import {
   type ResolvedAsset,
   type ResolvedReleaseAssets,
   deriveReleasePacketReadinessVerdict,
+  canExecuteQuenchPublish,
   RssAdapter,
   StaticAssetResolver,
   YouTubeAdapter,
@@ -276,12 +277,14 @@ function formatDuration(value: number | undefined): string {
 function buildPublishContext(
   runMode: "stub" | "live",
   resolvedAssets: Partial<ResolvedReleaseAssets>,
+  readiness: Pick<QuenchReleaseReadinessVerdict, "status" | "ready">,
 ): PublishContext {
   return {
     run_mode: runMode,
     now_iso: new Date().toISOString(),
     resolved_assets: resolvedAssets,
     request_id: `quench_console_${runMode}`,
+    readiness,
   };
 }
 
@@ -659,7 +662,7 @@ export default function QuenchRoute() {
         return;
       }
 
-      const context = buildPublishContext(runMode, resolvedAssets);
+      const context = buildPublishContext(runMode, resolvedAssets, readinessVerdict ?? { status: "blocked", ready: false });
       const nextEntries = await Promise.all(
         QUENCH_ADAPTERS.map(async (adapter) => {
           const options = publishOptions[adapter.platform] ?? getDefaultPublishOptions(adapter.platform);
@@ -676,19 +679,19 @@ export default function QuenchRoute() {
     return () => {
       cancelled = true;
     };
-  }, [publishOptions, resolvedAssets, runMode, selectedCase]);
+  }, [publishOptions, readinessVerdict?.ready, readinessVerdict?.status, resolvedAssets, runMode, selectedCase]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadPublishBoard() {
-      if (!selectedCase || selectedPlatforms.length === 0) {
+      if (!selectedCase || selectedPlatforms.length === 0 || !readinessVerdict || !canExecuteQuenchPublish(readinessVerdict)) {
         setPublishResults({});
         setBoardUpdatedAt(null);
         return;
       }
 
-      const context = buildPublishContext(runMode, resolvedAssets);
+      const context = buildPublishContext(runMode, resolvedAssets, readinessVerdict);
       const nextEntries = await Promise.all(
         QUENCH_ADAPTERS
           .filter((adapter) => selectedPlatforms.includes(adapter.platform))
@@ -708,7 +711,7 @@ export default function QuenchRoute() {
     return () => {
       cancelled = true;
     };
-  }, [publishOptions, resolvedAssets, runMode, selectedCase, selectedPlatforms]);
+  }, [publishOptions, readinessVerdict?.ready, readinessVerdict?.status, resolvedAssets, runMode, selectedCase, selectedPlatforms]);
 
   const requestMetadataAssist = useCallback(async () => {
     if (!selectedCase) return;

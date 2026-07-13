@@ -71,6 +71,7 @@
     "test:auto-placement": "tsx src/features/auto-placement/__tests__/maskAwarePlacement.test.ts && tsx tests/hammerAutomaticPlacementIntegration.test.ts && tsx tests/hammerAutomaticPlacementLifecycle.test.ts && tsx tests/hammerAutoPlacementAuthorityPolicy.test.ts && tsx tests/hammerAutoPlacementDiagnosticsVm.test.ts && tsx tests/hammerPlacementPersistenceGuard.test.ts && tsx tests/hammerAutoPreviewPosition.test.ts"
   },
   "dependencies": {
+    "@forge/contracts": "workspace:*",
     "@mediapipe/selfie_segmentation": "^0.1.1675465747",
     "@mediapipe/tasks-vision": "^0.10.34",
     "react": "^19.2.0",
