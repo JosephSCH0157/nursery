@@ -20,6 +20,7 @@ import { acknowledgeHammerRenderJob, createHammerRenderJob, settleHammerRenderJo
 import { buildHammerReleasePacketV2, validateHammerReleasePacketV2ForQuench } from "../src/composition/hammerReleasePacketV2";
 import { compileHammerAudioGraphV1, diagnoseHammerAudioMaster, selectHammerAudioGraphExecution, type HammerAudioTreatmentV1 } from "../src/composition/hammerAudioGraphV1";
 import { acceptHammerAngleProposal, buildHammerVisualClipCommand, buildHammerVisualCompositionCommand, createHammerSourceGroupV1, diagnoseHammerSourceGroupDrift, type HammerVisualCompositionV1 } from "../src/composition/hammerVisualCompositionV1";
+import { buildHammerCaptionArtifactCommand, buildHammerCaptionArtifactFromTranscriptV1, buildHammerCaptionCueEditCommand, buildHammerGraphicTemplateCommand, reconcileHammerCaptionArtifactAfterTranscriptChangeV1, validateHammerGraphicTemplateV1, type HammerGraphicTemplateV1 } from "../src/composition/hammerCaptionGraphicsTemplatesV1";
 
 test("Tongs fails closed before any V2 artifact write when the migration is unavailable", () => {
   const source = readFileSync(new URL("../../../packages/tongs/src/workpiece-commit-api.ts", import.meta.url), "utf8");
@@ -469,4 +470,70 @@ test("automatic placement remains an undoable timeline decision and canonical ma
   assert.match(placementAuthority, /matte\.alphaMask/);
   assert.match(placementAuthority, /sameFaceAnalysisFrame/);
   assert.match(placementAuthority, /decision\.kind === "commit_allowed"/);
+});
+
+const phase7Segments = [
+  { segment_id: "s1", speaker: "Host", text: "Welcome back.", start_sec: 5, end_sec: 7 },
+  { segment_id: "s2", speaker: "Guest", text: "The edit is canonical.", start_sec: 7, end_sec: 10 },
+];
+
+test("Phase 7 builds separately editable caption artifacts from transcript truth without rewriting transcript truth", () => {
+  const base = HAMMER_COMPOSITION_FIXTURES.semanticPlan;
+  const artifact = buildHammerCaptionArtifactFromTranscriptV1({
+    artifactId: "captions:phase7",
+    transcriptId: base.transcript.transcript_id!,
+    stylePresetId: "podcast-readable",
+    templateVersion: "caption-template.v1",
+    segments: phase7Segments,
+  });
+  let history = createHammerCompositionHistory(base);
+  history = commitHammerCompositionCommand(history, buildHammerCaptionArtifactCommand(artifact), "Build captions");
+  history = commitHammerCompositionCommand(history, buildHammerCaptionCueEditCommand("cue:s1", "Welcome back!"), "Correct caption cue");
+  const edited = readHammerCompositionAtHead(history);
+  assert.equal(edited.captions.artifact?.cues[0]?.text, "Welcome back!");
+  assert.deepEqual(edited.transcript, base.transcript);
+  const plan = compileHammerRenderPlan(edited);
+  const captionOperation = plan.operations.find((operation) => operation.operation_id === "caption-artifact:cue:s1");
+  assert.equal(captionOperation?.payload.template_version, "caption-template.v1");
+  assert.deepEqual((captionOperation?.payload.cue as { safe_area: unknown }).safe_area, { left: 0.08, top: 0.72, right: 0.92, bottom: 0.94 });
+  const frame = buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: edited.fingerprint, atSec: 6, provenance: edited.source_media });
+  assert.equal(frame.captions.some((operation) => operation.operation_id === "caption-artifact:cue:s1"), true);
+  assert.deepEqual(readHammerCompositionAtHead(undoHammerComposition(undoHammerComposition(history))), base);
+});
+
+test("transcript changes explicitly invalidate, rebuild, or preserve caption artifacts", () => {
+  const base = HAMMER_COMPOSITION_FIXTURES.semanticPlan;
+  const artifact = buildHammerCaptionArtifactFromTranscriptV1({ artifactId: "captions:phase7", transcriptId: base.transcript.transcript_id!, stylePresetId: "podcast-readable", templateVersion: "caption-template.v1", segments: phase7Segments });
+  const captioned = applyHammerCompositionCommand(base, buildHammerCaptionArtifactCommand(artifact));
+  const invalidated = applyHammerCompositionCommand(captioned, buildHammerTranscriptCorrectionCommand("s1", "Corrected transcript truth"));
+  assert.equal(invalidated.captions.stale, true);
+  assert.throws(() => compileHammerRenderPlan(invalidated), /caption_artifact_stale/);
+  assert.deepEqual(reconcileHammerCaptionArtifactAfterTranscriptChangeV1({ current: artifact, action: "invalidate" }), { kind: "invalidate", reason: "transcript_changed" });
+  const rebuilt = buildHammerCaptionArtifactFromTranscriptV1({ artifactId: "captions:phase7:rebuilt", transcriptId: base.transcript.transcript_id!, stylePresetId: "podcast-readable", templateVersion: "caption-template.v2", segments: [{ ...phase7Segments[0], text: "Corrected transcript truth" }, phase7Segments[1]!] });
+  assert.equal(reconcileHammerCaptionArtifactAfterTranscriptChangeV1({ current: artifact, action: "rebuild", rebuilt }).kind, "rebuild");
+  assert.equal(reconcileHammerCaptionArtifactAfterTranscriptChangeV1({ current: artifact, action: "preserve_explicit", preserveReason: "Creator keeps manual caption wording." }).kind, "preserve_explicit");
+});
+
+test("bounded graphic templates cover lower thirds, chapter cards, quote cards, statistic cards, and brand packages", () => {
+  const base = HAMMER_COMPOSITION_FIXTURES.semanticPlan;
+  const kinds = ["lower_third", "chapter_card", "quote_card", "statistic_card", "brand_package"] as const;
+  let history = createHammerCompositionHistory(base);
+  kinds.forEach((kind, index) => {
+    const template: HammerGraphicTemplateV1 = {
+      template_id: `template:${kind}`,
+      template_version: "template.v1",
+      kind,
+      style_preset_id: "forge-brand",
+      safe_area: { left: 0.06, top: 0.08, right: 0.94, bottom: 0.92 },
+      keyframes: [{ property: "opacity", at_sec: 6 + index, value: 1, min: 0, max: 1 }],
+    };
+    history = commitHammerCompositionCommand(history, buildHammerGraphicTemplateCommand({ clip_id: `graphic:${kind}`, track_id: "graphics", kind: "graphic", source_media_id: null, source_start_sec: 0, source_end_sec: 0, timeline_start_sec: 6 + index, timeline_end_sec: 8 + index, enabled: true, linked_group_id: null, payload: { text: kind } }, template), `Add ${kind}`);
+  });
+  const composition = readHammerCompositionAtHead(history);
+  const plan = compileHammerRenderPlan(composition);
+  assert.deepEqual(plan.operations.filter((operation) => operation.kind === "graphic" && operation.operation_id.startsWith("clip:graphic:")).map((operation) => (operation.payload.template as HammerGraphicTemplateV1).kind), kinds);
+  assert.equal(buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: composition.fingerprint, atSec: 7.5, provenance: composition.source_media }).visual_layers.some((operation) => operation.operation_id === "clip:graphic:lower_third"), true);
+  assert.throws(() => validateHammerGraphicTemplateV1({ template_id: "bad", template_version: "template.v1", kind: "lower_third", style_preset_id: "forge-brand", safe_area: { left: 0, top: 0, right: 1, bottom: 1 }, keyframes: [{ property: "opacity", at_sec: 0, value: 2, min: 0, max: 1 }] }), /graphic_keyframe_out_of_bounds/);
+  for (let index = 0; index < kinds.length; index += 1) history = undoHammerComposition(history);
+  assert.deepEqual(readHammerCompositionAtHead(history), base);
 });

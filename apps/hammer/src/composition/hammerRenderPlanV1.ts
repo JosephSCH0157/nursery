@@ -2,6 +2,7 @@ import { hammerStableFingerprint, type HammerCompositionTrackKind, type HammerCo
 import { assertHammerCompositionV2 } from "./hammerCompositionTransactionV2";
 import { resolveHammerMediaSource, type HammerDerivedArtifact, type HammerMediaProvenance, type HammerResolvedMediaSource } from "./hammerMediaProvenance";
 import { compileHammerAudioGraphV1, type HammerAudioGraphV1 } from "./hammerAudioGraphV1";
+import { validateHammerCaptionArtifactV1, validateHammerGraphicTemplateV1, type HammerGraphicTemplateV1 } from "./hammerCaptionGraphicsTemplatesV1";
 
 export type HammerRenderOperationKind = "video" | "audio" | "caption" | "graphic" | "transition" | "audio_treatment" | "placement";
 
@@ -52,7 +53,7 @@ function sortOperations(a: HammerRenderOperationV1, b: HammerRenderOperationV1):
 
 export function compileHammerRenderPlan(composition: HammerCompositionV2): HammerRenderPlanV1 {
   assertHammerCompositionV2(composition);
-  if (composition.captions.stale && composition.tracks.some((track) => track.kind === "caption" && track.clips.some((clip) => clip.enabled))) throw new Error("caption_artifact_stale");
+  if (composition.captions.stale && (composition.captions.artifact || composition.tracks.some((track) => track.kind === "caption" && track.clips.some((clip) => clip.enabled)))) throw new Error("caption_artifact_stale");
   const sourceById = new Map(composition.source_media.map((source) => [source.media_id, source]));
   const hasSolo = composition.tracks.some((track) => track.solo);
   const clipOperations: HammerRenderOperationV1[] = [];
@@ -64,6 +65,7 @@ export function compileHammerRenderPlan(composition: HammerCompositionV2): Hamme
       if (clip.source_media_id) assertFiniteRange(clip.source_start_sec, clip.source_end_sec, "source_range_invalid");
       const source = clip.source_media_id ? sourceById.get(clip.source_media_id) : null;
       if (clip.source_media_id && !source) throw new Error("media_identity_unresolved");
+      if (clip.kind === "graphic" && clip.payload.template) validateHammerGraphicTemplateV1(clip.payload.template as HammerGraphicTemplateV1);
       const sourceFingerprint = source ? resolveHammerMediaSource({ source, consumer: "render" }).canonical_fingerprint : null;
       const sourceGroup = clip.source_media_id ? composition.source_groups.find((group) => group.members.some((member) => member.source_media_id === clip.source_media_id)) : null;
       const sourceGroupMember = sourceGroup?.members.find((member) => member.source_media_id === clip.source_media_id) ?? null;
@@ -92,13 +94,33 @@ export function compileHammerRenderPlan(composition: HammerCompositionV2): Hamme
     }
   });
   const duration = Math.max(0, ...clipOperations.map((row) => row.end_sec));
+  if (composition.captions.artifact) validateHammerCaptionArtifactV1(composition.captions.artifact);
+  const captionArtifactOperations: HammerRenderOperationV1[] = composition.captions.artifact && !composition.captions.stale
+    ? composition.captions.artifact.cues.map((cue, index) => Object.freeze({
+      operation_id: `caption-artifact:${cue.cue_id}`,
+      kind: "caption" as const,
+      track_id: null,
+      track_role: "caption_artifact",
+      layer_index: composition.tracks.length + index,
+      start_sec: cue.start_sec,
+      end_sec: cue.end_sec,
+      source_start_sec: null,
+      source_end_sec: null,
+      source_media_id: null,
+      source_fingerprint: null,
+      source_group_id: null,
+      source_sync_offset_sec: 0,
+      package_role: "program" as const,
+      payload: Object.freeze({ cue, artifact_id: composition.captions.artifact!.artifact_id, style_preset_id: composition.captions.artifact!.style_preset_id, template_version: composition.captions.artifact!.template_version, output_modes: composition.captions.artifact!.output_modes }),
+    }))
+    : [];
   const audioGraph = compileHammerAudioGraphV1(composition);
   const audioOperations: HammerRenderOperationV1[] = composition.audio_treatments.map((payload, index) => Object.freeze({
     operation_id: `audio-treatment:${index}`,
     kind: "audio_treatment",
     track_id: null,
     track_role: "program_mix",
-    layer_index: composition.tracks.length + index,
+    layer_index: composition.tracks.length + captionArtifactOperations.length + index,
     start_sec: 0,
     end_sec: duration,
     source_start_sec: null,
@@ -115,7 +137,7 @@ export function compileHammerRenderPlan(composition: HammerCompositionV2): Hamme
     kind: "placement",
     track_id: null,
     track_role: "automatic_placement",
-    layer_index: composition.tracks.length + audioOperations.length + index,
+    layer_index: composition.tracks.length + captionArtifactOperations.length + audioOperations.length + index,
     start_sec: typeof placement.payload.start_sec === "number" ? placement.payload.start_sec : 0,
     end_sec: typeof placement.payload.end_sec === "number" ? placement.payload.end_sec : duration,
     source_start_sec: null,
@@ -127,7 +149,7 @@ export function compileHammerRenderPlan(composition: HammerCompositionV2): Hamme
     package_role: "program",
     payload: placement.payload,
   }));
-  const operations = [...clipOperations, ...audioOperations, ...placementOperations].sort(sortOperations);
+  const operations = [...clipOperations, ...captionArtifactOperations, ...audioOperations, ...placementOperations].sort(sortOperations);
   const findPackageOperation = (clipId: string | null) => clipId ? operations.find((operation) => operation.operation_id === `clip:${clipId}`)?.operation_id ?? null : null;
   if (composition.packaging.intro_clip_id && !findPackageOperation(composition.packaging.intro_clip_id)) throw new Error("package_intro_unresolved");
   if (composition.packaging.outro_clip_id && !findPackageOperation(composition.packaging.outro_clip_id)) throw new Error("package_outro_unresolved");

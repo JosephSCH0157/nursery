@@ -1,6 +1,7 @@
 import type { HammerMediaProvenance } from "./hammerMediaProvenance";
 import type { HammerAudioTreatmentV1 } from "./hammerAudioGraphV1";
 import type { HammerSourceGroupV1, HammerVisualCompositionV1 } from "./hammerVisualCompositionV1";
+import { signHammerCaptionArtifactV1, validateHammerCaptionArtifactV1, validateHammerGraphicTemplateV1, type HammerCaptionArtifactV1, type HammerGraphicTemplateV1 } from "./hammerCaptionGraphicsTemplatesV1";
 
 export type HammerCompositionTrackKind = "video" | "audio" | "caption" | "graphic";
 export type HammerCompositionClipKind = "media" | "caption" | "graphic" | "transition";
@@ -44,7 +45,7 @@ export type HammerCompositionV2 = Readonly<{
   source_groups: readonly HammerSourceGroupV1[];
   tracks: readonly HammerCompositionTrackV2[];
   transcript: Readonly<{ transcript_id: string | null; corrections: readonly { segment_id: string; corrected_text: string }[] }>;
-  captions: Readonly<{ artifact_id: string | null; based_on_transcript_id: string | null; stale: boolean }>;
+  captions: Readonly<{ artifact_id: string | null; based_on_transcript_id: string | null; stale: boolean; artifact?: HammerCaptionArtifactV1 | null }>;
   audio_treatments: readonly HammerAudioTreatmentV1[];
   editorial_authority: Readonly<Record<string, unknown>>;
   automated_placements: readonly Readonly<{ placement_id: string; payload: Readonly<Record<string, unknown>> }>[];
@@ -68,6 +69,9 @@ export type HammerCompositionCommand =
   | Readonly<{ type: "set_transition"; clip_id: string; transition: Readonly<Record<string, unknown>> }>
   | Readonly<{ type: "upsert_graphic"; clip: HammerCompositionClipV2 }>
   | Readonly<{ type: "set_caption_artifact"; artifact_id: string | null; based_on_transcript_id: string | null }>
+  | Readonly<{ type: "set_caption_artifact_v1"; artifact: HammerCaptionArtifactV1 }>
+  | Readonly<{ type: "edit_caption_cue"; cue_id: string; corrected_text: string }>
+  | Readonly<{ type: "upsert_graphic_template"; clip: HammerCompositionClipV2; template: HammerGraphicTemplateV1 }>
   | Readonly<{ type: "set_editorial_authority"; authority: Readonly<Record<string, unknown>> }>
   | Readonly<{ type: "set_automated_placement"; placement_id: string; payload: Readonly<Record<string, unknown>> }>
   | Readonly<{ type: "set_clip_payload"; clip_id: string; payload: Readonly<Record<string, unknown>> }>
@@ -158,6 +162,20 @@ export function applyHammerCompositionCommand(composition: HammerCompositionV2, 
   if (command.type === "set_audio_treatments") return withRevision(composition, { audio_treatments: command.treatments });
   if (command.type === "set_editorial_authority") return withRevision(composition, { editorial_authority: command.authority });
   if (command.type === "set_caption_artifact") return withRevision(composition, { captions: Object.freeze({ artifact_id: command.artifact_id, based_on_transcript_id: command.based_on_transcript_id, stale: false }) });
+  if (command.type === "set_caption_artifact_v1") {
+    validateHammerCaptionArtifactV1(command.artifact);
+    return withRevision(composition, { captions: Object.freeze({ artifact_id: command.artifact.artifact_id, based_on_transcript_id: command.artifact.based_on_transcript_id, stale: false, artifact: command.artifact }) });
+  }
+  if (command.type === "edit_caption_cue") {
+    const artifact = composition.captions.artifact;
+    if (!artifact) throw new Error("caption_artifact_missing");
+    const cue = artifact.cues.find((candidate) => candidate.cue_id === command.cue_id);
+    if (!cue) throw new Error("caption_cue_missing");
+    const updatedCue = Object.freeze({ ...cue, text: command.corrected_text, reading_speed_cps: command.corrected_text.length / (cue.end_sec - cue.start_sec) });
+    const { fingerprint: _priorFingerprint, ...artifactSeed } = artifact;
+    const updatedArtifact = signHammerCaptionArtifactV1({ ...artifactSeed, cues: artifact.cues.map((candidate) => candidate.cue_id === command.cue_id ? updatedCue : candidate) });
+    return withRevision(composition, { captions: Object.freeze({ ...composition.captions, artifact: updatedArtifact, artifact_id: updatedArtifact.artifact_id, based_on_transcript_id: updatedArtifact.based_on_transcript_id, stale: false }) });
+  }
   if (command.type === "set_automated_placement") return withRevision(composition, { automated_placements: [...composition.automated_placements.filter((row) => row.placement_id !== command.placement_id), Object.freeze({ placement_id: command.placement_id, payload: command.payload })] });
   if (command.type === "set_packaging") return withRevision(composition, { packaging: Object.freeze({ ...command }) });
   if (command.type === "upsert_graphic") {
@@ -165,6 +183,14 @@ export function applyHammerCompositionCommand(composition: HammerCompositionV2, 
     if (!track) throw new Error("composition_track_missing");
     if (track.locked) throw new Error("composition_track_locked");
     return withRevision(composition, { tracks: composition.tracks.map((candidate) => candidate.track_id === command.clip.track_id ? Object.freeze({ ...candidate, clips: [...candidate.clips.filter((clip) => clip.clip_id !== command.clip.clip_id), command.clip] }) : candidate) });
+  }
+  if (command.type === "upsert_graphic_template") {
+    validateHammerGraphicTemplateV1(command.template);
+    const track = composition.tracks.find((candidate) => candidate.track_id === command.clip.track_id);
+    if (!track || track.kind !== "graphic") throw new Error("graphic_template_track_invalid");
+    if (track.locked) throw new Error("composition_track_locked");
+    const clip = Object.freeze({ ...command.clip, kind: "graphic" as const, source_media_id: null, payload: Object.freeze({ ...command.clip.payload, template: command.template }) });
+    return withRevision(composition, { tracks: composition.tracks.map((candidate) => candidate.track_id === command.clip.track_id ? Object.freeze({ ...candidate, clips: [...candidate.clips.filter((row) => row.clip_id !== clip.clip_id), clip] }) : candidate) });
   }
   if (command.type === "upsert_visual_clip") {
     const track = composition.tracks.find((candidate) => candidate.track_id === command.clip.track_id);
