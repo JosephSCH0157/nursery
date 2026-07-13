@@ -717,6 +717,10 @@ export type RecordingRevisionRecord = {
   visual_placements_path: string | null;
   history_path: string | null;
   snapshots_manifest_path: string | null;
+  composition_v2_path: string | null;
+  media_provenance_path: string | null;
+  render_jobs_path: string | null;
+  release_packet_path: string | null;
   created_at: string;
   created_by: string;
   updated_at: string;
@@ -730,7 +734,11 @@ export type HammerRevisionArtifactKey =
   | "visual_timeline"
   | "visual_placements"
   | "history"
-  | "snapshots_manifest";
+  | "snapshots_manifest"
+  | "composition_v2"
+  | "media_provenance"
+  | "render_jobs"
+  | "release_packet";
 
 export type SaveHammerRecordingRevisionRequest = {
   written_by: WrittenBy;
@@ -742,6 +750,10 @@ export type SaveHammerRecordingRevisionRequest = {
   visual_placements?: HammerArtifactWriteRequest;
   history?: HammerArtifactWriteRequest;
   snapshots_manifest?: HammerArtifactWriteRequest;
+  composition_v2?: HammerArtifactWriteRequest;
+  media_provenance?: HammerArtifactWriteRequest;
+  render_jobs?: HammerArtifactWriteRequest;
+  release_packet?: HammerArtifactWriteRequest;
 };
 
 export type ResetHammerRecordingRevisionRequest = {
@@ -3259,6 +3271,18 @@ function normalizeSaveHammerRecordingRevisionRequest(
     ...(typeof body.snapshots_manifest === "undefined"
       ? {}
       : { snapshots_manifest: normalizeHammerArtifactWriteRequest(body.snapshots_manifest, "snapshots_manifest") }),
+    ...(typeof body.composition_v2 === "undefined"
+      ? {}
+      : { composition_v2: normalizeHammerArtifactWriteRequest(body.composition_v2, "composition_v2") }),
+    ...(typeof body.media_provenance === "undefined"
+      ? {}
+      : { media_provenance: normalizeHammerArtifactWriteRequest(body.media_provenance, "media_provenance") }),
+    ...(typeof body.render_jobs === "undefined"
+      ? {}
+      : { render_jobs: normalizeHammerArtifactWriteRequest(body.render_jobs, "render_jobs") }),
+    ...(typeof body.release_packet === "undefined"
+      ? {}
+      : { release_packet: normalizeHammerArtifactWriteRequest(body.release_packet, "release_packet") }),
   };
 }
 
@@ -6774,7 +6798,11 @@ export class TongsCommitService {
     if (key === "visual_timeline") return `hammer/revisions/${revisionId}/visual-timeline.v1.json`;
     if (key === "visual_placements") return `hammer/revisions/${revisionId}/visual-placements.v1.json`;
     if (key === "history") return `hammer/revisions/${revisionId}/history.v1.json`;
-    return `hammer/revisions/${revisionId}/snapshots/manifest.v1.json`;
+    if (key === "snapshots_manifest") return `hammer/revisions/${revisionId}/snapshots/manifest.v1.json`;
+    if (key === "composition_v2") return `hammer/revisions/${revisionId}/composition.v2.json`;
+    if (key === "media_provenance") return `hammer/revisions/${revisionId}/media-provenance.v1.json`;
+    if (key === "render_jobs") return `hammer/revisions/${revisionId}/render-jobs.v1.json`;
+    return `hammer/revisions/${revisionId}/release-packet.v2.json`;
   }
 
   private assertRevisionWritable(revision: RecordingRevisionRecord): void {
@@ -7311,6 +7339,35 @@ export class TongsCommitService {
     const writtenBy = normalizeWrittenBy(input.written_by);
     const nowIso = new Date().toISOString();
 
+    const usesHammerV2 = Boolean(
+      input.composition_v2
+      || input.media_provenance
+      || input.render_jobs
+      || input.release_packet,
+    );
+    if (usesHammerV2) {
+      const schemaProbe = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient)
+        .from("recording_revisions")
+        .select("composition_v2_path,media_provenance_path,render_jobs_path,release_packet_path")
+        .eq("workspace_id", workspaceId)
+        .eq("workpiece_id", workpieceId)
+        .eq("id", revisionId)
+        .maybeSingle();
+      if (schemaProbe.error) {
+        throw new HttpError(503, "hammer_v2_schema_unavailable", "Hammer V2 persistence is unavailable until its Tongs migration is deployed.", {
+          migration: "20260713023000_tongs_hammer_composition_v2.sql",
+          reason: schemaProbe.error.message,
+        });
+      }
+      if (!schemaProbe.data) {
+        throw new HttpError(409, "recording_revision_identity_mismatch", "The Hammer recording revision no longer belongs to this workpiece.", {
+          workspace_id: workspaceId,
+          workpiece_id: workpieceId,
+          revision_id: revisionId,
+        });
+      }
+    }
+
     const commitRevisionArtifact = async (
       key: HammerRevisionArtifactKey,
       request?: HammerArtifactWriteRequest,
@@ -7353,6 +7410,10 @@ export class TongsCommitService {
     const visualPlacementsPath = await commitRevisionArtifact("visual_placements", input.visual_placements);
     const historyPath = await commitRevisionArtifact("history", input.history);
     const snapshotsManifestPath = await commitRevisionArtifact("snapshots_manifest", input.snapshots_manifest);
+    const compositionV2Path = await commitRevisionArtifact("composition_v2", input.composition_v2);
+    const mediaProvenancePath = await commitRevisionArtifact("media_provenance", input.media_provenance);
+    const renderJobsPath = await commitRevisionArtifact("render_jobs", input.render_jobs);
+    const releasePacketPath = await commitRevisionArtifact("release_packet", input.release_packet);
 
     const tongsUntyped = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
     const updateValues: Record<string, unknown> = {
@@ -7367,6 +7428,10 @@ export class TongsCommitService {
     if (typeof visualPlacementsPath !== "undefined") updateValues.visual_placements_path = visualPlacementsPath;
     if (typeof historyPath !== "undefined") updateValues.history_path = historyPath;
     if (typeof snapshotsManifestPath !== "undefined") updateValues.snapshots_manifest_path = snapshotsManifestPath;
+    if (typeof compositionV2Path !== "undefined") updateValues.composition_v2_path = compositionV2Path;
+    if (typeof mediaProvenancePath !== "undefined") updateValues.media_provenance_path = mediaProvenancePath;
+    if (typeof renderJobsPath !== "undefined") updateValues.render_jobs_path = renderJobsPath;
+    if (typeof releasePacketPath !== "undefined") updateValues.release_packet_path = releasePacketPath;
 
     const updated = await tongsUntyped
       .from("recording_revisions")

@@ -9,8 +9,21 @@ import type {
   HammerPersistedVisualPlacements,
 } from "./hammerPersistenceContract";
 import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
+import type { HammerCompositionV2, HammerCompositionHistoryV2 } from "../composition/hammerCompositionV2";
+import type { HammerMediaProvenance } from "../composition/hammerMediaProvenance";
+import type { HammerRenderJobV1 } from "../composition/hammerRenderJobV1";
+import type { HammerReleasePacketV2 } from "../composition/hammerReleasePacketV2";
 
 type JsonObject = Record<string, unknown>;
+
+function isHammerCompositionHistoryV2(value: unknown): value is HammerCompositionHistoryV2 {
+  if (!value || typeof value !== "object") return false;
+  const row = value as { schema_version?: unknown; base?: { schema_version?: unknown }; entries?: unknown; head_index?: unknown };
+  return row.schema_version === 2
+    && row.base?.schema_version === 2
+    && Array.isArray(row.entries)
+    && typeof row.head_index === "number";
+}
 
 const LEGACY_STRUCTURED_TRANSCRIPT_PATH = "hammer/transcript/structured.v1.json";
 const LEGACY_SPEAKER_MAP_PATH = "hammer/transcript/speaker-map.v1.json";
@@ -45,6 +58,10 @@ export type HammerRecordingRevisionRecord = {
   visual_placements_path: string | null;
   history_path: string | null;
   snapshots_manifest_path: string | null;
+  composition_v2_path?: string | null;
+  media_provenance_path?: string | null;
+  render_jobs_path?: string | null;
+  release_packet_path?: string | null;
 };
 
 type PersistenceResult<T> =
@@ -230,6 +247,11 @@ export type HammerRevisionArtifacts = {
   audio_polish: HammerPersistedAudioPolish | null;
   visual_timeline: HammerVisualTimelineState | null;
   visual_placements: HammerPersistedVisualPlacements | null;
+  composition_v2: HammerCompositionV2 | null;
+  history_v2: HammerCompositionHistoryV2 | null;
+  media_provenance: readonly HammerMediaProvenance[] | null;
+  render_jobs: readonly HammerRenderJobV1[] | null;
+  release_packet: HammerReleasePacketV2 | null;
 };
 
 export async function loadHammerRecordingRevisionArtifacts(
@@ -242,6 +264,11 @@ export async function loadHammerRecordingRevisionArtifacts(
     audioPolishResult,
     visualTimelineResult,
     visualPlacementsResult,
+    compositionResult,
+    historyResult,
+    provenanceResult,
+    renderJobsResult,
+    releasePacketResult,
   ] = await Promise.all([
     revision.editor_session_path
       ? readWorkpieceJsonFile<HammerPersistedEditorSession>(workpieceId, revision.editor_session_path, 20_000)
@@ -258,6 +285,11 @@ export async function loadHammerRecordingRevisionArtifacts(
     revision.visual_placements_path
       ? readWorkpieceJsonFile<HammerPersistedVisualPlacements>(workpieceId, revision.visual_placements_path, 20_000)
       : Promise.resolve({ ok: true as const, exists: false, data: null }),
+    revision.composition_v2_path ? readWorkpieceJsonFile<HammerCompositionV2>(workpieceId, revision.composition_v2_path) : Promise.resolve({ ok: true as const, exists: false, data: null }),
+    revision.history_path ? readWorkpieceJsonFile<unknown>(workpieceId, revision.history_path) : Promise.resolve({ ok: true as const, exists: false, data: null }),
+    revision.media_provenance_path ? readWorkpieceJsonFile<readonly HammerMediaProvenance[]>(workpieceId, revision.media_provenance_path) : Promise.resolve({ ok: true as const, exists: false, data: null }),
+    revision.render_jobs_path ? readWorkpieceJsonFile<readonly HammerRenderJobV1[]>(workpieceId, revision.render_jobs_path) : Promise.resolve({ ok: true as const, exists: false, data: null }),
+    revision.release_packet_path ? readWorkpieceJsonFile<HammerReleasePacketV2>(workpieceId, revision.release_packet_path) : Promise.resolve({ ok: true as const, exists: false, data: null }),
   ]);
 
   const failures = [
@@ -266,6 +298,11 @@ export async function loadHammerRecordingRevisionArtifacts(
     audioPolishResult,
     visualTimelineResult,
     visualPlacementsResult,
+    compositionResult,
+    historyResult,
+    provenanceResult,
+    renderJobsResult,
+    releasePacketResult,
   ].filter((entry) => !entry.ok) as Array<{ ok: false; status: number; error: string }>;
   if (failures.length > 0) {
     return { ok: false, status: failures[0].status, error: failures[0].error };
@@ -280,6 +317,11 @@ export async function loadHammerRecordingRevisionArtifacts(
       audio_polish: audioPolishResult.ok ? audioPolishResult.data : null,
       visual_timeline: visualTimelineResult.ok ? visualTimelineResult.data : null,
       visual_placements: visualPlacementsResult.ok ? visualPlacementsResult.data : null,
+      composition_v2: compositionResult.ok ? compositionResult.data : null,
+      history_v2: historyResult.ok && isHammerCompositionHistoryV2(historyResult.data) ? historyResult.data : null,
+      media_provenance: provenanceResult.ok ? provenanceResult.data : null,
+      render_jobs: renderJobsResult.ok ? renderJobsResult.data : null,
+      release_packet: releasePacketResult.ok ? releasePacketResult.data : null,
     },
   };
 }
@@ -317,6 +359,10 @@ export type SaveHammerRecordingRevisionRequest = {
   visual_placements?: { data: unknown; expected_previous_updated_at?: string | null };
   history?: { data: unknown; expected_previous_updated_at?: string | null };
   snapshots_manifest?: { data: unknown; expected_previous_updated_at?: string | null };
+  composition_v2?: { data: HammerCompositionV2; expected_previous_updated_at?: string | null };
+  media_provenance?: { data: readonly HammerMediaProvenance[]; expected_previous_updated_at?: string | null };
+  render_jobs?: { data: readonly HammerRenderJobV1[]; expected_previous_updated_at?: string | null };
+  release_packet?: { data: HammerReleasePacketV2; expected_previous_updated_at?: string | null };
 };
 
 export async function saveHammerRecordingRevision(
