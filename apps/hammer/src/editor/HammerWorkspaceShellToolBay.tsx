@@ -1,5 +1,21 @@
 import type { JSX } from "react";
 import PolishResultSummary from "./PolishResultSummary";
+import type {
+  FillerCleanupOptions,
+  RetakeCleanupOptions,
+  SpeakerInterviewOptions,
+  SpeakerPanelOptions,
+} from "./hammerCleanupTools";
+import type { BackgroundBlurSettings } from "../features/visual-effects/types";
+import type { HammerVisualLutPreset } from "./hammerWorkspaceShellCore";
+import type {
+  HammerCaptionPunctuationMode,
+  HammerCaptionReadingSpeed,
+} from "./hammerWorkspaceShellCaptionUtils";
+import type {
+  HammerLogoOverlayPosition,
+  HammerLogoOverlaySize,
+} from "./hammerWorkspaceShellVisualUtils";
 
 export type HammerWorkspaceShellToolBayVM = {
   passLabel: string;
@@ -43,17 +59,6 @@ export function derivePackagingIntroStatusView(args: {
   };
 }
 
-type FillerCleanupOptions = any;
-type RetakeCleanupOptions = any;
-type SpeakerInterviewOptions = any;
-type SpeakerPanelOptions = any;
-type BackgroundBlurSettings = any;
-type HammerVisualLutPreset = any;
-type HammerCaptionReadingSpeed = any;
-type HammerCaptionPunctuationMode = any;
-type HammerLogoOverlayPosition = any;
-type HammerLogoOverlaySize = any;
-
 function isTruthyDevToggle(value: string | null): boolean {
   if (!value) return false;
   const normalized = value.trim().toLowerCase();
@@ -61,17 +66,12 @@ function isTruthyDevToggle(value: string | null): boolean {
 }
 
 function isDevBlurControlsEnabled(): boolean {
-  const isDevBuild = Boolean((import.meta as any)?.env?.DEV);
+  const isDevBuild = import.meta.env.DEV;
   if (!isDevBuild || typeof window === "undefined") return false;
   try {
     const params = new URLSearchParams(window.location.search ?? "");
     if (isTruthyDevToggle(params.get("dev"))) return true;
     if (isTruthyDevToggle(params.get("tp_dev_mode"))) return true;
-  } catch {
-    // ignore
-  }
-  try {
-    if (window.localStorage.getItem("tp_dev_mode") === "1") return true;
   } catch {
     // ignore
   }

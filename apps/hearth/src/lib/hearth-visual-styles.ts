@@ -8,9 +8,9 @@ export {
   parseHearthVisualStyle,
   resolveHearthVisualStyleDefinition,
   resolveHearthVisualStyleLabel,
-} from "../../../../packages/hearth/src/visualStyles.js";
+} from "@forge/shared/hearth-visual-styles";
 
 export type {
   HearthVisualStyleDefinition,
   HearthVisualStyleValue,
-} from "../../../../packages/hearth/src/visualStyles.js";
+} from "@forge/shared/hearth-visual-styles";

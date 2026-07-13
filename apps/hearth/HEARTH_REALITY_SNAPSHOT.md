@@ -1,13 +1,13 @@
 # Hearth Reality Snapshot
 
-Status date: 2026-03-09  
+Status date: 2026-07-12
 Baseline release: Forge `v1.2.0 Fire Burning` (`forge-v1.2.0`)
 
 Purpose: separate Hearth reality into four buckets so implemented work, documented intent, verified behavior, and draft/open items stop getting mixed together.
 
 ## One-Line Reality
 
-Hearth is a shipped editorial production app, not a concept stub. The current uncertainty is no longer "does Hearth exist?" but "which parts are contract-closed, manually verified, and still draft?"
+Hearth is a shipped editorial production app. `apps/hearth` is its only mounted implementation; `HEARTH_CANONICAL_AUTHORITY.md` records current executable authority and degraded states.
 
 ## What Hearth Is
 
@@ -33,6 +33,7 @@ Canonical sources:
 
 - `apps/hearth/AGENTS.md`
 - `apps/hearth/README.md`
+- `apps/hearth/HEARTH_CANONICAL_AUTHORITY.md`
 - `apps/hearth/HEARTH_V2_CONTRACT.md`
 
 ## Implemented In Code Now
@@ -153,6 +154,6 @@ Use these assumptions going forward:
 - Implemented: yes
 - Shipped in release notes: yes
 - Build/type confidence: yes
-- Contract set complete and reconciled: not fully
+- Contract set complete and reconciled: yes for active authority; historical plans remain evidence only
 - Manual cross-tool verification fully closed in docs: no
 - Layout/status docs fully harmonized: no

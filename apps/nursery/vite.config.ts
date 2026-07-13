@@ -251,6 +251,7 @@ export default defineConfig({
   },
   build: {
     copyPublicDir: false,
+    manifest: true,
     sourcemap: false,
   },
 });

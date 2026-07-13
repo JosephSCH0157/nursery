@@ -1,6 +1,6 @@
 export function shouldKeepHearthOutlineInChatOnly(args: {
   productionAction: boolean;
-  autosaveReasonCode: string;
+  autosaveReasonCode: string | null;
   ops: Array<{ op: string }>;
 }): boolean {
   if (args.productionAction) return false;

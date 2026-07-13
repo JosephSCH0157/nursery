@@ -1,5 +1,8 @@
 # Hearth v1.0 - Canonical Manifest
 
+> Historical frozen baseline. This is not current executable authority. Current behavior is
+> governed by `HEARTH_CANONICAL_AUTHORITY.md` and `../../FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
+
 ## Purpose
 
 Hearth is the conversational script-forging tool in the Podcaster's Forge ecosystem. Its sole purpose is to help creators transform raw ideas (Bar Stock sparks) into record-ready scripts that conform strictly to Anvil tag rules.

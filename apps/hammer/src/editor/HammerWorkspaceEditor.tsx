@@ -216,6 +216,11 @@ import {
   resolveHammerVoicePhase,
   type HammerVoicePhase,
 } from "../prep/hammerVoiceSystem";
+import {
+  getSharedCanonicalOpenHydrationPromise,
+  shouldSkipDuplicatePrepKick,
+  type HammerCanonicalOpenHydrationResult,
+} from "./hammerWorkspaceEditorLifecycle";
 
 export interface HammerWorkspaceEditorProps {
   launchContext?: HammerLaunchContext;
@@ -235,75 +240,8 @@ export interface HammerWorkspaceEditorProps {
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const READY_HANDOFF_DELAY_MS = 320;
 const SAVE_DEBOUNCE_MS = 400;
-const PREP_DUPLICATE_KICK_WINDOW_MS = 2_000;
-const CANONICAL_OPEN_DEDUPE_WINDOW_MS = 4_000;
 const AUTH_BOOT_POLL_INTERVAL_MS = 1_500;
 const LEGACY_TRANSCRIPT_MISS_CACHE_MS = 20_000;
-
-type HammerCanonicalOpenHydrationResult = {
-  reloadOutcome: "success" | "failure";
-  effectiveLaunchContext?: HammerLaunchContext;
-  hasCanonicalBasis: boolean;
-  reopenPersistenceSource: "persistence" | "launch" | "bootstrap" | "transitional" | "none";
-  loadedPersistenceSnapshot: HammerPersistenceSnapshot | null;
-  activeCanonicalRecording: HammerCanonicalRecordingRecord | null;
-  activeRevision: HammerRecordingRevisionRecord | null;
-  prepFailureMessage: string | null;
-  prepFailureKind: "ai_failed" | "auth_missing" | null;
-};
-
-function getSharedCanonicalOpenHydrationPromise(args: {
-  key: string;
-  factory: () => Promise<HammerCanonicalOpenHydrationResult>;
-}): Promise<HammerCanonicalOpenHydrationResult> {
-  if (typeof window === "undefined") {
-    return args.factory();
-  }
-
-  const runtime = window as unknown as Record<string, unknown>;
-  const raw = runtime.__forgeHammerCanonicalOpenLedger__;
-  const ledger = (raw && typeof raw === "object" && !Array.isArray(raw))
-    ? raw as Record<string, { startedAt: number; promise: Promise<HammerCanonicalOpenHydrationResult> }>
-    : {};
-  runtime.__forgeHammerCanonicalOpenLedger__ = ledger;
-
-  const now = Date.now();
-  const existing = ledger[args.key];
-  if (existing && Number.isFinite(existing.startedAt) && (now - existing.startedAt) < CANONICAL_OPEN_DEDUPE_WINDOW_MS) {
-    return existing.promise;
-  }
-
-  const promise = args.factory().finally(() => {
-    const current = ledger[args.key];
-    if (current?.promise === promise) {
-      window.setTimeout(() => {
-        if (ledger[args.key]?.promise === promise) {
-          delete ledger[args.key];
-        }
-      }, CANONICAL_OPEN_DEDUPE_WINDOW_MS);
-    }
-  });
-  ledger[args.key] = {
-    startedAt: now,
-    promise,
-  };
-  return promise;
-}
-
-function shouldSkipDuplicatePrepKick(runKey: string): boolean {
-  if (typeof window === "undefined") return false;
-  const runtime = window as unknown as Record<string, unknown>;
-  const raw = runtime.__forgeHammerPrepKickLedger__;
-  const ledger = (raw && typeof raw === "object" && !Array.isArray(raw))
-    ? raw as Record<string, number>
-    : {};
-  runtime.__forgeHammerPrepKickLedger__ = ledger;
-
-  const now = Date.now();
-  const last = ledger[runKey];
-  ledger[runKey] = now;
-  return typeof last === "number" && Number.isFinite(last) && (now - last) < PREP_DUPLICATE_KICK_WINDOW_MS;
-}
 
 type HammerPreparedActionIntent = {
   id: Exclude<

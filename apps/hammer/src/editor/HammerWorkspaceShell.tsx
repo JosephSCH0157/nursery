@@ -330,10 +330,10 @@ import { useHammerWorkspaceShellHistoryController } from "./hammerWorkspaceShell
 import { buildVisualTimelineDiagnostics } from "./hammerVisualTimelineHydrationGuard";
 import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
 import {
-  evaluatePlacementFrameAgainstDisplay,
   readPlacementDisplaySnapshot,
   type CanonicalAutomaticPlacementResult,
 } from "../features/auto-placement";
+import { resolveHammerAutomaticPlacementCommand } from "./hammerAutomaticPlacementController";
 import {
   clearPreviewOverride,
   type PreviewPlacementTransform,
@@ -7232,57 +7232,28 @@ function HammerWorkspaceShellWithContext(
     visualPlacementEditingEnabled,
   ]);
   const previewAutoPosition = useCallback((): void => {
-    if (!selectedImagePlacement) {
-      setPreviewAutoPositionStatus("Automatic placement unavailable: select an image clip first.");
-      return;
-    }
-    if (!canonicalAutoPlacementResult) {
-      setPreviewAutoPositionStatus("Automatic placement is waiting for exact-current matte and face analysis.");
-      return;
-    }
-    if (canonicalAutoPlacementResult.decision.kind === "refused" || !canonicalAutoPlacementResult.placement) {
-      const reason = canonicalAutoPlacementResult.decision.kind === "refused"
-        ? canonicalAutoPlacementResult.decision.detail
-        : "No safe placement candidate was returned.";
-      setPreviewAutoPositionStatus(`Automatic placement refused: ${reason} Manual placement remains available.`);
-      return;
-    }
     const displayedFrame = readPlacementDisplaySnapshot({
       video: previewVideoRef.current,
       playbackActive: isPlaybackActive,
     });
-    if (!displayedFrame) {
-      setCanonicalAutoPlacementResult(null);
-      setPreviewAutoPositionStatus("Automatic placement refused: the displayed preview frame is unavailable. Manual placement remains available.");
-      return;
-    }
-    const displayEvaluation = evaluatePlacementFrameAgainstDisplay(
-      canonicalAutoPlacementResult.requestedFrameRef,
+    const command = resolveHammerAutomaticPlacementCommand({
+      selectedPlacementId: selectedImagePlacement?.id ?? null,
+      authorityResult: canonicalAutoPlacementResult,
       displayedFrame,
-    );
-    if (displayEvaluation.kind === "changed") {
-      setCanonicalAutoPlacementResult(null);
-      setPreviewAutoPositionStatus(
-        `Automatic placement refused: the displayed frame changed (${displayEvaluation.reason}). Manual placement remains available.`,
-      );
+    });
+    if (command.kind === "refused") {
+      if (command.invalidateEvidence) setCanonicalAutoPlacementResult(null);
+      setPreviewAutoPositionStatus(command.status);
       return;
     }
-    const frame = canonicalAutoPlacementResult.requestedFrameRef;
-    const rect = canonicalAutoPlacementResult.placement.rect;
-    const transform = {
-      leftPct: (rect.x / frame.width) * 100,
-      topPct: (rect.y / frame.height) * 100,
-      widthPct: (rect.width / frame.width) * 100,
-      heightPct: (rect.height / frame.height) * 100,
-    };
     const committed = commitImagePlacementTransform(
-      selectedImagePlacement.id,
-      transform,
+      command.placementId,
+      command.transform,
       "Apply automatic visual placement",
     );
-    setPreviewAutoPositionOverrides((current) => clearPreviewOverride(current, selectedImagePlacement.id));
+    setPreviewAutoPositionOverrides((current) => clearPreviewOverride(current, command.placementId));
     setPreviewAutoPositionStatus(committed
-      ? `Automatic placement saved (${canonicalAutoPlacementResult.placement.zone}).`
+      ? `Automatic placement saved (${command.zone}).`
       : "Automatic placement already matches the canonical saved geometry.");
   }, [canonicalAutoPlacementResult, commitImagePlacementTransform, isPlaybackActive, previewVideoRef, selectedImagePlacement]);
   const previewDiagnosticsSummary = useMemo(() => {

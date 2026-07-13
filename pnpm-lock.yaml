@@ -268,9 +268,6 @@ importers:
       '@forge/bellows':
         specifier: workspace:*
         version: link:../bellows
-      '@forge/hearth':
-        specifier: workspace:*
-        version: link:../../packages/hearth
       '@forge/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -347,8 +344,6 @@ importers:
       typescript:
         specifier: ~5.9.3
         version: 5.9.3
-
-  packages/hearth: {}
 
   packages/shared:
     devDependencies:

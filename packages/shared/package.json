@@ -25,6 +25,11 @@
       "types": "./dist/script-tags/index.d.ts",
       "import": "./dist/script-tags/index.js",
       "default": "./dist/script-tags/index.js"
+    },
+    "./hearth-visual-styles": {
+      "types": "./dist/hearth-visual-styles.d.ts",
+      "import": "./dist/hearth-visual-styles.js",
+      "default": "./dist/hearth-visual-styles.js"
     }
   },
   "scripts": {

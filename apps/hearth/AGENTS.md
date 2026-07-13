@@ -3,7 +3,9 @@
 This file defines non-negotiable rules for Hearth.
 All contributors (human or AI) MUST follow these rules.
 
-If code behavior contradicts this document, the code is wrong.
+If code behavior contradicts this document, the code is wrong. Lifecycle semantics defer to
+`../../FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`; current executable authority and degraded
+states are recorded in `HEARTH_CANONICAL_AUTHORITY.md`.
 
 Release baseline: **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
 
@@ -51,14 +53,15 @@ The following terms are canonical and MUST NOT be overloaded or renamed:
 - **Spark**  
   An idea fragment created in Bar-Stock.
 
-- **Episode**  
+- **Episode / Workpiece**
   The pocket that holds:
   - scripts and drafts
   - titles (A/B/C)
   - descriptions and SEO
   - thumbnails, images, and B-roll prompts
 
-  An Episode represents *content*, not time.
+  Workpiece is the durable canonical identity. Episode is Hearth's human-facing content label,
+  never a second persisted identity.
 
 - **Recording Session**  
   A scheduled or active capture session created in the **Calendar**.
@@ -114,7 +117,7 @@ Hearth always operates within a single active Episode context.
 
 ## 6. Session List Rules
 
-- Hearth creates and maintains the **Session List**.
+- Hearth curates the **Ready list**; Tongs persists its canonical lifecycle state.
 - The Session List contains Episodes that are ready to record.
 - Episodes in the Session List are ordered by editorial importance:
   - trending
@@ -122,7 +125,8 @@ Hearth always operates within a single active Episode context.
   - evergreen
   - or other priority signals
 
-The Session List is advisory.
+Ready is reversible editorial candidacy. It is not approval, scheduling, locking, recording,
+or publish readiness. The Ready list is advisory.
 It does NOT start, schedule, or control recording.
 
 ---

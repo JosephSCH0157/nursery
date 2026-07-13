@@ -305,6 +305,7 @@ import {
 } from "../lib/hearth-thumbnail-title-contract";
 import { formatThumbnailPanelMeta } from "../lib/hearth-thumbnail-workflow";
 import { useLayoutMode } from "@forge/ui-mobile";
+import { hasBrowserSpeechRecognition } from "../lib/browser-speech-contract";
 import {
   getMyWritingProfile,
   setMyWritingTonePreset,
@@ -1469,7 +1470,7 @@ function readLatestOutlineFromOps(ops: HearthOp[]): string | null {
 function buildAssistantMessageContent(args: {
   assistantText: string;
   ops: HearthOp[];
-  autosaveReasonCode: AiAutosaveReasonCode;
+  autosaveReasonCode: AiAutosaveReasonCode | null;
   scriptMutationRequested: boolean;
   scriptMutationReady: boolean;
 }): string {
@@ -3097,7 +3098,7 @@ export default function HearthShell({
   const metadataPanelMeta = `${thumbnailTitleOptions.length} title${thumbnailTitleOptions.length === 1 ? "" : "s"} · ${metadataTagsDraft.length} tag${metadataTagsDraft.length === 1 ? "" : "s"}`;
   const hasBrowserSpeech = (
     typeof window !== "undefined"
-    && (Boolean((window as any).SpeechRecognition) || Boolean((window as any).webkitSpeechRecognition))
+    && hasBrowserSpeechRecognition(window)
   );
   const hasApprovedScript = Boolean(
     scriptApprovalState.hasApprovedScript
@@ -3558,7 +3559,7 @@ export default function HearthShell({
         selected: normalizedOps.map(() => true),
         context: proposalArgs.episodeContext,
         fromGate: proposalArgs.fromGate,
-        autosaveReasonCode: proposalArgs.autosaveReasonCode,
+        autosaveReasonCode: proposalArgs.autosaveReasonCode ?? "ai_rewrite",
       };
     },
     resolveAiLaneFromStorage,
