@@ -1,4 +1,5 @@
 import { hammerStableFingerprint, type HammerCompositionV2 } from "./hammerCompositionV2";
+import { resolveHammerMediaSource, type HammerDerivedArtifact, type HammerMediaProvenance, type HammerResolvedMediaSource } from "./hammerMediaProvenance";
 
 export type HammerRenderOperationV1 = Readonly<{
   operation_id: string;
@@ -6,6 +7,7 @@ export type HammerRenderOperationV1 = Readonly<{
   start_sec: number;
   end_sec: number;
   source_media_id: string | null;
+  source_fingerprint: string | null;
   payload: Readonly<Record<string, unknown>>;
 }>;
 
@@ -22,12 +24,16 @@ export type HammerRenderPlanV1 = Readonly<{
 }>;
 
 export function compileHammerRenderPlan(composition: HammerCompositionV2): HammerRenderPlanV1 {
+  const sourceById = new Map(composition.source_media.map((source) => [source.media_id, source]));
   const clipOperations = composition.tracks.flatMap((track) => track.clips.filter((clip) => clip.enabled && track.visible && !track.muted).map((clip) => Object.freeze({
     operation_id: `clip:${clip.clip_id}`,
     kind: clip.kind === "media" ? track.kind === "audio" ? "audio" as const : "video" as const : clip.kind,
     start_sec: clip.timeline_start_sec,
     end_sec: clip.timeline_end_sec,
     source_media_id: clip.source_media_id,
+    source_fingerprint: clip.source_media_id
+      ? resolveHammerMediaSource({ source: sourceById.get(clip.source_media_id) ?? (() => { throw new Error("media_identity_unresolved"); })(), consumer: "render" }).canonical_fingerprint
+      : null,
     payload: clip.payload,
   })));
   const audioOperations = composition.audio_treatments.map((payload, index) => Object.freeze({
@@ -36,6 +42,7 @@ export function compileHammerRenderPlan(composition: HammerCompositionV2): Hamme
     start_sec: 0,
     end_sec: Math.max(0, ...clipOperations.map((row) => row.end_sec)),
     source_media_id: null,
+    source_fingerprint: null,
     payload,
   }));
   const operations = [...clipOperations, ...audioOperations].sort((a, b) => a.start_sec - b.start_sec || a.operation_id.localeCompare(b.operation_id));
@@ -54,4 +61,18 @@ export function compileHammerRenderPlan(composition: HammerCompositionV2): Hamme
 
 export function selectHammerPreviewOperations(plan: HammerRenderPlanV1, atSec: number): readonly HammerRenderOperationV1[] {
   return plan.operations.filter((operation) => operation.start_sec <= atSec && operation.end_sec > atSec);
+}
+
+export function resolveHammerPreviewSource(args: {
+  operation: HammerRenderOperationV1;
+  provenance: readonly HammerMediaProvenance[];
+  derivedArtifacts: readonly HammerDerivedArtifact[];
+  proxyGeneratorVersion: string;
+}): HammerResolvedMediaSource | null {
+  if (!args.operation.source_media_id) return null;
+  const source = args.provenance.find((entry) => entry.media_id === args.operation.source_media_id);
+  if (!source) throw new Error("media_identity_unresolved");
+  const resolved = resolveHammerMediaSource({ source, consumer: "preview", derivedArtifacts: args.derivedArtifacts, proxyGeneratorVersion: args.proxyGeneratorVersion });
+  if (resolved.canonical_fingerprint !== args.operation.source_fingerprint) throw new Error("preview_source_fingerprint_mismatch");
+  return resolved;
 }

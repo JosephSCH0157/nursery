@@ -10,7 +10,7 @@ import type {
 } from "./hammerPersistenceContract";
 import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 import type { HammerCompositionV2, HammerCompositionHistoryV2 } from "../composition/hammerCompositionV2";
-import type { HammerMediaProvenance } from "../composition/hammerMediaProvenance";
+import type { HammerMediaProvenanceManifest } from "../composition/hammerMediaProvenance";
 import type { HammerRenderJobV1 } from "../composition/hammerRenderJobV1";
 import type { HammerReleasePacketV2 } from "../composition/hammerReleasePacketV2";
 
@@ -249,7 +249,7 @@ export type HammerRevisionArtifacts = {
   visual_placements: HammerPersistedVisualPlacements | null;
   composition_v2: HammerCompositionV2 | null;
   history_v2: HammerCompositionHistoryV2 | null;
-  media_provenance: readonly HammerMediaProvenance[] | null;
+  media_provenance: HammerMediaProvenanceManifest | null;
   render_jobs: readonly HammerRenderJobV1[] | null;
   release_packet: HammerReleasePacketV2 | null;
 };
@@ -287,7 +287,7 @@ export async function loadHammerRecordingRevisionArtifacts(
       : Promise.resolve({ ok: true as const, exists: false, data: null }),
     revision.composition_v2_path ? readWorkpieceJsonFile<HammerCompositionV2>(workpieceId, revision.composition_v2_path) : Promise.resolve({ ok: true as const, exists: false, data: null }),
     revision.history_path ? readWorkpieceJsonFile<unknown>(workpieceId, revision.history_path) : Promise.resolve({ ok: true as const, exists: false, data: null }),
-    revision.media_provenance_path ? readWorkpieceJsonFile<readonly HammerMediaProvenance[]>(workpieceId, revision.media_provenance_path) : Promise.resolve({ ok: true as const, exists: false, data: null }),
+    revision.media_provenance_path ? readWorkpieceJsonFile<HammerMediaProvenanceManifest>(workpieceId, revision.media_provenance_path) : Promise.resolve({ ok: true as const, exists: false, data: null }),
     revision.render_jobs_path ? readWorkpieceJsonFile<readonly HammerRenderJobV1[]>(workpieceId, revision.render_jobs_path) : Promise.resolve({ ok: true as const, exists: false, data: null }),
     revision.release_packet_path ? readWorkpieceJsonFile<HammerReleasePacketV2>(workpieceId, revision.release_packet_path) : Promise.resolve({ ok: true as const, exists: false, data: null }),
   ]);
@@ -360,7 +360,7 @@ export type SaveHammerRecordingRevisionRequest = {
   history?: { data: unknown; expected_previous_updated_at?: string | null };
   snapshots_manifest?: { data: unknown; expected_previous_updated_at?: string | null };
   composition_v2?: { data: HammerCompositionV2; expected_previous_updated_at?: string | null };
-  media_provenance?: { data: readonly HammerMediaProvenance[]; expected_previous_updated_at?: string | null };
+  media_provenance?: { data: HammerMediaProvenanceManifest; expected_previous_updated_at?: string | null };
   render_jobs?: { data: readonly HammerRenderJobV1[]; expected_previous_updated_at?: string | null };
   release_packet?: { data: HammerReleasePacketV2; expected_previous_updated_at?: string | null };
 };

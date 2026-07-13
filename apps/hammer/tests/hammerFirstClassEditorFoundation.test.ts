@@ -10,8 +10,8 @@ import {
 } from "../src/composition/hammerCompositionV2";
 import { HAMMER_COMPOSITION_FIXTURES } from "../src/composition/hammerCompositionFixtures";
 import { projectLegacyHammerCompositionV2 } from "../src/composition/hammerLegacyCompositionProjection";
-import { evaluateHammerMediaRelink, isHammerDerivedArtifactCurrent } from "../src/composition/hammerMediaProvenance";
-import { compileHammerRenderPlan, selectHammerPreviewOperations } from "../src/composition/hammerRenderPlanV1";
+import { diagnoseHammerMedia, evaluateHammerMediaRelink, hammerDerivedArtifactKey, isHammerDerivedArtifactCurrent, registerHammerDerivedArtifact, resolveHammerMediaSource, selectCurrentHammerDerivedArtifact, type HammerDerivedArtifact } from "../src/composition/hammerMediaProvenance";
+import { compileHammerRenderPlan, resolveHammerPreviewSource, selectHammerPreviewOperations } from "../src/composition/hammerRenderPlanV1";
 import { acknowledgeHammerRenderJob, createHammerRenderJob, settleHammerRenderJob } from "../src/composition/hammerRenderJobV1";
 import { buildHammerReleasePacketV2, validateHammerReleasePacketV2ForQuench } from "../src/composition/hammerReleasePacketV2";
 
@@ -66,6 +66,43 @@ test("derived caches are disposable and keyed by source fingerprint plus generat
   const derived = { ...source, media_id: "waveform", derived_from_fingerprint: source.content_fingerprint, generator_version: "waveform.v1" };
   assert.equal(isHammerDerivedArtifactCurrent({ source, derived, generatorVersion: "waveform.v1" }), true);
   assert.equal(isHammerDerivedArtifactCurrent({ source, derived, generatorVersion: "waveform.v2" }), false);
+});
+
+test("missing, unavailable, and fingerprint-mismatched media remain distinct blocking diagnostics", () => {
+  const source = HAMMER_COMPOSITION_FIXTURES.solo.source_media[0];
+  const diagnostics = diagnoseHammerMedia([
+    { ...source, media_id: "missing", availability: "missing" },
+    { ...source, media_id: "unavailable", availability: "unavailable" },
+    { ...source, media_id: "mismatch", availability: "fingerprint_mismatch" },
+  ]);
+  assert.deepEqual(diagnostics.map((row) => row.code), ["media_missing", "media_unavailable", "media_fingerprint_mismatch"]);
+  assert.equal(diagnostics.every((row) => row.severity === "blocking" && row.relink_allowed), true);
+  assert.throws(() => compileHammerRenderPlan(HAMMER_COMPOSITION_FIXTURES.missingMedia), /media_missing/);
+});
+
+test("derived artifact registry rejects stale identity and selects only the current generator output", () => {
+  const source = HAMMER_COMPOSITION_FIXTURES.solo.source_media[0];
+  const proxy: HammerDerivedArtifact = Object.freeze({ schema_version: 1, artifact_id: "proxy:1", source_media_id: source.media_id, source_fingerprint: source.content_fingerprint, kind: "proxy", generator_version: "proxy.v1", canonical_asset_id: "asset:proxy", canonical_path: "derived/proxy.mp4", availability: "available" });
+  assert.equal(hammerDerivedArtifactKey(proxy), `${source.content_fingerprint}:proxy:proxy.v1`);
+  assert.deepEqual(registerHammerDerivedArtifact({ source, artifact: proxy }), proxy);
+  assert.equal(selectCurrentHammerDerivedArtifact({ source, artifacts: [proxy], kind: "proxy", generatorVersion: "proxy.v1" }), proxy);
+  assert.equal(selectCurrentHammerDerivedArtifact({ source, artifacts: [proxy], kind: "proxy", generatorVersion: "proxy.v2" }), null);
+  assert.throws(() => registerHammerDerivedArtifact({ source, artifact: { ...proxy, source_fingerprint: "sha256:stale" } }), /fingerprint_mismatch/);
+});
+
+test("preview proxies and final render resolve one canonical source fingerprint", () => {
+  const composition = HAMMER_COMPOSITION_FIXTURES.solo;
+  const source = composition.source_media[0];
+  const proxy: HammerDerivedArtifact = Object.freeze({ schema_version: 1, artifact_id: "proxy:1", source_media_id: source.media_id, source_fingerprint: source.content_fingerprint, kind: "proxy", generator_version: "proxy.v1", canonical_asset_id: "asset:proxy", canonical_path: "derived/proxy.mp4", availability: "available" });
+  const plan = compileHammerRenderPlan(composition);
+  const operation = plan.operations.find((row) => row.source_media_id === source.media_id)!;
+  const preview = resolveHammerPreviewSource({ operation, provenance: composition.source_media, derivedArtifacts: [proxy], proxyGeneratorVersion: "proxy.v1" })!;
+  const render = resolveHammerMediaSource({ source, consumer: "render", derivedArtifacts: [proxy], proxyGeneratorVersion: "proxy.v1" });
+  assert.equal(preview.provider, "derived_proxy");
+  assert.equal(render.provider, "canonical_source");
+  assert.notEqual(preview.selected_path, render.selected_path);
+  assert.equal(preview.canonical_fingerprint, render.canonical_fingerprint);
+  assert.equal(operation.source_fingerprint, render.canonical_fingerprint);
 });
 
 test("every creative command enters one history and repeated undo returns untouched raw state", () => {
