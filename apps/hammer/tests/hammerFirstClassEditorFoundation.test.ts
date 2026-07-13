@@ -19,6 +19,7 @@ import { buildHammerCaptionCorrectionCommand, buildHammerRangeDeleteCommand, bui
 import { acknowledgeHammerRenderJob, createHammerRenderJob, settleHammerRenderJob } from "../src/composition/hammerRenderJobV1";
 import { buildHammerReleasePacketV2, validateHammerReleasePacketV2ForQuench } from "../src/composition/hammerReleasePacketV2";
 import { compileHammerAudioGraphV1, diagnoseHammerAudioMaster, selectHammerAudioGraphExecution, type HammerAudioTreatmentV1 } from "../src/composition/hammerAudioGraphV1";
+import { acceptHammerAngleProposal, buildHammerVisualClipCommand, buildHammerVisualCompositionCommand, createHammerSourceGroupV1, diagnoseHammerSourceGroupDrift, type HammerVisualCompositionV1 } from "../src/composition/hammerVisualCompositionV1";
 
 test("Tongs fails closed before any V2 artifact write when the migration is unavailable", () => {
   const source = readFileSync(new URL("../../../packages/tongs/src/workpiece-commit-api.ts", import.meta.url), "utf8");
@@ -200,12 +201,12 @@ test("golden semantic plan resolves ranges, angles, layers, captions, graphics, 
   const plan = compileHammerRenderPlan(composition);
   const second = compileHammerRenderPlan(JSON.parse(JSON.stringify(composition)));
   assert.equal(second.fingerprint, plan.fingerprint);
-  assert.equal(plan.fingerprint, "fnv1a:11265d34");
+  assert.equal(plan.fingerprint, "fnv1a:c3d724f7");
   assert.equal(plan.duration_sec, 70);
   assert.deepEqual(plan.packaging, { intro_operation_id: "clip:intro", outro_operation_id: "clip:outro", thumbnail_asset_id: "thumb:semantic" });
   assert.deepEqual(plan.operations.find((row) => row.operation_id === "clip:camera-b"), {
     operation_id: "clip:camera-b", kind: "video", track_id: "video", track_role: "program_camera", layer_index: 0,
-    start_sec: 35, end_sec: 65, source_start_sec: 0, source_end_sec: 30, source_media_id: "cam-b", source_fingerprint: "sha256:cam-b", package_role: "program",
+    start_sec: 35, end_sec: 65, source_start_sec: 0, source_end_sec: 30, source_media_id: "cam-b", source_fingerprint: "sha256:cam-b", source_group_id: null, source_sync_offset_sec: 0, package_role: "program",
     payload: { angle: "b", transform: { x: 0.1, y: 0, scale: 0.9 }, transition: { kind: "crossfade", duration_sec: 0.5 } },
   });
   assert.equal(plan.operations.some((row) => row.kind === "caption"), true);
@@ -226,7 +227,7 @@ test("interactive preview is a plan-only semantic projection with stable layer o
   assert.equal(frame.placements.length, 1);
   assert.equal(Object.keys(frame.resolved_sources).sort().join(","), "clip:camera-a,clip:music-bed");
   assert.equal(buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: composition.fingerprint, atSec: 7, provenance: composition.source_media }).semantic_fingerprint, frame.semantic_fingerprint);
-  assert.equal(frame.semantic_fingerprint, "fnv1a:3df6b569");
+  assert.equal(frame.semantic_fingerprint, "fnv1a:a8244e58");
   assert.throws(() => buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: "stale", atSec: 7, provenance: composition.source_media }), /preview_plan_stale/);
   assert.throws(() => buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: composition.fingerprint, atSec: 7, provenance: composition.source_media.map((source) => source.media_id === "cam-a" ? { ...source, content_fingerprint: "changed" } : source) }), /preview_source_set_stale/);
   assert.throws(() => buildHammerInteractivePreviewFrameV1({ plan: { ...plan, duration_sec: 71 }, expectedCompositionFingerprint: composition.fingerprint, atSec: 7, provenance: composition.source_media }), /render_plan_fingerprint_mismatch/);
@@ -395,4 +396,77 @@ test("every audio treatment participates in canonical history and repeated Undo 
   history = commitHammerCompositionCommand(history, { type: "set_audio_treatments", treatments: [...phase5Treatments, { treatment_id: "track-gain", kind: "gain", scope: { kind: "track", track_id: "audio" }, bypassed: false, gain_db: 1 }] }, "Track gain");
   history = undoHammerComposition(undoHammerComposition(history));
   assert.deepEqual(readHammerCompositionAtHead(history), base);
+});
+
+test("Phase 6 source groups synchronize deterministically by timecode, waveform, and explicit manual alignment", () => {
+  const timecode = createHammerSourceGroupV1({ sourceGroupId: "interview", primarySourceMediaId: "cam-a", method: "timecode", sources: [
+    { source_media_id: "cam-a", timecode_sec: 100, evidence_fingerprint: "tc:a" },
+    { source_media_id: "cam-b", timecode_sec: 100.25, evidence_fingerprint: "tc:b" },
+  ] });
+  assert.equal(timecode.members[1]?.offset_sec, 0.25);
+  const waveform = createHammerSourceGroupV1({ sourceGroupId: "interview", primarySourceMediaId: "cam-a", method: "waveform", sources: [
+    { source_media_id: "cam-a", waveform_lag_sec: 0, evidence_fingerprint: "wave:a" },
+    { source_media_id: "cam-b", waveform_lag_sec: -0.12, evidence_fingerprint: "wave:b" },
+  ] });
+  assert.equal(waveform.members[1]?.offset_sec, -0.12);
+  const manual = createHammerSourceGroupV1({ sourceGroupId: "interview", primarySourceMediaId: "cam-a", method: "manual", sources: [
+    { source_media_id: "cam-a", manual_offset_sec: 0, evidence_fingerprint: "manual:a" },
+    { source_media_id: "cam-b", manual_offset_sec: 0.08, evidence_fingerprint: "manual:b" },
+  ] });
+  assert.equal(diagnoseHammerSourceGroupDrift(manual, { "cam-a": 0, "cam-b": 0.2 })[1]?.status, "drifted");
+  const corrected = applyHammerCompositionCommand(applyHammerCompositionCommand(HAMMER_COMPOSITION_FIXTURES.interview, { type: "upsert_source_group", source_group: timecode }), { type: "upsert_source_group", source_group: manual });
+  assert.deepEqual(corrected.source_groups, [manual]);
+  const synchronizedOperation = compileHammerRenderPlan(corrected).operations.find((operation) => operation.source_media_id === "cam-b");
+  assert.deepEqual([synchronizedOperation?.source_group_id, synchronizedOperation?.source_sync_offset_sec], ["interview", 0.08]);
+});
+
+test("angle proposals are advisory and refuse stale, wrong-frame, missing, or non-group sources", () => {
+  const group = createHammerSourceGroupV1({ sourceGroupId: "interview", primarySourceMediaId: "cam-a", method: "manual", sources: [
+    { source_media_id: "cam-a", manual_offset_sec: 0, evidence_fingerprint: "manual:a" },
+    { source_media_id: "cam-b", manual_offset_sec: 0, evidence_fingerprint: "manual:b" },
+  ] });
+  const composition = applyHammerCompositionCommand(HAMMER_COMPOSITION_FIXTURES.interview, { type: "upsert_source_group", source_group: group });
+  const proposal = { proposal_id: "proposal:1", composition_id: composition.composition_id, composition_revision: composition.revision, composition_fingerprint: composition.fingerprint, source_group_id: "interview", clip_id: "angle-a", proposed_source_media_id: "cam-b", frame_identity: "frame:100", explanation: "Speaker B is active." };
+  const command = acceptHammerAngleProposal({ composition, proposal, currentFrameIdentity: "frame:100" });
+  const switched = applyHammerCompositionCommand(composition, command);
+  assert.equal(switched.tracks[0]?.clips[0]?.source_media_id, "cam-b");
+  assert.throws(() => acceptHammerAngleProposal({ composition, proposal, currentFrameIdentity: "frame:101" }), /wrong_frame/);
+  assert.throws(() => acceptHammerAngleProposal({ composition: switched, proposal, currentFrameIdentity: "frame:100" }), /proposal_stale/);
+  assert.throws(() => applyHammerCompositionCommand(composition, { type: "set_angle", clip_id: "angle-a", source_media_id: "missing-angle" }), /composition_source_missing/);
+});
+
+const phase6Visual: HammerVisualCompositionV1 = {
+  layout: "picture_in_picture", role: "angle",
+  transform: { x: 0.65, y: 0.62, scale: 0.32, rotation_deg: 0 },
+  crop: { top: 0.05, right: 0.1, bottom: 0.05, left: 0.1 },
+  color: { exposure: 0.1, contrast: 1.05, saturation: 0.95, temperature: -2 },
+};
+
+test("angle, split/PIP, crop, transform, color, B-roll, still, reference, lower-third, logo, and packaging decisions are canonical commands", () => {
+  let history = createHammerCompositionHistory(HAMMER_COMPOSITION_FIXTURES.semanticPlan);
+  history = commitHammerCompositionCommand(history, buildHammerVisualCompositionCommand("camera-a", { ...phase6Visual, layout: "split_screen" }), "Compose split screen");
+  history = commitHammerCompositionCommand(history, buildHammerVisualCompositionCommand("camera-a", phase6Visual), "Compose PIP angle");
+  const roles = ["broll", "still", "reference", "lower_third", "logo"] as const;
+  roles.forEach((role, index) => {
+    history = commitHammerCompositionCommand(history, buildHammerVisualClipCommand({ clip_id: `visual:${role}`, track_id: role === "lower_third" || role === "logo" ? "graphics" : "video", kind: role === "lower_third" || role === "logo" ? "graphic" : "media", source_media_id: role === "lower_third" || role === "logo" ? null : index % 2 ? "cam-b" : "cam-a", source_start_sec: 0, source_end_sec: 2, timeline_start_sec: 12 + index * 2, timeline_end_sec: 14 + index * 2, enabled: true, linked_group_id: null, payload: { visual: { ...phase6Visual, role } } }), `Add ${role}`);
+  });
+  const composition = readHammerCompositionAtHead(history);
+  const plan = compileHammerRenderPlan(composition);
+  const preview = buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: composition.fingerprint, atSec: 13, provenance: composition.source_media });
+  assert.deepEqual(plan.operations.find((operation) => operation.operation_id === "clip:camera-a")?.payload.visual, phase6Visual);
+  assert.equal(preview.visual_layers.some((operation) => operation.operation_id === "clip:visual:broll"), true);
+  assert.equal(plan.packaging.intro_operation_id, "clip:intro");
+  assert.equal(plan.packaging.outro_operation_id, "clip:outro");
+});
+
+test("automatic placement remains an undoable timeline decision and canonical matte/frame policy remains unchanged", () => {
+  const base = HAMMER_COMPOSITION_FIXTURES.semanticPlan;
+  let history = createHammerCompositionHistory(base);
+  history = commitHammerCompositionCommand(history, { type: "set_automated_placement", placement_id: "placement:advisory", payload: { start_sec: 5, end_sec: 9, frame_identity: "frame:current", x: 0.1, y: 0.8 } }, "Accept placement proposal");
+  assert.equal(compileHammerRenderPlan(readHammerCompositionAtHead(history)).operations.some((operation) => operation.operation_id === "placement:placement:advisory"), true);
+  assert.deepEqual(readHammerCompositionAtHead(undoHammerComposition(history)), base);
+  const placementAuthority = readFileSync(new URL("../src/features/auto-placement/canonicalPlacementAuthority.ts", import.meta.url), "utf8");
+  assert.match(placementAuthority, /matte\.alphaMask/);
+  assert.match(placementAuthority, /sameFaceAnalysisFrame/);
+  assert.match(placementAuthority, /decision\.kind === "commit_allowed"/);
 });

@@ -17,6 +17,8 @@ export type HammerRenderOperationV1 = Readonly<{
   source_end_sec: number | null;
   source_media_id: string | null;
   source_fingerprint: string | null;
+  source_group_id: string | null;
+  source_sync_offset_sec: number;
   package_role: "intro" | "program" | "outro" | null;
   payload: Readonly<Record<string, unknown>>;
 }>;
@@ -63,6 +65,8 @@ export function compileHammerRenderPlan(composition: HammerCompositionV2): Hamme
       const source = clip.source_media_id ? sourceById.get(clip.source_media_id) : null;
       if (clip.source_media_id && !source) throw new Error("media_identity_unresolved");
       const sourceFingerprint = source ? resolveHammerMediaSource({ source, consumer: "render" }).canonical_fingerprint : null;
+      const sourceGroup = clip.source_media_id ? composition.source_groups.find((group) => group.members.some((member) => member.source_media_id === clip.source_media_id)) : null;
+      const sourceGroupMember = sourceGroup?.members.find((member) => member.source_media_id === clip.source_media_id) ?? null;
       const packageRole = clip.clip_id === composition.packaging.intro_clip_id ? "intro" as const
         : clip.clip_id === composition.packaging.outro_clip_id ? "outro" as const : "program" as const;
       const base = Object.freeze({
@@ -77,12 +81,14 @@ export function compileHammerRenderPlan(composition: HammerCompositionV2): Hamme
         source_end_sec: clip.source_media_id ? clip.source_end_sec : null,
         source_media_id: clip.source_media_id,
         source_fingerprint: sourceFingerprint,
+        source_group_id: sourceGroup?.source_group_id ?? null,
+        source_sync_offset_sec: sourceGroupMember?.offset_sec ?? 0,
         package_role: packageRole,
         payload: clip.payload,
       });
       clipOperations.push(base);
       const transition = clip.payload.transition ?? clip.payload.transition_in ?? clip.payload.transition_out;
-      if (transition) clipOperations.push(Object.freeze({ ...base, operation_id: `transition:${clip.clip_id}`, kind: "transition", source_media_id: null, source_fingerprint: null, source_start_sec: null, source_end_sec: null, payload: Object.freeze({ transition }) }));
+      if (transition) clipOperations.push(Object.freeze({ ...base, operation_id: `transition:${clip.clip_id}`, kind: "transition", source_media_id: null, source_fingerprint: null, source_group_id: null, source_sync_offset_sec: 0, source_start_sec: null, source_end_sec: null, payload: Object.freeze({ transition }) }));
     }
   });
   const duration = Math.max(0, ...clipOperations.map((row) => row.end_sec));
@@ -99,6 +105,8 @@ export function compileHammerRenderPlan(composition: HammerCompositionV2): Hamme
     source_end_sec: null,
     source_media_id: null,
     source_fingerprint: null,
+    source_group_id: null,
+    source_sync_offset_sec: 0,
     package_role: "program",
     payload,
   }));
@@ -114,6 +122,8 @@ export function compileHammerRenderPlan(composition: HammerCompositionV2): Hamme
     source_end_sec: null,
     source_media_id: null,
     source_fingerprint: null,
+    source_group_id: null,
+    source_sync_offset_sec: 0,
     package_role: "program",
     payload: placement.payload,
   }));

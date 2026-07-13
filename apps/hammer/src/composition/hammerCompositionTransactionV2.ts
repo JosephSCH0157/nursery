@@ -59,6 +59,6 @@ export function assertHammerCompositionV2(value: unknown): asserts value is Hamm
   if (!value || typeof value !== "object") throw new Error("composition_v2_invalid");
   const row = value as Partial<HammerCompositionV2>;
   if (row.schema_version !== 2 || !row.composition_id || !row.recording_revision_id
-    || !Number.isInteger(row.revision) || !Array.isArray(row.source_media) || !Array.isArray(row.tracks)
+    || !Number.isInteger(row.revision) || !Array.isArray(row.source_media) || !Array.isArray(row.source_groups) || !Array.isArray(row.tracks)
     || typeof row.fingerprint !== "string") throw new Error("composition_v2_invalid");
 }

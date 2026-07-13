@@ -6,6 +6,7 @@ import {
 import type { HammerMediaProvenance } from "./hammerMediaProvenance";
 import { readAcknowledgedHammerCompositionV2, type HammerCompositionTransactionV2 } from "./hammerCompositionTransactionV2";
 import type { HammerAudioTreatmentV1 } from "./hammerAudioGraphV1";
+import type { HammerSourceGroupV1 } from "./hammerVisualCompositionV1";
 
 export type HammerLegacyCompositionProjectionInput = Readonly<{
   workspace_id: string;
@@ -14,6 +15,7 @@ export type HammerLegacyCompositionProjectionInput = Readonly<{
   canonical_recording_id: string;
   created_at: string;
   source_media: readonly HammerMediaProvenance[];
+  source_groups?: readonly HammerSourceGroupV1[];
   projected_tracks: readonly HammerCompositionTrackV2[];
   transcript_id: string | null;
   caption_artifact_id: string | null;
@@ -62,6 +64,7 @@ export function projectLegacyHammerCompositionV2(
     created_at: input.created_at,
     updated_at: input.created_at,
     source_media: input.source_media,
+    source_groups: input.source_groups ?? [],
     tracks: input.projected_tracks,
     transcript: Object.freeze({ transcript_id: input.transcript_id, corrections: [] }),
     captions: Object.freeze({ artifact_id: input.caption_artifact_id, based_on_transcript_id: input.transcript_id, stale: false }),

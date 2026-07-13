@@ -22,7 +22,7 @@ function build(id: string, sources: readonly HammerMediaProvenance[], clips: rea
   const draft = {
     schema_version: 2 as const, composition_id: id, workspace_id: "11111111-1111-4111-8111-111111111111",
     workpiece_id: "22222222-2222-4222-8222-222222222222", recording_revision_id: "33333333-3333-4333-8333-333333333333",
-    revision: 1, parent_revision: null, created_at: at, updated_at: at, source_media: sources,
+    revision: 1, parent_revision: null, created_at: at, updated_at: at, source_media: sources, source_groups: [],
     tracks: [Object.freeze({ track_id: "program", kind: "video" as const, role: "program", locked: false, muted: false, solo: false, visible: true, clips })],
     transcript: Object.freeze({ transcript_id: "transcript:1", corrections: [] }), captions: Object.freeze({ artifact_id: null, based_on_transcript_id: "transcript:1", stale: false }),
     audio_treatments: [], editorial_authority: Object.freeze({}), automated_placements: [], packaging: Object.freeze({ intro_clip_id: null, outro_clip_id: null, thumbnail_asset_id: "thumb:1" }), history_head_id: null,

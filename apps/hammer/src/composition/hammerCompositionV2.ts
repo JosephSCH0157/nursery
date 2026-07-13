@@ -1,5 +1,6 @@
 import type { HammerMediaProvenance } from "./hammerMediaProvenance";
 import type { HammerAudioTreatmentV1 } from "./hammerAudioGraphV1";
+import type { HammerSourceGroupV1, HammerVisualCompositionV1 } from "./hammerVisualCompositionV1";
 
 export type HammerCompositionTrackKind = "video" | "audio" | "caption" | "graphic";
 export type HammerCompositionClipKind = "media" | "caption" | "graphic" | "transition";
@@ -40,6 +41,7 @@ export type HammerCompositionV2 = Readonly<{
   created_at: string;
   updated_at: string;
   source_media: readonly HammerMediaProvenance[];
+  source_groups: readonly HammerSourceGroupV1[];
   tracks: readonly HammerCompositionTrackV2[];
   transcript: Readonly<{ transcript_id: string | null; corrections: readonly { segment_id: string; corrected_text: string }[] }>;
   captions: Readonly<{ artifact_id: string | null; based_on_transcript_id: string | null; stale: boolean }>;
@@ -60,6 +62,9 @@ export type HammerCompositionCommand =
   | Readonly<{ type: "correct_caption"; clip_id: string; corrected_text: string }>
   | Readonly<{ type: "delete_transcript_range"; start_sec: number; end_sec: number; ripple: boolean }>
   | Readonly<{ type: "set_angle"; clip_id: string; source_media_id: string }>
+  | Readonly<{ type: "upsert_source_group"; source_group: HammerSourceGroupV1 }>
+  | Readonly<{ type: "set_visual_composition"; clip_id: string; visual: HammerVisualCompositionV1 }>
+  | Readonly<{ type: "upsert_visual_clip"; clip: HammerCompositionClipV2 }>
   | Readonly<{ type: "set_transition"; clip_id: string; transition: Readonly<Record<string, unknown>> }>
   | Readonly<{ type: "upsert_graphic"; clip: HammerCompositionClipV2 }>
   | Readonly<{ type: "set_caption_artifact"; artifact_id: string | null; based_on_transcript_id: string | null }>
@@ -137,6 +142,11 @@ function deleteRangeFromClip(clip: HammerCompositionClipV2, startSec: number, en
 }
 
 export function applyHammerCompositionCommand(composition: HammerCompositionV2, command: HammerCompositionCommand): HammerCompositionV2 {
+  if (command.type === "upsert_source_group") {
+    const sourceIds = new Set(composition.source_media.map((source) => source.media_id));
+    if (!sourceIds.has(command.source_group.primary_source_media_id) || command.source_group.members.some((member) => !sourceIds.has(member.source_media_id))) throw new Error("source_group_media_unresolved");
+    return withRevision(composition, { source_groups: [...composition.source_groups.filter((group) => group.source_group_id !== command.source_group.source_group_id), command.source_group] });
+  }
   if (command.type === "set_track_state") return withRevision(composition, { tracks: composition.tracks.map((track) => track.track_id === command.track_id ? Object.freeze({
     ...track,
     ...(typeof command.locked === "boolean" ? { locked: command.locked } : {}),
@@ -156,14 +166,21 @@ export function applyHammerCompositionCommand(composition: HammerCompositionV2, 
     if (track.locked) throw new Error("composition_track_locked");
     return withRevision(composition, { tracks: composition.tracks.map((candidate) => candidate.track_id === command.clip.track_id ? Object.freeze({ ...candidate, clips: [...candidate.clips.filter((clip) => clip.clip_id !== command.clip.clip_id), command.clip] }) : candidate) });
   }
+  if (command.type === "upsert_visual_clip") {
+    const track = composition.tracks.find((candidate) => candidate.track_id === command.clip.track_id);
+    if (!track || (track.kind !== "video" && track.kind !== "graphic")) throw new Error("visual_track_invalid");
+    if (track.locked) throw new Error("composition_track_locked");
+    if (command.clip.source_media_id && !composition.source_media.some((source) => source.media_id === command.clip.source_media_id)) throw new Error("composition_source_missing");
+    return withRevision(composition, { tracks: composition.tracks.map((candidate) => candidate.track_id === track.track_id ? Object.freeze({ ...candidate, clips: [...candidate.clips.filter((clip) => clip.clip_id !== command.clip.clip_id), command.clip] }) : candidate) });
+  }
   if (command.type === "set_angle") {
     requireEditableTrack(composition, command.clip_id);
     if (!composition.source_media.some((source) => source.media_id === command.source_media_id)) throw new Error("composition_source_missing");
     return withRevision(composition, { tracks: mapClips(composition, (clip) => clip.clip_id === command.clip_id ? Object.freeze({ ...clip, source_media_id: command.source_media_id }) : clip) });
   }
-  if (command.type === "set_transition" || command.type === "correct_caption" || command.type === "set_clip_payload") {
+  if (command.type === "set_transition" || command.type === "correct_caption" || command.type === "set_clip_payload" || command.type === "set_visual_composition") {
     requireEditableTrack(composition, command.clip_id);
-    return withRevision(composition, { tracks: mapClips(composition, (clip) => clip.clip_id === command.clip_id ? Object.freeze({ ...clip, payload: command.type === "set_transition" ? Object.freeze({ ...clip.payload, transition: command.transition }) : command.type === "correct_caption" ? Object.freeze({ ...clip.payload, corrected_text: command.corrected_text }) : command.payload }) : clip) });
+    return withRevision(composition, { tracks: mapClips(composition, (clip) => clip.clip_id === command.clip_id ? Object.freeze({ ...clip, payload: command.type === "set_transition" ? Object.freeze({ ...clip.payload, transition: command.transition }) : command.type === "correct_caption" ? Object.freeze({ ...clip.payload, corrected_text: command.corrected_text }) : command.type === "set_visual_composition" ? Object.freeze({ ...clip.payload, visual: command.visual }) : command.payload }) : clip) });
   }
   if (command.type === "trim_clip") {
     const selectedTrack = requireEditableTrack(composition, command.clip_id);
