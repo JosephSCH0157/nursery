@@ -24,8 +24,12 @@ test("Bar-Stock RPCs require auth and workspace roles", () => {
   assert.match(sql, /auth\.uid\(\) is null/);
   assert.match(sql, /has_workspace_role\(v_workspace_id, 'editor'\)/);
   assert.match(sql, /has_workspace_role\(p_workspace_id, 'admin'\)/);
+  assert.match(sql, /security definer/);
+  assert.match(sql, /owner to postgres/);
+  assert.match(sql, /set search_path = pg_catalog, tongs/);
   assert.match(sql, /revoke all on function[\s\S]*from public, anon/);
   assert.match(sql, /grant execute on function[\s\S]*to authenticated/);
+  assert.match(sql, /revoke insert, update, delete[\s\S]*from public, anon, authenticated/);
 });
 
 test("linked Workpieces block assignment hard deletion", () => {

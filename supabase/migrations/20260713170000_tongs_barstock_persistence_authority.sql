@@ -58,6 +58,18 @@ create trigger trg_barstock_sparks_revision
 before update on tongs.barstock_sparks
 for each row execute function tongs.barstock_advance_revision();
 
+-- Harden the pre-existing workspace-consistency trigger functions as part of
+-- this authority boundary. They are definer functions and must not search a
+-- user-writable schema.
+alter function tongs.barstock_project_episode_links_enforce_workspace()
+  owner to postgres;
+alter function tongs.barstock_project_episode_links_enforce_workspace()
+  set search_path = pg_catalog, tongs;
+alter function tongs.barstock_sparks_enforce_workspace()
+  owner to postgres;
+alter function tongs.barstock_sparks_enforce_workspace()
+  set search_path = pg_catalog, tongs;
+
 -- A null expected revision means create. A non-null expected revision means an
 -- optimistic update. The database, never a client clock, orders writes.
 create or replace function tongs.barstock_apply_assignment(
@@ -67,7 +79,7 @@ create or replace function tongs.barstock_apply_assignment(
 )
 returns jsonb
 language plpgsql
-security invoker
+security definer
 set search_path = pg_catalog, tongs
 as $function$
 declare
@@ -75,11 +87,9 @@ declare
   v_id uuid := nullif(p_row->>'id', '')::uuid;
   v_existing tongs.barstock_assignments%rowtype;
 begin
-  if auth.uid() is null then
-    raise insufficient_privilege using message = 'Authentication is required for Bar-Stock writes.';
-  end if;
-  if v_workspace_id is null or not tongs.has_workspace_role(v_workspace_id, 'editor') then
-    raise insufficient_privilege using message = 'Bar-Stock assignment write requires workspace editor authority.';
+  if auth.uid() is null or v_workspace_id is null
+    or not tongs.has_workspace_role(v_workspace_id, 'editor') then
+    return jsonb_build_object('outcome', 'denied', 'row', null);
   end if;
   if v_id is null or nullif(btrim(p_row->>'title'), '') is null then
     raise invalid_parameter_value using message = 'Assignment id and title are required.';
@@ -99,15 +109,17 @@ begin
       return jsonb_build_object('outcome', 'saved', 'row', to_jsonb(v_existing));
     end if;
 
-    select * into v_existing
-    from tongs.barstock_assignments
-    where workspace_id = v_workspace_id
-      and (id = v_id or (p_import_key is not null and import_key = p_import_key))
-    order by (id = v_id) desc
-    limit 1;
-
-    if found then
+    select * into v_existing from tongs.barstock_assignments
+    where workspace_id = v_workspace_id and id = v_id;
+    if found and (p_import_key is null or v_existing.import_key is not distinct from nullif(p_import_key, '')) then
       return jsonb_build_object('outcome', 'duplicate', 'row', to_jsonb(v_existing));
+    end if;
+
+    if p_import_key is not null and exists (
+      select 1 from tongs.barstock_assignments
+      where workspace_id = v_workspace_id and import_key = nullif(p_import_key, '')
+    ) then
+      return jsonb_build_object('outcome', 'conflict', 'row', null);
     end if;
     return jsonb_build_object('outcome', 'conflict', 'row', null);
   end if;
@@ -140,7 +152,7 @@ create or replace function tongs.barstock_apply_spark(
 )
 returns jsonb
 language plpgsql
-security invoker
+security definer
 set search_path = pg_catalog, tongs
 as $function$
 declare
@@ -148,11 +160,9 @@ declare
   v_id uuid := nullif(p_row->>'id', '')::uuid;
   v_existing tongs.barstock_sparks%rowtype;
 begin
-  if auth.uid() is null then
-    raise insufficient_privilege using message = 'Authentication is required for Bar-Stock writes.';
-  end if;
-  if v_workspace_id is null or not tongs.has_workspace_role(v_workspace_id, 'editor') then
-    raise insufficient_privilege using message = 'Bar-Stock Spark write requires workspace editor authority.';
+  if auth.uid() is null or v_workspace_id is null
+    or not tongs.has_workspace_role(v_workspace_id, 'editor') then
+    return jsonb_build_object('outcome', 'denied', 'row', null);
   end if;
   if v_id is null or nullif(btrim(p_row->>'body'), '') is null then
     raise invalid_parameter_value using message = 'Spark id and body are required.';
@@ -177,14 +187,17 @@ begin
       return jsonb_build_object('outcome', 'saved', 'row', to_jsonb(v_existing));
     end if;
 
-    select * into v_existing
-    from tongs.barstock_sparks
-    where workspace_id = v_workspace_id
-      and (id = v_id or (p_import_key is not null and import_key = p_import_key))
-    order by (id = v_id) desc
-    limit 1;
-    if found then
+    select * into v_existing from tongs.barstock_sparks
+    where workspace_id = v_workspace_id and id = v_id;
+    if found and (p_import_key is null or v_existing.import_key is not distinct from nullif(p_import_key, '')) then
       return jsonb_build_object('outcome', 'duplicate', 'row', to_jsonb(v_existing));
+    end if;
+
+    if p_import_key is not null and exists (
+      select 1 from tongs.barstock_sparks
+      where workspace_id = v_workspace_id and import_key = nullif(p_import_key, '')
+    ) then
+      return jsonb_build_object('outcome', 'conflict', 'row', null);
     end if;
     return jsonb_build_object('outcome', 'conflict', 'row', null);
   end if;
@@ -217,13 +230,13 @@ create or replace function tongs.barstock_archive_assignment(
 )
 returns jsonb
 language plpgsql
-security invoker
+security definer
 set search_path = pg_catalog, tongs
 as $function$
 declare v_existing tongs.barstock_assignments%rowtype;
 begin
   if auth.uid() is null or not tongs.has_workspace_role(p_workspace_id, 'editor') then
-    raise insufficient_privilege using message = 'Bar-Stock assignment archive requires workspace editor authority.';
+    return jsonb_build_object('outcome', 'denied', 'row', null);
   end if;
   update tongs.barstock_assignments set status = 'archived'
   where workspace_id = p_workspace_id and id = p_id and revision = p_expected_revision
@@ -240,13 +253,13 @@ create or replace function tongs.barstock_archive_spark(
 )
 returns jsonb
 language plpgsql
-security invoker
+security definer
 set search_path = pg_catalog, tongs
 as $function$
 declare v_existing tongs.barstock_sparks%rowtype;
 begin
   if auth.uid() is null or not tongs.has_workspace_role(p_workspace_id, 'editor') then
-    raise insufficient_privilege using message = 'Bar-Stock Spark archive requires workspace editor authority.';
+    return jsonb_build_object('outcome', 'denied', 'row', null);
   end if;
   update tongs.barstock_sparks set status = 'archived', deleted_at = now()
   where workspace_id = p_workspace_id and id = p_id and revision = p_expected_revision
@@ -265,13 +278,13 @@ create or replace function tongs.barstock_delete_assignment(
 )
 returns jsonb
 language plpgsql
-security invoker
+security definer
 set search_path = pg_catalog, tongs
 as $function$
 declare v_existing tongs.barstock_assignments%rowtype;
 begin
   if auth.uid() is null or not tongs.has_workspace_role(p_workspace_id, 'admin') then
-    raise insufficient_privilege using message = 'Bar-Stock assignment deletion requires workspace admin authority.';
+    return jsonb_build_object('outcome', 'denied', 'row', null);
   end if;
   if exists (select 1 from tongs.barstock_project_episode_links where workspace_id = p_workspace_id and project_id = p_id) then
     return jsonb_build_object('outcome', 'linked', 'row', null);
@@ -286,6 +299,16 @@ begin
 end;
 $function$;
 
+alter function tongs.barstock_apply_assignment(jsonb, bigint, text) owner to postgres;
+alter function tongs.barstock_apply_spark(jsonb, bigint, text) owner to postgres;
+alter function tongs.barstock_archive_assignment(uuid, uuid, bigint) owner to postgres;
+alter function tongs.barstock_archive_spark(uuid, uuid, bigint) owner to postgres;
+alter function tongs.barstock_delete_assignment(uuid, uuid, bigint) owner to postgres;
+
+revoke all on function tongs.barstock_advance_revision() from public, anon, authenticated;
+revoke all on function tongs.barstock_project_episode_links_enforce_workspace() from public, anon, authenticated;
+revoke all on function tongs.barstock_sparks_enforce_workspace() from public, anon, authenticated;
+
 revoke all on function tongs.barstock_apply_assignment(jsonb, bigint, text) from public, anon;
 revoke all on function tongs.barstock_apply_spark(jsonb, bigint, text) from public, anon;
 revoke all on function tongs.barstock_archive_assignment(uuid, uuid, bigint) from public, anon;
@@ -296,6 +319,13 @@ grant execute on function tongs.barstock_apply_spark(jsonb, bigint, text) to aut
 grant execute on function tongs.barstock_archive_assignment(uuid, uuid, bigint) to authenticated;
 grant execute on function tongs.barstock_archive_spark(uuid, uuid, bigint) to authenticated;
 grant execute on function tongs.barstock_delete_assignment(uuid, uuid, bigint) to authenticated;
+
+-- Canonical mutation must pass through the compare-and-swap RPCs. Reads remain
+-- RLS-scoped; service_role retains its administrative access.
+revoke insert, update, delete on tongs.barstock_assignments from public, anon, authenticated;
+revoke insert, update, delete on tongs.barstock_sparks from public, anon, authenticated;
+grant select on tongs.barstock_assignments to authenticated;
+grant select on tongs.barstock_sparks to authenticated;
 
 comment on column tongs.barstock_assignments.revision is 'Server-controlled optimistic concurrency token.';
 comment on column tongs.barstock_sparks.revision is 'Server-controlled optimistic concurrency token.';
