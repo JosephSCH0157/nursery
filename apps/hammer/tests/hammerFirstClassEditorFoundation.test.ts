@@ -16,7 +16,7 @@ import { diagnoseHammerMedia, evaluateHammerMediaRelink, hammerDerivedArtifactKe
 import { compileHammerRenderPlan, resolveHammerPreviewSource, selectHammerPreviewOperations } from "../src/composition/hammerRenderPlanV1";
 import { buildHammerInteractivePreviewFrameV1 } from "../src/composition/hammerInteractivePreviewV1";
 import { buildHammerCaptionCorrectionCommand, buildHammerRangeDeleteCommand, buildHammerSplitCommand, buildHammerTranscriptCorrectionCommand, buildHammerTranscriptMediaDeleteCommand, buildHammerTrimCommand, navigateHammerSpeaker, searchHammerTranscript, selectHammerTimelineRange, selectHammerTranscriptRange, snapHammerPlayheadFrame } from "../src/composition/hammerPodcastEditingV1";
-import { acknowledgeHammerRenderJob, createHammerRenderJob, settleHammerRenderJob } from "../src/composition/hammerRenderJobV1";
+import { acknowledgeHammerRenderJob, cancelHammerRenderJob, createHammerRenderJob, failHammerRenderJob, retryHammerRenderJob, resumeHammerRenderJob, settleHammerRenderJob, startHammerRenderJob } from "../src/composition/hammerRenderJobV1";
 import { buildHammerReleasePacketV2, validateHammerReleasePacketV2ForQuench } from "../src/composition/hammerReleasePacketV2";
 import { compileHammerAudioGraphV1, diagnoseHammerAudioMaster, selectHammerAudioGraphExecution, type HammerAudioTreatmentV1 } from "../src/composition/hammerAudioGraphV1";
 import { acceptHammerAngleProposal, buildHammerVisualClipCommand, buildHammerVisualCompositionCommand, createHammerSourceGroupV1, diagnoseHammerSourceGroupDrift, type HammerVisualCompositionV1 } from "../src/composition/hammerVisualCompositionV1";
@@ -315,7 +315,7 @@ test("render completion becomes stale after composition changes and cannot enter
   const profile = { profile_id: "creative-master", container: "mp4" as const, video_codec: "h264", audio_codec: "aac", width: 1920, height: 1080, frame_rate: 30, loudness_lufs: -16 };
   const job = createHammerRenderJob({ jobId: "job-1", composition, plan, rendererVersion: "renderer.v1", outputProfile: profile });
   const changed = commitHammerCompositionCommand(createHammerCompositionHistory(composition), { type: "trim_clip", clip_id: "program", start_sec: 5, end_sec: 60 }, "Trim");
-  const stale = settleHammerRenderJob({ job, currentComposition: readHammerCompositionAtHead(changed), resultArtifacts: [] });
+  const stale = settleHammerRenderJob({ job: startHammerRenderJob(job), currentComposition: readHammerCompositionAtHead(changed), resultArtifacts: [] });
   assert.equal(stale.status, "stale");
   assert.throws(() => acknowledgeHammerRenderJob(stale), /render_job_not_current_complete/);
   assert.throws(() => buildHammerReleasePacketV2({ job: stale, thumbnailAssetId: "thumb" }), /render_job_not_acknowledged/);
@@ -325,25 +325,66 @@ test("only acknowledged current creative masters produce a validated Quench pack
   const composition = HAMMER_COMPOSITION_FIXTURES.packaged;
   const plan = compileHammerRenderPlan(composition);
   const job = createHammerRenderJob({ jobId: "job-2", composition, plan, rendererVersion: "renderer.v1", outputProfile: { profile_id: "creative-master", container: "mp4", video_codec: "h264", audio_codec: "aac", width: 1920, height: 1080, frame_rate: 30, loudness_lufs: -16 } });
-  const kinds = ["video_master", "audio_master", "caption", "transcript", "render_manifest"] as const;
-  const completed = settleHammerRenderJob({ job, currentComposition: composition, resultArtifacts: kinds.map((kind) => ({ kind, asset_id: `asset:${kind}`, fingerprint: `fp:${kind}` })) });
-  const packet = buildHammerReleasePacketV2({ job: acknowledgeHammerRenderJob(completed), thumbnailAssetId: "asset:thumbnail" });
+  const kinds = ["video_master", "audio_master", "caption", "transcript", "thumbnail_reference", "render_manifest"] as const;
+  const completed = settleHammerRenderJob({ job: startHammerRenderJob(job), currentComposition: composition, resultArtifacts: kinds.map((kind) => ({ kind, asset_id: `asset:${kind}`, fingerprint: `fp:${kind}` })) });
+  const acknowledged = acknowledgeHammerRenderJob(completed);
+  const packet = buildHammerReleasePacketV2({ job: acknowledged });
   assert.equal(packet.validated_for_quench, true);
   assert.equal(packet.video_master_asset_id, "asset:video_master");
-  const authorized = new Set(["asset:video_master", "asset:audio_master", "asset:caption", "asset:transcript", "asset:render_manifest", "asset:thumbnail"]);
+  assert.equal(packet.thumbnail_asset_id, "asset:thumbnail_reference");
+  assert.equal(packet.render_plan_fingerprint, plan.fingerprint);
+  assert.equal(packet.acknowledged_result_fingerprint, acknowledged.acknowledged_result_fingerprint);
+  const authorized = new Set(["asset:video_master", "asset:audio_master", "asset:caption", "asset:transcript", "asset:render_manifest", "asset:thumbnail_reference"]);
   const context = {
     workspace_id: composition.workspace_id,
     workpiece_id: composition.workpiece_id,
     recording_revision_id: composition.recording_revision_id,
     composition_revision: composition.revision,
     composition_fingerprint: composition.fingerprint,
+    render_plan_fingerprint: plan.fingerprint,
     source_fingerprints: plan.source_fingerprints,
     authorized_asset_ids: authorized,
   };
   assert.deepEqual(validateHammerReleasePacketV2ForQuench(packet, context), { accepted: true });
   assert.equal(validateHammerReleasePacketV2ForQuench(packet, { ...context, workspace_id: "workspace-b" }).accepted, false);
   assert.equal(validateHammerReleasePacketV2ForQuench(packet, { ...context, composition_revision: composition.revision + 1 }).accepted, false);
+  assert.deepEqual(validateHammerReleasePacketV2ForQuench(packet, { ...context, render_plan_fingerprint: "plan:other" }), { accepted: false, reason: "release_packet_render_plan_mismatch" });
   assert.equal(validateHammerReleasePacketV2ForQuench(packet, { ...context, authorized_asset_ids: new Set<string>() }).accepted, false);
+});
+
+test("Phase 9 render jobs handle cancel, retry, resume, source mismatch, duplicate acknowledgement, and packet exclusion", () => {
+  const composition = HAMMER_COMPOSITION_FIXTURES.packaged;
+  const plan = compileHammerRenderPlan(composition);
+  const profile = { profile_id: "creative-master", container: "mp4" as const, video_codec: "h264", audio_codec: "aac", width: 1920, height: 1080, frame_rate: 30, loudness_lufs: -16 };
+  const job = createHammerRenderJob({ jobId: "job-3", composition, plan, rendererVersion: "renderer.v1", outputProfile: profile });
+  const cancelled = cancelHammerRenderJob(job);
+  assert.equal(cancelled.status, "cancelled");
+  const retry = retryHammerRenderJob({ job: cancelled, retryJobId: "job-3-retry" });
+  assert.equal(retry.status, "queued");
+  const running = startHammerRenderJob(retry);
+  assert.equal(resumeHammerRenderJob(running).status, "running");
+  const mismatchedSource = { ...composition, source_media: composition.source_media.map((source) => source.media_id === "program" ? { ...source, content_fingerprint: "sha256:changed-program" } : source) };
+  assert.throws(() => settleHammerRenderJob({ job: running, currentComposition: mismatchedSource, resultArtifacts: [] }), /source_mismatch/);
+  const failed = failHammerRenderJob(startHammerRenderJob(createHammerRenderJob({ jobId: "job-4", composition, plan, rendererVersion: "renderer.v1", outputProfile: profile })));
+  assert.equal(retryHammerRenderJob({ job: failed, retryJobId: "job-4-retry" }).status, "queued");
+  const completed = settleHammerRenderJob({ job: running, currentComposition: composition, resultArtifacts: [
+    { kind: "video_master", asset_id: "asset:video", fingerprint: "fp:video" },
+    { kind: "audio_master", asset_id: "asset:audio", fingerprint: "fp:audio" },
+    { kind: "caption", asset_id: "asset:caption", fingerprint: "fp:caption" },
+    { kind: "transcript", asset_id: "asset:transcript", fingerprint: "fp:transcript" },
+    { kind: "thumbnail_reference", asset_id: "asset:thumbnail", fingerprint: "fp:thumbnail" },
+    { kind: "render_manifest", asset_id: "asset:manifest", fingerprint: "fp:manifest" },
+  ] });
+  const acknowledged = acknowledgeHammerRenderJob(completed);
+  assert.throws(() => acknowledgeHammerRenderJob(acknowledged), /render_job_not_current_complete/);
+  assert.throws(() => acknowledgeHammerRenderJob({ ...completed, acknowledged_result_fingerprint: "fnv1a:other" }), /duplicate_acknowledgement/);
+  const incomplete = acknowledgeHammerRenderJob(settleHammerRenderJob({ job: startHammerRenderJob(createHammerRenderJob({ jobId: "job-5", composition, plan, rendererVersion: "renderer.v1", outputProfile: profile })), currentComposition: composition, resultArtifacts: [
+    { kind: "video_master", asset_id: "asset:video", fingerprint: "fp:video" },
+    { kind: "audio_master", asset_id: "asset:audio", fingerprint: "fp:audio" },
+    { kind: "transcript", asset_id: "asset:transcript", fingerprint: "fp:transcript" },
+    { kind: "thumbnail_reference", asset_id: "asset:thumbnail", fingerprint: "fp:thumbnail" },
+  ] }));
+  assert.throws(() => buildHammerReleasePacketV2({ job: incomplete }), /release_packet_incomplete/);
 });
 
 const phase5Treatments: readonly HammerAudioTreatmentV1[] = [
